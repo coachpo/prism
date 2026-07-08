@@ -65,11 +65,11 @@ func TestAsyncDashboardPublisherProfileScopedCoalescing(t *testing.T) {
 
 	firstCall := target.waitForCall(t, 2*time.Second)
 	secondCall := target.waitForCall(t, 2*time.Second)
-	if firstCall.ProfileID != 7 {
-		t.Fatalf("expected first publish call to use profile 7, got %+v", firstCall)
+	if firstCall.ProfileID != 1 {
+		t.Fatalf("expected first publish call to use default profile 1, got %+v", firstCall)
 	}
-	if secondCall.ProfileID != 7 {
-		t.Fatalf("expected second publish call to use coalesced profile 7, got %+v", secondCall)
+	if secondCall.ProfileID != 1 {
+		t.Fatalf("expected second publish call to use coalesced default profile 1, got %+v", secondCall)
 	}
 	finalSnapshot := waitForAsyncDashboardDrain(t, publisher, 2*time.Second)
 	if finalSnapshot.AcceptedCount != 1 || finalSnapshot.CoalescedCount != 1 || finalSnapshot.DroppedCount != 0 {
@@ -83,7 +83,7 @@ func TestAsyncDashboardPublisherProfileScopedCoalescing(t *testing.T) {
 	}
 }
 
-func TestAsyncDashboardPublisher_DropsOnlyQueuedBestEffortProfileWhenCapacityIsExhausted(t *testing.T) {
+func TestAsyncDashboardPublisher_NormalizesCallerProfilesToDefaultProfile(t *testing.T) {
 	target := newFakeAsyncDashboardTarget(true)
 	publisher := NewAsyncDashboardPublisher(target, AsyncDashboardPublisherOptions{
 		QueueCapacity:   1,
@@ -98,66 +98,56 @@ func TestAsyncDashboardPublisher_DropsOnlyQueuedBestEffortProfileWhenCapacityIsE
 		t.Fatalf("expected first async dashboard publish to queue successfully, got accepted=%v err=%v", accepted, err)
 	}
 	target.waitUntilFirstStarted(t, 2*time.Second)
-	accepted, err = publisher.PublishDashboardSnapshot(context.Background(), 2)
+	accepted, err = publisher.PublishDashboardSnapshot(context.Background(), 7)
 	if err != nil || !accepted {
-		t.Fatalf("expected second profile to queue while one worker is inflight, got accepted=%v err=%v", accepted, err)
+		t.Fatalf("expected second normalized publish to coalesce while one worker is inflight, got accepted=%v err=%v", accepted, err)
 	}
 	accepted, err = publisher.PublishDashboardSnapshot(context.Background(), 3)
 	if err != nil {
-		t.Fatalf("expected saturated async publisher to drop without returning error, got %v", err)
+		t.Fatalf("expected normalized async publisher to coalesce without returning error, got %v", err)
 	}
-	if accepted {
-		t.Fatal("expected third profile to drop once async publish capacity was exhausted")
+	if !accepted {
+		t.Fatal("expected normalized caller profile to remain queued while inflight work is active")
 	}
 	snapshot := publisher.Snapshot()
-	if snapshot.QueueDepth != 1 || snapshot.InflightProfiles != 1 || snapshot.TrackedProfiles != 2 {
-		t.Fatalf("expected saturated snapshot to report one queued and one inflight profile, got %+v", snapshot)
+	if snapshot.QueueDepth != 1 || snapshot.InflightProfiles != 1 || snapshot.TrackedProfiles != 1 {
+		t.Fatalf("expected normalized snapshot to report one queued and one inflight profile, got %+v", snapshot)
 	}
-	if snapshot.AcceptedCount != 2 || snapshot.CoalescedCount != 0 || snapshot.DroppedCount != 1 {
-		t.Fatalf("expected saturated counters accepted=2 coalesced=0 dropped=1, got %+v", snapshot)
+	if snapshot.AcceptedCount != 1 || snapshot.CoalescedCount != 2 || snapshot.DroppedCount != 0 {
+		t.Fatalf("expected normalized counters accepted=1 coalesced=2 dropped=0, got %+v", snapshot)
 	}
 	if snapshot.Drained || snapshot.BusySince.IsZero() {
-		t.Fatalf("expected saturated snapshot to remain busy before release, got %+v", snapshot)
+		t.Fatalf("expected normalized snapshot to remain busy before release, got %+v", snapshot)
 	}
 	if !snapshot.LastDrainedAt.IsZero() || snapshot.LastDrainDuration != 0 {
 		t.Fatalf("expected no drain metadata before pressure is released, got %+v", snapshot)
 	}
 
-	delivered, err := publisher.PublishPendingDashboardSnapshot(context.Background(), 2)
-	if err != nil {
-		t.Fatalf("skip duplicate pending publish for queued profile: %v", err)
-	}
-	if delivered {
-		t.Fatal("expected queued profile pending replay to skip immediate duplicate delivery")
-	}
-
-	delivered, err = publisher.PublishPendingDashboardSnapshot(context.Background(), 3)
-	if err != nil {
-		t.Fatalf("replay dropped profile dashboard snapshot: %v", err)
-	}
-	if !delivered {
-		t.Fatal("expected dropped snapshot work to remain replayable by profile")
-	}
-	if replayCall := target.waitForCall(t, 2*time.Second); replayCall.ProfileID != 3 {
-		t.Fatalf("expected replay call for dropped profile to use profile 3, got %+v", replayCall)
-	}
 	target.releaseBlockedPublish()
+	firstCall := target.waitForCall(t, 2*time.Second)
+	secondCall := target.waitForCall(t, 2*time.Second)
+	if firstCall.ProfileID != 1 {
+		t.Fatalf("expected first publish call to use default profile 1, got %+v", firstCall)
+	}
+	if secondCall.ProfileID != 1 {
+		t.Fatalf("expected second publish call to use coalesced default profile 1, got %+v", secondCall)
+	}
 	finalSnapshot := waitForAsyncDashboardDrain(t, publisher, 2*time.Second)
-	if finalSnapshot.AcceptedCount != 2 || finalSnapshot.CoalescedCount != 0 || finalSnapshot.DroppedCount != 1 {
-		t.Fatalf("expected final saturated counters accepted=2 coalesced=0 dropped=1, got %+v", finalSnapshot)
+	if finalSnapshot.AcceptedCount != 1 || finalSnapshot.CoalescedCount != 2 || finalSnapshot.DroppedCount != 0 {
+		t.Fatalf("expected final normalized counters accepted=1 coalesced=2 dropped=0, got %+v", finalSnapshot)
 	}
 	if finalSnapshot.QueueDepth != 0 || finalSnapshot.InflightProfiles != 0 || finalSnapshot.TrackedProfiles != 0 || !finalSnapshot.Drained {
-		t.Fatalf("expected saturated publisher to drain fully after release, got %+v", finalSnapshot)
+		t.Fatalf("expected normalized publisher to drain fully after release, got %+v", finalSnapshot)
 	}
 	if finalSnapshot.LastDrainedAt.IsZero() || finalSnapshot.LastDrainDuration <= 0 {
-		t.Fatalf("expected saturated publisher to record a positive drain interval, got %+v", finalSnapshot)
+		t.Fatalf("expected normalized publisher to record a positive drain interval, got %+v", finalSnapshot)
 	}
 }
 
 func TestAsyncDashboardPublisher_QueuesRefreshWhenNoSubscribers(t *testing.T) {
 	target := newFakeAsyncDashboardTarget(false)
 	target.mu.Lock()
-	target.subscribers[7] = false
+	target.subscribers[1] = false
 	target.mu.Unlock()
 	publisher := NewAsyncDashboardPublisher(target, AsyncDashboardPublisherOptions{
 		QueueCapacity:   1,
@@ -167,7 +157,7 @@ func TestAsyncDashboardPublisher_QueuesRefreshWhenNoSubscribers(t *testing.T) {
 	})
 	defer publisher.Close()
 
-	accepted, err := publisher.PublishDashboardSnapshot(context.Background(), 7)
+	accepted, err := publisher.PublishDashboardSnapshot(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("publish dashboard snapshot without subscribers: %v", err)
 	}
@@ -177,12 +167,12 @@ func TestAsyncDashboardPublisher_QueuesRefreshWhenNoSubscribers(t *testing.T) {
 	target.mu.Lock()
 	invalidations := append([]int(nil), target.invalidations...)
 	target.mu.Unlock()
-	if len(invalidations) != 1 || invalidations[0] != 7 {
-		t.Fatalf("expected no-subscriber dashboard traffic to invalidate cached profile 7, got %+v", invalidations)
+	if len(invalidations) != 1 || invalidations[0] != 1 {
+		t.Fatalf("expected no-subscriber dashboard traffic to invalidate cached default profile 1, got %+v", invalidations)
 	}
 	call := target.waitForCall(t, 2*time.Second)
-	if call.ProfileID != 7 {
-		t.Fatalf("expected no-subscriber publish call to use profile 7, got %+v", call)
+	if call.ProfileID != 1 {
+		t.Fatalf("expected no-subscriber publish call to use default profile 1, got %+v", call)
 	}
 	finalSnapshot := waitForAsyncDashboardDrain(t, publisher, 2*time.Second)
 	if finalSnapshot.AcceptedCount != 1 || finalSnapshot.DroppedCount != 0 || !finalSnapshot.Drained {
@@ -226,11 +216,11 @@ func TestAsyncAnalyticsPublisher_CoalescesScopeWhileWorkerIsInflight(t *testing.
 
 	firstCall := target.waitForCall(t, 2*time.Second)
 	secondCall := target.waitForCall(t, 2*time.Second)
-	if firstCall.ProfileID != 7 || firstCall.Preset != "1h" {
-		t.Fatalf("expected first publish call to use analytics scope, got %+v", firstCall)
+	if firstCall.ProfileID != 1 || firstCall.Preset != "1h" {
+		t.Fatalf("expected first publish call to use default profile 1 analytics scope, got %+v", firstCall)
 	}
-	if secondCall.ProfileID != 7 || secondCall.Preset != "1h" {
-		t.Fatalf("expected second publish call to use coalesced analytics scope, got %+v", secondCall)
+	if secondCall.ProfileID != 1 || secondCall.Preset != "1h" {
+		t.Fatalf("expected second publish call to use coalesced default profile 1 analytics scope, got %+v", secondCall)
 	}
 	finalSnapshot := waitForAsyncAnalyticsDrain(t, publisher, 2*time.Second)
 	if finalSnapshot.AcceptedCount != 1 || finalSnapshot.CoalescedCount != 1 || finalSnapshot.DroppedCount != 0 {
@@ -253,7 +243,7 @@ func TestAsyncAnalyticsPublisher_DropsTrackedStateWhenSchedulerRejectsSubmit(t *
 		Scheduler:     scheduler,
 	})
 
-	queued, err := publisher.PublishAnalyticsUpdates(context.Background(), 7)
+	queued, err := publisher.PublishAnalyticsUpdates(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("publish analytics update with unstarted scheduler: %v", err)
 	}
@@ -268,7 +258,7 @@ func TestAsyncAnalyticsPublisher_DropsTrackedStateWhenSchedulerRejectsSubmit(t *
 		t.Fatalf("expected rejected submit counters accepted=1 dropped=1, got %+v", snapshot)
 	}
 
-	queued, err = publisher.PublishAnalyticsUpdates(context.Background(), 7)
+	queued, err = publisher.PublishAnalyticsUpdates(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("retry analytics update after rejected submit: %v", err)
 	}

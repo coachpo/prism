@@ -459,6 +459,7 @@ func (s *Service) publishPendingDashboardSnapshot(ctx context.Context, profileID
 }
 
 func (s *Service) PublishAnalyticsUpdates(ctx context.Context, profileID int) (bool, error) {
+	profileID = freezeRealtimeProfileID(profileID)
 	if s.pendingAnalyticsUpdates != nil {
 		return s.pendingAnalyticsUpdates.PublishAnalyticsUpdates(ctx, profileID)
 	}
@@ -474,6 +475,7 @@ func (s *Service) PublishAnalyticsUpdates(ctx context.Context, profileID int) (b
 }
 
 func (s *Service) PublishLatestAnalyticsSnapshot(ctx context.Context, profileID int, preset string) (bool, error) {
+	profileID = freezeRealtimeProfileID(profileID)
 	preset = normalizeAnalyticsPreset(preset)
 	if !s.manager.HasSubscribers(profileID, analyticsChannel, preset) {
 		return false, nil
@@ -486,5 +488,10 @@ func (s *Service) PublishLatestAnalyticsSnapshot(ctx context.Context, profileID 
 }
 
 func (s *Service) ActiveAnalyticsScopes(profileID int) []string {
-	return s.manager.ActiveScopes(profileID, analyticsChannel)
+	return s.manager.ActiveScopes(freezeRealtimeProfileID(profileID), analyticsChannel)
+}
+
+func freezeRealtimeProfileID(profileID int) int {
+	_ = profileID
+	return profiledomain.DefaultProfileID
 }

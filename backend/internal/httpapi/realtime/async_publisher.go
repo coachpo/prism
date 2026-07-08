@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/coachpo/prism/backend/internal/platform/background"
+	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
 type DashboardPublishTarget interface {
@@ -104,6 +105,7 @@ func (p *AsyncDashboardPublisher) PublishDashboardSnapshot(_ context.Context, pr
 	if p == nil || p.target == nil || profileID <= 0 {
 		return false, nil
 	}
+	profileID = profiledomain.DefaultProfileID
 	p.target.InvalidateDashboardSnapshot(profileID)
 	return p.enqueue(profileID), nil
 }
@@ -112,6 +114,7 @@ func (p *AsyncDashboardPublisher) PublishDashboardActivity(ctx context.Context, 
 	if p == nil || p.target == nil || profileID <= 0 || requestLogID <= 0 {
 		return false, nil
 	}
+	profileID = profiledomain.DefaultProfileID
 	return p.target.PublishDashboardActivity(ctx, requestLogID, profileID)
 }
 
@@ -119,6 +122,7 @@ func (p *AsyncDashboardPublisher) PublishPendingDashboardSnapshot(ctx context.Co
 	if p == nil || p.target == nil || profileID <= 0 {
 		return false, nil
 	}
+	profileID = profiledomain.DefaultProfileID
 	if p.hasPending(profileID) {
 		return false, nil
 	}

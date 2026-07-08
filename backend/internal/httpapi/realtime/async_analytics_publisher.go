@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/coachpo/prism/backend/internal/platform/background"
+	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
 type AnalyticsPublishTarget interface {
@@ -108,6 +109,7 @@ func (p *AsyncAnalyticsPublisher) PublishAnalyticsUpdates(_ context.Context, pro
 	if p == nil || p.target == nil || profileID <= 0 {
 		return false, nil
 	}
+	profileID = profiledomain.DefaultProfileID
 	delivered := false
 	for _, preset := range p.target.ActiveAnalyticsScopes(profileID) {
 		if p.enqueue(analyticsPublishKey{ProfileID: profileID, Preset: normalizeAnalyticsPreset(preset)}) {

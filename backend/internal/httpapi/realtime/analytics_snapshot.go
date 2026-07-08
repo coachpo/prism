@@ -9,6 +9,7 @@ import (
 )
 
 func (s *Service) BuildAnalyticsSnapshot(ctx context.Context, profileID int, preset string, referenceNow time.Time) (AnalyticsSnapshotMessage, error) {
+	profileID = freezeRealtimeProfileID(profileID)
 	preset = normalizeAnalyticsPreset(preset)
 	referenceNow = referenceNow.UTC()
 	snapshot, err := statsdomain.GetUsageSnapshot(ctx, s.pool, profileID, preset, referenceNow)

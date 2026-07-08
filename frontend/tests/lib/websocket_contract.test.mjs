@@ -303,7 +303,7 @@ test("dashboard extractor accepts split snapshot and single activity payloads on
   );
 });
 
-test("hook analytics scope filter matches frozen Default profile id 1", () => {
+test("hook analytics scope filter ignores stale inbound profile ids", () => {
   const hookModule = loadHookModuleWithClient({});
   const baseMessage = {
     type: "analytics.snapshot",
@@ -332,7 +332,7 @@ test("hook analytics scope filter matches frozen Default profile id 1", () => {
       profileId: 7,
       scope: { preset: "24h" },
     }),
-    false,
+    true,
   );
   assert.equal(
     hookModule.matchesRealtimeDataScope({
@@ -357,7 +357,7 @@ test("hook analytics scope filter matches frozen Default profile id 1", () => {
       message: { type: "dashboard.snapshot", profile_id: 2, snapshot: {} },
       profileId: 7,
     }),
-    false,
+    true,
   );
   assert.equal(
     hookModule.matchesRealtimeDataScope({

@@ -99,7 +99,7 @@ function loadClientModule(sentMessages) {
   };
 }
 
-test("analytics realtime scope rejects stale profile and preset snapshots", () => {
+test("analytics realtime scope ignores stale inbound profile ids", () => {
   const hookModule = loadHookModuleWithClient({});
   const baseMessage = {
     type: "analytics.snapshot",
@@ -123,7 +123,7 @@ test("analytics realtime scope rejects stale profile and preset snapshots", () =
     message: { ...baseMessage, profile_id: 2 },
     profileId: 1,
     scope: { preset: "24h" },
-  }), false);
+  }), true);
   assert.equal(hookModule.matchesRealtimeDataScope({
     channel: "analytics",
     message: { ...baseMessage, preset: "7d" },

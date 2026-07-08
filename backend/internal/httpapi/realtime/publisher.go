@@ -15,11 +15,13 @@ import (
 var errDashboardActivityNotFound = errors.New("dashboard activity not found")
 
 func (s *Service) PublishDashboardSnapshot(ctx context.Context, profileID int) (bool, error) {
+	profileID = freezeRealtimeProfileID(profileID)
 	s.InvalidateDashboardSnapshot(profileID)
 	return s.PublishLatestDashboardSnapshot(ctx, profileID)
 }
 
 func (s *Service) PublishLatestDashboardSnapshot(ctx context.Context, profileID int) (bool, error) {
+	profileID = freezeRealtimeProfileID(profileID)
 	message, err := s.BuildDashboardSnapshot(ctx, profileID)
 	if err != nil {
 		return false, err
@@ -31,10 +33,12 @@ func (s *Service) PublishLatestDashboardSnapshot(ctx context.Context, profileID 
 }
 
 func (s *Service) PublishPendingDashboardSnapshot(ctx context.Context, profileID int) (bool, error) {
+	profileID = freezeRealtimeProfileID(profileID)
 	return s.PublishLatestDashboardSnapshot(ctx, profileID)
 }
 
 func (s *Service) PublishDashboardActivity(ctx context.Context, requestLogID int, profileID int) (bool, error) {
+	profileID = freezeRealtimeProfileID(profileID)
 	if !s.HasDashboardSubscribers(profileID) {
 		return false, nil
 	}
@@ -49,6 +53,7 @@ func (s *Service) PublishDashboardActivity(ctx context.Context, requestLogID int
 }
 
 func (s *Service) InvalidateDashboardSnapshot(profileID int) {
+	profileID = freezeRealtimeProfileID(profileID)
 	if s == nil || s.dashboardSnapshots == nil {
 		return
 	}
@@ -56,10 +61,11 @@ func (s *Service) InvalidateDashboardSnapshot(profileID int) {
 }
 
 func (s *Service) HasDashboardSubscribers(profileID int) bool {
-	return s.manager.HasSubscribers(profileID, dashboardChannel)
+	return s.manager.HasSubscribers(freezeRealtimeProfileID(profileID), dashboardChannel)
 }
 
 func (s *Service) BuildDashboardSnapshot(ctx context.Context, profileID int) (DashboardSnapshotMessage, error) {
+	profileID = freezeRealtimeProfileID(profileID)
 	referenceNow := s.now().UTC()
 	return pgxutil.InReadOnlyTxValue(ctx, s.pool, "realtime dashboard snapshot", func(tx pgx.Tx) (DashboardSnapshotMessage, error) {
 		aggregate, err := s.loadOrBuildDashboardAggregateSnapshot(ctx, tx, profileID, referenceNow)
@@ -75,6 +81,7 @@ func (s *Service) BuildDashboardSnapshot(ctx context.Context, profileID int) (Da
 }
 
 func (s *Service) BuildDashboardActivity(ctx context.Context, requestLogID int, profileID int) (DashboardActivityMessage, error) {
+	profileID = freezeRealtimeProfileID(profileID)
 	generatedAt := s.now().UTC()
 	response, err := pgxutil.InReadOnlyTxValue(ctx, s.pool, "realtime dashboard activity", func(tx pgx.Tx) (statsdomain.DashboardRecentActivityResponse, error) {
 		return statsdomain.GetDashboardRecentActivityForRequestLog(ctx, tx, profileID, requestLogID, generatedAt)

@@ -217,6 +217,32 @@ Concerns:
 - Correction: the touched e2e specs were run directly after this section was written:
   `cd frontend && pnpm run test:e2e -- frontend/tests/e2e/protected-shell-sidebar.spec.ts frontend/tests/e2e/dashboard-reporting-currency.spec.ts frontend/tests/e2e/reporting-currency-provider.spec.ts` passed, 9 tests total.
 
+## Task 9 Realtime Publisher Fix
+
+STATUS: DONE_WITH_CONCERNS
+
+Commit:
+- `fix: normalize realtime profile publishers`
+
+Fixes:
+- Frontend realtime hook now ignores inbound `profile_id` on subscribed/data scope matching, so stale profile ids do not drop dashboard or analytics updates.
+- Frontend websocket contract tests now accept stale/non-default inbound profile ids when the channel and preset still match.
+- Realtime publisher entrypoints now normalize caller profile ids to frozen Default profile id `1` before invalidate/build/broadcast work, including analytics snapshot building.
+- Async realtime publishers now normalize caller profile ids to Default id `1` before queueing or replaying work, and the async publisher tests now assert the frozen Default contract.
+- Runtime realtime regression coverage now expects non-default async publisher calls to deliver as Default profile id `1`.
+
+Verification:
+- `rg -n 'profile_id.*(3|7)|profileID.*(3|7)|profile_id: (2|3|7)|profile_id.*2|profileID.*2|incoming.*profile|stale.*profile' frontend/src/hooks/useRealtimeData.ts frontend/tests/lib/websocket_contract.test.mjs frontend/tests/lib/analytics_websocket_contract.test.mjs backend/internal/httpapi/realtime backend/tests/runtime/realtime_test.go`
+- `cd backend && go test ./internal/httpapi/realtime`
+- `cd backend && go test ./tests/runtime -run Realtime` -> failed before assertions: `postgres container on port 33229 did not become ready in time`
+- `cd frontend && node --test frontend/tests/lib/websocket_contract.test.mjs frontend/tests/lib/analytics_websocket_contract.test.mjs`
+- `cd frontend && pnpm run test:lib`
+- `cd frontend && pnpm run build`
+
+Concerns:
+- The runtime integration suite is still blocked by the local Postgres harness readiness timeout before assertions run.
+- The focused `rg` still shows pre-existing runtime fixtures and the stale-input acceptance tests that intentionally keep non-default caller ids as ignored compatibility data.
+
 ## Task 9 Runtime Freeze Fix
 
 STATUS: DONE_WITH_CONCERNS

@@ -899,7 +899,7 @@ func TestAsyncDashboardPublisherRefreshesWarmedSnapshotOnlyFromExplicitSnapshotP
 	}
 }
 
-func TestAsyncDashboardPublisherProfileScopedCoalescing(t *testing.T) {
+func TestAsyncDashboardPublisherNormalizesCallerProfilesToDefaultProfile(t *testing.T) {
 	target := newRuntimeAsyncDashboardTarget()
 	publisher := realtimeapi.NewAsyncDashboardPublisher(target, realtimeapi.AsyncDashboardPublisherOptions{QueueCapacity: 1, WorkerCount: 1, PublishTimeout: 5 * time.Second, ShutdownTimeout: time.Second})
 	defer publisher.Close()
@@ -920,8 +920,8 @@ func TestAsyncDashboardPublisherProfileScopedCoalescing(t *testing.T) {
 	target.releaseBlockedPublish()
 	first := target.waitForSnapshot(t, 2*time.Second)
 	second := target.waitForSnapshot(t, 2*time.Second)
-	if first != 7 || second != 7 {
-		t.Fatalf("expected both snapshot publishes to be keyed only by profile 7, got %d and %d", first, second)
+	if first != profiledomain.DefaultProfileID || second != profiledomain.DefaultProfileID {
+		t.Fatalf("expected both snapshot publishes to normalize to default profile %d, got %d and %d", profiledomain.DefaultProfileID, first, second)
 	}
 }
 
