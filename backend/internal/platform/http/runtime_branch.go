@@ -19,7 +19,6 @@ func mountRuntimeBranch(router chi.Router, settings config.Settings, deps Depend
 			runtimeHandler = runtimeAuthService.RuntimeMiddleware(runtimeHandler)
 		}
 		runtimeHandler = proxyAdmissionProviderMiddleware(admissionProvider, admissionController, settings.RuntimeTransport().RequestTimeout, runtimeHandler)
-		runtimeHandler = runtimeIngressTelemetryMiddleware(runtimeHandler)
 		router.Handle("/v1", runtimeHandler)
 		router.Handle("/v1/*", runtimeHandler)
 		router.Handle("/v1beta", runtimeHandler)
@@ -28,7 +27,6 @@ func mountRuntimeBranch(router chi.Router, settings config.Settings, deps Depend
 	}
 	if runtimeAuthService != nil {
 		runtimeProbeHandler := proxyAdmissionProviderMiddleware(admissionProvider, admissionController, settings.RuntimeTransport().RequestTimeout, runtimeAuthService.RuntimeMiddleware(runtimeAuthService.RuntimeProbeRouter()))
-		runtimeProbeHandler = runtimeIngressTelemetryMiddleware(runtimeProbeHandler)
 		router.Mount("/v1", runtimeProbeHandler)
 		router.Mount("/v1beta", runtimeProbeHandler)
 	}

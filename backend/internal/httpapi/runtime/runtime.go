@@ -17,7 +17,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
@@ -641,43 +640,29 @@ var errHedgeLoserCanceled = errors.New("hedge loser canceled")
 const hedgeCanceledAttemptStatusCode = 499
 
 func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot, operationMatch RuntimeOperationMatch) (requestPlan, error) {
-	ctx, span := startRuntimeSpan(ctx, "request.plan", runtimeTraceOperationAttributes(operationMatch.Operation)...)
-	defer span.End()
 	operationMatch, err := validateResolvedRuntimeOperation(operationMatch, request.Method, request.URL.Path)
 	if err != nil {
-		runtimeTraceMarkError(span, "request_plan_failed")
 		return requestPlan{}, err
 	}
-	span.SetAttributes(runtimeTraceOperationAttributes(operationMatch.Operation)...)
 	if s.cache == nil {
-		runtimeTraceMarkError(span, "request_plan_failed")
 		return requestPlan{}, runtimeSnapshotDomainError(ErrPublishedRuntimeSnapshotUnavailable)
 	}
 	defaultProfile, snapshot, err := s.cache.LoadFreshDefaultRuntimePlan(ctx)
 	if err != nil {
-		runtimeTraceMarkError(span, "request_plan_failed")
 		return requestPlan{}, runtimeSnapshotDomainError(err)
 	}
 	plan, err := s.buildRequestPlanFromSnapshot(request.WithContext(ctx), rawBody, runtimeConfig, operationMatch, defaultProfile.ID, snapshot)
 	if err != nil {
-		runtimeTraceMarkError(span, "request_plan_failed")
 		return requestPlan{}, err
 	}
-	span.SetAttributes(runtimeTracePlanAttributes(plan)...)
 	return plan, nil
 }
 
 func (s *Service) buildRequestPlanFromSnapshot(request *http.Request, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot, operationMatch RuntimeOperationMatch, activeProfileID int, snapshot *planningSnapshot) (requestPlan, error) {
-	ctx, span := startRuntimeSpan(request.Context(), "request.plan", runtimeTraceOperationAttributes(operationMatch.Operation)...)
-	defer span.End()
-	request = request.WithContext(ctx)
-
 	plan, err := s.buildRequestPlanFromSnapshotCore(request, rawBody, runtimeConfig, operationMatch, activeProfileID, snapshot)
 	if err != nil {
-		runtimeTraceMarkError(span, "request_plan_failed")
 		return requestPlan{}, err
 	}
-	span.SetAttributes(runtimeTracePlanAttributes(plan)...)
 	return plan, nil
 }
 
@@ -994,8 +979,6 @@ func runtimeConnectionRefs(connections []runtimeConnection) []loadbalance.Runtim
 }
 
 func (s *Service) executeRequest(ctx context.Context, method string, plan requestPlan, requestQuery string, bodySource *runtimeRequestBodySource) (executionResult, error) {
-	ctx, span := startRuntimeSpan(ctx, "request.execute", runtimeTracePlanAttributes(plan)...)
-	defer span.End()
 	state := newRequestExecutionState(plan)
 	limits := requestExecutionLimitsForPlan(plan)
 	terminalAttempts := plan.orderedTerminalAttempts()
@@ -1007,12 +990,10 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 		if limits.shouldHedge(plan, state, index) {
 			hedged, err := s.executeHedgedRequest(ctx, method, plan, requestQuery, index, limits.HedgePolicy, bodySource)
 			if err != nil {
-				runtimeTraceMarkError(span, "runtime_execute_failed")
 				return executionResult{}, err
 			}
 			state.recordHedgedResult(hedged)
 			if hedged.Winner != nil {
-				runtimeTraceSetAttemptCount(span, state.launchedAttempts)
 				return s.executionResultForHedgedWinner(ctx, plan, state, hedged.Winner), nil
 			}
 			index += hedged.ConsumedConnections - 1
@@ -1022,19 +1003,13 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 		outcome := s.executeSingleAttempt(ctx, method, plan, requestQuery, terminalAttempts[index], bodySource)
 		result, done, err := s.handleSingleExecutionOutcome(ctx, plan, &state, outcome, index, limits.MaxAttempts)
 		if err != nil {
-			runtimeTraceMarkError(span, "runtime_execute_failed")
 			return executionResult{}, err
 		}
 		if done {
-			runtimeTraceSetAttemptCount(span, state.launchedAttempts)
 			return result, nil
 		}
 	}
 	result, err := state.failureResult(plan)
-	if err != nil {
-		runtimeTraceMarkError(span, "runtime_execute_failed")
-	}
-	runtimeTraceSetAttemptCount(span, state.launchedAttempts)
 	return result, err
 }
 
@@ -1346,25 +1321,17 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 		result.Winner = winner
 		result.Attempts = append(result.Attempts, winner.Attempt)
 	}
-	s.recordRuntimeHedge(ctx, plan.RuntimeOperation.Name, int64(launchedCandidates-1))
 	return result, nil
 }
 
 func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan requestPlan, requestQuery string, terminalAttempt runtimeTerminalAttempt, bodySource *runtimeRequestBodySource) executionOutcome {
-	attemptTraceAttrs := runtimeTraceAttemptAttributes(plan, terminalAttempt)
-	ctx, span := startRuntimeSpan(ctx, "connection.attempt", attemptTraceAttrs...)
-	defer span.End()
 	connection := terminalAttempt.Connection
 	headers, err := s.buildUpstreamHeaders(connection, plan.APIFamily, plan.ClientHeaders, plan.BlocklistRules)
 	if err != nil {
-		runtimeTraceMarkError(span, "connection_attempt_failed")
-		runtimeTraceSetAttemptResult(span, "fatal_error")
 		return executionOutcome{TerminalAttempt: terminalAttempt, Connection: connection, FatalError: err}
 	}
 	upstreamURL, err := buildUpstreamURL(connection.Endpoint.BaseURL, terminalAttempt.EffectiveRequestPath, requestQuery)
 	if err != nil {
-		runtimeTraceMarkError(span, "connection_attempt_failed")
-		runtimeTraceSetAttemptResult(span, "fatal_error")
 		return executionOutcome{TerminalAttempt: terminalAttempt, Connection: connection, FatalError: err}
 	}
 
@@ -1382,11 +1349,9 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 		ObservedAt:  s.nowUTC(),
 	})
 	if decision.Skipped {
-		runtimeTraceSetAttemptResult(span, "skipped")
 		return executionOutcome{TerminalAttempt: terminalAttempt, Connection: connection, Skipped: true, UnbannedRecord: decision.UnbannedRecord}
 	}
 	if decision.AdmissionReason != "" {
-		runtimeTraceSetAttemptResult(span, "admission_rejected")
 		return executionOutcome{TerminalAttempt: terminalAttempt, Connection: connection, AdmissionReason: decision.AdmissionReason, AdmissionState: decision.AdmissionState, UnbannedRecord: decision.UnbannedRecord}
 	}
 	defer func() {
@@ -1395,7 +1360,7 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 
 	attemptStartedAt := s.nowUTC()
 	attemptBodySource := bodySourceForTerminalAttempt(bodySource, terminalAttempt)
-	response, launched, requestErr := s.doUpstreamRequest(ctx, plan.HTTPClient, method, upstreamURL, headers, attemptBodySource, plan.RuntimeOperation, plan.IsStreamingRequest, runtimeTraceAttemptAttributionAttributes(plan.RuntimeOperation, terminalAttempt.TranslationMode)...)
+	response, launched, requestErr := s.doUpstreamRequest(ctx, plan.HTTPClient, method, upstreamURL, headers, attemptBodySource)
 	outcome := executionOutcome{TerminalAttempt: terminalAttempt, Connection: connection, RequestHeaders: cloneStringMap(headers), Response: response, Launched: launched, Err: requestErr, UnbannedRecord: decision.UnbannedRecord}
 	if launched {
 		attemptCompletedAt := s.nowUTC()
@@ -1417,19 +1382,13 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 		if response != nil {
 			outcome.Attempt.StatusCode = response.StatusCode
 			outcome.Attempt.ResponseHeaders = response.Header.Clone()
-			runtimeTraceSetStatusCode(span, response.StatusCode)
 		}
 		if s.isHedgeLoserCancellation(ctx, requestErr) {
 			outcome.Attempt.StatusCode = hedgeCanceledAttemptStatusCode
 			outcome.SuppressTransportFeedback = true
-			runtimeTraceSetAttemptResult(span, "hedge_canceled")
 		}
 	}
 	if requestErr != nil {
-		if !outcome.SuppressTransportFeedback {
-			runtimeTraceMarkError(span, "provider_http_failed")
-			runtimeTraceSetAttemptResult(span, "transport_error")
-		}
 		outcome.RetryDecision = gatewayrouting.RetryPolicy{FailoverStatusCodes: terminalAttempt.Strategy.FailoverStatusCodes()}.ClassifyTransportError(requestErr)
 		outcome.FailoverEligible = outcome.RetryDecision.Retryable
 		outcome.Definitive = !outcome.FailoverEligible
@@ -1438,11 +1397,6 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 	outcome.RetryDecision = gatewayrouting.RetryPolicy{FailoverStatusCodes: terminalAttempt.Strategy.FailoverStatusCodes()}.ClassifyHTTPStatus(response.StatusCode)
 	outcome.FailoverEligible = outcome.RetryDecision.Retryable
 	outcome.Definitive = !outcome.FailoverEligible
-	if outcome.FailoverEligible {
-		runtimeTraceSetAttemptResult(span, "failover_http")
-	} else {
-		runtimeTraceSetAttemptResult(span, "success")
-	}
 	return outcome
 }
 
@@ -1477,9 +1431,6 @@ func (s *Service) recordRuntimeSuccess(ctx context.Context, plan requestPlan, co
 }
 
 func (s *Service) recordRuntimeFailoverHTTPFailure(ctx context.Context, plan requestPlan, connection runtimeConnection, strategy loadbalance.RuntimeStrategy, completedAt time.Time) {
-	if s != nil && s.runtimeMetrics != nil {
-		s.runtimeMetrics.recordFailover(runtimeMetricContextFromContext(ctx), plan.RuntimeOperation.Name, "http")
-	}
 	if s == nil || s.runtimeState == nil {
 		return
 	}
@@ -1488,21 +1439,11 @@ func (s *Service) recordRuntimeFailoverHTTPFailure(ctx context.Context, plan req
 }
 
 func (s *Service) recordRuntimeTransportFailure(ctx context.Context, plan requestPlan, connection runtimeConnection, strategy loadbalance.RuntimeStrategy, completedAt time.Time) {
-	if s != nil && s.runtimeMetrics != nil {
-		s.runtimeMetrics.recordFailover(runtimeMetricContextFromContext(ctx), plan.RuntimeOperation.Name, "transport")
-	}
 	if s == nil || s.runtimeState == nil {
 		return
 	}
 	transition := s.runtimeState.RecordRuntimeTransportFailure(plan.ProfileID, connection.ModelConfigID, connection.ID, strategy, completedAt)
 	s.enqueueRuntimeFeedback(ctx, plan.RuntimeOperation.Name, runtimeFeedbackEvent{Kind: runtimeFeedbackTransportFailure, ProfileID: plan.ProfileID, ConnectionID: connection.ID, ModelConfigID: connection.ModelConfigID, Strategy: strategy, Transition: transition, FailureKind: "connect_error", CompletedAt: completedAt})
-}
-
-func (s *Service) recordRuntimeHedge(ctx context.Context, operationName string, count int64) {
-	if s == nil || s.runtimeMetrics == nil {
-		return
-	}
-	s.runtimeMetrics.recordHedge(runtimeMetricContextFromContext(ctx), operationName, count)
 }
 
 func (s *Service) enqueueRuntimeFeedback(ctx context.Context, operationName string, event runtimeFeedbackEvent) {
@@ -1513,40 +1454,31 @@ func (s *Service) enqueueRuntimeFeedback(ctx context.Context, operationName stri
 	if event.TraceContext.empty() {
 		event.TraceContext = runtimeTraceContextFromContext(ctx)
 	}
-	result := RuntimeFeedbackEnqueueResult{Status: RuntimeFeedbackDroppedUnavailable, Reason: "pipeline_unavailable"}
 	if s.feedbackPipeline != nil {
-		result = s.feedbackPipeline.TryEnqueueContext(runtimeMetricContextFromContext(ctx), event)
+		s.feedbackPipeline.TryEnqueueContext(contextFromContext(ctx), event)
 	}
-	s.recordRuntimeFeedbackEnqueue(runtimeMetricContextFromContext(ctx), operationName, event.Kind, result.Status)
 }
 
-func runtimeMetricContextFromContext(ctx context.Context) context.Context {
+func contextFromContext(ctx context.Context) context.Context {
 	if ctx != nil {
 		return ctx
 	}
 	return context.Background()
 }
 
-func (s *Service) doUpstreamRequest(ctx context.Context, client *http.Client, method string, upstreamURL string, headers map[string]string, bodySource *runtimeRequestBodySource, operation RuntimeOperation, isStreaming bool, extraAttrs ...attribute.KeyValue) (*http.Response, bool, error) {
-	attrs := runtimeTraceHTTPAttributes(method, operation, isStreaming, runtimeTraceBodyMode(bodySource))
-	attrs = append(attrs, extraAttrs...)
-	ctx, span := startRuntimeClientSpan(ctx, "provider.http", attrs...)
-	defer span.End()
+func (s *Service) doUpstreamRequest(ctx context.Context, client *http.Client, method string, upstreamURL string, headers map[string]string, bodySource *runtimeRequestBodySource) (*http.Response, bool, error) {
 	if client == nil {
 		client = s.httpClient
 	}
 	if client == nil {
-		runtimeTraceMarkError(span, "provider_http_failed")
 		return nil, false, fmt.Errorf("runtime HTTP client unavailable")
 	}
 	requestBody, contentLength, err := bodySource.Open()
 	if err != nil {
-		runtimeTraceMarkError(span, "provider_http_failed")
 		return nil, false, fmt.Errorf("open upstream request body: %w", err)
 	}
 	request, err := http.NewRequestWithContext(ctx, method, upstreamURL, requestBody)
 	if err != nil {
-		runtimeTraceMarkError(span, "provider_http_failed")
 		if requestBody != nil {
 			_ = requestBody.Close()
 		}
@@ -1562,12 +1494,6 @@ func (s *Service) doUpstreamRequest(ctx context.Context, client *http.Client, me
 		}
 	}
 	response, err := client.Do(request)
-	if response != nil {
-		runtimeTraceSetStatusCode(span, response.StatusCode)
-	}
-	if err != nil {
-		runtimeTraceMarkError(span, "provider_http_failed")
-	}
 	return response, true, err
 }
 

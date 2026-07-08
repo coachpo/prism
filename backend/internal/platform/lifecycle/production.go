@@ -33,22 +33,17 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/version"
 )
 
-type ProductionOptions struct {
-	TelemetryShutdown ShutdownHook
-}
-
 type productionResources struct {
-	deps              platformhttp.Dependencies
-	scheduler         *background.Scheduler
-	realtimeShutdown  []ShutdownHook
-	sideEffectDrain   []ShutdownHook
-	serviceClose      []ShutdownHook
-	telemetryShutdown ShutdownHook
-	dbClose           ShutdownHook
+	deps             platformhttp.Dependencies
+	scheduler        *background.Scheduler
+	realtimeShutdown []ShutdownHook
+	sideEffectDrain  []ShutdownHook
+	serviceClose     []ShutdownHook
+	dbClose          ShutdownHook
 }
 
-func NewProductionApp(ctx context.Context, settings config.Settings, options ProductionOptions) (*App, *http.Server, error) {
-	resources, err := buildProductionResources(ctx, settings, options)
+func NewProductionApp(ctx context.Context, settings config.Settings) (*App, *http.Server, error) {
+	resources, err := buildProductionResources(ctx, settings)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -64,20 +59,19 @@ func NewProductionApp(ctx context.Context, settings config.Settings, options Pro
 		}
 	}
 	app := NewApp(Options{
-		HTTPServer:        server,
-		RealtimeShutdown:  resources.realtimeShutdown,
-		SideEffectDrain:   resources.sideEffectDrain,
-		SchedulerStop:     resources.schedulerStopHook(),
-		ServiceClose:      resources.serviceClose,
-		TelemetryShutdown: resources.telemetryShutdown,
-		DBClose:           resources.dbClose,
+		HTTPServer:       server,
+		RealtimeShutdown: resources.realtimeShutdown,
+		SideEffectDrain:  resources.sideEffectDrain,
+		SchedulerStop:    resources.schedulerStopHook(),
+		ServiceClose:     resources.serviceClose,
+		DBClose:          resources.dbClose,
 	})
 	return app, server, nil
 }
 
-func buildProductionResources(ctx context.Context, settings config.Settings, options ProductionOptions) (*productionResources, error) {
-	resources := &productionResources{telemetryShutdown: options.TelemetryShutdown}
-	if err := resources.configureHTTPAssembly(settings, options); err != nil {
+func buildProductionResources(ctx context.Context, settings config.Settings) (*productionResources, error) {
+	resources := &productionResources{}
+	if err := resources.configureHTTPAssembly(settings); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(settings.DatabaseURL) == "" {
@@ -98,7 +92,7 @@ func buildProductionResources(ctx context.Context, settings config.Settings, opt
 	return resources, nil
 }
 
-func (resources *productionResources) configureHTTPAssembly(settings config.Settings, options ProductionOptions) error {
+func (resources *productionResources) configureHTTPAssembly(settings config.Settings) error {
 	loadedVersion, err := version.Load()
 	if err != nil {
 		return err
@@ -467,9 +461,6 @@ func (resources *productionResources) cleanup(ctx context.Context) error {
 	}
 	for _, hook := range resources.serviceClose {
 		errs = appendError(errs, hook(ctx))
-	}
-	if resources.telemetryShutdown != nil {
-		errs = appendError(errs, resources.telemetryShutdown(ctx))
 	}
 	if resources.dbClose != nil {
 		errs = appendError(errs, resources.dbClose(ctx))

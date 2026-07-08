@@ -555,23 +555,6 @@ func TestObservabilityDashboardTopologyGraphIncludesDisabledAndInactiveNodes(t *
 	}
 }
 
-func TestManagementMetricsEndpointRemovedAfterOTLP(t *testing.T) {
-	managementBranchSource := s15ReadBackendSource(t, "internal/platform/http/management_branch.go")
-	dbSource := s15ReadBackendSource(t, "internal/platform/db/pools.go")
-	dbTelemetrySource := s15ReadBackendSource(t, "internal/platform/db/telemetry.go")
-	if strings.Contains(managementBranchSource, `router.Get("/metrics"`) || strings.Contains(dbSource, "MetricsHandler") {
-		t.Fatalf("expected backend-local /metrics route and handler to be removed")
-	}
-	for _, metric := range []string{"prism.db.pool.acquired_connections", "prism.db.pool.max_connections", "prism.db.pool.acquire.timeout.count"} {
-		if !strings.Contains(dbTelemetrySource, metric) {
-			t.Fatalf("expected OTLP DB pool telemetry to retain %s", metric)
-		}
-	}
-	if !strings.Contains(dbSource, "func (p *DatabasePools) Metrics() []PoolMetricSnapshot") {
-		t.Fatalf("expected DB pool snapshots to remain for OTLP observers")
-	}
-}
-
 func TestManagementGlobalLogRetentionJobStatusContract(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)

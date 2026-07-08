@@ -28,7 +28,7 @@ management/
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
-- Keep `/api/*` management handlers here; server mounting, admission, runtime-cache invalidation middleware, telemetry middleware, and CORS snapshots stay in `../../../platform/http/`.
+- Keep `/api/*` management handlers here; server mounting, admission, runtime-cache invalidation middleware, and CORS snapshots stay in `../../../platform/http/`.
 - Keep profile-scoped CRUD pinned through effective-profile resolution to Default id=1. `X-Profile-Id` is accepted for old clients but ignored.
 - Keep raw secrets, tokens, and endpoint keys write-only or metadata-only in responses; startup mail config is parse-only compatibility data and has no management delivery behavior.
 - Keep startup bootstrap config outside management CRUD; PostgreSQL-backed settings stay in their own leaves.

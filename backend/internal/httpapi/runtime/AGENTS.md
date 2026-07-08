@@ -1,7 +1,7 @@
 # BACKEND RUNTIME HTTPAPI KNOWLEDGE BASE
 
 ## OVERVIEW
-`runtime/` owns Prism's operation-registered runtime proxy contract behind the mounted `/v1` and `/v1beta` prefixes. It resolves exact supported operations at ingress, carries operation metadata through request planning, resolves requested models by exact `planningSnapshot.ModelsByID` lookup, routes provider-native differences through hook collections, persists `operation_name`, and keeps shared execution, telemetry, feedback, side effects, and partition ensuring inside one backend-owned runtime surface.
+`runtime/` owns Prism's operation-registered runtime proxy contract behind the mounted `/v1` and `/v1beta` prefixes. It resolves exact supported operations at ingress, carries operation metadata through request planning, resolves requested models by exact `planningSnapshot.ModelsByID` lookup, routes provider-native differences through hook collections, persists `operation_name`, and keeps shared execution, durable request-history telemetry, feedback, side effects, and partition ensuring inside one backend-owned runtime surface.
 
 ## STRUCTURE
 ```text
@@ -25,7 +25,6 @@ runtime/
 ├── operation_translation.go     # OpenAI Chat/Responses cross-translation boundary
 ├── generations.go               # Generation-request shaping and upstream helpers
 ├── observability.go             # Request-log and usage-event shaping with operation metadata
-├── runtime_tracing.go           # Trace attribute shaping
 ├── log_partitions.go            # Runtime partition ensuring and cache
 ├── telemetry_outbox.go          # Durable telemetry enqueue and publisher wakeups
 ├── feedback_pipeline.go         # Runtime feedback persistence and worker handoff
@@ -43,7 +42,7 @@ runtime/
 - SSE terminal classification and usage merging for OpenAI, Anthropic, and Gemini stream operations: `operation_stream_hooks.go`
 - OpenAI Chat/Responses translation and adjunct conversion rejection behavior: `operation_translation.go`, `operation_translation_request.go`, `operation_translation_response.go`, `operation_translation_stream.go`, `operation_translation_golden_test.go`, `operation_translation_request_test.go`, `operation_translation_response_test.go`, `operation_translation_stream_test.go`, `testdata/openai_translation/`
 - Request-log and usage-event shaping plus `operation_name` persistence: `observability.go`, `../../../migrations/000001_initial_schema.sql`
-- Runtime trace attributes and runtime metric labels: `runtime_tracing.go`, `observability.go`, `runtime_metrics_test.go`
+- Request-log and usage-event shaping: `observability.go`
 - Telemetry, feedback, and runtime side-effect ownership: `telemetry_outbox.go`, `feedback_pipeline.go`, `runtime_side_effects.go`
 - Partition ensuring and partition-cache behavior: `log_partitions.go`, `../../platform/logretention/`
 - Internal runtime regression coverage: `operations_test.go`, `service_ingress_test.go`, `request_generation_params_test.go`, `request_generation_params_runtime_test.go`, `operation_hook_residency_test.go`, `operation_response_hooks_test.go`, `operation_response_overflow_classifier_test.go`, `gateway_typed_hooks_bridge_test.go`, `planning_snapshot_contract_test.go`, `routing_plan_test.go`, `runtime_test.go`

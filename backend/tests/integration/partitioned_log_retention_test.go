@@ -40,7 +40,7 @@ func TestLogRetentionPartitionLifecycle(t *testing.T) {
 		t.Fatalf("run startup sequence on fresh database: %v", err)
 	}
 	bootstrapStart := task9UTCDay(time.Now().UTC())
-	app, _, err := lifecycle.NewProductionApp(testContext, productionLifecycleSettings(databaseURL), lifecycle.ProductionOptions{})
+	app, _, err := lifecycle.NewProductionApp(testContext, productionLifecycleSettings(databaseURL))
 	if err != nil {
 		t.Fatalf("build production app for log partition bootstrap: %v", err)
 	}

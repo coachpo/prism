@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coachpo/prism/backend/internal/platform/asyncmetrics"
 	"github.com/coachpo/prism/backend/internal/platform/background"
 )
 
@@ -80,20 +79,16 @@ func (w *proxyAPIKeyUsageWriter) RegisterBackgroundWorker(scheduler *background.
 
 func (w *proxyAPIKeyUsageWriter) Enqueue(keyID int, lastUsedAt time.Time, lastUsedIP string) error {
 	if w == nil || keyID <= 0 {
-		asyncmetrics.RecordOutcome(context.Background(), "proxy_key_usage_writer", "enqueue", asyncmetrics.OutcomeInvalid)
 		return nil
 	}
 	update := proxyAPIKeyUsageUpdate{KeyID: keyID, LastUsedAt: lastUsedAt.UTC(), LastUsedIP: lastUsedIP}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {
-		asyncmetrics.RecordOutcome(context.Background(), "proxy_key_usage_writer", "enqueue", asyncmetrics.OutcomeUnavailable)
 		return fmt.Errorf("proxy api key usage writer closed")
 	}
 	if existing, ok := w.pending[keyID]; ok {
 		if existing.LastUsedAt.After(update.LastUsedAt) {
-			asyncmetrics.RecordQueueDepth(context.Background(), "proxy_key_usage_writer", "pending", int64(len(w.pending)))
-			asyncmetrics.RecordOutcome(context.Background(), "proxy_key_usage_writer", "enqueue", asyncmetrics.OutcomeSkipped)
 			return nil
 		}
 		if existing.LastUsedAt.Equal(update.LastUsedAt) && strings.TrimSpace(update.LastUsedIP) == "" {
@@ -101,11 +96,9 @@ func (w *proxyAPIKeyUsageWriter) Enqueue(keyID int, lastUsedAt time.Time, lastUs
 		}
 	}
 	w.pending[keyID] = update
-	asyncmetrics.RecordQueueDepth(context.Background(), "proxy_key_usage_writer", "pending", int64(len(w.pending)))
 	if w.scheduler != nil {
 		_ = w.scheduler.Submit(context.Background(), background.JobRequest{Worker: background.WorkerName("proxy_key_usage_writer"), CoalesceKey: "proxy_key_usage_writer"})
 	}
-	asyncmetrics.RecordOutcome(context.Background(), "proxy_key_usage_writer", "enqueue", asyncmetrics.OutcomeAccepted)
 	return nil
 }
 
@@ -141,25 +134,17 @@ func (w *proxyAPIKeyUsageWriter) flushPending(timeout time.Duration) {
 }
 
 func (w *proxyAPIKeyUsageWriter) flushPendingContext(ctx context.Context) error {
-	startedAt := time.Now()
 	updates := w.drainPending()
-	asyncmetrics.RecordBatchSize(ctx, "proxy_key_usage_writer", "flush", int64(len(updates)))
 	if len(updates) == 0 {
-		asyncmetrics.RecordDuration(ctx, "proxy_key_usage_writer", "flush", asyncmetrics.OutcomeSkipped, time.Since(startedAt))
 		return nil
 	}
-	asyncmetrics.AddInflight(ctx, "proxy_key_usage_writer", "flush", 1)
-	defer asyncmetrics.AddInflight(ctx, "proxy_key_usage_writer", "flush", -1)
 	for _, update := range updates {
 		if err := w.write(ctx, update.KeyID, update.LastUsedAt, update.LastUsedIP); err != nil {
 			w.requeue(updates)
-			asyncmetrics.RecordRetry(ctx, "proxy_key_usage_writer", "flush", asyncmetrics.OutcomeRetryScheduled)
-			asyncmetrics.RecordDuration(ctx, "proxy_key_usage_writer", "flush", asyncmetrics.OutcomeFromError(err), time.Since(startedAt))
 			slog.Error("failed to flush proxy api key usage updates", "error", err, "pending_keys", len(updates))
 			return err
 		}
 	}
-	asyncmetrics.RecordDuration(ctx, "proxy_key_usage_writer", "flush", asyncmetrics.OutcomeSuccess, time.Since(startedAt))
 	return nil
 }
 
@@ -171,7 +156,6 @@ func (w *proxyAPIKeyUsageWriter) drainPending() []proxyAPIKeyUsageUpdate {
 		updates = append(updates, update)
 		delete(w.pending, keyID)
 	}
-	asyncmetrics.RecordQueueDepth(context.Background(), "proxy_key_usage_writer", "pending", int64(len(w.pending)))
 	return updates
 }
 
@@ -190,5 +174,4 @@ func (w *proxyAPIKeyUsageWriter) requeue(updates []proxyAPIKeyUsageUpdate) {
 		}
 		w.pending[update.KeyID] = update
 	}
-	asyncmetrics.RecordQueueDepth(context.Background(), "proxy_key_usage_writer", "pending", int64(len(w.pending)))
 }

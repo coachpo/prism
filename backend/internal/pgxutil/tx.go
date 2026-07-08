@@ -3,7 +3,6 @@ package pgxutil
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -39,14 +38,7 @@ func InReadOnlyTxValue[T any](ctx context.Context, beginner Beginner, label stri
 }
 
 func inTxValue[T any](ctx context.Context, beginner Beginner, label string, options pgx.TxOptions, fn func(pgx.Tx) (T, error)) (value T, err error) {
-	ctx, finishTelemetry := startTransactionTelemetry(ctx, beginner)
-	defer func() {
-		finishTelemetry(err)
-	}()
-
-	beginStartedAt := time.Now()
 	tx, err := beginner.BeginTx(ctx, options)
-	recordTransactionAcquire(ctx, beginner, time.Since(beginStartedAt), err)
 	if err != nil {
 		return value, fmt.Errorf("begin %s transaction: %w", label, err)
 	}

@@ -12,10 +12,6 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	otelmetric "go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/trace"
 
 	gatewayaccounting "github.com/coachpo/prism/backend/internal/gateway/accounting"
 	gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
@@ -623,232 +619,14 @@ const (
 	runtimeTelemetryHandoffPhaseStreamAccepted = "stream_accepted"
 )
 
-const (
-	runtimeMetricScopeName = "github.com/coachpo/prism/backend/internal/httpapi/runtime"
-
-	runtimeMetricOperationUnknown = "unknown"
-
-	runtimeMetricAttrOperationName  = "operation_name"
-	runtimeMetricAttrStatusClass    = "status_class"
-	runtimeMetricAttrStreamOutcome  = "stream_outcome"
-	runtimeMetricAttrFailoverReason = "failover_reason"
-	runtimeMetricAttrFeedbackKind   = "feedback_kind"
-	runtimeMetricAttrEnqueueStatus  = "enqueue_status"
-
-	runtimeOutboxEnqueueAccepted     = "accepted"
-	runtimeOutboxEnqueueFailed       = "failed"
-	runtimeOutboxEnqueueNotSubmitted = "not_submitted"
-)
-
-type runtimeMetrics struct {
-	requestCount         otelmetric.Int64Counter
-	requestLatency       otelmetric.Float64Histogram
-	requestAttemptCount  otelmetric.Int64Histogram
-	statusClassCount     otelmetric.Int64Counter
-	streamOutcomeCount   otelmetric.Int64Counter
-	failoverCount        otelmetric.Int64Counter
-	hedgeCount           otelmetric.Int64Counter
-	ttft                 otelmetric.Float64Histogram
-	completionDuration   otelmetric.Float64Histogram
-	feedbackEnqueueCount otelmetric.Int64Counter
-	outboxEnqueueCount   otelmetric.Int64Counter
-}
-
-type runtimeMetricAttributePolicy struct{}
-
-var runtimeMetricPolicy runtimeMetricAttributePolicy
-
-func newRuntimeMetrics() *runtimeMetrics {
-	meter := otel.Meter(runtimeMetricScopeName)
-	metrics := &runtimeMetrics{}
-	metrics.requestCount, _ = meter.Int64Counter("prism.request.count", otelmetric.WithDescription("Runtime proxy requests completed."))
-	metrics.requestLatency, _ = meter.Float64Histogram("prism.request.latency", otelmetric.WithDescription("Runtime proxy request latency."), otelmetric.WithUnit("ms"))
-	metrics.requestAttemptCount, _ = meter.Int64Histogram("prism.request.attempt_count", otelmetric.WithDescription("Runtime upstream attempts per completed request."))
-	metrics.statusClassCount, _ = meter.Int64Counter("prism.status_class.count", otelmetric.WithDescription("Runtime proxy responses by bounded status class."))
-	metrics.streamOutcomeCount, _ = meter.Int64Counter("prism.stream.outcome.count", otelmetric.WithDescription("Runtime stream outcomes by bounded classification."))
-	metrics.failoverCount, _ = meter.Int64Counter("prism.failover.count", otelmetric.WithDescription("Runtime failover events by bounded reason."))
-	metrics.hedgeCount, _ = meter.Int64Counter("prism.hedge.count", otelmetric.WithDescription("Runtime hedge attempts launched."))
-	metrics.ttft, _ = meter.Float64Histogram("prism.request.ttft", otelmetric.WithDescription("Runtime streaming time to first meaningful token."), otelmetric.WithUnit("ms"))
-	metrics.completionDuration, _ = meter.Float64Histogram("prism.request.completion_duration", otelmetric.WithDescription("Runtime request completion duration."), otelmetric.WithUnit("ms"))
-	metrics.feedbackEnqueueCount, _ = meter.Int64Counter("prism.feedback.enqueue.count", otelmetric.WithDescription("Runtime feedback enqueue results."))
-	metrics.outboxEnqueueCount, _ = meter.Int64Counter("prism.outbox.enqueue.count", otelmetric.WithDescription("Runtime telemetry outbox enqueue results."))
-	return metrics
-}
-
-func (metrics *runtimeMetrics) recordRequest(ctx context.Context, event usageEventInsert) {
-	if metrics == nil {
-		return
-	}
-	attrs := runtimeMetricPolicy.requestAttributes(event.OperationName, event.StatusCode, event.StreamOutcome)
-	if metrics.requestCount != nil {
-		metrics.requestCount.Add(ctx, 1, otelmetric.WithAttributes(attrs...))
-	}
-	if metrics.statusClassCount != nil {
-		metrics.statusClassCount.Add(ctx, 1, otelmetric.WithAttributes(runtimeMetricPolicy.statusAttributes(event.OperationName, event.StatusCode)...))
-	}
-	if metrics.streamOutcomeCount != nil {
-		metrics.streamOutcomeCount.Add(ctx, 1, otelmetric.WithAttributes(runtimeMetricPolicy.streamAttributes(event.OperationName, event.StreamOutcome)...))
-	}
-	if metrics.requestLatency != nil && event.ResponseTimeMS != nil {
-		metrics.requestLatency.Record(ctx, float64(*event.ResponseTimeMS), otelmetric.WithAttributes(attrs...))
-	}
-	if metrics.requestAttemptCount != nil && event.AttemptCount > 0 {
-		metrics.requestAttemptCount.Record(ctx, int64(event.AttemptCount), otelmetric.WithAttributes(attrs...))
-	}
-	if metrics.ttft != nil && event.TTFTMS != nil {
-		metrics.ttft.Record(ctx, float64(*event.TTFTMS), otelmetric.WithAttributes(runtimeMetricPolicy.streamAttributes(event.OperationName, event.StreamOutcome)...))
-	}
-	if metrics.completionDuration != nil && event.CompletionDurationMS != nil {
-		metrics.completionDuration.Record(ctx, float64(*event.CompletionDurationMS), otelmetric.WithAttributes(attrs...))
-	}
-}
-
-func (metrics *runtimeMetrics) recordFailover(ctx context.Context, operationName string, reason string) {
-	if metrics == nil || metrics.failoverCount == nil {
-		return
-	}
-	metrics.failoverCount.Add(ctx, 1, otelmetric.WithAttributes(runtimeMetricPolicy.failoverAttributes(operationName, reason)...))
-}
-
-func (metrics *runtimeMetrics) recordHedge(ctx context.Context, operationName string, count int64) {
-	if metrics == nil || metrics.hedgeCount == nil || count <= 0 {
-		return
-	}
-	metrics.hedgeCount.Add(ctx, count, otelmetric.WithAttributes(runtimeMetricPolicy.operationAttributes(operationName)...))
-}
-
-func (metrics *runtimeMetrics) recordFeedbackEnqueue(ctx context.Context, operationName string, kind runtimeFeedbackKind, status RuntimeFeedbackEnqueueStatus) {
-	if metrics == nil || metrics.feedbackEnqueueCount == nil {
-		return
-	}
-	metrics.feedbackEnqueueCount.Add(ctx, 1, otelmetric.WithAttributes(runtimeMetricPolicy.feedbackAttributes(operationName, kind, status)...))
-}
-
-func (metrics *runtimeMetrics) recordOutboxEnqueue(ctx context.Context, operationName string, status string) {
-	if metrics == nil || metrics.outboxEnqueueCount == nil {
-		return
-	}
-	metrics.outboxEnqueueCount.Add(ctx, 1, otelmetric.WithAttributes(runtimeMetricPolicy.outboxAttributes(operationName, status)...))
-}
-
-func (policy runtimeMetricAttributePolicy) requestAttributes(operationName string, statusCode int, streamOutcome string) []attribute.KeyValue {
-	return []attribute.KeyValue{
-		attribute.String(runtimeMetricAttrOperationName, policy.operationName(operationName)),
-		attribute.String(runtimeMetricAttrStatusClass, policy.statusClass(statusCode)),
-		attribute.String(runtimeMetricAttrStreamOutcome, policy.streamOutcome(streamOutcome)),
-	}
-}
-
-func (policy runtimeMetricAttributePolicy) statusAttributes(operationName string, statusCode int) []attribute.KeyValue {
-	return []attribute.KeyValue{
-		attribute.String(runtimeMetricAttrOperationName, policy.operationName(operationName)),
-		attribute.String(runtimeMetricAttrStatusClass, policy.statusClass(statusCode)),
-	}
-}
-
-func (policy runtimeMetricAttributePolicy) streamAttributes(operationName string, streamOutcome string) []attribute.KeyValue {
-	return []attribute.KeyValue{
-		attribute.String(runtimeMetricAttrOperationName, policy.operationName(operationName)),
-		attribute.String(runtimeMetricAttrStreamOutcome, policy.streamOutcome(streamOutcome)),
-	}
-}
-
-func (policy runtimeMetricAttributePolicy) failoverAttributes(operationName string, reason string) []attribute.KeyValue {
-	return []attribute.KeyValue{
-		attribute.String(runtimeMetricAttrOperationName, policy.operationName(operationName)),
-		attribute.String(runtimeMetricAttrFailoverReason, policy.failoverReason(reason)),
-	}
-}
-
-func (policy runtimeMetricAttributePolicy) feedbackAttributes(operationName string, kind runtimeFeedbackKind, status RuntimeFeedbackEnqueueStatus) []attribute.KeyValue {
-	return []attribute.KeyValue{
-		attribute.String(runtimeMetricAttrOperationName, policy.operationName(operationName)),
-		attribute.String(runtimeMetricAttrFeedbackKind, policy.feedbackKind(kind)),
-		attribute.String(runtimeMetricAttrEnqueueStatus, policy.feedbackEnqueueStatus(status)),
-	}
-}
-
-func (policy runtimeMetricAttributePolicy) outboxAttributes(operationName string, status string) []attribute.KeyValue {
-	return []attribute.KeyValue{
-		attribute.String(runtimeMetricAttrOperationName, policy.operationName(operationName)),
-		attribute.String(runtimeMetricAttrEnqueueStatus, policy.outboxEnqueueStatus(status)),
-	}
-}
-
-func (policy runtimeMetricAttributePolicy) operationAttributes(operationName string) []attribute.KeyValue {
-	return []attribute.KeyValue{attribute.String(runtimeMetricAttrOperationName, policy.operationName(operationName))}
-}
-
-func (policy runtimeMetricAttributePolicy) operationName(value string) string {
-	trimmed := strings.TrimSpace(value)
-	for _, operation := range runtimeOperationCatalog {
-		if trimmed == operation.Name {
-			return operation.Name
-		}
-	}
-	return runtimeMetricOperationUnknown
-}
-
-func (policy runtimeMetricAttributePolicy) statusClass(statusCode int) string {
-	if statusCode >= 100 && statusCode <= 599 {
-		return fmt.Sprintf("%dxx", statusCode/100)
-	}
-	return runtimeMetricOperationUnknown
-}
-
-func (policy runtimeMetricAttributePolicy) streamOutcome(outcome string) string {
-	return runtimeStreamOutcomeForTelemetry(outcome)
-}
-
-func (policy runtimeMetricAttributePolicy) failoverReason(reason string) string {
-	switch strings.TrimSpace(reason) {
-	case "http", "transport":
-		return strings.TrimSpace(reason)
-	default:
-		return runtimeMetricOperationUnknown
-	}
-}
-
-func (policy runtimeMetricAttributePolicy) feedbackKind(kind runtimeFeedbackKind) string {
-	switch kind {
-	case runtimeFeedbackAdmissionRejected, runtimeFeedbackUnbanned, runtimeFeedbackSuccessRecovery, runtimeFeedbackFailoverHTTP, runtimeFeedbackTransportFailure:
-		return string(kind)
-	default:
-		return runtimeMetricOperationUnknown
-	}
-}
-
-func (policy runtimeMetricAttributePolicy) feedbackEnqueueStatus(status RuntimeFeedbackEnqueueStatus) string {
-	switch status {
-	case RuntimeFeedbackAccepted, RuntimeFeedbackDroppedInvalid, RuntimeFeedbackDroppedUnavailable, RuntimeFeedbackDroppedBackpressure:
-		return string(status)
-	default:
-		return runtimeMetricOperationUnknown
-	}
-}
-
-func (policy runtimeMetricAttributePolicy) outboxEnqueueStatus(status string) string {
-	switch strings.TrimSpace(status) {
-	case runtimeOutboxEnqueueAccepted, runtimeOutboxEnqueueFailed, runtimeOutboxEnqueueNotSubmitted:
-		return strings.TrimSpace(status)
-	default:
-		return runtimeMetricOperationUnknown
-	}
-}
-
 func (s *Service) recordRuntimeActivity(plan requestPlan, result executionResult, request *http.Request, startedAt time.Time, responseCapture runtimeResponseCapture) {
 	if s == nil || s.runtimeSideEffects == nil {
 		return
 	}
-	ctx := runtimeMetricContext(request)
-	ctx, span := startRuntimeSpan(ctx, "activity.record", runtimeTracePlanAttributes(plan)...)
-	defer span.End()
+	ctx := runtimeRequestContext(request)
 	envelope := s.buildRuntimeActivityEnvelope(ctx, plan, result, request, startedAt, responseCapture)
-	s.recordRuntimeMetricsForEnvelope(ctx, envelope)
 	intent := RuntimeActivityIntent{Envelope: envelope, TraceContext: envelope.TraceContext}
 	if submit := s.runtimeSideEffects.SubmitRuntimeActivityContext(ctx, intent); submit.Status != RuntimeSideEffectAccepted {
-		runtimeTraceMarkError(span, "runtime_activity_submit_rejected")
-		s.recordRuntimeOutboxEnqueue(ctx, envelope.UsageEvent.OperationName, runtimeOutboxEnqueueNotSubmitted)
 		slog.Error("failed to accept runtime activity telemetry intent", "reason", submit.Reason, "profile_id", envelope.UsageEvent.ProfileID, "ingress_request_id", envelope.UsageEvent.IngressRequestID)
 	}
 }
@@ -857,21 +635,15 @@ func (s *Service) enqueueRuntimeActivityBeforeResponse(plan requestPlan, result 
 	if s == nil || s.runtimeSideEffects == nil {
 		return fmt.Errorf("runtime telemetry outbox unavailable")
 	}
-	ctx := runtimeMetricContext(request)
-	ctx, span := startRuntimeSpan(ctx, "activity.durable_handoff", runtimeTracePlanAttributes(plan)...)
-	defer span.End()
+	ctx := runtimeRequestContext(request)
 	envelope := s.buildRuntimeActivityEnvelope(ctx, plan, result, request, startedAt, responseCapture)
-	if err := s.validateRuntimeActivityHandoff(ctx, span, envelope); err != nil {
+	if err := s.validateRuntimeActivityHandoff(envelope); err != nil {
 		return err
 	}
 	intent := RuntimeActivityIntent{Envelope: envelope, TraceContext: envelope.TraceContext}
 	if err := s.runtimeSideEffects.CommitRuntimeActivityBeforeResponse(ctx, intent); err != nil {
-		runtimeTraceMarkError(span, "runtime_activity_handoff_failed")
-		s.recordRuntimeOutboxEnqueue(ctx, envelope.UsageEvent.OperationName, runtimeOutboxEnqueueFailed)
 		return err
 	}
-	s.recordRuntimeMetricsForEnvelope(ctx, envelope)
-	s.recordRuntimeOutboxEnqueue(ctx, envelope.UsageEvent.OperationName, runtimeOutboxEnqueueAccepted)
 	return nil
 }
 
@@ -879,23 +651,18 @@ func (s *Service) enqueueStreamingRuntimeActivityAcceptedBeforeResponse(plan req
 	if s == nil || s.runtimeSideEffects == nil {
 		return 0, fmt.Errorf("runtime telemetry outbox unavailable")
 	}
-	ctx := runtimeMetricContext(request)
-	ctx, span := startRuntimeSpan(ctx, "activity.stream_accepted_handoff", runtimeTracePlanAttributes(plan)...)
-	defer span.End()
+	ctx := runtimeRequestContext(request)
 	acceptedAt := s.nowUTC()
 	envelope := s.buildRuntimeActivityEnvelope(ctx, plan, result, request, startedAt, runtimeResponseCapture{CompletedAt: &acceptedAt, StreamOutcome: runtimeStreamOutcomeUnknown})
 	envelope.HandoffPhase = runtimeTelemetryHandoffPhaseStreamAccepted
-	if err := s.validateRuntimeActivityHandoff(ctx, span, envelope); err != nil {
+	if err := s.validateRuntimeActivityHandoff(envelope); err != nil {
 		return 0, err
 	}
 	intent := RuntimeActivityIntent{Envelope: envelope, TraceContext: envelope.TraceContext}
 	rowID, err := s.runtimeSideEffects.CommitStreamingRuntimeActivityAcceptedBeforeResponse(ctx, intent)
 	if err != nil {
-		runtimeTraceMarkError(span, "runtime_activity_handoff_failed")
-		s.recordRuntimeOutboxEnqueue(ctx, envelope.UsageEvent.OperationName, runtimeOutboxEnqueueFailed)
 		return 0, err
 	}
-	s.recordRuntimeOutboxEnqueue(ctx, envelope.UsageEvent.OperationName, runtimeOutboxEnqueueAccepted)
 	return rowID, nil
 }
 
@@ -903,30 +670,22 @@ func (s *Service) finalizeStreamingRuntimeActivityBeforeCompletion(acceptedRowID
 	if s == nil || s.runtimeSideEffects == nil {
 		return fmt.Errorf("runtime telemetry outbox unavailable")
 	}
-	ctx := runtimeTraceDetachedContext(runtimeMetricContext(request))
-	ctx, span := startRuntimeSpan(ctx, "activity.stream_terminal_handoff", runtimeTracePlanAttributes(plan)...)
-	defer span.End()
+	ctx := runtimeRequestContext(request)
 	envelope := s.buildRuntimeActivityEnvelope(ctx, plan, result, request, startedAt, responseCapture)
-	if err := s.validateRuntimeActivityHandoff(ctx, span, envelope); err != nil {
+	if err := s.validateRuntimeActivityHandoff(envelope); err != nil {
 		return err
 	}
 	intent := RuntimeActivityIntent{Envelope: envelope, TraceContext: envelope.TraceContext}
 	if err := s.runtimeSideEffects.FinalizeStreamingRuntimeActivityBeforeCompletion(ctx, acceptedRowID, intent); err != nil {
-		runtimeTraceMarkError(span, "runtime_activity_handoff_failed")
-		s.recordRuntimeOutboxEnqueue(ctx, envelope.UsageEvent.OperationName, runtimeOutboxEnqueueFailed)
 		slog.Error("runtime streaming terminal telemetry handoff failed", "error", err, "profile_id", envelope.UsageEvent.ProfileID, "ingress_request_id", envelope.UsageEvent.IngressRequestID)
 		return err
 	}
-	s.recordRuntimeMetricsForEnvelope(ctx, envelope)
-	s.recordRuntimeOutboxEnqueue(ctx, envelope.UsageEvent.OperationName, runtimeOutboxEnqueueAccepted)
 	return nil
 }
 
-func (s *Service) validateRuntimeActivityHandoff(ctx context.Context, span trace.Span, envelope runtimeTelemetryEnvelope) error {
+func (s *Service) validateRuntimeActivityHandoff(envelope runtimeTelemetryEnvelope) error {
 	intent := RuntimeActivityIntent{Envelope: envelope, TraceContext: envelope.TraceContext}
 	if err := intent.validate(); err != nil {
-		runtimeTraceMarkError(span, "runtime_activity_handoff_invalid")
-		s.recordRuntimeOutboxEnqueue(ctx, envelope.UsageEvent.OperationName, runtimeOutboxEnqueueNotSubmitted)
 		return err
 	}
 	return nil
@@ -946,16 +705,11 @@ func (s *Service) recordRuntimePlanningFailure(request *http.Request, startedAt 
 	if !errors.As(err, &runtimeErr) || runtimeErr == nil || runtimeErr.PlanningFailure == nil {
 		return
 	}
-	ctx := runtimeMetricContext(request)
-	ctx, span := startRuntimeSpan(ctx, "activity.record_planning_failure", runtimeTracePlanningFailureAttributes(*runtimeErr.PlanningFailure)...)
-	defer span.End()
+	ctx := runtimeRequestContext(request)
 	envelope := s.buildRuntimePlanningFailureTelemetryEnvelope(*runtimeErr.PlanningFailure, request, startedAt, runtimeErr)
 	envelope.TraceContext = runtimeTraceContextFromContext(ctx)
-	s.recordRuntimeMetricsForEnvelope(ctx, envelope)
 	intent := RuntimeActivityIntent{Envelope: envelope, TraceContext: envelope.TraceContext}
 	if submit := s.runtimeSideEffects.SubmitRuntimeActivityContext(ctx, intent); submit.Status != RuntimeSideEffectAccepted {
-		runtimeTraceMarkError(span, "runtime_activity_submit_rejected")
-		s.recordRuntimeOutboxEnqueue(ctx, envelope.UsageEvent.OperationName, runtimeOutboxEnqueueNotSubmitted)
 		slog.Error("failed to accept runtime planning-failure telemetry intent", "reason", submit.Reason, "profile_id", envelope.UsageEvent.ProfileID, "ingress_request_id", envelope.UsageEvent.IngressRequestID)
 	}
 }
@@ -968,46 +722,20 @@ func (s *Service) recordRuntimeExecutionFailure(plan requestPlan, result executi
 	if !errors.As(err, &runtimeErr) || runtimeErr == nil || runtimeErr.ErrorCode != runtimeAdmissionExhaustedErrorCode {
 		return
 	}
-	ctx := runtimeMetricContext(request)
-	ctx, span := startRuntimeSpan(ctx, "activity.record_execution_failure", runtimeTracePlanAttributes(plan)...)
-	defer span.End()
+	ctx := runtimeRequestContext(request)
 	envelope := s.buildRuntimeExecutionFailureTelemetryEnvelope(plan, result, request, startedAt, runtimeErr)
 	envelope.TraceContext = runtimeTraceContextFromContext(ctx)
-	s.recordRuntimeMetricsForEnvelope(ctx, envelope)
 	intent := RuntimeActivityIntent{Envelope: envelope, TraceContext: envelope.TraceContext}
 	if submit := s.runtimeSideEffects.SubmitRuntimeActivityContext(ctx, intent); submit.Status != RuntimeSideEffectAccepted {
-		runtimeTraceMarkError(span, "runtime_activity_submit_rejected")
-		s.recordRuntimeOutboxEnqueue(ctx, envelope.UsageEvent.OperationName, runtimeOutboxEnqueueNotSubmitted)
 		slog.Error("failed to accept runtime execution-failure telemetry intent", "reason", submit.Reason, "profile_id", envelope.UsageEvent.ProfileID, "ingress_request_id", envelope.UsageEvent.IngressRequestID)
 	}
 }
 
-func runtimeMetricContext(request *http.Request) context.Context {
+func runtimeRequestContext(request *http.Request) context.Context {
 	if request != nil && request.Context() != nil {
 		return request.Context()
 	}
 	return context.Background()
-}
-
-func (s *Service) recordRuntimeMetricsForEnvelope(ctx context.Context, envelope runtimeTelemetryEnvelope) {
-	if s == nil || s.runtimeMetrics == nil {
-		return
-	}
-	s.runtimeMetrics.recordRequest(ctx, envelope.UsageEvent)
-}
-
-func (s *Service) recordRuntimeFeedbackEnqueue(ctx context.Context, operationName string, kind runtimeFeedbackKind, status RuntimeFeedbackEnqueueStatus) {
-	if s == nil || s.runtimeMetrics == nil {
-		return
-	}
-	s.runtimeMetrics.recordFeedbackEnqueue(ctx, operationName, kind, status)
-}
-
-func (s *Service) recordRuntimeOutboxEnqueue(ctx context.Context, operationName string, status string) {
-	if s == nil || s.runtimeMetrics == nil {
-		return
-	}
-	s.runtimeMetrics.recordOutboxEnqueue(ctx, operationName, status)
 }
 
 type runtimeTelemetryPricingTimingContext struct {

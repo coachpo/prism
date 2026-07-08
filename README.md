@@ -18,7 +18,7 @@ Prism fronts multiple LLM API families through explicit runtime operations, lett
 
 ### Observability & management
 
-- **OpenTelemetry operations path**: startup JSON configures OTLP metrics and traces for a Collector or Grafana Alloy pipeline feeding Prometheus/Grafana/Tempo-style operations stacks
+- **Product observability**: retained request history, usage events, spending, request-log detail, and dashboard aggregates are stored in PostgreSQL-backed APIs
 - **Retained request history**: product-facing request logs, spending, usage snapshots, and dashboard aggregates remain in PostgreSQL for `/request-logs` and `/api/stats/*`
 - **Audit logging**: optional request/response body capture with header redaction
 - **Success-rate badges**: Terminal Target health based on recent request data
@@ -217,7 +217,7 @@ The plaintext startup file is edited outside the dashboard. R2 removed the Start
 
 That bootstrap file owns startup values directly. Runtime buffering is automatic and not user-configurable. If an encrypted bootstrap file is still present, replace it before booting.
 
-Operational telemetry is configured through the top-level `telemetry` section in the startup JSON, not through long-lived `OTEL_*` environment variables. Point Prism at an OTLP Collector or Grafana Alloy endpoint from that file, then let Collector/Alloy fan metrics and traces into Prometheus, Grafana, Tempo, or another backend. Prism no longer exposes a backend-local `/metrics` scrape endpoint; retained request-history, spending, usage, and dashboard aggregate APIs remain product-facing PostgreSQL-backed APIs under `/api/stats/*`.
+The top-level startup `telemetry` section is still parsed so existing live `config.json` files keep loading, but Prism no longer starts metrics or tracing exporters from it. Prism does not expose a backend-local `/metrics` scrape endpoint; retained request-history, spending, usage, and dashboard aggregate APIs remain product-facing PostgreSQL-backed APIs under `/api/stats/*`.
 
 Plaintext bootstrap files must include `runtime.transport.requestTimeout`, seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout`, seeded as `"10s"`. Missing either required field fails startup validation by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget. Both values now change only after editing `config.json` and restarting Prism.
 

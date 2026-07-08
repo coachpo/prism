@@ -40,7 +40,7 @@ func TestStartupCreatesLogPartitions(t *testing.T) {
 		t.Fatalf("run startup sequence before production lifecycle: %v", err)
 	}
 
-	app, _, err := lifecycle.NewProductionApp(testContext, productionLifecycleSettings(harness.connectionString(databaseName)), lifecycle.ProductionOptions{})
+	app, _, err := lifecycle.NewProductionApp(testContext, productionLifecycleSettings(harness.connectionString(databaseName)))
 	if err != nil {
 		t.Fatalf("build production app with log partition bootstrap: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestStartupFailsWhenLogPartitionBootstrapFails(t *testing.T) {
 		t.Fatalf("break request_logs partition root: %v", err)
 	}
 
-	app, server, err := lifecycle.NewProductionApp(testContext, productionLifecycleSettings(harness.connectionString(databaseName)), lifecycle.ProductionOptions{})
+	app, server, err := lifecycle.NewProductionApp(testContext, productionLifecycleSettings(harness.connectionString(databaseName)))
 	if err == nil {
 		if app != nil {
 			_ = app.Shutdown(context.Background())

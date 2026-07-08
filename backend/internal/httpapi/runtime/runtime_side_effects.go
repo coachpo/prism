@@ -8,7 +8,6 @@ import (
 	"time"
 
 	gatewayaccounting "github.com/coachpo/prism/backend/internal/gateway/accounting"
-	"github.com/coachpo/prism/backend/internal/platform/asyncmetrics"
 	"github.com/coachpo/prism/backend/internal/platform/background"
 )
 
@@ -99,9 +98,6 @@ func (m *RuntimeSideEffectManager) SubmitRuntimeActivity(intent RuntimeActivityI
 }
 
 func (m *RuntimeSideEffectManager) SubmitRuntimeActivityContext(ctx context.Context, intent RuntimeActivityIntent) RuntimeSideEffectSubmitResult {
-	ctx = runtimeTraceDetachedContext(ctx)
-	ctx, span := startRuntimeSpan(ctx, "side_effect.submit", runtimeTraceEnvelopeAttributes(intent.Envelope)...)
-	defer span.End()
 	if intent.TraceContext.empty() {
 		intent.TraceContext = runtimeTraceContextFromContext(ctx)
 	}
@@ -109,33 +105,23 @@ func (m *RuntimeSideEffectManager) SubmitRuntimeActivityContext(ctx context.Cont
 		intent.Envelope.TraceContext = intent.TraceContext
 	}
 	if m == nil || m.scheduler == nil {
-		runtimeTraceMarkError(span, "side_effect_submit_rejected")
-		asyncmetrics.RecordOutcome(ctx, "runtime_side_effect_manager", "submit", asyncmetrics.OutcomeUnavailable)
 		return m.observeSubmit(RuntimeSideEffectSubmitResult{Status: RuntimeSideEffectRejected, Reason: "side_effect_manager_unavailable"})
 	}
 	if err := intent.validate(); err != nil {
-		runtimeTraceMarkError(span, "side_effect_submit_rejected")
-		asyncmetrics.RecordOutcome(ctx, "runtime_side_effect_manager", "submit", asyncmetrics.OutcomeInvalid)
 		return m.observeSubmit(RuntimeSideEffectSubmitResult{Status: RuntimeSideEffectRejected, Reason: err.Error()})
 	}
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
-		runtimeTraceMarkError(span, "side_effect_submit_rejected")
-		asyncmetrics.RecordOutcome(ctx, "runtime_side_effect_manager", "submit", asyncmetrics.OutcomeUnavailable)
 		return m.observeSubmit(RuntimeSideEffectSubmitResult{Status: RuntimeSideEffectRejected, Reason: "side_effect_manager_closed"})
 	}
 	m.pending++
-	asyncmetrics.RecordQueueDepth(ctx, "runtime_side_effect_manager", "pending", int64(m.pending))
 	m.mu.Unlock()
 	result := m.scheduler.Submit(ctx, background.JobRequest{Worker: runtimeSideEffectsWorkerName, Payload: intent.clone()})
 	if result.Status != background.SubmitAccepted {
 		m.finishIntent()
-		runtimeTraceMarkError(span, "side_effect_submit_rejected")
-		asyncmetrics.RecordOutcome(ctx, "runtime_side_effect_manager", "submit", asyncmetrics.OutcomeBackpressure)
 		return m.observeSubmit(RuntimeSideEffectSubmitResult{Status: RuntimeSideEffectRejected, Reason: string(result.Status)})
 	}
-	asyncmetrics.RecordOutcome(ctx, "runtime_side_effect_manager", "submit", asyncmetrics.OutcomeAccepted)
 	return m.observeSubmit(RuntimeSideEffectSubmitResult{Status: RuntimeSideEffectAccepted, Reason: "accepted"})
 }
 
@@ -200,64 +186,41 @@ func (m *RuntimeSideEffectManager) Close() RuntimeSideEffectCloseResult {
 		pending := m.pendingCount()
 		if pending == 0 {
 			elapsed := time.Since(startedAt)
-			asyncmetrics.RecordDuration(context.Background(), "runtime_side_effect_manager", "close", asyncmetrics.OutcomeSuccess, elapsed)
 			return RuntimeSideEffectCloseResult{Drained: true, Elapsed: elapsed}
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	pending := m.pendingCount()
 	elapsed := time.Since(startedAt)
-	outcome := asyncmetrics.OutcomeSuccess
-	if pending > 0 {
-		outcome = asyncmetrics.OutcomeTimeout
-	}
-	asyncmetrics.RecordQueueDepth(context.Background(), "runtime_side_effect_manager", "pending", int64(pending))
-	asyncmetrics.RecordDuration(context.Background(), "runtime_side_effect_manager", "close", outcome, elapsed)
 	return RuntimeSideEffectCloseResult{TimedOut: pending > 0, Pending: pending, ForcedAbandoned: pending, Elapsed: elapsed}
 }
 
 func (m *RuntimeSideEffectManager) handleRuntimeActivity(ctx context.Context, job background.Job) background.JobResult {
-	startedAt := time.Now()
-	asyncmetrics.AddInflight(ctx, "runtime_side_effect_manager", "commit_runtime_activity", 1)
-	defer asyncmetrics.AddInflight(ctx, "runtime_side_effect_manager", "commit_runtime_activity", -1)
 	intent, ok := job.Payload.(RuntimeActivityIntent)
 	if !ok {
 		m.finishIntent()
-		asyncmetrics.RecordDuration(ctx, "runtime_side_effect_manager", "commit_runtime_activity", asyncmetrics.OutcomeInvalid, time.Since(startedAt))
 		return background.JobResult{Status: background.JobSucceeded}
 	}
 	ctx = intent.TraceContext.context(ctx)
-	ctx, span := startRuntimeSpan(ctx, "side_effect.commit", runtimeTraceEnvelopeAttributes(intent.Envelope)...)
-	defer span.End()
 	if err := intent.validate(); err != nil {
-		runtimeTraceMarkError(span, "invalid_payload")
 		m.terminalFailure(intent, err)
 		m.finishIntent()
-		asyncmetrics.RecordDuration(ctx, "runtime_side_effect_manager", "commit_runtime_activity", asyncmetrics.OutcomeInvalid, time.Since(startedAt))
 		return background.JobResult{Status: background.JobSucceeded}
 	}
 	attemptCtx, cancel := context.WithTimeout(ctx, m.options.AttemptTimeout)
 	defer cancel()
 	if err := m.outbox.Enqueue(attemptCtx, intent.Envelope); err != nil {
-		runtimeTraceMarkError(span, "side_effect_commit_failed")
-		asyncmetrics.RecordOutbound(attemptCtx, "runtime_side_effect_manager", "runtime_telemetry_outbox", asyncmetrics.OutcomeFromError(err), time.Since(startedAt))
 		if job.Attempt < m.options.MaxAttempts {
-			asyncmetrics.RecordRetry(ctx, "runtime_side_effect_manager", "commit_runtime_activity", asyncmetrics.OutcomeRetryScheduled)
-			asyncmetrics.RecordDuration(ctx, "runtime_side_effect_manager", "commit_runtime_activity", asyncmetrics.OutcomeRetryScheduled, time.Since(startedAt))
 			return background.JobResult{Status: background.JobFailed, Err: err, Retry: true}
 		}
-		asyncmetrics.RecordRetry(ctx, "runtime_side_effect_manager", "commit_runtime_activity", asyncmetrics.OutcomeRetryExhausted)
 		m.terminalFailure(intent, err)
 		m.finishIntent()
-		asyncmetrics.RecordDuration(ctx, "runtime_side_effect_manager", "commit_runtime_activity", asyncmetrics.OutcomeFailure, time.Since(startedAt))
 		return background.JobResult{Status: background.JobFailed, Err: err}
 	}
-	asyncmetrics.RecordOutbound(attemptCtx, "runtime_side_effect_manager", "runtime_telemetry_outbox", asyncmetrics.OutcomeSuccess, time.Since(startedAt))
 	if m.options.Hooks != nil && m.options.Hooks.AfterCommit != nil {
 		m.options.Hooks.AfterCommit(intent)
 	}
 	m.finishIntent()
-	asyncmetrics.RecordDuration(ctx, "runtime_side_effect_manager", "commit_runtime_activity", asyncmetrics.OutcomeSuccess, time.Since(startedAt))
 	return background.JobResult{Status: background.JobSucceeded}
 }
 
@@ -269,9 +232,7 @@ func (m *RuntimeSideEffectManager) finishIntent() {
 	if m.pending > 0 {
 		m.pending--
 	}
-	pending := m.pending
 	m.mu.Unlock()
-	asyncmetrics.RecordQueueDepth(context.Background(), "runtime_side_effect_manager", "pending", int64(pending))
 }
 
 func (m *RuntimeSideEffectManager) pendingCount() int {

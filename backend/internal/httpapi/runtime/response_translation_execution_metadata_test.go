@@ -381,7 +381,6 @@ func newResponsesToolsStreamServiceForModel(client *http.Client, modelID string)
 		staticRuntimeProxyConfig:     RuntimeProxyConfigSnapshot{HTTPClient: client},
 		cache:                        cache,
 		runtimeState:                 loadbalancedomain.NewLocalRuntimeStateStore(),
-		runtimeMetrics:               newRuntimeMetrics(),
 		requireDurableSuccessHandoff: false,
 		now:                          fixedResponseHookTestNow,
 	}

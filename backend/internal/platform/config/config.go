@@ -144,6 +144,7 @@ type ManagementAdmissionBudget struct {
 }
 
 type TelemetryConfig struct {
+	// ponytail: telemetry config parsed for live config.json compat; exporters removed
 	Enabled  bool
 	Service  TelemetryServiceConfig
 	Exporter TelemetryExporterConfig

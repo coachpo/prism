@@ -75,7 +75,6 @@ type Service struct {
 	analyticsUpdates             AnalyticsUpdatePublisher
 	cache                        *SharedCache
 	runtimeState                 *loadbalancedomain.LocalRuntimeStateStore
-	runtimeMetrics               *runtimeMetrics
 	requireDurableSuccessHandoff bool
 	telemetryOutbox              *runtimeTelemetryOutbox
 	feedbackPipeline             *runtimeFeedbackPipeline
@@ -142,7 +141,6 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		analyticsUpdates:             options.AnalyticsUpdates,
 		cache:                        options.Cache,
 		runtimeState:                 runtimeState,
-		runtimeMetrics:               newRuntimeMetrics(),
 		requireDurableSuccessHandoff: true,
 	}
 	telemetryOptions := options.TelemetryOutbox
@@ -150,7 +148,6 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 	service.telemetryOutbox = newRuntimeTelemetryOutbox(telemetryPool, service.nowUTC, service.dashboardUpdates, service.analyticsUpdates, logPartitions, telemetryOptions)
 	service.feedbackPipeline = newRuntimeFeedbackPipeline(service.feedbackStore, service.runtimeState, logPartitions, options.FeedbackPipeline)
 	sideEffectOptions := options.SideEffects
-	sideEffectOptions.Hooks = service.runtimeMetricSideEffectHooks(options.SideEffects.Hooks)
 	service.runtimeSideEffects = NewRuntimeSideEffectManager(service.telemetryOutbox, sideEffectOptions)
 	if options.Scheduler == nil {
 		if err := service.RegisterBackgroundWorkers(scheduler); err != nil {
@@ -162,28 +159,6 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		service.ownedScheduler = scheduler
 	}
 	return service, nil
-}
-
-func (s *Service) runtimeMetricSideEffectHooks(existing *RuntimeSideEffectHooks) *RuntimeSideEffectHooks {
-	return &RuntimeSideEffectHooks{
-		AfterSubmit: func(result RuntimeSideEffectSubmitResult) {
-			if existing != nil && existing.AfterSubmit != nil {
-				existing.AfterSubmit(result)
-			}
-		},
-		AfterCommit: func(intent RuntimeActivityIntent) {
-			s.recordRuntimeOutboxEnqueue(intent.TraceContext.context(context.Background()), intent.Envelope.UsageEvent.OperationName, runtimeOutboxEnqueueAccepted)
-			if existing != nil && existing.AfterCommit != nil {
-				existing.AfterCommit(intent)
-			}
-		},
-		TerminalFailure: func(intent RuntimeActivityIntent, err error) {
-			s.recordRuntimeOutboxEnqueue(intent.TraceContext.context(context.Background()), intent.Envelope.UsageEvent.OperationName, runtimeOutboxEnqueueFailed)
-			if existing != nil && existing.TerminalFailure != nil {
-				existing.TerminalFailure(intent, err)
-			}
-		},
-	}
 }
 
 func (s *Service) RegisterBackgroundWorkers(scheduler *background.Scheduler) error {
@@ -341,33 +316,19 @@ func resolveRuntimeOperationAtIngress(method string, requestPath string) (*Runti
 }
 
 func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
-	ctx, requestSpan := startRuntimeSpan(r.Context(), "request")
-	r = r.WithContext(ctx)
-	defer requestSpan.End()
 	if r.Body != nil {
 		defer func() { _ = r.Body.Close() }()
 	}
-	resolveCtx, resolveSpan := startRuntimeSpan(r.Context(), "operation.resolve")
-	r = r.WithContext(resolveCtx)
 	operationMatch, allowedMethods := resolveRuntimeOperationAtIngress(r.Method, r.URL.Path)
 	if len(allowedMethods) > 0 {
-		runtimeTraceMarkError(resolveSpan, "method_not_allowed")
-		resolveSpan.End()
-		runtimeTraceMarkError(requestSpan, "method_not_allowed")
 		w.Header().Set("Allow", strings.Join(allowedMethods, ", "))
 		writeError(w, http.StatusMethodNotAllowed, "", runtimeOperationMethodNotAllowedDetail, nil)
 		return
 	}
 	if operationMatch == nil {
-		runtimeTraceMarkError(resolveSpan, "operation_not_found")
-		resolveSpan.End()
-		runtimeTraceMarkError(requestSpan, "operation_not_found")
 		writeError(w, http.StatusNotFound, "", runtimeOperationNotFoundDetail, nil)
 		return
 	}
-	resolveSpan.SetAttributes(runtimeTraceOperationAttributes(operationMatch.Operation)...)
-	requestSpan.SetAttributes(runtimeTraceOperationAttributes(operationMatch.Operation)...)
-	resolveSpan.End()
 
 	if operationMatch.Operation.Name == runtimeOperationOpenAIModels {
 		s.handleOpenAIModelsList(w, r)
@@ -376,7 +337,6 @@ func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
 
 	requestBodyLimit := runtimeRequestBodyLimitBytes(operationMatch.Operation, r.Header.Get("Content-Type"))
 	if !limitRuntimeRequestBody(w, r, requestBodyLimit) {
-		runtimeTraceMarkError(requestSpan, bodylimits.RequestBodyTooLargeCode)
 		return
 	}
 
@@ -386,7 +346,6 @@ func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
 		plan, err := s.buildProxyRequestPlan(r, nil, runtimeConfig, *operationMatch)
 		if err != nil {
 			s.recordRuntimePlanningFailure(r, planningStartedAt, err)
-			runtimeTraceMarkError(requestSpan, "request_plan_failed")
 			writeDomainError(w, err)
 			return
 		}
@@ -401,7 +360,6 @@ func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	rawBody, err := readBufferedRequestBody(r.Body)
 	if err != nil {
-		runtimeTraceMarkError(requestSpan, "request_plan_failed")
 		if bodylimits.WriteMaxBytesError(w, err, requestBodyLimit) {
 			return
 		}
@@ -411,7 +369,6 @@ func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
 	plan, err := s.buildProxyRequestPlan(r, rawBody, runtimeConfig, *operationMatch)
 	if err != nil {
 		s.recordRuntimePlanningFailure(r, planningStartedAt, err)
-		runtimeTraceMarkError(requestSpan, "request_plan_failed")
 		writeDomainError(w, err)
 		return
 	}
@@ -476,7 +433,6 @@ func (s *Service) handlePlannedProxy(w http.ResponseWriter, r *http.Request, pla
 	execution, err := s.executeRequest(r.Context(), r.Method, plan, r.URL.RawQuery, bodySource)
 	if err != nil {
 		s.recordRuntimeExecutionFailure(plan, execution, r, startedAt, err)
-		runtimeTraceMarkContextError(r.Context(), "runtime_execute_failed")
 		writeDomainError(w, err)
 		return
 	}
@@ -485,11 +441,7 @@ func (s *Service) handlePlannedProxy(w http.ResponseWriter, r *http.Request, pla
 }
 
 func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, plan requestPlan, execution executionResult, startedAt time.Time) {
-	ctx, responseSpan := startRuntimeSpan(r.Context(), "response.handle", runtimeTracePlanAttributes(plan)...)
-	r = r.WithContext(ctx)
-	defer responseSpan.End()
 	proxyWriter := newRuntimeDeferredCommitWriter(w)
-	runtimeTraceSetStatusCode(responseSpan, execution.Response.StatusCode)
 
 	var responseCapture runtimeResponseCapture
 	contentType := strings.ToLower(strings.TrimSpace(execution.Response.Header.Get("Content-Type")))
@@ -505,7 +457,6 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 				if s.runtimeResponseRequiresDurableHandoff(execution) {
 					rowID, err := s.enqueueStreamingRuntimeActivityAcceptedBeforeResponse(plan, execution, r, startedAt)
 					if err != nil {
-						runtimeTraceMarkError(responseSpan, "runtime_activity_handoff_failed")
 						writeRuntimeObservabilityHandoffError(w)
 						return
 					}
@@ -514,13 +465,10 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 				}
 				responseCapture, streamErr := proxyEventStreamAndCaptureCompletedResponseForFinalAttemptWithRequestBodies(plan.RuntimeOperation, finalResponseTranslation, plan.RawRequestBody, plan.UpstreamBody, r.Context(), proxyWriter, execution.Response.Body, s.nowUTC, captureAuditBody)
 				if streamErr != nil {
-					runtimeTraceMarkError(responseSpan, "response_handle_failed")
 					slog.Debug("runtime stream proxy ended with classified error", "error", streamErr, "stream_outcome", responseCapture.StreamOutcome)
 				}
-				runtimeTraceSetStreamOutcome(responseSpan, responseCapture.StreamOutcome)
 				if acceptedRowID > 0 {
 					if err := s.finalizeStreamingRuntimeActivityBeforeCompletion(acceptedRowID, plan, execution, r, startedAt, responseCapture); err != nil {
-						runtimeTraceMarkError(responseSpan, "runtime_activity_handoff_failed")
 						writeRuntimeObservabilityHandoffStreamError(proxyWriter)
 						return
 					}
@@ -534,7 +482,6 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 			var translatedStream bytes.Buffer
 			responseCapture, streamErr := proxyEventStreamAndCaptureCompletedResponseForFinalAttemptWithRequestBodies(plan.RuntimeOperation, finalResponseTranslation, plan.RawRequestBody, plan.UpstreamBody, r.Context(), &translatedStream, execution.Response.Body, s.nowUTC, captureAuditBody)
 			if streamErr != nil {
-				runtimeTraceMarkError(responseSpan, "response_handle_failed")
 				slog.Debug("runtime translated stream proxy failed", "error", streamErr, "stream_outcome", responseCapture.StreamOutcome)
 				writeTranslatedOpenAIError(w, streamErr, "Failed to translate upstream stream")
 				return
@@ -543,7 +490,6 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 			proxyWriter.WriteHeader(execution.Response.StatusCode)
 			if s.runtimeResponseRequiresDurableHandoff(execution) {
 				if err := s.enqueueRuntimeActivityBeforeResponse(plan, execution, r, startedAt, responseCapture); err != nil {
-					runtimeTraceMarkError(responseSpan, "runtime_activity_handoff_failed")
 					writeRuntimeObservabilityHandoffError(w)
 					return
 				}
@@ -551,10 +497,8 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 				s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
 			}
 			if _, err := proxyWriter.Write(translatedStream.Bytes()); err != nil {
-				runtimeTraceMarkError(responseSpan, "response_handle_failed")
 				return
 			}
-			runtimeTraceSetStreamOutcome(responseSpan, responseCapture.StreamOutcome)
 			proxyWriter.Commit()
 			return
 		}
@@ -566,7 +510,6 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 		if s.runtimeResponseRequiresDurableHandoff(execution) {
 			rowID, err := s.enqueueStreamingRuntimeActivityAcceptedBeforeResponse(plan, execution, r, startedAt)
 			if err != nil {
-				runtimeTraceMarkError(responseSpan, "runtime_activity_handoff_failed")
 				writeRuntimeObservabilityHandoffError(w)
 				return
 			}
@@ -576,16 +519,13 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 		passthroughCapture, passthroughErr := proxyNonEventResponseAndCaptureByOperation(plan.RuntimeOperation, translationMode, proxyWriter, execution.Response.Body, contentType, s.nowUTC, captureAuditBody)
 		responseCapture = passthroughCapture
 		if passthroughErr != nil {
-			runtimeTraceMarkError(responseSpan, "response_handle_failed")
 			if !proxyWriter.Committed() {
 				writeError(w, http.StatusBadGateway, "", "Failed to read upstream response", nil)
 				return
 			}
 		}
-		runtimeTraceSetStreamOutcome(responseSpan, responseCapture.StreamOutcome)
 		if acceptedRowID > 0 {
 			if err := s.finalizeStreamingRuntimeActivityBeforeCompletion(acceptedRowID, plan, execution, r, startedAt, responseCapture); err != nil {
-				runtimeTraceMarkError(responseSpan, "runtime_activity_handoff_failed")
 				return
 			}
 		} else {
@@ -596,7 +536,6 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 	}
 	sourceRawBody, err := readAndCloseRuntimeResponseBody(execution.Response)
 	if err != nil {
-		runtimeTraceMarkError(responseSpan, "response_handle_failed")
 		if translationMode != "" && translationMode != TranslationModeNone {
 			writeDomainError(w, openAITranslatedUpstreamResponseReadFailedDomainError(plan.RuntimeOperation, translationMode))
 			return
@@ -610,7 +549,6 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 	finalResponseTranslation = finalResponseTranslationForSerialization(finalPlan, finalExecution)
 	responseCapture, err = s.writeBufferedNonStreamResponse(proxyWriter, finalPlan, finalExecution, finalResponseTranslation, finalRawBody)
 	if err != nil {
-		runtimeTraceMarkError(responseSpan, "response_handle_failed")
 		var domainErr *domainError
 		if errors.As(err, &domainErr) && domainErr != nil {
 			writeTranslatedOpenAIError(w, err, "Failed to translate upstream response")
@@ -621,10 +559,8 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 		}
 		return
 	}
-	runtimeTraceSetStreamOutcome(responseSpan, responseCapture.StreamOutcome)
 	if s.runtimeResponseRequiresDurableHandoff(finalExecution) {
 		if err := s.enqueueRuntimeActivityBeforeResponse(finalPlan, finalExecution, r, startedAt, responseCapture); err != nil {
-			runtimeTraceMarkError(responseSpan, "runtime_activity_handoff_failed")
 			writeRuntimeObservabilityHandoffError(w)
 			return
 		}

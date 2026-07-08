@@ -24,7 +24,7 @@ httpapi/
 - Management settings leaf and package routes: `management/settings/AGENTS.md`, `management/settings/`
 - Proxy-key usage capture: `proxykeyusage/`
 - Request-context helpers shared across mounted handlers: `requestcontext/`
-- Router mounting and OTLP-first operations telemetry: `../platform/http/server.go`, `../platform/telemetry/`, `../platform/db/telemetry.go`
+- Router mounting and request admission: `../platform/http/server.go`, `../platform/http/management_branch.go`, `../platform/http/runtime_branch.go`
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
@@ -38,7 +38,7 @@ httpapi/
 - Keep request-log and dashboard materialization off the hot request path by using runtime telemetry outboxes and realtime publishers.
 - Keep runtime partition creation on `runtime/log_partitions.go` and `platform/logretention.Store`; handlers should not create or drop partitions directly.
 - Keep log-retention settings global in `management/settings/`, with cleanup triggered through low-priority management jobs instead of request-path cleanup.
-- Keep operations telemetry on startup-JSON OTLP providers; do not reintroduce a backend-local `/metrics` compatibility endpoint. Stats handlers under management remain product-facing retained-history APIs.
+- Do not reintroduce backend-local operations telemetry exporters or a `/metrics` compatibility endpoint. Stats handlers under management remain product-facing retained-history APIs.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 

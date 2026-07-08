@@ -110,7 +110,6 @@ func OpenDatabasePools(ctx context.Context, databaseURL string, budget config.Po
 		closeCreatedLanePools(created)
 		return nil, err
 	}
-	pools.registerTelemetry()
 	return pools, nil
 }
 
@@ -127,7 +126,6 @@ func (p *DatabasePools) Close() {
 		return
 	}
 	p.closeOnce.Do(func() {
-		p.unregisterTelemetry()
 		for _, lanePool := range []LanePool{p.BackgroundJobs, p.CacheRefresh, p.Realtime, p.RuntimeFeedback, p.RuntimeTelemetry, p.RuntimeExecution, p.Management} {
 			closeLanePool(lanePool)
 		}
@@ -160,20 +158,16 @@ func (p *DatabasePools) Metrics() []PoolMetricSnapshot {
 }
 
 func openLanePool(ctx context.Context, databaseURL string, lane config.PostgresPoolLane, budget config.DatabasePoolBudget) (*pgxpool.Pool, error) {
-	ctx, finishTelemetry := startPoolCreateTelemetry(ctx, lane)
 	parsedConfig, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
-		finishTelemetry(err)
 		return nil, fmt.Errorf("parse postgres pool config lane=%s: %w", lane, err)
 	}
 	parsedConfig.MaxConns = budget.MaxConns
 	parsedConfig.MinIdleConns = budget.MinIdleConns
 	pool, err := pgxpool.NewWithConfig(ctx, parsedConfig)
-	finishTelemetry(err)
 	if err != nil {
 		return nil, fmt.Errorf("create postgres pool lane=%s: %w", lane, err)
 	}
-	registerLanePoolTelemetry(pool, lane)
 	slog.Info("postgres pool created", "lane", lane, "max_conns", budget.MaxConns, "min_idle_conns", budget.MinIdleConns)
 	return pool, nil
 }
@@ -188,7 +182,6 @@ func closeLanePool(pool LanePool) {
 	if pool.pool == nil {
 		return
 	}
-	unregisterLanePoolTelemetry(pool.pool)
 	startedAt := time.Now()
 	pool.pool.Close()
 	slog.Info("closed postgres pool", "lane", pool.lane, "elapsed", time.Since(startedAt))

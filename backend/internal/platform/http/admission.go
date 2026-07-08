@@ -176,7 +176,6 @@ func (c *managementAdmissionController) Middleware(next http.Handler) http.Handl
 			controller = c.provider.AdmissionSnapshot().Controller()
 		}
 		requestContext, release, err := controller.Admit(r.Context(), routeSpec.AdmissionSpec())
-		recordAdmissionDecision(r.Context(), httpTelemetryBranchManagement, string(routeSpec.tier), err)
 		if err != nil {
 			writeAdmissionError(w, err)
 			return
@@ -210,7 +209,6 @@ func proxyAdmissionProviderMiddleware(provider hotAdmissionProvider, fallbackCon
 			Timeout:  timeout,
 		}
 		requestContext, release, err := controller.Admit(r.Context(), spec)
-		recordAdmissionDecision(r.Context(), httpTelemetryBranchRuntime, admissionTelemetryTierNone, err)
 		if err != nil {
 			writeAdmissionError(w, err)
 			return

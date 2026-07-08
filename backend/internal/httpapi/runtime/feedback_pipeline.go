@@ -11,7 +11,6 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
-	"github.com/coachpo/prism/backend/internal/platform/asyncmetrics"
 	"github.com/coachpo/prism/backend/internal/platform/background"
 )
 
@@ -117,42 +116,25 @@ func (p *runtimeFeedbackPipeline) TryEnqueue(event runtimeFeedbackEvent) Runtime
 }
 
 func (p *runtimeFeedbackPipeline) TryEnqueueContext(ctx context.Context, event runtimeFeedbackEvent) RuntimeFeedbackEnqueueResult {
-	ctx = runtimeTraceDetachedContext(ctx)
-	ctx, span := startRuntimeSpan(ctx, "feedback.enqueue", runtimeTraceFeedbackAttributes(event)...)
-	defer span.End()
 	if event.TraceContext.empty() {
 		event.TraceContext = runtimeTraceContextFromContext(ctx)
 	}
 	if p == nil || p.scheduler == nil {
-		runtimeTraceSetFeedbackStatus(span, RuntimeFeedbackDroppedUnavailable)
-		runtimeTraceMarkError(span, "feedback_enqueue_failed")
-		asyncmetrics.RecordOutcome(ctx, "runtime_feedback_pipeline", "enqueue", asyncmetrics.OutcomeUnavailable)
 		return p.observeEnqueue(RuntimeFeedbackEnqueueResult{Status: RuntimeFeedbackDroppedUnavailable, Reason: "pipeline_unavailable"})
 	}
 	if err := event.validate(); err != nil {
-		runtimeTraceSetFeedbackStatus(span, RuntimeFeedbackDroppedInvalid)
-		runtimeTraceMarkError(span, "feedback_enqueue_failed")
-		asyncmetrics.RecordOutcome(ctx, "runtime_feedback_pipeline", "enqueue", asyncmetrics.OutcomeInvalid)
 		return p.observeEnqueue(RuntimeFeedbackEnqueueResult{Status: RuntimeFeedbackDroppedInvalid, Reason: err.Error()})
 	}
 	p.mu.Lock()
 	closed := p.closed
 	p.mu.Unlock()
 	if closed {
-		runtimeTraceSetFeedbackStatus(span, RuntimeFeedbackDroppedUnavailable)
-		runtimeTraceMarkError(span, "feedback_enqueue_failed")
-		asyncmetrics.RecordOutcome(ctx, "runtime_feedback_pipeline", "enqueue", asyncmetrics.OutcomeUnavailable)
 		return p.observeEnqueue(RuntimeFeedbackEnqueueResult{Status: RuntimeFeedbackDroppedUnavailable, Reason: "pipeline_closed"})
 	}
 	result := p.scheduler.Submit(ctx, background.JobRequest{Worker: runtimeFeedbackWorkerName, Payload: event})
 	if result.Status != background.SubmitAccepted {
-		runtimeTraceSetFeedbackStatus(span, RuntimeFeedbackDroppedBackpressure)
-		runtimeTraceMarkError(span, "feedback_enqueue_failed")
-		asyncmetrics.RecordOutcome(ctx, "runtime_feedback_pipeline", "enqueue", asyncmetrics.OutcomeBackpressure)
 		return p.observeEnqueue(RuntimeFeedbackEnqueueResult{Status: RuntimeFeedbackDroppedBackpressure, Reason: string(result.Status)})
 	}
-	runtimeTraceSetFeedbackStatus(span, RuntimeFeedbackAccepted)
-	asyncmetrics.RecordOutcome(ctx, "runtime_feedback_pipeline", "enqueue", asyncmetrics.OutcomeAccepted)
 	return p.observeEnqueue(RuntimeFeedbackEnqueueResult{Status: RuntimeFeedbackAccepted, Reason: "accepted"})
 }
 
@@ -166,29 +148,20 @@ func (p *runtimeFeedbackPipeline) Close() {
 }
 
 func (p *runtimeFeedbackPipeline) handleScheduledFeedback(ctx context.Context, job background.Job) background.JobResult {
-	startedAt := time.Now()
-	asyncmetrics.AddInflight(ctx, "runtime_feedback_pipeline", "write", 1)
-	defer asyncmetrics.AddInflight(ctx, "runtime_feedback_pipeline", "write", -1)
 	event, ok := job.Payload.(runtimeFeedbackEvent)
 	if !ok {
 		p.observeWrite(RuntimeFeedbackWriteResult{Success: false, Err: fmt.Errorf("invalid runtime feedback payload")})
-		asyncmetrics.RecordDuration(ctx, "runtime_feedback_pipeline", "write", asyncmetrics.OutcomeInvalid, time.Since(startedAt))
 		return background.JobResult{Status: background.JobSucceeded}
 	}
 	ctx = event.TraceContext.context(ctx)
-	ctx, span := startRuntimeSpan(ctx, "feedback.write", runtimeTraceFeedbackAttributes(event)...)
-	defer span.End()
 	writeCtx, cancel := context.WithTimeout(ctx, p.options.WriteTimeout)
 	defer cancel()
 	if err := p.persist(writeCtx, event); err != nil {
-		runtimeTraceMarkError(span, "feedback_write_failed")
 		p.observeWrite(RuntimeFeedbackWriteResult{Success: false, Kind: event.Kind, Err: err})
-		asyncmetrics.RecordDuration(ctx, "runtime_feedback_pipeline", runtimeFeedbackMetricOperation(event.Kind), asyncmetrics.OutcomeFailure, time.Since(startedAt))
 		slog.Warn("runtime feedback write failed", "kind", event.Kind, "profile_id", event.ProfileID, "connection_id", event.ConnectionID, "error", err)
 		return background.JobResult{Status: background.JobSucceeded}
 	}
 	p.observeWrite(RuntimeFeedbackWriteResult{Success: true, Kind: event.Kind})
-	asyncmetrics.RecordDuration(ctx, "runtime_feedback_pipeline", runtimeFeedbackMetricOperation(event.Kind), asyncmetrics.OutcomeSuccess, time.Since(startedAt))
 	return background.JobResult{Status: background.JobSucceeded}
 }
 
@@ -274,13 +247,4 @@ func normalizeRuntimeFeedbackPipelineOptions(options RuntimeFeedbackPipelineOpti
 		options.WriteTimeout = defaultRuntimeFeedbackWriteTimeout
 	}
 	return options
-}
-
-func runtimeFeedbackMetricOperation(kind runtimeFeedbackKind) string {
-	switch kind {
-	case runtimeFeedbackAdmissionRejected, runtimeFeedbackUnbanned, runtimeFeedbackSuccessRecovery, runtimeFeedbackFailoverHTTP, runtimeFeedbackTransportFailure:
-		return string(kind)
-	default:
-		return "unknown_feedback"
-	}
 }

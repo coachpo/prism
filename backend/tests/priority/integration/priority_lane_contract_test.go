@@ -12,7 +12,7 @@ import (
 )
 
 func TestPriorityLaneContract(t *testing.T) {
-	t.Run("physical lanes and OTLP metrics labels are explicit", func(t *testing.T) {
+	t.Run("physical lanes are explicit", func(t *testing.T) {
 		lanes := platformdb.ComponentLaneAssignments()
 		for _, lane := range []config.PostgresPoolLane{config.PostgresLaneRuntimeExecution, config.PostgresLaneRuntimeTelemetry, config.PostgresLaneRuntimeFeedback, config.PostgresLaneManagement, config.PostgresLaneRealtime, config.PostgresLaneCacheRefresh, config.PostgresLaneBackgroundJobs} {
 			if got, ok := lanes[string(lane)]; !ok || got != lane {
@@ -20,15 +20,9 @@ func TestPriorityLaneContract(t *testing.T) {
 			}
 		}
 		dbSource := readBackendFile(t, "internal/platform/db/pools.go")
-		dbTelemetrySource := readBackendFile(t, "internal/platform/db/telemetry.go")
 		for _, marker := range []string{"PoolMetricSnapshot", "AcquireTimeoutCount", "postgres pool budget"} {
 			if !strings.Contains(dbSource, marker) {
 				t.Fatalf("db pool metrics/budget source missing %q", marker)
-			}
-		}
-		for _, marker := range []string{"prism.db.pool.acquired_connections", "prism.db.pool.max_connections", `attribute.String("lane"`} {
-			if !strings.Contains(dbTelemetrySource, marker) {
-				t.Fatalf("db pool OTLP telemetry source missing %q", marker)
 			}
 		}
 	})

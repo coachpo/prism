@@ -250,7 +250,7 @@ func TestRunLogsStartupStepAndMigrationOutcome(t *testing.T) {
 			return startup.Result{Migration: migrate.Result{Outcome: migrate.OutcomeNoop}}, nil
 		}}, nil
 	}
-	newPlatformApp = func(ctx context.Context, settings config.Settings, options lifecycle.ProductionOptions) (*lifecycle.App, *http.Server, error) {
+	newPlatformApp = func(ctx context.Context, settings config.Settings) (*lifecycle.App, *http.Server, error) {
 		server := &http.Server{Addr: "127.0.0.1:0"}
 		app := lifecycle.NewApp(lifecycle.Options{HTTPServer: fakeLifecycleHTTPServer{serveErr: http.ErrServerClosed}})
 		return app, server, nil
@@ -284,7 +284,7 @@ func TestRunContextCancellationShutsDownLifecycleAppWithoutExit(t *testing.T) {
 			return startup.Result{Migration: migrate.Result{Outcome: migrate.OutcomeNoop}}, nil
 		}}, nil
 	}
-	newPlatformApp = func(ctx context.Context, settings config.Settings, options lifecycle.ProductionOptions) (*lifecycle.App, *http.Server, error) {
+	newPlatformApp = func(ctx context.Context, settings config.Settings) (*lifecycle.App, *http.Server, error) {
 		app := lifecycle.NewApp(lifecycle.Options{
 			HTTPServer: server,
 			DBClose: func(context.Context) error {
@@ -330,7 +330,7 @@ func TestRunPrintEffectiveStartupSettingsExcludesStartupLogs(t *testing.T) {
 		t.Fatal("print-effective mode must not build startup service")
 		return nil, nil
 	}
-	newPlatformApp = func(ctx context.Context, settings config.Settings, options lifecycle.ProductionOptions) (*lifecycle.App, *http.Server, error) {
+	newPlatformApp = func(ctx context.Context, settings config.Settings) (*lifecycle.App, *http.Server, error) {
 		t.Fatal("print-effective mode must not build app")
 		return nil, nil, nil
 	}
