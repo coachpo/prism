@@ -1103,6 +1103,11 @@ Query parameters:
 | `limit` | integer | 50 | Result limit; must be positive |
 | `offset` | integer | 0 | Pagination offset |
 
+Frontend request-log route contract:
+- `/observe/requests` defaults to the last 24 hours by deriving `from_time` from `time_range=24h`; generated URLs omit `time_range=24h` because it is the page default.
+- The page's `status=success` URL alias maps to backend `status_family=2xx`; direct `status_family=2xx`, `4xx`, and `5xx` are also supported backend filters.
+- The page CSV export is client-only and exports only the rows already loaded on the current table page. There is no full-range server-side CSV export endpoint.
+
 Response `200`:
 ```json
 {

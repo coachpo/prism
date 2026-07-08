@@ -44,6 +44,10 @@ request-logs/
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation here, prefer manual confirmation over adding dedicated “proves not” tests unless the missing request-log surface is itself a shipped contract or guardrail.
 - Treat URL as the source of truth for the retained browse filters to support deep-linking.
+- Keep request-log browse defaults on the URL contract: `time_range=24h` is the page default and is omitted from generated default URLs.
+- Keep status URL aliases and backend filters aligned: `status=success` round-trips to `status_family=2xx`, while `status=client_error` and `status=error` map to `4xx` and `5xx`.
+- Keep `status_code` as an exact numeric status filter and `error_text` as the backend `error_detail ILIKE` substring filter.
+- Keep CSV export client-only and scoped to currently loaded table rows; page sizes are capped by `PAGE_SIZE_OPTIONS`, so full-range export needs a backend endpoint first.
 - Keep audit payload fetching isolated to the dedicated full audit page. The overview drawer must not fetch audit payloads.
 - Use exact-request mode (`request_id`) to switch from paginated browsing to a single-request investigation workflow, and keep that mode local to the request-logs page.
 - Keep retained browse filtering on `ingress_request_id`, `model_id`, `endpoint_id`, `client_rule_id`, `resolved_target_model_id`, `status_family`, `status_code`, `error_text`, and `time_range`.

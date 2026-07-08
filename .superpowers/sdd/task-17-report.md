@@ -76,3 +76,12 @@ These failures are outside the Task 17 request-log filter/default/export surface
 - `frontend/src/pages/statistics/usageStatisticsStorage.ts`
 - `frontend/src/test/route-helpers.test.ts`
 - `frontend/tests/lib/request_log_filter_state_contract.test.mjs`
+
+## Reviewer Follow-up - 2026-07-08
+Summary:
+- Clarified `docs/API_SPEC.md` with the `/observe/requests` page default `time_range=24h` behavior, omitted default URL param, `status=success` to backend `status_family=2xx` mapping, and client-only current-page CSV export boundary.
+- Clarified `frontend/src/pages/request-logs/AGENTS.md` with the same request-log page contracts plus exact `status_code` and `error_text` to `error_detail ILIKE` ownership.
+
+Verification:
+- `rg -n "time_range=24h|status=success|status_family=2xx|current table page|error_detail ILIKE" docs/API_SPEC.md frontend/src/pages/request-logs/AGENTS.md` - PASS.
+- `git diff --check` - PASS.
