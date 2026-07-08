@@ -24,7 +24,7 @@ Validated again against current repo surfaces on 2026-07-07:
 
 ## Shared Scope Rules
 
-- Public auth routes are `/auth/login`; legacy `/login` redirects there.
+- Public auth routes are `/auth/login`.
 - Protected shell routes cover `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/route/pricing`, `/system/settings`, and `/control/proxy-keys`; analytics is under `/observe?tab=analytics`.
 - `selectedProfile` controls profile-scoped management requests through `X-Profile-Id`.
 - Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/profiles/*`, `/api/settings/auth*`, `/api/realtime/ws`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.

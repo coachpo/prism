@@ -29,7 +29,7 @@
 - Keep partitioned log tests aligned with `internal/platform/logretention/`, runtime partition ensuring, and the baseline migration `000001_initial_schema.sql`.
 - Keep hard-delete guardrail tests aligned with model CRUD validation, runtime request-log final-target attribution, and the live baseline migration.
 - Keep Dockerfile contract tests aligned with non-root `prism:prism` execution, `/app/config` ownership, and `/app/config/config.json` defaults.
-- Keep bootstrap tests aligned with the plaintext v1 contract: required `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout`, unsupported legacy encrypted files, restart-required external edits, preserved existing valid files, and fail-fast enabled SMTP.
+- Keep bootstrap tests aligned with the plaintext v1 contract: required `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout`, unsupported legacy encrypted files, restart-required external edits, preserved existing valid files, and parse-only mail config compatibility.
 - Keep runtime contract tests aligned with `internal/httpapi/runtime/operations.go`, hook residency, rejected-route isolation, streaming or non-streaming parity, and persisted `operation_name` fields.
 - When changing runtime upstream request/response logic, run both package-local runtime hook tests under `internal/httpapi/runtime` and the external `tests/runtime` suite.
 
