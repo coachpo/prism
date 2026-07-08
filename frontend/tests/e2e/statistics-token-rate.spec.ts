@@ -179,7 +179,6 @@ test.describe("statistics endpoint avg output rate", () => {
       },
       onEndpointModelsRequest: (endpointId) => endpointModelRequests.push(endpointId),
     });
-    await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 
     await page.goto("/observe?tab=analytics");
 
@@ -272,7 +271,6 @@ test.describe("statistics endpoint avg output rate", () => {
         ],
       },
     });
-    await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 
     await page.goto("/observe?tab=analytics");
 

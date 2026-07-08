@@ -71,7 +71,6 @@ async function mockAggregateOverviewRoutes(
 
   await page.addInitScript(
     ({ selectedProfileId }) => {
-      localStorage.setItem("prism.locale", "en");
       if (selectedProfileId) {
         localStorage.setItem("prism.selectedProfileId", String(selectedProfileId));
       }

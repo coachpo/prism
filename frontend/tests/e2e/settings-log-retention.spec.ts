@@ -114,7 +114,6 @@ async function selectCardOption(page: Page, label: string, option: string) {
 }
 
 async function openSettingsGlobalRetention(page: Page) {
-  await page.addInitScript(() => window.localStorage.setItem("prism.locale", "en"));
   await page.goto("/system/settings?tab=global&section=retention-deletion#retention-deletion");
   await expect(page.getByText("Set instance-wide data retention for all profiles and create cleanup jobs with explicit confirmation controls.")).toBeVisible();
   await expect(page.getByText("Choose how long request logs, audit logs, statistics, and load-balance events are retained before cleanup jobs apply.")).toBeVisible();

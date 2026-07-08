@@ -260,8 +260,6 @@ async function mockRequestLogRoutes(page: Page) {
 
     return fulfillJson({}, 404);
   });
-
-  await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 }
 
 function overviewValue(page: Page, label: string) {

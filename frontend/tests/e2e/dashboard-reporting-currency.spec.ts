@@ -95,8 +95,6 @@ async function mockDashboardRoutes(page: Page) {
     return fulfillJson({}, 404);
   });
 
-  await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
-
   return {
     getLastProfileHeader: () => lastProfileHeader,
   };

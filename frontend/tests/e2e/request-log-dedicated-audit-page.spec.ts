@@ -407,8 +407,6 @@ async function mockPrismRoutes(page: Page, scenario: Scenario) {
     return fulfillJson({}, 404);
   });
 
-  await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
-
   return {
     auditDetailRequests,
     auditListSearchParams,
@@ -473,8 +471,8 @@ test.describe("dedicated request-log audit page", () => {
 
       const detail = page.getByTestId("dedicated-audit-detail");
       await expect(detail).toBeVisible({ timeout: 15000 });
-      const requestSection = detail.getByRole("region", { name: "Request", exact: true });
-      const responseSection = detail.getByRole("region", { name: "Response (200)" });
+      const requestSection = detail.getByRole("region", { name: "请求", exact: true });
+      const responseSection = detail.getByRole("region", { name: "响应（200）" });
       await expectNoRedundantPayloadShell(requestSection);
       await expectNoRedundantPayloadShell(responseSection);
       await expect(detail.getByText("[REDACTED]").first()).toBeVisible();
@@ -497,7 +495,7 @@ test.describe("dedicated request-log audit page", () => {
     const detail = page.getByTestId("dedicated-audit-detail");
     await expect(detail).toBeVisible({ timeout: 15000 });
 
-    const requestHeaders = detail.getByRole("region", { name: "Request headers" });
+    const requestHeaders = detail.getByRole("region", { name: "请求头" });
     await expectNoRedundantPayloadShell(requestHeaders);
     await expect(requestHeaders.locator("dt", { hasText: "authorization" })).toBeVisible();
     await expect(requestHeaders.locator("dd", { hasText: "[REDACTED]" }).first()).toBeVisible();
@@ -509,7 +507,7 @@ test.describe("dedicated request-log audit page", () => {
     await expect(requestHeaders.getByText("session=live-cookie")).toHaveCount(0);
     await expect(requestHeaders.getByText(/\{\s*"authorization"/)).toHaveCount(0);
 
-    const responseHeaders = detail.getByRole("region", { name: "Response headers" });
+    const responseHeaders = detail.getByRole("region", { name: "响应头" });
     await expectNoRedundantPayloadShell(responseHeaders);
     await expect(responseHeaders.locator("dt", { hasText: "access-control-allow-credentials" })).toBeVisible();
     await expect(responseHeaders.locator("dd", { hasText: "true" })).toBeVisible();
@@ -521,12 +519,12 @@ test.describe("dedicated request-log audit page", () => {
     await expect(responseHeaders.getByText("session=live-response-cookie")).toHaveCount(0);
     await expect(responseHeaders.getByText("live-client-credential")).toHaveCount(0);
 
-    await requestHeaders.getByRole("button", { name: "Raw JSON" }).click();
+    await requestHeaders.getByRole("button", { name: "原始 JSON" }).click();
     await expect(requestHeaders.locator("pre")).toContainText('"authorization": "[REDACTED]"');
     await expect(requestHeaders.locator("pre")).toContainText('"user-agent": "prism-postdual-overflow-gpt55-deepseek-1781125557"');
     await expect(requestHeaders.locator("pre")).not.toContainText("Bearer live-secret-token");
 
-    await responseHeaders.getByRole("button", { name: "Raw JSON" }).click();
+    await responseHeaders.getByRole("button", { name: "原始 JSON" }).click();
     await expect(responseHeaders.locator("pre")).toContainText('"access-control-allow-credentials": "true"');
     await expect(responseHeaders.locator("pre")).toContainText('"set-cookie": "[REDACTED]"');
     await expect(responseHeaders.locator("pre")).toContainText('"x-client-credential": "[REDACTED]"');
@@ -542,10 +540,10 @@ test.describe("dedicated request-log audit page", () => {
 
     const detail = page.getByTestId("dedicated-audit-detail");
     await expect(detail).toBeVisible({ timeout: 15000 });
-    const requestSection = detail.getByRole("region", { name: "Request", exact: true });
+    const requestSection = detail.getByRole("region", { name: "请求", exact: true });
     await expect(requestSection.getByText("Message transcript")).toBeVisible();
-    await requestSection.getByRole("button", { name: "Raw JSON" }).click();
-    await expect(requestSection.getByRole("button", { name: "Raw JSON" })).toHaveAttribute("aria-pressed", "true");
+    await requestSection.getByRole("button", { name: "原始 JSON" }).click();
+    await expect(requestSection.getByRole("button", { name: "原始 JSON" })).toHaveAttribute("aria-pressed", "true");
     await expect(requestSection.locator("pre")).toContainText('"model": "gpt-4o-mini"');
     await expect(requestSection.locator("pre")).toContainText('"messages": [');
     await expect(requestSection.getByText("Message transcript")).toHaveCount(0);
@@ -558,12 +556,12 @@ test.describe("dedicated request-log audit page", () => {
 
     const detail = page.getByTestId("dedicated-audit-detail");
     await expect(detail).toBeVisible({ timeout: 15000 });
-    const requestSection = detail.getByRole("region", { name: "Request", exact: true });
+    const requestSection = detail.getByRole("region", { name: "请求", exact: true });
     await expectNoRedundantPayloadShell(requestSection);
     const requestContent = requestSection.getByTestId("request-log-request-body-content");
-    await expect(requestSection.getByRole("button", { name: "Rendered" })).toBeVisible();
-    await expect(requestSection.getByRole("button", { name: "Raw JSON" })).toBeVisible();
-    await expect(requestSection.getByRole("button", { name: "Copy" })).toBeVisible();
+    await expect(requestSection.getByRole("button", { name: "渲染视图" })).toBeVisible();
+    await expect(requestSection.getByRole("button", { name: "原始 JSON" })).toBeVisible();
+    await expect(requestSection.getByRole("button", { name: "复制" })).toBeVisible();
     await expect(requestSection.getByText(longRepeatedRequestToken.slice(0, 80))).toBeVisible();
     await expect(requestContent).toHaveCSS("overflow-y", "auto");
     await expect(requestContent.locator("[data-radix-scroll-area-viewport], article .overflow-y-auto")).toHaveCount(0);
@@ -578,8 +576,8 @@ test.describe("dedicated request-log audit page", () => {
     expect(renderedMetrics.clientHeight).toBeLessThanOrEqual(Math.ceil(renderedMetrics.viewportHeight * 0.9) + 2);
     expect(renderedMetrics.scrollHeight).toBeGreaterThan(renderedMetrics.clientHeight);
 
-    await requestSection.getByRole("button", { name: "Raw JSON" }).click();
-    await expect(requestSection.getByRole("button", { name: "Raw JSON" })).toHaveAttribute("aria-pressed", "true");
+    await requestSection.getByRole("button", { name: "原始 JSON" }).click();
+    await expect(requestSection.getByRole("button", { name: "原始 JSON" })).toHaveAttribute("aria-pressed", "true");
     await expect(requestContent.locator("pre")).toContainText('"input": "request-token');
     const rawMetrics = await requestContent.evaluate((element) => ({
       clientHeight: element.clientHeight,
@@ -587,7 +585,7 @@ test.describe("dedicated request-log audit page", () => {
     }));
     expect(rawMetrics.scrollHeight).toBeGreaterThan(rawMetrics.clientHeight);
 
-    const responseSection = detail.getByRole("region", { name: "Response (200)" });
+    const responseSection = detail.getByRole("region", { name: "响应（200）" });
     await expect(responseSection.getByTestId("request-log-request-body-content")).toHaveCount(0);
   });
 
@@ -599,9 +597,9 @@ test.describe("dedicated request-log audit page", () => {
 
     const detail = page.getByTestId("dedicated-audit-detail");
     await expect(detail).toBeVisible({ timeout: 15000 });
-    const requestSection = detail.getByRole("region", { name: "Request", exact: true });
-    await requestSection.getByRole("button", { name: "Raw JSON" }).click();
-    await requestSection.getByRole("button", { name: "Copy" }).click();
+    const requestSection = detail.getByRole("region", { name: "请求", exact: true });
+    await requestSection.getByRole("button", { name: "原始 JSON" }).click();
+    await requestSection.getByRole("button", { name: "复制" }).click();
     await expect.poll(() => copiedText(page)).toBe(JSON.stringify(JSON.parse(openAiDocumentRequestBody), null, 2));
     await expect.poll(() => usedDedicatedFallbackRoot(page)).toBe(true);
   });
@@ -612,9 +610,9 @@ test.describe("dedicated request-log audit page", () => {
     await page.goto("/observe/requests/101/audit?audit_id=202");
 
     await expect(page.getByTestId("dedicated-request-log-audit-page")).toBeVisible({ timeout: 15000 });
-    await expect(page.getByTestId("shell-breadcrumb")).toContainText("Request Logs");
+    await expect(page.getByTestId("shell-breadcrumb")).toContainText("请求日志");
     await expect(page.getByTestId("shell-breadcrumb")).toContainText("#101");
-    await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText("Audit");
+    await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText("审计");
     await expect(page.getByText("selected audit request body")).toBeVisible();
     await expect(page.getByText("selected audit response body")).toBeVisible();
     await expect(page.getByText("original request body")).toHaveCount(0);
@@ -629,12 +627,12 @@ test.describe("dedicated request-log audit page", () => {
     await page.goto("/observe/requests/101/audit");
 
     await expect(page.getByTestId("dedicated-audit-list")).toContainText("#201", { timeout: 15000 });
-    await expect(page.getByRole("link", { name: "Next Page" })).toHaveAttribute("href", "/observe/requests/101/audit?cursor=page-2");
-    await page.getByRole("link", { name: "Next Page" }).click();
+    await expect(page.getByRole("link", { name: "下一页" })).toHaveAttribute("href", "/observe/requests/101/audit?cursor=page-2");
+    await page.getByRole("link", { name: "下一页" }).click();
 
     await expect(page).toHaveURL(/\/observe\/requests\/101\/audit\?cursor=page-2$/);
     await expect(page.getByTestId("dedicated-audit-list")).toContainText("#202");
-    await expect(page.getByRole("link", { name: "Previous Page" })).toHaveAttribute("href", "/observe/requests/101/audit");
+    await expect(page.getByRole("link", { name: "上一页" })).toHaveAttribute("href", "/observe/requests/101/audit");
     expect(counters.auditListSearchParams).toHaveLength(2);
     expect(new URLSearchParams(counters.auditListSearchParams[1]).get("cursor")).toBe("page-2");
     expect(counters.auditDetailRequests).toEqual([201, 202]);
@@ -645,7 +643,7 @@ test.describe("dedicated request-log audit page", () => {
 
     await page.goto("/observe/requests/101/audit");
 
-    await expect(page.getByText("Audit disabled at request time").first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("请求开始时已禁用审计").first()).toBeVisible({ timeout: 15000 });
     expect(counters.auditListSearchParams).toEqual([]);
     expect(counters.auditDetailRequests).toEqual([]);
   });
@@ -656,12 +654,12 @@ test.describe("dedicated request-log audit page", () => {
 
     await page.goto("/observe/requests/101/audit");
 
-    await expect(page.getByText("Metadata only").first()).toBeVisible({ timeout: 15000 });
-    const requestHeaders = page.getByTestId("dedicated-audit-detail").getByRole("region", { name: "Request headers" });
+    await expect(page.getByText("仅元数据").first()).toBeVisible({ timeout: 15000 });
+    const requestHeaders = page.getByTestId("dedicated-audit-detail").getByRole("region", { name: "请求头" });
     await expect(requestHeaders.locator("dd", { hasText: "[REDACTED]" }).first()).toBeVisible();
-    await expect(page.getByText("Request body was intentionally not stored because this request used metadata-only audit capture.")).toBeVisible();
-    await expect(page.getByText("Response body was intentionally not stored because this request used metadata-only audit capture.")).toBeVisible();
-    const copyButtons = page.getByTestId("dedicated-audit-detail").getByRole("button", { name: /^Copy$/ });
+    await expect(page.getByText("由于该请求使用的是仅元数据审计捕获，因此请求正文被有意不存储。")).toBeVisible();
+    await expect(page.getByText("由于该请求使用的是仅元数据审计捕获，因此响应正文被有意不存储。")).toBeVisible();
+    const copyButtons = page.getByTestId("dedicated-audit-detail").getByRole("button", { name: /^复制$/ });
     await expect(copyButtons).toHaveCount(4);
     await expect(copyButtons.nth(1)).toBeDisabled();
     await expect(copyButtons.nth(3)).toBeDisabled();
@@ -679,7 +677,7 @@ test.describe("dedicated request-log audit page", () => {
 
     await page.goto("/observe/requests/101/audit");
 
-    await expect(page.getByText("Request Not Found")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("未找到请求")).toBeVisible({ timeout: 15000 });
     expect(counters.auditListSearchParams).toEqual([]);
     expect(counters.auditDetailRequests).toEqual([]);
   });
@@ -689,7 +687,7 @@ test.describe("dedicated request-log audit page", () => {
 
     await page.goto("/observe/requests/101/audit");
 
-    await expect(page.getByText("No audit records found for this request.")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("此请求未找到审计记录。")).toBeVisible({ timeout: 15000 });
     expect(counters.auditListSearchParams).toHaveLength(1);
     expect(counters.auditDetailRequests).toEqual([]);
   });
@@ -699,8 +697,8 @@ test.describe("dedicated request-log audit page", () => {
 
     await page.goto("/observe/requests/101/audit?audit_id=999");
 
-    await expect(page.getByText("Audit record not found for this request")).toBeVisible({ timeout: 15000 });
-    await expect(page.getByRole("link", { name: "Show default audit record" })).toHaveAttribute("href", "/observe/requests/101/audit");
+    await expect(page.getByText("此请求未找到该审计记录")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("link", { name: "显示默认审计记录" })).toHaveAttribute("href", "/observe/requests/101/audit");
     expect(counters.auditDetailRequests).toEqual([]);
   });
 
@@ -709,7 +707,7 @@ test.describe("dedicated request-log audit page", () => {
 
     await page.goto("/observe/requests/101/audit");
 
-    await expect(page.getByText("Audit records load failed")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("审计记录加载失败")).toBeVisible({ timeout: 15000 });
     expect(counters.auditListSearchParams).toHaveLength(1);
     expect(counters.auditDetailRequests).toEqual([]);
   });
@@ -719,7 +717,7 @@ test.describe("dedicated request-log audit page", () => {
 
     await page.goto("/observe/requests/101/audit?audit_id=201");
 
-    await expect(page.getByText("Audit record load failed")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("审计记录加载失败")).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("dedicated-audit-list")).toContainText("#201");
     expect(counters.auditDetailRequests).toEqual([201]);
   });
@@ -729,7 +727,7 @@ test.describe("dedicated request-log audit page", () => {
 
     await page.goto("/observe/requests/101/audit");
 
-    await expect(page.getByText("Invalid request timestamp")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("请求时间戳无效")).toBeVisible({ timeout: 15000 });
     expect(counters.auditListSearchParams).toEqual([]);
     expect(counters.auditDetailRequests).toEqual([]);
   });
@@ -743,10 +741,10 @@ test.describe("dedicated request-log audit page", () => {
 
     const drawer = page.getByTestId("request-log-detail-sheet");
     await expect(drawer).toBeVisible({ timeout: 15000 });
-    await expect(drawer.getByRole("tab", { name: "Audit" })).toHaveCount(0);
-    await expect(drawer.getByText("Review requested model, final target model, selected terminal target, routing, tokens, costs, and request-time audit provenance.")).toBeVisible();
+    await expect(drawer.getByRole("tab", { name: "审计" })).toHaveCount(0);
+    await expect(drawer.getByText("查看请求模型、最终目标模型、已选择的终端目标，以及路由、令牌、费用和请求时审计来源。")).toBeVisible();
     await expect(drawer.getByTestId("request-log-overview-grid").getByText("/v1/responses")).toBeVisible();
-    await expect(drawer.getByRole("link", { name: "Open full audit page" })).toHaveAttribute("href", "/observe/requests/101/audit");
+    await expect(drawer.getByRole("link", { name: "打开完整审计页" })).toHaveAttribute("href", "/observe/requests/101/audit");
     await expect(page).toHaveURL(/\/observe\/requests\?selected_request_id=101$/);
     expect(counters.auditListSearchParams).toEqual([]);
     expect(counters.auditDetailRequests).toEqual([]);

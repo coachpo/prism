@@ -498,8 +498,6 @@ async function mockCurrencyRoutes(
 
     return fulfillJson({}, 404);
   });
-
-  await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 }
 
 test.describe("models and request logs reporting currency", () => {

@@ -93,10 +93,6 @@ async function mockStaleConnectionTargetRoutes(page: Page) {
     return fulfillJson({ detail: `Unhandled ${method} ${pathname}` }, 500);
   });
 
-  await page.addInitScript(() => {
-    localStorage.setItem("prism.locale", "en");
-  });
-
   return {
     getStalePayloads: () => stalePayloads,
     getStandaloneConnectionRequests: () => standaloneConnectionRequests,

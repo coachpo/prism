@@ -143,7 +143,6 @@ function incrementRequestCount(bucket: RequestCountsByProfile, profileKey: strin
 async function mockReportingCurrencyProtectedRoutes(
   page: Page,
   options: {
-    locale?: "en" | "zh-CN";
     costingBehaviorByProfileId?: Record<number, CostingBehavior>;
   } = {},
 ) {
@@ -213,11 +212,6 @@ async function mockReportingCurrencyProtectedRoutes(
 
     return route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
   });
-
-  await page.addInitScript(
-    (seedLocale: "en" | "zh-CN") => localStorage.setItem("prism.locale", seedLocale),
-    options.locale ?? "en",
-  );
 
   return {
     getLastCostingProfileHeader: () => lastCostingProfileKey,

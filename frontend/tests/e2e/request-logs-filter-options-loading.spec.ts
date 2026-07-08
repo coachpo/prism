@@ -263,8 +263,6 @@ async function mockRequestLogRoutes(
 
     return fulfillJson({}, 404);
   });
-
-  await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 }
 
 test.describe("request logs filter option loading", () => {

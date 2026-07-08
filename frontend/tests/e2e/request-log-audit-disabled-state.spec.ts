@@ -323,8 +323,6 @@ async function mockRequestLogDetailRoutes(page: Page, scenario: AuditScenario) {
     return route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
   });
 
-  await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
-
   return {
     getAuditDetailRequests: () => auditDetailRequests,
     getAuditListRequests: () => auditListRequests,

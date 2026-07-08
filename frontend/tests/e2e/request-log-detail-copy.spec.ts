@@ -179,8 +179,6 @@ async function mockRequestLogDetailRoutes(
 
     return route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
   });
-
-  await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 }
 
 async function openRequestLogDetail(

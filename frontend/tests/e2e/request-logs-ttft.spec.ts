@@ -310,8 +310,6 @@ async function mockRequestLogRoutes(page: Page) {
 
     return fulfillJson({}, 404);
   });
-
-  await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 }
 
 test.describe("request logs TTFT", () => {

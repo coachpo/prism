@@ -121,11 +121,9 @@ async function mockRequestLogDetailRoutes(
 
 async function openRequestLogDetail(
   page: Page,
-  locale: "en" | "zh-CN",
   detail: ReturnType<typeof createRequestLogDetail>,
 ) {
   await mockRequestLogDetailRoutes(page, detail);
-  await page.addInitScript((seedLocale) => localStorage.setItem("prism.locale", seedLocale), locale);
 
   await page.goto("/observe/requests?request_id=101");
 
@@ -140,43 +138,30 @@ async function openRequestLogDetail(
 }
 
 test.describe("request log proxy API key detail regression", () => {
-  test("renders English snapshot-backed proxy API key labels", async ({ page }) => {
-    const { overview } = await openRequestLogDetail(page, "en", createRequestLogDetail());
+  test("renders snapshot-backed proxy API key labels", async ({ page }) => {
+    const { overview } = await openRequestLogDetail(page, createRequestLogDetail());
 
-    await expect(overview).toContainText("Proxy API key");
+    await expect(overview).toContainText("代理 API 密钥");
     await expect(overview).toContainText("Team A key");
   });
 
-  test("renders English not-recorded fallback when snapshot and id are null", async ({ page }) => {
+  test("renders not-recorded fallback when snapshot and id are null", async ({ page }) => {
     const { overview } = await openRequestLogDetail(
       page,
-      "en",
-      createRequestLogDetail({ proxyApiKeyId: null, proxyApiKeyNameSnapshot: null }),
-    );
-
-    await expect(overview).toContainText("Proxy API key");
-    await expect(overview).toContainText("Not recorded");
-  });
-
-  test("renders English snapshot label even when proxy API key id is null", async ({ page }) => {
-    const { overview } = await openRequestLogDetail(
-      page,
-      "en",
-      createRequestLogDetail({ proxyApiKeyId: null, proxyApiKeyNameSnapshot: "Team A key" }),
-    );
-
-    await expect(overview).toContainText("Proxy API key");
-    await expect(overview).toContainText("Team A key");
-  });
-
-  test("renders Chinese not-recorded fallback when snapshot and id are null", async ({ page }) => {
-    const { overview } = await openRequestLogDetail(
-      page,
-      "zh-CN",
       createRequestLogDetail({ proxyApiKeyId: null, proxyApiKeyNameSnapshot: null }),
     );
 
     await expect(overview).toContainText("代理 API 密钥");
     await expect(overview).toContainText("未记录");
+  });
+
+  test("renders snapshot label even when proxy API key id is null", async ({ page }) => {
+    const { overview } = await openRequestLogDetail(
+      page,
+      createRequestLogDetail({ proxyApiKeyId: null, proxyApiKeyNameSnapshot: "Team A key" }),
+    );
+
+    await expect(overview).toContainText("代理 API 密钥");
+    await expect(overview).toContainText("Team A key");
   });
 });

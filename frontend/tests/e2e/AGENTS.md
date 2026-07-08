@@ -24,7 +24,7 @@ e2e/
 - Run through `pnpm run test:e2e -- <playwright args>`.
 - Default browser target is `http://127.0.0.1:15174`; override with `PLAYWRIGHT_BASE_URL` or disable the web server with `PLAYWRIGHT_DISABLE_WEBSERVER=1`.
 - Mock backend traffic with `page.route("**/*")`, fulfill known `/api`, `/v1`, `/v1beta`, and `/health` paths, and fail unexpected API calls.
-- Seed locale/profile/session state explicitly in browser storage when a flow depends on it.
+- Seed profile/session state explicitly in browser storage when a flow depends on it.
 - Use canonical routes from `src/app/router/rewriteRoutes.ts`; legacy-route specs should assert redirects, not treat legacy paths as primary.
 - Use `expect.poll` for asynchronous UI state instead of fixed sleeps.
 - Keep browser assertions at route-flow level. Pure parser, API-client, and layout contracts belong in `../lib/` or `../src/**/*.test.*`.

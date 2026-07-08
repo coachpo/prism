@@ -178,28 +178,15 @@ async function mockStatisticsRoutes(page: Page) {
 }
 
 test.describe("statistics proxy API key label regression", () => {
-  test("renders English proxy API key labels", async ({ page }) => {
+  test("renders proxy API key labels", async ({ page }) => {
     await mockStatisticsRoutes(page);
-    await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 
     await page.goto("/observe?tab=analytics");
 
     await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText(/Dashboard|仪表盘/);
     const table = page.getByTestId("statistics-proxy-key-table");
     await expect(table).toBeVisible({ timeout: 15000 });
-    await expect(table).toContainText("No proxy API key");
+    await expect(table).toContainText("无代理 API 密钥");
     await expect(table).toContainText("Team A key");
-  });
-
-  test("renders Chinese fallback label while preserving real key labels", async ({ page }) => {
-    await mockStatisticsRoutes(page);
-    await page.addInitScript(() => localStorage.setItem("prism.locale", "zh-CN"));
-
-    await page.goto("/observe?tab=analytics");
-
-    await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText(/Dashboard|仪表盘/);
-    const table = page.getByTestId("statistics-proxy-key-table");
-    await expect(table).toBeVisible({ timeout: 15000 });
-    await expect(table).toContainText("无代理 API 密钥");    await expect(table).toContainText("Team A key");
   });
 });

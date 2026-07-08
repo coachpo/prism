@@ -7,7 +7,7 @@
 ```text
 app-layout/
 ├── AppSidebar.tsx              # Sidebar navigation and user footer composition
-├── NavUser.tsx                 # Footer user menu, version label, locale/theme/logout actions
+├── NavUser.tsx                 # Footer user menu, version label, theme/logout actions
 ├── SiteHeader.tsx              # Shell header chrome, sidebar trigger, breadcrumbs, and scope badge
 ├── useAppLayoutState.ts        # Shell composition over auth, sidebar state, and route-scope checks
 ├── useShellNavigation.ts       # Nav links, route matching, breadcrumbs, and version label
@@ -20,7 +20,7 @@ app-layout/
 - Sidebar links, Default-profile route flags, route matching, breadcrumbs, and visible version label: `useShellNavigation.ts`
 - Auth composition, sidebar state, route-scope detection, and logout flow: `useAppLayoutState.ts`
 - Sidebar collapsed-state persistence helpers: `sidebarPersistence.ts`
-- Shell footer user actions, locale/theme/logout controls, and version label ownership: `NavUser.tsx`
+- Shell footer user actions, theme/logout controls, and version label ownership: `NavUser.tsx`
 - Shell header chrome and breadcrumb presentation: `SiteHeader.tsx`
 
 ## CONVENTIONS

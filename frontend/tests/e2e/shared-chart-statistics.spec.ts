@@ -631,7 +631,6 @@ async function mockUsageRoutes(page: Page, options?: { empty?: boolean; largeTok
 async function seedUsageStatisticsState(page: Page, selectedModelLines: string[]) {
   await page.addInitScript(
     ({ nextSelectedModelLines, storageKey }) => {
-      localStorage.setItem("prism.locale", "en");
       localStorage.setItem(
         storageKey,
         JSON.stringify({

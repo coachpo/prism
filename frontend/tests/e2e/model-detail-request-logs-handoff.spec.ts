@@ -255,8 +255,6 @@ async function mockModelDetailRequestLogRoutes(page: Page) {
 
     return fulfillJson({ error: `Unhandled ${pathname}` }, 500);
   });
-
-  await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
   return { requestSearches };
 }
 

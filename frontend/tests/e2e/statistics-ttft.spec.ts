@@ -164,7 +164,6 @@ test.describe("statistics endpoint TTFT percentiles", () => {
         ],
       },
     });
-    await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 
     await page.goto("/observe?tab=analytics");
 
@@ -257,7 +256,6 @@ test.describe("statistics endpoint TTFT percentiles", () => {
         ],
       },
     });
-    await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 
     await page.goto("/observe?tab=analytics");
 

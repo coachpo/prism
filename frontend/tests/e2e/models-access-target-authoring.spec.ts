@@ -154,10 +154,6 @@ async function mockModelRoutes(
     return fulfillJson({});
   });
 
-  await page.addInitScript(() => {
-    localStorage.setItem("prism.locale", "en");
-  });
-
   return {
     getCreatedPayloads: () => createdPayloads,
     getDefaultsRequests: () => defaultsRequests,

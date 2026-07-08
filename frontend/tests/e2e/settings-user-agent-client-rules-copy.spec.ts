@@ -74,10 +74,6 @@ async function mockSettingsRoutes(page: Page) {
 
     throw new Error(`Unhandled API request: ${request.method()} ${pathname}`);
   });
-
-  await page.addInitScript(() => {
-    localStorage.setItem("prism.locale", "en");
-  });
 }
 
 test("settings shows user-agent client rule actions", async ({ page }) => {

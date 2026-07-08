@@ -34,3 +34,28 @@ DONE
 ## Concerns
 
 - None.
+
+## Reviewer Follow-up
+
+### Summary
+
+- Removed remaining e2e persisted locale seeding, locale helper functions, and locale options from `frontend/tests/e2e/`.
+- Updated focused e2e assertions that had depended on the old English locale seed to assert the live zh-CN UI.
+- Updated app-layout and e2e AGENTS docs so `NavUser` and browser-storage guidance no longer mention locale controls/state.
+
+### Verification
+
+- `rg -n "prism\.locale|locale" frontend/tests/e2e frontend/src/components/layout/app-layout/AGENTS.md frontend/tests/e2e/AGENTS.md`
+  - Passed; no matches.
+- `rg -n "messages/en|enMessages" frontend/`
+  - Passed; no matches.
+- `rg -n "setLocale" frontend/`
+  - Passed; no matches.
+- `cd frontend && pnpm run test:e2e -- auth-session-lifecycle.spec.ts request-log-dedicated-audit-page.spec.ts protected-shell-sidebar.spec.ts`
+  - Passed: 26 tests.
+- `cd frontend && pnpm run test:lib`
+  - Passed: 75 tests.
+
+### Concerns
+
+- None.

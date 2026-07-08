@@ -22,12 +22,6 @@ function createProxyKey(overrides: Partial<ProxyApiKey> = {}): ProxyApiKey {
   };
 }
 
-async function seedLocale(page: Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem("prism.locale", "en");
-  });
-}
-
 async function fulfillJson(route: Route, body: unknown, status = 200) {
   await route.fulfill({
     status,
@@ -214,7 +208,6 @@ async function installProxyKeyRoutes(page: Page, options: { authEnabled?: boolea
 
 test("proxy key lifecycle shows expiry, retirement, and rotation lineage without dropping history", async ({ page }) => {
   const routes = await installProxyKeyRoutes(page, { authEnabled: true });
-  await seedLocale(page);
 
   await page.goto("/control/proxy-keys");
   await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
@@ -307,7 +300,6 @@ test("proxy key lifecycle shows expiry, retirement, and rotation lineage without
 
 test("quota-limited create disables submit and explains the limit", async ({ page }) => {
   const routes = await installProxyKeyRoutes(page, { proxyKeyLimit: 2 });
-  await seedLocale(page);
 
   await page.goto("/control/proxy-keys");
   await expect(page.getByRole("heading", { name: "Proxy API Keys" })).toBeVisible({

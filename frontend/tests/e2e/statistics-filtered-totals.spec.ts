@@ -309,7 +309,6 @@ async function seedUsageStatisticsState(
 ) {
   await page.addInitScript(
     ({ selectedModelLines: nextSelectedModelLines, storageKey }) => {
-      localStorage.setItem("prism.locale", "en");
       localStorage.setItem(
         storageKey,
         JSON.stringify({

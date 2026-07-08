@@ -93,8 +93,6 @@ async function mockRequestLogRoutes(page: Page, requestLogItems: Record<string, 
 
     return fulfillJson({}, 404);
   });
-
-  await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 }
 
 test("request logs table separates requested and final target model columns", async ({ page }) => {

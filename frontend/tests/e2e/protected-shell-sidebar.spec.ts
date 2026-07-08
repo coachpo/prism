@@ -202,7 +202,7 @@ async function expectShellChrome(
   options: { current: string; parent?: string },
 ) {
   await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
-  await expect(page.getByText("Loading application...")).toHaveCount(0, {
+  await expect(page.getByText("正在加载应用...")).toHaveCount(0, {
     timeout: routeReadyTimeout,
   });
   await expect(page.getByTestId("shell-breadcrumb")).toBeVisible({ timeout: routeReadyTimeout });
@@ -303,7 +303,6 @@ async function mockProtectedShellRoutes(
   });
 
   await page.addInitScript((storageKey) => {
-    window.localStorage.setItem("prism.locale", "en");
     window.localStorage.removeItem(storageKey);
   }, SIDEBAR_COLLAPSED_STORAGE_KEY);
 
@@ -319,7 +318,7 @@ test.describe("protected shell sidebar regression", () => {
 
     await page.goto("/observe?tab=analytics");
 
-    await expect(page.getByText("Loading application...")).toBeVisible();
+    await expect(page.getByText("正在加载应用...")).toBeVisible();
     await expect(page.getByTestId("shell-sidebar")).toHaveCount(0);
     await expect(page.getByTestId("shell-breadcrumb")).toHaveCount(0);
     await expect(page.getByTestId("shell-breadcrumb-current")).toHaveCount(0);
@@ -330,7 +329,7 @@ test.describe("protected shell sidebar regression", () => {
 
     costingGate.resolve();
 
-    await expectShellChrome(page, { current: "Dashboard" });
+    await expectShellChrome(page, { current: "仪表盘" });
     await expect(page.getByTestId("observe-dashboard")).toBeVisible();
     await expect.poll(() => requestCounts.usageSnapshot).toBeGreaterThan(0);
   });
@@ -340,7 +339,7 @@ test.describe("protected shell sidebar regression", () => {
 
     await page.goto("/observe?tab=analytics");
 
-    await expectShellChrome(page, { current: "Dashboard" });
+    await expectShellChrome(page, { current: "仪表盘" });
     await expect(page.getByTestId("observe-dashboard")).toBeVisible({
       timeout: routeReadyTimeout,
     });
@@ -362,7 +361,7 @@ test.describe("protected shell sidebar regression", () => {
 
     await page.goto("/system/settings#authentication");
 
-    await expectShellChrome(page, { parent: "Settings", current: "Authentication" });
+    await expectShellChrome(page, { parent: "设置", current: "身份验证" });
   });
 
   test("renders request-log detail breadcrumbs while the detail sheet is open", async ({ page }) => {
@@ -373,7 +372,7 @@ test.describe("protected shell sidebar regression", () => {
     await expect(page.getByTestId("request-log-detail-sheet")).toBeVisible({
       timeout: routeReadyTimeout,
     });
-    await expectShellChrome(page, { parent: "Request Logs", current: "#101" });
+    await expectShellChrome(page, { parent: "请求日志", current: "#101" });
   });
 
   test("opens and closes the mobile drawer around route navigation", async ({ page }) => {
@@ -385,16 +384,16 @@ test.describe("protected shell sidebar regression", () => {
     const sidebarToggle = page.getByRole("button", { name: "Toggle Sidebar" });
 
     await expect(page.getByTestId("shell-breadcrumb")).toBeVisible();
-    await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText("Dashboard");
+    await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText("仪表盘");
     await expect(page.getByTestId("shell-sidebar")).toHaveCount(0);
 
     await sidebarToggle.click();
     await expect(page.getByTestId("shell-sidebar")).toBeVisible();
 
-    await page.getByTestId("shell-sidebar").getByRole("link", { name: "Settings" }).click();
+    await page.getByTestId("shell-sidebar").getByRole("link", { name: "设置" }).click();
     await expect(page).toHaveURL(/\/system\/settings$/);
     await expect(page.getByTestId("shell-sidebar")).toHaveCount(0);
-    await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText("Settings");
+    await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText("设置");
 
     await sidebarToggle.click();
     await expect(page.getByTestId("shell-sidebar")).toBeVisible();
