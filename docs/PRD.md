@@ -14,7 +14,7 @@ Developers and power users working with multiple LLM API families face:
 
 ## 3. Target User
 
-Single operator (developer/power user) running the application locally or on a local network. Prism supports optional operator authentication for management APIs and proxy API keys for runtime traffic. Management configuration is pinned to the Default profile while runtime traffic uses the active runtime profile snapshot; this is not auth multi-tenancy.
+Single operator (developer/power user) running the application locally or on a local network. Prism supports optional operator authentication for management APIs and proxy API keys for runtime traffic. Management configuration is pinned to frozen Default profile id `1` while runtime traffic always resolves to frozen Default profile id `1`; `X-Profile-Id` and profile fields are compatibility/storage attribution only. This is not auth multi-tenancy.
 
 ## 4. Core Features
 
@@ -219,7 +219,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 - Profile-scoped management APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
 - Global management routes stay outside profile scoping. Global routes include auth, realtime, auth-setting flows, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
 - Profile lifecycle APIs are not exposed in the current management surface.
-- Runtime proxy traffic on `/v1/*` and `/v1beta/*` ignores management profile headers and uses the active runtime profile snapshot.
+- Runtime proxy traffic on `/v1/*` and `/v1beta/*` ignores management profile headers and always resolves against frozen Default profile id `1`; `X-Profile-Id` and profile fields remain compatibility/storage attribution only.
 - Observability rows (`request_logs`, `audit_logs`) carry immutable `profile_id` attribution for historical correctness.
 
 

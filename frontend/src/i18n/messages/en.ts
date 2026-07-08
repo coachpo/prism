@@ -1802,7 +1802,7 @@ export const enMessages: Messages = {
     dataType: "Data type",
     delete: "Delete",
     deleteConfirmKeyword: "DELETE",
-    deleteConfirmDescription: "This creates an instance-wide cleanup job. Matching data can be removed across all profiles and cannot be restored.",
+    deleteConfirmDescription: "This creates an instance-wide cleanup job. Matching data can be removed across the instance and cannot be restored.",
     deleteConfirmTitle: "Confirm Deletion",
     deleteRuleDescription: (name) =>
       `Are you sure you want to delete the rule "${name}"? This action cannot be undone.`,
@@ -1866,7 +1866,7 @@ export const enMessages: Messages = {
     deleteOlderThan: "Delete data older than",
     deletionFailed: "Deletion failed",
     deletionRequested: (label, jobId, statusUrl) => `${label} cleanup job ${jobId} created. Track it at ${statusUrl}; storage may shrink after the job completes.`,
-    description: "Set instance-wide data retention for all profiles and create cleanup jobs with explicit confirmation controls.",
+    description: "Set instance-wide data retention and create cleanup jobs with explicit confirmation controls.",
     invalidRetentionOption: "Select a valid retention option",
     keepForever: "Keep forever",
     loadbalanceEventsPolicy: "Load-balance event retention",
@@ -2449,7 +2449,7 @@ export const enMessages: Messages = {
     deleteTrafficWarningDescription: "Authentication is enabled, so clients using this credential will lose proxy access as soon as deletion succeeds.",
     deleteTrafficWarningTitle: "Live proxy traffic may be interrupted",
     description:
-      "Manage machine credentials used by upstream clients to access the Prism proxy. Applies to all profiles.",
+      "Manage machine credentials used by upstream clients to access the Prism proxy. Applies to the Default profile.",
     disabled: "Disabled",
     editDescription: "Update the stored name, note, expiry, and active state for this issued key. Rotating the secret is a separate action.",
     editProxyApiKey: "Edit Proxy API Key",

@@ -96,10 +96,10 @@ function getGeneratedAtMs(generatedAt: string): number {
 }
 
 export function normalizeAnalyticsSnapshotProfileId(
-  selectedProfileId: number | null,
-  profileId: number,
+  _selectedProfileId: number | null,
+  _profileId: number,
 ): number {
-  return selectedProfileId ?? profileId;
+  return 1;
 }
 
 function buildRestSnapshotSource({

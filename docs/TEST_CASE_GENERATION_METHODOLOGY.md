@@ -28,7 +28,7 @@ The agent should always inventory Prism as these surfaces:
 - Management APIs on `/api/*`, split between global route classes and routes pinned to Default profile id `1`
 - Runtime proxy APIs on `/v1/*` and `/v1beta/*`
 - Dashboard realtime messages on `/api/realtime/ws`
-- The frozen Default management profile versus active runtime profile split
+- The frozen Default management profile id `1` versus runtime traffic that always resolves to frozen Default profile id `1` (`X-Profile-Id` and profile fields are compatibility/storage attribution only)
 - Dense frontend management surfaces with forms, tables, dialogs, drawers, charts, and toasts
 
 High-value frontend surfaces include the observe analytics tab, models list, model detail, endpoints, Ban Policies, settings, proxy API keys, pricing templates, and request-log investigation plus audit-page flow. High-value backend surfaces include auth, frozen Default profile scope, runtime proxy routing, failover, realtime messages, costing, audit logging, and observability queries.
@@ -54,7 +54,7 @@ Functional cases should exercise detailed contracts and boundary conditions, inc
 
 - required fields, invalid body shapes, and invalid query parameters
 - auth and authorization boundaries
-- profile scoping rules and active-runtime routing rules
+- profile scoping rules and runtime routing rules
 - unified model access-target invariants
 - loadbalance, failover, and health-check behavior
 - request-log, audit, costing, and statistics contracts
@@ -186,7 +186,7 @@ If a case is valuable but not yet ready for automation, it must still be preserv
 
 ## 8. Prism-Specific Guardrails
 
-- Keep frozen Default management scope separate from active runtime routing in every case set.
+- Keep frozen Default management scope separate from runtime traffic, which always resolves to frozen Default profile id `1`; `X-Profile-Id` and profile fields are compatibility/storage attribution only.
 - Keep management auth and runtime proxy-key auth separate.
 - Do not assume unsupported providers or routes.
 - Prefer existing regression destinations over inventing a new suite shape.

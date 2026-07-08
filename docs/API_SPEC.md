@@ -767,7 +767,7 @@ Model-scoped overflow replay and its authoring fields are retired. Runtime plann
 ```
 GET /v1/models
 ```
-Response: Local OpenAI-shaped list of enabled `api_family="openai"` models in the active runtime profile. Prism does not contact upstream providers for this operation.
+Response: Local OpenAI-shaped list of enabled `api_family="openai"` models for frozen Default profile id `1`. Prism does not contact upstream providers for this operation.
 
 #### Chat Completions
 ```
@@ -1432,7 +1432,7 @@ GET /api/settings/log-retention
 PUT /api/settings/log-retention
 ```
 
-These routes are global and do not use `X-Profile-Id`. They store the instance-wide normal retention policy for all profiles. Request-log, audit-log, statistics, and load-balance list/detail APIs are pinned to Default profile id `1`, but retention settings do not.
+These routes are global and do not use `X-Profile-Id`. They store the instance-wide normal retention policy. Request-log, audit-log, statistics, and load-balance list/detail APIs are pinned to Default profile id `1`, but retention settings do not.
 
 Request and response fields:
 | Field | Type | Description |
@@ -1487,7 +1487,7 @@ Response `202`:
 }
 ```
 
-The response sets `Location` to the same job status URL. The job type is `log_retention`, uses `profile_id = 0`, and applies across all profiles.
+The response sets `Location` to the same job status URL. The job type is `log_retention`, uses `profile_id = 0`, and applies across the instance.
 
 Retention drops whole daily child partitions whose upper bound is `<= cutoff`. Only the single child partition that overlaps the cutoff receives a bounded row delete, followed by `VACUUM (ANALYZE, PROCESS_TOAST TRUE)` on that boundary child.
 
