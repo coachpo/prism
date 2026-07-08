@@ -16,6 +16,7 @@ import {
   getRoutingDiagramMobileData,
   RoutingDiagramMobileList,
   type RoutingDiagramData,
+  type RoutingDiagramGraphNode,
   type RoutingDiagramNode,
 } from "./routingDiagram";
 import { useLocale } from "@/i18n/useLocale";
@@ -40,6 +41,7 @@ export function RoutingDiagramCard({
 }: RoutingDiagramCardProps) {
   const { messages } = useLocale();
   const [hiddenModelIds, setHiddenModelIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [inspectedNodeId, setInspectedNodeId] = useState<string | null>(null);
 
   const graphData = useMemo(() => {
     return data ? getRoutingDiagramGraph(data) : { nodes: [], edges: [] };
@@ -70,6 +72,10 @@ export function RoutingDiagramCard({
   const mobileData = useMemo(() => {
     return getRoutingDiagramMobileData(filteredGraphData);
   }, [filteredGraphData]);
+
+  const inspectedNode = useMemo(() => {
+    return filteredGraphData.nodes.find((node) => node.id === inspectedNodeId) ?? null;
+  }, [filteredGraphData.nodes, inspectedNodeId]);
 
   const modelFilterActive = selectedModelIds.size < modelFilterOptions.length;
 
@@ -161,11 +167,20 @@ export function RoutingDiagramCard({
     [onDrillDownRequests, onSelectModel],
   );
 
+  const inspectNode = useCallback((node: RoutingDiagramGraphNode) => {
+    setInspectedNodeId(node.id);
+  }, []);
+
   return (
     <RoutingDiagramShell
       chartContent={
         data && hasChartContent ? (
-          <RoutingDiagramMobileList mobileData={mobileData} onActivateNode={activateNode} />
+          <RoutingDiagramMobileList
+            inspectedNode={inspectedNode}
+            mobileData={mobileData}
+            onActivateNode={activateNode}
+            onInspectNode={inspectNode}
+          />
         ) : null
       }
       emptyState={

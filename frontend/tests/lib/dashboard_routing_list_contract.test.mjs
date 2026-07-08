@@ -386,6 +386,7 @@ test("renders routing node kind markers with metadata-driven shapes", () => {
   const mobileMarkup = renderRoutingDiagramMobileList({
     mobileData,
     onActivateNode: () => {},
+    onInspectNode: () => {},
   });
 
   assert.match(legendMarkup, /class="[^"]*rounded-\[0\.2rem\][^"]*" data-node-shape="panel"/);

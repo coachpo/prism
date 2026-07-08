@@ -23,3 +23,30 @@ Verification:
 
 Concerns:
 - None.
+
+---
+
+STATUS: DONE
+
+Review fix:
+- Restored plain-list node inspection without adding React Flow or xyflow back.
+- List node-card clicks now render the retained `RoutingDiagramInspectorContent`; explicit action buttons still call model/request-log navigation callbacks without opening the inspector.
+
+Files changed:
+- `frontend/src/pages/dashboard/RoutingDiagramCard.tsx`
+- `frontend/src/pages/dashboard/routing-diagram/RoutingDiagramMobileList.tsx`
+- `frontend/src/pages/dashboard/RoutingDiagramCard.test.tsx`
+- `frontend/tests/lib/dashboard_routing_list_contract.test.mjs`
+
+Verification:
+- `cd frontend && pnpm exec vitest run src/pages/dashboard/RoutingDiagramCard.test.tsx`: PASS, 2 tests.
+- `cd frontend && node --test tests/lib/dashboard_routing_list_contract.test.mjs`: PASS, 7 tests.
+- `cd frontend && pnpm run test:lib`: PASS, 76 tests.
+- `cd frontend && pnpm run test`: PASS, 13 files / 36 tests.
+- `cd frontend && pnpm run build`: PASS; Vite reported existing large-chunk warnings.
+- `cd frontend && pnpm run lint`: PASS.
+- `rg -n "xyflow|React Flow|@xyflow|RoutingDiagramFlow|routingDiagramFlow" frontend`: PASS, no matches.
+- `git diff --check -- frontend/src/pages/dashboard/RoutingDiagramCard.tsx frontend/src/pages/dashboard/routing-diagram/RoutingDiagramMobileList.tsx frontend/src/pages/dashboard/RoutingDiagramCard.test.tsx frontend/tests/lib/dashboard_routing_list_contract.test.mjs .superpowers/sdd/task-13-report.md`: PASS.
+
+Concerns:
+- None.
