@@ -37,6 +37,8 @@ function createCostingSettings(profileId: number) {
 }
 
 async function mockDashboardRoutes(page: Page) {
+  let lastProfileHeader: string | null = null;
+
   await page.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -53,6 +55,10 @@ async function mockDashboardRoutes(page: Page) {
         body: JSON.stringify(body),
       });
     const profileId = Number(request.headers()["x-profile-id"] ?? "1");
+
+    if (pathname.startsWith("/api/")) {
+      lastProfileHeader = request.headers()["x-profile-id"] ?? "1";
+    }
 
     if (pathname === "/api/auth/status") {
       return fulfillJson({ auth_enabled: false });
@@ -92,11 +98,15 @@ async function mockDashboardRoutes(page: Page) {
   });
 
   await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
+
+  return {
+    getLastProfileHeader: () => lastProfileHeader,
+  };
 }
 
 test.describe("dashboard reporting currency", () => {
   test("renders dashboard totals with the active reporting currency", async ({ page }) => {
-    await mockDashboardRoutes(page);
+    const { getLastProfileHeader } = await mockDashboardRoutes(page);
 
     await page.goto("/observe?tab=overview");
 
@@ -115,18 +125,7 @@ test.describe("dashboard reporting currency", () => {
     await expect(page.getByText("¥0.25 CNY")).toHaveCount(2, {
       timeout: reportingCurrencyExpectationTimeout,
     });
-
-    await page.getByTestId("shell-profile-switcher").getByRole("button").click();
-    await page.getByRole("menuitem", { name: /Blue Team/ }).click();
-
-    await expect(page.getByText("Loading application...")).toHaveCount(0, {
-      timeout: reportingCurrencyExpectationTimeout,
-    });
-    await expect(spendingMetric).toHaveText("$0.25 USD", {
-      timeout: reportingCurrencyExpectationTimeout,
-    });
-    await expect(page.getByText("$0.25 USD")).toHaveCount(2, {
-      timeout: reportingCurrencyExpectationTimeout,
-    });
+    await expect(page.getByTestId("shell-profile-switcher")).toHaveCount(0);
+    await expect.poll(getLastProfileHeader).toBe("1");
   });
 });

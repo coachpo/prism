@@ -196,6 +196,26 @@ Verification:
 Concerns:
 - Docker-backed backend contract verification is blocked by the local Postgres harness readiness timeout before the doc parity assertions run.
 
+## Task 9 Stale E2E Profile Switcher Fix
+
+STATUS: DONE
+
+Commit:
+- `test: remove stale profile switcher e2e expectations`
+
+Fixes:
+- Removed the stale `shell-profile-switcher` visibility assertions from the protected shell sidebar e2e coverage and kept the mobile drawer checks pinned to the no-switcher contract.
+- Rewrote the dashboard reporting currency e2e to assert the frozen Default profile id `1` header and keep the currency pinned to the Default profile route.
+- Reworked the reporting-currency-provider e2e to verify Default profile id `1` bootstrap behavior only and dropped the deleted Blue Team switch path.
+
+Verification:
+- `rg -n 'shell-profile-switcher|Blue Team|X-Profile-Id.*2|profile switch|switcher' frontend/tests/e2e`
+- `cd frontend && pnpm run test:lib`
+- `cd frontend && pnpm run build`
+
+Concerns:
+- The touched e2e specs were not run directly because the request only required the focused static search plus frontend lib/build verification.
+
 ## Task 9 Runtime Freeze Fix
 
 STATUS: DONE_WITH_CONCERNS

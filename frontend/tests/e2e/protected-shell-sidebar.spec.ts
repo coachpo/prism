@@ -212,7 +212,9 @@ async function expectShellChrome(
     });
   }
 
-  await expect(page.getByTestId("shell-profile-switcher")).toBeVisible({ timeout: routeReadyTimeout });
+  await expect(page.getByTestId("shell-profile-switcher")).toHaveCount(0, {
+    timeout: routeReadyTimeout,
+  });
 }
 
 async function mockProtectedShellRoutes(
@@ -389,7 +391,7 @@ test.describe("protected shell sidebar regression", () => {
 
     await sidebarToggle.click();
     await expect(page.getByTestId("shell-sidebar")).toBeVisible();
-    await expect(page.getByTestId("shell-profile-switcher")).toBeVisible();
+    await expect(page.getByTestId("shell-profile-switcher")).toHaveCount(0);
 
     await page.getByTestId("shell-sidebar").getByRole("link", { name: "Settings" }).click();
     await expect(page).toHaveURL(/\/system\/settings$/);
@@ -399,7 +401,7 @@ test.describe("protected shell sidebar regression", () => {
 
     await sidebarToggle.click();
     await expect(page.getByTestId("shell-sidebar")).toBeVisible();
-    await expect(page.getByTestId("shell-profile-switcher")).toBeVisible();
+    await expect(page.getByTestId("shell-profile-switcher")).toHaveCount(0);
 
     await page.locator('[data-slot="sheet-overlay"]').click({ position: { x: 380, y: 20 } });
     await expect(page.getByTestId("shell-sidebar")).toHaveCount(0);

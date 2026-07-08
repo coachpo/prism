@@ -7,13 +7,6 @@ import {
 const timestamp = "2026-04-11T00:00:00Z";
 const routeReadyTimeout = 15_000;
 
-interface ProfileFixture {
-  id: number;
-  name: string;
-  isActive?: boolean;
-  isDefault?: boolean;
-}
-
 interface CostingBehavior {
   fail?: boolean;
   onRequest?: () => Promise<void>;
@@ -28,26 +21,6 @@ function createDeferred() {
   });
 
   return { promise, resolve };
-}
-
-function createProfile({
-  id,
-  name,
-  isActive = false,
-  isDefault = false,
-}: ProfileFixture) {
-  return {
-    id,
-    name,
-    description: null,
-    is_active: isActive,
-    is_default: isDefault,
-    is_editable: true,
-    version: 1,
-    created_at: timestamp,
-    deleted_at: null,
-    updated_at: timestamp,
-  };
 }
 
 function createModelListItem(profileId: number) {
@@ -173,7 +146,6 @@ function incrementRequestCount(bucket: RequestCountsByProfile, profileKey: strin
 async function mockReportingCurrencyProtectedRoutes(
   page: Page,
   options: {
-    profiles?: Array<ReturnType<typeof createProfile>>;
     locale?: "en" | "zh-CN";
     costingBehaviorByProfileId?: Record<number, CostingBehavior>;
   } = {},
@@ -308,17 +280,8 @@ test.describe("reporting currency provider", () => {
     await expect.poll(() => requestCounts.usageSnapshotByProfile["1"] ?? 0).toBeGreaterThan(0);
   });
 
-  test("re-engages the route fallback immediately when the profile header changes", async ({ page }) => {
-    const secondProfileCostingGate = createDeferred();
-    const { getLastCostingProfileHeader, requestCounts } = await mockReportingCurrencyProtectedRoutes(page, {
-      profiles: [
-        createProfile({ id: 1, name: "Default", isActive: true, isDefault: true }),
-        createProfile({ id: 2, name: "Blue Team" }),
-      ],
-      costingBehaviorByProfileId: {
-        2: { onRequest: () => secondProfileCostingGate.promise },
-      },
-    });
+  test("keeps the frozen Default profile pinned while the shell boots", async ({ page }) => {
+    const { getLastCostingProfileHeader, requestCounts } = await mockReportingCurrencyProtectedRoutes(page);
 
     await page.goto("/observe?tab=analytics");
 
@@ -329,31 +292,9 @@ test.describe("reporting currency provider", () => {
     await expect(page.getByTestId("observe-dashboard")).toBeVisible({
       timeout: routeReadyTimeout,
     });
+    await expect(page.getByTestId("shell-profile-switcher")).toHaveCount(0);
+    await expect.poll(getLastCostingProfileHeader).toBe("1");
     await expect.poll(() => requestCounts.usageSnapshotByProfile["1"] ?? 0).toBeGreaterThan(0);
-
-    await page.getByTestId("shell-profile-switcher").getByRole("button").click();
-    await page.getByRole("menuitem", { name: /Blue Team/ }).click();
-
-    await expect(page.getByText("Loading application...")).toBeVisible();
-    await expect.poll(getLastCostingProfileHeader).toBe("2");
-    await expect(page.getByTestId("shell-sidebar")).toHaveCount(0);
-    await expect(page.getByTestId("observe-dashboard")).toHaveCount(0);
-
-    await page.waitForTimeout(200);
     expect(requestCounts.usageSnapshotByProfile["2"] ?? 0).toBe(0);
-
-    secondProfileCostingGate.resolve();
-
-    await expect(page.getByTestId("shell-sidebar")).toBeVisible({ timeout: routeReadyTimeout });
-    await expect(page.getByText("Loading application...")).toHaveCount(0, {
-      timeout: routeReadyTimeout,
-    });
-    await expect(page.getByTestId("observe-dashboard")).toBeVisible({
-      timeout: routeReadyTimeout,
-    });
-    await expect.poll(() => requestCounts.usageSnapshotByProfile["2"] ?? 0).toBeGreaterThan(0);
-    await expect(page.getByTestId("shell-profile-switcher")).toContainText("Blue Team", {
-      timeout: routeReadyTimeout,
-    });
   });
 });
