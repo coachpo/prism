@@ -769,10 +769,14 @@ export const zhCNMessages: Messages = {
     noEndpointsConfiguredDescription: "新增你的第一个端点以开始路由请求。",
     noEndpointsMatchFilters: "没有端点符合当前筛选条件",
     noEndpointsMatchFiltersDescription: "请尝试其他搜索词或清除筛选条件。",
-    reorderDisabledWhileFilters: "筛选开启时暂时无法拖动排序。",
+    reorderDisabledWhileFilters: "筛选开启时暂时无法调整排序。",
     saveChanges: "保存更改",
     searchEndpoints: "搜索端点...",
     title: "端点",
+  },
+  endpoints: {
+    moveDown: (name) => `下移端点 ${name}`,
+    moveUp: (name) => `上移端点 ${name}`,
   },
   endpointsUi: {
     apiKeyRequired: "API 密钥为必填项",
@@ -783,7 +787,6 @@ export const zhCNMessages: Messages = {
     created: (date) => `创建于 ${date}`,
     deleteEndpoint: "删除端点",
     deleteEndpointDescription: (name) => `确定要删除“${name}”吗？此操作无法撤销。`,
-    dragToReorder: (name) => `拖动以重新排序端点 ${name}`,
     duplicateEndpoint: (name) => `复制端点 ${name}`,
     editEndpoint: (name) => `编辑端点 ${name}`,
     keepStoredKey: "留空可保留当前已存储的密钥。",

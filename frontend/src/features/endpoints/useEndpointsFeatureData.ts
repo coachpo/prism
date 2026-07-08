@@ -33,7 +33,6 @@ export function useEndpointsFeatureData() {
     const matchesUsage = reviewFilter === "all" || (reviewFilter === "in-use" ? models.length > 0 : models.length === 0)
     return matchesSearch && matchesUsage
   }), [endpointModels, endpoints, normalizedSearch, reviewFilter])
-  const visibleEndpointIds = useMemo(() => filteredEndpoints.map((endpoint) => endpoint.id), [filteredEndpoints])
   const reorder = useEndpointReorder({ endpoints, revision, setEndpoints, filtersActive: hasActiveReviewFilters })
 
   const setDeleteTarget = (target: Endpoint | null) => {
@@ -113,5 +112,5 @@ export function useEndpointsFeatureData() {
     }
   }
 
-  return { deleteTarget, deleteDialogTarget, duplicatingEndpointId, editingEndpoint, endpointDialogError, endpointModels, endpoints, filteredEndpoints, formatTime, hasActiveReviewFilters, handleCreate, handleDelete, handleDeleteDialogOpenChange: (open: boolean) => !open && !isDeletingEndpoint && setDeleteTarget(null), handleDuplicateEndpoint, handleUpdate, isCreateOpen, isDeletingEndpoint, isLoading, reviewFilter, searchQuery, setDeleteTarget, setEditingEndpoint, setIsCreateOpen: openCreateDialog, setReviewFilter, setSearchQuery, ...reorder, visibleEndpointIds }
+  return { deleteTarget, deleteDialogTarget, duplicatingEndpointId, editingEndpoint, endpointDialogError, endpointModels, endpoints, filteredEndpoints, formatTime, hasActiveReviewFilters, handleCreate, handleDelete, handleDeleteDialogOpenChange: (open: boolean) => !open && !isDeletingEndpoint && setDeleteTarget(null), handleDuplicateEndpoint, handleUpdate, isCreateOpen, isDeletingEndpoint, isLoading, reviewFilter, searchQuery, setDeleteTarget, setEditingEndpoint, setIsCreateOpen: openCreateDialog, setReviewFilter, setSearchQuery, ...reorder }
 }

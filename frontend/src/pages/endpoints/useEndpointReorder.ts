@@ -1,16 +1,4 @@
-import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
-import {
-  KeyboardSensor,
-  PointerSensor,
-  TouchSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-  type DragStartEvent,
-  type UniqueIdentifier,
-} from "@dnd-kit/core";
-import { arrayMove, verticalListSortingStrategy, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
+import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
@@ -30,66 +18,37 @@ export function useEndpointReorder({
   setEndpoints,
   filtersActive,
 }: UseEndpointReorderOptions) {
-  const [activeDragId, setActiveDragId] = useState<UniqueIdentifier | null>(null);
   const [reorderInFlight, setReorderInFlight] = useState(false);
-
-  const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(TouchSensor, {
-      activationConstraint: {
-        delay: 250,
-        tolerance: 5,
-      },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
-  );
-
-  const endpointIds = useMemo(() => endpoints.map((endpoint) => endpoint.id), [endpoints]);
-
-  const activeDragEndpoint = useMemo(
-    () => endpoints.find((endpoint) => endpoint.id === activeDragId) ?? null,
-    [activeDragId, endpoints],
-  );
-
+  const reorderInFlightRef = useRef(false);
   const canReorder = endpoints.length > 1 && !reorderInFlight && !filtersActive;
 
-  const handleDragStart = (event: DragStartEvent) => {
-    if (!canReorder) {
-      return;
-    }
-
-    setActiveDragId(event.active.id);
-  };
-
-  const handleDragCancel = () => {
-    setActiveDragId(null);
-  };
-
-  const handleDragEnd = async (event: DragEndEvent) => {
-    setActiveDragId(null);
-
-    const { active, over } = event;
-    if (!over || active.id === over.id || reorderInFlight) {
+  const moveEndpoint = async (id: number, toIndex: number) => {
+    if (!canReorder || reorderInFlightRef.current) {
       return;
     }
 
     const previousEndpoints = endpoints;
-    const fromIndex = previousEndpoints.findIndex((endpoint) => endpoint.id === active.id);
-    const toIndex = previousEndpoints.findIndex((endpoint) => endpoint.id === over.id);
+    const fromIndex = previousEndpoints.findIndex((endpoint) => endpoint.id === id);
 
-    if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) {
+    if (fromIndex === -1 || toIndex < 0 || toIndex >= previousEndpoints.length || fromIndex === toIndex) {
       return;
     }
 
-    const nextEndpoints = arrayMove(previousEndpoints, fromIndex, toIndex);
+    const nextEndpoints = previousEndpoints.slice();
+    const [movedEndpoint] = nextEndpoints.splice(fromIndex, 1);
+
+    if (!movedEndpoint) {
+      return;
+    }
+
+    nextEndpoints.splice(toIndex, 0, movedEndpoint);
+    reorderInFlightRef.current = true;
+    setReorderInFlight(true);
     setEndpoints(nextEndpoints);
     setSharedEndpoints(revision, nextEndpoints);
-    setReorderInFlight(true);
 
     try {
-      const orderedEndpoints = await api.endpoints.movePosition(Number(active.id), toIndex);
+      const orderedEndpoints = await api.endpoints.movePosition(Number(id), toIndex);
       setEndpoints(orderedEndpoints);
       setSharedEndpoints(revision, orderedEndpoints);
     } catch (error) {
@@ -101,20 +60,33 @@ export function useEndpointReorder({
           : getStaticMessages().endpointsData.reorderedFailed,
       );
     } finally {
+      reorderInFlightRef.current = false;
       setReorderInFlight(false);
     }
   };
 
+  const moveUp = (id: number) => {
+    const index = endpoints.findIndex((endpoint) => endpoint.id === id);
+    if (index > 0) {
+      return moveEndpoint(id, index - 1);
+    }
+
+    return Promise.resolve();
+  };
+
+  const moveDown = (id: number) => {
+    const index = endpoints.findIndex((endpoint) => endpoint.id === id);
+    if (index !== -1 && index < endpoints.length - 1) {
+      return moveEndpoint(id, index + 1);
+    }
+
+    return Promise.resolve();
+  };
+
   return {
-    activeDragEndpoint,
     canReorder,
-    collisionDetection: closestCenter,
-    endpointIds,
-    handleDragCancel,
-    handleDragEnd,
-    handleDragStart,
-    verticalListSortingStrategy,
+    moveDown,
+    moveUp,
     reorderInFlight,
-    sensors,
   };
 }

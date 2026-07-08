@@ -599,6 +599,10 @@ export interface Messages {
     searchEndpoints: string;
     title: string;
   };
+  endpoints: {
+    moveDown: (name: string) => string;
+    moveUp: (name: string) => string;
+  };
   endpointsUi: {
     apiKeyRequired: string;
     baseUrl: string;
@@ -608,7 +612,6 @@ export interface Messages {
     created: (date: string) => string;
     deleteEndpoint: string;
     deleteEndpointDescription: (name: string) => string;
-    dragToReorder: (name: string) => string;
     duplicateEndpoint: (name: string) => string;
     editEndpoint: (name: string) => string;
     keepStoredKey: string;
@@ -2188,6 +2191,10 @@ export const enMessages: Messages = {
     searchEndpoints: "Search endpoints...",
     title: "Endpoints",
   },
+  endpoints: {
+    moveDown: (name) => `Move endpoint ${name} down`,
+    moveUp: (name) => `Move endpoint ${name} up`,
+  },
   endpointsUi: {
     apiKeyRequired: "API Key is required",
     baseUrl: "Base URL",
@@ -2197,7 +2204,6 @@ export const enMessages: Messages = {
     created: (date) => `Created ${date}`,
     deleteEndpoint: "Delete Endpoint",
     deleteEndpointDescription: (name) => `Are you sure you want to delete "${name}"? This action cannot be undone.`,
-    dragToReorder: (name) => `Drag to reorder endpoint ${name}`,
     duplicateEndpoint: (name) => `Duplicate endpoint ${name}`,
     editEndpoint: (name) => `Edit endpoint ${name}`,
     keepStoredKey: "Leave blank to keep the existing stored key.",
