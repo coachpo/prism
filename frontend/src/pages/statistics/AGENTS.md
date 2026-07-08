@@ -36,12 +36,12 @@ statistics/
 - Treat local persisted presentation state as the source of truth for dashboard analytics preferences that should survive reloads. The shared statistics surface does not expose a dedicated route-level query-param contract.
 - Keep usage-snapshot orchestration in `useUsageStatisticsPageData.ts`, not in section or table components.
 - Keep analytics websocket subscription and stale-sequence handling in `useUsageStatisticsRealtimeData.ts`, not in the dashboard shell.
-- Treat backend snapshot currency as the source of truth for rendered statistics money. The frontend reporting-currency layer controls selected-profile readiness and trust, but statistics components should not refetch costing settings or recompute backend stats.
+- Treat backend snapshot currency as the source of truth for rendered statistics money. The frontend reporting-currency layer controls Default-profile readiness and trust, but statistics components should not refetch costing settings or recompute backend stats.
 - Keep this area aggregate-focused. Request-log investigation belongs on `/observe/requests`, not inside the statistics tables.
 - Keep analytics-shell and section copy on the shared locale boundary through `useLocale()`, and keep locale-aware formatting on the shared helpers rather than page-local string logic.
 - The dense `charts/`, `sections/`, and `tables/` subfolders stay parent-covered. Do not add extra AGENTS files for them.
 - Keep null-vs-zero rendering differences visible in helpers and copy, so missing data stays distinct from a true zero value.
-- Keep selected-profile reporting-currency fallback or verified trust visible through the shared currency/cost helpers; do not invent page-local trust states.
+- Keep Default-profile reporting-currency fallback or verified trust visible through the shared currency/cost helpers; do not invent page-local trust states.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 

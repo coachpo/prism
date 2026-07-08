@@ -32,7 +32,7 @@ frontend/
 ## WHERE TO LOOK
 - Mounted routes, auth/public split, protected shell mounts, and rewrite route metadata: `src/AGENTS.md`, `src/app/AGENTS.md`, `src/app/router/appRouter.tsx`, `src/app/router/rewriteRoutes.ts`, `src/App.tsx`
 - Active protected route modules and feature-local page/data handoffs: `src/features/AGENTS.md`
-- Shell chrome, sidebar entries, profile-prefixed navigation, version label, and profile switcher: `src/components/AGENTS.md`, `src/components/layout/app-layout/AGENTS.md`
+- Shell chrome, sidebar entries, Default-profile navigation, version label, and management scope badge: `src/components/AGENTS.md`, `src/components/layout/app-layout/AGENTS.md`
 - Shared widgets, shell-safe controls, and design-system wrappers: `src/components/AGENTS.md`, `src/components/ui/AGENTS.md`
 - shadcn registry config, Tailwind entrypoint, and React Flow dependency/CSS import: `components.json`, `package.json`, `src/index.css`, `src/main.tsx`
 - Provider stack and browser mount (`LocaleProvider` -> `ThemeProvider` -> `TooltipProvider` -> `App` + `Toaster`): `src/main.tsx`
@@ -73,7 +73,7 @@ frontend/
 ## ANTI-PATTERNS
 - Do not add generic React, Vite, or test-runner boilerplate here.
 - Do not invent routes, shell entries, or page hierarchies beyond `src/App.tsx` and `src/pages/AGENTS.md`.
-- Do not reintroduce selected-profile switching; management scope is pinned to Default id=1.
+- Do not reintroduce profile-selection UI; management scope is pinned to Default id=1.
 - Do not duplicate reporting-currency cache, normalization, or readiness logic outside `src/context/ReportingCurrencyContext.tsx` and `src/lib/reportingCurrency.ts`.
 - Do not duplicate websocket, reference-data, or navigation-config ownership in page docs.
 - Do not put route state, data fetching, or shell navigation into `src/components/ui/`; it is a design-system leaf.

@@ -1,7 +1,7 @@
 # FRONTEND APP LAYOUT CLUSTER KNOWLEDGE BASE
 
 ## OVERVIEW
-`components/layout/app-layout/` owns the protected shell mounted from `src/components/layout/page.tsx`: sidebar/header composition, navigation metadata, breadcrumb handoff, user footer, and visible version label. Profile switching UI has been deleted; profile-scoped pages are pinned to Default id=1 by the API client.
+`components/layout/app-layout/` owns the protected shell mounted from `src/components/layout/page.tsx`: sidebar/header composition, navigation metadata, breadcrumb handoff, user footer, and visible version label. Management-scoped pages are pinned to Default id=1 by the API client.
 
 ## STRUCTURE
 ```text
@@ -17,7 +17,7 @@ app-layout/
 ## WHERE TO LOOK
 
 - Shell composition and `Outlet` handoff: `../page.tsx`
-- Sidebar links, profile-scoped route flags, route matching, breadcrumbs, and visible version label: `useShellNavigation.ts`
+- Sidebar links, Default-profile route flags, route matching, breadcrumbs, and visible version label: `useShellNavigation.ts`
 - Auth composition, sidebar state, route-scope detection, and logout flow: `useAppLayoutState.ts`
 - Sidebar collapsed-state persistence helpers: `sidebarPersistence.ts`
 - Shell footer user actions, locale/theme/logout controls, and version label ownership: `NavUser.tsx`
@@ -30,7 +30,7 @@ app-layout/
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep `page.tsx` thin. State composition belongs in `useAppLayoutState.ts`.
-- Keep navigation, profile-scoped route flags, route matching, and version-label formatting in `useShellNavigation.ts`.
+- Keep navigation, Default-profile route flags, route matching, and version-label formatting in `useShellNavigation.ts`.
 - Use `useAuth()` through `useAppLayoutState.ts`; route shells should not duplicate shell bootstrap logic.
 - Keep footer preferences, logout, and version-label concerns in `NavUser.tsx`.
 - Keep the shell limited to the mounted `page.tsx` wrapper and retained seams above.
@@ -44,5 +44,5 @@ app-layout/
 
 - Do not move route-specific query or data-fetch logic into the shell cluster.
 - Do not duplicate nav-link definitions, route matching, or version-label logic outside `useShellNavigation.ts`.
-- Do not reintroduce profile switchers, profile dialogs, or selected-vs-active runtime mismatch UI.
+- Do not reintroduce profile-selection UI, profile dialogs, or Default-vs-runtime mismatch UI.
 - Do not blur pinned Default-profile management scope with runtime proxy semantics.

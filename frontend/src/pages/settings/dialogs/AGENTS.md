@@ -19,7 +19,7 @@ dialogs/
 - Mounted dialog surface and parent handoff: `../../SettingsPage.tsx`, `../AGENTS.md`
 - Shared delete-confirm flow for destructive settings actions: `DeleteConfirmDialog.tsx`
 - Audit-rule create, edit, and delete flows: `RuleDialog.tsx`, `DeleteRuleConfirmDialog.tsx`, `UserAgentClientRuleDialog.tsx`, `DeleteUserAgentClientRuleConfirmDialog.tsx`
-- Mutation state, selected-profile labels, and save orchestration feeding the dialogs: `../useSettingsPageData.ts`, `../useAuditConfigurationData.ts`, `../useRetentionDeletionData.ts`
+- Mutation state, Default-profile labels, and save orchestration feeding the dialogs: `../useSettingsPageData.ts`, `../useAuditConfigurationData.ts`, `../useRetentionDeletionData.ts`
 - E2E seams for user-agent/client rule copy: `../../../../tests/e2e/settings-user-agent-client-rules-copy.spec.ts`
 
 ## CONVENTIONS

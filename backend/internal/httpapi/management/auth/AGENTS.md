@@ -15,7 +15,7 @@
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation here, prefer manual confirmation over adding dedicated “proves not” tests unless the missing surface is itself a shipped contract or guardrail.
-- Keep auth selected-profile neutral unless a route explicitly manages proxy API keys or profile-scoped settings.
+- Keep auth management neutral unless a route explicitly manages proxy API keys or Default-profile settings.
 - Keep raw secrets and tokens write-only; response payloads expose metadata or one-time generated values only.
 - Publish runtime-auth changes through the auth runtime-cache seam instead of making runtime handlers query management state.
 - Keep proxy-key usage persistence shared through `proxykeyusage/`.
@@ -28,4 +28,4 @@
 ## ANTI-PATTERNS
 - Do not duplicate cookie, token, request-token, or proxy-key helpers in sibling management packages.
 - Do not return raw stored secrets, reset codes, verification tokens, or proxy-key hashes.
-- Do not let runtime proxy handlers depend on management selected-profile state.
+- Do not let runtime proxy handlers depend on management Default-profile state.

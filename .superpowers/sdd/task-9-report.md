@@ -113,3 +113,23 @@ Verification:
 
 Concerns:
 - None beyond the pre-existing unrelated dirty docs that were left untouched per instruction.
+
+## Task 9 AGENTS Fix Follow-up
+
+STATUS: DONE
+
+Commit:
+- `docs: finish profile freeze AGENTS guidance`
+
+Fixes:
+- Rewrote the remaining AGENTS docs that still described selected-profile or profile-switching behavior.
+- Froze management guidance on Default profile id `1`, with `X-Profile-Id` treated as compatibility-only and ignored.
+- Kept storage `profile_id` columns referenced where the owning package still persists them.
+
+Verification:
+- `rg -n 'selected profile|selected-profile|active profile|profile switch|profile activation|activate profile|selectedProfile|ProfileSwitcher' --glob 'AGENTS.md' /Users/qingli/Documents/proj/prism` -> no matches.
+- `cd backend && go test ./internal/profiledomain ./internal/platform/http` -> passed.
+- `cd frontend && pnpm run build` -> passed.
+
+Concerns:
+- The pre-existing dirty/untracked docs named in the task were left untouched.

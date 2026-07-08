@@ -126,7 +126,7 @@ cd frontend && pnpm run test:e2e
 - Do not invent CI jobs, extra compose files, unsupported routes, unsupported providers, or extra realtime message types.
 - Do not imply `start.sh full` sets a browser-visible backend base URL; it now keeps browser traffic same-origin through the local Vite proxy.
 - Do not describe `/v1` or `/v1beta` as broad passthrough runtime prefixes; supported operations are allowlisted in `backend/internal/httpapi/runtime/operations.go`.
-- Do not blur selected profile with active runtime profile, or imply that `X-Profile-Id` affects proxy traffic.
+- Do not blur Default-profile management reads or writes with active runtime proxy traffic, or imply that `X-Profile-Id` affects proxy traffic.
 - Do not put request-path side effects back inline when durable outboxes, after-commit wakeups, and background workers own those flows.
 - Do not bypass partitioned log-retention ownership with direct cleanup or partition creation outside `backend/internal/platform/logretention/` and runtime partition ensuring.
 - Do not change backend container execution or bootstrap-path ownership contracts without updating Dockerfile contract tests and docs.

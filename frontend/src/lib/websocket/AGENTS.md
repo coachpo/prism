@@ -12,7 +12,7 @@ websocket/
 ```
 
 ## WHERE TO LOOK
-- Singleton socket lifecycle, profile switching, heartbeat timers, and reconnect loop: `../websocket.ts`
+- Singleton socket lifecycle, heartbeat timers, and reconnect loop: `../websocket.ts`
 - Preferred shared React consumer over the singleton client: `../../hooks/useRealtimeData.ts`
 - Raw message builders, parsing, and heartbeat reply rules: `protocol.ts`
 - Channel ref-count increment or decrement behavior: `subscriptions.ts`

@@ -39,7 +39,7 @@ lib/
 - Shared dual-family load-balance defaults and policy normalization: `loadbalanceRoutingPolicy.ts`
 - Browser app version label formatting and Vite-injected package metadata: `appVersion.ts`
 - Shared reporting-currency cache, normalization, active-currency sync, `prime()` and `refresh()` support, and fail-open default used by `ReportingCurrencyContext.tsx`: `reportingCurrency.ts`
-- WebSocket connection state, reconnects, channel ref-counts, protocol parsing, and profile switching behind the preferred `useRealtimeData()` consumer: `websocket.ts`, `websocket/AGENTS.md`
+- WebSocket connection state, reconnects, channel ref-counts, protocol parsing, and the preferred `useRealtimeData()` consumer: `websocket.ts`, `websocket/AGENTS.md`
 - Shared timezone preference lookup and formatting helpers consumed by `useTimezone()`: `timezone.ts`
 - Shared cost formatting and usage-label helpers layered over the active reporting currency: `costing.ts`
 - Browser clipboard helpers reused across route shells and detail views: `clipboard.ts`

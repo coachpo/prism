@@ -19,7 +19,7 @@ context/
 - Auth bootstrap mode selection, in-flight reuse, proactive refresh timer, and visibility-triggered refresh: `AuthContext.tsx`
 - Auth bootstrap, mutation, and refresh helpers: `auth/AGENTS.md`
 - Auth context type/export split and guarded hook: `auth-context.ts`, `useAuth.ts`
-- Reporting-currency readiness, pinned `profile:1` cache handoff, `prime()` and `refresh()` behavior, default fallback currency, and `useReportingCurrencyContext()`: `ReportingCurrencyContext.tsx`, `../lib/reportingCurrency.ts`
+- Reporting-currency readiness, pinned Default profile id `1` cache handoff, `prime()` and `refresh()` behavior, default fallback currency, and `useReportingCurrencyContext()`: `ReportingCurrencyContext.tsx`, `../lib/reportingCurrency.ts`
 
 ## CONVENTIONS
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
@@ -40,5 +40,5 @@ context/
 
 - Do not invent local profile state in pages.
 - Do not inject `X-Profile-Id` from pages or hooks.
-- Do not reintroduce profile switching or a profile provider.
+- Do not reintroduce profile-selection UI or a profile provider.
 - Do not fetch, normalize, or cache reporting currency directly in page hooks when `ReportingCurrencyContext.tsx` and `../lib/reportingCurrency.ts` already own that seam.

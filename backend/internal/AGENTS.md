@@ -38,6 +38,6 @@ internal/
 
 ## ANTI-PATTERNS
 - Do not invent a second runtime surface outside `httpapi/runtime/` and `gateway/`.
-- Do not put HTTP request parsing, auth headers, selected-profile scope, or response shaping into `domain/`.
+- Do not put HTTP request parsing, auth headers, Default-profile management scope, or response shaping into `domain/`.
 - Do not put provider-specific routing branches in `platform/`, `domain/`, or shared compatibility helpers.
 - Do not bypass `platform/logretention/`, runtime partition ensuring, durable outboxes, or background workers from sibling packages.

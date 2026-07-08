@@ -1,7 +1,7 @@
 # BACKEND MANAGEMENT CONNECTIONS KNOWLEDGE BASE
 
 ## OVERVIEW
-`management/connections/` owns selected-profile connection list or get routes under `/api/connections`, connection reference reads, public mutation rejection surfaces for `/api/connections/*`, owner-scoped private connection routes under `/api/models/{model_config_id}/connections`, connection health checks, and `/api/pricing-templates/*`. Model target authoring stays in `management/models/`, while this package keeps reusable endpoint-to-connection binding and pricing-template ownership.
+`management/connections/` owns Default-profile connection list or get routes under `/api/connections`, connection reference reads, public mutation rejection surfaces for `/api/connections/*`, owner-scoped private connection routes under `/api/models/{model_config_id}/connections`, connection health checks, and `/api/pricing-templates/*`. Model target authoring stays in `management/models/`, while this package keeps reusable endpoint-to-connection binding and pricing-template ownership.
 
 ## STRUCTURE
 ```text
@@ -26,7 +26,7 @@ connections/
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep pricing templates here, not in a separate management package.
-- Keep all reads and writes selected-profile scoped through `ResolveEffectiveProfile`.
+- Keep all reads and writes pinned to Default profile id `1`. `X-Profile-Id` compatibility headers may be accepted, but they are ignored and the store still keeps `profile_id` columns for persistence and lookup.
 - Keep public `/api/connections` mutation routes mounted only as owner-scoped rejection surfaces; real connection writes go through `/api/models/{model_config_id}/connections`.
 - Keep model target CRUD and ordering on `/api/models/{model_config_id}/targets` in `management/models/`, not here.
 - Keep endpoint secrets encrypted at rest through the shared endpoint-domain helpers.
