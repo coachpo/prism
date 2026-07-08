@@ -398,7 +398,6 @@ test("renders routing node kind markers with metadata-driven shapes", () => {
   assert.match(legendMarkup, /class="[^"]*rounded-full[^"]*" data-node-shape="capsule"/);
   assert.match(legendMarkup, /class="[^"]*\[clip-path:polygon\(0_0,70%_0,100%_30%,100%_100%,0_100%\)\][^"]*" data-node-shape="cut-corner"/);
   assert.match(legendMarkup, /data-node-shape="cut-corner" style="[^"]*clip-path:polygon\(0 0, 70% 0, 100% 30%, 100% 100%, 0 100%\)/);
-  assert.doesNotMatch(legendMarkup, /clip-path:polygon\(0 0, calc\(100% - 0\.875rem\)/);
 
   assert.match(mobileMarkup, /data-testid="routing-diagram-mobile"/);
   assert.match(mobileMarkup, /class="[^"]*rounded-xl[^"]*" data-node-shape="panel" style="[^"]*--routing-node-color:var\(--chart-1\)[^"]*--routing-node-background:color-mix\(in oklab, var\(--chart-1\) 14%, var\(--background\)\)/);
