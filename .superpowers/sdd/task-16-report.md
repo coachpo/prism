@@ -1,4 +1,4 @@
-STATUS: DONE_WITH_CONCERNS
+STATUS: DONE
 
 Commits:
 - `docs: archive process docs and drop doc-content test` (created by this task; final hash reported by the assistant after commit creation)
@@ -20,6 +20,12 @@ Tests and commands:
 - FAIL before assertions: `cd backend && go test ./tests/integration` timed out after 10m because local Docker/Postgres harness containers did not become ready. Failures included `./start.sh` reporting PostgreSQL unhealthy on `localhost:15432`, multiple integration harness ports not becoming ready, and `docker port ... 5432/tcp` reporting no published port.
 - PASS: `cd backend && go build ./cmd/prism-backend`.
 
-Concerns:
-- The requested integration suite could not complete in this local environment because Docker/Postgres-backed harness readiness failed before relevant assertions.
+Resolved concerns:
+- The requested integration suite originally failed before assertions because Docker had exhausted volume storage; after Docker cleanup and the startup seed fix below, the suite passes.
 - Known unrelated local changes were left unstaged and untouched: `.superpowers/sdd/task-12-report.md`, `.superpowers/sdd/task-9-report.md`, `docs/IMPLEMENTATION_PLAN.md`, and untracked `docs/TEST_REDUCTION_*.md`.
+
+Follow-up verification:
+- Docker volume cleanup resolved the earlier harness capacity issue.
+- A startup seed/schema mismatch was fixed by explicitly seeding inert `email_verification_attempt_count = 0` values for the remaining singleton app auth row insert paths.
+- PASS: `cd backend && go test ./tests/integration -run TestStartupSeeds -count=1`.
+- PASS: `cd backend && go test ./tests/integration`.

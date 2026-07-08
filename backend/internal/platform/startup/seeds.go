@@ -211,18 +211,20 @@ func (s Service) seedAppAuthSettings(ctx context.Context, conn *pgx.Conn) error 
 				auth_enabled,
 				username,
 				password_hash,
+				email_verification_attempt_count,
 				must_change_password,
 				last_login_at,
 				token_version,
 				created_at,
 				updated_at
 			) VALUES (
-				$1, $2, $3, $4, $5, $6, $7, $8, $9
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10
 			)`,
 			AppAuthSingletonKey,
 			false,
 			nil,
 			nil,
+			0,
 			false,
 			nil,
 			0,

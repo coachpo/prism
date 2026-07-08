@@ -140,18 +140,20 @@ func (s *Service) loadOrCreateAppAuthSettings(ctx context.Context, exec queryExe
 			auth_enabled,
 			username,
 			password_hash,
+			email_verification_attempt_count,
 			must_change_password,
 			last_login_at,
 			token_version,
 			created_at,
 			updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id, auth_enabled, username, password_hash,
 			must_change_password, last_login_at, token_version, created_at, updated_at`,
 		"app",
 		false,
 		nil,
 		nil,
+		0,
 		false,
 		nil,
 		0,
