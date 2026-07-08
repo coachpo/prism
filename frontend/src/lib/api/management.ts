@@ -27,6 +27,8 @@ import type {
   PricingTemplate,
   PricingTemplateConnectionsResponse,
   PricingTemplateCreate,
+  PricingTemplateImportRequest,
+  PricingTemplateImportResponse,
   PricingTemplateUpdate,
 } from "../types";
 import { normalizeFailureStatusCodes } from "../loadbalanceRoutingPolicy";
@@ -417,6 +419,11 @@ export const pricingTemplates = {
   get: (id: number) => request<PricingTemplate>(`/api/pricing-templates/${id}`),
   create: (data: PricingTemplateCreate) =>
     request<PricingTemplate>("/api/pricing-templates", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  importTemplates: (data: PricingTemplateImportRequest) =>
+    request<PricingTemplateImportResponse>("/api/pricing-templates/import", {
       method: "POST",
       body: JSON.stringify(data),
     }),

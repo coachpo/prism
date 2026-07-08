@@ -3,7 +3,7 @@ import { toast } from "sonner"
 import { api, ApiError } from "@/lib/api"
 import { getStaticMessages } from "@/i18n/staticMessages"
 import { getSharedPricingTemplates, setSharedPricingTemplates } from "@/lib/referenceData"
-import type { PricingTemplate, PricingTemplateConnectionUsageItem } from "@/lib/types"
+import type { PricingTemplate, PricingTemplateConnectionUsageItem, PricingTemplateImportRequest } from "@/lib/types"
 import { extractServerValidation } from "@/shared/forms/serverValidation"
 import { buildPricingTemplateCreatePayload, buildPricingTemplateUpdatePayload, parsePricingTemplateUsageRows, type PricingTemplateFormValues } from "./pricingSchemas"
 
@@ -24,6 +24,8 @@ export function usePricingFeatureData(revision: number) {
   const [deletePricingTemplateConflict, setDeletePricingTemplateConflict] = useState<PricingTemplateConnectionUsageItem[] | null>(null)
   const [pricingTemplateUsageError, setPricingTemplateUsageError] = useState(false)
   const [pricingTemplateDeleting, setPricingTemplateDeleting] = useState(false)
+  const [pricingTemplateImportDialogOpen, setPricingTemplateImportDialogOpen] = useState(false)
+  const [pricingTemplateImporting, setPricingTemplateImporting] = useState(false)
 
   const setDeletePricingTemplateConfirm = (template: PricingTemplate | null) => {
     if (template) setDeletePricingTemplateDisplay(template)
@@ -157,7 +159,24 @@ export function usePricingFeatureData(revision: number) {
       setPricingTemplateDeleting(false)
     }
   }
-  return { closePricingTemplateDialog, deletePricingTemplateConfirm, deletePricingTemplateDisplay, deletePricingTemplateConflict, editingPricingTemplate, handleDeletePricingTemplate, handleDeletePricingTemplateClick, handleEditPricingTemplate, handleSavePricingTemplate, handleViewPricingTemplateUsage, openCreatePricingTemplateDialog, pricingTemplateDeleting, pricingTemplateDialogOpen, pricingTemplatePreparingEditId, pricingTemplateSaving, pricingTemplateServerError, pricingTemplateUsageError, pricingTemplateUsageDialogOpen, pricingTemplateUsageLoading, pricingTemplateUsageRows, pricingTemplateUsageTemplate, pricingTemplates, pricingTemplatesLoading, setDeletePricingTemplateConfirm, setDeletePricingTemplateConflict, setPricingTemplateDialogOpen, setPricingTemplateUsageDialogOpen }
+  const handleImportPricingTemplates = async (request: PricingTemplateImportRequest) => {
+    const messages = getStaticMessages()
+    setPricingTemplateImporting(true)
+    try {
+      const result = await api.pricingTemplates.importTemplates(request)
+      await fetchPricingTemplates()
+      toast.success(messages.pricing.importResultSummary(result.created, result.updated, result.skipped.length))
+      setPricingTemplateImportDialogOpen(false)
+      return true
+    } catch (error) {
+      const body = error instanceof ApiError && error.detail && typeof error.detail === "object" ? error.detail as { errors?: Array<{ detail?: string }> } : null
+      toast.error(body?.errors?.[0]?.detail || (error instanceof Error ? error.message : messages.common.requestFailed))
+      return false
+    } finally {
+      setPricingTemplateImporting(false)
+    }
+  }
+  return { closePricingTemplateDialog, deletePricingTemplateConfirm, deletePricingTemplateDisplay, deletePricingTemplateConflict, editingPricingTemplate, handleDeletePricingTemplate, handleDeletePricingTemplateClick, handleEditPricingTemplate, handleImportPricingTemplates, handleSavePricingTemplate, handleViewPricingTemplateUsage, openCreatePricingTemplateDialog, pricingTemplateDeleting, pricingTemplateDialogOpen, pricingTemplateImportDialogOpen, pricingTemplateImporting, pricingTemplatePreparingEditId, pricingTemplateSaving, pricingTemplateServerError, pricingTemplateUsageError, pricingTemplateUsageDialogOpen, pricingTemplateUsageLoading, pricingTemplateUsageRows, pricingTemplateUsageTemplate, pricingTemplates, pricingTemplatesLoading, setDeletePricingTemplateConfirm, setDeletePricingTemplateConflict, setPricingTemplateDialogOpen, setPricingTemplateImportDialogOpen, setPricingTemplateUsageDialogOpen }
 }
 
 function sortPricingTemplates(templates: PricingTemplate[]) {

@@ -12,7 +12,7 @@ import type {
 } from "@/lib/types";
 import { formatApiFamily } from "@/lib/utils";
 import { useLocale } from "@/i18n/useLocale";
-import { OperatorCallout, OperatorEmptyState, OperatorInsetPanel } from "@/shared/design-system";
+import { OperatorCallout, OperatorEmptyState, OperatorInsetPanel, OperatorTypeBadge } from "@/shared/design-system";
 import {
   accessTargetKey,
   appendAccessTarget,
@@ -358,6 +358,11 @@ export function AccessTargetsEditor({
                           {copy.connectionTarget} · {copy.priority(formatNumber(connectionIndex + 1))}
                           {target.is_enabled === false ? ` · ${detailCopy.disabled}` : ""}
                         </p>
+                        {connection?.pricing_template_id === null ? (
+                          <div className="mt-1">
+                            <OperatorTypeBadge intent="warning" label={messages.pricing.connectionMissingTemplateBadge} preserveLabel />
+                          </div>
+                        ) : null}
                       </div>
                     </div>
 

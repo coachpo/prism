@@ -246,6 +246,24 @@ type pricingTemplateConnectionsResponse struct {
 	Items      []pricingTemplateConnectionUsageItem `json:"items"`
 }
 
+type pricingTemplateImportRequest struct {
+	Mode      string                         `json:"mode"`
+	Templates []pricingTemplateCreateRequest `json:"templates"`
+}
+
+type pricingTemplateImportError struct {
+	Index  int    `json:"index"`
+	Name   string `json:"name,omitempty"`
+	Detail string `json:"detail"`
+}
+
+type pricingTemplateImportResponse struct {
+	Created int                          `json:"created"`
+	Updated int                          `json:"updated"`
+	Skipped []string                     `json:"skipped"`
+	Errors  []pricingTemplateImportError `json:"errors"`
+}
+
 type modelConnectionsBatchItem struct {
 	ModelConfigID int                  `json:"model_config_id"`
 	Connections   []connectionResponse `json:"connections"`

@@ -859,6 +859,16 @@ export interface Messages {
     selectVendor: string;
     updated: string;
   };
+  pricing: {
+    connectionMissingTemplateBadge: string;
+    importButton: string;
+    importDescription: string;
+    importInvalidJson: string;
+    importModeCreateOnly: string;
+    importModeUpsert: string;
+    importResultSummary: (created: number, updated: number, skipped: number) => string;
+    importTitle: string;
+  };
   pricingTemplatesUi: {
     actions: string;
     addTemplate: string;
@@ -2307,6 +2317,16 @@ export const enMessages: Messages = {
     selectLoadbalanceStrategy: "Please select a loadbalance strategy for enabled models",
     selectVendor: "Please select a vendor",
     updated: "Model updated",
+  },
+  pricing: {
+    connectionMissingTemplateBadge: "Missing template",
+    importButton: "Import JSON",
+    importDescription: "Paste a pricing-template JSON request or upload a JSON file.",
+    importInvalidJson: "Enter valid JSON with a templates array.",
+    importModeCreateOnly: "Create only",
+    importModeUpsert: "Upsert by name",
+    importResultSummary: (created, updated, skipped) => `Imported pricing templates: ${created} created, ${updated} updated, ${skipped} skipped.`,
+    importTitle: "Import Pricing Templates",
   },
   pricingTemplatesUi: {
     actions: "Actions",

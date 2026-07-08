@@ -101,6 +101,7 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Route("/pricing-templates", func(router chi.Router) {
 		router.Get("/", s.handleListPricingTemplates)
 		router.Post("/", s.handleCreatePricingTemplate)
+		router.Post("/import", s.handleImportPricingTemplates)
 		router.Get("/{template_id}", s.handleGetPricingTemplate)
 		router.Put("/{template_id}", s.handleUpdatePricingTemplate)
 		router.Delete("/{template_id}", s.handleDeletePricingTemplate)

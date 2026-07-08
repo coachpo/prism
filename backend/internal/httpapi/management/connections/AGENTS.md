@@ -1,7 +1,7 @@
 # BACKEND MANAGEMENT CONNECTIONS KNOWLEDGE BASE
 
 ## OVERVIEW
-`management/connections/` owns Default-profile connection list or get routes under `/api/connections`, connection reference reads, public mutation rejection surfaces for `/api/connections/*`, owner-scoped private connection routes under `/api/models/{model_config_id}/connections`, and `/api/pricing-templates/*`. Model target authoring stays in `management/models/`, while this package keeps reusable endpoint-to-connection binding and pricing-template ownership.
+`management/connections/` owns Default-profile connection list or get routes under `/api/connections`, connection reference reads, public mutation rejection surfaces for `/api/connections/*`, owner-scoped private connection routes under `/api/models/{model_config_id}/connections`, and `/api/pricing-templates/*` including JSON import. Model target authoring stays in `management/models/`, while this package keeps reusable endpoint-to-connection binding and pricing-template ownership.
 
 ## STRUCTURE
 ```text
@@ -18,7 +18,7 @@ connections/
 - Route list and mount contract: `service.go`
 - Public connection list/get/reference flows plus rejection surfaces for direct mutations: `routes.go`
 - Owner-scoped create/update/delete, priority, pricing-template assignment, and inline endpoint creation helpers: `routes.go`, `store.go`
-- Pricing-template CRUD, connection assignment, and usage lookup: `pricing_templates.go`, `pricing_lookup.go`
+- Pricing-template CRUD, JSON import, connection assignment, and usage lookup: `pricing_templates.go`, `pricing_lookup.go`
 - Model target CRUD and ordering live in the separate model leaf: `../models/AGENTS.md`, `../models/service.go`
 
 ## CONVENTIONS

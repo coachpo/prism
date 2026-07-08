@@ -390,6 +390,33 @@ Response `201`: Created pricing template object.
 
 Pricing templates use five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Create and update ingress normalizes missing, `null`, empty, and whitespace-only values for any of those five fields to `"0"` before decimal validation. Explicit `"0"` is configured free pricing. It is not missing price data. `MISSING_PRICE_DATA` is reserved for absent, unusable, or invalid pricing snapshots, or for required FX data that cannot be applied.
 
+#### Import Pricing Templates
+```
+POST /api/pricing-templates/import
+```
+Request:
+```json
+{
+  "mode": "upsert_by_name",
+  "templates": [
+    {
+      "name": "gpt-4o",
+      "pricing_unit": "PER_1M",
+      "pricing_currency_code": "USD",
+      "input_price": "2.5",
+      "output_price": "10",
+      "cached_input_price": "1.25",
+      "cache_creation_price": "0",
+      "reasoning_price": "0",
+      "description": "OpenAI GPT-4o"
+    }
+  ]
+}
+```
+Response `200`: `{ "created": 1, "updated": 0, "skipped": [], "errors": [] }`.
+
+`mode` is either `upsert_by_name` or `create_only`. Imports are Default-profile scoped and use one transaction: validation errors return `400` with row-level `errors[]`, and no templates are created or updated.
+
 #### Update Pricing Template
 ```
 PUT /api/pricing-templates/{id}

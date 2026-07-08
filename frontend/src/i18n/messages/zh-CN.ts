@@ -880,6 +880,16 @@ export const zhCNMessages: Messages = {
     selectVendor: "请选择供应商",
     updated: "模型已更新",
   },
+  pricing: {
+    connectionMissingTemplateBadge: "缺模板",
+    importButton: "导入 JSON",
+    importDescription: "粘贴价格模板 JSON 请求，或上传 JSON 文件。",
+    importInvalidJson: "请输入包含 templates 数组的有效 JSON。",
+    importModeCreateOnly: "仅创建",
+    importModeUpsert: "按名称更新或创建",
+    importResultSummary: (created, updated, skipped) => `价格模板导入完成：创建 ${created} 个，更新 ${updated} 个，跳过 ${skipped} 个。`,
+    importTitle: "导入价格模板",
+  },
   pricingTemplatesUi: {
     actions: "操作",
     addTemplate: "新增模板",

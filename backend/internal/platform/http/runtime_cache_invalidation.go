@@ -248,6 +248,7 @@ func isConnectionPlanningMutation(method string, segments []string) bool {
 		(method == http.MethodPut && matchesSegments(segments, "connections", "*", "pricing-template")) ||
 		(method == http.MethodDelete && matchesSegments(segments, "connections", "*")) ||
 		(method == http.MethodPost && matchesSegments(segments, "pricing-templates")) ||
+		(method == http.MethodPost && matchesSegments(segments, "pricing-templates", "import")) ||
 		(method == http.MethodPut && matchesSegments(segments, "pricing-templates", "*")) ||
 		(method == http.MethodDelete && matchesSegments(segments, "pricing-templates", "*"))
 }

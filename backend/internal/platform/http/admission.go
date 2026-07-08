@@ -84,6 +84,7 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "connection references list", method: http.MethodGet, pattern: "/connections/{connection_id}/references", tier: priority.ManagementTierM2},
 	{name: "pricing templates list", method: http.MethodGet, pattern: "/pricing-templates", tier: priority.ManagementTierM2},
 	{name: "pricing template create", method: http.MethodPost, pattern: "/pricing-templates", tier: priority.ManagementTierM2},
+	{name: "pricing template import", method: http.MethodPost, pattern: "/pricing-templates/import", tier: priority.ManagementTierM2},
 	{name: "pricing template read", method: http.MethodGet, pattern: "/pricing-templates/{template_id}", tier: priority.ManagementTierM2},
 	{name: "pricing template update", method: http.MethodPut, pattern: "/pricing-templates/{template_id}", tier: priority.ManagementTierM2},
 	{name: "pricing template delete", method: http.MethodDelete, pattern: "/pricing-templates/{template_id}", tier: priority.ManagementTierM2},

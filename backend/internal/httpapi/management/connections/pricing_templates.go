@@ -118,6 +118,104 @@ func (s *Service) handleCreatePricingTemplate(w http.ResponseWriter, r *http.Req
 	responseutil.WriteJSON(w, http.StatusCreated, response)
 }
 
+func (s *Service) handleImportPricingTemplates(w http.ResponseWriter, r *http.Request) {
+	var requestBody pricingTemplateImportRequest
+	if err := decodeJSONBody(r, &requestBody); err != nil {
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	mode := strings.TrimSpace(requestBody.Mode)
+	if mode != "upsert_by_name" && mode != "create_only" {
+		responseutil.WriteJSON(w, http.StatusBadRequest, pricingTemplateImportResponse{Skipped: []string{}, Errors: []pricingTemplateImportError{{Detail: "mode must be upsert_by_name or create_only"}}})
+		return
+	}
+	now := s.nowUTC()
+	items := make([]pricingTemplateResponse, 0, len(requestBody.Templates))
+	seen := map[string]int{}
+	importErrors := make([]pricingTemplateImportError, 0)
+	for index, template := range requestBody.Templates {
+		name, err := normalizePricingTemplateName(template.Name)
+		if err != nil {
+			importErrors = append(importErrors, pricingTemplateImportError{Index: index, Name: strings.TrimSpace(template.Name), Detail: err.Error()})
+			continue
+		}
+		if firstIndex, ok := seen[name]; ok {
+			importErrors = append(importErrors, pricingTemplateImportError{Index: index, Name: name, Detail: fmt.Sprintf("duplicate name also appears at index %d", firstIndex)})
+			continue
+		}
+		seen[name] = index
+		item, err := buildCreatedPricingTemplate(0, now, template)
+		if err != nil {
+			importErrors = append(importErrors, pricingTemplateImportError{Index: index, Name: name, Detail: err.Error()})
+			continue
+		}
+		item.Name = name
+		items = append(items, item)
+	}
+	if len(importErrors) > 0 {
+		responseutil.WriteJSON(w, http.StatusBadRequest, pricingTemplateImportResponse{Skipped: []string{}, Errors: importErrors})
+		return
+	}
+
+	// ponytail: no litellm auto-fetch/mapping - user curates the JSON file; add a converter script only if hand-mapping hurts.
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (pricingTemplateImportResponse, error) {
+		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
+		if err != nil {
+			return pricingTemplateImportResponse{}, err
+		}
+		if err := lockProfileRow(r.Context(), tx, profile.ID); err != nil {
+			return pricingTemplateImportResponse{}, err
+		}
+		existingItems, err := listPricingTemplates(r.Context(), tx, profile.ID)
+		if err != nil {
+			return pricingTemplateImportResponse{}, err
+		}
+		existingByName := map[string]pricingTemplateResponse{}
+		for _, existing := range existingItems {
+			existingByName[existing.Name] = existing
+		}
+		result := pricingTemplateImportResponse{Skipped: []string{}, Errors: []pricingTemplateImportError{}}
+		for _, item := range items {
+			item.ProfileID = profile.ID
+			current, exists := existingByName[item.Name]
+			if !exists {
+				if _, err := insertPricingTemplate(r.Context(), tx, item); err != nil {
+					return pricingTemplateImportResponse{}, err
+				}
+				result.Created++
+				continue
+			}
+			if mode == "create_only" {
+				result.Skipped = append(result.Skipped, item.Name)
+				continue
+			}
+			next := current
+			next.Description = item.Description
+			next.PricingUnit = item.PricingUnit
+			next.PricingCurrencyCode = item.PricingCurrencyCode
+			next.InputPrice = item.InputPrice
+			next.OutputPrice = item.OutputPrice
+			next.CachedInputPrice = item.CachedInputPrice
+			next.CacheCreationPrice = item.CacheCreationPrice
+			next.ReasoningPrice = item.ReasoningPrice
+			if pricingTemplateVersionBumpRequired(current, next) {
+				next.Version++
+			}
+			next.UpdatedAt = now
+			if err := updatePricingTemplate(r.Context(), tx, next); err != nil {
+				return pricingTemplateImportResponse{}, err
+			}
+			result.Updated++
+		}
+		return result, nil
+	})
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	responseutil.WriteJSON(w, http.StatusOK, response)
+}
+
 func (s *Service) handleUpdatePricingTemplate(w http.ResponseWriter, r *http.Request) {
 	templateID, err := routeInt(r, "template_id")
 	if err != nil {

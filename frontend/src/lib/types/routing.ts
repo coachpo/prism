@@ -66,6 +66,26 @@ export interface PricingTemplateCreate {
   reasoning_price?: PricingComponentPrice;
 }
 
+export type PricingTemplateImportMode = "upsert_by_name" | "create_only";
+
+export interface PricingTemplateImportRequest {
+  mode: PricingTemplateImportMode;
+  templates: PricingTemplateCreate[];
+}
+
+export interface PricingTemplateImportError {
+  index: number;
+  name?: string;
+  detail: string;
+}
+
+export interface PricingTemplateImportResponse {
+  created: number;
+  updated: number;
+  skipped: string[];
+  errors: PricingTemplateImportError[];
+}
+
 export interface PricingTemplateUpdate {
   expected_updated_at: string;
   name?: string;
