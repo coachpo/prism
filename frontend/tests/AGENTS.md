@@ -1,7 +1,7 @@
 # FRONTEND TEST BOUNDARY
 
 ## OVERVIEW
-`frontend/tests/` is Prism's frontend regression surface. It splits browser flows from seam-contract suites and keeps the tree aligned with the current route, provider, typed-client, React Flow routing diagram, and model/access-target authoring structure.
+`frontend/tests/` is Prism's frontend regression surface. It splits browser flows from seam-contract suites and keeps the tree aligned with the current route, provider, typed-client, routing health list, and model/access-target authoring structure.
 
 ## TEST SPLIT
 - `e2e/` holds Playwright browser route flows only; see `e2e/AGENTS.md`.
@@ -20,7 +20,7 @@
 - Request-log/detail coverage lives in `e2e/request-log-*.spec.ts`, `e2e/request-log-detail-copy.spec.ts`, `e2e/request-log-audit-disabled-state.spec.ts`, `e2e/request-logs-token-rate.spec.ts`, `e2e/request-logs-ttft.spec.ts`, and `e2e/request-logs-optional-zero.spec.ts`.
 - Model-detail handoff, unified access-target authoring, and connection-probe coverage lives in the model-detail e2e flows, `e2e/model-detail-request-logs-handoff.spec.ts`, `e2e/model-detail-connection-dialog-probe.spec.ts`, `model-detail/*.test.mjs`, and `lib/profile_scope_header_contract.test.mjs`.
 - Model CRUD and access-target authoring coverage lives in `lib/model_form_state_contract.test.mjs`.
-- Dashboard React Flow layout and renderer seam coverage lives in `lib/dashboard_routing_flow_layout_contract.test.mjs`, while browser shell behavior stays in `e2e/dashboard-routing-shell.spec.ts`.
+- Dashboard routing list and data-shaping seam coverage lives in `lib/dashboard_routing_list_contract.test.mjs`.
 - Shared dashboard/statistics browser fixture data lives in `e2e/dashboard-aggregate-fixtures.ts`.
 - Browser coverage also includes auth session lifecycle, proxy-key lifecycle, reporting currency, and user-agent client-rule flows under `e2e/`.
 
@@ -31,7 +31,7 @@
 ## WHERE TO LOOK
 - Statistics and analytics browser coverage: `e2e/shared-chart-statistics.spec.ts`, `e2e/statistics-ttft.spec.ts`, `e2e/statistics-token-rate.spec.ts`, `e2e/statistics-filtered-totals.spec.ts`, `e2e/statistics-proxy-api-key-label.spec.ts`
 - Model/access-target seam coverage: `lib/model_form_state_contract.test.mjs`
-- Dashboard routing flow seam coverage: `lib/dashboard_routing_flow_layout_contract.test.mjs`, `e2e/dashboard-routing-shell.spec.ts`
+- Dashboard routing list seam coverage: `lib/dashboard_routing_list_contract.test.mjs`
 - Shared contract seams: `lib/*.test.mjs`, `loadbalance/*.test.mjs`, `main/*.test.mjs`, `model-detail/*.test.mjs`, `server/*.test.mjs`
 - Shared test helpers: `helpers/loadTsModule.mjs`
 - Vitest/MSW seams outside this tree: `../src/test/setup.ts`, `../src/test/msw/server.ts`, `../src/test/msw/handlers.ts`

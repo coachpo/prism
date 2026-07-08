@@ -23,7 +23,7 @@ dashboard/
 ├── DashboardPageSkeleton.tsx       # Overview loading shell
 ├── routingDiagram.ts               # Barrel over routing-diagram internals
 └── routing-diagram/
-    ├── AGENTS.md                   # Diagram-local layout, flow rendering, and renderer-specific helpers
+    ├── AGENTS.md                   # Diagram-local contracts, list rendering, and presentation helpers
     └── ...
 ```
 
@@ -37,13 +37,13 @@ dashboard/
 - High-level overview data composition: `useDashboardPageData.ts`
 - Initial bootstrap fan-out and routing payload shaping: `useDashboardBootstrapData.ts`
 - Dashboard polling flow: `useDashboardPolling.ts`, which refreshes REST snapshot and recent activity data through `useDashboardBootstrapData.ts`
-- Routing visualization barrel and leaf cluster: `routingDiagram.ts`, `RoutingDiagramCard.tsx`, `routing-diagram/AGENTS.md`
+- Routing health list barrel and leaf cluster: `routingDiagram.ts`, `RoutingDiagramCard.tsx`, `routing-diagram/AGENTS.md`
 - KPI, highlight, recent-activity, and spend presentation: `DashboardMetricsGrid.tsx`, `DashboardHighlightsGrid.tsx`, `RecentActivityCard.tsx`, `TopSpendingModelsCard.tsx`, `DashboardPageSkeleton.tsx`
-- E2E seams for aggregate bootstrap, routing-shell navigation, exact request-log handoff, and dashboard reporting-currency display: `../../../tests/e2e/dashboard-aggregate-overview.spec.ts`, `../../../tests/e2e/dashboard-routing-shell.spec.ts`, `../../../tests/e2e/dashboard-reporting-currency.spec.ts`
+- E2E seams for aggregate bootstrap and dashboard reporting-currency display: `../../../tests/e2e/dashboard-aggregate-overview.spec.ts`, `../../../tests/e2e/dashboard-reporting-currency.spec.ts`
 
 ## CHILD DOCS
 
-- `routing-diagram/AGENTS.md`: routing-diagram layout math, flow rendering, mobile fallback, and renderer-specific helpers.
+- `routing-diagram/AGENTS.md`: routing-diagram data shaping, plain-list rendering, legend, and inspector presentation helpers.
 
 ## CONVENTIONS
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
@@ -54,7 +54,7 @@ dashboard/
 - Keep dashboard live refresh on `useDashboardPolling.ts`; hooks own the interval, not components.
 - Keep the overview-versus-analytics tab split on `queryParams.ts` and `useDashboardPageState.ts` instead of local component state.
 - Polling and manual refresh should reconcile through REST bootstrap data. Snapshot reconciliation uses lexicographic `snapshot_revision`; recent activity reconciliation uses request-log IDs only for feed dedupe and drilldown.
-- Treat `routingDiagram.ts` as the barrel entrypoint for routing visualization and let `routing-diagram/AGENTS.md` own the layout, flow rendering, and mobile fallback split beneath it.
+- Treat `routingDiagram.ts` as the barrel entrypoint for routing health presentation and let `routing-diagram/AGENTS.md` own the data shaping and plain-list rendering beneath it.
 - Keep overview presentation components focused on rendering. Bootstrap, payload shaping, and merge logic belong in the dashboard hooks.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.

@@ -67,20 +67,13 @@ export interface Messages {
     routing24hTotalRequests: string;
     routingActionOpenModelDetail: string;
     routingActiveTerminalTargets: string;
-    routingChartActionHint: string;
-    routingChartHint: string;
-    routingEndpoint: string;
     routingEndpointNodeType: string;
     routingLegendDegraded: string;
     routingLegendFailing: string;
     routingLegendHealthy: string;
     routingLegendNoData: string;
-    routingLegendNoRecentRequests: string;
-    routingLink: string;
-    routingLinkAria: (endpoint: string, model: string) => string;
     routingFilteredEmptyTitle: string;
     routingFilteredEmptyDescription: string;
-    routingModel: string;
     routingModelFilterDescription: string;
     routingModelFilterLabel: string;
     routingModelNodeType: string;
@@ -1485,20 +1478,13 @@ export const enMessages: Messages = {
     routing24hTotalRequests: "24h total requests",
     routingActionOpenModelDetail: "Open model detail",
     routingActiveTerminalTargets: "Active terminal targets",
-    routingChartActionHint: "Activate model or endpoint targets to open details or request logs",
-    routingChartHint: "Desktop shows the backend-owned routing graph. Compact widths switch to a topology list with the same model and endpoint drill-down targets.",
-    routingEndpoint: "Endpoint",
     routingEndpointNodeType: "Endpoint",
     routingLegendDegraded: "Degraded",
     routingLegendFailing: "Failing",
     routingLegendHealthy: "Healthy",
     routingLegendNoData: "No data",
-    routingLegendNoRecentRequests: "No recent requests",
-    routingLink: "Routing link",
-    routingLinkAria: (endpoint, model) => `Route from ${endpoint} to ${model}`,
     routingFilteredEmptyTitle: "No models selected",
     routingFilteredEmptyDescription: "Select at least one model to show its routing topology.",
-    routingModel: "Model",
     routingModelFilterDescription: "Choose which models appear in this diagram.",
     routingModelFilterLabel: "Model filter",
     routingModelNodeType: "Model",

@@ -15,7 +15,7 @@
 
 ## WHERE TO LOOK
 - Mounted rewrite route list, public auth split, and protected shell boundary: `../app/router/appRouter.tsx`, `../App.tsx`
-- Oracle-compatible dashboard, React Flow routing diagram, model detail, request logs, settings, and dashboard-owned statistics leaf maps: `dashboard/AGENTS.md`, `dashboard/routing-diagram/AGENTS.md`, `model-detail/AGENTS.md`, `request-logs/AGENTS.md`, `settings/AGENTS.md`, `statistics/AGENTS.md`
+- Oracle-compatible dashboard, routing health list, model detail, request logs, settings, and dashboard-owned statistics leaf maps: `dashboard/AGENTS.md`, `dashboard/routing-diagram/AGENTS.md`, `model-detail/AGENTS.md`, `request-logs/AGENTS.md`, `settings/AGENTS.md`, `statistics/AGENTS.md`
 - Active feature-route ownership and leaves: `../features/AGENTS.md`
 - Settings nested ownership split: `settings/sections/AGENTS.md`, `settings/sections/authentication/AGENTS.md`, `settings/sections/billing-currency/AGENTS.md`, `settings/dialogs/AGENTS.md`, `settings/costing/AGENTS.md`
 
