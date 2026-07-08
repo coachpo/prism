@@ -51,9 +51,6 @@ type Record struct {
 	MaxInFlightNonStream *int
 	MaxInFlightStream    *int
 	PricingTemplate      *PricingTemplateSummary
-	HealthStatus         string
-	HealthDetail         *string
-	LastHealthAt         *time.Time
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
 }

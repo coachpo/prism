@@ -214,7 +214,6 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 			QPSLimit:             requestBody.QPSLimit,
 			MaxInFlightNonStream: requestBody.MaxInFlightNonStream,
 			MaxInFlightStream:    requestBody.MaxInFlightStream,
-			HealthStatus:         "unknown",
 			CreatedAt:            now,
 			UpdatedAt:            now,
 		}

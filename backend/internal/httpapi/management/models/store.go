@@ -396,7 +396,7 @@ func loadModelAccessTargetsForModels(ctx context.Context, exec queryExecutor, pr
 
 func loadConnectionAccessTargetsForModels(ctx context.Context, exec queryExecutor, profileID int, modelIDs []int) (map[int][]accessTargetRecord, error) {
 	args := []any{profileID, int32ArrayArg(modelIDs)}
-	query := `SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_connection_id, model_access_targets.position, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id = ANY($2) AND model_access_targets.target_connection_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`
+	query := `SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_connection_id, model_access_targets.position, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id = ANY($2) AND model_access_targets.target_connection_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query connection access targets for profile %d: %w", profileID, err)
@@ -546,7 +546,7 @@ func loadConnectionSummariesByIDs(ctx context.Context, exec queryExecutor, profi
 		return map[int]connectionTargetSummary{}, nil
 	}
 	args := []any{profileID, int32ArrayArg(connectionIDs)}
-	query := `SELECT connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM connections JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE connections.profile_id = $1 AND connections.id = ANY($2) ORDER BY connections.id ASC`
+	query := `SELECT connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.created_at, connections.updated_at FROM connections JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE connections.profile_id = $1 AND connections.id = ANY($2) ORDER BY connections.id ASC`
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query target connections for profile %d: %w", profileID, err)
@@ -876,8 +876,6 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 	var templatePricingUnit sql.NullString
 	var templatePricingCurrencyCode sql.NullString
 	var templateVersion sql.NullInt32
-	var healthDetail sql.NullString
-	var lastHealthAt sql.NullTime
 	item := connectionTargetSummary{}
 	endpoint := endpointResponse{}
 	dest := append(prefix,
@@ -907,9 +905,6 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 		&templatePricingUnit,
 		&templatePricingCurrencyCode,
 		&templateVersion,
-		&item.HealthStatus,
-		&healthDetail,
-		&lastHealthAt,
 		&item.CreatedAt,
 		&item.UpdatedAt,
 	)
@@ -928,8 +923,6 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 	item.QPSLimit = nullableInt32(qpsLimit)
 	item.MaxInFlightNonStream = nullableInt32(maxInFlightNonStream)
 	item.MaxInFlightStream = nullableInt32(maxInFlightStream)
-	item.HealthDetail = nullableStringValue(healthDetail)
-	item.LastHealthAt = nullableTime(lastHealthAt)
 	if templateID.Valid {
 		item.PricingTemplate = &connectionPricingTemplateSummary{ID: int(templateID.Int32), Name: templateName.String, PricingUnit: templatePricingUnit.String, PricingCurrencyCode: templatePricingCurrencyCode.String, Version: int(templateVersion.Int32)}
 	}
@@ -1167,14 +1160,6 @@ func nullableStringValue(value sql.NullString) *string {
 		return nil
 	}
 	resolved := value.String
-	return &resolved
-}
-
-func nullableTime(value sql.NullTime) *time.Time {
-	if !value.Valid {
-		return nil
-	}
-	resolved := value.Time.UTC()
 	return &resolved
 }
 

@@ -58,9 +58,6 @@ function createConnection(id: number, ownerModelConfigId: number, endpoint: Retu
     max_in_flight_non_stream: null,
     max_in_flight_stream: null,
     pricing_template: null,
-    health_status: "unknown",
-    health_detail: null,
-    last_health_check: null,
     created_at: timestamp,
     updated_at: timestamp,
   };

@@ -214,9 +214,6 @@ type connectionResponse struct {
 	MaxInFlightNonStream *int                              `json:"max_in_flight_non_stream"`
 	MaxInFlightStream    *int                              `json:"max_in_flight_stream"`
 	PricingTemplate      *connectionPricingTemplateSummary `json:"pricing_template"`
-	HealthStatus         string                            `json:"health_status"`
-	HealthDetail         *string                           `json:"health_detail"`
-	LastHealthAt         *time.Time                        `json:"last_health_check"`
 	CreatedAt            time.Time                         `json:"created_at"`
 	UpdatedAt            time.Time                         `json:"updated_at"`
 }

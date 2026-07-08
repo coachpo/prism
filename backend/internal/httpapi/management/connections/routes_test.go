@@ -161,8 +161,6 @@ func TestTerminalTargetRecordAdapterPreservesConnectionResponseShape(t *testing.
 	qpsLimit := 12
 	maxNonStream := 3
 	maxStream := 4
-	healthDetail := "ok"
-	checkedAt := time.Date(2026, time.June, 7, 12, 30, 0, 0, time.UTC)
 	now := time.Date(2026, time.June, 7, 12, 0, 0, 0, time.UTC)
 
 	connection := connectionResponse{
@@ -172,8 +170,7 @@ func TestTerminalTargetRecordAdapterPreservesConnectionResponseShape(t *testing.
 		OpenAITextCapability: &textCapability, PricingTemplateID: &pricingTemplateID,
 		QPSLimit: &qpsLimit, MaxInFlightNonStream: &maxNonStream, MaxInFlightStream: &maxStream,
 		PricingTemplate: &connectionPricingTemplateSummary{ID: 11, Name: "standard", PricingUnit: "tokens", PricingCurrencyCode: "USD", Version: 1},
-		HealthStatus:    "healthy", HealthDetail: &healthDetail, LastHealthAt: &checkedAt,
-		CreatedAt: now, UpdatedAt: now,
+		CreatedAt:       now, UpdatedAt: now,
 	}
 	converted := connectionResponseFromTerminalTargetRecord(terminalTargetRecordFromConnectionResponse(connection))
 	if !reflect.DeepEqual(converted, connection) {

@@ -413,7 +413,7 @@ func listConnectionsByModelIDs(ctx context.Context, exec queryExecutor, profileI
 
 func insertTerminalTarget(ctx context.Context, exec queryExecutor, item terminaltarget.Record) (int, error) {
 	var terminalTargetID int
-	err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id`, item.ProfileID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAITextCapability), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.HealthStatus, nullableString(item.HealthDetail), nullableTimeValue(item.LastHealthAt), item.CreatedAt, item.UpdatedAt).Scan(&terminalTargetID)
+	err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'unknown', $14, $15) RETURNING id`, item.ProfileID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAITextCapability), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.CreatedAt, item.UpdatedAt).Scan(&terminalTargetID)
 	if err != nil {
 		return 0, fmt.Errorf("insert terminal target: %w", err)
 	}
@@ -428,7 +428,7 @@ func insertOwnerTerminalTargetAccess(ctx context.Context, exec queryExecutor, pr
 }
 
 func updateTerminalTarget(ctx context.Context, exec queryExecutor, item terminaltarget.Record) error {
-	if _, err := exec.Exec(ctx, `UPDATE connections SET api_family = $2, endpoint_id = $3, pricing_template_id = $4, qps_limit = $5, max_in_flight_non_stream = $6, max_in_flight_stream = $7, openai_text_capability = $8, is_active = $9, priority = $10, name = $11, auth_type = $12, custom_headers = $13, health_status = $14, health_detail = $15, last_health_check = $16, updated_at = $17 WHERE id = $1`, item.ID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAITextCapability), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.HealthStatus, nullableString(item.HealthDetail), nullableTimeValue(item.LastHealthAt), item.UpdatedAt); err != nil {
+	if _, err := exec.Exec(ctx, `UPDATE connections SET api_family = $2, endpoint_id = $3, pricing_template_id = $4, qps_limit = $5, max_in_flight_non_stream = $6, max_in_flight_stream = $7, openai_text_capability = $8, is_active = $9, priority = $10, name = $11, auth_type = $12, custom_headers = $13, updated_at = $14 WHERE id = $1`, item.ID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAITextCapability), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.UpdatedAt); err != nil {
 		return fmt.Errorf("update terminal target %d: %w", item.ID, err)
 	}
 	return nil
@@ -500,7 +500,7 @@ func persistConnectionPriorities(ctx context.Context, exec queryExecutor, items 
 	return nil
 }
 
-const connectionSelectQuery = `SELECT connections.id, connections.profile_id, model_access_targets.source_model_config_id, connections.api_family, connections.endpoint_id, endpoints.id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, model_access_targets.position, connections.name, connections.auth_type, connections.custom_headers, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.health_status, connections.health_detail, connections.last_health_check, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id`
+const connectionSelectQuery = `SELECT connections.id, connections.profile_id, model_access_targets.source_model_config_id, connections.api_family, connections.endpoint_id, endpoints.id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, model_access_targets.position, connections.name, connections.auth_type, connections.custom_headers, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id`
 
 func scanConnectionRows(rows pgx.Rows, iterateContext string) ([]connectionResponse, error) {
 	items := make([]connectionResponse, 0)
@@ -564,10 +564,8 @@ func scanTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminal
 	var templatePricingUnit sql.NullString
 	var templatePricingCurrencyCode sql.NullString
 	var templateVersion sql.NullInt32
-	var healthDetail sql.NullString
-	var lastHealthAt sql.NullTime
 	record := terminaltarget.Record{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &modelConfigID, &record.APIFamily, &record.EndpointID, &joinedEndpointID, &endpointProfileID, &endpointName, &endpointBaseURL, &endpointAPIKey, &endpointPosition, &endpointCreatedAt, &endpointUpdatedAt, &record.IsActive, &record.Priority, &connectionName, &authType, &customHeaders, &openAITextCapability, &pricingTemplateID, &qpsLimit, &maxInFlightNonStream, &maxInFlightStream, &templateID, &templateName, &templatePricingUnit, &templatePricingCurrencyCode, &templateVersion, &record.HealthStatus, &healthDetail, &lastHealthAt, &record.CreatedAt, &record.UpdatedAt); err != nil {
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &modelConfigID, &record.APIFamily, &record.EndpointID, &joinedEndpointID, &endpointProfileID, &endpointName, &endpointBaseURL, &endpointAPIKey, &endpointPosition, &endpointCreatedAt, &endpointUpdatedAt, &record.IsActive, &record.Priority, &connectionName, &authType, &customHeaders, &openAITextCapability, &pricingTemplateID, &qpsLimit, &maxInFlightNonStream, &maxInFlightStream, &templateID, &templateName, &templatePricingUnit, &templatePricingCurrencyCode, &templateVersion, &record.CreatedAt, &record.UpdatedAt); err != nil {
 		return terminaltarget.Record{}, err
 	}
 	record.OwnerModelConfigID = nullableInt32(modelConfigID)
@@ -579,8 +577,6 @@ func scanTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminal
 	record.QPSLimit = nullableInt32(qpsLimit)
 	record.MaxInFlightNonStream = nullableInt32(maxInFlightNonStream)
 	record.MaxInFlightStream = nullableInt32(maxInFlightStream)
-	record.HealthDetail = nullableStringValue(healthDetail)
-	record.LastHealthAt = nullableTime(lastHealthAt)
 	if joinedEndpointID.Valid {
 		record.Endpoint = &terminaltarget.Endpoint{ID: int(joinedEndpointID.Int32), ProfileID: int(endpointProfileID.Int32), Name: endpointName.String, BaseURL: endpointBaseURL.String, APIKey: endpointAPIKey.String, Position: int(endpointPosition.Int32), CreatedAt: endpointCreatedAt.Time.UTC(), UpdatedAt: endpointUpdatedAt.Time.UTC()}
 	}
@@ -607,9 +603,6 @@ func terminalTargetRecordFromConnectionResponse(item connectionResponse) termina
 		QPSLimit:             item.QPSLimit,
 		MaxInFlightNonStream: item.MaxInFlightNonStream,
 		MaxInFlightStream:    item.MaxInFlightStream,
-		HealthStatus:         item.HealthStatus,
-		HealthDetail:         item.HealthDetail,
-		LastHealthAt:         item.LastHealthAt,
 		CreatedAt:            item.CreatedAt,
 		UpdatedAt:            item.UpdatedAt,
 	}
@@ -639,9 +632,6 @@ func connectionResponseFromTerminalTargetRecord(record terminaltarget.Record) co
 		QPSLimit:             record.QPSLimit,
 		MaxInFlightNonStream: record.MaxInFlightNonStream,
 		MaxInFlightStream:    record.MaxInFlightStream,
-		HealthStatus:         record.HealthStatus,
-		HealthDetail:         record.HealthDetail,
-		LastHealthAt:         record.LastHealthAt,
 		CreatedAt:            record.CreatedAt,
 		UpdatedAt:            record.UpdatedAt,
 	}
@@ -702,13 +692,6 @@ func nullableInt(value *int) any {
 	return *value
 }
 
-func nullableTimeValue(value *time.Time) any {
-	if value == nil {
-		return nil
-	}
-	return *value
-}
-
 func nullableJSONString(value map[string]string) any {
 	if len(value) == 0 {
 		return nil
@@ -733,14 +716,6 @@ func nullableStringValue(value sql.NullString) *string {
 		return nil
 	}
 	resolved := value.String
-	return &resolved
-}
-
-func nullableTime(value sql.NullTime) *time.Time {
-	if !value.Valid {
-		return nil
-	}
-	resolved := value.Time.UTC()
 	return &resolved
 }
 

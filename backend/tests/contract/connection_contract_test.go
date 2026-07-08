@@ -281,9 +281,10 @@ func TestModelScopedConnectionCreateCreatesOwnerTarget(t *testing.T) {
 	var created map[string]any
 	decodeJSONResponse(t, createResponse, &created)
 	connectionID := jsonInt(t, created["id"])
-	if jsonInt(t, created["model_config_id"]) != ownerModelID || created["api_family"] != "openai" || jsonInt(t, created["endpoint_id"]) != ownerEndpointID || jsonInt(t, created["priority"]) != 0 || created["health_status"] != "unknown" {
+	if jsonInt(t, created["model_config_id"]) != ownerModelID || created["api_family"] != "openai" || jsonInt(t, created["endpoint_id"]) != ownerEndpointID || jsonInt(t, created["priority"]) != 0 {
 		t.Fatalf("expected owner-scoped created connection payload, got %+v", created)
 	}
+	assertNoConnectionProbeHealthFields(t, created)
 	if jsonInt(t, asMap(t, created["endpoint"])["id"]) != ownerEndpointID {
 		t.Fatalf("expected owner-scoped create to hydrate endpoint, got %+v", created)
 	}
@@ -303,6 +304,7 @@ func TestModelScopedConnectionCreateCreatesOwnerTarget(t *testing.T) {
 	if len(listed) != 1 || jsonInt(t, listed[0]["id"]) != connectionID || jsonInt(t, listed[0]["model_config_id"]) != ownerModelID {
 		t.Fatalf("expected owner model list to contain only its private connection, excluding standalone %d and other-owned %d, got %+v", standaloneConnectionID, otherConnectionID, listed)
 	}
+	assertNoConnectionProbeHealthFields(t, listed[0])
 }
 
 func TestModelScopedConnectionCreateRejectsConflictingAPIFamily(t *testing.T) {
@@ -441,6 +443,15 @@ func assertConnectionOwnerTarget(t *testing.T, harness *contractHarness, modelCo
 	}
 	if position != wantPosition || enabled != wantEnabled {
 		t.Fatalf("expected owner target position=%d enabled=%v, got position=%d enabled=%v", wantPosition, wantEnabled, position, enabled)
+	}
+}
+
+func assertNoConnectionProbeHealthFields(t *testing.T, payload map[string]any) {
+	t.Helper()
+	for _, field := range []string{"health_status", "health_detail", "last_health_check"} {
+		if _, ok := payload[field]; ok {
+			t.Fatalf("connection payload must not expose %s, got %+v", field, payload)
+		}
 	}
 }
 

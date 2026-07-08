@@ -50,9 +50,6 @@ function createConnection() {
     max_in_flight_non_stream: null,
     max_in_flight_stream: null,
     pricing_template: null,
-    health_status: "healthy",
-    health_detail: null,
-    last_health_check: timestamp,
     created_at: timestamp,
     updated_at: timestamp,
   };

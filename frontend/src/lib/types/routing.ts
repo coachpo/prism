@@ -130,9 +130,6 @@ export interface Connection {
   max_in_flight_non_stream: number | null;
   max_in_flight_stream: number | null;
   pricing_template: ConnectionPricingTemplateSummary | null;
-  health_status: string;
-  health_detail: string | null;
-  last_health_check: string | null;
   created_at: string;
   updated_at: string;
 }

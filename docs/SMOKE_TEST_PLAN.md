@@ -344,8 +344,8 @@ Prepare seed state through API (not manual DB edits):
 |---|---|---|---|
 | I01 | P0 | Sidebar navigation | All routes load |
 | I02 | P0 | Dashboard + Models success rate badges | Correct color thresholds and `N/A` |
-| I03 | P0 | Model detail connection success badge + tooltip | Correct counts, rates, health detail |
-| I04 | P0 | Connection health actions | Toast/banner reflects result |
+| I03 | P0 | Model detail connection success badge + tooltip | Correct counts, rates, request-derived status detail |
+| I04 | P0 | Private connection actions | Create/edit/delete toast or banner reflects result |
 | I05 | P0 | Statistics cards and request table | Data renders and updates |
 | I06 | P0 | Statistics "All" time range consistency | Summary totals align with table totals |
 | I07 | P0 | Statistics api_family filter | Only OpenAI/Anthropic/Gemini options |
@@ -451,7 +451,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | K20 | P0 | Proxy request with allowed header | Passes through to upstream |
 | K21 | P0 | `custom_headers` cannot re-add blocked header names | Blocked header still absent |
 | K22 | P0 | API-family auth headers remain correct | Auth headers present and correct |
-| K23 | P0 | Health-check also applies blocklist rules | Blocked headers excluded |
+| K23 | P0 | Runtime provider request applies blocklist rules | Blocked headers excluded |
 | K24 | P1 | Disable all rules | Metadata headers flow through |
 
 ### K.4 Frontend UI (Settings Page)

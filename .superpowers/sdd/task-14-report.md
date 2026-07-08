@@ -89,3 +89,32 @@ Tests and commands:
 Concerns:
 - Docker/Postgres-backed Go suites still cannot complete in this local environment because the harness Postgres containers fail readiness before tests reach assertions.
 - Existing unrelated dirty files were left untouched except this appended report: `.superpowers/sdd/task-12-report.md`, `.superpowers/sdd/task-9-report.md`, `docs/IMPLEMENTATION_PLAN.md`, and untracked `docs/TEST_REDUCTION_*.md`.
+
+---
+
+STATUS: REVIEW_FINDINGS_FIXED_WITH_CONCERNS
+
+Fix summary:
+- Removed probe-era health fields from live connection response structs, model-detail nested connection summaries, terminal-target transfer records, and frontend `Connection` types.
+- Stopped owner-scoped create from carrying `HealthStatus: "unknown"` through the live API response path. The retained DB column still receives the schema-required legacy value on insert and is no longer read into management responses.
+- Removed stale smoke/API docs language for connection health actions, health-check blocklist coverage, and compatibility connection health metadata.
+
+Tests and commands:
+- PASS: `rg -n "HealthStatus|HealthDetail|LastHealthCheck|LastHealthAt" backend/internal/httpapi/management/connections backend/internal/httpapi/management/models backend/internal/domain/terminaltarget --glob '!**/*_test.go'` returned 0.
+- PASS: `rg -n "health_detail|last_health_check" backend/internal/httpapi/management/connections backend/internal/httpapi/management/models backend/internal/domain/terminaltarget --glob '!**/*_test.go'` returned 0.
+- PASS: `rg -n "health_status" backend/internal/httpapi/management/connections/types.go backend/internal/httpapi/management/models/types.go backend/internal/domain/terminaltarget/terminaltarget.go frontend/src/lib/types/routing.ts docs/API_SPEC.md` returned 0.
+- PASS: `rg -n "health_status|health_detail|last_health_check|HealthStatus|HealthDetail|LastHealthCheck|LastHealthAt" frontend/src frontend/tests` returned 0.
+- PASS: `rg -n "Connection health actions|Health-check also applies blocklist rules|health metadata" docs/SMOKE_TEST_PLAN.md docs/API_SPEC.md` returned 0.
+- PASS: `go test -count=1 ./internal/httpapi/management/connections`.
+- PASS: `go build ./cmd/prism-backend`.
+- PASS: `go test -c -o /tmp/prism-management-models.test ./internal/httpapi/management/models && go test -c -o /tmp/prism-contract.test ./tests/contract`.
+- PASS: `pnpm exec vitest run src/test/model-detail-feature.test.ts`.
+- PASS: `pnpm run test:lib`.
+- PASS: `pnpm run build`.
+- PASS: `pnpm run lint`.
+- FAIL before assertions: `go test -count=1 ./internal/httpapi/management/models` did not complete because the local Postgres harness container on port 33273 did not become ready in time.
+- FAIL before assertions: `go test -count=1 ./tests/contract -run TestModelScopedConnectionCreateCreatesOwnerTarget` did not complete because the local Postgres harness container on port 33274 did not become ready in time.
+
+Concerns:
+- Retained migration/schema history still contains the legacy DB columns, and the connection insert keeps the minimum `health_status='unknown'` write required by the current NOT NULL column; no live management response or frontend type exposes it.
+- Existing unrelated dirty files were left untouched except this appended report: `.superpowers/sdd/task-12-report.md`, `.superpowers/sdd/task-9-report.md`, `docs/IMPLEMENTATION_PLAN.md`, and untracked `docs/TEST_REDUCTION_*.md`.

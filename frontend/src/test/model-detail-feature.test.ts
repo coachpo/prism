@@ -23,9 +23,6 @@ function createConnection(id: number, priority: number, name: string): Connectio
     max_in_flight_non_stream: null,
     max_in_flight_stream: null,
     pricing_template: null,
-    health_status: "unknown",
-    health_detail: null,
-    last_health_check: null,
     created_at: "2026-06-11T00:00:00Z",
     updated_at: "2026-06-11T00:00:00Z",
   }
