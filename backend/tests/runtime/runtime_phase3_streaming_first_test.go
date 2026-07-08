@@ -299,44 +299,6 @@ func TestRuntimeStreamingFirstBufferedFallbacks(t *testing.T) {
 	})
 }
 
-func BenchmarkRuntimeStreamingFirstResponsePath(b *testing.B) {
-	harness := newRuntimeHarnessWithConfig(b, runtimeHarnessConfig{SettingsMutator: useBenchmarkRuntimeTransportOverrides})
-	profileID := harness.activeProfileID(b)
-	upstream := newRuntimeBenchmarkUpstream(b, http.StatusOK, runtimeBenchmarkLargeResponse())
-	route := harness.seedProxyRoute(b, runtimeRouteSeed{
-		ProfileID:       profileID,
-		APIFamily:       "openai",
-		PublicModelID:   "benchmark-phase3-streaming-first-response-public-" + randomSuffix(),
-		TargetModelID:   "benchmark-phase3-streaming-first-response-target-" + randomSuffix(),
-		EndpointBaseURL: upstream.baseURL("/benchmark/phase3/streaming-first-response"),
-		EndpointAPIKey:  "benchmark-phase3-streaming-first-response-key",
-	})
-	rawBody := runtimeBenchmarkRequestBody(b, route.PublicModelID, "phase-3 streaming-first response path benchmark")
-
-	statusCode, responseBytes, err := performRuntimeBenchmarkRequest(harness.client, harness.url+"/v1/chat/completions", rawBody)
-	if err != nil {
-		b.Fatalf("warm runtime phase-3 streaming-first response benchmark request: %v", err)
-	}
-	if statusCode != http.StatusOK {
-		b.Fatalf("expected warm runtime phase-3 streaming-first response status 200, got %d", statusCode)
-	}
-	if responseBytes < 512*1024 {
-		b.Fatalf("expected warm runtime phase-3 streaming-first response payload to exceed 512KiB, got %d bytes", responseBytes)
-	}
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		statusCode, _, err = performRuntimeBenchmarkRequest(harness.client, harness.url+"/v1/chat/completions", rawBody)
-		if err != nil {
-			b.Fatalf("run runtime phase-3 streaming-first response benchmark request: %v", err)
-		}
-		if statusCode != http.StatusOK {
-			b.Fatalf("expected runtime phase-3 streaming-first response status 200, got %d", statusCode)
-		}
-	}
-}
-
 func assertLatestRuntimeUsageEventTiming(t *testing.T, conn *pgx.Conn, profileID int) {
 	t.Helper()
 	waitForRuntimeTelemetryCounts(t, conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)

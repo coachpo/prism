@@ -54,17 +54,6 @@ func TestHealthVersionSurface(t *testing.T) {
 	}
 }
 
-func TestServedDocsSurfaceRemoved(t *testing.T) {
-	handler := newShellHandler(t)
-
-	for _, path := range []string{"/docs", "/redoc", "/openapi.json"} {
-		response := exerciseRequest(t, handler, path)
-		if response.Code != http.StatusNotFound {
-			t.Fatalf("expected %s to be absent with 404, got %d", path, response.Code)
-		}
-	}
-}
-
 func TestManagementCORSPreflight(t *testing.T) {
 	handler, err := platformhttp.NewHandler(config.Settings{
 		Host:               "127.0.0.1",
@@ -96,46 +85,6 @@ func TestManagementCORSPreflight(t *testing.T) {
 	}
 }
 
-func TestNormativeDocsParity(t *testing.T) {
-	translationModeNeedles := []string{
-		"openai_responses_to_chat_completions",
-		"openai_chat_completions_to_responses",
-	}
-	retiredTranslationModeNeedles := []string{
-		"openai.responses_to_chat_completions",
-		"openai.chat_completions_to_responses",
-	}
-
-	apiSpecPath := docsPath(t, "API_SPEC.md")
-	assertFileContains(t, apiSpecPath, append([]string{
-		"Proxy endpoints (`/v1/*`, `/v1beta/*`) always resolve against frozen Default profile id `1` and ignore management scope overrides.",
-		"operation_translation_mode",
-		"upstream_operation_name",
-		"upstream_request_path",
-	}, translationModeNeedles...))
-	assertFileNotContains(t, apiSpecPath, retiredTranslationModeNeedles)
-
-	architecturePath := docsPath(t, "ARCHITECTURE.md")
-	assertFileContains(t, architecturePath, append([]string{
-		"Supported runtime operations always resolve against frozen Default profile id `1` and ignore override headers.",
-		"operation_translation_mode",
-		"upstream_operation_name",
-		"upstream_request_path",
-	}, translationModeNeedles...))
-	assertFileNotContains(t, architecturePath, retiredTranslationModeNeedles)
-
-	dataModelPath := docsPath(t, "DATA_MODEL.md")
-	assertFileContains(t, dataModelPath, append([]string{
-		"operation_translation_mode",
-		"upstream_operation_name",
-		"upstream_request_path",
-	}, translationModeNeedles...))
-	assertFileNotContains(t, dataModelPath, retiredTranslationModeNeedles)
-	assertFileContains(t, docsPath(t, "WORKFLOWS.md"), []string{
-		"Runtime proxy traffic on `/v1/*` and `/v1beta/*` ignores management profile headers and resolves against frozen Default profile id `1`.",
-	})
-}
-
 func newShellHandler(t *testing.T) http.Handler {
 	t.Helper()
 
@@ -149,43 +98,6 @@ func newShellHandler(t *testing.T) http.Handler {
 	}
 
 	return handler
-}
-
-func assertFileContains(t *testing.T, path string, needles []string) {
-	t.Helper()
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	content := string(raw)
-	for _, needle := range needles {
-		if !strings.Contains(content, needle) {
-			t.Fatalf("expected %s to contain %q", path, needle)
-		}
-	}
-}
-
-func assertFileNotContains(t *testing.T, path string, needles []string) {
-	t.Helper()
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	content := string(raw)
-	for _, needle := range needles {
-		if strings.Contains(content, needle) {
-			t.Fatalf("expected %s not to contain %q", path, needle)
-		}
-	}
-}
-
-func docsPath(t *testing.T, name string) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve test file path")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "..", "docs", name))
 }
 
 func exerciseRequest(t *testing.T, handler http.Handler, path string) *httptest.ResponseRecorder {

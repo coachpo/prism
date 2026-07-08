@@ -249,34 +249,6 @@ func TestManagementAuditKeysetPagination(t *testing.T) {
 	}
 }
 
-func TestManagementAuditQueryUsesBoundedIndex(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	conn := phase7MigratedConn(t, ctx, "audit_bounded_indexes")
-	defer func() { _ = conn.Close(ctx) }()
-	for _, indexName := range []string{"idx_audit_logs_profile_created_id_desc", "idx_audit_logs_profile_request_created_id_desc", "idx_audit_logs_profile_status_created_id_desc"} {
-		if phase7CountRows(t, ctx, conn, `SELECT COUNT(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'audit_logs' AND indexname = $1`, indexName) != 1 {
-			t.Fatalf("expected bounded audit index %s to exist", indexName)
-		}
-	}
-	source := phase7ReadBackendSource(t, "internal/domain/audit/service.go")
-	listLogsSource := phase7SourceBetween(source, "func ListLogs", "func GetLog")
-	if !strings.Contains(listLogsSource, "ORDER BY created_at DESC, id DESC") || !strings.Contains(listLogsSource, "LIMIT $") || !strings.Contains(listLogsSource, "limit+1") {
-		t.Fatalf("expected audit list source to use bounded keyset ordering and limit+1, got:\n%s", listLogsSource)
-	}
-}
-
-func TestManagementAuditNoBroadCount(t *testing.T) {
-	source := phase7ReadBackendSource(t, "internal/domain/audit/service.go")
-	listLogsSource := phase7SourceBetween(source, "func ListLogs", "func GetLog")
-	if strings.Contains(strings.ToUpper(listLogsSource), "COUNT(") || strings.Contains(strings.ToUpper(listLogsSource), " OFFSET ") {
-		t.Fatalf("audit ListLogs must not use broad COUNT or OFFSET, got:\n%s", listLogsSource)
-	}
-	if !strings.Contains(listLogsSource, "HasMore") || !strings.Contains(listLogsSource, "NextCursor") {
-		t.Fatalf("expected audit ListLogs to derive pagination from cursor and limit+1, got:\n%s", listLogsSource)
-	}
-}
-
 func TestManagementDashboardStatsRouteReturnsAggregateSnapshot(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()

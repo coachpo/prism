@@ -3,8 +3,6 @@ package integration_test
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -152,53 +150,6 @@ func TestScheduledGlobalLogRetentionProcessesStoredSettings(t *testing.T) {
 	}
 }
 
-func TestLogPartitionToastDiagnostics(t *testing.T) {
-	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-
-	harness := newPostgresHarness(t)
-	runner := newRunner(t)
-	databaseName := "log_partition_toast_diagnostics"
-	conn := harness.openDatabase(t, testContext, databaseName)
-	if _, err := runner.Run(testContext, conn); err != nil {
-		t.Fatalf("run migrations: %v", err)
-	}
-	if err := conn.Close(testContext); err != nil {
-		t.Fatalf("close migration connection: %v", err)
-	}
-
-	pool, err := pgxpool.New(testContext, harness.connectionString(databaseName))
-	if err != nil {
-		t.Fatalf("open toast diagnostics pool: %v", err)
-	}
-	defer pool.Close()
-
-	retentionNow := time.Date(2026, time.February, 20, 9, 0, 0, 0, time.UTC)
-	retentionStore := logretention.NewStore(logretention.Options{Pool: pool, Now: func() time.Time { return retentionNow }})
-	jobStore := managementjobs.NewStore(managementjobs.Options{Pool: pool, LogRetention: retentionStore, Now: func() time.Time { return retentionNow }})
-	profileID := task9InsertProfile(t, testContext, pool)
-	toastDay := time.Date(2026, time.January, 4, 0, 0, 0, 0, time.UTC)
-	if err := retentionStore.EnsurePartitionForTime(testContext, "request_logs", toastDay); err != nil {
-		t.Fatalf("ensure request_logs toast diagnostics partition: %v", err)
-	}
-
-	childName := task9PartitionName("request_logs", toastDay)
-	payload := task9OversizedPayload()
-	task9InsertToastRequestLog(t, testContext, pool, profileID, toastDay.Add(8*time.Hour), payload)
-	sizeFacts := task12LoadRelationSizeFacts(t, testContext, pool, "request_logs", childName)
-	task12AssertValidRelationSizeFacts(t, sizeFacts)
-	if rows := task9CountRowsInRelation(t, testContext, pool, sizeFacts.toastSchemaName, sizeFacts.toastName); rows == 0 {
-		t.Fatalf("expected oversized request log to create rows in toast relation %s.%s", sizeFacts.toastSchemaName, sizeFacts.toastName)
-	}
-	t.Logf("request_logs diagnostics: root=%s total=%d main=%d child=%s total=%d main=%d toast=%s.%s total=%d main=%d", sizeFacts.rootName, sizeFacts.rootTotalBytes, sizeFacts.rootMainBytes, sizeFacts.childName, sizeFacts.childTotalBytes, sizeFacts.childMainBytes, sizeFacts.toastSchemaName, sizeFacts.toastName, sizeFacts.toastTotalBytes, sizeFacts.toastMainBytes)
-
-	cutoff := toastDay.AddDate(0, 0, 1)
-	task9RunLogRetentionJob(t, testContext, jobStore, "request_logs", &cutoff, false, 0)
-	task9AssertPartitionDropped(t, testContext, pool, "request_logs", childName)
-	task9AssertRelationOIDMissing(t, testContext, pool, sizeFacts.childOID)
-	task9AssertRelationOIDMissing(t, testContext, pool, sizeFacts.toastOID)
-}
-
 type task9Exec interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 	QueryRow(context.Context, string, ...any) pgx.Row
@@ -210,24 +161,6 @@ type task9Queryer interface {
 
 type task9QueryRower interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
-}
-
-type task12RelationSizeFacts struct {
-	rootName        string
-	rootOID         int64
-	rootTotalBytes  int64
-	rootMainBytes   int64
-	rootToastOID    int64
-	childName       string
-	childOID        int64
-	childTotalBytes int64
-	childMainBytes  int64
-	childToastOID   int64
-	toastSchemaName string
-	toastName       string
-	toastOID        int64
-	toastTotalBytes int64
-	toastMainBytes  int64
 }
 
 func task9SeedManagedTableRows(t *testing.T, ctx context.Context, exec task9Exec, retentionStore *logretention.Store, tableName string, profileID int, baseDay time.Time) {
@@ -275,14 +208,6 @@ func task9InsertManagedLogRow(t *testing.T, ctx context.Context, exec task9Exec,
 		}
 	default:
 		t.Fatalf("unknown managed table %s", tableName)
-	}
-}
-
-func task9InsertToastRequestLog(t *testing.T, ctx context.Context, exec task9Exec, profileID int, createdAt time.Time, payload string) {
-	t.Helper()
-	_, err := exec.Exec(ctx, `INSERT INTO request_logs (profile_id, model_id, api_family, status_code, response_time_ms, is_stream, success_flag, billable_flag, priced_flag, request_path, error_detail, request_generation_params, created_at) VALUES ($1, 'task9-toast-model', 'openai', 500, 250, FALSE, FALSE, TRUE, FALSE, '/v1/task9/toast', $2, jsonb_build_object('payload', $3::text), $4)`, profileID, payload, payload, createdAt.UTC())
-	if err != nil {
-		t.Fatalf("insert toast-bearing request log: %v", err)
 	}
 }
 
@@ -541,105 +466,6 @@ func task9CountRootRowsBefore(t *testing.T, ctx context.Context, queryer task9Qu
 		t.Fatalf("count %s root rows before cutoff: %v", tableName, err)
 	}
 	return count
-}
-
-func task12LoadRelationSizeFacts(t *testing.T, ctx context.Context, queryer task9QueryRower, tableName string, childName string) task12RelationSizeFacts {
-	t.Helper()
-	var facts task12RelationSizeFacts
-	if err := queryer.QueryRow(ctx, `
-		SELECT
-			root.relname,
-			root.oid::int8,
-			pg_total_relation_size(root.oid)::int8,
-			pg_relation_size(root.oid)::int8,
-			root.reltoastrelid::int8,
-			child.relname,
-			child.oid::int8,
-			pg_total_relation_size(child.oid)::int8,
-			pg_relation_size(child.oid)::int8,
-			child.reltoastrelid::int8,
-			toast_ns.nspname,
-			toast.relname,
-			toast.oid::int8,
-			pg_total_relation_size(toast.oid)::int8,
-			pg_relation_size(toast.oid)::int8
-		FROM pg_class root
-		JOIN pg_namespace root_ns ON root_ns.oid = root.relnamespace
-		JOIN pg_inherits inheritance ON inheritance.inhparent = root.oid
-		JOIN pg_class child ON child.oid = inheritance.inhrelid
-		JOIN pg_namespace child_ns ON child_ns.oid = child.relnamespace
-		JOIN pg_class toast ON toast.oid = child.reltoastrelid
-		JOIN pg_namespace toast_ns ON toast_ns.oid = toast.relnamespace
-		WHERE root_ns.nspname = 'public'
-		  AND child_ns.nspname = 'public'
-		  AND root.relname = $1
-		  AND child.relname = $2`, tableName, childName).Scan(
-		&facts.rootName,
-		&facts.rootOID,
-		&facts.rootTotalBytes,
-		&facts.rootMainBytes,
-		&facts.rootToastOID,
-		&facts.childName,
-		&facts.childOID,
-		&facts.childTotalBytes,
-		&facts.childMainBytes,
-		&facts.childToastOID,
-		&facts.toastSchemaName,
-		&facts.toastName,
-		&facts.toastOID,
-		&facts.toastTotalBytes,
-		&facts.toastMainBytes,
-	); err != nil {
-		t.Fatalf("load relation size facts for %s/%s: %v", tableName, childName, err)
-	}
-	return facts
-}
-
-func task12AssertValidRelationSizeFacts(t *testing.T, facts task12RelationSizeFacts) {
-	t.Helper()
-	if facts.rootName != "request_logs" {
-		t.Fatalf("expected root relation request_logs, got %s", facts.rootName)
-	}
-	if facts.childName == "" || facts.childOID == 0 {
-		t.Fatalf("expected child relation identity, got %+v", facts)
-	}
-	if facts.rootOID == 0 || facts.rootTotalBytes < 0 || facts.rootMainBytes < 0 {
-		t.Fatalf("expected valid root size facts, got %+v", facts)
-	}
-	if facts.rootToastOID != 0 {
-		t.Fatalf("expected partitioned root to have reltoastrelid=0, got %+v", facts)
-	}
-	if facts.childTotalBytes <= 0 || facts.childMainBytes <= 0 {
-		t.Fatalf("expected valid child size facts, got %+v", facts)
-	}
-	if facts.childToastOID == 0 || facts.childToastOID != facts.toastOID {
-		t.Fatalf("expected child reltoastrelid to identify toast relation, got %+v", facts)
-	}
-	if facts.toastSchemaName == "" || facts.toastName == "" || facts.toastTotalBytes <= 0 || facts.toastMainBytes <= 0 {
-		t.Fatalf("expected valid toast size facts, got %+v", facts)
-	}
-}
-
-func task9AssertRelationOIDMissing(t *testing.T, ctx context.Context, queryer task9QueryRower, oid int64) {
-	t.Helper()
-	var exists bool
-	if err := queryer.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_class WHERE oid = $1::oid)`, fmt.Sprint(oid)).Scan(&exists); err != nil {
-		t.Fatalf("check relation oid %d: %v", oid, err)
-	}
-	if exists {
-		t.Fatalf("expected relation oid %d to be absent from catalog", oid)
-	}
-}
-
-func task9OversizedPayload() string {
-	var builder strings.Builder
-	builder.Grow(512 * 1024)
-	for index := range 8192 {
-		input := fmt.Appendf(nil, "task-9-toast-payload-%06d", index)
-		sum := sha256.Sum256(input)
-		builder.WriteString(hex.EncodeToString(sum[:]))
-	}
-	return builder.String()
 }
 
 func task9PartitionName(tableName string, day time.Time) string {

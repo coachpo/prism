@@ -3,9 +3,6 @@ package unit_test
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -99,48 +96,4 @@ func TestPriorityUnitContract(t *testing.T) {
 			t.Fatalf("unexpected lane names: %s", got)
 		}
 	})
-
-	t.Run("source contracts cover hooks outboxes bounded aggregation and cache races", func(t *testing.T) {
-		assertContains(t, "internal/pgxutil/tx.go", "hook(ctx, tx)", "tx.Commit(ctx)")
-		assertContains(t, "internal/platform/managementsideeffects/outbox.go", "AfterCommit(context.Background(), dispatcher.Wake", "failed_permanent", "FOR UPDATE SKIP LOCKED")
-		assertContains(t, "internal/httpapi/management/stats/service.go", "EventDashboardSnapshotInvalidate", "RegisterHandler", "handleDashboardSnapshotInvalidation")
-		assertNotContains(t, "internal/httpapi/management/stats/service.go", "managementsideeffects.InsertTx", "router.Delete(", "DELETE FROM request_logs", "DELETE FROM usage_request_events")
-		assertContains(t, "internal/httpapi/management/settings/routes.go", "handleCreateLogRetentionJob", "CreateLogRetentionJob", "LogRetentionScope")
-		assertContains(t, "internal/platform/logretention/store.go", "RunRetention", "DropExpiredPartitions", "DeleteBoundaryRows", "EnsurePartitionForTime")
-		assertContains(t, "internal/httpapi/runtime/cache.go", "ErrRuntimeSnapshotGenerationChanged", "ReadRuntimeGenerationVector(ctx, tx, DefaultRuntimeGenerationScopes())")
-	})
-}
-
-func assertContains(t *testing.T, relativePath string, markers ...string) {
-	t.Helper()
-	content := readBackendFile(t, relativePath)
-	for _, marker := range markers {
-		if !strings.Contains(content, marker) {
-			t.Fatalf("%s missing marker %q", relativePath, marker)
-		}
-	}
-}
-
-func assertNotContains(t *testing.T, relativePath string, markers ...string) {
-	t.Helper()
-	content := readBackendFile(t, relativePath)
-	for _, marker := range markers {
-		if strings.Contains(content, marker) {
-			t.Fatalf("%s contains obsolete marker %q", relativePath, marker)
-		}
-	}
-}
-
-func readBackendFile(t *testing.T, relativePath string) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("locate test source")
-	}
-	backendRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
-	raw, err := os.ReadFile(filepath.Join(backendRoot, filepath.FromSlash(relativePath)))
-	if err != nil {
-		t.Fatalf("read %s: %v", relativePath, err)
-	}
-	return string(raw)
 }

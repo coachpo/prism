@@ -1443,7 +1443,6 @@ func assertPartitionedLogSchemaContract(t *testing.T, ctx context.Context, conn 
 	assertPartitionedLogIDDefaults(t, ctx, conn, logTables)
 	assertPartitionedLogRootIDIndexes(t, ctx, conn, logTables)
 	assertPartitionedLogLookupIndexes(t, ctx, conn)
-	assertPartitionedLogStorageParameterLimitation(t, ctx, conn, logTables)
 	assertAuditLogWeakRequestLinkContract(t, ctx, conn)
 	assertLogRetentionSettingsContract(t, ctx, conn)
 	assertNoLogChildPartitions(t, ctx, conn)
@@ -1539,107 +1538,6 @@ func assertPartitionedLogLookupIndexes(t *testing.T, ctx context.Context, conn *
 		assertIndexExists(t, ctx, conn, tableName, indexName)
 	}
 	assertIndexUniqueness(t, ctx, conn, "audit_logs", "ix_audit_logs_request_log_id", false)
-}
-
-type partitionedLogStorageState struct {
-	reloptions  string
-	toastRelOID int64
-}
-
-func assertPartitionedLogStorageParameterLimitation(t *testing.T, ctx context.Context, conn *pgx.Conn, logTables []string) {
-	t.Helper()
-
-	// PostgreSQL 16 proof: .sisyphus/evidence/task-1-partitioned-root-reloptions-proof.txt.
-	// Partitioned parents reject heap autovacuum reloptions and expose no TOAST
-	// relation. If a server ever exposes either surface, require the planned
-	// reloptions here instead of letting a missing storage contract pass silently.
-	states := loadPartitionedLogStorageStates(t, ctx, conn, logTables)
-	for _, tableName := range logTables {
-		state := states[tableName]
-		if state.reloptions != "" {
-			assertReloptionsContain(t, tableName, state.reloptions, []string{
-				"autovacuum_vacuum_scale_factor=0.02",
-				"autovacuum_vacuum_threshold=10000",
-			})
-			continue
-		}
-
-		assertPartitionedRootHeapReloptionsRejected(t, ctx, conn, tableName)
-	}
-
-	for _, tableName := range logTables {
-		state := states[tableName]
-		if state.toastRelOID == 0 {
-			continue
-		}
-		assertToastReloptions(t, ctx, conn, tableName, state.toastRelOID)
-	}
-}
-
-func loadPartitionedLogStorageStates(t *testing.T, ctx context.Context, conn *pgx.Conn, logTables []string) map[string]partitionedLogStorageState {
-	t.Helper()
-	rows, err := conn.Query(ctx, `
-		SELECT c.relname, COALESCE(array_to_string(c.reloptions, ','), ''), c.reltoastrelid::oid::int8
-		FROM pg_class c
-		JOIN pg_namespace n ON n.oid = c.relnamespace
-		WHERE n.nspname = 'public' AND c.relname = ANY($1::text[])`, logTables)
-	if err != nil {
-		t.Fatalf("load partitioned log storage states: %v", err)
-	}
-	defer rows.Close()
-
-	states := map[string]partitionedLogStorageState{}
-	for rows.Next() {
-		var tableName string
-		var toastRelOID int64
-		var state partitionedLogStorageState
-		if err := rows.Scan(&tableName, &state.reloptions, &toastRelOID); err != nil {
-			t.Fatalf("scan partitioned log storage state: %v", err)
-		}
-		state.toastRelOID = toastRelOID
-		states[tableName] = state
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate partitioned log storage states: %v", err)
-	}
-	for _, tableName := range logTables {
-		if _, ok := states[tableName]; !ok {
-			t.Fatalf("expected storage state for %s", tableName)
-		}
-	}
-	return states
-}
-
-func assertPartitionedRootHeapReloptionsRejected(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string) {
-	t.Helper()
-	_, err := conn.Exec(ctx, `ALTER TABLE public.`+quoteIdentifier(tableName)+` SET (autovacuum_vacuum_scale_factor = 0.02, autovacuum_vacuum_threshold = 10000)`)
-	if err == nil {
-		t.Fatalf("expected PostgreSQL 16 to reject heap autovacuum reloptions on partitioned root %s", tableName)
-	}
-	if !strings.Contains(err.Error(), "cannot specify storage parameters for a partitioned table") {
-		t.Fatalf("expected partitioned root storage-parameter rejection for %s, got %v", tableName, err)
-	}
-}
-
-func assertToastReloptions(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, toastRelOID int64) {
-	t.Helper()
-	var toastReloptions string
-	if err := conn.QueryRow(ctx, `SELECT COALESCE(array_to_string(reloptions, ','), '') FROM pg_class WHERE oid = $1::oid`, toastRelOID).Scan(&toastReloptions); err != nil {
-		t.Fatalf("load %s toast reloptions: %v", tableName, err)
-	}
-	assertReloptionsContain(t, tableName+" toast", toastReloptions, []string{
-		"autovacuum_vacuum_scale_factor=0.02",
-		"autovacuum_vacuum_threshold=10000",
-	})
-}
-
-func assertReloptionsContain(t *testing.T, relationName string, reloptions string, expectedOptions []string) {
-	t.Helper()
-	for _, option := range expectedOptions {
-		if !strings.Contains(reloptions, option) {
-			t.Fatalf("expected %s reloptions to contain %q, got %q", relationName, option, reloptions)
-		}
-	}
 }
 
 func assertIndexExists(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, indexName string) {

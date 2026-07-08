@@ -498,86 +498,76 @@ func TestLoadbalanceStrategyGet(t *testing.T) {
 	assertNoLegacyRemovedStrategyFields(t, detail)
 }
 
-func TestLoadbalanceStrategyRejectsRemovedCheapestEligibleContext(t *testing.T) {
+func TestLoadbalanceRejectsRemovedStrategyShapes(t *testing.T) {
 	harness := newS11ContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
-
-	response := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPost,
-		"/api/loadbalance/strategies",
-		map[string]any{
-			"name":                                   "S11 Removed Cheapest Eligible Context",
-			"legacy_strategy_type":                   "cheapest_eligible_context",
-			"failure_status_codes":                   []int{503, 429, 500},
-			"ban_mode":                               "temporary",
-			"retry_base_delay_ms":                    1500,
-			"retry_backoff_multiplier":               2.5,
-			"retry_jitter_ratio":                     0.15,
-			"retry_max_delay_ms":                     600000,
-			"cycle_retry_attempt_limit":              3,
-			"ban_cumulative_retry_attempt_threshold": 5,
-			"ban_duration_seconds":                   120,
-		},
-		modelHeader(defaultProfileID),
-	)
-	assertStatus(t, response, http.StatusBadRequest)
-	var payload map[string]any
-	decodeJSONResponse(t, response, &payload)
-	if !strings.Contains(fmt.Sprint(payload["detail"]), "legacy_strategy_type") {
-		t.Fatalf("expected legacy_strategy_type rejection, got %+v", payload)
-	}
-}
-
-func TestLoadbalanceAdaptiveRejected(t *testing.T) {
-	harness := newS11ContractHarness(t)
-	defaultProfileID := modelLoadDefaultProfileID(t, harness)
-
-	response := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPost,
-		"/api/loadbalance/strategies",
-		map[string]any{
-			"name":          "S11 Adaptive Rejected",
-			"strategy_type": "adaptive",
-			"routing_policy": map[string]any{
-				"kind": "adaptive",
+	tests := []struct {
+		name         string
+		body         map[string]any
+		assertDetail func(*testing.T, string)
+	}{
+		{
+			name: "legacy cheapest eligible context",
+			body: map[string]any{
+				"name":                                   "S11 Removed Cheapest Eligible Context",
+				"legacy_strategy_type":                   "cheapest_eligible_context",
+				"failure_status_codes":                   []int{503, 429, 500},
+				"ban_mode":                               "temporary",
+				"retry_base_delay_ms":                    1500,
+				"retry_backoff_multiplier":               2.5,
+				"retry_jitter_ratio":                     0.15,
+				"retry_max_delay_ms":                     600000,
+				"cycle_retry_attempt_limit":              3,
+				"ban_cumulative_retry_attempt_threshold": 5,
+				"ban_duration_seconds":                   120,
+			},
+			assertDetail: func(t *testing.T, detail string) {
+				t.Helper()
+				if !strings.Contains(detail, "legacy_strategy_type") {
+					t.Fatalf("expected legacy_strategy_type rejection, got %q", detail)
+				}
 			},
 		},
-		modelHeader(defaultProfileID),
-	)
-	assertStatus(t, response, http.StatusBadRequest)
-	var payload map[string]any
-	decodeJSONResponse(t, response, &payload)
-	detail := fmt.Sprint(payload["detail"])
-	if !strings.Contains(detail, "unknown field") || (!strings.Contains(detail, "strategy_type") && !strings.Contains(detail, "routing_policy")) {
-		t.Fatalf("expected adaptive payload field rejection, got %+v", payload)
-	}
-}
-
-func TestLoadbalanceAutoRecoveryRejected(t *testing.T) {
-	harness := newS11ContractHarness(t)
-	defaultProfileID := modelLoadDefaultProfileID(t, harness)
-
-	response := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPost,
-		"/api/loadbalance/strategies",
-		map[string]any{
-			"name":                 "S11 Auto Recovery Rejected",
-			"legacy_strategy_type": "single",
-			"auto_recovery":        map[string]any{"mode": "disabled"},
+		{
+			name: "adaptive payload",
+			body: map[string]any{
+				"name":          "S11 Adaptive Rejected",
+				"strategy_type": "adaptive",
+				"routing_policy": map[string]any{
+					"kind": "adaptive",
+				},
+			},
+			assertDetail: func(t *testing.T, detail string) {
+				t.Helper()
+				if !strings.Contains(detail, "unknown field") || (!strings.Contains(detail, "strategy_type") && !strings.Contains(detail, "routing_policy")) {
+					t.Fatalf("expected adaptive payload field rejection, got %q", detail)
+				}
+			},
 		},
-		modelHeader(defaultProfileID),
-	)
-	assertStatus(t, response, http.StatusBadRequest)
-	var payload map[string]any
-	decodeJSONResponse(t, response, &payload)
-	if detail := fmt.Sprint(payload["detail"]); !strings.Contains(detail, `unknown field "auto_recovery"`) {
-		t.Fatalf("expected auto_recovery rejection detail, got %+v", payload)
+		{
+			name: "auto recovery payload",
+			body: map[string]any{
+				"name":                 "S11 Auto Recovery Rejected",
+				"legacy_strategy_type": "single",
+				"auto_recovery":        map[string]any{"mode": "disabled"},
+			},
+			assertDetail: func(t *testing.T, detail string) {
+				t.Helper()
+				if !strings.Contains(detail, `unknown field "auto_recovery"`) {
+					t.Fatalf("expected auto_recovery rejection detail, got %q", detail)
+				}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/loadbalance/strategies", tc.body, modelHeader(defaultProfileID))
+			assertStatus(t, response, http.StatusBadRequest)
+			var payload map[string]any
+			decodeJSONResponse(t, response, &payload)
+			tc.assertDetail(t, fmt.Sprint(payload["detail"]))
+		})
 	}
 }
 

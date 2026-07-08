@@ -795,3 +795,8 @@ func stringPtr(value string) *string {
 	result := value
 	return &result
 }
+
+func modelLoadVendorIDByKey(t *testing.T, _ *contractHarness, _ string) int {
+	t.Helper()
+	return 1
+}

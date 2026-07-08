@@ -8,18 +8,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/coachpo/prism/backend/internal/platform/logretention"
+	"github.com/coachpo/prism/backend/tests/testsupport/logpartitions"
 )
 
-type runtimeTestLogPartition struct {
-	tableName string
-	timestamp time.Time
+func runtimeTestLogPartitionFor(tableName string, timestamp time.Time) logpartitions.Partition {
+	return logpartitions.For(tableName, timestamp)
 }
 
-func runtimeTestLogPartitionFor(tableName string, timestamp time.Time) runtimeTestLogPartition {
-	return runtimeTestLogPartition{tableName: tableName, timestamp: timestamp.UTC()}
-}
-
-func ensureRuntimeTestLogPartitions(tb testing.TB, databaseName string, partitions ...runtimeTestLogPartition) {
+func ensureRuntimeTestLogPartitions(tb testing.TB, databaseName string, partitions ...logpartitions.Partition) {
 	tb.Helper()
 	if databaseName == "" {
 		tb.Fatal("runtime log partition helper requires database name")
@@ -33,15 +29,7 @@ func ensureRuntimeTestLogPartitions(tb testing.TB, databaseName string, partitio
 	defer pool.Close()
 
 	store := logretention.NewStore(logretention.Options{Pool: pool})
-	seen := make(map[string]struct{}, len(partitions))
-	for _, partition := range partitions {
-		key := partition.tableName + ":" + partition.timestamp.UTC().Format("20060102")
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		if err := store.EnsurePartitionForTime(ctx, partition.tableName, partition.timestamp); err != nil {
-			tb.Fatalf("ensure %s partition for %s: %v", partition.tableName, partition.timestamp.UTC().Format("2006-01-02"), err)
-		}
-	}
+	logpartitions.Ensure(tb, partitions, func(tableName string, day time.Time) error {
+		return store.EnsurePartitionForTime(ctx, tableName, day)
+	})
 }

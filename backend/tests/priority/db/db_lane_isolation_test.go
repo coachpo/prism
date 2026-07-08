@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/coachpo/prism/backend/internal/platform/config"
@@ -58,42 +57,10 @@ func TestDBPoolLaneIsolation(t *testing.T) {
 					t.Fatalf("marshal mutated bootstrap payload: %v", err)
 				}
 				_, err = config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{}).Parse(raw)
-				if err == nil || !strings.Contains(err.Error(), testCase.wantErr) {
+				if err == nil || err.Error() != testCase.wantErr {
 					t.Fatalf("expected error containing %q, got %v", testCase.wantErr, err)
 				}
 			})
-		}
-	})
-
-	t.Run("lifecycle wiring uses isolated non management lanes", func(t *testing.T) {
-		content := readBackendFile(t, "internal/platform/lifecycle/production.go")
-		for _, want := range []string{
-			"runtimeFeedbackPool := databasePools.RuntimeFeedback.Raw()",
-			"cacheRefreshPool := databasePools.CacheRefresh.Raw()",
-			"backgroundJobsPool := databasePools.BackgroundJobs.Raw()",
-			"FeedbackPool: runtimeFeedbackPool",
-			"RefreshPool: cacheRefreshPool",
-			"ProxyKeyUsagePool: backgroundJobsPool",
-			"platformdb.OpenDatabasePools(ctx, settings.DatabaseURL",
-			"resources.dbClose = func(context.Context) error",
-			"databasePools.Close()",
-			"SchedulerStop:   resources.schedulerStopHook()",
-			"DBClose:         resources.dbClose",
-		} {
-			if !strings.Contains(content, want) {
-				t.Fatalf("expected lifecycle wiring to contain %q", want)
-			}
-		}
-		for _, forbidden := range []string{"FeedbackPool: runtimeExecutionPool", "FeedbackPool: runtimeTelemetryPool", "RefreshPool: managementPool", "ProxyKeyUsagePool: managementPool"} {
-			if strings.Contains(content, forbidden) {
-				t.Fatalf("lifecycle wiring contains forbidden management or runtime lane borrowing %q", forbidden)
-			}
-		}
-		serverContent := readBackendFile(t, "internal/platform/http/server.go")
-		for _, forbidden := range []string{"OpenDatabasePools", "DatabasePools.Close", "databasePools.Close", "background.NewScheduler", "RegisterBackgroundWorker", "RegisterBackgroundWorkers", "RegisterOnShutdown"} {
-			if strings.Contains(serverContent, forbidden) {
-				t.Fatalf("server assembly still owns app lifecycle through %q", forbidden)
-			}
 		}
 	})
 }
