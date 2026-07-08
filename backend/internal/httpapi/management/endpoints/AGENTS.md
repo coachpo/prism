@@ -1,7 +1,7 @@
 # BACKEND MANAGEMENT ENDPOINTS KNOWLEDGE BASE
 
 ## OVERVIEW
-`management/endpoints/` owns selected-profile endpoint CRUD under `/api/endpoints*`. Endpoints are ordered provider base URLs with encrypted API keys and connection dropdown support.
+`management/endpoints/` owns endpoint CRUD under `/api/endpoints*` pinned to Default profile id `1`. Endpoints are ordered provider base URLs with encrypted API keys and connection dropdown support. `X-Profile-Id` may be accepted but is ignored; storage `profile_id` columns remain.
 
 ## STRUCTURE
 ```text
@@ -20,7 +20,7 @@ endpoints/
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
-- Keep endpoint writes selected-profile scoped and position-normalized.
+- Keep endpoint writes pinned to Default profile id `1` and position-normalized.
 - Keep API keys encrypted at rest and masked from responses.
 - Don't delete endpoints still referenced by connections.
 - Inline endpoint creation for connection forms belongs to `connections/`, not this route package.

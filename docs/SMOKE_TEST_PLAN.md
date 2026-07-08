@@ -77,24 +77,20 @@ Suggested startup:
 
 Prepare seed state through API (not manual DB edits):
 
-2. Profiles exist: A, B, C; start with A as active runtime profile.
+2. The seeded Default profile exists with id `1`; profile-management routes are removed.
 3. Profile-scoped Endpoints (credentials):
-   - in profile A: one OpenAI endpoint
-   - in profile B: one Anthropic endpoint
-   - in profile C: one Gemini endpoint
+   - in Default profile id `1`: OpenAI, Anthropic, and Gemini endpoints as needed by the case set
 4. Profile-scoped models:
-   - in profile A: one OpenAI-family model with 2+ reachable private connection targets
-   - in profile B: one Anthropic-family model
-   - in profile C: one Gemini-family model
+   - in Default profile id `1`: OpenAI, Anthropic, and Gemini-family models as needed by the case set, with 2+ reachable private connection targets for failover cases
 5. Unified access targets:
-   - same-`api_family` model-target chains plus private connection targets using ordered `access_targets` (`target_type`, `target_model_id`, `connection_ref`, `position`, `is_enabled`) in the same profile. `position` is ordering only, not priority, tier, or weight
-6. Private connection diversity per profile:
+   - same-`api_family` model-target chains plus private connection targets using ordered `access_targets` (`target_type`, `target_model_id`, `connection_ref`, `position`, `is_enabled`) in Default profile id `1`. `position` is ordering only, not priority, tier, or weight
+6. Private connection diversity in Default profile id `1`:
    - active + inactive
    - different model target positions
    - one connection with `custom_headers`
    - one connection assigned a `pricing_template_id`
 7. Audit toggles initially disabled, then enabled per-case.
-8. At least one duplicated `model_id` and endpoint `name` across A/B to validate scoped uniqueness.
+8. Duplicate `model_id` and endpoint `name` validation is within Default profile id `1`; multi-profile duplicate coverage is frozen.
 
 ---
 
@@ -325,7 +321,7 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| G01 | P0 | Get global log-retention settings | `200`, returns day policies for `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`; no selected-profile scope |
+| G01 | P0 | Get global log-retention settings | `200`, returns day policies for `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`; no profile scope |
 | G02 | P0 | Update global log-retention settings | `200`, persists nullable day policies for all retention tables; invalid day values return `400` |
 | G03 | P0 | Create retention job with missing table | `400` |
 | G04 | P0 | Request-log retention job with stored policy | `202`, returns `{ job_id, state, status_url, scope }` and a `Location` header; job scope is global |
@@ -334,7 +330,7 @@ Prepare seed state through API (not manual DB edits):
 | G07 | P0 | Retention job rejects invalid table or scope | `400` |
 | G08 | P0 | Retention job rejects conflicting cutoff and delete-all modes | `400` |
 | G09 | P0 | Request-log delete-all retention mode | Retention flow removes and recreates or reboots partitions for `request_logs`; it does not use a parent-root table delete |
-| G10 | P0 | Audit-log retention with explicit cutoff | `202`, returns `{ job_id, state, status_url, scope }` and a `Location` header; cleanup is global, not selected-profile scoped |
+| G10 | P0 | Audit-log retention with explicit cutoff | `202`, returns `{ job_id, state, status_url, scope }` and a `Location` header; cleanup is global, not profile-scoped |
 | G11 | P0 | Audit-log delete-all retention mode | Retention flow removes and recreates or reboots `audit_logs` partitions while preserving independent request-log data |
 | G12 | P0 | Audit/request weak linkage after uneven retention | Audit list/detail rows remain visible even when request-log detail linkage is missing |
 | G13 | P0 | Loadbalance-event retention with explicit cutoff | `202`, creates a global retention job for `loadbalance_events` |
@@ -531,20 +527,20 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | L31 | P0 | GET `/api/settings/audit` | Returns stable `openai`, `anthropic`, and `gemini` rows for Default profile id `1` |
 | L32 | P0 | PUT `/api/settings/audit` | Full-family replacement persists Default-profile audit and body-capture policy |
 
-## M. Profile Isolation and Context Semantics
+## M. Frozen Default Profile Scope
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| M01 | P0 | Profile management routes are removed | `/api/profiles*` requests are not mounted |
+| M01 | P0 | Default profile management routes are removed | management profile CRUD requests are not mounted |
 | M03 | P0 | Management API profile resolution (`X-Profile-Id` absent vs present) | Profile-scoped `/api/*` succeeds without the header; any header value is ignored and operations use Default profile id `1` |
 | M11 | P0 | Runtime request with `X-Profile-Id` override header | Runtime ignores override and uses active profile context only |
-| M12 | P0 | Same `model_id` exists in A/B with different access targets | Routing uses active profile mappings only; no cross-profile resolution |
-| M13 | P0 | Access target exists only in another profile | Target resolution fails (`404`) under current active profile |
-| M14 | P0 | Request-log attribution and stats scope | Every row has immutable `profile_id`; stats/list/delete operate on effective profile only |
-| M15 | P0 | Audit attribution and scope | Every row has immutable `profile_id`; list/detail/delete are profile-scoped |
-| M19 | P0 | Costing/settings isolation | Updating currency/FX in A does not mutate B/C settings or spending results |
-| M20 | P0 | Header blocklist scope merge | Runtime uses global system rules + active profile user rules; management CRUD/list views stay on effective-profile scope |
-| M21 | P1 | Failover Ban Policy isolation by profile | Retry-window and ban state in profile A does not affect profile B |
+| M12 | P0 | Duplicate `model_id` in Default profile id `1` | Duplicate create returns `409`; there is no profile switch path to bypass uniqueness |
+| M13 | P0 | Access target missing from Default profile id `1` | Target resolution fails (`404`) |
+| M14 | P0 | Request-log attribution and stats scope | Every row has immutable `profile_id`; stats/list/delete operate on Default profile id `1` |
+| M15 | P0 | Audit attribution and scope | Every row has immutable `profile_id`; list/detail/delete operate on Default profile id `1` |
+| M19 | P0 | Costing/settings scope | Updating currency/FX persists for Default profile id `1` |
+| M20 | P0 | Header blocklist scope merge | Runtime uses global system rules + Default profile user rules; management CRUD/list views stay on Default profile id `1` |
+| M21 | P1 | Failover Ban Policy scope | Retry-window and ban state are isolated to Default profile id `1` rows |
 | N01 | P0 | Auth status check | Returns correct auth/authn state |
 | N02 | P0 | Public bootstrap | Initializes session for login |
 | N03 | P0 | Login with valid credentials | `200`, session cookies set |
@@ -555,7 +551,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 ## 8. Recommended Execution Order
 
 1. A (startup/health).
-2. M01-M10 (profile lifecycle, capacity, and switch safety).
+2. M01-M03 (removed profile routes and frozen Default profile scope).
 3. B (CRUD and validation).
 4. M11-M13 (runtime profile isolation checks).
 5. C and D (proxy and health-check behavior).
@@ -563,8 +559,8 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 7. K.1-K.3 plus M20 (header blocklist, including profile scope).
 8. L plus M19 (token costing and spending reports with profile isolation).
 9. G, H, K.4, and M16-M18 in isolated destructive lane.
-10. I and K.5 (frontend full-stack smoke, including selected vs active profile behavior).
-12. J and M21 (non-functional quick pass + failover memory isolation).
+10. I and K.5 (frontend full-stack smoke, including Default profile behavior).
+12. J and M21 (non-functional quick pass + failover memory scope).
 
 ---
 
@@ -612,4 +608,4 @@ Notes:
 - Header blocklist matching is case-insensitive.
 - System blocklist rules are seeded on first boot.
 - Prefix rules must end with `-` (e.g. `cf-`, `x-cf-`).
-- Profile-scoped management APIs use selected/effective profile scope; global management routes remain outside selected-profile scoping; proxy runtime always uses active profile scope.
+- Profile-scoped management APIs are pinned to Default profile id `1`; global management routes remain outside profile scoping; proxy runtime uses the active profile scope.

@@ -25,13 +25,13 @@ The agent should always inventory Prism as these surfaces:
 
 - Public auth routes: `/auth/login`, `/auth/forgot-password`, `/auth/reset-password`; legacy `/login`, `/forgot-password`, and `/reset-password` redirect there
 - Protected management routes for `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/system/settings`, `/control/proxy-keys`, and `/route/pricing`
-- Management APIs on `/api/*`, split between global and selected-profile route classes
+- Management APIs on `/api/*`, split between global route classes and routes pinned to Default profile id `1`
 - Runtime proxy APIs on `/v1/*` and `/v1beta/*`
 - Dashboard realtime messages on `/api/realtime/ws`
-- The selected-profile versus active-profile split
+- The frozen Default management profile versus active runtime profile split
 - Dense frontend management surfaces with forms, tables, dialogs, drawers, charts, and toasts
 
-High-value frontend surfaces include the observe analytics tab, models list, model detail, endpoints, Ban Policies, settings, proxy API keys, pricing templates, and request-log investigation plus audit-page flow. High-value backend surfaces include auth, profile lifecycle, runtime proxy routing, failover, realtime messages, costing, audit logging, and observability queries.
+High-value frontend surfaces include the observe analytics tab, models list, model detail, endpoints, Ban Policies, settings, proxy API keys, pricing templates, and request-log investigation plus audit-page flow. High-value backend surfaces include auth, frozen Default profile scope, runtime proxy routing, failover, realtime messages, costing, audit logging, and observability queries.
 
 ## 4. Coverage Classes
 
@@ -45,7 +45,7 @@ Smoke cases should prove the system is viable, not exhaustively validated. Each 
 - one management CRUD flow
 - one runtime request per supported API family under test
 - one realtime connection or subscription check
-- one profile activation or scope check
+- one frozen Default profile scope check
 - one profile-scoped settings sanity check
 
 ### 4.2 Functional coverage
@@ -58,7 +58,7 @@ Functional cases should exercise detailed contracts and boundary conditions, inc
 - unified model access-target invariants
 - loadbalance, failover, and health-check behavior
 - request-log, audit, costing, and statistics contracts
-- selected-profile settings validation and dependency checks
+- Default-profile settings validation and dependency checks
 
 ### 4.3 UI or UX coverage
 
@@ -91,7 +91,7 @@ Always include invalid or conflicting inputs for:
 - pricing decimal fields
 - FX mappings and timezone settings
 - auth password limits
-- selected-profile settings payload shape and reference validation
+- Default-profile settings payload shape and reference validation
 - request-log and statistics filters
 
 `frontend/src/features/models/modelSchemas.ts`, `frontend/src/features/loadbalance/banPolicySchemas.ts`, `frontend/src/features/pricing/pricingSchemas.ts`, and `frontend/src/pages/settings/settingsPageHelpers.ts` are primary frontend seams for illegal-input case generation.
@@ -186,7 +186,7 @@ If a case is valuable but not yet ready for automation, it must still be preserv
 
 ## 8. Prism-Specific Guardrails
 
-- Keep selected-profile management scope separate from active runtime routing in every case set.
+- Keep frozen Default management scope separate from active runtime routing in every case set.
 - Keep management auth and runtime proxy-key auth separate.
 - Do not assume unsupported providers or routes.
 - Prefer existing regression destinations over inventing a new suite shape.

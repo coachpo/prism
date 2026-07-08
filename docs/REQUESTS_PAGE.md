@@ -37,7 +37,7 @@ The page route should act as a thin orchestration shell with four primary respon
 
 The route should also integrate shared application services:
 
-- `useProfileContext()` for selected-profile and profile-revision refresh behavior.
+- Default profile id `1` is frozen for management reads; `X-Profile-Id` may still be sent by shared API code but is ignored.
 - `useTimezone()` plus the shared frontend locale boundary for locale-aware timestamp formatting.
 - `useLocale()` for route-shell, filter, empty-state, and detail-drawer copy.
 - `TooltipProvider` for table and filter affordances.
