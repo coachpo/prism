@@ -68,6 +68,14 @@ jobs:
         working-directory: frontend
         run: pnpm run lint
 
+      - name: Install Playwright chromium
+        working-directory: frontend
+        run: pnpm exec playwright install chromium --with-deps
+
+      - name: Run frontend journey specs
+        working-directory: frontend
+        run: pnpm run test:e2e
+
   dependency-scanners:
     runs-on: ubuntu-latest
     timeout-minutes: 30

@@ -1,8 +1,19 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const timestamp = "2026-04-27T12:00:00Z";
-const disabledDraftAccessTargetCopy = /No model targets selected\./;
-const enabledTargetRequiredCopy = "Enabled models need at least one enabled same-family access target. Save with Enabled off to attach targets later.";
+const newModelButton = /New Model|新建模型/;
+const newModelDialog = /New Model|新建模型/;
+const editModelDialog = /Edit Model|编辑模型/;
+const saveButton = /Save|保存/;
+const cancelButton = /Cancel|取消/;
+const createDefaultsButton = /Create Defaults|创建默认策略/;
+const modelIdLabel = /Model ID|模型 ID/;
+const displayNameLabel = /Display Name|显示名称/;
+const enabledSwitchLabel = /Enabled|启用/;
+const noStrategiesCopy =
+  /No loadbalance strategies are available for the Default profile\. Create one on the Loadbalance Strategies page first\.|默认配置档案没有可用的负载均衡策略。请先在负载均衡策略页面创建一个。/;
+const modelCreatedToast = /Model created|模型已创建/;
+const defaultStrategiesCreatedToast = /Default loadbalance strategies created|默认负载均衡策略已创建/;
 
 function createStrategy() {
   return {
@@ -164,50 +175,49 @@ test("main model dialog disables save when no loadbalance strategies exist", asy
   const routes = await mockModelRoutes(page, { strategies: [] });
 
   await page.goto("/models");
-  await page.getByRole("button", { name: "New Model" }).click();
+  await page.getByRole("button", { name: newModelButton }).click();
 
-  const dialog = page.getByRole("dialog", { name: "New Model" });
-  const saveButton = dialog.getByRole("button", { name: "Save" });
-  const noStrategiesCopy = "No loadbalance strategies are available for the Default profile. Create one on the Loadbalance Strategies page first.";
+  const dialog = page.getByRole("dialog", { name: newModelDialog });
+  const saveModelButton = dialog.getByRole("button", { name: saveButton });
 
   await expect(dialog.getByText(noStrategiesCopy)).toBeVisible();
-  await expect(saveButton).toBeDisabled();
+  await expect(saveModelButton).toBeDisabled();
 
-  await page.getByRole("textbox", { name: "Model ID" }).fill("zero-strategy-model");
-  await page.getByRole("textbox", { name: "Display Name" }).fill("Zero Strategy Model");
-  await expect(saveButton).toBeDisabled();
+  await page.getByRole("textbox", { name: modelIdLabel }).fill("zero-strategy-model");
+  await page.getByRole("textbox", { name: displayNameLabel }).fill("Zero Strategy Model");
+  await expect(saveModelButton).toBeDisabled();
 
-  await page.getByRole("textbox", { name: "Display Name" }).press("Enter");
+  await page.getByRole("textbox", { name: displayNameLabel }).press("Enter");
   expect(routes.getCreatedPayloads()).toHaveLength(0);
 
-  await dialog.getByRole("button", { name: "Cancel" }).click();
-  await page.getByRole("button", { name: "Edit Model: Target Alpha" }).click();
+  await dialog.getByRole("button", { name: cancelButton }).click();
+  await page.getByRole("button", { name: /Edit Model: Target Alpha|编辑模型: Target Alpha/ }).click();
 
-  const editDialog = page.getByRole("dialog", { name: "Edit Model" });
+  const editDialog = page.getByRole("dialog", { name: editModelDialog });
   await expect(editDialog.getByText(noStrategiesCopy)).toBeVisible();
-  await expect(editDialog.getByRole("button", { name: "Create Defaults" })).toHaveCount(0);
+  await expect(editDialog.getByRole("button", { name: createDefaultsButton })).toHaveCount(0);
 });
 
 test("main model dialog creates default strategy from empty loadbalance strategy state", async ({ page }) => {
   const routes = await mockModelRoutes(page, { strategies: [] });
 
   await page.goto("/models");
-  await page.getByRole("button", { name: "New Model" }).click();
+  await page.getByRole("button", { name: newModelButton }).click();
 
-  const dialog = page.getByRole("dialog", { name: "New Model" });
-  const saveButton = dialog.getByRole("button", { name: "Save" });
-  await expect(dialog.getByRole("button", { name: "Create Defaults" })).toBeVisible();
-  await expect(saveButton).toBeDisabled();
+  const dialog = page.getByRole("dialog", { name: newModelDialog });
+  const saveModelButton = dialog.getByRole("button", { name: saveButton });
+  await expect(dialog.getByRole("button", { name: createDefaultsButton })).toBeVisible();
+  await expect(saveModelButton).toBeDisabled();
 
-  await dialog.getByRole("button", { name: "Create Defaults" }).click();
+  await dialog.getByRole("button", { name: createDefaultsButton }).click();
 
-  await expect(dialog.getByRole("button", { name: "Create Defaults" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: createDefaultsButton })).toHaveCount(0);
   await expect(dialog.locator("#model-loadbalance-strategy")).toContainText("Default fill-first routing");
-  await expect(saveButton).toBeEnabled();
+  await expect(saveModelButton).toBeEnabled();
 
-  await page.getByRole("textbox", { name: "Model ID" }).fill("defaults-created-model");
-  await saveButton.click();
-  await expect(page.getByText("Model created")).toBeVisible();
+  await page.getByRole("textbox", { name: modelIdLabel }).fill("defaults-created-model");
+  await saveModelButton.click();
+  await expect(page.getByText(modelCreatedToast)).toBeVisible();
 
   expect(routes.getDefaultsRequests()).toHaveLength(1);
   expect(routes.getCreatedPayloads()).toEqual([
@@ -216,7 +226,6 @@ test("main model dialog creates default strategy from empty loadbalance strategy
       model_id: "defaults-created-model",
       display_name: "defaults-created-model",
       openai_accepted_format: "dual_native",
-      access_targets: [],
       loadbalance_strategy_id: 11,
       is_enabled: false,
     },
@@ -231,22 +240,22 @@ test("main model dialog keeps empty strategy state when default creation fails",
   });
 
   await page.goto("/models");
-  await page.getByRole("button", { name: "New Model" }).click();
+  await page.getByRole("button", { name: newModelButton }).click();
 
-  const dialog = page.getByRole("dialog", { name: "New Model" });
-  const saveButton = dialog.getByRole("button", { name: "Save" });
-  await expect(dialog.getByRole("button", { name: "Create Defaults" })).toBeVisible();
-  await expect(saveButton).toBeDisabled();
+  const dialog = page.getByRole("dialog", { name: newModelDialog });
+  const saveModelButton = dialog.getByRole("button", { name: saveButton });
+  await expect(dialog.getByRole("button", { name: createDefaultsButton })).toBeVisible();
+  await expect(saveModelButton).toBeDisabled();
 
-  await dialog.getByRole("button", { name: "Create Defaults" }).click();
+  await dialog.getByRole("button", { name: createDefaultsButton }).click();
 
   await expect(page.getByText("Default creation failed")).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Create Defaults" })).toBeVisible();
-  await expect(dialog.getByText("No loadbalance strategies are available for the Default profile. Create one on the Loadbalance Strategies page first.")).toBeVisible();
-  await expect(saveButton).toBeDisabled();
+  await expect(dialog.getByRole("button", { name: createDefaultsButton })).toBeVisible();
+  await expect(dialog.getByText(noStrategiesCopy)).toBeVisible();
+  await expect(saveModelButton).toBeDisabled();
 
-  await page.getByRole("textbox", { name: "Model ID" }).fill("defaults-failed-model");
-  await page.getByRole("textbox", { name: "Display Name" }).press("Enter");
+  await page.getByRole("textbox", { name: modelIdLabel }).fill("defaults-failed-model");
+  await page.getByRole("textbox", { name: displayNameLabel }).press("Enter");
 
   expect(routes.getDefaultsRequests()).toHaveLength(1);
   expect(routes.getCreatedPayloads()).toHaveLength(0);
@@ -261,21 +270,21 @@ test("main model dialog does not apply delayed defaults response to edit dialog"
   });
 
   await page.goto("/models");
-  await page.getByRole("button", { name: "New Model" }).click();
+  await page.getByRole("button", { name: newModelButton }).click();
 
-  const createDialog = page.getByRole("dialog", { name: "New Model" });
-  await createDialog.getByRole("button", { name: "Create Defaults" }).click();
+  const createDialog = page.getByRole("dialog", { name: newModelDialog });
+  await createDialog.getByRole("button", { name: createDefaultsButton }).click();
   expect(routes.getDefaultsRequests()).toHaveLength(1);
-  await createDialog.getByRole("button", { name: "Cancel" }).click();
+  await createDialog.getByRole("button", { name: cancelButton }).click();
 
-  await page.getByRole("button", { name: "Edit Model: Edit No Strategy" }).click();
-  const editDialog = page.getByRole("dialog", { name: "Edit Model" });
-  await expect(editDialog.getByText("No loadbalance strategies are available for the Default profile. Create one on the Loadbalance Strategies page first.")).toBeVisible();
+  await page.getByRole("button", { name: /Edit Model: Edit No Strategy|编辑模型: Edit No Strategy/ }).click();
+  const editDialog = page.getByRole("dialog", { name: editModelDialog });
+  await expect(editDialog.getByText(noStrategiesCopy)).toBeVisible();
 
   deferredDefaults.resolve();
 
-  await expect(page.getByText("Default loadbalance strategies created")).toBeVisible();
-  await expect(editDialog.getByRole("button", { name: "Create Defaults" })).toHaveCount(0);
+  await expect(page.getByText(defaultStrategiesCreatedToast)).toBeVisible();
+  await expect(editDialog.getByRole("button", { name: createDefaultsButton })).toHaveCount(0);
   await expect(editDialog.locator("#model-loadbalance-strategy")).not.toContainText("Default fill-first routing");
 });
 
@@ -287,39 +296,37 @@ test("main model dialog keeps save disabled when stale defaults response reaches
   });
 
   await page.goto("/models");
-  await page.getByRole("button", { name: "New Model" }).click();
+  await page.getByRole("button", { name: newModelButton }).click();
 
-  const createDialog = page.getByRole("dialog", { name: "New Model" });
-  await createDialog.getByRole("button", { name: "Create Defaults" }).click();
+  const createDialog = page.getByRole("dialog", { name: newModelDialog });
+  await createDialog.getByRole("button", { name: createDefaultsButton }).click();
   expect(routes.getDefaultsRequests()).toHaveLength(1);
-  await createDialog.getByRole("button", { name: "Cancel" }).click();
+  await createDialog.getByRole("button", { name: cancelButton }).click();
 
-  await page.getByRole("button", { name: "New Model" }).click();
-  const reopenedDialog = page.getByRole("dialog", { name: "New Model" });
-  const saveButton = reopenedDialog.getByRole("button", { name: "Save" });
-  await expect(saveButton).toBeDisabled();
+  await page.getByRole("button", { name: newModelButton }).click();
+  const reopenedDialog = page.getByRole("dialog", { name: newModelDialog });
+  const saveModelButton = reopenedDialog.getByRole("button", { name: saveButton });
+  await expect(saveModelButton).toBeDisabled();
 
   deferredDefaults.resolve();
 
-  await expect(page.getByText("Default loadbalance strategies created")).toBeVisible();
+  await expect(page.getByText(defaultStrategiesCreatedToast)).toBeVisible();
   await expect(reopenedDialog.locator("#model-loadbalance-strategy")).not.toContainText("Default fill-first routing");
-  await expect(saveButton).toBeDisabled();
+  await expect(saveModelButton).toBeDisabled();
 });
 
 test("main model dialog saves targetless disabled drafts", async ({ page }) => {
   const routes = await mockModelRoutes(page);
 
   await page.goto("/models");
-  await page.getByRole("button", { name: "New Model" }).click();
+  await page.getByRole("button", { name: newModelButton }).click();
 
-  const dialog = page.getByRole("dialog", { name: "New Model" });
-  await expect(dialog.getByText(disabledDraftAccessTargetCopy)).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "New terminal target" })).toHaveCount(0);
-  await expect(dialog.getByRole("switch", { name: "Enabled" })).toHaveAttribute("data-state", "unchecked");
+  const dialog = page.getByRole("dialog", { name: newModelDialog });
+  await expect(dialog.getByRole("switch", { name: enabledSwitchLabel })).toHaveAttribute("data-state", "unchecked");
 
-  await page.getByRole("textbox", { name: "Model ID" }).fill("draft-openai");
-  await dialog.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText("Model created")).toBeVisible();
+  await page.getByRole("textbox", { name: modelIdLabel }).fill("draft-openai");
+  await dialog.getByRole("button", { name: saveButton }).click();
+  await expect(page.getByText(modelCreatedToast)).toBeVisible();
 
   expect(routes.getCreatedPayloads()).toEqual([
     {
@@ -327,80 +334,26 @@ test("main model dialog saves targetless disabled drafts", async ({ page }) => {
       model_id: "draft-openai",
       display_name: "draft-openai",
       openai_accepted_format: "dual_native",
-      access_targets: [],
       loadbalance_strategy_id: 11,
       is_enabled: false,
     },
   ]);
 
   const draftRow = page.getByRole("row", { name: /draft-openai/ });
-  await expect(draftRow.getByText("Needs target")).toBeVisible();
-  await expect(draftRow.getByText("Disabled")).toBeVisible();
+  await expect(draftRow.getByText(/Needs target|需要目标/)).toBeVisible();
+  await expect(draftRow.getByText(/Disabled|已禁用/)).toBeVisible();
 });
 
-test("main model dialog keeps connection option absent while authoring ordered model access targets", async ({ page }) => {
-  const routes = await mockModelRoutes(page);
+test("main model dialog keeps access-target authoring out of the create flow", async ({ page }) => {
+  await mockModelRoutes(page);
 
   await page.goto("/models");
-  await page.getByRole("button", { name: "New Model" }).click();
+  await page.getByRole("button", { name: newModelButton }).click();
 
-  const dialog = page.getByRole("dialog", { name: "New Model" });
-  await expect(dialog.getByText(disabledDraftAccessTargetCopy)).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "New terminal target" })).toHaveCount(0);
+  const dialog = page.getByRole("dialog", { name: newModelDialog });
+  await expect(dialog.locator("#access-target-select")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: /New terminal target|新建终端目标/ })).toHaveCount(0);
   await expect(dialog.getByText("Tier")).toHaveCount(0);
   await expect(dialog.getByText("Weight")).toHaveCount(0);
-  const enabledSwitch = dialog.getByRole("switch", { name: "Enabled" });
-  await expect(enabledSwitch).toHaveAttribute("data-state", "unchecked");
-  await page.getByRole("textbox", { name: "Model ID" }).fill("routed-openai");
-
-  await enabledSwitch.click();
-  await expect(enabledSwitch).toHaveAttribute("data-state", "checked");
-  await dialog.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText(enabledTargetRequiredCopy).last()).toBeVisible();
-  expect(routes.getCreatedPayloads()).toHaveLength(0);
-
-  await dialog.locator("#access-target-select").click();
-  await expect(page.getByRole("option", { name: /connection|standalone/i })).toHaveCount(0);
-  await page.getByRole("option", { name: /Target Alpha/ }).click();
-  await dialog.getByRole("button", { name: "Add target" }).click();
-
-  await dialog.locator("#access-target-select").click();
-  await page.getByRole("option", { name: /Target Beta/ }).click();
-  await dialog.getByRole("button", { name: "Add target" }).click();
-  await dialog.getByRole("button", { name: "Move target 2 up" }).click();
-
-  await dialog.getByRole("combobox").filter({ hasText: "OpenAI" }).click();
-  await page.getByRole("option", { name: /Anthropic/i }).click();
-  await expect(page.getByText(disabledDraftAccessTargetCopy)).toBeVisible();
-
-  await dialog.locator("#access-target-select").click();
-  await expect(page.getByRole("option", { name: /connection|standalone/i })).toHaveCount(0);
-  await expect(page.getByRole("option", { name: /Claude Sonnet/ })).toBeVisible();
-  await expect(page.getByRole("option", { name: /Target Alpha/ })).toHaveCount(0);
-  await page.keyboard.press("Escape");
-
-  await dialog.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText(enabledTargetRequiredCopy).last()).toBeVisible();
-  expect(routes.getCreatedPayloads()).toHaveLength(0);
-
-  await dialog.locator("#access-target-select").click();
-  await page.getByRole("option", { name: /Claude Sonnet/ }).click();
-  await dialog.getByRole("button", { name: "Add target" }).click();
-
-  await dialog.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText("Model created")).toBeVisible();
-
-  expect(routes.getCreatedPayloads()).toEqual([
-    {
-      api_family: "anthropic",
-      model_id: "routed-openai",
-      display_name: "routed-openai",
-      access_targets: [{ target_type: "model", target_model_id: "claude-sonnet", position: 0, is_enabled: true }],
-      loadbalance_strategy_id: 11,
-      is_enabled: true,
-    },
-  ]);
-  const createdTarget = (routes.getCreatedPayloads()[0] as { access_targets: Array<Record<string, unknown>> }).access_targets[0];
-  expect(Object.prototype.hasOwnProperty.call(createdTarget, "weight")).toBe(false);
-  expect(Object.prototype.hasOwnProperty.call(createdTarget, "target_priority")).toBe(false);
+  await expect(dialog.getByRole("switch", { name: enabledSwitchLabel })).toHaveAttribute("data-state", "unchecked");
 });

@@ -70,6 +70,14 @@ async function expectRecoveryLines(row: Locator, lines: string[]) {
   await expect(recoveryLines).toHaveText(lines, { timeout: routeReadyTimeout });
 }
 
+const addStrategyButton = /Add Strategy|新增策略/;
+const saveStrategyButton = /Save Strategy|保存策略/;
+const nameLabel = /Name|名称/;
+const routingFamilyLabel = /Routing family|传统路由/;
+const cycleRetryLimitLabel = /Cycle Retry Attempt Limit|周期重试次数限制/;
+const cumulativeThresholdLabel = /Ban Cumulative Retry Attempt Threshold|封禁累计重试次数阈值/;
+const banModeLabel = /Ban Mode|封禁模式/;
+
 test("loadbalance strategies table shows explicit Ban Policy rows by name", async ({ page }) => {
   const strategies = [
     createStrategyRow({
@@ -143,32 +151,32 @@ test("loadbalance strategies table shows explicit Ban Policy rows by name", asyn
   await expect(page.getByRole("table")).toContainText("Legacy Temporary");
 
   await expectRecoveryLines(page.getByRole("row", { name: /Legacy Off/ }), [
-    "Status codes 403, 422, 429, 500, 502, 503, 504, 529",
-    "Cycle retry limit 2 attempts • retry window 60,000ms base, 900,000ms max, 2x backoff, jitter 0.2",
-    "Ban off; cumulative threshold disabled",
+    "状态码 403, 422, 429, 500, 502, 503, 504, 529",
+    "周期重试限制 2 次 • 重试窗口基础 60,000 毫秒，最大 900,000 毫秒，2 倍退避，抖动 0.2",
+    "封禁关闭；累计阈值已禁用",
   ]);
 
   await expectRecoveryLines(page.getByRole("row", { name: /Legacy Until Reset/ }), [
-    "Status codes 403, 422, 429, 500, 502, 503, 504, 529",
-    "Cycle retry limit 2 attempts • retry window 60,000ms base, 900,000ms max, 2x backoff, jitter 0.2",
-    "Cumulative threshold 4 attempts bans until reset",
+    "状态码 403, 422, 429, 500, 502, 503, 504, 529",
+    "周期重试限制 2 次 • 重试窗口基础 60,000 毫秒，最大 900,000 毫秒，2 倍退避，抖动 0.2",
+    "累计阈值 4 次会封禁直到重置",
   ]);
 
   await expectRecoveryLines(page.getByRole("row", { name: /Legacy Temporary/ }), [
-    "Status codes 403, 422, 429, 500, 502, 503, 504, 529",
-    "Cycle retry limit 2 attempts • retry window 60,000ms base, 900,000ms max, 2x backoff, jitter 0.2",
-    "Cumulative threshold 4 attempts triggers temporary ban for 28,800s",
+    "状态码 403, 422, 429, 500, 502, 503, 504, 529",
+    "周期重试限制 2 次 • 重试窗口基础 60,000 毫秒，最大 900,000 毫秒，2 倍退避，抖动 0.2",
+    "累计阈值 4 次会触发 28,800 秒临时封禁",
   ]);
 
-  await page.getByRole("button", { name: "Add Strategy" }).first().click();
-  const cycleLimitInput = page.getByLabel("Cycle Retry Attempt Limit");
-  const cumulativeThresholdInput = page.getByLabel("Ban Cumulative Retry Attempt Threshold");
+  await page.getByRole("button", { name: addStrategyButton }).first().click();
+  const cycleLimitInput = page.getByLabel(cycleRetryLimitLabel);
+  const cumulativeThresholdInput = page.getByLabel(cumulativeThresholdLabel);
   await expect(cycleLimitInput).toBeVisible();
   await expect(cumulativeThresholdInput).toBeVisible();
 
-  await page.getByLabel("Ban Mode").click();
-  await expect(page.getByRole("option")).toHaveText(["Off", "Temporary", "Until reset"]);
-  await page.getByRole("option", { name: "Temporary" }).click();
+  await page.getByLabel(banModeLabel).click();
+  await expect(page.getByRole("option")).toHaveText(["关闭", "临时", "直到重置"]);
+  await page.getByRole("option", { name: "临时" }).click();
 
   await expect(cumulativeThresholdInput).toHaveValue("6");
   await cumulativeThresholdInput.fill("4");
@@ -270,28 +278,28 @@ test("loadbalance strategy dialog creates and edits surviving routing families",
 
   await page.goto("/route/ban-policies");
   await expect(page.getByRole("table")).toContainText("Existing round robin");
-  await expect(page.getByRole("table")).toContainText("Round robin");
+  await expect(page.getByRole("table")).toContainText("轮询");
 
-  await page.getByRole("button", { name: "Add Strategy" }).first().click();
-  await expect(page.getByText("Configure reusable terminal-target routing families and Ban Policy for the Default profile.")).toBeVisible();
-  await page.getByLabel("Name").fill("Fill-first routing");
-  await page.getByLabel("Routing family").click();
+  await page.getByRole("button", { name: addStrategyButton }).first().click();
+  await expect(page.getByText("为默认配置档案配置可复用的终端目标路由族与 Ban Policy。")).toBeVisible();
+  await page.getByLabel(nameLabel).fill("Fill-first routing");
+  await page.getByLabel(routingFamilyLabel).click();
   await expect(page.getByRole("option")).toHaveText([
-    "Single",
-    "Fill first",
-    "Round robin",
+    "单一",
+    "优先填满",
+    "轮询",
   ]);
-  await page.getByRole("option", { name: "Fill first" }).click();
-  await page.getByRole("button", { name: "Save Strategy" }).click();
+  await page.getByRole("option", { name: "优先填满" }).click();
+  await page.getByRole("button", { name: saveStrategyButton }).click();
 
   await expect(page.getByRole("table")).toContainText("Fill-first routing");
-  await expect(page.getByRole("table")).toContainText("Fill first");
+  await expect(page.getByRole("table")).toContainText("优先填满");
   expect(createdStrategyType).toBe("fill-first");
 
   const createdRow = page.getByRole("row", { name: /Fill-first routing/ });
-  await createdRow.getByRole("button", { name: "Edit" }).click();
-  await page.getByLabel("Name").fill("Fill-first routing updated");
-  await page.getByRole("button", { name: "Save Strategy" }).click();
+  await createdRow.getByRole("button", { name: /Edit|编辑/ }).click();
+  await page.getByLabel(nameLabel).fill("Fill-first routing updated");
+  await page.getByRole("button", { name: saveStrategyButton }).click();
 
   await expect(page.getByRole("table")).toContainText("Fill-first routing updated");
   expect(updatedStrategyType).toBe("fill-first");

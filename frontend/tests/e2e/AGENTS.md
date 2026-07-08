@@ -1,24 +1,27 @@
 # FRONTEND E2E TEST KNOWLEDGE BASE
 
 ## OVERVIEW
-`frontend/tests/e2e/` owns Playwright browser flows for mounted Prism routes, shell behavior, mocked backend APIs, and UI state.
+`frontend/tests/e2e/` owns Prism's capped Playwright journey suite: exactly five mocked browser flows for mounted routes, shell behavior, and UI state.
 
 ## STRUCTURE
 ```text
 e2e/
-├── *dashboard*.spec.ts, *statistics*.spec.ts  # Overview and analytics route flows
-├── request-log*.spec.ts, request-logs*.spec.ts # Request list/detail/audit flows
-├── settings-*.spec.ts                         # Settings, config, retention
-└── task-*.spec.ts                             # Feature milestone browser coverage
+├── auth-session-lifecycle.spec.ts
+├── loadbalance-strategies-recovery.spec.ts
+├── models-access-target-authoring.spec.ts
+├── request-log-dedicated-audit-page.spec.ts
+├── shared-chart-statistics.spec.ts
+└── dashboard-aggregate-fixtures.ts
 ```
 
 ## WHERE TO LOOK
 - Playwright config and server target: `../../playwright.config.ts`
-- Dashboard/statistics shared fixtures: `dashboard-aggregate-fixtures.ts`
-- Auth and shell flows: `auth-session-lifecycle.spec.ts`, `protected-shell-sidebar.spec.ts`
-- Request-log and audit page flows: `request-log-*.spec.ts`, `request-logs-*.spec.ts`
-- Settings/config/retention flows: `settings-*.spec.ts`
-- Model, endpoint, pricing, and Ban Policy flows: `model-*.spec.ts`, `models-*.spec.ts`, `task-*.spec.ts`, `loadbalance-*.spec.ts`, `pricing-*.spec.ts`
+- Shared dashboard/statistics fixture builders: `dashboard-aggregate-fixtures.ts`
+- Auth journey: `auth-session-lifecycle.spec.ts`
+- Load-balance recovery journey: `loadbalance-strategies-recovery.spec.ts`
+- Model access-target authoring journey: `models-access-target-authoring.spec.ts`
+- Request-log + audit journey: `request-log-dedicated-audit-page.spec.ts`
+- Shared statistics/chart journey: `shared-chart-statistics.spec.ts`
 
 ## CONVENTIONS
 - Run through `pnpm run test:e2e -- <playwright args>`.
@@ -28,8 +31,10 @@ e2e/
 - Use canonical routes from `src/app/router/rewriteRoutes.ts`; legacy-route specs should assert redirects, not treat legacy paths as primary.
 - Use `expect.poll` for asynchronous UI state instead of fixed sleeps.
 - Keep browser assertions at route-flow level. Pure parser, API-client, and layout contracts belong in `../lib/` or `../src/**/*.test.*`.
+- This directory is capped at exactly five journey specs. Adding one requires deleting one in the same change and updating this file.
 
 ## ANTI-PATTERNS
 - Do not add real backend dependencies to e2e specs.
 - Do not duplicate large fixture payloads when `dashboard-aggregate-fixtures.ts` or local builders already cover them.
 - Do not use e2e specs for one-function contract checks.
+- Do not add "local-only" Playwright specs or grow past the five-spec cap.

@@ -261,7 +261,7 @@ async function loginToProxyKeys(page: Page) {
 }
 
 test.describe("auth session lifecycle", () => {
-  test.beforeEach(async ({ context, page }) => {
+  test.beforeEach(async ({ context }) => {
     await installAuthLifecycleRoutes(context);
   });
 
