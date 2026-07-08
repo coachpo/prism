@@ -108,7 +108,7 @@ func TestNormativeDocsParity(t *testing.T) {
 
 	apiSpecPath := docsPath(t, "API_SPEC.md")
 	assertFileContains(t, apiSpecPath, append([]string{
-		"Proxy endpoints (`/v1/*`, `/v1beta/*`) always use the active profile and ignore management scope overrides.",
+		"Proxy endpoints (`/v1/*`, `/v1beta/*`) always resolve against frozen Default profile id `1` and ignore management scope overrides.",
 		"operation_translation_mode",
 		"upstream_operation_name",
 		"upstream_request_path",
@@ -117,7 +117,7 @@ func TestNormativeDocsParity(t *testing.T) {
 
 	architecturePath := docsPath(t, "ARCHITECTURE.md")
 	assertFileContains(t, architecturePath, append([]string{
-		"Supported runtime operations always use active profile and ignore override headers.",
+		"Supported runtime operations always resolve against frozen Default profile id `1` and ignore override headers.",
 		"operation_translation_mode",
 		"upstream_operation_name",
 		"upstream_request_path",
@@ -132,7 +132,7 @@ func TestNormativeDocsParity(t *testing.T) {
 	}, translationModeNeedles...))
 	assertFileNotContains(t, dataModelPath, retiredTranslationModeNeedles)
 	assertFileContains(t, docsPath(t, "WORKFLOWS.md"), []string{
-		"Runtime proxy traffic on `/v1/*` and `/v1beta/*` ignores management profile headers and uses the active runtime profile snapshot.",
+		"Runtime proxy traffic on `/v1/*` and `/v1beta/*` ignores management profile headers and resolves against frozen Default profile id `1`.",
 	})
 }
 

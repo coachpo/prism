@@ -173,3 +173,25 @@ Verification:
 
 Concerns:
 - The unrelated pre-existing dirty/untracked docs were left untouched per instruction.
+
+## Task 9 Stale Profile Wording Fix
+
+STATUS: DONE_WITH_CONCERNS
+
+Commit:
+- `docs: align profile freeze test wording`
+
+Fixes:
+- Reworded the frontend design-system chrome note to Default-profile/scope language.
+- Updated the contract test needles to the frozen Default profile id `1` / ignored-override wording.
+- Renamed the runtime cache invalidation assertion message to Default-profile wording.
+- Aligned the workflow reference line to the frozen Default profile id `1` runtime contract.
+
+Verification:
+- `rg -n 'active profile|selected profile|selected-profile chrome|selected-profile planning' frontend/DESIGN.md backend/tests/contract/s2_shell_test.go backend/internal/platform/http/server_test.go docs/API_SPEC.md docs/ARCHITECTURE.md docs/DATA_MODEL.md docs/SMOKE_TEST_PLAN.md frontend/README.md`
+- `cd backend && go test ./internal/platform/http`
+- `cd backend && go test ./tests/contract -run TestNormativeDocsParity` -> failed before assertions: `postgres container on port 33227 did not become ready in time`
+- `cd frontend && pnpm run build`
+
+Concerns:
+- Docker-backed backend contract verification is blocked by the local Postgres harness readiness timeout before the doc parity assertions run.

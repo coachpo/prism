@@ -532,7 +532,7 @@ func TestManagementRouteContractClassifiesRuntimeCacheInvalidation(t *testing.T)
 		t.Fatal("manifest should include runtime auth invalidation rows")
 	}
 	if !seenPlanningInvalidation {
-		t.Fatal("manifest should include selected-profile planning invalidation rows")
+		t.Fatal("manifest should include Default-profile planning invalidation rows")
 	}
 	if !seenProfileScopedNonInvalidatingRead {
 		t.Fatal("manifest should include profile-scoped non-invalidating read rows")
