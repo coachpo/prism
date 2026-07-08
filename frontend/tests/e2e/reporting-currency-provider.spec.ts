@@ -23,12 +23,12 @@ function createDeferred() {
   return { promise, resolve };
 }
 
-function createModelListItem(profileId: number) {
+function createModelListItem() {
   return {
-    id: profileId,
+    id: 1,
     api_family: "openai",
     model_id: "gpt-4o-mini",
-    display_name: `GPT-4o mini P${profileId}`,
+    display_name: "GPT-4o mini P1",
     model_type: "native",
     proxy_targets: [],
     loadbalance_strategy_id: null,
@@ -43,9 +43,7 @@ function createModelListItem(profileId: number) {
   };
 }
 
-function createUsageSnapshot(profileId: number) {
-  const totalRequests = profileId === 2 ? 22 : 11;
-
+function createUsageSnapshot() {
   return {
     generated_at: timestamp,
     time_range: {
@@ -55,8 +53,8 @@ function createUsageSnapshot(profileId: number) {
     },
     currency: { code: "USD", symbol: "$" },
     overview: {
-      total_requests: totalRequests,
-      success_requests: totalRequests - 1,
+      total_requests: 11,
+      success_requests: 10,
       failed_requests: 1,
       success_rate: 90.9,
       total_tokens: 1650,
@@ -73,7 +71,7 @@ function createUsageSnapshot(profileId: number) {
         {
           key: "all",
           label: "All requests",
-          total_requests: totalRequests,
+          total_requests: 11,
           points: [],
         },
       ],
@@ -81,7 +79,7 @@ function createUsageSnapshot(profileId: number) {
         {
           key: "all",
           label: "All requests",
-          total_requests: totalRequests,
+          total_requests: 11,
           points: [],
         },
       ],
@@ -121,10 +119,10 @@ function createUsageSnapshot(profileId: number) {
     };
 }
 
-function createCostingSettings(profileId: number) {
+function createCostingSettings() {
   return {
-    report_currency_code: profileId === 2 ? "JPY" : "EUR",
-    report_currency_symbol: profileId === 2 ? "¥" : "€",
+    report_currency_code: "EUR",
+    report_currency_symbol: "€",
     endpoint_fx_mappings: [],
     timezone_preference: null,
   };
@@ -132,11 +130,6 @@ function createCostingSettings(profileId: number) {
 
 function resolveProfileKey(headers: Record<string, string>) {
   return headers["x-profile-id"] ?? "none";
-}
-
-function parseProfileId(profileKey: string) {
-  const parsed = Number.parseInt(profileKey, 10);
-  return Number.isFinite(parsed) ? parsed : 1;
 }
 
 function incrementRequestCount(bucket: RequestCountsByProfile, profileKey: string) {
@@ -178,8 +171,7 @@ async function mockReportingCurrencyProtectedRoutes(
 
     if (pathname === "/api/settings/costing") {
       const profileKey = resolveProfileKey(route.request().headers());
-      const profileId = parseProfileId(profileKey);
-      const behavior = options.costingBehaviorByProfileId?.[profileId];
+      const behavior = options.costingBehaviorByProfileId?.[1];
 
       incrementRequestCount(requestCounts.costingByProfile, profileKey);
       lastCostingProfileKey = profileKey;
@@ -190,19 +182,19 @@ async function mockReportingCurrencyProtectedRoutes(
         return fulfillJson({ detail: "settings unavailable" }, 500);
       }
 
-      return fulfillJson(createCostingSettings(profileId));
+      return fulfillJson(createCostingSettings());
     }
 
     if (pathname === "/api/models") {
       const profileKey = resolveProfileKey(route.request().headers());
       incrementRequestCount(requestCounts.modelsByProfile, profileKey);
-      return fulfillJson([createModelListItem(parseProfileId(profileKey))]);
+      return fulfillJson([createModelListItem()]);
     }
 
     if (pathname === "/api/stats/usage-snapshot") {
       const profileKey = resolveProfileKey(route.request().headers());
       incrementRequestCount(requestCounts.usageSnapshotByProfile, profileKey);
-      return fulfillJson(createUsageSnapshot(parseProfileId(profileKey)));
+      return fulfillJson(createUsageSnapshot());
     }
 
     if (pathname === "/api/stats/dashboard") {

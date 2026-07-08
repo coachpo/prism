@@ -219,6 +219,28 @@ Concerns:
 
 ## Task 9 Realtime Publisher Fix
 
+## Task 9 R4 Remaining Profile Fixture/Copy Cleanup
+
+STATUS: DONE_WITH_CONCERNS
+
+Commit:
+- `65d95540753aa61b17b41631c31322ead59a5feb`
+
+Fixes:
+- Pinned the analytics realtime protocol fixture in `backend/tests/runtime/realtime_test.go` to Default profile id `1`.
+- Removed header-driven profile branching from the retained dashboard/reporting/shared-chart Playwright mocks and pinned their fixtures to Default profile id `1`.
+- Reworded the remaining user-facing i18n copy away from profile-scoped wording in `frontend/src/i18n/messages/en.ts` and `frontend/src/i18n/messages/zh-CN.ts`.
+
+Verification:
+- `rg -n 'profileID := 2|profile_id.*2|X-Profile-Id.*2|Profile-scoped|profile-scoped|按配置档案|配置档案划分|arbitrary profile' backend/tests/runtime/realtime_test.go frontend/tests/e2e/dashboard-reporting-currency.spec.ts frontend/tests/e2e/reporting-currency-provider.spec.ts frontend/tests/e2e/shared-chart-statistics.spec.ts frontend/src/i18n/messages/en.ts frontend/src/i18n/messages/zh-CN.ts`
+- `cd backend && go test ./tests/runtime -run TestRealtimeProtocol` -> failed before assertions: `docker port prism-s14-runtime-89af8fe9 failed: exit status 1; no public port '5432/tcp' published for prism-s14-runtime-89af8fe9`
+- `cd frontend && pnpm run test:e2e -- frontend/tests/e2e/dashboard-reporting-currency.spec.ts frontend/tests/e2e/reporting-currency-provider.spec.ts frontend/tests/e2e/shared-chart-statistics.spec.ts` -> 8 passed, 2 failed in `shared-chart-statistics.spec.ts`
+- `cd frontend && pnpm run build` -> passed
+
+Concerns:
+- The backend runtime protocol test is still blocked by the local Docker Postgres harness port publication issue before assertions.
+- The shared chart Playwright run has two failing assertions in `shared-chart-statistics.spec.ts` that are not part of the profile-copy cleanup diff and need separate follow-up.
+
 STATUS: DONE_WITH_CONCERNS
 
 Commit:
@@ -422,3 +444,26 @@ Verification:
 Concerns:
 - `rg` still reports the six intentionally stale `profileId: 7` assertions in `frontend/tests/lib/websocket_contract.test.mjs`; the deleted switcher checks are gone.
 - The touched lib and e2e verification commands passed, and the build stayed clean aside from the existing Vite chunk-size warning.
+
+## Task 9 R4 Final Review Fix
+
+STATUS: DONE_WITH_CONCERNS
+
+Commit:
+- `b79e1b5796f94320555f7b681d39fbbb8c04dbe6`
+- Range: `b23517270e4413b1720b91445e87fa2f0f16ced4..b79e1b5796f94320555f7b681d39fbbb8c04dbe6`
+
+Fixes:
+- Rewrote the durable docs in `docs/PRD.md`, `docs/API_SPEC.md`, and `docs/TEST_CASE_GENERATION_METHODOLOGY.md` to the frozen Default profile id `1` contract and removed active-runtime wording.
+- Pinned `normalizeAnalyticsSnapshotProfileId()` to Default id `1` and updated the analytics websocket contract test to assert the Default profile behavior.
+- Reworded retained frontend copy in `frontend/src/i18n/messages/en.ts` and `frontend/src/i18n/messages/zh-CN.ts` so the user-facing text says Default profile or instance-wide retention instead of all profiles.
+
+Verification:
+- `rg -n 'active-runtime|active runtime|active profile|selected profile|selected-profile|all profiles|所有档案|所有配置档案|selectedProfileId|normalizeAnalyticsSnapshotProfileId' docs/PRD.md docs/API_SPEC.md docs/TEST_CASE_GENERATION_METHODOLOGY.md frontend/src/pages/statistics/useUsageStatisticsPageData.ts frontend/tests/lib/analytics_websocket_contract.test.mjs frontend/src/i18n/messages/en.ts frontend/src/i18n/messages/zh-CN.ts`
+- `node --test frontend/tests/lib/analytics_websocket_contract.test.mjs`
+- `cd frontend && pnpm run test:lib`
+- `cd frontend && pnpm run build`
+
+Concerns:
+- `selectedProfileId` remains in `frontend/src/pages/statistics/useUsageStatisticsPageData.ts` as the internal statistics scope parameter; `normalizeAnalyticsSnapshotProfileId()` now ignores it and always returns Default profile id `1`.
+- The frontend build still emits the pre-existing Vite chunk-size warning.

@@ -41,11 +41,10 @@ function createModel(modelId: string, displayName: string, id: number) {
   };
 }
 
-function createUsageSnapshot(options?: { empty?: boolean; profileId?: number }) {
+function createUsageSnapshot(options?: { empty?: boolean }) {
   const empty = options?.empty ?? false;
-  const profileId = options?.profileId ?? 1;
-  const modelId = profileId === 2 ? "claude-3.7-sonnet" : "gpt-5.4";
-  const modelLabel = profileId === 2 ? "Secondary global-only model" : "Primary canonical model";
+  const modelId = "gpt-5.4";
+  const modelLabel = "Primary canonical model";
 
   return {
     generated_at: timestamp,
@@ -515,8 +514,6 @@ async function mockUsageRoutes(page: Page, options?: { empty?: boolean; largeTok
         body: JSON.stringify(body),
       });
 
-    const profileId = Number(request.headers()["x-profile-id"] ?? "1");
-
     if (pathname === "/api/auth/status") {
       return fulfillJson({ auth_enabled: false });
     }
@@ -550,9 +547,7 @@ async function mockUsageRoutes(page: Page, options?: { empty?: boolean; largeTok
         ]);
       }
 
-      return fulfillJson([
-        createModel(profileId === 2 ? "claude-3.7-sonnet" : "gpt-5.4", profileId === 2 ? "Secondary global-only model" : "Primary canonical model", profileId),
-      ]);
+      return fulfillJson([createModel("gpt-5.4", "Primary canonical model", 1)]);
     }
 
 
@@ -565,7 +560,7 @@ async function mockUsageRoutes(page: Page, options?: { empty?: boolean; largeTok
     }
 
     if (pathname === "/api/stats/usage-snapshot") {
-      const snapshot = createUsageSnapshot({ empty: options?.empty, profileId });
+      const snapshot = createUsageSnapshot({ empty: options?.empty });
       if (options?.largeTokenAxes) {
         applyLargeTokenAxisValues(snapshot);
       }

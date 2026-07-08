@@ -7,12 +7,12 @@ import {
 const timestamp = "2026-04-11T00:00:00Z";
 const reportingCurrencyExpectationTimeout = 15_000;
 
-function createModelListItem(profileId: number) {
+function createModelListItem() {
   return {
-    id: profileId,
+    id: 1,
     api_family: "openai",
     model_id: "gpt-4o-mini",
-    display_name: `GPT-4o mini P${profileId}`,
+    display_name: "GPT-4o mini P1",
     model_type: "native",
     proxy_targets: [],
     loadbalance_strategy_id: null,
@@ -27,10 +27,10 @@ function createModelListItem(profileId: number) {
   };
 }
 
-function createCostingSettings(profileId: number) {
+function createCostingSettings() {
   return {
-    report_currency_code: profileId === 2 ? "USD" : "CNY",
-    report_currency_symbol: profileId === 2 ? "$" : "¥",
+    report_currency_code: "CNY",
+    report_currency_symbol: "¥",
     endpoint_fx_mappings: [],
     timezone_preference: null,
   };
@@ -54,8 +54,6 @@ async function mockDashboardRoutes(page: Page) {
         contentType: "application/json",
         body: JSON.stringify(body),
       });
-    const profileId = Number(request.headers()["x-profile-id"] ?? "1");
-
     if (pathname.startsWith("/api/")) {
       lastProfileHeader = request.headers()["x-profile-id"] ?? "1";
     }
@@ -65,7 +63,7 @@ async function mockDashboardRoutes(page: Page) {
     }
 
     if (pathname === "/api/settings/costing") {
-      return fulfillJson(createCostingSettings(profileId));
+      return fulfillJson(createCostingSettings());
     }
 
     if (pathname === "/api/stats/dashboard") {
@@ -78,8 +76,8 @@ async function mockDashboardRoutes(page: Page) {
         },
         topSpendingModels: [
           {
-            model_id: `gpt-4o-mini-p${profileId}`,
-            model_label: `GPT 4o Mini P${profileId}`,
+            model_id: "gpt-4o-mini-p1",
+            model_label: "GPT 4o Mini P1",
             total_cost_micros: 250000,
           },
         ],
@@ -91,7 +89,7 @@ async function mockDashboardRoutes(page: Page) {
     }
 
     if (pathname === "/api/models") {
-      return fulfillJson([createModelListItem(profileId)]);
+      return fulfillJson([createModelListItem()]);
     }
 
     return fulfillJson({}, 404);

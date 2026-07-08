@@ -416,7 +416,7 @@ func TestAnalyticsRealtimeProtocolFixture(t *testing.T) {
 	p95TTFTMS := 900
 	avgOutputRateTPS := 48.5
 	endpointID := 12
-	profileID := 2
+	profileID := profiledomain.DefaultProfileID
 	preset := "1h"
 	startAt := generatedAt.Add(-time.Hour)
 	dayStart := time.Date(2026, time.April, 19, 0, 0, 0, 0, time.UTC)
@@ -477,7 +477,7 @@ func TestAnalyticsRealtimeProtocolFixture(t *testing.T) {
 	if _, ok := snapshotPayload["service_health"]; ok {
 		t.Fatalf("expected analytics snapshot to omit service_health, got %+v", snapshotPayload["service_health"])
 	}
-	if message.Type != "analytics.snapshot" || message.Channel != "analytics" || message.ProfileID != profileID || message.Preset != preset {
+	if message.Type != "analytics.snapshot" || message.Channel != "analytics" || message.ProfileID != profiledomain.DefaultProfileID || message.Preset != preset {
 		t.Fatalf("unexpected analytics snapshot envelope: %+v", message)
 	}
 	errorMessage := realtimeapi.AnalyticsErrorMessage{Type: "analytics.error", Channel: "analytics", ProfileID: &profileID, Preset: &preset, Code: "snapshot_failed", Message: "failed to build analytics snapshot"}
@@ -911,11 +911,11 @@ func TestAsyncDashboardPublisherNormalizesCallerProfilesToDefaultProfile(t *test
 	target.waitUntilFirstStarted(t, 2*time.Second)
 	accepted, err = publisher.PublishDashboardSnapshot(context.Background(), 7)
 	if err != nil || !accepted {
-		t.Fatalf("expected second profile-scoped snapshot to coalesce, accepted=%v err=%v", accepted, err)
+		t.Fatalf("expected second Default-profile snapshot to coalesce, accepted=%v err=%v", accepted, err)
 	}
 	snapshot := publisher.Snapshot()
 	if snapshot.TrackedProfiles != 1 || snapshot.InflightProfiles != 1 || snapshot.CoalescedCount != 1 {
-		t.Fatalf("expected profile-scoped coalescing without request-log identity, got %+v", snapshot)
+		t.Fatalf("expected Default-profile coalescing without request-log identity, got %+v", snapshot)
 	}
 	target.releaseBlockedPublish()
 	first := target.waitForSnapshot(t, 2*time.Second)
