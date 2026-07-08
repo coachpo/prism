@@ -14,7 +14,7 @@
 - `../package.json` exposes `pnpm run test:lib`, `pnpm run test:server`, and the full browser regression entrypoint as `pnpm run test:e2e`.
 - CI runs frontend `test:lib`, `test:server`, `build`, and `lint`; it does not run `pnpm test` or full `test:e2e`.
 - `pnpm test` runs Vitest over `../src/**/*.test.{ts,tsx}` through `../vitest.config.ts`; treat it as a separate local gate for `../src` changes.
-- Some `lib/*.test.mjs`, plus `main/` and `loadbalance/`, are not included in `test:lib`; run the specific node-test file when changing those seams.
+- `test:lib` runs every `*.test.mjs` directly under `lib/` plus `model-detail/`; `main/` and `loadbalance/` remain outside that script, so run their node-test files directly when changing those seams.
 - `../playwright.config.ts` points Playwright at `./tests/e2e` and uses `http://127.0.0.1:15174` as the web server target.
 - Statistics and analytics coverage lives in `e2e/shared-chart-statistics.spec.ts`, `e2e/statistics-ttft.spec.ts`, `e2e/statistics-token-rate.spec.ts`, `e2e/statistics-filtered-totals.spec.ts`, and `e2e/statistics-proxy-api-key-label.spec.ts`.
 - Request-log/detail coverage lives in `e2e/request-log-*.spec.ts`, `e2e/request-log-detail-copy.spec.ts`, `e2e/request-log-audit-disabled-state.spec.ts`, `e2e/request-logs-token-rate.spec.ts`, `e2e/request-logs-ttft.spec.ts`, and `e2e/request-logs-optional-zero.spec.ts`.
@@ -26,7 +26,7 @@
 
 ## CHILD DOCS
 - `e2e/AGENTS.md`: Playwright route-flow conventions, browser fixtures, mocked backend ownership, and canonical route expectations.
-- `lib/AGENTS.md`: Node `--test` seam-contract conventions, `loadTsModule` use, and `test:lib` allowlist boundaries.
+- `lib/AGENTS.md`: Node `--test` seam-contract conventions, `loadTsModule` use, and `test:lib` glob boundaries.
 
 ## WHERE TO LOOK
 - Statistics and analytics browser coverage: `e2e/shared-chart-statistics.spec.ts`, `e2e/statistics-ttft.spec.ts`, `e2e/statistics-token-rate.spec.ts`, `e2e/statistics-filtered-totals.spec.ts`, `e2e/statistics-proxy-api-key-label.spec.ts`
