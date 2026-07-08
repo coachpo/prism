@@ -5,7 +5,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      timezone: Asia/Shanghai
+      timezone: Europe/Helsinki
     open-pull-requests-limit: 3
     commit-message:
       prefix: ci
@@ -18,7 +18,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      timezone: Asia/Shanghai
+      timezone: Europe/Helsinki
     open-pull-requests-limit: 5
     commit-message:
       prefix: build
@@ -33,7 +33,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      timezone: Asia/Shanghai
+      timezone: Europe/Helsinki
     open-pull-requests-limit: 5
     commit-message:
       prefix: build
@@ -50,7 +50,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      timezone: Asia/Shanghai
+      timezone: Europe/Helsinki
     open-pull-requests-limit: 3
     commit-message:
       prefix: build
