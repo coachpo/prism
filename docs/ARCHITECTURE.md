@@ -43,7 +43,7 @@ backend/
 frontend/
 ├── src/
 │   ├── main.tsx                # Entry point
-│   ├── App.tsx                 # Query, BrowserRouter, auth-provider, and TanStack RouterProvider host
+│   ├── App.tsx                 # Query, auth-provider, and TanStack RouterProvider host
 │   ├── app/router/             # Canonical route tree, protected shell gates, and search schemas
 │   ├── context/
 │   │   ├── AuthContext.tsx     # Operator auth bootstrap, refresh, and session state
@@ -57,7 +57,7 @@ frontend/
 │   ├── hooks/
 │   │   └── useTimezone.ts      # Shared timezone formatting helper
 │   ├── components/
-│   │   ├── layout/page.tsx     # Protected shell wrapper with sidebar provider and Outlet
+│   │   ├── layout/page.tsx     # Protected shell wrapper with sidebar provider and route children
 │   │   ├── layout/app-layout/  # Sidebar, header, nav metadata, and version label
 │   │   ├── loadbalance/        # Shared loadbalance renderers
 │   │   ├── statistics/         # Shared statistics renderers

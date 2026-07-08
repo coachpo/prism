@@ -29,10 +29,21 @@ describe("rewrite route helpers", () => {
   it("validates and normalizes target route search params", () => {
     expect(observeSearchSchema.parse({ tab: "routing" })).toEqual({ tab: "routing" })
     expect(observeSearchSchema.parse({ tab: "unknown" })).toEqual({ tab: "overview" })
-    expect(requestLogSearchSchema.parse({ limit: "300", cursor: "12", request_id: "#bad", status: "success", model: "gpt-test", selected_request_id: "101" })).toMatchObject({
+    expect(requestLogSearchSchema.parse({
+      client_rule_id: "123",
+      limit: "300",
+      cursor: "12",
+      request_id: "#bad",
+      resolved_target_model_id: "terminal-model",
+      status: "success",
+      model: "gpt-test",
+      selected_request_id: "101",
+    })).toMatchObject({
+      client_rule_id: "123",
       cursor: 12,
       limit: 300,
       model: "gpt-test",
+      resolved_target_model_id: "terminal-model",
       request_id: "",
       selected_request_id: "101",
       status: "success",
@@ -47,7 +58,7 @@ describe("rewrite route helpers", () => {
   it("resolves protected and public auth redirects with return state", () => {
     expect(resolveProtectedRedirect({ authEnabled: true, authenticated: false, loading: false }, returnLocation)).toEqual({
       to: "/auth/login",
-      state: { from: returnLocation },
+      search: { redirect: "/observe/requests?request_id=42#audit" },
     })
     expect(resolveProtectedRedirect({ authEnabled: false, authenticated: false, loading: false }, returnLocation)).toBeNull()
     expect(resolvePublicRedirect({ authEnabled: false, authenticated: false, loading: false })).toBe("/observe")

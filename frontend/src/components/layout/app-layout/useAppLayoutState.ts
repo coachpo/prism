@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { useAuth } from "@/context/useAuth";
 import { useLocale } from "@/i18n/useLocale";
@@ -32,7 +32,7 @@ export function useAppLayoutState() {
   const handleLogout = async () => {
     try {
       await logout();
-      navigate("/auth/login", { replace: true });
+      void navigate({ to: "/auth/login", replace: true });
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : messages.shell.logoutFailed

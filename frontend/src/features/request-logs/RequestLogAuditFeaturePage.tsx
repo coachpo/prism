@@ -1,9 +1,10 @@
+import type { ComponentProps } from "react"
 import { RequestLogAuditPage } from "@/pages/request-logs/RequestLogAuditPage"
 
-export default function RequestLogAuditFeaturePage() {
+export default function RequestLogAuditFeaturePage(props: ComponentProps<typeof RequestLogAuditPage>) {
   return (
     <section data-testid="request-log-audit-feature-page">
-      <RequestLogAuditPage />
+      <RequestLogAuditPage {...props} />
     </section>
   )
 }

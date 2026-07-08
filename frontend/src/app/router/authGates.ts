@@ -11,13 +11,7 @@ export interface AuthGateState {
 }
 
 export function buildAuthReturnState(location: RouteLocationState) {
-  return {
-    from: {
-      pathname: location.pathname,
-      search: location.search,
-      hash: location.hash,
-    },
-  }
+  return `${location.pathname}${location.search}${location.hash}`
 }
 
 export function resolveProtectedRedirect(state: AuthGateState, location: RouteLocationState) {
@@ -27,7 +21,7 @@ export function resolveProtectedRedirect(state: AuthGateState, location: RouteLo
 
   return {
     to: "/auth/login" as const,
-    state: buildAuthReturnState(location),
+    search: { redirect: buildAuthReturnState(location) },
   }
 }
 

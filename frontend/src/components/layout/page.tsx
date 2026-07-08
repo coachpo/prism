@@ -1,5 +1,4 @@
 import type { CSSProperties, ReactNode } from "react";
-import { Outlet } from "react-router-dom";
 import { useLocale } from "@/i18n/useLocale";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "./app-layout/AppSidebar";
@@ -37,7 +36,7 @@ export function Page({ children }: { children?: ReactNode }) {
             tabIndex={-1}
             className="flex flex-1 flex-col gap-[var(--density-page-gap)] p-[var(--density-page-pad-y)] px-[var(--density-page-pad-x)] outline-none"
           >
-            {children ?? <Outlet />}
+            {children}
           </div>
         </SidebarInset>
       </SidebarProvider>

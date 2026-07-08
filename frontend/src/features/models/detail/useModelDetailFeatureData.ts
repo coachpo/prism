@@ -1,5 +1,4 @@
 import { useCallback, useMemo, useState } from "react"
-import { createSearchParams, type SetURLSearchParams, type URLSearchParamsInit } from "react-router-dom"
 import type {
   Connection,
   Endpoint,
@@ -23,14 +22,20 @@ import { useModelDetailDialogState } from "@/pages/model-detail/useModelDetailDi
 import { useModelDetailModelForm } from "@/pages/model-detail/useModelDetailModelForm"
 import { useModelLoadbalanceCurrentState } from "@/pages/model-detail/useModelLoadbalanceCurrentState"
 
+type URLSearchParamsInit = ConstructorParameters<typeof URLSearchParams>[0]
+type SetURLSearchParams = (
+  nextInit: URLSearchParamsInit | ((current: URLSearchParams) => URLSearchParamsInit),
+  options?: { replace?: boolean },
+) => void
+
 function resolveSearchParamsInit(
   nextInit: URLSearchParamsInit | ((current: URLSearchParams) => URLSearchParamsInit) | undefined,
   current: URLSearchParams,
 ): URLSearchParams {
   if (typeof nextInit === "function") {
-    return createSearchParams(nextInit(current))
+    return new URLSearchParams(nextInit(current))
   }
-  return createSearchParams(nextInit)
+  return new URLSearchParams(nextInit)
 }
 
 interface UseModelDetailFeatureDataInput {

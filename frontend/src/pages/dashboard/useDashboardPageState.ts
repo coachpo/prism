@@ -1,31 +1,33 @@
 import { useCallback, useEffect, useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
-import { parsePageState, stateToParams, type DashboardPageState, type DashboardTab } from "./queryParams";
+import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
+import { parsePageSearch, stateToParams, stateToSearch, type DashboardPageState, type DashboardTab } from "./queryParams";
 
 export function useDashboardPageState() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const state = useMemo(() => parsePageState(searchParams), [searchParams]);
+  const search = useSearch({ from: "/observe" });
+  const location = useRouterState({ select: (state) => state.location });
+  const navigate = useNavigate();
+  const state = useMemo(() => parsePageSearch({
+    ...search,
+    ...Object.fromEntries(new URLSearchParams(location.searchStr)),
+  }), [location.searchStr, search]);
 
   useEffect(() => {
+    if (location.pathname !== "/observe") {
+      return;
+    }
+
     const canonicalParams = stateToParams(state);
 
-    if (canonicalParams.toString() !== searchParams.toString()) {
-      setSearchParams(canonicalParams, { replace: true });
+    if (canonicalParams.toString() !== new URLSearchParams(location.searchStr).toString()) {
+      void navigate({ to: "/observe", search: () => stateToSearch(state), replace: true });
     }
-  }, [searchParams, setSearchParams, state]);
+  }, [location.pathname, location.searchStr, navigate, state]);
 
   const update = useCallback(
     (patch: Partial<DashboardPageState>) => {
-      setSearchParams(
-        (prev) => {
-          const current = parsePageState(prev);
-          const next = { ...current, ...patch };
-          return stateToParams(next);
-        },
-        { replace: true },
-      );
+      void navigate({ to: "/observe", search: () => stateToSearch({ ...state, ...patch }), replace: true });
     },
-    [setSearchParams],
+    [navigate, state],
   );
 
   const setTab = useCallback((tab: DashboardTab) => update({ tab }), [update]);

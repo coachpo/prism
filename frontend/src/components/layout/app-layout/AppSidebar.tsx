@@ -1,4 +1,5 @@
-import { NavLink } from "react-router-dom";
+import { Link, useNavigate } from "@tanstack/react-router";
+import type { MouseEvent } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -42,6 +43,7 @@ export function AppSidebar({
 }: Props) {
   const { messages } = useLocale();
   const { isMobile, setOpenMobile } = useSidebar();
+  const navigate = useNavigate();
 
   const resolvedSidebarItems =
     sidebarItems ??
@@ -56,7 +58,10 @@ export function AppSidebar({
     items: resolvedSidebarItems.filter((item) => item.groupId === groupId),
   })).filter((group) => group.items.length > 0);
 
-  const handleNavigate = () => {
+  const handleNavigate = (event: MouseEvent<HTMLAnchorElement>, to: string) => {
+    event.preventDefault();
+    void navigate({ to });
+
     if (isMobile) {
       setOpenMobile(false);
     }
@@ -90,9 +95,14 @@ export function AppSidebar({
                       tooltip={item.label}
                       className="rounded-lg px-2.5"
                     >
-                      <NavLink to={item.to} onClick={handleNavigate}>
+                      <Link
+                        to={item.to}
+                        activeOptions={{ exact: true, includeSearch: false }}
+                        activeProps={{ "aria-current": "page" }}
+                        onClick={(event) => handleNavigate(event, item.to)}
+                      >
                         <span>{item.label}</span>
-                      </NavLink>
+                      </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))}

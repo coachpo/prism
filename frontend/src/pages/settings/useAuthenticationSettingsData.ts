@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { NavigateFunction } from "react-router-dom";
 import { broadcastAuthStateChange } from "@/context/auth/broadcast";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
@@ -9,7 +8,7 @@ import { validateAuthPassword } from "./settingsPageHelpers";
 
 interface UseAuthenticationSettingsDataInput {
   enabled: boolean;
-  navigate: NavigateFunction;
+  navigate: (to: string, options?: { replace?: boolean }) => void;
   refreshAuth: () => Promise<void>;
   revision: number;
 }

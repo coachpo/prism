@@ -13,7 +13,7 @@ app/
 ```
 
 ## WHERE TO LOOK
-- Top-level app composition: `../App.tsx`, which creates the router/query client and wraps `BrowserRouter`, `RoutedAuthProvider`, and `RouterProvider`
+- Top-level app composition: `../App.tsx`, which creates the router/query client and wraps `RoutedAuthProvider` and `RouterProvider`
 - Current mounted route tree: `router/appRouter.tsx`
 - Static route ids, route scopes, search schemas, and path builders: `router/rewriteRoutes.ts`
 - Public/protected auth redirect rules and return-state preservation: `router/authGates.ts`

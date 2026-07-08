@@ -1,5 +1,4 @@
 import { lazy, Suspense, type ReactElement, type ReactNode } from "react"
-import { Navigate as CompatNavigate, Route, Routes, useLocation } from "react-router-dom"
 import {
   Navigate,
   Outlet,
@@ -20,6 +19,7 @@ import { useLocale } from "@/i18n/useLocale"
 import { OperatorLoadingState } from "@/shared/design-system"
 import {
   emptySearchSchema,
+  authLoginSearchSchema,
   observeSearchSchema,
   requestAuditSearchSchema,
   requestLogSearchSchema,
@@ -38,7 +38,7 @@ const BanPoliciesFeaturePage = lazy(() => import("@/features/loadbalance/BanPoli
 const ProxyApiKeysPage = lazy(() => import("@/features/proxy-keys/ProxyKeysFeaturePage"))
 const LoginPage = lazy(() => import("@/pages/LoginPage").then((module) => ({ default: module.LoginPage })))
 const RequestLogsPage = lazy(() => import("@/features/request-logs/RequestLogsFeaturePage"))
-const RequestLogAuditPage = lazy(() => import("@/features/request-logs/RequestLogAuditFeaturePage"))
+const RequestLogAuditFeaturePage = lazy(() => import("@/features/request-logs/RequestLogAuditFeaturePage"))
 
 export const PUBLIC_AUTH_PATHS = new Set(["/auth/login"])
 
@@ -72,8 +72,7 @@ function NotFoundRoute() {
 }
 
 export function RoutedAuthProvider({ children }: { children: ReactNode }) {
-  const location = useLocation()
-  const bootstrapMode = PUBLIC_AUTH_PATHS.has(location.pathname) ? "public" : "full"
+  const bootstrapMode = PUBLIC_AUTH_PATHS.has(window.location.pathname) ? "public" : "full"
 
   return <AuthProvider bootstrapMode={bootstrapMode}>{children}</AuthProvider>
 }
@@ -93,7 +92,7 @@ function ProtectedRoute({ children }: { children: ReactElement }) {
     },
   )
   if (redirect) {
-    return <CompatNavigate to={redirect.to} replace state={redirect.state} />
+    return <Navigate to={redirect.to} replace search={redirect.search} />
   }
 
   return (
@@ -112,17 +111,10 @@ function PublicOnlyRoute({ children }: { children: ReactElement }) {
 
   const redirect = resolvePublicRedirect({ authEnabled, authenticated, loading })
   if (redirect) {
-    return <CompatNavigate to={redirect} replace />
+    return <Navigate to={redirect} replace />
   }
 
   return children
-}
-function LegacyRequestAuditCompat() {
-  return (
-    <Routes>
-      <Route path="/observe/requests/:requestId/audit" element={withRouteSuspense(<RequestLogAuditPage />)} />
-    </Routes>
-  )
 }
 
 function PublicLoginRoute() {
@@ -158,7 +150,7 @@ function ProtectedModelDetailRoute() {
             to: "/models/$modelId",
             params: { modelId },
             search: {
-              tab: nextSearchParams.get("tab") ?? "connections",
+              tab: nextSearchParams.get("tab") === "events" ? "events" : undefined,
               focus_connection_id: nextSearchParams.get("focus_connection_id") ?? undefined,
             },
             replace: options?.replace,
@@ -166,7 +158,7 @@ function ProtectedModelDetailRoute() {
           onTabChange={(tab) => void navigate({
             to: "/models/$modelId",
             params: { modelId },
-            search: { tab },
+            search: { tab: tab === "events" ? tab : undefined },
             replace: true,
           })}
         />,
@@ -201,9 +193,20 @@ function ProtectedRequestLogsRoute() {
 }
 
 function ProtectedRequestAuditRoute() {
+  const { requestId } = useTanStackParams({ from: "/observe/requests/$requestId/audit" })
+  const search = useTanStackSearch({ from: "/observe/requests/$requestId/audit" })
+  const searchParams = new URLSearchParams()
+  if (search.audit_id) searchParams.set("audit_id", search.audit_id)
+  if (search.cursor) searchParams.set("cursor", search.cursor)
+
   return (
     <ProtectedRoute>
-      <LegacyRequestAuditCompat />
+      {withRouteSuspense(
+        <RequestLogAuditFeaturePage
+          requestIdParam={requestId}
+          searchParams={searchParams}
+        />,
+      )}
     </ProtectedRoute>
   )
 }
@@ -223,7 +226,7 @@ const observeRoute = createRoute({
 const authLoginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/auth/login",
-  validateSearch: (search) => emptySearchSchema.parse(search),
+  validateSearch: (search) => authLoginSearchSchema.parse(search),
   component: PublicLoginRoute,
 })
 const modelsRoute = createRoute({
@@ -306,6 +309,7 @@ function isDefaultSearchValue(key: string, value: unknown): boolean {
   if (key === "limit" && value === 100) return true
   if (key === "priced" && value === "all") return true
   if ((key === "status" || key === "status_family") && value === "all") return true
+  if (key === "tab" && value === "profile") return true
   if (key === "time_range" && value === "24h") return true
   return false
 }

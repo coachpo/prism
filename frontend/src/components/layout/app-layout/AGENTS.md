@@ -16,7 +16,7 @@ app-layout/
 
 ## WHERE TO LOOK
 
-- Shell composition and `Outlet` handoff: `../page.tsx`
+- Shell composition and protected route children handoff: `../page.tsx`
 - Sidebar links, Default-profile route flags, route matching, breadcrumbs, and visible version label: `useShellNavigation.ts`
 - Auth composition, sidebar state, route-scope detection, and logout flow: `useAppLayoutState.ts`
 - Sidebar collapsed-state persistence helpers: `sidebarPersistence.ts`

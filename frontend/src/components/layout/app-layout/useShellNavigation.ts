@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { matchPath, useLocation } from "react-router-dom";
+import { useRouterState } from "@tanstack/react-router";
 import type { LucideIcon } from "lucide-react";
 import {
   Coins,
@@ -137,12 +137,30 @@ function normalizeParams(
   );
 }
 
+function matchShellPath(pathPattern: string, pathname: string): Record<string, string> | null {
+  const patternParts = pathPattern.split("/").filter(Boolean);
+  const pathParts = pathname.split("/").filter(Boolean);
+  if (patternParts.length !== pathParts.length) return null;
+
+  const params: Record<string, string> = {};
+  for (let index = 0; index < patternParts.length; index += 1) {
+    const patternPart = patternParts[index];
+    const pathPart = pathParts[index] ?? "";
+    if (patternPart.startsWith(":")) {
+      params[patternPart.slice(1)] = decodeURIComponent(pathPart);
+      continue;
+    }
+    if (patternPart !== pathPart) return null;
+  }
+  return params;
+}
+
 function matchShellRoute(pathname: string): MatchedShellRoute {
   for (const route of SHELL_ROUTE_METADATA) {
-    const match = matchPath({ end: true, path: route.pathPattern }, pathname);
-    if (match) {
+    const params = matchShellPath(route.pathPattern, pathname);
+    if (params) {
       return {
-        params: normalizeParams(match.params),
+        params: normalizeParams(params),
         route,
       };
     }
@@ -182,7 +200,7 @@ function buildBreadcrumbs(
       const settingsLeaf = SETTINGS_HASH_BREADCRUMBS[sectionHash];
       if (settingsLeaf) {
         return [
-          { current: false, href: "/settings", id: "settings", label: messages.nav.settings },
+          { current: false, href: "/system/settings", id: "settings", label: messages.nav.settings },
           {
             current: true,
             href: null,
@@ -247,7 +265,7 @@ function buildBreadcrumbs(
 }
 
 export function useShellNavigation(): ShellNavigationState {
-  const location = useLocation();
+  const location = useRouterState({ select: (state) => state.location });
   const { messages } = useLocale();
 
   return useMemo(() => {
@@ -261,10 +279,10 @@ export function useShellNavigation(): ShellNavigationState {
 
     return {
       activeSidebarItem,
-      breadcrumbs: buildBreadcrumbs(matchedRoute, messages, location.hash, location.search),
+      breadcrumbs: buildBreadcrumbs(matchedRoute, messages, location.hash, location.searchStr),
       isProfileScopedPage: matchedRoute.route.profileScoped,
       matchedRoute: matchedRoute.route,
       sidebarItems,
     };
-  }, [location.hash, location.pathname, location.search, messages]);
+  }, [location.hash, location.pathname, location.searchStr, messages]);
 }

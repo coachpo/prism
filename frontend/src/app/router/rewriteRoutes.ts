@@ -25,7 +25,12 @@ export const observeSearchSchema = z.object({
   tab: z.enum(["overview", "analytics", "routing"]).catch("overview"),
 })
 
+export const authLoginSearchSchema = z.object({
+  redirect: optionalSearchStringSchema.catch(undefined),
+})
+
 export const requestLogSearchSchema = z.object({
+  client_rule_id: searchStringSchema.catch(""),
   cursor: z.coerce.number().int().min(0).catch(0),
   endpoint: searchStringSchema.catch(""),
   endpoint_id: searchStringSchema.catch(""),
@@ -35,6 +40,7 @@ export const requestLogSearchSchema = z.object({
   model_id: searchStringSchema.catch(""),
   offset: z.coerce.number().int().min(0).catch(0),
   request_id: requestIdSearchSchema,
+  resolved_target_model_id: searchStringSchema.catch(""),
   selected_request_id: requestIdSearchSchema,
   status: z.enum(["all", "success", "client_error", "error"]).catch("all"),
   status_code: searchStringSchema.catch(""),
@@ -58,6 +64,7 @@ export const settingsSearchSchema = z.object({
 export const emptySearchSchema = z.object({})
 
 export type ObserveSearch = z.input<typeof observeSearchSchema>
+export type AuthLoginSearch = z.input<typeof authLoginSearchSchema>
 export type RequestLogSearch = z.input<typeof requestLogSearchSchema>
 export type RequestAuditSearch = z.input<typeof requestAuditSearchSchema>
 export type SettingsSearch = z.input<typeof settingsSearchSchema>
@@ -66,12 +73,12 @@ interface StaticRouteDefinition {
   readonly id: Exclude<PrismRouteId, "model-detail" | "observe-request-audit">
   readonly path: string
   readonly scope: PrismRouteScope
-  readonly searchSchema: typeof emptySearchSchema | typeof observeSearchSchema | typeof requestLogSearchSchema | typeof settingsSearchSchema
+  readonly searchSchema: typeof authLoginSearchSchema | typeof emptySearchSchema | typeof observeSearchSchema | typeof requestLogSearchSchema | typeof settingsSearchSchema
 }
 
 export const prismRouteDefinitions = [
   { id: "observe", path: "/observe", scope: "mixed", searchSchema: observeSearchSchema },
-  { id: "auth-login", path: "/auth/login", scope: "public", searchSchema: emptySearchSchema },
+  { id: "auth-login", path: "/auth/login", scope: "public", searchSchema: authLoginSearchSchema },
   { id: "models", path: "/models", scope: "protected-selected-profile", searchSchema: emptySearchSchema },
   { id: "route-endpoints", path: "/route/endpoints", scope: "protected-selected-profile", searchSchema: emptySearchSchema },
   { id: "route-ban-policies", path: "/route/ban-policies", scope: "protected-selected-profile", searchSchema: emptySearchSchema },

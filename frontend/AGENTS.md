@@ -21,7 +21,7 @@ frontend/
 - Removed auth compatibility paths are unsupported: `/login`, `/forgot-password`, `/reset-password`.
 
 ## HIERARCHY
-- `src/App.tsx` is the thin browser wrapper over the rewrite router, query client, browser router, auth provider, and TanStack `RouterProvider`.
+- `src/App.tsx` is the thin browser wrapper over the rewrite router, query client, auth provider, and TanStack `RouterProvider`.
 - `src/AGENTS.md`: source tree router for route shell, features, page clusters, shared UI, contexts, hooks, i18n, API, and tests.
 - `src/app/AGENTS.md`: router construction, auth/public gates, rewrite metadata, suspense, and QueryClient defaults.
 - `src/features/AGENTS.md`: active protected route modules, Default-profile-scoped features, global control pages, mixed settings, and observe surfaces.

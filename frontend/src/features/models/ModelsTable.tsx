@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
+import { useNavigate } from "@tanstack/react-router"
 import { Eye, Pencil, Plus, Server, Trash2 } from "lucide-react"
-import { useNavigate } from "react-router-dom"
 
 import { CopyButton } from "@/components/CopyButton"
 import { IconActionButton, IconActionGroup } from "@/components/IconActionGroup"
@@ -31,7 +31,7 @@ import {
   type OperationalSortState,
   type OperationalSortValue,
 } from "@/shared/table/operationalTable"
-import { formatLatencyForDisplay, getModelDetailPath } from "@/pages/model-detail/modelDetailMetricsAndPaths"
+import { formatLatencyForDisplay } from "@/pages/model-detail/modelDetailMetricsAndPaths"
 import type { ModelDerivedMetric } from "@/pages/models/modelTableContracts"
 
 const MODEL_PAGE_SIZE = 25
@@ -195,7 +195,12 @@ export function ModelsTable({
                   <TableCell className="text-right">
                     <IconActionGroup className="justify-end">
                       <IconActionButton aria-label={`${messages.modelsUi.editModel}: ${title}`} onClick={() => handleOpenDialog(model)}><Pencil /></IconActionButton>
-                      <IconActionButton aria-label={messages.modelsUi.viewModelDetails(title)} onClick={() => navigate(getModelDetailPath(model))}><Eye /></IconActionButton>
+                      <IconActionButton
+                        aria-label={messages.modelsUi.viewModelDetails(title)}
+                        onClick={() => void navigate({ to: "/models/$modelId", params: { modelId: String(model.id) } })}
+                      >
+                        <Eye />
+                      </IconActionButton>
                       <IconActionButton destructive aria-label={messages.modelsUi.deleteModelDescription(title)} onClick={() => setDeleteTarget(model)}><Trash2 /></IconActionButton>
                     </IconActionGroup>
                   </TableCell>

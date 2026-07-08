@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link } from "@tanstack/react-router";
 import { AlertTriangle, ArrowLeft, FileSearch, ShieldOff, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -308,9 +308,15 @@ function getStatusContent(
   }
 }
 
-export function RequestLogAuditPage() {
-  const { requestId: requestIdParam } = useParams();
-  const [searchParams] = useSearchParams();
+interface RequestLogAuditPageProps {
+  requestIdParam?: string;
+  searchParams?: URLSearchParams;
+}
+
+export function RequestLogAuditPage({
+  requestIdParam,
+  searchParams = new URLSearchParams(window.location.search),
+}: RequestLogAuditPageProps = {}) {
   const requestId = parsePositiveInteger(requestIdParam);
   const auditIdParam = searchParams.get("audit_id");
   const auditCursor = searchParams.get("cursor")?.trim() || null;

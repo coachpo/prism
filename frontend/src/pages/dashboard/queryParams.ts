@@ -9,24 +9,30 @@ export interface DashboardPageState {
   tab: DashboardTab;
 }
 
-function parseEnum<T extends string>(value: string | null, allowed: readonly T[], fallback: T): T {
-  if (value && (allowed as readonly string[]).includes(value)) {
-    return value as T;
+function parseEnum<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  const normalized = value == null ? "" : String(value);
+
+  if (normalized && (allowed as readonly string[]).includes(normalized)) {
+    return normalized as T;
   }
 
   return fallback;
 }
 
-export function parsePageState(params: URLSearchParams): DashboardPageState {
+export function parsePageSearch(search: Record<string, unknown>): DashboardPageState {
   return {
-    tab: parseEnum(params.get("tab"), DASHBOARD_TAB_OPTIONS, DEFAULTS.tab),
+    tab: parseEnum(search.tab, DASHBOARD_TAB_OPTIONS, DEFAULTS.tab),
   };
 }
 
+export function parsePageState(params: URLSearchParams): DashboardPageState {
+  return parsePageSearch(Object.fromEntries(params));
+}
+
+export function stateToSearch(state: DashboardPageState): Record<string, string> {
+  return { tab: state.tab };
+}
+
 export function stateToParams(state: DashboardPageState): URLSearchParams {
-  const params = new URLSearchParams();
-
-  params.set("tab", state.tab);
-
-  return params;
+  return new URLSearchParams(stateToSearch(state));
 }

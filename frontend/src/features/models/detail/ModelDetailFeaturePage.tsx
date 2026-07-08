@@ -1,5 +1,4 @@
 import { useCallback, useMemo } from "react"
-import { createSearchParams, type SetURLSearchParams, type URLSearchParamsInit } from "react-router-dom"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useLocale } from "@/i18n/useLocale"
 import { AccessTargetsEditor } from "@/pages/models/AccessTargetsEditor"
@@ -11,6 +10,12 @@ import { OverviewCards } from "@/pages/model-detail/OverviewCards"
 import { isOwnedConnectionTarget } from "@/pages/model-detail/useModelDetailDataSupport"
 import { useModelDetailFeatureData } from "./useModelDetailFeatureData"
 import { type ModelDetailTab } from "./modelDetailSchemas"
+
+type URLSearchParamsInit = ConstructorParameters<typeof URLSearchParams>[0]
+type SetURLSearchParams = (
+  nextInit: URLSearchParamsInit | ((current: URLSearchParams) => URLSearchParamsInit),
+  options?: { replace?: boolean },
+) => void
 
 interface ModelDetailFeaturePageProps {
   modelId: string | undefined
@@ -27,9 +32,9 @@ function resolveSearchParamsInit(
   current: URLSearchParams,
 ): URLSearchParams {
   if (typeof nextInit === "function") {
-    return createSearchParams(nextInit(current))
+    return new URLSearchParams(nextInit(current))
   }
-  return createSearchParams(nextInit)
+  return new URLSearchParams(nextInit)
 }
 
 function updateBrowserSearch(searchParams: URLSearchParams, replace?: boolean) {

@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "@tanstack/react-router";
 import { useLocale } from "@/i18n/useLocale";
 import type { SpendTrustState } from "@/lib/costing";
 import { cn } from "@/lib/utils";
@@ -36,7 +36,7 @@ export function SpendTrustNote({
       {showPricingTemplatesLink ? (
         <Link
           className="font-medium text-primary underline-offset-4 hover:underline"
-          to="/pricing-templates"
+          to="/route/pricing"
         >
           {messages.spendTrust.openPricingTemplates}
         </Link>
