@@ -259,3 +259,25 @@ Verification:
 
 Concerns:
 - Remaining matches in the broader repo were not touched unless they already stated the frozen Default profile id `1` contract.
+
+## Task 9 Runtime Planning Freeze Fix
+
+STATUS: DONE_WITH_CONCERNS
+
+Commit:
+- `d0766381` (`fix: limit runtime planning refresh to Default`)
+
+Fixes:
+- Pinned runtime snapshot refreshes to the frozen Default profile id `1` for bootstrap and fresh runtime-plan loads.
+- Stopped runtime planning refreshes from listing or building every non-deleted profile; only Default id `1` is rebuilt when planning refresh work runs.
+- Added a focused runtime unit test that fails if a planning-all refresh tries to enumerate non-default profiles.
+- Reworded the routing and audit/loadbalance user-facing copy in `frontend/src/i18n/messages/en.ts` and `frontend/src/i18n/messages/zh-CN.ts` to Default-profile wording.
+
+Verification:
+- `rg -n 'PlanningAll|ListProfilesForPlanning|selected profile|current profile|当前配置档案|所选配置档案|当前档案|所选档案' backend/internal/httpapi/runtime frontend/src/i18n/messages/en.ts frontend/src/i18n/messages/zh-CN.ts`
+- `cd backend && go test ./internal/httpapi/runtime ./internal/profiledomain`
+- `cd backend && go build ./cmd/prism-backend`
+- `cd frontend && pnpm run build`
+
+Concerns:
+- The remaining `PlanningAll` matches are internal refresh flags, merge logic, and the new regression test; runtime planning itself now stays on Default id `1`.

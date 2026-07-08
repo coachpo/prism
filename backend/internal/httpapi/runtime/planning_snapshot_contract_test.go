@@ -298,6 +298,13 @@ func assignRuntimePlanningValue(destination any, value any) error {
 		}
 		*dest = resolved
 		return nil
+	case *sql.NullTime:
+		resolved, ok := value.(sql.NullTime)
+		if !ok {
+			return fmt.Errorf("expected sql.NullTime, got %T", value)
+		}
+		*dest = resolved
+		return nil
 	case *sql.NullFloat64:
 		resolved, ok := value.(sql.NullFloat64)
 		if !ok {

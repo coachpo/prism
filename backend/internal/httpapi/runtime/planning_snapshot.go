@@ -17,6 +17,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
 	gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
 	"github.com/coachpo/prism/backend/internal/gateway/provider/openai"
+	"github.com/coachpo/prism/backend/internal/profiledomain"
 	"github.com/coachpo/prism/backend/internal/providercompat"
 )
 
@@ -153,27 +154,14 @@ func compileRuntimeConnection(connection runtimeConnection, apiFamily string, se
 }
 
 func listPublishedPlanningProfileIDs(ctx context.Context, tx pgx.Tx) ([]int, error) {
-	rows, err := tx.Query(
-		ctx,
-		`SELECT id FROM profiles WHERE deleted_at IS NULL ORDER BY id ASC`,
-	)
+	profile, found, err := profiledomain.LoadNonDeletedProfile(ctx, tx, profiledomain.DefaultProfileID)
 	if err != nil {
-		return nil, fmt.Errorf("query published planning profile ids: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-
-	profileIDs := make([]int, 0)
-	for rows.Next() {
-		var profileID int
-		if err := rows.Scan(&profileID); err != nil {
-			return nil, fmt.Errorf("scan published planning profile id: %w", err)
-		}
-		profileIDs = append(profileIDs, profileID)
+	if !found {
+		return nil, fmt.Errorf("%w: default profile %d not found", ErrPublishedRuntimeSnapshotUnavailable, profiledomain.DefaultProfileID)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate published planning profile ids: %w", err)
-	}
-	return profileIDs, nil
+	return []int{profile.ID}, nil
 }
 
 const runtimeAccessResolverMaxDepth = 32

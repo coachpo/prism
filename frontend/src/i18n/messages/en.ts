@@ -1516,7 +1516,7 @@ export const enMessages: Messages = {
     routingNoActiveRoutesDescription:
       "Create an entry model and enable at least one terminal target so Prism can publish this Default-profile routing topology.",
     routingNoData: "No routing data",
-    routingNoDataDescription: "No routing diagram data is available for this profile.",
+    routingNoDataDescription: "No routing diagram data is available for the Default profile.",
     routingNoRecentTraffic: "No routed traffic in the last 24h",
     routingNoRecentTrafficDescription:
       "Default profile already has routes, but Prism recorded no successful terminal-target traffic in the last 24 hours.",
@@ -1927,7 +1927,7 @@ export const enMessages: Messages = {
     anthropicFamily: "Anthropic",
     apiFamily: "API family",
     apiFamilyAuditControls: "API-family audit controls",
-    apiFamilyAuditDescription: "Set profile-scoped audit logging and body capture for each supported API family.",
+    apiFamilyAuditDescription: "Set Default-profile audit logging and body capture for each supported API family.",
     audit: "Audit",
     auditAndPrivacy: "Audit & Privacy",
     auditEnabled: "Audit enabled",
@@ -2145,8 +2145,8 @@ export const enMessages: Messages = {
     noCustomHeadersConfigured: "No custom headers configured.",
     noCostDataAvailable: "No cost data available",
     noLoadbalanceStrategiesAvailable:
-      "No loadbalance strategies are available for this profile. Create one on the Loadbalance Strategies page first.",
-    noProfileEndpointsFound: "No profile endpoints found.",
+      "No loadbalance strategies are available for the Default profile. Create one on the Loadbalance Strategies page first.",
+    noProfileEndpointsFound: "No Default-profile endpoints found.",
     notCheckedYet: "Not checked yet",
     notSet: "Not set",
     orderedPriorityRouting: "Ordered priority routing",
