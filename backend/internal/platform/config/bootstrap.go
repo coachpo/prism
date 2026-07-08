@@ -306,7 +306,7 @@ type bootstrapAuth struct {
 	JWTSigningKey          *string `json:"jwtSigningKey"`
 	AccessTokenTTLSeconds  *int    `json:"accessTokenTtlSeconds"`
 	RefreshTokenTTLSeconds *int    `json:"refreshTokenTtlSeconds"`
-	ResetCodeTTLSeconds    *int    `json:"resetCodeTtlSeconds"`
+	ResetCodeTTLSeconds    *int    `json:"resetCodeTtlSeconds"` // ponytail: parsed for live config.json compat; ignored by settings
 	AccessCookieName       *string `json:"accessCookieName"`
 	RefreshCookieName      *string `json:"refreshCookieName"`
 	CookieSecure           *bool   `json:"cookieSecure"`

@@ -19,7 +19,7 @@ http/
 
 ## WHERE TO LOOK
 - Server assembly and exact mounted branches: `server.go`, `management_branch.go`, `runtime_branch.go`
-- Startup runtime snapshots for CORS, auth, mail, runtime proxy transport, and admission: `hot_bootstrap_runtime.go`
+- Startup runtime snapshots for CORS, auth, runtime proxy transport, and admission: `hot_bootstrap_runtime.go`
 - Runtime cache invalidation after management mutations: `runtime_cache_invalidation.go`, `management_route_contract.json`
 - Shared body-size enforcement: `management_body_limits.go`, `../bodylimits/`
 - Startup-config telemetry provider wiring: `telemetry.go`, `../telemetry/`
