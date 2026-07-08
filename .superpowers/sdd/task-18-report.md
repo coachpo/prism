@@ -33,3 +33,13 @@
   - `TestRuntimeOperationRouteMatrixSupportedOperations`: route matrix expected 11 registered POST operations but got 9.
   - `TestRuntimePhase1Snapshot_PinsPlanningToDefaultProfile`: existing fixture insert failed with PostgreSQL `inconsistent types deduced for parameter $1`.
 - Curl verification failed because the local backend was not running on `127.0.0.1:8000`.
+
+## Reviewer Fix 2026-07-08
+- Replaced request-log `priced` parsing with trimmed exact lowercase `true`/`false` acceptance. Values like `TRUE` and `1` now return 400.
+- Added regression coverage for `priced=TRUE` and `priced=1`.
+
+## Reviewer Verification 2026-07-08
+- RED: `cd backend && go test ./tests/runtime -run TestRequestLogListPricingFilters -count=1` failed on `priced=TRUE` and `priced=1` returning 200.
+- GREEN: `cd backend && go test ./tests/runtime -run TestRequestLogListPricingFilters -count=1` passed.
+- `cd backend && go test ./internal/httpapi/management/stats` passed.
+- `git diff --check` passed.

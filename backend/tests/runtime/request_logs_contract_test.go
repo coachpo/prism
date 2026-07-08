@@ -294,6 +294,8 @@ func TestRequestLogListPricingFilters(t *testing.T) {
 		{name: "priced only", query: "priced=true", status: http.StatusOK, wantIDs: []int{251}},
 		{name: "specific unpriced reason", query: "unpriced_reason=MISSING_PRICE_DATA", status: http.StatusOK, wantIDs: []int{252}},
 		{name: "invalid priced", query: "priced=notabool", status: http.StatusBadRequest},
+		{name: "non-lowercase priced", query: "priced=TRUE", status: http.StatusBadRequest},
+		{name: "numeric priced", query: "priced=1", status: http.StatusBadRequest},
 		{name: "invalid unpriced reason", query: "unpriced_reason=NOPE", status: http.StatusBadRequest},
 	}
 	for _, test := range tests {

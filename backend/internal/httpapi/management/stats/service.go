@@ -586,11 +586,16 @@ func parseOptionalBool(r *http.Request, key string) (*bool, error) {
 	if value == "" {
 		return nil, nil
 	}
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
+	switch value {
+	case "true":
+		parsed := true
+		return &parsed, nil
+	case "false":
+		parsed := false
+		return &parsed, nil
+	default:
 		return nil, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "invalid " + key}
 	}
-	return &parsed, nil
 }
 
 func parseOptionalUnpricedReason(r *http.Request, key string) (*string, error) {
