@@ -8,7 +8,7 @@ This document defines how an LLM agent should explore Prism end to end, generate
 
 When generating test cases, use these sources in order:
 
-1. `docs/API_SPEC.md` for management, runtime, auth, and realtime contracts.
+1. `docs/API_SPEC.md` for management, runtime, auth, and observability contracts.
 2. `docs/ARCHITECTURE.md` for route and component boundaries.
 3. `docs/PRD.md` for intended operator workflows and product expectations.
 4. `docs/SMOKE_TEST_PLAN.md` for existing manual smoke coverage.
@@ -27,11 +27,11 @@ The agent should always inventory Prism as these surfaces:
 - Protected management routes for `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/system/settings`, `/control/proxy-keys`, and `/route/pricing`
 - Management APIs on `/api/*`, split between global route classes and routes pinned to Default profile id `1`
 - Runtime proxy APIs on `/v1/*` and `/v1beta/*`
-- Dashboard realtime messages on `/api/realtime/ws`
+- Dashboard and analytics REST polling through `/api/stats/*`
 - The frozen Default management profile id `1` versus runtime traffic that always resolves to frozen Default profile id `1` (`X-Profile-Id` and profile fields are compatibility/storage attribution only)
 - Dense frontend management surfaces with forms, tables, dialogs, drawers, charts, and toasts
 
-High-value frontend surfaces include the observe analytics tab, models list, model detail, endpoints, Ban Policies, settings, proxy API keys, pricing templates, and request-log investigation plus audit-page flow. High-value backend surfaces include auth, frozen Default profile scope, runtime proxy routing, failover, realtime messages, costing, audit logging, and observability queries.
+High-value frontend surfaces include the observe analytics tab, models list, model detail, endpoints, Ban Policies, settings, proxy API keys, pricing templates, and request-log investigation plus audit-page flow. High-value backend surfaces include auth, frozen Default profile scope, runtime proxy routing, failover, costing, audit logging, and observability queries.
 
 ## 4. Coverage Classes
 
@@ -44,7 +44,7 @@ Smoke cases should prove the system is viable, not exhaustively validated. Each 
 - auth bootstrap and one login-protected route
 - one management CRUD flow
 - one runtime request per supported API family under test
-- one realtime connection or subscription check
+- one dashboard or analytics REST refresh check
 - one frozen Default profile scope check
 - one profile-scoped settings sanity check
 
@@ -100,7 +100,7 @@ Always include invalid or conflicting inputs for:
 
 ### Step 1: Map the live surfaces
 
-Enumerate routes, APIs, realtime paths, and major state owners from the source-of-truth files.
+Enumerate routes, APIs, polling paths, and major state owners from the source-of-truth files.
 
 ### Step 2: Map the contract
 

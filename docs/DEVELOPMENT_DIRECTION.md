@@ -67,7 +67,7 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 
 ### R7. 实时 WebSocket（决策点：与告警增强 E1 绑定，二选一）
 
-- **现状**：`httpapi/realtime/` 2,503 LOC / 10 文件 + 独立 DB 连接 lane（24 连接中占 2）+ `management/auth/realtime.go` + Nginx `/api/realtime/ws` 规则 + 前端 `websocket.ts`（~390）与 `useRealtimeData`。它只服务仪表盘推送，而仪表盘本就有等价的 REST 拉取（`pages/dashboard/AGENTS.md:56`）。
+- **现状**：R7 已选择方案 A，实时推送路由、独立 DB 连接 lane、后端 auth 接线、Nginx 推送规则、前端推送客户端与订阅 hook 已退役。仪表盘使用等价的 REST 拉取。
 - **原因**：日均 4 个请求的场景，30 秒轮询与推送不可区分。但它也是 E1（故障转移告警）现成的推送通道。
 - **怎么做**：一次性决策，不要维持现状——
   - **方案 A（推荐，更懒）**：退役 websocket，仪表盘改轮询；E1 的"人不在页面上也要知道"用 webhook 外推解决（见 E1），页面内横幅靠轮询。
@@ -125,7 +125,7 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 - **默认时间范围**：默认"最近 1 小时"在低流量下打开即空。改默认 24h，或记住上次选择（localStorage 一行事）。分析页同理。
 - **过滤补全**：状态族目前只有 4xx/5xx，补 2xx/成功、精确状态码、错误文本搜索。
 - **导出**：当前列表查询结果加 CSV/JSON 导出（分析页已有"导出快照 JSON"先例）。
-- **实时尾随**：仅当 R7 选了方案 B 才顺手做（`dashboard.activity` 频道已有，`httpapi/realtime/AGENTS.md:32`）；选方案 A 则不做。
+- **实时尾随**：R7 已选方案 A，因此页面内实时 tail 不做；需要离页通知时走 E1 webhook-via-outbox。
 
 ### E5. 延迟趋势图
 

@@ -21,7 +21,6 @@ stats/
 - Request-log list/detail filters and final-target fields: `request_logs.go`, `types.go`
 - Usage snapshot, spending, endpoint/model/proxy-key rollups: `snapshot.go`, `rollups.go`, `aggregates.go`
 - HTTP management consumers: `../../httpapi/management/stats/`
-- Realtime dashboard/analytics publishers: `../../httpapi/realtime/`
 
 ## CONVENTIONS
 - Keep this package HTTP-neutral. Selected-profile parsing, query params, and response writing stay in `httpapi/management/stats`.
@@ -32,6 +31,6 @@ stats/
 - Dashboard overview and recent activity are separate read models; do not fold recent activity into aggregate snapshots.
 
 ## ANTI-PATTERNS
-- Do not add HTTP handlers, websocket messages, or route parsing here.
+- Do not add HTTP handlers or route parsing here.
 - Do not duplicate stats aggregation in frontend code.
 - Do not use mutable endpoint labels when retained `endpoint_label_snapshot` is required for historical reporting.

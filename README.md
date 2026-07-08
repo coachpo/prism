@@ -93,7 +93,7 @@ docker build -t prism-single .
 docker build --build-arg BUILD_FRONTEND=false -t prism-single-backend-only .
 ```
 
-The image exposes only public port `8080` by default. Nginx serves `/` from the built frontend, falls back to `/index.html` for frontend route refreshes, and proxies `/health`, `/api`, `/api/realtime/ws`, `/v1`, and `/v1beta` to the private backend upstream. `/api/realtime/ws` includes websocket upgrade headers. `BUILD_FRONTEND=false` skips the React build and serves a minimal fallback page at `/` while keeping backend proxy paths available.
+The image exposes only public port `8080` by default. Nginx serves `/` from the built frontend, falls back to `/index.html` for frontend route refreshes, and proxies `/health`, `/api`, `/v1`, and `/v1beta` to the private backend upstream. `BUILD_FRONTEND=false` skips the React build and serves a minimal fallback page at `/` while keeping backend proxy paths available.
 
 For direct Docker runs with an external PostgreSQL container:
 

@@ -90,7 +90,7 @@ type BootstrapConfigDatabasePoolsValues struct {
 	RuntimeExecution *BootstrapConfigDatabasePoolValues `json:"runtime_execution"`
 	RuntimeTelemetry *BootstrapConfigDatabasePoolValues `json:"runtime_telemetry"`
 	RuntimeFeedback  *BootstrapConfigDatabasePoolValues `json:"runtime_feedback"`
-	Realtime         *BootstrapConfigDatabasePoolValues `json:"realtime"`
+	Realtime         *BootstrapConfigDatabasePoolValues `json:"realtime,omitempty"`
 	CacheRefresh     *BootstrapConfigDatabasePoolValues `json:"cache_refresh"`
 	BackgroundJobs   *BootstrapConfigDatabasePoolValues `json:"background_jobs"`
 }
@@ -241,7 +241,7 @@ type bootstrapDatabasePools struct {
 	RuntimeExecution *bootstrapDatabasePool `json:"runtimeExecution"`
 	RuntimeTelemetry *bootstrapDatabasePool `json:"runtimeTelemetry"`
 	RuntimeFeedback  *bootstrapDatabasePool `json:"runtimeFeedback"`
-	Realtime         *bootstrapDatabasePool `json:"realtime"`
+	Realtime         *bootstrapDatabasePool `json:"realtime,omitempty"` // ponytail: parsed for live config.json compat; ignored
 	CacheRefresh     *bootstrapDatabasePool `json:"cacheRefresh"`
 	BackgroundJobs   *bootstrapDatabasePool `json:"backgroundJobs"`
 }
@@ -1457,9 +1457,6 @@ func (p *bootstrapDatabasePools) toPostgresPoolsBudget() (PostgresPoolsBudget, e
 	if budget.RuntimeFeedback, err = lanePool(PostgresLaneRuntimeFeedback, p.RuntimeFeedback); err != nil {
 		return PostgresPoolsBudget{}, err
 	}
-	if budget.Realtime, err = lanePool(PostgresLaneRealtime, p.Realtime); err != nil {
-		return PostgresPoolsBudget{}, err
-	}
 	if budget.CacheRefresh, err = lanePool(PostgresLaneCacheRefresh, p.CacheRefresh); err != nil {
 		return PostgresPoolsBudget{}, err
 	}
@@ -1987,7 +1984,6 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 				RuntimeExecution: bootstrapDatabasePoolFromBudget(postgresPoolsBudget.RuntimeExecution),
 				RuntimeTelemetry: bootstrapDatabasePoolFromBudget(postgresPoolsBudget.RuntimeTelemetry),
 				RuntimeFeedback:  bootstrapDatabasePoolFromBudget(postgresPoolsBudget.RuntimeFeedback),
-				Realtime:         bootstrapDatabasePoolFromBudget(postgresPoolsBudget.Realtime),
 				CacheRefresh:     bootstrapDatabasePoolFromBudget(postgresPoolsBudget.CacheRefresh),
 				BackgroundJobs:   bootstrapDatabasePoolFromBudget(postgresPoolsBudget.BackgroundJobs),
 			},

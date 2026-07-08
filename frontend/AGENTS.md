@@ -22,11 +22,11 @@ frontend/
 
 ## HIERARCHY
 - `src/App.tsx` is the thin browser wrapper over the rewrite router, query client, browser router, auth provider, and TanStack `RouterProvider`.
-- `src/AGENTS.md`: source tree router for route shell, features, page clusters, shared UI, contexts, hooks, i18n, API, websocket, and tests.
+- `src/AGENTS.md`: source tree router for route shell, features, page clusters, shared UI, contexts, hooks, i18n, API, and tests.
 - `src/app/AGENTS.md`: router construction, auth/public gates, rewrite metadata, suspense, and QueryClient defaults.
 - `src/features/AGENTS.md`: active protected route modules, Default-profile-scoped features, global control pages, mixed settings, and observe surfaces.
 - `src/pages/AGENTS.md`: auth pages and oracle-compatible route clusters still reused by feature routes and tests.
-- `src/components/AGENTS.md`, `src/context/AGENTS.md`, `src/hooks/AGENTS.md`, `src/i18n/AGENTS.md`, `src/shared/AGENTS.md`, and `src/lib/AGENTS.md`: shared shell, providers, hooks, locale, rewrite helpers, API, websocket, and browser integration.
+- `src/components/AGENTS.md`, `src/context/AGENTS.md`, `src/hooks/AGENTS.md`, `src/i18n/AGENTS.md`, `src/shared/AGENTS.md`, and `src/lib/AGENTS.md`: shared shell, providers, hooks, locale, rewrite helpers, API, and browser integration.
 - `tests/AGENTS.md`: Playwright browser flows plus frontend seam-contract suites.
 
 ## WHERE TO LOOK
@@ -38,10 +38,9 @@ frontend/
 - Provider stack and browser mount (`LocaleProvider` -> `ThemeProvider` -> `TooltipProvider` -> `App` + `Toaster`): `src/main.tsx`
 - Auth bootstrap, pinned `X-Profile-Id: 1` scoping, and reporting-currency readiness: `src/context/AGENTS.md`, `src/context/auth/AGENTS.md`, `src/context/ReportingCurrencyContext.tsx`
 - Typed API boundary, shared request plumbing, and reporting-currency cache and normalization: `src/lib/AGENTS.md`, `src/lib/api/AGENTS.md`, `src/lib/reportingCurrency.ts`, `src/lib/api.ts`
-- Realtime websocket singleton, helper split, and preferred hook consumer: `src/lib/websocket.ts`, `src/lib/websocket/AGENTS.md`, `src/hooks/useRealtimeData.ts`
 - Shared vendor cache and profile-revision keyed reference-data invalidation: `src/lib/referenceData.ts`
 - Frontend locale state, shared formatting, and static non-hook labels: `src/i18n/LocaleProvider.tsx`, `src/i18n/format.ts`, `src/i18n/staticMessages.ts`
-- Vite version injection, optional same-origin proxying for `/api`, `/api/realtime/ws`, `/health`, `/v1`, and `/v1beta`, dev or preview `/health`, launcher proxy env path, launcher port `5173` to the selected bootstrap file's backend port, and build metadata: `vite.config.ts`, `package.json`
+- Vite version injection, optional same-origin proxying for `/api`, `/health`, `/v1`, and `/v1beta`, dev or preview `/health`, launcher proxy env path, launcher port `5173` to the selected bootstrap file's backend port, and build metadata: `vite.config.ts`, `package.json`
 - Production `dist/` static server, SPA fallback, `PORT` default `3000`, and `/health`: `server.mjs`
 - Test split and browser config: `tests/AGENTS.md`, `tests/e2e/`, `tests/{lib,loadbalance,main,model-detail,server}/`, `playwright.config.ts`
 - Cross-route rewrite helpers for query keys, invalidation, server validation, table rows, and design-system barrels: `src/shared/AGENTS.md`
@@ -60,7 +59,7 @@ frontend/
 - Keep backend access on the typed `src/lib/api.ts` boundary and the modules it re-exports.
 - Keep backend startup configuration out of the dashboard after R2. Operators edit `config.json` and restart; `VITE_API_BASE` plus launcher proxy envs are transport wiring only.
 - Keep reporting-currency provider state in `src/context/ReportingCurrencyContext.tsx` and shared cache, `prime()` or `refresh()` behavior, and normalization in `src/lib/reportingCurrency.ts` instead of duplicating settings-side currency bootstrap in pages.
-- Keep realtime ownership in `src/lib/websocket.ts`, prefer `useRealtimeData()` for shared websocket consumers, and avoid creating ad hoc clients.
+- Keep live dashboard and analytics refresh in page-owned polling hooks that use the typed REST API boundary.
 - Keep locale state, shared formatting, and non-hook static label lookups in `src/i18n/`, not in shell or page code.
 - Keep shadcn/ui additions aligned with `components.json`: `style` `new-york`, Tailwind CSS in `src/index.css`, `lucide` icons, aliases rooted at `@/`, and generated primitives under `src/components/ui/`.
 - Use existing `ui/` primitives and local wrappers before adding one-off markup in pages or shared widgets.
@@ -75,5 +74,5 @@ frontend/
 - Do not invent routes, shell entries, or page hierarchies beyond `src/App.tsx` and `src/pages/AGENTS.md`.
 - Do not reintroduce profile-selection UI; management scope is pinned to Default id=1.
 - Do not duplicate reporting-currency cache, normalization, or readiness logic outside `src/context/ReportingCurrencyContext.tsx` and `src/lib/reportingCurrency.ts`.
-- Do not duplicate websocket, reference-data, or navigation-config ownership in page docs.
+- Do not duplicate reference-data or navigation-config ownership in page docs.
 - Do not put route state, data fetching, or shell navigation into `src/components/ui/`; it is a design-system leaf.

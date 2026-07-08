@@ -215,10 +215,9 @@ func TestAppRunCancellationTriggersLifecycleShutdownOrder(t *testing.T) {
 	recorder := newLifecycleRecorder()
 	server := newBlockingHTTPServer(recorder, "http shutdown", http.ErrServerClosed)
 	app := NewApp(Options{
-		HTTPServer:       server,
-		RealtimeShutdown: []ShutdownHook{recorder.hook("realtime shutdown")},
-		SideEffectDrain:  []ShutdownHook{recorder.hook("side effect drain")},
-		SchedulerStop:    recorder.hook("scheduler stop"),
+		HTTPServer:      server,
+		SideEffectDrain: []ShutdownHook{recorder.hook("side effect drain")},
+		SchedulerStop:   recorder.hook("scheduler stop"),
 		ServiceClose: []ShutdownHook{
 			recorder.hook("runtime service close"),
 			recorder.hook("management service close"),
@@ -247,7 +246,6 @@ func TestAppRunCancellationTriggersLifecycleShutdownOrder(t *testing.T) {
 
 	wantOrder := []string{
 		"http shutdown",
-		"realtime shutdown",
 		"side effect drain",
 		"scheduler stop",
 		"runtime service close",
@@ -269,12 +267,11 @@ func TestAppShutdownLogsPhaseOrder(t *testing.T) {
 	logs := captureLifecycleSlog(t)
 	server := &immediateHTTPServer{}
 	app := NewApp(Options{
-		HTTPServer:       server,
-		RealtimeShutdown: []ShutdownHook{func(context.Context) error { return nil }},
-		SideEffectDrain:  []ShutdownHook{func(context.Context) error { return nil }},
-		SchedulerStop:    func(context.Context) error { return nil },
-		ServiceClose:     []ShutdownHook{func(context.Context) error { return nil }},
-		DBClose:          func(context.Context) error { return nil },
+		HTTPServer:      server,
+		SideEffectDrain: []ShutdownHook{func(context.Context) error { return nil }},
+		SchedulerStop:   func(context.Context) error { return nil },
+		ServiceClose:    []ShutdownHook{func(context.Context) error { return nil }},
+		DBClose:         func(context.Context) error { return nil },
 	})
 
 	if err := app.Shutdown(context.Background()); err != nil {
@@ -283,7 +280,6 @@ func TestAppShutdownLogsPhaseOrder(t *testing.T) {
 
 	assertShutdownPhaseLogOrder(t, logs.String(), []string{
 		"http_shutdown",
-		"realtime_shutdown",
 		"side_effect_drain",
 		"scheduler_stop",
 		"service_close",
@@ -302,11 +298,10 @@ func TestAppRunNoDeadlineCancellationUsesDefaultShutdownDeadline(t *testing.T) {
 	recorder := newLifecycleRecorder()
 	server := newDeadlineBlockingHTTPServer(recorder, "http shutdown")
 	app := NewApp(Options{
-		HTTPServer:       server,
-		RealtimeShutdown: []ShutdownHook{recorder.hook("realtime shutdown")},
-		SideEffectDrain:  []ShutdownHook{recorder.hook("side effect drain")},
-		SchedulerStop:    recorder.hook("scheduler stop"),
-		DBClose:          recorder.hook("db close"),
+		HTTPServer:      server,
+		SideEffectDrain: []ShutdownHook{recorder.hook("side effect drain")},
+		SchedulerStop:   recorder.hook("scheduler stop"),
+		DBClose:         recorder.hook("db close"),
 	})
 	ctx := context.WithValue(context.Background(), traceContextKey{}, "signal-cancel")
 	ctx, cancel := context.WithCancel(ctx)
@@ -324,7 +319,7 @@ func TestAppRunNoDeadlineCancellationUsesDefaultShutdownDeadline(t *testing.T) {
 		t.Fatal("Run hung after no-deadline cancellation")
 	}
 
-	wantOrder := []string{"http shutdown", "realtime shutdown", "side effect drain", "scheduler stop", "db close"}
+	wantOrder := []string{"http shutdown", "side effect drain", "scheduler stop", "db close"}
 	assertOrder(t, recorder.snapshot(), wantOrder)
 	assertContexts(t, recorder, wantOrder, "signal-cancel")
 }
@@ -349,16 +344,12 @@ func TestShutdownContextPreservesEarlierCallerDeadline(t *testing.T) {
 }
 
 func TestAppShutdownKeepsDBCloseLastAfterHookErrors(t *testing.T) {
-	realtimeErr := errors.New("realtime shutdown failed")
 	schedulerErr := errors.New("scheduler stop failed")
 	serviceErr := errors.New("service close failed")
 	recorder := newLifecycleRecorder()
 	server := &immediateHTTPServer{recorder: recorder, shutdownName: "http shutdown"}
 	app := NewApp(Options{
-		HTTPServer: server,
-		RealtimeShutdown: []ShutdownHook{
-			recorder.errorHook("realtime shutdown", realtimeErr),
-		},
+		HTTPServer:      server,
 		SideEffectDrain: []ShutdownHook{recorder.hook("side effect drain")},
 		SchedulerStop:   recorder.errorHook("scheduler stop", schedulerErr),
 		ServiceClose: []ShutdownHook{
@@ -372,7 +363,7 @@ func TestAppShutdownKeepsDBCloseLastAfterHookErrors(t *testing.T) {
 	defer cancel()
 
 	err := app.Shutdown(ctx)
-	for _, wantErr := range []error{realtimeErr, schedulerErr, serviceErr} {
+	for _, wantErr := range []error{schedulerErr, serviceErr} {
 		if !errors.Is(err, wantErr) {
 			t.Fatalf("Shutdown error %v does not include %v", err, wantErr)
 		}
@@ -380,7 +371,6 @@ func TestAppShutdownKeepsDBCloseLastAfterHookErrors(t *testing.T) {
 
 	wantOrder := []string{
 		"http shutdown",
-		"realtime shutdown",
 		"side effect drain",
 		"scheduler stop",
 		"runtime service close",
@@ -392,7 +382,7 @@ func TestAppShutdownKeepsDBCloseLastAfterHookErrors(t *testing.T) {
 	assertCallCounts(t, recorder, wantOrder, 1)
 
 	secondErr := app.Shutdown(ctx)
-	for _, wantErr := range []error{realtimeErr, schedulerErr, serviceErr} {
+	for _, wantErr := range []error{schedulerErr, serviceErr} {
 		if !errors.Is(secondErr, wantErr) {
 			t.Fatalf("second Shutdown error %v does not include %v", secondErr, wantErr)
 		}

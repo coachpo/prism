@@ -753,23 +753,6 @@ export interface DashboardRecentActivityParams {
   limit?: number;
 }
 
-export interface DashboardRealtimeSnapshotPayload {
-  type: "dashboard.snapshot";
-  profile_id: number;
-  snapshot: DashboardSnapshot;
-}
-
-export interface DashboardRealtimeActivityPayload {
-  type: "dashboard.activity";
-  profile_id: number;
-  activity_watermark: DashboardRecentActivityWatermark;
-  activity: DashboardRecentActivityItem;
-}
-
-export type DashboardRealtimePayload =
-  | DashboardRealtimeSnapshotPayload
-  | DashboardRealtimeActivityPayload;
-
 export interface EndpointModelsBatchParams {
   endpoint_ids: number[];
 }

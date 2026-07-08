@@ -1,14 +1,13 @@
 # BACKEND HTTP API KNOWLEDGE BASE
 
 ## OVERVIEW
-`backend/internal/httpapi/` owns mounted backend HTTP handlers and shared handler seams. It splits the management API, runtime proxy surface, realtime websocket delivery, proxy-key usage capture, management settings job routes, and request-context helpers while platform code owns server assembly.
+`backend/internal/httpapi/` owns mounted backend HTTP handlers and shared handler seams. It splits the management API, runtime proxy surface, proxy-key usage capture, management settings job routes, and request-context helpers while platform code owns server assembly.
 
 ## STRUCTURE
 ```text
 httpapi/
 ├── management/      # `/api/*` management handlers, services, and leaf docs
 ├── proxykeyusage/   # Runtime proxy-key usage persistence helper
-├── realtime/        # `/api/realtime/ws`, connection manager, dashboard and analytics publishers
 ├── requestcontext/  # Request metadata helpers shared by handlers
 └── runtime/         # Operation-registered `/v1` and `/v1beta` runtime proxy handlers
 ```
@@ -18,9 +17,8 @@ httpapi/
 - Management subpackages: `management/auth/`, `management/audit/`, `management/configrules/`, `management/connections/`, `management/endpoints/`, `management/loadbalance/`, `management/models/`, `management/responseutil/`, `management/settings/`, `management/stats/`
 - Management child docs for CRUD and observability leaves: `management/audit/AGENTS.md`, `management/auth/AGENTS.md`, `management/configrules/AGENTS.md`, `management/connections/AGENTS.md`, `management/endpoints/AGENTS.md`, `management/loadbalance/AGENTS.md`, `management/models/AGENTS.md`, `management/settings/AGENTS.md`, `management/stats/AGENTS.md`
 - Model CRUD and access-target authoring: `management/models/AGENTS.md`, `management/models/routes.go`, `management/models/store.go`
-- Management auth status/session/bootstrap, proxy-key, realtime auth-state, and runtime-cache seams: `management/auth/AGENTS.md`
+- Management auth status/session/bootstrap, proxy-key, and runtime-cache seams: `management/auth/AGENTS.md`
 - Runtime proxy leaf, operation registry, ingress rejection semantics, planning helpers, and hook collections: `runtime/AGENTS.md`, `runtime/operations.go`, `runtime/service.go`, `runtime/runtime.go`, `runtime/planning_snapshot.go`, `runtime/proxy_selector_helpers.go`, `runtime/operation_request_hooks.go`, `runtime/operation_response_hooks.go`, `runtime/operation_stream_hooks.go`
-- Realtime websocket contract, channels, auth gate, and async publishers: `realtime/AGENTS.md`, `realtime/service.go`, `realtime/manager.go`, `realtime/async_publisher.go`, `realtime/async_analytics_publisher.go`
 - Management settings leaf and package routes: `management/settings/AGENTS.md`, `management/settings/`
 - Proxy-key usage capture: `proxykeyusage/`
 - Request-context helpers shared across mounted handlers: `requestcontext/`
@@ -31,11 +29,10 @@ httpapi/
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep runtime proxy routes under `runtime/`; they are served from mounted `/v1` and `/v1beta` prefixes, but the exact supported operations live only in `runtime/operations.go`.
-- Keep realtime websocket delivery under `realtime/`; do not mix it into runtime or unrelated management packages.
 - Keep `api_family` as runtime compatibility truth. No catalog metadata participates in runtime compatibility.
 - Keep startup bootstrap loading in `../platform/config/`; do not recreate a management CRUD surface for it.
 - Do not invent backend-local generated docs artifacts; keep durable API reference updates in the markdown docs.
-- Keep request-log and dashboard materialization off the hot request path by using runtime telemetry outboxes and realtime publishers.
+- Keep request-log, dashboard, and usage-snapshot materialization off the hot request path by using runtime telemetry outboxes and background workers.
 - Keep runtime partition creation on `runtime/log_partitions.go` and `platform/logretention.Store`; handlers should not create or drop partitions directly.
 - Keep log-retention settings global in `management/settings/`, with cleanup triggered through low-priority management jobs instead of request-path cleanup.
 - Do not reintroduce backend-local operations telemetry exporters or a `/metrics` compatibility endpoint. Stats handlers under management remain product-facing retained-history APIs.
@@ -46,7 +43,7 @@ httpapi/
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
 
 ## ANTI-PATTERNS
-- Do not add unsupported providers, proxy routes, or realtime message types without updating docs and contracts.
+- Do not add unsupported providers or proxy routes without updating docs and contracts.
 - Do not inject profile scope inside runtime proxy handlers.
 - Do not describe the mounted `/v1` and `/v1beta` prefixes as a generic passthrough contract; runtime allowlisting and hook selection belong under `runtime/`.
 - Do not run retention deletes, partition drops, or horizon creation inside HTTP handlers.

@@ -82,7 +82,7 @@ const (
 )
 
 const (
-	defaultPostgresTotalMaxConns                 int32 = 24
+	defaultPostgresTotalMaxConns                 int32 = 22
 	defaultManagementDatabaseMaxConns            int32 = 4
 	defaultManagementDatabaseMinIdleConns        int32 = 1
 	defaultRuntimeExecutionDatabaseMaxConns      int32 = 8
@@ -91,8 +91,6 @@ const (
 	defaultRuntimeTelemetryDatabaseMinIdleConns  int32 = 1
 	defaultRuntimeFeedbackDatabaseMaxConns       int32 = 2
 	defaultRuntimeFeedbackDatabaseMinIdleConns   int32 = 0
-	defaultRealtimeDatabaseMaxConns              int32 = 2
-	defaultRealtimeDatabaseMinIdleConns          int32 = 0
 	defaultCacheRefreshDatabaseMaxConns          int32 = 2
 	defaultCacheRefreshDatabaseMinIdleConns      int32 = 0
 	defaultBackgroundJobsDatabaseMaxConns        int32 = 2
@@ -122,7 +120,6 @@ const (
 	PostgresLaneRuntimeTelemetry PostgresPoolLane = "runtime_telemetry"
 	PostgresLaneRuntimeFeedback  PostgresPoolLane = "runtime_feedback"
 	PostgresLaneManagement       PostgresPoolLane = "management"
-	PostgresLaneRealtime         PostgresPoolLane = "realtime"
 	PostgresLaneCacheRefresh     PostgresPoolLane = "cache_refresh"
 	PostgresLaneBackgroundJobs   PostgresPoolLane = "background_jobs"
 )
@@ -133,7 +130,7 @@ type PostgresPoolsBudget struct {
 	RuntimeExecution DatabasePoolBudget
 	RuntimeTelemetry DatabasePoolBudget
 	RuntimeFeedback  DatabasePoolBudget
-	Realtime         DatabasePoolBudget
+	Realtime         DatabasePoolBudget // ponytail: parsed for live config.json compat; ignored
 	CacheRefresh     DatabasePoolBudget
 	BackgroundJobs   DatabasePoolBudget
 }
@@ -310,7 +307,6 @@ func DefaultPostgresPoolsBudget() PostgresPoolsBudget {
 		RuntimeExecution: defaultRuntimeExecutionDatabasePoolBudget(),
 		RuntimeTelemetry: DatabasePoolBudget{MaxConns: defaultRuntimeTelemetryDatabaseMaxConns, MinIdleConns: defaultRuntimeTelemetryDatabaseMinIdleConns},
 		RuntimeFeedback:  DatabasePoolBudget{MaxConns: defaultRuntimeFeedbackDatabaseMaxConns, MinIdleConns: defaultRuntimeFeedbackDatabaseMinIdleConns},
-		Realtime:         DatabasePoolBudget{MaxConns: defaultRealtimeDatabaseMaxConns, MinIdleConns: defaultRealtimeDatabaseMinIdleConns},
 		CacheRefresh:     DatabasePoolBudget{MaxConns: defaultCacheRefreshDatabaseMaxConns, MinIdleConns: defaultCacheRefreshDatabaseMinIdleConns},
 		BackgroundJobs:   DatabasePoolBudget{MaxConns: defaultBackgroundJobsDatabaseMaxConns, MinIdleConns: defaultBackgroundJobsDatabaseMinIdleConns},
 	}
@@ -430,18 +426,17 @@ func normalizePostgresPoolsBudget(candidate PostgresPoolsBudget) PostgresPoolsBu
 	normalized.RuntimeExecution = normalizeDatabasePoolBudget(normalized.RuntimeExecution, defaults.RuntimeExecution)
 	normalized.RuntimeTelemetry = normalizeDatabasePoolBudget(normalized.RuntimeTelemetry, defaults.RuntimeTelemetry)
 	normalized.RuntimeFeedback = normalizeDatabasePoolBudget(normalized.RuntimeFeedback, defaults.RuntimeFeedback)
-	normalized.Realtime = normalizeDatabasePoolBudget(normalized.Realtime, defaults.Realtime)
 	normalized.CacheRefresh = normalizeDatabasePoolBudget(normalized.CacheRefresh, defaults.CacheRefresh)
 	normalized.BackgroundJobs = normalizeDatabasePoolBudget(normalized.BackgroundJobs, defaults.BackgroundJobs)
 	return normalized
 }
 
 func (b PostgresPoolsBudget) isZero() bool {
-	return b.TotalMaxConns == 0 && b.Management == (DatabasePoolBudget{}) && b.RuntimeExecution == (DatabasePoolBudget{}) && b.RuntimeTelemetry == (DatabasePoolBudget{}) && b.RuntimeFeedback == (DatabasePoolBudget{}) && b.Realtime == (DatabasePoolBudget{}) && b.CacheRefresh == (DatabasePoolBudget{}) && b.BackgroundJobs == (DatabasePoolBudget{})
+	return b.TotalMaxConns == 0 && b.Management == (DatabasePoolBudget{}) && b.RuntimeExecution == (DatabasePoolBudget{}) && b.RuntimeTelemetry == (DatabasePoolBudget{}) && b.RuntimeFeedback == (DatabasePoolBudget{}) && b.CacheRefresh == (DatabasePoolBudget{}) && b.BackgroundJobs == (DatabasePoolBudget{})
 }
 
 func (b PostgresPoolsBudget) SumMaxConns() int64 {
-	return int64(b.Management.MaxConns) + int64(b.RuntimeExecution.MaxConns) + int64(b.RuntimeTelemetry.MaxConns) + int64(b.RuntimeFeedback.MaxConns) + int64(b.Realtime.MaxConns) + int64(b.CacheRefresh.MaxConns) + int64(b.BackgroundJobs.MaxConns)
+	return int64(b.Management.MaxConns) + int64(b.RuntimeExecution.MaxConns) + int64(b.RuntimeTelemetry.MaxConns) + int64(b.RuntimeFeedback.MaxConns) + int64(b.CacheRefresh.MaxConns) + int64(b.BackgroundJobs.MaxConns)
 }
 
 func (b PostgresPoolsBudget) Validate() error {
@@ -456,7 +451,6 @@ func (b PostgresPoolsBudget) Validate() error {
 		{PostgresLaneRuntimeExecution, b.RuntimeExecution},
 		{PostgresLaneRuntimeTelemetry, b.RuntimeTelemetry},
 		{PostgresLaneRuntimeFeedback, b.RuntimeFeedback},
-		{PostgresLaneRealtime, b.Realtime},
 		{PostgresLaneCacheRefresh, b.CacheRefresh},
 		{PostgresLaneBackgroundJobs, b.BackgroundJobs},
 	} {

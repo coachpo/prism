@@ -21,7 +21,6 @@ import (
 	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
 	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
-	realtimeapi "github.com/coachpo/prism/backend/internal/httpapi/realtime"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/background"
 	"github.com/coachpo/prism/backend/internal/platform/config"
@@ -34,12 +33,11 @@ import (
 )
 
 type productionResources struct {
-	deps             platformhttp.Dependencies
-	scheduler        *background.Scheduler
-	realtimeShutdown []ShutdownHook
-	sideEffectDrain  []ShutdownHook
-	serviceClose     []ShutdownHook
-	dbClose          ShutdownHook
+	deps            platformhttp.Dependencies
+	scheduler       *background.Scheduler
+	sideEffectDrain []ShutdownHook
+	serviceClose    []ShutdownHook
+	dbClose         ShutdownHook
 }
 
 func NewProductionApp(ctx context.Context, settings config.Settings) (*App, *http.Server, error) {
@@ -59,12 +57,11 @@ func NewProductionApp(ctx context.Context, settings config.Settings) (*App, *htt
 		}
 	}
 	app := NewApp(Options{
-		HTTPServer:       server,
-		RealtimeShutdown: resources.realtimeShutdown,
-		SideEffectDrain:  resources.sideEffectDrain,
-		SchedulerStop:    resources.schedulerStopHook(),
-		ServiceClose:     resources.serviceClose,
-		DBClose:          resources.dbClose,
+		HTTPServer:      server,
+		SideEffectDrain: resources.sideEffectDrain,
+		SchedulerStop:   resources.schedulerStopHook(),
+		ServiceClose:    resources.serviceClose,
+		DBClose:         resources.dbClose,
 	})
 	return app, server, nil
 }
@@ -112,7 +109,6 @@ type databaseLanePools struct {
 	runtimeExecution *pgxpool.Pool
 	runtimeTelemetry *pgxpool.Pool
 	runtimeFeedback  *pgxpool.Pool
-	realtime         *pgxpool.Pool
 	cacheRefresh     *pgxpool.Pool
 	backgroundJobs   *pgxpool.Pool
 }
@@ -122,7 +118,6 @@ func newDatabaseLanePools(databasePools *platformdb.DatabasePools) databaseLaneP
 	runtimeExecutionPool := databasePools.RuntimeExecution.Raw()
 	runtimeTelemetryPool := databasePools.RuntimeTelemetry.Raw()
 	runtimeFeedbackPool := databasePools.RuntimeFeedback.Raw()
-	realtimePool := databasePools.Realtime.Raw()
 	cacheRefreshPool := databasePools.CacheRefresh.Raw()
 	backgroundJobsPool := databasePools.BackgroundJobs.Raw()
 	return databaseLanePools{
@@ -130,7 +125,6 @@ func newDatabaseLanePools(databasePools *platformdb.DatabasePools) databaseLaneP
 		runtimeExecution: runtimeExecutionPool,
 		runtimeTelemetry: runtimeTelemetryPool,
 		runtimeFeedback:  runtimeFeedbackPool,
-		realtime:         realtimePool,
 		cacheRefresh:     cacheRefreshPool,
 		backgroundJobs:   backgroundJobsPool,
 	}
@@ -166,12 +160,6 @@ type managementServices struct {
 	configRules        *managementconfigrules.Service
 }
 
-type realtimeServices struct {
-	service            *realtimeapi.Service
-	dashboardPublisher *realtimeapi.AsyncDashboardPublisher
-	analyticsPublisher *realtimeapi.AsyncAnalyticsPublisher
-}
-
 func (resources *productionResources) configureDatabaseBackedServices(ctx context.Context, settings config.Settings, databasePools *platformdb.DatabasePools) error {
 	lanes := newDatabaseLanePools(databasePools)
 	backgroundServices, err := resources.buildDatabaseBackgroundServices(ctx, lanes)
@@ -190,18 +178,14 @@ func (resources *productionResources) configureDatabaseBackedServices(ctx contex
 	if err != nil {
 		return err
 	}
-	realtime, err := resources.buildRealtimeServices(settings, lanes, backgroundServices.scheduler, auth.management, management.dashboardSnapshots)
+	runtimeService, err := resources.buildRuntimeService(settings, lanes, backgroundServices, planning)
 	if err != nil {
 		return err
 	}
-	runtimeService, err := resources.buildRuntimeService(settings, lanes, backgroundServices, planning, realtime)
-	if err != nil {
+	if err := registerDatabaseBackgroundWorkers(backgroundServices, planning, auth, runtimeService); err != nil {
 		return err
 	}
-	if err := registerDatabaseBackgroundWorkers(backgroundServices, planning, auth, realtime, runtimeService); err != nil {
-		return err
-	}
-	resources.publishDatabaseBackedDependencies(auth, management, realtime, runtimeService, planning)
+	resources.publishDatabaseBackedDependencies(auth, management, runtimeService, planning)
 	return nil
 }
 
@@ -329,30 +313,7 @@ func (resources *productionResources) buildManagementServices(settings config.Se
 	return services, nil
 }
 
-func (resources *productionResources) buildRealtimeServices(settings config.Settings, lanes databaseLanePools, scheduler *background.Scheduler, managementAuthService *managementauth.Service, dashboardSnapshots *statsdomain.DashboardAggregateStore) (realtimeServices, error) {
-	realtimePool := lanes.realtime
-	realtimeService, err := realtimeapi.NewService(settings, realtimeapi.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, RealtimePool: realtimePool, AuthService: managementAuthService, DashboardSnapshots: dashboardSnapshots})
-	if err != nil {
-		return realtimeServices{}, err
-	}
-	services := realtimeServices{service: realtimeService}
-	resources.realtimeShutdown = append(resources.realtimeShutdown, closeFuncHook(realtimeService.Close))
-
-	asyncDashboardPublisher := realtimeapi.NewAsyncDashboardPublisher(realtimeService, realtimeapi.AsyncDashboardPublisherOptions{Scheduler: scheduler})
-	realtimeService.SetAsyncDashboardPublisher(asyncDashboardPublisher)
-	services.dashboardPublisher = asyncDashboardPublisher
-	resources.registerSideEffectDrain(closeFuncHook(asyncDashboardPublisher.Close))
-	resources.registerServiceClose(closeFuncHook(asyncDashboardPublisher.Close))
-
-	asyncAnalyticsPublisher := realtimeapi.NewAsyncAnalyticsPublisher(realtimeService, realtimeapi.AsyncAnalyticsPublisherOptions{Scheduler: scheduler})
-	realtimeService.SetAsyncAnalyticsPublisher(asyncAnalyticsPublisher)
-	services.analyticsPublisher = asyncAnalyticsPublisher
-	resources.registerSideEffectDrain(closeFuncHook(asyncAnalyticsPublisher.Close))
-	resources.registerServiceClose(closeFuncHook(asyncAnalyticsPublisher.Close))
-	return services, nil
-}
-
-func (resources *productionResources) buildRuntimeService(settings config.Settings, lanes databaseLanePools, backgroundServices databaseBackgroundServices, planning runtimePlanningServices, realtime realtimeServices) (*runtimeapi.Service, error) {
+func (resources *productionResources) buildRuntimeService(settings config.Settings, lanes databaseLanePools, backgroundServices databaseBackgroundServices, planning runtimePlanningServices) (*runtimeapi.Service, error) {
 	runtimeExecutionPool := lanes.runtimeExecution
 	runtimeTelemetryPool := lanes.runtimeTelemetry
 	runtimeFeedbackPool := lanes.runtimeFeedback
@@ -360,9 +321,7 @@ func (resources *productionResources) buildRuntimeService(settings config.Settin
 	logRetentionStore := backgroundServices.logRetention
 	runtimePlanningCache := planning.cache
 	runtimeState := planning.state
-	asyncDashboardPublisher := realtime.dashboardPublisher
-	asyncAnalyticsPublisher := realtime.analyticsPublisher
-	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimeExecutionPool, TelemetryPool: runtimeTelemetryPool, FeedbackPool: runtimeFeedbackPool, RuntimeProxyConfigProvider: resources.deps.HotBootstrapConfigRuntime, DashboardUpdates: asyncDashboardPublisher, AnalyticsUpdates: asyncAnalyticsPublisher, Cache: runtimePlanningCache, RuntimeState: runtimeState, LogPartitionEnsurer: logRetentionStore, AssumeLogPartitionHorizon: true, Scheduler: backgroundScheduler, SideEffects: runtimeSideEffectOptions(settings)})
+	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimeExecutionPool, TelemetryPool: runtimeTelemetryPool, FeedbackPool: runtimeFeedbackPool, RuntimeProxyConfigProvider: resources.deps.HotBootstrapConfigRuntime, Cache: runtimePlanningCache, RuntimeState: runtimeState, LogPartitionEnsurer: logRetentionStore, AssumeLogPartitionHorizon: true, Scheduler: backgroundScheduler, SideEffects: runtimeSideEffectOptions(settings)})
 	if err != nil {
 		return nil, err
 	}
@@ -371,23 +330,19 @@ func (resources *productionResources) buildRuntimeService(settings config.Settin
 	return runtimeService, nil
 }
 
-func registerDatabaseBackgroundWorkers(backgroundServices databaseBackgroundServices, planning runtimePlanningServices, auth authServices, realtime realtimeServices, runtimeService *runtimeapi.Service) error {
+func registerDatabaseBackgroundWorkers(backgroundServices databaseBackgroundServices, planning runtimePlanningServices, auth authServices, runtimeService *runtimeapi.Service) error {
 	backgroundScheduler := backgroundServices.scheduler
 	runtimePlanningCache := planning.cache
 	managementAuthService := auth.management
 	managementJobs := backgroundServices.managementJobs
 	managementSideEffects := backgroundServices.managementSideEffects
 	logRetentionStore := backgroundServices.logRetention
-	asyncDashboardPublisher := realtime.dashboardPublisher
-	asyncAnalyticsPublisher := realtime.analyticsPublisher
 	for _, register := range []func(*background.Scheduler) error{
 		runtimePlanningCache.RegisterBackgroundWorker,
 		managementAuthService.RegisterBackgroundWorkers,
 		managementJobs.RegisterBackgroundWorker,
 		managementSideEffects.RegisterBackgroundWorker,
 		logRetentionStore.RegisterBackgroundWorker,
-		asyncDashboardPublisher.RegisterBackgroundWorker,
-		asyncAnalyticsPublisher.RegisterBackgroundWorker,
 		runtimeService.RegisterBackgroundWorkers,
 	} {
 		if err := register(backgroundScheduler); err != nil {
@@ -397,7 +352,7 @@ func registerDatabaseBackgroundWorkers(backgroundServices databaseBackgroundServ
 	return nil
 }
 
-func (resources *productionResources) publishDatabaseBackedDependencies(auth authServices, management managementServices, realtime realtimeServices, runtimeService *runtimeapi.Service, planning runtimePlanningServices) {
+func (resources *productionResources) publishDatabaseBackedDependencies(auth authServices, management managementServices, runtimeService *runtimeapi.Service, planning runtimePlanningServices) {
 	resources.deps.AuditService = management.audit
 	resources.deps.AuthService = auth.management
 	resources.deps.RuntimeAuthService = auth.runtime
@@ -406,7 +361,6 @@ func (resources *productionResources) publishDatabaseBackedDependencies(auth aut
 	resources.deps.EndpointsService = management.endpoints
 	resources.deps.LoadbalanceService = management.loadbalance
 	resources.deps.ModelsService = management.models
-	resources.deps.RealtimeService = realtime.service
 	resources.deps.RuntimeService = runtimeService
 	resources.deps.RuntimeCache = planning.cache
 	resources.deps.RuntimeState = planning.state
@@ -450,9 +404,6 @@ func (resources *productionResources) cleanup(ctx context.Context) error {
 		return nil
 	}
 	var errs []error
-	for _, hook := range resources.realtimeShutdown {
-		errs = appendError(errs, hook(ctx))
-	}
 	for _, hook := range resources.sideEffectDrain {
 		errs = appendError(errs, hook(ctx))
 	}

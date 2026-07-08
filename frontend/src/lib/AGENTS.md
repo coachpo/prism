@@ -1,7 +1,7 @@
 # FRONTEND LIB KNOWLEDGE BASE
 
 ## OVERVIEW
-`src/lib/` is the frontend boundary to backend contracts and browser integrations. It owns the typed API seam, singleton websocket client, shared reference-data caches, explicit Ban Policy loadbalance mirror, pinned Default-profile reporting-currency cache, timezone/cost helpers, app version, and clipboard helpers.
+`src/lib/` is the frontend boundary to backend contracts and browser integrations. It owns the typed API seam, shared reference-data caches, explicit Ban Policy loadbalance mirror, pinned Default-profile reporting-currency cache, timezone/cost helpers, app version, and clipboard helpers.
 
 ## STRUCTURE
 ```
@@ -14,9 +14,6 @@ lib/
 │   ├── authSettings.ts           # Auth bootstrap, session flows, and proxy keys
 │   ├── management.ts             # Models, endpoints, connections, pricing templates
 │   └── observability.ts          # Usage snapshot, stats, audit, loadbalance, settings costing/timezone
-├── websocket.ts                  # Singleton WebSocket client with channel ref-counts and reconnects
-├── websocket/AGENTS.md           # Helper split beneath the singleton client
-├── websocket/                    # Protocol, subscription, transport/reconnect helpers
 ├── referenceData.ts              # Shared reference-data cache keyed by profile revision
 ├── referenceDataRegistry.ts      # Registry of shared reference-data datasets
 ├── loadbalanceRoutingPolicy.ts   # Dual-family defaults and policy normalization
@@ -39,7 +36,6 @@ lib/
 - Shared dual-family load-balance defaults and policy normalization: `loadbalanceRoutingPolicy.ts`
 - Browser app version label formatting and Vite-injected package metadata: `appVersion.ts`
 - Shared reporting-currency cache, normalization, active-currency sync, `prime()` and `refresh()` support, and fail-open default used by `ReportingCurrencyContext.tsx`: `reportingCurrency.ts`
-- WebSocket connection state, reconnects, channel ref-counts, protocol parsing, and the preferred `useRealtimeData()` consumer: `websocket.ts`, `websocket/AGENTS.md`
 - Shared timezone preference lookup and formatting helpers consumed by `useTimezone()`: `timezone.ts`
 - Shared cost formatting and usage-label helpers layered over the active reporting currency: `costing.ts`
 - Browser clipboard helpers reused across route shells and detail views: `clipboard.ts`
@@ -48,7 +44,6 @@ lib/
 ## CHILD DOCS
 
 - `api/AGENTS.md`: `core.ts`, `profileScope.ts`, `authSettings.ts`, `management.ts`, and `observability.ts` ownership beneath the public `api.ts` barrel.
-- `websocket/AGENTS.md`: message helpers, subscription bookkeeping, and transport/reconnect rules beneath `websocket.ts`.
 - `types/AGENTS.md`: backend-aligned TypeScript contracts beneath the `types.ts` barrel.
 
 ## CONVENTIONS
@@ -66,7 +61,6 @@ lib/
 - `loadbalanceRoutingPolicy.ts` owns explicit Ban Policy defaults, retry-window labels, and normalized failure-status or ban-policy handling.
 - `appVersion.ts` owns the browser-facing frontend version contract so shell chrome reads the synced `frontend/package.json` version through Vite instead of hard-coded literals.
 - `reportingCurrency.ts` owns Default-profile keyed cache reuse, active-currency sync, `prime()` or `refresh()` support, fail-open defaults, and normalization of `report_currency_code` or `report_currency_symbol` used by `ReportingCurrencyContext.tsx`, settings, and costing.
-- `websocket.ts` owns the singleton client; `websocket/AGENTS.md` owns protocol parsing, subscription bookkeeping, and reconnect transport helpers, while shared React consumers should prefer `useRealtimeData()`.
 - `timezone.ts` owns shared timezone preference caching and helper access beneath `useTimezone()`.
 - `costing.ts` owns shared cost formatting and usage labels on top of the active reporting currency instead of duplicating cache or normalization logic.
 - Keep backend payload naming aligned with server schemas, including fixed `api_family` fields, the frozen Default profile id `1` contract, and stats or request-log identifiers like `ingress_request_id`.
@@ -81,7 +75,6 @@ lib/
 ## ANTI-PATTERNS
 
 - Do not bypass `api/core.ts` or `api/profileScope.ts` for Prism backend requests or pinned Default-profile header rules.
-- Do not create ad hoc websocket clients or duplicate subscribe/unsubscribe bookkeeping outside `websocket.ts` and `websocket/`.
 - Do not add a parallel reference-data cache when `referenceData.ts` already owns the shared lookup datasets.
 - Do not duplicate reporting-currency cache or normalization in settings, costing, or page code when `reportingCurrency.ts` already owns that seam.
 - Do not duplicate timezone or cost helper logic in page folders when `timezone.ts` and `costing.ts` already own those seams.

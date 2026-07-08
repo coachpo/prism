@@ -406,13 +406,22 @@ func (h *runtimePhase0Harness) seedStatsPressureHistory(t *testing.T, profileID 
 	if h.statsService == nil {
 		t.Fatal("phase-0 stats service is required for pressure history seeding")
 	}
-	realtimeView := &realtimeHarness{runtimeHarness: h.runtimeHarness, statsService: h.statsService, fixedNow: time.Now().UTC()}
-	route := realtimeView.seedRealtimeDashboardRoute(t, profileID, suffix)
-	idBase := -300000 - int(time.Now().UnixNano()%10000)
-	createdAtBase := time.Now().UTC()
+	route := h.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "stats-pressure-public-" + suffix + "-" + randomSuffix(),
+		TargetModelID:   "stats-pressure-target-" + suffix + "-" + randomSuffix(),
+		EndpointBaseURL: h.upstream.baseURL("/stats-pressure/" + suffix),
+		EndpointAPIKey:  "stats-pressure-key",
+	})
 	for index := range 6 {
-		realtimeView.insertDashboardActivity(t, route, profileID, idBase-index, idBase-100-index, createdAtBase.Add(-time.Duration(index+1)*time.Minute))
+		response := h.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": fmt.Sprintf("stats pressure %d", index)}},
+			"model":    route.PublicModelID,
+		}, nil)
+		assertStatus(t, response, http.StatusOK)
 	}
+	waitForRuntimeTelemetryCounts(t, h.conn, profileID, runtimeTelemetryCounts{RequestLogs: 6, UsageEvents: 6, OutboxRows: 0}, 5*time.Second)
 }
 
 func TestRuntimeHotPathStillTouchesRuntimeStateTables(t *testing.T) {

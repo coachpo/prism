@@ -46,22 +46,20 @@ type TelemetryOutboxHooks struct {
 }
 
 type runtimeTelemetryOutbox struct {
-	telemetryPool    *pgxpool.Pool
-	now              func() time.Time
-	dashboardUpdates DashboardPublisher
-	analyticsUpdates AnalyticsUpdatePublisher
-	logPartitions    *runtimeLogPartitionCache
-	pollInterval     time.Duration
-	shutdownTimeout  time.Duration
-	hooks            TelemetryOutboxHooks
-	wake             chan struct{}
-	scheduler        *background.Scheduler
-	ownsScheduler    bool
-	closeOnce        sync.Once
-	mu               sync.Mutex
-	closed           bool
-	inflight         int
-	closeResult      TelemetryOutboxCloseResult
+	telemetryPool   *pgxpool.Pool
+	now             func() time.Time
+	logPartitions   *runtimeLogPartitionCache
+	pollInterval    time.Duration
+	shutdownTimeout time.Duration
+	hooks           TelemetryOutboxHooks
+	wake            chan struct{}
+	scheduler       *background.Scheduler
+	ownsScheduler   bool
+	closeOnce       sync.Once
+	mu              sync.Mutex
+	closed          bool
+	inflight        int
+	closeResult     TelemetryOutboxCloseResult
 }
 
 type runtimeTelemetryOutboxRow struct {
@@ -84,19 +82,17 @@ func (state runtimeTelemetryDrainState) drained() bool {
 	return state.PendingRows == 0 && state.Inflight == 0
 }
 
-func newRuntimeTelemetryOutbox(telemetryPool *pgxpool.Pool, now func() time.Time, dashboardUpdates DashboardPublisher, analyticsUpdates AnalyticsUpdatePublisher, logPartitions *runtimeLogPartitionCache, options TelemetryOutboxOptions) *runtimeTelemetryOutbox {
+func newRuntimeTelemetryOutbox(telemetryPool *pgxpool.Pool, now func() time.Time, logPartitions *runtimeLogPartitionCache, options TelemetryOutboxOptions) *runtimeTelemetryOutbox {
 	normalized := normalizeTelemetryOutboxOptions(options)
 	outbox := &runtimeTelemetryOutbox{
-		telemetryPool:    telemetryPool,
-		now:              now,
-		dashboardUpdates: dashboardUpdates,
-		analyticsUpdates: analyticsUpdates,
-		logPartitions:    logPartitions,
-		pollInterval:     normalized.PollInterval,
-		shutdownTimeout:  normalized.ShutdownTimeout,
-		hooks:            normalized.hooks(),
-		wake:             make(chan struct{}, normalized.WakeupBuffer),
-		scheduler:        normalized.Scheduler,
+		telemetryPool:   telemetryPool,
+		now:             now,
+		logPartitions:   logPartitions,
+		pollInterval:    normalized.PollInterval,
+		shutdownTimeout: normalized.ShutdownTimeout,
+		hooks:           normalized.hooks(),
+		wake:            make(chan struct{}, normalized.WakeupBuffer),
+		scheduler:       normalized.Scheduler,
 	}
 	if outbox.scheduler == nil {
 		outbox.scheduler = background.NewScheduler(background.Config{})
@@ -310,12 +306,6 @@ func (o *runtimeTelemetryOutbox) processNext(ctx context.Context) (bool, error) 
 	}
 	if !result.Processed {
 		return false, nil
-	}
-	if o.dashboardUpdates != nil && result.RequestLogID > 0 && result.ProfileID > 0 {
-		_, _ = o.dashboardUpdates.PublishDashboardActivity(ctx, result.RequestLogID, result.ProfileID)
-	}
-	if o.analyticsUpdates != nil && result.ProfileID > 0 {
-		_, _ = o.analyticsUpdates.PublishAnalyticsUpdates(ctx, result.ProfileID)
 	}
 	return true, nil
 }

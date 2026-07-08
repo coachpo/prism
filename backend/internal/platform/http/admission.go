@@ -122,7 +122,6 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "model delete", method: http.MethodDelete, pattern: "/models/{model_config_id}", tier: priority.ManagementTierM2},
 	{name: "models by endpoint", method: http.MethodGet, pattern: "/models/by-endpoint/{endpoint_id}", tier: priority.ManagementTierM2},
 	{name: "models list", method: http.MethodGet, pattern: "/models", tier: priority.ManagementTierM2},
-	{name: "realtime websocket", method: http.MethodGet, pattern: "/realtime/ws", tier: priority.ManagementTierM3, releaseAdmissionFromHandler: true},
 	{name: "settings audit read", method: http.MethodGet, pattern: "/settings/audit", tier: priority.ManagementTierM2},
 	{name: "settings audit write", method: http.MethodPut, pattern: "/settings/audit", tier: priority.ManagementTierM2},
 	{name: "settings costing read", method: http.MethodGet, pattern: "/settings/costing", tier: priority.ManagementTierM2},

@@ -159,8 +159,8 @@ The gateway computes the cost of each request based on the extracted token usage
   - Get the stats-only dashboard snapshot and separate dashboard recent activity feed
   - Get aggregated statistics (counts, averages, totals) with grouping
   - Get the usage snapshot and endpoint model statistics directly when needed
-- Dashboard realtime streams split overview messages over WebSocket: `dashboard.snapshot` for aggregate stats and topology, and `dashboard.activity` for one recent activity item
-- Dashboard Analytics uses websocket-native `analytics.snapshot` payloads scoped by `{profile_id,preset}`. Each snapshot is a full replacement that includes the usage snapshot plus endpoint model statistics keyed by endpoint ID string.
+- Dashboard overview polls REST stats for the aggregate snapshot and separate recent activity feed.
+- Dashboard Analytics polls the REST usage snapshot for the selected preset and treats each accepted snapshot as a full replacement; endpoint model statistics load through REST drilldown endpoints.
 
 ### 4.10 Request Audit Logging
 Full HTTP request/response recording for proxied requests, stored in the database for auditing and debugging.
@@ -217,7 +217,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 ### 4.15 Frozen Profile Scope
 - Prism preserves the `profiles` table and all `profile_id` storage columns for historical attribution and a future unfreeze path.
 - Profile-scoped management APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
-- Global management routes stay outside profile scoping. Global routes include auth, realtime, auth-setting flows, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
+- Global management routes stay outside profile scoping. Global routes include auth, auth-setting flows, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
 - Profile lifecycle APIs are not exposed in the current management surface.
 - Runtime proxy traffic on `/v1/*` and `/v1beta/*` ignores management profile headers and always resolves against frozen Default profile id `1`; `X-Profile-Id` and profile fields remain compatibility/storage attribution only.
 - Observability rows (`request_logs`, `audit_logs`) carry immutable `profile_id` attribution for historical correctness.
@@ -239,12 +239,12 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 
 | Component | Technology |
 |---|---|
-| Backend | Go 1.26.4, chi, pgx, gorilla/websocket |
+| Backend | Go 1.26.4, chi, pgx |
 | HTTP Client | Go `net/http` streaming transport |
 | Database | PostgreSQL via pgx |
 | Frontend | React 19, Vite 8, TypeScript, Tailwind CSS 4, shadcn/ui, TanStack Router, React Router 7 compatibility |
 | API Contract | `docs/API_SPEC.md` markdown reference |
-| Communication | REST API with JSON, SSE for streaming proxy, WebSocket for realtime updates |
+| Communication | REST API with JSON and SSE for streaming proxy responses |
 
 ## 7. Out of Scope (v1)
 

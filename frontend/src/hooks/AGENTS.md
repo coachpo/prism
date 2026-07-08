@@ -1,18 +1,16 @@
 # FRONTEND HOOKS KNOWLEDGE BASE
 
 ## OVERVIEW
-`src/hooks/` contains Prism's shared reactive helpers for realtime updates and shared display formatting.
+`src/hooks/` contains Prism's shared reactive helpers for display formatting.
 
 ## STRUCTURE
 ```
 hooks/
-├── useRealtimeData.ts   # Shared realtime subscription hook over the singleton websocket client
 └── useTimezone.ts       # Shared timestamp formatting hook over i18n helpers
 ```
 
 ## WHERE TO LOOK
 
-- Shared realtime subscription lifecycle, profile-aware channel wiring, split dashboard snapshot/activity payload handling, and preferred consumer path over the singleton websocket client: `useRealtimeData.ts`, `../lib/websocket.ts`
 - Shared timestamp formatting through the locale layer: `useTimezone.ts`, `../i18n/format.ts`
 
 ## CONVENTIONS
@@ -21,7 +19,6 @@ hooks/
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
-- Prefer `useRealtimeData()` over direct WebSocket access, including when a page needs shared connection state from the singleton client.
 - Keep hook side effects small, and push complex shaping into `src/lib/` or local page helpers.
 - Route shared date and time display through `useTimezone.ts` or `src/i18n/format.ts`.
 
@@ -33,5 +30,4 @@ hooks/
 ## ANTI-PATTERNS
 
 - Do not create ad hoc `setInterval` loops in components.
-- Do not duplicate reconnect buffering or websocket state handling outside `useRealtimeData.ts` and `src/lib/websocket.ts`.
 - Do not duplicate timezone formatting logic outside `useTimezone.ts` and `src/i18n/format.ts`.

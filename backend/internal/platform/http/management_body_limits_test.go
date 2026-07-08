@@ -80,7 +80,6 @@ func newManagementBodyLimitTestHandler() http.Handler {
 		nil,
 		nil,
 		nil,
-		nil,
 	)
 	router := chi.NewRouter()
 	router.Mount("/api", managementBodyLimitMiddleware(managementHandler))

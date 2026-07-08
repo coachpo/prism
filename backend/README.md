@@ -9,12 +9,12 @@ This directory owns Prism's live Go backend service.
 ```text
 backend/
 ├── cmd/prism-backend/              # Go process entrypoint
-├── internal/httpapi/               # management, runtime, realtime, and shared handler seams
+├── internal/httpapi/               # management, runtime, and shared handler seams
 ├── internal/platform/              # config, server assembly, migrations, startup, workers, version
 ├── internal/domain/                # audit, loadbalance, and stats domain logic
 ├── internal/{endpoint,profile}domain/ # shared management-domain helpers
 ├── migrations/                     # fresh-install SQL baseline applied by the Go runtime
-├── testdata/                       # request, bootstrap, and realtime fixtures
+├── testdata/                       # request and bootstrap fixtures
 ├── tests/                          # Go contract, integration, and runtime regressions
 ├── docker-compose.yml              # local PostgreSQL provisioning
 ├── Dockerfile                      # Go backend image build

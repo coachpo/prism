@@ -91,10 +91,10 @@ func TestPriorityUnitContract(t *testing.T) {
 		if err := budget.Validate(); err != nil {
 			t.Fatalf("default postgres pool budget invalid: %v", err)
 		}
-		if int64(budget.TotalMaxConns) != budget.SumMaxConns() || budget.TotalMaxConns != 24 {
-			t.Fatalf("expected explicit 24 connection budget, got total=%d sum=%d", budget.TotalMaxConns, budget.SumMaxConns())
+		if int64(budget.TotalMaxConns) != budget.SumMaxConns() || budget.TotalMaxConns != 22 {
+			t.Fatalf("expected explicit 22 connection budget, got total=%d sum=%d", budget.TotalMaxConns, budget.SumMaxConns())
 		}
-		want := []string{"background_jobs", "cache_refresh", "management", "realtime", "runtime_execution", "runtime_feedback", "runtime_telemetry"}
+		want := []string{"background_jobs", "cache_refresh", "management", "runtime_execution", "runtime_feedback", "runtime_telemetry"}
 		if got := strings.Join(platformdb.SortedLaneNames(), ","); got != strings.Join(want, ",") {
 			t.Fatalf("unexpected lane names: %s", got)
 		}

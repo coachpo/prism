@@ -43,14 +43,14 @@ platform/
 - Keep steady-state startup settings in the plaintext bootstrap JSON selected by `PRISM_CONFIG_PATH`; `DATABASE_URL` is a bootstrap seeding override, not a general runtime config channel.
 - Keep bootstrap state behind `http.HotBootstrapConfigRuntime`; it provides CORS, auth, runtime proxy transport, and admission snapshots seeded at startup. After R2, external file edits require restart to refresh that snapshot.
 - Keep listener, database URL, pool budgets, runtime transport, runtime side-effect attempt timeout, runtime secret encryption key, JWT signing key, CORS, auth TTL/cookie metadata, management admission, and parse-compatible telemetry fields restart-applied.
-- Keep backend canonical defaults as the source of truth for fresh bootstrap seeds: server `0.0.0.0:8000`, standalone database URL `postgres://prism:prism@localhost:5432/prism?sslmode=disable` unless `DATABASE_URL` is set, CORS `5173`, PostgreSQL pool total `24`, split `4/8/4/2/2/2/2`, transport `100/16/16/300s/90s/0s/10s/1s`, side-effect timeout `10s`, and admission `3/2`. Runtime buffering is automatic and internal.
+- Keep backend canonical defaults as the source of truth for fresh bootstrap seeds: server `0.0.0.0:8000`, standalone database URL `postgres://prism:prism@localhost:5432/prism?sslmode=disable` unless `DATABASE_URL` is set, CORS `5173`, PostgreSQL pool total `22`, split `4/8/4/2/2/2`, transport `100/16/16/300s/90s/0s/10s/1s`, side-effect timeout `10s`, and admission `3/2`. Runtime buffering is automatic and internal.
 - Preserve existing valid bootstrap files during startup. To reset defaults, stop Prism, remove or relocate the bootstrap file, then restart so the missing-file seed path runs.
-- Keep database capacity lane-specific. Runtime execution, telemetry, feedback, management, realtime, cache refresh, and background jobs must not borrow each other's protected budgets.
+- Keep database capacity lane-specific. Runtime execution, telemetry, feedback, management, cache refresh, and background jobs must not borrow each other's protected budgets.
 - Keep request-path side effects on scheduler workers, durable outboxes, or after-commit wakeups.
 - When changing management route profile-scope or runtime-cache invalidation semantics, update `http/management_route_contract.json` with the code change instead of duplicating route expectations in frontend or backend tests.
 - Keep partitioned log-retention work on `logretention.Store` plus the low-priority `log_partition_maintenance` worker. Managed tables are `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
 - Keep retention jobs low-priority and management-owned through `managementjobs/`; handlers should enqueue jobs, not run partition cleanup inline.
-- Keep shutdown sequencing explicit: HTTP shutdown, realtime shutdown, side-effect drain, scheduler stop, service close, then DB close.
+- Keep shutdown sequencing explicit: HTTP shutdown, side-effect drain, scheduler stop, service close, then DB close.
 - Keep migrations fresh-install-only and schema-history-aware. Existing app tables without the current `prism_schema_migrations` baseline must fail fast instead of rewriting historical schemas.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
@@ -62,4 +62,4 @@ platform/
 - Do not put provider sends, cache invalidations, or dashboard publishes inline on request paths.
 - Do not treat external bootstrap file edits as watched or hot-published state.
 - Do not run log cleanup, partition drops, or horizon creation outside `logretention/` and the scheduler/job ownership seams.
-- Do not collapse named database lanes into a single shared pool when changing runtime, realtime, management, or background work.
+- Do not collapse named database lanes into a single shared pool when changing runtime, management, or background work.

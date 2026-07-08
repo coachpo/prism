@@ -26,12 +26,6 @@ function extractInterface(name) {
   return match[1];
 }
 
-function extractType(name) {
-  const match = typeSource.match(new RegExp(`export type ${name} =([\\s\\S]*?);\\n`));
-  assert.ok(match, `expected ${name} type to exist`);
-  return match[1];
-}
-
 test("DashboardSnapshot is stats-only with revision and usage-event watermark", () => {
   const dashboardSnapshot = extractInterface("DashboardSnapshot");
   const removedSnapshotField = new RegExp(["recent", "requests"].join("_"));
@@ -84,24 +78,9 @@ test("dashboard overview UI consumes separate recent activity items", () => {
   assert.doesNotMatch(recentActivityCardSource, /request\.id/);
 });
 
-test("dashboard realtime contracts are split and reject mixed update aliases", () => {
-  const snapshotPayload = extractInterface("DashboardRealtimeSnapshotPayload");
-  assert.match(snapshotPayload, /type: "dashboard\.snapshot";/);
-  assert.match(snapshotPayload, /profile_id: number;/);
-  assert.match(snapshotPayload, /snapshot: DashboardSnapshot;/);
-  assert.doesNotMatch(snapshotPayload, /activity/);
-
-  const activityPayload = extractInterface("DashboardRealtimeActivityPayload");
-  assert.match(activityPayload, /type: "dashboard\.activity";/);
-  assert.match(activityPayload, /profile_id: number;/);
-  assert.match(activityPayload, /activity_watermark: DashboardRecentActivityWatermark;/);
-  assert.match(activityPayload, /activity: DashboardRecentActivityItem;/);
-  assert.doesNotMatch(activityPayload, /activity: DashboardRecentActivityItem\[\]/);
-  assert.doesNotMatch(activityPayload, /snapshot/);
-
-  const realtimePayload = extractType("DashboardRealtimePayload");
-  assert.match(realtimePayload, /DashboardRealtimeSnapshotPayload/);
-  assert.match(realtimePayload, /DashboardRealtimeActivityPayload/);
-  assert.doesNotMatch(typeSource, /DashboardRealtimeUpdatePayload/);
+test("dashboard contracts stay REST-only after websocket retirement", () => {
+  assert.doesNotMatch(typeSource, /DashboardRealtime/);
   assert.doesNotMatch(typeSource, /dashboard\.update/);
+  assert.doesNotMatch(typeSource, /dashboard\.snapshot/);
+  assert.doesNotMatch(typeSource, /dashboard\.activity/);
 });

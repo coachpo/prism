@@ -13,6 +13,8 @@ func TestDashboardSpecSmokeContractSync(t *testing.T) {
 	smokePlan := readDocsFile(t, "SMOKE_TEST_PLAN.md")
 	retiredSnapshotField := strings.Join([]string{"recent", "requests"}, "_")
 	retiredRealtimeMessage := strings.Join([]string{"dashboard", "update"}, ".")
+	retiredDashboardSnapshotMessage := strings.Join([]string{"dashboard", "snapshot"}, ".")
+	retiredDashboardActivityMessage := strings.Join([]string{"dashboard", "activity"}, ".")
 
 	assertDocContains(t, "API_SPEC.md", apiSpec, []string{
 		"GET /api/stats/dashboard",
@@ -21,19 +23,18 @@ func TestDashboardSpecSmokeContractSync(t *testing.T) {
 		"source_watermark",
 		"GET /api/stats/dashboard/recent-activity?limit=N",
 		"activity_watermark",
-		"dashboard.snapshot",
-		"dashboard.activity",
+		"Recent activity links into request-log investigation",
 	})
 	assertDocContains(t, "SMOKE_TEST_PLAN.md", smokePlan, []string{
 		"Dashboard aggregate stats API",
 		"stats-only overview snapshot",
 		"Dashboard recent activity API",
-		"Dashboard websocket payload split",
-		"dashboard.snapshot",
-		"dashboard.activity",
+		"Dashboard REST payload split",
+		"GET /api/stats/dashboard",
+		"GET /api/stats/dashboard/recent-activity",
 	})
-	assertDocNotContains(t, "API_SPEC.md", apiSpec, []string{retiredSnapshotField, retiredRealtimeMessage})
-	assertDocNotContains(t, "SMOKE_TEST_PLAN.md", smokePlan, []string{retiredSnapshotField, retiredRealtimeMessage})
+	assertDocNotContains(t, "API_SPEC.md", apiSpec, []string{retiredSnapshotField, retiredRealtimeMessage, retiredDashboardSnapshotMessage, retiredDashboardActivityMessage, "WebSocket"})
+	assertDocNotContains(t, "SMOKE_TEST_PLAN.md", smokePlan, []string{retiredSnapshotField, retiredRealtimeMessage, retiredDashboardSnapshotMessage, retiredDashboardActivityMessage, "websocket", "WebSocket"})
 }
 
 func readDocsFile(t *testing.T, name string) string {

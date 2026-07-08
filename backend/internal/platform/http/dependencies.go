@@ -13,7 +13,6 @@ import (
 	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
 	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
-	realtimeapi "github.com/coachpo/prism/backend/internal/httpapi/realtime"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
@@ -33,7 +32,6 @@ type Dependencies struct {
 	EndpointsService          *managementendpoints.Service
 	LoadbalanceService        *managementloadbalance.Service
 	ModelsService             *managementmodels.Service
-	RealtimeService           *realtimeapi.Service
 	RuntimeService            *runtimeapi.Service
 	RuntimeCache              *runtimeapi.SharedCache
 	RuntimeState              *loadbalancedomain.LocalRuntimeStateStore

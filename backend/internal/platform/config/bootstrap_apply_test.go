@@ -53,8 +53,6 @@ func TestBootstrapConfigApplyRegistryCoversPlanFields(t *testing.T) {
 		bootstrapFieldDatabasePoolsRuntimeTelemetryMinIdle,
 		bootstrapFieldDatabasePoolsRuntimeFeedbackMaxConns,
 		bootstrapFieldDatabasePoolsRuntimeFeedbackMinIdle,
-		bootstrapFieldDatabasePoolsRealtimeMaxConns,
-		bootstrapFieldDatabasePoolsRealtimeMinIdleConns,
 		bootstrapFieldDatabasePoolsCacheRefreshMaxConns,
 		bootstrapFieldDatabasePoolsCacheRefreshMinIdle,
 		bootstrapFieldDatabasePoolsBackgroundJobsMaxConns,

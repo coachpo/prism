@@ -1,7 +1,6 @@
 import { useCallback } from "react";
 import { RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { WebSocketStatusIndicator } from "@/components/WebSocketStatusIndicator";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTimezone } from "@/hooks/useTimezone";
@@ -99,7 +98,6 @@ function DashboardAggregateSection({
         >
           <RefreshCw className={`h-4 w-4 ${data.isRefreshing ? "animate-spin" : ""}`} />
         </Button>
-        <WebSocketStatusIndicator connectionState={data.connectionState} isSyncing={data.isSyncing} />
       </OperatorPageHeader>
 
       <DashboardTabs pageState={pageState} />

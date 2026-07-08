@@ -74,7 +74,6 @@ test("profile scope helper keeps non-profile-scoped manifest rows and runtime ro
   }
 
   for (const route of [
-    "/api/realtime/ws",
     "/v1/chat/completions",
     "/v1beta/models/gemini:generateContent",
   ]) {

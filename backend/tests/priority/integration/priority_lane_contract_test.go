@@ -14,7 +14,7 @@ import (
 func TestPriorityLaneContract(t *testing.T) {
 	t.Run("physical lanes are explicit", func(t *testing.T) {
 		lanes := platformdb.ComponentLaneAssignments()
-		for _, lane := range []config.PostgresPoolLane{config.PostgresLaneRuntimeExecution, config.PostgresLaneRuntimeTelemetry, config.PostgresLaneRuntimeFeedback, config.PostgresLaneManagement, config.PostgresLaneRealtime, config.PostgresLaneCacheRefresh, config.PostgresLaneBackgroundJobs} {
+		for _, lane := range []config.PostgresPoolLane{config.PostgresLaneRuntimeExecution, config.PostgresLaneRuntimeTelemetry, config.PostgresLaneRuntimeFeedback, config.PostgresLaneManagement, config.PostgresLaneCacheRefresh, config.PostgresLaneBackgroundJobs} {
 			if got, ok := lanes[string(lane)]; !ok || got != lane {
 				t.Fatalf("lane %q missing or mismatched in component assignments: %q ok=%v", lane, got, ok)
 			}
@@ -34,11 +34,9 @@ func TestPriorityLaneContract(t *testing.T) {
 			"runtimeTelemetryPool := databasePools.RuntimeTelemetry.Raw()",
 			"runtimeFeedbackPool := databasePools.RuntimeFeedback.Raw()",
 			"managementPool := databasePools.Management.Raw()",
-			"realtimePool := databasePools.Realtime.Raw()",
 			"cacheRefreshPool := databasePools.CacheRefresh.Raw()",
 			"backgroundJobsPool := databasePools.BackgroundJobs.Raw()",
 			"FeedbackPool: runtimeFeedbackPool",
-			"RealtimePool: realtimePool",
 			"RefreshPool: cacheRefreshPool",
 			"ProxyKeyUsagePool: backgroundJobsPool",
 			"logRetentionStore := logretention.NewStore(logretention.Options{Pool: backgroundJobsPool})",
@@ -48,7 +46,7 @@ func TestPriorityLaneContract(t *testing.T) {
 				t.Fatalf("lifecycle wiring missing declared lane marker %q", want)
 			}
 		}
-		for _, forbidden := range []string{"FeedbackPool: runtimeExecutionPool", "FeedbackPool: runtimeTelemetryPool", "RealtimePool: managementPool", "RefreshPool: managementPool", "TelemetryPool: runtimeExecutionPool", "ProxyKeyUsagePool: managementPool", "logretention.Options{Pool: runtimeExecutionPool}", "logretention.Options{Pool: runtimeTelemetryPool}", "logretention.Options{Pool: runtimeFeedbackPool}"} {
+		for _, forbidden := range []string{"FeedbackPool: runtimeExecutionPool", "FeedbackPool: runtimeTelemetryPool", "RefreshPool: managementPool", "TelemetryPool: runtimeExecutionPool", "ProxyKeyUsagePool: managementPool", "logretention.Options{Pool: runtimeExecutionPool}", "logretention.Options{Pool: runtimeTelemetryPool}", "logretention.Options{Pool: runtimeFeedbackPool}"} {
 			if strings.Contains(lifecycle, forbidden) {
 				t.Fatalf("lifecycle wiring borrows forbidden lane %q", forbidden)
 			}

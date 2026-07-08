@@ -116,8 +116,6 @@ const (
 	bootstrapFieldDatabasePoolsRuntimeTelemetryMinIdle   = "database.pools.runtime_telemetry.min_idle_conns"
 	bootstrapFieldDatabasePoolsRuntimeFeedbackMaxConns   = "database.pools.runtime_feedback.max_conns"
 	bootstrapFieldDatabasePoolsRuntimeFeedbackMinIdle    = "database.pools.runtime_feedback.min_idle_conns"
-	bootstrapFieldDatabasePoolsRealtimeMaxConns          = "database.pools.realtime.max_conns"
-	bootstrapFieldDatabasePoolsRealtimeMinIdleConns      = "database.pools.realtime.min_idle_conns"
 	bootstrapFieldDatabasePoolsCacheRefreshMaxConns      = "database.pools.cache_refresh.max_conns"
 	bootstrapFieldDatabasePoolsCacheRefreshMinIdle       = "database.pools.cache_refresh.min_idle_conns"
 	bootstrapFieldDatabasePoolsBackgroundJobsMaxConns    = "database.pools.background_jobs.max_conns"
@@ -171,8 +169,6 @@ var bootstrapConfigFieldRegistry = []bootstrapConfigFieldRegistration{
 	restartRequiredBootstrapField(bootstrapFieldDatabasePoolsRuntimeTelemetryMinIdle, ""),
 	restartRequiredBootstrapField(bootstrapFieldDatabasePoolsRuntimeFeedbackMaxConns, ""),
 	restartRequiredBootstrapField(bootstrapFieldDatabasePoolsRuntimeFeedbackMinIdle, ""),
-	restartRequiredBootstrapField(bootstrapFieldDatabasePoolsRealtimeMaxConns, ""),
-	restartRequiredBootstrapField(bootstrapFieldDatabasePoolsRealtimeMinIdleConns, ""),
 	restartRequiredBootstrapField(bootstrapFieldDatabasePoolsCacheRefreshMaxConns, ""),
 	restartRequiredBootstrapField(bootstrapFieldDatabasePoolsCacheRefreshMinIdle, ""),
 	restartRequiredBootstrapField(bootstrapFieldDatabasePoolsBackgroundJobsMaxConns, ""),
@@ -349,7 +345,6 @@ func addBootstrapDatabasePoolFieldValues(fields map[string]bootstrapConfigFieldV
 		addBootstrapDatabasePoolLaneFieldValues(fields, bootstrapFieldDatabasePoolsRuntimeExecutionMaxConns, bootstrapFieldDatabasePoolsRuntimeExecutionMinIdle, nil)
 		addBootstrapDatabasePoolLaneFieldValues(fields, bootstrapFieldDatabasePoolsRuntimeTelemetryMaxConns, bootstrapFieldDatabasePoolsRuntimeTelemetryMinIdle, nil)
 		addBootstrapDatabasePoolLaneFieldValues(fields, bootstrapFieldDatabasePoolsRuntimeFeedbackMaxConns, bootstrapFieldDatabasePoolsRuntimeFeedbackMinIdle, nil)
-		addBootstrapDatabasePoolLaneFieldValues(fields, bootstrapFieldDatabasePoolsRealtimeMaxConns, bootstrapFieldDatabasePoolsRealtimeMinIdleConns, nil)
 		addBootstrapDatabasePoolLaneFieldValues(fields, bootstrapFieldDatabasePoolsCacheRefreshMaxConns, bootstrapFieldDatabasePoolsCacheRefreshMinIdle, nil)
 		addBootstrapDatabasePoolLaneFieldValues(fields, bootstrapFieldDatabasePoolsBackgroundJobsMaxConns, bootstrapFieldDatabasePoolsBackgroundJobsMinIdle, nil)
 		return
@@ -359,7 +354,6 @@ func addBootstrapDatabasePoolFieldValues(fields map[string]bootstrapConfigFieldV
 	addBootstrapDatabasePoolLaneFieldValues(fields, bootstrapFieldDatabasePoolsRuntimeExecutionMaxConns, bootstrapFieldDatabasePoolsRuntimeExecutionMinIdle, values.RuntimeExecution)
 	addBootstrapDatabasePoolLaneFieldValues(fields, bootstrapFieldDatabasePoolsRuntimeTelemetryMaxConns, bootstrapFieldDatabasePoolsRuntimeTelemetryMinIdle, values.RuntimeTelemetry)
 	addBootstrapDatabasePoolLaneFieldValues(fields, bootstrapFieldDatabasePoolsRuntimeFeedbackMaxConns, bootstrapFieldDatabasePoolsRuntimeFeedbackMinIdle, values.RuntimeFeedback)
-	addBootstrapDatabasePoolLaneFieldValues(fields, bootstrapFieldDatabasePoolsRealtimeMaxConns, bootstrapFieldDatabasePoolsRealtimeMinIdleConns, values.Realtime)
 	addBootstrapDatabasePoolLaneFieldValues(fields, bootstrapFieldDatabasePoolsCacheRefreshMaxConns, bootstrapFieldDatabasePoolsCacheRefreshMinIdle, values.CacheRefresh)
 	addBootstrapDatabasePoolLaneFieldValues(fields, bootstrapFieldDatabasePoolsBackgroundJobsMaxConns, bootstrapFieldDatabasePoolsBackgroundJobsMinIdle, values.BackgroundJobs)
 }
@@ -604,7 +598,6 @@ func bootstrapConfigValuesFromSettings(settings Settings) BootstrapConfigValues 
 				RuntimeExecution: bootstrapConfigDatabasePoolValuesFromBudget(postgresPools.RuntimeExecution),
 				RuntimeTelemetry: bootstrapConfigDatabasePoolValuesFromBudget(postgresPools.RuntimeTelemetry),
 				RuntimeFeedback:  bootstrapConfigDatabasePoolValuesFromBudget(postgresPools.RuntimeFeedback),
-				Realtime:         bootstrapConfigDatabasePoolValuesFromBudget(postgresPools.Realtime),
 				CacheRefresh:     bootstrapConfigDatabasePoolValuesFromBudget(postgresPools.CacheRefresh),
 				BackgroundJobs:   bootstrapConfigDatabasePoolValuesFromBudget(postgresPools.BackgroundJobs),
 			},

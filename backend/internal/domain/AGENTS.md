@@ -1,7 +1,7 @@
 # BACKEND DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`backend/internal/domain/` owns backend domain logic shared by management, runtime, realtime, and stats handlers without owning HTTP routing, platform lifecycle, or provider transport.
+`backend/internal/domain/` owns backend domain logic shared by management, runtime, and stats handlers without owning HTTP routing, platform lifecycle, or provider transport.
 
 ## STRUCTURE
 ```text
@@ -19,7 +19,7 @@ domain/
 - Runtime connection state, Ban Policy transitions, round-robin/weighted cursors, and load-balance event payloads: `loadbalance/`
 - Model-routing helper contracts shared with runtime planning and management authoring: `modelrouting/`, `terminaltarget/`
 - Dashboard aggregate snapshots, topology graphs, request-log read models, spending, throughput, usage snapshots, and rollups: `stats/AGENTS.md`, `stats/`
-- HTTP ownership that consumes these domains: `../httpapi/management/stats/AGENTS.md`, `../httpapi/runtime/AGENTS.md`, `../httpapi/realtime/AGENTS.md`
+- HTTP ownership that consumes these domains: `../httpapi/management/stats/AGENTS.md`, `../httpapi/runtime/AGENTS.md`
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
@@ -30,7 +30,7 @@ domain/
 - Keep domain helpers provider-agnostic. Provider-native request/response behavior belongs under `../gateway/provider/` or runtime operation hooks.
 
 ## ANTI-PATTERNS
-- Do not add HTTP handlers, middleware, cookies, proxy-key checks, or websocket message types here.
-- Do not borrow protected runtime, telemetry, feedback, management, realtime, cache-refresh, or background-job DB lanes from domain helpers.
+- Do not add HTTP handlers, middleware, cookies, or proxy-key checks here.
+- Do not borrow protected runtime, telemetry, feedback, management, cache-refresh, or background-job DB lanes from domain helpers.
 - Do not inline retention cleanup, partition creation, dashboard publishing, or telemetry/feedback side effects in domain calculations.
 - Do not let frontend display requirements redefine stats, load-balance, or request-log domain semantics.

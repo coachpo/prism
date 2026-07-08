@@ -11,7 +11,6 @@ components/
 ├── CopyButton.tsx                                     # Shared copy affordance
 ├── IconActionGroup.tsx                                # Shared icon action cluster
 ├── SpendTrustIndicator.tsx                            # Shared spend trust and fallback note
-├── WebSocketStatusIndicator.tsx                       # Shared realtime connection badge
 ├── layout/app-layout/AGENTS.md                        # Post-upgrade shell cluster behind the mounted page wrapper
 ├── loadbalance/AGENTS.md                              # Shared loadbalance renderers
 ├── statistics/AGENTS.md                               # Shared statistics renderers
@@ -23,7 +22,6 @@ components/
 - Shell state cluster plus nav/version ownership: `layout/app-layout/AGENTS.md`
 - Shared language/theme controls: `LanguageSwitcher.tsx`, `ThemeToggle.tsx`
 - Shared list, copy, icon action, and spend-trust note widgets: `AnimatedListItem.tsx`, `ApiFamilyIcon.tsx`, `ApiFamilySelect.tsx`, `CopyButton.tsx`, `IconActionGroup.tsx`, `SpendTrustIndicator.tsx`
-- Shared realtime connection badge: `WebSocketStatusIndicator.tsx`
 - Shared loadbalance rendering: `loadbalance/LoadbalanceBadges.tsx`, `loadbalance/LoadbalanceEventsTable.tsx`, `loadbalance/LoadbalanceEventDetailSheet.tsx`
 - Shared statistics rendering: `statistics/TopSpendingCard.tsx`
 - Design-system primitives and local wrappers: `ui/`
@@ -45,7 +43,6 @@ components/
 - Keep data fetching and route state out of this tree.
 - Keep shell-state ownership in `layout/app-layout/`; the direct components here should stay compositional or presentational.
 - Keep locale and theme controls in the shared preference widgets instead of duplicating them in auth pages or shell headers.
-- Keep shared websocket-health presentation in `WebSocketStatusIndicator.tsx` rather than rebuilding connection badges in pages.
 - Keep shared spend-trust fallback copy in `SpendTrustIndicator.tsx` instead of duplicating it across dashboard, models, statistics, or request-log views.
 - Reuse `ui/` primitives before adding one-off markup, and prefer local wrappers in `ui/` when a pattern belongs to the design system.
 - Keep semantic Tailwind tokens, `cn(...)` class composition, and shadcn variant/size props in shared components instead of raw color overrides or bespoke primitive copies.
@@ -59,5 +56,4 @@ components/
 ## ANTI-PATTERNS
 - Do not move nav-link or version-label logic out of `layout/app-layout/`.
 - Do not put page-specific fetches or route-state parsing in shared components.
-- Do not duplicate websocket-health badges across route folders.
 - Do not refer to deleted shell files or the old shell wrapper, header, or profile popover surfaces as live shared components.

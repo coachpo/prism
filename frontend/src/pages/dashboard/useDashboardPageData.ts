@@ -8,7 +8,7 @@ import type {
 } from "@/lib/types";
 import type { RoutingDiagramData } from "./routingDiagram";
 import { useDashboardBootstrapData } from "./useDashboardBootstrapData";
-import { useDashboardRealtime } from "./useDashboardRealtime";
+import { useDashboardPolling } from "./useDashboardPolling";
 
 interface UseDashboardPageDataInput {
   revision: number;
@@ -137,34 +137,26 @@ export function useDashboardPageData({
   selectedProfileId,
 }: UseDashboardPageDataInput) {
   const {
-    applyDashboardActivity,
     dashboardRecentActivity,
     dashboardRecentActivityItems,
     dashboardSnapshot,
     fetchDashboardData,
     loading,
-    reconcileDashboardSnapshot,
     routingDiagramError,
     routingDiagramLoading,
-    setRoutingDiagramError,
   } = useDashboardBootstrapData({
     revision,
     selectedProfileId,
   });
   const {
     clearRecentRequestHighlight,
-    connectionState,
     isRefreshing,
-    isSyncing,
     metricsHighlighted,
     recentNewIds,
     refreshDashboard,
-  } = useDashboardRealtime({
-    applyDashboardActivity,
+  } = useDashboardPolling({
     fetchDashboardData,
-    reconcileDashboardSnapshot,
     selectedProfileId,
-    setRoutingDiagramError,
   });
 
   useEffect(() => {
@@ -189,9 +181,7 @@ export function useDashboardPageData({
 
   return {
     clearRecentRequestHighlight,
-    connectionState,
     isRefreshing,
-    isSyncing,
     loading,
     metricsHighlighted,
     overviewData,

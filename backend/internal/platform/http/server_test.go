@@ -23,7 +23,6 @@ import (
 	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
 	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
-	realtimeapi "github.com/coachpo/prism/backend/internal/httpapi/realtime"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/admission"
 	"github.com/coachpo/prism/backend/internal/platform/config"
@@ -46,7 +45,6 @@ func TestManagementRouteSpecClassification(t *testing.T) {
 		{name: "general management route has explicit m2 tier", method: http.MethodGet, path: "/api/settings/auth/proxy-keys", want: priority.ManagementTierM2, ok: true},
 		{name: "connection batch read uses m2 tier", method: http.MethodPost, path: "/api/models/connections/batch", want: priority.ManagementTierM2, ok: true},
 		{name: "first shed stats route", method: http.MethodGet, path: "/api/stats/summary", want: priority.ManagementTierM3, ok: true},
-		{name: "trimmed mounted path still matches", method: http.MethodGet, path: "/realtime/ws", want: priority.ManagementTierM3, ok: true},
 		{name: "head maps to get", method: http.MethodHead, path: "/api/auth/status", want: priority.ManagementTierM1, ok: true},
 		{name: "options bypasses admission", method: http.MethodOptions, path: "/api/models", ok: false},
 		{name: "unknown management path stays unadmitted for router 404", method: http.MethodGet, path: "/api/not-mounted", ok: false},
@@ -337,11 +335,10 @@ func TestNewHandlerWithDependenciesMountsBaselineRoutes(t *testing.T) {
 		ManagementAdmissionControlBudget: config.ManagementAdmissionBudget{M2MaxConcurrent: 2, M3MaxConcurrent: 1},
 	}
 	handler, err := NewHandlerWithDependencies(settings, Dependencies{
-		Version:         "route-assembly-test",
-		DatabasePools:   &platformdb.DatabasePools{},
-		AuthService:     &managementauth.Service{},
-		RealtimeService: &realtimeapi.Service{},
-		RuntimeService:  &runtimeapi.Service{},
+		Version:        "route-assembly-test",
+		DatabasePools:  &platformdb.DatabasePools{},
+		AuthService:    &managementauth.Service{},
+		RuntimeService: &runtimeapi.Service{},
 	})
 	if err != nil {
 		t.Fatalf("create handler: %v", err)
@@ -357,7 +354,6 @@ func TestNewHandlerWithDependenciesMountsBaselineRoutes(t *testing.T) {
 	}{
 		{method: http.MethodGet, path: "/health"},
 		{method: http.MethodGet, path: "/api/auth/status"},
-		{method: http.MethodGet, path: "/api/realtime/ws"},
 		{method: http.MethodPost, path: "/v1/chat/completions"},
 		{method: http.MethodPost, path: "/v1/messages"},
 		{method: http.MethodPost, path: "/v1beta/models/gemini-pro:generateContent"},
@@ -394,7 +390,6 @@ func TestManagementRouteSpecsCoverMountedRoutes(t *testing.T) {
 		&managementendpoints.Service{},
 		&managementloadbalance.Service{},
 		&managementmodels.Service{},
-		&realtimeapi.Service{},
 		&managementsettings.Service{},
 		&managementstats.Service{},
 	).(*chi.Mux)

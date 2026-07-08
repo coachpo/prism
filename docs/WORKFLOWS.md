@@ -12,7 +12,7 @@ Validated again against current repo surfaces on 2026-07-07:
 - Shell navigation and route scoping: `frontend/src/components/layout/app-layout/useShellNavigation.ts`
 - Auth bootstrap and session flow: `frontend/src/context/AuthContext.tsx`
 - Default-profile scoping: `frontend/src/lib/api/core.ts`, `frontend/src/lib/api/profileScope.ts`
-- Backend router assembly: `backend/internal/httpapi/management/`, `backend/internal/httpapi/runtime/`, `backend/internal/httpapi/realtime/`, and `backend/internal/platform/http/server.go`
+- Backend router assembly: `backend/internal/httpapi/management/`, `backend/internal/httpapi/runtime/`, and `backend/internal/platform/http/server.go`
 - Backend API reference: `docs/API_SPEC.md`
 - Request-log details: `docs/REQUESTS_PAGE.md`
 
@@ -27,7 +27,7 @@ Validated again against current repo surfaces on 2026-07-07:
 - Public auth routes are `/auth/login`.
 - Protected shell routes cover `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/route/pricing`, `/system/settings`, and `/control/proxy-keys`; analytics is under `/observe?tab=analytics`.
 - Profile-scoped management requests are pinned to Default profile id `1`. `X-Profile-Id` is still accepted for compatibility, but the backend ignores its value.
-- Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/settings/auth*`, `/api/realtime/ws`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
+- Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/settings/auth*`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
 - Runtime proxy traffic on `/v1/*` and `/v1beta/*` ignores management profile headers and resolves against frozen Default profile id `1`.
 
 ## 1. Sign In And Session Bootstrap
@@ -80,7 +80,7 @@ Validated again against current repo surfaces on 2026-07-07:
 
 1. Dashboard overview bootstrap loads KPI cards, spending summaries, throughput, and routing data from the stats-only aggregate snapshot.
 2. Dashboard overview bootstrap loads recent activity from the separate recent-activity feed.
-3. The dashboard subscribes to realtime `dashboard.snapshot` messages for aggregate reconciliation and `dashboard.activity` messages for feed reconciliation.
+3. The dashboard polls REST stats endpoints every 30 seconds for aggregate and recent-activity reconciliation.
 4. Quick actions send operators into the analytics tab or `/observe/requests` for deeper analysis.
 5. The analytics tab stays aggregate-focused and uses its own snapshot presets rather than request-level drill-down.
 
@@ -88,8 +88,7 @@ Validated again against current repo surfaces on 2026-07-07:
 
 - `GET /api/stats/dashboard` for the overview aggregate snapshot, including backend-computed Routing Health Map data
 - `GET /api/stats/dashboard/recent-activity` for bounded request-history-backed dashboard activity
-- `WS /api/realtime/ws` for overview `dashboard.snapshot` and `dashboard.activity` reconciliation, and for analytics `analytics.snapshot` payloads
-- `GET /api/stats/usage-snapshot` for API callers, debugging, analytics REST fallback, and manual-refresh fallback when realtime analytics has not supplied a current snapshot
+- `GET /api/stats/usage-snapshot` for API callers, debugging, analytics polling, and manual refresh
 - `GET /api/stats/endpoints/{endpoint_id}/models` for analytics endpoint drilldown rows
 
 ## 4. Model Management And Model Detail
@@ -287,7 +286,7 @@ The expected pass signal is exit code `0`. Failures should be treated as regress
 
 Operational triage by symptom:
 
-- Lane budget pressure: identify the labeled DB lane first. `runtime_execution` protects proxy work; `management`, `realtime`, `cache_refresh`, `runtime_telemetry`, `runtime_feedback`, and `background_jobs` have separate budgets and should be remediated at their owning workload instead of increasing unrelated pools.
+- Lane budget pressure: identify the labeled DB lane first. `runtime_execution` protects proxy work; `management`, `cache_refresh`, `runtime_telemetry`, `runtime_feedback`, and `background_jobs` have separate budgets and should be remediated at their owning workload instead of increasing unrelated pools.
 - Overload or `Retry-After`: honor the retry delay and reduce client concurrency. M3 reporting and maintenance routes are expected to shed before M2/M1 management work, and management/background pressure should not affect proxy execution capacity.
 - Scheduler lag: expect delayed, coalesced, retried, or dropped background work according to worker policy. Do not add ad hoc goroutines or timers; register new recurring, retrying, or delayed work with the scheduler.
 - Outbox failures: inspect the relevant durable store state. Management side-effect outbox rows retry or become permanent failures without rolling back committed primary state.

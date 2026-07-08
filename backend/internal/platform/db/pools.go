@@ -24,7 +24,6 @@ type DatabasePools struct {
 	RuntimeExecution LanePool
 	RuntimeTelemetry LanePool
 	RuntimeFeedback  LanePool
-	Realtime         LanePool
 	CacheRefresh     LanePool
 	BackgroundJobs   LanePool
 	closeOnce        sync.Once
@@ -51,13 +50,12 @@ func OpenDatabasePools(ctx context.Context, databaseURL string, budget config.Po
 	}
 	slog.Info(
 		fmt.Sprintf(
-			"postgres pool budget: total_max_conns=%d management=%d runtime_execution=%d runtime_telemetry=%d runtime_feedback=%d realtime=%d cache_refresh=%d background_jobs=%d",
+			"postgres pool budget: total_max_conns=%d management=%d runtime_execution=%d runtime_telemetry=%d runtime_feedback=%d cache_refresh=%d background_jobs=%d",
 			budget.TotalMaxConns,
 			budget.Management.MaxConns,
 			budget.RuntimeExecution.MaxConns,
 			budget.RuntimeTelemetry.MaxConns,
 			budget.RuntimeFeedback.MaxConns,
-			budget.Realtime.MaxConns,
 			budget.CacheRefresh.MaxConns,
 			budget.BackgroundJobs.MaxConns,
 		),
@@ -66,12 +64,11 @@ func OpenDatabasePools(ctx context.Context, databaseURL string, budget config.Po
 		"runtime_execution", budget.RuntimeExecution.MaxConns,
 		"runtime_telemetry", budget.RuntimeTelemetry.MaxConns,
 		"runtime_feedback", budget.RuntimeFeedback.MaxConns,
-		"realtime", budget.Realtime.MaxConns,
 		"cache_refresh", budget.CacheRefresh.MaxConns,
 		"background_jobs", budget.BackgroundJobs.MaxConns,
 	)
 	pools := &DatabasePools{}
-	created := make([]LanePool, 0, 7)
+	created := make([]LanePool, 0, 6)
 	create := func(lane config.PostgresPoolLane, laneBudget config.DatabasePoolBudget) (LanePool, error) {
 		pool, err := openLanePool(ctx, databaseURL, lane, laneBudget)
 		if err != nil {
@@ -95,10 +92,6 @@ func OpenDatabasePools(ctx context.Context, databaseURL string, budget config.Po
 		return nil, err
 	}
 	if pools.RuntimeFeedback, err = create(config.PostgresLaneRuntimeFeedback, budget.RuntimeFeedback); err != nil {
-		closeCreatedLanePools(created)
-		return nil, err
-	}
-	if pools.Realtime, err = create(config.PostgresLaneRealtime, budget.Realtime); err != nil {
 		closeCreatedLanePools(created)
 		return nil, err
 	}
@@ -126,7 +119,7 @@ func (p *DatabasePools) Close() {
 		return
 	}
 	p.closeOnce.Do(func() {
-		for _, lanePool := range []LanePool{p.BackgroundJobs, p.CacheRefresh, p.Realtime, p.RuntimeFeedback, p.RuntimeTelemetry, p.RuntimeExecution, p.Management} {
+		for _, lanePool := range []LanePool{p.BackgroundJobs, p.CacheRefresh, p.RuntimeFeedback, p.RuntimeTelemetry, p.RuntimeExecution, p.Management} {
 			closeLanePool(lanePool)
 		}
 	})
@@ -136,8 +129,8 @@ func (p *DatabasePools) Metrics() []PoolMetricSnapshot {
 	if p == nil {
 		return nil
 	}
-	snapshots := make([]PoolMetricSnapshot, 0, 7)
-	for _, lanePool := range []LanePool{p.Management, p.RuntimeExecution, p.RuntimeTelemetry, p.RuntimeFeedback, p.Realtime, p.CacheRefresh, p.BackgroundJobs} {
+	snapshots := make([]PoolMetricSnapshot, 0, 6)
+	for _, lanePool := range []LanePool{p.Management, p.RuntimeExecution, p.RuntimeTelemetry, p.RuntimeFeedback, p.CacheRefresh, p.BackgroundJobs} {
 		if lanePool.pool == nil {
 			continue
 		}
@@ -193,7 +186,6 @@ func ComponentLaneAssignments() map[string]config.PostgresPoolLane {
 		"runtime_telemetry": config.PostgresLaneRuntimeTelemetry,
 		"runtime_feedback":  config.PostgresLaneRuntimeFeedback,
 		"management":        config.PostgresLaneManagement,
-		"realtime":          config.PostgresLaneRealtime,
 		"cache_refresh":     config.PostgresLaneCacheRefresh,
 		"background_jobs":   config.PostgresLaneBackgroundJobs,
 	}

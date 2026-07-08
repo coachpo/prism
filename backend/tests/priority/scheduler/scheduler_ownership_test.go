@@ -15,7 +15,6 @@ func TestSchedulerOwnsBackgroundWork(t *testing.T) {
 		"runtimePlanningCache.RegisterBackgroundWorker",
 		"managementAuthService.RegisterBackgroundWorkers",
 		"logRetentionStore.RegisterBackgroundWorker",
-		"asyncDashboardPublisher.RegisterBackgroundWorker",
 		"runtimeService.RegisterBackgroundWorkers",
 		"resources.scheduler.Start(ctx)",
 		"SchedulerStop:",
@@ -54,11 +53,6 @@ func TestSchedulerOwnsBackgroundWork(t *testing.T) {
 		"RegisterBackgroundWorker",
 		"runtime_feedback_pipeline",
 		"handleScheduledFeedback",
-	})
-	assertFileContainsAll(t, backendRoot, "internal/httpapi/realtime/async_publisher.go", []string{
-		"RegisterBackgroundWorker",
-		"async_dashboard_publisher",
-		"handleScheduledPublish",
 	})
 	assertFileContainsAll(t, backendRoot, "internal/httpapi/management/auth/proxy_key_usage_writer.go", []string{
 		"RegisterBackgroundWorker",

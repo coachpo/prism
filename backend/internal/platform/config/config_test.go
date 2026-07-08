@@ -33,12 +33,11 @@ func TestLoadCanonicalDefaultSettings(t *testing.T) {
 		t.Fatalf("unexpected canonical side-effects defaults: %+v", got)
 	}
 	assertPostgresPoolsBudget(t, settings.PostgresPoolsBudgetOrDefault(), PostgresPoolsBudget{
-		TotalMaxConns:    24,
+		TotalMaxConns:    22,
 		Management:       DatabasePoolBudget{MaxConns: 4, MinIdleConns: 1},
 		RuntimeExecution: DatabasePoolBudget{MaxConns: 8, MinIdleConns: 2},
 		RuntimeTelemetry: DatabasePoolBudget{MaxConns: 4, MinIdleConns: 1},
 		RuntimeFeedback:  DatabasePoolBudget{MaxConns: 2, MinIdleConns: 0},
-		Realtime:         DatabasePoolBudget{MaxConns: 2, MinIdleConns: 0},
 		CacheRefresh:     DatabasePoolBudget{MaxConns: 2, MinIdleConns: 0},
 		BackgroundJobs:   DatabasePoolBudget{MaxConns: 2, MinIdleConns: 0},
 	})
@@ -108,6 +107,22 @@ func TestBootstrapConfigAcceptsStaleOpenAITerminalTranslationMode(t *testing.T) 
 	}
 	if settings.RuntimeTransportConfig.RequestTimeout != defaultRuntimeTransportRequestTimeout {
 		t.Fatalf("expected stale routing field to leave runtime settings unchanged, got %+v", settings.RuntimeTransportConfig)
+	}
+}
+
+func TestBootstrapConfigAcceptsStaleRealtimePool(t *testing.T) {
+	var payload map[string]any
+	if err := json.Unmarshal(seededBootstrapPayload(t), &payload); err != nil {
+		t.Fatalf("decode seeded bootstrap payload: %v", err)
+	}
+	payload["database"].(map[string]any)["pools"].(map[string]any)["realtime"] = map[string]any{"maxConns": float64(0), "minIdleConns": float64(0)}
+
+	settings, err := NewBootstrapConfigManager(BootstrapConfigManagerOptions{}).Parse(mustMarshalBootstrapPayload(t, payload))
+	if err != nil {
+		t.Fatalf("expected stale realtime pool field to be ignored, got %v", err)
+	}
+	if got := settings.PostgresPoolsBudgetOrDefault().SumMaxConns(); got != 22 {
+		t.Fatalf("expected stale realtime pool to stay out of active budget, got sum=%d", got)
 	}
 }
 

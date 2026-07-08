@@ -6,7 +6,7 @@
 ## STRUCTURE
 ```text
 management/
-├── auth/            # auth bootstrap/status, sessions, proxy API keys, runtime auth cache, realtime auth state
+├── auth/            # auth bootstrap/status, sessions, proxy API keys, runtime auth cache
 ├── audit/           # audit-log reads and management job list/get/cancel
 ├── configrules/     # User-Agent Client Rules CRUD
 ├── connections/     # private connections, health probes, pricing templates
@@ -20,7 +20,7 @@ management/
 
 ## WHERE TO LOOK
 - Router assembly and management middleware order: `../../../platform/http/management_branch.go`
-- Auth/session/proxy-key/runtime-auth cache/realtime auth-state seams: `auth/AGENTS.md`, `auth/`
+- Auth/session/proxy-key/runtime-auth cache seams: `auth/AGENTS.md`, `auth/`
 - Model graph authoring and validation: `models/AGENTS.md`, `models/routes.go`, `models/store.go`
 - Endpoint, connection, load-balance, and config-rule CRUD leaves: `endpoints/AGENTS.md`, `connections/AGENTS.md`, `loadbalance/AGENTS.md`, `configrules/AGENTS.md`
 - Product observability and retention-job APIs: `stats/AGENTS.md`, `audit/AGENTS.md`, `settings/AGENTS.md`

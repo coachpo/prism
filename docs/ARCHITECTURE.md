@@ -17,7 +17,6 @@ backend/
 │   ├── httpapi/
 │   │   ├── management/         # /api/* management handlers
 │   │   ├── runtime/            # operation-registered /v1 and /v1beta proxy handlers
-│   │   └── realtime/           # WebSocket room management and publishing
 │   ├── platform/
 │   │   ├── config/             # startup bootstrap JSON and runtime settings
 │   │   ├── http/               # server assembly and route mounting
@@ -31,7 +30,7 @@ backend/
 │   ├── endpointdomain/         # endpoint and connection helpers
 │   ├── profiledomain/          # Default profile helpers and frozen runtime snapshot loading
 ├── migrations/                 # Fresh-install SQL baseline applied at startup
-├── testdata/                   # request, bootstrap, and realtime fixtures
+├── testdata/                   # request and bootstrap fixtures
 ├── tests/                      # Go contract, integration, and runtime regressions
 ├── Dockerfile                  # live Go backend image build
 ├── docker-compose.yml          # local PostgreSQL helper on host port 15432
@@ -56,7 +55,6 @@ frontend/
 │   │   ├── reportingCurrency.ts # Shared reporting-currency cache and normalization
 │   │   ├── timezone.ts         # Shared timezone formatting helpers
 │   ├── hooks/
-│   │   ├── useRealtimeData.ts  # WebSocket-backed live refresh helper
 │   │   └── useTimezone.ts      # Shared timezone formatting helper
 │   ├── components/
 │   │   ├── layout/page.tsx     # Protected shell wrapper with sidebar provider and Outlet
@@ -104,11 +102,11 @@ frontend/
 
 Prism assigns trusted backend priority metadata before work touches shared resources. Runtime proxy traffic is `proxy`, management routes are `management` with an explicit `M1`, `M2`, or `M3` tier, and scheduler-owned workers are `background` with a declared subclass, budget, coalescing policy, retry policy, and drain policy. Priority-sensitive backend changes should stay covered by the standard priority regression tests, including `go test ./tests/priority/...`.
 
-PostgreSQL capacity is split into finite named lanes: `runtime_execution`, `runtime_telemetry`, `runtime_feedback`, `management`, `realtime`, `cache_refresh`, and `background_jobs`. Operators should treat lane saturation by owner: proxy execution pressure is separate from management UI pressure, telemetry drain pressure, lossy feedback drain pressure, realtime fanout, cache refresh, and generic background jobs. Background or management saturation must not consume protected proxy capacity.
+PostgreSQL capacity is split into finite named lanes: `runtime_execution`, `runtime_telemetry`, `runtime_feedback`, `management`, `cache_refresh`, and `background_jobs`. Operators should treat lane saturation by owner: proxy execution pressure is separate from management UI pressure, telemetry drain pressure, lossy feedback drain pressure, cache refresh, and generic background jobs. Background or management saturation must not consume protected proxy capacity.
 
 Management overload is reported as typed admission failure with retry metadata. Lower-priority M3 reporting and maintenance routes shed before M2 and M1 management work, and proxy traffic remains isolated from management/background saturation. When overload appears, retry after the advertised delay rather than increasing client concurrency.
 
-Scheduler lag means background workers are queued, coalesced, delayed, retried, or dropped according to their worker policy. Lag can delay dashboard fanout, telemetry materialization, management side-effect dispatch, cache warming, and proxy-key usage flushing, but it must not make request-path handlers borrow direct goroutines, direct DB handles, or unmanaged timers.
+Scheduler lag means background workers are queued, coalesced, delayed, retried, or dropped according to their worker policy. Lag can delay dashboard materialization, telemetry materialization, management side-effect dispatch, cache warming, and proxy-key usage flushing, but it must not make request-path handlers borrow direct goroutines, direct DB handles, or unmanaged timers.
 
 Durable outboxes expose failure as queued, retry, sent/succeeded, dead-letter, or permanent-failure state depending on the store. Management side-effect dispatch failures retry or become visibly permanent failures without rolling back the already committed primary management mutation.
 
@@ -202,7 +200,7 @@ Runtime compatibility and redirect checks use each model's required `api_family`
   - Global management routes omit `X-Profile-Id`.
   - Profile-scoped management routes accept `X-Profile-Id`, but the backend ignores its value and resolves against Default profile id `1`.
   - Supported runtime operations under `/v1` and `/v1beta` ignore management overrides and always resolve against frozen Default profile id `1`.
-- Global management routes include `/api/auth/*`, `/api/realtime/*`, auth and proxy-key settings under `/api/settings/auth*`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
+- Global management routes include `/api/auth/*`, auth and proxy-key settings under `/api/settings/auth*`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
 - Multi-profile management is frozen. Profile-scoped management reads and writes are pinned to Default id `1`; runtime routing still loads the published Default-profile runtime snapshot.
 - Scope-control errors return stable `code` values plus human-readable `detail` text.
 - Supported runtime operations always resolve against frozen Default profile id `1` and ignore override headers.
@@ -230,33 +228,28 @@ build_upstream_headers():
 
 Custom headers are a power-user feature. They can override ordinary forwarded headers, but they cannot override Prism-controlled authentication or provider-version headers and cannot re-add headers blocked by the Header Blocklist. This is enforced by skipping proxy-controlled custom header names and applying the blocklist last in the header construction pipeline.
 
-### 3.7 Realtime Dashboard And Analytics Updates
+### 3.7 Dashboard And Analytics REST Polling
 
 ```
-Dashboard overview page -> WebSocket connect /api/realtime/ws
-  -> If auth enabled: management auth handlers validate the access-token cookie
-  -> Client sends {type: "subscribe", profile_id: 1, channel: "dashboard"}
-  -> Realtime manager stores dashboard room membership keyed by Default profile id 1 and channel
+Dashboard overview page
+  -> Initial bootstrap reads the stats-only snapshot from GET /api/stats/dashboard
+  -> Initial bootstrap reads recent activity from GET /api/stats/dashboard/recent-activity
+  -> Page hook polls both REST endpoints every 30 seconds and on manual refresh
+  -> Overview and backend-owned topology graph state reconcile against snapshot_revision
+  -> Activity rows reconcile by request_log_id for feed dedupe and request-log drilldown
 
 Proxy request completes
   -> Runtime telemetry persists request history and usage-event data
-  -> Dashboard activity publisher sends {type: "dashboard.activity", profile_id: 1, activity_watermark, activity} with one request-history item
-  -> Dashboard snapshot publisher sends {type: "dashboard.snapshot", profile_id: 1, snapshot} only after aggregate snapshot rebuilds
-  -> REST bootstrap reads the stats-only snapshot from GET /api/stats/dashboard
-  -> REST bootstrap reads recent activity from GET /api/stats/dashboard/recent-activity
-  -> Overview and backend-owned topology graph state reconcile against the snapshot revision, while activity rows reconcile separately
+  -> Dashboard and analytics REST reads observe retained history after telemetry materializes
 
-Dashboard analytics tab -> WebSocket connect /api/realtime/ws
-  -> Client sends {type: "subscribe", profile_id: 1, channel: "analytics", preset}
-  -> Realtime manager stores analytics room membership keyed by Default profile id 1, channel, and preset scope
-  -> Service sends an initial full `analytics.snapshot` for that frozen Default profile id 1 and preset
-  -> Manual refresh sends {type: "refresh", profile_id: 1, channel: "analytics", preset}
-  -> Refresh returns a fresh full `analytics.snapshot` on the socket
-  -> Analytics snapshots include the usage snapshot plus endpoint model statistics keyed by endpoint ID string
-  -> The frontend treats each `analytics.snapshot` as a full replacement for that scoped analytics view
+Dashboard analytics tab
+  -> Initial load reads GET /api/stats/usage-snapshot?preset={preset}
+  -> Page hook polls the same REST snapshot every 30 seconds and on manual refresh
+  -> Endpoint drilldown rows load through GET /api/stats/endpoints/{endpoint_id}/models
+  -> The frontend treats each accepted snapshot as a full replacement for that scoped analytics view
 ```
 
-The realtime API has two supported channels. The dashboard channel emits `dashboard.snapshot` for stats-only aggregate snapshots and `dashboard.activity` for single request-history feed entries. Snapshot ordering uses lexicographic `snapshot_revision`; `source_watermark` is diagnostic. Activity uses `activity_watermark` and `request_log_id` for feed reconciliation and request-log drilldown only. `analytics.snapshot` is frozen to Default profile id 1 plus `preset` inside the WebSocket message payload and is the Analytics tab's preferred data path; the current UI falls back to `GET /api/stats/usage-snapshot` when no realtime snapshot arrives, uses the same REST route for manual-refresh fallback, and uses endpoint model statistics REST calls for drilldown. The REST stats endpoints, including `GET /api/stats/dashboard`, `GET /api/stats/dashboard/recent-activity`, request-history detail/list routes, spending, throughput, model metrics, and `GET /api/stats/usage-snapshot`, remain product-facing retained-history APIs.
+Dashboard and analytics updates use REST polling rather than a persistent browser transport. Snapshot ordering uses lexicographic `snapshot_revision`; `source_watermark` is diagnostic. Activity uses `activity_watermark` and `request_log_id` for feed reconciliation and request-log drilldown only. The REST stats endpoints, including `GET /api/stats/dashboard`, `GET /api/stats/dashboard/recent-activity`, request-history detail/list routes, spending, throughput, model metrics, and `GET /api/stats/usage-snapshot`, remain product-facing retained-history APIs.
 
 ## 4. Routing Strategies and Runtime Health Signals
 
@@ -319,7 +312,7 @@ Profile-scoped management APIs are frozen to Default id `1`. They accept `X-Prof
 
 ### 5.5 Dashboard topology graph
 
-`GET /api/stats/dashboard` and the snapshot inside realtime `dashboard.snapshot` include a backend-owned `topology_graph` alongside the legacy `routing_health_map`. The graph is built from Default-profile configuration and final-attributed telemetry in the backend, not reconstructed by the browser from management reads. Disabled models remain present as muted model nodes, inactive terminal targets remain present as muted target nodes, and endpoint nodes stay visible when referenced by configured terminal targets. During the additive compatibility wave, the backend keeps compatibility kinds (`connection`, `model_to_connection`, and `connection_to_endpoint`) and exposes product-facing terminal-target meaning through `product_kind`, with `connection_id` retained as the persisted compatibility identifier.
+`GET /api/stats/dashboard` includes a backend-owned `topology_graph` alongside the legacy `routing_health_map`. The graph is built from Default-profile configuration and final-attributed telemetry in the backend, not reconstructed by the browser from management reads. Disabled models remain present as muted model nodes, inactive terminal targets remain present as muted target nodes, and endpoint nodes stay visible when referenced by configured terminal targets. During the additive compatibility wave, the backend keeps compatibility kinds (`connection`, `model_to_connection`, and `connection_to_endpoint`) and exposes product-facing terminal-target meaning through `product_kind`, with `connection_id` retained as the persisted compatibility identifier.
 
 ## 6. Terminal Target Health Detection
 

@@ -1,7 +1,7 @@
 # FRONTEND DASHBOARD DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/dashboard/` owns the legacy tabbed dashboard composition rendered through the `/observe` rewrite route adapter: overview-versus-analytics query state, overview bootstrap and realtime reconciliation, analytics handoff into the statistics surface, and the nested routing visualization leaf.
+`pages/dashboard/` owns the legacy tabbed dashboard composition rendered through the `/observe` rewrite route adapter: overview-versus-analytics query state, overview bootstrap and polling reconciliation, analytics handoff into the statistics surface, and the nested routing visualization leaf.
 
 ## STRUCTURE
 ```
@@ -12,7 +12,7 @@ dashboard/
 ├── DashboardAnalyticsContent.tsx   # Analytics-tab handoff into the statistics surface
 ├── useDashboardPageData.ts         # Overview bootstrap composition and derived dashboard data
 ├── useDashboardBootstrapData.ts    # Parallel bootstrap fetches and routing payload load
-├── useDashboardRealtime.ts         # Realtime subscription and coalesced reconciliation
+├── useDashboardPolling.ts          # REST polling and coalesced reconciliation
 ├── DashboardMetricsGrid.tsx        # KPI grid and highlighted metrics
 ├── DashboardHighlightsGrid.tsx     # Summary and api-family highlights
 ├── RecentActivityCard.tsx          # Recent requests list with insert highlighting
@@ -36,7 +36,7 @@ dashboard/
 - Analytics-tab handoff into the dashboard-owned statistics domain, which has no standalone `/statistics` route: `DashboardAnalyticsContent.tsx`, `../statistics/AGENTS.md`
 - High-level overview data composition: `useDashboardPageData.ts`
 - Initial bootstrap fan-out and routing payload shaping: `useDashboardBootstrapData.ts`
-- Realtime payload flow: `useDashboardRealtime.ts`, which reconciles backend `dashboard.snapshot` and `dashboard.activity` payloads separately
+- Dashboard polling flow: `useDashboardPolling.ts`, which refreshes REST snapshot and recent activity data through `useDashboardBootstrapData.ts`
 - Routing visualization barrel and leaf cluster: `routingDiagram.ts`, `RoutingDiagramCard.tsx`, `routing-diagram/AGENTS.md`
 - KPI, highlight, recent-activity, and spend presentation: `DashboardMetricsGrid.tsx`, `DashboardHighlightsGrid.tsx`, `RecentActivityCard.tsx`, `TopSpendingModelsCard.tsx`, `DashboardPageSkeleton.tsx`
 - E2E seams for aggregate bootstrap, routing-shell navigation, exact request-log handoff, and dashboard reporting-currency display: `../../../tests/e2e/dashboard-aggregate-overview.spec.ts`, `../../../tests/e2e/dashboard-routing-shell.spec.ts`, `../../../tests/e2e/dashboard-reporting-currency.spec.ts`
@@ -51,9 +51,9 @@ dashboard/
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
-- Keep dashboard live state on `useDashboardRealtime.ts` and the shared `useRealtimeData()` hook.
+- Keep dashboard live refresh on `useDashboardPolling.ts`; hooks own the interval, not components.
 - Keep the overview-versus-analytics tab split on `queryParams.ts` and `useDashboardPageState.ts` instead of local component state.
-- Reconnect and manual refresh should reconcile through REST bootstrap data. Snapshot reconciliation uses lexicographic `snapshot_revision`; recent activity reconciliation uses request-log IDs only for feed dedupe and drilldown.
+- Polling and manual refresh should reconcile through REST bootstrap data. Snapshot reconciliation uses lexicographic `snapshot_revision`; recent activity reconciliation uses request-log IDs only for feed dedupe and drilldown.
 - Treat `routingDiagram.ts` as the barrel entrypoint for routing visualization and let `routing-diagram/AGENTS.md` own the layout, flow rendering, and mobile fallback split beneath it.
 - Keep overview presentation components focused on rendering. Bootstrap, payload shaping, and merge logic belong in the dashboard hooks.
 
@@ -64,7 +64,7 @@ dashboard/
 
 ## ANTI-PATTERNS
 
-- Do not bypass `useDashboardRealtime.ts` for dashboard-specific live state.
+- Do not bypass `useDashboardPolling.ts` for dashboard-specific live refresh.
 - Do not move overview-or-analytics tab state out of `queryParams.ts` and `useDashboardPageState.ts` into ad hoc local state.
 - Do not hard-code routing-diagram data assembly in card components when `routingDiagram.ts` already fronts that local cluster.
-- Do not duplicate routing-diagram layout, aggregation, or realtime merge logic in page-level hooks or cards when the local leaf cluster already owns it.
+- Do not duplicate routing-diagram layout, aggregation, or polling merge logic in page-level hooks or cards when the local leaf cluster already owns it.

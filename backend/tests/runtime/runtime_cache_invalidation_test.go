@@ -21,7 +21,6 @@ func TestRuntimeCacheInvalidation(t *testing.T) {
 	t.Run("PlanningCacheInvalidationAfterHeaderBlocklistWrite", runtimePlanningCacheInvalidationAfterHeaderBlocklistWrite)
 	t.Run("PlanningCacheInvalidationAfterAuditSettingsWrite", runtimePlanningCacheInvalidationAfterAuditSettingsWrite)
 	t.Run("PlanningCacheInvalidationAfterOwnerScopedConnectionAndTargetMutations", runtimePlanningCacheInvalidationAfterOwnerScopedConnectionAndTargetMutations)
-	t.Run("DashboardTopologyRepublishAfterModelMutation", TestDashboardSnapshotReplayWithoutRequestLog)
 }
 
 func runtimeAuthCacheInvalidationAfterProxyKeyRotation(t *testing.T) {

@@ -9,10 +9,8 @@ func TestPublicManagementPathExact(t *testing.T) {
 		want bool
 	}{
 		{name: "login", path: "/api/auth/login", want: true},
-		{name: "realtime websocket", path: "/api/realtime/ws", want: true},
 		{name: "login slash suffix", path: "/api/auth/login/", want: false},
 		{name: "login sibling", path: "/api/auth/logins", want: false},
-		{name: "realtime sibling", path: "/api/realtime/ws/extra", want: false},
 	}
 
 	for _, tc := range tests {

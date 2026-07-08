@@ -38,9 +38,8 @@ func TestProductionCleanupOrdersSideEffectDrainBeforeSchedulerStopAndDBCloseLast
 		}
 	}
 	resources := &productionResources{
-		scheduler:        scheduler,
-		realtimeShutdown: []ShutdownHook{record("realtime close", nil)},
-		sideEffectDrain:  []ShutdownHook{record("side effect drain", sideEffectErr)},
+		scheduler:       scheduler,
+		sideEffectDrain: []ShutdownHook{record("side effect drain", sideEffectErr)},
 		serviceClose: []ShutdownHook{func(ctx context.Context) error {
 			assertSetupFailureCleanupContext(t, ctx)
 			result := scheduler.Submit(ctx, background.JobRequest{Worker: workerName})
@@ -59,7 +58,7 @@ func TestProductionCleanupOrdersSideEffectDrainBeforeSchedulerStopAndDBCloseLast
 	if !errors.Is(err, sideEffectErr) {
 		t.Fatalf("cleanup error %v does not include %v", err, sideEffectErr)
 	}
-	want := []string{"realtime close", "side effect drain", "service close", "db close"}
+	want := []string{"side effect drain", "service close", "db close"}
 	if !reflect.DeepEqual(events, want) {
 		t.Fatalf("cleanup order = %v, want %v", events, want)
 	}

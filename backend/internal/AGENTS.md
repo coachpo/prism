@@ -7,7 +7,7 @@
 ```text
 internal/
 ├── platform/      # lifecycle, config, DB lanes, HTTP assembly, workers, retention
-├── httpapi/       # management API, runtime proxy, realtime, request context
+├── httpapi/       # management API, runtime proxy, request context
 ├── gateway/       # provider-neutral envelopes, hooks, adapters, routing, accounting
 ├── domain/        # HTTP-neutral audit, loadbalance, model-routing, stats, terminal targets
 ├── pgxutil/       # shared PostgreSQL transaction helpers
@@ -19,7 +19,7 @@ internal/
 
 ## WHERE TO LOOK
 - Production composition, bootstrap config, DB lanes, scheduler, side effects, and retention: `platform/AGENTS.md`
-- HTTP mount seams, management fanout, runtime proxy ingress, realtime delivery, request-context helpers, and proxy-key usage: `httpapi/AGENTS.md`
+- HTTP mount seams, management fanout, runtime proxy ingress, request-context helpers, and proxy-key usage: `httpapi/AGENTS.md`
 - Runtime gateway contracts, provider adapters, route planning, reservations, hook execution, and accounting records: `gateway/AGENTS.md`
 - Audit, loadbalance, stats, terminal-target, and model-routing helpers that must stay HTTP-neutral: `domain/AGENTS.md`
 - SQL transaction helper ownership: `pgxutil/tx.go`

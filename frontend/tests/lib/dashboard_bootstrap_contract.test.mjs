@@ -182,7 +182,7 @@ test("bootstrap fetches snapshot and recent activity through separate typed API 
     ["dashboard"],
     ["dashboardRecentActivity", { limit: 12 }],
   ]);
-  assert.deepEqual(result, { recentActivityApplied: true, snapshotApplied: true });
+  assert.deepEqual(result, { newRecentActivityIds: [101], recentActivityApplied: true, snapshotApplied: true });
   assert.equal(harness.states[1], expectedSnapshot);
   assert.equal(harness.states[2], expectedActivity);
 });

@@ -181,7 +181,6 @@ Prepare seed state through API (not manual DB edits):
 | `POST /api/auth/logout` | N04 |
 | `POST /api/auth/refresh` | N05 |
 | `GET /api/auth/session` | N06 |
-| `WS /api/realtime/ws` | I26, I30, I31, I37 |
 
 ---
 
@@ -197,7 +196,7 @@ Prepare seed state through API (not manual DB edits):
 | A04 | P0 | `GET /health` | `200`, JSON contains `status=ok` and a non-empty `version` string |
 | A05 | P1 | Backend-served API documentation surface | Not exposed by the backend |
 | A06 | P1 | CORS preflight | Local launcher traffic stays same-origin through the Vite proxy in `full` mode; explicit backend base URLs remain available for standalone frontend workflows |
-| A07 | P1 | Root Docker Compose bundle | `docker compose up --build` exposes the public Prism port, `GET /health` succeeds through Nginx, SPA fallback serves frontend assets, and `/api/realtime/ws` reaches the backend upgrade path |
+| A07 | P1 | Root Docker Compose bundle | `docker compose up --build` exposes the public Prism port, `GET /health` succeeds through Nginx, SPA fallback serves frontend assets, and `/api`, `/v1`, and `/v1beta` proxy paths reach the private backend upstream |
 | A08 | P1 | Single-image `BUILD_FRONTEND=false` fallback | Root Dockerfile build with `BUILD_FRONTEND=false` serves the fallback page while `/health`, `/api/*`, `/v1`, and `/v1beta` proxy paths still reach the private backend upstream |
 
 ## B. Configuration CRUD and Validation
@@ -378,18 +377,18 @@ Prepare seed state through API (not manual DB edits):
 | I23 | P0 | Spending "Special Tokens Captured" card correctness | Card shows cached total and detail |
 | I24 | P0 | Responsive token visibility below `xl` | Compact `Usage` column shows summary |
 | I25 | P0 | No-regression check for existing costing indicators | Existing spend columns still render correctly |
-| I26 | P0 | Dashboard websocket data-push recent activity | New request appears in Recent Activity within 1s of a proxy request |
+| I26 | P0 | Dashboard polling recent activity | New request appears in Recent Activity after the next REST poll or manual refresh |
 | I27 | P0 | Request logs manual refresh and exact-request mode | Refresh reloads the current server slice; `request_id` mode fetches only the targeted request |
 | I28 | P0 | Loadbalance events tab REST refresh | Refresh or page revisit loads the latest failover and Ban Policy events for the model |
 | I29 | P0 | Dedicated request audit page lookup | Opening `/observe/requests/:requestId/audit` triggers linked-audit lookup, skips fetches when audit was disabled for that request, and reports empty, missing, list-error, or detail-error states without fetching audit payloads in the overview drawer |
-| I30 | P0 | Dashboard reconnect reconciliation | Dashboard refetches ground truth after websocket reconnect and resumes push updates |
-| I31 | P1 | Dashboard websocket payload split | `dashboard.snapshot` refreshes summary, api_family, spending, throughput, and routing data; `dashboard.activity` inserts one recent activity row without forcing a snapshot rebuild |
-| I32 | P1 | Recent activity insertion animations | New dashboard websocket-driven rows animate on insert, with reduced-motion fallback showing static highlight only |
+| I30 | P0 | Dashboard REST reconciliation | Dashboard refetches ground truth on poll/manual refresh and ignores stale snapshots |
+| I31 | P1 | Dashboard REST payload split | `GET /api/stats/dashboard` refreshes summary, api_family, spending, throughput, and routing data; `GET /api/stats/dashboard/recent-activity` refreshes recent activity without forcing a snapshot rebuild |
+| I32 | P1 | Recent activity insertion animations | New dashboard REST-polled rows animate on insert, with reduced-motion fallback showing static highlight only |
 | I33 | P1 | Request-log scroll preservation | Virtualized browsing preserves scroll position while filters, page changes, or detail selection update the view |
 | I34 | P1 | Request-log retained-filter state | Changing one retained filter preserves unrelated URL-backed filter state, resets pagination, and refreshes the server-backed slice without client-side refinement gating |
 | I35 | P0 | Frontend locale switch (public + protected) | Switching between `en` and `zh-CN` updates shell and page copy, persists across refresh, and updates `document.documentElement.lang` |
 | I36 | P0 | Locale-aware management formatting | Settings, statistics, request logs, and proxy-key metadata render numbers/timestamps in the selected locale |
-| I37 | P0 | Analytics websocket primary path and REST fallback | `/observe?tab=analytics` subscribes with `{type:"subscribe", channel:"analytics", profile_id, preset}`, accepts full `analytics.snapshot` payloads with `endpoint_model_statistics_by_endpoint_id`, falls back to `GET /api/stats/usage-snapshot` when realtime data does not arrive, and uses endpoint model stats REST for endpoint drilldown |
+| I37 | P0 | Analytics REST polling path | `/observe?tab=analytics` polls `GET /api/stats/usage-snapshot?preset=...`, treats each accepted snapshot as a full replacement, and uses endpoint model stats REST for endpoint drilldown |
 
 ## J. Non-Functional Smoke
 

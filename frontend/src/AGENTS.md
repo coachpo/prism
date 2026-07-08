@@ -1,7 +1,7 @@
 # FRONTEND SRC KNOWLEDGE BASE
 
 ## OVERVIEW
-`frontend/src/` owns the browser application source below the Vite entrypoint: route construction, feature routes, legacy page clusters, shared shell/components, providers, hooks, locale state, typed API, websocket client, shared helpers, and frontend test seams.
+`frontend/src/` owns the browser application source below the Vite entrypoint: route construction, feature routes, legacy page clusters, shared shell/components, providers, hooks, locale state, typed API, shared helpers, and frontend test seams.
 
 ## STRUCTURE
 ```text
@@ -13,7 +13,7 @@ src/
 ├── context/      # auth, theme, reporting currency
 ├── hooks/        # shared React hooks
 ├── i18n/         # locale provider, formatting, static messages
-├── lib/          # typed API, websocket, reference data, browser integration
+├── lib/          # typed API, reference data, browser integration
 ├── shared/       # cross-route design-system, table, forms, API helpers
 ├── shell/        # shell navigation helpers
 └── test/         # Vitest/jsdom setup and MSW seams
@@ -26,8 +26,8 @@ src/
 - Legacy page clusters, dense request-log/settings/statistics/dashboard surfaces, and page-local child docs: `pages/AGENTS.md`
 - Shell chrome, shared widgets, generated primitives, and component-only ownership: `components/AGENTS.md`
 - Auth, pinned profile headers, and reporting-currency readiness: `context/AGENTS.md`
-- Realtime consumers and shared hooks: `hooks/AGENTS.md`, `lib/websocket/AGENTS.md`
-- Typed API, websocket singleton, reference data, and request plumbing: `lib/AGENTS.md`
+- Shared hooks: `hooks/AGENTS.md`
+- Typed API, reference data, and request plumbing: `lib/AGENTS.md`
 - Shared design-system wrappers, table/form helpers, and cross-route utilities: `shared/AGENTS.md`
 - Locale state and non-hook static labels: `i18n/AGENTS.md`
 - Vitest/jsdom setup and MSW handlers: `test/`
@@ -38,7 +38,7 @@ src/
 - Keep `features/` thin at the route boundary. Reuse `pages/` clusters until a route is fully migrated.
 - Keep management scope pinned to Default id=1. `X-Profile-Id` is still sent for profile-scoped management routes but no UI state chooses it.
 - Keep reporting-currency cache and readiness in `context/ReportingCurrencyContext.tsx` and `lib/reportingCurrency.ts`.
-- Keep realtime ownership in `lib/websocket.ts`; prefer shared hooks instead of ad hoc websocket clients.
+- Keep live dashboard and analytics refresh in page-owned polling hooks that use the typed REST API boundary.
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep frontend env vars to transport/build wiring such as `VITE_API_BASE`, launcher proxy envs, and build metadata.
 
 ## LLM UPSTREAM MATRIX
@@ -46,6 +46,6 @@ src/
 
 ## ANTI-PATTERNS
 - Do not add routes without updating `app/router/rewriteRoutes.ts`, `app/router/appRouter.tsx`, navigation metadata, tests, and the owning docs.
-- Do not duplicate typed API, websocket, reference-data, reporting-currency, or navigation-config ownership in page code.
+- Do not duplicate typed API, reference-data, reporting-currency, or navigation-config ownership in page code.
 - Do not bypass `../DESIGN.md` with page-local color systems, decorative gradients, raw status colors, or ad hoc dark-mode overrides.
 - Do not create child AGENTS files for small one-off helpers when an existing parent already owns the convention.

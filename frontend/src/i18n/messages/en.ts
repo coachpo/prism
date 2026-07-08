@@ -17,21 +17,16 @@ export interface Messages {
   common: {
     apiFamily: string;
     close: string;
-    connected: string;
-    connecting: string;
     copiedToClipboard: (label: string) => string;
     copy: string;
     copyFailed: (label: string) => string;
-    disconnected: string;
     endpointWithId: (id: string) => string;
     edit: string;
     loadingApplication: string;
     notApplicable: string;
     pageNotFound: string;
     profileFallback: string;
-    reconnecting: string;
     requestFailed: string;
-    syncing: string;
     thisActionCannotBeUndone: string;
     unavailable: string;
     vendor: string;
@@ -1439,21 +1434,16 @@ export const enMessages: Messages = {
   common: {
     apiFamily: "API Family",
     close: "Close",
-    connected: "Connected",
-    connecting: "Connecting...",
     copiedToClipboard: (label) => `${label} copied to clipboard`,
     copy: "Copy",
     copyFailed: (label) => `Failed to copy ${label.toLowerCase()}`,
-    disconnected: "Disconnected",
     endpointWithId: (id) => `Endpoint ${id}`,
     edit: "Edit",
     loadingApplication: "Loading application...",
     notApplicable: "N/A",
     pageNotFound: "Not Found",
     profileFallback: "Default profile",
-    reconnecting: "Reconnecting...",
     requestFailed: "Request failed",
-    syncing: "Syncing...",
     thisActionCannotBeUndone: "This action cannot be undone.",
     unavailable: "Unavailable",
     vendor: "Vendor",

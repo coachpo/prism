@@ -25,7 +25,6 @@ var publicManagementPaths = map[string]struct{}{
 	"/api/auth/login":            {},
 	"/api/auth/logout":           {},
 	"/api/auth/refresh":          {},
-	"/api/realtime/ws":           {},
 }
 
 func isPublicManagementPath(path string) bool {
@@ -269,15 +268,13 @@ func (s *Service) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) handleLogout(w http.ResponseWriter, r *http.Request) {
 	authConfig := s.runtimeAuthConfigSnapshot()
-	var revokedSubjectID *int
 	if err := pgxutil.InTx(r.Context(), s.pool, "auth", func(tx pgx.Tx) error {
 		cookie, cookieErr := r.Cookie(authConfig.RefreshCookieName)
 		if cookieErr == nil && strings.TrimSpace(cookie.Value) != "" {
-			subjectID, revokeErr := s.revokeRefreshToken(r.Context(), tx, cookie.Value)
+			_, revokeErr := s.revokeRefreshToken(r.Context(), tx, cookie.Value)
 			if revokeErr != nil {
 				return revokeErr
 			}
-			revokedSubjectID = subjectID
 		}
 		return nil
 	}); err != nil {
@@ -288,15 +285,6 @@ func (s *Service) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
 		return
-	}
-	if revokedSubjectID == nil {
-		if subject, ok := s.authSubjectFromAccessCookie(r, authConfig, settingsRow); ok {
-			subjectID := subject.ID
-			revokedSubjectID = &subjectID
-		}
-	}
-	if revokedSubjectID != nil {
-		s.publishRealtimeAuthRevocation(RealtimeAuthRevocation{SubjectID: *revokedSubjectID})
 	}
 	s.clearAuthCookies(w, authConfig)
 	responseutil.WriteJSON(w, http.StatusOK, sessionResponse{Authenticated: false, AuthEnabled: settingsRow.AuthEnabled, Username: nil})
@@ -376,7 +364,6 @@ func (s *Service) handlePutAuthSettings(w http.ResponseWriter, r *http.Request) 
 	}
 	s.invalidateAppAuthSettingsSnapshot()
 	if result.SessionInvalidated {
-		s.publishRealtimeAuthRevocation(RealtimeAuthRevocation{SubjectID: result.Row.ID})
 		s.clearAuthCookies(w, authConfig)
 	}
 	responseutil.WriteJSON(w, http.StatusOK, s.buildAuthSettingsResponse(result.Row))

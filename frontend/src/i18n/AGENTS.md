@@ -19,7 +19,7 @@ i18n/
 ## WHERE TO LOOK
 
 - Provider mount point: `../main.tsx`
-- Shell and route consumers: `../App.tsx`, `../components/LanguageSwitcher.tsx`, `../components/ThemeToggle.tsx`, `../components/WebSocketStatusIndicator.tsx`, `../components/layout/page.tsx`
+- Shell and route consumers: `../App.tsx`, `../components/LanguageSwitcher.tsx`, `../components/ThemeToggle.tsx`, `../components/layout/page.tsx`
 - Shared formatting consumers: `../hooks/useTimezone.ts`, `../lib/timezone.ts`, `../lib/costing.ts`, and page helpers under `../pages/`
 - Static label helpers for non-hook callers, fallback labels, Ban Policy labels, and known-label comparisons: `staticMessages.ts`
 

@@ -22,6 +22,7 @@ export type DashboardActivityReconciler = (
 ) => boolean;
 
 export type DashboardBootstrapFetchResult = {
+  newRecentActivityIds: number[];
   recentActivityApplied: boolean;
   snapshotApplied: boolean;
 };
@@ -178,15 +179,18 @@ export function useDashboardBootstrapData({
         );
 
         if (requestVersion !== requestVersionRef.current) {
-          return { recentActivityApplied: false, snapshotApplied: false };
+          return { newRecentActivityIds: [], recentActivityApplied: false, snapshotApplied: false };
         }
 
+        const newRecentActivityIds = recentActivity.items
+          .filter((item) => !recentActivityRequestIdsRef.current.has(item.request_log_id))
+          .map((item) => item.request_log_id);
         const snapshotApplied = reconcileDashboardSnapshot(snapshot);
         replaceDashboardRecentActivity(recentActivity);
-        return { recentActivityApplied: true, snapshotApplied };
+        return { newRecentActivityIds, recentActivityApplied: true, snapshotApplied };
       } catch (error) {
         console.error("Failed to fetch dashboard data", error);
-        return { recentActivityApplied: false, snapshotApplied: false };
+        return { newRecentActivityIds: [], recentActivityApplied: false, snapshotApplied: false };
       } finally {
         if (requestVersion === requestVersionRef.current) {
           setLoading(false);

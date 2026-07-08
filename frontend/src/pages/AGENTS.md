@@ -56,4 +56,4 @@
 ## ANTI-PATTERNS
 - Do not treat auth pages as protected-shell pages.
 - Do not create extra AGENTS files for local helper clusters already covered by their page parent.
-- Do not spin up page-specific websocket clients when shared realtime ownership already lives in `../lib/websocket.ts` and `useRealtimeData()`.
+- Do not bypass the typed REST API boundary when adding page-owned polling or refresh behavior.

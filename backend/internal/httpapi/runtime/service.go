@@ -24,15 +24,6 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/logretention"
 )
 
-type DashboardPublisher interface {
-	PublishDashboardSnapshot(context.Context, int) (bool, error)
-	PublishDashboardActivity(context.Context, int, int) (bool, error)
-}
-
-type AnalyticsUpdatePublisher interface {
-	PublishAnalyticsUpdates(context.Context, int) (bool, error)
-}
-
 type Options struct {
 	ExecutionPool              *pgxpool.Pool
 	TelemetryPool              *pgxpool.Pool
@@ -40,8 +31,6 @@ type Options struct {
 	HTTPClient                 *http.Client
 	RuntimeProxyConfigProvider RuntimeProxyConfigProvider
 	Now                        func() time.Time
-	DashboardUpdates           DashboardPublisher
-	AnalyticsUpdates           AnalyticsUpdatePublisher
 	Cache                      *SharedCache
 	RuntimeState               *loadbalancedomain.LocalRuntimeStateStore
 	LogPartitionEnsurer        LogPartitionEnsurer
@@ -71,8 +60,6 @@ type Service struct {
 	staticRuntimeProxyConfig     RuntimeProxyConfigSnapshot
 	now                          func() time.Time
 	secretEncryptionKey          string
-	dashboardUpdates             DashboardPublisher
-	analyticsUpdates             AnalyticsUpdatePublisher
 	cache                        *SharedCache
 	runtimeState                 *loadbalancedomain.LocalRuntimeStateStore
 	requireDurableSuccessHandoff bool
@@ -137,15 +124,13 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		staticRuntimeProxyConfig:     RuntimeProxyConfigSnapshot{HTTPClient: client},
 		now:                          now,
 		secretEncryptionKey:          settings.SecretEncryptionKey,
-		dashboardUpdates:             options.DashboardUpdates,
-		analyticsUpdates:             options.AnalyticsUpdates,
 		cache:                        options.Cache,
 		runtimeState:                 runtimeState,
 		requireDurableSuccessHandoff: true,
 	}
 	telemetryOptions := options.TelemetryOutbox
 	telemetryOptions.Scheduler = scheduler
-	service.telemetryOutbox = newRuntimeTelemetryOutbox(telemetryPool, service.nowUTC, service.dashboardUpdates, service.analyticsUpdates, logPartitions, telemetryOptions)
+	service.telemetryOutbox = newRuntimeTelemetryOutbox(telemetryPool, service.nowUTC, logPartitions, telemetryOptions)
 	service.feedbackPipeline = newRuntimeFeedbackPipeline(service.feedbackStore, service.runtimeState, logPartitions, options.FeedbackPipeline)
 	sideEffectOptions := options.SideEffects
 	service.runtimeSideEffects = NewRuntimeSideEffectManager(service.telemetryOutbox, sideEffectOptions)
