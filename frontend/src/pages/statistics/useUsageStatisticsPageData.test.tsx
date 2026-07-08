@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type {
   UsageModelStatistic,
   UsageSnapshotResponse,
@@ -61,18 +61,12 @@ describe("useUsageStatisticsPageData", () => {
     mocks.getSharedModels.mockResolvedValue([])
   })
 
-  it("reloads endpoint model drilldowns after polling accepts a fresh snapshot", async () => {
-    const pollUsageSnapshotRef: { current?: () => void } = {}
-    const realSetInterval = window.setInterval.bind(window)
-    vi.spyOn(window, "setInterval").mockImplementation((handler, timeout, ...args) => {
-      if (timeout === 30_000) {
-        pollUsageSnapshotRef.current = typeof handler === "function" ? () => handler() : undefined
-        return 1
-      }
-      return realSetInterval(handler, timeout, ...args)
-    })
-    vi.spyOn(window, "clearInterval").mockImplementation(() => {})
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
 
+  it("reloads endpoint model drilldowns after polling accepts a fresh snapshot", async () => {
+    const pollUsageSnapshotRef = captureUsagePolling()
     mocks.usageSnapshot
       .mockResolvedValueOnce(makeSnapshot("2026-07-08T10:00:00.000Z"))
       .mockResolvedValueOnce(makeSnapshot("2026-07-08T10:00:30.000Z"))
@@ -128,7 +122,108 @@ describe("useUsageStatisticsPageData", () => {
     })
     expect(mocks.endpointModelStatistics).toHaveBeenCalledTimes(2)
   })
+
+  it("ignores endpoint model drilldowns that resolve after polling accepts a newer snapshot", async () => {
+    const pollUsageSnapshotRef = captureUsagePolling()
+    let resolveStaleDrilldown: (items: UsageModelStatistic[]) => void = () => {}
+    const staleDrilldownRequest = new Promise<UsageModelStatistic[]>((resolve) => {
+      resolveStaleDrilldown = resolve
+    })
+
+    mocks.usageSnapshot
+      .mockResolvedValueOnce(makeSnapshot("2026-07-08T10:00:00.000Z"))
+      .mockResolvedValueOnce(makeSnapshot("2026-07-08T10:00:30.000Z"))
+    mocks.endpointModelStatistics.mockReturnValueOnce(staleDrilldownRequest)
+
+    const { result } = renderHook(() =>
+      useUsageStatisticsPageData({
+        revision: 1,
+        selectedProfileId: 1,
+        state: pageState,
+      }),
+    )
+
+    await waitFor(() => {
+      expect(result.current.snapshot?.generated_at).toBe("2026-07-08T10:00:00.000Z")
+    })
+
+    let staleLoadPromise: Promise<void>
+    act(() => {
+      staleLoadPromise = result.current.loadEndpointModelStatistics(10)
+    })
+    await waitFor(() => {
+      expect(mocks.endpointModelStatistics).toHaveBeenCalledTimes(1)
+    })
+
+    const runPoll = pollUsageSnapshotRef.current
+    if (!runPoll) {
+      throw new Error("usage statistics polling was not registered")
+    }
+
+    await act(async () => {
+      runPoll()
+    })
+    await waitFor(() => {
+      expect(result.current.snapshot?.generated_at).toBe("2026-07-08T10:00:30.000Z")
+    })
+
+    await act(async () => {
+      resolveStaleDrilldown([makeModelStatistic("stale model", 1)])
+      await staleLoadPromise
+    })
+
+    expect(result.current.endpointModelStatisticsByEndpointId[10]).toBeUndefined()
+  })
+
+  it("keeps an initial load error visible after a failing silent poll", async () => {
+    const pollUsageSnapshotRef = captureUsagePolling()
+    mocks.usageSnapshot
+      .mockRejectedValueOnce(new Error("initial failed"))
+      .mockRejectedValueOnce(new Error("poll failed"))
+
+    const { result } = renderHook(() =>
+      useUsageStatisticsPageData({
+        revision: 1,
+        selectedProfileId: 1,
+        state: pageState,
+      }),
+    )
+
+    await waitFor(() => {
+      expect(result.current.error).toBe("initial failed")
+    })
+    expect(result.current.loading).toBe(false)
+
+    const runPoll = pollUsageSnapshotRef.current
+    if (!runPoll) {
+      throw new Error("usage statistics polling was not registered")
+    }
+
+    await act(async () => {
+      runPoll()
+    })
+    await waitFor(() => {
+      expect(mocks.usageSnapshot).toHaveBeenCalledTimes(2)
+    })
+
+    expect(result.current.error).toBe("initial failed")
+    expect(result.current.loading).toBe(false)
+  })
 })
+
+function captureUsagePolling(): { current?: () => void } {
+  const pollUsageSnapshotRef: { current?: () => void } = {}
+  const realSetInterval = window.setInterval.bind(window)
+  vi.spyOn(window, "setInterval").mockImplementation((handler, timeout, ...args) => {
+    if (timeout === 30_000) {
+      pollUsageSnapshotRef.current = typeof handler === "function" ? () => handler() : undefined
+      return 1
+    }
+    return realSetInterval(handler, timeout, ...args)
+  })
+  vi.spyOn(window, "clearInterval").mockImplementation(() => {})
+  return pollUsageSnapshotRef
+}
 
 function makeSnapshot(generatedAt: string): UsageSnapshotResponse {
   return {

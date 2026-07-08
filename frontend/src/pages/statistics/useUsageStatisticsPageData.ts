@@ -59,6 +59,11 @@ interface AnalyticsSnapshotSource {
   snapshot: UsageSnapshotResponse;
 }
 
+interface EndpointModelStatisticsScope {
+  generatedAt: string;
+  scopeKey: string;
+}
+
 const EMPTY_ENDPOINT_MODEL_STATISTICS_BY_ENDPOINT_ID: Record<number, UsageModelStatistic[]> = {};
 const EMPTY_ENDPOINT_MODEL_STATISTICS_ERRORS: Record<number, string> = {};
 const EMPTY_ENDPOINT_MODEL_STATISTICS_LOADING: Record<number, boolean> = {};
@@ -271,6 +276,7 @@ export function useUsageStatisticsPageData({
   const snapshotScopeKey = `${selectedProfileId ?? "none"}:${state.selectedTimeRange}`;
   const activeScopeKey = `${snapshotScopeKey}:${revision}`;
   const acceptedSnapshotMetaRef = useRef<AcceptedAnalyticsSnapshotMeta | null>(null);
+  const endpointModelStatisticsScopeRef = useRef<EndpointModelStatisticsScope | null>(null);
 
   const acceptSnapshotSource = useCallback(
     (source: AnalyticsSnapshotSource) => {
@@ -288,6 +294,10 @@ export function useUsageStatisticsPageData({
       }
 
       acceptedSnapshotMetaRef.current = nextMeta;
+      endpointModelStatisticsScopeRef.current = {
+        generatedAt: source.generatedAt,
+        scopeKey: activeScopeKey,
+      };
       setSnapshotState({ scopeKey: activeScopeKey, snapshot: source.snapshot });
       setEndpointModelStatisticsByEndpointId(source.endpointModelStatisticsByEndpointId);
       setEndpointModelStatisticsErrors({});
@@ -300,6 +310,7 @@ export function useUsageStatisticsPageData({
 
   useEffect(() => {
     acceptedSnapshotMetaRef.current = null;
+    endpointModelStatisticsScopeRef.current = null;
     setEndpointModelStatisticsByEndpointId({});
     setEndpointModelStatisticsErrors({});
     setEndpointModelStatisticsLoading({});
@@ -314,8 +325,8 @@ export function useUsageStatisticsPageData({
 
       if (!silent) {
         setLoading(true);
+        setErrorState(null);
       }
-      setErrorState(null);
 
       try {
         const snapshot = await api.stats.usageSnapshot({ preset: state.selectedTimeRange });
@@ -366,6 +377,16 @@ export function useUsageStatisticsPageData({
         return;
       }
 
+      const requestScope = endpointModelStatisticsScopeRef.current;
+      if (!requestScope) {
+        return;
+      }
+      const requestScopeMatches = () => {
+        const currentScope = endpointModelStatisticsScopeRef.current;
+        return currentScope?.scopeKey === requestScope.scopeKey &&
+          currentScope.generatedAt === requestScope.generatedAt;
+      };
+
       setEndpointModelStatisticsLoading((current) => ({ ...current, [endpointId]: true }));
       setEndpointModelStatisticsErrors((current) => {
         const next = { ...current };
@@ -377,17 +398,25 @@ export function useUsageStatisticsPageData({
         const items = await api.stats.endpointModelStatistics(endpointId, {
           preset: state.selectedTimeRange,
         });
+        if (!requestScopeMatches()) {
+          return;
+        }
         setEndpointModelStatisticsByEndpointId((current) => ({
           ...current,
           [endpointId]: items,
         }));
       } catch (error) {
+        if (!requestScopeMatches()) {
+          return;
+        }
         setEndpointModelStatisticsErrors((current) => ({
           ...current,
           [endpointId]: error instanceof Error ? error.message : messages.statistics.failedToLoadEndpointModelStatistics,
         }));
       } finally {
-        setEndpointModelStatisticsLoading((current) => ({ ...current, [endpointId]: false }));
+        if (requestScopeMatches()) {
+          setEndpointModelStatisticsLoading((current) => ({ ...current, [endpointId]: false }));
+        }
       }
     },
     [endpointModelStatisticsByEndpointId, endpointModelStatisticsLoading, messages.statistics.failedToLoadEndpointModelStatistics, selectedProfileId, state.selectedTimeRange],
