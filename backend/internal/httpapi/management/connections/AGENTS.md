@@ -21,6 +21,14 @@ connections/
 - Pricing-template CRUD, JSON import, connection assignment, and usage lookup: `pricing_templates.go`, `pricing_lookup.go`
 - Model target CRUD and ordering live in the separate model leaf: `../models/AGENTS.md`, `../models/service.go`
 
+## PRICING IMPORT CONTRACT
+- `POST /api/pricing-templates/import` imports Default-profile pricing templates only. `X-Profile-Id` may be accepted for compatibility, but the effective scope remains profile id `1`.
+- Request shape: `{ "mode": "upsert_by_name" | "create_only", "templates": [pricing-template-create-fields...] }`. Each template uses the normal pricing-template create fields, including `name`, optional `description`, `pricing_unit`, `pricing_currency_code`, and the five price strings.
+- Response shape: `{ "created": number, "updated": number, "skipped": string[], "errors": [{ "index": number, "name"?: string, "detail": string }] }`.
+- `upsert_by_name` updates existing normalized names and creates missing names. `create_only` creates missing names and returns existing names in `skipped`.
+- Invalid mode, unknown JSON fields, duplicate names, or row validation failures return `400`. Row validation is all-or-nothing: any invalid row prevents all creates and updates.
+- The management route contract row must keep `invalidates_planning: true` so pricing-template imports refresh runtime planning snapshots.
+
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep pricing templates here, not in a separate management package.

@@ -38,11 +38,11 @@ export function usePricingFeatureData(revision: number) {
       return next
     })
   }, [revision])
-  const fetchPricingTemplates = useCallback(async () => {
+  const fetchPricingTemplates = useCallback(async (forceRefresh = false) => {
     const messages = getStaticMessages()
     setPricingTemplatesLoading(true)
     try {
-      setPricingTemplates(sortPricingTemplates(await getSharedPricingTemplates(revision)))
+      setPricingTemplates(sortPricingTemplates(await getSharedPricingTemplates(revision, forceRefresh)))
     } catch (error) {
       toast.error(error instanceof Error ? error.message : messages.pricingTemplatesData.loadFailed)
     } finally {
@@ -164,7 +164,7 @@ export function usePricingFeatureData(revision: number) {
     setPricingTemplateImporting(true)
     try {
       const result = await api.pricingTemplates.importTemplates(request)
-      await fetchPricingTemplates()
+      await fetchPricingTemplates(true)
       toast.success(messages.pricing.importResultSummary(result.created, result.updated, result.skipped.length))
       setPricingTemplateImportDialogOpen(false)
       return true

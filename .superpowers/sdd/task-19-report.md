@@ -44,3 +44,18 @@ Concerns:
 - `cd backend && go test ./tests/priority/... -count=1` failed in `backend/tests/priority/cache`: `runtime cache generation implementation missing "LoadFreshActiveRuntimePlan"`. This test inspects runtime cache source text and is unrelated to Task 19 changes.
 - `cd backend && go test ./tests/runtime -count=1` failed on existing runtime-suite issues: route matrix expected 11 POST operations but got 9, and `TestRuntimePhase1Snapshot_PinsPlanningToDefaultProfile` hit a SQL parameter type error. Task 19 did not touch runtime operation registration or the failing snapshot test.
 - `cd backend && go test ./tests/integration -run TestBackendDockerfileContract -count=1` passed with `[no tests to run]`; full integration suite was not rerun after the longer runtime/priority failures.
+
+### Reviewer Blocker Fix - 2026-07-08
+
+Status: DONE
+
+Fixes:
+- Forced `/route/pricing` to refresh shared pricing-template reference data after successful import by passing `forceRefresh: true` through the existing fetch helper.
+- Added a focused Vitest hook seam proving import replaces stale cached pricing-template data.
+- Documented the `POST /api/pricing-templates/import` contract in `backend/internal/httpapi/management/connections/AGENTS.md`, including modes, request/response shape, all-or-nothing `400` behavior, Default-profile scope, and planning invalidation.
+
+Verification:
+- Red: `cd frontend && pnpm run test -- src/features/pricing/usePricingFeatureData.test.tsx --run` failed before the production fix because the hook kept `Before import` from the cached reference data.
+- Green: `cd frontend && pnpm run test -- src/features/pricing/usePricingFeatureData.test.tsx --run` passed after the fix.
+- `cd frontend && pnpm run lint` passed.
+- `cd frontend && pnpm run build` passed. Vite still emitted the existing large-chunk warning.
