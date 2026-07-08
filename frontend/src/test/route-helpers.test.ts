@@ -29,14 +29,14 @@ describe("rewrite route helpers", () => {
   it("validates and normalizes target route search params", () => {
     expect(observeSearchSchema.parse({ tab: "routing" })).toEqual({ tab: "routing" })
     expect(observeSearchSchema.parse({ tab: "unknown" })).toEqual({ tab: "overview" })
-    expect(requestLogSearchSchema.parse({ limit: "300", cursor: "12", request_id: "#bad", status: "error", model: "gpt-test", selected_request_id: "101" })).toMatchObject({
+    expect(requestLogSearchSchema.parse({ limit: "300", cursor: "12", request_id: "#bad", status: "success", model: "gpt-test", selected_request_id: "101" })).toMatchObject({
       cursor: 12,
       limit: 300,
       model: "gpt-test",
       request_id: "",
       selected_request_id: "101",
-      status: "error",
-      time_range: "1h",
+      status: "success",
+      time_range: "24h",
     })
     expect(requestAuditSearchSchema.parse({ audit_id: "201", cursor: "page-2" })).toEqual({
       audit_id: "201",

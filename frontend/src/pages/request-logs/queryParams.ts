@@ -1,10 +1,10 @@
 export const TIME_RANGE_OPTIONS = ["1h", "6h", "24h", "7d", "30d", "all"] as const;
 export type TimeRange = (typeof TIME_RANGE_OPTIONS)[number];
 
-export const STATUS_FAMILY_OPTIONS = ["all", "4xx", "5xx"] as const;
+export const STATUS_FAMILY_OPTIONS = ["all", "2xx", "4xx", "5xx"] as const;
 export type StatusFamilyFilter = (typeof STATUS_FAMILY_OPTIONS)[number];
 
-export const STATUS_ALIAS_OPTIONS = ["all", "client_error", "error"] as const;
+export const STATUS_ALIAS_OPTIONS = ["all", "success", "client_error", "error"] as const;
 export type StatusAliasFilter = (typeof STATUS_ALIAS_OPTIONS)[number];
 
 export const PAGE_SIZE_OPTIONS = [100, 300, 500] as const;
@@ -12,17 +12,20 @@ export const PAGE_SIZE_OPTIONS = [100, 300, 500] as const;
 export const DEFAULTS = {
   limit: 100,
   offset: 0,
-  time_range: "1h" as TimeRange,
+  // ponytail: fixed 24h default, no per-user persistence for request logs - localStorage only if 24h still annoys.
+  time_range: "24h" as TimeRange,
   status_family: "all" as StatusFamilyFilter,
 } as const;
 
 export function statusAliasToFamily(value: StatusAliasFilter | string | null): StatusFamilyFilter {
+  if (value === "success") return "2xx";
   if (value === "client_error") return "4xx";
   if (value === "error") return "5xx";
   return "all";
 }
 
 export function statusFamilyToAlias(value: StatusFamilyFilter): StatusAliasFilter {
+  if (value === "2xx") return "success";
   if (value === "4xx") return "client_error";
   if (value === "5xx") return "error";
   return "all";
@@ -34,6 +37,8 @@ export interface RequestLogPageState {
   endpoint_id: string;
   client_rule_id: string;
   resolved_target_model_id: string;
+  status_code: string;
+  error_text: string;
   time_range: TimeRange;
   status_family: StatusFamilyFilter;
   limit: number;
@@ -92,6 +97,8 @@ export function parsePageState(params: URLSearchParams): RequestLogPageState {
     endpoint_id: normalizeSearchString(params.get("endpoint") ?? params.get("endpoint_id")),
     client_rule_id: normalizeSearchString(params.get("client_rule_id")),
     resolved_target_model_id: normalizeSearchString(params.get("resolved_target_model_id")),
+    status_code: normalizeSearchString(params.get("status_code")),
+    error_text: normalizeSearchString(params.get("error_text")),
     time_range: parseEnum(normalizeSearchString(params.get("time_range")), TIME_RANGE_OPTIONS, DEFAULTS.time_range),
     status_family: statusParam
       ? statusAliasToFamily(parseEnum(statusParam, STATUS_ALIAS_OPTIONS, "all"))
@@ -110,6 +117,8 @@ export function stateToParams(state: RequestLogPageState): URLSearchParams {
   if (state.endpoint_id) p.set("endpoint", state.endpoint_id);
   if (state.client_rule_id) p.set("client_rule_id", state.client_rule_id);
   if (state.resolved_target_model_id) p.set("resolved_target_model_id", state.resolved_target_model_id);
+  if (state.status_code) p.set("status_code", state.status_code);
+  if (state.error_text) p.set("error_text", state.error_text);
   if (state.time_range !== DEFAULTS.time_range) p.set("time_range", state.time_range);
   if (state.status_family !== DEFAULTS.status_family) p.set("status", statusFamilyToAlias(state.status_family));
   if (state.limit !== DEFAULTS.limit) p.set("limit", String(state.limit));

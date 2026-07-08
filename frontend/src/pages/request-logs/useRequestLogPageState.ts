@@ -41,6 +41,8 @@ export function useRequestLogPageState() {
   const setEndpointId = useCallback((v: string) => update({ endpoint_id: v }), [update]);
   const setClientRuleId = useCallback((v: string) => update({ client_rule_id: v }), [update]);
   const setResolvedTargetModelId = useCallback((v: string) => update({ resolved_target_model_id: v }), [update]);
+  const setStatusCode = useCallback((v: string) => update({ status_code: v }), [update]);
+  const setErrorText = useCallback((v: string) => update({ error_text: v }), [update]);
   const setTimeRange = useCallback((v: TimeRange) => update({ time_range: v }), [update]);
   const setStatusFamily = useCallback((v: StatusFamilyFilter) => update({ status_family: v }), [update]);
   const setLimit = useCallback((v: number) => update({ limit: v, offset: DEFAULTS.offset }), [update]);
@@ -92,6 +94,8 @@ export function useRequestLogPageState() {
     state.endpoint_id ||
     state.client_rule_id ||
     state.resolved_target_model_id ||
+    state.status_code ||
+    state.error_text ||
     state.time_range !== DEFAULTS.time_range ||
     state.status_family !== DEFAULTS.status_family
   );
@@ -105,6 +109,8 @@ export function useRequestLogPageState() {
     setEndpointId,
     setClientRuleId,
     setResolvedTargetModelId,
+    setStatusCode,
+    setErrorText,
     setTimeRange,
     setStatusFamily,
     setLimit,

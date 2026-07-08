@@ -43,6 +43,8 @@ export function getStatusFamilyLabel(value: string) {
   switch (value) {
     case "all":
       return copy.allStatuses;
+    case "2xx":
+      return copy.twoHundredsOnly;
     case "4xx":
       return copy.fourHundredsOnly;
     case "5xx":

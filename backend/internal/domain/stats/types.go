@@ -11,6 +11,8 @@ type RequestLogListParams struct {
 	ModelID               *string
 	ResolvedTargetModelID *string
 	StatusFamily          *string
+	StatusCode            *int
+	ErrorText             *string
 	FromTime              *time.Time
 	ToTime                *time.Time
 	EndpointID            *int

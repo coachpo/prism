@@ -21,7 +21,7 @@ export function getDefaultUsageStatisticsPageState(): UsageStatisticsPageState {
   return {
     chartGranularity: { ...DEFAULT_CHART_GRANULARITY },
     selectedModelLines: [],
-    selectedTimeRange: "1h",
+    selectedTimeRange: "24h",
   };
 }
 
@@ -145,7 +145,7 @@ function parseUsageStatisticsPageState(value: unknown): UsageStatisticsPageState
       : [],
     selectedTimeRange: isUsageSnapshotPreset(value.selectedTimeRange)
       ? value.selectedTimeRange
-      : "1h",
+      : "24h",
   };
 }
 

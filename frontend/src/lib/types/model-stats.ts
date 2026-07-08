@@ -389,7 +389,7 @@ export interface StatsSummary {
   groups: StatGroup[];
 }
 
-export type RequestStatusFamily = "4xx" | "5xx";
+export type RequestStatusFamily = "2xx" | "4xx" | "5xx";
 
 export const STATS_FROM_TIME_PARAM = "from_time" as const;
 export const STATS_TO_TIME_PARAM = "to_time" as const;
@@ -400,6 +400,8 @@ export interface StatsRequestParams {
   client_rule_id?: number;
   resolved_target_model_id?: string;
   status_family?: RequestStatusFamily;
+  status_code?: number;
+  error_text?: string;
   from_time?: string;
   endpoint_id?: number;
   limit?: number;

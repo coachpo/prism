@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, FileSearch } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, FileSearch } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +19,7 @@ import {
   type ColumnDef,
 } from "./columns";
 import { PAGE_SIZE_OPTIONS } from "./queryParams";
+import { downloadRequestLogsCsv } from "./requestLogsCsv";
 
 interface RequestLogsTableProps {
   items: RequestLogListItem[];
@@ -153,6 +154,18 @@ export function RequestLogsTable({
 
   return (
     <div className="operator-table-shell overflow-hidden rounded-xl border border-outline-variant bg-surface shadow-operator-panel" data-testid="request-logs-table">
+      <div className="flex items-center justify-end border-b border-outline-variant bg-surface-container-low px-4 py-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1.5 text-xs"
+          disabled={items.length === 0}
+          onClick={() => downloadRequestLogsCsv(items)}
+        >
+          <Download className="h-3.5 w-3.5" />
+          {messages.requestLogs.exportCsv}
+        </Button>
+      </div>
       <div
         ref={containerRef}
         className="overflow-auto scrollbar-thin"

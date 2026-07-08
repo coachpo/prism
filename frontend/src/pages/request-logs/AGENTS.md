@@ -19,6 +19,7 @@ request-logs/
 ├── FiltersBar.constants.ts      # Filter option constants and shared filter presentation helpers
 ├── FiltersBarPrimaryFilters.tsx # Retained filter row composition
 ├── RequestLogsTable.tsx         # Paginated and virtualized log list
+├── requestLogsCsv.ts            # Current-page CSV export helper
 ├── RequestLogDetailSheet.tsx    # Overview-only request inspection drawer and clipboard fallback root
 ├── RequestFocusBanner.tsx       # Exact-request mode banner and exit action
 └── detail/                      # Parent-covered overview, payload, and shared detail helpers
@@ -45,7 +46,7 @@ request-logs/
 - Treat URL as the source of truth for the retained browse filters to support deep-linking.
 - Keep audit payload fetching isolated to the dedicated full audit page. The overview drawer must not fetch audit payloads.
 - Use exact-request mode (`request_id`) to switch from paginated browsing to a single-request investigation workflow, and keep that mode local to the request-logs page.
-- Keep retained browse filtering on `ingress_request_id`, `model_id`, `endpoint_id`, `status_family`, and `time_range` only.
+- Keep retained browse filtering on `ingress_request_id`, `model_id`, `endpoint_id`, `client_rule_id`, `resolved_target_model_id`, `status_family`, `status_code`, `error_text`, and `time_range`.
 - Keep user-facing copy on the shared locale boundary through `useLocale()`, while timestamp formatting continues to flow through `useTimezone()`.
 - Keep audit capture mode and detail-state helpers in `requestLogAuditState.ts` instead of re-deriving them inside detail tabs or fetch hooks.
 - Derive audit visibility from request-time provenance: disabled audit means no linked-audit fetch; enabled without body capture is metadata-only; body presence alone is not the contract.

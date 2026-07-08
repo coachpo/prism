@@ -1092,7 +1092,9 @@ Query parameters:
 |---|---|---|---|
 | `ingress_request_id` | string | — | Exact incoming-request grouping ID shared by per-attempt rows |
 | `model_id` | string | — | Filter by model ID |
-| `status_family` | string | — | Filter by status family (`4xx` or `5xx`) |
+| `status_family` | string | — | Filter by status family (`2xx`, `4xx`, or `5xx`) |
+| `status_code` | integer | — | Exact response status-code filter |
+| `error_text` | string | — | Case-insensitive substring match against `error_detail` |
 | `from_time` | datetime | — | Start of time range (ISO 8601) |
 | `to_time` | datetime | — | End of time range (ISO 8601) |
 | `endpoint_id` | integer | — | Filter by endpoint ID |

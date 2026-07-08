@@ -352,11 +352,21 @@ func buildRequestLogBrowseWhere(params RequestLogListParams) (string, []any) {
 	}
 	if params.StatusFamily != nil {
 		switch strings.TrimSpace(strings.ToLower(*params.StatusFamily)) {
+		case "2xx":
+			clauses = append(clauses, "status_code BETWEEN 200 AND 299")
 		case "4xx":
 			clauses = append(clauses, "status_code BETWEEN 400 AND 499")
 		case "5xx":
 			clauses = append(clauses, "status_code BETWEEN 500 AND 599")
 		}
+	}
+	if params.StatusCode != nil {
+		args = append(args, *params.StatusCode)
+		clauses = append(clauses, fmt.Sprintf("status_code = $%d", len(args)))
+	}
+	if params.ErrorText != nil && strings.TrimSpace(*params.ErrorText) != "" {
+		args = append(args, "%"+strings.TrimSpace(*params.ErrorText)+"%")
+		clauses = append(clauses, fmt.Sprintf("error_detail ILIKE $%d", len(args)))
 	}
 	if params.FromTime != nil {
 		args = append(args, params.FromTime.UTC())

@@ -238,6 +238,43 @@ func TestRequestLogListTimeWindowHonorsToTime(t *testing.T) {
 	}
 }
 
+func TestRequestLogListStatusAndErrorFilters(t *testing.T) {
+	harness := newRequestLogContractHarness(t)
+	profileID := loadRuntimeDefaultProfileID(t, harness)
+	seedRequestLogEndpoints(t, harness, profileID)
+	baseTime := time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC)
+	seedFilteredRequestLog(t, harness, profileID, 241, 200, nil, baseTime)
+	seedFilteredRequestLog(t, harness, profileID, 242, 429, runtimeStringPtr("rate limit timeout from upstream"), baseTime.Add(time.Minute))
+	seedFilteredRequestLog(t, harness, profileID, 243, 500, runtimeStringPtr("internal failure"), baseTime.Add(2*time.Minute))
+
+	tests := []struct {
+		name    string
+		query   string
+		wantIDs []int
+	}{
+		{name: "2xx status family", query: "status_family=2xx", wantIDs: []int{241}},
+		{name: "exact status code", query: "status_code=429", wantIDs: []int{242}},
+		{name: "error text", query: "error_text=timeout", wantIDs: []int{242}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?"+test.query+"&limit=50&offset=0", nil, runtimeModelHeader(profileID))
+			assertStatus(t, response, http.StatusOK)
+			var payload map[string]any
+			decodeJSONResponse(t, response, &payload)
+			items := payload["items"].([]any)
+			if len(items) != len(test.wantIDs) {
+				t.Fatalf("expected %s to return ids %v, got %+v", test.query, test.wantIDs, payload)
+			}
+			for index, wantID := range test.wantIDs {
+				if got := jsonInt(t, asMapRuntime(t, items[index])["id"]); got != wantID {
+					t.Fatalf("expected %s result %d to be request log %d, got %+v", test.query, index, wantID, items[index])
+				}
+			}
+		})
+	}
+}
+
 func TestRequestLogDetailContract(t *testing.T) {
 	harness := newRequestLogContractHarness(t)
 	profileID := loadRuntimeDefaultProfileID(t, harness)
@@ -2513,6 +2550,15 @@ func seedSimpleRequestLog(t *testing.T, harness *requestLogContractHarness, prof
 	}
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, status_code, response_time_ms, is_stream, success_flag, billable_flag, priced_flag, request_path, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, 'gpt-4o', 'gpt-4o', 'openai', $3, NULL, $4, 1, $5, 200, 120, FALSE, TRUE, TRUE, TRUE, '/v1/chat/completions', $6, $7, FALSE)`, id, profileID, endpointID, fmt.Sprintf("req-%d", id), historicalBaseURL, createdAt, auditEnabledAtRequest); err != nil {
 		t.Fatalf("seed simple request log %d: %v", id, err)
+	}
+}
+
+func seedFilteredRequestLog(t *testing.T, harness *requestLogContractHarness, profileID int, id int, statusCode int, errorDetail *string, createdAt time.Time) {
+	t.Helper()
+	ensureRuntimeTestLogPartitions(t, harness.databaseName, runtimeTestLogPartitionFor("request_logs", createdAt))
+	success := statusCode >= 200 && statusCode < 300
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, status_code, response_time_ms, is_stream, success_flag, billable_flag, priced_flag, request_path, error_detail, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, 'gpt-4o', 'gpt-4o', 'openai', 12, NULL, $3, 1, 'https://api.openai.com', $4, 120, FALSE, $5, TRUE, TRUE, '/v1/chat/completions', $6, $7, FALSE, FALSE)`, id, profileID, fmt.Sprintf("filtered-req-%d", id), statusCode, success, nullableTestString(errorDetail), createdAt); err != nil {
+		t.Fatalf("seed filtered request log %d: %v", id, err)
 	}
 }
 

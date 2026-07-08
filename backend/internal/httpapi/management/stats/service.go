@@ -566,7 +566,11 @@ func parseRequestLogListParams(r *http.Request, profileID int) (statsdomain.Requ
 		normalized := strings.ToLower(strings.TrimSpace(*statusFamily))
 		statusFamily = &normalized
 	}
-	return statsdomain.RequestLogListParams{ProfileID: profileID, IngressRequestID: normalizedQueryString(r, "ingress_request_id"), ModelID: normalizedQueryString(r, "model_id"), ResolvedTargetModelID: normalizedQueryString(r, "resolved_target_model_id"), StatusFamily: statusFamily, FromTime: fromTime, ToTime: toTime, EndpointID: endpointID, ClientRuleID: clientRuleID, Limit: limit, Offset: offset}, nil
+	statusCode, err := parseOptionalInt(r, "status_code")
+	if err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
+	return statsdomain.RequestLogListParams{ProfileID: profileID, IngressRequestID: normalizedQueryString(r, "ingress_request_id"), ModelID: normalizedQueryString(r, "model_id"), ResolvedTargetModelID: normalizedQueryString(r, "resolved_target_model_id"), StatusFamily: statusFamily, StatusCode: statusCode, ErrorText: normalizedQueryString(r, "error_text"), FromTime: fromTime, ToTime: toTime, EndpointID: endpointID, ClientRuleID: clientRuleID, Limit: limit, Offset: offset}, nil
 }
 
 func parseDashboardRecentActivityLimit(r *http.Request) (int, error) {

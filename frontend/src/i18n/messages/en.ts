@@ -1038,6 +1038,8 @@ export interface Messages {
     connection: string;
     detailDescription: string;
     endpoint: string;
+    errorTextFilterLabel: string;
+    exportCsv: string;
     fxRateSource: string;
     fxRateUsed: string;
     fourHundredsOnly: string;
@@ -1091,6 +1093,7 @@ export interface Messages {
     rowsPerPage: string;
     specialTokens: string;
     status: string;
+    statusCodeFilterLabel: string;
     stream: string;
     streamCompleted: string;
     streamEndedWithoutTerminal: string;
@@ -1174,6 +1177,7 @@ export interface Messages {
     tokenRange: string;
     triage: string;
     view: string;
+    twoHundredsOnly: string;
     fiveHundredsOnly: string;
     spend: string;
     viewRequestInLogs: string;
@@ -2459,6 +2463,8 @@ export const enMessages: Messages = {
     detailDescription:
       "Review requested model, final target model, selected terminal target, routing, tokens, costs, and request-time audit provenance.",
     endpoint: "Endpoint",
+    errorTextFilterLabel: "Error text",
+    exportCsv: "Export CSV",
     fxRateSource: "FX source",
     fxRateUsed: "FX rate used",
     fiveHundredsOnly: "5xx only",
@@ -2513,6 +2519,7 @@ export const enMessages: Messages = {
     rowsPerPage: "rows per page",
     specialTokens: "Special tokens",
     status: "Status",
+    statusCodeFilterLabel: "Status code",
     stream: "Stream",
     streamCompleted: "Completed stream",
     streamEndedWithoutTerminal: "Stream ended before completion event",
@@ -2596,6 +2603,7 @@ export const enMessages: Messages = {
     tokens: "Tokens",
     triage: "Triage",
     view: "View",
+    twoHundredsOnly: "2xx only",
     spend: "Cost",
     viewRequestInLogs: "View in Request Logs",
     viewingRequest: (id) => `Viewing request #${id}`,

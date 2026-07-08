@@ -36,9 +36,11 @@ export const requestLogSearchSchema = z.object({
   offset: z.coerce.number().int().min(0).catch(0),
   request_id: requestIdSearchSchema,
   selected_request_id: requestIdSearchSchema,
-  status: z.enum(["all", "client_error", "error"]).catch("all"),
-  status_family: z.enum(["all", "4xx", "5xx"]).catch("all"),
-  time_range: z.enum(["1h", "6h", "24h", "7d", "30d", "all"]).catch("1h"),
+  status: z.enum(["all", "success", "client_error", "error"]).catch("all"),
+  status_code: searchStringSchema.catch(""),
+  error_text: searchStringSchema.catch(""),
+  status_family: z.enum(["all", "2xx", "4xx", "5xx"]).catch("all"),
+  time_range: z.enum(["1h", "6h", "24h", "7d", "30d", "all"]).catch("24h"),
 })
 
 export const requestAuditSearchSchema = z.object({

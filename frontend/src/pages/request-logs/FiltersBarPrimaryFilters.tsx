@@ -24,6 +24,8 @@ interface FiltersBarPrimaryFiltersProps {
     | "setClientRuleId"
     | "setResolvedTargetModelId"
     | "setStatusFamily"
+    | "setStatusCode"
+    | "setErrorText"
     | "setTimeRange"
   >;
   filterOptions: FilterOptions;
@@ -36,6 +38,8 @@ interface FiltersBarPrimaryFiltersProps {
     | "client_rule_id"
     | "resolved_target_model_id"
     | "status_family"
+    | "status_code"
+    | "error_text"
     | "time_range"
   >;
 }
@@ -67,7 +71,7 @@ export function FiltersBarPrimaryFilters({
   };
 
   return (
-    <div className="grid gap-3 xl:grid-cols-8">
+    <div className="grid gap-3 xl:grid-cols-10">
       <div className="min-w-0">
         <ToolbarLabel>{messages.requestLogs.requestId}</ToolbarLabel>
         <Input
@@ -205,13 +209,41 @@ export function FiltersBarPrimaryFilters({
               <SelectItem key={statusFamily} value={statusFamily}>
                 {statusFamily === "all"
                   ? messages.requestLogs.allStatuses
-                  : statusFamily === "4xx"
+                  : statusFamily === "2xx"
+                    ? messages.requestLogs.twoHundredsOnly
+                    : statusFamily === "4xx"
                     ? messages.requestLogs.fourHundredsOnly
                     : messages.requestLogs.fiveHundredsOnly}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+      </div>
+
+      <div className="min-w-0">
+        <ToolbarLabel>{messages.requestLogs.statusCodeFilterLabel}</ToolbarLabel>
+        <Input
+          name="status_code"
+          autoComplete="off"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          className="h-9 rounded-lg border-outline-variant bg-surface text-sm font-mono"
+          placeholder="429"
+          value={state.status_code}
+          onChange={(event) => actions.setStatusCode(event.target.value)}
+        />
+      </div>
+
+      <div className="min-w-0 xl:col-span-2">
+        <ToolbarLabel>{messages.requestLogs.errorTextFilterLabel}</ToolbarLabel>
+        <Input
+          name="error_text"
+          autoComplete="off"
+          className="h-9 rounded-lg border-outline-variant bg-surface text-sm"
+          placeholder={messages.requestLogs.errorDetail}
+          value={state.error_text}
+          onChange={(event) => actions.setErrorText(event.target.value)}
+        />
       </div>
 
       <div className="min-w-0">
