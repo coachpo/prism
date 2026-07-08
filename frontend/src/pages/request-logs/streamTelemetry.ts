@@ -1,4 +1,4 @@
-import type { Messages } from "@/i18n/messages/en";
+import type { Messages } from "@/i18n/messages";
 import type { StreamOutcome } from "@/lib/types";
 import type { OperatorBadgeIntent } from "@/shared/design-system";
 

@@ -25,7 +25,7 @@ function endpoint(id: number, name: string, position: number): Endpoint {
 
 function renderEndpointsPage() {
   render(
-    <LocaleProvider defaultLocale="en">
+    <LocaleProvider>
       <EndpointsFeaturePage />
     </LocaleProvider>,
   )
@@ -61,11 +61,11 @@ describe("Task 15 endpoint reorder buttons", () => {
 
     renderEndpointsPage()
 
-    expect(await screen.findByRole("button", { name: "Move endpoint Backup up" })).toBeEnabled()
-    expect(screen.getByRole("button", { name: "Move endpoint Primary up" })).toBeDisabled()
-    expect(screen.getByRole("button", { name: "Move endpoint Backup down" })).toBeDisabled()
+    expect(await screen.findByRole("button", { name: "上移端点 Backup" })).toBeEnabled()
+    expect(screen.getByRole("button", { name: "上移端点 Primary" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "下移端点 Backup" })).toBeDisabled()
 
-    await userEvent.click(screen.getByRole("button", { name: "Move endpoint Backup up" }))
+    await userEvent.click(screen.getByRole("button", { name: "上移端点 Backup" }))
 
     await waitFor(() => {
       expect(moveRequest).toEqual({ body: { to_index: 0 }, id: "2" })

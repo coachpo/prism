@@ -19,8 +19,8 @@ describe("RoutingDiagramCard", () => {
     expect(onSelectModel).not.toHaveBeenCalled();
     const inspector = screen.getByTestId("routing-diagram-inspector");
     expect(inspector).toHaveTextContent("Model A");
-    expect(inspector).toHaveTextContent("Node type");
-    expect(inspector).toHaveTextContent("24h success rate");
+    expect(inspector).toHaveTextContent("节点类型");
+    expect(inspector).toHaveTextContent("24 小时成功率");
   });
 
   it("keeps explicit model action buttons wired to navigation", async () => {
@@ -31,7 +31,7 @@ describe("RoutingDiagramCard", () => {
 
     await user.click(
       within(screen.getByTestId("routing-diagram-list-node-model-101")).getByRole("button", {
-        name: "View model details for Model A",
+        name: "查看模型 Model A 的详情",
       }),
     );
 
@@ -48,7 +48,7 @@ function renderRoutingDiagramCard({
   onDrillDownRequests?: (params: { endpoint_id?: number; model_id?: string }) => void;
 } = {}) {
   return render(
-    <LocaleProvider defaultLocale="en">
+    <LocaleProvider>
       <RoutingDiagramCard
         data={createTopologyGraph()}
         loading={false}

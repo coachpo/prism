@@ -190,7 +190,7 @@ export function ModelsTable({
                   </TableCell>
                   <TableCell><ModelTelemetryCell metrics={metrics} loading={metricsLoading} /></TableCell>
                   <TableCell className="text-right font-mono text-xs font-medium">
-                    {formatMoneyMicros(spend, currencyState.currency.symbol, undefined, 2, 6, locale as "en" | "zh-CN")}
+                    {formatMoneyMicros(spend, currencyState.currency.symbol, undefined, 2, 6, locale)}
                   </TableCell>
                   <TableCell className="text-right">
                     <IconActionGroup className="justify-end">

@@ -12,7 +12,7 @@ import {
   Settings,
 } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
-import type { Messages } from "@/i18n/messages/en";
+import type { Messages } from "@/i18n/messages";
 import { APP_VERSION, formatVersionLabel } from "@/lib/appVersion";
 
 export type NavLabelKey = keyof Messages["nav"];

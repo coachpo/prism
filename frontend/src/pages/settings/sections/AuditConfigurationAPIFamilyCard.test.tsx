@@ -27,7 +27,7 @@ function renderCard(overrides?: Partial<Parameters<typeof AuditConfigurationAPIF
   };
 
   render(
-    <LocaleProvider defaultLocale="en">
+    <LocaleProvider>
       <AuditConfigurationAPIFamilyCard {...props} />
     </LocaleProvider>,
   );
@@ -45,18 +45,18 @@ describe("AuditConfigurationAPIFamilyCard", () => {
       "Anthropic",
       "Gemini",
     ]);
-    expect(screen.getByRole("switch", { name: "OpenAI Capture bodies" })).toBeDisabled();
-    expect(screen.getByRole("switch", { name: "Anthropic Capture bodies" })).toBeEnabled();
-    expect(screen.getByRole("switch", { name: "Gemini Capture bodies" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "OpenAI 捕获正文" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Anthropic 捕获正文" })).toBeEnabled();
+    expect(screen.getByRole("switch", { name: "Gemini 捕获正文" })).toBeDisabled();
   });
 
   it("sends family-specific switch updates through the card callbacks", async () => {
     const user = userEvent.setup();
     const props = renderCard();
 
-    await user.click(screen.getByRole("switch", { name: "OpenAI Audit enabled" }));
-    await user.click(screen.getByRole("switch", { name: "Anthropic Capture bodies" }));
-    await user.click(screen.getByRole("button", { name: "Save audit settings" }));
+    await user.click(screen.getByRole("switch", { name: "OpenAI 启用审计" }));
+    await user.click(screen.getByRole("switch", { name: "Anthropic 捕获正文" }));
+    await user.click(screen.getByRole("button", { name: "保存审计设置" }));
 
     expect(props.setAPIFamilyAuditEnabled).toHaveBeenCalledWith("openai", true);
     expect(props.setAPIFamilyAuditCaptureBodies).toHaveBeenCalledWith("anthropic", false);

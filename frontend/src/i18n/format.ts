@@ -1,47 +1,8 @@
-export type Locale = "en" | "zh-CN";
+export type Locale = "zh-CN";
 
-export const DEFAULT_LOCALE: Locale = "en";
-export const LOCALE_STORAGE_KEY = "prism.locale";
-
-export function normalizeLocale(candidate: string | null | undefined): Locale {
-  const normalized = candidate?.trim().toLowerCase();
-
-  if (normalized === "zh-cn" || normalized?.startsWith("zh")) {
-    return "zh-CN";
-  }
-
-  return DEFAULT_LOCALE;
-}
-
-export function resolveInitialLocale({
-  browserLanguage,
-  defaultLocale = DEFAULT_LOCALE,
-  storedLocale,
-}: {
-  browserLanguage?: string | null;
-  defaultLocale?: Locale;
-  storedLocale?: string | null;
-} = {}): Locale {
-  if (storedLocale) {
-    return normalizeLocale(storedLocale);
-  }
-
-  if (browserLanguage) {
-    return normalizeLocale(browserLanguage);
-  }
-
-  return defaultLocale;
-}
+export const DEFAULT_LOCALE: Locale = "zh-CN";
 
 export function getCurrentLocale(): Locale {
-  if (typeof document !== "undefined") {
-    return normalizeLocale(document.documentElement.lang);
-  }
-
-  if (typeof navigator !== "undefined") {
-    return normalizeLocale(navigator.language);
-  }
-
   return DEFAULT_LOCALE;
 }
 
@@ -100,7 +61,7 @@ export function formatTimestampForLocale(
       hour: "numeric",
       minute: "numeric",
       second: "numeric",
-      hour12: locale === "en",
+      hour12: false,
       ...options,
     }).format(date);
   } catch {

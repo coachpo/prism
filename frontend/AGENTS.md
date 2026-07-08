@@ -39,7 +39,7 @@ frontend/
 - Auth bootstrap, pinned `X-Profile-Id: 1` scoping, and reporting-currency readiness: `src/context/AGENTS.md`, `src/context/auth/AGENTS.md`, `src/context/ReportingCurrencyContext.tsx`
 - Typed API boundary, shared request plumbing, and reporting-currency cache and normalization: `src/lib/AGENTS.md`, `src/lib/api/AGENTS.md`, `src/lib/reportingCurrency.ts`, `src/lib/api.ts`
 - Shared vendor cache and profile-revision keyed reference-data invalidation: `src/lib/referenceData.ts`
-- Frontend locale state, shared formatting, and static non-hook labels: `src/i18n/LocaleProvider.tsx`, `src/i18n/format.ts`, `src/i18n/staticMessages.ts`
+- Frontend zh-CN locale state, shared formatting, and static non-hook labels: `src/i18n/LocaleProvider.tsx`, `src/i18n/format.ts`, `src/i18n/staticMessages.ts`
 - Vite version injection, optional same-origin proxying for `/api`, `/health`, `/v1`, and `/v1beta`, dev or preview `/health`, launcher proxy env path, launcher port `5173` to the selected bootstrap file's backend port, and build metadata: `vite.config.ts`, `package.json`
 - Production `dist/` static server, SPA fallback, `PORT` default `3000`, and `/health`: `server.mjs`
 - Test split and browser config: `tests/AGENTS.md`, `tests/e2e/`, `tests/{lib,loadbalance,main,model-detail,server}/`, `playwright.config.ts`
@@ -60,7 +60,7 @@ frontend/
 - Keep backend startup configuration out of the dashboard after R2. Operators edit `config.json` and restart; `VITE_API_BASE` plus launcher proxy envs are transport wiring only.
 - Keep reporting-currency provider state in `src/context/ReportingCurrencyContext.tsx` and shared cache, `prime()` or `refresh()` behavior, and normalization in `src/lib/reportingCurrency.ts` instead of duplicating settings-side currency bootstrap in pages.
 - Keep live dashboard and analytics refresh in page-owned polling hooks that use the typed REST API boundary.
-- Keep locale state, shared formatting, and non-hook static label lookups in `src/i18n/`, not in shell or page code.
+- Keep the single zh-CN locale state, shared formatting, and non-hook static label lookups in `src/i18n/`, not in shell or page code.
 - Keep shadcn/ui additions aligned with `components.json`: `style` `new-york`, Tailwind CSS in `src/index.css`, `lucide` icons, aliases rooted at `@/`, and generated primitives under `src/components/ui/`.
 - Use existing `ui/` primitives and local wrappers before adding one-off markup in pages or shared widgets.
 

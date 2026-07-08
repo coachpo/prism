@@ -20,7 +20,7 @@ components/
 ## WHERE TO LOOK
 - Shell chrome and layout handoff: `layout/page.tsx`
 - Shell state cluster plus nav/version ownership: `layout/app-layout/AGENTS.md`
-- Shared language/theme controls: `LanguageSwitcher.tsx`, `ThemeToggle.tsx`
+- Shared theme control: `ThemeToggle.tsx`
 - Shared list, copy, icon action, and spend-trust note widgets: `AnimatedListItem.tsx`, `ApiFamilyIcon.tsx`, `ApiFamilySelect.tsx`, `CopyButton.tsx`, `IconActionGroup.tsx`, `SpendTrustIndicator.tsx`
 - Shared loadbalance rendering: `loadbalance/LoadbalanceBadges.tsx`, `loadbalance/LoadbalanceEventsTable.tsx`, `loadbalance/LoadbalanceEventDetailSheet.tsx`
 - Shared statistics rendering: `statistics/TopSpendingCard.tsx`
@@ -42,7 +42,7 @@ components/
 - Keep shared components presentation-first.
 - Keep data fetching and route state out of this tree.
 - Keep shell-state ownership in `layout/app-layout/`; the direct components here should stay compositional or presentational.
-- Keep locale and theme controls in the shared preference widgets instead of duplicating them in auth pages or shell headers.
+- Keep theme controls in shared preference widgets instead of duplicating them in auth pages or shell headers.
 - Keep shared spend-trust fallback copy in `SpendTrustIndicator.tsx` instead of duplicating it across dashboard, models, statistics, or request-log views.
 - Reuse `ui/` primitives before adding one-off markup, and prefer local wrappers in `ui/` when a pattern belongs to the design system.
 - Keep semantic Tailwind tokens, `cn(...)` class composition, and shadcn variant/size props in shared components instead of raw color overrides or bespoke primitive copies.

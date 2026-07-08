@@ -1,6 +1,5 @@
 import type { ReactNode } from "react"
 
-import { LanguageSwitcher } from "@/components/LanguageSwitcher"
 import { ThemeToggle } from "@/components/ThemeToggle"
 import {
   Card,
@@ -28,10 +27,6 @@ export function AuthPageShell({
           Prism
         </div>
         <div className="flex items-center gap-2">
-          <LanguageSwitcher
-            buttonClassName="border border-outline-variant bg-surface"
-            menuClassName="border-outline-variant bg-popover"
-          />
           <ThemeToggle
             buttonClassName="size-9 rounded-full border border-outline-variant bg-surface text-foreground hover:bg-surface-container-low"
             menuClassName="border-outline-variant bg-popover"

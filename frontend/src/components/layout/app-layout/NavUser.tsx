@@ -1,5 +1,5 @@
 import { useTheme } from "next-themes";
-import { ChevronsUpDown, Languages, Laptop, LogOut, Moon, MoonStar, Sun } from "lucide-react";
+import { ChevronsUpDown, Laptop, LogOut, Moon, MoonStar, Sun } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,7 +15,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 import { useSidebar } from "@/components/ui/sidebar-context";
-import { LanguageMenuItems } from "@/components/LanguageSwitcher";
 import { ThemeMenuItems } from "@/components/ThemeToggle";
 import { useLocale } from "@/i18n/useLocale";
 import { VERSION_LABEL } from "./useShellNavigation";
@@ -27,17 +26,13 @@ type Props = {
 };
 
 export function NavUser({ authEnabled, handleLogout, username }: Props) {
-  const { locale, messages, setLocale } = useLocale();
+  const { messages } = useLocale();
   const { theme = "system", setTheme } = useTheme();
   const { isMobile } = useSidebar();
 
   const displayName = authEnabled
     ? username?.trim() || messages.shell.signedOut
     : messages.settingsAuthentication.authenticationDisabled;
-  const languageOptions = [
-    { value: "en", label: messages.locale.options.en },
-    { value: "zh-CN", label: messages.locale.options["zh-CN"] },
-  ] as const;
   const themeOptions = [
     { value: "light", label: messages.theme.light, icon: Sun },
     { value: "dark", label: messages.theme.dark, icon: Moon },
@@ -68,20 +63,6 @@ export function NavUser({ authEnabled, handleLogout, username }: Props) {
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <Languages />
-                  {messages.locale.changeLanguage}
-                </DropdownMenuSubTrigger>
-                <DropdownMenuPortal>
-                  <DropdownMenuSubContent>
-                    <DropdownMenuGroup>
-                      <DropdownMenuLabel>{messages.locale.changeLanguage}</DropdownMenuLabel>
-                      <LanguageMenuItems locale={locale} languageOptions={languageOptions} setLocale={setLocale} />
-                    </DropdownMenuGroup>
-                  </DropdownMenuSubContent>
-                </DropdownMenuPortal>
-              </DropdownMenuSub>
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
                   <MoonStar />
