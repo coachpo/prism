@@ -27,7 +27,7 @@ jobs:
 
       - name: Run backend regression suites
         working-directory: backend
-        run: go test ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...
+        run: go test ./internal/platform/lifecycle ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...
 
       - name: Build backend
         working-directory: backend
