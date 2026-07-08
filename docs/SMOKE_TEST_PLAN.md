@@ -255,7 +255,7 @@ Prepare seed state through API (not manual DB edits):
 | C12 | P0 | No active Terminal Target compatibility edges | `503` |
 | C13 | P1 | Header merge order with custom override | Custom headers win over ordinary forwarded headers but cannot override proxy-controlled auth/version headers |
 | C14 | P1 | Terminal Target `custom_headers` override | Effective headers follow override |
-| C15 | P0 | OpenAI local models list | `GET /v1/models` returns an OpenAI-shaped list of enabled OpenAI models in the active profile without contacting upstream |
+| C15 | P0 | OpenAI local models list | `GET /v1/models` returns an OpenAI-shaped list of enabled OpenAI models for frozen Default profile id `1` without contacting upstream |
 | C16 | P0 | OpenAI Responses input-token operation | `POST /v1/responses/input_tokens` is allowlisted, routes only to responses-capable targets, and persists token-count usage |
 | C17 | P0 | OpenAI Responses compact operation | `POST /v1/responses/compact` is allowlisted, routes only to responses-capable targets, and extracts Responses usage |
 | C18 | P1 | OpenAI image generation operation | `POST /v1/images/generations` forwards the media operation without estimating token usage |
@@ -533,7 +533,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 |---|---|---|---|
 | M01 | P0 | Default profile management routes are removed | management profile CRUD requests are not mounted |
 | M03 | P0 | Management API profile resolution (`X-Profile-Id` absent vs present) | Profile-scoped `/api/*` succeeds without the header; any header value is ignored and operations use Default profile id `1` |
-| M11 | P0 | Runtime request with `X-Profile-Id` override header | Runtime ignores override and uses active profile context only |
+| M11 | P0 | Runtime request with `X-Profile-Id` override header | Runtime ignores override and uses frozen Default profile id `1` context only |
 | M12 | P0 | Duplicate `model_id` in Default profile id `1` | Duplicate create returns `409`; there is no profile switch path to bypass uniqueness |
 | M13 | P0 | Access target missing from Default profile id `1` | Target resolution fails (`404`) |
 | M14 | P0 | Request-log attribution and stats scope | Every row has immutable `profile_id`; stats/list/delete operate on Default profile id `1` |
@@ -608,4 +608,4 @@ Notes:
 - Header blocklist matching is case-insensitive.
 - System blocklist rules are seeded on first boot.
 - Prefix rules must end with `-` (e.g. `cf-`, `x-cf-`).
-- Profile-scoped management APIs are pinned to Default profile id `1`; global management routes remain outside profile scoping; proxy runtime uses the active profile scope.
+- Profile-scoped management APIs are pinned to Default profile id `1`; global management routes remain outside profile scoping; proxy runtime uses frozen Default profile id `1` scope.

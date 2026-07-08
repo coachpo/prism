@@ -10,8 +10,8 @@ Prism does not expose a backend-local `/metrics` operations endpoint. Configure 
 - Prism has three route classes:
   - Global management routes, which omit `X-Profile-Id`.
   - Profile-scoped management routes, which accept `X-Profile-Id` but ignore its value and resolve against Default profile id `1`.
-  - Runtime proxy routes, which always use the active profile and ignore management scope overrides.
-- Proxy endpoints (`/v1/*`, `/v1beta/*`) always use the active profile and ignore management scope overrides.
+  - Runtime proxy routes, which resolve against frozen Default profile id `1` and ignore management scope overrides.
+- Proxy endpoints (`/v1/*`, `/v1beta/*`) always resolve against frozen Default profile id `1` and ignore management scope overrides.
 - Global management routes include `/api/auth/*`, `/api/realtime/*`, `/api/settings/auth*`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
 - Profile-scoped management routes include `/api/config/header-blocklist-rules*`, `/api/config/user-agent-client-rules*`, `/api/settings/costing`, `/api/settings/timezone`, `/api/settings/audit`, `/api/stats/*`, `/api/audit/*`, `/api/loadbalance/*`, `/api/models/*`, `/api/endpoints/*`, and `/api/connections/*`.
 - Detail endpoints return `404` when a resource exists outside Default profile id `1`.
@@ -686,9 +686,9 @@ The former CLIProxyAPI management control plane and runtime context-overflow pro
 
 ## 2. Runtime Proxy API
 
-Prism's runtime proxy is an explicit allowlist, not a full vendor API clone. It supports only the operations listed in this section through the active profile. Other vendor routes, including stored-object, retrieve, delete, cancel, embedding, file, batch, and admin APIs, are outside Prism's runtime contract unless they appear in this allowlist.
+Prism's runtime proxy is an explicit allowlist, not a full vendor API clone. It supports only the operations listed in this section through frozen Default profile id `1`. Other vendor routes, including stored-object, retrieve, delete, cancel, embedding, file, batch, and admin APIs, are outside Prism's runtime contract unless they appear in this allowlist.
 
-Runtime proxy routes ignore management `X-Profile-Id` overrides and always use the active runtime profile. Profile-scoped management reads and writes are pinned to Default profile id `1`; they do not switch proxy traffic.
+Runtime proxy routes ignore management `X-Profile-Id` overrides and always resolve against frozen Default profile id `1`. Profile-scoped management reads and writes are pinned to Default profile id `1`; they do not switch proxy traffic.
 
 ### 2.1 Supported Runtime Operations
 

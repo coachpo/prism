@@ -243,7 +243,7 @@ Profiles are retained storage namespaces. Multi-profile management is frozen: ma
 | is_default | BOOLEAN | NOT NULL, DEFAULT FALSE | Seeded default marker |
 | is_editable | BOOLEAN | NOT NULL, DEFAULT TRUE | Editable flag; current startup invariants keep the system default profile editable |
 | version | INTEGER | NOT NULL, DEFAULT 0 | Retained concurrency token |
-| deleted_at | DATETIME | NULLABLE | Soft-delete marker for inactive profiles |
+| deleted_at | DATETIME | NULLABLE | Soft-delete marker for inactive rows |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
@@ -1008,7 +1008,7 @@ CREATE INDEX idx_proxy_api_keys_is_active ON proxy_api_keys(is_active);
 
 - Profile-scoped entities include `model_configs`, `model_access_targets`, `loadbalance_strategies`, `endpoints`, `connections`, `pricing_templates`, `user_settings`, `endpoint_fx_rate_settings`, `profile_api_family_audit_settings`, `routing_connection_runtime_state`, `routing_connection_runtime_leases`, `loadbalance_round_robin_state`, `runtime_telemetry_outbox`, profile-owned `management_jobs`, user `header_blocklist_rules`, and user `user_agent_client_rules`.
 - `app_auth_settings` is the singleton auth root for `refresh_tokens` and `proxy_api_keys`.
-- `request_logs`, `usage_request_events`, `audit_logs`, and `loadbalance_events` keep immutable `profile_id` attribution and are not rewritten when active profile changes.
+- `request_logs`, `usage_request_events`, `audit_logs`, and `loadbalance_events` keep immutable `profile_id` attribution and are not rewritten when the runtime profile snapshot changes.
 - `request_logs.ingress_request_id` is the canonical operator drill-in key for grouped request investigation.
 - `routing_connection_runtime_state` and `routing_connection_runtime_leases` are profile-scoped runtime state and intentionally `UNLOGGED`; operators accept reset-on-crash semantics.
 - Cross-profile resource lookups are treated as not found (`404`) because management scope is pinned to Default profile id `1`.
@@ -1021,7 +1021,7 @@ CREATE INDEX idx_proxy_api_keys_is_active ON proxy_api_keys(is_active);
 
 ## 6. Runtime Isolation Notes
 
-- Proxy routing always resolves against the active profile snapshot.
+- Proxy routing always resolves against frozen Default profile id `1`.
 - Runtime routing state is persisted in profile-scoped hot tables and namespaced by `(profile_id, connection_id)` so retry-window, admission, and ban decisions do not leak across profiles.
 - Ban Mode state stays with the same per-connection runtime row and tracks retry-cycle attempts, cumulative attempts, next retry timing, ban mode, and temporary-ban expiry together.
 - Admission state is persisted in profile-scoped `UNLOGGED` hot tables plus lease rows and remains namespaced by `(profile_id, connection_id)` to avoid cross-profile leakage.
@@ -1031,7 +1031,7 @@ CREATE INDEX idx_proxy_api_keys_is_active ON proxy_api_keys(is_active);
 - Ban Mode thresholding uses cumulative retry attempts for the private connection owned by the terminal model path.
 - Non-retryable client errors do not force-clear existing persisted current state; successful responses (`2xx`/`3xx`) clear persisted retry and ban state for the connection.
 - Resetting current state deletes the row and therefore clears retry-window counters, next retry timing, and ban state together.
-- Header blocklist at runtime is resolved as: all enabled system rules + enabled user rules for active profile.
+- Header blocklist at runtime is resolved as: all enabled system rules + enabled user rules for frozen Default profile id `1`.
 
 ## 7. Invariant Notes
 

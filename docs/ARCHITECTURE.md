@@ -124,7 +124,7 @@ Prism is proxy-first. It forwards only the provider-native operations registered
 
 The operation registry is the ingress contract for the runtime plane. Each supported operation declares an exact HTTP method, path template, API family, model-binding source, streaming classification, canonical operation name, and provider adapter when upstream transport is required. The current canonical operation names are `openai.models`, `openai.chat_completions`, `openai.responses`, `openai.responses.input_tokens`, `openai.responses.compact`, `openai.images.generations`, `openai.images.edits`, `anthropic.messages`, `anthropic.count_tokens`, `gemini.generate_content`, `gemini.stream_generate_content`, and `gemini.count_tokens`. Requests that do not match that registry are rejected before body reads, planning, provider transport, telemetry, audit, feedback, or durable side effects.
 
-After registry resolution, every runtime operation enters the same execution core. The shared runtime and gateway layers capture the active profile snapshot, resolve ordered access targets to a final model-private connection or final model target, apply the attached explicit Ban Policy strategy, claim leases, record retained request history through durable seams, and emit bounded OTLP metrics/traces through startup-owned providers when enabled. Provider adapters own provider-specific parsing, upstream request building, response adaptation, streaming terminal classification, usage extraction, token counting or estimation, media handling, overflow classification, and pure OpenAI Chat/Responses request, response, and stream conversion. The shared runtime/gateway owns the operation registry, routing, admission, SSE lifecycle, accounting, telemetry, audit persistence and raw capture, pricing, feedback, request-log metadata, and side-effect handoff.
+After registry resolution, every runtime operation enters the same execution core. The shared runtime and gateway layers resolve against frozen Default profile id `1`, resolve ordered access targets to a final model-private connection or final model target, apply the attached explicit Ban Policy strategy, claim leases, record retained request history through durable seams, and emit bounded OTLP metrics/traces through startup-owned providers when enabled. Provider adapters own provider-specific parsing, upstream request building, response adaptation, streaming terminal classification, usage extraction, token counting or estimation, media handling, overflow classification, and pure OpenAI Chat/Responses request, response, and stream conversion. The shared runtime/gateway owns the operation registry, routing, admission, SSE lifecycle, accounting, telemetry, audit persistence and raw capture, pricing, feedback, request-log metadata, and side-effect handoff.
 
 OpenAI Chat Completions and Responses can translate only across explicit sibling-operation terminal targets. Planning remains ingress-led: estimation, generation-parameter extraction, and `operation_name` come from the client-visible operation. A selected OpenAI connection's `openai_text_capability` decides whether the attempt is native with `operation_translation_mode = "none"` or translated with `openai_responses_to_chat_completions` or `openai_chat_completions_to_responses`. The capability values are `responses_only`, `chat_completions_only`, and `dual_native`. Native-compatible terminal attempts remain preferred before translated attempts, and sibling translation is always on only for adapter-approved text-only shapes. Unsupported shapes are not universally routable, so tools, multimodal or file inputs, stateful Responses features, structured-output mismatches, streaming event-shape mismatches, and other adapter-rejected conversions stay blocked by adapter capability checks. Responses adjunct operations require responses-capable targets and never translate to Chat Completions. Translation rewrites supported request shapes after target selection, rewrites non-stream or stream responses back to ingress shape for the client, preserves canonical usage from upstream payloads or stream terminal events, and drops unsafe entity headers from translated responses.
 
@@ -137,9 +137,9 @@ Terminal Target `openai_text_capability` remains connection-owned metadata used 
 ```
 Client -> POST /v1/chat/completions {model: "gpt-4o"}
   -> Operation registry resolves `openai.chat_completions` and its OpenAI provider adapter
-  -> Shared core captures active profile snapshot at request start
+  -> Shared core resolves against frozen Default profile id `1` at request start
   -> Gateway assigns one Prism `ingress_request_id` for the incoming runtime request
-  -> Request setup resolves the requested model and its ordered access targets in active profile scope
+  -> Request setup resolves the requested model and its ordered access targets in frozen Default profile id `1` scope
   -> Planner reaches the model's Terminal Target, applies the attached explicit Ban Policy strategy, and checks admission counters plus retry-window state
   -> Executor claims the primary attempt lease and forwards the request to the selected endpoint
   -> Upstream responds with JSON
@@ -151,7 +151,7 @@ Client -> POST /v1/chat/completions {model: "gpt-4o"}
 ```
 Client -> POST /v1/messages {model: "claude-sonnet-4-5"}
   -> Operation registry resolves `anthropic.messages` and its Anthropic provider adapter
-  -> Shared core captures active profile snapshot
+  -> Shared core resolves against frozen Default profile id `1`
   -> Resolver loads ordered same-profile, same-api-family access targets
   -> Model targets can chain to another model; compatibility connection targets are terminal
   -> Executor plans attempts against Terminal Targets
@@ -164,7 +164,7 @@ Client -> POST /v1/messages {model: "claude-sonnet-4-5"}
 ```
 Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
   -> Operation registry resolves `openai.chat_completions`; the OpenAI adapter marks stream intent
-  -> Shared core captures active profile snapshot
+  -> Shared core resolves against frozen Default profile id `1`
   -> Gateway assigns one Prism `ingress_request_id`
   -> Access-target resolution, route planning, adapter request build, and admission finish before downstream commit
   -> Executor claims a streaming lease before opening the upstream stream
@@ -201,11 +201,11 @@ Runtime compatibility and redirect checks use each model's required `api_family`
 - Prism keeps one route-class matrix:
   - Global management routes omit `X-Profile-Id`.
   - Profile-scoped management routes accept `X-Profile-Id`, but the backend ignores its value and resolves against Default profile id `1`.
-  - Supported runtime operations under `/v1` and `/v1beta` ignore management overrides and always use the active profile.
+  - Supported runtime operations under `/v1` and `/v1beta` ignore management overrides and always resolve against frozen Default profile id `1`.
 - Global management routes include `/api/auth/*`, `/api/realtime/*`, auth and proxy-key settings under `/api/settings/auth*`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
-- Multi-profile management is frozen. Profile-scoped management reads and writes are pinned to Default id `1`; runtime routing still loads the published active profile snapshot.
+- Multi-profile management is frozen. Profile-scoped management reads and writes are pinned to Default id `1`; runtime routing still loads the published Default-profile runtime snapshot.
 - Scope-control errors return stable `code` values plus human-readable `detail` text.
-- Supported runtime operations always use active profile and ignore override headers.
+- Supported runtime operations always resolve against frozen Default profile id `1` and ignore override headers.
 
 The protected frontend shell derives sidebar destinations and breadcrumbs from the route metadata in `frontend/src/components/layout/app-layout/useShellNavigation.ts`, and persists only the desktop sidebar collapse preference in localStorage. Mobile drawer state remains transient browser UI state.
 
@@ -315,7 +315,7 @@ resolve_access(profile_id, model_id):
 
 ### 5.4 Default profile and active runtime separation
 
-Profile-scoped management APIs are frozen to Default id `1`. They accept `X-Profile-Id` for frontend compatibility, but the backend ignores the header value. Runtime proxy traffic ignores that management header and resolves through the active runtime profile snapshot.
+Profile-scoped management APIs are frozen to Default id `1`. They accept `X-Profile-Id` for frontend compatibility, but the backend ignores the header value. Runtime proxy traffic ignores that management header and resolves through the frozen Default profile id `1` runtime snapshot.
 
 ### 5.5 Dashboard topology graph
 

@@ -34,9 +34,9 @@ When started through the checked-in root launcher, Prism serves the frontend at 
 - `src/main.tsx` owns browser mounting plus the locale, theme, tooltip, and toast providers.
 - `src/lib/api.ts` is the public typed API boundary.
 - `src/lib/websocket.ts` owns the realtime client used by `useRealtimeData()`.
-- `src/context/` owns auth bootstrap and selected-profile management scope.
+- `src/context/` owns auth bootstrap and the frozen Default-profile management scope.
 - `src/components/` owns shared shell chrome and cross-route widgets, including loadbalance and statistics helpers.
-- `src/components/layout/app-layout/navigationProfileConfig.ts` owns shell nav links, profile-scoped prefixes, and the visible version label.
+- `src/components/layout/app-layout/` owns shell nav links, profile-scoped prefixes, and the visible version label. There is no profile switcher in the shell.
 
 For deeper implementation boundaries, use `src/pages/AGENTS.md`, `src/lib/AGENTS.md`, `src/context/AGENTS.md`, and nearby feature docs.
 

@@ -153,3 +153,23 @@ Verification:
 
 Concerns:
 - The pre-existing dirty/untracked docs named in the task were left untouched.
+
+## Task 9 Remaining Doc Fix
+
+STATUS: DONE
+
+Commit:
+- `docs: finish profile freeze durable docs`
+
+Fixes:
+- Rewrote the remaining durable docs in `docs/API_SPEC.md`, `docs/ARCHITECTURE.md`, `docs/DATA_MODEL.md`, and `docs/SMOKE_TEST_PLAN.md` to use frozen Default profile id `1` wording.
+- Kept `X-Profile-Id` compatibility language explicit while stating that the backend ignores it and `profile_id` columns remain storage attribution only.
+- Updated `frontend/README.md` to remove the stale selected-profile/navigation ownership references and describe the current no-switcher shell structure.
+
+Verification:
+- `rg -n 'active profile|selected profile|selected-profile|profile navigation|navigationProfileConfig|profile lifecycle|X-Profile-Id.*active|active.*X-Profile-Id' docs/API_SPEC.md docs/ARCHITECTURE.md docs/DATA_MODEL.md docs/SMOKE_TEST_PLAN.md frontend/README.md`
+- `cd frontend && pnpm run build`
+- `cd backend && go test ./internal/profiledomain ./internal/platform/http`
+
+Concerns:
+- The unrelated pre-existing dirty/untracked docs were left untouched per instruction.
