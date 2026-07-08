@@ -258,6 +258,28 @@ Fixes:
 
 Verification:
 - `rg -n 'active profile|active-profile|ResolveActiveProfile|LoadPublishedActiveProfile|published active' backend/internal/httpapi/runtime backend/internal/profiledomain backend/tests/runtime docs/DATA_MODEL.md docs/ARCHITECTURE.md docs/REQUESTS_PAGE.md` -> no matches.
+
+## Task 9 R4 Final Realtime Filter Fix
+
+STATUS: DONE_WITH_CONCERNS
+
+Commit:
+- `fix: ignore stale realtime profile filters`
+
+Fixes:
+- Runtime analytics publish regression now expects non-default caller profile ids to deliver to Default subscribers instead of reporting no delivery.
+- Statistics page data now normalizes inbound realtime snapshot profile ids to the selected profile and stops dropping analytics errors by profile id.
+- Added frontend contract coverage for normalized realtime snapshot profile ids.
+
+Verification:
+- `rg -n 'payload\\.profile_id|profile_id !== selectedProfileId|PublishAnalyticsUpdates\\(profileTwoID\\)|no delivery|inactive profile|profileTwoID' backend/tests/runtime/realtime_test.go frontend/src/pages/statistics/useUsageStatisticsPageData.ts frontend/src/test frontend/tests/lib`
+- `cd backend && go test ./tests/runtime -run TestRealtimeAnalyticsPublishActiveScopesOnly` -> failed before assertions: `postgres container on port 33230 did not become ready in time`
+- `cd frontend && pnpm run test`
+- `cd frontend && pnpm run test:lib`
+- `cd frontend && pnpm run build`
+
+Concerns:
+- The backend runtime test is still blocked by the local Postgres harness readiness timeout before assertions run.
 - `cd backend && go test ./internal/httpapi/runtime ./internal/profiledomain` -> passed.
 - `cd backend && go test ./tests/runtime -run 'Profile|Cache|Planning'` -> failed before assertions because the local Docker Postgres harness did not publish `5432/tcp`.
 - `cd backend && go build ./cmd/prism-backend` -> passed.

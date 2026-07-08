@@ -1691,9 +1691,11 @@ func TestRealtimeAnalyticsPublishActiveScopesOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("publish analytics secondary profile: %v", err)
 	}
-	if delivered {
-		t.Fatal("expected secondary profile analytics publish to report no delivery")
+	if !delivered {
+		t.Fatal("expected secondary profile analytics publish to deliver to Default subscribers")
 	}
+	assertAnalyticsSnapshot(t, readWebSocketJSON(t, oneHourConn), profileID, "1h", float64(2))
+	assertAnalyticsSnapshot(t, readWebSocketJSON(t, thirtyDayConn), profileID, "30d", float64(2))
 	delivered, err = harness.realtimeService.PublishAnalyticsUpdates(context.Background(), profileID)
 	if err != nil {
 		t.Fatalf("publish active analytics scopes: %v", err)

@@ -95,6 +95,13 @@ function getGeneratedAtMs(generatedAt: string): number {
   return Number.isFinite(generatedAtMs) ? generatedAtMs : 0;
 }
 
+export function normalizeAnalyticsSnapshotProfileId(
+  selectedProfileId: number | null,
+  profileId: number,
+): number {
+  return selectedProfileId ?? profileId;
+}
+
 function buildRestSnapshotSource({
   profileId,
   snapshot,
@@ -111,13 +118,16 @@ function buildRestSnapshotSource({
   };
 }
 
-function buildRealtimeSnapshotSource(payload: AnalyticsRealtimeSnapshotPayload): AnalyticsSnapshotSource {
+function buildRealtimeSnapshotSource(
+  selectedProfileId: number | null,
+  payload: AnalyticsRealtimeSnapshotPayload,
+): AnalyticsSnapshotSource {
   return {
     endpointModelStatisticsByEndpointId: normalizeEndpointModelStatisticsByEndpointId(
       payload.endpoint_model_statistics_by_endpoint_id,
     ),
     generatedAt: payload.generated_at,
-    profileId: payload.profile_id,
+    profileId: normalizeAnalyticsSnapshotProfileId(selectedProfileId, payload.profile_id),
     sequence: payload.sequence,
     snapshot: payload.snapshot,
   };
@@ -302,14 +312,12 @@ export function useUsageStatisticsPageData({
 
   const acceptSnapshotSource = useCallback(
     (source: AnalyticsSnapshotSource) => {
-      if (source.profileId !== selectedProfileId) {
-        return;
-      }
+      const profileId = normalizeAnalyticsSnapshotProfileId(selectedProfileId, source.profileId);
 
       const nextMeta: AcceptedAnalyticsSnapshotMeta = {
         generatedAtMs: getGeneratedAtMs(source.generatedAt),
         preset: state.selectedTimeRange,
-        profileId: source.profileId,
+        profileId,
         sequence: source.sequence,
       };
 
@@ -336,9 +344,9 @@ export function useUsageStatisticsPageData({
       if (payload.preset !== state.selectedTimeRange) {
         return;
       }
-      acceptSnapshotSource(buildRealtimeSnapshotSource(payload));
+      acceptSnapshotSource(buildRealtimeSnapshotSource(selectedProfileId, payload));
     },
-    [acceptSnapshotSource, state.selectedTimeRange],
+    [acceptSnapshotSource, selectedProfileId, state.selectedTimeRange],
   );
 
   useEffect(() => {
@@ -413,11 +421,7 @@ export function useUsageStatisticsPageData({
 
   useEffect(() => {
     const message = realtime.lastMessage;
-    if (
-      message?.type !== "analytics.error" ||
-      message.profile_id !== selectedProfileId ||
-      message.preset !== state.selectedTimeRange
-    ) {
+    if (message?.type !== "analytics.error" || message.preset !== state.selectedTimeRange) {
       return;
     }
 

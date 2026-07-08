@@ -176,6 +176,13 @@ test("analytics snapshot ordering rejects older sequence and generation only wit
   }), false);
 });
 
+test("analytics page normalizes realtime snapshot profile ids to the selected profile", () => {
+  const { normalizeAnalyticsSnapshotProfileId } = loadUsagePageDataModule();
+
+  assert.equal(normalizeAnalyticsSnapshotProfileId(1, 7), 1);
+  assert.equal(normalizeAnalyticsSnapshotProfileId(null, 7), 7);
+});
+
 test("analytics manual refresh sends websocket refresh only for active subscribed scope", () => {
   const sentMessages = [];
   const { WebSocketClient, sockets } = loadClientModule(sentMessages);
