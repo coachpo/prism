@@ -1335,6 +1335,11 @@ export interface Messages {
     nextPage: string;
     requestBasedSpend: string;
     requestTrendsTitle: string;
+    latencyTrendsTitle: string;
+    latencyOverTime: string;
+    p50Label: string;
+    p95Label: string;
+    noLatencyData: string;
     avgTokenRate: string;
     requestsTab: string;
     requests: string;
@@ -2776,6 +2781,11 @@ export const enMessages: Messages = {
     nextPage: "Next Page",
     requestBasedSpend: "Request-based spend",
     requestTrendsTitle: "Request Trends",
+    latencyTrendsTitle: "Latency Trends",
+    latencyOverTime: "P50 and P95 latency over time",
+    p50Label: "P50",
+    p95Label: "P95",
+    noLatencyData: "No latency data",
     requestsInWindow: (count) => `${count} reqs in window`,
     requestsTab: "Requests",
     requests: "Requests",

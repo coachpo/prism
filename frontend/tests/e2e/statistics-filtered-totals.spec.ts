@@ -54,6 +54,10 @@ function createUsageSnapshot() {
         },
       ],
     },
+    latency_trends: {
+      hourly: [],
+      daily: [],
+    },
     token_usage_trends: {
       hourly: [
         { key: "all", label: "All models", total_tokens: 2400, points: [] },
@@ -315,6 +319,7 @@ async function seedUsageStatisticsState(
             selectedModelLines: nextSelectedModelLines,
             chartGranularity: {
               costOverview: "hourly",
+              latencyTrends: "hourly",
               requestTrends: "hourly",
               tokenTypeBreakdown: "hourly",
               tokenUsageTrends: "hourly",

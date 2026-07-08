@@ -21,6 +21,7 @@ statistics/
 - Shared analytics content surface: `UsageStatisticsContent.tsx`
 - Snapshot orchestration, REST polling, and persisted presentation state: `useUsageStatisticsPageData.ts`, `useUsageStatisticsPageState.ts`, `usageStatisticsStorage.ts`
 - Usage-snapshot charts, sections, and tables: `charts/`, `sections/`, `tables/`
+- The usage trends grid renders request count, latency p50/p95, and token usage from the shared usage snapshot trend contracts.
 - Dashboard analytics loading shell: `UsageStatisticsPageSkeleton.tsx`
 - Shared statistics cards and chart wrappers used by dashboard analytics: `../../components/AGENTS.md`
 - Shared presentation helpers and timezone-aware formatting inputs: `@/hooks/useTimezone`, `@/components/ui/chart.tsx`

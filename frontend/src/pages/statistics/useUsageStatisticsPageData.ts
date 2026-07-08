@@ -9,6 +9,7 @@ import {
 import { useLocale } from "@/i18n/useLocale";
 import type {
   UsageCostOverviewPoint,
+  UsageLatencyTrendSeries,
   UsageModelStatistic,
   UsageRequestTrendSeries,
   UsageSnapshotPreset,
@@ -484,6 +485,16 @@ export function useUsageStatisticsPageData({
           label: localizeSeriesLabel(series.label, series.key),
         })),
       },
+      latency_trends: {
+        hourly: snapshot.latency_trends.hourly.map((series) => ({
+          ...series,
+          label: localizeSeriesLabel(series.label, series.key),
+        })),
+        daily: snapshot.latency_trends.daily.map((series) => ({
+          ...series,
+          label: localizeSeriesLabel(series.label, series.key),
+        })),
+      },
       token_usage_trends: {
         hourly: snapshot.token_usage_trends.hourly.map((series) => ({
           ...series,
@@ -607,6 +618,17 @@ export function useUsageStatisticsPageData({
     );
   }, [localizedSnapshot, selectedModelLineIds, state.chartGranularity.tokenUsageTrends]);
 
+  const latencyTrendSeries = useMemo<UsageLatencyTrendSeries[]>(() => {
+    if (!localizedSnapshot) {
+      return [];
+    }
+
+    return filterSeriesBySelectedModels(
+      localizedSnapshot.latency_trends[state.chartGranularity.latencyTrends],
+      selectedModelLineIds,
+    );
+  }, [localizedSnapshot, selectedModelLineIds, state.chartGranularity.latencyTrends]);
+
   const tokenTypeBreakdown = useMemo<UsageTokenTypeBreakdownPoint[]>(() => {
     if (!localizedSnapshot) {
       return [];
@@ -634,6 +656,7 @@ export function useUsageStatisticsPageData({
     error,
     loadEndpointModelStatistics,
     loading: isLoading,
+    latencyTrendSeries,
     modelStatistics,
     overview,
     refresh,

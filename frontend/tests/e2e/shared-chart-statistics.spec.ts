@@ -171,6 +171,52 @@ function createUsageSnapshot(options?: { empty?: boolean }) {
         },
       ],
     },
+    latency_trends: {
+      hourly: [
+        {
+          key: "all",
+          label: "All models",
+          points: empty
+            ? []
+            : [
+                { bucket_start: "2026-04-09T00:00:00Z", p50_ms: 180, p95_ms: 320 },
+                { bucket_start: "2026-04-09T01:00:00Z", p50_ms: 240, p95_ms: 480 },
+              ],
+        },
+        {
+          key: modelId,
+          label: modelLabel,
+          points: empty
+            ? []
+            : [
+                { bucket_start: "2026-04-09T00:00:00Z", p50_ms: 180, p95_ms: 320 },
+                { bucket_start: "2026-04-09T01:00:00Z", p50_ms: 240, p95_ms: 480 },
+              ],
+        },
+      ],
+      daily: [
+        {
+          key: "all",
+          label: "All models",
+          points: empty
+            ? []
+            : [
+                { bucket_start: "2026-04-08T00:00:00Z", p50_ms: 180, p95_ms: 320 },
+                { bucket_start: "2026-04-09T00:00:00Z", p50_ms: 240, p95_ms: 480 },
+              ],
+        },
+        {
+          key: modelId,
+          label: modelLabel,
+          points: empty
+            ? []
+            : [
+                { bucket_start: "2026-04-08T00:00:00Z", p50_ms: 180, p95_ms: 320 },
+                { bucket_start: "2026-04-09T00:00:00Z", p50_ms: 240, p95_ms: 480 },
+              ],
+        },
+      ],
+    },
     token_usage_trends: {
       hourly: [
         {
@@ -595,6 +641,7 @@ async function seedUsageStatisticsState(page: Page, selectedModelLines: string[]
             selectedModelLines: nextSelectedModelLines,
             chartGranularity: {
               costOverview: "hourly",
+              latencyTrends: "hourly",
               requestTrends: "hourly",
               tokenTypeBreakdown: "hourly",
               tokenUsageTrends: "hourly",
@@ -631,6 +678,8 @@ async function expectSharedPopulatedSurface(page: Page) {
   await expect(page.getByText("One request-based usage snapshot across requests, tokens, cost, endpoints, models, and proxy API keys.", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Request Trends" })).toHaveCount(1);
   await expect(page.getByText("Request Count Over Time", { exact: true })).toHaveCount(1);
+  await expect(page.getByRole("heading", { name: "Latency Trends" })).toHaveCount(1);
+  await expect(page.getByText("P50 and P95 latency over time", { exact: true })).toHaveCount(1);
   await expect(page.getByRole("heading", { name: "Token Usage Trends" })).toHaveCount(1);
   await expect(page.getByRole("heading", { name: "Token Type Breakdown" })).toHaveCount(1);
   await expect(page.getByText("Cost Overview", { exact: true })).toHaveCount(1);
@@ -653,9 +702,8 @@ async function expectSharedPopulatedSurface(page: Page) {
 
 function chartCardByHeading(page: Page, name: string) {
   return page
-    .locator("[class*='bg-card']")
-    .filter({ has: page.getByRole("heading", { name }) })
-    .first();
+    .getByRole("heading", { name })
+    .locator("xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' operator-section-surface ')][1]");
 }
 
 async function readYAxisLabels(chart: Locator) {
@@ -665,6 +713,7 @@ async function readYAxisLabels(chart: Locator) {
 }
 
 async function expectCompactYAxisLabels(chart: Locator) {
+  await chart.scrollIntoViewIfNeeded();
   await expect
     .poll(async () => {
       const labels = await readYAxisLabels(chart);
@@ -695,6 +744,7 @@ test.describe("shared chart statistics regression", () => {
       "scenario=populated-shared-chart-surfaces",
       "dashboard.route=/observe?tab=analytics",
       "statistics.selectors=usage-controls-toolbar,usage-trends-grid,usage-cost-summary-card,usage-kpi-grid",
+      "statistics.latencyTrend=present",
       "statistics.serviceHealthCard=absent",
       "statistics.serviceHealthHeading=absent",
       "statistics.costSummary=$0.62 USD",
@@ -762,6 +812,7 @@ test.describe("shared chart statistics regression", () => {
     const modelPieCard = chartCardByHeading(page, "Top Models by Requests");
     const endpointPieCard = chartCardByHeading(page, "Top Endpoints by Requests");
 
+    await requestBreakdownGrid.scrollIntoViewIfNeeded();
     await expect(requestBreakdownGrid).toBeVisible();
     await expect(modelPieCard.locator(".recharts-pie-sector")).toHaveCount(2);
     await expect(endpointPieCard.locator(".recharts-pie-sector")).toHaveCount(2);
@@ -833,21 +884,23 @@ test.describe("shared chart statistics regression", () => {
     await expect(page.getByRole("heading", { name: "Overview" })).toHaveCount(0);
     await expect(page.getByText("One request-based usage snapshot across requests, tokens, cost, endpoints, models, and proxy API keys.", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Request Trends" })).toHaveCount(1);
+    await expect(page.getByRole("heading", { name: "Latency Trends" })).toHaveCount(1);
     await expect(page.getByRole("heading", { name: "Token Usage Trends" })).toHaveCount(1);
     await expect(page.getByRole("heading", { name: "Token Type Breakdown" })).toHaveCount(1);
     await expect(page.getByText("Service Health", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Service Health" })).toHaveCount(0);
 
     await expect(trendsGrid.getByText("No data available", { exact: true })).toBeVisible();
+    await expect(trendsGrid.getByText("No latency data", { exact: true })).toBeVisible();
     await expect.poll(() => page.getByText("No token usage", { exact: true }).count()).toBe(2);
     await expect(page.getByTestId("usage-cost-summary-card")).toHaveCount(0);
 
     await writeEvidenceFile(emptyEvidencePath, [
       "scenario=empty-statistics-chart-surfaces",
       "dashboard.route=/observe?tab=analytics",
-      "visibleHeaders=Request Trends,Token Usage Trends,Token Type Breakdown",
+      "visibleHeaders=Request Trends,Latency Trends,Token Usage Trends,Token Type Breakdown",
       "absentHeaders=Service Health",
-      "visibleEmptyTitles=No data available,No token usage",
+      "visibleEmptyTitles=No data available,No latency data,No token usage",
       "costSummaryCard=hidden",
     ]);
   });

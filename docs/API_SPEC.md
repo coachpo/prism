@@ -1095,6 +1095,8 @@ The snapshot is backed by `backend/internal/httpapi/management/stats/service.go`
 
 The snapshot is aggregated from persisted usage-event rows. Endpoint aggregates read the stored `usage_request_events.endpoint_label_snapshot` value and expose it as public `endpoint_label`, so historical labels survive later endpoint renames or deletion. `/api/stats/dashboard` is the canonical overview aggregate that also includes the backend-computed Routing Health Map. Exact request investigation remains on `/observe/requests`, while dashboard and other pages continue to use the shared stats routes below.
 
+Response `200` includes `latency_trends` alongside `request_trends`, `token_usage_trends`, `token_type_breakdown`, and `cost_overview`. `latency_trends.hourly[]` and `latency_trends.daily[]` use the same series key/label shape as request trends; each point exposes `bucket_start`, `p50_ms`, and `p95_ms`. Empty latency buckets keep the bucket and return `null` percentile values.
+
 `GET /api/stats/requests/operations` is not part of the current management API.
 
 ### 4.1A Endpoint Model Statistics

@@ -69,6 +69,10 @@ function createUsageSnapshot() {
       hourly: [{ key: "all", label: "All requests", total_requests: 11, points: [] }],
       daily: [{ key: "all", label: "All requests", total_requests: 11, points: [] }],
     },
+    latency_trends: {
+      hourly: [],
+      daily: [],
+    },
     token_usage_trends: {
       hourly: [{ key: "all", label: "All models", total_tokens: 1650, points: [] }],
       daily: [{ key: "all", label: "All models", total_tokens: 1650, points: [] }],

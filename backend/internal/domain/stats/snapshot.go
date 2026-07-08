@@ -467,6 +467,10 @@ type tokenTrendPointStats struct {
 	reasoningTokens int
 }
 
+type latencyTrendPointStats struct {
+	values []int
+}
+
 func GetUsageSnapshot(ctx context.Context, exec queryExecutor, profileID int, preset string, referenceNow time.Time) (UsageSnapshotResponse, error) {
 	generatedAt := referenceNow.UTC()
 	startAt, endAt := resolveTimePreset(preset, nil, &generatedAt, generatedAt)
@@ -521,6 +525,10 @@ func GetUsageSnapshot(ctx context.Context, exec queryExecutor, profileID int, pr
 		Hourly: buildRequestTrendSeries(events, startAt, normalizedEndAt, "hour"),
 		Daily:  buildRequestTrendSeries(events, startAt, normalizedEndAt, "day"),
 	}
+	latencyTrends := UsageLatencyTrends{
+		Hourly: buildLatencyTrendSeries(events, startAt, normalizedEndAt, "hour"),
+		Daily:  buildLatencyTrendSeries(events, startAt, normalizedEndAt, "day"),
+	}
 	tokenUsageTrends := UsageTokenUsageTrends{
 		Hourly: buildTokenTrendSeries(events, startAt, normalizedEndAt, "hour"),
 		Daily:  buildTokenTrendSeries(events, startAt, normalizedEndAt, "day"),
@@ -561,6 +569,7 @@ func GetUsageSnapshot(ctx context.Context, exec queryExecutor, profileID int, pr
 			RollingTPM:           roundFloat(float64(rollingTokenCount)/float64(rollingWindowMinutes), 3),
 		},
 		RequestTrends:         requestTrends,
+		LatencyTrends:         latencyTrends,
 		TokenUsageTrends:      tokenUsageTrends,
 		TokenTypeBreakdown:    tokenTypeBreakdown,
 		CostOverview:          costOverview,
@@ -767,6 +776,80 @@ func buildRequestTrendSeries(events []snapshotEvent, startAt *time.Time, endAt t
 		})
 	}
 	return items
+}
+
+func buildLatencyTrendSeries(events []snapshotEvent, startAt *time.Time, endAt time.Time, granularity string) []UsageLatencyTrendSeries {
+	buckets := bucketRange(startAt, endAt, timeSliceFromEvents(events), granularity)
+	overall := map[time.Time]*latencyTrendPointStats{}
+	modelLabels := map[string]string{}
+	byModel := map[string]map[time.Time]*latencyTrendPointStats{}
+	for _, event := range events {
+		if event.ResponseTimeMS == nil {
+			continue
+		}
+		bucket := bucketFloor(event.CreatedAt, granularity)
+		stat := overall[bucket]
+		if stat == nil {
+			overall[bucket] = &latencyTrendPointStats{}
+			stat = overall[bucket]
+		}
+		stat.values = append(stat.values, *event.ResponseTimeMS)
+		modelLabels[event.ModelID] = event.ModelLabel
+		modelBucketStats := byModel[event.ModelID]
+		if modelBucketStats == nil {
+			byModel[event.ModelID] = map[time.Time]*latencyTrendPointStats{}
+			modelBucketStats = byModel[event.ModelID]
+		}
+		bucketStat := modelBucketStats[bucket]
+		if bucketStat == nil {
+			modelBucketStats[bucket] = &latencyTrendPointStats{}
+			bucketStat = modelBucketStats[bucket]
+		}
+		bucketStat.values = append(bucketStat.values, *event.ResponseTimeMS)
+	}
+	items := []UsageLatencyTrendSeries{{
+		Key:    "all",
+		Label:  "All Models",
+		Points: makeUsageLatencyTrendPoints(buckets, overall),
+	}}
+	modelIDs := make([]string, 0, len(byModel))
+	for modelID := range byModel {
+		modelIDs = append(modelIDs, modelID)
+	}
+	sort.Slice(modelIDs, func(i int, j int) bool {
+		leftLabel := modelLabels[modelIDs[i]]
+		rightLabel := modelLabels[modelIDs[j]]
+		if leftLabel != rightLabel {
+			return leftLabel < rightLabel
+		}
+		return modelIDs[i] < modelIDs[j]
+	})
+	for _, modelID := range modelIDs {
+		items = append(items, UsageLatencyTrendSeries{
+			Key:    modelID,
+			Label:  modelLabels[modelID],
+			Points: makeUsageLatencyTrendPoints(buckets, byModel[modelID]),
+		})
+	}
+	return items
+}
+
+func makeUsageLatencyTrendPoints(buckets []time.Time, stats map[time.Time]*latencyTrendPointStats) []UsageLatencyTrendPoint {
+	points := make([]UsageLatencyTrendPoint, 0, len(buckets))
+	for _, bucket := range buckets {
+		stat := stats[bucket]
+		if stat == nil {
+			points = append(points, UsageLatencyTrendPoint{BucketStart: bucket})
+			continue
+		}
+		// ponytail: Go-side percentile over loaded events, same as existing trends - move to SQL percentile_cont only when T5 fixes the load-all-events pattern wholesale.
+		points = append(points, UsageLatencyTrendPoint{
+			BucketStart: bucket,
+			P50MS:       percentileContInt(stat.values, 0.5),
+			P95MS:       percentileContInt(stat.values, 0.95),
+		})
+	}
+	return points
 }
 
 func buildTokenTrendSeries(events []snapshotEvent, startAt *time.Time, endAt time.Time, granularity string) []UsageTokenTrendSeries {

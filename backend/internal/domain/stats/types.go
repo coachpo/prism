@@ -387,6 +387,23 @@ type UsageRequestTrends struct {
 	Daily  []UsageRequestTrendSeries `json:"daily"`
 }
 
+type UsageLatencyTrendPoint struct {
+	BucketStart time.Time `json:"bucket_start"`
+	P50MS       *int      `json:"p50_ms"`
+	P95MS       *int      `json:"p95_ms"`
+}
+
+type UsageLatencyTrendSeries struct {
+	Key    string                   `json:"key"`
+	Label  string                   `json:"label"`
+	Points []UsageLatencyTrendPoint `json:"points"`
+}
+
+type UsageLatencyTrends struct {
+	Hourly []UsageLatencyTrendSeries `json:"hourly"`
+	Daily  []UsageLatencyTrendSeries `json:"daily"`
+}
+
 type UsageTokenTrendPoint struct {
 	BucketStart  time.Time `json:"bucket_start"`
 	TotalTokens  int       `json:"total_tokens"`
@@ -485,6 +502,7 @@ type UsageSnapshotResponse struct {
 	Currency              UsageSnapshotCurrency       `json:"currency"`
 	Overview              UsageSnapshotOverview       `json:"overview"`
 	RequestTrends         UsageRequestTrends          `json:"request_trends"`
+	LatencyTrends         UsageLatencyTrends          `json:"latency_trends"`
 	TokenUsageTrends      UsageTokenUsageTrends       `json:"token_usage_trends"`
 	TokenTypeBreakdown    UsageTokenTypeBreakdown     `json:"token_type_breakdown"`
 	CostOverview          UsageCostOverview           `json:"cost_overview"`

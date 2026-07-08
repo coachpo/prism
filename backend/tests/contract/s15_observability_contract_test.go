@@ -185,6 +185,7 @@ func assertUsageSnapshotRESTContract(t *testing.T, payload map[string]any, prese
 		"currency",
 		"overview",
 		"request_trends",
+		"latency_trends",
 		"token_usage_trends",
 		"token_type_breakdown",
 		"cost_overview",

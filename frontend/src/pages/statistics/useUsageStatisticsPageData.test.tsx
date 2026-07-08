@@ -45,6 +45,7 @@ vi.mock("@/i18n/useLocale", () => ({
 const pageState: UsageStatisticsPageState = {
   chartGranularity: {
     costOverview: "hourly",
+    latencyTrends: "hourly",
     requestTrends: "hourly",
     tokenTypeBreakdown: "hourly",
     tokenUsageTrends: "hourly",
@@ -252,6 +253,10 @@ function makeSnapshot(generatedAt: string): UsageSnapshotResponse {
       },
     ],
     generated_at: generatedAt,
+    latency_trends: {
+      daily: [],
+      hourly: [],
+    },
     model_statistics: [],
     overview: {
       average_rpm: 1,

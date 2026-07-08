@@ -6,6 +6,7 @@ export type UsageChartGranularity = (typeof USAGE_CHART_GRANULARITIES)[number];
 
 export interface UsageStatisticsChartGranularityState {
   requestTrends: UsageChartGranularity;
+  latencyTrends: UsageChartGranularity;
   tokenUsageTrends: UsageChartGranularity;
   tokenTypeBreakdown: UsageChartGranularity;
   costOverview: UsageChartGranularity;
@@ -71,6 +72,23 @@ export interface UsageRequestTrendSeries {
 export interface UsageRequestTrends {
   hourly: UsageRequestTrendSeries[];
   daily: UsageRequestTrendSeries[];
+}
+
+export interface UsageLatencyTrendPoint {
+  bucket_start: string;
+  p50_ms: number | null;
+  p95_ms: number | null;
+}
+
+export interface UsageLatencyTrendSeries {
+  key: string;
+  label: string;
+  points: UsageLatencyTrendPoint[];
+}
+
+export interface UsageLatencyTrends {
+  hourly: UsageLatencyTrendSeries[];
+  daily: UsageLatencyTrendSeries[];
 }
 
 export interface UsageTokenTrendPoint {
@@ -171,6 +189,7 @@ export interface UsageSnapshotResponse {
   currency: UsageSnapshotCurrency;
   overview: UsageSnapshotOverview;
   request_trends: UsageRequestTrends;
+  latency_trends: UsageLatencyTrends;
   token_usage_trends: UsageTokenUsageTrends;
   token_type_breakdown: UsageTokenTypeBreakdown;
   cost_overview: UsageCostOverview;

@@ -20,6 +20,7 @@ stats/
 - Recent activity feed and watermarks: `dashboard_recent_activity.go`
 - Request-log list/detail filters and final-target fields: `request_logs.go`, `types.go`
 - Usage snapshot, spending, endpoint/model/proxy-key rollups: `snapshot.go`, `rollups.go`, `aggregates.go`
+- Usage snapshot latency trends expose hourly/daily p50 and p95 `response_time_ms` buckets through `latency_trends` beside request and token trends.
 - HTTP management consumers: `../../httpapi/management/stats/`
 
 ## CONVENTIONS

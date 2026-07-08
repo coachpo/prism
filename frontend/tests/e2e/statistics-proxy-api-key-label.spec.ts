@@ -43,6 +43,10 @@ function createUsageSnapshot() {
         },
       ],
     },
+    latency_trends: {
+      hourly: [],
+      daily: [],
+    },
     token_usage_trends: {
       hourly: [
         {
