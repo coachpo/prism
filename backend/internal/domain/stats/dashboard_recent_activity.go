@@ -172,11 +172,5 @@ func scanDashboardRecentActivityRow(scanner interface{ Scan(...any) error }) (da
 	row.UnpricedReason = nullableString(unpricedReason)
 	row.ReportCurrencySymbol = nullableString(reportCurrencySymbol)
 	row.EndpointBaseURL = nullableString(endpointBaseURL)
-	row = normalizeDashboardRecentActivitySpendState(row)
 	return row, nil
-}
-
-func normalizeDashboardRecentActivitySpendState(row dashboardRecentActivityRow) dashboardRecentActivityRow {
-	row.PricedFlag, row.UnpricedReason = normalizeObservedSpendCoherence(successfulStatusCode(row.StatusCode), row.PricedFlag, row.UnpricedReason, row.TotalCostUserCurrencyMicros != nil)
-	return row
 }

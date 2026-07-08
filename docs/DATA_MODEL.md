@@ -957,8 +957,6 @@ These live tables are internal platform state rather than primary product config
 | `runtime_telemetry_outbox` | profile-scoped runtime side-effect handoff | `id`, `profile_id`, `ingress_request_id`, `payload`, `created_at`; durable runtime telemetry handoff rows are materialized by background workers and then deleted |
 | `alert_webhook_outbox` | durable failover incident webhook delivery | `id`, `event_type`, `payload_json`, unique `idempotency_key`, status `queued|sending|sent|dead`, attempt count, max attempts, next attempt, lock fields, sent/dead-letter timestamps, last error, timestamps; payloads carry `event_type`, `connection_id`, `endpoint_id`, `model_id`, optional `banned_until_at`, and `occurred_at` |
 | `loadbalance_round_robin_state` | profile-scoped routing state | `id`, `profile_id`, `model_config_id`, `next_cursor`, timestamps; one cursor row per profile/model for round-robin routing |
-| `management_stat_buckets` | internal stats rollup helper | Composite PK `(bucket_start, bucket_size, metric, dimension_key, dimension_value)`, numeric `value`, `source_high_water_mark`, `generated_at`; retained for internal rollup helpers and tests, not the primary dashboard contract |
-| `management_stat_refresh_state` | internal stats rollup helper | PK `job_name`, `last_source_high_water_mark`, `last_success_at`, `last_error`, `updated_at`; tracks internal rollup refresh progress |
 
 ## 3. Indexes and Constraints (Profile Isolation)
 

@@ -283,7 +283,7 @@ func TestRequestLogListPricingFilters(t *testing.T) {
 	seedPricingFilteredRequestLog(t, harness, profileID, 251, true, nil, true, baseTime)
 	seedPricingFilteredRequestLog(t, harness, profileID, 252, false, runtimeStringPtr("MISSING_PRICE_DATA"), false, baseTime.Add(time.Minute))
 	seedPricingFilteredRequestLog(t, harness, profileID, 253, false, runtimeStringPtr("MISSING_TOKEN_USAGE"), false, baseTime.Add(2*time.Minute))
-	seedPricingFilteredRequestLog(t, harness, profileID, 254, true, nil, false, baseTime.Add(3*time.Minute))
+	seedPricingFilteredRequestLog(t, harness, profileID, 254, false, runtimeStringPtr("MISSING_PRICE_DATA"), false, baseTime.Add(3*time.Minute))
 
 	tests := []struct {
 		name    string
@@ -2594,7 +2594,7 @@ func seedSimpleRequestLog(t *testing.T, harness *requestLogContractHarness, prof
 	if endpointBaseURL != nil {
 		historicalBaseURL = *endpointBaseURL
 	}
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, status_code, response_time_ms, is_stream, success_flag, billable_flag, priced_flag, request_path, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, 'gpt-4o', 'gpt-4o', 'openai', $3, NULL, $4, 1, $5, 200, 120, FALSE, TRUE, TRUE, TRUE, '/v1/chat/completions', $6, $7, FALSE)`, id, profileID, endpointID, fmt.Sprintf("req-%d", id), historicalBaseURL, createdAt, auditEnabledAtRequest); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, status_code, response_time_ms, is_stream, success_flag, billable_flag, priced_flag, unpriced_reason, request_path, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, 'gpt-4o', 'gpt-4o', 'openai', $3, NULL, $4, 1, $5, 200, 120, FALSE, TRUE, TRUE, FALSE, 'MISSING_PRICE_DATA', '/v1/chat/completions', $6, $7, FALSE)`, id, profileID, endpointID, fmt.Sprintf("req-%d", id), historicalBaseURL, createdAt, auditEnabledAtRequest); err != nil {
 		t.Fatalf("seed simple request log %d: %v", id, err)
 	}
 }

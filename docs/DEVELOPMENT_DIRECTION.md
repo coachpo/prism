@@ -106,7 +106,7 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 
 ### E2. 未定价请求下钻（直接解释线上那"4 个未定价"）
 
-- **现状**：行数据已带 priced/unpriced 与原因字段（`domain/stats/request_logs.go:193-194`），聚合侧已有 `UnpricedBreakdown`（`rollups.go:549-555`），原因枚举齐全：`PRICING_DISABLED`（连接没挂价格模板，`runtime_pricing.go:45-47`）、`MISSING_TOKEN_USAGE`、`STREAM_USAGE_UNAVAILABLE`（流被中断时常见——coding agent 恰好爱中断流，`runtime_pricing.go:127-134`）、`MISSING_PRICE_DATA`（含缺 FX，`runtime_pricing.go:136-153`）。**但请求日志列表的查询参数解析不支持按计价状态过滤**（`management/stats/service.go:536-566`），仪表盘的"N 个未定价"也不可点击。
+- **现状**：行数据已带 priced/unpriced 与原因字段（`domain/stats/request_logs.go`），聚合侧已有 `UnpricedBreakdown`（`aggregates.go`），原因枚举齐全：`PRICING_DISABLED`、`MISSING_TOKEN_USAGE`、`STREAM_USAGE_UNAVAILABLE`、`MISSING_PRICE_DATA`。请求日志列表已支持按计价状态与原因过滤，仪表盘点击串联另排。
 - **怎么做**：参数解析器加 `priced=true|false`（可选 `unpriced_reason=`）；前端把"4 个未定价请求"做成带过滤的跳转链接；支出 KPI 旁展示已有的 UnpricedBreakdown。全是接线工作，无新数据。
 
 ### E3. 价格目录/预设（降低费用估算的维护成本与覆盖缺口）
@@ -127,7 +127,7 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 
 ### E5. 延迟趋势图
 
-- **现状**：p95 只有时点值、且是 Go 侧现算的（`rollups.go:145-147,212-214`）；`response_time_ms`/`ttft_ms` 列早已在 `request_logs` 上。
+- **现状**：p95 只有时点值、且是 Go 侧现算的；`response_time_ms`/`ttft_ms` 列早已在 `request_logs` 上。
 - **怎么做**：分析页加一张 p50/p95 随时间曲线（复用现有 recharts 与分桶查询模式）。对"今天上游是不是变慢了"这个日常问题，比平均值有用得多。
 
 ## 4. 技术债清理清单（按优先级）
@@ -156,8 +156,8 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 
 ### T5. 统计读写不一致（核心链路上的隐性债）
 
-- 三处**读时修补**写入端不一致的"支出一致性"归一化逻辑（`domain/stats/request_logs.go:716-733`、`snapshot.go:643-685`）——修正写入端，删掉补丁。
-- `management_stat_buckets` 预聚合表建了但**服务路径没用它**：现状是把命中的 `usage_request_events` 全量载入内存、Go 里聚合（`rollups.go:898-948`、`GetSpending`:511、`GetStatsSummary`:105）。要么接线要么删表。日均 4 请求无感，流量上来是悬崖。
+- 支出一致性在运行时写入前修正；读侧不再修补 `priced_flag`、`unpriced_reason`、`fx_rate_*`。
+- `management_stat_buckets` 与 `management_stat_refresh_state` 已删除；仪表盘继续从 `usage_request_events` 经 `aggregates.go` 内存聚合。
 - 请求日志列表每次都全量重载端点/模型/UA 规则并跑 `COUNT(*)`（`request_logs.go:123-158`）——同上，先记账不动，`// ponytail: 全量 COUNT，日志量上万后换估算或 keyset 分页`。
 
 ### T6. 命名与小件

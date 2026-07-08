@@ -1597,6 +1597,7 @@ type loadbalanceEventSeed struct {
 
 func insertUsageEvent(t *testing.T, harness *contractHarness, seed usageEventSeed) {
 	t.Helper()
+	seed = coherentUsageEventSeed(seed)
 	ensureContractTestLogPartitions(t, harness, contractTestLogPartitionFor("usage_request_events", seed.CreatedAt))
 	if _, err := harness.conn.Exec(
 		context.Background(),
@@ -1655,6 +1656,58 @@ func insertUsageEvent(t *testing.T, harness *contractHarness, seed usageEventSee
 	); err != nil {
 		t.Fatalf("insert usage event %d: %v", seed.ID, err)
 	}
+}
+
+func coherentUsageEventSeed(seed usageEventSeed) usageEventSeed {
+	if seed.UnpricedReason != nil {
+		trimmed := strings.TrimSpace(*seed.UnpricedReason)
+		if trimmed == "" {
+			seed.UnpricedReason = nil
+		} else {
+			seed.UnpricedReason = &trimmed
+		}
+	}
+	if !seed.SuccessFlag || seed.BillableFlag == nil || !*seed.BillableFlag {
+		return seed
+	}
+	if seed.UnpricedReason != nil {
+		seed.PricedFlag = boolPtr(false)
+		seed.FXRateUsed = nil
+		seed.FXRateSource = nil
+		return seed
+	}
+	if seed.TotalCostUserCurrencyMicros != nil {
+		seed.PricedFlag = boolPtr(true)
+		if normalizeTestString(seed.FXRateUsed) == nil && normalizeTestString(seed.FXRateSource) == nil && sameTestCurrency(seed.CurrencyCodeOriginal, seed.ReportCurrencyCode) {
+			seed.FXRateUsed = stringPtr("1")
+			seed.FXRateSource = stringPtr("DEFAULT_1_TO_1")
+		}
+		return seed
+	}
+	if seed.PricedFlag != nil && *seed.PricedFlag {
+		seed.PricedFlag = boolPtr(false)
+		seed.UnpricedReason = stringPtr("MISSING_PRICE_DATA")
+	}
+	seed.FXRateUsed = nil
+	seed.FXRateSource = nil
+	return seed
+}
+
+func normalizeTestString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+func sameTestCurrency(left *string, right *string) bool {
+	normalizedLeft := normalizeTestString(left)
+	normalizedRight := normalizeTestString(right)
+	return normalizedLeft != nil && normalizedRight != nil && *normalizedLeft == *normalizedRight
 }
 
 func usageEventEndpointLabel(t *testing.T, harness *contractHarness, seed usageEventSeed) string {

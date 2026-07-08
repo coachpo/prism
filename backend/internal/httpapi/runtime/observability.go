@@ -1024,6 +1024,7 @@ func (s *Service) buildRuntimeTelemetryPricingTimingContext(plan requestPlan, re
 	if successFlag {
 		pricingResult = buildRuntimePricingResult(plan.ReportCurrencySnapshot, result.Connection.PricingTemplateSnapshot, result.Connection.EndpointFXSnapshot, usage, streamOutcome)
 		pricingResult = withRuntimePricingSnapshotForPersistence(pricingResult, result.Connection.PricingTemplateSnapshot)
+		pricingResult = enforceRuntimeSpendCoherence(successFlag, pricingResult)
 	}
 	return runtimeTelemetryPricingTimingContext{
 		requestCompletedAt:   requestCompletedAt,

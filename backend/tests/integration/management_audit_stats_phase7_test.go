@@ -277,23 +277,6 @@ func TestManagementAuditNoBroadCount(t *testing.T) {
 	}
 }
 
-func TestDashboardRollupHelperReadsRollupsOnly(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	conn := phase7MigratedConn(t, ctx, "stats_rollups_only")
-	defer func() { _ = conn.Close(ctx) }()
-	profileID := phase7InsertProfile(t, ctx, conn)
-	phase7InsertRequestLog(t, ctx, conn, profileID, 1001, 500, phase7Now.Add(-time.Hour))
-
-	response, err := stats.LoadDashboardRollupStats(ctx, conn, profileID, "24h", phase7Now)
-	if err != nil {
-		t.Fatalf("load internal dashboard rollups without rows: %v", err)
-	}
-	if response.Metrics.RequestCount != 0 || !response.Health.Stale {
-		t.Fatalf("expected internal rollup helper to avoid live request_logs fallback, got %+v", response)
-	}
-}
-
 func TestManagementDashboardStatsRouteReturnsAggregateSnapshot(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -1095,81 +1078,6 @@ func TestDashboardSnapshotInvalidationEvictsCachedProfiles(t *testing.T) {
 	}
 }
 
-func TestDashboardRollupUsageWatermark(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	conn := phase7MigratedConn(t, ctx, "stats_high_water")
-	defer func() { _ = conn.Close(ctx) }()
-	profileID := phase7InsertProfile(t, ctx, conn)
-	phase7InsertRequestLog(t, ctx, conn, profileID, 1101, 200, phase7Now.Add(-time.Hour))
-	phase7InsertUsageEventAggregate(t, ctx, conn, phase7UsageEventAggregateSeed{ID: 2401, ProfileID: profileID, IngressRequestID: "rollup-usage-success", ModelID: "phase7-model", APIFamily: "openai", StatusCode: 200, SuccessFlag: true, BillableFlag: true, PricedFlag: true, TotalTokens: 18, TotalCostMicros: int64Ptr(1250), CreatedAt: phase7Now.Add(-30 * time.Second)})
-	phase7InsertUsageEventAggregate(t, ctx, conn, phase7UsageEventAggregateSeed{ID: 2402, ProfileID: profileID, IngressRequestID: "rollup-usage-error", ModelID: "phase7-model", APIFamily: "openai", StatusCode: 500, SuccessFlag: false, BillableFlag: false, PricedFlag: false, TotalTokens: 0, CreatedAt: phase7Now.Add(-10 * time.Second)})
-	phase7InsertAuditLog(t, ctx, conn, profileID, 1201, phase7Now.Add(-20*time.Minute))
-
-	if err := stats.RefreshDashboardStatsRollup(ctx, conn, profileID, "24h", phase7Now); err != nil {
-		t.Fatalf("refresh dashboard stats rollup: %v", err)
-	}
-	response, err := stats.LoadDashboardRollupStats(ctx, conn, profileID, "24h", phase7Now)
-	if err != nil {
-		t.Fatalf("load refreshed dashboard stats: %v", err)
-	}
-	if response.Metrics.RequestCount != 2 || response.Metrics.ErrorCount != 1 || response.Metrics.AuditEventCount != 1 || response.Health.Stale {
-		t.Fatalf("expected refreshed dashboard metrics with usage-event high-water mark, got %+v", response)
-	}
-	var persistedHighWater time.Time
-	if err := conn.QueryRow(ctx, `SELECT last_source_high_water_mark FROM management_stat_refresh_state WHERE job_name = 'dashboard_stats'`).Scan(&persistedHighWater); err != nil {
-		t.Fatalf("load dashboard stats refresh watermark: %v", err)
-	}
-	if !persistedHighWater.Equal(phase7Now.Add(-10 * time.Second)) {
-		t.Fatalf("expected usage-event high-water mark, got %s", persistedHighWater.Format(time.RFC3339Nano))
-	}
-}
-
-func TestDashboardStatsRollupRefreshPartitionPruning(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	conn := phase7MigratedConn(t, ctx, "stats_partition_pruning")
-	defer func() { _ = conn.Close(ctx) }()
-	profileID := phase7InsertProfile(t, ctx, conn)
-	phase7EnsureLogPartition(t, ctx, conn, "usage_request_events", phase7Now.AddDate(0, 0, -2))
-	phase7EnsureLogPartition(t, ctx, conn, "usage_request_events", phase7Now)
-	phase7EnsureLogPartition(t, ctx, conn, "audit_logs", phase7Now.AddDate(0, 0, -2))
-	phase7EnsureLogPartition(t, ctx, conn, "audit_logs", phase7Now)
-	phase7InsertUsageEvent(t, ctx, conn, profileID, 1251, phase7Now.Add(-time.Hour))
-	phase7InsertAuditLog(t, ctx, conn, profileID, 1252, phase7Now.Add(-30*time.Minute))
-
-	requestPlan := phase7ExplainPlan(t, ctx, conn, `SELECT COUNT(*) FROM usage_request_events WHERE profile_id = $1 AND created_at >= $2 AND created_at < $3`, profileID, phase7Now.Add(-24*time.Hour), phase7Now.Add(time.Hour))
-	if !strings.Contains(requestPlan, "usage_request_events_p20260430") || strings.Contains(requestPlan, "usage_request_events_p20260428") {
-		t.Fatalf("expected usage_request_events created_at filter to prune old partitions, got %s", requestPlan)
-	}
-	auditPlan := phase7ExplainPlan(t, ctx, conn, `SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1 AND created_at >= $2 AND created_at < $3 AND audit_enabled_at_request = TRUE`, profileID, phase7Now.Add(-24*time.Hour), phase7Now.Add(time.Hour))
-	if !strings.Contains(auditPlan, "audit_logs_p20260430") || strings.Contains(auditPlan, "audit_logs_p20260428") {
-		t.Fatalf("expected audit_logs created_at filter to prune old partitions, got %s", auditPlan)
-	}
-	if err := stats.RefreshDashboardStatsRollup(ctx, conn, profileID, "24h", phase7Now); err != nil {
-		t.Fatalf("refresh dashboard stats rollup with partitioned roots: %v", err)
-	}
-}
-
-func TestManagementStatsStaleNoLiveFallback(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	conn := phase7MigratedConn(t, ctx, "stats_stale_no_fallback")
-	defer func() { _ = conn.Close(ctx) }()
-	profileID := phase7InsertProfile(t, ctx, conn)
-	phase7InsertRequestLog(t, ctx, conn, profileID, 1301, 200, phase7Now.Add(-time.Minute))
-	if _, err := conn.Exec(ctx, `INSERT INTO management_stat_buckets (bucket_start, bucket_size, metric, dimension_key, dimension_value, value, source_high_water_mark, generated_at) VALUES ($1, '24h', 'request_count', 'profile_id', $2, 7, $3, $3)`, phase7Now.Add(-24*time.Hour).Truncate(time.Hour), fmt.Sprintf("%d", profileID), phase7Now.Add(-10*time.Minute)); err != nil {
-		t.Fatalf("seed stale dashboard rollup: %v", err)
-	}
-	response, err := stats.LoadDashboardRollupStats(ctx, conn, profileID, "24h", phase7Now)
-	if err != nil {
-		t.Fatalf("load stale dashboard stats: %v", err)
-	}
-	if response.Metrics.RequestCount != 7 || !response.Health.Stale {
-		t.Fatalf("expected stale rollup value without live fallback, got %+v", response)
-	}
-}
-
 func TestManagementStructuredLogsForAuditStatsJobs(t *testing.T) {
 	var output bytes.Buffer
 	previousLogger := slog.Default()
@@ -1180,11 +1088,6 @@ func TestManagementStructuredLogsForAuditStatsJobs(t *testing.T) {
 	logLine := output.String()
 	if !strings.Contains(logLine, `"msg":"management.job.transition"`) || !strings.Contains(logLine, `"job_id":"job_phase7_structured"`) || !strings.Contains(logLine, `"state":"running"`) {
 		t.Fatalf("expected structured management job transition log fields, got %s", logLine)
-	}
-
-	rollups := phase7ReadBackendSource(t, "internal/domain/stats/rollups.go")
-	if !strings.Contains(rollups, "management_stat_refresh_state") || !strings.Contains(rollups, "last_source_high_water_mark") || !strings.Contains(rollups, "last_success_at") {
-		t.Fatalf("expected dashboard stats refresh to persist structured high-water state, got:\n%s", rollups)
 	}
 }
 

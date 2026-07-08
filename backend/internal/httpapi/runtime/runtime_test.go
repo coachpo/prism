@@ -1685,6 +1685,41 @@ func TestBuildRuntimePricingResult(t *testing.T) {
 	}
 }
 
+func TestEnforceRuntimeSpendCoherence(t *testing.T) {
+	success := true
+	cost := int64(1250)
+
+	got := enforceRuntimeSpendCoherence(success, runtimePricingResult{
+		Billable:                    true,
+		Priced:                      true,
+		TotalCostUserCurrencyMicros: nil,
+	})
+	if !got.Billable || got.Priced || got.UnpricedReason == nil || *got.UnpricedReason != runtimeUnpricedReasonMissingData {
+		t.Fatalf("expected priced result without cost to degrade to missing price data, got %+v", got)
+	}
+
+	got = enforceRuntimeSpendCoherence(success, runtimePricingResult{
+		Billable:                    true,
+		Priced:                      false,
+		TotalCostUserCurrencyMicros: &cost,
+		CurrencyCodeOriginal:        stringPtr("USD"),
+		ReportCurrencyCode:          stringPtr("USD"),
+	})
+	if !got.Priced || got.UnpricedReason != nil || got.FXRateUsed == nil || *got.FXRateUsed != "1" || got.FXRateSource == nil || *got.FXRateSource != runtimeFXSourceDefaultOneToOne {
+		t.Fatalf("expected cost-bearing result to become priced with same-currency FX defaults, got %+v", got)
+	}
+
+	reason := "  MISSING_TOKEN_USAGE  "
+	got = enforceRuntimeSpendCoherence(success, runtimePricingResult{
+		Billable:       true,
+		Priced:         true,
+		UnpricedReason: &reason,
+	})
+	if got.Priced || got.UnpricedReason == nil || *got.UnpricedReason != runtimeUnpricedReasonMissingUsage {
+		t.Fatalf("expected explicit unpriced reason to win and trim, got %+v", got)
+	}
+}
+
 func TestBuildRuntimePricingResultUsesConcreteZeroComponentPrices(t *testing.T) {
 	inputTokens := 10
 	outputTokens := 10

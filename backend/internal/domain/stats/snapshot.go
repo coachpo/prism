@@ -581,8 +581,7 @@ func GetUsageSnapshot(ctx context.Context, exec queryExecutor, profileID int, pr
 
 func buildSnapshotEvents(records []usageEventRecord) []snapshotEvent {
 	events := make([]snapshotEvent, 0, len(records))
-	for _, rawRecord := range records {
-		record := normalizeUsageEventPricingCoherence(rawRecord)
+	for _, record := range records {
 		endpointLabel := strings.TrimSpace(record.EndpointLabelSnapshot)
 		if endpointLabel == "" {
 			endpointLabel = "Unknown Endpoint"
@@ -641,63 +640,6 @@ func buildSnapshotEvents(records []usageEventRecord) []snapshotEvent {
 
 func cachedTokensForSnapshotEvent(event snapshotEvent) int {
 	return event.CacheReadInputTokens + event.CacheCreationInputTokens
-}
-
-const (
-	statsUnpricedReasonMissingPriceData = "MISSING_PRICE_DATA"
-	statsDefaultOneToOneFXRate          = "1"
-	statsDefaultOneToOneFXSource        = "DEFAULT_1_TO_1"
-)
-
-func normalizeUsageEventPricingCoherence(record usageEventRecord) usageEventRecord {
-	record.UnpricedReason = normalizeOptionalString(record.UnpricedReason)
-	if !record.SuccessFlag || !record.BillableFlag {
-		return record
-	}
-	if record.UnpricedReason != nil {
-		record.PricedFlag = false
-		return record
-	}
-	if record.HasTotalCostUserCurrencyMicros {
-		record.PricedFlag = true
-		return record
-	}
-	if record.PricedFlag {
-		record.PricedFlag = false
-		record.UnpricedReason = statsStringPtr(statsUnpricedReasonMissingPriceData)
-	}
-	return record
-}
-
-func normalizeObservedSpendCoherence(success bool, pricedFlag *bool, unpricedReason *string, hasTotalCost bool) (*bool, *string) {
-	normalizedReason := normalizeOptionalString(unpricedReason)
-	if normalizedReason != nil {
-		return statsBoolPtr(false), normalizedReason
-	}
-	if success && hasTotalCost {
-		return statsBoolPtr(true), nil
-	}
-	if success && pricedFlag != nil && *pricedFlag && !hasTotalCost {
-		return statsBoolPtr(false), statsStringPtr(statsUnpricedReasonMissingPriceData)
-	}
-	return pricedFlag, nil
-}
-
-func normalizeObservedFXCoherence(success bool, pricedFlag *bool, unpricedReason *string, hasTotalCost bool, currencyCodeOriginal *string, reportCurrencyCode *string, fxRateUsed *string, fxRateSource *string) (*string, *string) {
-	normalizedRate := normalizeOptionalString(fxRateUsed)
-	normalizedSource := normalizeOptionalString(fxRateSource)
-	if !success || !hasTotalCost || pricedFlag == nil || !*pricedFlag || normalizeOptionalString(unpricedReason) != nil {
-		return nil, nil
-	}
-	if normalizedRate != nil || normalizedSource != nil {
-		return normalizedRate, normalizedSource
-	}
-	normalizedOriginalCurrency := normalizeOptionalString(currencyCodeOriginal)
-	normalizedReportCurrency := normalizeOptionalString(reportCurrencyCode)
-	if normalizedOriginalCurrency != nil && normalizedReportCurrency != nil && *normalizedOriginalCurrency == *normalizedReportCurrency {
-		return statsStringPtr(statsDefaultOneToOneFXRate), statsStringPtr(statsDefaultOneToOneFXSource)
-	}
-	return nil, nil
 }
 
 func statsBoolPtr(value bool) *bool {

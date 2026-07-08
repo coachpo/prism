@@ -107,7 +107,6 @@ func TestPriorityUnitContract(t *testing.T) {
 		assertNotContains(t, "internal/httpapi/management/stats/service.go", "managementsideeffects.InsertTx", "router.Delete(", "DELETE FROM request_logs", "DELETE FROM usage_request_events")
 		assertContains(t, "internal/httpapi/management/settings/routes.go", "handleCreateLogRetentionJob", "CreateLogRetentionJob", "LogRetentionScope")
 		assertContains(t, "internal/platform/logretention/store.go", "RunRetention", "DropExpiredPartitions", "DeleteBoundaryRows", "EnsurePartitionForTime")
-		assertContains(t, "internal/domain/stats/rollups.go", "management_stat_buckets", "source_high_water_mark")
 		assertContains(t, "internal/httpapi/runtime/cache.go", "ErrRuntimeSnapshotGenerationChanged", "ReadRuntimeGenerationVector(ctx, tx, DefaultRuntimeGenerationScopes())")
 	})
 }
