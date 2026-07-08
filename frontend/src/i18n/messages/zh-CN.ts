@@ -11,7 +11,7 @@ export const zhCNMessages: Messages = {
     session30Days: "30 天",
     sessionCurrent: "当前浏览器会话",
     signIn: "登录",
-    signInDescription: "登录以管理 Prism 的设置、配置档案和路由。",
+    signInDescription: "登录以管理 Prism 的设置和路由。",
     signInToContinue: "身份验证已启用。请重新登录以继续。",
     signingIn: "登录中...",
     username: "用户名",

@@ -249,7 +249,7 @@ When `VITE_API_BASE` is unset, frontend requests stay same-origin. Local `./star
 
 Prism uses PostgreSQL with Go-backend-managed migrations applied automatically on startup. Development contract changes are clean cut: incompatible local data should be reset and recreated, with no backfill path promised for old pricing, token, or Ban Policy semantics.
 
-Load-balance strategy defaults are created explicitly from the Loadbalance Strategies page for the selected profile as explicit Ban Policy strategies. Retry-cycle exhaustion uses `cycle_retry_attempts >= cycle_retry_attempt_limit`; Ban Policy bans use `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`; current-state views stay scoped to the model-private connection while loadbalance events keep policy threshold snapshots for history:
+Load-balance strategy defaults are created explicitly from the Loadbalance Strategies page for frozen Default profile id=1 as explicit Ban Policy strategies. Retry-cycle exhaustion uses `cycle_retry_attempts >= cycle_retry_attempt_limit`; Ban Policy bans use `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`; current-state views stay scoped to the model-private connection while loadbalance events keep policy threshold snapshots for history:
 
 - `Default single routing`
 - `Default fill-first routing`

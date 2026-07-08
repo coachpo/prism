@@ -214,7 +214,8 @@ Verification:
 - `cd frontend && pnpm run build`
 
 Concerns:
-- The touched e2e specs were not run directly because the request only required the focused static search plus frontend lib/build verification.
+- Correction: the touched e2e specs were run directly after this section was written:
+  `cd frontend && pnpm run test:e2e -- frontend/tests/e2e/protected-shell-sidebar.spec.ts frontend/tests/e2e/dashboard-reporting-currency.spec.ts frontend/tests/e2e/reporting-currency-provider.spec.ts` passed, 9 tests total.
 
 ## Task 9 Runtime Freeze Fix
 
@@ -238,3 +239,23 @@ Verification:
 Concerns:
 - Docker-backed runtime regression coverage is still blocked by the local Postgres harness port publication issue before the assertions run.
 - The unrelated pre-existing dirty/untracked docs named in the task were left untouched.
+
+## Task 9 Stale README/i18n Profile References Fix
+
+STATUS: DONE
+
+Commit:
+- `docs: remove stale profile login copy`
+
+Fixes:
+- Reworded `backend/README.md` to describe execution against frozen Default profile id `1`.
+- Reworded root `README.md` to say load-balance defaults are created from the frozen Default profile id `1`.
+- Removed profile management from the login copy in `frontend/src/i18n/messages/en.ts` and `frontend/src/i18n/messages/zh-CN.ts`.
+
+Verification:
+- `rg -n 'active-profile model|active profile|selected profile|manage .*profiles|profiles,|档案|配置档案' README.md backend/README.md frontend/src/i18n/messages/en.ts frontend/src/i18n/messages/zh-CN.ts`
+- `cd frontend && pnpm run build`
+- `cd backend && go build ./cmd/prism-backend`
+
+Concerns:
+- Remaining matches in the broader repo were not touched unless they already stated the frozen Default profile id `1` contract.

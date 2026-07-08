@@ -1431,7 +1431,7 @@ export const enMessages: Messages = {
     session30Days: "30 days",
     sessionCurrent: "Current browser session",
     signIn: "Sign in",
-    signInDescription: "Sign in to manage Prism settings, profiles, and routing.",
+    signInDescription: "Sign in to manage Prism settings and routing.",
     signInToContinue: "Authentication enabled. Sign in to continue.",
     signingIn: "Signing in...",
     username: "Username",

@@ -51,7 +51,7 @@ Supported runtime routes are:
 - `POST /v1beta/models/{model}:streamGenerateContent`
 - `POST /v1beta/models/{model}:countTokens`
 
-After registry resolution, all supported operations share the same execution core for active-profile model access resolution, load-balance planning, upstream forwarding, and runtime telemetry. Ordered access targets resolve through same-family model targets and Terminal Targets before execution, while endpoints remain reusable across those model-private endpoint bindings. Operation hooks own request extraction, non-stream response parsing, stream terminal classification, and media or multipart handling around that shared core. Prism is a focused proxy for these operations, not a full vendor API clone.
+After registry resolution, all supported operations share the same execution core for frozen Default profile id=1 model access resolution, load-balance planning, upstream forwarding, and runtime telemetry. Ordered access targets resolve through same-family model targets and Terminal Targets before execution, while endpoints remain reusable across those model-private endpoint bindings. Operation hooks own request extraction, non-stream response parsing, stream terminal classification, and media or multipart handling around that shared core. Prism is a focused proxy for these operations, not a full vendor API clone.
 
 ## Operations telemetry
 
