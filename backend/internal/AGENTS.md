@@ -1,7 +1,7 @@
 # BACKEND INTERNAL KNOWLEDGE BASE
 
 ## OVERVIEW
-`backend/internal/` owns Prism's live Go implementation below the process entrypoint. It routes work between platform infrastructure, HTTP surfaces, gateway/runtime contracts, HTTP-neutral domains, PostgreSQL helpers, and small compatibility packages.
+`backend/internal/` owns Prism's live Go implementation below the process entrypoint. It routes work between platform infrastructure, HTTP surfaces, gateway/runtime contracts, HTTP-neutral domains, PostgreSQL helpers, and small shared packages.
 
 ## STRUCTURE
 ```text
@@ -13,8 +13,7 @@ internal/
 ├── pgxutil/       # shared PostgreSQL transaction helpers
 ├── endpointdomain/
 ├── profiledomain/
-├── providercompat/
-└── targetcompat/
+└── providerauth/
 ```
 
 ## WHERE TO LOOK
@@ -23,14 +22,14 @@ internal/
 - Runtime gateway contracts, provider adapters, route planning, reservations, hook execution, and accounting records: `gateway/AGENTS.md`
 - Audit, loadbalance, stats, terminal-target, and model-routing helpers that must stay HTTP-neutral: `domain/AGENTS.md`
 - SQL transaction helper ownership: `pgxutil/tx.go`
-- Small compatibility packages used across management/runtime boundaries: `endpointdomain/`, `profiledomain/`, `providercompat/`, `targetcompat/`
+- Small shared packages used across management/runtime boundaries: `endpointdomain/`, `profiledomain/`, `providerauth/`
 
 ## CONVENTIONS
 - Keep this file as the router. Put package-specific facts in the nearest child `AGENTS.md`.
 - Keep platform process concerns out of `domain/` and gateway provider concerns out of `httpapi/`.
-- Keep runtime operation support anchored in `httpapi/runtime/operations.go`; compatibility packages do not widen supported routes.
+- Keep runtime operation support anchored in `httpapi/runtime/operations.go`; shared packages do not widen supported routes.
 - Keep PostgreSQL helper behavior in `pgxutil/` boring and shared. Do not hide feature policy there.
-- Small `*compat` packages stay narrow translation surfaces. If they grow policy, move that policy to the owning domain or HTTP API package.
+- Small shared packages stay narrow translation surfaces. If they grow policy, move that policy to the owning domain or HTTP API package.
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
 ## LLM UPSTREAM MATRIX

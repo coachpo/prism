@@ -12,7 +12,7 @@ import (
 
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/profiledomain"
-	"github.com/coachpo/prism/backend/internal/providercompat"
+	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
 func TestFinalResponseTranslationMetadataDrivesNonStreamSerialization(t *testing.T) {
@@ -356,7 +356,7 @@ func newResponsesToolsStreamServiceForModel(client *http.Client, modelID string)
 	model := snapshot.ModelsByID[modelID]
 	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
 	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_891, 9_891, 0, requestPlanConnectionTargetOptions{
-		openAITextCapability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
+		openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly),
 	})
 	connection := snapshot.TerminalTargetsByID[2_891]
 	connection.Endpoint.BaseURL = "https://upstream.example"

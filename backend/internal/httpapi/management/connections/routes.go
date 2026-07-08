@@ -18,11 +18,10 @@ import (
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
-	"github.com/coachpo/prism/backend/internal/providercompat"
-	"github.com/coachpo/prism/backend/internal/targetcompat"
+	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
-const ownerScopedConnectionMutationDetail = "terminal target mutations must use owner-scoped routes under " + targetcompat.OwnerScopedConnectionRoutePath
+const ownerScopedConnectionMutationDetail = "terminal target mutations must use owner-scoped routes under /api/models/{model_config_id}/connections"
 
 func (s *Service) handleListConnectionsBatch(w http.ResponseWriter, r *http.Request) {
 	var requestBody modelConnectionsBatchRequest
@@ -332,12 +331,12 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 		if err != nil {
 			return connectionResponse{}, err
 		}
-		if !providercompat.SameAPIFamily(apiFamily, owner.APIFamily) {
+		if !providerauth.SameAPIFamily(apiFamily, owner.APIFamily) {
 			return connectionResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "api_family must match owner model api_family"}
 		}
 		next.APIFamily = apiFamily
 	}
-	if !providercompat.SameAPIFamily(next.APIFamily, owner.APIFamily) {
+	if !providerauth.SameAPIFamily(next.APIFamily, owner.APIFamily) {
 		return connectionResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: "Connection api_family must match owner model api_family"}
 	}
 	openAITextCapability, err := resolveOpenAITextCapabilityUpdate(current.APIFamily, next.APIFamily, current.OpenAITextCapability, requestBody.OpenAITextCapability)
@@ -603,14 +602,14 @@ func validateLimiter(fieldName string, value *int) error {
 }
 
 func validateAPIFamily(value string, required bool) (string, error) {
-	normalized := providercompat.NormalizeAPIFamily(value)
+	normalized := providerauth.NormalizeAPIFamily(value)
 	if normalized == "" {
 		if required {
 			return "", &domainError{StatusCode: http.StatusBadRequest, Detail: "api_family is required"}
 		}
 		return "", nil
 	}
-	if !providercompat.IsSupportedAPIFamily(normalized) {
+	if !providerauth.IsSupportedAPIFamily(normalized) {
 		return "", &domainError{StatusCode: http.StatusBadRequest, Detail: "api_family must be one of 'openai', 'anthropic', or 'gemini'"}
 	}
 	return normalized, nil
@@ -621,7 +620,7 @@ func validateOwnerScopedAPIFamily(value string, ownerAPIFamily string) error {
 	if err != nil {
 		return err
 	}
-	if apiFamily != "" && !providercompat.SameAPIFamily(apiFamily, ownerAPIFamily) {
+	if apiFamily != "" && !providerauth.SameAPIFamily(apiFamily, ownerAPIFamily) {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: "api_family must match owner model api_family"}
 	}
 	return nil
@@ -633,7 +632,7 @@ func ensureConnectionAPIFamilyUpdateAllowed(ctx context.Context, exec queryExecu
 		return err
 	}
 	for _, reference := range references {
-		if !providercompat.SameAPIFamily(reference.APIFamily, apiFamily) {
+		if !providerauth.SameAPIFamily(reference.APIFamily, apiFamily) {
 			return &domainError{StatusCode: http.StatusConflict, Detail: fmt.Sprintf("Cannot change api_family: models [%s] target this connection", joinConnectionReferenceModelIDs(references))}
 		}
 	}
@@ -665,8 +664,8 @@ func validateAuthType(value *string) (*string, error) {
 	if value == nil {
 		return nil, nil
 	}
-	normalized := providercompat.NormalizeAPIFamily(*value)
-	if normalized == "" || !providercompat.IsSupportedAuthType(normalized) {
+	normalized := providerauth.NormalizeAPIFamily(*value)
+	if normalized == "" || !providerauth.IsSupportedAuthType(normalized) {
 		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "auth_type must be one of 'openai', 'anthropic', or 'gemini'"}
 	}
 	return &normalized, nil
@@ -683,7 +682,7 @@ func resolveOpenAITextCapabilityCreate(apiFamily string, value *string) (*string
 }
 
 func resolveOpenAITextCapabilityUpdate(previousAPIFamily string, nextAPIFamily string, current *string, update optionalString) (*string, error) {
-	if !providercompat.IsOpenAI(nextAPIFamily) {
+	if !providerauth.IsOpenAI(nextAPIFamily) {
 		if update.Set && update.Value != nil && strings.TrimSpace(*update.Value) != "" {
 			return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is only supported for OpenAI-family connections"}
 		}
@@ -692,14 +691,14 @@ func resolveOpenAITextCapabilityUpdate(previousAPIFamily string, nextAPIFamily s
 	if update.Set {
 		return normalizeOpenAITextCapability(nextAPIFamily, update.Value, true)
 	}
-	if providercompat.IsOpenAI(previousAPIFamily) && current != nil && strings.TrimSpace(*current) != "" {
+	if providerauth.IsOpenAI(previousAPIFamily) && current != nil && strings.TrimSpace(*current) != "" {
 		return normalizeOpenAITextCapability(nextAPIFamily, current, true)
 	}
 	return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is required for OpenAI-family connections"}
 }
 
 func normalizeOpenAITextCapability(apiFamily string, value *string, requiredForOpenAI bool) (*string, error) {
-	if !providercompat.IsOpenAI(apiFamily) {
+	if !providerauth.IsOpenAI(apiFamily) {
 		if value != nil && strings.TrimSpace(*value) != "" {
 			return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is only supported for OpenAI-family connections"}
 		}

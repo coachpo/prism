@@ -161,8 +161,8 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 
 ### T6. 命名与小件
 
-- `backend/internal/targetcompat/glossary.go`（29 行）：`connection`↔`terminal_target` 改名改了一半，选定一个词收尾删掉。
-- `backend/internal/providercompat/`（~540 LOC）：是**在用的活逻辑**（`ResolveAuthProfile`，`runtime/planning_snapshot.go:129,195` 调用），名字却像兼容垫片——改名（如 `providerauth`），不要误删。
+- `backend/internal/domain/modelrouting/` 已收编 access-target glossary；持久值统一保留 `connection`。
+- `backend/internal/providerauth/` 是运行时规划在用的 provider auth/API-family 逻辑（`ResolveAuthProfile`，`runtime/planning_snapshot.go` 调用），不要误删。
 - God files 顺带拆：`platform/config/bootstrap.go` 3,038、`runtime/observability.go` 2,320、`i18n/messages/en.ts` 3,866（前端最大文件）。不专项立项，谁动谁拆。
 
 ### T7. 文档修正

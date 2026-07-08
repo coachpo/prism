@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/coachpo/prism/backend/internal/providercompat"
+	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
 type runtimeRoutingPlanValidationIssue struct {
@@ -216,8 +216,8 @@ func validateRuntimeRoutingPlanTerminalTargetIssues(issues []runtimeRoutingPlanV
 	if strings.TrimSpace(connection.Endpoint.BaseURL) == "" {
 		issues = appendRuntimeRoutingPlanValidationIssue(issues, "terminal_target_base_url_empty", path+".endpoint.base_url", fmt.Sprintf("terminal target %d has an empty endpoint base url", connection.ID))
 	}
-	if providercompat.IsOpenAI(connection.APIFamily) {
-		if connection.OpenAITextCapability == nil || !providercompat.IsSupportedOpenAITextCapability(*connection.OpenAITextCapability) {
+	if providerauth.IsOpenAI(connection.APIFamily) {
+		if connection.OpenAITextCapability == nil || !providerauth.IsSupportedOpenAITextCapability(*connection.OpenAITextCapability) {
 			capability := ""
 			if connection.OpenAITextCapability != nil {
 				capability = *connection.OpenAITextCapability

@@ -16,7 +16,7 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/platform/config"
-	"github.com/coachpo/prism/backend/internal/providercompat"
+	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
 func TestModelResolutionAndRewriteHelpers(t *testing.T) {
@@ -128,7 +128,7 @@ func TestBuildRequestPlan_ContextEstimationUnavailablePassesThrough(t *testing.T
 			model := snapshot.ModelsByID["gpt-4o"]
 			snapshot.AccessTargetsBySourceModelID[model.ID] = nil
 			addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_711, 9_711, 0, requestPlanConnectionTargetOptions{
-				openAITextCapability: stringPtr(providercompat.OpenAITextCapabilityResponsesOnly),
+				openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityResponsesOnly),
 			})
 			request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
@@ -164,7 +164,7 @@ func TestBuildRequestPlan_ContextEstimationUnavailableChatPassesThroughWithoutTr
 			model := snapshot.ModelsByID["gpt-4o"]
 			snapshot.AccessTargetsBySourceModelID[model.ID] = nil
 			addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_712, 9_712, 0, requestPlanConnectionTargetOptions{
-				openAITextCapability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
+				openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly),
 			})
 			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
@@ -204,7 +204,7 @@ func TestBuildRequestPlan_UnsupportedTranslatedShapeDoesNotSelectGenericTarget(t
 			child := snapshot.ModelsByID["chat-target-model"]
 			snapshot.AccessTargetsBySourceModelID[child.ID] = nil
 			addRequestPlanConnectionTargetWithOptions(snapshot, child, 2_713, 9_713, 0, requestPlanConnectionTargetOptions{
-				openAITextCapability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
+				openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly),
 			})
 			request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
@@ -1897,14 +1897,14 @@ func TestOpenAITextCapabilityMatrix(t *testing.T) {
 		operation  string
 		wantNative bool
 	}{
-		{name: "responses-only supports responses", capability: providercompat.OpenAITextCapabilityResponsesOnly, operation: openAIUpstreamOperationResponses, wantNative: true},
-		{name: "responses-only does not support chat native", capability: providercompat.OpenAITextCapabilityResponsesOnly, operation: openAIUpstreamOperationChatCompletions},
-		{name: "chat-only supports chat", capability: providercompat.OpenAITextCapabilityChatCompletionsOnly, operation: openAIUpstreamOperationChatCompletions, wantNative: true},
-		{name: "dual-native supports responses", capability: providercompat.OpenAITextCapabilityDualNative, operation: openAIUpstreamOperationResponses, wantNative: true},
+		{name: "responses-only supports responses", capability: providerauth.OpenAITextCapabilityResponsesOnly, operation: openAIUpstreamOperationResponses, wantNative: true},
+		{name: "responses-only does not support chat native", capability: providerauth.OpenAITextCapabilityResponsesOnly, operation: openAIUpstreamOperationChatCompletions},
+		{name: "chat-only supports chat", capability: providerauth.OpenAITextCapabilityChatCompletionsOnly, operation: openAIUpstreamOperationChatCompletions, wantNative: true},
+		{name: "dual-native supports responses", capability: providerauth.OpenAITextCapabilityDualNative, operation: openAIUpstreamOperationResponses, wantNative: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := providercompat.OpenAITextCapabilitySupportsNativeOperation(test.capability, test.operation); got != test.wantNative {
+			if got := providerauth.OpenAITextCapabilitySupportsNativeOperation(test.capability, test.operation); got != test.wantNative {
 				t.Fatalf("expected native=%v, got %v", test.wantNative, got)
 			}
 		})
@@ -1916,7 +1916,7 @@ func TestConnectionPlanningPreservesOpenAITextCapability(t *testing.T) {
 	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "capability-openai"})
 	model := snapshot.ModelsByID["capability-openai"]
 	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
-	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_401, 9_401, 0, requestPlanConnectionTargetOptions{openAITextCapability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly)})
+	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_401, 9_401, 0, requestPlanConnectionTargetOptions{openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly)})
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
 
@@ -1928,8 +1928,8 @@ func TestConnectionPlanningPreservesOpenAITextCapability(t *testing.T) {
 		t.Fatalf("expected one terminal attempt, got %d", len(plan.TerminalAttempts))
 	}
 	attempt := plan.TerminalAttempts[0]
-	if attempt.Connection.OpenAITextCapability == nil || *attempt.Connection.OpenAITextCapability != providercompat.OpenAITextCapabilityChatCompletionsOnly {
-		t.Fatalf("expected connection text capability %q, got %+v", providercompat.OpenAITextCapabilityChatCompletionsOnly, attempt.Connection.OpenAITextCapability)
+	if attempt.Connection.OpenAITextCapability == nil || *attempt.Connection.OpenAITextCapability != providerauth.OpenAITextCapabilityChatCompletionsOnly {
+		t.Fatalf("expected connection text capability %q, got %+v", providerauth.OpenAITextCapabilityChatCompletionsOnly, attempt.Connection.OpenAITextCapability)
 	}
 }
 
@@ -1967,15 +1967,15 @@ func newRequestPlanSnapshot(models ...runtimeModelRecord) *planningSnapshot {
 		if model.LoadbalanceStrategyID == nil {
 			model.LoadbalanceStrategyID = &strategyID
 		}
-		if providercompat.IsOpenAI(model.APIFamily) && model.OpenAIAcceptedFormat == nil {
-			model.OpenAIAcceptedFormat = stringPtr(providercompat.OpenAITextCapabilityDualNative)
+		if providerauth.IsOpenAI(model.APIFamily) && model.OpenAIAcceptedFormat == nil {
+			model.OpenAIAcceptedFormat = stringPtr(providerauth.OpenAITextCapabilityDualNative)
 		}
 		snapshot.ModelsByID[model.ModelID] = model
 		snapshot.StrategiesByModelID[model.ID] = strategy
 		connectionID := 1_000 + model.ID
 		var openAITextCapability *string
-		if providercompat.IsOpenAI(model.APIFamily) {
-			openAITextCapability = stringPtr(providercompat.OpenAITextCapabilityDualNative)
+		if providerauth.IsOpenAI(model.APIFamily) {
+			openAITextCapability = stringPtr(providerauth.OpenAITextCapabilityDualNative)
 		}
 		snapshot.TerminalTargetsByID[connectionID] = runtimeConnection{
 			ID:                   connectionID,
@@ -2041,8 +2041,8 @@ func addRequestPlanConnectionTarget(snapshot *planningSnapshot, model runtimeMod
 
 func addRequestPlanConnectionTargetWithOptions(snapshot *planningSnapshot, model runtimeModelRecord, connectionID int, targetID int, position int, options requestPlanConnectionTargetOptions) {
 	openAITextCapability := options.openAITextCapability
-	if openAITextCapability == nil && providercompat.IsOpenAI(model.APIFamily) {
-		openAITextCapability = stringPtr(providercompat.OpenAITextCapabilityDualNative)
+	if openAITextCapability == nil && providerauth.IsOpenAI(model.APIFamily) {
+		openAITextCapability = stringPtr(providerauth.OpenAITextCapabilityDualNative)
 	}
 	snapshot.TerminalTargetsByID[connectionID] = runtimeConnection{
 		ID:                      connectionID,
@@ -2221,7 +2221,7 @@ func TestBuildRequestPlan_EstimationUnavailablePassesThroughForOpenAIText(t *tes
 			path:             "/v1/chat/completions",
 			modelID:          "unknown-tokenizer-chat-public",
 			rawBody:          []byte(`{"model":"unknown-tokenizer-chat-public","messages":[{"role":"user","content":"hello"}]}`),
-			capability:       providercompat.OpenAITextCapabilityResponsesOnly,
+			capability:       providerauth.OpenAITextCapabilityResponsesOnly,
 			wantPath:         "/v1/responses",
 			wantTranslation:  TranslationModeOpenAIChatCompletionsToResponses,
 			terminalTargetID: 2_971,
@@ -2231,7 +2231,7 @@ func TestBuildRequestPlan_EstimationUnavailablePassesThroughForOpenAIText(t *tes
 			path:             "/v1/responses",
 			modelID:          "unknown-tokenizer-responses-public",
 			rawBody:          []byte(`{"model":"unknown-tokenizer-responses-public","input":"hello"}`),
-			capability:       providercompat.OpenAITextCapabilityChatCompletionsOnly,
+			capability:       providerauth.OpenAITextCapabilityChatCompletionsOnly,
 			wantPath:         "/v1/chat/completions",
 			wantTranslation:  TranslationModeOpenAIResponsesToChatCompletions,
 			terminalTargetID: 2_972,

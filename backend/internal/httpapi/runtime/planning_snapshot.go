@@ -18,7 +18,7 @@ import (
 	gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
 	"github.com/coachpo/prism/backend/internal/gateway/provider/openai"
 	"github.com/coachpo/prism/backend/internal/profiledomain"
-	"github.com/coachpo/prism/backend/internal/providercompat"
+	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
 type planningSnapshot struct {
@@ -127,7 +127,7 @@ func buildPlanningSnapshot(ctx context.Context, tx pgx.Tx, profileID int, secret
 
 func compileRuntimeConnection(connection runtimeConnection, apiFamily string, secretEncryptionKey string) (runtimeConnection, error) {
 	compiled := connection
-	config, err := providercompat.ResolveAuthProfile(connection.AuthType, apiFamily)
+	config, err := providerauth.ResolveAuthProfile(connection.AuthType, apiFamily)
 	if err != nil {
 		return runtimeConnection{}, err
 	}
@@ -180,7 +180,7 @@ type runtimeAccessResolutionContext struct {
 }
 
 func (model runtimeModelRecord) allowsOpenAITextSiblingTranslation() bool {
-	return providercompat.IsOpenAI(model.APIFamily)
+	return providerauth.IsOpenAI(model.APIFamily)
 }
 
 type runtimeResolvedAccessPlan struct {

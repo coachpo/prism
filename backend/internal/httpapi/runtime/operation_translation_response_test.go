@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/coachpo/prism/backend/internal/providercompat"
+	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
 func TestTranslateOpenAIResponsesToChatResponse(t *testing.T) {
@@ -177,7 +177,7 @@ func TestTranslateOpenAIChatToResponsesResponse(t *testing.T) {
 func TestTranslateOpenAIChatToResponsesResponseWithToolContext(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
 	connection := runtimeConnection{
-		OpenAITextCapability: stringPtr(providercompat.OpenAITextCapabilityChatCompletionsOnly),
+		OpenAITextCapability: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly),
 	}
 	rawRequest := []byte(`{"model":"responses-public","input":"use tools","tools":[{"type":"custom","name":"exec"},{"type":"tool_search"},{"type":"namespace","name":"mcp__apps__gmail","tools":[{"type":"function","name":"_search_emails","parameters":{"type":"object"}}]}]}`)
 	plan, translated, err := planCodingAgentFormatRequest(operation, rawRequest, "chat-target", connection)

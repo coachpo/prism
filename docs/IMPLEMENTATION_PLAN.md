@@ -178,7 +178,7 @@
   - `production.go`：:18 import、:196 结构体字段、:367-372 构造/注册块，及 `services.configBundle` 的所有拷贝点（文件内搜 `configBundle`）。
   - `server_test.go`：:21 import、:403 构造实参；`management_body_limits_test.go`：:15、:96 及 bundle 路由用例。
   - `management_body_limits.go:50-51` 的 `ConfigBundleRequestBodyLimitBytes` 分支；`bodylimits/body_limits.go:15` 常量。
-  - 措辞修订（代码保留）：`providercompat/doc.go:5,9`、`domain/modelrouting/doc.go:5` 中提及 configbundle 的注释。
+  - 措辞修订（代码保留）：`providerauth/doc.go:5,9`、`domain/modelrouting/doc.go:5` 中提及 configbundle 的注释。
 - [ ] **Step 3：** 前端接线：`useSettingsPageData.ts` :12/:28/:80 三处、`SettingsProfileTab.tsx` :5/:35-53、`settingsPageHelpers.ts:21` 的 `{ id: "backup" }`、`lib/api/observability.ts:163-179` 的四个 bundle 客户端方法、`lib/types/config-audit-settings.ts` 只删 bundle 四类型（audit-settings 类型保留）、`package.json` 删 `test:config` 脚本（:18）——若 Task 5 已 glob 化 test:lib 则无清单可改，直接 `git rm` 两个 lib 测试文件即可。
 - [ ] **Step 4：** 路由契约：`management_route_contract.json:54-57` 删 4 条配置包导出/导入路由。同提交，G4 的守卫测试自愈。
 - [ ] **Step 5：** i18n（G3，en.ts 类型+值、zh-CN 值三处齐删）：`backup`（en :362/:2290，zh :366）、`settingsBackup`（en :881/:2815，zh :885）、`settingsBackupData` + `settingsBackupValidation`（en :930/:941 + 值块，zh :934/:945）。**注意** `backupCapable`/`backupReady`（en :757-758/:2688-2689）属另一命名空间，先 `rg -l 'backupCapable|backupReady' frontend/src` 确认消费者再决定。
@@ -565,19 +565,12 @@ type UsageLatencyTrends struct { Hourly []UsageLatencyTrendSeries `json:"hourly"
 - [ ] **Step 4：** 文档：`ARCHITECTURE.md:64` 去 BrowserRouter 提法；相关前端 AGENTS。验证：`rg -l "react-router-dom" frontend/src frontend/package.json` → 0；标准验证；手测 `/observe`、`/models/$id?tab=…`、`/observe/requests?request_id=…`、审计页深链。
 - [ ] **Step 5：** 提交：`git commit -m "refactor!: unify on TanStack Router, drop react-router-dom"`
 
-### Task 24: T6 — 两个 compat 包正名（前置：R1、R9a 已删两个引用点）
+### Task 24: T6 — 两个小包正名（前置：R1、R9a 已删两个引用点）
 
-- [ ] **Step 1（targetcompat 收编）：** 术语定为 **"connection"**（DB 持久值即 `target_type = 'connection'`，`models/store_test.go:494` 种子可证；**存储值不动**）。把 `targetcompat/glossary.go`（29 行，包内唯一文件）的常量/helper 收进 `domain/modelrouting`（那里 :13-14,:84-96 本就在别名/包装它们）；`models/routes.go` 的 17 处 `targetcompat.X` 改 `modelrouting.X`（:482,:616,:626,:629,:657,:662,:668,:670,:673,:680,:726,:776,:793,:841,:855,:1138,:1257）；`connections/routes.go:25` 的 `OwnerScopedConnectionRoutePath` 移入 modelrouting 或就地内联字符串；删 `backend/internal/targetcompat/`。
-- [ ] **Step 2（providercompat → providerauth）：** 活代码误名纠正（它是运行时规划的 `ResolveAuthProfile`/`IsOpenAI`，不是兼容层）。机械改名：
-
-  ```bash
-  git mv backend/internal/providercompat backend/internal/providerauth
-  grep -rl providercompat backend | xargs sed -i '' 's/providercompat/providerauth/g' && gofmt -w backend/internal
-  ```
-
-  16 个 import 点核对清单：`connections/routes.go:21`、`connections/routes_test.go:14`、`settings/routes.go:22`、`domain/modelrouting/modelrouting.go:8`、runtime 侧 10 文件（`planning_snapshot.go:20` 及其测试、`operation_translation.go:12` 及两测试、`response_translation_execution_metadata_test.go:15`、`routing_plan_validate.go:9`、`runtime.go:26`、`runtime_test.go:19`、`coding_agent_format_bridge.go:9`）——`configbundle/import.go` 与 `connections/health.go` 两点已随 R1/R9a 消失。改名后包文件 `providercompat.go`→`providerauth.go`、测试同步。
-- [ ] **Step 3：** 验证：`rg -n "targetcompat|providercompat" backend/ docs/ AGENTS.md` → 0（`*.md` 漏网是本任务唯一常见事故）；标准验证 backend。
-- [ ] **Step 4：** 提交：`git commit -m "refactor: fold targetcompat into modelrouting, rename providercompat to providerauth"`
+- [x] **Step 1：** access-target glossary constants/helpers now live in `domain/modelrouting`; stored `target_type = "connection"` remains unchanged, and the obsolete package directory is gone.
+- [x] **Step 2：** provider API-family/auth helpers now live under `backend/internal/providerauth`; imports, package declarations, and tests were renamed together.
+- [x] **Step 3：** old package-name references are absent from backend, docs, and root AGENTS surfaces; focused backend verification ran.
+- [x] **Step 4：** Task commit created.
 
 ### Task 25: T8 — i18n 反转为 zh-CN 单语（决策门 D6；建议在 R2 与各页面删除之后——两文件已被动瘦身）
 

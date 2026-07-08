@@ -22,12 +22,12 @@ import (
 	gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
 	"github.com/coachpo/prism/backend/internal/gateway/provider"
 	gatewayrouting "github.com/coachpo/prism/backend/internal/gateway/routing"
-	"github.com/coachpo/prism/backend/internal/providercompat"
+	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
 const (
-	openAIUpstreamOperationResponses       = providercompat.OpenAIUpstreamOperationResponses
-	openAIUpstreamOperationChatCompletions = providercompat.OpenAIUpstreamOperationChatCompletions
+	openAIUpstreamOperationResponses       = providerauth.OpenAIUpstreamOperationResponses
+	openAIUpstreamOperationChatCompletions = providerauth.OpenAIUpstreamOperationChatCompletions
 	runtimeAdmissionExhaustedErrorCode     = "admission_exhausted"
 )
 

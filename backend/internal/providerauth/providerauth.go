@@ -1,4 +1,4 @@
-package providercompat
+package providerauth
 
 import (
 	"fmt"

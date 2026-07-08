@@ -9,15 +9,15 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/gateway/provider"
 	"github.com/coachpo/prism/backend/internal/gateway/provider/openai"
-	"github.com/coachpo/prism/backend/internal/providercompat"
+	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
 type TranslationMode string
 
 const (
-	TranslationModeNone                             TranslationMode = providercompat.OpenAITextTranslationModeNone
-	TranslationModeOpenAIResponsesToChatCompletions TranslationMode = providercompat.OpenAITextTranslationModeResponsesToChat
-	TranslationModeOpenAIChatCompletionsToResponses TranslationMode = providercompat.OpenAITextTranslationModeChatToResponses
+	TranslationModeNone                             TranslationMode = providerauth.OpenAITextTranslationModeNone
+	TranslationModeOpenAIResponsesToChatCompletions TranslationMode = providerauth.OpenAITextTranslationModeResponsesToChat
+	TranslationModeOpenAIChatCompletionsToResponses TranslationMode = providerauth.OpenAITextTranslationModeChatToResponses
 )
 
 const (
@@ -127,12 +127,12 @@ func resolveTranslationMode(operation RuntimeOperation, openAIAcceptedFormat *st
 	if openAIAcceptedFormat == nil || openAITextCapability == nil {
 		return TranslationModeNone, false
 	}
-	switch providercompat.OpenAITextWireCompatibility(operation.Name, *openAIAcceptedFormat, *openAITextCapability) {
-	case providercompat.OpenAIWireCompatibilityNative:
+	switch providerauth.OpenAITextWireCompatibility(operation.Name, *openAIAcceptedFormat, *openAITextCapability) {
+	case providerauth.OpenAIWireCompatibilityNative:
 		return TranslationModeNone, true
-	case providercompat.OpenAIWireCompatibilityTranslateToChat:
+	case providerauth.OpenAIWireCompatibilityTranslateToChat:
 		return TranslationModeOpenAIResponsesToChatCompletions, true
-	case providercompat.OpenAIWireCompatibilityTranslateToResponses:
+	case providerauth.OpenAIWireCompatibilityTranslateToResponses:
 		return TranslationModeOpenAIChatCompletionsToResponses, true
 	default:
 		return TranslationModeNone, false
