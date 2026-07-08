@@ -133,3 +133,23 @@ Verification:
 
 Concerns:
 - The pre-existing dirty/untracked docs named in the task were left untouched.
+
+## Task 9 Stale Profile Guidance Fix
+
+STATUS: DONE
+
+Commit:
+- `docs: finish profile freeze stale references`
+
+Fixes:
+- Replaced the stale `expected_active_profile_id` guidance in `frontend/src/lib/AGENTS.md` with the frozen Default profile id `1` contract.
+- Updated `backend/internal/httpapi/management/configrules/AGENTS.md` to state that profiles are frozen on Default id `1` and `/api/profiles*` CRUD is removed.
+- Reworded the dashboard routing contract fixture to frozen Default-profile language without changing test behavior.
+
+Verification:
+- `rg -n 'expected_active_profile_id|selected-profile routing topology|selected profile|selected-profile|profile CRUD|profile lifecycle|/api/profiles' frontend/src/lib/AGENTS.md backend/internal/httpapi/management/configrules/AGENTS.md frontend/tests/lib/dashboard_routing_flow_layout_contract.test.mjs`
+- `cd frontend && pnpm run test:lib`
+- `cd frontend && pnpm run build`
+
+Concerns:
+- The pre-existing dirty/untracked docs named in the task were left untouched.

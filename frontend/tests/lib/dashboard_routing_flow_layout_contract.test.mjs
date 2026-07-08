@@ -15,10 +15,10 @@ const frontendDir = path.resolve(__dirname, "../..");
 const dashboardMessages = {
   routingNoActiveRoutes: "No active routes",
   routingNoActiveRoutesDescription:
-    "Create an entry model and enable at least one terminal target so Prism can publish this selected-profile routing topology.",
+    "Create an entry model and enable at least one terminal target so Prism can publish this frozen Default-profile routing topology.",
   routingNoRecentTraffic: "No routed traffic in the last 24h",
   routingNoRecentTrafficDescription:
-    "Default profile already has routes, but Prism recorded no successful terminal-target traffic in the last 24 hours.",
+    "Frozen Default profile already has routes, but Prism recorded no successful terminal-target traffic in the last 24 hours.",
 };
 const routingInspectorMessages = {
   dashboard: {

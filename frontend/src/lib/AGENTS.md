@@ -69,7 +69,7 @@ lib/
 - `websocket.ts` owns the singleton client; `websocket/AGENTS.md` owns protocol parsing, subscription bookkeeping, and reconnect transport helpers, while shared React consumers should prefer `useRealtimeData()`.
 - `timezone.ts` owns shared timezone preference caching and helper access beneath `useTimezone()`.
 - `costing.ts` owns shared cost formatting and usage labels on top of the active reporting currency instead of duplicating cache or normalization logic.
-- Keep backend payload naming aligned with server schemas, including fixed `api_family` fields, `expected_active_profile_id`, and stats or request-log identifiers like `ingress_request_id`.
+- Keep backend payload naming aligned with server schemas, including fixed `api_family` fields, the frozen Default profile id `1` contract, and stats or request-log identifiers like `ingress_request_id`.
 - Treat `types.ts` as a barrel. Backend-aligned contracts live in `types/` leaf files and should retain server field names.
 - Request-log clipboard fallback behavior is shared infrastructure through `clipboard.ts`; route sheets can supply scoped fallback roots, but copy helpers stay here.
 
