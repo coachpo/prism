@@ -273,7 +273,7 @@ test("loadbalance strategy dialog creates and edits surviving routing families",
   await expect(page.getByRole("table")).toContainText("Round robin");
 
   await page.getByRole("button", { name: "Add Strategy" }).first().click();
-  await expect(page.getByText("Configure reusable terminal-target routing families and Ban Policy for this profile.")).toBeVisible();
+  await expect(page.getByText("Configure reusable terminal-target routing families and Ban Policy for the Default profile.")).toBeVisible();
   await page.getByLabel("Name").fill("Fill-first routing");
   await page.getByLabel("Routing family").click();
   await expect(page.getByRole("option")).toHaveText([

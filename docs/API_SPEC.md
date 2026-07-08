@@ -1255,7 +1255,7 @@ Response `200`:
     "error_detail": null
   },
   "routing": {
-    "profile_id": 2,
+    "profile_id": 1,
     "endpoint_label": "Primary OpenAI",
     "endpoint_id": 12,
     "terminal_target_id": 1,
@@ -1636,7 +1636,7 @@ Response `200`:
   "items": [
     {
       "id": 1,
-      "profile_id": 2,
+      "profile_id": 1,
       "request_log_id": 42,
       "model_id": "gpt-4o",
       "endpoint_id": 12,
@@ -1676,7 +1676,7 @@ Response `200`:
 ```json
 {
   "id": 1,
-  "profile_id": 2,
+  "profile_id": 1,
   "request_log_id": 42,
   "model_id": "gpt-4o",
   "endpoint_id": 12,
@@ -1966,7 +1966,7 @@ Response `200`:
   "items": [
     {
       "id": 1,
-      "profile_id": 2,
+      "profile_id": 1,
       "connection_id": 1,
       "event_type": "banned",
       "failure_kind": "transient_http",
@@ -2069,7 +2069,7 @@ Returns the current authenticated session state.
 
 ## 8. Realtime API
 
-Realtime routes are global management routes and do not use `X-Profile-Id`. WebSocket subscriptions carry `profile_id` explicitly in the message payload.
+Realtime routes are global management routes and do not use `X-Profile-Id`. WebSocket subscriptions are pinned to frozen Default profile id `1`; inbound `profile_id` fields are accepted for compatibility and ignored.
 
 ### 8.1 WebSocket Transport
 ```
@@ -2101,11 +2101,11 @@ Common server -> client messages include:
 
 ### 8.2 Dashboard WebSocket Channel
 
-The dashboard channel is the overview channel for the main dashboard page. It is profile-scoped by the message payload and broadcasts two message families. Snapshot messages carry stats-only aggregate state. Activity messages carry one request-history item. It is separate from the scoped Analytics channel.
+The dashboard channel is the overview channel for the main dashboard page. It is pinned to frozen Default profile id `1` and broadcasts two message families. Snapshot messages carry stats-only aggregate state. Activity messages carry one request-history item. It is separate from the Analytics channel.
 
 Client -> server messages:
 ```text
-{ "type": "subscribe", "profile_id": 2, "channel": "dashboard" }
+{ "type": "subscribe", "profile_id": 1, "channel": "dashboard" }
 { "type": "unsubscribe_channel", "channel": "dashboard" }
 ```
 
@@ -2115,7 +2115,7 @@ Example `dashboard.snapshot` payload:
 ```json
 {
   "type": "dashboard.snapshot",
-  "profile_id": 2,
+  "profile_id": 1,
   "snapshot": {
     "generated_at": "2026-04-19T12:00:00Z",
     "snapshot_revision": "01JZ8Y3K2N4P6R8T0V1W2X3Y4Z",
@@ -2145,7 +2145,7 @@ Example `dashboard.activity` payload:
 ```json
 {
   "type": "dashboard.activity",
-  "profile_id": 2,
+  "profile_id": 1,
   "activity_watermark": {
     "latest_request_log_created_at": "2026-04-19T11:59:59Z",
     "latest_request_log_id": 101
@@ -2173,29 +2173,32 @@ The frontend orders dashboard snapshots by lexicographic `snapshot.snapshot_revi
 
 ### 8.3 Analytics WebSocket Channel
 
-The analytics channel serves `/observe?tab=analytics`. A subscription is scoped by `{profile_id,preset}` in the message payload. Supported presets are `1h`, `6h`, `24h`, `7d`, `30d`, and `all`.
+The analytics channel serves `/observe?tab=analytics`. A subscription is pinned to frozen Default profile id `1` and scoped by `{profile_id,preset}` in the message payload for compatibility.
+Supported presets are `1h`, `6h`, `24h`, `7d`, `30d`, and `all`.
 
 Client -> server messages:
 ```text
-{ "type": "subscribe", "profile_id": 2, "channel": "analytics", "preset": "24h" }
-{ "type": "refresh", "profile_id": 2, "channel": "analytics", "preset": "24h" }
+{ "type": "subscribe", "profile_id": 1, "channel": "analytics",
+  "preset": "24h" }
+{ "type": "refresh", "profile_id": 1, "channel": "analytics",
+  "preset": "24h" }
 { "type": "unsubscribe_channel", "channel": "analytics", "preset": "24h" }
 ```
 
-`subscribe` sends `subscribed` and then an initial `analytics.snapshot` for that exact scope. `refresh` sends a fresh direct `analytics.snapshot` for an existing connection-local subscription. `unsubscribe_channel` is preset-scoped and connection-local, so it does not include `profile_id`.
+`subscribe` sends `subscribed` and then an initial `analytics.snapshot` for the frozen Default-profile scope. `refresh` sends a fresh direct `analytics.snapshot` for an existing connection-local subscription. `unsubscribe_channel` is preset-scoped and connection-local, so it does not include `profile_id`.
 
 Analytics server -> client messages include:
 - `analytics.snapshot`
 - `analytics.error`
 
-Each `analytics.snapshot` is a full replacement for one `{profile_id,preset}` scope. The `snapshot` field uses the same `UsageSnapshotResponse` shape as `GET /api/stats/usage-snapshot`. The `endpoint_model_statistics_by_endpoint_id` field is keyed by endpoint ID as a string and carries the endpoint model statistics rows that are otherwise available from `GET /api/stats/endpoints/{endpoint_id}/models` for API and debug callers.
+Each `analytics.snapshot` is a full replacement for one frozen Default-profile `{profile_id,preset}` scope. The `snapshot` field uses the same `UsageSnapshotResponse` shape as `GET /api/stats/usage-snapshot`. The `endpoint_model_statistics_by_endpoint_id` field is keyed by endpoint ID as a string and carries the endpoint model statistics rows that are otherwise available from `GET /api/stats/endpoints/{endpoint_id}/models` for API and debug callers.
 
 Example `analytics.snapshot` payload:
 ```json
 {
   "type": "analytics.snapshot",
   "channel": "analytics",
-  "profile_id": 2,
+  "profile_id": 1,
   "preset": "24h",
   "sequence": 3,
   "generated_at": "2026-05-04T12:00:00Z",
@@ -2234,7 +2237,7 @@ Example `analytics.error` payload:
 {
   "type": "analytics.error",
   "channel": "analytics",
-  "profile_id": 2,
+  "profile_id": 1,
   "preset": "24h",
   "code": "snapshot_failed",
   "message": "Failed to build analytics snapshot"

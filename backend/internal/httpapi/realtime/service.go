@@ -18,6 +18,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/admission"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
+	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
 const (
@@ -270,7 +271,7 @@ func (s *Service) handleInboundMessage(ctx context.Context, connectionID string,
 		if channel == analyticsChannel {
 			return s.handleAnalyticsSubscribe(ctx, connectionID, connection, message)
 		}
-		return s.handleDashboardSubscribe(ctx, connectionID, connection, message, channel)
+		return s.handleDashboardSubscribe(connectionID, connection, channel)
 	case "refresh":
 		if normalizeRealtimeChannel(message.Channel) == analyticsChannel {
 			return s.handleAnalyticsRefresh(ctx, connectionID, connection, message)
@@ -300,34 +301,25 @@ func (s *Service) handleInboundMessage(ctx context.Context, connectionID string,
 	}
 }
 
-func (s *Service) handleDashboardSubscribe(ctx context.Context, connectionID string, connection *RealtimeConnection, message inboundMessage, channel string) bool {
+func (s *Service) handleDashboardSubscribe(connectionID string, connection *RealtimeConnection, channel string) bool {
 	if channel == "" {
 		channel = dashboardChannel
-	}
-	if message.ProfileID <= 0 {
-		return connection.SendJSON(map[string]any{"type": "error", "message": "profile_id required"})
 	}
 	if _, ok := supportedRealtimeChannels[channel]; !ok {
 		return connection.SendJSON(map[string]any{"type": "error", "message": fmt.Sprintf("Unsupported channel: %s", channel)})
 	}
-	exists, err := s.profileExists(ctx, message.ProfileID)
-	if err != nil {
-		return false
-	}
-	if !exists {
-		return connection.SendJSON(map[string]any{"type": "error", "message": fmt.Sprintf("Profile %d not found", message.ProfileID)})
-	}
-	if !s.manager.Subscribe(connectionID, message.ProfileID, channel) {
+	profileID := profiledomain.DefaultProfileID
+	if !s.manager.Subscribe(connectionID, profileID, channel) {
 		return connection.SendJSON(map[string]any{"type": "error", "message": "Subscription failed"})
 	}
-	if !connection.SendJSON(map[string]any{"type": "subscribed", "profile_id": message.ProfileID, "channel": channel}) {
+	if !connection.SendJSON(map[string]any{"type": "subscribed", "profile_id": profileID, "channel": channel}) {
 		return false
 	}
 	return true
 }
 
 func (s *Service) handleAnalyticsSubscribe(ctx context.Context, connectionID string, connection *RealtimeConnection, message inboundMessage) bool {
-	profileID, preset, ok := s.validateAnalyticsScope(ctx, connection, message)
+	profileID, preset, ok := s.validateAnalyticsScope(connection, message)
 	if !ok {
 		return true
 	}
@@ -341,7 +333,7 @@ func (s *Service) handleAnalyticsSubscribe(ctx context.Context, connectionID str
 }
 
 func (s *Service) handleAnalyticsRefresh(ctx context.Context, connectionID string, connection *RealtimeConnection, message inboundMessage) bool {
-	profileID, preset, ok := s.validateAnalyticsScope(ctx, connection, message)
+	profileID, preset, ok := s.validateAnalyticsScope(connection, message)
 	if !ok {
 		return true
 	}
@@ -352,7 +344,7 @@ func (s *Service) handleAnalyticsRefresh(ctx context.Context, connectionID strin
 }
 
 func (s *Service) handleAnalyticsUnsubscribeChannel(connectionID string, connection *RealtimeConnection, message inboundMessage) bool {
-	preset, ok := s.validateAnalyticsPreset(connection, message)
+	preset, ok := s.validateAnalyticsPreset(connection, profiledomain.DefaultProfileID, message)
 	if !ok {
 		return true
 	}
@@ -362,30 +354,19 @@ func (s *Service) handleAnalyticsUnsubscribeChannel(connectionID string, connect
 	return connection.SendJSON(map[string]any{"type": "unsubscribed", "channel": analyticsChannel, "preset": preset})
 }
 
-func (s *Service) validateAnalyticsScope(ctx context.Context, connection *RealtimeConnection, message inboundMessage) (int, string, bool) {
-	preset, ok := s.validateAnalyticsPreset(connection, message)
+func (s *Service) validateAnalyticsScope(connection *RealtimeConnection, message inboundMessage) (int, string, bool) {
+	profileID := profiledomain.DefaultProfileID
+	preset, ok := s.validateAnalyticsPreset(connection, profileID, message)
 	if !ok {
-		return message.ProfileID, preset, false
+		return profileID, preset, false
 	}
-	if message.ProfileID <= 0 {
-		s.sendAnalyticsError(connection, nil, preset, "profile_id_required", "profile_id is required")
-		return 0, preset, false
-	}
-	exists, err := s.profileExists(ctx, message.ProfileID)
-	if err != nil {
-		return message.ProfileID, preset, false
-	}
-	if !exists {
-		s.sendAnalyticsError(connection, &message.ProfileID, preset, "profile_not_found", fmt.Sprintf("Profile %d not found", message.ProfileID))
-		return message.ProfileID, preset, false
-	}
-	return message.ProfileID, preset, true
+	return profileID, preset, true
 }
 
-func (s *Service) validateAnalyticsPreset(connection *RealtimeConnection, message inboundMessage) (string, bool) {
+func (s *Service) validateAnalyticsPreset(connection *RealtimeConnection, profileID int, message inboundMessage) (string, bool) {
 	preset := normalizeAnalyticsPreset(message.Preset)
 	if _, ok := supportedAnalyticsPresets[preset]; !ok {
-		s.sendAnalyticsError(connection, optionalPositiveProfileID(message.ProfileID), preset, "invalid_preset", "Invalid analytics preset")
+		s.sendAnalyticsError(connection, optionalPositiveProfileID(profileID), preset, "invalid_preset", "Invalid analytics preset")
 		return preset, false
 	}
 	return preset, true
@@ -506,13 +487,4 @@ func (s *Service) PublishLatestAnalyticsSnapshot(ctx context.Context, profileID 
 
 func (s *Service) ActiveAnalyticsScopes(profileID int) []string {
 	return s.manager.ActiveScopes(profileID, analyticsChannel)
-}
-
-func (s *Service) profileExists(ctx context.Context, profileID int) (bool, error) {
-	var found bool
-	err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM profiles WHERE id = $1 AND deleted_at IS NULL)`, profileID).Scan(&found)
-	if err != nil {
-		return false, fmt.Errorf("load profile %d: %w", profileID, err)
-	}
-	return found, nil
 }

@@ -14,6 +14,7 @@ import (
 
 	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
+	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
 func TestCheckOriginUsesPublishedCORSProvider(t *testing.T) {
@@ -85,6 +86,57 @@ func realtimeOriginRequest(origin string) *http.Request {
 	return request
 }
 
+func newManagedRealtimeTestConnection(t *testing.T, manager *ConnectionManager) (*websocket.Conn, *RealtimeConnection, string) {
+	t.Helper()
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	connectionIDCh := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		socket, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade websocket: %v", err)
+			return
+		}
+		connectionID := manager.Connect(socket)
+		connectionIDCh <- connectionID
+		for {
+			if _, _, err := socket.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	conn, _, err := websocket.DefaultDialer.Dial(strings.Replace(server.URL, "http://", "ws://", 1), nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+
+	var connectionID string
+	select {
+	case connectionID = <-connectionIDCh:
+		if connectionID == "" {
+			t.Fatal("expected realtime connection ID")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for realtime connection")
+	}
+
+	connection := manager.GetConnection(connectionID)
+	if connection == nil {
+		t.Fatal("expected managed realtime connection")
+	}
+	return conn, connection, connectionID
+}
+
+func readRealtimeTestMessage(t *testing.T, conn *websocket.Conn) map[string]any {
+	t.Helper()
+	var message map[string]any
+	if err := conn.ReadJSON(&message); err != nil {
+		t.Fatalf("read websocket JSON: %v", err)
+	}
+	return message
+}
+
 type mutableRealtimeCORSProvider struct {
 	mu       sync.RWMutex
 	snapshot platformcors.Snapshot
@@ -106,25 +158,38 @@ func (p *mutableRealtimeCORSProvider) publish(origins ...string) {
 	p.snapshot = platformcors.NewSnapshot(origins)
 }
 
-func TestCancelDashboardSubscribeUsesContext(t *testing.T) {
-	pool := newCancellationTestPool(t)
-	service := &Service{pool: pool, manager: NewConnectionManager(time.Second), dashboardSnapshots: statsdomain.NewDashboardAggregateStore(), now: time.Now}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+func TestHandleDashboardSubscribeUsesDefaultProfileID(t *testing.T) {
+	manager := NewConnectionManager(time.Second)
+	t.Cleanup(manager.Close)
+	clientConn, connection, connectionID := newManagedRealtimeTestConnection(t, manager)
+	defer func() { _ = clientConn.Close() }()
 
-	if service.handleDashboardSubscribe(ctx, "conn-1", &RealtimeConnection{authenticated: true}, inboundMessage{ProfileID: 1}, "") {
-		t.Fatal("expected dashboard subscribe to stop on canceled context")
+	service := &Service{manager: manager}
+	if !service.handleDashboardSubscribe(connectionID, connection, "dashboard") {
+		t.Fatal("expected dashboard subscribe to succeed")
+	}
+
+	message := readRealtimeTestMessage(t, clientConn)
+	if message["type"] != "subscribed" || message["profile_id"] != float64(profiledomain.DefaultProfileID) || message["channel"] != "dashboard" {
+		t.Fatalf("unexpected subscribed message: %+v", message)
+	}
+	if got := manager.ActiveProfileIDs("dashboard"); len(got) != 1 || got[0] != profiledomain.DefaultProfileID {
+		t.Fatalf("active dashboard profile IDs = %+v, want [%d]", got, profiledomain.DefaultProfileID)
 	}
 }
 
-func TestCancelAnalyticsSubscribeUsesContext(t *testing.T) {
-	pool := newCancellationTestPool(t)
-	service := &Service{pool: pool, manager: NewConnectionManager(time.Second), dashboardSnapshots: statsdomain.NewDashboardAggregateStore(), now: time.Now}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+func TestValidateAnalyticsScopeUsesDefaultProfileID(t *testing.T) {
+	service := &Service{}
 
-	if _, _, ok := service.validateAnalyticsScope(ctx, &RealtimeConnection{authenticated: true}, inboundMessage{ProfileID: 1, Preset: "1h"}); ok {
-		t.Fatal("expected analytics scope validation to stop on canceled context")
+	profileID, preset, ok := service.validateAnalyticsScope(&RealtimeConnection{authenticated: true}, inboundMessage{ProfileID: 999, Preset: "1h"})
+	if !ok {
+		t.Fatal("expected analytics scope validation to succeed")
+	}
+	if profileID != profiledomain.DefaultProfileID {
+		t.Fatalf("profile ID = %d, want %d", profileID, profiledomain.DefaultProfileID)
+	}
+	if preset != "1h" {
+		t.Fatalf("preset = %q, want %q", preset, "1h")
 	}
 }
 

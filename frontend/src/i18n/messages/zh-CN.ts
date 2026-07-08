@@ -151,7 +151,7 @@ export const zhCNMessages: Messages = {
     backoffMultiplierDescription: "记录失败后，每个重试窗口延迟都会按此倍数退避。",
     backoffMultiplierLabel: "退避倍数",
     cancel: "取消",
-    description: "为此配置档案配置可复用的终端目标路由族与 Ban Policy。",
+    description: "为默认配置档案配置可复用的终端目标路由族与 Ban Policy。",
     editTitle: "编辑负载均衡策略",
     explainField: (label) => `查看${label}说明`,
     failureStatusCodesDescription: "指定会启动重试窗口和封禁策略计数的 HTTP 状态码。",
@@ -183,7 +183,7 @@ export const zhCNMessages: Messages = {
     singleSummary: "使用第一个可用连接，并在失败时依次回退。",
   },
   loadbalanceStrategiesPage: {
-    description: "管理此配置档案可复用的 Ban Policy 与终端目标路由族",
+    description: "管理默认配置档案可复用的 Ban Policy 与终端目标路由族",
     selectedProfileFallback: "默认配置档案",
     scopeCallout: (profileLabel) => `此处的更改会影响 ${profileLabel} 及绑定到这些策略的模型。`,
   },

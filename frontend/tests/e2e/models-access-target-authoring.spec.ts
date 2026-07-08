@@ -172,7 +172,7 @@ test("main model dialog disables save when no loadbalance strategies exist", asy
 
   const dialog = page.getByRole("dialog", { name: "New Model" });
   const saveButton = dialog.getByRole("button", { name: "Save" });
-  const noStrategiesCopy = "No loadbalance strategies are available for this profile. Create one on the Loadbalance Strategies page first.";
+  const noStrategiesCopy = "No loadbalance strategies are available for the Default profile. Create one on the Loadbalance Strategies page first.";
 
   await expect(dialog.getByText(noStrategiesCopy)).toBeVisible();
   await expect(saveButton).toBeDisabled();
@@ -246,7 +246,7 @@ test("main model dialog keeps empty strategy state when default creation fails",
 
   await expect(page.getByText("Default creation failed")).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Create Defaults" })).toBeVisible();
-  await expect(dialog.getByText("No loadbalance strategies are available for this profile. Create one on the Loadbalance Strategies page first.")).toBeVisible();
+  await expect(dialog.getByText("No loadbalance strategies are available for the Default profile. Create one on the Loadbalance Strategies page first.")).toBeVisible();
   await expect(saveButton).toBeDisabled();
 
   await page.getByRole("textbox", { name: "Model ID" }).fill("defaults-failed-model");
@@ -274,7 +274,7 @@ test("main model dialog does not apply delayed defaults response to edit dialog"
 
   await page.getByRole("button", { name: "Edit Model: Edit No Strategy" }).click();
   const editDialog = page.getByRole("dialog", { name: "Edit Model" });
-  await expect(editDialog.getByText("No loadbalance strategies are available for this profile. Create one on the Loadbalance Strategies page first.")).toBeVisible();
+  await expect(editDialog.getByText("No loadbalance strategies are available for the Default profile. Create one on the Loadbalance Strategies page first.")).toBeVisible();
 
   deferredDefaults.resolve();
 

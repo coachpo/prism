@@ -33,6 +33,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
+	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
 type realtimeHarness struct {
@@ -72,7 +73,7 @@ func TestRealtimeProtocolOrder(t *testing.T) {
 
 func TestRealtimeSubscriptions(t *testing.T) {
 	harness := newRealtimeHarness(t)
-	profileOneID := harness.activeProfileID(t)
+	profileOneID := profiledomain.DefaultProfileID
 	profileTwoID := harness.createProfile(t, "Realtime Secondary Profile")
 	routeOne := harness.seedRealtimeDashboardRoute(t, profileOneID, "profile-one")
 	routeTwo := harness.seedRealtimeDashboardRoute(t, profileTwoID, "profile-two")
@@ -82,7 +83,7 @@ func TestRealtimeSubscriptions(t *testing.T) {
 	replacementConn := harness.dialWebSocket(t, false)
 	assertRealtimeMessageType(t, replacementConn, "authenticated")
 	assertRealtimeMessage(t, replacementConn, map[string]any{"type": "heartbeat"})
-	writeWebSocketJSON(t, replacementConn, map[string]any{"type": "subscribe", "profile_id": profileOneID, "channel": "dashboard"})
+	writeWebSocketJSON(t, replacementConn, map[string]any{"type": "subscribe", "profile_id": profileTwoID, "channel": "dashboard"})
 	assertRealtimeMessage(t, replacementConn, map[string]any{"type": "subscribed", "profile_id": float64(profileOneID), "channel": "dashboard"})
 	delivered, err := harness.realtimeService.PublishDashboardActivity(context.Background(), requestLogOne, profileOneID)
 	if err != nil {
@@ -92,38 +93,38 @@ func TestRealtimeSubscriptions(t *testing.T) {
 		t.Fatal("expected profile-one dashboard activity delivery while subscribed")
 	}
 	assertDashboardActivityProfileID(t, readWebSocketJSON(t, replacementConn), profileOneID)
-	writeWebSocketJSON(t, replacementConn, map[string]any{"type": "subscribe", "profile_id": profileTwoID, "channel": "dashboard"})
-	assertRealtimeMessage(t, replacementConn, map[string]any{"type": "subscribed", "profile_id": float64(profileTwoID), "channel": "dashboard"})
-	delivered, err = harness.realtimeService.PublishDashboardActivity(context.Background(), requestLogOne, profileOneID)
-	if err != nil {
-		t.Fatalf("publish replaced profile-one dashboard activity: %v", err)
-	}
-	if delivered {
-		t.Fatal("expected no delivery after profile replacement removed profile-one membership")
-	}
-	_ = replacementConn.Close()
-
 	delivered, err = harness.realtimeService.PublishDashboardActivity(context.Background(), requestLogTwo, profileTwoID)
 	if err != nil {
-		t.Fatalf("publish profile-two activity without subscribers: %v", err)
+		t.Fatalf("publish secondary profile dashboard activity without subscriber: %v", err)
 	}
 	if delivered {
-		t.Fatal("expected no immediate profile-two delivery without subscribers")
+		t.Fatal("expected no delivery after dashboard subscribe normalized to Default profile")
+	}
+	writeWebSocketJSON(t, replacementConn, map[string]any{"type": "unsubscribe"})
+	assertRealtimeMessage(t, replacementConn, map[string]any{"type": "unsubscribed"})
+	_ = replacementConn.Close()
+
+	delivered, err = harness.realtimeService.PublishDashboardActivity(context.Background(), requestLogOne, profileOneID)
+	if err != nil {
+		t.Fatalf("publish profile-one activity without subscribers: %v", err)
+	}
+	if delivered {
+		t.Fatal("expected no immediate delivery after unsubscribe cleanup")
 	}
 
 	channelConn := harness.dialWebSocket(t, false)
 	assertRealtimeMessageType(t, channelConn, "authenticated")
 	assertRealtimeMessage(t, channelConn, map[string]any{"type": "heartbeat"})
 	writeWebSocketJSON(t, channelConn, map[string]any{"type": "subscribe", "profile_id": profileTwoID, "channel": "dashboard"})
-	assertRealtimeMessage(t, channelConn, map[string]any{"type": "subscribed", "profile_id": float64(profileTwoID), "channel": "dashboard"})
-	delivered, err = harness.realtimeService.PublishDashboardActivity(context.Background(), requestLogTwo, profileTwoID)
+	assertRealtimeMessage(t, channelConn, map[string]any{"type": "subscribed", "profile_id": float64(profileOneID), "channel": "dashboard"})
+	delivered, err = harness.realtimeService.PublishDashboardActivity(context.Background(), requestLogOne, profileOneID)
 	if err != nil || !delivered {
-		t.Fatalf("publish profile-two dashboard activity: delivered=%v err=%v", delivered, err)
+		t.Fatalf("publish default profile dashboard activity: delivered=%v err=%v", delivered, err)
 	}
-	assertDashboardActivityProfileID(t, readWebSocketJSON(t, channelConn), profileTwoID)
+	assertDashboardActivityProfileID(t, readWebSocketJSON(t, channelConn), profileOneID)
 	writeWebSocketJSON(t, channelConn, map[string]any{"type": "unsubscribe_channel", "channel": "dashboard"})
 	assertRealtimeMessage(t, channelConn, map[string]any{"type": "unsubscribed", "channel": "dashboard"})
-	delivered, err = harness.realtimeService.PublishDashboardActivity(context.Background(), requestLogTwo, profileTwoID)
+	delivered, err = harness.realtimeService.PublishDashboardActivity(context.Background(), requestLogOne, profileOneID)
 	if err != nil {
 		t.Fatalf("publish after unsubscribe_channel: %v", err)
 	}
@@ -136,15 +137,15 @@ func TestRealtimeSubscriptions(t *testing.T) {
 	assertRealtimeMessageType(t, unsubscribeConn, "authenticated")
 	assertRealtimeMessage(t, unsubscribeConn, map[string]any{"type": "heartbeat"})
 	writeWebSocketJSON(t, unsubscribeConn, map[string]any{"type": "subscribe", "profile_id": profileTwoID, "channel": "dashboard"})
-	assertRealtimeMessage(t, unsubscribeConn, map[string]any{"type": "subscribed", "profile_id": float64(profileTwoID), "channel": "dashboard"})
-	delivered, err = harness.realtimeService.PublishDashboardActivity(context.Background(), requestLogTwo, profileTwoID)
+	assertRealtimeMessage(t, unsubscribeConn, map[string]any{"type": "subscribed", "profile_id": float64(profileOneID), "channel": "dashboard"})
+	delivered, err = harness.realtimeService.PublishDashboardActivity(context.Background(), requestLogOne, profileOneID)
 	if err != nil || !delivered {
-		t.Fatalf("publish subscribed profile-two dashboard activity: delivered=%v err=%v", delivered, err)
+		t.Fatalf("publish subscribed default profile dashboard activity: delivered=%v err=%v", delivered, err)
 	}
-	assertDashboardActivityProfileID(t, readWebSocketJSON(t, unsubscribeConn), profileTwoID)
+	assertDashboardActivityProfileID(t, readWebSocketJSON(t, unsubscribeConn), profileOneID)
 	writeWebSocketJSON(t, unsubscribeConn, map[string]any{"type": "unsubscribe"})
 	assertRealtimeMessage(t, unsubscribeConn, map[string]any{"type": "unsubscribed"})
-	delivered, err = harness.realtimeService.PublishDashboardActivity(context.Background(), requestLogTwo, profileTwoID)
+	delivered, err = harness.realtimeService.PublishDashboardActivity(context.Background(), requestLogOne, profileOneID)
 	if err != nil {
 		t.Fatalf("publish after unsubscribe: %v", err)
 	}
@@ -550,14 +551,14 @@ func TestRealtimeAnalyticsSnapshotParity(t *testing.T) {
 
 func TestRealtimeAnalyticsSubscribeInitialSnapshot(t *testing.T) {
 	harness := newRealtimeHarness(t)
-	profileID := harness.activeProfileID(t)
+	profileID := profiledomain.DefaultProfileID
 	route := harness.seedRealtimeDashboardRoute(t, profileID, "analytics-initial")
 	harness.insertDashboardActivity(t, route, profileID, 8401, 9401, harness.fixedNow.Add(-10*time.Minute))
 
 	conn := harness.dialWebSocket(t, false)
 	assertRealtimeMessageType(t, conn, "authenticated")
 	assertRealtimeMessage(t, conn, map[string]any{"type": "heartbeat"})
-	writeWebSocketJSON(t, conn, map[string]any{"type": "subscribe", "profile_id": profileID, "channel": "analytics", "preset": "1h"})
+	writeWebSocketJSON(t, conn, map[string]any{"type": "subscribe", "profile_id": 999999, "channel": "analytics", "preset": "1h"})
 	assertRealtimeMessage(t, conn, map[string]any{"type": "subscribed", "profile_id": float64(profileID), "channel": "analytics", "preset": "1h"})
 	snapshot := readWebSocketJSON(t, conn)
 	assertAnalyticsSnapshot(t, snapshot, profileID, "1h", float64(1))
@@ -570,7 +571,7 @@ func TestRealtimeAnalyticsSubscribeInitialSnapshot(t *testing.T) {
 	}
 
 	harness.insertDashboardActivity(t, route, profileID, 8403, 9403, harness.fixedNow.Add(-2*time.Minute))
-	writeWebSocketJSON(t, conn, map[string]any{"type": "refresh", "profile_id": profileID, "channel": "analytics", "preset": "1h"})
+	writeWebSocketJSON(t, conn, map[string]any{"type": "refresh", "profile_id": 999999, "channel": "analytics", "preset": "1h"})
 	refreshedSnapshot := readWebSocketJSON(t, conn)
 	assertAnalyticsSnapshot(t, refreshedSnapshot, profileID, "1h", float64(2))
 	if snapshotPayload := refreshedSnapshot["snapshot"].(map[string]any); snapshotPayload["overview"].(map[string]any)["total_requests"] != float64(2) {
@@ -580,27 +581,30 @@ func TestRealtimeAnalyticsSubscribeInitialSnapshot(t *testing.T) {
 	assertRealtimeMessage(t, conn, map[string]any{"type": "pong"})
 	writeWebSocketJSON(t, conn, map[string]any{"type": "unsubscribe_channel", "channel": "analytics", "preset": "1h"})
 	assertRealtimeMessage(t, conn, map[string]any{"type": "unsubscribed", "channel": "analytics", "preset": "1h"})
-	writeWebSocketJSON(t, conn, map[string]any{"type": "refresh", "profile_id": profileID, "channel": "analytics", "preset": "1h"})
+	writeWebSocketJSON(t, conn, map[string]any{"type": "refresh", "profile_id": 999999, "channel": "analytics", "preset": "1h"})
 	assertAnalyticsErrorCode(t, readWebSocketJSON(t, conn), "scope_not_subscribed")
 	_ = conn.Close()
 }
 
 func TestRealtimeAnalyticsSubscribeValidationErrors(t *testing.T) {
 	harness := newRealtimeHarness(t)
-	profileID := harness.activeProfileID(t)
+	profileID := profiledomain.DefaultProfileID
 	route := harness.seedRealtimeDashboardRoute(t, profileID, "analytics-validation")
 	harness.insertDashboardActivity(t, route, profileID, 8402, 9402, harness.fixedNow.Add(-5*time.Minute))
 
 	conn := harness.dialWebSocket(t, false)
 	assertRealtimeMessageType(t, conn, "authenticated")
 	assertRealtimeMessage(t, conn, map[string]any{"type": "heartbeat"})
-	writeWebSocketJSON(t, conn, map[string]any{"type": "subscribe", "profile_id": profileID, "channel": "analytics", "preset": "2h"})
+	writeWebSocketJSON(t, conn, map[string]any{"type": "subscribe", "channel": "analytics", "preset": "2h"})
 	assertAnalyticsErrorCode(t, readWebSocketJSON(t, conn), "invalid_preset")
 	writeWebSocketJSON(t, conn, map[string]any{"type": "subscribe", "channel": "analytics", "preset": "1h"})
-	assertAnalyticsErrorCode(t, readWebSocketJSON(t, conn), "profile_id_required")
-	writeWebSocketJSON(t, conn, map[string]any{"type": "subscribe", "profile_id": 999999, "channel": "analytics", "preset": "1h"})
-	assertAnalyticsErrorCode(t, readWebSocketJSON(t, conn), "profile_not_found")
-	writeWebSocketJSON(t, conn, map[string]any{"type": "refresh", "profile_id": profileID, "channel": "analytics", "preset": "1h"})
+	assertRealtimeMessage(t, conn, map[string]any{"type": "subscribed", "profile_id": float64(profileID), "channel": "analytics", "preset": "1h"})
+	assertAnalyticsSnapshot(t, readWebSocketJSON(t, conn), profileID, "1h", float64(1))
+	writeWebSocketJSON(t, conn, map[string]any{"type": "refresh", "profile_id": 999999, "channel": "analytics", "preset": "1h"})
+	assertAnalyticsSnapshot(t, readWebSocketJSON(t, conn), profileID, "1h", float64(2))
+	writeWebSocketJSON(t, conn, map[string]any{"type": "unsubscribe_channel", "channel": "analytics", "preset": "1h"})
+	assertRealtimeMessage(t, conn, map[string]any{"type": "unsubscribed", "channel": "analytics", "preset": "1h"})
+	writeWebSocketJSON(t, conn, map[string]any{"type": "refresh", "profile_id": 999999, "channel": "analytics", "preset": "1h"})
 	assertAnalyticsErrorCode(t, readWebSocketJSON(t, conn), "scope_not_subscribed")
 	writeWebSocketJSON(t, conn, map[string]any{"type": "unsubscribe_channel", "channel": "analytics"})
 	assertAnalyticsErrorCode(t, readWebSocketJSON(t, conn), "invalid_preset")
@@ -610,10 +614,6 @@ func TestRealtimeAnalyticsSubscribeValidationErrors(t *testing.T) {
 	assertAnalyticsErrorCode(t, readWebSocketJSON(t, conn), "scope_not_subscribed")
 	writeWebSocketJSON(t, conn, map[string]any{"type": 12, "profile_id": profileID, "channel": "analytics", "preset": "1h"})
 	assertAnalyticsErrorCode(t, readWebSocketJSON(t, conn), "malformed_message")
-
-	writeWebSocketJSON(t, conn, map[string]any{"type": "subscribe", "profile_id": profileID, "channel": "analytics", "preset": "1h"})
-	assertRealtimeMessage(t, conn, map[string]any{"type": "subscribed", "profile_id": float64(profileID), "channel": "analytics", "preset": "1h"})
-	assertAnalyticsSnapshot(t, readWebSocketJSON(t, conn), profileID, "1h", float64(1))
 	_ = conn.Close()
 }
 

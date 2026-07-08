@@ -265,7 +265,7 @@ Concerns:
 STATUS: DONE_WITH_CONCERNS
 
 Commit:
-- `d0766381` (`fix: limit runtime planning refresh to Default`)
+- `1545b823` (`fix: limit runtime planning refresh to Default`)
 
 Fixes:
 - Pinned runtime snapshot refreshes to the frozen Default profile id `1` for bootstrap and fresh runtime-plan loads.
@@ -281,3 +281,26 @@ Verification:
 
 Concerns:
 - The remaining `PlanningAll` matches are internal refresh flags, merge logic, and the new regression test; runtime planning itself now stays on Default id `1`.
+
+## Task 9 R4 Final Review Fix
+
+STATUS: DONE_WITH_CONCERNS
+
+Commit:
+- `aba55dd6fe5efabf4c1c9d4e981d9c9ddb47bc60` (`fix: freeze realtime and profile copy`)
+
+Fixes:
+- Froze `/api/realtime/ws` on Default profile id `1` by ignoring inbound `profile_id` values and returning/broadcasting the pinned Default id.
+- Updated the realtime API spec examples and text to describe the Default-profile websocket contract.
+- Reworded the loadbalance pricing-template copy, e2e expectations, and pricing-templates AGENTS guidance to say Default profile instead of this profile / selected profile.
+
+Verification:
+- `rg -n 'profile_id.: 2|profile_id.*2|this profile|selected-profile|selected profile' backend/internal/httpapi/realtime docs/API_SPEC.md frontend/src/i18n/messages/en.ts frontend/src/i18n/messages/zh-CN.ts frontend/tests/e2e/models-access-target-authoring.spec.ts frontend/tests/e2e/loadbalance-strategies-recovery.spec.ts frontend/src/pages/pricing-templates/AGENTS.md` -> no matches.
+- `cd backend && go test ./internal/httpapi/realtime` -> passed.
+- `cd frontend && pnpm run test:e2e -- frontend/tests/e2e/models-access-target-authoring.spec.ts frontend/tests/e2e/loadbalance-strategies-recovery.spec.ts` -> failed with unrelated model-dialog expectations:
+  - `main model dialog creates default strategy from empty loadbalance strategy state`: expected `access_targets: []` in the created payload, but the received payload omitted that field.
+  - `main model dialog saves targetless disabled drafts` and `main model dialog keeps connection option absent while authoring ordered model access targets`: `No model targets selected.` was not visible.
+- `cd frontend && pnpm run build` -> passed.
+
+Concerns:
+- The targeted e2e run still has unrelated model-dialog failures that predate this realtime/copy freeze work.

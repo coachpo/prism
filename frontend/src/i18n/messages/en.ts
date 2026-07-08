@@ -1578,7 +1578,7 @@ export const enMessages: Messages = {
       "Multiplier applied to each retry-window delay after a failure is recorded.",
     backoffMultiplierLabel: "Backoff Multiplier",
     cancel: "Cancel",
-    description: "Configure reusable terminal-target routing families and Ban Policy for this profile.",
+    description: "Configure reusable terminal-target routing families and Ban Policy for the Default profile.",
     editTitle: "Edit Loadbalance Strategy",
     explainField: (label) => `Explain ${label}`,
     failureStatusCodesDescription:
@@ -1616,7 +1616,7 @@ export const enMessages: Messages = {
   },
   loadbalanceStrategiesPage: {
     description:
-      "Manage reusable Ban Policy and terminal-target routing families for this profile",
+      "Manage reusable Ban Policy and terminal-target routing families for the Default profile",
     selectedProfileFallback: "Default profile",
     scopeCallout: (profileLabel) =>
       `Changes here affect ${profileLabel} and models attached to these strategies.`,
