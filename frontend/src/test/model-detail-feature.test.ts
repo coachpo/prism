@@ -7,7 +7,7 @@ import type { Connection } from "@/lib/types"
 function createConnection(id: number, priority: number, name: string): Connection {
   return {
     id,
-    profile_id: 7,
+    profile_id: 1,
     model_config_id: 42,
     api_family: "openai",
     endpoint_id: id + 100,
@@ -34,10 +34,10 @@ function createConnection(id: number, priority: number, name: string): Connectio
 
 describe("model detail feature contracts", () => {
   it("keeps Default profile and model id in detail query keys", () => {
-    expect(modelDetailQueryKeys.detail(7, 42)).toEqual([
+    expect(modelDetailQueryKeys.detail(1, 42)).toEqual([
       "rewrite",
       "selected-profile",
-      "7",
+      "1",
       "models",
       "detail",
       "42",

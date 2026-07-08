@@ -1,6 +1,6 @@
 {
   "type": "dashboard.activity",
-  "profile_id": 2,
+  "profile_id": 1,
   "activity_watermark": {
     "latest_request_log_created_at": "2026-04-18T12:34:56Z",
     "latest_request_log_id": 101

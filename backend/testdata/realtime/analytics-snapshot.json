@@ -1,7 +1,7 @@
 {
   "type": "analytics.snapshot",
   "channel": "analytics",
-  "profile_id": 2,
+  "profile_id": 1,
   "preset": "1h",
   "sequence": 7,
   "generated_at": "2026-04-19T12:00:00Z",
