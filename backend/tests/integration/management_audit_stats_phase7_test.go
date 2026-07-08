@@ -199,6 +199,29 @@ func TestManagementGlobalRunningLogRetentionCancel(t *testing.T) {
 	}
 }
 
+func TestGlobalLogRetentionRunningCancelStore(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	store, pool, _ := phase7JobStore(t, ctx, "global_running_cancel_store")
+	defer pool.Close()
+	job := phase7CreateLogRetentionJob(t, ctx, store, "global-running-cancel-store")
+	if _, err := pool.Exec(ctx, `UPDATE management_jobs SET state = 'running', locked_by = 'phase7-worker', locked_until = now() + interval '5 minutes', last_heartbeat_at = now(), updated_at = now() WHERE id = $1`, job.ID); err != nil {
+		t.Fatalf("seed running global job: %v", err)
+	}
+
+	cancelled, err := store.CancelGlobalLogRetentionJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("cancel running global job: %v", err)
+	}
+	if cancelled.ProfileID != 0 || cancelled.Type != managementjobs.TypeLogRetention || cancelled.State != "cancel_requested" || !cancelled.CancelRequested || cancelled.FinishedAt != nil {
+		t.Fatalf("expected running global log retention job to request cancellation, got %+v", cancelled)
+	}
+	if events := phase7CountRows(t, ctx, pool, `SELECT COUNT(*) FROM management_job_events WHERE job_id = $1 AND event_type = 'cancel_requested'`, job.ID); events != 1 {
+		t.Fatalf("expected one cancel_requested event for running global job, got %d", events)
+	}
+}
+
 func TestManagementGlobalCancelPreservesProfileStoreErrors(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()

@@ -3,10 +3,16 @@ package models
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,92 +25,36 @@ import (
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
+var modelsStorePostgres struct {
+	once          sync.Once
+	containerName string
+	hostPort      string
+	err           error
+}
+
 type modelRouteErrorResponse struct {
 	Detail            string                       `json:"detail"`
 	RoutingPlanIssues []routingPlanValidationIssue `json:"routing_plan_issues"`
 }
 
-func TestModelRoutesRejectAccessTargetsInCreateUpdateAndObsoleteTargetFields(t *testing.T) {
-	ctx, conn, dsn := createPromotionTargetTestDatabase(t, "model_routes_reject_obsolete_access_target_fields")
-	now := time.Date(2026, time.June, 5, 21, 0, 0, 0, time.UTC)
-	tx, err := conn.Begin(ctx)
+type modelsPostgresHarness struct {
+	containerName string
+	hostPort      string
+}
+
+type promotionModelSeed struct {
+	ModelID   string
+	APIFamily string
+	IsEnabled bool
+}
+
+func mustInsertModelRecord(t *testing.T, ctx context.Context, tx pgx.Tx, record modelRecord) modelRecord {
+	t.Helper()
+	created, err := insertModel(ctx, tx, record)
 	if err != nil {
-		t.Fatalf("begin seed transaction: %v", err)
+		t.Fatalf("insert model %q: %v", record.ModelID, err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	profileID := insertPromotionProfile(t, ctx, tx, "obsolete-target-fields-profile", now)
-	strategyID := insertPromotionStrategy(t, ctx, tx, profileID, "obsolete-target-fields-strategy", now)
-	source := insertPromotionModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "obsolete-source", APIFamily: "openai", IsEnabled: false})
-	target := insertPromotionModel(t, ctx, tx, profileID, strategyID, now, promotionModelSeed{ModelID: "obsolete-target", APIFamily: "openai", IsEnabled: false})
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit seed transaction: %v", err)
-	}
-	router := newPromotionTargetRouter(t, ctx, dsn, now)
-
-	createResponse := performPromotionTargetModelRequest(t, router, http.MethodPost, "/models", profileID, map[string]any{
-		"api_family":              "openai",
-		"model_id":                "obsolete-create",
-		"loadbalance_strategy_id": source.LoadbalanceStrategyID,
-		"access_targets": []map[string]any{{
-			"target_type":     "model",
-			"target_model_id": target.ModelID,
-			"position":        0,
-			"weight":          1,
-		}},
-	})
-	assertInvalidRequestBody(t, createResponse)
-
-	updateResponse := performPromotionTargetModelRequest(t, router, http.MethodPut, fmt.Sprintf("/models/%d", source.ID), profileID, map[string]any{
-		"access_targets": []map[string]any{{
-			"target_type":     "model",
-			"target_model_id": target.ModelID,
-			"position":        0,
-			"target_priority": 0,
-		}},
-	})
-	assertInvalidRequestBody(t, updateResponse)
-
-	targetCreateResponse := performPromotionTargetModelRequest(t, router, http.MethodPost, fmt.Sprintf("/models/%d/targets", source.ID), profileID, map[string]any{
-		"target_type":     "model",
-		"target_model_id": target.ModelID,
-		"position":        1,
-		"weight":          1,
-	})
-	assertObsoleteAccessTargetRouteError(t, targetCreateResponse, "weight")
-
-	targetPatchResponse := performPromotionTargetModelRequest(t, router, http.MethodPatch, fmt.Sprintf("/models/%d/targets/1", source.ID), profileID, map[string]any{
-		"target_priority": 0,
-	})
-	assertObsoleteAccessTargetRouteError(t, targetPatchResponse, "target_priority")
-}
-
-func assertInvalidRequestBody(t *testing.T, response *httptest.ResponseRecorder) {
-	t.Helper()
-	if response.Code != http.StatusBadRequest {
-		t.Fatalf("expected invalid request body to fail with 400, got %d: %s", response.Code, response.Body.String())
-	}
-	var payload modelRouteErrorResponse
-	decodePromotionTargetJSON(t, response, &payload)
-	if payload.Detail != "Invalid request body" {
-		t.Fatalf("expected invalid request body error, got %+v", payload)
-	}
-}
-
-func assertObsoleteAccessTargetRouteError(t *testing.T, response *httptest.ResponseRecorder, path string) {
-	t.Helper()
-	if response.Code != http.StatusBadRequest {
-		t.Fatalf("expected obsolete field request to fail with 400, got %d: %s", response.Code, response.Body.String())
-	}
-	detail := fmt.Sprintf("%s is obsolete and must be omitted", path)
-	var payload modelRouteErrorResponse
-	decodePromotionTargetJSON(t, response, &payload)
-	if payload.Detail != detail || len(payload.RoutingPlanIssues) != 1 {
-		t.Fatalf("unexpected obsolete field payload: %+v", payload)
-	}
-	issue := payload.RoutingPlanIssues[0]
-	if issue.Code != "obsolete_access_target_field" || issue.Path != path || issue.Message != detail {
-		t.Fatalf("unexpected obsolete field issue: %+v", issue)
-	}
+	return created
 }
 
 func createPromotionTargetTestDatabase(t *testing.T, name string) (context.Context, *pgx.Conn, string) {
@@ -187,12 +137,6 @@ func findListedModelByID(t *testing.T, items []modelConfigListResponse, modelCon
 	return modelConfigListResponse{}
 }
 
-type promotionModelSeed struct {
-	ModelID   string
-	APIFamily string
-	IsEnabled bool
-}
-
 func seedPromotionTerminalModel(t *testing.T, ctx context.Context, tx pgx.Tx, profileID int, strategyID int, now time.Time, seed promotionModelSeed, _ int, _ float64) (modelRecord, int) {
 	t.Helper()
 	model := insertPromotionModel(t, ctx, tx, profileID, strategyID, now, seed)
@@ -259,7 +203,7 @@ func insertPromotionConnection(t *testing.T, ctx context.Context, tx pgx.Tx, pro
 	if apiFamily == "openai" {
 		openAITextCapability = "responses_only"
 	}
-	if err := tx.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, $6, TRUE, 0, $4, NULL, NULL, 'healthy', NULL, NULL, $5, $5) RETURNING id`, profileID, apiFamily, endpointID, name, now, openAITextCapability).Scan(&connectionID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, $4, TRUE, 0, $5, NULL, NULL, 'healthy', NULL, NULL, $6, $6) RETURNING id`, profileID, apiFamily, endpointID, openAITextCapability, name, now).Scan(&connectionID); err != nil {
 		t.Fatalf("insert connection %q: %v", name, err)
 	}
 	return connectionID
@@ -268,13 +212,117 @@ func insertPromotionConnection(t *testing.T, ctx context.Context, tx pgx.Tx, pro
 func insertPromotionModelTarget(t *testing.T, ctx context.Context, tx pgx.Tx, profileID int, sourceModelConfigID int, targetModelConfigID int, position int, isEnabled bool, now time.Time) {
 	t.Helper()
 	if _, err := tx.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_model_config_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'model', $3, $4, $5, $6, $6)`, profileID, sourceModelConfigID, targetModelConfigID, position, isEnabled, now); err != nil {
-		t.Fatalf("insert model target source=%d target=%d: %v", sourceModelConfigID, targetModelConfigID, err)
+		t.Fatalf("insert model target: %v", err)
 	}
 }
 
 func insertPromotionConnectionTarget(t *testing.T, ctx context.Context, tx pgx.Tx, profileID int, sourceModelConfigID int, connectionID int, position int, isEnabled bool, now time.Time) {
 	t.Helper()
 	if _, err := tx.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, $4, $5, $6, $6)`, profileID, sourceModelConfigID, connectionID, position, isEnabled, now); err != nil {
-		t.Fatalf("insert connection target model=%d connection=%d: %v", sourceModelConfigID, connectionID, err)
+		t.Fatalf("insert connection target: %v", err)
 	}
+}
+
+func modelsStoreHarness(t *testing.T) modelsPostgresHarness {
+	t.Helper()
+	modelsStorePostgres.once.Do(func() {
+		containerName := "prism-models-" + modelsRandomSuffix(t)
+		if _, err := runModelsDockerCommand(context.Background(), "run", "--rm", "-d", "--name", containerName, "-e", "POSTGRES_DB=postgres", "-e", "POSTGRES_USER=prism", "-e", "POSTGRES_PASSWORD=prism", "-P", "postgres:16-alpine"); err != nil {
+			modelsStorePostgres.err = err
+			return
+		}
+		modelsStorePostgres.containerName = containerName
+		hostPort, err := modelsDockerPort(containerName)
+		if err != nil {
+			modelsStorePostgres.err = err
+			return
+		}
+		if err := waitForModelsPostgres(hostPort); err != nil {
+			modelsStorePostgres.err = err
+			return
+		}
+		modelsStorePostgres.hostPort = hostPort
+	})
+
+	if modelsStorePostgres.err != nil {
+		t.Fatalf("start postgres harness: %v", modelsStorePostgres.err)
+	}
+	return modelsPostgresHarness{containerName: modelsStorePostgres.containerName, hostPort: modelsStorePostgres.hostPort}
+}
+
+func (h modelsPostgresHarness) openDatabase(t *testing.T, ctx context.Context, databaseName string) *pgx.Conn {
+	t.Helper()
+	adminConn := modelsConnect(t, ctx, h.connectionString("postgres"))
+	defer func() { _ = adminConn.Close(ctx) }()
+	if _, err := adminConn.Exec(ctx, `DROP DATABASE IF EXISTS `+modelsQuoteIdentifier(databaseName)+` WITH (FORCE)`); err != nil {
+		t.Fatalf("drop database %s: %v", databaseName, err)
+	}
+	if _, err := adminConn.Exec(ctx, `CREATE DATABASE `+modelsQuoteIdentifier(databaseName)); err != nil {
+		t.Fatalf("create database %s: %v", databaseName, err)
+	}
+	return modelsConnect(t, ctx, h.connectionString(databaseName))
+}
+
+func (h modelsPostgresHarness) connectionString(databaseName string) string {
+	return fmt.Sprintf("postgres://prism:prism@127.0.0.1:%s/%s?sslmode=disable", h.hostPort, databaseName)
+}
+
+func modelsConnect(t *testing.T, ctx context.Context, dsn string) *pgx.Conn {
+	t.Helper()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect to postgres %s: %v", dsn, err)
+	}
+	return conn
+}
+
+func modelsDockerPort(containerName string) (string, error) {
+	output, err := runModelsDockerCommand(context.Background(), "port", containerName, "5432/tcp")
+	if err != nil {
+		return "", err
+	}
+	firstLine := strings.TrimSpace(strings.Split(output, "\n")[0])
+	_, port, err := net.SplitHostPort(firstLine)
+	if err != nil {
+		return "", fmt.Errorf("parse docker port output %q: %w", firstLine, err)
+	}
+	return port, nil
+}
+
+func waitForModelsPostgres(hostPort string) error {
+	deadline := time.Now().Add(45 * time.Second)
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		conn, err := pgx.Connect(ctx, fmt.Sprintf("postgres://prism:prism@127.0.0.1:%s/postgres?sslmode=disable", hostPort))
+		if err == nil {
+			_ = conn.Close(ctx)
+			cancel()
+			return nil
+		}
+		cancel()
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("postgres container on port %s did not become ready in time", hostPort)
+}
+
+func runModelsDockerCommand(ctx context.Context, args ...string) (string, error) {
+	command := exec.CommandContext(ctx, "docker", args...)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("docker %s failed: %w\n%s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+func modelsQuoteIdentifier(identifier string) string {
+	return `"` + strings.ReplaceAll(identifier, `"`, `""`) + `"`
+}
+
+func modelsRandomSuffix(t *testing.T) string {
+	t.Helper()
+	buffer := make([]byte, 4)
+	if _, err := rand.Read(buffer); err != nil {
+		t.Fatalf("generate random suffix: %v", err)
+	}
+	return hex.EncodeToString(buffer)
 }

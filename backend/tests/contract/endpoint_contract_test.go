@@ -54,12 +54,27 @@ func TestEndpointCRUD(t *testing.T) {
 	assertStatus(t, updatePrimary, http.StatusOK)
 	var updated map[string]any
 	decodeJSONResponse(t, updatePrimary, &updated)
-	if updated["name"] != "Primary Updated" || updated["base_url"] != "https://api.openai.com/v2" {
+	if updated["name"] != "Primary Updated" || updated["base_url"] != "https://api.openai.com/v2" || updated["masked_api_key"] != "********" {
 		t.Fatalf("expected endpoint update payload to persist changes, got %+v", updated)
 	}
 
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S9 Endpoint CRUD Strategy")
+	boundaryModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-endpoint-boundary-model", nil, "native", &strategyID, true)
+	boundaryConnectionID := seedEndpointBoundaryConnectionUsage(t, harness, defaultProfileID, boundaryModelID, primaryID)
+	beforeBoundary := loadEndpointConnectionBoundaryState(t, harness, boundaryModelID, boundaryConnectionID)
+
+	boundaryUpdate := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/endpoints/%d", primaryID), map[string]any{"base_url": "https://api.openai.com/v3/", "api_key": "sk-boundary-rotated"}, modelHeader(defaultProfileID))
+	assertStatus(t, boundaryUpdate, http.StatusOK)
+	decodeJSONResponse(t, boundaryUpdate, &updated)
+	if updated["base_url"] != "https://api.openai.com/v3" || updated["masked_api_key"] != "********" {
+		t.Fatalf("expected boundary endpoint update to keep masked credentials, got %+v", updated)
+	}
+	afterBoundary := loadEndpointConnectionBoundaryState(t, harness, boundaryModelID, boundaryConnectionID)
+	if beforeBoundary != afterBoundary {
+		t.Fatalf("endpoint update changed dependent routing/pricing/health state\nbefore=%+v\nafter=%+v", beforeBoundary, afterBoundary)
+	}
+
 	modelConfigID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-endpoint-crud-model", nil, "native", &strategyID, true)
 	dependentConnectionID := modelInsertConnection(t, harness, defaultProfileID, modelConfigID, dependentID, 0, true, nil)
 
@@ -97,7 +112,7 @@ func TestEndpointCRUD(t *testing.T) {
 	if len(endpoints) < 2 {
 		t.Fatalf("expected enough endpoints to verify delete compaction, got %+v", endpoints)
 	}
-	if jsonInt(t, endpoints[0]["id"]) != primaryID || jsonInt(t, endpoints[0]["position"]) != 0 {
+	if jsonInt(t, endpoints[0]["id"]) != primaryID || jsonInt(t, endpoints[0]["position"]) != 0 || endpoints[0]["masked_api_key"] != "********" {
 		t.Fatalf("expected primary endpoint to remain first after compaction, got %+v", endpoints)
 	}
 	if jsonInt(t, endpoints[1]["id"]) != spareID || jsonInt(t, endpoints[1]["position"]) != 1 {
@@ -237,6 +252,49 @@ func assertEndpointDeleteConflictConnection(t *testing.T, connections []any, con
 		return
 	}
 	t.Fatalf("expected endpoint delete conflict to include connection %d, got %+v", connectionID, connections)
+}
+
+type endpointConnectionBoundaryState struct {
+	EndpointID        int
+	PricingTemplateID int
+	QPSLimit          int
+	MaxNonStream      int
+	MaxStream         int
+	Priority          int
+	AuthType          string
+	CustomHeaders     string
+	HealthStatus      string
+	HealthDetail      string
+	LastHealthAt      time.Time
+	TargetPosition    int
+	TargetEnabled     bool
+}
+
+func seedEndpointBoundaryConnectionUsage(t *testing.T, harness *contractHarness, profileID int, modelConfigID int, endpointID int) int {
+	t.Helper()
+	now := time.Now().UTC()
+	var pricingTemplateID int
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO pricing_templates (profile_id, name, description, pricing_unit, pricing_currency_code, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, version, created_at, updated_at) VALUES ($1, 'Endpoint Boundary Pricing', NULL, 'PER_1M', 'USD', '1', '2', '0', '0', '0', 1, $2, $2) RETURNING id`, profileID, now).Scan(&pricingTemplateID); err != nil {
+		t.Fatalf("insert boundary pricing template: %v", err)
+	}
+	connectionID := modelInsertConnection(t, harness, profileID, modelConfigID, endpointID, 5, true, nil)
+	lastHealthAt := now.Add(-time.Hour)
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET pricing_template_id = $2, qps_limit = 7, max_in_flight_non_stream = 3, max_in_flight_stream = 2, priority = 42, name = 'boundary-terminal', auth_type = 'bearer', custom_headers = $3, health_status = 'degraded', health_detail = 'sticky health detail', last_health_check = $4 WHERE id = $1`, connectionID, pricingTemplateID, `{"X-Boundary":"kept"}`, lastHealthAt); err != nil {
+		t.Fatalf("update boundary connection state: %v", err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_access_targets SET position = 5, is_enabled = FALSE WHERE source_model_config_id = $1 AND target_connection_id = $2`, modelConfigID, connectionID); err != nil {
+		t.Fatalf("update boundary access target state: %v", err)
+	}
+	return connectionID
+}
+
+func loadEndpointConnectionBoundaryState(t *testing.T, harness *contractHarness, modelConfigID int, connectionID int) endpointConnectionBoundaryState {
+	t.Helper()
+	var state endpointConnectionBoundaryState
+	if err := harness.conn.QueryRow(context.Background(), `SELECT connections.endpoint_id, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, connections.priority, COALESCE(connections.auth_type, ''), COALESCE(connections.custom_headers::text, ''), connections.health_status, COALESCE(connections.health_detail, ''), COALESCE(connections.last_health_check, '0001-01-01 00:00:00+00'::timestamptz), model_access_targets.position, model_access_targets.is_enabled FROM connections JOIN model_access_targets ON model_access_targets.target_connection_id = connections.id WHERE model_access_targets.source_model_config_id = $1 AND connections.id = $2`, modelConfigID, connectionID).Scan(&state.EndpointID, &state.PricingTemplateID, &state.QPSLimit, &state.MaxNonStream, &state.MaxStream, &state.Priority, &state.AuthType, &state.CustomHeaders, &state.HealthStatus, &state.HealthDetail, &state.LastHealthAt, &state.TargetPosition, &state.TargetEnabled); err != nil {
+		t.Fatalf("load endpoint connection boundary state: %v", err)
+	}
+	return state
 }
 
 func newEndpointConnectionContractHarness(t *testing.T) *contractHarness {
