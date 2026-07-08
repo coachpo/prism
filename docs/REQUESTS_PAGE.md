@@ -24,7 +24,7 @@ The request-log route now uses split HTTP contracts: a slim list payload for bro
 
 - Replace dashboard or statistics summaries.
 - Change backend request-log, audit-log, or costing contracts.
-- Change active-profile runtime routing behavior for `/v1/*` and `/v1beta/*`.
+- Change frozen Default-profile runtime routing behavior for `/v1/*` and `/v1beta/*`.
 
 ## 4. Route Responsibilities
 

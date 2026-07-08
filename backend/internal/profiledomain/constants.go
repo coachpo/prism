@@ -1,6 +1,7 @@
 package profiledomain
 
 const (
+	DefaultProfileID          = 1
 	ProfileIDHeader           = "X-Profile-Id"
 	DefaultProfileName        = "Default"
 	DefaultProfileDescription = "System default profile"

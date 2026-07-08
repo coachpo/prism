@@ -684,10 +684,10 @@ func (h *runtimeHarness) forceActiveProfile(t *testing.T, targetProfileID int) {
 	t.Helper()
 	now := time.Now().UTC()
 	if _, err := h.conn.Exec(context.Background(), `UPDATE profiles SET is_active = FALSE, updated_at = $1 WHERE deleted_at IS NULL`, now); err != nil {
-		t.Fatalf("clear runtime active profile: %v", err)
+		t.Fatalf("clear runtime profile state: %v", err)
 	}
 	if _, err := h.conn.Exec(context.Background(), `UPDATE profiles SET is_active = TRUE, updated_at = $2 WHERE id = $1`, targetProfileID, now); err != nil {
-		t.Fatalf("set runtime active profile %d: %v", targetProfileID, err)
+		t.Fatalf("set runtime profile state %d: %v", targetProfileID, err)
 	}
 	h.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{ActiveProfile: true})
 }

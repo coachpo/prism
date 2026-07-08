@@ -232,7 +232,7 @@ proxy_api_keys
 
 ### 2.1 `profiles`
 
-Profiles are retained storage namespaces. Multi-profile management is frozen: management reads and writes are pinned to Default profile id `1`, while runtime still loads the published active-profile snapshot.
+Profiles are retained storage namespaces. Multi-profile management is frozen: management reads and writes are pinned to Default profile id `1`, while runtime loads the published Default profile id `1` snapshot.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|

@@ -1667,10 +1667,10 @@ func assertShapeRecursive(t *testing.T, actual any, fixture any) {
 func TestRealtimeAnalyticsPublishActiveScopesOnly(t *testing.T) {
 	harness := newRealtimeHarness(t)
 	profileID := harness.activeProfileID(t)
-	profileTwoID := harness.createProfile(t, "Analytics Active Scope Secondary")
+	profileTwoID := harness.createProfile(t, "Analytics Default Scope Secondary")
 	route := harness.seedRealtimeDashboardRoute(t, profileID, "analytics-active")
 	harness.insertDashboardActivity(t, route, profileID, 8450, 9450, harness.fixedNow.Add(-10*time.Minute))
-	routeTwo := harness.seedRealtimeDashboardRoute(t, profileTwoID, "analytics-inactive-profile")
+	routeTwo := harness.seedRealtimeDashboardRoute(t, profileTwoID, "analytics-secondary-profile")
 	harness.insertDashboardActivity(t, routeTwo, profileTwoID, 8451, 9451, harness.fixedNow.Add(-10*time.Minute))
 
 	oneHourConn := harness.dialWebSocket(t, false)
@@ -1689,10 +1689,10 @@ func TestRealtimeAnalyticsPublishActiveScopesOnly(t *testing.T) {
 
 	delivered, err := harness.realtimeService.PublishAnalyticsUpdates(context.Background(), profileTwoID)
 	if err != nil {
-		t.Fatalf("publish analytics inactive profile: %v", err)
+		t.Fatalf("publish analytics secondary profile: %v", err)
 	}
 	if delivered {
-		t.Fatal("expected inactive profile analytics publish to report no delivery")
+		t.Fatal("expected secondary profile analytics publish to report no delivery")
 	}
 	delivered, err = harness.realtimeService.PublishAnalyticsUpdates(context.Background(), profileID)
 	if err != nil {

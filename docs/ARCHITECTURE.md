@@ -29,7 +29,7 @@ backend/
 │   │   ├── loadbalance/        # routing, recovery, and state logic
 │   │   └── stats/              # request-log and aggregate query logic
 │   ├── endpointdomain/         # endpoint and connection helpers
-│   ├── profiledomain/          # Default profile helpers and runtime active-profile loading
+│   ├── profiledomain/          # Default profile helpers and frozen runtime snapshot loading
 ├── migrations/                 # Fresh-install SQL baseline applied at startup
 ├── testdata/                   # request, bootstrap, and realtime fixtures
 ├── tests/                      # Go contract, integration, and runtime regressions
@@ -274,7 +274,7 @@ The realtime API has two supported channels. The dashboard channel emits `dashbo
 ### 4.2 Runtime execution pipeline
 
 1. The operation registry resolves the exact runtime operation and hook collection before the request body is consumed.
-2. Request setup resolves the active-profile model by exact `planningSnapshot.ModelsByID` lookup, ordered access targets, attached strategy, and one immutable effective strategy snapshot for the request.
+2. Request setup resolves the frozen Default profile id `1` model by exact `planningSnapshot.ModelsByID` lookup, ordered access targets, attached strategy, and one immutable effective strategy snapshot for the request.
 3. Planner and runtime-state helpers read `routing_connection_runtime_state` to build the current candidate set from admission counters and Ban Policy retry-window state.
 4. The shared execution core claims per-attempt leases and uses shared upstream timeout behavior from the backend runtime before any client-visible bytes are committed.
 5. Operation request, response, stream, and media hooks interpret provider-native payload details by canonical operation name. Token-count hooks are attached to `anthropic.count_tokens` and `gemini.count_tokens`, media hooks are attached to `openai.images.generations` and `openai.images.edits`, and the Gemini SSE hook is attached to `gemini.stream_generate_content`; passive outcomes feed back into connection-global runtime state while durable transition history persists model-policy snapshots and exposes them on event APIs as `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold` when Ban Policy evaluation produced the event.

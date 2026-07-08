@@ -653,12 +653,12 @@ func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, r
 		runtimeTraceMarkError(span, "request_plan_failed")
 		return requestPlan{}, runtimeSnapshotDomainError(ErrPublishedRuntimeSnapshotUnavailable)
 	}
-	activeProfile, snapshot, err := s.cache.LoadFreshActiveRuntimePlan(ctx)
+	defaultProfile, snapshot, err := s.cache.LoadFreshDefaultRuntimePlan(ctx)
 	if err != nil {
 		runtimeTraceMarkError(span, "request_plan_failed")
 		return requestPlan{}, runtimeSnapshotDomainError(err)
 	}
-	plan, err := s.buildRequestPlanFromSnapshot(request.WithContext(ctx), rawBody, runtimeConfig, operationMatch, activeProfile.ID, snapshot)
+	plan, err := s.buildRequestPlanFromSnapshot(request.WithContext(ctx), rawBody, runtimeConfig, operationMatch, defaultProfile.ID, snapshot)
 	if err != nil {
 		runtimeTraceMarkError(span, "request_plan_failed")
 		return requestPlan{}, err

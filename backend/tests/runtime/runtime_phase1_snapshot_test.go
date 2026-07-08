@@ -1,6 +1,7 @@
 package runtime_test
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"sync/atomic"
@@ -41,6 +42,55 @@ func TestRuntimePhase1Snapshot_HotPathUsesPublishedPlanningSnapshotOnly(t *testi
 	}
 	if got := requestModelID(t, request.Body); got != route.TargetModelID {
 		t.Fatalf("expected published planning upstream model %q, got %q", route.TargetModelID, got)
+	}
+}
+
+func TestRuntimePhase1Snapshot_PinsPlanningToDefaultProfile(t *testing.T) {
+	harness := newRuntimePhase0Harness(t)
+	defaultProfileID := harness.activeProfileID(t)
+	shadowProfileID := harness.createProfile(t, "Phase1 Shadow Profile")
+	suffix := randomSuffix()
+	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-phase1-default-profile"})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       defaultProfileID,
+		APIFamily:       "openai",
+		PublicModelID:   "phase1-default-public-" + suffix,
+		TargetModelID:   "phase1-default-target-" + suffix,
+		EndpointBaseURL: upstream.baseURL("/phase1/default-profile"),
+		EndpointAPIKey:  "phase1-default-key",
+	})
+
+	harness.forceActiveProfile(t, shadowProfileID)
+
+	defaultProfile, planning, err := harness.runtimeCache.LoadFreshDefaultRuntimePlan(context.Background())
+	if err != nil {
+		t.Fatalf("load fresh default runtime plan: %v", err)
+	}
+	if defaultProfile.ID != defaultProfileID {
+		t.Fatalf("expected frozen Default profile id %d, got %d", defaultProfileID, defaultProfile.ID)
+	}
+	if _, ok := planning.ModelsByID[route.PublicModelID]; !ok {
+		t.Fatalf("expected default profile planning snapshot to contain %q, got %+v", route.PublicModelID, planning.ModelsByID)
+	}
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "phase-1 default profile planning"}},
+			"model":    route.PublicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+
+	request := upstream.lastRequest(t)
+	if request.Path != "/phase1/default-profile/v1/chat/completions" {
+		t.Fatalf("expected default-profile upstream path %q, got %q", "/phase1/default-profile/v1/chat/completions", request.Path)
+	}
+	if got := requestModelID(t, request.Body); got != route.TargetModelID {
+		t.Fatalf("expected default-profile upstream model %q, got %q", route.TargetModelID, got)
 	}
 }
 

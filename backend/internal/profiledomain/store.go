@@ -214,7 +214,7 @@ func ModelExists(ctx context.Context, exec QueryExecutor, profileID int, modelID
 	if err == pgx.ErrNoRows {
 		return false, nil
 	}
-	return false, fmt.Errorf("query active-profile model %q: %w", modelID, err)
+	return false, fmt.Errorf("query profile model %q: %w", modelID, err)
 }
 
 func loadProfileByID(ctx context.Context, exec QueryExecutor, profileID int, forUpdate bool) (Profile, bool, error) {
@@ -251,7 +251,7 @@ func loadActiveProfile(ctx context.Context, exec QueryExecutor, forUpdate bool) 
 		return Profile{}, false, nil
 	}
 	if err != nil {
-		return Profile{}, false, fmt.Errorf("load active profile: %w", err)
+		return Profile{}, false, fmt.Errorf("load current profile: %w", err)
 	}
 	return profile, true, nil
 }

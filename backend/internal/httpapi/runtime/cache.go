@@ -227,7 +227,7 @@ func (c *SharedCache) PublishedReady() bool {
 	return c != nil && c.published.Load() != nil
 }
 
-func (c *SharedCache) LoadPublishedActiveProfile() (profiledomain.Profile, error) {
+func (c *SharedCache) LoadPublishedDefaultProfile() (profiledomain.Profile, error) {
 	var zero profiledomain.Profile
 	snapshot, err := c.requirePublishedSnapshot()
 	if err != nil {
@@ -236,23 +236,23 @@ func (c *SharedCache) LoadPublishedActiveProfile() (profiledomain.Profile, error
 	return cloneProfile(snapshot.ActiveProfile), nil
 }
 
-func (c *SharedCache) LoadFreshActiveRuntimePlan(ctx context.Context) (profiledomain.Profile, *planningSnapshot, error) {
-	activeProfile, planning, _, err := c.loadFreshActiveRuntimePlanWithGenerationToken(ctx)
-	return activeProfile, planning, err
+func (c *SharedCache) LoadFreshDefaultRuntimePlan(ctx context.Context) (profiledomain.Profile, *planningSnapshot, error) {
+	defaultProfile, planning, _, err := c.loadFreshDefaultRuntimePlanWithGenerationToken(ctx)
+	return defaultProfile, planning, err
 }
 
-func (c *SharedCache) loadFreshActiveRuntimePlanWithGenerationToken(ctx context.Context) (profiledomain.Profile, *planningSnapshot, string, error) {
+func (c *SharedCache) loadFreshDefaultRuntimePlanWithGenerationToken(ctx context.Context) (profiledomain.Profile, *planningSnapshot, string, error) {
 	var zero profiledomain.Profile
 	snapshot, err := c.requireFreshPublishedSnapshot(ctx, RefreshRequest{ActiveProfile: true, PlanningAll: true})
 	if err != nil {
 		return zero, nil, "", err
 	}
-	activeProfile := cloneProfile(snapshot.ActiveProfile)
-	planning, ok := snapshot.PlanningByProfileID[activeProfile.ID]
+	defaultProfile := cloneProfile(snapshot.ActiveProfile)
+	planning, ok := snapshot.PlanningByProfileID[defaultProfile.ID]
 	if !ok || planning == nil {
-		return zero, nil, "", fmt.Errorf("%w: planning snapshot missing for profile %d", ErrPublishedRuntimeSnapshotUnavailable, activeProfile.ID)
+		return zero, nil, "", fmt.Errorf("%w: planning snapshot missing for profile %d", ErrPublishedRuntimeSnapshotUnavailable, defaultProfile.ID)
 	}
-	return activeProfile, planning, runtimeGenerationVectorToken(snapshot.GenerationVector), nil
+	return defaultProfile, planning, runtimeGenerationVectorToken(snapshot.GenerationVector), nil
 }
 
 func (c *SharedCache) LoadPublishedPlanningSnapshot(profileID int) (*planningSnapshot, error) {
@@ -398,17 +398,15 @@ func (c *SharedCache) buildPublishedSnapshot(ctx context.Context, request Refres
 			next.Generation = 1
 		}
 
-		activeProfile := profiledomain.Profile{}
-		if current != nil && !request.ActiveProfile {
-			activeProfile = current.ActiveProfile
-		} else {
-			resolvedActiveProfile, err := profiledomain.ResolveActiveProfile(ctx, tx, c.nowUTC)
-			if err != nil {
-				return nil, err
-			}
-			activeProfile = cloneProfile(resolvedActiveProfile)
+		// ponytail: runtime planning stays frozen on Default profile id=1.
+		defaultProfile, found, err := profiledomain.LoadNonDeletedProfile(ctx, tx, profiledomain.DefaultProfileID)
+		if err != nil {
+			return nil, err
 		}
-		next.ActiveProfile = activeProfile
+		if !found {
+			return nil, fmt.Errorf("%w: default profile %d not found", ErrPublishedRuntimeSnapshotUnavailable, profiledomain.DefaultProfileID)
+		}
+		next.ActiveProfile = cloneProfile(defaultProfile)
 
 		planningByProfileID := copyPublishedPlanningSnapshots(current)
 		if current == nil || request.PlanningAll {
@@ -436,15 +434,15 @@ func (c *SharedCache) buildPublishedSnapshot(ctx context.Context, request Refres
 				planningByProfileID[profileID] = snapshot
 			}
 		}
-		if _, ok := planningByProfileID[activeProfile.ID]; !ok {
-			snapshot, err := buildPlanningSnapshot(ctx, tx, activeProfile.ID, c.secretEncryptionKey)
+		if _, ok := planningByProfileID[defaultProfile.ID]; !ok {
+			snapshot, err := buildPlanningSnapshot(ctx, tx, defaultProfile.ID, c.secretEncryptionKey)
 			if err != nil {
 				return nil, err
 			}
 			if planningByProfileID == nil {
 				planningByProfileID = map[int]*planningSnapshot{}
 			}
-			planningByProfileID[activeProfile.ID] = snapshot
+			planningByProfileID[defaultProfile.ID] = snapshot
 		}
 		next.PlanningByProfileID = planningByProfileID
 

@@ -195,3 +195,26 @@ Verification:
 
 Concerns:
 - Docker-backed backend contract verification is blocked by the local Postgres harness readiness timeout before the doc parity assertions run.
+
+## Task 9 Runtime Freeze Fix
+
+STATUS: DONE_WITH_CONCERNS
+
+Commit:
+- `7f3537e0`
+
+Fixes:
+- Pinned runtime cache snapshot publication to frozen Default profile id `1` and stopped resolving runtime planning through the active-profile helper.
+- Renamed the runtime cache accessors to frozen Default wording and added the `ponytail:` pin comment at the DB lookup site.
+- Added a runtime regression that proves a non-default active profile does not steer runtime planning away from Default id `1`.
+- Reworded the remaining durable docs and test helper strings that still described active-profile runtime behavior.
+
+Verification:
+- `rg -n 'active profile|active-profile|ResolveActiveProfile|LoadPublishedActiveProfile|published active' backend/internal/httpapi/runtime backend/internal/profiledomain backend/tests/runtime docs/DATA_MODEL.md docs/ARCHITECTURE.md docs/REQUESTS_PAGE.md` -> no matches.
+- `cd backend && go test ./internal/httpapi/runtime ./internal/profiledomain` -> passed.
+- `cd backend && go test ./tests/runtime -run 'Profile|Cache|Planning'` -> failed before assertions because the local Docker Postgres harness did not publish `5432/tcp`.
+- `cd backend && go build ./cmd/prism-backend` -> passed.
+
+Concerns:
+- Docker-backed runtime regression coverage is still blocked by the local Postgres harness port publication issue before the assertions run.
+- The unrelated pre-existing dirty/untracked docs named in the task were left untouched.
