@@ -12,14 +12,12 @@ docs/
 ├── DATA_MODEL.md
 ├── PRD.md
 ├── REQUESTS_PAGE.md
-├── SMOKE_TEST_PLAN.md
-├── WORKFLOWS.md
-└── TEST_CASE_GENERATION_METHODOLOGY.md
+└── WORKFLOWS.md
 ```
 
 ## OWNERSHIP
 - `ARCHITECTURE.md`, `API_SPEC.md`, and `DATA_MODEL.md` are the source-of-truth trio.
-- `PRD.md`, `REQUESTS_PAGE.md`, `SMOKE_TEST_PLAN.md`, `WORKFLOWS.md`, and `TEST_CASE_GENERATION_METHODOLOGY.md` are supporting references that defer to the normative trio and owning backend/frontend AGENTS files.
+- `PRD.md`, `REQUESTS_PAGE.md`, and `WORKFLOWS.md` are supporting references that defer to the normative trio and owning backend/frontend AGENTS files.
 - Active working plans belong in `../artifacts/plans/`, not under `docs/`.
 - Live execution evidence and LLM test-run records belong in `../artifacts/evidence/`, not under `docs/`.
 
@@ -36,7 +34,6 @@ docs/
 - Product and request-log context: `PRD.md`, `REQUESTS_PAGE.md`
 - Endpoint label snapshots and request-log filter semantics: `API_SPEC.md`, `DATA_MODEL.md`, `REQUESTS_PAGE.md`
 - Operator workflow map grounded in the mounted route and API surface: `WORKFLOWS.md`
-- Test-generation workflow: `TEST_CASE_GENERATION_METHODOLOGY.md`
 - Active working plans and live execution evidence: `../artifacts/plans/`, `../artifacts/evidence/`
 
 ## CONVENTIONS

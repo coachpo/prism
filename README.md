@@ -142,9 +142,7 @@ docker pull ghcr.io/coachpo/prism-frontend:latest
 - [Data Model](docs/DATA_MODEL.md)
 - [Workflows](docs/WORKFLOWS.md)
 - [Requests Page Notes](docs/REQUESTS_PAGE.md)
-- [Test Case Generation Methodology](docs/TEST_CASE_GENERATION_METHODOLOGY.md)
 - [PRD](docs/PRD.md)
-- [Smoke Test Plan](docs/SMOKE_TEST_PLAN.md)
 
 The checked-in `docs/` tree is reserved for durable reference material and archive notes. Local scratch plans and run evidence are kept outside `docs/` under ignored `artifacts/`. Endpoint snapshot and request-log filter details live in the active docs rather than only in archived smoke evidence.
 
