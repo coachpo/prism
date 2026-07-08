@@ -111,38 +111,6 @@ test("loadbalance strategies table shows explicit Ban Policy rows by name", asyn
       return fulfillJson({ auth_enabled: false });
     }
 
-    if (pathname === "/api/profiles/bootstrap") {
-      return fulfillJson({
-        profiles: [
-          {
-            id: 1,
-            name: "Default",
-            description: null,
-            is_active: true,
-            is_default: true,
-            is_editable: true,
-            version: 1,
-            created_at: timestamp,
-            deleted_at: null,
-            updated_at: timestamp,
-          },
-        ],
-        active_profile: {
-          id: 1,
-          name: "Default",
-          description: null,
-          is_active: true,
-          is_default: true,
-          is_editable: true,
-          version: 1,
-          created_at: timestamp,
-          deleted_at: null,
-          updated_at: timestamp,
-        },
-        profile_limits: { max_profiles: 5 },
-      });
-    }
-
     if (pathname === "/api/loadbalance/strategies") {
       return fulfillJson(strategies);
     }
@@ -254,38 +222,6 @@ test("loadbalance strategy dialog creates and edits surviving routing families",
 
     if (pathname === "/api/auth/status") {
       return fulfillJson({ auth_enabled: false });
-    }
-
-    if (pathname === "/api/profiles/bootstrap") {
-      return fulfillJson({
-        profiles: [
-          {
-            id: 1,
-            name: "Default",
-            description: null,
-            is_active: true,
-            is_default: true,
-            is_editable: true,
-            version: 1,
-            created_at: timestamp,
-            deleted_at: null,
-            updated_at: timestamp,
-          },
-        ],
-        active_profile: {
-          id: 1,
-          name: "Default",
-          description: null,
-          is_active: true,
-          is_default: true,
-          is_editable: true,
-          version: 1,
-          created_at: timestamp,
-          deleted_at: null,
-          updated_at: timestamp,
-        },
-        profile_limits: { max_profiles: 5 },
-      });
     }
 
     if (pathname === "/api/loadbalance/strategies" && request.method() === "GET") {

@@ -210,38 +210,6 @@ async function mockStatisticsRoutes(page: Page) {
       return fulfillJson({ auth_enabled: false });
     }
 
-    if (pathname === "/api/profiles/bootstrap") {
-      return fulfillJson({
-        profiles: [
-          {
-            id: 1,
-            name: "Default",
-            description: null,
-            is_active: true,
-            is_default: true,
-            is_editable: true,
-            version: 1,
-            created_at: timestamp,
-            deleted_at: null,
-            updated_at: timestamp,
-          },
-        ],
-        active_profile: {
-          id: 1,
-          name: "Default",
-          description: null,
-          is_active: true,
-          is_default: true,
-          is_editable: true,
-          version: 1,
-          created_at: timestamp,
-          deleted_at: null,
-          updated_at: timestamp,
-        },
-        profile_limits: { max_profiles: 5 },
-      });
-    }
-
     if (pathname === "/api/settings/costing") {
       return fulfillJson({
         report_currency_code: "USD",

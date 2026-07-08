@@ -16,21 +16,6 @@ type AuthState = {
   username: string | null;
 };
 
-function createProfile() {
-  return {
-    id: 1,
-    name: "Default",
-    description: null,
-    is_active: true,
-    is_default: true,
-    is_editable: true,
-    version: 1,
-    created_at: timestamp,
-    deleted_at: null,
-    updated_at: timestamp,
-  };
-}
-
 function createAuthSettings(state: AuthState) {
   return {
     auth_enabled: state.authEnabled,
@@ -59,7 +44,6 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
 }
 
 async function installAuthLifecycleRoutes(context: BrowserContext) {
-  const profile = createProfile();
   const authState: AuthState = {
     authEnabled: true,
     authenticated: false,
@@ -139,15 +123,6 @@ async function installAuthLifecycleRoutes(context: BrowserContext) {
         authenticated: false,
         auth_enabled: authState.authEnabled,
         username: null,
-      });
-      return;
-    }
-
-    if (pathname === "/api/profiles/bootstrap") {
-      await fulfillJson(route, {
-        profiles: [profile],
-        active_profile: profile,
-        profile_limits: { max_profiles: 5 },
       });
       return;
     }

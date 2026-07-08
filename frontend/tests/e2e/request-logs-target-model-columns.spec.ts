@@ -2,21 +2,6 @@ import { expect, test, type Page } from "@playwright/test";
 
 const timestamp = "2026-04-11T00:00:00Z";
 
-function createProfile() {
-  return {
-    id: 1,
-    name: "Default",
-    description: null,
-    is_active: true,
-    is_default: true,
-    is_editable: true,
-    version: 1,
-    created_at: timestamp,
-    deleted_at: null,
-    updated_at: timestamp,
-  };
-}
-
 function createRequestLogItem(overrides: Record<string, unknown> = {}) {
   return {
     id: 101,
@@ -80,8 +65,6 @@ function createRequestLogsResponse(
 }
 
 async function mockRequestLogRoutes(page: Page, requestLogItems: Record<string, unknown>[]) {
-  const profile = createProfile();
-
   await page.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -99,9 +82,6 @@ async function mockRequestLogRoutes(page: Page, requestLogItems: Record<string, 
       });
 
     if (pathname === "/api/auth/status") return fulfillJson({ auth_enabled: false });
-    if (pathname === "/api/profiles/bootstrap") {
-      return fulfillJson({ profiles: [profile], active_profile: profile, profile_limits: { max_profiles: 5 } });
-    }
     if (pathname === "/api/settings/costing") {
       return fulfillJson({ report_currency_code: "USD", report_currency_symbol: "$", endpoint_fx_mappings: [], timezone_preference: null });
     }

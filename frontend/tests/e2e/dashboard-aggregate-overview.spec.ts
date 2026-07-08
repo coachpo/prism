@@ -64,7 +64,6 @@ async function mockAggregateOverviewRoutes(
     slowDashboardResponse?: boolean;
   } = {},
 ) {
-  const defaultProfile = createProfile(1, "Default", !options.emptyProfileId);
   const emptyProfile = options.emptyProfileId
     ? createProfile(options.emptyProfileId, options.emptyProfileName ?? "Task 8 Empty Profile", true)
     : null;
@@ -105,17 +104,6 @@ async function mockAggregateOverviewRoutes(
 
     if (pathname === "/api/auth/status") {
       return fulfillJson({ auth_enabled: false });
-    }
-
-    if (pathname === "/api/profiles/bootstrap") {
-      const profiles = emptyProfile && !emptyProfileDeleted
-        ? [defaultProfile, emptyProfile]
-        : [defaultProfile];
-      return fulfillJson({
-        profiles,
-        active_profile: emptyProfile && !emptyProfileDeleted ? emptyProfile : defaultProfile,
-        profile_limits: { max_profiles: 5 },
-      });
     }
 
     if (pathname === "/api/settings/costing") {

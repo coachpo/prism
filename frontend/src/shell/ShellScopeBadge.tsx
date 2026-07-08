@@ -4,7 +4,7 @@ export type ShellScopeBadgeKind = "global" | "selected-profile"
 
 const SCOPE_BADGE_LABELS = {
   global: "Global",
-  "selected-profile": "Selected profile",
+  "selected-profile": "Default profile",
 } as const satisfies Record<ShellScopeBadgeKind, string>
 
 export function ShellScopeBadge({ kind }: { kind: ShellScopeBadgeKind }) {

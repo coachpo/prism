@@ -17,20 +17,20 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
-	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
 func TestEndpointCRUD(t *testing.T) {
 	harness := newEndpointConnectionContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
-	missingHeader := harness.requestJSON(t, harness.client, http.MethodGet, "/api/endpoints", nil, nil)
-	assertErrorResponseCode(t, missingHeader, http.StatusBadRequest, profiledomain.ScopeErrorCodeHeaderMissing, fmt.Sprintf("%s header is required", profiledomain.ProfileIDHeader))
 
-	createPrimary := harness.requestJSON(t, harness.client, http.MethodPost, "/api/endpoints", map[string]any{"name": "Primary OpenAI", "base_url": "https://api.openai.com/", "api_key": "sk-primary"}, modelHeader(defaultProfileID))
+	createPrimary := harness.requestJSON(t, harness.client, http.MethodPost, "/api/endpoints", map[string]any{"name": "Primary OpenAI", "base_url": "https://api.openai.com/", "api_key": "sk-primary"}, nil)
 	assertStatus(t, createPrimary, http.StatusCreated)
 	var primary map[string]any
 	decodeJSONResponse(t, createPrimary, &primary)
 	primaryID := jsonInt(t, primary["id"])
+	if jsonInt(t, primary["profile_id"]) != defaultProfileID {
+		t.Fatalf("expected missing profile header to create in Default profile %d, got %+v", defaultProfileID, primary)
+	}
 	if primary["name"] != "Primary OpenAI" || primary["base_url"] != "https://api.openai.com" {
 		t.Fatalf("expected normalized endpoint create payload, got %+v", primary)
 	}

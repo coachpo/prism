@@ -4,21 +4,6 @@ import type { ProxyApiKey, ProxyApiKeyCreate, ProxyApiKeyUpdate } from "../../sr
 const timestamp = "2026-04-28T12:00:00Z";
 const routeReadyTimeout = 15_000;
 
-function createProfile() {
-  return {
-    id: 1,
-    name: "Default",
-    description: null,
-    is_active: true,
-    is_default: true,
-    is_editable: true,
-    version: 1,
-    created_at: timestamp,
-    deleted_at: null,
-    updated_at: timestamp,
-  };
-}
-
 function createProxyKey(overrides: Partial<ProxyApiKey> = {}): ProxyApiKey {
   return {
     id: 101,
@@ -61,7 +46,6 @@ function keyRow(page: Page, name: string): Locator {
 }
 
 async function installProxyKeyRoutes(page: Page, options: { authEnabled?: boolean; proxyKeyLimit?: number } = {}) {
-  const profile = createProfile();
   const authEnabled = options.authEnabled ?? false;
   const proxyKeyLimit = options.proxyKeyLimit ?? 10;
   const createPayloads: ProxyApiKeyCreate[] = [];
@@ -98,15 +82,6 @@ async function installProxyKeyRoutes(page: Page, options: { authEnabled?: boolea
 
     if (pathname === "/api/auth/session") {
       await fulfillJson(route, { authenticated: true, auth_enabled: authEnabled, username: authEnabled ? "admin" : null });
-      return;
-    }
-
-    if (pathname === "/api/profiles/bootstrap") {
-      await fulfillJson(route, {
-        profiles: [profile],
-        active_profile: profile,
-        profile_limits: { max_profiles: 5 },
-      });
       return;
     }
 

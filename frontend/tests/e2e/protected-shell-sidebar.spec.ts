@@ -22,21 +22,6 @@ function createDeferred() {
   return { promise, resolve };
 }
 
-function createProfile() {
-  return {
-    id: 1,
-    name: "Default",
-    description: null,
-    is_active: true,
-    is_default: true,
-    is_editable: true,
-    version: 1,
-    created_at: timestamp,
-    deleted_at: null,
-    updated_at: timestamp,
-  };
-}
-
 function createModelListItem() {
   return {
     id: 1,
@@ -234,7 +219,6 @@ async function mockProtectedShellRoutes(
   page: Page,
   options: { costingBehavior?: CostingBehavior } = {},
 ) {
-  const profile = createProfile();
   const requestCounts = {
     costing: 0,
     models: 0,
@@ -259,14 +243,6 @@ async function mockProtectedShellRoutes(
 
     if (pathname === "/api/auth/status") {
       return fulfillJson({ auth_enabled: false });
-    }
-
-    if (pathname === "/api/profiles/bootstrap") {
-      return fulfillJson({
-        profiles: [profile],
-        active_profile: profile,
-        profile_limits: { max_profiles: 5 },
-      });
     }
 
     if (pathname === "/api/settings/costing") {

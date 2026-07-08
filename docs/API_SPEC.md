@@ -2243,11 +2243,11 @@ Example `analytics.error` payload:
 
 ## 9. Error Responses
 
-Scope-control errors follow this format:
+Resource-scope errors follow this format:
 ```json
 {
-  "code": "profile_scope_header_missing",
-  "detail": "resource not found in Default profile"
+  "code": "profile_scope_profile_not_found",
+  "detail": "Profile 1 not found"
 }
 ```
 

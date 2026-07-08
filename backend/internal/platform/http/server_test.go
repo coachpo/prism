@@ -471,7 +471,7 @@ func expectedRuntimeCacheInvalidationAction(row managementRouteContractRow, meth
 		planningAll: row.InvalidatesAllPlanning,
 	}
 	if row.InvalidatesPlanning {
-		action.planningIDs = []int{42}
+		action.planningIDs = []int{defaultRuntimeCacheProfileID}
 	}
 	return action
 }

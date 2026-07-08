@@ -21,21 +21,6 @@ const populatedEvidencePath = resolve(evidenceDirectory, "task-3-chart-populated
 const emptyEvidencePath = resolve(evidenceDirectory, "task-3-chart-empty.txt");
 const compactEvidencePath = resolve(evidenceDirectory, "analytics-token-chart-compact.txt");
 
-function createProfile(id: number, name: string, isActive = false) {
-  return {
-    id,
-    name,
-    description: null,
-    is_active: isActive,
-    is_default: id === 1,
-    is_editable: true,
-    version: 1,
-    created_at: timestamp,
-    deleted_at: null,
-    updated_at: timestamp,
-  };
-}
-
 function createModel(modelId: string, displayName: string, id: number) {
   return {
     id,
@@ -514,8 +499,6 @@ function applyCurvedSparklineValues(snapshot: ReturnType<typeof createUsageSnaps
 }
 
 async function mockUsageRoutes(page: Page, options?: { empty?: boolean; largeTokenAxes?: boolean; requestBreakdowns?: boolean; curvedSparklines?: boolean }) {
-  const profiles = [createProfile(1, "Red Team", true), createProfile(2, "Blue Team")];
-
   await page.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -536,14 +519,6 @@ async function mockUsageRoutes(page: Page, options?: { empty?: boolean; largeTok
 
     if (pathname === "/api/auth/status") {
       return fulfillJson({ auth_enabled: false });
-    }
-
-    if (pathname === "/api/profiles/bootstrap") {
-      return fulfillJson({
-        profiles,
-        active_profile: profiles[0],
-        profile_limits: { max_profiles: 5 },
-      });
     }
 
     if (pathname === "/api/settings/costing") {

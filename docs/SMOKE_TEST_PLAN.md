@@ -103,13 +103,6 @@ Prepare seed state through API (not manual DB edits):
 | Endpoint | Coverage IDs |
 |---|---|
 | `GET /health` | A04 |
-| `GET /api/profiles` | M01, M03, M08, M09 |
-| `GET /api/profiles/bootstrap` | M01A |
-| `GET /api/profiles/active` | M02, M11 |
-| `POST /api/profiles` | M04, M10 |
-| `PATCH /api/profiles/{id}` | M05 |
-| `POST /api/profiles/{id}/activate` | M06-M07 |
-| `DELETE /api/profiles/{id}` | M08-M09 |
 | `GET /api/models` | B04, E12, M03, M12 |
 | `POST /api/models/by-endpoints` | B04A, M03 |
 | `GET /api/models/{id}` | B18, M03 |
@@ -535,25 +528,15 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | L24 | P0 | Clear Terminal Target pricing template assignment | `200`, `pricing_template_id=null` accepted |
 | L29 | P0 | GET `/api/settings/timezone` | Returns current preference |
 | L30 | P0 | PUT `/api/settings/timezone` | `200`, preference persists |
-| L31 | P0 | GET `/api/settings/audit` | Returns stable `openai`, `anthropic`, and `gemini` rows for the selected profile |
-| L32 | P0 | PUT `/api/settings/audit` | Full-family replacement persists selected-profile audit and body-capture policy |
+| L31 | P0 | GET `/api/settings/audit` | Returns stable `openai`, `anthropic`, and `gemini` rows for Default profile id `1` |
+| L32 | P0 | PUT `/api/settings/audit` | Full-family replacement persists Default-profile audit and body-capture policy |
 
 ## M. Profile Isolation and Context Semantics
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| M01A | P0 | Bootstrap profiles for the shell | `200`, returns `profiles`, `active_profile`, and `profile_limits.max_profiles` in one payload |
-| M01 | P0 | List profiles | `200`, excludes soft-deleted profiles from normal listing |
-| M02 | P0 | Get active profile | Exactly one active profile returned |
-| M03 | P0 | Management API profile resolution (`X-Profile-Id` absent vs present) | Profile-scoped `/api/*` rejects missing header (`400`); valid header scopes requests to selected profile |
-| M04 | P0 | Create profile under capacity | `201`, profile created as inactive by default |
-| M05 | P0 | Update profile metadata | `200`, name/description persisted |
-| M06 | P0 | Activate profile with correct CAS payload | Activation succeeds atomically; active profile/version updated |
-| M07 | P0 | Activate profile with stale CAS payload | `409` conflict; previous active profile unchanged |
-| M08 | P0 | Delete inactive profile | Soft-delete succeeds; profile omitted from default listings |
-| M09 | P0 | Delete active profile | Rejected (`400` or `409`), active profile remains unchanged |
-| M09A | P0 | Update/Delete non-editable profile | Rejected (`400`), profile remains unchanged |
-| M10 | P0 | Create 11th non-deleted profile | `409` with actionable delete-before-create error |
+| M01 | P0 | Profile management routes are removed | `/api/profiles*` requests are not mounted |
+| M03 | P0 | Management API profile resolution (`X-Profile-Id` absent vs present) | Profile-scoped `/api/*` succeeds without the header; any header value is ignored and operations use Default profile id `1` |
 | M11 | P0 | Runtime request with `X-Profile-Id` override header | Runtime ignores override and uses active profile context only |
 | M12 | P0 | Same `model_id` exists in A/B with different access targets | Routing uses active profile mappings only; no cross-profile resolution |
 | M13 | P0 | Access target exists only in another profile | Target resolution fails (`404`) under current active profile |

@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -13,8 +12,9 @@ import (
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
-	"github.com/coachpo/prism/backend/internal/profiledomain"
 )
+
+const defaultRuntimeCacheProfileID = 1
 
 type dashboardSnapshotInvalidator interface {
 	InvalidateDashboardSnapshot(profileID int)
@@ -106,7 +106,7 @@ func isManagementMutationMethod(method string) bool {
 	}
 }
 
-func classifyRuntimeCacheInvalidation(method string, rawPath string, header http.Header) runtimeCacheInvalidationAction {
+func classifyRuntimeCacheInvalidation(method string, rawPath string, _ http.Header) runtimeCacheInvalidationAction {
 	normalizedMethod := strings.ToUpper(strings.TrimSpace(method))
 	segments := managementRouteSegments(normalizeManagementRoutePath(rawPath))
 	action := runtimeCacheInvalidationAction{}
@@ -117,19 +117,19 @@ func classifyRuntimeCacheInvalidation(method string, rawPath string, header http
 	case isRuntimeAuthProxyKeyMutation(normalizedMethod, segments):
 		action.auth = true
 	case normalizedMethod == http.MethodPut && matchesSegments(segments, "settings", "costing"):
-		action.addPlanningProfile(profileIDFromHeader(header))
+		action.addPlanningProfile(defaultRuntimeCacheProfileID)
 	case normalizedMethod == http.MethodPut && matchesSegments(segments, "settings", "audit"):
-		action.addPlanningProfile(profileIDFromHeader(header))
+		action.addPlanningProfile(defaultRuntimeCacheProfileID)
 	case isHeaderBlocklistMutation(normalizedMethod, segments):
-		action.addPlanningProfile(profileIDFromHeader(header))
+		action.addPlanningProfile(defaultRuntimeCacheProfileID)
 	case isModelPlanningMutation(normalizedMethod, segments):
-		action.addPlanningProfile(profileIDFromHeader(header))
+		action.addPlanningProfile(defaultRuntimeCacheProfileID)
 	case isEndpointPlanningMutation(normalizedMethod, segments):
-		action.addPlanningProfile(profileIDFromHeader(header))
+		action.addPlanningProfile(defaultRuntimeCacheProfileID)
 	case isConnectionPlanningMutation(normalizedMethod, segments):
-		action.addPlanningProfile(profileIDFromHeader(header))
+		action.addPlanningProfile(defaultRuntimeCacheProfileID)
 	case isLoadbalancePlanningMutation(normalizedMethod, segments):
-		action.addPlanningProfile(profileIDFromHeader(header))
+		action.addPlanningProfile(defaultRuntimeCacheProfileID)
 	}
 
 	return action
@@ -188,18 +188,6 @@ func (a *runtimeCacheInvalidationAction) addPlanningProfile(profileID int) {
 		return
 	}
 	a.planningIDs = append(a.planningIDs, profileID)
-}
-
-func profileIDFromHeader(header http.Header) int {
-	trimmed := strings.TrimSpace(header.Get(profiledomain.ProfileIDHeader))
-	if trimmed == "" {
-		return 0
-	}
-	profileID, err := strconv.Atoi(trimmed)
-	if err != nil || profileID <= 0 {
-		return 0
-	}
-	return profileID
 }
 
 func matchesSegments(segments []string, pattern ...string) bool {

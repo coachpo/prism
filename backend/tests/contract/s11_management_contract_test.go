@@ -197,11 +197,37 @@ func TestAuditSettings(t *testing.T) {
 	other := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/audit", nil, modelHeader(otherProfileID))
 	assertStatus(t, other, http.StatusOK)
 	decodeJSONResponse(t, other, &payload)
-	assertAuditSettingsPayload(t, payload, otherProfileID, []map[string]bool{
+	assertAuditSettingsPayload(t, payload, defaultProfileID, []map[string]bool{
+		{"audit_enabled": true, "audit_capture_bodies": false},
 		{"audit_enabled": false, "audit_capture_bodies": false},
+		{"audit_enabled": true, "audit_capture_bodies": true},
+	})
+
+	otherHeaderUpdate := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		"/api/settings/audit",
+		map[string]any{"settings": []map[string]any{
+			{"api_family": "openai", "audit_enabled": false, "audit_capture_bodies": false},
+			{"api_family": "anthropic", "audit_enabled": true, "audit_capture_bodies": true},
+			{"api_family": "gemini", "audit_enabled": false, "audit_capture_bodies": false},
+		}},
+		modelHeader(otherProfileID),
+	)
+	assertStatus(t, otherHeaderUpdate, http.StatusOK)
+	decodeJSONResponse(t, otherHeaderUpdate, &payload)
+	assertAuditSettingsPayload(t, payload, defaultProfileID, []map[string]bool{
 		{"audit_enabled": false, "audit_capture_bodies": false},
+		{"audit_enabled": true, "audit_capture_bodies": true},
 		{"audit_enabled": false, "audit_capture_bodies": false},
 	})
+	assertAuditSettingsRows(t, harness, defaultProfileID, map[string][2]bool{
+		"openai":    {false, false},
+		"anthropic": {true, true},
+		"gemini":    {false, false},
+	})
+	assertAuditSettingsRows(t, harness, otherProfileID, map[string][2]bool{})
 
 	invalidRequests := []struct {
 		name   string
@@ -249,9 +275,9 @@ func TestAuditSettings(t *testing.T) {
 			response := harness.requestJSON(t, harness.client, http.MethodPut, "/api/settings/audit", testCase.body, modelHeader(defaultProfileID))
 			assertErrorResponse(t, response, http.StatusBadRequest, testCase.detail)
 			assertAuditSettingsRows(t, harness, defaultProfileID, map[string][2]bool{
-				"openai":    {true, false},
-				"anthropic": {false, false},
-				"gemini":    {true, true},
+				"openai":    {false, false},
+				"anthropic": {true, true},
+				"gemini":    {false, false},
 			})
 		})
 	}

@@ -873,7 +873,7 @@ func TestRequestLogsPartitionProfileScopedDuplicateID(t *testing.T) {
 	decodeJSONResponse(t, detailResponse, &detailPayload)
 	summary := asMap(t, detailPayload["summary"])
 	if summary["model_id"] != "partition-new" || jsonInt(t, summary["status_code"]) != 500 || jsonInt(t, summary["response_time_ms"]) != 222 {
-		t.Fatalf("expected newest duplicate request-log id for selected profile, got %+v", detailPayload)
+		t.Fatalf("expected newest duplicate request-log id for Default profile, got %+v", detailPayload)
 	}
 }
 
@@ -1311,7 +1311,7 @@ func TestLoadbalancePartitionProfileScopedEvents(t *testing.T) {
 	var detailPayload map[string]any
 	decodeJSONResponse(t, detailResponse, &detailPayload)
 	if detailPayload["event_type"] != "retry_scheduled" || jsonInt(t, detailPayload["id"]) != 1200 {
-		t.Fatalf("expected loadbalance partition detail for selected profile, got %+v", detailPayload)
+		t.Fatalf("expected loadbalance partition detail for Default profile, got %+v", detailPayload)
 	}
 }
 

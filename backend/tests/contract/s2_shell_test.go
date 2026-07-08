@@ -132,7 +132,7 @@ func TestNormativeDocsParity(t *testing.T) {
 	}, translationModeNeedles...))
 	assertFileNotContains(t, dataModelPath, retiredTranslationModeNeedles)
 	assertFileContains(t, docsPath(t, "WORKFLOWS.md"), []string{
-		"Runtime proxy traffic on `/v1/*` and `/v1beta/*` always uses the active profile, not the selected profile.",
+		"Runtime proxy traffic on `/v1/*` and `/v1beta/*` ignores management profile headers and uses the active runtime profile snapshot.",
 	})
 }
 

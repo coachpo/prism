@@ -178,12 +178,6 @@ async function mockReportingCurrencyProtectedRoutes(
     costingBehaviorByProfileId?: Record<number, CostingBehavior>;
   } = {},
 ) {
-  const profiles =
-    options.profiles ??
-    [
-      createProfile({ id: 1, name: "Default", isActive: true, isDefault: true }),
-    ];
-  const activeProfile = profiles.find((profile) => profile.is_active) ?? profiles[0] ?? null;
   const requestCounts = {
     costingByProfile: {} as RequestCountsByProfile,
     modelsByProfile: {} as RequestCountsByProfile,
@@ -208,14 +202,6 @@ async function mockReportingCurrencyProtectedRoutes(
 
     if (pathname === "/api/auth/status") {
       return fulfillJson({ auth_enabled: false });
-    }
-
-    if (pathname === "/api/profiles/bootstrap") {
-      return fulfillJson({
-        profiles,
-        active_profile: activeProfile,
-        profile_limits: { max_profiles: 5 },
-      });
     }
 
     if (pathname === "/api/settings/costing") {
@@ -322,7 +308,7 @@ test.describe("reporting currency provider", () => {
     await expect.poll(() => requestCounts.usageSnapshotByProfile["1"] ?? 0).toBeGreaterThan(0);
   });
 
-  test("re-engages the route fallback immediately when the selected profile changes", async ({ page }) => {
+  test("re-engages the route fallback immediately when the profile header changes", async ({ page }) => {
     const secondProfileCostingGate = createDeferred();
     const { getLastCostingProfileHeader, requestCounts } = await mockReportingCurrencyProtectedRoutes(page, {
       profiles: [

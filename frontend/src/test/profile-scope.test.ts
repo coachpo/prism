@@ -35,7 +35,7 @@ describe("profile-scope api and query contracts", () => {
     expect(observedHeaders).toEqual(["1", "1", null])
   })
 
-  it("puts selected profile IDs in scoped keys and omits them from global keys", () => {
+  it("puts Default profile IDs in scoped keys and omits them from global keys", () => {
     expect(rewriteQueryKeys.selectedProfile(42).models()).toEqual([
       "rewrite",
       "selected-profile",
@@ -53,7 +53,7 @@ describe("profile-scope api and query contracts", () => {
     expect(rewriteQueryKeys.global.settingsAuth()).not.toContain("42")
   })
 
-  it("invalidates selected-profile cache without touching global cache", async () => {
+  it("invalidates Default-profile cache without touching global cache", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const profileModelsKey = rewriteQueryKeys.selectedProfile(42).models()
     const settingsAuthKey = rewriteQueryKeys.global.settingsAuth()

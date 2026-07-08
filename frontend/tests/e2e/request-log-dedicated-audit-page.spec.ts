@@ -147,21 +147,6 @@ function scenarioConfig(scenario: Scenario) {
   };
 }
 
-function createProfile() {
-  return {
-    id: 1,
-    name: "Default",
-    description: null,
-    is_active: true,
-    is_default: true,
-    is_editable: true,
-    version: 1,
-    created_at: timestamp,
-    deleted_at: null,
-    updated_at: timestamp,
-  };
-}
-
 function createRequestLogListItem(scenario: Scenario = "full") {
   const apiFamily = getScenarioApiFamily(scenario);
   const modelId = getScenarioModelId(scenario);
@@ -370,15 +355,6 @@ async function mockPrismRoutes(page: Page, scenario: Scenario) {
 
     if (pathname === "/api/auth/status") {
       return fulfillJson({ auth_enabled: false });
-    }
-
-    if (pathname === "/api/profiles/bootstrap") {
-      const profile = createProfile();
-      return fulfillJson({
-        profiles: [profile],
-        active_profile: profile,
-        profile_limits: { max_profiles: 5 },
-      });
     }
 
     if (pathname === "/api/settings/costing") {

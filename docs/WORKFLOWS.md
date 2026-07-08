@@ -9,9 +9,9 @@ Validated again against current repo surfaces on 2026-07-07:
 ## Evidence Sources
 
 - Frontend route surface: `frontend/src/app/router/appRouter.tsx` and `frontend/src/app/router/rewriteRoutes.ts`
-- Shell navigation and route scoping: `frontend/src/components/layout/app-layout/navigationProfileConfig.ts`
+- Shell navigation and route scoping: `frontend/src/components/layout/app-layout/useShellNavigation.ts`
 - Auth bootstrap and session flow: `frontend/src/context/AuthContext.tsx`
-- Selected-profile scoping: `frontend/src/context/ProfileContext.tsx`, `frontend/src/lib/api/core.ts`, `frontend/src/lib/api/profileScope.ts`
+- Default-profile scoping: `frontend/src/lib/api/core.ts`, `frontend/src/lib/api/profileScope.ts`
 - Backend router assembly: `backend/internal/httpapi/management/`, `backend/internal/httpapi/runtime/`, `backend/internal/httpapi/realtime/`, and `backend/internal/platform/http/server.go`
 - Backend API reference: `docs/API_SPEC.md`
 - Request-log details: `docs/REQUESTS_PAGE.md`
@@ -26,9 +26,9 @@ Validated again against current repo surfaces on 2026-07-07:
 
 - Public auth routes are `/auth/login`.
 - Protected shell routes cover `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/route/pricing`, `/system/settings`, and `/control/proxy-keys`; analytics is under `/observe?tab=analytics`.
-- `selectedProfile` controls profile-scoped management requests through `X-Profile-Id`.
-- Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/profiles/*`, `/api/settings/auth*`, `/api/realtime/ws`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
-- Runtime proxy traffic on `/v1/*` and `/v1beta/*` always uses the active profile, not the selected profile.
+- Profile-scoped management requests are pinned to Default profile id `1`. `X-Profile-Id` is still accepted for compatibility, but the backend ignores its value.
+- Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/settings/auth*`, `/api/realtime/ws`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
+- Runtime proxy traffic on `/v1/*` and `/v1beta/*` ignores management profile headers and uses the active runtime profile snapshot.
 
 ## 1. Sign In And Session Bootstrap
 
@@ -52,28 +52,22 @@ Validated again against current repo surfaces on 2026-07-07:
 - `POST /api/auth/refresh`
 - `GET /api/auth/session`
 
-## 2. Shell Bootstrap And Profile Selection
+## 2. Shell Bootstrap
 
 **User entrypoints**
 
 - Any protected route
-- Header profile switcher in the shell
 
 **Frontend flow**
 
 1. `AuthProvider` confirms the operator session.
-2. `ProfileProvider` loads the profile list, active profile, and profile cap from one bootstrap call.
-3. The shell renders sidebar groups, breadcrumbs, language/theme controls, and the version label.
-4. Changing the selected profile updates `setApiProfileId()` and refreshes profile-scoped management data.
-5. Activating a profile is an explicit runtime action, distinct from selecting one in the shell.
+2. The shell renders sidebar groups, breadcrumbs, language/theme controls, and the version label.
+3. Default-profile pages send the pinned compatibility `X-Profile-Id: 1` header from the shared API client.
 
 **Backend touchpoints**
 
 - `GET /api/auth/status`
-- `GET /api/profiles/bootstrap`
-- `GET /api/profiles/active`
-- `POST /api/profiles/{profile_id}/activate`
-- Profile-scoped `/api/*` routes with `X-Profile-Id`
+- Default-profile-scoped `/api/*` routes with accepted-but-ignored `X-Profile-Id`
 
 ## 3. Dashboard And Statistics
 
@@ -149,8 +143,8 @@ Validated again against current repo surfaces on 2026-07-07:
 3. Pricing templates define reusable cost models attached to Terminal Targets with five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`.
 4. Pricing-template management saves explicit strings for every component. Missing/null/blank inputs normalize to `"0"`; explicit `"0"` is configured free pricing, not missing pricing data.
 5. Request logs and cost math consume canonical disjoint token components: base input, cache-read input, cache-creation input, base output, and reasoning output. Aggregate `cached_tokens` is derived-only for presentation.
-6. These resources are profile-scoped and are usually managed before or alongside model-detail work.
-7. The defaults action creates the canonical loadbalance strategy rows for the currently selected profile only.
+6. These resources are Default-profile-scoped and are usually managed before or alongside model-detail work.
+7. The defaults action creates the canonical loadbalance strategy rows for Default profile id `1`.
 
 **Backend touchpoints**
 
@@ -167,7 +161,7 @@ Validated again against current repo surfaces on 2026-07-07:
 - `PUT /api/loadbalance/strategies/{strategy_id}`
 - `DELETE /api/loadbalance/strategies/{strategy_id}`
 
-The loadbalance strategy routes continue to use selected-profile scope through `X-Profile-Id`, and the defaults action is a no-body POST that returns the created/current canonical rows plus creation metadata.
+The loadbalance strategy routes are pinned to Default profile id `1`, and the defaults action is a no-body POST that returns the created/current canonical rows plus creation metadata.
 - `GET /api/pricing-templates`
 - `POST /api/pricing-templates`
 - `GET /api/pricing-templates/{template_id}`

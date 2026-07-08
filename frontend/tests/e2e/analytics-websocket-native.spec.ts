@@ -2,19 +2,6 @@ import { expect, test, type Page } from "@playwright/test";
 
 const timestamp = "2026-05-04T00:00:00Z";
 const usageStatisticsStorageKey = "prism.statistics.usage-state";
-const profile = {
-  id: 1,
-  name: "Websocket Profile",
-  description: null,
-  is_active: true,
-  is_default: true,
-  is_editable: true,
-  version: 1,
-  created_at: timestamp,
-  deleted_at: null,
-  updated_at: timestamp,
-};
-
 function createModel(modelId: string, displayName: string, id: number) {
   return {
     id,
@@ -259,10 +246,6 @@ async function mockBackendRoutes(page: Page, forbiddenRequests: string[]) {
 
     if (pathname === "/api/auth/status") {
       return fulfillJson({ auth_enabled: false });
-    }
-
-    if (pathname === "/api/profiles/bootstrap") {
-      return fulfillJson({ profiles: [profile], active_profile: profile, profile_limits: { max_profiles: 5 } });
     }
 
     if (pathname === "/api/settings/costing") {

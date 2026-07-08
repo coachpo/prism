@@ -195,7 +195,7 @@ The Requests page must remain compatible with the following backend-facing and s
 
 ## 11. Acceptance Criteria
 
-1. Visiting `/observe/requests` loads a paginated request list plus filter-reference data for the selected profile.
+1. Visiting `/observe/requests` loads a paginated request list plus filter-reference data for Default profile id `1`.
 2. Server-backed filter changes update URL state with `replace: true` semantics and reset pagination to the first page.
 3. The retained browse filters update URL state with `replace: true` semantics and drive refreshed list requests directly, without a client-side search or triage refinement layer. `client_rule_id` filters caller user agents only, and `resolved_target_model_id` filters final target models.
 4. Visiting `/observe/requests?request_id=<id>` opens exact-request investigation mode with the focus banner and detail-drawer support.

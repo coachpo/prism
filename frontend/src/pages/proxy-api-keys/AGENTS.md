@@ -26,4 +26,4 @@ proxy-api-keys/
 - Treat proxy API key management as a global auth-settings workflow, not a selected-profile feature.
 - Bootstrap auth settings and existing keys in parallel with `Promise.allSettled()` in the feature data hook.
 - Patch the local key list after create, edit, rotate, and delete flows instead of reloading the whole page.
-- Do not scope proxy-key UX to the selected profile; runtime keys are global instance credentials.
+- Do not scope proxy-key UX to Default-profile management state; runtime keys are global instance credentials.

@@ -71,9 +71,6 @@ async function mockSettingsRoutes(page: Page) {
     if (pathname === "/api/auth/status") {
       return fulfillJson({ auth_enabled: false });
     }
-    if (pathname === "/api/profiles/bootstrap") {
-      return fulfillJson({ profiles: [profile], active_profile: profile, profile_limits: { max_profiles: 5 } });
-    }
     if (pathname === "/api/settings/costing") {
       return fulfillJson({ report_currency_code: "USD", report_currency_symbol: "$", endpoint_fx_mappings: [], timezone_preference: null });
     }

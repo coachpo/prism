@@ -14,7 +14,7 @@ Developers and power users working with multiple LLM API families face:
 
 ## 3. Target User
 
-Single operator (developer/power user) running the application locally or on a local network. Prism supports optional operator authentication for management APIs and proxy API keys for runtime traffic. It also supports profile-based configuration isolation for one operator (selected profile vs active profile); this is not auth multi-tenancy.
+Single operator (developer/power user) running the application locally or on a local network. Prism supports optional operator authentication for management APIs and proxy API keys for runtime traffic. Management configuration is pinned to the Default profile while runtime traffic uses the active runtime profile snapshot; this is not auth multi-tenancy.
 
 ## 4. Core Features
 
@@ -114,11 +114,8 @@ Single operator (developer/power user) running the application locally or on a l
 - Dedicated request-log browsing and investigation at `/observe/requests`, separate from dashboard analytics
 - Dedicated routes for pricing templates and proxy API key lifecycle management
 - Dashboard analytics lives under `/observe?tab=analytics` and replaces the old standalone statistics route
-- Global profile selector in the app shell controls the selected profile (management scope).
-- Active profile indicator is shown globally; runtime activation is an explicit action.
-- The protected shell bootstraps profile state from one profile-bootstrap response, while sidebar navigation and breadcrumbs are derived from local route metadata.
-- Profile create/edit/delete dialogs include active-profile delete guardrails and capacity guidance.
-- Settings is split between Profile-scoped sections (billing/currency, timezone, audit/privacy, and config rules) and a Global tab for instance auth, global retention policies, and retention/deletion jobs.
+- The protected shell renders sidebar navigation and breadcrumbs from local route metadata.
+- Settings is split between Default-profile sections (billing/currency, timezone, audit/privacy, and config rules) and a Global tab for instance auth, global retention policies, and retention/deletion jobs.
 
 ### 4.8 Configuration Persistence
 - Runtime and management configuration is stored in PostgreSQL with Go-backend-managed schema migrations applied at startup
@@ -217,14 +214,13 @@ Allow users to configure custom HTTP headers on individual Terminal Targets. The
 ### 4.14 Configurable Header Blocklist
 Database-backed header blocklist with CRUD API. Supports exact and prefix match types. System defaults for Cloudflare tunnel metadata, tracing headers, and standard proxy headers. Applied by the Go runtime on every request.
 
-### 4.15 Profile Isolation & Management
-- Profiles are isolated configuration namespaces (for example A/B/C) with one globally active profile for runtime routing at any time
-- Selected profile controls management/API scope; active profile controls `/v1/*` and `/v1beta/*` runtime traffic
-- Management APIs require `X-Profile-Id` for profile-scoped `/api/*` routes, while global management routes stay outside selected-profile scoping. Global routes include profiles, auth, realtime, auth-setting flows, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`
-- Profile lifecycle supports create/list/update/activate/delete where delete is soft-delete for inactive profiles (`deleted_at`)
-- Active profile deletion is rejected; activation uses an optimistic CAS guard (`expected_active_profile_id`) and returns `409` on conflict
-- Capacity is capped at 10 non-deleted profiles; creating an 11th profile is rejected until one profile is deleted
-- Observability rows (`request_logs`, `audit_logs`) carry immutable `profile_id` attribution for historical correctness
+### 4.15 Frozen Profile Scope
+- Prism preserves the `profiles` table and all `profile_id` storage columns for historical attribution and a future unfreeze path.
+- Profile-scoped management APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
+- Global management routes stay outside profile scoping. Global routes include auth, realtime, auth-setting flows, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
+- Profile lifecycle APIs are not exposed in the current management surface.
+- Runtime proxy traffic on `/v1/*` and `/v1beta/*` ignores management profile headers and uses the active runtime profile snapshot.
+- Observability rows (`request_logs`, `audit_logs`) carry immutable `profile_id` attribution for historical correctness.
 
 
 ## 5. Non-Functional Requirements

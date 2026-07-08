@@ -18,7 +18,7 @@ const dashboardMessages = {
     "Create an entry model and enable at least one terminal target so Prism can publish this selected-profile routing topology.",
   routingNoRecentTraffic: "No routed traffic in the last 24h",
   routingNoRecentTrafficDescription:
-    "The selected profile already has routes, but Prism recorded no successful terminal-target traffic in the last 24 hours.",
+    "Default profile already has routes, but Prism recorded no successful terminal-target traffic in the last 24 hours.",
 };
 const routingInspectorMessages = {
   dashboard: {

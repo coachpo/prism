@@ -4,21 +4,6 @@ const timestamp = "2026-04-27T12:00:00Z";
 const disabledDraftAccessTargetCopy = /No model targets selected\./;
 const enabledTargetRequiredCopy = "Enabled models need at least one enabled same-family access target. Save with Enabled off to attach targets later.";
 
-function createProfile() {
-  return {
-    id: 1,
-    name: "Default",
-    description: null,
-    is_active: true,
-    is_default: true,
-    is_editable: true,
-    version: 1,
-    created_at: timestamp,
-    deleted_at: null,
-    updated_at: timestamp,
-  };
-}
-
 function createStrategy() {
   return {
     id: 11,
@@ -90,7 +75,6 @@ async function mockModelRoutes(
     strategies?: ReturnType<typeof createStrategy>[];
   } = {},
 ) {
-  const profile = createProfile();
   const strategies = options.strategies ?? [createStrategy()];
   const models = options.models ?? [
     createModelListItem(1, "target-alpha", "Target Alpha", "openai"),
@@ -113,9 +97,6 @@ async function mockModelRoutes(
 
     if (pathname === "/api/auth/status") {
       return fulfillJson({ auth_enabled: false });
-    }
-    if (pathname === "/api/profiles/bootstrap") {
-      return fulfillJson({ profiles: [profile], active_profile: profile, profile_limits: { max_profiles: 5 } });
     }
     if (pathname === "/api/settings/costing") {
       return fulfillJson({ report_currency_code: "EUR", report_currency_symbol: "€", endpoint_fx_mappings: [], timezone_preference: null });

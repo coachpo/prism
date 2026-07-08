@@ -216,7 +216,7 @@ function BanPolicyEventsPanel({ revision }: { revision: number }) {
   return (
     <OperatorSectionCard
       title="Ban Policy Events"
-      description={`Review retry scheduled, retry exhausted, banned, unbanned, recovered, and admission rejected events for one model ID. Selected profile revision ${revision}.`}
+      description={`Review retry scheduled, retry exhausted, banned, unbanned, recovered, and admission rejected events for one model ID. Default profile revision ${revision}.`}
       contentClassName="flex flex-col gap-4"
     >
       <FieldGroup className="gap-4">

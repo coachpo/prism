@@ -3,21 +3,6 @@ import { expect, test, type Page } from "@playwright/test";
 const timestamp = "2026-04-28T12:00:00Z";
 const modelConfigId = 50;
 
-function createProfile() {
-  return {
-    id: 1,
-    name: "Default",
-    description: null,
-    is_active: true,
-    is_default: true,
-    is_editable: true,
-    version: 1,
-    created_at: timestamp,
-    deleted_at: null,
-    updated_at: timestamp,
-  };
-}
-
 function createAccessTarget(targetModelId: string, position: number, displayName: string, isEnabled = true) {
   return {
     id: 700 + position,
@@ -170,7 +155,6 @@ function createSpendingResponse() {
 }
 
 async function mockModelDetailRoutes(page: Page) {
-  const profile = createProfile();
   const updatePayloads: unknown[] = [];
   let currentAccessTargets = [createAccessTarget("target-alpha", 0, "Target Alpha")];
   let currentModelEnabled = true;
@@ -187,9 +171,6 @@ async function mockModelDetailRoutes(page: Page) {
       route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
     if (pathname === "/api/auth/status") return fulfillJson({ auth_enabled: false });
-    if (pathname === "/api/profiles/bootstrap") {
-      return fulfillJson({ profiles: [profile], active_profile: profile, profile_limits: { max_profiles: 5 } });
-    }
     if (pathname === "/api/settings/costing") {
       return fulfillJson({ report_currency_code: "USD", report_currency_symbol: "$", endpoint_fx_mappings: [], timezone_preference: null });
     }
@@ -372,7 +353,6 @@ test("model detail editing supports disabled targetless drafts and later enabled
 });
 
 async function mockPrivateConnectionRoutes(page: Page) {
-  const profile = createProfile();
   const endpoint = createEndpoint();
   const peerModelConfigId = 99;
   let nextConnectionId = 303;
@@ -408,9 +388,6 @@ async function mockPrivateConnectionRoutes(page: Page) {
       route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
     if (pathname === "/api/auth/status") return fulfillJson({ auth_enabled: false });
-    if (pathname === "/api/profiles/bootstrap") {
-      return fulfillJson({ profiles: [profile], active_profile: profile, profile_limits: { max_profiles: 5 } });
-    }
     if (pathname === "/api/settings/costing") {
       return fulfillJson({ report_currency_code: "USD", report_currency_symbol: "$", endpoint_fx_mappings: [], timezone_preference: null });
     }

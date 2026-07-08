@@ -6,21 +6,6 @@ const endpointOptionLabel = "Bootstrap Filter Endpoint";
 const clientOptionLabel = "Codex CLI";
 const finalTargetModelOptionLabel = "Terminal Model";
 
-function createProfile() {
-  return {
-    id: 1,
-    name: "Default",
-    description: null,
-    is_active: true,
-    is_default: true,
-    is_editable: true,
-    version: 1,
-    created_at: timestamp,
-    deleted_at: null,
-    updated_at: timestamp,
-  };
-}
-
 function createRequestLogItem(overrides: Record<string, unknown> = {}) {
   return {
     id: 101,
@@ -192,7 +177,6 @@ async function mockRequestLogRoutes(
   page: Page,
   state: MockRouteState,
 ) {
-  const profile = createProfile();
   const requestLogItems = [createRequestLogItem()];
 
   await page.route("**/*", async (route) => {
@@ -213,14 +197,6 @@ async function mockRequestLogRoutes(
 
     if (pathname === "/api/auth/status") {
       return fulfillJson({ auth_enabled: false });
-    }
-
-    if (pathname === "/api/profiles/bootstrap") {
-      return fulfillJson({
-        profiles: [profile],
-        active_profile: profile,
-        profile_limits: { max_profiles: 5 },
-      });
     }
 
     if (pathname === "/api/settings/costing") {

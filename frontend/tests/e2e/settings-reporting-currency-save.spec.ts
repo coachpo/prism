@@ -104,14 +104,6 @@ async function mockSettingsRoutes(
       return fulfillJson({ auth_enabled: false });
     }
 
-    if (pathname === "/api/profiles/bootstrap") {
-      return fulfillJson({
-        profiles: [profile],
-        active_profile: profile,
-        profile_limits: { max_profiles: 5 },
-      });
-    }
-
     if (pathname === "/api/settings/costing" && request.method() === "GET") {
       return fulfillJson(costingState);
     }

@@ -10,21 +10,6 @@ const constrainedViewport = { width: 320, height: 760 };
 const mobileViewport = { width: 390, height: 844 };
 const desktopViewport = { width: 1280, height: 900 };
 
-function createProfile(id: number, name: string, isActive = false) {
-  return {
-    id,
-    name,
-    description: null,
-    is_active: isActive,
-    is_default: id === 1,
-    is_editable: true,
-    version: 1,
-    created_at: timestamp,
-    deleted_at: null,
-    updated_at: timestamp,
-  };
-}
-
 function createModelListItem() {
   return {
     id: 101,
@@ -259,7 +244,6 @@ async function mockDashboardRoutes(
     dashboardSnapshot?: ReturnType<typeof createDashboardSnapshot>;
   } = {},
 ) {
-  const profiles = [createProfile(1, "Red Team", true)];
   const modelDetail = createModelDetail();
   const requestLogDetail = createRequestLogDetail();
   const dashboardSnapshot = options.dashboardSnapshot ?? createDashboardSnapshot();
@@ -291,14 +275,6 @@ async function mockDashboardRoutes(
       });
     if (pathname === "/api/auth/status") {
       return fulfillJson({ auth_enabled: false });
-    }
-
-    if (pathname === "/api/profiles/bootstrap") {
-      return fulfillJson({
-        profiles,
-        active_profile: profiles[0],
-        profile_limits: { max_profiles: 5 },
-      });
     }
 
     if (pathname === "/api/stats/dashboard") {

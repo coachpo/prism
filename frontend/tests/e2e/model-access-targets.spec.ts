@@ -3,21 +3,6 @@ import { expect, test, type Page } from "@playwright/test";
 const timestamp = "2026-04-29T12:00:00Z";
 const staleConnectionTargetMessage = "connection access targets are managed through model-scoped connection routes";
 
-function createProfile() {
-  return {
-    id: 1,
-    name: "Default",
-    description: null,
-    is_active: true,
-    is_default: true,
-    is_editable: true,
-    version: 1,
-    created_at: timestamp,
-    deleted_at: null,
-    updated_at: timestamp,
-  };
-}
-
 function createStrategy() {
   return {
     id: 11,
@@ -60,7 +45,6 @@ function createModelListItem(id: number, modelId: string, displayName: string) {
 }
 
 async function mockStaleConnectionTargetRoutes(page: Page) {
-  const profile = createProfile();
   const stalePayloads: unknown[] = [];
   const standaloneConnectionRequests: string[] = [];
 
@@ -77,9 +61,6 @@ async function mockStaleConnectionTargetRoutes(page: Page) {
       route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
     if (pathname === "/api/auth/status") return fulfillJson({ auth_enabled: false });
-    if (pathname === "/api/profiles/bootstrap") {
-      return fulfillJson({ profiles: [profile], active_profile: profile, profile_limits: { max_profiles: 5 } });
-    }
     if (pathname === "/api/settings/costing") {
       return fulfillJson({ report_currency_code: "EUR", report_currency_symbol: "€", endpoint_fx_mappings: [], timezone_preference: null });
     }

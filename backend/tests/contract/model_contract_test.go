@@ -32,7 +32,13 @@ func TestModelCRUD(t *testing.T) {
 	_ = otherFamilyModelID
 
 	missingHeader := harness.requestJSON(t, harness.client, http.MethodGet, "/api/models", nil, nil)
-	assertErrorResponseCode(t, missingHeader, http.StatusBadRequest, profiledomain.ScopeErrorCodeHeaderMissing, fmt.Sprintf("%s header is required", profiledomain.ProfileIDHeader))
+	assertStatus(t, missingHeader, http.StatusOK)
+	var missingHeaderModels []any
+	decodeJSONResponse(t, missingHeader, &missingHeaderModels)
+	defaultScopedModel := findModelListItemByModelID(t, missingHeaderModels, "s8-target-model")
+	if jsonInt(t, defaultScopedModel["profile_id"]) != defaultProfileID {
+		t.Fatalf("expected missing profile header to resolve Default profile %d, got %+v", defaultProfileID, defaultScopedModel)
+	}
 
 	legacyShape := harness.requestJSON(
 		t,
