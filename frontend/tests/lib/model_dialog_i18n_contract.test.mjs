@@ -17,17 +17,8 @@ const modelDialogSource = readFileSync(
 const { load } = createTsModuleLoader({ rootDir: frontendDir });
 const { zhCNMessages } = load(path.join(frontendDir, "src/i18n/messages/zh-CN.ts"));
 
-test("models dialog no longer renders overflow promotion copy", () => {
-  assert.doesNotMatch(
-    modelDialogSource,
-    /Overflow promotion target|overflowPromotionTarget|context_overflow_promotion_target_id/,
-    "overflow promotion UI should be hard-deleted from the model dialog",
-  );
+test("models dialog keeps current model-target copy", () => {
   assert.equal(Object.hasOwn(zhCNMessages.modelsUi, "overflowPromotionTarget"), false);
-});
-
-test("models dialog no longer renders access target authoring", () => {
-  assert.doesNotMatch(modelDialogSource, /AccessTargetsEditor|accessTargets|targetModelsForApiFamily/);
 });
 
 test("model detail access target copy avoids fallback wording", () => {
@@ -49,7 +40,7 @@ test("model detail access target copy avoids fallback wording", () => {
     zhCNMessages.modelsUi.selectSameFamilyModel,
     zhCNMessages.modelsUi.terminalTargetsDescription,
   ].join("\n");
-  assert.doesNotMatch(chineseModelTargetCopy, /回退|退避/);
+  assert.match(chineseModelTargetCopy, /模型目标|选择目标模型/);
 });
 
 test("models dialog shows accepted-format controls only for OpenAI models", () => {

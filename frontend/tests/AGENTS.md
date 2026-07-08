@@ -4,35 +4,32 @@
 `frontend/tests/` is Prism's frontend regression surface. It splits browser flows from seam-contract suites and keeps the tree aligned with the current route, provider, typed-client, routing health list, and model/access-target authoring structure.
 
 ## TEST SPLIT
-- `e2e/` holds Playwright browser route flows only; see `e2e/AGENTS.md`.
+- `e2e/` holds the five Playwright browser journey specs only; see `e2e/AGENTS.md`.
 - `lib/` holds high-centrality Node seam contracts; see `lib/AGENTS.md`.
-- `loadbalance/`, `main/`, `model-detail/`, and `server/` hold smaller focused seam-contract suites outside Playwright's browser runner.
+- `model-detail/` and `server/` hold the remaining focused seam-contract suites outside Playwright's browser runner.
 - `helpers/` holds shared test-only utilities such as TypeScript module loading.
 - `../src/test/` holds Vitest/jsdom seams plus shared MSW setup; it is a separate frontend test layer outside this tree.
 
 ## CURRENT FACTS
-- `../package.json` exposes `pnpm run test:lib`, `pnpm run test:server`, and the full browser regression entrypoint as `pnpm run test:e2e`.
-- CI runs frontend `test:lib`, `test:server`, `build`, and `lint`; it does not run `pnpm test` or full `test:e2e`.
-- `pnpm test` runs Vitest over `../src/**/*.test.{ts,tsx}` through `../vitest.config.ts`; treat it as a separate local gate for `../src` changes.
-- `test:lib` runs every `*.test.mjs` directly under `lib/` plus `model-detail/`; `main/` and `loadbalance/` remain outside that script, so run their node-test files directly when changing those seams.
+- `../package.json` exposes `pnpm exec vitest run`, `pnpm run test:lib`, `pnpm run test:server`, and the browser regression entrypoint `pnpm run test:e2e`.
+- CI runs frontend `pnpm exec vitest run`, `test:lib`, `test:server`, `build`, `lint`, and the five Playwright journey specs in `e2e/`.
+- `pnpm test` runs the same Vitest layer in watch mode over `../src/**/*.test.{ts,tsx}` through `../vitest.config.ts`; use `pnpm exec vitest run` for the CI-equivalent gate.
+- `test:lib` runs every `*.test.mjs` directly under `lib/` plus `model-detail/`; there are no separate `main/` or `loadbalance/` node-test roots anymore.
 - `../playwright.config.ts` points Playwright at `./tests/e2e` and uses `http://127.0.0.1:15174` as the web server target.
-- Statistics and analytics coverage lives in `e2e/shared-chart-statistics.spec.ts`, `e2e/statistics-ttft.spec.ts`, `e2e/statistics-token-rate.spec.ts`, `e2e/statistics-filtered-totals.spec.ts`, and `e2e/statistics-proxy-api-key-label.spec.ts`.
-- Request-log/detail coverage lives in `e2e/request-log-*.spec.ts`, `e2e/request-log-detail-copy.spec.ts`, `e2e/request-log-audit-disabled-state.spec.ts`, `e2e/request-logs-token-rate.spec.ts`, `e2e/request-logs-ttft.spec.ts`, and `e2e/request-logs-optional-zero.spec.ts`.
-- Model-detail handoff and unified access-target authoring coverage lives in the model-detail e2e flows, `e2e/model-detail-request-logs-handoff.spec.ts`, `model-detail/*.test.mjs`, and `lib/profile_scope_header_contract.test.mjs`.
-- Model CRUD and access-target authoring coverage lives in `lib/model_form_state_contract.test.mjs`.
-- Dashboard routing list and data-shaping seam coverage lives in `lib/dashboard_routing_list_contract.test.mjs`.
-- Shared dashboard/statistics browser fixture data lives in `e2e/dashboard-aggregate-fixtures.ts`.
-- Browser coverage also includes auth session lifecycle, proxy-key lifecycle, reporting currency, and user-agent client-rule flows under `e2e/`.
+- Browser coverage lives in `e2e/auth-session-lifecycle.spec.ts`, `e2e/loadbalance-strategies-recovery.spec.ts`, `e2e/models-access-target-authoring.spec.ts`, `e2e/request-log-dedicated-audit-page.spec.ts`, and `e2e/shared-chart-statistics.spec.ts`.
+- Dashboard/statistics browser fixture data lives in `e2e/dashboard-aggregate-fixtures.ts`.
+- Model CRUD and access-target authoring seam coverage lives in `lib/model_form_state_contract.test.mjs`, `model-detail/*.test.mjs`, and `lib/profile_scope_header_contract.test.mjs`.
+- Dashboard routing list and bootstrap data-shaping seam coverage lives in `lib/dashboard_routing_list_contract.test.mjs` and `lib/dashboard_bootstrap_contract.test.mjs`.
 
 ## CHILD DOCS
 - `e2e/AGENTS.md`: Playwright route-flow conventions, browser fixtures, mocked backend ownership, and canonical route expectations.
 - `lib/AGENTS.md`: Node `--test` seam-contract conventions, `loadTsModule` use, and `test:lib` glob boundaries.
 
 ## WHERE TO LOOK
-- Statistics and analytics browser coverage: `e2e/shared-chart-statistics.spec.ts`, `e2e/statistics-ttft.spec.ts`, `e2e/statistics-token-rate.spec.ts`, `e2e/statistics-filtered-totals.spec.ts`, `e2e/statistics-proxy-api-key-label.spec.ts`
+- Statistics and analytics browser coverage: `e2e/shared-chart-statistics.spec.ts`
 - Model/access-target seam coverage: `lib/model_form_state_contract.test.mjs`
 - Dashboard routing list seam coverage: `lib/dashboard_routing_list_contract.test.mjs`
-- Shared contract seams: `lib/*.test.mjs`, `loadbalance/*.test.mjs`, `main/*.test.mjs`, `model-detail/*.test.mjs`, `server/*.test.mjs`
+- Shared contract seams: `lib/*.test.mjs`, `model-detail/*.test.mjs`, `server/*.test.mjs`
 - Shared test helpers: `helpers/loadTsModule.mjs`
 - Vitest/MSW seams outside this tree: `../src/test/setup.ts`, `../src/test/msw/server.ts`, `../src/test/msw/handlers.ts`
 

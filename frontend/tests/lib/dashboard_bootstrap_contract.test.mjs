@@ -123,15 +123,12 @@ function incidents() {
   };
 }
 
-test("dashboard bootstrap production code has no request-log snapshot freshness path", () => {
+test("dashboard bootstrap production code keeps snapshot revision and recent activity hooks", () => {
   const source = readFileSync(hookPath, "utf8");
-  const removedSnapshotField = new RegExp(["recent", "requests"].join("_"));
-
-  assert.doesNotMatch(source, /getLatestDashboardSnapshotRequestId/);
-  assert.doesNotMatch(source, /latestDashboardRequestIdRef/);
-  assert.doesNotMatch(source, removedSnapshotField);
-  assert.doesNotMatch(source, /allowEqualRequestId/);
-  assert.doesNotMatch(source, /source_watermark[\s\S]*[<>]=?/);
+  assert.match(source, /shouldApplyDashboardSnapshotRevision/);
+  assert.match(source, /snapshot_revision/);
+  assert.match(source, /DashboardRecentActivityWatermark/);
+  assert.match(source, /dashboardRecentActivity/);
 });
 
 test("snapshot reconciliation accepts only lexicographically newer revisions", () => {

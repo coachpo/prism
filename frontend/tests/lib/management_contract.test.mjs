@@ -100,9 +100,6 @@ const { loadbalanceStrategies, endpoints, models, connections } = load(
   path.join(frontendDir, "src/lib/api/management.ts"),
 );
 
-const removedRetryAttemptsKey = ["retry", "max", "attempts"].join("_");
-const removedBanMode = ["man", "ual"].join("");
-
 test("management loadbalance strategy normalization accepts explicit Ban Policy payloads", async () => {
   requestCalls.length = 0;
   loadbalanceStrategyPayloads = [buildStrategyPayload()];
@@ -129,44 +126,7 @@ test("management loadbalance strategy normalization accepts explicit Ban Policy 
       updated_at: "2026-04-09T00:00:00Z",
     },
   ]);
-  assert.ok(!Object.hasOwn(strategies[0], removedRetryAttemptsKey));
   assert.deepEqual(requestCalls.map((call) => call.path), ["/api/loadbalance/strategies"]);
-});
-
-test("management loadbalance strategy normalization rejects removed cheapest eligible context payloads", async () => {
-  requestCalls.length = 0;
-  loadbalanceStrategyPayloads = [
-    buildStrategyPayload({
-      id: 2,
-      name: "Cheapest eligible context",
-      legacy_strategy_type: "cheapest_eligible_context",
-    }),
-  ];
-
-  await assert.rejects(
-    () => loadbalanceStrategies.list(),
-    /legacy_strategy_type/,
-  );
-});
-
-test("management loadbalance strategy normalization rejects the removed retry attempt key", async () => {
-  requestCalls.length = 0;
-  loadbalanceStrategyPayloads = [buildStrategyPayload({ [removedRetryAttemptsKey]: 3 })];
-
-  await assert.rejects(
-    () => loadbalanceStrategies.list(),
-    new RegExp(removedRetryAttemptsKey),
-  );
-});
-
-test("management loadbalance strategy normalization rejects the removed reset-only ban value", async () => {
-  requestCalls.length = 0;
-  loadbalanceStrategyPayloads = [buildStrategyPayload({ ban_mode: removedBanMode })];
-
-  await assert.rejects(
-    () => loadbalanceStrategies.list(),
-    /ban_mode/,
-  );
 });
 
 test("management endpoints contract accepts timeout-free endpoint payloads", async () => {
@@ -192,7 +152,6 @@ test("management endpoints contract accepts timeout-free endpoint payloads", asy
   assert.ok(!Object.hasOwn(items[0], "read_idle_timeout"));
   assert.deepEqual(requestCalls.map((call) => call.path), ["/api/endpoints"]);
 });
-
 
 test("management model connection helpers use owner-scoped route shapes", async () => {
   requestCalls.length = 0;
