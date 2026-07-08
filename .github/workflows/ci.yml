@@ -125,17 +125,50 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver: docker-container
+
+      - name: Resolve short git revision
+        id: rev
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
       - name: Build backend container image for scan
-        run: docker build -t prism-backend:ci -f backend/Dockerfile .
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./backend/Dockerfile
+          tags: prism-backend:ci
+          load: true
+          cache-from: type=gha,scope=ci-backend
+          cache-to: type=gha,scope=ci-backend,mode=max
 
       - name: Build frontend container image for scan
-        run: |
-          docker build \
-            -t prism-frontend:ci \
-            -f frontend/Dockerfile \
-            --build-arg VITE_GIT_RUN_NUMBER=${{ github.run_number }} \
-            --build-arg VITE_GIT_REVISION=${GITHUB_SHA::7} \
-            frontend
+        uses: docker/build-push-action@v7
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          tags: prism-frontend:ci
+          load: true
+          build-args: |
+            VITE_GIT_RUN_NUMBER=${{ github.run_number }}
+            VITE_GIT_REVISION=${{ steps.rev.outputs.short }}
+          cache-from: type=gha,scope=ci-frontend
+          cache-to: type=gha,scope=ci-frontend,mode=max
+
+      - name: Build single-image bundle for scan
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          tags: prism-single:ci
+          load: true
+          build-args: |
+            VITE_GIT_RUN_NUMBER=${{ github.run_number }}
+            VITE_GIT_REVISION=${{ steps.rev.outputs.short }}
+          cache-from: type=gha,scope=ci-single
+          cache-to: type=gha,scope=ci-single,mode=max
 
       - name: Install pinned Trivy
         uses: aquasecurity/setup-trivy@e07451d2e059ed86c2870430ea286b3a9e0bf241
@@ -149,16 +182,19 @@ jobs:
           mkdir -p trivy-reports
           backend_status=0
           frontend_status=0
+          single_status=0
 
           trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 --format sarif --output trivy-reports/prism-backend.sarif prism-backend:ci || backend_status=$?
           trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 --format table --output trivy-reports/prism-backend.txt prism-backend:ci || backend_status=$?
           trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 --format sarif --output trivy-reports/prism-frontend.sarif prism-frontend:ci || frontend_status=$?
           trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 --format table --output trivy-reports/prism-frontend.txt prism-frontend:ci || frontend_status=$?
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 --format sarif --output trivy-reports/prism-single.sarif prism-single:ci || single_status=$?
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 --format table --output trivy-reports/prism-single.txt prism-single:ci || single_status=$?
 
           {
             echo "Prism container scanner policy"
             echo "Generated at: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-            echo "Scanned local images only: prism-backend:ci, prism-frontend:ci"
+            echo "Scanned local images only: prism-backend:ci, prism-frontend:ci, prism-single:ci"
             echo "Severity: HIGH,CRITICAL"
             echo "Ignore unfixed: true"
             echo "Exit code mode: 0 for vulnerability findings"
@@ -166,6 +202,7 @@ jobs:
             echo "Rationale: Trivy advisory DB and network drift can make image-vulnerability gating unstable in this wave."
             echo "Backend Trivy command status: ${backend_status}"
             echo "Frontend Trivy command status: ${frontend_status}"
+            echo "Single-image Trivy command status: ${single_status}"
           } > trivy-reports/status.txt
 
           {
@@ -175,6 +212,7 @@ jobs:
             echo ""
             echo "- Backend image: \`prism-backend:ci\`, status \`${backend_status}\`"
             echo "- Frontend image: \`prism-frontend:ci\`, status \`${frontend_status}\`"
+            echo "- Single image: \`prism-single:ci\`, status \`${single_status}\`"
             echo "- Rationale: advisory DB and network drift can make container scanner gating unstable."
           } >> "$GITHUB_STEP_SUMMARY"
 
