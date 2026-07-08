@@ -108,9 +108,9 @@ PostgreSQL capacity is split into finite named lanes: `runtime_execution`, `runt
 
 Management overload is reported as typed admission failure with retry metadata. Lower-priority M3 reporting and maintenance routes shed before M2 and M1 management work, and proxy traffic remains isolated from management/background saturation. When overload appears, retry after the advertised delay rather than increasing client concurrency.
 
-Scheduler lag means background workers are queued, coalesced, delayed, retried, or dropped according to their worker policy. Lag can delay dashboard fanout, telemetry materialization, email delivery, management side-effect dispatch, cache warming, and proxy-key usage flushing, but it must not make request-path handlers borrow direct goroutines, direct DB handles, or unmanaged timers.
+Scheduler lag means background workers are queued, coalesced, delayed, retried, or dropped according to their worker policy. Lag can delay dashboard fanout, telemetry materialization, management side-effect dispatch, cache warming, and proxy-key usage flushing, but it must not make request-path handlers borrow direct goroutines, direct DB handles, or unmanaged timers.
 
-Durable outboxes expose failure as queued, retry, sent/succeeded, dead-letter, or permanent-failure state depending on the store. Email provider failures retry and eventually dead-letter without exposing OTPs or SMTP credentials. Management side-effect dispatch failures retry or become visibly permanent failures without rolling back the already committed primary management mutation.
+Durable outboxes expose failure as queued, retry, sent/succeeded, dead-letter, or permanent-failure state depending on the store. Management side-effect dispatch failures retry or become visibly permanent failures without rolling back the already committed primary management mutation.
 
 Runtime telemetry and runtime feedback have different loss semantics. Accepted runtime activity intents are required-durable background work until the telemetry outbox transaction commits, terminal validation fails, or shutdown prevents completion. Runtime feedback is intentionally lossy under pressure; queue-full, invalid, closed, or store-failure cases drop feedback with accounting and never block proxy responses.
 
@@ -191,9 +191,9 @@ For Gemini, `gemini.stream_generate_content` and the `:streamGenerateContent` pa
 
 Runtime upstream requests capture an immutable bootstrap runtime snapshot at request start. The snapshot includes an HTTP client built from startup bootstrap transport settings. Fresh seeds use transport `100/16/16/300s/90s/0s/10s/1s` and side-effect attempt timeout `10s`. Runtime buffering is automatic and not user-configurable. The raw `runtime.transport.requestTimeout` Go duration is applied as `http.Client.Timeout`, which makes it the whole-request timeout for outbound provider calls. A missing request timeout fails startup validation by design. Raw `runtime.sideEffects.attemptTimeout` is a separate per-attempt background side-effect enqueue budget. Both values change only after editing `config.json` and restarting Prism.
 
-Hot bootstrap projection still owns the runtime snapshot used by CORS origin checks, auth TTL and cookie metadata, mail delivery settings, runtime transport, and M2/M3 management admission limits, but R2 removed the management API caller that published new snapshots from file edits.
+Hot bootstrap projection still owns the runtime snapshot used by CORS origin checks, auth TTL and cookie metadata, runtime transport, and M2/M3 management admission limits, but R2 removed the management API caller that published new snapshots from file edits.
 
-Startup boundaries are process resources: listener host and port, PostgreSQL URL and pool budgets, runtime transport, runtime side-effects attempt timeout, runtime secret encryption key, auth JWT signing key, mail, CORS, auth TTL and cookie metadata, management admission, and telemetry. Edit `config.json` and restart Prism to apply changes.
+Startup boundaries are process resources: listener host and port, PostgreSQL URL and pool budgets, runtime transport, runtime side-effects attempt timeout, runtime secret encryption key, auth JWT signing key, CORS, auth TTL and cookie metadata, management admission, and telemetry. Mail fields remain parse-only for old `config.json` files. Edit `config.json` and restart Prism to apply changes.
 
 Runtime compatibility and redirect checks use each model's required `api_family`. Model rows do not depend on catalog metadata for routing, validation, or display. The Models page renders each row's `api_family` metadata directly.
 
@@ -202,7 +202,7 @@ Runtime compatibility and redirect checks use each model's required `api_family`
   - Global management routes omit `X-Profile-Id`.
   - Profile-scoped management routes require `X-Profile-Id` and resolve against the selected profile.
   - Supported runtime operations under `/v1` and `/v1beta` ignore management overrides and always use the active profile.
-- Global management routes include `/api/profiles/*`, `/api/auth/*`, `/api/realtime/*`, auth/email/proxy-key settings under `/api/settings/auth*`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
+- Global management routes include `/api/profiles/*`, `/api/auth/*`, `/api/realtime/*`, auth and proxy-key settings under `/api/settings/auth*`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
 - Selected profile (UI management context) and active profile (runtime routing context) are intentionally distinct states.
 - Scope-control errors return stable `code` values plus human-readable `detail` text.
 - Supported runtime operations always use active profile and ignore override headers.

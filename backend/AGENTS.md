@@ -38,7 +38,7 @@ backend/
 - Stats and request-log ownership includes endpoint label snapshots, caller-only `client_rule_id` filtering, and final-target `resolved_target_model_id` filtering.
 - `internal/gateway/` owns provider-agnostic gateway contracts used by runtime execution: hook phases, envelopes, operation records, adapters, route planning, and reservations.
 - `Dockerfile` builds from the monorepo root, copies migrations, runs as `prism:prism` (`1000:1000`), and defaults `PRISM_CONFIG_PATH` to `/app/config/config.json`; root `.dockerignore` controls backend image build contents.
-- Bootstrap config v1 is plaintext and file-backed with backend-owned fresh defaults; valid existing files are preserved until manual reset. Enabled SMTP must validate at startup and must not silently fall back.
+- Bootstrap config v1 is plaintext and file-backed with backend-owned fresh defaults; valid existing files are preserved until manual reset. Mail bootstrap fields parse for old `config.json` compatibility only; delivery behavior is removed.
 
 ## WHERE TO LOOK
 - Process entrypoint and startup flow: `cmd/prism-backend/main.go`, `internal/AGENTS.md`, `internal/platform/AGENTS.md`, `internal/platform/migrate/`
@@ -75,4 +75,4 @@ backend/
 - Do not describe bootstrap file edits as hot-applied. External `config.json` edits require restart after R2.
 - Do not bypass `internal/platform/logretention/` with ad hoc log cleanup, retention SQL, or partition creation outside runtime partition ensuring.
 - Do not change container bootstrap defaults or writable ownership contracts without updating Dockerfile tests and docs.
-- Do not treat enabled-but-invalid SMTP as recoverable no-op delivery.
+- Do not reintroduce SMTP delivery behavior behind parse-compatible mail bootstrap fields.

@@ -82,42 +82,12 @@ go build ./cmd/prism-backend
 - Prepare new host config directories with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`. Use the same one-time remediation for existing root-owned bind mounts before starting the non-root backend image.
 - Bootstrap edits are file-durable and restart-applied after R2. Edit the selected `config.json`, then restart Prism.
 - Runtime buffering is internal and not exposed through bootstrap config.
-- Startup fields include listener host and port, CORS origins, auth TTL and cookie metadata, mail and SMTP settings, runtime transport settings, M2/M3 management admission limits, database URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, auth JWT signing key, and all telemetry exporter/metrics/tracing fields.
+- Startup fields include listener host and port, CORS origins, auth TTL and cookie metadata, runtime transport settings, M2/M3 management admission limits, database URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, auth JWT signing key, and all telemetry exporter/metrics/tracing fields. Legacy `mail` fields remain parse-compatible only.
 - Telemetry startup fields include `telemetry.enabled`, exporter endpoint/protocol/compression/timeout/auth/TLS values, `telemetry.metrics.enabled`, `telemetry.traces.enabled`, and `telemetry.traces.samplingRatio`. Enabled telemetry exports through OTLP to a Collector or Grafana Alloy; Prism does not provide a backend-local `/metrics` compatibility endpoint.
 - External edits to the bootstrap file are not watched automatically and require restart.
 - Raw bootstrap files require `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` as Go duration strings. Fresh seeds set `runtime.transport.requestTimeout` to `"300s"` and `runtime.sideEffects.attemptTimeout` to `"10s"`. Missing either required field fails startup validation by design.
 - `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout. `runtime.sideEffects.attemptTimeout` is the runtime side-effect enqueue attempt budget. Both change only after editing `config.json` and restarting Prism.
-- Auth email delivery is disabled when `mail` is missing or `mail.enabled=false`; disabled mode uses no-op delivery and does not dial SMTP.
-- To enable SMTP, set `mail.enabled=true`, `mail.from`, and `mail.smtp` in `config.json`, then restart. Enabled-but-invalid SMTP config fails validation or startup instead of silently falling back to no-op delivery.
-- SMTP config fields are `mail.from`, `mail.replyTo`, `mail.smtp.host`, `mail.smtp.port`, `mail.smtp.mode`, `mail.smtp.ehloHostname`, `mail.smtp.auth`, `mail.smtp.username`, `mail.smtp.password`, `mail.smtp.passwordFile`, `mail.smtp.timeout`, and `mail.smtp.tlsServerName`.
-- Supported `mail.smtp.mode` values are `starttls_required`, `implicit_tls`, and `plaintext_local_only`. `plaintext_local_only` is local or loopback only, and auth over non-local plaintext is forbidden.
-- `mail.smtp.auth` accepts `none` or `plain`. `plain` requires `username` plus exactly one of `password` or `passwordFile`; `passwordFile` is preferred for deployed secrets.
-- Prefer `mail.smtp.passwordFile` for deployed secrets; inline `mail.smtp.password` is stored in plaintext in the startup file.
-- Roll back real delivery by removing `mail` or setting `mail.enabled=false`, then restarting Prism.
-- Local and automated tests use fake or no-op SMTP only. Do not use external SMTP credentials in regression tests.
-
-Enabled SMTP bootstrap example:
-
-```json
-{
-  "mail": {
-    "enabled": true,
-    "from": "Prism <noreply@example.com>",
-    "replyTo": "support@example.com",
-    "smtp": {
-      "host": "smtp.example.com",
-      "port": 587,
-      "mode": "starttls_required",
-      "ehloHostname": "prism.example.com",
-      "auth": "plain",
-      "username": "smtp-user",
-      "passwordFile": "/run/secrets/prism-smtp-password",
-      "timeout": "15s",
-      "tlsServerName": "smtp.example.com"
-    }
-  }
-}
-```
+- Mail delivery was removed. Existing bootstrap files may keep a `mail` block for startup compatibility; Prism does not construct a mailer or send SMTP traffic.
 
 ## Database and runtime data
 - Fresh-install schema setup is Go-managed and applied from the single checked-in baseline under `migrations/` at startup.
@@ -128,10 +98,6 @@ Enabled SMTP bootstrap example:
 - Normal log retention is global across all profiles. Configure it through `/api/settings/log-retention` and run it through durable `log_retention` jobs from `POST /api/maintenance/log-retention/jobs`.
 - Retention drops whole daily child partitions whose upper bound is `<= cutoff`. Only the cutoff-overlapping boundary child receives bounded cleanup plus `VACUUM (ANALYZE, PROCESS_TOAST TRUE)`.
 - Audit rows keep weak request references through `request_log_id`, `request_log_created_at`, and `ingress_request_id`; request detail links can be missing after request-log retention expires first.
-- `VACUUM FULL`, `CLUSTER`, and `pg_repack` are manual or emergency shrink tools only, not automatic retention steps. The default local `postgres:16-alpine` database does not include `pg_repack`.
-
-For local PostgreSQL provisioning without the root launcher, run `docker compose up -d prism-postgres` from `backend/`.
-at`, and `ingress_request_id`; request detail links can be missing after request-log retention expires first.
 - `VACUUM FULL`, `CLUSTER`, and `pg_repack` are manual or emergency shrink tools only, not automatic retention steps. The default local `postgres:16-alpine` database does not include `pg_repack`.
 
 For local PostgreSQL provisioning without the root launcher, run `docker compose up -d prism-postgres` from `backend/`.

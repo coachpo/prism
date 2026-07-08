@@ -84,7 +84,7 @@ func TestAccessTargetRankingRemovalAndAuditFamilySettingsMigration(t *testing.T)
 	if result.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected access-target ranking removal migration to apply, got %q", result.Outcome)
 	}
-	assertMigrationVersions(t, "access-target ranking removal migration versions", result.Versions, []string{"000005_remove_access_target_weight_priority_add_audit_family_settings", "000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades"})
+	assertMigrationVersions(t, "access-target ranking removal migration versions", result.Versions, []string{"000005_remove_access_target_weight_priority_add_audit_family_settings", "000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades", "000008_drop_dead_auth_tables"})
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 	assertModelAccessTargetsRankingColumnsAbsent(t, testContext, conn)
 	assertContextCapabilityAndFacadeColumnsAbsent(t, testContext, conn)
@@ -186,7 +186,7 @@ func TestEndpointLabelSnapshotMigrationBackfillsExistingRows(t *testing.T) {
 	if newResult.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected endpoint label snapshot migration to apply, got %q", newResult.Outcome)
 	}
-	assertMigrationVersions(t, "endpoint label snapshot migration versions", newResult.Versions, []string{"000004_endpoint_label_snapshot", "000005_remove_access_target_weight_priority_add_audit_family_settings", "000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades"})
+	assertMigrationVersions(t, "endpoint label snapshot migration versions", newResult.Versions, []string{"000004_endpoint_label_snapshot", "000005_remove_access_target_weight_priority_add_audit_family_settings", "000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades", "000008_drop_dead_auth_tables"})
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 	assertEndpointLabelSnapshotColumnContract(t, testContext, conn)
 	assertEndpointLabelSnapshotPartitionColumn(t, testContext, conn, fixture.usagePartition)
@@ -222,7 +222,7 @@ func TestMigrationBackfillsOpenAIAcceptedFormatToDualNative(t *testing.T) {
 	if newResult.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected openai accepted format migration to apply, got %q", newResult.Outcome)
 	}
-	assertMigrationVersions(t, "openai accepted format migration versions", newResult.Versions, []string{"000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades"})
+	assertMigrationVersions(t, "openai accepted format migration versions", newResult.Versions, []string{"000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades", "000008_drop_dead_auth_tables"})
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 	assertOpenAIAcceptedFormatColumnContract(t, testContext, conn)
 	assertOpenAIAcceptedFormatBackfillRows(t, testContext, conn)

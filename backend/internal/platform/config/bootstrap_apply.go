@@ -80,22 +80,9 @@ const (
 	bootstrapFieldHTTPCORSAllowedOrigins                 = "http.cors_allowed_origins"
 	bootstrapFieldAuthAccessTokenTTLSeconds              = "auth.access_token_ttl_seconds"
 	bootstrapFieldAuthRefreshTokenTTLSeconds             = "auth.refresh_token_ttl_seconds"
-	bootstrapFieldAuthResetCodeTTLSeconds                = "auth.reset_code_ttl_seconds"
 	bootstrapFieldAuthAccessCookieName                   = "auth.access_cookie_name"
 	bootstrapFieldAuthRefreshCookieName                  = "auth.refresh_cookie_name"
 	bootstrapFieldAuthCookieSecure                       = "auth.cookie_secure"
-	bootstrapFieldMailEnabled                            = "mail.enabled"
-	bootstrapFieldMailFrom                               = "mail.from"
-	bootstrapFieldMailReplyTo                            = "mail.reply_to"
-	bootstrapFieldMailSMTPHost                           = "mail.smtp.host"
-	bootstrapFieldMailSMTPPort                           = "mail.smtp.port"
-	bootstrapFieldMailSMTPMode                           = "mail.smtp.mode"
-	bootstrapFieldMailSMTPEHLOHostname                   = "mail.smtp.ehlo_hostname"
-	bootstrapFieldMailSMTPAuth                           = "mail.smtp.auth"
-	bootstrapFieldMailSMTPUsername                       = "mail.smtp.username"
-	bootstrapFieldMailSMTPPasswordFile                   = "mail.smtp.password_file"
-	bootstrapFieldMailSMTPTimeout                        = "mail.smtp.timeout"
-	bootstrapFieldMailSMTPTLSServerName                  = "mail.smtp.tls_server_name"
 	bootstrapFieldRuntimeTransportMaxIdleConns           = "transport.max_idle_conns"
 	bootstrapFieldRuntimeTransportMaxIdleConnsPerHost    = "transport.max_idle_conns_per_host"
 	bootstrapFieldRuntimeTransportMaxConnsPerHost        = "transport.max_conns_per_host"
@@ -159,20 +146,6 @@ var bootstrapConfigFieldRegistry = []bootstrapConfigFieldRegistration{
 	hotApplyBootstrapField(bootstrapFieldRuntimeTransportExpectContinueTimeout),
 	hotApplyBootstrapField(bootstrapFieldDatabaseManagementAdmissionM2Max),
 	hotApplyBootstrapField(bootstrapFieldDatabaseManagementAdmissionM3Max),
-	restartRequiredBootstrapField(bootstrapFieldAuthResetCodeTTLSeconds, ""),
-	restartRequiredBootstrapField(bootstrapFieldMailEnabled, ""),
-	restartRequiredBootstrapField(bootstrapFieldMailFrom, ""),
-	restartRequiredBootstrapField(bootstrapFieldMailReplyTo, ""),
-	restartRequiredBootstrapField(bootstrapFieldMailSMTPHost, ""),
-	restartRequiredBootstrapField(bootstrapFieldMailSMTPPort, ""),
-	restartRequiredBootstrapField(bootstrapFieldMailSMTPMode, ""),
-	restartRequiredBootstrapField(bootstrapFieldMailSMTPEHLOHostname, ""),
-	restartRequiredBootstrapField(bootstrapFieldMailSMTPAuth, ""),
-	restartRequiredBootstrapField(bootstrapFieldMailSMTPUsername, ""),
-	restartRequiredBootstrapField(bootstrapFieldMailSMTPPasswordFile, ""),
-	restartRequiredBootstrapField(bootstrapFieldMailSMTPTimeout, ""),
-	restartRequiredBootstrapField(bootstrapFieldMailSMTPTLSServerName, ""),
-	restartRequiredBootstrapField(BootstrapConfigSecretMailSMTPPassword, ""),
 	restartRequiredBootstrapField(bootstrapFieldRuntimeSideEffectsAttemptTimeout, ""),
 	restartRequiredBootstrapField(bootstrapFieldTelemetryEnabled, ""),
 	restartRequiredBootstrapField(bootstrapFieldTelemetryExporterEndpoint, ""),
@@ -338,7 +311,6 @@ func bootstrapConfigSafeFieldValues(values BootstrapConfigValues) map[string]boo
 	addBootstrapRuntimeFieldValues(fields, values.Runtime)
 	addBootstrapHTTPFieldValues(fields, values.HTTP)
 	addBootstrapAuthFieldValues(fields, values.Auth)
-	addBootstrapMailFieldValues(fields, values.Mail)
 	addBootstrapTelemetryFieldValues(fields, values.Telemetry)
 	return fields
 }
@@ -459,7 +431,6 @@ func addBootstrapAuthFieldValues(fields map[string]bootstrapConfigFieldValue, va
 	if values == nil {
 		fields[bootstrapFieldAuthAccessTokenTTLSeconds] = bootstrapIntFieldValue(nil)
 		fields[bootstrapFieldAuthRefreshTokenTTLSeconds] = bootstrapIntFieldValue(nil)
-		fields[bootstrapFieldAuthResetCodeTTLSeconds] = bootstrapIntFieldValue(nil)
 		fields[bootstrapFieldAuthAccessCookieName] = bootstrapStringFieldValue(nil)
 		fields[bootstrapFieldAuthRefreshCookieName] = bootstrapStringFieldValue(nil)
 		fields[bootstrapFieldAuthCookieSecure] = bootstrapBoolFieldValue(nil)
@@ -467,51 +438,9 @@ func addBootstrapAuthFieldValues(fields map[string]bootstrapConfigFieldValue, va
 	}
 	fields[bootstrapFieldAuthAccessTokenTTLSeconds] = bootstrapIntFieldValue(values.AccessTokenTTLSeconds)
 	fields[bootstrapFieldAuthRefreshTokenTTLSeconds] = bootstrapIntFieldValue(values.RefreshTokenTTLSeconds)
-	fields[bootstrapFieldAuthResetCodeTTLSeconds] = bootstrapIntFieldValue(values.ResetCodeTTLSeconds)
 	fields[bootstrapFieldAuthAccessCookieName] = bootstrapStringFieldValue(values.AccessCookieName)
 	fields[bootstrapFieldAuthRefreshCookieName] = bootstrapStringFieldValue(values.RefreshCookieName)
 	fields[bootstrapFieldAuthCookieSecure] = bootstrapBoolFieldValue(values.CookieSecure)
-}
-
-func addBootstrapMailFieldValues(fields map[string]bootstrapConfigFieldValue, values *BootstrapConfigMailValues) {
-	if values == nil {
-		fields[bootstrapFieldMailEnabled] = bootstrapBoolFieldValue(nil)
-		addBootstrapMailContentFieldValues(fields, nil, nil)
-		return
-	}
-	fields[bootstrapFieldMailEnabled] = bootstrapBoolFieldValue(values.Enabled)
-	addBootstrapMailContentFieldValues(fields, values, values.SMTP)
-}
-
-func addBootstrapMailContentFieldValues(fields map[string]bootstrapConfigFieldValue, values *BootstrapConfigMailValues, smtp *BootstrapConfigMailSMTPValues) {
-	if values == nil {
-		fields[bootstrapFieldMailFrom] = bootstrapOptionalStringFieldValue(nil)
-		fields[bootstrapFieldMailReplyTo] = bootstrapOptionalStringFieldValue(nil)
-	} else {
-		fields[bootstrapFieldMailFrom] = bootstrapOptionalStringFieldValue(values.From)
-		fields[bootstrapFieldMailReplyTo] = bootstrapOptionalStringFieldValue(values.ReplyTo)
-	}
-	if smtp == nil {
-		fields[bootstrapFieldMailSMTPHost] = bootstrapOptionalStringFieldValue(nil)
-		fields[bootstrapFieldMailSMTPPort] = bootstrapIntFieldValue(nil)
-		fields[bootstrapFieldMailSMTPMode] = bootstrapOptionalStringFieldValue(nil)
-		fields[bootstrapFieldMailSMTPEHLOHostname] = bootstrapOptionalStringFieldValue(nil)
-		fields[bootstrapFieldMailSMTPAuth] = bootstrapOptionalStringFieldValue(nil)
-		fields[bootstrapFieldMailSMTPUsername] = bootstrapOptionalStringFieldValue(nil)
-		fields[bootstrapFieldMailSMTPPasswordFile] = bootstrapOptionalStringFieldValue(nil)
-		fields[bootstrapFieldMailSMTPTimeout] = bootstrapOptionalDurationFieldValue(nil)
-		fields[bootstrapFieldMailSMTPTLSServerName] = bootstrapOptionalStringFieldValue(nil)
-		return
-	}
-	fields[bootstrapFieldMailSMTPHost] = bootstrapOptionalStringFieldValue(smtp.Host)
-	fields[bootstrapFieldMailSMTPPort] = bootstrapIntFieldValue(smtp.Port)
-	fields[bootstrapFieldMailSMTPMode] = bootstrapOptionalStringFieldValue(smtp.Mode)
-	fields[bootstrapFieldMailSMTPEHLOHostname] = bootstrapOptionalStringFieldValue(smtp.EHLOHostname)
-	fields[bootstrapFieldMailSMTPAuth] = bootstrapOptionalStringFieldValue(smtp.Auth)
-	fields[bootstrapFieldMailSMTPUsername] = bootstrapOptionalStringFieldValue(smtp.Username)
-	fields[bootstrapFieldMailSMTPPasswordFile] = bootstrapOptionalStringFieldValue(smtp.PasswordFile)
-	fields[bootstrapFieldMailSMTPTimeout] = bootstrapOptionalDurationFieldValue(smtp.Timeout)
-	fields[bootstrapFieldMailSMTPTLSServerName] = bootstrapOptionalStringFieldValue(smtp.TLSServerName)
 }
 
 func addBootstrapTelemetryFieldValues(fields map[string]bootstrapConfigFieldValue, values *BootstrapConfigTelemetryValues) {
@@ -704,42 +633,16 @@ func bootstrapConfigValuesFromSettings(settings Settings) BootstrapConfigValues 
 		Auth: &BootstrapConfigAuthValues{
 			AccessTokenTTLSeconds:  intPointer(settings.AuthAccessTokenTTLSeconds),
 			RefreshTokenTTLSeconds: intPointer(settings.AuthRefreshTokenTTLSeconds),
-			ResetCodeTTLSeconds:    intPointer(settings.AuthResetCodeTTLSeconds),
 			AccessCookieName:       stringPointer(strings.TrimSpace(settings.AuthCookieName)),
 			RefreshCookieName:      stringPointer(strings.TrimSpace(settings.AuthRefreshCookieName)),
 			CookieSecure:           boolPointer(settings.AuthCookieSecure),
 		},
-		Mail:      bootstrapConfigMailValuesFromSettings(settings.Mail),
 		Telemetry: bootstrapConfigTelemetryValuesFromSettings(settings.Telemetry),
 	}
 }
 
 func bootstrapConfigDatabasePoolValuesFromBudget(budget DatabasePoolBudget) *BootstrapConfigDatabasePoolValues {
 	return &BootstrapConfigDatabasePoolValues{MaxConns: intPointer(int(budget.MaxConns)), MinIdleConns: intPointer(int(budget.MinIdleConns))}
-}
-
-func bootstrapConfigMailValuesFromSettings(mail MailConfig) *BootstrapConfigMailValues {
-	values := &BootstrapConfigMailValues{Enabled: boolPointer(mail.Enabled)}
-	if !mail.Enabled {
-		return values
-	}
-	timeout := mail.SMTP.Timeout.String()
-	values.From = stringPointer(strings.TrimSpace(mail.From))
-	if strings.TrimSpace(mail.ReplyTo) != "" {
-		values.ReplyTo = stringPointer(strings.TrimSpace(mail.ReplyTo))
-	}
-	values.SMTP = &BootstrapConfigMailSMTPValues{
-		Host:          stringPointer(strings.TrimSpace(mail.SMTP.Host)),
-		Port:          intPointer(mail.SMTP.Port),
-		Mode:          stringPointer(string(mail.SMTP.Mode)),
-		EHLOHostname:  optionalStringPointer(mail.SMTP.EHLOHostname),
-		Auth:          stringPointer(string(mail.SMTP.Auth)),
-		Username:      optionalStringPointer(mail.SMTP.Username),
-		PasswordFile:  optionalStringPointer(mail.SMTP.PasswordFile),
-		Timeout:       &timeout,
-		TLSServerName: optionalStringPointer(mail.SMTP.TLSServerName),
-	}
-	return values
 }
 
 func bootstrapConfigTelemetryValuesFromSettings(telemetry TelemetryConfig) *BootstrapConfigTelemetryValues {
@@ -774,7 +677,6 @@ func bootstrapConfigSecretUpdatesForSettingsDiff(current Settings, requested Set
 		BootstrapConfigSecretDatabaseURL:                  {Action: BootstrapConfigSecretActionPreserve},
 		BootstrapConfigSecretRuntimeSecretEncryptionKey:   {Action: BootstrapConfigSecretActionPreserve},
 		BootstrapConfigSecretAuthJWTSigningKey:            {Action: BootstrapConfigSecretActionPreserve},
-		BootstrapConfigSecretMailSMTPPassword:             {Action: BootstrapConfigSecretActionPreserve},
 		BootstrapConfigSecretTelemetryAuthorizationHeader: {Action: BootstrapConfigSecretActionPreserve},
 	}
 	markReplace := func(field string, currentValue string, requestedValue string) {
@@ -792,7 +694,6 @@ func bootstrapConfigSecretUpdatesForSettingsDiff(current Settings, requested Set
 	markReplace(BootstrapConfigSecretDatabaseURL, current.DatabaseURL, requested.DatabaseURL)
 	markReplace(BootstrapConfigSecretRuntimeSecretEncryptionKey, current.SecretEncryptionKey, requested.SecretEncryptionKey)
 	markReplace(BootstrapConfigSecretAuthJWTSigningKey, current.AuthJWTSecret, requested.AuthJWTSecret)
-	markReplace(BootstrapConfigSecretMailSMTPPassword, current.Mail.SMTP.Password, requested.Mail.SMTP.Password)
 	markReplace(BootstrapConfigSecretTelemetryAuthorizationHeader, current.Telemetry.Exporter.Auth.AuthorizationHeader, requested.Telemetry.Exporter.Auth.AuthorizationHeader)
 	return updates
 }

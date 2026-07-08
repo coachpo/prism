@@ -24,7 +24,7 @@ Validated again against current repo surfaces on 2026-07-07:
 
 ## Shared Scope Rules
 
-- Public auth routes are `/auth/login`, `/auth/forgot-password`, and `/auth/reset-password`; legacy `/login`, `/forgot-password`, and `/reset-password` redirect there.
+- Public auth routes are `/auth/login`; legacy `/login` redirects there.
 - Protected shell routes cover `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/route/pricing`, `/system/settings`, and `/control/proxy-keys`; analytics is under `/observe?tab=analytics`.
 - `selectedProfile` controls profile-scoped management requests through `X-Profile-Id`.
 - Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/profiles/*`, `/api/settings/auth*`, `/api/realtime/ws`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
@@ -35,8 +35,6 @@ Validated again against current repo surfaces on 2026-07-07:
 **User entrypoints**
 
 - `/auth/login`
-- `/auth/forgot-password`
-- `/auth/reset-password`
 
 **Frontend flow**
 
@@ -300,7 +298,7 @@ Operational triage by symptom:
 - Lane budget pressure: identify the labeled DB lane first. `runtime_execution` protects proxy work; `management`, `realtime`, `cache_refresh`, `runtime_telemetry`, `runtime_feedback`, and `background_jobs` have separate budgets and should be remediated at their owning workload instead of increasing unrelated pools.
 - Overload or `Retry-After`: honor the retry delay and reduce client concurrency. M3 reporting and maintenance routes are expected to shed before M2/M1 management work, and management/background pressure should not affect proxy execution capacity.
 - Scheduler lag: expect delayed, coalesced, retried, or dropped background work according to worker policy. Do not add ad hoc goroutines or timers; register new recurring, retrying, or delayed work with the scheduler.
-- Outbox failures: inspect the relevant durable store state. Email outbox retries or dead-letters delivery without leaking OTPs or SMTP credentials; management side-effect outbox rows retry or become permanent failures without rolling back committed primary state.
+- Outbox failures: inspect the relevant durable store state. Management side-effect outbox rows retry or become permanent failures without rolling back committed primary state.
 - Runtime telemetry loss: accepted runtime activity intents should drain to the telemetry outbox unless terminal validation or forced shutdown prevents completion. Treat lost accepted telemetry as a durability incident.
 - Runtime feedback loss: feedback is best effort and may drop on queue full, invalid event, closed pipeline, or store failure. Drops should be accounted for, but they must not delay or fail proxy responses.
 - Audit or stat lag: raw audit reads remain bounded by time window and keyset cursor. Dashboard overview reads come from the canonical `/api/stats/dashboard` aggregate snapshot, including backend-computed Routing Health Map data, and broad deletes run as durable management jobs.

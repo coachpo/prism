@@ -9,7 +9,7 @@
 - Session persistence and refresh-token lifecycle: `store.go`, `types.go`, `tokens.go`, `routes_test.go`, `store_test.go`, `runtime_cache_test.go`
 - Cookie and request-token helpers: `cookies.go`, `request_tokens.go`
 - Proxy API key capture and usage writer: `proxy_key_usage_writer.go`, `../../proxykeyusage/`
-- - Realtime auth-state resolution used by `/api/realtime/ws`: `realtime.go`, `../../realtime/`
+- Realtime auth-state resolution used by `/api/realtime/ws`: `realtime.go`, `../../realtime/`
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.

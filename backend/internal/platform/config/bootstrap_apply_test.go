@@ -28,20 +28,6 @@ func TestBootstrapConfigApplyRegistryCoversPlanFields(t *testing.T) {
 		bootstrapFieldDatabaseManagementAdmissionM3Max,
 	}
 	restartFields := []string{
-		bootstrapFieldAuthResetCodeTTLSeconds,
-		bootstrapFieldMailEnabled,
-		bootstrapFieldMailFrom,
-		bootstrapFieldMailReplyTo,
-		bootstrapFieldMailSMTPHost,
-		bootstrapFieldMailSMTPPort,
-		bootstrapFieldMailSMTPMode,
-		bootstrapFieldMailSMTPEHLOHostname,
-		bootstrapFieldMailSMTPAuth,
-		bootstrapFieldMailSMTPUsername,
-		bootstrapFieldMailSMTPPasswordFile,
-		bootstrapFieldMailSMTPTimeout,
-		bootstrapFieldMailSMTPTLSServerName,
-		BootstrapConfigSecretMailSMTPPassword,
 		bootstrapFieldRuntimeSideEffectsAttemptTimeout,
 		bootstrapFieldTelemetryEnabled,
 		bootstrapFieldTelemetryExporterEndpoint,
@@ -218,7 +204,6 @@ func TestBootstrapConfigFieldDiffEmitsSecretUpdatePaths(t *testing.T) {
 	updates[BootstrapConfigSecretDatabaseURL] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
 	updates[BootstrapConfigSecretRuntimeSecretEncryptionKey] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
 	updates[BootstrapConfigSecretAuthJWTSigningKey] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
-	updates[BootstrapConfigSecretMailSMTPPassword] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
 	updates[BootstrapConfigSecretTelemetryAuthorizationHeader] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
 	diff, err := DiffBootstrapConfigFields(current, cloneManagementValues(t, current), updates)
 	if err != nil {
@@ -226,7 +211,6 @@ func TestBootstrapConfigFieldDiffEmitsSecretUpdatePaths(t *testing.T) {
 	}
 	assertBootstrapFieldsEqual(t, diff.ChangedHotApplyFields, nil)
 	assertBootstrapFieldsEqual(t, diff.ChangedRestartRequiredFields, []string{
-		BootstrapConfigSecretMailSMTPPassword,
 		BootstrapConfigSecretTelemetryAuthorizationHeader,
 		BootstrapConfigSecretDatabaseURL,
 		BootstrapConfigSecretRuntimeSecretEncryptionKey,
@@ -307,7 +291,6 @@ func preserveManagementSecretUpdates() map[string]BootstrapConfigSecretUpdate {
 		BootstrapConfigSecretDatabaseURL:                  {Action: BootstrapConfigSecretActionPreserve},
 		BootstrapConfigSecretRuntimeSecretEncryptionKey:   {Action: BootstrapConfigSecretActionPreserve},
 		BootstrapConfigSecretAuthJWTSigningKey:            {Action: BootstrapConfigSecretActionPreserve},
-		BootstrapConfigSecretMailSMTPPassword:             {Action: BootstrapConfigSecretActionPreserve},
 		BootstrapConfigSecretTelemetryAuthorizationHeader: {Action: BootstrapConfigSecretActionPreserve},
 	}
 }
