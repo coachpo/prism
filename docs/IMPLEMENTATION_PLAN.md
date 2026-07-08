@@ -198,7 +198,7 @@
 **前置：R1 已合入**（共享 `management_branch.go`/`dependencies.go`/`production.go`/`server_test.go`/`management_body_limits*`）。
 
 **Files:**
-- Delete: `backend/internal/httpapi/management/bootstrapconfig/`（3 文件整目录）；`backend/tests/contract/bootstrap_config_contract_test.go`；`backend/tests/integration/bootstrap_config_test.go`；`backend/internal/platform/config/bootstrap_management_test.go`；`frontend/src/features/settings/startup/`（8 文件整目录）；`frontend/src/lib/types/bootstrap-config.ts`；`frontend/tests/e2e/settings-startup-tab.spec.ts`；`frontend/tests/lib/bootstrap_config_contract.test.mjs`
+- Delete: `backend/internal/httpapi/management/bootstrapconfig/`（3 文件整目录）；`backend/tests/contract/bootstrap_config_contract_test.go`；`backend/tests/integration/bootstrap_config_test.go`；`backend/internal/platform/config/bootstrap_management_test.go`；`frontend/src/features/settings/startup/`（8 文件整目录）；`frontend/src/lib/types/bootstrap-config.ts`；`frontend/tests/e2e/settings-startup-tab.spec.ts`（已于测试精简批次 1 提前完成）；`frontend/tests/lib/bootstrap_config_contract.test.mjs`
 - Modify: 见下（核心是 `platform/config/` 的 KEEP/DELETE 切分）
 
 **Interfaces（KEEP，运行时内核）：** `config.go` 全部 Settings 解析；`bootstrap.go` 的加载路径——`NewBootstrapConfigManager`(:443)、`Load`(:447)、`LoadFromEnv`(:459)、`LoadOrSeed`(:467)、`LoadOrSeedFromEnv`(:492)、`LoadBootstrapConfigDocument`(:500)、`Parse`(:611)、`WriteAtomically`(:619)、`WriteAtomicallyIfAbsent`(:641)、`seedPayloadFromDefaults`(:1722)、`BootstrapConfigSnapshot`；`bootstrap_apply.go` 的分类核心——`BootstrapConfigHotApplyRuntime` 接口(:39)、字段注册表(:140-293)、`BootstrapConfigFieldDiff`；整个 `platform/http/hot_bootstrap_runtime.go`（它是全部管理服务的 CORS/admission provider；其 `Publish()`(:64) 失去唯一调用者——留 `// ponytail:` 注释，后续再修剪）。
@@ -269,7 +269,7 @@
 **前置：R3 已合入。策略：冻结不挖列**——所有 `profile_id` 列/FK/索引原样保留，解冻路径就是两处 `ponytail:` 注释。
 
 **Files:**
-- Delete: `backend/internal/httpapi/management/profiles/`（整包）；前端 `ProfileSwitcher.tsx`、`ProfileDialogs.tsx`、`useProfileSwitcherState.ts`、`useProfileDialogState.ts`、`navigationProfileConfig.ts`、`context/ProfileContext.tsx`、`context/profile/` 整目录、`frontend/tests/lib/profile_selection_contract.test.mjs`、`frontend/tests/e2e/profile-scope-bootstrap.spec.ts`、`profile-scope-route-headers.spec.ts`
+- Delete: `backend/internal/httpapi/management/profiles/`（整包）；前端 `ProfileSwitcher.tsx`、`ProfileDialogs.tsx`、`useProfileSwitcherState.ts`、`useProfileDialogState.ts`、`navigationProfileConfig.ts`、`context/ProfileContext.tsx`、`context/profile/` 整目录、`frontend/tests/lib/profile_selection_contract.test.mjs`、`frontend/tests/e2e/profile-scope-bootstrap.spec.ts`（已于测试精简批次 1 提前完成）、`profile-scope-route-headers.spec.ts`（已于测试精简批次 1 提前完成）
 - Modify: 钉点 + 接线见下；`backend/tests/runtime/profile_scope_test.go`（3,571 行**替换为一个钉死回归**，保留文件名）
 - **KEEP：** `backend/internal/profiledomain/` 整包（钉点所在 + `startup/profiles.go` 靠它保证 Default 存在）；`frontend/tests/lib/profile_scope_header_contract.test.mjs`（配合前端"继续发 header"的懒方案，原样存活）
 
@@ -342,13 +342,13 @@
 - [ ] **Step 1：** 整删 `frontend/src/pages/dashboard/routing-diagram/` 下 7 个 flow 文件：`RoutingDiagramFlow.tsx`、`RoutingDiagramFlowEdge.tsx`、`RoutingDiagramFlowNode.tsx`、`routingDiagramFlowState.ts`、`routingDiagramFlowLayout.ts`、`routingDiagramFlowEdgeStyle.ts`、`routingDiagramLayout.ts`。**保留**：`routingDiagramContracts.ts`、`RoutingDiagramMobileList.tsx`、`RoutingDiagramLegend.tsx`、`RoutingDiagramVisualizationShell.tsx`、`RoutingDiagramInspectorContent.tsx`、`routingDiagramPresentationUtils.ts`。
 - [ ] **Step 2：** `RoutingDiagramCard.tsx` 删桌面分支（:218 `data-testid="routing-diagram-desktop-pending"` 区域）与桌面/移动开关，恒走列表路径；barrel `routingDiagram.ts` 去已删模块再导出。**核查** `RoutingDiagramVisualizationShell` 的视口分支能单列降级。
 - [ ] **Step 3：** `main.tsx:7` 删 `import "@xyflow/react/dist/style.css"`；`package.json:29` 删 `"@xyflow/react"`。数据管道（`useDashboardBootstrapData`/`useDashboardPageData` 的 `routingDiagramData`、`DashboardPage.tsx:124-126` props）不动。
-- [ ] **Step 4：** i18n：仅删被已删文件独占引用的 key（en 有 97 处 `routing` 命中、zh 40 处——对幸存引用做差集；`RoutingDiagramShell.tsx:31-73` 与 MobileList 用的列表/空态 key 保留）。e2e `dashboard-routing-shell.spec.ts` 删。AGENTS：`routing-diagram/AGENTS.md`、`pages/dashboard/AGENTS.md:57` 改写为"纯列表"。
+- [ ] **Step 4：** i18n：仅删被已删文件独占引用的 key（en 有 97 处 `routing` 命中、zh 40 处——对幸存引用做差集；`RoutingDiagramShell.tsx:31-73` 与 MobileList 用的列表/空态 key 保留）。e2e `dashboard-routing-shell.spec.ts` 删（已于测试精简批次 1 提前完成）。AGENTS：`routing-diagram/AGENTS.md`、`pages/dashboard/AGENTS.md:57` 改写为"纯列表"。
 - [ ] **Step 5：** 验证：`rg -n "xyflow" frontend` → 0；标准验证 frontend；手测 `/observe?tab=routing` 渲染分区表、点节点仍开 inspector。
 - [ ] 提交：`git commit -m "feat: replace routing diagram flow rendering with plain list"`
 
 ### Task 14: R9a — 连接健康探测路由移除
 
-- [ ] **Step 1：** 整删 `management/connections/health.go`、`health_test.go`、`frontend/src/pages/model-detail/useConnectionHealthChecks.ts`、e2e `model-detail-connection-dialog-probe.spec.ts`、`frontend/tests/model-detail/connection_probe_behavior_contract.test.mjs`。
+- [ ] **Step 1：** 整删 `management/connections/health.go`、`health_test.go`、`frontend/src/pages/model-detail/useConnectionHealthChecks.ts`、e2e `model-detail-connection-dialog-probe.spec.ts`（已于测试精简批次 1 提前完成）、`frontend/tests/model-detail/connection_probe_behavior_contract.test.mjs`。
 - [ ] **Step 2：** `connections/service.go` 删 4 条挂载及 handler：:98（health-check-preview legacy 404）、:103（`POST .../connections/{connection_id}/health`）、:104、:114（legacy reject）；删 Service 结构体的 `persistedHealthChecks` singleflight 字段。
 - [ ] **Step 3：** 契约 JSON :17 删 health 行（grep `health` 确认含 legacy 行）；前端 `lib/api/management.ts:375` 方法 + :10 类型 import、`lib/types/routing.ts` 的 `HealthCheckResponse`、`useModelDetailDataSupport.ts` apply helpers、`ConnectionDialog.tsx` 按钮/props、`ModelDetailFeaturePage.tsx` + `useModelDetailFeatureData.ts` 接线（prop 名先 `rg -n "HealthCheckResponse" frontend/src` 枚举）；i18n 删 ConnectionDialog 的 health-check 文案 key；`API_SPEC.md` 对应段。README:24 成功率徽章句不动（那是请求数据驱动的，非探测）。
 - [ ] **Step 4：** 验证：`rg -in "healthcheck" backend/internal/httpapi/management/connections frontend/src` → 0（平台 `/health` 存活探针无关，保留）；标准验证。

@@ -32,7 +32,7 @@ func TestGenerationInvalidationRace(t *testing.T) {
 		"ErrRuntimeSnapshotGenerationChanged",
 		"LoadFreshRuntimeAuthSettings",
 		"LoadFreshRuntimeProxyKeyRecord",
-		"LoadFreshActiveRuntimePlan",
+		"LoadFreshDefaultRuntimePlan",
 	} {
 		if !strings.Contains(cacheSource, want) && !strings.Contains(generationSource, want) {
 			t.Fatalf("runtime cache generation implementation missing %q", want)

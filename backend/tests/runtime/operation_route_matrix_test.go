@@ -250,8 +250,8 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			responseContains:  "totalTokens",
 		},
 	}
-	if len(tests) != 11 {
-		t.Fatalf("route matrix must cover exactly 11 registered POST operations, got %d", len(tests))
+	if len(tests) != 9 {
+		t.Fatalf("route matrix must cover exactly 9 registered POST operations, got %d", len(tests))
 	}
 
 	for _, test := range tests {

@@ -642,7 +642,8 @@ func (h *runtimeHarness) createProfile(t *testing.T, name string) int {
 	var profileID int
 	if err := h.conn.QueryRow(
 		context.Background(),
-		`INSERT INTO profiles (name, description, is_active, is_default, is_editable, version, created_at, updated_at) VALUES ($1, $1, FALSE, FALSE, TRUE, 1, $2, $2) RETURNING id`,
+		`INSERT INTO profiles (name, description, is_active, is_default, is_editable, version, created_at, updated_at) VALUES ($1, $2, FALSE, FALSE, TRUE, 1, $3, $3) RETURNING id`,
+		name,
 		name,
 		now,
 	).Scan(&profileID); err != nil {
