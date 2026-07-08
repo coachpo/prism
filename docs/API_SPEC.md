@@ -9,12 +9,12 @@ Prism does not expose a backend-local `/metrics` operations endpoint. Configure 
 ## 0. Profile Context Semantics
 - Prism has three route classes:
   - Global management routes, which omit `X-Profile-Id`.
-  - Profile-scoped management routes, which require `X-Profile-Id` and resolve against the selected profile.
+  - Profile-scoped management routes, which accept `X-Profile-Id` but ignore its value and resolve against Default profile id `1`.
   - Runtime proxy routes, which always use the active profile and ignore management scope overrides.
 - Proxy endpoints (`/v1/*`, `/v1beta/*`) always use the active profile and ignore management scope overrides.
-- Global management routes include `/api/profiles/*`, `/api/auth/*`, `/api/realtime/*`, `/api/settings/auth*`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
+- Global management routes include `/api/auth/*`, `/api/realtime/*`, `/api/settings/auth*`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
 - Profile-scoped management routes include `/api/config/header-blocklist-rules*`, `/api/config/user-agent-client-rules*`, `/api/settings/costing`, `/api/settings/timezone`, `/api/settings/audit`, `/api/stats/*`, `/api/audit/*`, `/api/loadbalance/*`, `/api/models/*`, `/api/endpoints/*`, and `/api/connections/*`.
-- Detail endpoints return `404` when a resource exists in another profile but not in the effective profile context.
+- Detail endpoints return `404` when a resource exists outside Default profile id `1`.
 - Scope-control failures return structured JSON with `code` and `detail`, where `code` is stable for machine handling and `detail` is safe to show to operators.
 
 
@@ -25,114 +25,8 @@ Prism does not expose a backend-local `/metrics` operations endpoint. Configure 
 Prism loads steady-state startup settings from the plaintext `config.json` selected by `PRISM_CONFIG_PATH`. R2 removed the management API for editing that file; external edits require a Prism restart before they affect the running process.
 
 ### 1.1 Profiles
-#### List Profiles
-```
-GET /api/profiles
-```
-Response `200`: Array of profile objects.
-```json
-[
-  {
-    "id": 1,
-    "name": "Default",
-    "description": "System default profile",
-    "is_active": true,
-    "is_default": true,
-    "is_editable": true,
-    "version": 5,
-    "created_at": "2025-01-01T00:00:00Z",
-    "updated_at": "2025-01-01T00:00:00Z"
-  }
-]
-```
 
-#### Bootstrap Profiles for the Shell
-```
-GET /api/profiles/bootstrap
-```
-Response `200`:
-```json
-{
-  "profiles": [
-    {
-      "id": 1,
-      "name": "Default",
-      "description": "System default profile",
-      "is_active": true,
-      "is_default": true,
-      "is_editable": true,
-      "version": 5,
-      "created_at": "2025-01-01T00:00:00Z",
-      "updated_at": "2025-01-01T00:00:00Z"
-    }
-  ],
-  "active_profile": {
-    "id": 1,
-    "name": "Default",
-    "description": "System default profile",
-    "is_active": true,
-    "is_default": true,
-    "is_editable": true,
-    "version": 5,
-    "created_at": "2025-01-01T00:00:00Z",
-    "updated_at": "2025-01-01T00:00:00Z"
-  },
-  "profile_limits": {
-    "max_profiles": 10
-  }
-}
-```
-
-`active_profile` may be `null` when no runtime profile is currently active. The frontend shell uses this bootstrap endpoint as its single source for profile list, active-profile runtime metadata, and the max-profile creation cap.
-
-#### Get Active Profile
-```
-GET /api/profiles/active
-```
-Response `200`: Active profile object (same schema as list item).
-
-#### Create Profile
-```
-POST /api/profiles
-```
-Request:
-```json
-{
-  "name": "Profile A",
-  "description": "OpenAI workspace"
-}
-```
-Response `201`: Created profile object.
-Returns `409` if 10 non-deleted profiles already exist.
-New profiles are always created with `is_default=false` and `is_editable=true`.
-
-#### Update Profile
-```
-PATCH /api/profiles/{id}
-```
-Request fields: `name` (optional), `description` (optional).
-Response `200`: Updated profile object.
-Returns `400` if attempting to update a non-editable profile.
-
-#### Activate Profile (CAS)
-```
-POST /api/profiles/{id}/activate
-```
-Request:
-```json
-{
-  "expected_active_profile_id": 1
-}
-```
-Response `200`: Updated active profile object.
-Returns `409` when the expected active profile ID no longer matches the current active profile.
-
-#### Delete Profile
-```
-DELETE /api/profiles/{id}
-```
-Response `200`: `{ "deleted": true }` for deletable profiles.
-Returns `400` if the target profile is currently active or is the default profile.
+The profile management API is frozen. Prism preserves the `profiles` table and all `profile_id` storage columns, but no longer exposes `/api/profiles*` management routes. Profile-scoped management APIs are pinned to Default profile id `1`.
 
 ---
 
@@ -467,7 +361,7 @@ Target semantics:
 - `PATCH /api/models/{model_config_id}/targets/{target_id}/position` is the dedicated move route and accepts `to_index`.
 - Existing internal `target_type="connection"` rows identify the source model that owns a private connection and provide the runtime terminal routing edge.
 - Target positions are contiguous starting at `0` and determine routing order for that source model. Position is an ordering key only, not a priority, tier, or weight replacement.
-- Target validation is selected-profile scoped, same-family, enabled-target aware, and cycle-safe.
+- Target validation is Default-profile scoped, same-family, enabled-target aware, and cycle-safe.
 
 #### Base URL Validation
 
@@ -595,7 +489,7 @@ Response `200`:
 }
 ```
 
-`/api/settings/auth*` routes are global management endpoints. `/api/settings/costing`, `/api/settings/timezone`, and `/api/settings/audit` are profile-scoped and require `X-Profile-Id`.
+`/api/settings/auth*` routes are global management endpoints. `/api/settings/costing`, `/api/settings/timezone`, and `/api/settings/audit` are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
 
 #### Update Costing Settings
 ```
@@ -625,7 +519,7 @@ GET /api/settings/timezone
 Response `200`:
 ```json
 {
-  "profile_id": 2,
+  "profile_id": 1,
   "timezone_preference": "Europe/Helsinki"
 }
 ```
@@ -794,7 +688,7 @@ The former CLIProxyAPI management control plane and runtime context-overflow pro
 
 Prism's runtime proxy is an explicit allowlist, not a full vendor API clone. It supports only the operations listed in this section through the active profile. Other vendor routes, including stored-object, retrieve, delete, cancel, embedding, file, batch, and admin APIs, are outside Prism's runtime contract unless they appear in this allowlist.
 
-Runtime proxy routes ignore management `X-Profile-Id` overrides and always use the active runtime profile. Selected-profile management scope changes configuration reads and writes only; it does not switch proxy traffic.
+Runtime proxy routes ignore management `X-Profile-Id` overrides and always use the active runtime profile. Profile-scoped management reads and writes are pinned to Default profile id `1`; they do not switch proxy traffic.
 
 ### 2.1 Supported Runtime Operations
 
@@ -1049,7 +943,7 @@ The health contract is not version only. It is the operator-facing target for ba
 
 ## 4. Statistics API
 
-Stats APIs are profile-scoped and require `X-Profile-Id`.
+Stats APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
 
 ### 4.0 Dashboard Stats
 ```
@@ -1157,7 +1051,7 @@ Response `200`:
 }
 ```
 
-`routing_health_map` and `topology_graph` are assembled by the backend from selected-profile model, access-target, endpoint, connection, and final-attributed usage-event data. API clients must not rebuild route edges from separate management reads. Disabled models remain as muted `status="disabled"` model nodes, inactive terminal targets remain as muted `status="inactive"` nodes with `active=false`, and terminal-target nodes retain `connection_id` as the persisted compatibility identifier. During the additive compatibility wave, the backend keeps topology compatibility kinds (`kind="connection"`, `kind="model_to_connection"`, and `kind="connection_to_endpoint"`) while exposing product-facing terminal-target meaning through `product_kind`.
+`routing_health_map` and `topology_graph` are assembled by the backend from Default-profile model, access-target, endpoint, connection, and final-attributed usage-event data. API clients must not rebuild route edges from separate management reads. Disabled models remain as muted `status="disabled"` model nodes, inactive terminal targets remain as muted `status="inactive"` nodes with `active=false`, and terminal-target nodes retain `connection_id` as the persisted compatibility identifier. During the additive compatibility wave, the backend keeps topology compatibility kinds (`kind="connection"`, `kind="model_to_connection"`, and `kind="connection_to_endpoint"`) while exposing product-facing terminal-target meaning through `product_kind`.
 
 ### 4.0A Dashboard Recent Activity
 ```
@@ -1538,7 +1432,7 @@ GET /api/settings/log-retention
 PUT /api/settings/log-retention
 ```
 
-These routes are global and do not use `X-Profile-Id`. They store the instance-wide normal retention policy for all profiles. Request-log, audit-log, statistics, and load-balance list/detail APIs still filter by selected profile, but retention settings do not.
+These routes are global and do not use `X-Profile-Id`. They store the instance-wide normal retention policy for all profiles. Request-log, audit-log, statistics, and load-balance list/detail APIs are pinned to Default profile id `1`, but retention settings do not.
 
 Request and response fields:
 | Field | Type | Description |
@@ -1679,7 +1573,7 @@ Unpriced reasons distinguish pricing configuration gaps from observed usage gaps
 
 ## 5. Audit API
 
-Audit APIs are profile-scoped and require `X-Profile-Id`.
+Audit APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
 
 ### 5.0 API-Family Audit Settings
 ```
@@ -1687,12 +1581,12 @@ GET /api/settings/audit
 PUT /api/settings/audit
 ```
 
-`/api/settings/audit` is selected-profile scoped through `X-Profile-Id`. `GET` returns exactly three rows in stable order: `openai`, `anthropic`, `gemini`. Missing persisted rows default to `audit_enabled=false` and `audit_capture_bodies=false`.
+`/api/settings/audit` is pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored. `GET` returns exactly three rows in stable order: `openai`, `anthropic`, `gemini`. Missing persisted rows default to `audit_enabled=false` and `audit_capture_bodies=false`.
 
 Response `200`:
 ```json
 {
-  "profile_id": 2,
+  "profile_id": 1,
   "settings": [
     { "api_family": "openai", "audit_enabled": true, "audit_capture_bodies": false },
     { "api_family": "anthropic", "audit_enabled": false, "audit_capture_bodies": false },
@@ -1809,7 +1703,7 @@ Response `404`: Audit log not found.
 
 ### 5.3 Audit Log Retention
 
-Audit log list and detail APIs remain selected-profile scoped. Normal audit-log cleanup is global and uses `POST /api/maintenance/log-retention/jobs` with `table = "audit_logs"`, or the stored `audit_logs_retention_days` value from `/api/settings/log-retention`.
+Audit log list and detail APIs remain pinned to Default profile id `1`. Normal audit-log cleanup is global and uses `POST /api/maintenance/log-retention/jobs` with `table = "audit_logs"`, or the stored `audit_logs_retention_days` value from `/api/settings/log-retention`.
 
 The retired audit cleanup endpoints are not part of the current API. Retention jobs return `202` with a job object, not a boolean acknowledgement.
 
@@ -1874,7 +1768,7 @@ When body capture is enabled for the request, Prism stores the captured request 
 
 ## 6. Loadbalance API
 
-Loadbalance APIs are profile-scoped and require `X-Profile-Id`.
+Loadbalance APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
 
 ### 6.1 List Loadbalance Strategies
 ```
@@ -1888,7 +1782,7 @@ POST /api/loadbalance/strategies/defaults
 ```
 No request body.
 
-This endpoint is selected-profile scoped through `X-Profile-Id` and creates the canonical explicit Ban Policy defaults for that profile only: `Default single routing`, `Default fill-first routing`, and `Default round-robin routing`.
+This endpoint is pinned to Default profile id `1` and creates the canonical explicit Ban Policy defaults for that profile only: `Default single routing`, `Default fill-first routing`, and `Default round-robin routing`.
 
 Response `200`:
 ```json
@@ -1896,7 +1790,7 @@ Response `200`:
   "items": [
     {
       "id": 12,
-      "profile_id": 3,
+      "profile_id": 1,
       "name": "Default fill-first routing",
       "legacy_strategy_type": "fill-first",
       "failure_status_codes": [403, 422, 429, 500, 502, 503, 504, 529],
@@ -1918,7 +1812,7 @@ Response `200`:
 
 The response includes the full current strategy list in `items` plus creation metadata so the caller can tell which canonical rows were created versus already present.
 
-Returns `409` when one or more canonical default names are already occupied by non-canonical strategies in the selected profile. In that case, the error payload includes `code` plus `detail.conflicting_names` with the conflicting names.
+Returns `409` when one or more canonical default names are already occupied by non-canonical strategies in Default profile id `1`. In that case, the error payload includes `code` plus `detail.conflicting_names` with the conflicting names.
 
 ### 6.3 Create Loadbalance Strategy
 ```
@@ -2112,7 +2006,7 @@ Response `200`: Single event object with the same Ban Policy retry-window metada
 
 ### 6.11 Loadbalance Event Retention
 
-Loadbalance event list and detail APIs remain selected-profile scoped. Normal cleanup is global and uses `POST /api/maintenance/log-retention/jobs` with `table = "loadbalance_events"`, or the stored `loadbalance_events_retention_days` value from `/api/settings/log-retention`.
+Loadbalance event list and detail APIs remain pinned to Default profile id `1`. Normal cleanup is global and uses `POST /api/maintenance/log-retention/jobs` with `table = "loadbalance_events"`, or the stored `loadbalance_events_retention_days` value from `/api/settings/log-retention`.
 
 The retired load-balance cleanup endpoint is not part of the current API. Retention jobs return `202` with a job object, not a boolean acknowledgement.
 
@@ -2353,7 +2247,7 @@ Scope-control errors follow this format:
 ```json
 {
   "code": "profile_scope_header_missing",
-  "detail": "X-Profile-Id header is required"
+  "detail": "resource not found in Default profile"
 }
 ```
 
@@ -2361,7 +2255,7 @@ Scope-control errors follow this format:
 |---|---|
 | 400 | Bad request (invalid input) |
 | 404 | Resource not found |
-| 409 | Conflict (stale activation CAS version, profile capacity reached, or duplicate scoped identifier) |
+| 409 | Conflict (duplicate scoped identifier) |
 | 502 | Upstream service error |
 | 503 | No active Terminal Targets available |
 

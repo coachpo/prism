@@ -18,7 +18,6 @@ func TestRuntimeCacheInvalidation(t *testing.T) {
 	t.Run("AuthCacheInvalidationAfterProxyKeyRetire", runtimeAuthCacheInvalidationAfterProxyKeyRetire)
 	t.Run("AuthCacheInvalidationAfterProxyKeyExpiryMutation", runtimeAuthCacheInvalidationAfterProxyKeyExpiryMutation)
 	t.Run("AuthCacheInvalidationAfterAuthDisable", runtimeAuthCacheInvalidationAfterAuthDisable)
-	t.Run("AfterActiveProfileActivation", runtimeCacheInvalidationAfterActiveProfileActivation)
 	t.Run("PlanningCacheInvalidationAfterHeaderBlocklistWrite", runtimePlanningCacheInvalidationAfterHeaderBlocklistWrite)
 	t.Run("PlanningCacheInvalidationAfterAuditSettingsWrite", runtimePlanningCacheInvalidationAfterAuditSettingsWrite)
 	t.Run("PlanningCacheInvalidationAfterOwnerScopedConnectionAndTargetMutations", runtimePlanningCacheInvalidationAfterOwnerScopedConnectionAndTargetMutations)
@@ -254,81 +253,6 @@ func runtimeAuthCacheInvalidationAfterAuthDisable(t *testing.T) {
 	assertRuntimeCacheInvalidationVisibleWithin(t, disableVisibleAt, "auth disable runtime publication")
 	if got := len(upstream.requestsSnapshot()); got != 1 {
 		t.Fatalf("expected runtime request without proxy key to reach upstream immediately after auth disable, got %d upstream requests", got)
-	}
-}
-
-func runtimeCacheInvalidationAfterActiveProfileActivation(t *testing.T) {
-	harness := newRuntimeHarness(t)
-	activeProfileID := harness.activeProfileID(t)
-	standbyProfileID := harness.createProfile(t, "Cache Activation Standby")
-	suffix := randomSuffix()
-	publicModelID := "cache-active-profile-" + suffix
-	activeRoute := harness.seedProxyRoute(t, runtimeRouteSeed{
-		ProfileID:       activeProfileID,
-		APIFamily:       "openai",
-		PublicModelID:   publicModelID,
-		TargetModelID:   "cache-active-target-" + suffix,
-		EndpointBaseURL: harness.upstream.baseURL("/cache-invalidation/active-profile"),
-		EndpointAPIKey:  "cache-active-profile-key",
-	})
-	standbyRoute := harness.seedProxyRoute(t, runtimeRouteSeed{
-		ProfileID:       standbyProfileID,
-		APIFamily:       "openai",
-		PublicModelID:   publicModelID,
-		TargetModelID:   "cache-standby-target-" + suffix,
-		EndpointBaseURL: harness.upstream.baseURL("/cache-invalidation/standby-profile"),
-		EndpointAPIKey:  "cache-standby-profile-key",
-	})
-
-	initialResponse := harness.requestJSON(
-		t,
-		http.MethodPost,
-		"/v1/chat/completions",
-		map[string]any{
-			"messages": []map[string]any{{"role": "user", "content": "prime active profile cache"}},
-			"model":    publicModelID,
-		},
-		nil,
-	)
-	assertStatus(t, initialResponse, http.StatusOK)
-
-	firstRequest := harness.upstream.lastRequest(t)
-	if firstRequest.Path != "/cache-invalidation/active-profile/v1/chat/completions" {
-		t.Fatalf("expected cached active profile to route through %q before activation, got %q", "/cache-invalidation/active-profile/v1/chat/completions", firstRequest.Path)
-	}
-	if firstRequest.Headers.Get("Authorization") != "Bearer "+activeRoute.EndpointAPIKey {
-		t.Fatalf("expected active profile upstream authorization header, got %q", firstRequest.Headers.Get("Authorization"))
-	}
-	if got := requestModelID(t, firstRequest.Body); got != activeRoute.TargetModelID {
-		t.Fatalf("expected active profile upstream model %q before activation, got %q", activeRoute.TargetModelID, got)
-	}
-
-	harness.activateProfile(t, standbyProfileID, activeProfileID)
-	harness.upstream.clear()
-
-	activationVisibleAt := time.Now()
-	activatedResponse := harness.requestJSON(
-		t,
-		http.MethodPost,
-		"/v1/chat/completions",
-		map[string]any{
-			"messages": []map[string]any{{"role": "user", "content": "read newly activated profile"}},
-			"model":    publicModelID,
-		},
-		nil,
-	)
-	assertStatus(t, activatedResponse, http.StatusOK)
-	assertRuntimeCacheInvalidationVisibleWithin(t, activationVisibleAt, "active-profile activation")
-
-	secondRequest := harness.upstream.lastRequest(t)
-	if secondRequest.Path != "/cache-invalidation/standby-profile/v1/chat/completions" {
-		t.Fatalf("expected activation write to invalidate cached active profile and route through %q, got %q", "/cache-invalidation/standby-profile/v1/chat/completions", secondRequest.Path)
-	}
-	if secondRequest.Headers.Get("Authorization") != "Bearer "+standbyRoute.EndpointAPIKey {
-		t.Fatalf("expected newly active profile upstream authorization header, got %q", secondRequest.Headers.Get("Authorization"))
-	}
-	if got := requestModelID(t, secondRequest.Body); got != standbyRoute.TargetModelID {
-		t.Fatalf("expected newly active profile upstream model %q after activation, got %q", standbyRoute.TargetModelID, got)
 	}
 }
 

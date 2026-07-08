@@ -1,4 +1,3 @@
-import { useProfileContext } from "@/context/ProfileContext"
 import { useLocale } from "@/i18n/useLocale"
 import { OperatorCallout, OperatorPageHeader, OperatorPageShell, OperatorTypeBadge } from "@/shared/design-system"
 import { DeletePricingTemplateDialog } from "@/pages/pricing-templates/DeletePricingTemplateDialog"
@@ -9,10 +8,9 @@ import { usePricingFeatureData } from "./usePricingFeatureData"
 
 export function PricingFeaturePage() {
   const { messages } = useLocale()
-  const { selectedProfile, revision } = useProfileContext()
   const copy = messages.pricingTemplatesUi
-  const data = usePricingFeatureData(revision)
-  const selectedProfileLabel = selectedProfile ? `${selectedProfile.name} (#${selectedProfile.id})` : copy.selectedProfileFallback
+  const data = usePricingFeatureData(0)
+  const selectedProfileLabel = "Default (#1)"
 
   return (
     <OperatorPageShell data-testid="pricing-feature-page">

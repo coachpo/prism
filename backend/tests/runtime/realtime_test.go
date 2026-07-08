@@ -27,7 +27,6 @@ import (
 	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
-	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	realtimeapi "github.com/coachpo/prism/backend/internal/httpapi/realtime"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
@@ -1125,11 +1124,6 @@ func newRealtimeHarnessWithConfig(t *testing.T, harnessConfig realtimeHarnessCon
 		t.Fatalf("build S16 auth service: %v", err)
 	}
 	t.Cleanup(authService.Close)
-	profilesService, err := managementprofiles.NewService(settings, managementprofiles.Options{Pool: pool})
-	if err != nil {
-		t.Fatalf("build S16 profiles service: %v", err)
-	}
-	t.Cleanup(profilesService.Close)
 	modelsService, err := managementmodels.NewService(settings, managementmodels.Options{Pool: pool, Now: func() time.Time { return fixedNow }})
 	if err != nil {
 		t.Fatalf("build S16 models service: %v", err)
@@ -1158,7 +1152,7 @@ func newRealtimeHarnessWithConfig(t *testing.T, harnessConfig realtimeHarnessCon
 		t.Fatalf("build S16 runtime service: %v", err)
 	}
 	t.Cleanup(runtimeService.Close)
-	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{Version: "s16-runtime-test", AuthService: authService, ModelsService: modelsService, ProfilesService: profilesService, RealtimeService: realtimeService, RuntimeService: runtimeService, StatsService: statsService})
+	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{Version: "s16-runtime-test", AuthService: authService, ModelsService: modelsService, RealtimeService: realtimeService, RuntimeService: runtimeService, StatsService: statsService})
 	if err != nil {
 		t.Fatalf("build S16 handler: %v", err)
 	}
@@ -1170,7 +1164,7 @@ func newRealtimeHarnessWithConfig(t *testing.T, harnessConfig realtimeHarnessCon
 	}
 	client := server.Client()
 	client.Jar = jar
-	baseHarness := &runtimeHarness{databaseName: databaseName, client: client, conn: conn, authService: authService, profilesService: profilesService, runtimeService: runtimeService, runtimeCache: runtimeCache, server: server, url: server.URL, upstream: upstream}
+	baseHarness := &runtimeHarness{databaseName: databaseName, client: client, conn: conn, authService: authService, runtimeService: runtimeService, runtimeCache: runtimeCache, server: server, url: server.URL, upstream: upstream}
 	return &realtimeHarness{runtimeHarness: baseHarness, realtimeService: realtimeService, statsService: statsService, asyncDashboardPublisher: asyncDashboardPublisher, fixedNow: fixedNow}
 }
 

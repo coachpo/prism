@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useProfileContext } from "@/context/ProfileContext";
 import { useLocale } from "@/i18n/useLocale";
 import {
   clearUserTimezonePreference,
@@ -16,11 +15,10 @@ function getBrowserTimezone(): string {
 }
 
 export function useTimezone() {
-  const { revision, selectedProfileId } = useProfileContext();
   const { locale } = useLocale();
   const [timezone, setTimezone] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const timezoneKey = `${selectedProfileId ?? "none"}:${revision}`;
+  const timezoneKey = "1:0";
 
   useEffect(() => {
     let mounted = true;

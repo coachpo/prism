@@ -10,7 +10,7 @@ src/
 ├── features/     # active protected route modules
 ├── pages/        # legacy/oracle page clusters and dense page helpers
 ├── components/   # shell chrome, shared widgets, generated UI primitives
-├── context/      # auth, selected profile, theme, reporting currency
+├── context/      # auth, theme, reporting currency
 ├── hooks/        # shared React hooks
 ├── i18n/         # locale provider, formatting, static messages
 ├── lib/          # typed API, websocket, reference data, browser integration
@@ -25,7 +25,7 @@ src/
 - Active protected route modules and feature-local page/data handoffs: `features/AGENTS.md`
 - Legacy page clusters, dense request-log/settings/statistics/dashboard surfaces, and page-local child docs: `pages/AGENTS.md`
 - Shell chrome, shared widgets, generated primitives, and component-only ownership: `components/AGENTS.md`
-- Auth, selected-profile headers, active-runtime separation, and reporting-currency readiness: `context/AGENTS.md`
+- Auth, pinned profile headers, and reporting-currency readiness: `context/AGENTS.md`
 - Realtime consumers and shared hooks: `hooks/AGENTS.md`, `lib/websocket/AGENTS.md`
 - Typed API, websocket singleton, reference data, and request plumbing: `lib/AGENTS.md`
 - Shared design-system wrappers, table/form helpers, and cross-route utilities: `shared/AGENTS.md`
@@ -36,7 +36,7 @@ src/
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `../DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
 - Keep route state and data fetching in `app/`, `features/`, `pages/`, or `lib/`; never in generated UI primitives.
 - Keep `features/` thin at the route boundary. Reuse `pages/` clusters until a route is fully migrated.
-- Keep selected-profile management scope separate from active runtime routing. `X-Profile-Id` is a management API concern.
+- Keep management scope pinned to Default id=1. `X-Profile-Id` is still sent for profile-scoped management routes but no UI state chooses it.
 - Keep reporting-currency cache and readiness in `context/ReportingCurrencyContext.tsx` and `lib/reportingCurrency.ts`.
 - Keep realtime ownership in `lib/websocket.ts`; prefer shared hooks instead of ad hoc websocket clients.
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep frontend env vars to transport/build wiring such as `VITE_API_BASE`, launcher proxy envs, and build metadata.

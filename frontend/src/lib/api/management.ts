@@ -29,11 +29,6 @@ import type {
   PricingTemplateConnectionsResponse,
   PricingTemplateCreate,
   PricingTemplateUpdate,
-  Profile,
-  ProfileActivateRequest,
-  ProfileBootstrapResponse,
-  ProfileCreate,
-  ProfileUpdate,
 } from "../types";
 import { normalizeFailureStatusCodes } from "../loadbalanceRoutingPolicy";
 import { request } from "./core";
@@ -277,28 +272,6 @@ function normalizeModelConfig(model: RawModelConfig): ManagedModelConfig {
     updated_at: model.updated_at,
   };
 }
-
-export const profiles = {
-  bootstrap: () => request<ProfileBootstrapResponse>("/api/profiles/bootstrap"),
-  list: () => request<Profile[]>("/api/profiles"),
-  getActive: () => request<Profile>("/api/profiles/active"),
-  create: (data: ProfileCreate) =>
-    request<Profile>("/api/profiles", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-  update: (id: number, data: ProfileUpdate) =>
-    request<Profile>(`/api/profiles/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify(data),
-    }),
-  delete: (id: number) => request<void>(`/api/profiles/${id}`, { method: "DELETE" }),
-  activate: (id: number, payload: ProfileActivateRequest) =>
-    request<Profile>(`/api/profiles/${id}/activate`, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-};
 
 export const models = {
   list: () =>

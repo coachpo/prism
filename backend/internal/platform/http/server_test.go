@@ -21,7 +21,6 @@ import (
 	managementendpoints "github.com/coachpo/prism/backend/internal/httpapi/management/endpoints"
 	managementloadbalance "github.com/coachpo/prism/backend/internal/httpapi/management/loadbalance"
 	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
-	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
 	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	realtimeapi "github.com/coachpo/prism/backend/internal/httpapi/realtime"
@@ -44,13 +43,12 @@ func TestManagementRouteSpecClassification(t *testing.T) {
 		ok     bool
 	}{
 		{name: "protected auth route", method: http.MethodGet, path: "/api/auth/status", want: priority.ManagementTierM1, ok: true},
-		{name: "protected profile activation route", method: http.MethodPost, path: "/api/profiles/42/activate", want: priority.ManagementTierM1, ok: true},
 		{name: "general management route has explicit m2 tier", method: http.MethodGet, path: "/api/settings/auth/proxy-keys", want: priority.ManagementTierM2, ok: true},
 		{name: "connection batch read uses m2 tier", method: http.MethodPost, path: "/api/models/connections/batch", want: priority.ManagementTierM2, ok: true},
 		{name: "first shed stats route", method: http.MethodGet, path: "/api/stats/summary", want: priority.ManagementTierM3, ok: true},
 		{name: "trimmed mounted path still matches", method: http.MethodGet, path: "/realtime/ws", want: priority.ManagementTierM3, ok: true},
-		{name: "head maps to get", method: http.MethodHead, path: "/api/profiles/active", want: priority.ManagementTierM1, ok: true},
-		{name: "options bypasses admission", method: http.MethodOptions, path: "/api/profiles", ok: false},
+		{name: "head maps to get", method: http.MethodHead, path: "/api/auth/status", want: priority.ManagementTierM1, ok: true},
+		{name: "options bypasses admission", method: http.MethodOptions, path: "/api/models", ok: false},
 		{name: "unknown management path stays unadmitted for router 404", method: http.MethodGet, path: "/api/not-mounted", ok: false},
 	}
 
@@ -193,7 +191,7 @@ func TestManagementAdmissionControllerKeepsProtectedRoutesIsolated(t *testing.T)
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
-	request := httptest.NewRequest(http.MethodGet, "/api/profiles/active", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/auth/status", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 
@@ -342,7 +340,6 @@ func TestNewHandlerWithDependenciesMountsBaselineRoutes(t *testing.T) {
 		Version:         "route-assembly-test",
 		DatabasePools:   &platformdb.DatabasePools{},
 		AuthService:     &managementauth.Service{},
-		ProfilesService: &managementprofiles.Service{},
 		RealtimeService: &realtimeapi.Service{},
 		RuntimeService:  &runtimeapi.Service{},
 	})
@@ -360,7 +357,6 @@ func TestNewHandlerWithDependenciesMountsBaselineRoutes(t *testing.T) {
 	}{
 		{method: http.MethodGet, path: "/health"},
 		{method: http.MethodGet, path: "/api/auth/status"},
-		{method: http.MethodGet, path: "/api/profiles/active"},
 		{method: http.MethodGet, path: "/api/realtime/ws"},
 		{method: http.MethodPost, path: "/v1/chat/completions"},
 		{method: http.MethodPost, path: "/v1/messages"},
@@ -398,7 +394,6 @@ func TestManagementRouteSpecsCoverMountedRoutes(t *testing.T) {
 		&managementendpoints.Service{},
 		&managementloadbalance.Service{},
 		&managementmodels.Service{},
-		&managementprofiles.Service{},
 		&realtimeapi.Service{},
 		&managementsettings.Service{},
 		&managementstats.Service{},
@@ -472,9 +467,8 @@ func expectedRuntimeCacheInvalidationAction(row managementRouteContractRow, meth
 		return runtimeCacheInvalidationAction{}
 	}
 	action := runtimeCacheInvalidationAction{
-		auth:          row.InvalidatesAuth,
-		activeProfile: row.InvalidatesActiveProfile,
-		planningAll:   row.InvalidatesAllPlanning,
+		auth:        row.InvalidatesAuth,
+		planningAll: row.InvalidatesAllPlanning,
 	}
 	if row.InvalidatesPlanning {
 		action.planningIDs = []int{42}
@@ -484,7 +478,7 @@ func expectedRuntimeCacheInvalidationAction(row managementRouteContractRow, meth
 
 func assertRuntimeCacheInvalidationActionEqual(t *testing.T, method string, path string, got runtimeCacheInvalidationAction, want runtimeCacheInvalidationAction) {
 	t.Helper()
-	if got.auth != want.auth || got.activeProfile != want.activeProfile || got.planningAll != want.planningAll || !reflect.DeepEqual(got.planningIDs, want.planningIDs) {
+	if got.auth != want.auth || got.planningAll != want.planningAll || !reflect.DeepEqual(got.planningIDs, want.planningIDs) {
 		t.Fatalf("classifyRuntimeCacheInvalidation(%q, %q) = %+v, want %+v", method, path, got, want)
 	}
 }
@@ -494,7 +488,6 @@ func TestManagementRouteContractClassifiesRuntimeCacheInvalidation(t *testing.T)
 
 	routeContract := loadManagementRouteContract(t)
 	seenAuthInvalidation := false
-	seenActiveProfileInvalidation := false
 	seenPlanningInvalidation := false
 	seenProfileScopedNonInvalidatingRead := false
 	seenProfileScopedNonInvalidatingMutation := false
@@ -503,9 +496,6 @@ func TestManagementRouteContractClassifiesRuntimeCacheInvalidation(t *testing.T)
 		path := sampleManagementRoutePath(row.RoutePattern)
 		if row.InvalidatesAuth {
 			seenAuthInvalidation = true
-		}
-		if row.InvalidatesActiveProfile {
-			seenActiveProfileInvalidation = true
 		}
 		if row.InvalidatesPlanning {
 			seenPlanningInvalidation = true
@@ -540,9 +530,6 @@ func TestManagementRouteContractClassifiesRuntimeCacheInvalidation(t *testing.T)
 
 	if !seenAuthInvalidation {
 		t.Fatal("manifest should include runtime auth invalidation rows")
-	}
-	if !seenActiveProfileInvalidation {
-		t.Fatal("manifest should include active-profile invalidation rows")
 	}
 	if !seenPlanningInvalidation {
 		t.Fatal("manifest should include selected-profile planning invalidation rows")

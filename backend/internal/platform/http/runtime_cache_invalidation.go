@@ -29,10 +29,9 @@ type runtimeCacheInvalidationMiddleware struct {
 }
 
 type runtimeCacheInvalidationAction struct {
-	auth          bool
-	activeProfile bool
-	planningAll   bool
-	planningIDs   []int
+	auth        bool
+	planningAll bool
+	planningIDs []int
 }
 
 type statusCapturingResponseWriter struct {
@@ -117,8 +116,6 @@ func classifyRuntimeCacheInvalidation(method string, rawPath string, header http
 		action.auth = true
 	case isRuntimeAuthProxyKeyMutation(normalizedMethod, segments):
 		action.auth = true
-	case normalizedMethod == http.MethodPost && matchesSegments(segments, "profiles", "*", "activate"):
-		action.activeProfile = true
 	case normalizedMethod == http.MethodPut && matchesSegments(segments, "settings", "costing"):
 		action.addPlanningProfile(profileIDFromHeader(header))
 	case normalizedMethod == http.MethodPut && matchesSegments(segments, "settings", "audit"):
@@ -174,7 +171,6 @@ func (a runtimeCacheInvalidationAction) invalidateDashboardSnapshots(dashboardSn
 func (a runtimeCacheInvalidationAction) refreshRequest() runtimeapi.RefreshRequest {
 	return runtimeapi.RefreshRequest{
 		Auth:               a.auth,
-		ActiveProfile:      a.activeProfile,
 		PlanningAll:        a.planningAll,
 		PlanningProfileIDs: append([]int(nil), a.planningIDs...),
 	}

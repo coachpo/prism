@@ -29,7 +29,7 @@ backend/
 │   │   ├── loadbalance/        # routing, recovery, and state logic
 │   │   └── stats/              # request-log and aggregate query logic
 │   ├── endpointdomain/         # endpoint and connection helpers
-│   ├── profiledomain/          # selected vs active profile helpers
+│   ├── profiledomain/          # Default profile helpers and runtime active-profile loading
 ├── migrations/                 # Fresh-install SQL baseline applied at startup
 ├── testdata/                   # request, bootstrap, and realtime fixtures
 ├── tests/                      # Go contract, integration, and runtime regressions
@@ -47,8 +47,8 @@ frontend/
 │   ├── App.tsx                 # Query, BrowserRouter, auth-provider, and TanStack RouterProvider host
 │   ├── app/router/             # Canonical route tree, protected shell gates, and search schemas
 │   ├── context/
-│   │   ├── ProfileContext.tsx  # Selected profile vs active profile state bootstrapped from /api/profiles/bootstrap
-│   │   └── AuthContext.tsx     # Operator auth bootstrap, refresh, and session state
+│   │   ├── AuthContext.tsx     # Operator auth bootstrap, refresh, and session state
+│   │   └── ReportingCurrencyContext.tsx # Default-profile currency state
 │   ├── lib/
 │   │   ├── api.ts              # Typed API client + /api scoped X-Profile-Id injection
 │   │   ├── types.ts            # TypeScript contracts aligned with backend schemas
@@ -60,7 +60,7 @@ frontend/
 │   │   └── useTimezone.ts      # Shared timezone formatting helper
 │   ├── components/
 │   │   ├── layout/page.tsx     # Protected shell wrapper with sidebar provider and Outlet
-│   │   ├── layout/app-layout/  # Sidebar, header, profile switcher, nav metadata, and version label
+│   │   ├── layout/app-layout/  # Sidebar, header, nav metadata, and version label
 │   │   ├── loadbalance/        # Shared loadbalance renderers
 │   │   ├── statistics/         # Shared statistics renderers
 │   │   └── ui/                 # shadcn/ui components
@@ -200,16 +200,16 @@ Runtime compatibility and redirect checks use each model's required `api_family`
 ### 3.5 Management API Profile Scoping
 - Prism keeps one route-class matrix:
   - Global management routes omit `X-Profile-Id`.
-  - Profile-scoped management routes require `X-Profile-Id` and resolve against the selected profile.
+  - Profile-scoped management routes accept `X-Profile-Id`, but the backend ignores its value and resolves against Default profile id `1`.
   - Supported runtime operations under `/v1` and `/v1beta` ignore management overrides and always use the active profile.
-- Global management routes include `/api/profiles/*`, `/api/auth/*`, `/api/realtime/*`, auth and proxy-key settings under `/api/settings/auth*`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
-- Selected profile (UI management context) and active profile (runtime routing context) are intentionally distinct states.
+- Global management routes include `/api/auth/*`, `/api/realtime/*`, auth and proxy-key settings under `/api/settings/auth*`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
+- Multi-profile management is frozen. Profile-scoped management reads and writes are pinned to Default id `1`; runtime routing still loads the published active profile snapshot.
 - Scope-control errors return stable `code` values plus human-readable `detail` text.
 - Supported runtime operations always use active profile and ignore override headers.
 
-The protected frontend shell now boots profile state from `GET /api/profiles/bootstrap`, derives sidebar destinations and breadcrumbs from the route metadata registry in `frontend/src/components/layout/app-layout/navigationProfileConfig.ts`, and persists only the desktop sidebar collapse preference in localStorage. Mobile drawer state remains transient browser UI state.
+The protected frontend shell derives sidebar destinations and breadcrumbs from the route metadata in `frontend/src/components/layout/app-layout/useShellNavigation.ts`, and persists only the desktop sidebar collapse preference in localStorage. Mobile drawer state remains transient browser UI state.
 
-The Settings shell mirrors that split: the Profile tab keeps billing and currency, timezone, audit and privacy flows scoped to the selected profile, while the Global tab owns instance-wide authentication and global log retention. Normal log retention applies across all profiles; list and detail APIs still filter by the selected profile.
+The Settings shell mirrors that split: the Profile tab keeps billing and currency, timezone, audit and privacy flows scoped to Default id `1`, while the Global tab owns instance-wide authentication and global log retention. Normal log retention applies across all profiles; list and detail APIs are pinned to Default id `1`.
 
 ### 3.6 Custom Header Injection
 
@@ -268,7 +268,7 @@ The realtime API has two supported channels. The dashboard channel emits `dashbo
 - Retry-cycle exhaustion is inclusive at `cycle_retry_attempts >= cycle_retry_attempt_limit`.
 - Ban creation is inclusive at `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`; the runtime never derives this threshold from the cycle limit.
 - `ban_mode` accepts `off`, `temporary`, and `until_reset`. The `until_reset` mode keeps a terminal target's current connection row banned until the current-state reset endpoint clears it.
-- The selected profile's loadbalance strategies page exposes a `Create Defaults` action that explicitly creates `Default single routing`, `Default fill-first routing`, and `Default round-robin routing` for that profile.
+- The loadbalance strategies page exposes a `Create Defaults` action that explicitly creates `Default single routing`, `Default fill-first routing`, and `Default round-robin routing` for Default profile id `1`.
 - Upstream request timing is controlled by shared backend timeout settings, not by per-strategy timeout documents.
 
 ### 4.2 Runtime execution pipeline
@@ -313,13 +313,13 @@ resolve_access(profile_id, model_id):
   return no_eligible_target
 ```
 
-### 5.4 Selected profile and active runtime separation
+### 5.4 Default profile and active runtime separation
 
-Selected-profile management APIs use `X-Profile-Id` to read and edit profile-scoped configuration. Runtime proxy traffic ignores that management header and always resolves through the active runtime profile snapshot. Changing the selected profile in the frontend changes management scope only; activating a profile is the separate operation that changes runtime routing.
+Profile-scoped management APIs are frozen to Default id `1`. They accept `X-Profile-Id` for frontend compatibility, but the backend ignores the header value. Runtime proxy traffic ignores that management header and resolves through the active runtime profile snapshot.
 
 ### 5.5 Dashboard topology graph
 
-`GET /api/stats/dashboard` and the snapshot inside realtime `dashboard.snapshot` include a backend-owned `topology_graph` alongside the legacy `routing_health_map`. The graph is built from selected-profile configuration and final-attributed telemetry in the backend, not reconstructed by the browser from management reads. Disabled models remain present as muted model nodes, inactive terminal targets remain present as muted target nodes, and endpoint nodes stay visible when referenced by configured terminal targets. During the additive compatibility wave, the backend keeps compatibility kinds (`connection`, `model_to_connection`, and `connection_to_endpoint`) and exposes product-facing terminal-target meaning through `product_kind`, with `connection_id` retained as the persisted compatibility identifier.
+`GET /api/stats/dashboard` and the snapshot inside realtime `dashboard.snapshot` include a backend-owned `topology_graph` alongside the legacy `routing_health_map`. The graph is built from Default-profile configuration and final-attributed telemetry in the backend, not reconstructed by the browser from management reads. Disabled models remain present as muted model nodes, inactive terminal targets remain present as muted target nodes, and endpoint nodes stay visible when referenced by configured terminal targets. During the additive compatibility wave, the backend keeps compatibility kinds (`connection`, `model_to_connection`, and `connection_to_endpoint`) and exposes product-facing terminal-target meaning through `product_kind`, with `connection_id` retained as the persisted compatibility identifier.
 
 ## 6. Terminal Target Health Detection
 
@@ -459,7 +459,7 @@ The Go runtime only requests decompressed response bodies when audit body captur
 
 ### 9.1 Concept
 
-Historical `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events` are partitioned by UTC day and managed by global log-retention jobs. Normal retention is instance-wide across all profiles. Selected-profile filtering still applies to profile-owned list and detail APIs, but `X-Profile-Id` does not scope retention settings or retention jobs.
+Historical `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events` are partitioned by UTC day and managed by global log-retention jobs. Normal retention is instance-wide across all profiles. Default-profile filtering still applies to profile-owned list and detail APIs, but `X-Profile-Id` does not scope retention settings or retention jobs.
 
 The Settings Global tab owns `/api/settings/log-retention` and can store a day count per retained dataset. Operators can also create an immediate retention job through `POST /api/maintenance/log-retention/jobs` with a table name plus either an explicit cutoff or `delete_all=true`.
 
@@ -540,7 +540,7 @@ Partitioned retention manages the current log-table set only. Prism does not rew
 
 ### 9.6 Frontend Placement
 
-Log retention controls live on the Settings Global tab. Profile-scoped Settings sections still manage costing, timezone, audit capture preferences, and other selected-profile state.
+Log retention controls live on the Settings Global tab. Profile-scoped Settings sections still manage costing, timezone, audit capture preferences, and other Default-profile state.
 
 ## 10. Database Design
 

@@ -45,7 +45,7 @@
 - Keep browser flows in `e2e/` and seam contracts in the named sibling folders.
 - Keep Vitest/jsdom tests under `../src/test/` or colocated `../src/**/*.test.{ts,tsx}`; do not mix them into Playwright browser flows.
 - Keep shared test-only utilities in `helpers/` instead of scattering loader glue across suites.
-- Keep websocket, selected-profile, and typed-client contract tests separate from Playwright route flows.
+- Keep websocket, pinned Default-profile header, and typed-client contract tests separate from Playwright route flows.
 - Do not invent extra test roots or child AGENTS files unless a subtree has a distinct runner or command boundary like `e2e/` and `lib/`.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.

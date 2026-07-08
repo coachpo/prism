@@ -595,69 +595,6 @@ export interface Messages {
   settingsTimezone: {
     unavailable: string;
   };
-  profiles: {
-    activate: string;
-    activating: string;
-    activateDescription: string;
-    activateTitle: (name: string) => string;
-    active: string;
-    activeShort: (name: string) => string;
-    cancel: string;
-    clearSearch: string;
-    create: string;
-    createDescription: string;
-    createNewProfile: string;
-    createTitle: string;
-    creating: string;
-    currentActive: string;
-    default: string;
-    delete: string;
-    deleteConfirmPhrase: (name: string) => string;
-    deleteDescription: (name: string) => string;
-    deleteSelected: string;
-    deleteTitle: string;
-    deleting: string;
-    descriptionOptional: string;
-    editDescription: string;
-    editSelected: string;
-    editTitle: string;
-    learnMore: string;
-    limitReached: string;
-    loadingProfiles: string;
-    locked: string;
-    manageProfiles: string;
-    initializeFailed: string;
-    name: string;
-    nameRequired: string;
-    newActive: string;
-    noDescription: string;
-    noMatches: string;
-    noProfilesDescription: string;
-    noProfilesTitle: string;
-    optionalPlaceholder: string;
-    defaultProfileDeleteDisabled: string;
-    activeProfileDeleteDisabled: string;
-    selectProfileToDelete: string;
-    selectProfileToEdit: string;
-    lockedProfileEditDisabled: string;
-    profileNamePlaceholder: string;
-    profileTriggerTitle: (selected: string, active: string) => string;
-    save: string;
-    saving: string;
-    searchPlaceholder: string;
-    selectProfile: string;
-    createFailed: string;
-    createdProfile: (name: string) => string;
-    updateFailed: string;
-    updatedProfile: string;
-    activateConflict: string;
-    activateFailed: string;
-    activatedProfile: (name: string) => string;
-    deleteFailed: string;
-    deletedProfile: (name: string) => string;
-    tryDifferentSearchTerm: string;
-    typeToConfirm: (value: string) => string;
-  };
   endpointsPage: {
     addEndpoint: string;
     description: string;
@@ -1577,16 +1514,16 @@ export const enMessages: Messages = {
     routingModelNodeType: "Model",
     routingNoActiveRoutes: "No active routes",
     routingNoActiveRoutesDescription:
-      "Create an entry model and enable at least one terminal target so Prism can publish this selected-profile routing topology.",
+      "Create an entry model and enable at least one terminal target so Prism can publish this Default-profile routing topology.",
     routingNoData: "No routing data",
     routingNoDataDescription: "No routing diagram data is available for this profile.",
     routingNoRecentTraffic: "No routed traffic in the last 24h",
     routingNoRecentTrafficDescription:
-      "The selected profile already has routes, but Prism recorded no successful terminal-target traffic in the last 24 hours.",
+      "Default profile already has routes, but Prism recorded no successful terminal-target traffic in the last 24 hours.",
     routingNodeType: "Node type",
     routingTitle: "Routing Target Health",
     routingDescription:
-      "Routing story: Entry Model -> Planner -> Access Targets -> Terminal Target -> Endpoint. This backend-owned chart focuses on the selected-profile terminal-target topology after planner and access-target resolution. The browser does not reconstruct graph edges from management reads. Muted nodes mark disabled models and inactive terminal targets.",
+      "Routing story: Entry Model -> Planner -> Access Targets -> Terminal Target -> Endpoint. This backend-owned chart focuses on the Default-profile terminal-target topology after planner and access-target resolution. The browser does not reconstruct graph edges from management reads. Muted nodes mark disabled models and inactive terminal targets.",
     routingLoadingDescription: "Loading backend-owned routing topology and recent target telemetry",
     spending30d: "30d Total Spend",
     streamingShare: "Streaming Share",
@@ -1680,7 +1617,7 @@ export const enMessages: Messages = {
   loadbalanceStrategiesPage: {
     description:
       "Manage reusable Ban Policy and terminal-target routing families for this profile",
-    selectedProfileFallback: "the selected profile",
+    selectedProfileFallback: "Default profile",
     scopeCallout: (profileLabel) =>
       `Changes here affect ${profileLabel} and models attached to these strategies.`,
   },
@@ -1848,7 +1785,7 @@ export const enMessages: Messages = {
     profileScopedSettings: "Profile-scoped settings",
     profileTab: "Profile",
     retentionDeletion: "Retention & Deletion",
-    selectedProfileFallback: "the selected profile",
+    selectedProfileFallback: "Default profile",
     sectionsTitle: "Settings Sections",
     settingsDescription: "Manage instance-wide authentication and profile-scoped configuration",
     settingsTitle: "Settings",
@@ -2103,72 +2040,6 @@ export const enMessages: Messages = {
   settingsTimezone: {
     unavailable: "Unavailable",
   },
-  profiles: {
-    activate: "Activate",
-    activating: "Activating...",
-    activateDescription:
-      "Selecting a profile only changes management scope. Activate to switch runtime traffic to the selected profile.",
-    activateTitle: (name) => `Activate "${name}" for runtime traffic?`,
-    active: "Active",
-    activeShort: (name) => `Active runtime: ${name}`,
-    cancel: "Cancel",
-    clearSearch: "Clear search",
-    create: "Create",
-    createDescription:
-      "Runtime traffic is unaffected until activation.",
-    createNewProfile: "Create new profile",
-    createTitle: "Create Profile",
-    creating: "Creating...",
-    currentActive: "Current active runtime:",
-    default: "Default",
-    delete: "Delete",
-    deleteDescription: (name) => `Delete selected profile ${name}. This action is irreversible.`,
-    deleteConfirmPhrase: (name) => `delete ${name}`,
-    deleteSelected: "Delete selected",
-    deleteTitle: "Delete Profile",
-    deleting: "Deleting...",
-    descriptionOptional: "Description (Optional)",
-    editDescription: "This does not activate runtime traffic.",
-    editSelected: "Edit selected",
-    editTitle: "Edit Profile",
-    learnMore: "Learn more",
-    limitReached: "You've reached the limit (10). Delete an inactive profile to create a new one.",
-    loadingProfiles: "Loading profiles...",
-    locked: "Locked",
-    manageProfiles: "Manage profiles",
-    initializeFailed: "Failed to initialize profiles",
-    name: "Name",
-    nameRequired: "Profile name is required",
-    newActive: "New active runtime:",
-    noDescription: "No description",
-    noMatches: "No matches",
-    noProfilesDescription: "Create a profile to start routing traffic or running tests.",
-    noProfilesTitle: "No profiles yet",
-    optionalPlaceholder: "Optional",
-    defaultProfileDeleteDisabled: "Default profile cannot be deleted.",
-    activeProfileDeleteDisabled: "Active runtime profile cannot be deleted.",
-    selectProfileToDelete: "Select a profile to delete.",
-    selectProfileToEdit: "Select a profile to edit.",
-    lockedProfileEditDisabled: "Default profile is locked and cannot be edited.",
-    profileNamePlaceholder: "Profile name",
-    profileTriggerTitle: (selected, active) => `Selected management profile: ${selected}. Active runtime: ${active}.`,
-    save: "Save",
-    saving: "Saving...",
-    searchPlaceholder: "Search profiles...",
-    selectProfile: "Select management profile",
-    createFailed: "Failed to create profile",
-    createdProfile: (name) => `Created profile ${name}`,
-    updateFailed: "Failed to update profile",
-    updatedProfile: "Profile updated",
-    activateConflict:
-      "Activation conflict detected. Active profile changed elsewhere, profile state was refreshed.",
-    activateFailed: "Failed to activate profile",
-    activatedProfile: (name) => `Activated ${name} for runtime traffic`,
-    deleteFailed: "Failed to delete profile",
-    deletedProfile: (name) => `Deleted profile ${name}`,
-    tryDifferentSearchTerm: "Try a different search term.",
-    typeToConfirm: (value) => `Type ${value} to confirm`,
-  },
   modelDetail: {
     active: "Active",
     addConnection: "Add Terminal Target",
@@ -2267,7 +2138,7 @@ export const enMessages: Messages = {
     modelRoutingAccessTargetsAndTerminalTargets:
       "Entry-model routing spans grouped access targets, same-family model targets, and model-private terminal targets.",
     modelSettingsDescription:
-      "Update the selected-profile entry model, its routing defaults, and the policy it uses to reach terminal targets.",
+      "Update the Default profile entry model, its routing defaults, and the policy it uses to reach terminal targets.",
     modelSettingsTitle: "Model Settings",
     noConnectionsConfigured: "No terminal targets configured",
     noConnectionsMatchFilter: "No terminal targets match your filter",
@@ -2524,7 +2395,7 @@ export const enMessages: Messages = {
     output: "Output",
     profileScopedSettings: "Profile-scoped settings",
     scopeCallout: (profileLabel) => `Changes here affect ${profileLabel} and its runtime traffic.`,
-    selectedProfileFallback: "the selected profile",
+    selectedProfileFallback: "Default profile",
     tableTitle: "Pricing Templates",
     templateUsage: "Template Usage",
     templateUsageDescription: (name) => `Terminal targets currently using the "${name}" template.`,

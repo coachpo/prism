@@ -1,7 +1,7 @@
 # BACKEND MANAGEMENT HTTPAPI KNOWLEDGE BASE
 
 ## OVERVIEW
-`backend/internal/httpapi/management/` owns Prism's `/api/*` management fanout. It routes selected-profile CRUD, auth/session/proxy-key flows, observability reads, retention jobs, and shared management response helpers while platform HTTP owns mounting and middleware.
+`backend/internal/httpapi/management/` owns Prism's `/api/*` management fanout. It routes Default-profile-scoped CRUD, auth/session/proxy-key flows, observability reads, retention jobs, and shared management response helpers while platform HTTP owns mounting and middleware.
 
 ## STRUCTURE
 ```text
@@ -13,7 +13,6 @@ management/
 ├── endpoints/       # endpoint CRUD, encrypted keys, ordering, duplication
 ├── loadbalance/     # strategy CRUD, current-state reset, event reads
 ├── models/          # model CRUD and access targets
-├── profiles/        # selected-profile lifecycle
 ├── responseutil/    # shared profile/error response helpers
 ├── settings/        # costing, timezone, audit settings, global log-retention jobs
 └── stats/           # dashboard, usage, spending, request-log read APIs
@@ -30,7 +29,7 @@ management/
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep `/api/*` management handlers here; server mounting, admission, runtime-cache invalidation middleware, telemetry middleware, and CORS snapshots stay in `../../../platform/http/`.
-- Keep selected-profile CRUD scoped through effective-profile resolution and `X-Profile-Id` only where the leaf contract says so; runtime proxy traffic never depends on selected-profile state.
+- Keep profile-scoped CRUD pinned through effective-profile resolution to Default id=1. `X-Profile-Id` is accepted for old clients but ignored.
 - Keep raw secrets, tokens, and endpoint keys write-only or metadata-only in responses; startup mail config is parse-only compatibility data and has no management delivery behavior.
 - Keep startup bootstrap config outside management CRUD; PostgreSQL-backed settings stay in their own leaves.
 - Keep request-path side effects on durable outboxes, scheduler workers, or platform mutation middleware. Handlers should not publish dashboards, invalidate runtime caches, or run retention cleanup inline.

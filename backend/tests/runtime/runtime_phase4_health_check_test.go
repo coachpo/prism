@@ -10,7 +10,6 @@ import (
 	"time"
 
 	managementconnections "github.com/coachpo/prism/backend/internal/httpapi/management/connections"
-	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
 	"github.com/jackc/pgx/v5"
@@ -55,12 +54,12 @@ func TestConnectionHealthCheckDoesNotHoldTransactionDuringProbe(t *testing.T) {
 	resultCh := startAsyncPriorityRequest(t, harness.client, http.MethodPost, harness.url+fmt.Sprintf("/api/models/%d/connections/%d/health", modelConfigID, connectionID), nil, runtimeModelHeader(profileID))
 	blockingUpstream.waitUntilReady(t, 5*time.Second)
 
-	activeProfileResponse := performPriorityRequest(t, harness.client, time.Second, http.MethodGet, harness.url+"/api/profiles/active", nil, nil)
-	assertStatus(t, activeProfileResponse, http.StatusOK)
-	var activeProfile map[string]any
-	decodeJSONResponse(t, activeProfileResponse, &activeProfile)
-	if got := jsonInt(t, activeProfile["id"]); got != profileID {
-		t.Fatalf("expected concurrent management request to resolve active profile %d, got %+v", profileID, activeProfile)
+	timezoneResponse := performPriorityRequest(t, harness.client, time.Second, http.MethodGet, harness.url+"/api/settings/timezone", nil, runtimeModelHeader(999))
+	assertStatus(t, timezoneResponse, http.StatusOK)
+	var timezonePayload map[string]any
+	decodeJSONResponse(t, timezoneResponse, &timezonePayload)
+	if got := jsonInt(t, timezonePayload["profile_id"]); got != profileID {
+		t.Fatalf("expected concurrent management request to use pinned profile %d, got %+v", profileID, timezonePayload)
 	}
 
 	blockingUpstream.releaseRequests()
@@ -205,11 +204,6 @@ func newPhase4HealthCheckHarness(t *testing.T, options phase4HealthCheckHarnessO
 		t.Fatalf("create phase-4 health check pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	profilesService, err := managementprofiles.NewService(settings, managementprofiles.Options{Pool: pool})
-	if err != nil {
-		t.Fatalf("build phase-4 profiles service: %v", err)
-	}
-	t.Cleanup(profilesService.Close)
 	connectionOptions := managementconnections.Options{Pool: pool}
 	if options.Now != nil {
 		connectionOptions.Now = options.Now
@@ -224,7 +218,6 @@ func newPhase4HealthCheckHarness(t *testing.T, options phase4HealthCheckHarnessO
 	t.Cleanup(connectionsService.Close)
 	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{
 		Version:            "runtime-phase4-health-test",
-		ProfilesService:    profilesService,
 		ConnectionsService: connectionsService,
 	})
 	if err != nil {

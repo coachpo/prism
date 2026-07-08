@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/useAuth";
-import { useProfileContext } from "@/context/ProfileContext";
 import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
-import { useLocale } from "@/i18n/useLocale";
 import { renderSectionSaveState } from "./sectionSaveState";
 import type { SettingsSaveSection } from "./settingsSaveTypes";
 import { SETTINGS_TABS, type SettingsTab } from "./settingsPageHelpers";
@@ -14,13 +12,11 @@ import { useRetentionDeletionData } from "./useRetentionDeletionData";
 
 export function useSettingsPageData(activeTab: SettingsTab) {
   const navigate = useNavigate();
-  const { messages } = useLocale();
   const { refreshAuth } = useAuth();
-  const { selectedProfile, revision, bumpRevision } = useProfileContext();
+  const [revision, setRevision] = useState(0);
   const { prime: primeReportingCurrency } = useReportingCurrencyContext();
-  const selectedProfileLabel = selectedProfile
-    ? `${selectedProfile.name} (#${selectedProfile.id})`
-    : messages.settingsPage.selectedProfileFallback;
+  const selectedProfileLabel = "Default (#1)";
+  const bumpRevision = () => setRevision((current) => current + 1);
 
   const [recentlySavedSection, setRecentlySavedSection] = useState<SettingsSaveSection | null>(null);
 

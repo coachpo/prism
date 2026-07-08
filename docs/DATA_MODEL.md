@@ -232,7 +232,7 @@ proxy_api_keys
 
 ### 2.1 `profiles`
 
-Profiles are isolated configuration namespaces. One profile is active for runtime routing at any time.
+Profiles are retained storage namespaces. Multi-profile management is frozen: management reads and writes are pinned to Default profile id `1`, while runtime still loads the published active-profile snapshot.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
@@ -242,16 +242,15 @@ Profiles are isolated configuration namespaces. One profile is active for runtim
 | is_active | BOOLEAN | NOT NULL, DEFAULT FALSE | Runtime-active marker |
 | is_default | BOOLEAN | NOT NULL, DEFAULT FALSE | Seeded default marker |
 | is_editable | BOOLEAN | NOT NULL, DEFAULT TRUE | Editable flag; current startup invariants keep the system default profile editable |
-| version | INTEGER | NOT NULL, DEFAULT 0 | Optimistic concurrency token for activation CAS |
+| version | INTEGER | NOT NULL, DEFAULT 0 | Retained concurrency token |
 | deleted_at | DATETIME | NULLABLE | Soft-delete marker for inactive profiles |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
 Constraints and lifecycle rules:
 - Exactly one non-deleted profile is active at any time (partial unique index).
-- Startup invariants ensure the single default profile exists and remains editable.
-- Routine delete is soft-delete (`deleted_at`) and only allowed for inactive profiles.
-- Capacity limit: maximum 10 non-deleted profiles (`deleted_at IS NULL`) enforced at application level.
+- Startup invariants ensure Default profile id `1` exists and remains editable.
+- Profile create, update, activate, and delete management routes are not exposed while multi-profile management is frozen.
 
 ### 2.2 `model_configs` (profile-scoped)
 
@@ -334,7 +333,7 @@ Constraints and lifecycle rules:
 - Retry-cycle exhaustion is inclusive at `cycle_retry_attempts >= cycle_retry_attempt_limit`.
 - Ban creation is inclusive at `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`; Prism does not derive the ban threshold from the cycle limit.
 - `ban_mode = off` requires threshold and duration `0`; `temporary` requires threshold `>= cycle_retry_attempt_limit` plus positive duration; `until_reset` requires threshold `>= cycle_retry_attempt_limit` plus duration `0`.
-- The selected profile's loadbalance strategies page exposes a `Create Defaults` action that explicitly creates `Default single routing`, `Default fill-first routing`, and `Default round-robin routing` for that profile.
+- The loadbalance strategies page exposes a `Create Defaults` action that explicitly creates `Default single routing`, `Default fill-first routing`, and `Default round-robin routing` for Default profile id `1`.
 - Strategies cannot be deleted while attached to one or more models.
 
 ### 2.5 `endpoints` (profile-scoped credentials)
@@ -680,7 +679,7 @@ One row per profile and API family controls whether runtime attempts create audi
 Constraints:
 - `UNIQUE(profile_id, api_family)`.
 - `audit_capture_bodies` requires `audit_enabled`.
-- Management `PUT /api/settings/audit` full-replaces the three supported family rows for the selected profile.
+- Management `PUT /api/settings/audit` full-replaces the three supported family rows for Default profile id `1`.
 - Runtime snapshots load policy by profile and model `api_family`; request-time booleans are copied into existing request-log and audit-log provenance fields.
 
 ### 2.15 `loadbalance_events` (partitioned immutable profile attribution)
@@ -1012,13 +1011,12 @@ CREATE INDEX idx_proxy_api_keys_is_active ON proxy_api_keys(is_active);
 - `request_logs`, `usage_request_events`, `audit_logs`, and `loadbalance_events` keep immutable `profile_id` attribution and are not rewritten when active profile changes.
 - `request_logs.ingress_request_id` is the canonical operator drill-in key for grouped request investigation.
 - `routing_connection_runtime_state` and `routing_connection_runtime_leases` are profile-scoped runtime state and intentionally `UNLOGGED`; operators accept reset-on-crash semantics.
-- Cross-profile resource lookups are treated as not found (`404`) under effective profile scope.
+- Cross-profile resource lookups are treated as not found (`404`) because management scope is pinned to Default profile id `1`.
 - Private connection create/update must enforce profile consistency between the connection and endpoint references. The single owner is enforced through `model_access_targets.target_connection_id`.
 
 ## 5. Deletion and Retention Semantics
 
-- Routine profile deletion (`DELETE /api/profiles/{id}`) is soft-delete of inactive profile (`deleted_at` set).
-- Active profile deletion is rejected.
+- Profile deletion routes are not exposed while multi-profile management is frozen.
 - Historical telemetry/audit retention is independent; routine profile delete does not erase historical attribution rows.
 
 ## 6. Runtime Isolation Notes

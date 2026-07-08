@@ -1,7 +1,7 @@
 import { QueryClient } from "@tanstack/react-query"
 import { http, HttpResponse } from "msw"
-import { afterEach, describe, expect, it } from "vitest"
-import { api, setApiProfileId } from "@/lib/api"
+import { describe, expect, it } from "vitest"
+import { api } from "@/lib/api"
 import {
   getRewriteMutationInvalidationKeys,
   invalidateRewriteMutationScope,
@@ -9,14 +9,9 @@ import {
 } from "@/shared"
 import { rewriteTestServer } from "@/test"
 
-afterEach(() => {
-  setApiProfileId(null)
-})
-
 describe("profile-scope api and query contracts", () => {
   it("attaches X-Profile-Id only to profile-scoped API calls", async () => {
     const observedHeaders: Array<string | null> = []
-    setApiProfileId(42)
 
     rewriteTestServer.use(
       http.get("/api/models", ({ request }) => {
@@ -27,17 +22,17 @@ describe("profile-scope api and query contracts", () => {
         observedHeaders.push(request.headers.get("X-Profile-Id"))
         return HttpResponse.json({ report_currency_code: "USD", report_currency_symbol: "$" })
       }),
-      http.get("/api/profiles", ({ request }) => {
+      http.get("/api/auth/status", ({ request }) => {
         observedHeaders.push(request.headers.get("X-Profile-Id"))
-        return HttpResponse.json([])
+        return HttpResponse.json({ auth_enabled: false, authenticated: true })
       }),
     )
 
     await api.models.list()
     await api.settings.costing.get()
-    await api.profiles.list()
+    await api.auth.status()
 
-    expect(observedHeaders).toEqual(["42", "42", null])
+    expect(observedHeaders).toEqual(["1", "1", null])
   })
 
   it("puts selected profile IDs in scoped keys and omits them from global keys", () => {

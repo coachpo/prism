@@ -26,7 +26,7 @@ app/
 - Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 - Treat `router/appRouter.tsx` and `router/rewriteRoutes.ts` as the route source of truth; frontend docs should not invent routes outside those files.
 - Keep public auth routes under `/auth/*`.
-- Keep protected route wrappers responsible for auth gating plus `ProfileProvider`, `ReportingCurrencyProvider`, and `Page` shell handoff.
+- Keep protected route wrappers responsible for auth gating plus `ReportingCurrencyProvider` and `Page` shell handoff.
 - Keep feature route modules lazy-loaded from `../features/` and legacy/oracle page clusters behind those features where still needed.
 - Keep query defaults deterministic for tests: no React Query retries and zero stale time unless this factory changes intentionally.
 

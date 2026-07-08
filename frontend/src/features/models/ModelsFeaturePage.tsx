@@ -1,6 +1,5 @@
 import { useState } from "react"
 import { Plus } from "lucide-react"
-import { useProfileContext } from "@/context/ProfileContext"
 import { useLocale } from "@/i18n/useLocale"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
@@ -16,9 +15,8 @@ import { useModelsPageData } from "@/pages/models/useModelsPageData"
 import { DEFAULT_MODELS_LIST_FILTERS, modelsQueryKeys, normalizeModelsListFilters } from "./queryKeys"
 
 export function ModelsFeaturePage() {
-  const { revision, selectedProfile } = useProfileContext()
   const { formatNumber, messages } = useLocale()
-  const data = useModelsPageData(revision)
+  const data = useModelsPageData(0)
   const copy = messages.modelsPage
   const [apiFamilyFilter, setApiFamilyFilter] = useState(DEFAULT_MODELS_LIST_FILTERS.api_family)
   const [statusFilter, setStatusFilter] = useState(DEFAULT_MODELS_LIST_FILTERS.status)
@@ -28,7 +26,7 @@ export function ModelsFeaturePage() {
     api_family: apiFamilyFilter,
     status: statusFilter,
   })
-  const queryKey = modelsQueryKeys.list(selectedProfile?.id ?? null, filters)
+  const queryKey = modelsQueryKeys.list(1, filters)
   const filtered = data.filtered.filter((model) => {
     if (filters.api_family !== "all" && model.api_family !== filters.api_family) return false
     if (filters.status === "enabled" && !model.is_enabled) return false

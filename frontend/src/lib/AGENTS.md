@@ -1,7 +1,7 @@
 # FRONTEND LIB KNOWLEDGE BASE
 
 ## OVERVIEW
-`src/lib/` is the frontend boundary to backend contracts and browser integrations. It owns the typed API seam, singleton websocket client, shared reference-data caches, explicit Ban Policy loadbalance mirror, selected-profile keyed reporting-currency cache, timezone/cost helpers, app version, and clipboard helpers.
+`src/lib/` is the frontend boundary to backend contracts and browser integrations. It owns the typed API seam, singleton websocket client, shared reference-data caches, explicit Ban Policy loadbalance mirror, pinned Default-profile reporting-currency cache, timezone/cost helpers, app version, and clipboard helpers.
 
 ## STRUCTURE
 ```
@@ -12,7 +12,7 @@ lib/
 │   ├── core.ts                   # API base, X-Profile-Id injection, auth refresh, query builder
 │   ├── profileScope.ts           # Profile-scoped management route matcher
 │   ├── authSettings.ts           # Auth bootstrap, session flows, and proxy keys
-│   ├── management.ts             # Profiles, models, endpoints, connections, pricing templates
+│   ├── management.ts             # Models, endpoints, connections, pricing templates
 │   └── observability.ts          # Usage snapshot, stats, audit, loadbalance, settings costing/timezone
 ├── websocket.ts                  # Singleton WebSocket client with channel ref-counts and reconnects
 ├── websocket/AGENTS.md           # Helper split beneath the singleton client
@@ -21,7 +21,7 @@ lib/
 ├── referenceDataRegistry.ts      # Registry of shared reference-data datasets
 ├── loadbalanceRoutingPolicy.ts   # Dual-family defaults and policy normalization
 ├── appVersion.ts                 # Browser-facing app version helper built from Vite-injected package metadata
-├── reportingCurrency.ts          # Selected-profile keyed reporting-currency cache
+├── reportingCurrency.ts          # Default-profile keyed reporting-currency cache
 ├── types.ts                      # Public type barrel
 ├── types/AGENTS.md               # Backend-aligned payload and domain type rules
 ├── types/                        # Backend-aligned payload and domain types
@@ -58,14 +58,14 @@ lib/
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Pages and hooks should import from `api.ts` or its exported `stats` helper, not call `fetch()` directly.
-- `setApiProfileId()` is fed by `ProfileContext`, and `api/core.ts` is the only place that injects `X-Profile-Id` into selected `/api/*` requests.
-- `api/profileScope.ts` owns the route matcher for management calls that should receive `X-Profile-Id`.
+- `api/core.ts` is the only place that injects the pinned `X-Profile-Id: 1` header into Default-profile `/api/*` requests.
+- `api/profileScope.ts` owns the route matcher for management calls that still receive the accepted-but-ignored `X-Profile-Id` header.
 - `request()` handles cookie credentials, `ApiError`, and one refresh retry for eligible `/api/*` paths.
 - Let `api/AGENTS.md` own the typed client split instead of expanding this parent with module-by-module endpoint detail.
 - `referenceData.ts` and `referenceDataRegistry.ts` own shared cache reuse, request dedupe, and revision-keyed lookup invalidation.
 - `loadbalanceRoutingPolicy.ts` owns explicit Ban Policy defaults, retry-window labels, and normalized failure-status or ban-policy handling.
 - `appVersion.ts` owns the browser-facing frontend version contract so shell chrome reads the synced `frontend/package.json` version through Vite instead of hard-coded literals.
-- `reportingCurrency.ts` owns selected-profile keyed cache reuse, active-currency sync, `prime()` or `refresh()` support, fail-open defaults, and normalization of `report_currency_code` or `report_currency_symbol` used by `ReportingCurrencyContext.tsx`, settings, and costing.
+- `reportingCurrency.ts` owns Default-profile keyed cache reuse, active-currency sync, `prime()` or `refresh()` support, fail-open defaults, and normalization of `report_currency_code` or `report_currency_symbol` used by `ReportingCurrencyContext.tsx`, settings, and costing.
 - `websocket.ts` owns the singleton client; `websocket/AGENTS.md` owns protocol parsing, subscription bookkeeping, and reconnect transport helpers, while shared React consumers should prefer `useRealtimeData()`.
 - `timezone.ts` owns shared timezone preference caching and helper access beneath `useTimezone()`.
 - `costing.ts` owns shared cost formatting and usage labels on top of the active reporting currency instead of duplicating cache or normalization logic.
@@ -80,7 +80,7 @@ lib/
 
 ## ANTI-PATTERNS
 
-- Do not bypass `api/core.ts` or `api/profileScope.ts` for Prism backend requests or selected-profile header rules.
+- Do not bypass `api/core.ts` or `api/profileScope.ts` for Prism backend requests or pinned Default-profile header rules.
 - Do not create ad hoc websocket clients or duplicate subscribe/unsubscribe bookkeeping outside `websocket.ts` and `websocket/`.
 - Do not add a parallel reference-data cache when `referenceData.ts` already owns the shared lookup datasets.
 - Do not duplicate reporting-currency cache or normalization in settings, costing, or page code when `reportingCurrency.ts` already owns that seam.

@@ -7,18 +7,18 @@
 ```text
 api/
 ├── core.ts           # API base, credentials, X-Profile-Id injection, refresh retry, query builder
-├── profileScope.ts   # Management-route matcher for selected-profile headers
+├── profileScope.ts   # Management-route matcher for pinned Default-profile headers
 ├── authSettings.ts   # Auth bootstrap/session/login/logout, settings.auth, and proxy keys
-├── management.ts     # Profiles, models, access targets, loadbalance strategies, endpoints, connections, pricing templates
+├── management.ts     # Models, access targets, loadbalance strategies, endpoints, connections, pricing templates
 └── observability.ts  # Stats, usage snapshot, config rules, audit, loadbalance events/current-state, settings costing/timezone/retention
 ```
 
 ## WHERE TO LOOK
 - Public import surface over these modules: `../api.ts`
-- Shared request rules, cookie credentials, `ApiError`, auth-refresh retry, and `X-Profile-Id` injection for selected management routes: `core.ts`
+- Shared request rules, cookie credentials, `ApiError`, auth-refresh retry, and pinned `X-Profile-Id: 1` injection for Default-profile management routes: `core.ts`
 - Route allowlist for management calls that should receive `X-Profile-Id`: `profileScope.ts`; drift tests assert it against `../../../backend/internal/platform/http/management_route_contract.json`
 - Cookie-auth bootstrap/session flows, settings auth endpoints, and proxy-key endpoints: `authSettings.ts`
-- Global profile management plus profile-scoped model, access-target, loadbalance strategy, endpoint, connection, and pricing-template surfaces: `management.ts`
+- Default-profile model, access-target, loadbalance strategy, endpoint, connection, and pricing-template surfaces: `management.ts`
 - Observability, usage snapshot, throughput, header-blocklist and user-agent/client rules, audit logs, loadbalance current state/events, and settings costing/timezone/API-family audit/retention clients: `observability.ts`
 - Runtime operation paths `/v1` and `/v1beta` stay outside this client split; launcher/Vite proxying passes them through and backend runtime owns allowlist enforcement.
 

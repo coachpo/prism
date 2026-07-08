@@ -15,7 +15,6 @@ import {
 import { AuthProvider } from "@/context/AuthContext"
 import { ReportingCurrencyProvider } from "@/context/ReportingCurrencyContext"
 import { useAuth } from "@/context/useAuth"
-import { ProfileProvider } from "@/context/ProfileContext"
 import { Page } from "@/components/layout/page"
 import { useLocale } from "@/i18n/useLocale"
 import { OperatorLoadingState } from "@/shared/design-system"
@@ -98,11 +97,9 @@ function ProtectedRoute({ children }: { children: ReactElement }) {
   }
 
   return (
-    <ProfileProvider>
-      <ReportingCurrencyProvider fallback={<RouteFallback />}>
-        <Page>{children}</Page>
-      </ReportingCurrencyProvider>
-    </ProfileProvider>
+    <ReportingCurrencyProvider fallback={<RouteFallback />}>
+      <Page>{children}</Page>
+    </ReportingCurrencyProvider>
   )
 }
 

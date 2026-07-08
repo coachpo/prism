@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from "react"
 import { createSearchParams, type SetURLSearchParams, type URLSearchParamsInit } from "react-router-dom"
-import { useProfileContext } from "@/context/ProfileContext"
 import type {
   Connection,
   Endpoint,
@@ -47,7 +46,7 @@ export function useModelDetailFeatureData({
   setSearchParams,
   navigateTo,
 }: UseModelDetailFeatureDataInput) {
-  const { revision } = useProfileContext()
+  const revision = 0
   const modelConfigId = modelId ? Number.parseInt(modelId, 10) : undefined
 
   const [model, setModel] = useState<ModelConfig | null>(null)

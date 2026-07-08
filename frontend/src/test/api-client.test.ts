@@ -1,11 +1,7 @@
 import { http, HttpResponse } from "msw"
-import { afterEach, describe, expect, it } from "vitest"
-import { api, setApiProfileId } from "@/lib/api"
+import { describe, expect, it } from "vitest"
+import { api } from "@/lib/api"
 import { rewriteTestServer } from "@/test"
-
-afterEach(() => {
-  setApiProfileId(null)
-})
 
 describe("api client contracts", () => {
   it("retries one eligible api request after auth refresh and preserves credentials", async () => {

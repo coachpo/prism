@@ -20,7 +20,7 @@ components/
 
 ## WHERE TO LOOK
 - Shell chrome and layout handoff: `layout/page.tsx`
-- Shell state cluster, nav/version ownership, and profile-switcher behavior: `layout/app-layout/AGENTS.md`
+- Shell state cluster plus nav/version ownership: `layout/app-layout/AGENTS.md`
 - Shared language/theme controls: `LanguageSwitcher.tsx`, `ThemeToggle.tsx`
 - Shared list, copy, icon action, and spend-trust note widgets: `AnimatedListItem.tsx`, `ApiFamilyIcon.tsx`, `ApiFamilySelect.tsx`, `CopyButton.tsx`, `IconActionGroup.tsx`, `SpendTrustIndicator.tsx`
 - Shared realtime connection badge: `WebSocketStatusIndicator.tsx`
@@ -30,7 +30,7 @@ components/
 - shadcn registry source of truth for `ui/`: `../../components.json`, `../index.css`
 
 ## CHILD DOCS
-- `layout/app-layout/AGENTS.md`: mounted shell chrome, profile switcher, profile dialogs, mismatch footer, user footer, and visible version-label ownership.
+- `layout/app-layout/AGENTS.md`: mounted shell chrome, sidebar navigation, user footer, and visible version-label ownership.
 - `loadbalance/AGENTS.md`: shared loadbalance badges, table, and event detail sheet.
 - `statistics/AGENTS.md`: shared statistics renderers.
 - `ui/AGENTS.md`: shadcn/ui primitives and local wrappers in `src/components/ui/`.
@@ -57,7 +57,7 @@ components/
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
 
 ## ANTI-PATTERNS
-- Do not move nav-link, profile-dialog, or version-label logic out of `layout/app-layout/`.
+- Do not move nav-link or version-label logic out of `layout/app-layout/`.
 - Do not put page-specific fetches or route-state parsing in shared components.
 - Do not duplicate websocket-health badges across route folders.
 - Do not refer to deleted shell files or the old shell wrapper, header, or profile popover surfaces as live shared components.

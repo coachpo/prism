@@ -15,8 +15,8 @@ httpapi/
 
 ## WHERE TO LOOK
 - Management fanout, shared conventions, and response helpers: `management/AGENTS.md`, `management/responseutil/`
-- Management subpackages: `management/auth/`, `management/audit/`, `management/configrules/`, `management/connections/`, `management/endpoints/`, `management/loadbalance/`, `management/models/`, `management/profiles/`, `management/responseutil/`, `management/settings/`, `management/stats/`
-- Management child docs for CRUD and observability leaves: `management/audit/AGENTS.md`, `management/auth/AGENTS.md`, `management/configrules/AGENTS.md`, `management/connections/AGENTS.md`, `management/endpoints/AGENTS.md`, `management/loadbalance/AGENTS.md`, `management/models/AGENTS.md`, `management/profiles/AGENTS.md`, `management/settings/AGENTS.md`, `management/stats/AGENTS.md`
+- Management subpackages: `management/auth/`, `management/audit/`, `management/configrules/`, `management/connections/`, `management/endpoints/`, `management/loadbalance/`, `management/models/`, `management/responseutil/`, `management/settings/`, `management/stats/`
+- Management child docs for CRUD and observability leaves: `management/audit/AGENTS.md`, `management/auth/AGENTS.md`, `management/configrules/AGENTS.md`, `management/connections/AGENTS.md`, `management/endpoints/AGENTS.md`, `management/loadbalance/AGENTS.md`, `management/models/AGENTS.md`, `management/settings/AGENTS.md`, `management/stats/AGENTS.md`
 - Model CRUD and access-target authoring: `management/models/AGENTS.md`, `management/models/routes.go`, `management/models/store.go`
 - Management auth status/session/bootstrap, proxy-key, realtime auth-state, and runtime-cache seams: `management/auth/AGENTS.md`
 - Runtime proxy leaf, operation registry, ingress rejection semantics, planning helpers, and hook collections: `runtime/AGENTS.md`, `runtime/operations.go`, `runtime/service.go`, `runtime/runtime.go`, `runtime/planning_snapshot.go`, `runtime/proxy_selector_helpers.go`, `runtime/operation_request_hooks.go`, `runtime/operation_response_hooks.go`, `runtime/operation_stream_hooks.go`, `runtime/operation_media_hooks.go`

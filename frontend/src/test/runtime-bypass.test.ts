@@ -1,13 +1,8 @@
 import { http, HttpResponse } from "msw"
-import { afterEach, describe, expect, it } from "vitest"
-import { setApiProfileId } from "@/lib/api"
+import { describe, expect, it } from "vitest"
 import { isProfileScopedManagementRoute } from "@/lib/api/profileScope"
 import { rewriteQueryKeys } from "@/shared"
 import { rewriteTestServer } from "@/test"
-
-afterEach(() => {
-  setApiProfileId(null)
-})
 
 describe("runtime-bypass contracts", () => {
   it("keeps runtime routes out of management profile-scope matching", () => {
@@ -31,7 +26,6 @@ describe("runtime-bypass contracts", () => {
 
   it("bypasses the management client and selected-profile header for runtime fetches", async () => {
     const observedProfileHeaders: Array<string | null> = []
-    setApiProfileId(42)
 
     rewriteTestServer.use(
       http.post("/v1/chat/completions", ({ request }) => {

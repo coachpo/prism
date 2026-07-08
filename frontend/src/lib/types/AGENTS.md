@@ -10,7 +10,6 @@ types/
 ├── config-audit-settings.ts
 ├── loadbalance.ts
 ├── model-stats.ts
-├── profile.ts
 ├── routing.ts
 ├── target-compatibility.ts
 ├── usage-statistics.ts
@@ -19,7 +18,7 @@ types/
 
 ## WHERE TO LOOK
 - Public barrel: `../types.ts`
-- Profile and auth/session surfaces: `profile.ts`, `auth.ts`
+- Auth/session surfaces: `auth.ts`
 - Terminal Target, routing, vendor, and model stats contracts: `target-compatibility.ts`, `routing.ts`, `vendor.ts`, `model-stats.ts`
 - Usage, analytics, and proxy-key stats payloads: `usage-statistics.ts`
 - Ban Policy and load-balance payloads: `loadbalance.ts`

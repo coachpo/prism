@@ -19,7 +19,6 @@ import (
 	managementendpoints "github.com/coachpo/prism/backend/internal/httpapi/management/endpoints"
 	managementloadbalance "github.com/coachpo/prism/backend/internal/httpapi/management/loadbalance"
 	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
-	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
 	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	realtimeapi "github.com/coachpo/prism/backend/internal/httpapi/realtime"
@@ -163,7 +162,6 @@ type authServices struct {
 
 type managementServices struct {
 	dashboardSnapshots *statsdomain.DashboardAggregateStore
-	profiles           *managementprofiles.Service
 	models             *managementmodels.Service
 	endpoints          *managementendpoints.Service
 	connections        *managementconnections.Service
@@ -279,13 +277,6 @@ func (resources *productionResources) buildManagementServices(settings config.Se
 	runtimeState := planning.state
 	dashboardSnapshots := statsdomain.NewDashboardAggregateStore()
 	services := managementServices{dashboardSnapshots: dashboardSnapshots}
-	profileService, err := managementprofiles.NewService(settings, managementprofiles.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool})
-	if err != nil {
-		return services, err
-	}
-	services.profiles = profileService
-	resources.registerServiceClose(closeFuncHook(profileService.Close))
-
 	modelsService, err := managementmodels.NewService(settings, managementmodels.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool})
 	if err != nil {
 		return services, err
@@ -421,7 +412,6 @@ func (resources *productionResources) publishDatabaseBackedDependencies(auth aut
 	resources.deps.EndpointsService = management.endpoints
 	resources.deps.LoadbalanceService = management.loadbalance
 	resources.deps.ModelsService = management.models
-	resources.deps.ProfilesService = management.profiles
 	resources.deps.RealtimeService = realtime.service
 	resources.deps.RuntimeService = runtimeService
 	resources.deps.RuntimeCache = planning.cache

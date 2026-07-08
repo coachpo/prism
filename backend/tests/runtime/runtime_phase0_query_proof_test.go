@@ -16,7 +16,6 @@ import (
 
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	managementconfigrules "github.com/coachpo/prism/backend/internal/httpapi/management/configrules"
-	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
@@ -155,11 +154,6 @@ func newRuntimePhase0HarnessForDatabaseWithOptions(tb testing.TB, databaseName s
 	}
 	tb.Cleanup(runtimeAuthService.Close)
 
-	profilesService, err := managementprofiles.NewService(settings, managementprofiles.Options{Pool: managementPool})
-	if err != nil {
-		tb.Fatalf("build phase-0 profiles service: %v", err)
-	}
-	tb.Cleanup(profilesService.Close)
 	configRulesService, err := managementconfigrules.NewService(settings, managementconfigrules.Options{Pool: managementPool})
 	if err != nil {
 		tb.Fatalf("build phase-0 config rules service: %v", err)
@@ -193,7 +187,6 @@ func newRuntimePhase0HarnessForDatabaseWithOptions(tb testing.TB, databaseName s
 		AuthService:        managementAuthService,
 		RuntimeAuthService: runtimeAuthService,
 		ConfigRulesService: configRulesService,
-		ProfilesService:    profilesService,
 		RuntimeService:     runtimeService,
 		RuntimeCache:       runtimePlanningCache,
 		StatsService:       statsService,
@@ -214,16 +207,15 @@ func newRuntimePhase0HarnessForDatabaseWithOptions(tb testing.TB, databaseName s
 
 	return &runtimePhase0Harness{
 		runtimeHarness: &runtimeHarness{
-			databaseName:    databaseName,
-			client:          client,
-			conn:            conn,
-			authService:     managementAuthService,
-			profilesService: profilesService,
-			runtimeService:  runtimeService,
-			runtimeCache:    runtimePlanningCache,
-			server:          server,
-			url:             server.URL,
-			upstream:        upstream,
+			databaseName:   databaseName,
+			client:         client,
+			conn:           conn,
+			authService:    managementAuthService,
+			runtimeService: runtimeService,
+			runtimeCache:   runtimePlanningCache,
+			server:         server,
+			url:            server.URL,
+			upstream:       upstream,
 		},
 		settings:     settings,
 		statsService: statsService,
@@ -238,9 +230,9 @@ func phase0RuntimeHarnessSettings(databaseName string) config.Settings {
 		AppEnv:      config.EnvironmentProduction,
 		DatabaseURL: sharedPostgresHarness.connectionString(databaseName),
 
-		RuntimeTelemetryMode: config.RuntimeTelemetryModeSynchronous,
-		SecretEncryptionKey:  "runtime-phase0-secret",
-		CORSAllowedOrigins:   "http://localhost:5173,http://127.0.0.1:5173",
+		RuntimeTelemetryMode:       config.RuntimeTelemetryModeSynchronous,
+		SecretEncryptionKey:        "runtime-phase0-secret",
+		CORSAllowedOrigins:         "http://localhost:5173,http://127.0.0.1:5173",
 		AuthJWTSecret:              "runtime-phase0-jwt-secret",
 		AuthAccessTokenTTLSeconds:  900,
 		AuthRefreshTokenTTLSeconds: 604800,

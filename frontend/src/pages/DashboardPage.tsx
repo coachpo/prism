@@ -4,7 +4,6 @@ import { useNavigate } from "react-router-dom";
 import { WebSocketStatusIndicator } from "@/components/WebSocketStatusIndicator";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useProfileContext } from "@/context/ProfileContext";
 import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
 import { DashboardAnalyticsContent } from "@/pages/dashboard/DashboardAnalyticsContent";
@@ -42,12 +41,11 @@ function DashboardAggregateSection({
   activeTab: Extract<DashboardTab, "overview" | "routing">;
 }) {
   const navigate = useNavigate();
-  const { revision, selectedProfile } = useProfileContext();
   const { format: formatTime } = useTimezone();
   const { messages } = useLocale();
   const data = useDashboardPageData({
-    revision,
-    selectedProfileId: selectedProfile?.id ?? null,
+    revision: 0,
+    selectedProfileId: 1,
   });
   const openAnalyticsTab = useCallback(() => {
     pageState.setTab("analytics");

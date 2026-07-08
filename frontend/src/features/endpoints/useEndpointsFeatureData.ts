@@ -4,7 +4,6 @@ import { getStaticMessages } from "@/i18n/staticMessages"
 import { useTimezone } from "@/hooks/useTimezone"
 import { api } from "@/lib/api"
 import type { Endpoint } from "@/lib/types"
-import { useProfileContext } from "@/context/ProfileContext"
 import { extractServerValidation } from "@/shared/forms/serverValidation"
 import { buildEndpointCreatePayload, buildEndpointUpdatePayload, hasEndpointReviewFilters, type EndpointFormValues } from "./endpointSchemas"
 import { useEndpointBootstrapData } from "@/pages/endpoints/useEndpointBootstrapData"
@@ -22,7 +21,7 @@ export function useEndpointsFeatureData() {
   const [deleteDialogTarget, setDeleteDialogTarget] = useState<Endpoint | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all")
-  const { revision } = useProfileContext()
+  const revision = 0
   const { format: formatTime } = useTimezone()
   const { commitEndpoints, endpointModels, endpoints, isLoading, setEndpoints } = useEndpointBootstrapData(revision)
   const normalizedSearch = searchQuery.trim().toLowerCase()

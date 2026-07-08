@@ -4,7 +4,7 @@
 `backend/tests/` is Prism's top-level Go regression surface. It holds contract, integration, runtime, and priority checks around management APIs, operation-registered proxy behavior, startup sequencing, bootstrap file loading, launcher behavior, request-log contracts, partitioned log retention, container ownership, persistence semantics, DB lane isolation, and durable side-effect ownership.
 
 ## COVERAGE CLUSTERS
-- Contract coverage for auth, endpoints, models, profiles, observability, and partitioned-log helper contracts.
+- Contract coverage for auth, endpoints, models, observability, and partitioned-log helper contracts.
 - Integration coverage for migrations, startup sequencing, launcher/bootstrap preservation, canonical seeding, partitioned log retention, runtime route-matrix forwarding, audit or stats persistence, and Dockerfile ownership.
 - Runtime coverage for operation route matrices, rejected-route isolation, hook residency, profile scoping, realtime delivery, request-log contracts, request-generation params, runtime-created log partitions, published runtime snapshots, cache invalidation, telemetry outboxes, streaming buffering, responses parity, and `operation_name` persistence.
 - Priority coverage for admission budgets, physical DB lane isolation, scheduler ownership, async side effects, outboxes, failure semantics, and no-inline-fallback regressions.

@@ -69,14 +69,14 @@ test("observability API fetches dashboard snapshot and recent activity separatel
       url: "/api/stats/dashboard",
       init: {
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Profile-Id": "1" },
       },
     },
     {
       url: "/api/stats/dashboard/recent-activity?limit=12",
       init: {
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Profile-Id": "1" },
       },
     },
   ]);
@@ -93,18 +93,15 @@ test("settings audit API stays profile-scoped and uses the exact family payload"
     ],
   };
   const restoreFetch = installFetchRecorder(requests, [response, response]);
-  const { api, setApiProfileId } = loadApi();
+  const { api } = loadApi();
 
   try {
-    setApiProfileId(17);
-
     assert.deepEqual(await api.settings.audit.get(), response);
     assert.deepEqual(
       await api.settings.audit.update({ settings: response.settings }),
       response,
     );
   } finally {
-    setApiProfileId(null);
     restoreFetch();
   }
 
@@ -113,7 +110,7 @@ test("settings audit API stays profile-scoped and uses the exact family payload"
       url: "/api/settings/audit",
       init: {
         credentials: "include",
-        headers: { "Content-Type": "application/json", "X-Profile-Id": "17" },
+        headers: { "Content-Type": "application/json", "X-Profile-Id": "1" },
       },
     },
     {
@@ -121,7 +118,7 @@ test("settings audit API stays profile-scoped and uses the exact family payload"
       init: {
         body: JSON.stringify({ settings: response.settings }),
         credentials: "include",
-        headers: { "Content-Type": "application/json", "X-Profile-Id": "17" },
+        headers: { "Content-Type": "application/json", "X-Profile-Id": "1" },
         method: "PUT",
       },
     },

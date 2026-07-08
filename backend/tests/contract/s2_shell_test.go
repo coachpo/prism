@@ -76,14 +76,14 @@ func TestManagementCORSPreflight(t *testing.T) {
 		t.Fatalf("build shell handler with local CORS origins: %v", err)
 	}
 
-	request := httptest.NewRequest(http.MethodOptions, "/api/profiles", nil)
+	request := httptest.NewRequest(http.MethodOptions, "/api/models", nil)
 	request.Header.Set("Origin", "http://localhost:15173")
 	request.Header.Set("Access-Control-Request-Method", http.MethodGet)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 
 	if response.Code != http.StatusNoContent {
-		t.Fatalf("expected OPTIONS /api/profiles to return 204, got %d", response.Code)
+		t.Fatalf("expected OPTIONS /api/models to return 204, got %d", response.Code)
 	}
 	if got := response.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:15173" {
 		t.Fatalf("expected preflight allow origin header, got %q", got)

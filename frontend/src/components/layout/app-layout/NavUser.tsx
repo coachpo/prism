@@ -18,7 +18,7 @@ import { useSidebar } from "@/components/ui/sidebar-context";
 import { LanguageMenuItems } from "@/components/LanguageSwitcher";
 import { ThemeMenuItems } from "@/components/ThemeToggle";
 import { useLocale } from "@/i18n/useLocale";
-import { VERSION_LABEL } from "./navigationProfileConfig";
+import { VERSION_LABEL } from "./useShellNavigation";
 
 type Props = {
   authEnabled: boolean;
