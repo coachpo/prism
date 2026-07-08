@@ -116,6 +116,7 @@ func (p *runtimeFeedbackPipeline) TryEnqueue(event runtimeFeedbackEvent) Runtime
 }
 
 func (p *runtimeFeedbackPipeline) TryEnqueueContext(ctx context.Context, event runtimeFeedbackEvent) RuntimeFeedbackEnqueueResult {
+	ctx = runtimeDetachedContext(ctx)
 	if event.TraceContext.empty() {
 		event.TraceContext = runtimeTraceContextFromContext(ctx)
 	}

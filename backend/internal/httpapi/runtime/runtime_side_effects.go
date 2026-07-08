@@ -98,6 +98,7 @@ func (m *RuntimeSideEffectManager) SubmitRuntimeActivity(intent RuntimeActivityI
 }
 
 func (m *RuntimeSideEffectManager) SubmitRuntimeActivityContext(ctx context.Context, intent RuntimeActivityIntent) RuntimeSideEffectSubmitResult {
+	ctx = runtimeDetachedContext(ctx)
 	if intent.TraceContext.empty() {
 		intent.TraceContext = runtimeTraceContextFromContext(ctx)
 	}
@@ -158,6 +159,7 @@ func (m *RuntimeSideEffectManager) CommitStreamingRuntimeActivityAcceptedBeforeR
 }
 
 func (m *RuntimeSideEffectManager) FinalizeStreamingRuntimeActivityBeforeCompletion(ctx context.Context, acceptedRowID int64, intent RuntimeActivityIntent) error {
+	ctx = runtimeDetachedContext(ctx)
 	if m == nil || m.outbox == nil {
 		return fmt.Errorf("runtime telemetry outbox unavailable")
 	}

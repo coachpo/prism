@@ -138,6 +138,7 @@ func (o *runtimeTelemetryOutbox) EnqueueStreamingAccepted(ctx context.Context, e
 }
 
 func (o *runtimeTelemetryOutbox) FinalizeStreamingAccepted(ctx context.Context, rowID int64, envelope runtimeTelemetryEnvelope) error {
+	ctx = runtimeDetachedContext(ctx)
 	if rowID <= 0 {
 		return fmt.Errorf("runtime streaming telemetry accepted row id required")
 	}

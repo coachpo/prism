@@ -670,7 +670,7 @@ func (s *Service) finalizeStreamingRuntimeActivityBeforeCompletion(acceptedRowID
 	if s == nil || s.runtimeSideEffects == nil {
 		return fmt.Errorf("runtime telemetry outbox unavailable")
 	}
-	ctx := runtimeRequestContext(request)
+	ctx := runtimeDetachedContext(runtimeRequestContext(request))
 	envelope := s.buildRuntimeActivityEnvelope(ctx, plan, result, request, startedAt, responseCapture)
 	if err := s.validateRuntimeActivityHandoff(envelope); err != nil {
 		return err

@@ -55,6 +55,25 @@ func TestRuntimeSideEffectsAcceptedIntentIsAccountedForUntilTerminalFailure(t *t
 	waitForPendingRuntimeSideEffects(t, manager, 0, time.Second)
 }
 
+func TestRuntimeSideEffectsSubmitIgnoresCanceledRequestContext(t *testing.T) {
+	scheduler := background.NewScheduler(background.Config{GlobalConcurrency: 1})
+	manager := NewRuntimeSideEffectManager(nil, RuntimeSideEffectOptions{ShutdownTimeout: 20 * time.Millisecond})
+	if err := manager.RegisterBackgroundWorker(scheduler); err != nil {
+		t.Fatalf("register side-effect worker: %v", err)
+	}
+	if err := scheduler.Start(context.Background()); err != nil {
+		t.Fatalf("start scheduler: %v", err)
+	}
+	defer func() { _ = scheduler.Stop(context.Background(), time.Now().Add(time.Second)) }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result := manager.SubmitRuntimeActivityContext(ctx, validRuntimeActivityIntent())
+	if result.Status != RuntimeSideEffectAccepted {
+		t.Fatalf("expected canceled request context not to reject side-effect submit, got %+v", result)
+	}
+}
+
 func waitForPendingRuntimeSideEffects(t *testing.T, manager *RuntimeSideEffectManager, want int, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -109,6 +128,26 @@ func TestRuntimeFeedbackTryEnqueueDropsInvalidFullAndClosedEvents(t *testing.T) 
 	pipeline.Close()
 	if got := pipeline.TryEnqueue(valid); got.Status != RuntimeFeedbackDroppedUnavailable {
 		t.Fatalf("expected closed feedback pipeline drop, got %+v", got)
+	}
+}
+
+func TestRuntimeFeedbackEnqueueIgnoresCanceledRequestContext(t *testing.T) {
+	scheduler := background.NewScheduler(background.Config{GlobalConcurrency: 1})
+	pipeline := newRuntimeFeedbackPipeline(nil, nil, nil, RuntimeFeedbackPipelineOptions{QueueCapacity: 1, WorkerCount: 1, WriteTimeout: time.Second})
+	if err := pipeline.RegisterBackgroundWorker(scheduler); err != nil {
+		t.Fatalf("register feedback worker: %v", err)
+	}
+	if err := scheduler.Start(context.Background()); err != nil {
+		t.Fatalf("start scheduler: %v", err)
+	}
+	defer func() { _ = scheduler.Stop(context.Background(), time.Now().Add(time.Second)) }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	event := runtimeFeedbackEvent{Kind: runtimeFeedbackAdmissionRejected, ProfileID: 1, ConnectionID: 2, ObservedAt: time.Now()}
+	result := pipeline.TryEnqueueContext(ctx, event)
+	if result.Status != RuntimeFeedbackAccepted {
+		t.Fatalf("expected canceled request context not to reject feedback enqueue, got %+v", result)
 	}
 }
 

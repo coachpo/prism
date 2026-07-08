@@ -26,3 +26,23 @@ TESTS AND COMMANDS
 CONCERNS
 - Additional Docker-backed regression suites could not complete in this local environment because the known Postgres harness issue prevented tests from reaching assertions.
 - Existing unrelated local changes were left untouched: .superpowers/sdd/task-9-report.md, docs/IMPLEMENTATION_PLAN.md, and docs/TEST_REDUCTION_*.md.
+
+---
+
+STATUS: REVIEW_FIX_DONE_WITH_CONCERN
+
+FIX
+- Restored cancellation-detached runtime contexts without OTel by adding runtimeDetachedContext.
+- Reapplied detachment to async runtime side-effect submission, runtime feedback enqueue, and streaming telemetry finalization/update paths.
+- Added focused unit coverage proving canceled request contexts no longer reject runtime side-effect or feedback scheduler submission.
+
+TESTS
+- PASS: cd backend && go test ./internal/httpapi/runtime -run 'TestRuntime(SideEffectsSubmitIgnoresCanceledRequestContext|FeedbackEnqueueIgnoresCanceledRequestContext)$' (failed before fix, passed after fix).
+- PASS: cd backend && go test ./internal/httpapi/runtime.
+- PASS: cd backend && go test ./internal/platform/background.
+- PASS: rg -in "opentelemetry|asyncmetrics|startRuntimeSpan" backend --glob '!docs/**' produced no matches.
+- PASS: cd backend && go build ./cmd/prism-backend.
+- FAIL: cd backend && go test ./tests/runtime failed before assertions because Docker did not publish 5432/tcp for prism-s14-runtime-d952851b.
+
+CONCERNS
+- Direct streaming-finalization DB proof stays covered by the Docker runtime harness, which is currently blocked by the local Postgres port publication issue.

@@ -14,6 +14,13 @@ func runtimeTraceContextFromContext(context.Context) runtimeTraceContext {
 	return runtimeTraceContext{}
 }
 
+func runtimeDetachedContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return context.WithoutCancel(ctx)
+}
+
 func (traceContext runtimeTraceContext) empty() bool {
 	return strings.TrimSpace(traceContext.TraceParent) == "" && strings.TrimSpace(traceContext.TraceState) == ""
 }
