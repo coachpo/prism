@@ -178,14 +178,6 @@ type modelConnectionsBatchRequest struct {
 	ModelConfigIDs []int `json:"model_config_ids"`
 }
 
-type healthCheckResponse struct {
-	ConnectionID   int       `json:"connection_id"`
-	HealthStatus   string    `json:"health_status"`
-	CheckedAt      time.Time `json:"checked_at"`
-	Detail         string    `json:"detail"`
-	ResponseTimeMS int       `json:"response_time_ms"`
-}
-
 type endpointResponse struct {
 	ID           int       `json:"id"`
 	ProfileID    int       `json:"profile_id"`
@@ -227,7 +219,7 @@ type connectionResponse struct {
 	PricingTemplate            *connectionPricingTemplateSummary `json:"pricing_template"`
 	HealthStatus               string                            `json:"health_status"`
 	HealthDetail               *string                           `json:"health_detail"`
-	LastHealthCheck            *time.Time                        `json:"last_health_check"`
+	LastHealthAt               *time.Time                        `json:"last_health_check"`
 	CreatedAt                  time.Time                         `json:"created_at"`
 	UpdatedAt                  time.Time                         `json:"updated_at"`
 }

@@ -103,7 +103,7 @@ Validated again against current repo surfaces on 2026-07-07:
 1. Operators list, search, create, edit, and delete model configs.
 2. Public model create and edit flows author ordered targets that point only to same-family models.
 3. Model detail is the Terminal Target management surface for the model's owned endpoint bindings.
-4. Model detail loads owned Terminal Target KPIs, current Ban Policy retry-window state, loadbalance event history, and manual health-check actions.
+4. Model detail loads owned Terminal Target KPIs, current Ban Policy retry-window state, and loadbalance event history.
 5. Request-log handoff preserves the requested model while final-target fields show the terminal model reached through the access graph.
 
 **Backend touchpoints**
@@ -125,7 +125,6 @@ Validated again against current repo surfaces on 2026-07-07:
 - `POST /api/models/{model_config_id}/connections`
 - `PATCH /api/models/{model_config_id}/connections/{connection_id}`
 - `DELETE /api/models/{model_config_id}/connections/{connection_id}`
-- `POST /api/models/{model_config_id}/connections/{connection_id}/health`
 
 ## 5. Endpoints, Loadbalance Strategies, And Pricing Templates
 

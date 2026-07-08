@@ -1,14 +1,13 @@
 # BACKEND MANAGEMENT CONNECTIONS KNOWLEDGE BASE
 
 ## OVERVIEW
-`management/connections/` owns Default-profile connection list or get routes under `/api/connections`, connection reference reads, public mutation rejection surfaces for `/api/connections/*`, owner-scoped private connection routes under `/api/models/{model_config_id}/connections`, connection health checks, and `/api/pricing-templates/*`. Model target authoring stays in `management/models/`, while this package keeps reusable endpoint-to-connection binding and pricing-template ownership.
+`management/connections/` owns Default-profile connection list or get routes under `/api/connections`, connection reference reads, public mutation rejection surfaces for `/api/connections/*`, owner-scoped private connection routes under `/api/models/{model_config_id}/connections`, and `/api/pricing-templates/*`. Model target authoring stays in `management/models/`, while this package keeps reusable endpoint-to-connection binding and pricing-template ownership.
 
 ## STRUCTURE
 ```text
 connections/
 ├── service.go              # Service construction and route mounting
 ├── routes.go               # Public connection reads, rejection surfaces, and owner-scoped mutations
-├── health.go               # Public and owner-scoped persisted health checks
 ├── pricing_templates.go    # Pricing-template CRUD and validation
 ├── pricing_lookup.go       # Pricing-template connection usage lookup
 ├── store.go                # Profile-scoped connection, endpoint, model, rule, and pricing SQL
@@ -19,7 +18,6 @@ connections/
 - Route list and mount contract: `service.go`
 - Public connection list/get/reference flows plus rejection surfaces for direct mutations: `routes.go`
 - Owner-scoped create/update/delete, priority, pricing-template assignment, and inline endpoint creation helpers: `routes.go`, `store.go`
-- Public and owner-scoped health checks with header-blocklist filtering: `health.go`
 - Pricing-template CRUD, connection assignment, and usage lookup: `pricing_templates.go`, `pricing_lookup.go`
 - Model target CRUD and ordering live in the separate model leaf: `../models/AGENTS.md`, `../models/service.go`
 
@@ -33,11 +31,7 @@ connections/
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
-## LLM UPSTREAM MATRIX
-- When health checks or probe variants change, evaluate OpenAI, Anthropic, and Gemini connection behavior instead of assuming one provider shape covers all families.
-
 ## ANTI-PATTERNS
 - Do not move pricing-template CRUD or lookup into a separate management package.
 - Do not accept both `endpoint_id` and `endpoint_create` on one connection write.
 - Do not reintroduce retired owner-lookup helpers, legacy auxiliary mutation routes, or connection-level ordering moves.
-- Do not run health probes without the profile's enabled header-blocklist rules.

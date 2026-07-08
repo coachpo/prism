@@ -2,12 +2,10 @@ package connections
 
 import (
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"golang.org/x/sync/singleflight"
 
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
@@ -17,17 +15,14 @@ type Options struct {
 	CORSOriginProvider platformcors.OriginProvider
 	Pool               *pgxpool.Pool
 	Now                func() time.Time
-	HTTPClient         *http.Client
 }
 
 type Service struct {
-	pool                  *pgxpool.Pool
-	ownsPool              bool
-	now                   func() time.Time
-	httpClient            *http.Client
-	corsOriginProvider    platformcors.OriginProvider
-	secretEncryptionKey   string
-	persistedHealthChecks singleflight.Group
+	pool                *pgxpool.Pool
+	ownsPool            bool
+	now                 func() time.Time
+	corsOriginProvider  platformcors.OriginProvider
+	secretEncryptionKey string
 }
 
 type domainError struct {
@@ -54,11 +49,6 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		now = time.Now
 	}
 
-	httpClient := options.HTTPClient
-	if httpClient == nil {
-		httpClient = &http.Client{}
-	}
-
 	corsOriginProvider := options.CORSOriginProvider
 	if corsOriginProvider == nil {
 		corsOriginProvider = platformcors.NewStaticOriginProvider(settings.CORSAllowedOriginsList())
@@ -68,7 +58,6 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		pool:                pool,
 		ownsPool:            ownsPool,
 		now:                 now,
-		httpClient:          httpClient,
 		corsOriginProvider:  corsOriginProvider,
 		secretEncryptionKey: settings.SecretEncryptionKey,
 	}, nil
@@ -95,13 +84,10 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Post("/models/connections/batch", s.handleListConnectionsBatch)
 	api.Get("/models/{model_config_id}/connections", s.handleListModelConnections)
 	api.Post("/models/{model_config_id}/connections", s.handleCreateModelConnection)
-	api.Post("/models/{model_config_id}/connections/health-check-preview", s.handleLegacyModelConnectionNotFound)
 	api.Patch("/models/{model_config_id}/connections/{connection_id}", s.handleUpdateModelConnection)
 	api.Put("/models/{model_config_id}/connections/{connection_id}", s.handleRejectModelConnectionLegacyMutation)
 	api.Delete("/models/{model_config_id}/connections/{connection_id}", s.handleDeleteModelConnection)
 	api.Put("/models/{model_config_id}/connections/{connection_id}/pricing-template", s.handleRejectModelConnectionLegacyMutation)
-	api.Post("/models/{model_config_id}/connections/{connection_id}/health", s.handleModelConnectionHealthCheck)
-	api.Post("/models/{model_config_id}/connections/{connection_id}/health-check", s.handleRejectModelConnectionLegacyMutation)
 	api.Patch("/models/{model_config_id}/connections/{connection_id}/priority", s.handleRejectModelConnectionLegacyMutation)
 
 	api.Get("/connections", s.handleListConnections)
@@ -111,7 +97,6 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Patch("/connections/{connection_id}", s.handleUpdateConnection)
 	api.Put("/connections/{connection_id}/pricing-template", s.handleSetConnectionPricingTemplate)
 	api.Delete("/connections/{connection_id}", s.handleDeleteConnection)
-	api.Post("/connections/{connection_id}/health-check", s.handleConnectionHealthCheck)
 	api.Get("/connections/{connection_id}/references", s.handleListConnectionReferences)
 	api.Route("/pricing-templates", func(router chi.Router) {
 		router.Get("/", s.handleListPricingTemplates)

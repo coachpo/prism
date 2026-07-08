@@ -45,7 +45,6 @@ function createConnection() {
     name: null,
     auth_type: null,
     custom_headers: null,
-    openai_probe_endpoint_variant: null,
     pricing_template_id: null,
     qps_limit: null,
     max_in_flight_non_stream: null,

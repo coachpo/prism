@@ -646,10 +646,8 @@ export interface Messages {
     currentTargetLabel: (targetId: string) => string;
     connectionDialogDescription: string;
     connectionDisplayNamePlaceholder: string;
-    connectionHealthy: string;
     connectionNameOptional: string;
     connectionNameSummaryLabel: string;
-    connectionUnhealthy: string;
     configuration: string;
     connections: string;
     connectionsLoadOnDemandDescription: string;
@@ -706,8 +704,6 @@ export interface Messages {
     failureKindUnknown: string;
     firstTarget: (targetId: string) => string;
     filterConnections: string;
-    healthCheck: string;
-    healthChecking: string;
     healthHealthy: string;
     healthUnknown: string;
     healthUnhealthy: string;
@@ -732,7 +728,6 @@ export interface Messages {
     noCostDataAvailable: string;
     noLoadbalanceStrategiesAvailable: string;
     noProfileEndpointsFound: string;
-    notCheckedYet: string;
     notSet: string;
     orderedPriorityRouting: string;
     pricingOff: string;
@@ -752,24 +747,10 @@ export interface Messages {
     openaiTextCapabilityRuntimeHint: string;
     openaiTextCapabilitySelector: string;
     openaiTextCapabilitySummaryLabel: string;
-    probeApi: string;
-    probeApiChatCompletions: string;
-    probeApiChatCompletionsHint: string;
-    probeApiResponses: string;
-    probeApiResponsesHint: string;
-    probeBehavior: string;
-    probeBehaviorDescription: string;
-    probeBehaviorSummaryLabel: string;
     qpsLimit: string;
     removeHeader: string;
     retryWindowBlocked: string;
     retryWindowCounting: string;
-    reasoningHandling: string;
-    reasoningHandlingDefault: string;
-    reasoningHandlingDefaultHint: string;
-    reasoningHandlingDisabled: string;
-    reasoningHandlingDisabledHint: string;
-    resolvedProbeVariant: string;
     resetBanPolicyState: string;
     requests24h: string;
     requestsLabel: string;
@@ -794,9 +775,6 @@ export interface Messages {
     strategyRecovery: string;
     advancedRequestSettings: string;
     advancedRequestSettingsDescription: string;
-    healthTestDescription: string;
-    testConnection: string;
-    testingConnection: string;
     targets: (count: string) => string;
     totalCost: (currencyCode: string) => string;
     totalTokens: (count: string) => string;
@@ -1016,13 +994,10 @@ export interface Messages {
     connectionFallback: (id: string) => string;
     connectionCreated: string;
     connectionDeleted: string;
-    connectionTestFailed: string;
     connectionUpdated: string;
     fetchModelDetailsFailed: string;
     deleteConnectionFailed: string;
     fillEndpointFields: string;
-    healthCheckResult: (status: string, latencyMs: string) => string;
-    healthCheckFailed: string;
     loadBanPolicyStateFailed: string;
     modelUpdated: string;
     reorderPriorityReverted: string;
@@ -2033,14 +2008,12 @@ export const enMessages: Messages = {
     connectionDialogDescription:
       "Configure where this model-private terminal target sends requests. Routing priority stays owned by drag-and-drop in the terminal-target list.",
     connectionDisplayNamePlaceholder: "Terminal Target Display Name",
-    connectionHealthy: "Terminal Target Healthy",
     connectionNameOptional: "Terminal Target Name (Optional)",
     connectionNameSummaryLabel: "Resolved Terminal Target Name",
-    connectionUnhealthy: "Terminal Target Unhealthy",
     configuration: "Configuration",
     connections: "Terminal Targets",
     connectionsLoadOnDemandDescription:
-      "Terminal target metrics and health checks load on demand to avoid large page-open bursts.",
+      "Terminal target metrics load on demand to avoid large page-open bursts.",
     consecutiveFailures: (count) => `${count} consecutive failure${count === 1 ? "" : "s"}`,
     cooldownMinutes: (minutes) => `${minutes}m`,
     cooldownMinutesSeconds: (minutes, seconds) => `${minutes}m ${seconds}s`,
@@ -2093,8 +2066,6 @@ export const enMessages: Messages = {
     failureKindUnknown: "an unknown failure",
     firstTarget: (targetId) => `First ${targetId}`,
     filterConnections: "Filter terminal targets...",
-    healthCheck: "Health Check",
-    healthChecking: "Checking",
     healthHealthy: "Healthy",
     healthUnknown: "Unknown",
     healthUnhealthy: "Unhealthy",
@@ -2123,7 +2094,6 @@ export const enMessages: Messages = {
     noLoadbalanceStrategiesAvailable:
       "No loadbalance strategies are available for the Default profile. Create one on the Loadbalance Strategies page first.",
     noProfileEndpointsFound: "No Default-profile endpoints found.",
-    notCheckedYet: "Not checked yet",
     notSet: "Not set",
     orderedPriorityRouting: "Ordered priority routing",
     pricingOff: "Pricing Off",
@@ -2137,25 +2107,16 @@ export const enMessages: Messages = {
     openaiTextCapabilityChatCompletionsOnlyHint:
       "Route OpenAI text traffic only to the Chat Completions operation for this terminal target.",
     openaiTextCapabilityDescription:
-      "Choose which OpenAI text runtime operations this terminal target supports. This is separate from health probe behavior.",
+      "Choose which OpenAI text runtime operations this terminal target supports.",
     openaiTextCapabilityDualNative: "Dual native",
     openaiTextCapabilityDualNativeHint:
       "Route OpenAI text traffic natively through both Responses and Chat Completions operations.",
     openaiTextCapabilityResponsesOnly: "Responses only",
     openaiTextCapabilityResponsesOnlyHint:
       "Route OpenAI text traffic only to the Responses operation for this terminal target.",
-    openaiTextCapabilityRuntimeHint: "Used by runtime routing. Health probes have their own controls below.",
+    openaiTextCapabilityRuntimeHint: "Used by runtime routing.",
     openaiTextCapabilitySelector: "Text capability",
     openaiTextCapabilitySummaryLabel: "Runtime Capability",
-    probeApi: "Health Probe API",
-    probeApiChatCompletions: "Chat Completions API",
-    probeApiChatCompletionsHint: "Use Chat Completions only for the health-check probe request.",
-    probeApiResponses: "Responses API",
-    probeApiResponsesHint: "Use Responses only for the health-check probe request.",
-    probeBehavior: "Health Probe Behavior",
-    probeBehaviorDescription:
-      "Used for health checks only. It does not change runtime capability, routed model traffic, or terminal-target selection.",
-    probeBehaviorSummaryLabel: "Health Probe Behavior",
     qpsLimit: "QPS Limit",
     removeHeader: "Remove header",
     retryWindowBlocked: "Retry Window Open",
@@ -2165,12 +2126,6 @@ export const enMessages: Messages = {
     requestsLabel: "Requests",
     routingPriorityHint:
       "New terminal targets are appended as fallbacks. Drag and drop cards in the Model Detail list to adjust routing priority.",
-    reasoningHandling: "Probe payload reasoning",
-    reasoningHandlingDefault: "Minimal payload",
-    reasoningHandlingDefaultHint: "Send the smallest standard probe payload.",
-    reasoningHandlingDisabled: "Disable reasoning",
-    reasoningHandlingDisabledHint: "Explicitly disable reasoning during the probe request.",
-    resolvedProbeVariant: "Resolved Probe Variant",
     sampled5xxRate: "5xx rate (sampled)",
     saveConnection: "Save Terminal Target",
     saveChanges: "Save Changes",
@@ -2184,18 +2139,14 @@ export const enMessages: Messages = {
     setup: "Setup",
     setupDescription: "Choose where this terminal target sends requests and how Prism should label it.",
     spend24h: (currencyCode) => `Spend (24h, ${currencyCode})`,
-    summaryAndTest: "Summary & Test",
-    summaryAndTestDescription:
-      "Review the effective terminal target configuration and run a preview health check before saving.",
+    summaryAndTest: "Summary",
+    summaryAndTestDescription: "Review the effective terminal target configuration before saving.",
     successfulRequests: (count) => `${count} successful`,
     routingObjective: "Strategy Type",
     strategyRecovery: "Strategy Recovery",
     advancedRequestSettings: "Advanced Request Settings",
     advancedRequestSettingsDescription:
       "Tune optional request limits and custom headers for this terminal target.",
-    healthTestDescription: "Run a preview using the current unsaved terminal target configuration.",
-    testConnection: "Test Terminal Target",
-    testingConnection: "Testing...",
     targets: (count) => `${count} targets`,
     totalCost: (currencyCode) => `Total Cost (${currencyCode})`,
     totalTokens: (count) => `${count} tokens`,
@@ -2211,13 +2162,10 @@ export const enMessages: Messages = {
     connectionFallback: (id) => `Terminal Target ${id}`,
     connectionCreated: "Terminal Target created",
     connectionDeleted: "Terminal Target deleted",
-    connectionTestFailed: "Terminal Target test failed",
     connectionUpdated: "Terminal Target updated",
     fetchModelDetailsFailed: "Failed to fetch model details",
     deleteConnectionFailed: "Failed to delete terminal target",
     fillEndpointFields: "Please fill in all endpoint fields",
-    healthCheckResult: (status, latencyMs) => `Health: ${status} (${latencyMs}ms)`,
-    healthCheckFailed: "Health check failed",
     loadBanPolicyStateFailed: "Failed to load Ban Policy state",
     modelUpdated: "Model updated",
     reorderPriorityReverted: "Order reverted.",

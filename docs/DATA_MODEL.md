@@ -45,7 +45,7 @@ connections (profile-scoped private endpoint bindings)
   pricing_template_id FK -> pricing_templates.id (nullable, RESTRICT)
   qps_limit, max_in_flight_non_stream, max_in_flight_stream
   is_active, priority
-  name, auth_type, custom_headers, openai_probe_endpoint_variant, openai_text_capability
+  name, auth_type, custom_headers, openai_text_capability
   health_status, health_detail, last_health_check
   monitoring_probe_interval_seconds
   created_at, updated_at
@@ -375,9 +375,9 @@ Terminal Targets are represented as `connections` / `connection_id` in the compa
 | auth_type | VARCHAR(50) | NULLABLE | Optional auth behavior metadata |
 | custom_headers | TEXT | NULLABLE | JSON headers applied before blocklist filtering |
 | health_status | VARCHAR(20) | NOT NULL, DEFAULT 'unknown' | `unknown`, `healthy`, `unhealthy` |
-| health_detail | TEXT | NULLABLE | Last health-check detail |
-| last_health_check | DATETIME | NULLABLE | Last health-check timestamp |
-| openai_probe_endpoint_variant | VARCHAR(40) | NULLABLE | OpenAI-family probe target and payload variant; `responses_minimal` is the default for OpenAI Terminal Targets, while non-OpenAI Terminal Targets persist `NULL` |
+| health_detail | TEXT | NULLABLE | Retained compatibility health detail |
+| last_health_check | DATETIME | NULLABLE | Retained compatibility health timestamp |
+| openai_probe_endpoint_variant | VARCHAR(40) | NULLABLE | Retained schema field for existing rows; the live UI no longer writes this metadata |
 | openai_text_capability | TEXT | NULLABLE | OpenAI Terminal Target text runtime capability: `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI Terminal Targets persist `NULL` |
 | monitoring_probe_interval_seconds | INTEGER | NOT NULL, DEFAULT 300 | Reserved monitoring cadence field |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
@@ -390,12 +390,12 @@ Connection invariants:
 - Product-facing routing surfaces present these rows as Terminal Targets while persisted compatibility remains `connections` and `target_type = "connection"`.
 - A connection can be referenced by exactly one model access target in the same profile.
 - The partial unique index `uq_model_access_targets_connection_owner` enforces one owner for every non-null `target_connection_id`.
-- Public model target authoring cannot attach Terminal Targets by ID. Model detail creates, updates, health-checks, and deletes Terminal Targets through model-scoped routes.
+- Public model target authoring cannot attach Terminal Targets by ID. Model detail creates, updates, reorders, and deletes Terminal Targets through model-scoped routes.
 - Deleting a Terminal Target removes its owning `model_access_targets.target_connection_id` row in the same operation.
 - Connection create/update contracts do not allow client-written `priority`; model-specific ordering changes flow through `/api/models/{model_config_id}/targets/{target_id}/position`.
 - OpenAI Terminal Targets require `openai_text_capability` in `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI Terminal Targets must keep it `NULL`.
 - `openai_text_capability` is the OpenAI text runtime capability source of truth for planning. `responses_only` supports native Responses generation and Responses adjunct operations, `chat_completions_only` supports native Chat Completions, and `dual_native` supports both native text generation shapes. Sibling translation can run only for adapter-approved text-only Chat Completions and Responses shapes when a terminal target is not native for the ingress operation.
-- `openai_probe_endpoint_variant` is health-probe-only metadata. It selects the lightweight OpenAI probe endpoint and payload variant, and it does not derive runtime capability or request shape.
+- `openai_probe_endpoint_variant` is retained for existing rows; live Terminal Target authoring uses `openai_text_capability` for OpenAI runtime planning.
 
 ### 2.7 `pricing_templates` (profile-scoped reusable token pricing)
 

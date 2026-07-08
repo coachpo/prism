@@ -11,7 +11,6 @@ import {
   getSelectedEndpoint,
   normalizeOpenAITextCapability,
 } from "./useModelDetailDataSupport";
-import { normalizeOpenAIProbeEndpointVariant } from "./connectionProbeBehavior";
 
 export interface HeaderRow {
   id: string;
@@ -45,8 +44,6 @@ export function createDefaultConnectionForm(
     custom_headers: null,
     openai_text_capability:
       resolvedApiFamily === "openai" ? normalizeOpenAITextCapability(undefined) : null,
-    openai_probe_endpoint_variant:
-      resolvedApiFamily === "openai" ? normalizeOpenAIProbeEndpointVariant(undefined) : null,
     pricing_template_id: null,
     qps_limit: null,
     max_in_flight_non_stream: null,
@@ -72,10 +69,6 @@ export function createEditConnectionForm(
       resolvedApiFamily === "openai"
         ? normalizeOpenAITextCapability(connection.openai_text_capability)
         : null,
-    openai_probe_endpoint_variant:
-      resolvedApiFamily === "openai"
-        ? normalizeOpenAIProbeEndpointVariant(connection.openai_probe_endpoint_variant)
-        : null,
     pricing_template_id: connection.pricing_template_id,
     qps_limit: connection.qps_limit,
     max_in_flight_non_stream: connection.max_in_flight_non_stream,
@@ -97,11 +90,6 @@ export function useModelDetailDialogState({
 
   const [isConnectionDialogOpen, setIsConnectionDialogOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<Connection | null>(null);
-  const [dialogTestingConnection, setDialogTestingConnection] = useState(false);
-  const [dialogTestResult, setDialogTestResult] = useState<{
-    status: string;
-    detail: string;
-  } | null>(null);
 
   const [createMode, setCreateMode] = useState<"select" | "new">("select");
   const [selectedEndpointId, setSelectedEndpointId] = useState("");
@@ -159,7 +147,6 @@ export function useModelDetailDialogState({
       setSelectedEndpointId("");
     }
 
-    setDialogTestResult(null);
     setIsConnectionDialogOpen(true);
   };
 
@@ -171,10 +158,6 @@ export function useModelDetailDialogState({
     isConnectionDialogOpen,
     setIsConnectionDialogOpen,
     editingConnection,
-    dialogTestingConnection,
-    setDialogTestingConnection,
-    dialogTestResult,
-    setDialogTestResult,
     createMode,
     setCreateMode,
     selectedEndpointId,

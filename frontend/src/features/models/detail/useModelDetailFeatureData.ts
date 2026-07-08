@@ -72,10 +72,6 @@ export function useModelDetailFeatureData({
     isConnectionDialogOpen,
     setIsConnectionDialogOpen,
     editingConnection,
-    dialogTestingConnection,
-    setDialogTestingConnection,
-    dialogTestResult,
-    setDialogTestResult,
     createMode,
     setCreateMode,
     selectedEndpointId,
@@ -123,20 +119,13 @@ export function useModelDetailFeatureData({
   })
 
   const {
-    healthCheckingIds,
     reorderInFlight,
     handleReorderConnections,
-    handleHealthCheck,
-    handleDialogTestConnection,
   } = useModelDetailConnectionFlows({
     model,
     modelConfigId,
     connections,
     setConnections,
-    editingConnection,
-    refreshCurrentState,
-    setDialogTestingConnection,
-    setDialogTestResult,
   })
 
   const {
@@ -233,10 +222,6 @@ export function useModelDetailFeatureData({
     editingConnection,
     connectionSearch,
     setConnectionSearch,
-    healthCheckingIds,
-    dialogTestingConnection,
-    dialogTestResult,
-    clearDialogTestResult: () => setDialogTestResult(null),
     currentStateByConnectionId,
     resettingConnectionIds,
     focusedConnectionId,
@@ -257,8 +242,6 @@ export function useModelDetailFeatureData({
     openConnectionDialog,
     handleConnectionSubmit,
     handleDeleteConnection,
-    handleHealthCheck,
-    handleDialogTestConnection,
     handleToggleActive,
     handleAddAccessTarget,
     handleMoveAccessTarget,

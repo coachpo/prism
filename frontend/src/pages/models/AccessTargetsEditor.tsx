@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Activity, ArrowDown, ArrowUp, Cable, GitBranch, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Cable, GitBranch, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -31,14 +31,12 @@ interface AccessTargetsEditorProps {
   connectionOptions?: Connection[];
   error?: string | null;
   disabled?: boolean;
-  healthCheckingIds?: Set<number>;
   isConnectionTargetMutable?: (connectionId: number) => boolean;
   onAddTarget?: (target: ModelAccessTargetMutation) => Promise<void> | void;
   onChange: (targets: ModelAccessTargetMutation[]) => void;
   onCreateConnection?: () => void;
   onDeleteTarget?: (index: number) => Promise<void> | void;
   onEditConnection?: (connection: Connection) => void;
-  onHealthCheck?: (connectionId: number) => Promise<void> | void;
   onMoveTarget?: (index: number, toIndex: number) => Promise<void> | void;
   onToggleTarget?: (index: number, enabled: boolean) => Promise<void> | void;
 }
@@ -83,14 +81,12 @@ export function AccessTargetsEditor({
   connectionOptions = [],
   error,
   disabled = false,
-  healthCheckingIds,
   isConnectionTargetMutable,
   onAddTarget,
   onChange,
   onCreateConnection,
   onDeleteTarget,
   onEditConnection,
-  onHealthCheck,
   onMoveTarget,
   onToggleTarget,
 }: AccessTargetsEditorProps) {
@@ -337,13 +333,12 @@ export function AccessTargetsEditor({
               {connectionTargets.map(({ sourceIndex, target }, connectionIndex) => {
                 const targetKey = accessTargetKey(target) ?? `${target.target_type}:${sourceIndex}`;
                 const connection = connectionOptions.find((candidate) => candidate.id === target.connection_id) ?? null;
-                const isChecking = connection ? healthCheckingIds?.has(connection.id) ?? false : false;
                 const isReadOnlyConnection = readOnlyConnectionIndexes.has(sourceIndex);
                 const previousConnectionSourceIndex = connectionTargets[connectionIndex - 1]?.sourceIndex ?? null;
                 const nextConnectionSourceIndex = connectionTargets[connectionIndex + 1]?.sourceIndex ?? null;
                 const canMoveUp = previousConnectionSourceIndex != null && !readOnlyConnectionIndexes.has(previousConnectionSourceIndex);
                 const canMoveDown = nextConnectionSourceIndex != null && !readOnlyConnectionIndexes.has(nextConnectionSourceIndex);
-                const canEditConnection = !isReadOnlyConnection && Boolean(connection && (onHealthCheck || onEditConnection));
+                const canEditConnection = !isReadOnlyConnection && Boolean(connection && onEditConnection);
 
                 return (
                   <div
@@ -415,19 +410,6 @@ export function AccessTargetsEditor({
                               <ArrowDown />
                             </Button>
                           </>
-                        ) : null}
-
-                        {connection && onHealthCheck ? (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="icon-sm"
-                            aria-label={`${detailCopy.healthCheck} ${getConnectionName(connection, connectionFallback)}`}
-                            disabled={disabled || hasBusyAction || isChecking}
-                            onClick={() => void onHealthCheck(connection.id)}
-                          >
-                            {isChecking ? <Loader2 className="animate-spin" /> : <Activity />}
-                          </Button>
                         ) : null}
 
                         {connection && onEditConnection ? (

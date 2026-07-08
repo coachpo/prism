@@ -9,7 +9,7 @@ management/
 ├── auth/            # auth bootstrap/status, sessions, proxy API keys, runtime auth cache
 ├── audit/           # audit-log reads and management job list/get/cancel
 ├── configrules/     # User-Agent Client Rules CRUD
-├── connections/     # private connections, health probes, pricing templates
+├── connections/     # private connections and pricing templates
 ├── endpoints/       # endpoint CRUD, encrypted keys, ordering, duplication
 ├── loadbalance/     # strategy CRUD, current-state reset, event reads
 ├── models/          # model CRUD and access targets

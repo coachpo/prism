@@ -7,7 +7,6 @@ import type {
   EndpointModelsBatchParams,
   EndpointModelsBatchResponse,
   EndpointUpdate,
-  HealthCheckResponse,
   LegacyLoadbalanceStrategyType,
   LoadbalanceBanMode,
   LoadbalanceBanPolicyFields,
@@ -344,10 +343,6 @@ export const models = {
       }),
     delete: (modelConfigId: number, connectionId: number) =>
       request<void>(`/api/models/${modelConfigId}/connections/${connectionId}`, { method: "DELETE" }),
-    healthCheck: (modelConfigId: number, connectionId: number) =>
-      request<HealthCheckResponse>(`/api/models/${modelConfigId}/connections/${connectionId}/health`, {
-        method: "POST",
-      }),
   },
 };
 

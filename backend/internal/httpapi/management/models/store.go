@@ -878,7 +878,7 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 	var templatePricingCurrencyCode sql.NullString
 	var templateVersion sql.NullInt32
 	var healthDetail sql.NullString
-	var lastHealthCheck sql.NullTime
+	var lastHealthAt sql.NullTime
 	item := connectionTargetSummary{}
 	endpoint := endpointResponse{}
 	dest := append(prefix,
@@ -911,7 +911,7 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 		&templateVersion,
 		&item.HealthStatus,
 		&healthDetail,
-		&lastHealthCheck,
+		&lastHealthAt,
 		&item.CreatedAt,
 		&item.UpdatedAt,
 	)
@@ -932,7 +932,7 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 	item.MaxInFlightNonStream = nullableInt32(maxInFlightNonStream)
 	item.MaxInFlightStream = nullableInt32(maxInFlightStream)
 	item.HealthDetail = nullableStringValue(healthDetail)
-	item.LastHealthCheck = nullableTime(lastHealthCheck)
+	item.LastHealthAt = nullableTime(lastHealthAt)
 	if templateID.Valid {
 		item.PricingTemplate = &connectionPricingTemplateSummary{ID: int(templateID.Int32), Name: templateName.String, PricingUnit: templatePricingUnit.String, PricingCurrencyCode: templatePricingCurrencyCode.String, Version: int(templateVersion.Int32)}
 	}

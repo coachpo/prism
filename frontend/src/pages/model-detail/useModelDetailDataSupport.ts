@@ -5,7 +5,6 @@ import type {
   ConnectionPricingTemplateSummary,
   Endpoint,
   EndpointCreate,
-  HealthCheckResponse,
   ModelAccessTarget,
   ModelConfig,
   ModelConfigListItem,
@@ -19,7 +18,6 @@ import {
 } from "@/lib/types/target-compatibility";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { getModelConnections, toModelListItem } from "../models/modelFormState";
-import { normalizeOpenAIProbeEndpointVariant } from "./connectionProbeBehavior";
 
 export const createDefaultEndpointForm = (): EndpointCreate => ({
   name: "",
@@ -98,10 +96,6 @@ export function buildConnectionDraftPayload({
       resolvedApiFamily === "openai"
         ? normalizeOpenAITextCapability(connectionForm.openai_text_capability)
         : undefined,
-    openai_probe_endpoint_variant:
-      resolvedApiFamily === "openai"
-        ? normalizeOpenAIProbeEndpointVariant(connectionForm.openai_probe_endpoint_variant)
-        : undefined,
     pricing_template_id: connectionForm.pricing_template_id,
     qps_limit: normalizeLimiterField(connectionForm.qps_limit),
     max_in_flight_non_stream: normalizeLimiterField(connectionForm.max_in_flight_non_stream),
@@ -110,7 +104,6 @@ export function buildConnectionDraftPayload({
 
   if (resolvedApiFamily !== "openai") {
     delete payload.openai_text_capability;
-    delete payload.openai_probe_endpoint_variant;
   }
 
   if (createMode === "select") {
@@ -183,23 +176,6 @@ export function moveConnectionInList(
 
   nextConnections.splice(toIndex, 0, movedConnection);
   return resequenceConnections(nextConnections);
-}
-
-export function applyConnectionHealthChecks(
-  connections: Connection[],
-  checks: Map<number, HealthCheckResponse>
-): Connection[] {
-  return connections.map((connection) => {
-    const check = checks.get(connection.id);
-    if (!check) return connection;
-
-    return {
-      ...connection,
-      health_status: check.health_status,
-      health_detail: check.detail,
-      last_health_check: check.checked_at,
-    };
-  });
 }
 
 export function getSelectedEndpoint(

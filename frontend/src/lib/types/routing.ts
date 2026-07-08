@@ -112,12 +112,6 @@ export type OpenAIAcceptedFormat =
 
 export type OpenAITextCapability = OpenAIAcceptedFormat;
 
-export type OpenAIProbeEndpointVariant =
-  | "responses_minimal"
-  | "responses_reasoning_none"
-  | "chat_completions_minimal"
-  | "chat_completions_reasoning_none";
-
 export interface Connection {
   id: number;
   profile_id: number;
@@ -131,7 +125,6 @@ export interface Connection {
   auth_type: string | null;
   custom_headers: Record<string, string> | null;
   openai_text_capability: OpenAITextCapability | null;
-  openai_probe_endpoint_variant: OpenAIProbeEndpointVariant | null;
   pricing_template_id: number | null;
   qps_limit: number | null;
   max_in_flight_non_stream: number | null;
@@ -155,7 +148,6 @@ export interface ConnectionCreate {
   auth_type?: string | null;
   custom_headers?: Record<string, string> | null;
   openai_text_capability?: OpenAITextCapability | null;
-  openai_probe_endpoint_variant?: OpenAIProbeEndpointVariant | null;
   pricing_template_id?: number | null;
   qps_limit?: number | null;
   max_in_flight_non_stream?: number | null;
@@ -171,7 +163,6 @@ export interface ConnectionUpdate {
   auth_type?: string | null;
   custom_headers?: Record<string, string> | null;
   openai_text_capability?: OpenAITextCapability | null;
-  openai_probe_endpoint_variant?: OpenAIProbeEndpointVariant | null;
   pricing_template_id?: number | null;
   qps_limit?: number | null;
   max_in_flight_non_stream?: number | null;
@@ -187,21 +178,6 @@ export type ModelTerminalTargetCreate = ModelConnectionCreate;
 export type ModelConnectionUpdate = Omit<ConnectionUpdate, "api_family">;
 
 export type ModelTerminalTargetUpdate = ModelConnectionUpdate;
-
-export interface HealthCheckResponse {
-  connection_id: number;
-  health_status: string;
-  checked_at: string;
-  detail: string;
-  response_time_ms: number;
-}
-
-export interface ConnectionHealthCheckPreviewResponse {
-  health_status: string;
-  checked_at: string;
-  detail: string;
-  response_time_ms: number;
-}
 
 export interface ConnectionReference {
   target_id: number;

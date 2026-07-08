@@ -413,7 +413,7 @@ func listConnectionsByModelIDs(ctx context.Context, exec queryExecutor, profileI
 
 func insertTerminalTarget(ctx context.Context, exec queryExecutor, item terminaltarget.Record) (int, error) {
 	var terminalTargetID int
-	err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id`, item.ProfileID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAIProbeEndpointVariant), nullableString(item.OpenAITextCapability), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.HealthStatus, nullableString(item.HealthDetail), nullableTimeValue(item.LastHealthCheck), item.CreatedAt, item.UpdatedAt).Scan(&terminalTargetID)
+	err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id`, item.ProfileID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAIProbeEndpointVariant), nullableString(item.OpenAITextCapability), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.HealthStatus, nullableString(item.HealthDetail), nullableTimeValue(item.LastHealthAt), item.CreatedAt, item.UpdatedAt).Scan(&terminalTargetID)
 	if err != nil {
 		return 0, fmt.Errorf("insert terminal target: %w", err)
 	}
@@ -428,18 +428,10 @@ func insertOwnerTerminalTargetAccess(ctx context.Context, exec queryExecutor, pr
 }
 
 func updateTerminalTarget(ctx context.Context, exec queryExecutor, item terminaltarget.Record) error {
-	if _, err := exec.Exec(ctx, `UPDATE connections SET api_family = $2, endpoint_id = $3, pricing_template_id = $4, qps_limit = $5, max_in_flight_non_stream = $6, max_in_flight_stream = $7, openai_probe_endpoint_variant = $8, openai_text_capability = $9, is_active = $10, priority = $11, name = $12, auth_type = $13, custom_headers = $14, health_status = $15, health_detail = $16, last_health_check = $17, updated_at = $18 WHERE id = $1`, item.ID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAIProbeEndpointVariant), nullableString(item.OpenAITextCapability), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.HealthStatus, nullableString(item.HealthDetail), nullableTimeValue(item.LastHealthCheck), item.UpdatedAt); err != nil {
+	if _, err := exec.Exec(ctx, `UPDATE connections SET api_family = $2, endpoint_id = $3, pricing_template_id = $4, qps_limit = $5, max_in_flight_non_stream = $6, max_in_flight_stream = $7, openai_probe_endpoint_variant = $8, openai_text_capability = $9, is_active = $10, priority = $11, name = $12, auth_type = $13, custom_headers = $14, health_status = $15, health_detail = $16, last_health_check = $17, updated_at = $18 WHERE id = $1`, item.ID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAIProbeEndpointVariant), nullableString(item.OpenAITextCapability), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.HealthStatus, nullableString(item.HealthDetail), nullableTimeValue(item.LastHealthAt), item.UpdatedAt); err != nil {
 		return fmt.Errorf("update terminal target %d: %w", item.ID, err)
 	}
 	return nil
-}
-
-func updateConnectionHealthCheckIfUnchanged(ctx context.Context, exec queryExecutor, connectionID int, expectedUpdatedAt time.Time, healthStatus string, healthDetail *string, lastHealthCheck time.Time) (bool, error) {
-	commandTag, err := exec.Exec(ctx, `UPDATE connections SET health_status = $3, health_detail = $4, last_health_check = $5 WHERE id = $1 AND updated_at = $2`, connectionID, expectedUpdatedAt, healthStatus, nullableString(healthDetail), lastHealthCheck)
-	if err != nil {
-		return false, fmt.Errorf("update connection %d health check with optimistic token: %w", connectionID, err)
-	}
-	return commandTag.RowsAffected() > 0, nil
 }
 
 func deleteTerminalTarget(ctx context.Context, exec queryExecutor, terminalTargetID int) error {
@@ -574,9 +566,9 @@ func scanTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminal
 	var templatePricingCurrencyCode sql.NullString
 	var templateVersion sql.NullInt32
 	var healthDetail sql.NullString
-	var lastHealthCheck sql.NullTime
+	var lastHealthAt sql.NullTime
 	record := terminaltarget.Record{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &modelConfigID, &record.APIFamily, &record.EndpointID, &joinedEndpointID, &endpointProfileID, &endpointName, &endpointBaseURL, &endpointAPIKey, &endpointPosition, &endpointCreatedAt, &endpointUpdatedAt, &record.IsActive, &record.Priority, &connectionName, &authType, &customHeaders, &openAIProbeEndpointVariant, &openAITextCapability, &pricingTemplateID, &qpsLimit, &maxInFlightNonStream, &maxInFlightStream, &templateID, &templateName, &templatePricingUnit, &templatePricingCurrencyCode, &templateVersion, &record.HealthStatus, &healthDetail, &lastHealthCheck, &record.CreatedAt, &record.UpdatedAt); err != nil {
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &modelConfigID, &record.APIFamily, &record.EndpointID, &joinedEndpointID, &endpointProfileID, &endpointName, &endpointBaseURL, &endpointAPIKey, &endpointPosition, &endpointCreatedAt, &endpointUpdatedAt, &record.IsActive, &record.Priority, &connectionName, &authType, &customHeaders, &openAIProbeEndpointVariant, &openAITextCapability, &pricingTemplateID, &qpsLimit, &maxInFlightNonStream, &maxInFlightStream, &templateID, &templateName, &templatePricingUnit, &templatePricingCurrencyCode, &templateVersion, &record.HealthStatus, &healthDetail, &lastHealthAt, &record.CreatedAt, &record.UpdatedAt); err != nil {
 		return terminaltarget.Record{}, err
 	}
 	record.OwnerModelConfigID = nullableInt32(modelConfigID)
@@ -590,7 +582,7 @@ func scanTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminal
 	record.MaxInFlightNonStream = nullableInt32(maxInFlightNonStream)
 	record.MaxInFlightStream = nullableInt32(maxInFlightStream)
 	record.HealthDetail = nullableStringValue(healthDetail)
-	record.LastHealthCheck = nullableTime(lastHealthCheck)
+	record.LastHealthAt = nullableTime(lastHealthAt)
 	if joinedEndpointID.Valid {
 		record.Endpoint = &terminaltarget.Endpoint{ID: int(joinedEndpointID.Int32), ProfileID: int(endpointProfileID.Int32), Name: endpointName.String, BaseURL: endpointBaseURL.String, APIKey: endpointAPIKey.String, Position: int(endpointPosition.Int32), CreatedAt: endpointCreatedAt.Time.UTC(), UpdatedAt: endpointUpdatedAt.Time.UTC()}
 	}
@@ -620,7 +612,7 @@ func terminalTargetRecordFromConnectionResponse(item connectionResponse) termina
 		MaxInFlightStream:          item.MaxInFlightStream,
 		HealthStatus:               item.HealthStatus,
 		HealthDetail:               item.HealthDetail,
-		LastHealthCheck:            item.LastHealthCheck,
+		LastHealthAt:               item.LastHealthAt,
 		CreatedAt:                  item.CreatedAt,
 		UpdatedAt:                  item.UpdatedAt,
 	}
@@ -653,7 +645,7 @@ func connectionResponseFromTerminalTargetRecord(record terminaltarget.Record) co
 		MaxInFlightStream:          record.MaxInFlightStream,
 		HealthStatus:               record.HealthStatus,
 		HealthDetail:               record.HealthDetail,
-		LastHealthCheck:            record.LastHealthCheck,
+		LastHealthAt:               record.LastHealthAt,
 		CreatedAt:                  record.CreatedAt,
 		UpdatedAt:                  record.UpdatedAt,
 	}

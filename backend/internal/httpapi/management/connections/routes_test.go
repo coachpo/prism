@@ -191,7 +191,7 @@ func TestTerminalTargetRecordAdapterPreservesConnectionResponseShape(t *testing.
 		OpenAITextCapability: &textCapability, PricingTemplateID: &pricingTemplateID,
 		QPSLimit: &qpsLimit, MaxInFlightNonStream: &maxNonStream, MaxInFlightStream: &maxStream,
 		PricingTemplate: &connectionPricingTemplateSummary{ID: 11, Name: "standard", PricingUnit: "tokens", PricingCurrencyCode: "USD", Version: 1},
-		HealthStatus:    "healthy", HealthDetail: &healthDetail, LastHealthCheck: &checkedAt,
+		HealthStatus:    "healthy", HealthDetail: &healthDetail, LastHealthAt: &checkedAt,
 		CreatedAt: now, UpdatedAt: now,
 	}
 	converted := connectionResponseFromTerminalTargetRecord(terminalTargetRecordFromConnectionResponse(connection))

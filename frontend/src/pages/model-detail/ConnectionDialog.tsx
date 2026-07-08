@@ -1,5 +1,5 @@
 import type { FormEvent, ReactNode } from "react";
-import { Loader2, Plus, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -24,7 +24,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocale } from "@/i18n/useLocale";
 import { cn } from "@/lib/utils";
-import { OperatorCallout, OperatorStatusBadge, OperatorSwitchField, OperatorTypeBadge } from "@/shared/design-system";
+import { OperatorStatusBadge, OperatorSwitchField, OperatorTypeBadge } from "@/shared/design-system";
 import type {
   ApiFamily,
   Connection,
@@ -33,13 +33,6 @@ import type {
   OpenAITextCapability,
   PricingTemplate,
 } from "@/lib/types";
-import {
-  decomposeOpenAIProbeVariant,
-  normalizeOpenAIProbeEndpointVariant,
-  resolveOpenAIProbeVariant,
-  type OpenAIProbeApi,
-  type OpenAIProbeReasoningMode,
-} from "./connectionProbeBehavior";
 import { normalizeConnectionHeaders } from "./useModelDetailDataSupport";
 import {
   createHeaderRow,
@@ -64,10 +57,6 @@ interface ConnectionDialogProps {
   headerRows: HeaderRow[];
   setHeaderRows: (rows: HeaderRow[]) => void;
   handleConnectionSubmit: (e: FormEvent<HTMLFormElement>) => Promise<void>;
-  dialogTestingConnection: boolean;
-  dialogTestResult: { status: string; detail: string } | null;
-  clearDialogTestResult: () => void;
-  handleDialogTestConnection: () => Promise<void>;
   endpointSourceDefaultName: string | null;
   pricingTemplates: PricingTemplate[];
 }
@@ -151,10 +140,6 @@ export function ConnectionDialog({
   headerRows,
   setHeaderRows,
   handleConnectionSubmit,
-  dialogTestingConnection,
-  dialogTestResult,
-  clearDialogTestResult,
-  handleDialogTestConnection,
   endpointSourceDefaultName,
   pricingTemplates,
 }: ConnectionDialogProps) {
@@ -162,13 +147,9 @@ export function ConnectionDialog({
   const copy = messages.modelDetail;
   const isOpenAI = apiFamily === "openai";
   const selectedEndpoint = globalEndpoints.find((endpoint) => String(endpoint.id) === selectedEndpointId) ?? null;
-  const resolvedProbeVariant = isOpenAI
-    ? normalizeOpenAIProbeEndpointVariant(connectionForm.openai_probe_endpoint_variant)
-    : null;
   const resolvedTextCapability = isOpenAI
     ? connectionForm.openai_text_capability ?? "responses_only"
     : null;
-  const probeBehavior = decomposeOpenAIProbeVariant(resolvedProbeVariant);
   const textCapabilityOptions: Array<{
     description: string;
     label: string;
@@ -237,30 +218,15 @@ export function ConnectionDialog({
     : copy.unpricedNoCostTracking;
   const normalizedHeaders = normalizeConnectionHeaders(headerRows);
   const customHeaderCount = normalizedHeaders ? Object.keys(normalizedHeaders).length : 0;
-  const probeBehaviorSummary = isOpenAI
-    ? `${
-        probeBehavior.probeApi === "responses"
-          ? copy.probeApiResponses
-          : copy.probeApiChatCompletions
-      } • ${
-        probeBehavior.reasoningMode === "default"
-          ? copy.reasoningHandlingDefault
-          : copy.reasoningHandlingDisabled
-      }`
-    : null;
-
   const updateConnectionForm = (nextForm: ConnectionDialogForm) => {
-    clearDialogTestResult();
     setConnectionForm(nextForm);
   };
 
   const updateNewEndpointForm = (nextForm: EndpointCreate) => {
-    clearDialogTestResult();
     setNewEndpointForm(nextForm);
   };
 
   const updateHeaderRows = (nextRows: HeaderRow[]) => {
-    clearDialogTestResult();
     setHeaderRows(nextRows);
   };
 
@@ -279,26 +245,6 @@ export function ConnectionDialog({
     updateConnectionForm({
       ...connectionForm,
       openai_text_capability: value as OpenAITextCapability,
-    });
-  };
-
-  const handleProbeApiChange = (value: string) => {
-    updateConnectionForm({
-      ...connectionForm,
-      openai_probe_endpoint_variant: resolveOpenAIProbeVariant({
-        probeApi: value as OpenAIProbeApi,
-        reasoningMode: probeBehavior.reasoningMode,
-      }),
-    });
-  };
-
-  const handleReasoningModeChange = (value: string) => {
-    updateConnectionForm({
-      ...connectionForm,
-      openai_probe_endpoint_variant: resolveOpenAIProbeVariant({
-        probeApi: probeBehavior.probeApi,
-        reasoningMode: value as OpenAIProbeReasoningMode,
-      }),
     });
   };
 
@@ -358,7 +304,6 @@ export function ConnectionDialog({
                         <Tabs
                           value={createMode}
                           onValueChange={(value) => {
-                            clearDialogTestResult();
                             setCreateMode(value as "select" | "new");
                           }}
                           className="gap-3"
@@ -371,7 +316,6 @@ export function ConnectionDialog({
                           <TabsContent value="select" className="flex flex-col gap-2">
                             <ConnectionDialogField id="conn-selected-endpoint" label={copy.selectEndpoint}>
                               <Select value={selectedEndpointId} onValueChange={(value) => {
-                                clearDialogTestResult();
                                 setSelectedEndpointId(value);
                               }}>
                                 <SelectTrigger id="conn-selected-endpoint">
@@ -560,71 +504,6 @@ export function ConnectionDialog({
                       </ConnectionDialogSection>
                     ) : null}
 
-                    {isOpenAI ? (
-                      <ConnectionDialogSection
-                        title={copy.probeBehavior}
-                        description={copy.probeBehaviorDescription}
-                        dataTestId="connection-dialog-probe-section"
-                      >
-                        <div className="grid gap-3 md:grid-cols-2">
-                          <ConnectionDialogField
-                            id="conn-probe-api"
-                            label={copy.probeApi}
-                            description={
-                              probeBehavior.probeApi === "responses"
-                                ? copy.probeApiResponsesHint
-                                : copy.probeApiChatCompletionsHint
-                            }
-                          >
-                            <Select value={probeBehavior.probeApi} onValueChange={handleProbeApiChange}>
-                              <SelectTrigger id="conn-probe-api">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectGroup>
-                                  <SelectItem value="responses">{copy.probeApiResponses}</SelectItem>
-                                  <SelectItem value="chat_completions">
-                                    {copy.probeApiChatCompletions}
-                                  </SelectItem>
-                                </SelectGroup>
-                              </SelectContent>
-                            </Select>
-                          </ConnectionDialogField>
-
-                          <ConnectionDialogField
-                            id="conn-probe-reasoning-mode"
-                            label={copy.reasoningHandling}
-                            description={
-                              probeBehavior.reasoningMode === "default"
-                                ? copy.reasoningHandlingDefaultHint
-                                : copy.reasoningHandlingDisabledHint
-                            }
-                          >
-                            <Select value={probeBehavior.reasoningMode} onValueChange={handleReasoningModeChange}>
-                              <SelectTrigger id="conn-probe-reasoning-mode">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectGroup>
-                                  <SelectItem value="default">{copy.reasoningHandlingDefault}</SelectItem>
-                                  <SelectItem value="disabled">{copy.reasoningHandlingDisabled}</SelectItem>
-                                </SelectGroup>
-                              </SelectContent>
-                            </Select>
-                          </ConnectionDialogField>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2 border-t pt-3">
-                          <div className="flex min-w-0 flex-col gap-1">
-                            <p className="text-xs font-medium text-muted-foreground">
-                              {copy.probeBehaviorSummaryLabel}
-                            </p>
-                            <p className="text-sm text-foreground">{probeBehaviorSummary}</p>
-                          </div>
-                        </div>
-                      </ConnectionDialogSection>
-                    ) : null}
-
                     <ConnectionDialogSection
                       title={copy.advancedRequestSettings}
                       description={copy.advancedRequestSettingsDescription}
@@ -789,14 +668,6 @@ export function ConnectionDialog({
                         </ConnectionSummaryItem>
                       ) : null}
 
-                      {isOpenAI && resolvedProbeVariant ? (
-                        <ConnectionSummaryItem label={copy.probeBehaviorSummaryLabel}>
-                          <div className="flex flex-col gap-2">
-                            <p className="text-sm text-foreground">{probeBehaviorSummary}</p>
-                          </div>
-                        </ConnectionSummaryItem>
-                      ) : null}
-
                       <ConnectionSummaryItem label={copy.customHeaders}>
                         <p className="text-sm text-foreground">
                           {customHeaderCount > 0
@@ -806,38 +677,6 @@ export function ConnectionDialog({
                       </ConnectionSummaryItem>
                     </ConnectionDialogSection>
 
-                    <ConnectionDialogSection
-                      title={copy.healthCheck}
-                      description={copy.healthTestDescription}
-                      dataTestId="connection-dialog-health-test-panel"
-                    >
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={handleDialogTestConnection}
-                        disabled={dialogTestingConnection}
-                      >
-                        {dialogTestingConnection ? (
-                          <>
-                            <Loader2 data-icon="inline-start" className="animate-spin" />
-                            {copy.testingConnection}
-                          </>
-                        ) : (
-                          copy.testConnection
-                        )}
-                      </Button>
-
-                      {dialogTestResult ? (
-                        <OperatorCallout
-                          data-testid="connection-dialog-test-result"
-                          description={dialogTestResult.detail}
-                          intent={dialogTestResult.status === "healthy" ? "success" : "danger"}
-                          title={dialogTestResult.status === "healthy"
-                              ? copy.connectionHealthy
-                              : copy.connectionUnhealthy}
-                        />
-                      ) : null}
-                    </ConnectionDialogSection>
                   </div>
                 </div>
               </div>

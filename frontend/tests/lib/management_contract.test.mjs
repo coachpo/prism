@@ -67,10 +67,6 @@ const coreMock = {
       return options.method === "DELETE" ? undefined : { id: 77, model_config_id: 42 };
     }
 
-    if (path === "/api/models/42/connections/77/health") {
-      return { connection_id: 77, health_status: "healthy" };
-    }
-
     if (path === "/api/connections/77/references") {
       return {
         connection_id: 77,
@@ -204,14 +200,12 @@ test("management model connection helpers use owner-scoped route shapes", async 
   await models.connections.list(42);
   await models.connections.create(42, { endpoint_id: 11, is_active: true });
   await models.connections.update(42, 77, { is_active: false });
-  await models.connections.healthCheck(42, 77);
   await models.connections.delete(42, 77);
 
   assert.deepEqual(requestCalls.map((call) => [call.path, call.options.method ?? "GET"]), [
     ["/api/models/42/connections", "GET"],
     ["/api/models/42/connections", "POST"],
     ["/api/models/42/connections/77", "PATCH"],
-    ["/api/models/42/connections/77/health", "POST"],
     ["/api/models/42/connections/77", "DELETE"],
   ]);
 });

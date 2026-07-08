@@ -65,21 +65,9 @@ Single operator (developer/power user) running the application locally or on a l
 - Endpoints can be reused across multiple models within the same profile.
 - Deleting an endpoint is blocked if any Terminal Targets in that profile still reference it.
 
-### 4.6 Terminal Target Health Detection
-- Manual health check remains available for each Terminal Target from the management UI.
-- Health probes send a minimal request using the Terminal Target's configured model ID and the same URL-building logic as the proxy engine to validate URL routing, authentication, and model availability end to end.
-- API-family-specific request format:
-  - **OpenAI**: endpoint base URL joined with `/v1/responses` or `/v1/chat/completions` based on `openai_probe_endpoint_variant`; the current OpenAI variants are `responses_minimal`, `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`. This probe choice is health-check-only. Runtime OpenAI text capability comes from `openai_text_capability`.
-  - **Anthropic**: endpoint base URL joined with `/v1/messages` with `model`, `max_tokens: 1`, and a simple message
-  - **Gemini**: endpoint base URL joined with `/v1beta/models/{model}:generateContent` with minimal content payload
-  - 2xx response → `healthy`
-  - 401/403 → `unhealthy` (authentication failed)
-  - 429 → `healthy` (connection works, just rate-limited)
-  - Connection error / timeout → `unhealthy`
-  - Other errors → `unhealthy`
-- Health checks are available in:
-  - Model Detail -> Terminal Targets list -> Actions menu ("Check Health")
-  - Model Detail -> Add/Edit Terminal Target dialog ("Test Terminal Target" button)
+### 4.6 Terminal Target Request Health
+- Manual Terminal Target test actions are removed from the management API and UI.
+- Terminal Target health indicators are driven by retained request-log data for real runtime traffic.
 
 ### 4.6.1 Terminal Target Success Rate Badge
 - Each Terminal Target displays a **success rate badge** computed from `request_logs` data
@@ -90,8 +78,7 @@ Single operator (developer/power user) running the application locally or on a l
   - **Red** (<75%): Poor health
   - **Gray** (N/A): No request data available (0 total requests)
 - The success rate badge is the primary visual indicator in the Terminal Targets list on the Model Detail page
-- The manual health check still updates `health_status` and `health_detail` in the database
-- Tooltip on hover shows: success rate percentage, total requests count, success/error counts, and last health check detail (if available)
+- Tooltip on hover shows: success rate percentage, total requests count, and success/error counts when available
 
 ### 4.6.2 Model Health Display
 - The Models page displays an aggregated health indicator for each model
@@ -109,8 +96,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Add/edit/delete Terminal Targets from model detail
 - Toggle enabled/disabled access targets per model
 - Select an explicit load-balance strategy with Ban Policy settings per model
-- Manual health check for Terminal Targets with visual status indicators
-- Dedicated model-detail route (`/models/:id`) with manual health checks, Terminal Target KPIs, current loadbalance state, and loadbalance event history
+- Dedicated model-detail route (`/models/:id`) with Terminal Target KPIs, current loadbalance state, and loadbalance event history
 - Dedicated request-log browsing and investigation at `/observe/requests`, separate from dashboard analytics
 - Dedicated routes for pricing templates and proxy API key lifecycle management
 - Dashboard analytics lives under `/observe?tab=analytics` and replaces the old standalone statistics route

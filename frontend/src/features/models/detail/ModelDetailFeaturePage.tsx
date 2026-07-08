@@ -125,13 +125,11 @@ export function ModelDetailFeaturePage({
         modelOptions={data.targetModelsForApiFamily}
         connectionOptions={data.targetConnectionsForApiFamily}
         error={data.targetEditorError}
-        healthCheckingIds={data.healthCheckingIds}
         isConnectionTargetMutable={isConnectionTargetMutable}
         onAddTarget={data.handleAddAccessTarget}
         onCreateConnection={() => data.openConnectionDialog()}
         onDeleteTarget={data.handleDeleteAccessTarget}
         onEditConnection={data.openConnectionDialog}
-        onHealthCheck={data.handleHealthCheck}
         onMoveTarget={data.handleMoveAccessTarget}
         onToggleTarget={data.handleToggleAccessTarget}
         onChange={() => undefined}
@@ -154,10 +152,6 @@ export function ModelDetailFeaturePage({
         headerRows={data.headerRows}
         setHeaderRows={data.setHeaderRows}
         handleConnectionSubmit={data.handleConnectionSubmit}
-        dialogTestingConnection={data.dialogTestingConnection}
-        dialogTestResult={data.dialogTestResult}
-        clearDialogTestResult={data.clearDialogTestResult}
-        handleDialogTestConnection={data.handleDialogTestConnection}
         endpointSourceDefaultName={data.endpointSourceDefaultName}
         pricingTemplates={data.pricingTemplates}
       />

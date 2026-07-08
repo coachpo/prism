@@ -56,7 +56,7 @@ Functional cases should exercise detailed contracts and boundary conditions, inc
 - auth and authorization boundaries
 - profile scoping rules and runtime routing rules
 - unified model access-target invariants
-- loadbalance, failover, and health-check behavior
+- loadbalance, failover, and request-health behavior
 - request-log, audit, costing, and statistics contracts
 - Default-profile settings validation and dependency checks
 

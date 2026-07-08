@@ -227,7 +227,7 @@ type endpointsRouteConnectionBoundaryState struct {
 	Priority           int
 	HealthStatus       string
 	HealthDetail       string
-	LastHealthCheck    time.Time
+	LastHealthAt       time.Time
 	TargetType         string
 	TargetConnectionID int
 	TargetPosition     int
@@ -242,8 +242,8 @@ func endpointsRouteSeedRichConnectionUsage(t *testing.T, ctx context.Context, co
 		t.Fatalf("insert boundary model: %v", err)
 	}
 	var connectionID int
-	lastHealthCheck := now.Add(-time.Hour)
-	if err := conn.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, 'openai', $2, $3, 7, 3, 2, 'responses_minimal', 'responses_only', TRUE, 42, 'boundary-terminal', 'bearer', '{"X-Boundary":"kept"}', 'degraded', 'sticky health detail', $4, $5, $5) RETURNING id`, profileID, endpointID, pricingID, lastHealthCheck, now).Scan(&connectionID); err != nil {
+	lastHealthAt := now.Add(-time.Hour)
+	if err := conn.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, 'openai', $2, $3, 7, 3, 2, 'responses_minimal', 'responses_only', TRUE, 42, 'boundary-terminal', 'bearer', '{"X-Boundary":"kept"}', 'degraded', 'sticky health detail', $4, $5, $5) RETURNING id`, profileID, endpointID, pricingID, lastHealthAt, now).Scan(&connectionID); err != nil {
 		t.Fatalf("insert boundary connection: %v", err)
 	}
 	if _, err := conn.Exec(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, 5, FALSE, $4, $4)`, profileID, modelID, connectionID, now); err != nil {
@@ -267,7 +267,7 @@ func endpointsRouteLoadConnectionBoundaryState(t *testing.T, ctx context.Context
 	if err := conn.QueryRow(ctx, `SELECT connections.endpoint_id, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, connections.priority, connections.health_status, connections.health_detail, connections.last_health_check, model_access_targets.target_type, model_access_targets.target_connection_id, model_access_targets.position, model_access_targets.is_enabled
 		FROM connections
 		JOIN model_access_targets ON model_access_targets.profile_id = connections.profile_id AND model_access_targets.target_connection_id = connections.id
-		WHERE connections.id = $1 AND model_access_targets.source_model_config_id = $2`, connectionID, modelID).Scan(&state.EndpointID, &state.PricingTemplateID, &state.QPSLimit, &state.MaxNonStream, &state.MaxStream, &state.Priority, &state.HealthStatus, &state.HealthDetail, &state.LastHealthCheck, &state.TargetType, &state.TargetConnectionID, &state.TargetPosition, &state.TargetEnabled); err != nil {
+		WHERE connections.id = $1 AND model_access_targets.source_model_config_id = $2`, connectionID, modelID).Scan(&state.EndpointID, &state.PricingTemplateID, &state.QPSLimit, &state.MaxNonStream, &state.MaxStream, &state.Priority, &state.HealthStatus, &state.HealthDetail, &state.LastHealthAt, &state.TargetType, &state.TargetConnectionID, &state.TargetPosition, &state.TargetEnabled); err != nil {
 		t.Fatalf("load connection boundary state: %v", err)
 	}
 	return state

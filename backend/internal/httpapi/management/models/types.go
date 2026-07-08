@@ -179,7 +179,7 @@ type connectionTargetSummary struct {
 	PricingTemplate            *connectionPricingTemplateSummary `json:"pricing_template"`
 	HealthStatus               string                            `json:"health_status"`
 	HealthDetail               *string                           `json:"health_detail"`
-	LastHealthCheck            *time.Time                        `json:"last_health_check"`
+	LastHealthAt               *time.Time                        `json:"last_health_check"`
 	CreatedAt                  time.Time                         `json:"created_at"`
 	UpdatedAt                  time.Time                         `json:"updated_at"`
 }

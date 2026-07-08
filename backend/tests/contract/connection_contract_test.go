@@ -31,7 +31,6 @@ func TestConnectionStandaloneMutationRejections(t *testing.T) {
 		{method: http.MethodPatch, path: fmt.Sprintf("/api/connections/%d", connectionID), body: map[string]any{"name": "Rejected Patch"}},
 		{method: http.MethodDelete, path: fmt.Sprintf("/api/connections/%d", connectionID)},
 		{method: http.MethodPut, path: fmt.Sprintf("/api/connections/%d/pricing-template", connectionID), body: map[string]any{"pricing_template_id": pricingTemplateID}},
-		{method: http.MethodPost, path: fmt.Sprintf("/api/connections/%d/health-check", connectionID)},
 	} {
 		response := harness.requestJSON(t, harness.client, testCase.method, testCase.path, testCase.body, modelHeader(defaultProfileID))
 		assertErrorResponse(t, response, http.StatusBadRequest, connectionOwnerScopedMutationDetail())
@@ -360,15 +359,11 @@ func TestLegacyModelConnectionAuxiliaryRoutesRejectWithOwnerGuidance(t *testing.
 	}{
 		{method: http.MethodPut, path: fmt.Sprintf("/api/models/%d/connections/%d", modelConfigID, connectionID), body: map[string]any{"name": "Legacy Put"}},
 		{method: http.MethodPut, path: fmt.Sprintf("/api/models/%d/connections/%d/pricing-template", modelConfigID, connectionID), body: map[string]any{"pricing_template_id": nil}},
-		{method: http.MethodPost, path: fmt.Sprintf("/api/models/%d/connections/%d/health-check", modelConfigID, connectionID)},
 		{method: http.MethodPatch, path: fmt.Sprintf("/api/models/%d/connections/%d/priority", modelConfigID, connectionID), body: map[string]any{"to_index": 0}},
 	} {
 		response := harness.requestJSON(t, harness.client, testCase.method, testCase.path, testCase.body, modelHeader(defaultProfileID))
 		assertErrorResponse(t, response, http.StatusBadRequest, connectionOwnerScopedMutationDetail())
 	}
-
-	legacyPreview := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections/health-check-preview", modelConfigID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only"}, modelHeader(defaultProfileID))
-	assertStatus(t, legacyPreview, http.StatusNotFound)
 }
 
 func TestModelConnectionsBatch(t *testing.T) {

@@ -53,7 +53,6 @@ function createConnection(id: number, ownerModelConfigId: number, endpoint: Retu
     name,
     auth_type: null,
     custom_headers: null,
-    openai_probe_endpoint_variant: "responses_minimal",
     pricing_template_id: null,
     qps_limit: null,
     max_in_flight_non_stream: null,
@@ -371,7 +370,6 @@ async function mockPrivateConnectionRoutes(page: Page) {
     updates: [] as unknown[],
     targetPatches: [] as unknown[],
     targetDeletes: [] as string[],
-    healthChecks: [] as string[],
     publicMutations: [] as string[],
   };
 
@@ -434,11 +432,6 @@ async function mockPrivateConnectionRoutes(page: Page) {
       );
       return fulfillJson(ownerConnections.find((connection) => connection.id === connectionId));
     }
-    if (pathname.match(new RegExp(`^/api/models/${modelConfigId}/connections/\\d+/health$`)) && method === "POST") {
-      requests.healthChecks.push(pathname);
-      return fulfillJson({ connection_id: 301, health_status: "healthy", checked_at: timestamp, detail: "Owner ok", response_time_ms: 42 });
-    }
-
     if (pathname === `/api/models/${modelConfigId}/targets` && method === "GET") return fulfillJson(sortedTargets());
     const targetPositionMatch = pathname.match(new RegExp(`^/api/models/${modelConfigId}/targets/(\\d+)/position$`));
     if (targetPositionMatch && method === "PATCH") {
@@ -495,8 +488,6 @@ test("private connection owner flows use model-scoped routes and hide cross-owne
   await expect(editor.getByText("Owned primary")).toBeVisible();
   await expect(editor.getByText("Owned secondary")).toBeVisible();
   await expect(editor.getByText("Terminal target 401")).toBeVisible();
-  await expect(editor.getByRole("button", { name: /Health Check Owned primary/ })).toBeVisible();
-  await expect(editor.getByRole("button", { name: /Health Check Terminal target 401/ })).toHaveCount(0);
   await expect(editor.getByRole("button", { name: /Edit Terminal target 401/ })).toHaveCount(0);
   await expect(editor.getByRole("switch", { name: "Enable access target 3" })).toHaveCount(0);
 
@@ -522,10 +513,6 @@ test("private connection owner flows use model-scoped routes and hide cross-owne
     payload: { endpoint_id: endpoint.id, name: "Owner renamed" },
   });
   await expect(editor.getByText("Owner renamed")).toBeVisible();
-
-  await editor.getByRole("button", { name: /Health Check Owner renamed/ }).click();
-  await expect.poll(() => requests.healthChecks.length).toBe(1);
-  expect(requests.healthChecks[0]).toBe(`/api/models/${modelConfigId}/connections/301/health`);
 
   await editor.getByRole("switch", { name: "Enable access target 1" }).click();
   await expect.poll(() => requests.targetPatches.length).toBe(1);

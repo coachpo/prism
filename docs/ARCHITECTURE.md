@@ -314,36 +314,25 @@ Profile-scoped management APIs are frozen to Default id `1`. They accept `X-Prof
 
 `GET /api/stats/dashboard` includes a backend-owned `topology_graph` alongside the legacy `routing_health_map`. The graph is built from Default-profile configuration and final-attributed telemetry in the backend, not reconstructed by the browser from management reads. Disabled models remain present as muted model nodes, inactive terminal targets remain present as muted target nodes, and endpoint nodes stay visible when referenced by configured terminal targets. During the additive compatibility wave, the backend keeps compatibility kinds (`connection`, `model_to_connection`, and `connection_to_endpoint`) and exposes product-facing terminal-target meaning through `product_kind`, with `connection_id` retained as the persisted compatibility identifier.
 
-## 6. Terminal Target Health Detection
+## 6. Terminal Target Request Health
 
-### 6.1 Concept
-
-Manual health checks use one lightweight probe runner so Terminal Target verification stays on the same api-family-aware wire contract as the rest of the runtime stack.
-
-### 6.2 Health Probes (API-Family-Specific)
-
-Health checks send api-family-specific lightweight requests using the Terminal Target's configured model ID and a simple prompt. This validates full-chain URL routing, authentication, and model availability using the same URL-building logic as the proxy engine.
-
-- **OpenAI**: endpoint base URL joined with `/v1/responses` or `/v1/chat/completions` based on the Terminal Target's persisted `openai_probe_endpoint_variant`; current variants are `responses_minimal` (default), `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`. This is health-probe behavior only. Runtime OpenAI text capability comes from `openai_text_capability`, not probe results or probe variant.
-- **Anthropic**: endpoint base URL joined with `/v1/messages` and `{"model":"{model_id}","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`
-- **Gemini**: endpoint base URL joined with `/v1beta/models/{model}:generateContent` with minimal content payload and `maxOutputTokens: 1`.
-
-### 6.3 Status Values
+### 6.1 Status Values
 
 - `unknown` — Never checked (default)
 - `healthy` — Last check succeeded (2xx or 429)
 - `unhealthy` — Last check failed (401/403, connection error, timeout, other errors)
 
-### 6.4 Terminal Target Success Rate Badge
+These retained compatibility status fields are no longer updated by a manual Terminal Target probe route. Live operator health indicators are derived from actual request data.
+
+### 6.2 Terminal Target Success Rate Badge
 
 The primary visual health indicator for Terminal Targets is the **success rate badge**, computed from `request_logs` data and stored with compatibility `connection_id` attribution.
 
 - Success rate = `COUNT(2xx) / COUNT(*) * 100` per Terminal Target
 - Badge colors: ≥98% green, 75-98% yellow, <75% red, N/A gray (no data)
-- Displayed in the Terminal Targets list on the Model Detail page alongside the health tooltip state
-- The manual health check still updates `health_status`/`health_detail` in the database and is shown in the tooltip
+- Displayed in the Terminal Targets list on the Model Detail page
 
-### 6.5 Model Health Aggregation
+### 6.3 Model Health Aggregation
 
 Model-level health is computed from retained request-log rows grouped by the requested `request_logs.model_id` in the effective profile:
 
@@ -352,11 +341,7 @@ Model-level health is computed from retained request-log rows grouped by the req
 - Displayed on Dashboard and Models pages as a colored badge
 - Same color thresholds as Terminal Target badges
 
-### 6.6 Error Reporting
-
-When a health check fails, the upstream error message is extracted from the response body and stored in `health_detail`. This provides actionable diagnostics (e.g., "HTTP 503: No available channel for model X" instead of just "HTTP 503"). The detail is shown in the frontend tooltip on hover.
-
-### 6.7 URL Path Joining
+### 6.4 URL Path Joining
 
 Endpoint `base_url` values may include an upstream path prefix such as `/v1` or `/v1beta`. On create and update, Prism strips trailing slashes, requires a scheme and host, and rejects query strings or fragments. Runtime joins the normalized endpoint path with the allowlisted operation path for the selected request.
 

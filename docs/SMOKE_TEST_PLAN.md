@@ -123,7 +123,6 @@ Prepare seed state through API (not manual DB edits):
 | `PUT/PATCH /api/models/{model_config_id}/targets/{target_id}` | B20A, M03 |
 | `PATCH /api/models/{model_config_id}/targets/{target_id}/position` | B20A, M03 |
 | `DELETE /api/models/{model_config_id}/targets/{target_id}` | B20A, M03 |
-| `POST /api/models/{model_config_id}/connections/{connection_id}/health` | D01-D06 |
 | `GET /v1/models` | C15, M11-M13 |
 | `POST /v1/chat/completions` | C01, C03, C04, C06-C14, E08, E10, L08-L10, M11-M13, M21 |
 | `POST /v1/responses` | C01, C03, C04, C06-C14, E08, E10, L08-L10, M11-M13, M21 |
@@ -258,17 +257,11 @@ Prepare seed state through API (not manual DB edits):
 | C20 | P0 | Anthropic token-count operation | `POST /v1/messages/count_tokens` is allowlisted and persists top-level `input_tokens` as token-count usage |
 | C21 | P0 | Gemini stream generate operation | `POST /v1beta/models/{model}:streamGenerateContent` is streaming by route even without `stream: true` in the body |
 | C22 | P0 | Gemini count tokens operation | `POST /v1beta/models/{model}:countTokens` is allowlisted and persists top-level token-count usage |
-## D. Terminal Target Health Check and URL Failsafe
+## D. Runtime URL Failsafe
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| D01 | P0 | Health check with 2xx | `healthy` |
-| D02 | P0 | Health check with 429 | `healthy` |
-| D03 | P0 | Health check with 401/403 | `unhealthy`, auth failure detail |
-| D04 | P0 | Health check with other non-2xx JSON error | `detail` includes extracted upstream message |
-| D05 | P0 | Health check connect error/timeout | `unhealthy` |
-| D06 | P1 | Health state persistence | `health_status`, `health_detail`, `last_health_check` updated |
-| D07 | P1 | Runtime endpoint path joining | Endpoint path prefixes are preserved, operation paths are appended, and no version-segment de-duplication is applied |
+| D01 | P1 | Runtime endpoint path joining | Endpoint path prefixes are preserved, operation paths are appended, and no version-segment de-duplication is applied |
 
 ## E. Statistics and Token Extraction
 
@@ -549,7 +542,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 2. M01-M03 (removed profile routes and frozen Default profile scope).
 3. B (CRUD and validation).
 4. M11-M13 (runtime profile isolation checks).
-5. C and D (proxy and health-check behavior).
+5. C and D (proxy behavior and runtime URL joining).
 6. E and F plus M14-M15 (stats/audit with attribution scope).
 7. K.1-K.3 plus M20 (header blocklist, including profile scope).
 8. L plus M19 (token costing and spending reports with profile isolation).

@@ -233,7 +233,6 @@ Request (using existing endpoint):
   "custom_headers": {
     "X-Custom-Org": "org-123"
   },
-  "openai_probe_endpoint_variant": "responses_minimal",
   "openai_text_capability": "responses_only",
   "pricing_template_id": 2,
   "qps_limit": 3,
@@ -251,7 +250,6 @@ Request (inline endpoint creation):
   },
   "is_active": true,
   "name": "Regional fallback",
-  "openai_probe_endpoint_variant": "responses_minimal",
   "openai_text_capability": "dual_native",
   "pricing_template_id": null,
   "qps_limit": null,
@@ -267,13 +265,12 @@ Create semantics:
 - `priority` is rejected with `422`; Terminal Target ordering for a model is owned by `/api/models/{model_config_id}/targets` positions.
 - Limiter fields are optional. `null` means unlimited. Positive integers apply per-connection request admission limits.
 - `openai_text_capability` is the OpenAI text runtime capability source of truth for OpenAI-family Terminal Targets. It accepts `responses_only`, `chat_completions_only`, or `dual_native`, and is required for OpenAI rows. Non-OpenAI rows must omit it or persist `null`.
-- `openai_probe_endpoint_variant` selects only the lightweight OpenAI health-check target plus payload variant for OpenAI-family connections. Supported values are `responses_minimal` (default), `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`. It does not derive runtime capability or request shape. For non-OpenAI families, providing this field is rejected and omitted values persist as `null`.
 
 #### Update Terminal Target
 ```
 PATCH /api/models/{model_config_id}/connections/{connection_id}
 ```
-Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `openai_probe_endpoint_variant`, `openai_text_capability`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
+Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `openai_text_capability`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
 
 `endpoint_create` is supported on update and is mutually exclusive with `endpoint_id`. `priority` is rejected with `422`. The owner model and connection `api_family` are immutable.
 
@@ -311,27 +308,6 @@ DELETE /api/models/{model_config_id}/connections/{connection_id}
 Response `200`: `{ "deleted": true }`.
 
 Deletes the Terminal Target and its internal owner access-target row together, subject to enabled-model target validation. Public `DELETE /api/connections/{connection_id}` rejects mutation requests.
-
-#### Health Check Terminal Target
-```
-POST /api/models/{model_config_id}/connections/{connection_id}/health
-```
-Sends an api-family-specific lightweight request using the owner model and persists the Terminal Target health result. The route validates URL routing, authentication, ownership, and model availability end to end. Public connection-level health-check mutation routes reject writes.
-
-Response `200`:
-```json
-{
-  "connection_id": 1,
-  "health_status": "healthy",
-  "checked_at": "2025-01-15T10:30:00Z",
-  "detail": "Connection successful",
-  "response_time_ms": 523
-}
-```
-API-family-specific health-check probes:
-- OpenAI: the endpoint base URL joined with `/v1/responses` or `/v1/chat/completions` based on the persisted `openai_probe_endpoint_variant`; the specific variant also controls whether the probe uses the minimal payload shape or the `reasoning: none` payload shape.
-- Anthropic: the endpoint base URL joined with `/v1/messages` with a one-token user prompt.
-- Gemini: the endpoint base URL joined with `/v1beta/models/{model}:generateContent` with minimal content payload.
 
 #### Model Target Routes
 ```
@@ -536,7 +512,7 @@ Request:
 ```
 Response `200`: Updated timezone object.
 
-There is no standalone `/api/settings/monitoring` route or `/api/monitoring/*` family in the current live API contract. Current operator-facing observability and routing-health surfaces are provided through `/api/stats/*`, `/api/audit/*`, `/api/loadbalance/*`, and the manual Terminal Target health endpoints.
+There is no standalone `/api/settings/monitoring` route, `/api/monitoring/*` family, or Terminal Target probe route in the current live API contract. Current operator-facing observability and routing-health surfaces are provided through `/api/stats/*`, `/api/audit/*`, and `/api/loadbalance/*`.
 
 ---
 

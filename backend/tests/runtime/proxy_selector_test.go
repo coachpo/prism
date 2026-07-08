@@ -933,7 +933,7 @@ func TestRuntimeExpiredRetryWindowAllowsConcurrentAttempts(t *testing.T) {
 
 	primaryUpstream.releaseRequests()
 	for index := range 2 {
-		result := awaitConcurrentRuntimeResult(t, resultCh, 5*time.Second)
+		result := awaitAsyncRequest(t, resultCh, 5*time.Second)
 		if result.Err != nil {
 			t.Fatalf("expected retry-window request %d to succeed after release, got error: %v", index, result.Err)
 		}

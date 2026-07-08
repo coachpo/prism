@@ -54,7 +54,7 @@ type Record struct {
 	PricingTemplate            *PricingTemplateSummary
 	HealthStatus               string
 	HealthDetail               *string
-	LastHealthCheck            *time.Time
+	LastHealthAt               *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
 }

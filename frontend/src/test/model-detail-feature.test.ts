@@ -18,7 +18,6 @@ function createConnection(id: number, priority: number, name: string): Connectio
     auth_type: null,
     custom_headers: null,
     openai_text_capability: "responses_only",
-    openai_probe_endpoint_variant: "responses_minimal",
     pricing_template_id: null,
     qps_limit: null,
     max_in_flight_non_stream: null,
