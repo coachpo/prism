@@ -110,7 +110,7 @@ function activityPayload(requestLogId) {
 
   return {
     type: "dashboard.activity",
-    profile_id: 7,
+    profile_id: 1,
     activity_watermark: {
       latest_request_log_created_at: activity.created_at,
       latest_request_log_id: activity.request_log_id,
@@ -122,7 +122,7 @@ function activityPayload(requestLogId) {
 function snapshotPayload(revision) {
   return {
     type: "dashboard.snapshot",
-    profile_id: 7,
+    profile_id: 1,
     snapshot: {
       generated_at: "2026-05-04T00:00:00Z",
       snapshot_revision: revision,
@@ -151,7 +151,7 @@ test("dashboard activity updates activity state and highlights by request-log ID
     reconcileDashboardSnapshot: () => {
       throw new Error("activity must not reconcile snapshots");
     },
-    selectedProfileId: 7,
+    selectedProfileId: 1,
     setRoutingDiagramError: () => undefined,
   });
   const options = getRealtimeOptions();
@@ -171,7 +171,7 @@ test("dashboard snapshot realtime reconciliation highlights only applied newer r
     applyDashboardActivity: () => false,
     fetchDashboardData: async () => ({ recentActivityApplied: true, snapshotApplied: false }),
     reconcileDashboardSnapshot: (snapshot) => snapshot.snapshot_revision === "02",
-    selectedProfileId: 7,
+    selectedProfileId: 1,
     setRoutingDiagramError: (value) => routingErrors.push(value),
   });
   const options = getRealtimeOptions();
@@ -192,7 +192,7 @@ test("manual refresh does not force metric highlight for equal snapshot revision
     applyDashboardActivity: () => false,
     fetchDashboardData: async () => ({ recentActivityApplied: true, snapshotApplied: false }),
     reconcileDashboardSnapshot: () => false,
-    selectedProfileId: 7,
+    selectedProfileId: 1,
     setRoutingDiagramError: () => undefined,
   });
 
@@ -214,7 +214,7 @@ test("reconnect repair refetches dashboard data and completes sync after both co
       });
     },
     reconcileDashboardSnapshot: () => false,
-    selectedProfileId: 7,
+    selectedProfileId: 1,
     setRoutingDiagramError: () => undefined,
   });
   const options = getRealtimeOptions();

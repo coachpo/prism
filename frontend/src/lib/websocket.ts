@@ -85,6 +85,12 @@ export interface WebSocketClientOptions {
 }
 
 const IDLE_CLOSE_GRACE_MS = 15_000;
+const DEFAULT_PROFILE_ID = 1;
+
+// ponytail: realtime subscriptions are frozen to Default profile id 1.
+function freezeProfileId(profileId: number | null): number | null {
+  return profileId === null ? null : DEFAULT_PROFILE_ID;
+}
 
 function shouldScheduleReconnect({
   isIntentionallyClosed,
@@ -114,32 +120,6 @@ function sendProfileSubscriptions({
   for (const { channel, scope } of channelRefCounts.values()) {
     send(buildSubscribeMessage(profileId, channel, scope));
   }
-}
-
-function sendProfileSwitchMessages({
-  previousProfileId,
-  nextProfileId,
-  channelRefCounts,
-  send,
-}: {
-  previousProfileId: number | null;
-  nextProfileId: number;
-  channelRefCounts: RealtimeSubscriptionRefCounts;
-  send: (data: Record<string, unknown>) => void;
-}) {
-  if (previousProfileId === null || previousProfileId === nextProfileId) {
-    return;
-  }
-
-  for (const { channel, scope } of channelRefCounts.values()) {
-    send(buildUnsubscribeChannelMessage(channel, scope));
-  }
-
-  sendProfileSubscriptions({
-    profileId: nextProfileId,
-    channelRefCounts,
-    send,
-  });
 }
 
 export class WebSocketClient {
@@ -293,12 +273,8 @@ export class WebSocketClient {
     scope?: RealtimeSubscriptionScope,
   ): void {
     this.cancelIdleClose();
-
-    if (this.currentProfileId !== null && this.currentProfileId !== profileId) {
-      this.setProfile(profileId);
-    } else {
-      this.currentProfileId = profileId;
-    }
+    const frozenProfileId = freezeProfileId(profileId) ?? DEFAULT_PROFILE_ID;
+    this.currentProfileId = frozenProfileId;
 
     const { nextRefCounts, shouldSubscribe } = incrementChannelRefCount(
       this.channelRefCounts,
@@ -308,7 +284,7 @@ export class WebSocketClient {
     this.channelRefCounts = nextRefCounts;
 
     if (shouldSubscribe && this.ws?.readyState === WebSocket.OPEN) {
-      this.send(buildSubscribeMessage(profileId, channel, scope));
+      this.send(buildSubscribeMessage(frozenProfileId, channel, scope));
     }
   }
 
@@ -344,28 +320,6 @@ export class WebSocketClient {
     this.scheduleIdleClose();
   }
 
-  setProfile(profileId: number): void {
-    this.cancelIdleClose();
-
-    if (profileId === this.currentProfileId) {
-      return;
-    }
-
-    const previousProfileId = this.currentProfileId;
-    this.currentProfileId = profileId;
-
-    if (this.ws?.readyState !== WebSocket.OPEN || previousProfileId === null) {
-      return;
-    }
-
-    sendProfileSwitchMessages({
-      previousProfileId,
-      nextProfileId: profileId,
-      channelRefCounts: this.channelRefCounts,
-      send: this.send.bind(this),
-    });
-  }
-
   on(handler: RealtimeEventHandler): () => void {
     this.handlers.add(handler);
     return () => this.handlers.delete(handler);
@@ -384,7 +338,9 @@ export class WebSocketClient {
     profileId: number | null,
     scope?: RealtimeSubscriptionScope,
   ): boolean {
-    if (profileId === null || this.currentProfileId !== profileId) {
+    const frozenProfileId = freezeProfileId(profileId);
+
+    if (frozenProfileId === null || this.currentProfileId !== frozenProfileId) {
       return false;
     }
 
@@ -397,17 +353,18 @@ export class WebSocketClient {
     scope?: RealtimeSubscriptionScope,
   ): void {
     this.cancelIdleClose();
+    const frozenProfileId = freezeProfileId(profileId);
 
     if (
       channel !== "analytics" ||
-      profileId === null ||
-      this.currentProfileId !== profileId ||
+      frozenProfileId === null ||
+      this.currentProfileId !== frozenProfileId ||
       !hasChannelSubscription(this.channelRefCounts, channel, scope)
     ) {
       return;
     }
 
-    this.send(buildRefreshMessage(profileId, channel, scope));
+    this.send(buildRefreshMessage(frozenProfileId, channel, scope));
   }
 
   private send(data: Record<string, unknown>): void {

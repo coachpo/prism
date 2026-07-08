@@ -238,6 +238,30 @@ Verification:
 
 Concerns:
 - Docker-backed runtime regression coverage is still blocked by the local Postgres harness port publication issue before the assertions run.
+
+## Task 9 Realtime Freeze Review Fix
+
+STATUS: DONE
+
+Commit:
+- `3eca3de5` (`fix: freeze realtime profile client contract`)
+
+Fixes:
+- Froze `frontend/src/lib/websocket.ts` to Default profile id `1` and removed client-side profile switching.
+- Updated websocket contract tests to expect `profile_id: 1` for realtime subscribe and refresh traffic, including reconnect behavior.
+- Reworded `docs/ARCHITECTURE.md` and `frontend/tests/e2e/AGENTS.md` to the frozen Default-profile realtime contract.
+- Updated the realtime contract fixtures in `frontend/tests/lib/analytics_websocket_contract.test.mjs` and `frontend/tests/lib/dashboard_realtime_reconnect_contract.test.mjs` to use Default id `1`.
+
+Verification:
+- `rg -n 'setProfile|profile-scope|profile browser|profile_id|profile-scoped|profile scoped|dynamic profile|profileId.*7|profileId.*9' frontend/src/lib/websocket.ts frontend/tests/lib/websocket_contract.test.mjs docs/ARCHITECTURE.md frontend/tests/e2e/AGENTS.md`
+- `node --test frontend/tests/lib/websocket_contract.test.mjs`
+- `node --test frontend/tests/lib/analytics_websocket_contract.test.mjs`
+- `node --test frontend/tests/lib/dashboard_realtime_reconnect_contract.test.mjs`
+- `cd frontend && pnpm run test:lib`
+- `cd frontend && pnpm run build`
+
+Concerns:
+- The only remaining `profile_id` mentions in the touched contract tests are the frozen Default id `1` fixtures and message payloads required by the contract.
 - The unrelated pre-existing dirty/untracked docs named in the task were left untouched.
 
 ## Task 9 Stale README/i18n Profile References Fix

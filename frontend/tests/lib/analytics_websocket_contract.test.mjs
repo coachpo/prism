@@ -104,7 +104,7 @@ test("analytics realtime scope rejects stale profile and preset snapshots", () =
   const baseMessage = {
     type: "analytics.snapshot",
     channel: "analytics",
-    profile_id: 3,
+    profile_id: 1,
     preset: "24h",
     sequence: 5,
     generated_at: "2026-05-04T00:00:00Z",
@@ -115,25 +115,25 @@ test("analytics realtime scope rejects stale profile and preset snapshots", () =
   assert.equal(hookModule.matchesRealtimeDataScope({
     channel: "analytics",
     message: baseMessage,
-    profileId: 3,
+    profileId: 1,
     scope: { preset: "24h" },
   }), true);
   assert.equal(hookModule.matchesRealtimeDataScope({
     channel: "analytics",
-    message: { ...baseMessage, profile_id: 4 },
-    profileId: 3,
+    message: { ...baseMessage, profile_id: 2 },
+    profileId: 1,
     scope: { preset: "24h" },
   }), false);
   assert.equal(hookModule.matchesRealtimeDataScope({
     channel: "analytics",
     message: { ...baseMessage, preset: "7d" },
-    profileId: 3,
+    profileId: 1,
     scope: { preset: "24h" },
   }), false);
   assert.equal(hookModule.matchesRealtimeDataScope({
     channel: "analytics",
     message: { ...baseMessage, type: "analytics.error" },
-    profileId: 3,
+    profileId: 1,
     scope: { preset: "24h" },
   }), false);
 });
@@ -143,7 +143,7 @@ test("analytics snapshot ordering rejects older sequence and generation only wit
   const current = {
     generatedAtMs: Date.parse("2026-05-04T00:00:10Z"),
     preset: "24h",
-    profileId: 3,
+    profileId: 1,
     sequence: 8,
   };
 
@@ -171,7 +171,7 @@ test("analytics snapshot ordering rejects older sequence and generation only wit
   assert.equal(isStaleAnalyticsSnapshot(current, {
     ...current,
     generatedAtMs: Date.parse("2026-05-04T00:00:00Z"),
-    profileId: 4,
+    profileId: 2,
     sequence: 1,
   }), false);
 });
@@ -183,16 +183,15 @@ test("analytics manual refresh sends websocket refresh only for active subscribe
 
   client.connect();
   sockets[0].open();
-  client.subscribeChannel(3, "analytics", { preset: "24h" });
+  client.subscribeChannel(1, "analytics", { preset: "24h" });
   sentMessages.length = 0;
 
-  client.refreshChannel(3, "analytics", { preset: "7d" });
-  client.refreshChannel(4, "analytics", { preset: "24h" });
-  client.refreshChannel(3, "dashboard");
-  client.refreshChannel(3, "analytics", { preset: "24h" });
+  client.refreshChannel(1, "analytics", { preset: "7d" });
+  client.refreshChannel(1, "dashboard");
+  client.refreshChannel(1, "analytics", { preset: "24h" });
 
   assert.deepEqual(sentMessages, [
-    { type: "refresh", profile_id: 3, channel: "analytics", preset: "24h" },
+    { type: "refresh", profile_id: 1, channel: "analytics", preset: "24h" },
   ]);
   client.disconnect();
 });

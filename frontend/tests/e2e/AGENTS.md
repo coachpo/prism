@@ -15,7 +15,7 @@ e2e/
 ## WHERE TO LOOK
 - Playwright config and server target: `../../playwright.config.ts`
 - Dashboard/statistics shared fixtures: `dashboard-aggregate-fixtures.ts`
-- Auth/profile shell flows: `auth-session-lifecycle.spec.ts`, `profile-scope-*.spec.ts`, `protected-shell-sidebar.spec.ts`
+- Auth and shell flows: `auth-session-lifecycle.spec.ts`, `protected-shell-sidebar.spec.ts`
 - Request-log and audit page flows: `request-log-*.spec.ts`, `request-logs-*.spec.ts`
 - Settings/config/retention flows: `settings-*.spec.ts`
 - Model, endpoint, pricing, and Ban Policy flows: `model-*.spec.ts`, `models-*.spec.ts`, `task-*.spec.ts`, `loadbalance-*.spec.ts`, `pricing-*.spec.ts`

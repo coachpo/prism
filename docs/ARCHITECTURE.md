@@ -235,34 +235,34 @@ Custom headers are a power-user feature. They can override ordinary forwarded he
 ```
 Dashboard overview page -> WebSocket connect /api/realtime/ws
   -> If auth enabled: management auth handlers validate the access-token cookie
-  -> Client sends {type: "subscribe", profile_id, channel: "dashboard"}
-  -> Realtime manager stores dashboard room membership keyed by profile and channel
+  -> Client sends {type: "subscribe", profile_id: 1, channel: "dashboard"}
+  -> Realtime manager stores dashboard room membership keyed by Default profile id 1 and channel
 
 Proxy request completes
   -> Runtime telemetry persists request history and usage-event data
-  -> Dashboard activity publisher sends {type: "dashboard.activity", profile_id, activity_watermark, activity} with one request-history item
-  -> Dashboard snapshot publisher sends {type: "dashboard.snapshot", profile_id, snapshot} only after aggregate snapshot rebuilds
+  -> Dashboard activity publisher sends {type: "dashboard.activity", profile_id: 1, activity_watermark, activity} with one request-history item
+  -> Dashboard snapshot publisher sends {type: "dashboard.snapshot", profile_id: 1, snapshot} only after aggregate snapshot rebuilds
   -> REST bootstrap reads the stats-only snapshot from GET /api/stats/dashboard
   -> REST bootstrap reads recent activity from GET /api/stats/dashboard/recent-activity
   -> Overview and backend-owned topology graph state reconcile against the snapshot revision, while activity rows reconcile separately
 
 Dashboard analytics tab -> WebSocket connect /api/realtime/ws
-  -> Client sends {type: "subscribe", profile_id, channel: "analytics", preset}
-  -> Realtime manager stores analytics room membership keyed by profile, channel, and preset scope
-  -> Service sends an initial full `analytics.snapshot` for that {profile_id,preset}
-  -> Manual refresh sends {type: "refresh", profile_id, channel: "analytics", preset}
+  -> Client sends {type: "subscribe", profile_id: 1, channel: "analytics", preset}
+  -> Realtime manager stores analytics room membership keyed by Default profile id 1, channel, and preset scope
+  -> Service sends an initial full `analytics.snapshot` for that frozen Default profile id 1 and preset
+  -> Manual refresh sends {type: "refresh", profile_id: 1, channel: "analytics", preset}
   -> Refresh returns a fresh full `analytics.snapshot` on the socket
   -> Analytics snapshots include the usage snapshot plus endpoint model statistics keyed by endpoint ID string
   -> The frontend treats each `analytics.snapshot` as a full replacement for that scoped analytics view
 ```
 
-The realtime API has two supported channels. The dashboard channel emits `dashboard.snapshot` for stats-only aggregate snapshots and `dashboard.activity` for single request-history feed entries. Snapshot ordering uses lexicographic `snapshot_revision`; `source_watermark` is diagnostic. Activity uses `activity_watermark` and `request_log_id` for feed reconciliation and request-log drilldown only. `analytics.snapshot` is scoped by `{profile_id,preset}` inside the WebSocket message payload and is the Analytics tab's preferred data path; the current UI falls back to `GET /api/stats/usage-snapshot` when no realtime snapshot arrives, uses the same REST route for manual-refresh fallback, and uses endpoint model statistics REST calls for drilldown. The REST stats endpoints, including `GET /api/stats/dashboard`, `GET /api/stats/dashboard/recent-activity`, request-history detail/list routes, spending, throughput, model metrics, and `GET /api/stats/usage-snapshot`, remain product-facing retained-history APIs; OTLP/Prometheus operations telemetry does not replace them.
+The realtime API has two supported channels. The dashboard channel emits `dashboard.snapshot` for stats-only aggregate snapshots and `dashboard.activity` for single request-history feed entries. Snapshot ordering uses lexicographic `snapshot_revision`; `source_watermark` is diagnostic. Activity uses `activity_watermark` and `request_log_id` for feed reconciliation and request-log drilldown only. `analytics.snapshot` is frozen to Default profile id 1 plus `preset` inside the WebSocket message payload and is the Analytics tab's preferred data path; the current UI falls back to `GET /api/stats/usage-snapshot` when no realtime snapshot arrives, uses the same REST route for manual-refresh fallback, and uses endpoint model statistics REST calls for drilldown. The REST stats endpoints, including `GET /api/stats/dashboard`, `GET /api/stats/dashboard/recent-activity`, request-history detail/list routes, spending, throughput, model metrics, and `GET /api/stats/usage-snapshot`, remain product-facing retained-history APIs; OTLP/Prometheus operations telemetry does not replace them.
 
 ## 4. Routing Strategies and Runtime Health Signals
 
 ### 4.1 Routing policy contract
 
-- Models attach one profile-scoped explicit loadbalance strategy.
+- Models attach one Default-profile explicit loadbalance strategy.
 - Strategies carry the routing family field `legacy_strategy_type` (`single`, `fill-first`, or `round-robin`).
 - Strategies also carry explicit Ban Policy fields for failure status codes, retry delay, backoff, jitter, retry-window limits, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, ban mode, and ban duration.
 - Retry-cycle exhaustion is inclusive at `cycle_retry_attempts >= cycle_retry_attempt_limit`.

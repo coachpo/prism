@@ -376,20 +376,20 @@ test("websocket client sends one analytics subscribe per preset ref-count", () =
 
   client.connect();
   sockets[0].open();
-  client.subscribeChannel(7, "analytics", { preset: "24h" });
-  client.subscribeChannel(7, "analytics", { preset: "24h" });
-  client.subscribeChannel(7, "analytics", { preset: "7d" });
+  client.subscribeChannel(1, "analytics", { preset: "24h" });
+  client.subscribeChannel(1, "analytics", { preset: "24h" });
+  client.subscribeChannel(1, "analytics", { preset: "7d" });
 
   assert.deepEqual(sentMessages, [
-    { type: "subscribe", profile_id: 7, channel: "analytics", preset: "24h" },
-    { type: "subscribe", profile_id: 7, channel: "analytics", preset: "7d" },
+    { type: "subscribe", profile_id: 1, channel: "analytics", preset: "24h" },
+    { type: "subscribe", profile_id: 1, channel: "analytics", preset: "7d" },
   ]);
-  assert.equal(client.hasChannelSubscription("analytics", 7, { preset: "24h" }), true);
-  assert.equal(client.hasChannelSubscription("analytics", 7, { preset: "7d" }), true);
+  assert.equal(client.hasChannelSubscription("analytics", 1, { preset: "24h" }), true);
+  assert.equal(client.hasChannelSubscription("analytics", 1, { preset: "7d" }), true);
 
   client.unsubscribeChannel("analytics", { preset: "24h" });
   assert.equal(sentMessages.length, 2);
-  assert.equal(client.hasChannelSubscription("analytics", 7, { preset: "24h" }), true);
+  assert.equal(client.hasChannelSubscription("analytics", 1, { preset: "24h" }), true);
 
   client.unsubscribeChannel("analytics", { preset: "24h" });
   assert.deepEqual(sentMessages.at(-1), {
@@ -397,8 +397,8 @@ test("websocket client sends one analytics subscribe per preset ref-count", () =
     channel: "analytics",
     preset: "24h",
   });
-  assert.equal(client.hasChannelSubscription("analytics", 7, { preset: "24h" }), false);
-  assert.equal(client.hasChannelSubscription("analytics", 7, { preset: "7d" }), true);
+  assert.equal(client.hasChannelSubscription("analytics", 1, { preset: "24h" }), false);
+  assert.equal(client.hasChannelSubscription("analytics", 1, { preset: "7d" }), true);
   client.disconnect();
 });
 
@@ -409,21 +409,21 @@ test("websocket client refresh is analytics scoped and dashboard refresh is a no
 
   client.connect();
   sockets[0].open();
-  client.subscribeChannel(7, "dashboard");
-  client.subscribeChannel(7, "analytics", { preset: "30d" });
+  client.subscribeChannel(1, "dashboard");
+  client.subscribeChannel(1, "analytics", { preset: "30d" });
   sentMessages.length = 0;
 
-  client.refreshChannel(7, "dashboard");
-  client.refreshChannel(7, "analytics", { preset: "30d" });
-  client.refreshChannel(7, "analytics", { preset: "7d" });
+  client.refreshChannel(1, "dashboard");
+  client.refreshChannel(1, "analytics", { preset: "30d" });
+  client.refreshChannel(1, "analytics", { preset: "7d" });
 
   assert.deepEqual(sentMessages, [
-    { type: "refresh", profile_id: 7, channel: "analytics", preset: "30d" },
+    { type: "refresh", profile_id: 1, channel: "analytics", preset: "30d" },
   ]);
   client.disconnect();
 });
 
-test("websocket client profile switch and reconnect preserve scoped subscriptions", () => {
+test("websocket client freezes subscriptions to Default profile id 1", () => {
   const sentMessages = [];
   const { WebSocketClient, sockets } = loadClientModule(sentMessages);
   const client = new WebSocketClient({ url: "ws://example.test/realtime", reconnectInterval: 1 });
@@ -431,16 +431,14 @@ test("websocket client profile switch and reconnect preserve scoped subscription
   client.connect();
   sockets[0].open();
   client.subscribeChannel(7, "dashboard");
-  client.subscribeChannel(7, "analytics", { preset: "24h" });
-  sentMessages.length = 0;
+  client.subscribeChannel(9, "analytics", { preset: "24h" });
 
-  client.setProfile(9);
   assert.deepEqual(sentMessages, [
-    { type: "unsubscribe_channel", channel: "dashboard" },
-    { type: "unsubscribe_channel", channel: "analytics", preset: "24h" },
-    { type: "subscribe", profile_id: 9, channel: "dashboard" },
-    { type: "subscribe", profile_id: 9, channel: "analytics", preset: "24h" },
+    { type: "subscribe", profile_id: 1, channel: "dashboard" },
+    { type: "subscribe", profile_id: 1, channel: "analytics", preset: "24h" },
   ]);
+  assert.equal(client.hasChannelSubscription("dashboard", 7), true);
+  assert.equal(client.hasChannelSubscription("dashboard", 9), true);
 
   sentMessages.length = 0;
   sockets[0].close();
@@ -448,8 +446,8 @@ test("websocket client profile switch and reconnect preserve scoped subscription
   sockets.at(-1).open();
 
   assert.deepEqual(sentMessages, [
-    { type: "subscribe", profile_id: 9, channel: "dashboard" },
-    { type: "subscribe", profile_id: 9, channel: "analytics", preset: "24h" },
+    { type: "subscribe", profile_id: 1, channel: "dashboard" },
+    { type: "subscribe", profile_id: 1, channel: "analytics", preset: "24h" },
   ]);
   client.disconnect();
 });
@@ -465,7 +463,7 @@ test("websocket client closes idle socket after last subscription grace without 
 
     client.connect();
     sockets[0].open();
-    client.subscribeChannel(7, "dashboard");
+    client.subscribeChannel(1, "dashboard");
     sentMessages.length = 0;
 
     client.unsubscribeChannel("dashboard");
@@ -495,7 +493,7 @@ test("websocket client cancels pending idle close on new subscription", () => {
 
     client.connect();
     sockets[0].open();
-    client.subscribeChannel(7, "dashboard");
+    client.subscribeChannel(1, "dashboard");
     sentMessages.length = 0;
 
     client.unsubscribeChannel("dashboard");
@@ -504,13 +502,13 @@ test("websocket client cancels pending idle close on new subscription", () => {
     client.connect();
     assert.deepEqual(timers.pendingDelays(), [15_000]);
 
-    client.subscribeChannel(7, "dashboard");
+    client.subscribeChannel(1, "dashboard");
 
     assert.deepEqual(timers.pendingDelays(), []);
     assert.equal(sockets[0].readyState, WebSocket.OPEN);
     assert.deepEqual(sentMessages, [
       { type: "unsubscribe_channel", channel: "dashboard" },
-      { type: "subscribe", profile_id: 7, channel: "dashboard" },
+      { type: "subscribe", profile_id: 1, channel: "dashboard" },
     ]);
     client.disconnect();
   } finally {
@@ -518,7 +516,7 @@ test("websocket client cancels pending idle close on new subscription", () => {
   }
 });
 
-test("websocket client cancels pending idle close on refresh request or profile switch", () => {
+test("websocket client cancels pending idle close on refresh request", () => {
   const timers = installFakeTimeouts();
 
   try {
@@ -528,28 +526,15 @@ test("websocket client cancels pending idle close on refresh request or profile 
 
     refreshClient.connect();
     sockets[0].open();
-    refreshClient.subscribeChannel(3, "analytics", { preset: "24h" });
+    refreshClient.subscribeChannel(1, "analytics", { preset: "24h" });
     refreshClient.unsubscribeChannel("analytics", { preset: "24h" });
     assert.deepEqual(timers.pendingDelays(), [15_000]);
 
-    refreshClient.refreshChannel(3, "analytics", { preset: "24h" });
+    refreshClient.refreshChannel(1, "analytics", { preset: "24h" });
 
     assert.deepEqual(timers.pendingDelays(), []);
     assert.equal(sockets[0].readyState, WebSocket.OPEN);
     refreshClient.disconnect();
-
-    const profileClient = new WebSocketClient({ url: "ws://example.test/realtime" });
-    profileClient.connect();
-    sockets.at(-1).open();
-    profileClient.subscribeChannel(4, "dashboard");
-    profileClient.unsubscribeChannel("dashboard");
-    assert.deepEqual(timers.pendingDelays(), [15_000]);
-
-    profileClient.setProfile(5);
-
-    assert.deepEqual(timers.pendingDelays(), []);
-    assert.equal(sockets.at(-1).readyState, WebSocket.OPEN);
-    profileClient.disconnect();
     assert.ok(sentMessages.some((message) => message.type === "unsubscribe_channel"));
   } finally {
     timers.restore();
