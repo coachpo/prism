@@ -43,3 +43,14 @@
 - GREEN: `cd backend && go test ./tests/runtime -run TestRequestLogListPricingFilters -count=1` passed.
 - `cd backend && go test ./internal/httpapi/management/stats` passed.
 - `git diff --check` passed.
+
+## Reviewer Fix 2 2026-07-08
+- Updated request-log `priced` and `unpriced_reason` SQL filters to use the same normalized pricing semantics as returned list rows. Rows stored with `priced_flag=true` but missing user-currency cost now filter as unpriced with `MISSING_PRICE_DATA`.
+- Extended `TestRequestLogListPricingFilters` with a raw-priced missing-cost row covering `priced=false`, `priced=true`, and `unpriced_reason=MISSING_PRICE_DATA`.
+
+## Reviewer Fix 2 Verification 2026-07-08
+- RED: `cd backend && go test ./tests/runtime -run TestRequestLogListPricingFilters -count=1` failed on the raw-priced missing-cost row being excluded from `priced=false` and `unpriced_reason=MISSING_PRICE_DATA`, and included in `priced=true`.
+- GREEN: `cd backend && go test ./tests/runtime -run TestRequestLogListPricingFilters -count=1` passed.
+- `cd backend && go test ./internal/domain/stats ./internal/httpapi/management/stats -count=1` passed.
+- `cd backend && go test ./tests/runtime -run TestRequestLog -count=1` passed.
+- `git diff --check` passed.

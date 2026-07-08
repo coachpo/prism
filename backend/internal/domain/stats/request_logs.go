@@ -111,6 +111,19 @@ type requestLogModelRecord struct {
 	DisplayName *string
 }
 
+const requestLogNormalizedPricedFlagSQL = `(CASE
+	WHEN NULLIF(btrim(unpriced_reason), '') IS NOT NULL THEN FALSE
+	WHEN status_code BETWEEN 200 AND 299 AND total_cost_user_currency_micros IS NOT NULL THEN TRUE
+	WHEN status_code BETWEEN 200 AND 299 AND priced_flag IS TRUE AND total_cost_user_currency_micros IS NULL THEN FALSE
+	ELSE priced_flag
+END)`
+
+const requestLogNormalizedUnpricedReasonSQL = `(CASE
+	WHEN NULLIF(btrim(unpriced_reason), '') IS NOT NULL THEN NULLIF(btrim(unpriced_reason), '')
+	WHEN status_code BETWEEN 200 AND 299 AND priced_flag IS TRUE AND total_cost_user_currency_micros IS NULL THEN 'MISSING_PRICE_DATA'
+	ELSE NULL
+END)`
+
 func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogListParams) (RequestLogListResponse, error) {
 	limit := params.Limit
 	if limit <= 0 {
@@ -370,11 +383,11 @@ func buildRequestLogBrowseWhere(params RequestLogListParams) (string, []any) {
 	}
 	if params.PricedFlag != nil {
 		args = append(args, *params.PricedFlag)
-		clauses = append(clauses, fmt.Sprintf("priced_flag = $%d", len(args)))
+		clauses = append(clauses, fmt.Sprintf("%s = $%d", requestLogNormalizedPricedFlagSQL, len(args)))
 	}
 	if params.UnpricedReason != nil && strings.TrimSpace(*params.UnpricedReason) != "" {
 		args = append(args, strings.TrimSpace(*params.UnpricedReason))
-		clauses = append(clauses, fmt.Sprintf("unpriced_reason = $%d", len(args)))
+		clauses = append(clauses, fmt.Sprintf("%s = $%d", requestLogNormalizedUnpricedReasonSQL, len(args)))
 	}
 	if params.FromTime != nil {
 		args = append(args, params.FromTime.UTC())

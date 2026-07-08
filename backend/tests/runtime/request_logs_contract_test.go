@@ -280,9 +280,10 @@ func TestRequestLogListPricingFilters(t *testing.T) {
 	profileID := loadRuntimeDefaultProfileID(t, harness)
 	seedRequestLogEndpoints(t, harness, profileID)
 	baseTime := time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC)
-	seedPricingFilteredRequestLog(t, harness, profileID, 251, true, nil, baseTime)
-	seedPricingFilteredRequestLog(t, harness, profileID, 252, false, runtimeStringPtr("MISSING_PRICE_DATA"), baseTime.Add(time.Minute))
-	seedPricingFilteredRequestLog(t, harness, profileID, 253, false, runtimeStringPtr("MISSING_TOKEN_USAGE"), baseTime.Add(2*time.Minute))
+	seedPricingFilteredRequestLog(t, harness, profileID, 251, true, nil, true, baseTime)
+	seedPricingFilteredRequestLog(t, harness, profileID, 252, false, runtimeStringPtr("MISSING_PRICE_DATA"), false, baseTime.Add(time.Minute))
+	seedPricingFilteredRequestLog(t, harness, profileID, 253, false, runtimeStringPtr("MISSING_TOKEN_USAGE"), false, baseTime.Add(2*time.Minute))
+	seedPricingFilteredRequestLog(t, harness, profileID, 254, true, nil, false, baseTime.Add(3*time.Minute))
 
 	tests := []struct {
 		name    string
@@ -290,9 +291,9 @@ func TestRequestLogListPricingFilters(t *testing.T) {
 		status  int
 		wantIDs []int
 	}{
-		{name: "unpriced only", query: "priced=false", status: http.StatusOK, wantIDs: []int{253, 252}},
+		{name: "unpriced only", query: "priced=false", status: http.StatusOK, wantIDs: []int{254, 253, 252}},
 		{name: "priced only", query: "priced=true", status: http.StatusOK, wantIDs: []int{251}},
-		{name: "specific unpriced reason", query: "unpriced_reason=MISSING_PRICE_DATA", status: http.StatusOK, wantIDs: []int{252}},
+		{name: "specific unpriced reason", query: "unpriced_reason=MISSING_PRICE_DATA", status: http.StatusOK, wantIDs: []int{254, 252}},
 		{name: "invalid priced", query: "priced=notabool", status: http.StatusBadRequest},
 		{name: "non-lowercase priced", query: "priced=TRUE", status: http.StatusBadRequest},
 		{name: "numeric priced", query: "priced=1", status: http.StatusBadRequest},
@@ -2607,11 +2608,11 @@ func seedFilteredRequestLog(t *testing.T, harness *requestLogContractHarness, pr
 	}
 }
 
-func seedPricingFilteredRequestLog(t *testing.T, harness *requestLogContractHarness, profileID int, id int, priced bool, unpricedReason *string, createdAt time.Time) {
+func seedPricingFilteredRequestLog(t *testing.T, harness *requestLogContractHarness, profileID int, id int, priced bool, unpricedReason *string, hasCost bool, createdAt time.Time) {
 	t.Helper()
 	ensureRuntimeTestLogPartitions(t, harness.databaseName, runtimeTestLogPartitionFor("request_logs", createdAt))
 	var cost any
-	if priced {
+	if hasCost {
 		cost = int64(1000)
 	}
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, status_code, response_time_ms, is_stream, success_flag, billable_flag, priced_flag, unpriced_reason, total_cost_user_currency_micros, request_path, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, 'gpt-4o', 'gpt-4o', 'openai', 12, NULL, $3, 1, 'https://api.openai.com', 200, 120, FALSE, TRUE, TRUE, $4, $5, $6, '/v1/chat/completions', $7, FALSE, FALSE)`, id, profileID, fmt.Sprintf("pricing-filtered-req-%d", id), priced, nullableTestString(unpricedReason), cost, createdAt); err != nil {
