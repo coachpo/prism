@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -82,30 +83,15 @@ const (
 )
 
 const (
-	defaultPostgresTotalMaxConns                 int32 = 22
-	defaultManagementDatabaseMaxConns            int32 = 4
-	defaultManagementDatabaseMinIdleConns        int32 = 1
-	defaultRuntimeExecutionDatabaseMaxConns      int32 = 8
-	defaultRuntimeExecutionDatabaseMinIdleConns  int32 = 2
-	defaultRuntimeTelemetryDatabaseMaxConns      int32 = 4
-	defaultRuntimeTelemetryDatabaseMinIdleConns  int32 = 1
-	defaultRuntimeFeedbackDatabaseMaxConns       int32 = 2
-	defaultRuntimeFeedbackDatabaseMinIdleConns   int32 = 0
-	defaultCacheRefreshDatabaseMaxConns          int32 = 2
-	defaultCacheRefreshDatabaseMinIdleConns      int32 = 0
-	defaultBackgroundJobsDatabaseMaxConns        int32 = 2
-	defaultBackgroundJobsDatabaseMinIdleConns    int32 = 0
-	defaultManagementM2MaxConcurrent             int64 = 3
-	defaultManagementM3MaxConcurrent             int64 = 2
-	defaultRuntimeTransportMaxIdleConns                = 100
-	defaultRuntimeTransportMaxIdleConnsPerHost         = 16
-	defaultRuntimeTransportMaxConnsPerHost             = 16
-	defaultRuntimeTransportRequestTimeout              = 300 * time.Second
-	defaultRuntimeTransportIdleConnTimeout             = 90 * time.Second
-	defaultRuntimeTransportResponseHeaderTimeout       = 0
-	defaultRuntimeTransportTLSHandshakeTimeout         = 10 * time.Second
-	defaultRuntimeTransportExpectContinueTimeout       = 1 * time.Second
-	defaultRuntimeSideEffectsAttemptTimeout            = 10 * time.Second
+	defaultRuntimeTransportMaxIdleConns          = 100
+	defaultRuntimeTransportMaxIdleConnsPerHost   = 16
+	defaultRuntimeTransportMaxConnsPerHost       = 16
+	defaultRuntimeTransportRequestTimeout        = 300 * time.Second
+	defaultRuntimeTransportIdleConnTimeout       = 90 * time.Second
+	defaultRuntimeTransportResponseHeaderTimeout = 0
+	defaultRuntimeTransportTLSHandshakeTimeout   = 10 * time.Second
+	defaultRuntimeTransportExpectContinueTimeout = 1 * time.Second
+	defaultRuntimeSideEffectsAttemptTimeout      = 10 * time.Second
 )
 
 type DatabasePoolBudget struct {
@@ -271,7 +257,7 @@ func loadCanonicalDefaultSettings(databaseURL string) Settings {
 		PostgresPoolsBudget:              DefaultPostgresPoolsBudget(),
 		RuntimeDatabasePoolBudget:        defaultRuntimeExecutionDatabasePoolBudget(),
 		ManagementDatabasePoolBudget:     defaultManagementDatabasePoolBudget(),
-		ManagementAdmissionControlBudget: ManagementAdmissionBudget{M2MaxConcurrent: defaultManagementM2MaxConcurrent, M3MaxConcurrent: defaultManagementM3MaxConcurrent},
+		ManagementAdmissionControlBudget: defaultManagementAdmissionBudget(),
 		SecretEncryptionKey:              defaultSeedSecretEncryptionKey,
 		CORSAllowedOrigins:               defaultBootstrapCORSAllowedOrigins,
 		AuthJWTSecret:                    defaultAuthJWTSecret,
@@ -336,23 +322,19 @@ func derivedManagementAdmissionBudget(cores int) ManagementAdmissionBudget {
 }
 
 func DefaultPostgresPoolsBudget() PostgresPoolsBudget {
-	return PostgresPoolsBudget{
-		TotalMaxConns:    defaultPostgresTotalMaxConns,
-		Management:       defaultManagementDatabasePoolBudget(),
-		RuntimeExecution: defaultRuntimeExecutionDatabasePoolBudget(),
-		RuntimeTelemetry: DatabasePoolBudget{MaxConns: defaultRuntimeTelemetryDatabaseMaxConns, MinIdleConns: defaultRuntimeTelemetryDatabaseMinIdleConns},
-		RuntimeFeedback:  DatabasePoolBudget{MaxConns: defaultRuntimeFeedbackDatabaseMaxConns, MinIdleConns: defaultRuntimeFeedbackDatabaseMinIdleConns},
-		CacheRefresh:     DatabasePoolBudget{MaxConns: defaultCacheRefreshDatabaseMaxConns, MinIdleConns: defaultCacheRefreshDatabaseMinIdleConns},
-		BackgroundJobs:   DatabasePoolBudget{MaxConns: defaultBackgroundJobsDatabaseMaxConns, MinIdleConns: defaultBackgroundJobsDatabaseMinIdleConns},
-	}
+	return derivedPostgresPoolsBudget(runtime.NumCPU())
 }
 
 func defaultManagementDatabasePoolBudget() DatabasePoolBudget {
-	return DatabasePoolBudget{MaxConns: defaultManagementDatabaseMaxConns, MinIdleConns: defaultManagementDatabaseMinIdleConns}
+	return DefaultPostgresPoolsBudget().Management
 }
 
 func defaultRuntimeExecutionDatabasePoolBudget() DatabasePoolBudget {
-	return DatabasePoolBudget{MaxConns: defaultRuntimeExecutionDatabaseMaxConns, MinIdleConns: defaultRuntimeExecutionDatabaseMinIdleConns}
+	return DefaultPostgresPoolsBudget().RuntimeExecution
+}
+
+func defaultManagementAdmissionBudget() ManagementAdmissionBudget {
+	return derivedManagementAdmissionBudget(runtime.NumCPU())
 }
 
 func resolveDatabaseURLFromEnv() string {
@@ -402,9 +384,8 @@ func (s Settings) PostgresPoolsBudgetOrDefault() PostgresPoolsBudget {
 }
 
 func (s Settings) ManagementAdmissionBudget() ManagementAdmissionBudget {
-	defaultBudget := ManagementAdmissionBudget{M2MaxConcurrent: defaultManagementM2MaxConcurrent, M3MaxConcurrent: defaultManagementM3MaxConcurrent}
 	maxLowerPriority := max(int64(s.ManagementDatabaseBudget().MaxConns)-1, int64(1))
-	return normalizeManagementAdmissionBudget(s.ManagementAdmissionControlBudget, defaultBudget, maxLowerPriority)
+	return normalizeManagementAdmissionBudget(s.ManagementAdmissionControlBudget, defaultManagementAdmissionBudget(), maxLowerPriority)
 }
 
 func (s Settings) CORSAllowedOriginsList() []string {

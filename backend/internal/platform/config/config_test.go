@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -32,20 +33,13 @@ func TestLoadCanonicalDefaultSettings(t *testing.T) {
 	if got := settings.RuntimeSideEffects(); got.AttemptTimeout != 10*time.Second {
 		t.Fatalf("unexpected canonical side-effects defaults: %+v", got)
 	}
-	assertPostgresPoolsBudget(t, settings.PostgresPoolsBudgetOrDefault(), PostgresPoolsBudget{
-		TotalMaxConns:    22,
-		Management:       DatabasePoolBudget{MaxConns: 4, MinIdleConns: 1},
-		RuntimeExecution: DatabasePoolBudget{MaxConns: 8, MinIdleConns: 2},
-		RuntimeTelemetry: DatabasePoolBudget{MaxConns: 4, MinIdleConns: 1},
-		RuntimeFeedback:  DatabasePoolBudget{MaxConns: 2, MinIdleConns: 0},
-		CacheRefresh:     DatabasePoolBudget{MaxConns: 2, MinIdleConns: 0},
-		BackgroundJobs:   DatabasePoolBudget{MaxConns: 2, MinIdleConns: 0},
-	})
-	if got := settings.ManagementAdmissionControlBudget; got != (ManagementAdmissionBudget{M2MaxConcurrent: 3, M3MaxConcurrent: 2}) {
+	assertPostgresPoolsBudget(t, settings.PostgresPoolsBudgetOrDefault(), derivedPostgresPoolsBudget(runtime.NumCPU()))
+	wantAdmission := derivedManagementAdmissionBudget(runtime.NumCPU())
+	if got := settings.ManagementAdmissionControlBudget; got != wantAdmission {
 		t.Fatalf("unexpected raw management admission defaults: %+v", got)
 	}
 	admission := settings.ManagementAdmissionBudget()
-	if admission != (ManagementAdmissionBudget{M2MaxConcurrent: 3, M3MaxConcurrent: 2}) {
+	if admission != wantAdmission {
 		t.Fatalf("unexpected normalized management admission defaults: %+v", admission)
 	}
 	if reservedM1 := int64(settings.ManagementDatabaseBudget().MaxConns) - admission.M2MaxConcurrent; reservedM1 != 1 {
@@ -144,7 +138,7 @@ func TestBootstrapConfigAcceptsStaleRealtimePool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected stale realtime pool field to be ignored, got %v", err)
 	}
-	if got := settings.PostgresPoolsBudgetOrDefault().SumMaxConns(); got != 22 {
+	if got := settings.PostgresPoolsBudgetOrDefault().SumMaxConns(); got != DefaultPostgresPoolsBudget().SumMaxConns() {
 		t.Fatalf("expected stale realtime pool to stay out of active budget, got sum=%d", got)
 	}
 }
@@ -201,9 +195,9 @@ func TestRejectsInvalidSamplingRatio(t *testing.T) {
 }
 
 func TestNormalizeManagementAdmissionBudget(t *testing.T) {
-	defaults := ManagementAdmissionBudget{M2MaxConcurrent: defaultManagementM2MaxConcurrent, M3MaxConcurrent: defaultManagementM3MaxConcurrent}
+	defaults := defaultManagementAdmissionBudget()
 	got := normalizeManagementAdmissionBudget(ManagementAdmissionBudget{}, defaults, 3)
-	if got != (ManagementAdmissionBudget{M2MaxConcurrent: 3, M3MaxConcurrent: 2}) {
+	if got != (ManagementAdmissionBudget{M2MaxConcurrent: 3, M3MaxConcurrent: 3}) {
 		t.Fatalf("unexpected normalized empty management admission budget: %+v", got)
 	}
 
