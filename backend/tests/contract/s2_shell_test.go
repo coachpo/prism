@@ -1,4 +1,4 @@
-package contract_test
+package contracttest
 
 import (
 	"encoding/json"
