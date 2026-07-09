@@ -29,7 +29,7 @@ function createConnection(id: number, priority: number, name: string): Connectio
 }
 
 describe("model detail feature contracts", () => {
-  it("keeps Default profile and model id in detail query keys", () => {
+  it("keeps the pinned profile and model id in detail query keys", () => {
     expect(modelDetailQueryKeys.detail(1, 42)).toEqual([
       "rewrite",
       "selected-profile",

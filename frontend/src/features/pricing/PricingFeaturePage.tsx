@@ -2,7 +2,7 @@ import { Upload } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { useLocale } from "@/i18n/useLocale"
-import { OperatorCallout, OperatorPageHeader, OperatorPageShell, OperatorTypeBadge } from "@/shared/design-system"
+import { OperatorPageHeader, OperatorPageShell } from "@/shared/design-system"
 import { DeletePricingTemplateDialog } from "@/pages/pricing-templates/DeletePricingTemplateDialog"
 import { PricingTemplateDialog } from "./PricingTemplateDialog"
 import { PricingTemplateImportDialog } from "./PricingTemplateImportDialog"
@@ -15,7 +15,6 @@ export function PricingFeaturePage() {
   const copy = messages.pricingTemplatesUi
   const importCopy = messages.pricing
   const data = usePricingFeatureData(0)
-  const selectedProfileLabel = "Default (#1)"
 
   return (
     <OperatorPageShell data-testid="pricing-feature-page">
@@ -23,11 +22,6 @@ export function PricingFeaturePage() {
         title={copy.title}
         description={copy.description}
         actions={<Button type="button" variant="outline" onClick={() => data.setPricingTemplateImportDialogOpen(true)}><Upload data-icon="inline-start" />{importCopy.importButton}</Button>}
-      />
-      <OperatorCallout
-        action={<OperatorTypeBadge intent="warning" label={copy.profileScopedSettings} preserveLabel />}
-        description={copy.scopeCallout(selectedProfileLabel)}
-        intent="warning"
       />
       <PricingTemplatesTable onCreate={data.openCreatePricingTemplateDialog} onDelete={data.handleDeletePricingTemplateClick} onEdit={data.handleEditPricingTemplate} onViewUsage={data.handleViewPricingTemplateUsage} pricingTemplatePreparingEditId={data.pricingTemplatePreparingEditId} pricingTemplates={data.pricingTemplates} pricingTemplatesLoading={data.pricingTemplatesLoading} />
       <PricingTemplateDialog editingPricingTemplate={data.editingPricingTemplate} onClose={data.closePricingTemplateDialog} onOpenChange={data.setPricingTemplateDialogOpen} onSave={data.handleSavePricingTemplate} open={data.pricingTemplateDialogOpen} pricingTemplateSaving={data.pricingTemplateSaving} serverError={data.pricingTemplateServerError} />

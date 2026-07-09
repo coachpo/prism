@@ -24,7 +24,7 @@ frontend/
 - `src/App.tsx` is the thin browser wrapper over the rewrite router, query client, auth provider, and TanStack `RouterProvider`.
 - `src/AGENTS.md`: source tree router for route shell, features, page clusters, shared UI, contexts, hooks, i18n, API, and tests.
 - `src/app/AGENTS.md`: router construction, auth/public gates, rewrite metadata, suspense, and QueryClient defaults.
-- `src/features/AGENTS.md`: active protected route modules, Default-profile-scoped features, global control pages, mixed settings, and observe surfaces.
+- `src/features/AGENTS.md`: active protected route modules, pinned management features, global control pages, mixed settings, and observe surfaces.
 - `src/pages/AGENTS.md`: auth pages and oracle-compatible route clusters still reused by feature routes and tests.
 - `src/components/AGENTS.md`, `src/context/AGENTS.md`, `src/hooks/AGENTS.md`, `src/i18n/AGENTS.md`, `src/shared/AGENTS.md`, and `src/lib/AGENTS.md`: shared shell, providers, hooks, locale, rewrite helpers, API, and browser integration.
 - `tests/AGENTS.md`: Playwright browser flows plus frontend seam-contract suites.
@@ -32,7 +32,7 @@ frontend/
 ## WHERE TO LOOK
 - Mounted routes, auth/public split, protected shell mounts, and rewrite route metadata: `src/AGENTS.md`, `src/app/AGENTS.md`, `src/app/router/appRouter.tsx`, `src/app/router/rewriteRoutes.ts`, `src/App.tsx`
 - Active protected route modules and feature-local page/data handoffs: `src/features/AGENTS.md`
-- Shell chrome, sidebar entries, Default-profile navigation, version label, and management scope badge: `src/components/AGENTS.md`, `src/components/layout/app-layout/AGENTS.md`
+- Shell chrome, sidebar entries, breadcrumbs, and version label: `src/components/AGENTS.md`, `src/components/layout/app-layout/AGENTS.md`
 - Shared widgets, shell-safe controls, and design-system wrappers: `src/components/AGENTS.md`, `src/components/ui/AGENTS.md`
 - shadcn registry config and Tailwind entrypoint: `components.json`, `package.json`, `src/index.css`, `src/main.tsx`
 - Provider stack and browser mount (`LocaleProvider` -> `ThemeProvider` -> `TooltipProvider` -> `App` + `Toaster`): `src/main.tsx`

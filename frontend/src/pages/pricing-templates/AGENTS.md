@@ -19,5 +19,5 @@ pricing-templates/
 - Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 - Reuse the shared pricing-template cache in `@/lib/referenceData` for list bootstrap.
 - Keep CAS-aware edit payload shaping in the feature data hook; reopen or refetch on `409` instead of guessing merges.
-- Keep profile scope frozen in copy and behavior; pricing templates follow the Default profile id=1 rather than a selected management profile.
+- Keep pricing-template copy neutral while preserving the backend's pinned profile id `1` behavior.
 - Do not bypass usage lookups when delete conflicts need concrete connection rows.

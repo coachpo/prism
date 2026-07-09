@@ -4,7 +4,6 @@ import { toast } from "sonner";
 import { useAuth } from "@/context/useAuth";
 import { useLocale } from "@/i18n/useLocale";
 import { readSidebarCollapsed, writeSidebarCollapsed } from "./sidebarPersistence";
-import type { ShellScopeBadgeKind } from "@/shell";
 import { useShellNavigation } from "./useShellNavigation";
 
 export function useAppLayoutState() {
@@ -40,20 +39,12 @@ export function useAppLayoutState() {
     }
   };
 
-  const shellScopeBadge: ShellScopeBadgeKind | null = shellNavigation.isProfileScopedPage
-    ? "selected-profile"
-    : shellNavigation.matchedRoute.profileScoped === false
-      ? "global"
-      : null;
-
   return {
     authEnabled,
     breadcrumbs: shellNavigation.breadcrumbs,
     desktopSidebarCollapsed,
     handleLogout,
-    isProfileScopedPage: shellNavigation.isProfileScopedPage,
     setDesktopSidebarOpen,
-    shellScopeBadge,
     sidebarItems: shellNavigation.sidebarItems,
     toggleDesktopSidebar,
     username,

@@ -35,7 +35,7 @@ describe("profile-scope api and query contracts", () => {
     expect(observedHeaders).toEqual(["1", "1", null])
   })
 
-  it("puts Default profile IDs in scoped keys and omits them from global keys", () => {
+  it("puts pinned profile IDs in scoped keys and omits them from global keys", () => {
     expect(rewriteQueryKeys.selectedProfile(1).models()).toEqual([
       "rewrite",
       "selected-profile",

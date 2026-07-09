@@ -10,15 +10,13 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { ShellScopeBadge, type ShellScopeBadgeKind } from "@/shell";
 import type { ShellBreadcrumbItem } from "./useShellNavigation";
 
 type Props = {
   breadcrumbs?: ShellBreadcrumbItem[];
-  scopeBadge?: ShellScopeBadgeKind | null;
 };
 
-export function SiteHeader({ breadcrumbs = [], scopeBadge = null }: Props) {
+export function SiteHeader({ breadcrumbs = [] }: Props) {
   return (
     <header className="flex h-16 shrink-0 items-center gap-2 border-b border-outline-variant bg-surface px-[var(--density-shell-header-pad-x)]">
       <SidebarTrigger className="-ml-1" />
@@ -47,7 +45,6 @@ export function SiteHeader({ breadcrumbs = [], scopeBadge = null }: Props) {
           })}
         </BreadcrumbList>
       </Breadcrumb>
-      {scopeBadge ? <ShellScopeBadge kind={scopeBadge} /> : null}
     </header>
   );
 }

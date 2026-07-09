@@ -1,7 +1,7 @@
 # FRONTEND SETTINGS DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/settings/` is the route-domain shell behind `../SettingsPage.tsx`. It owns the Profile and Global tab split, stable section and tab helpers, hash-driven section focus, shared save-state rendering, and the dialog handoff that supports settings mutations. Keep shell behavior here, section rendering in `sections/AGENTS.md`, dialog-local flows in `dialogs/AGENTS.md`, and costing state in `costing/AGENTS.md`.
+`pages/settings/` is the route-domain shell behind `../SettingsPage.tsx`. It owns the visible Global and Instance tab split, stable section and tab helpers, hash-driven section focus, shared save-state rendering, and the dialog handoff that supports settings mutations. Keep shell behavior here, section rendering in `sections/AGENTS.md`, dialog-local flows in `dialogs/AGENTS.md`, and costing state in `costing/AGENTS.md`.
 
 ## STRUCTURE
 ```
@@ -11,9 +11,9 @@ settings/
 ├── dialogs/
 │   ├── AGENTS.md                  # Delete confirmation and audit-rule dialogs
 │   └── ...
-├── SettingsSectionsNav.tsx         # Sticky section navigation for profile-tab sections
-├── SettingsProfileTab.tsx          # Profile-tab body and section layout
-├── SettingsGlobalTab.tsx           # Global-tab body for auth plus retention and deletion
+├── SettingsSectionsNav.tsx         # Sticky navigation for visible Global-tab sections
+├── SettingsProfileTab.tsx          # Visible Global-tab body and section layout
+├── SettingsGlobalTab.tsx           # Visible Instance-tab body for auth plus retention and deletion
 ├── useSettingsPageData.ts          # Top-level page composition across auth, costing, audit, retention
 ├── useSettingsPageSectionState.ts  # Active tab, hash, scroll focus, and section jumps
 ├── useAuthenticationSettingsData.ts
@@ -27,15 +27,15 @@ settings/
 
 ## SHELL CONTRACT
 
-- `SettingsPage.tsx` renders two tabs: `Profile` and `Global`.
-- The Profile tab owns Default-profile section navigation and mounts billing and currency, timezone, and audit and privacy.
-- The Global tab mounts instance-wide authentication plus retention and deletion.
-- `settingsPageHelpers.ts` is the source of truth for tab ids, profile section ids, instance-only section handling, delete keywords, and shared costing and auth validation helpers.
+- `SettingsPage.tsx` renders two tabs: `全局` and `实例`.
+- The Global tab mounts billing and currency, timezone, and audit and privacy.
+- The Instance tab mounts instance-wide authentication plus retention and deletion.
+- `settingsPageHelpers.ts` is the source of truth for internal tab ids, global configuration section ids, instance-only section handling, delete keywords, and shared costing and auth validation helpers.
 
 ## WHERE TO LOOK
 
 - Thin route shell, tab split, section order, and dialog mounts: `../SettingsPage.tsx`
-- Cross-section composition, Default-profile labeling, and shared save-state handoff: `useSettingsPageData.ts`
+- Cross-section composition and shared save-state handoff: `useSettingsPageData.ts`
 - Active tab state, hash updates, scroll-driven focus, and section jump behavior: `useSettingsPageSectionState.ts`, `SettingsSectionsNav.tsx`
 - Stable helper constants and form-normalization utilities: `settingsPageHelpers.ts`
 - Shared save-state badges and render helpers: `sectionSaveState.tsx`, `settingsSaveTypes.ts`
@@ -60,9 +60,9 @@ settings/
 - For ordinary removal-only validation here, prefer manual confirmation over adding dedicated “proves not” tests unless the missing settings surface is itself a shipped contract or guardrail.
 - Keep new settings work sectionized. Extend helper registries, shared hooks, or local dialogs instead of inflating `SettingsPage.tsx`.
 - Keep startup bootstrap editing out of the settings route after R2.
-- Hash navigation is part of the settings UX contract. New profile-tab sections need stable ids and must participate in jump and active-section logic.
+- Hash navigation is part of the settings UX contract. New Global-tab sections need stable ids and must participate in jump and active-section logic.
 - Save-state feedback belongs in `sectionSaveState.tsx` and related helper types, not in ad hoc spinners or toast-only status.
-- Keep the scope split clear in copy and behavior: authentication and retention are global, while billing and currency, timezone, and audit and privacy stay Default-profile scoped. Audit and privacy loads and saves `/api/settings/audit` as a full three-family replacement.
+- Keep the scope split clear in copy and behavior: authentication and retention are instance-wide, while billing and currency, timezone, and audit and privacy use the pinned management scope. Audit and privacy loads and saves `/api/settings/audit` as a full three-family replacement.
 - `SettingsProfileTab.tsx` and `SettingsGlobalTab.tsx` own the tab bodies, while the shell hook keeps their section state synchronized.
 - Billing, reporting currency, timezone preference, and FX mappings cross the `sections/` and `costing/` boundary. Let this parent doc describe the split, then send readers down instead of repeating local details.
 - Keep dialogs local to `pages/settings/dialogs/` when they support audit-rule edits, audit-rule edits or destructive confirmation flows, and let `dialogs/AGENTS.md` own the per-file split.

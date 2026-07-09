@@ -11,7 +11,7 @@
 ## DOMAINS
 - Auth entry: `LoginPage.tsx`
 - Feature oracle clusters: dashboard, model detail, endpoints, models, pricing templates, request logs, settings, and statistics helpers still imported by current rewrite feature modules or contract tests
-- Settings shell oracle: `SettingsPage.tsx` with Profile and Global tabs, plus `settings/sections/`, `settings/dialogs/`, and `settings/costing/`.
+- Settings shell oracle: `SettingsPage.tsx` with visible Global and Instance tabs, plus `settings/sections/`, `settings/dialogs/`, and `settings/costing/`.
 
 ## WHERE TO LOOK
 - Mounted rewrite route list, public auth split, and protected shell boundary: `../app/router/appRouter.tsx`, `../App.tsx`
@@ -43,7 +43,7 @@
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep backend access on the shared frontend API boundary rather than inventing page-local fetch layers.
-- Keep global routes such as `/control/proxy-keys` separate from Default-profile route state. Treat `/system/settings` as a mixed shell where Profile-tab sections are pinned to Default id `1` while Global surfaces are instance scoped.
+- Keep global routes such as `/control/proxy-keys` separate from pinned management state. Treat `/system/settings` as a mixed shell where the visible Global tab contains routing and costing settings while the Instance tab contains authentication and retention.
 - Let route files own bookmarkable query or hash state and the first handoff into local hooks.
 - Parent-cover local route clusters that do not need their own AGENTS file, including dense local helper folders already documented by the page leaves.
 

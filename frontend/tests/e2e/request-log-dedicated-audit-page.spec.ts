@@ -13,6 +13,8 @@ import {
   usedDedicatedFallbackRoot,
 } from "./request-log-dedicated-audit-fixtures";
 
+const removedScopeLabels = new RegExp([["Default", "profile"].join("\\s+"), "Global"].join("|"));
+
 test.describe("dedicated request-log audit page", () => {
   for (const bodyCase of documentBodyCases) {
     test(`renders ${bodyCase.label} request and response audit bodies as documents`, async ({ page }) => {
@@ -22,6 +24,7 @@ test.describe("dedicated request-log audit page", () => {
 
       const detail = page.getByTestId("dedicated-audit-detail");
       await expect(detail).toBeVisible({ timeout: 15000 });
+      await expect(page.locator("header")).not.toContainText(removedScopeLabels);
       const requestSection = detail.getByRole("region", { name: "请求", exact: true });
       const responseSection = detail.getByRole("region", { name: "响应（200）" });
       await expectNoRedundantPayloadShell(requestSection);

@@ -45,7 +45,7 @@ Avoid raw Tailwind status colors like `bg-amber-500/10`, page-local pulse skelet
 - Keep route state and API calls in pages/features, not in design-system components.
 - Use `gap-*` or density variables instead of `space-x-*` and `space-y-*`.
 - Keep page content inside `OperatorPageShell` unless the route is a public auth page.
-- Keep app shell, navigation, breadcrumbs, and Default-profile/scope chrome in layout components, not page code.
+- Keep app shell, navigation, and breadcrumbs in layout components, not page code.
 
 Example:
 

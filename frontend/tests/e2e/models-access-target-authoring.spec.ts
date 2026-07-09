@@ -11,7 +11,7 @@ const modelIdLabel = /Model ID|模型 ID/;
 const displayNameLabel = /Display Name|显示名称/;
 const enabledSwitchLabel = /Enabled|启用/;
 const noStrategiesCopy =
-  /No loadbalance strategies are available for the Default profile\. Create one on the Loadbalance Strategies page first\.|默认配置档案没有可用的负载均衡策略。请先在负载均衡策略页面创建一个。/;
+  /No loadbalance strategies are available\. Create one on the Loadbalance Strategies page first\.|没有可用的负载均衡策略。请先在负载均衡策略页面创建一个。/;
 const modelCreatedToast = /Model created|模型已创建/;
 const defaultStrategiesCreatedToast = /Default loadbalance strategies created|默认负载均衡策略已创建/;
 

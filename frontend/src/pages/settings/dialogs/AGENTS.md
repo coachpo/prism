@@ -19,7 +19,7 @@ dialogs/
 - Mounted dialog surface and parent handoff: `../../SettingsPage.tsx`, `../AGENTS.md`
 - Shared delete-confirm flow for destructive settings actions: `DeleteConfirmDialog.tsx`
 - Audit-rule create, edit, and delete flows: `RuleDialog.tsx`, `DeleteRuleConfirmDialog.tsx`, `UserAgentClientRuleDialog.tsx`, `DeleteUserAgentClientRuleConfirmDialog.tsx`
-- Mutation state, Default-profile labels, and save orchestration feeding the dialogs: `../useSettingsPageData.ts`, `../useAuditConfigurationData.ts`, `../useRetentionDeletionData.ts`
+- Mutation state and save orchestration feeding the dialogs: `../useSettingsPageData.ts`, `../useAuditConfigurationData.ts`, `../useRetentionDeletionData.ts`
 - User-agent/client rule copy belongs to frontend seam tests rather than a dedicated Playwright spec.
 
 ## CONVENTIONS

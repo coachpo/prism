@@ -43,22 +43,21 @@ export interface ShellRouteMetadata {
   canonicalPath: string;
   id: ShellRouteId;
   pathPattern: string;
-  profileScoped: boolean;
   sidebarItemId: ShellSidebarItemId;
   sidebarItem?: ShellSidebarItemDefinition;
 }
 
 export const SHELL_ROUTE_METADATA: readonly ShellRouteMetadata[] = [
-  { canonicalPath: "/observe", id: "dashboard", pathPattern: "/observe", profileScoped: false, sidebarItem: { groupId: "overview", icon: LayoutDashboard, id: "dashboard", labelKey: "dashboard", to: "/observe" }, sidebarItemId: "dashboard" },
-  { canonicalPath: "/models", id: "models", pathPattern: "/models", profileScoped: true, sidebarItem: { groupId: "configuration", icon: Server, id: "models", labelKey: "models", to: "/models" }, sidebarItemId: "models" },
-  { canonicalPath: "/models/:id", id: "model-detail", pathPattern: "/models/:id", profileScoped: true, sidebarItemId: "models" },
-  { canonicalPath: "/route/endpoints", id: "endpoints", pathPattern: "/route/endpoints", profileScoped: true, sidebarItem: { groupId: "configuration", icon: Plug, id: "endpoints", labelKey: "endpoints", to: "/route/endpoints" }, sidebarItemId: "endpoints" },
-  { canonicalPath: "/route/ban-policies", id: "loadbalance-strategies", pathPattern: "/route/ban-policies", profileScoped: true, sidebarItem: { groupId: "configuration", icon: Scale, id: "loadbalance-strategies", labelKey: "loadbalanceStrategies", to: "/route/ban-policies" }, sidebarItemId: "loadbalance-strategies" },
-  { canonicalPath: "/system/settings", id: "settings", pathPattern: "/system/settings", profileScoped: false, sidebarItem: { groupId: "access", icon: Settings, id: "settings", labelKey: "settings", to: "/system/settings" }, sidebarItemId: "settings" },
-  { canonicalPath: "/control/proxy-keys", id: "proxy-api-keys", pathPattern: "/control/proxy-keys", profileScoped: false, sidebarItem: { groupId: "access", icon: KeyRound, id: "proxy-api-keys", labelKey: "apiKeys", to: "/control/proxy-keys" }, sidebarItemId: "proxy-api-keys" },
-  { canonicalPath: "/route/pricing", id: "pricing-templates", pathPattern: "/route/pricing", profileScoped: true, sidebarItem: { groupId: "configuration", icon: Coins, id: "pricing-templates", labelKey: "pricingTemplates", to: "/route/pricing" }, sidebarItemId: "pricing-templates" },
-  { canonicalPath: "/observe/requests", id: "request-logs", pathPattern: "/observe/requests", profileScoped: true, sidebarItem: { groupId: "observability", icon: FileText, id: "request-logs", labelKey: "requestLogs", to: "/observe/requests" }, sidebarItemId: "request-logs" },
-  { canonicalPath: "/observe/requests/:requestId/audit", id: "request-log-audit", pathPattern: "/observe/requests/:requestId/audit", profileScoped: true, sidebarItemId: "request-logs" },
+  { canonicalPath: "/observe", id: "dashboard", pathPattern: "/observe", sidebarItem: { groupId: "overview", icon: LayoutDashboard, id: "dashboard", labelKey: "dashboard", to: "/observe" }, sidebarItemId: "dashboard" },
+  { canonicalPath: "/models", id: "models", pathPattern: "/models", sidebarItem: { groupId: "configuration", icon: Server, id: "models", labelKey: "models", to: "/models" }, sidebarItemId: "models" },
+  { canonicalPath: "/models/:id", id: "model-detail", pathPattern: "/models/:id", sidebarItemId: "models" },
+  { canonicalPath: "/route/endpoints", id: "endpoints", pathPattern: "/route/endpoints", sidebarItem: { groupId: "configuration", icon: Plug, id: "endpoints", labelKey: "endpoints", to: "/route/endpoints" }, sidebarItemId: "endpoints" },
+  { canonicalPath: "/route/ban-policies", id: "loadbalance-strategies", pathPattern: "/route/ban-policies", sidebarItem: { groupId: "configuration", icon: Scale, id: "loadbalance-strategies", labelKey: "loadbalanceStrategies", to: "/route/ban-policies" }, sidebarItemId: "loadbalance-strategies" },
+  { canonicalPath: "/system/settings", id: "settings", pathPattern: "/system/settings", sidebarItem: { groupId: "access", icon: Settings, id: "settings", labelKey: "settings", to: "/system/settings" }, sidebarItemId: "settings" },
+  { canonicalPath: "/control/proxy-keys", id: "proxy-api-keys", pathPattern: "/control/proxy-keys", sidebarItem: { groupId: "access", icon: KeyRound, id: "proxy-api-keys", labelKey: "apiKeys", to: "/control/proxy-keys" }, sidebarItemId: "proxy-api-keys" },
+  { canonicalPath: "/route/pricing", id: "pricing-templates", pathPattern: "/route/pricing", sidebarItem: { groupId: "configuration", icon: Coins, id: "pricing-templates", labelKey: "pricingTemplates", to: "/route/pricing" }, sidebarItemId: "pricing-templates" },
+  { canonicalPath: "/observe/requests", id: "request-logs", pathPattern: "/observe/requests", sidebarItem: { groupId: "observability", icon: FileText, id: "request-logs", labelKey: "requestLogs", to: "/observe/requests" }, sidebarItemId: "request-logs" },
+  { canonicalPath: "/observe/requests/:requestId/audit", id: "request-log-audit", pathPattern: "/observe/requests/:requestId/audit", sidebarItemId: "request-logs" },
 ];
 
 export const SHELL_SIDEBAR_ITEMS: readonly ShellSidebarItemDefinition[] = SHELL_ROUTE_METADATA.flatMap(
@@ -93,8 +92,6 @@ export interface LocalizedShellSidebarItem extends ShellSidebarItemDefinition {
 export interface ShellNavigationState {
   activeSidebarItem: LocalizedShellSidebarItem | null;
   breadcrumbs: ShellBreadcrumbItem[];
-  isProfileScopedPage: boolean;
-  matchedRoute: ShellRouteMetadata;
   sidebarItems: LocalizedShellSidebarItem[];
 }
 
@@ -280,8 +277,6 @@ export function useShellNavigation(): ShellNavigationState {
     return {
       activeSidebarItem,
       breadcrumbs: buildBreadcrumbs(matchedRoute, messages, location.hash, location.searchStr),
-      isProfileScopedPage: matchedRoute.route.profileScoped,
-      matchedRoute: matchedRoute.route,
       sidebarItems,
     };
   }, [location.hash, location.pathname, location.searchStr, messages]);

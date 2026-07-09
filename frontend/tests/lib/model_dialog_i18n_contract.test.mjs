@@ -43,6 +43,25 @@ test("model detail access target copy avoids fallback wording", () => {
   assert.match(chineseModelTargetCopy, /模型目标|选择目标模型/);
 });
 
+test("single-instance copy uses neutral labels", () => {
+  assert.equal(zhCNMessages.loadbalanceStrategiesPage.title, "负载均衡策略");
+  assert.equal(
+    zhCNMessages.loadbalanceStrategiesPage.description,
+    "管理可复用的 Ban Policy 与终端目标路由族",
+  );
+  assert.equal(
+    zhCNMessages.loadbalanceStrategyDialog.description,
+    "配置可复用的终端目标路由族与 Ban Policy。",
+  );
+  assert.equal(zhCNMessages.settingsPage.profileTab, "全局");
+  assert.equal(zhCNMessages.settingsPage.globalTab, "实例");
+  assert.equal(
+    zhCNMessages.modelDetail.noLoadbalanceStrategiesAvailable,
+    "没有可用的负载均衡策略。请先在负载均衡策略页面创建一个。",
+  );
+  assert.equal(zhCNMessages.modelDetail.noEndpointsFound, "未找到可用端点。");
+});
+
 test("models dialog shows accepted-format controls only for OpenAI models", () => {
   assert.match(
     modelDialogSource,

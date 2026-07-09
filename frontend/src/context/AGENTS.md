@@ -1,7 +1,7 @@
 # FRONTEND CONTEXT KNOWLEDGE BASE
 
 ## OVERVIEW
-`src/context/` owns Prism's auth bootstrap, theme/reporting providers, and reporting-currency state. Multi-profile UI state is frozen; management requests are pinned to Default profile id=1 by `../lib/api/core.ts`.
+`src/context/` owns Prism's auth bootstrap, theme/reporting providers, and reporting-currency state. Multi-profile UI state is absent; management requests are pinned to profile id `1` by `../lib/api/core.ts`.
 
 ## STRUCTURE
 ```
@@ -11,7 +11,7 @@ context/
 ├── useAuth.ts                   # Guard hook for auth consumers
 ├── auth/                        # Bootstrap, mutation, and passive/proactive refresh helpers
 ├── auth/AGENTS.md               # Helper-layer auth bootstrap, mutation, and refresh ownership
-└── ReportingCurrencyContext.tsx # Provider over pinned Default-profile reporting-currency cache
+└── ReportingCurrencyContext.tsx # Provider over the pinned reporting-currency cache
 ```
 
 ## WHERE TO LOOK
@@ -19,7 +19,7 @@ context/
 - Auth bootstrap mode selection, in-flight reuse, proactive refresh timer, and visibility-triggered refresh: `AuthContext.tsx`
 - Auth bootstrap, mutation, and refresh helpers: `auth/AGENTS.md`
 - Auth context type/export split and guarded hook: `auth-context.ts`, `useAuth.ts`
-- Reporting-currency readiness, pinned Default profile id `1` cache handoff, `prime()` and `refresh()` behavior, default fallback currency, and `useReportingCurrencyContext()`: `ReportingCurrencyContext.tsx`, `../lib/reportingCurrency.ts`
+- Reporting-currency readiness, pinned profile id `1` cache handoff, `prime()` and `refresh()` behavior, default fallback currency, and `useReportingCurrencyContext()`: `ReportingCurrencyContext.tsx`, `../lib/reportingCurrency.ts`
 
 ## CONVENTIONS
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
@@ -29,7 +29,7 @@ context/
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Use `useAuth()` and `useReportingCurrencyContext()` instead of consuming context objects directly.
 - Keep auth bootstrap async and reuse in-flight work instead of duplicating fetches.
-- Keep reporting-currency readiness keyed to pinned Default profile id=1, with provider state and fallback in `ReportingCurrencyContext.tsx` and cache, `prime()` or `refresh()` behavior, and normalization in `../lib/reportingCurrency.ts`.
+- Keep reporting-currency readiness keyed to pinned profile id `1`, with provider state and fallback in `ReportingCurrencyContext.tsx` and cache, `prime()` or `refresh()` behavior, and normalization in `../lib/reportingCurrency.ts`.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 

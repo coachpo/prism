@@ -1,7 +1,7 @@
 # FRONTEND SETTINGS BILLING-CURRENCY CLUSTER KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/settings/sections/billing-currency/` owns the rendering leaf for the Profile-tab billing and currency UI. It presents reporting-currency and FX-mapping widgets while `../../costing/` owns bootstrap, validation, CRUD state, save orchestration, and reporting-currency priming.
+`pages/settings/sections/billing-currency/` owns the rendering leaf for the visible Global-tab billing and currency UI. It presents reporting-currency and FX-mapping widgets while `../../costing/` owns bootstrap, validation, CRUD state, save orchestration, and reporting-currency priming.
 
 ## STRUCTURE
 ```text

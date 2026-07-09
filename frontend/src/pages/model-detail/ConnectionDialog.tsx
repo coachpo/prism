@@ -334,7 +334,7 @@ export function ConnectionDialog({
                             </ConnectionDialogField>
 
                             {globalEndpoints.length === 0 ? (
-                              <p className="text-xs text-muted-foreground">{copy.noProfileEndpointsFound}</p>
+                              <p className="text-xs text-muted-foreground">{copy.noEndpointsFound}</p>
                             ) : null}
                           </TabsContent>
 

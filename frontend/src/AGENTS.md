@@ -15,7 +15,6 @@ src/
 ├── i18n/         # locale provider, formatting, static messages
 ├── lib/          # typed API, reference data, browser integration
 ├── shared/       # cross-route design-system, table, forms, API helpers
-├── shell/        # shell navigation helpers
 └── test/         # Vitest/jsdom setup and MSW seams
 ```
 

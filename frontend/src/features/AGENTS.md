@@ -20,7 +20,7 @@ features/
 ## WHERE TO LOOK
 - Route mounting, route scopes, and search schemas: `../app/AGENTS.md`, `../app/router/appRouter.tsx`, `../app/router/rewriteRoutes.ts`
 - Legacy/oracle page clusters and nested page docs still referenced by feature modules: `../pages/AGENTS.md`
-- Typed backend API, shared request plumbing, and pinned Default-profile header rules: `../lib/AGENTS.md`, `../lib/api/AGENTS.md`
+- Typed backend API, shared request plumbing, and pinned profile-header rules: `../lib/AGENTS.md`, `../lib/api/AGENTS.md`
 - Cross-route query, invalidation, server-validation, table, and design-system helpers: `../shared/AGENTS.md`
 
 ## CONVENTIONS

@@ -77,6 +77,7 @@ const routingFamilyLabel = /Routing family|传统路由/;
 const cycleRetryLimitLabel = /Cycle Retry Attempt Limit|周期重试次数限制/;
 const cumulativeThresholdLabel = /Ban Cumulative Retry Attempt Threshold|封禁累计重试次数阈值/;
 const banModeLabel = /Ban Mode|封禁模式/;
+const removedScopeLabels = new RegExp([["Default", "profile"].join("\\s+"), "Global"].join("|"));
 
 test("loadbalance strategies table shows explicit Ban Policy rows by name", async ({ page }) => {
   const strategies = [
@@ -146,6 +147,9 @@ test("loadbalance strategies table shows explicit Ban Policy rows by name", asyn
     timeout: routeReadyTimeout,
   });
   await expect(page.getByRole("table")).toBeVisible({ timeout: routeReadyTimeout });
+  await expect(page.getByRole("heading", { name: "负载均衡策略", exact: true })).toBeVisible();
+  await expect(page.locator("header")).not.toContainText(removedScopeLabels);
+  await expect(page.getByText(/此处的更改会影响/)).toHaveCount(0);
   await expect(page.getByRole("table")).toContainText("Legacy Off");
   await expect(page.getByRole("table")).toContainText("Legacy Until Reset");
   await expect(page.getByRole("table")).toContainText("Legacy Temporary");
@@ -281,7 +285,7 @@ test("loadbalance strategy dialog creates and edits surviving routing families",
   await expect(page.getByRole("table")).toContainText("轮询");
 
   await page.getByRole("button", { name: addStrategyButton }).first().click();
-  await expect(page.getByText("为默认配置档案配置可复用的终端目标路由族与 Ban Policy。")).toBeVisible();
+  await expect(page.getByText("配置可复用的终端目标路由族与 Ban Policy。")).toBeVisible();
   await page.getByLabel(nameLabel).fill("Fill-first routing");
   await page.getByLabel(routingFamilyLabel).click();
   await expect(page.getByRole("option")).toHaveText([

@@ -18,7 +18,6 @@ export function useSettingsPageData(activeTab: SettingsTab) {
   const { refreshAuth } = useAuth();
   const [revision, setRevision] = useState(0);
   const { prime: primeReportingCurrency } = useReportingCurrencyContext();
-  const selectedProfileLabel = "Default (#1)";
   const bumpRevision = () => setRevision((current) => current + 1);
 
   const [recentlySavedSection, setRecentlySavedSection] = useState<SettingsSaveSection | null>(null);
@@ -70,7 +69,6 @@ export function useSettingsPageData(activeTab: SettingsTab) {
   return {
     recentlySavedSection,
     renderSaveStateForSection,
-    selectedProfileLabel,
     ...auth,
     ...costing,
     ...audit,

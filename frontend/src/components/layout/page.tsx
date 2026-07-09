@@ -30,7 +30,7 @@ export function Page({ children }: { children?: ReactNode }) {
         />
 
         <SidebarInset className="min-h-svh overflow-hidden">
-          <SiteHeader breadcrumbs={state.breadcrumbs} scopeBadge={state.shellScopeBadge} />
+          <SiteHeader breadcrumbs={state.breadcrumbs} />
           <div
             id="prism-main-content"
             tabIndex={-1}
