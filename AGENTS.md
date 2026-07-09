@@ -66,7 +66,7 @@ prism/
 - `backend/Dockerfile` runs the backend as `prism:prism` (`1000:1000`), owns `/app/config`, and defaults the container bootstrap path to `/app/config/config.json`.
 - Backend image builds use the repo root as Docker context (`docker build -f backend/Dockerfile .`), so root `.dockerignore` controls CI/backend image contents.
 - `.github/workflows/ci.yml` runs backend regression/build, frontend seam/server/build/lint, blocking Go/frontend dependency scanners, and non-blocking local-image Trivy evidence uploads.
-- `.github/workflows/docker-images.yml` checks out the monorepo, builds backend and frontend GHCR images for `linux/arm64`, runs on path-filtered `main` pushes, path-filtered PRs, `v*` tags, and `workflow_dispatch`, and can build one service or both.
+- `.github/workflows/docker-images.yml` publishes backend and frontend GHCR images for `linux/arm64` on `v*` tags and `workflow_dispatch` only, requires a green CI conclusion on the tagged commit before pushing, builds on native arm64 runners without QEMU, moves `latest` only on release tags, and can build one service or both.
 - `release.sh` keeps `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` aligned, verifies backend version metadata plus the frontend build, then commits, tags, and pushes one root release.
 - `.github/workflows/cleanup.yml` handles cleanup only, pruning untagged backend/frontend container versions.
 

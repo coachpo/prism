@@ -50,7 +50,7 @@ docs/
 - Keep release facts aligned with `../release.sh` and the version surfaces it updates.
 - Keep backend container docs aligned with non-root `../backend/Dockerfile` execution, `/app/config` ownership, and `../backend/tests/integration/dockerfile_contract_test.go`.
 - Keep log-retention docs aligned with the four managed partitioned tables, management settings/job endpoints, runtime partition ensuring, and platform maintenance worker.
-- State CI facts accurately: `.github/workflows/docker-images.yml` builds monorepo images for `linux/arm64` on path-filtered `main` pushes, path-filtered PRs, `v*` tags, and `workflow_dispatch`, and `.github/workflows/cleanup.yml` handles cleanup only.
+- State CI facts accurately: `.github/workflows/docker-images.yml` publishes monorepo images for `linux/arm64` on `v*` tags and `workflow_dispatch` only, gated on green CI for the tagged commit, and `.github/workflows/cleanup.yml` handles cleanup only.
 - Keep active plans and execution evidence out of `docs/`. Use `../artifacts/plans/` plus `../artifacts/evidence/` while work is in flight.
 - Keep `REQUESTS_PAGE.md` subordinate to the live request-log route and tests. When request-log audit, clipboard, proxy-key usage, or reporting-currency behavior changes, refresh the page AGENTS and backend runtime tests before supporting prose.
 

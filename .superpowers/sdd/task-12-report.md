@@ -53,3 +53,63 @@ Verification:
 
 Concerns:
 - None.
+
+---
+
+STATUS: FIXED_TASK_12_DOC_STALENESS_REVIEW
+
+Commit:
+- `a6b70170` (`docs: update websocket retirement direction`)
+
+Changes:
+- Updated untracked `docs/TEST_SUITE_REDUCTION.md` so R7 lib-test miss notes are resolved and the remaining frontend .mjs delete list/count matches current state.
+- Updated tracked `docs/DEVELOPMENT_DIRECTION.md` so T4 reflects the current globbed `test:lib` script, removed websocket lib tests, and only the remaining orphan .mjs locations.
+
+Verification:
+- PASS: focused stale R7 lib-test-name grep against `docs/TEST_SUITE_REDUCTION.md` returned no matches.
+- PASS: focused stale websocket unconnected-lib/test-list wording grep against `docs/DEVELOPMENT_DIRECTION.md` returned no matches.
+- PASS: `git diff --check -- docs/DEVELOPMENT_DIRECTION.md`.
+- PASS: cached diff before commit contained only `docs/DEVELOPMENT_DIRECTION.md`.
+
+Concerns:
+- Existing unrelated dirty files were left untouched: `.superpowers/sdd/task-9-report.md`, `docs/IMPLEMENTATION_PLAN.md`, `docs/TEST_REDUCTION_HANDOFF.md`, and `docs/TEST_REDUCTION_PLAN.md`.
+- `docs/TEST_SUITE_REDUCTION.md` remains untracked scratch/doc handoff material and was not staged or committed.
+
+---
+
+STATUS: FIXED_TASK_12_STATISTICS_POLLING_REVIEW
+
+Changes:
+- Scoped endpoint model drilldown writes to the accepted snapshot scope and `generated_at`, so an in-flight drilldown cannot repopulate cleared drilldown state after a newer polling snapshot is accepted.
+- Kept existing usage snapshot errors visible during silent polling retries until a successful snapshot is accepted.
+- Added focused hook regressions for stale drilldown resolution and silent polling error preservation.
+
+Verification:
+- RED: `cd frontend && pnpm exec vitest run src/pages/statistics/useUsageStatisticsPageData.test.tsx` failed on both new regressions before the hook fix.
+- PASS: `cd frontend && pnpm exec vitest run src/pages/statistics/useUsageStatisticsPageData.test.tsx`.
+- PASS: `cd frontend && pnpm run test -- --run`.
+- PASS: `cd frontend && pnpm run test:lib`.
+- PASS: `cd frontend && pnpm run lint`.
+
+Concerns:
+- None.
+
+---
+
+STATUS: FIXED_TASK_12_STALE_DOC_REVIEW
+
+Commit:
+- `0349ac0eae29` (`docs: update frontend test scope after websocket retirement`)
+
+Changes:
+- Updated untracked `docs/TEST_REDUCTION_HANDOFF.md` so R7 realtime-test removal is already landed, not pending or excluded as live coverage, and removed the stale deleted spec names from the batch list.
+- Updated tracked `frontend/tests/AGENTS.md` so `test:lib` is documented as globbed coverage for all direct `lib/*.test.mjs` plus `model-detail/*.test.mjs`.
+
+Verification:
+- PASS: stale handoff/test-scope grep returned no matches for deleted realtime paths, deleted e2e names, old batch-2 exclusion wording, or stale `lib/*.test.mjs`/`test:lib` allowlist wording.
+- PASS: current-state grep found the updated `test:lib` glob wording, `32 个` e2e count, and R7 landed notes.
+- PASS: `git diff --check -- docs/TEST_REDUCTION_HANDOFF.md frontend/tests/AGENTS.md`.
+- PASS: committed only `frontend/tests/AGENTS.md`; `docs/TEST_REDUCTION_HANDOFF.md` remains untracked and unstaged.
+
+Concerns:
+- Existing unrelated dirty files remain untouched: `.superpowers/sdd/task-9-report.md`, `docs/IMPLEMENTATION_PLAN.md`, `docs/TEST_REDUCTION_PLAN.md`, and `docs/TEST_SUITE_REDUCTION.md`.

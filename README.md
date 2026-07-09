@@ -163,7 +163,7 @@ The root-local `./release.sh` helper is the monorepo release gate for Prism. It 
 ./release.sh 0.2.4 --yes
 ```
 
-The helper creates one root `vX.Y.Z` tag. That tag triggers `.github/workflows/docker-images.yml` to publish the backend and frontend images from the monorepo checkout.
+The helper creates one root `vX.Y.Z` tag. That tag triggers `.github/workflows/docker-images.yml` to publish the backend and frontend images from the monorepo checkout; publishing waits for a green CI conclusion on the tagged commit and refuses to ship if CI failed. `latest` moves only on release tags, never on ordinary `main` pushes.
 
 ### Backend
 
@@ -196,7 +196,7 @@ The CI workflow treats backend and frontend dependency scanners as blocking rele
 - Backend vulnerability scanning runs plain `govulncheck ./...` from `backend/`; the blocking step intentionally avoids machine-readable output modes that can exit successfully despite findings.
 - Frontend production dependency scanning runs `pnpm audit --prod --audit-level=high` from `frontend/` after `pnpm install --frozen-lockfile`; registry failures are not ignored or failed open.
 
-Container vulnerability scanning is evidence-only in this wave. CI locally builds `prism-backend:ci` and `prism-frontend:ci`, scans those exact local tags with pinned Trivy using `--severity HIGH,CRITICAL --ignore-unfixed --exit-code 0`, uploads the reports as artifacts, and writes an explicit non-blocking status summary. Container scans are not gating yet because Trivy advisory database and network drift can make image-vulnerability gating unstable even when the scanned source revision is unchanged. Release image publishing remains owned by `.github/workflows/docker-images.yml`; scanner evidence does not scan mutable remote `latest` tags.
+Container vulnerability scanning is evidence-only in this wave. CI locally builds `prism-backend:ci`, `prism-frontend:ci`, and the root single-image bundle `prism-single:ci`, scans those exact local tags with pinned Trivy using `--severity HIGH,CRITICAL --ignore-unfixed --exit-code 0`, uploads the reports as artifacts, and writes an explicit non-blocking status summary. Container scans are not gating yet because Trivy advisory database and network drift can make image-vulnerability gating unstable even when the scanned source revision is unchanged. Release image publishing remains owned by `.github/workflows/docker-images.yml`; scanner evidence does not scan mutable remote `latest` tags.
 
 ---
 

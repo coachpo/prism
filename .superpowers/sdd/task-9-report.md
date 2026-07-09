@@ -241,6 +241,31 @@ Concerns:
 - The backend runtime protocol test is still blocked by the local Docker Postgres harness port publication issue before assertions.
 - The shared chart Playwright run has two failing assertions in `shared-chart-statistics.spec.ts` that are not part of the profile-copy cleanup diff and need separate follow-up.
 
+## Task 9 R4 Fixture/Cache-Key/I18n Review Fix
+
+STATUS: DONE_WITH_CONCERNS
+
+Commit:
+- `d9d8da9c` (`test: finish Default profile fixture cleanup`)
+- Range: `c78c0406..d9d8da9c`
+
+Fixes:
+- Pinned the retained realtime/request fixtures to Default profile id `1` in `backend/testdata/realtime/dashboard-snapshot.json`, `backend/testdata/realtime/dashboard-activity.json`, `backend/testdata/realtime/analytics-snapshot.json`, and `backend/testdata/requests/request-log-detail.json`.
+- Replaced the retained frontend test cache-key/profile fixtures that were still using arbitrary selected-profile ids `42` and `7` with Default profile id `1`.
+- Reworded the remaining settings and pricing-template copy in `frontend/src/i18n/messages/en.ts` and `frontend/src/i18n/messages/zh-CN.ts` away from generic profile wording.
+
+Verification:
+- `rg -n 'profile_id.: 2|profile_id.*2|selected-profile.*(42|7)|profileId: (42|7)|Default-profile.*(42|7)|Profile-scoped|profile-scoped|按配置档案|配置档案划分|settings.*Profile|配置档案' backend/testdata/realtime backend/testdata/requests/request-log-detail.json frontend/src/test/profile-scope.test.ts frontend/src/test/models-feature.test.ts frontend/src/test/model-detail-feature.test.ts frontend/src/i18n/messages/en.ts frontend/src/i18n/messages/zh-CN.ts` -> remaining matches are frozen Default wording or one stale test-name string.
+- `cd backend && go test ./tests/runtime -run 'Test(AnalyticsRealtimeProtocolFixture|DashboardSnapshotRealtimeContract|DashboardActivityRealtimeContract)$' -count=1` -> failed before assertions: `no public port '5432/tcp' published for prism-s14-runtime-c1dc447f`.
+- `cd backend && go test ./tests/runtime -run 'TestAnalyticsRealtimeProtocolFixture$' -count=1` -> failed before assertions: `postgres container on port 33233 did not become ready in time`.
+- `cd frontend && pnpm run test` -> 31/31 passed.
+- `cd frontend && pnpm run test:lib` -> 106/106 passed.
+- `cd frontend && pnpm run build` -> passed with the existing Vite chunk-size warning.
+
+Concerns:
+- Pre-existing dirty/untracked docs were left untouched per instruction: `docs/IMPLEMENTATION_PLAN.md`, `docs/TEST_REDUCTION_HANDOFF.md`, `docs/TEST_REDUCTION_PLAN.md`, `docs/TEST_SUITE_REDUCTION.md`.
+- Backend fixture-focused runtime tests are still blocked by the local Docker Postgres harness readiness/port issue before assertions.
+
 STATUS: DONE_WITH_CONCERNS
 
 Commit:
