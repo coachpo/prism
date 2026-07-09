@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/http/cookiejar"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -16,7 +14,6 @@ import (
 	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
-	"github.com/coachpo/prism/backend/internal/platform/startup"
 )
 
 func TestEndpointCRUD(t *testing.T) {
@@ -299,55 +296,33 @@ func loadEndpointConnectionBoundaryState(t *testing.T, harness *contractHarness,
 
 func newEndpointConnectionContractHarness(t *testing.T) *contractHarness {
 	t.Helper()
-	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	t.Cleanup(cancel)
-	databaseName := "endpoint_connection_contract_" + randomSuffix()
-	conn := sharedPostgresHarness.openDatabase(t, testContext, databaseName)
-	t.Cleanup(func() { _ = conn.Close(context.Background()) })
-
-	startupService, err := startup.New(startup.Options{DatabaseURL: sharedPostgresHarness.connectionString(databaseName), SecretEncryptionKey: "endpoint-connection-contract-secret"})
-	if err != nil {
-		t.Fatalf("build startup service: %v", err)
-	}
-	if _, err := startupService.RunWithConn(testContext, conn); err != nil {
-		t.Fatalf("run startup service: %v", err)
-	}
-
-	settings := config.Settings{Host: "127.0.0.1", Port: 8000, AppEnv: config.EnvironmentProduction, DatabaseURL: sharedPostgresHarness.connectionString(databaseName), SecretEncryptionKey: "endpoint-connection-contract-secret", CORSAllowedOrigins: "http://localhost:5173,http://127.0.0.1:5173"}
-	pool, err := pgxpool.New(testContext, settings.DatabaseURL)
-	if err != nil {
-		t.Fatalf("create pgx pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	endpointsService, err := managementendpoints.NewService(settings, managementendpoints.Options{Pool: pool})
-	if err != nil {
-		t.Fatalf("build endpoints service: %v", err)
-	}
-	t.Cleanup(endpointsService.Close)
-	connectionsService, err := managementconnections.NewService(settings, managementconnections.Options{Pool: pool})
-	if err != nil {
-		t.Fatalf("build connections service: %v", err)
-	}
-	t.Cleanup(connectionsService.Close)
-	modelsService, err := managementmodels.NewService(settings, managementmodels.Options{Pool: pool})
-	if err != nil {
-		t.Fatalf("build models service: %v", err)
-	}
-	t.Cleanup(modelsService.Close)
-
-	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{Version: "endpoint-connection-contract-test", EndpointsService: endpointsService, ConnectionsService: connectionsService, ModelsService: modelsService})
-	if err != nil {
-		t.Fatalf("build handler: %v", err)
-	}
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		t.Fatalf("create cookie jar: %v", err)
-	}
-	client := server.Client()
-	client.Jar = jar
-	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, server: server, service: nil, url: server.URL}
+	return newContractHarnessFor(t, "endpoint_connection_contract", contractHarnessOptions{
+		SecretEncryptionKey: "endpoint-connection-contract-secret",
+		Version:             "endpoint-connection-contract-test",
+		DependenciesBuilder: func(t *testing.T, testContext context.Context, harness *contractHarness, settings config.Settings, pool *pgxpool.Pool) platformhttp.Dependencies {
+			t.Helper()
+			endpointsService, err := managementendpoints.NewService(settings, managementendpoints.Options{Pool: pool})
+			if err != nil {
+				t.Fatalf("build endpoints service: %v", err)
+			}
+			t.Cleanup(endpointsService.Close)
+			connectionsService, err := managementconnections.NewService(settings, managementconnections.Options{Pool: pool})
+			if err != nil {
+				t.Fatalf("build connections service: %v", err)
+			}
+			t.Cleanup(connectionsService.Close)
+			modelsService, err := managementmodels.NewService(settings, managementmodels.Options{Pool: pool})
+			if err != nil {
+				t.Fatalf("build models service: %v", err)
+			}
+			t.Cleanup(modelsService.Close)
+			return platformhttp.Dependencies{
+				EndpointsService:   endpointsService,
+				ConnectionsService: connectionsService,
+				ModelsService:      modelsService,
+			}
+		},
+	})
 }
 
 func insertContractProfile(t *testing.T, harness *contractHarness, name string) int {

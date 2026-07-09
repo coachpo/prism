@@ -51,6 +51,14 @@ type contractHarness struct {
 	url            string
 }
 
+type contractHarnessOptions struct {
+	DatabaseURL         string
+	SecretEncryptionKey string
+	Version             string
+	SettingsMutator     func(*config.Settings)
+	DependenciesBuilder func(t *testing.T, ctx context.Context, harness *contractHarness, settings config.Settings, pool *pgxpool.Pool) platformhttp.Dependencies
+}
+
 type refreshTokenSnapshot struct {
 	ID            int
 	RotatedFromID *int
@@ -173,32 +181,51 @@ func contractAuthSettings() config.Settings {
 
 func newContractHarnessWithDatabase(t *testing.T, dsn string) *contractHarness {
 	t.Helper()
-	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	t.Cleanup(cancel)
-	if dsn == "" {
-		databaseName := "contract_" + randomSuffix()
-		conn := sharedPostgresHarness.openDatabase(t, testContext, databaseName)
-		t.Cleanup(func() {
-			_ = conn.Close(context.Background())
-		})
-		startupService, err := startup.New(startup.Options{
-			DatabaseURL:         sharedPostgresHarness.connectionString(databaseName),
-			SecretEncryptionKey: "contract-secret",
-		})
-		if err != nil {
-			t.Fatalf("build startup service: %v", err)
-		}
-		if _, err := startupService.RunWithConn(testContext, conn); err != nil {
-			t.Fatalf("run startup service: %v", err)
-		}
-		dsn = sharedPostgresHarness.connectionString(databaseName)
-		return buildContractHarness(t, testContext, conn, dsn, "contract-test")
+	version := "contract-test"
+	if dsn != "" {
+		version = "contract-restart-test"
 	}
-	conn := connectDatabase(t, testContext, dsn)
-	t.Cleanup(func() {
-		_ = conn.Close(context.Background())
+	return newContractHarnessFor(t, "contract", contractHarnessOptions{
+		DatabaseURL:         dsn,
+		SecretEncryptionKey: "contract-secret",
+		Version:             version,
+		SettingsMutator: func(settings *config.Settings) {
+			authSettings := contractAuthSettings()
+			authSettings.DatabaseURL = settings.DatabaseURL
+			*settings = authSettings
+		},
+		DependenciesBuilder: func(t *testing.T, testContext context.Context, harness *contractHarness, settings config.Settings, pool *pgxpool.Pool) platformhttp.Dependencies {
+			t.Helper()
+			runtimeCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: pool, SecretEncryptionKey: settings.SecretEncryptionKey})
+			if err := runtimeCache.Bootstrap(testContext); err != nil {
+				t.Fatalf("bootstrap published runtime snapshot: %v", err)
+			}
+			runtimeAuthCache := managementauth.NewRuntimeCacheFromShared(runtimeCache)
+			hotRuntime, err := platformhttp.NewHotBootstrapConfigRuntime(settings)
+			if err != nil {
+				t.Fatalf("build hot bootstrap runtime: %v", err)
+			}
+			authService, err := managementauth.NewService(settings, managementauth.Options{
+				CORSOriginProvider:        hotRuntime,
+				AuthRuntimeConfigProvider: hotRuntime,
+				Pool:                      pool,
+				RuntimeCache:              runtimeAuthCache,
+			})
+			if err != nil {
+				t.Fatalf("build auth service: %v", err)
+			}
+			t.Cleanup(authService.Close)
+			harness.service = authService
+			harness.runtimeCache = runtimeCache
+			harness.hotRuntime = hotRuntime
+			return platformhttp.Dependencies{
+				AuthService:               authService,
+				RuntimeAuthService:        authService,
+				RuntimeCache:              runtimeCache,
+				HotBootstrapConfigRuntime: hotRuntime,
+			}
+		},
 	})
-	return buildContractHarness(t, testContext, conn, dsn, "contract-restart-test")
 }
 
 func newContractHarnessForExistingDatabase(t *testing.T, dsn string) *contractHarness {
@@ -206,36 +233,62 @@ func newContractHarnessForExistingDatabase(t *testing.T, dsn string) *contractHa
 	return newContractHarnessWithDatabase(t, dsn)
 }
 
-func buildContractHarness(t *testing.T, testContext context.Context, conn *pgx.Conn, dsn string, version string) *contractHarness {
+func newContractHarnessFor(t *testing.T, prefix string, opts contractHarnessOptions) *contractHarness {
 	t.Helper()
-	settings := contractAuthSettings()
-	settings.DatabaseURL = dsn
+	if opts.DependenciesBuilder == nil {
+		t.Fatal("contract harness requires dependencies builder")
+	}
+	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	t.Cleanup(cancel)
+	dsn := opts.DatabaseURL
+	databaseName := ""
+	if dsn == "" {
+		databaseName = prefix + "_" + randomSuffix()
+		dsn = sharedPostgresHarness.connectionString(databaseName)
+	}
+	var conn *pgx.Conn
+	if opts.DatabaseURL == "" {
+		conn = sharedPostgresHarness.openDatabase(t, testContext, databaseName)
+	} else {
+		conn = connectDatabase(t, testContext, dsn)
+	}
+	t.Cleanup(func() {
+		_ = conn.Close(context.Background())
+	})
+	if opts.DatabaseURL == "" {
+		startupService, err := startup.New(startup.Options{
+			DatabaseURL:         dsn,
+			SecretEncryptionKey: opts.SecretEncryptionKey,
+		})
+		if err != nil {
+			t.Fatalf("build startup service: %v", err)
+		}
+		if _, err := startupService.RunWithConn(testContext, conn); err != nil {
+			t.Fatalf("run startup service: %v", err)
+		}
+	}
+	harness := &contractHarness{conn: conn, dsn: dsn}
+	settings := config.Settings{
+		Host:                "127.0.0.1",
+		Port:                8000,
+		AppEnv:              config.EnvironmentProduction,
+		DatabaseURL:         dsn,
+		SecretEncryptionKey: opts.SecretEncryptionKey,
+		CORSAllowedOrigins:  "http://localhost:5173,http://127.0.0.1:5173",
+	}
+	if opts.SettingsMutator != nil {
+		opts.SettingsMutator(&settings)
+	}
 	pool, err := pgxpool.New(testContext, settings.DatabaseURL)
 	if err != nil {
 		t.Fatalf("create pgx pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	runtimeCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: pool, SecretEncryptionKey: settings.SecretEncryptionKey})
-	if err := runtimeCache.Bootstrap(testContext); err != nil {
-		t.Fatalf("bootstrap published runtime snapshot: %v", err)
+	dependencies := opts.DependenciesBuilder(t, testContext, harness, settings, pool)
+	if dependencies.Version == "" {
+		dependencies.Version = opts.Version
 	}
-	runtimeAuthCache := managementauth.NewRuntimeCacheFromShared(runtimeCache)
-	hotRuntime, err := platformhttp.NewHotBootstrapConfigRuntime(settings)
-	if err != nil {
-		t.Fatalf("build hot bootstrap runtime: %v", err)
-	}
-	authService, err := managementauth.NewService(settings, managementauth.Options{CORSOriginProvider: hotRuntime, AuthRuntimeConfigProvider: hotRuntime, Pool: pool, RuntimeCache: runtimeAuthCache})
-	if err != nil {
-		t.Fatalf("build auth service: %v", err)
-	}
-	t.Cleanup(authService.Close)
-	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{
-		Version:                   version,
-		AuthService:               authService,
-		RuntimeAuthService:        authService,
-		RuntimeCache:              runtimeCache,
-		HotBootstrapConfigRuntime: hotRuntime,
-	})
+	handler, err := platformhttp.NewHandlerWithDependencies(settings, dependencies)
 	if err != nil {
 		t.Fatalf("build handler: %v", err)
 	}
@@ -247,7 +300,10 @@ func buildContractHarness(t *testing.T, testContext context.Context, conn *pgx.C
 	}
 	client := server.Client()
 	client.Jar = jar
-	return &contractHarness{client: client, conn: conn, dsn: dsn, server: server, service: authService, runtimeService: nil, runtimeCache: runtimeCache, hotRuntime: hotRuntime, url: server.URL}
+	harness.client = client
+	harness.server = server
+	harness.url = server.URL
+	return harness
 }
 
 func (h *contractHarness) refreshRuntimeSnapshot(t *testing.T, request runtimeapi.RefreshRequest) {

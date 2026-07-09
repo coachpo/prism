@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/cookiejar"
-	"net/http/httptest"
 	"os"
 	"slices"
 	"sort"
@@ -21,7 +19,6 @@ import (
 	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
-	"github.com/coachpo/prism/backend/internal/platform/startup"
 )
 
 func TestCostingSettings(t *testing.T) {
@@ -503,55 +500,33 @@ func TestConfigRules(t *testing.T) {
 
 func newS11ContractHarness(t *testing.T) *contractHarness {
 	t.Helper()
-	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	t.Cleanup(cancel)
-	databaseName := "s11_contract_" + randomSuffix()
-	conn := sharedPostgresHarness.openDatabase(t, testContext, databaseName)
-	t.Cleanup(func() { _ = conn.Close(context.Background()) })
-
-	startupService, err := startup.New(startup.Options{DatabaseURL: sharedPostgresHarness.connectionString(databaseName), SecretEncryptionKey: "s11-contract-secret"})
-	if err != nil {
-		t.Fatalf("build startup service: %v", err)
-	}
-	if _, err := startupService.RunWithConn(testContext, conn); err != nil {
-		t.Fatalf("run startup service: %v", err)
-	}
-
-	settings := config.Settings{Host: "127.0.0.1", Port: 8000, AppEnv: config.EnvironmentProduction, DatabaseURL: sharedPostgresHarness.connectionString(databaseName), SecretEncryptionKey: "s11-contract-secret", CORSAllowedOrigins: "http://localhost:5173,http://127.0.0.1:5173"}
-	pool, err := pgxpool.New(testContext, settings.DatabaseURL)
-	if err != nil {
-		t.Fatalf("create pgx pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	settingsService, err := managementsettings.NewService(settings, managementsettings.Options{Pool: pool})
-	if err != nil {
-		t.Fatalf("build settings service: %v", err)
-	}
-	t.Cleanup(settingsService.Close)
-	loadbalanceService, err := managementloadbalance.NewService(settings, managementloadbalance.Options{Pool: pool})
-	if err != nil {
-		t.Fatalf("build loadbalance service: %v", err)
-	}
-	t.Cleanup(loadbalanceService.Close)
-	configRulesService, err := managementconfigrules.NewService(settings, managementconfigrules.Options{Pool: pool})
-	if err != nil {
-		t.Fatalf("build config rules service: %v", err)
-	}
-	t.Cleanup(configRulesService.Close)
-
-	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{Version: "s11-contract-test", SettingsService: settingsService, LoadbalanceService: loadbalanceService, ConfigRulesService: configRulesService})
-	if err != nil {
-		t.Fatalf("build handler: %v", err)
-	}
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		t.Fatalf("create cookie jar: %v", err)
-	}
-	client := server.Client()
-	client.Jar = jar
-	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, server: server, service: nil, url: server.URL}
+	return newContractHarnessFor(t, "s11_contract", contractHarnessOptions{
+		SecretEncryptionKey: "s11-contract-secret",
+		Version:             "s11-contract-test",
+		DependenciesBuilder: func(t *testing.T, testContext context.Context, harness *contractHarness, settings config.Settings, pool *pgxpool.Pool) platformhttp.Dependencies {
+			t.Helper()
+			settingsService, err := managementsettings.NewService(settings, managementsettings.Options{Pool: pool})
+			if err != nil {
+				t.Fatalf("build settings service: %v", err)
+			}
+			t.Cleanup(settingsService.Close)
+			loadbalanceService, err := managementloadbalance.NewService(settings, managementloadbalance.Options{Pool: pool})
+			if err != nil {
+				t.Fatalf("build loadbalance service: %v", err)
+			}
+			t.Cleanup(loadbalanceService.Close)
+			configRulesService, err := managementconfigrules.NewService(settings, managementconfigrules.Options{Pool: pool})
+			if err != nil {
+				t.Fatalf("build config rules service: %v", err)
+			}
+			t.Cleanup(configRulesService.Close)
+			return platformhttp.Dependencies{
+				SettingsService:    settingsService,
+				LoadbalanceService: loadbalanceService,
+				ConfigRulesService: configRulesService,
+			}
+		},
+	})
 }
 
 func modelLoadModelConfigID(t *testing.T, harness *contractHarness, profileID int, modelID string) int {

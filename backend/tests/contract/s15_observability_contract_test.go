@@ -7,7 +7,6 @@ import (
 	"maps"
 	"math"
 	"net/http"
-	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -27,7 +26,6 @@ import (
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
-	"github.com/coachpo/prism/backend/internal/platform/startup"
 )
 
 var fixedS15Now = time.Date(2026, time.April, 19, 12, 0, 0, 0, time.UTC)
@@ -1112,92 +1110,78 @@ func TestLoadbalanceEventsPersistPolicySnapshotsFromRuntimeFailure(t *testing.T)
 
 func newS15ContractHarness(t *testing.T) *contractHarness {
 	t.Helper()
-	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	t.Cleanup(cancel)
-	databaseName := "s15_contract_" + randomSuffix()
-	conn := sharedPostgresHarness.openDatabase(t, testContext, databaseName)
-	t.Cleanup(func() { _ = conn.Close(context.Background()) })
-	startupService, err := startup.New(startup.Options{DatabaseURL: sharedPostgresHarness.connectionString(databaseName), SecretEncryptionKey: "s15-contract-secret"})
-	if err != nil {
-		t.Fatalf("build startup service: %v", err)
-	}
-	if _, err := startupService.RunWithConn(testContext, conn); err != nil {
-		t.Fatalf("run startup service: %v", err)
-	}
-	settings := config.Settings{Host: "127.0.0.1", Port: 8000, AppEnv: config.EnvironmentProduction, DatabaseURL: sharedPostgresHarness.connectionString(databaseName), SecretEncryptionKey: "s15-contract-secret", CORSAllowedOrigins: "http://localhost:5173,http://127.0.0.1:5173"}
-	s15PartitionHarness := &contractHarness{conn: conn, dsn: settings.DatabaseURL}
-	ensureContractTestLogPartitions(t, s15PartitionHarness,
-		contractTestLogPartitionFor("request_logs", fixedS15Now.AddDate(0, 0, -2)),
-		contractTestLogPartitionFor("request_logs", fixedS15Now.AddDate(0, 0, -1)),
-		contractTestLogPartitionFor("request_logs", fixedS15Now),
-		contractTestLogPartitionFor("audit_logs", fixedS15Now.AddDate(0, 0, -2)),
-		contractTestLogPartitionFor("audit_logs", fixedS15Now.AddDate(0, 0, -1)),
-		contractTestLogPartitionFor("audit_logs", fixedS15Now),
-		contractTestLogPartitionFor("usage_request_events", fixedS15Now.AddDate(0, 0, -2)),
-		contractTestLogPartitionFor("usage_request_events", fixedS15Now.AddDate(0, 0, -1)),
-		contractTestLogPartitionFor("usage_request_events", fixedS15Now),
-		contractTestLogPartitionFor("loadbalance_events", fixedS15Now.AddDate(0, 0, -2)),
-		contractTestLogPartitionFor("loadbalance_events", fixedS15Now.AddDate(0, 0, -1)),
-		contractTestLogPartitionFor("loadbalance_events", fixedS15Now),
-	)
-	pool, err := pgxpool.New(testContext, settings.DatabaseURL)
-	if err != nil {
-		t.Fatalf("create pgx pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	telemetryPool, err := pgxpool.New(testContext, settings.DatabaseURL)
-	if err != nil {
-		t.Fatalf("create runtime telemetry pgx pool: %v", err)
-	}
-	t.Cleanup(telemetryPool.Close)
-	feedbackPool, err := pgxpool.New(testContext, settings.DatabaseURL)
-	if err != nil {
-		t.Fatalf("create runtime feedback pgx pool: %v", err)
-	}
-	t.Cleanup(feedbackPool.Close)
-	runtimeCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: pool, SecretEncryptionKey: settings.SecretEncryptionKey})
-	if err := runtimeCache.Bootstrap(testContext); err != nil {
-		t.Fatalf("bootstrap published runtime snapshot: %v", err)
-	}
-	runtimeState := loadbalancedomain.NewLocalRuntimeStateStore()
-	auditService, err := managementaudit.NewService(settings, managementaudit.Options{Pool: pool, Now: func() time.Time { return fixedS15Now }})
-	if err != nil {
-		t.Fatalf("build audit service: %v", err)
-	}
-	t.Cleanup(auditService.Close)
-	settingsService, err := managementsettings.NewService(settings, managementsettings.Options{Pool: pool, Now: func() time.Time { return fixedS15Now }})
-	if err != nil {
-		t.Fatalf("build settings service: %v", err)
-	}
-	t.Cleanup(settingsService.Close)
-	loadbalanceService, err := managementloadbalance.NewService(settings, managementloadbalance.Options{Pool: pool, Now: func() time.Time { return fixedS15Now }, RuntimeState: runtimeState})
-	if err != nil {
-		t.Fatalf("build loadbalance service: %v", err)
-	}
-	t.Cleanup(loadbalanceService.Close)
-	statsService, err := managementstats.NewService(settings, managementstats.Options{Pool: pool, Now: func() time.Time { return fixedS15Now }})
-	if err != nil {
-		t.Fatalf("build stats service: %v", err)
-	}
-	t.Cleanup(statsService.Close)
-	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: pool, TelemetryPool: telemetryPool, FeedbackPool: feedbackPool, Now: func() time.Time { return fixedS15Now }, Cache: runtimeCache, RuntimeState: runtimeState})
-	if err != nil {
-		t.Fatalf("build runtime service: %v", err)
-	}
-	t.Cleanup(runtimeService.Close)
-	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{Version: "s15-contract-test", AuditService: auditService, LoadbalanceService: loadbalanceService, RuntimeService: runtimeService, RuntimeCache: runtimeCache, RuntimeState: runtimeState, SettingsService: settingsService, StatsService: statsService})
-	if err != nil {
-		t.Fatalf("build S15 handler: %v", err)
-	}
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		t.Fatalf("create cookie jar: %v", err)
-	}
-	client := server.Client()
-	client.Jar = jar
-	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, server: server, service: nil, runtimeService: runtimeService, runtimeCache: runtimeCache, url: server.URL}
+	return newContractHarnessFor(t, "s15_contract", contractHarnessOptions{
+		SecretEncryptionKey: "s15-contract-secret",
+		Version:             "s15-contract-test",
+		DependenciesBuilder: func(t *testing.T, testContext context.Context, harness *contractHarness, settings config.Settings, pool *pgxpool.Pool) platformhttp.Dependencies {
+			t.Helper()
+			ensureContractTestLogPartitions(t, harness,
+				contractTestLogPartitionFor("request_logs", fixedS15Now.AddDate(0, 0, -2)),
+				contractTestLogPartitionFor("request_logs", fixedS15Now.AddDate(0, 0, -1)),
+				contractTestLogPartitionFor("request_logs", fixedS15Now),
+				contractTestLogPartitionFor("audit_logs", fixedS15Now.AddDate(0, 0, -2)),
+				contractTestLogPartitionFor("audit_logs", fixedS15Now.AddDate(0, 0, -1)),
+				contractTestLogPartitionFor("audit_logs", fixedS15Now),
+				contractTestLogPartitionFor("usage_request_events", fixedS15Now.AddDate(0, 0, -2)),
+				contractTestLogPartitionFor("usage_request_events", fixedS15Now.AddDate(0, 0, -1)),
+				contractTestLogPartitionFor("usage_request_events", fixedS15Now),
+				contractTestLogPartitionFor("loadbalance_events", fixedS15Now.AddDate(0, 0, -2)),
+				contractTestLogPartitionFor("loadbalance_events", fixedS15Now.AddDate(0, 0, -1)),
+				contractTestLogPartitionFor("loadbalance_events", fixedS15Now),
+			)
+			telemetryPool, err := pgxpool.New(testContext, settings.DatabaseURL)
+			if err != nil {
+				t.Fatalf("create runtime telemetry pgx pool: %v", err)
+			}
+			t.Cleanup(telemetryPool.Close)
+			feedbackPool, err := pgxpool.New(testContext, settings.DatabaseURL)
+			if err != nil {
+				t.Fatalf("create runtime feedback pgx pool: %v", err)
+			}
+			t.Cleanup(feedbackPool.Close)
+			runtimeCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: pool, SecretEncryptionKey: settings.SecretEncryptionKey})
+			if err := runtimeCache.Bootstrap(testContext); err != nil {
+				t.Fatalf("bootstrap published runtime snapshot: %v", err)
+			}
+			runtimeState := loadbalancedomain.NewLocalRuntimeStateStore()
+			auditService, err := managementaudit.NewService(settings, managementaudit.Options{Pool: pool, Now: func() time.Time { return fixedS15Now }})
+			if err != nil {
+				t.Fatalf("build audit service: %v", err)
+			}
+			t.Cleanup(auditService.Close)
+			settingsService, err := managementsettings.NewService(settings, managementsettings.Options{Pool: pool, Now: func() time.Time { return fixedS15Now }})
+			if err != nil {
+				t.Fatalf("build settings service: %v", err)
+			}
+			t.Cleanup(settingsService.Close)
+			loadbalanceService, err := managementloadbalance.NewService(settings, managementloadbalance.Options{Pool: pool, Now: func() time.Time { return fixedS15Now }, RuntimeState: runtimeState})
+			if err != nil {
+				t.Fatalf("build loadbalance service: %v", err)
+			}
+			t.Cleanup(loadbalanceService.Close)
+			statsService, err := managementstats.NewService(settings, managementstats.Options{Pool: pool, Now: func() time.Time { return fixedS15Now }})
+			if err != nil {
+				t.Fatalf("build stats service: %v", err)
+			}
+			t.Cleanup(statsService.Close)
+			runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: pool, TelemetryPool: telemetryPool, FeedbackPool: feedbackPool, Now: func() time.Time { return fixedS15Now }, Cache: runtimeCache, RuntimeState: runtimeState})
+			if err != nil {
+				t.Fatalf("build runtime service: %v", err)
+			}
+			t.Cleanup(runtimeService.Close)
+			harness.runtimeService = runtimeService
+			harness.runtimeCache = runtimeCache
+			return platformhttp.Dependencies{
+				AuditService:       auditService,
+				LoadbalanceService: loadbalanceService,
+				RuntimeService:     runtimeService,
+				RuntimeCache:       runtimeCache,
+				RuntimeState:       runtimeState,
+				SettingsService:    settingsService,
+				StatsService:       statsService,
+			}
+		},
+	})
 }
 
 type usageEventSeed struct {
