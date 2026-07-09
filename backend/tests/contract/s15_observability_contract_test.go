@@ -2,6 +2,7 @@ package contract_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"math"
@@ -13,10 +14,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
+	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
 	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementloadbalance "github.com/coachpo/prism/backend/internal/httpapi/management/loadbalance"
 	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
@@ -155,6 +158,39 @@ func s15JSON[T any](t *testing.T, harness *contractHarness, profileID int, metho
 func s15GET[T any](t *testing.T, harness *contractHarness, profileID int, path string, want int) T {
 	t.Helper()
 	return s15JSON[T](t, harness, profileID, http.MethodGet, path, nil, want)
+}
+
+func newS15StatsService(t *testing.T, harness *contractHarness, snapshots *statsdomain.DashboardAggregateStore) *managementstats.Service {
+	t.Helper()
+	pool, err := pgxpool.New(context.Background(), harness.dsn)
+	if err != nil {
+		t.Fatalf("create stats pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	service, err := managementstats.NewService(config.Settings{}, managementstats.Options{Pool: pool, Now: func() time.Time { return fixedS15Now }, DashboardSnapshots: snapshots})
+	if err != nil {
+		t.Fatalf("create stats service: %v", err)
+	}
+	t.Cleanup(service.Close)
+	return service
+}
+
+func s15StatsServiceGET(t *testing.T, service *managementstats.Service, profileID int, path string) map[string]any {
+	t.Helper()
+	router := chi.NewRouter()
+	service.MountManagementRoutes(router)
+	request := httptest.NewRequest(http.MethodGet, path, nil)
+	request.Header.Set("X-Profile-Id", fmt.Sprintf("%d", profileID))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET %s status=%d body=%s", path, recorder.Code, recorder.Body.String())
+	}
+	var payload map[string]any
+	if err := json.NewDecoder(recorder.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode %s response: %v", path, err)
+	}
+	return payload
 }
 
 func TestUsageSnapshot(t *testing.T) {
@@ -358,6 +394,43 @@ func TestManagementDashboardHealthReportsSnapshotFreshness(t *testing.T) {
 		t.Fatalf("expected dashboard health to describe the aggregate snapshot freshness, got %+v", payload)
 	}
 	assertJSONIntFields(t, health, map[string]int{"lag_seconds": 0, "stale_after_seconds": 120})
+}
+
+func TestManagementDashboardStatsCacheFreshnessModes(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	insertUsageEvent(t, harness, usageEventSeed{ID: 33, ProfileID: profileID, IngressRequestID: "dashboard-cache-rebuild", ModelID: "dashboard-cache-model", CreatedAt: fixedS15Now.Add(-30 * time.Second)})
+	snapshots := statsdomain.NewDashboardAggregateStore()
+	service := newS15StatsService(t, harness, snapshots)
+
+	snapshots.StoreProfile(statsdomain.DashboardAggregateSnapshot{ProfileID: profileID, GeneratedAt: fixedS15Now.Add(-statsdomain.DashboardStatsStaleAfter), StatsSummary24H: statsdomain.StatsSummaryResponse{TotalRequests: 7}})
+	threshold := s15StatsServiceGET(t, service, profileID, "/stats/dashboard")
+	if jsonInt(t, asMap(t, threshold["metric_snapshot"])["total_requests"]) != 7 {
+		t.Fatalf("expected cached threshold snapshot to remain reusable, got %+v", threshold)
+	}
+	if health := asMap(t, threshold["health"]); health["stale"] != false || jsonInt(t, health["lag_seconds"]) != int(statsdomain.DashboardStatsStaleAfter/time.Second) {
+		t.Fatalf("expected threshold dashboard health to stay fresh, got %+v", health)
+	}
+
+	snapshots.StoreProfile(statsdomain.DashboardAggregateSnapshot{ProfileID: profileID, GeneratedAt: fixedS15Now.Add(-statsdomain.DashboardStatsStaleAfter - time.Second), StatsSummary24H: statsdomain.StatsSummaryResponse{TotalRequests: 99}})
+	rebuilt := s15StatsServiceGET(t, service, profileID, "/stats/dashboard")
+	if jsonInt(t, asMap(t, rebuilt["metric_snapshot"])["total_requests"]) != 1 || jsonInt(t, asMap(t, rebuilt["health"])["lag_seconds"]) != 0 {
+		t.Fatalf("expected stale cached dashboard snapshot to rebuild from usage events, got %+v", rebuilt)
+	}
+
+	snapshots.StoreProfile(statsdomain.DashboardAggregateSnapshot{ProfileID: 101, GeneratedAt: fixedS15Now})
+	snapshots.StoreProfile(statsdomain.DashboardAggregateSnapshot{ProfileID: 202, GeneratedAt: fixedS15Now})
+	service.InvalidateDashboardSnapshot(101)
+	if _, ok := snapshots.LoadProfile(101); ok {
+		t.Fatal("expected profile-specific dashboard snapshot invalidation to evict profile 101")
+	}
+	if _, ok := snapshots.LoadProfile(202); !ok {
+		t.Fatal("expected profile-specific dashboard snapshot invalidation to preserve profile 202")
+	}
+	service.InvalidateAllDashboardSnapshots()
+	if _, ok := snapshots.LoadProfile(202); ok {
+		t.Fatal("expected global dashboard snapshot invalidation to evict remaining profiles")
+	}
 }
 
 func TestModelMetrics(t *testing.T) {
