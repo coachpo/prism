@@ -1,0 +1,1 @@
+{"created_at":1700000001,"id":"chatcmpl_refusal","model":"responses-public","object":"response","output":[{"content":[{"refusal":"I cannot help with that.","type":"refusal"}],"role":"assistant","type":"message"}],"status":"completed"}

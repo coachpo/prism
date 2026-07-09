@@ -1,0 +1,11 @@
+event: response.created
+data: {"response":{"created_at":1700000000,"id":"chatcmpl_stream","model":"chat-public","object":"response","output":[],"status":"in_progress"},"type":"response.created"}
+
+event: response.output_item.added
+data: {"item":{"content":[],"id":"msg_0","role":"assistant","type":"message"},"output_index":0,"type":"response.output_item.added"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"hello ","item_id":"msg_0","output_index":0,"type":"response.output_text.delta"}
+
+event: response.completed
+data: {"response":{"choices":[{"finish_reason":"stop","index":0,"message":{"content":"hello ","role":"assistant"}}],"created":1700000000,"error":{"code":"bad_gateway","message":"upstream failed","type":"server_error"},"id":"chatcmpl_stream","model":"chat-public","object":"chat.completion","usage":{"completion_tokens":6,"prompt_tokens":10,"total_tokens":16}},"type":"response.completed"}

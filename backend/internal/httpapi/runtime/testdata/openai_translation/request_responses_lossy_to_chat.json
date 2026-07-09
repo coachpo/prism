@@ -1,0 +1,1 @@
+{"messages":[{"content":"hello","role":"user"}],"model":"chat-target","reasoning_effort":"medium","response_format":{"json_schema":{"name":"answer","schema":{"type":"object"}},"type":"json_schema"},"stream":true,"stream_options":{"include_usage":true}}
