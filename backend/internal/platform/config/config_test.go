@@ -216,6 +216,23 @@ func TestNormalizeManagementAdmissionBudget(t *testing.T) {
 	}
 }
 
+func TestManagementAdmissionClamp(t *testing.T) {
+	settings := loadCanonicalDefaultSettings("")
+	settings.PostgresPoolsBudget.Management = DatabasePoolBudget{MaxConns: 4, MinIdleConns: 1}
+	settings.ManagementAdmissionControlBudget = ManagementAdmissionBudget{M2MaxConcurrent: 32, M3MaxConcurrent: 32}
+	configured, effective, clamped := settings.ManagementAdmissionClamp()
+	if !clamped {
+		t.Fatal("expected clamp to be reported")
+	}
+	if configured.M2MaxConcurrent != 32 || effective.M2MaxConcurrent != 3 || effective.M3MaxConcurrent != 3 {
+		t.Fatalf("unexpected clamp report: configured=%+v effective=%+v", configured, effective)
+	}
+
+	if _, _, clamped := loadCanonicalDefaultSettings("").ManagementAdmissionClamp(); clamped {
+		t.Fatal("canonical defaults must not report a clamp")
+	}
+}
+
 func TestNormalizeRuntimeTransportConfig(t *testing.T) {
 	want := RuntimeTransportConfig{
 		MaxIdleConns:          100,

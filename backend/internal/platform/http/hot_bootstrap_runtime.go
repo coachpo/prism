@@ -250,6 +250,7 @@ type HotAdmissionSnapshot struct {
 }
 
 func buildHotAdmissionSnapshot(settings config.Settings) HotAdmissionSnapshot {
+	warnIfManagementAdmissionClamped(settings)
 	managementBudget := settings.ManagementAdmissionBudget()
 	limits := admission.Limits{
 		ManagementM1: managementM1AdmissionBudget(settings, managementBudget),

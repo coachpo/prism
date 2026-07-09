@@ -3,6 +3,7 @@ package platformhttp
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	pathpkg "path"
 	"strconv"
@@ -142,12 +143,28 @@ var managementRouteSpecs = []managementRouteSpec{
 }
 
 func newHTTPAdmissionController(settings config.Settings) *admission.Controller {
+	warnIfManagementAdmissionClamped(settings)
 	managementBudget := settings.ManagementAdmissionBudget()
 	return admission.NewController(admission.Limits{
 		ManagementM1: managementM1AdmissionBudget(settings, managementBudget),
 		ManagementM2: managementBudget.M2MaxConcurrent,
 		ManagementM3: managementBudget.M3MaxConcurrent,
 	})
+}
+
+func warnIfManagementAdmissionClamped(settings config.Settings) {
+	configured, effective, clamped := settings.ManagementAdmissionClamp()
+	if !clamped {
+		return
+	}
+	slog.Warn(
+		"management admission budget clamped by database.pools.management.maxConns; raise maxConns or lower m2MaxConcurrent",
+		slog.Int64("configured_m2", configured.M2MaxConcurrent),
+		slog.Int64("effective_m2", effective.M2MaxConcurrent),
+		slog.Int64("configured_m3", configured.M3MaxConcurrent),
+		slog.Int64("effective_m3", effective.M3MaxConcurrent),
+		slog.Int("management_max_conns", int(settings.ManagementDatabaseBudget().MaxConns)),
+	)
 }
 
 func managementM1AdmissionBudget(settings config.Settings, lowerPriorityBudget config.ManagementAdmissionBudget) int64 {

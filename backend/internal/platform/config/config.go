@@ -388,6 +388,17 @@ func (s Settings) ManagementAdmissionBudget() ManagementAdmissionBudget {
 	return normalizeManagementAdmissionBudget(s.ManagementAdmissionControlBudget, defaultManagementAdmissionBudget(), maxLowerPriority)
 }
 
+// ManagementAdmissionClamp reports whether the configured M2/M3 admission
+// budget was reduced to fit database.pools.management.maxConns, so callers
+// can surface the silent clamp at startup.
+func (s Settings) ManagementAdmissionClamp() (configured, effective ManagementAdmissionBudget, clamped bool) {
+	configured = s.ManagementAdmissionControlBudget
+	effective = s.ManagementAdmissionBudget()
+	clamped = (configured.M2MaxConcurrent > 0 && configured.M2MaxConcurrent > effective.M2MaxConcurrent) ||
+		(configured.M3MaxConcurrent > 0 && configured.M3MaxConcurrent > effective.M3MaxConcurrent)
+	return configured, effective, clamped
+}
+
 func (s Settings) CORSAllowedOriginsList() []string {
 	parts := strings.Split(s.CORSAllowedOrigins, ",")
 	origins := make([]string, 0, len(parts))
