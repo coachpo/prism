@@ -1,0 +1,24 @@
+{
+  "health": {
+    "lag_seconds": 0,
+    "stale": false,
+    "stale_after_seconds": 120
+  },
+  "shape": {
+    "keys": [
+      "api_family_rows",
+      "coverage_24h",
+      "coverage_30d",
+      "generated_at",
+      "health",
+      "metric_snapshot",
+      "routing_health_map",
+      "snapshot_revision",
+      "source_watermark",
+      "top_spending_models",
+      "topology_graph"
+    ],
+    "legacy_keys_present": [],
+    "strategy_family_present": false
+  }
+}

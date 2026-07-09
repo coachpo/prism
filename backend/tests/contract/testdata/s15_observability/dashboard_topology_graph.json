@@ -1,0 +1,99 @@
+{
+  "edges": {
+    "model_to_model": {
+      "enabled": true,
+      "id": "access-target-\u003cmodel-to-model\u003e",
+      "kind": "model_to_model",
+      "position": 0,
+      "source_model_config_id": "\u003centry-model-id\u003e",
+      "source_model_id": "entry-model",
+      "source_node_id": "model-\u003centry\u003e",
+      "target_model_config_id": "\u003cterminal-model-id\u003e",
+      "target_model_id": "terminal-model",
+      "target_node_id": "model-\u003cterminal\u003e"
+    },
+    "model_to_terminal": {
+      "connection_id": "\u003cterminal-target-id\u003e",
+      "enabled": true,
+      "id": "access-target-\u003cmodel-to-terminal\u003e",
+      "kind": "model_to_connection",
+      "position": 0,
+      "product_kind": "model_to_terminal_target",
+      "source_model_config_id": "\u003cterminal-model-id\u003e",
+      "source_model_id": "terminal-model",
+      "source_node_id": "model-\u003cterminal\u003e",
+      "target_node_id": "terminal-target-\u003cterminal\u003e",
+      "terminal_target_id": "\u003cterminal-target-id\u003e"
+    },
+    "terminal_to_target": {
+      "connection_id": "\u003cterminal-target-id\u003e",
+      "endpoint_id": "\u003cendpoint-id\u003e",
+      "id": "terminal-target-binding-\u003cterminal\u003e",
+      "kind": "connection_to_endpoint",
+      "product_kind": "terminal_target_to_endpoint",
+      "source_node_id": "terminal-target-\u003cterminal\u003e",
+      "target_node_id": "endpoint-\u003cendpoint\u003e",
+      "terminal_target_id": "\u003cterminal-target-id\u003e"
+    }
+  },
+  "nodes": {
+    "disabled_model": {
+      "id": "model-\u003cdisabled\u003e",
+      "kind": "model",
+      "label": "Disabled Model",
+      "model_config_id": "\u003cdisabled-model-id\u003e",
+      "model_id": "disabled-model",
+      "status": "disabled",
+      "sublabel": "disabled-model"
+    },
+    "endpoint": {
+      "endpoint_id": "\u003cendpoint-id\u003e",
+      "id": "endpoint-\u003cendpoint\u003e",
+      "kind": "endpoint",
+      "label": "Topology Endpoint",
+      "status": "configured",
+      "sublabel": "Endpoint \u003cendpoint-id\u003e"
+    },
+    "terminal_target": {
+      "active": false,
+      "connection_id": "\u003cterminal-target-id\u003e",
+      "id": "terminal-target-\u003cterminal\u003e",
+      "kind": "connection",
+      "label": "conn-0",
+      "last_request_at": "\u003ctimestamp\u003e",
+      "product_kind": "terminal_target",
+      "recent_request_count": 2,
+      "recent_success_rate": 50,
+      "status": "inactive",
+      "sublabel": "Topology Endpoint",
+      "terminal_target_id": "\u003cterminal-target-id\u003e"
+    }
+  },
+  "shape": {
+    "keys": [
+      "api_family_rows",
+      "coverage_24h",
+      "coverage_30d",
+      "generated_at",
+      "health",
+      "metric_snapshot",
+      "routing_health_map",
+      "snapshot_revision",
+      "source_watermark",
+      "top_spending_models",
+      "topology_graph"
+    ],
+    "legacy_keys_present": [],
+    "strategy_family_present": false
+  },
+  "stats": {
+    "active_model_count": 2,
+    "active_terminal_target_count": 0,
+    "disabled_model_count": 1,
+    "edge_count": 3,
+    "endpoint_count": 1,
+    "inactive_terminal_target_count": 1,
+    "model_count": 3,
+    "terminal_target_count": 1
+  }
+}
