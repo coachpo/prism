@@ -25,7 +25,6 @@ type DashboardAggregateSnapshot struct {
 	StreamRequestCount24H     int
 	UsageEventRequestCount24H int
 	RoutingHealthMap          DashboardRoutingHealthMap
-	TopologyGraph             DashboardTopologyGraph
 	TotalModelCount           int
 	ActiveModelCount          int
 }
@@ -41,7 +40,6 @@ type DashboardSnapshot struct {
 	APIFamilyRows     []StatGroup                      `json:"api_family_rows"`
 	TopSpendingModels []SpendingTopModel               `json:"top_spending_models"`
 	RoutingHealthMap  DashboardRoutingHealthMap        `json:"routing_health_map"`
-	TopologyGraph     DashboardTopologyGraph           `json:"topology_graph"`
 }
 
 type DashboardSnapshotSourceWatermark struct {
@@ -142,7 +140,6 @@ func NewDashboardSnapshot(aggregate DashboardAggregateSnapshot, referenceNow tim
 		APIFamilyRows:     apiFamilyRows,
 		TopSpendingModels: topSpendingModels,
 		RoutingHealthMap:  cloneDashboardRoutingHealthMap(aggregate.RoutingHealthMap),
-		TopologyGraph:     cloneDashboardTopologyGraph(aggregate.TopologyGraph),
 	}
 }
 
@@ -397,10 +394,6 @@ func BuildDashboardAggregateSnapshot(ctx context.Context, exec queryExecutor, pr
 	if err != nil {
 		return DashboardAggregateSnapshot{}, err
 	}
-	topologyGraph, err := buildDashboardTopologyGraph(ctx, exec, profileID, models, windowStart24H, generatedAt)
-	if err != nil {
-		return DashboardAggregateSnapshot{}, err
-	}
 	return DashboardAggregateSnapshot{
 		ProfileID:                 profileID,
 		GeneratedAt:               generatedAt,
@@ -414,7 +407,6 @@ func BuildDashboardAggregateSnapshot(ctx context.Context, exec queryExecutor, pr
 		StreamRequestCount24H:     streamRequestCount,
 		UsageEventRequestCount24H: usageEventRequestCount,
 		RoutingHealthMap:          routingHealthMap,
-		TopologyGraph:             topologyGraph,
 		TotalModelCount:           len(models),
 		ActiveModelCount:          countDashboardActiveModels(models),
 	}, nil

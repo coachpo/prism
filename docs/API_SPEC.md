@@ -955,7 +955,7 @@ Stats APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for 
 ```
 GET /api/stats/dashboard
 ```
-This is the canonical overview dashboard read path. It returns one backend-computed, stats-only aggregate snapshot for the effective profile, including overview metrics, API-family rows, top-spending models, strategy-family counts, the legacy Routing Health Map, and the backend-owned topology graph. It does not include recent request rows, request-log IDs, or request-log cursor data. Recent activity is served by `GET /api/stats/dashboard/recent-activity`.
+This is the canonical overview dashboard read path. It returns one backend-computed, stats-only aggregate snapshot for the effective profile, including overview metrics, API-family rows, top-spending models, and the Routing Health Map. It does not include recent request rows, request-log IDs, or request-log cursor data. Recent activity is served by `GET /api/stats/dashboard/recent-activity`.
 
 Query parameters: none. Legacy `window` query values are ignored. The endpoint always returns the canonical aggregate snapshot and does not expose the old top-level `window`, `covers`, `freshness`, or `metrics` shape. Snapshot freshness is ordered by lexicographic `snapshot_revision`; `source_watermark` is diagnostic only.
 
@@ -999,10 +999,6 @@ Response `200`:
   "api_family_rows": [
     { "key": "openai", "total_requests": 42, "success_rate": 97.62 }
   ],
-  "strategy_summary": {
-    "legacy_count": 8,
-    "unassigned_count": 2
-  },
   "top_spending_models": [],
   "routing_health_map": {
     "nodes": [],
@@ -1012,51 +1008,11 @@ Response `200`:
     "activeConnectionTotal": 0,
     "activeTerminalTargetTotal": 0,
     "trafficRequestTotal24h": 0
-  },
-  "topology_graph": {
-    "nodes": [
-      {
-        "id": "terminal-target-1",
-        "kind": "connection",
-        "product_kind": "terminal_target",
-        "label": "Primary production key",
-        "status": "inactive",
-        "terminal_target_id": 1,
-        "connection_id": 1,
-        "endpoint_id": 12,
-        "active": false,
-        "recent_request_count": 2,
-        "recent_success_rate": 100,
-        "last_request_at": "2026-04-19T11:55:00Z"
-      }
-    ],
-    "edges": [
-      {
-        "id": "terminal-target-binding-1",
-        "kind": "connection_to_endpoint",
-        "product_kind": "terminal_target_to_endpoint",
-        "source_node_id": "terminal-target-1",
-        "target_node_id": "endpoint-12",
-        "terminal_target_id": 1,
-        "connection_id": 1,
-        "endpoint_id": 12
-      }
-    ],
-    "stats": {
-      "model_count": 1,
-      "active_model_count": 1,
-      "disabled_model_count": 0,
-      "terminal_target_count": 1,
-      "active_terminal_target_count": 0,
-      "inactive_terminal_target_count": 1,
-      "endpoint_count": 1,
-      "edge_count": 1
-    }
   }
 }
 ```
 
-`routing_health_map` and `topology_graph` are assembled by the backend from Default-profile model, access-target, endpoint, connection, and final-attributed usage-event data. API clients must not rebuild route edges from separate management reads. Disabled models remain as muted `status="disabled"` model nodes, inactive terminal targets remain as muted `status="inactive"` nodes with `active=false`, and terminal-target nodes retain `connection_id` as the persisted compatibility identifier. During the additive compatibility wave, the backend keeps topology compatibility kinds (`kind="connection"`, `kind="model_to_connection"`, and `kind="connection_to_endpoint"`) while exposing product-facing terminal-target meaning through `product_kind`.
+`routing_health_map` is assembled by the backend from Default-profile model, access-target, endpoint, connection, and final-attributed usage-event data.
 
 ### 4.0A Dashboard Recent Activity
 ```

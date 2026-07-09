@@ -22,7 +22,7 @@ const optionalSearchStringSchema = z.preprocess((value) => value == null ? undef
 const optionalRequestIdSearchSchema = z.preprocess((value) => value == null ? undefined : String(value), z.string().regex(/^\d+$/).optional()).catch(undefined)
 
 export const observeSearchSchema = z.object({
-  tab: z.enum(["overview", "analytics", "routing"]).catch("overview"),
+  tab: z.enum(["overview", "analytics"]).catch("overview"),
 })
 
 export const authLoginSearchSchema = z.object({

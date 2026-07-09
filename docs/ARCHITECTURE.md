@@ -235,7 +235,7 @@ Dashboard overview page
   -> Initial bootstrap reads the stats-only snapshot from GET /api/stats/dashboard
   -> Initial bootstrap reads recent activity from GET /api/stats/dashboard/recent-activity
   -> Page hook polls both REST endpoints every 30 seconds and on manual refresh
-  -> Overview and backend-owned topology graph state reconcile against snapshot_revision
+  -> Overview state reconciles against snapshot_revision
   -> Activity rows reconcile by request_log_id for feed dedupe and request-log drilldown
 
 Proxy request completes
@@ -309,10 +309,6 @@ resolve_access(profile_id, model_id):
 ### 5.4 Default profile and active runtime separation
 
 Profile-scoped management APIs are frozen to Default id `1`. They accept `X-Profile-Id` for frontend compatibility, but the backend ignores the header value. Runtime proxy traffic ignores that management header and resolves through the frozen Default profile id `1` runtime snapshot.
-
-### 5.5 Dashboard topology graph
-
-`GET /api/stats/dashboard` includes a backend-owned `topology_graph` alongside the legacy `routing_health_map`. The graph is built from Default-profile configuration and final-attributed telemetry in the backend, not reconstructed by the browser from management reads. Disabled models remain present as muted model nodes, inactive terminal targets remain present as muted target nodes, and endpoint nodes stay visible when referenced by configured terminal targets. During the additive compatibility wave, the backend keeps compatibility kinds (`connection`, `model_to_connection`, and `connection_to_endpoint`) and exposes product-facing terminal-target meaning through `product_kind`, with `connection_id` retained as the persisted compatibility identifier.
 
 ## 6. Request-Derived Routing Health
 

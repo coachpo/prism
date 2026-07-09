@@ -1,30 +1,23 @@
 # FRONTEND DASHBOARD DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/dashboard/` owns the legacy tabbed dashboard composition rendered through the `/observe` rewrite route adapter: overview-versus-analytics query state, overview bootstrap and polling reconciliation, analytics handoff into the statistics surface, and the nested routing visualization leaf.
+`pages/dashboard/` owns the legacy tabbed dashboard composition rendered through the `/observe` rewrite route adapter: overview-versus-analytics query state, overview bootstrap and polling reconciliation, and analytics handoff into the statistics surface.
 
 ## STRUCTURE
 ```
 dashboard/
 ├── queryParams.ts                  # Overview or analytics tab query-param contract
 ├── useDashboardPageState.ts        # Query-param parsing and canonicalization
-├── DashboardOverviewTab.tsx        # Overview-tab composition over metrics, highlights, routing, and recent activity
+├── DashboardOverviewTab.tsx        # Overview-tab composition over metrics, highlights, and recent activity
 ├── DashboardAnalyticsContent.tsx   # Analytics-tab handoff into the statistics surface
 ├── useDashboardPageData.ts         # Overview bootstrap composition and derived dashboard data
-├── useDashboardBootstrapData.ts    # Parallel bootstrap fetches and routing payload load
+├── useDashboardBootstrapData.ts    # Parallel snapshot, recent-activity, and incident bootstrap
 ├── useDashboardPolling.ts          # REST polling and coalesced reconciliation
 ├── DashboardMetricsGrid.tsx        # KPI grid and highlighted metrics
 ├── DashboardHighlightsGrid.tsx     # Summary and api-family highlights
 ├── RecentActivityCard.tsx          # Recent requests list with insert highlighting
 ├── TopSpendingModelsCard.tsx       # Top-spend summary card
-├── RoutingDiagramCard.tsx          # Routing diagram card and drill-down entry points
-├── RoutingDiagramShell.tsx         # Diagram card empty, loading, and error shell
-├── dashboardDataUtils.ts           # Dashboard-local formatting and shaping helpers
-├── DashboardPageSkeleton.tsx       # Overview loading shell
-├── routingDiagram.ts               # Barrel over routing-diagram internals
-└── routing-diagram/
-    ├── AGENTS.md                   # Diagram-local contracts, list rendering, and presentation helpers
-    └── ...
+└── DashboardPageSkeleton.tsx       # Overview loading shell
 ```
 
 ## WHERE TO LOOK
@@ -35,15 +28,10 @@ dashboard/
 - Overview-tab composition boundary: `DashboardOverviewTab.tsx`
 - Analytics-tab handoff into the dashboard-owned statistics domain, which has no standalone `/statistics` route: `DashboardAnalyticsContent.tsx`, `../statistics/AGENTS.md`
 - High-level overview data composition: `useDashboardPageData.ts`
-- Initial bootstrap fan-out and routing payload shaping: `useDashboardBootstrapData.ts`
+- Initial bootstrap fan-out and snapshot reconciliation: `useDashboardBootstrapData.ts`
 - Dashboard polling flow: `useDashboardPolling.ts`, which refreshes REST snapshot and recent activity data through `useDashboardBootstrapData.ts`
-- Routing health list barrel and leaf cluster: `routingDiagram.ts`, `RoutingDiagramCard.tsx`, `routing-diagram/AGENTS.md`
 - KPI, highlight, recent-activity, and spend presentation: `DashboardMetricsGrid.tsx`, `DashboardHighlightsGrid.tsx`, `RecentActivityCard.tsx`, `TopSpendingModelsCard.tsx`, `DashboardPageSkeleton.tsx`
 - E2E seam for dashboard aggregate/statistics rendering: `../../../tests/e2e/shared-chart-statistics.spec.ts`; shared aggregate fixtures live in `../../../tests/e2e/dashboard-aggregate-fixtures.ts`.
-
-## CHILD DOCS
-
-- `routing-diagram/AGENTS.md`: routing-diagram data shaping, plain-list rendering, legend, and inspector presentation helpers.
 
 ## CONVENTIONS
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
@@ -54,7 +42,6 @@ dashboard/
 - Keep dashboard live refresh on `useDashboardPolling.ts`; hooks own the interval, not components.
 - Keep the overview-versus-analytics tab split on `queryParams.ts` and `useDashboardPageState.ts` instead of local component state.
 - Polling and manual refresh should reconcile through REST bootstrap data. Snapshot reconciliation uses lexicographic `snapshot_revision`; recent activity reconciliation uses request-log IDs only for feed dedupe and drilldown.
-- Treat `routingDiagram.ts` as the barrel entrypoint for routing health presentation and let `routing-diagram/AGENTS.md` own the data shaping and plain-list rendering beneath it.
 - Keep overview presentation components focused on rendering. Bootstrap, payload shaping, and merge logic belong in the dashboard hooks.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
@@ -66,5 +53,3 @@ dashboard/
 
 - Do not bypass `useDashboardPolling.ts` for dashboard-specific live refresh.
 - Do not move overview-or-analytics tab state out of `queryParams.ts` and `useDashboardPageState.ts` into ad hoc local state.
-- Do not hard-code routing-diagram data assembly in card components when `routingDiagram.ts` already fronts that local cluster.
-- Do not duplicate routing-diagram layout, aggregation, or polling merge logic in page-level hooks or cards when the local leaf cluster already owns it.

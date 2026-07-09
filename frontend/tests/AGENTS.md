@@ -1,7 +1,7 @@
 # FRONTEND TEST BOUNDARY
 
 ## OVERVIEW
-`frontend/tests/` is Prism's frontend regression surface. It splits browser flows from seam-contract suites and keeps the tree aligned with the current route, provider, typed-client, routing health list, and model/access-target authoring structure.
+`frontend/tests/` is Prism's frontend regression surface. It splits browser flows from seam-contract suites and keeps the tree aligned with the current route, provider, typed-client, dashboard, and model/access-target authoring structure.
 
 ## TEST SPLIT
 - `e2e/` holds the five Playwright browser journey specs only; see `e2e/AGENTS.md`.
@@ -19,7 +19,7 @@
 - Browser coverage lives in `e2e/auth-session-lifecycle.spec.ts`, `e2e/loadbalance-strategies-recovery.spec.ts`, `e2e/models-access-target-authoring.spec.ts`, `e2e/request-log-dedicated-audit-page.spec.ts`, and `e2e/shared-chart-statistics.spec.ts`.
 - Dashboard/statistics browser fixture data lives in `e2e/dashboard-aggregate-fixtures.ts`.
 - Model CRUD and access-target authoring seam coverage lives in `lib/model_form_state_contract.test.mjs`, `lib/management_api_model_targets_contract.test.mjs`, and `lib/profile_scope_header_contract.test.mjs`.
-- Dashboard routing list and bootstrap data-shaping seam coverage lives in `lib/dashboard_routing_list_contract.test.mjs` and `lib/dashboard_bootstrap_contract.test.mjs`.
+- Dashboard tab/query and bootstrap data-shaping seam coverage lives in `lib/dashboard_query_params_contract.test.mjs` and `lib/dashboard_bootstrap_contract.test.mjs`.
 
 ## CHILD DOCS
 - `e2e/AGENTS.md`: Playwright route-flow conventions, browser fixtures, mocked backend ownership, and canonical route expectations.
@@ -28,7 +28,7 @@
 ## WHERE TO LOOK
 - Statistics and analytics browser coverage: `e2e/shared-chart-statistics.spec.ts`
 - Model/access-target seam coverage: `lib/model_form_state_contract.test.mjs`
-- Dashboard routing list seam coverage: `lib/dashboard_routing_list_contract.test.mjs`
+- Dashboard tab/query seam coverage: `lib/dashboard_query_params_contract.test.mjs`
 - Shared contract seams: `lib/*.test.mjs`, `server/*.test.mjs`
 - Shared test helpers: `helpers/loadTsModule.mjs`
 - Vitest/MSW seams outside this tree: `../src/test/setup.ts`, `../src/test/msw/server.ts`, `../src/test/msw/handlers.ts`

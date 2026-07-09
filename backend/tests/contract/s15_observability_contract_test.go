@@ -89,12 +89,12 @@ func s15TokenTrendTotals(t *testing.T, payload map[string]any) map[string]any {
 
 func assertS15DashboardShape(t *testing.T, payload map[string]any) {
 	t.Helper()
-	for _, key := range []string{"api_family_rows", "coverage_24h", "coverage_30d", "generated_at", "health", "metric_snapshot", "routing_health_map", "snapshot_revision", "source_watermark", "top_spending_models", "topology_graph"} {
+	for _, key := range []string{"api_family_rows", "coverage_24h", "coverage_30d", "generated_at", "health", "metric_snapshot", "routing_health_map", "snapshot_revision", "source_watermark", "top_spending_models"} {
 		if _, ok := payload[key]; !ok {
 			t.Fatalf("expected dashboard snapshot key %q, got %+v", key, payload)
 		}
 	}
-	if len(payload) != 11 {
+	if len(payload) != 10 {
 		t.Fatalf("expected canonical dashboard snapshot shape, got %+v", payload)
 	}
 	for _, key := range []string{"window", "covers", "freshness", "metrics", "recent_requests", "strategy_family_summary"} {
@@ -120,28 +120,6 @@ func s15LabelsByID(t *testing.T, items []any, idKey string, labelKey string) map
 		labels[jsonInt(t, item[idKey])] = item[labelKey].(string)
 	}
 	return labels
-}
-
-func s15ItemByID(t *testing.T, items []any, id string) map[string]any {
-	t.Helper()
-	for _, raw := range items {
-		item := asMap(t, raw)
-		if item["id"] == id {
-			return item
-		}
-	}
-	t.Fatalf("expected item %q, got %+v", id, items)
-	return nil
-}
-
-func assertS15ItemsOmitKey(t *testing.T, items []any, key string) {
-	t.Helper()
-	for _, raw := range items {
-		item := asMap(t, raw)
-		if _, ok := item[key]; ok {
-			t.Fatalf("expected topology item to omit %q, got %+v", key, item)
-		}
-	}
 }
 
 func s15JSON[T any](t *testing.T, harness *contractHarness, profileID int, method string, path string, body any, want int) T {
@@ -329,45 +307,6 @@ func TestManagementDashboardStatsSnapshotSections(t *testing.T) {
 		t.Fatalf("unexpected dashboard snapshot sections: rows=%+v top=%+v", row, topModel)
 	}
 	assertS15EmptyRoutingHealthMap(t, payload)
-}
-
-func TestObservabilityDashboardTopologyGraphIncludesDisabledAndInactiveNodes(t *testing.T) {
-	harness := newS15ContractHarness(t)
-	profileID := modelLoadDefaultProfileID(t, harness)
-	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
-	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Dashboard Topology Strategy")
-	entryModelID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "entry-model", stringPtr("Entry Model"), "native", &strategyID, true)
-	terminalModelID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "terminal-model", stringPtr("Terminal Model"), "native", &strategyID, true)
-	disabledModelID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "disabled-model", stringPtr("Disabled Model"), "native", &strategyID, false)
-	endpointID := modelInsertEndpoint(t, harness, profileID, "Topology Endpoint", 0)
-	terminalTargetID := modelInsertConnection(t, harness, profileID, terminalModelID, endpointID, 0, false, nil)
-	modelInsertModelTarget(t, harness, profileID, entryModelID, terminalModelID, 0, true)
-	insertUsageEvent(t, harness, usageEventSeed{ID: 80, ProfileID: profileID, IngressRequestID: "topology-1", ModelID: "terminal-model", EndpointID: &endpointID, ConnectionID: &terminalTargetID, CreatedAt: fixedS15Now.Add(-20 * time.Minute)})
-	insertUsageEvent(t, harness, usageEventSeed{ID: 81, ProfileID: profileID, IngressRequestID: "topology-2", ModelID: "terminal-model", EndpointID: &endpointID, ConnectionID: &terminalTargetID, StatusCode: http.StatusServiceUnavailable, BillableFlag: boolPtr(false), PricedFlag: boolPtr(false), CreatedAt: fixedS15Now.Add(-10 * time.Minute)})
-	var modelToModelEdgeID int
-	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM model_access_targets WHERE profile_id = $1 AND source_model_config_id = $2 AND target_model_config_id = $3`, profileID, entryModelID, terminalModelID).Scan(&modelToModelEdgeID); err != nil {
-		t.Fatalf("load topology model edge id: %v", err)
-	}
-	var modelToTerminalEdgeID int
-	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM model_access_targets WHERE profile_id = $1 AND source_model_config_id = $2 AND target_connection_id = $3`, profileID, terminalModelID, terminalTargetID).Scan(&modelToTerminalEdgeID); err != nil {
-		t.Fatalf("load topology terminal edge id: %v", err)
-	}
-	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/dashboard", http.StatusOK)
-	assertS15DashboardShape(t, payload)
-	topologyGraph := asMap(t, payload["topology_graph"])
-	nodes := topologyGraph["nodes"].([]any)
-	edges := topologyGraph["edges"].([]any)
-	assertS15ItemsOmitKey(t, nodes, "health_status")
-	assertS15ItemsOmitKey(t, edges, "health_status")
-	assertJSONIntFields(t, asMap(t, topologyGraph["stats"]), map[string]int{"model_count": 3, "disabled_model_count": 1, "terminal_target_count": 1, "inactive_terminal_target_count": 1, "endpoint_count": 1, "edge_count": 3, "active_model_count": 2, "active_terminal_target_count": 0})
-	disabledNode := s15ItemByID(t, nodes, fmt.Sprintf("model-%d", disabledModelID))
-	terminalNode := s15ItemByID(t, nodes, fmt.Sprintf("terminal-target-%d", terminalTargetID))
-	modelEdge := s15ItemByID(t, edges, fmt.Sprintf("access-target-%d", modelToModelEdgeID))
-	terminalEdge := s15ItemByID(t, edges, fmt.Sprintf("access-target-%d", modelToTerminalEdgeID))
-	bindingEdge := s15ItemByID(t, edges, fmt.Sprintf("terminal-target-binding-%d", terminalTargetID))
-	if disabledNode["status"] != "disabled" || disabledNode["label"] != "Disabled Model" || terminalNode["status"] != "inactive" || terminalNode["active"] != false || jsonInt(t, terminalNode["recent_request_count"]) != 2 || jsonInt(t, terminalNode["recent_success_rate"]) != 50 || modelEdge["kind"] != "model_to_model" || modelEdge["source_node_id"] != fmt.Sprintf("model-%d", entryModelID) || modelEdge["target_node_id"] != fmt.Sprintf("model-%d", terminalModelID) || terminalEdge["product_kind"] != "model_to_terminal_target" || bindingEdge["product_kind"] != "terminal_target_to_endpoint" || jsonInt(t, bindingEdge["endpoint_id"]) != endpointID {
-		t.Fatalf("unexpected topology graph payload: %+v", topologyGraph)
-	}
 }
 
 func TestManagementGlobalLogRetentionJobStatusContract(t *testing.T) {

@@ -153,7 +153,7 @@ func buildDashboardRoutingHealthMap(ctx context.Context, exec queryExecutor, pro
 	if err := applyDashboardRoutingSuccessRates(ctx, exec, profileID, fromTime, toTime, edgeMap, connectionToEdgeKeys); err != nil {
 		return DashboardRoutingHealthMap{}, err
 	}
-	return buildDashboardRoutingDiagramData(edgeMap), nil
+	return buildDashboardRoutingHealthData(edgeMap), nil
 }
 
 func loadDashboardSnapshotConnections(ctx context.Context, exec queryExecutor, profileID int) ([]dashboardSnapshotConnection, error) {
@@ -277,7 +277,7 @@ func applyDashboardRoutingSuccessRates(ctx context.Context, exec queryExecutor, 
 	return nil
 }
 
-func buildDashboardRoutingDiagramData(edgeMap map[string]*dashboardRoutingEdgeAccumulator) DashboardRoutingHealthMap {
+func buildDashboardRoutingHealthData(edgeMap map[string]*dashboardRoutingEdgeAccumulator) DashboardRoutingHealthMap {
 	links := make([]DashboardRoutingLink, 0, len(edgeMap))
 	for _, edge := range edgeMap {
 		links = append(links, DashboardRoutingLink{

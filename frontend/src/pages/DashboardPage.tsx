@@ -7,7 +7,6 @@ import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
 import { DashboardAnalyticsContent } from "@/pages/dashboard/DashboardAnalyticsContent";
 import { DashboardOverviewTab } from "@/pages/dashboard/DashboardOverviewTab";
-import { RoutingDiagramCard } from "@/pages/dashboard/RoutingDiagramCard";
 import { DASHBOARD_TAB_OPTIONS, type DashboardTab } from "@/pages/dashboard/queryParams";
 import { useDashboardPageData } from "@/pages/dashboard/useDashboardPageData";
 import { useDashboardPageState } from "@/pages/dashboard/useDashboardPageState";
@@ -26,7 +25,7 @@ export function DashboardPage() {
       {activeTab === "analytics" ? (
         <DashboardAnalyticsSection pageState={pageState} />
       ) : (
-        <DashboardAggregateSection pageState={pageState} activeTab={activeTab} />
+        <DashboardAggregateSection pageState={pageState} />
       )}
     </div>
   );
@@ -34,10 +33,8 @@ export function DashboardPage() {
 
 function DashboardAggregateSection({
   pageState,
-  activeTab,
 }: {
   pageState: ReturnType<typeof useDashboardPageState>;
-  activeTab: Extract<DashboardTab, "overview" | "routing">;
 }) {
   const navigate = useNavigate();
   const { format: formatTime } = useTimezone();
@@ -61,25 +58,6 @@ function DashboardAggregateSection({
     },
     [navigate],
   );
-  const handleSelectModel = useCallback(
-    (modelConfigId: number) => {
-      void navigate({ to: "/models/$modelId", params: { modelId: String(modelConfigId) } });
-    },
-    [navigate],
-  );
-  const handleDrillDownRequests = useCallback(
-    (params: { endpoint_id?: number; model_id?: string }) => {
-      void navigate({
-        to: "/observe/requests",
-        search: {
-          endpoint: params.endpoint_id ? String(params.endpoint_id) : undefined,
-          model: params.model_id,
-        },
-      });
-    },
-    [navigate],
-  );
-
   return (
     <>
       <OperatorPageHeader title={messages.dashboard.dashboardTitle} description={messages.dashboard.dashboardDescription}>
@@ -100,29 +78,19 @@ function DashboardAggregateSection({
 
       <DashboardTabs pageState={pageState} />
 
-      {activeTab === "overview" ? (
-        <DashboardOverviewTab
-          clearRecentRequestHighlight={data.clearRecentRequestHighlight}
-          loading={data.loading}
-          metricsHighlighted={data.metricsHighlighted}
-          overviewData={data.overviewData}
-          recentNewIds={data.recentNewIds}
-          formatTime={formatTime}
-          onOpenAnalytics={openAnalyticsTab}
-          onInspectSpending={openAnalyticsTab}
-          onReviewRequests={handleReviewRequests}
-          onViewLoadbalanceEvents={handleViewLoadbalanceEvents}
-          onSelectRecentActivity={handleSelectRecentActivity}
-        />
-      ) : (
-        <RoutingDiagramCard
-          data={data.overviewData.routingDiagramData}
-          loading={data.overviewData.routingDiagramLoading}
-          error={data.overviewData.routingDiagramError}
-          onSelectModel={handleSelectModel}
-          onDrillDownRequests={handleDrillDownRequests}
-        />
-      )}
+      <DashboardOverviewTab
+        clearRecentRequestHighlight={data.clearRecentRequestHighlight}
+        loading={data.loading}
+        metricsHighlighted={data.metricsHighlighted}
+        overviewData={data.overviewData}
+        recentNewIds={data.recentNewIds}
+        formatTime={formatTime}
+        onOpenAnalytics={openAnalyticsTab}
+        onInspectSpending={openAnalyticsTab}
+        onReviewRequests={handleReviewRequests}
+        onViewLoadbalanceEvents={handleViewLoadbalanceEvents}
+        onSelectRecentActivity={handleSelectRecentActivity}
+      />
     </>
   );
 }
@@ -152,15 +120,12 @@ function DashboardTabs({ pageState }: { pageState: ReturnType<typeof useDashboar
       }}
       className="flex flex-col gap-4"
     >
-      <TabsList className="grid h-10 w-full max-w-md grid-cols-3 rounded-lg border border-outline-variant bg-surface-container-low p-0.5">
+      <TabsList className="grid h-10 w-full max-w-sm grid-cols-2 rounded-lg border border-outline-variant bg-surface-container-low p-0.5">
         <TabsTrigger value="overview" className="rounded-lg text-sm font-medium">
           {messages.dashboard.overviewTab}
         </TabsTrigger>
         <TabsTrigger value="analytics" className="rounded-lg text-sm font-medium">
           {messages.dashboard.analyticsTab}
-        </TabsTrigger>
-        <TabsTrigger value="routing" className="rounded-lg text-sm font-medium">
-          {messages.dashboard.routingTab}
         </TabsTrigger>
       </TabsList>
     </Tabs>

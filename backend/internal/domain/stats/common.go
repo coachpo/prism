@@ -383,6 +383,13 @@ func boolValue(value *bool) bool {
 	return value != nil && *value
 }
 
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
 func intValue(value *int) int {
 	if value == nil {
 		return 0

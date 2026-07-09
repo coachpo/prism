@@ -370,28 +370,6 @@ func TestDashboardRoutingHealthFromUsageEvents(t *testing.T) {
 	}
 }
 
-func TestDashboardTopologyUsageEventHealth(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	conn := phase7MigratedConn(t, ctx, "stats_dashboard_topology_usage_events")
-	defer func() { _ = conn.Close(ctx) }()
-	profileID := phase7InsertProfile(t, ctx, conn)
-	route := phase7InsertDashboardRoutingTarget(t, ctx, conn, profileID, "topology-health")
-
-	phase7InsertDashboardRequestLog(t, ctx, conn, profileID, 2501, route, http.StatusInternalServerError, phase7Now.Add(-10*time.Minute))
-	phase7InsertDashboardUsageEvent(t, ctx, conn, profileID, 2502, route, http.StatusOK, true, phase7Now.Add(-8*time.Minute))
-	phase7InsertDashboardUsageEvent(t, ctx, conn, profileID, 2503, route, http.StatusServiceUnavailable, false, phase7Now.Add(-7*time.Minute))
-
-	aggregate, err := stats.BuildDashboardAggregateSnapshot(ctx, conn, profileID, phase7Now)
-	if err != nil {
-		t.Fatalf("build dashboard aggregate snapshot: %v", err)
-	}
-	node := phase7DashboardTopologyConnectionNode(t, aggregate.TopologyGraph, route.ConnectionID)
-	if node.RecentRequestCount == nil || *node.RecentRequestCount != 2 || node.RecentSuccessRate == nil || *node.RecentSuccessRate != 50 || node.LastRequestAt == nil {
-		t.Fatalf("expected dashboard topology telemetry from usage events only, got %+v", node)
-	}
-}
-
 func TestManagementStructuredLogsForAuditStatsJobs(t *testing.T) {
 	var output bytes.Buffer
 	previousLogger := slog.Default()
@@ -765,17 +743,6 @@ func phase7DashboardRoutingLinkForEndpoint(t *testing.T, routing stats.Dashboard
 	}
 	t.Fatalf("expected dashboard routing link for endpoint %d, got %+v", endpointID, routing.Links)
 	return stats.DashboardRoutingLink{}
-}
-
-func phase7DashboardTopologyConnectionNode(t *testing.T, graph stats.DashboardTopologyGraph, connectionID int) stats.DashboardTopologyNode {
-	t.Helper()
-	for _, node := range graph.Nodes {
-		if node.ConnectionID != nil && *node.ConnectionID == connectionID {
-			return node
-		}
-	}
-	t.Fatalf("expected dashboard topology connection node for connection %d, got %+v", connectionID, graph.Nodes)
-	return stats.DashboardTopologyNode{}
 }
 
 func phase7InsertAuditLog(t *testing.T, ctx context.Context, exec interface {

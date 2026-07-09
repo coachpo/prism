@@ -7,7 +7,6 @@ import type {
   SpendingTopModel,
   StatGroup,
 } from "@/lib/types";
-import type { RoutingDiagramData } from "./routingDiagram";
 import { useDashboardBootstrapData } from "./useDashboardBootstrapData";
 import { useDashboardPolling } from "./useDashboardPolling";
 
@@ -39,9 +38,6 @@ export interface DashboardOverviewData {
   incidents: LoadbalanceIncidentListResponse | null;
   recentActivity: DashboardRecentActivityResponse | null;
   recentActivityItems: DashboardRecentActivityItem[];
-  routingDiagramData: RoutingDiagramData | null;
-  routingDiagramError: string | null;
-  routingDiagramLoading: boolean;
   topSpendingModels: SpendingTopModel[];
 }
 const EMPTY_METRIC_SNAPSHOT: DashboardMetricSnapshot = {
@@ -117,8 +113,6 @@ function toDashboardOverviewData(
   incidents: LoadbalanceIncidentListResponse | null,
   recentActivity: DashboardRecentActivityResponse | null,
   recentActivityItems: DashboardRecentActivityItem[],
-  routingDiagramError: string | null,
-  routingDiagramLoading: boolean,
 ): DashboardOverviewData {
   return {
     apiFamilyRows: [...(snapshot?.api_family_rows ?? [])].sort(
@@ -129,9 +123,6 @@ function toDashboardOverviewData(
     incidents,
     recentActivity,
     recentActivityItems,
-    routingDiagramData: snapshot?.topology_graph ?? null,
-    routingDiagramError,
-    routingDiagramLoading,
     topSpendingModels: snapshot?.top_spending_models ?? [],
   };
 }
@@ -147,8 +138,6 @@ export function useDashboardPageData({
     dashboardSnapshot,
     fetchDashboardData,
     loading,
-    routingDiagramError,
-    routingDiagramLoading,
   } = useDashboardBootstrapData({
     revision,
     selectedProfileId,
@@ -174,16 +163,12 @@ export function useDashboardPageData({
       dashboardIncidents,
       dashboardRecentActivity,
       dashboardRecentActivityItems,
-      routingDiagramError,
-      routingDiagramLoading,
     );
   }, [
     dashboardRecentActivity,
     dashboardRecentActivityItems,
     dashboardIncidents,
     dashboardSnapshot,
-    routingDiagramError,
-    routingDiagramLoading,
   ]);
 
   return {

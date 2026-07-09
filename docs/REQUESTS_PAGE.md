@@ -16,7 +16,7 @@ The request-log route now uses split HTTP contracts: a slim list payload for bro
 - Support deep investigation of a single request through URL-addressable state.
 - Keep the retained browse filters server-backed and URL-addressable.
 - Expose linked audit payloads only when needed.
-- Support implemented drill-down entry points from dashboard overview, dashboard recent activity, and dashboard routing endpoint nodes.
+- Support implemented drill-down entry points from dashboard overview and dashboard recent activity.
 - Show requested model identity separately from the final target model chosen by unified access-target resolution.
 - Show requested model identity separately from final target, selected Terminal Target, and endpoint.
 
@@ -177,7 +177,6 @@ Dashboard should support request-log drill-down entry points for:
 
 - quick action button: `Review Requests`
 - recent activity row drill-downs by `request_id`
-- routing health endpoint-node drill-downs
 
 ## 10. Required Contracts
 
@@ -200,7 +199,7 @@ The Requests page must remain compatible with the following backend-facing and s
 6. Opening the dedicated full audit page triggers audit resolution, skips lookup when audit capture was disabled for that request, and keeps modal inspection free of audit payload fetches.
 7. The table remains usable at large result counts through virtualization, sticky headers, and explicit pagination controls.
 8. The list view stays on the slim list payload, while exact-request investigation uses the dedicated detail payload without re-expanding the table schema.
-9. Dashboard overview, recent activity, and routing endpoint nodes can emit deep links into `/observe/requests` without inventing route-local state outside the documented query contract.
+9. Dashboard overview and recent activity can emit deep links into `/observe/requests` without inventing route-local state outside the documented query contract.
 10. The overview tab renders `ingress_request_id`, `attempt_number`, and `provider_correlation_id` when present so operators can distinguish incoming request grouping from per-attempt row identity.
 11. The request-log table and detail drawer render requested model vs final target model separately, falling back to the requested model when `resolved_target_model_id` matches `model_id`.
 12. Route-shell, filter, empty-state, and detail-drawer labels follow the active frontend locale while timestamp rendering stays aligned to the selected timezone and locale-aware formatting helpers.

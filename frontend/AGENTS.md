@@ -1,7 +1,7 @@
 # FRONTEND KNOWLEDGE BASE
 
 ## OVERVIEW
-`frontend/` is Prism's monorepo-owned React 19/Vite management dashboard. It owns the browser-side management contract, mounted route surface, protected-shell provider handoff, checked-in shadcn/ui registry config, the dashboard routing health list, and the production `dist/` server while keeping this doc as the router for the frontend directory.
+`frontend/` is Prism's monorepo-owned React 19/Vite management dashboard. It owns the browser-side management contract, mounted route surface, protected-shell provider handoff, checked-in shadcn/ui registry config, the overview/analytics dashboard, and the production `dist/` server while keeping this doc as the router for the frontend directory.
 
 ## STRUCTURE
 ```text
@@ -54,7 +54,6 @@ frontend/
 - Node is `>=24`, package management is `pnpm@10.30.1`, and frontend scripts are `dev`, `build`, `lint`, `preview`, `test`, `test:lib`, `test:server`, and `test:e2e`.
 - Treat `src/app/router/appRouter.tsx` and `src/app/router/rewriteRoutes.ts` as the source of truth for mounted routes, search schemas, and route scopes; `src/App.tsx` stays the thin wrapper.
 - Keep `src/components/` focused on shared shell chrome, shared widgets, and design-system wrappers, and keep the leaf ownership documented below it.
-- Keep dashboard routing health presentation on the plain-list `src/pages/dashboard/routing-diagram/` leaf; do not reintroduce a graph renderer dependency.
 - Keep model CRUD, access-target authoring, accepted-format controls, and typed/import validation in their owning leaves without reintroducing deleted model-owned context routing fields.
 - Keep backend access on the typed `src/lib/api.ts` boundary and the modules it re-exports.
 - Keep backend startup configuration out of the dashboard after R2. Operators edit `config.json` and restart; `VITE_API_BASE` plus launcher proxy envs are transport wiring only.

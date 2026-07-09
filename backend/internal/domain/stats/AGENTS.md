@@ -1,7 +1,7 @@
 # BACKEND DOMAIN STATS KNOWLEDGE BASE
 
 ## OVERVIEW
-`backend/internal/domain/stats/` owns PostgreSQL-backed read models for dashboards, usage analytics, spending, request logs, recent activity, topology graphs, and retained filter options.
+`backend/internal/domain/stats/` owns PostgreSQL-backed read models for dashboards, usage analytics, spending, request logs, recent activity, routing health, and retained filter options.
 
 ## STRUCTURE
 ```text
@@ -10,14 +10,13 @@ stats/
 ├── dashboard_health.go            # Dashboard freshness/coverage helper types
 ├── dashboard_snapshot_builder.go # Overview dashboard aggregate snapshot
 ├── dashboard_recent_activity.go  # Bounded request-history activity feed
-├── dashboard_topology_graph.go   # Routing/topology graph projection
 ├── request_logs.go               # Request list/detail projections and filters
 ├── snapshot.go                   # Usage snapshots
 └── types.go                      # JSON-facing read-model types
 ```
 
 ## WHERE TO LOOK
-- Dashboard aggregate snapshot and routing map: `dashboard_snapshot_builder.go`, `dashboard_topology_graph.go`
+- Dashboard aggregate snapshot and routing health map: `dashboard_snapshot_builder.go`
 - Recent activity feed and watermarks: `dashboard_recent_activity.go`
 - Request-log list/detail filters and final-target fields: `request_logs.go`, `types.go`
 - Usage snapshot, spending, endpoint/model/proxy-key aggregates: `snapshot.go`, `aggregates.go`

@@ -6,9 +6,7 @@ import type {
 import type { LoadbalanceStrategySummary } from "./loadbalance";
 import type { UsageSnapshotPreset } from "./usage-statistics";
 import type {
-  CompatibilityTerminalTargetKind,
   PersistedTerminalTargetType,
-  TerminalTargetProductKind,
 } from "./target-compatibility";
 
 export type StreamOutcome =
@@ -579,81 +577,6 @@ export interface DashboardMetricSnapshot {
   unpriced_request_count: number;
 }
 
-export type DashboardTopologyNodeKind =
-  | "endpoint"
-  | "model"
-  | CompatibilityTerminalTargetKind;
-
-export type DashboardTopologyNodeProductKind =
-  | "endpoint"
-  | "model"
-  | TerminalTargetProductKind;
-
-export type DashboardTopologyEdgeKind =
-  | "model_to_model"
-  | "model_to_endpoint"
-  | "model_to_connection"
-  | "model_to_terminal_target"
-  | "connection_to_endpoint"
-  | "terminal_target_to_endpoint";
-
-export type DashboardTopologyEdgeProductKind =
-  | "model_to_model"
-  | "model_to_terminal_target"
-  | "terminal_target_to_endpoint";
-
-export interface DashboardTopologyStats {
-  model_count: number;
-  active_model_count: number;
-  disabled_model_count: number;
-  terminal_target_count: number;
-  active_terminal_target_count: number;
-  inactive_terminal_target_count: number;
-  endpoint_count: number;
-  edge_count: number;
-}
-
-export interface DashboardTopologyNode {
-  id: string;
-  kind: DashboardTopologyNodeKind;
-  product_kind?: DashboardTopologyNodeProductKind;
-  label: string;
-  sublabel?: string | null;
-  status: string;
-  model_config_id?: number | null;
-  model_id?: string | null;
-  terminal_target_id?: number | null;
-  connection_id?: number | null;
-  endpoint_id?: number | null;
-  active?: boolean | null;
-  recent_request_count?: number | null;
-  recent_success_rate?: number | null;
-  last_request_at?: string | null;
-}
-
-export interface DashboardTopologyEdge {
-  id: string;
-  kind: DashboardTopologyEdgeKind;
-  product_kind?: DashboardTopologyEdgeProductKind;
-  source_node_id: string;
-  target_node_id: string;
-  position?: number | null;
-  enabled?: boolean | null;
-  source_model_config_id?: number | null;
-  source_model_id?: string | null;
-  target_model_config_id?: number | null;
-  target_model_id?: string | null;
-  terminal_target_id?: number | null;
-  connection_id?: number | null;
-  endpoint_id?: number | null;
-}
-
-export interface DashboardTopologyGraph {
-  nodes: DashboardTopologyNode[];
-  edges: DashboardTopologyEdge[];
-  stats: DashboardTopologyStats;
-}
-
 export interface DashboardRoutingNode {
   id: string;
   name: string;
@@ -721,7 +644,6 @@ export interface DashboardSnapshot {
   api_family_rows: StatGroup[];
   top_spending_models: SpendingTopModel[];
   routing_health_map: DashboardRoutingHealthMap;
-  topology_graph?: DashboardTopologyGraph;
 }
 
 export interface DashboardRecentActivityItem {

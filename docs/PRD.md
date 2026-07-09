@@ -81,7 +81,7 @@ Single operator (developer/power user) running the application locally or on a l
 - If a model has no request data, it shows "N/A" (gray)
 - Display format: A colored badge showing the aggregated success rate percentage
   - Same color thresholds as Terminal Target badges: ≥98% green, 75-98% yellow, <75% red, N/A gray
-- Shown in the **Models** page model list table as the success-rate column. Dashboard overview surfaces aggregate health through overview cards, recent activity, top-spending summaries, and routing/topology health surfaces instead of a model-overview table.
+- Shown in the **Models** page model list table as the success-rate column. Dashboard overview surfaces aggregate health through overview cards, recent activity, and top-spending summaries instead of a model-overview table.
 
 ### 4.7 Web UI (Management Dashboard)
 - View all configured models and their reachable Terminal Targets

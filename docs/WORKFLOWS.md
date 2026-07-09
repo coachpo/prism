@@ -4,7 +4,7 @@ This document maps Prism's current operator workflows from mounted frontend rout
 
 Validated again against current repo surfaces on 2026-07-09:
 - `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` are all `1.0.2`, which is the current backend/frontend version surface.
-- The protected frontend route shell mounts observe, request-log, model, route, settings, proxy-key, and pricing workflows; analytics and routing health live under `/observe`.
+- The protected frontend route shell mounts observe, request-log, model, route, settings, proxy-key, and pricing workflows; analytics lives under `/observe`.
 
 ## Evidence Sources
 
@@ -25,7 +25,7 @@ Validated again against current repo surfaces on 2026-07-09:
 ## Shared Scope Rules
 
 - Public auth routes are `/auth/login`.
-- Protected shell routes cover `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/route/pricing`, `/system/settings`, and `/control/proxy-keys`; analytics is under `/observe?tab=analytics`, and the routing health list is under `/observe?tab=routing`.
+- Protected shell routes cover `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/route/pricing`, `/system/settings`, and `/control/proxy-keys`; analytics is under `/observe?tab=analytics`.
 - Profile-scoped management requests are pinned to Default profile id `1`. `X-Profile-Id` is still accepted for compatibility, but the backend ignores its value.
 - Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/settings/auth*`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
 - Runtime proxy traffic on `/v1/*` and `/v1beta/*` ignores management profile headers and resolves against frozen Default profile id `1`.
@@ -78,7 +78,7 @@ Validated again against current repo surfaces on 2026-07-09:
 
 **Frontend flow**
 
-1. Dashboard overview bootstrap loads KPI cards, spending summaries, average RPM/metric snapshots, and routing data from the stats-only aggregate snapshot.
+1. Dashboard overview bootstrap loads KPI cards, spending summaries, and average RPM/metric snapshots from the stats-only aggregate snapshot.
 2. Dashboard overview bootstrap loads recent activity from the separate recent-activity feed.
 3. The dashboard also loads current loadbalance incident state for routing-health alerts.
 4. The dashboard polls REST stats endpoints every 30 seconds for aggregate and recent-activity reconciliation.

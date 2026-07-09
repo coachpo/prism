@@ -27,7 +27,7 @@ describe("rewrite route helpers", () => {
   })
 
   it("validates and normalizes target route search params", () => {
-    expect(observeSearchSchema.parse({ tab: "routing" })).toEqual({ tab: "routing" })
+    expect(observeSearchSchema.parse({ tab: "routing" })).toEqual({ tab: "overview" })
     expect(observeSearchSchema.parse({ tab: "unknown" })).toEqual({ tab: "overview" })
     expect(requestLogSearchSchema.parse({
       client_rule_id: "123",

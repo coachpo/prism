@@ -114,7 +114,6 @@ export function useDashboardBootstrapData({
     useState<DashboardRecentActivityResponse | null>(null);
   const [dashboardIncidents, setDashboardIncidents] =
     useState<LoadbalanceIncidentListResponse | null>(null);
-  const [routingDiagramError, setRoutingDiagramError] = useState<string | null>(null);
   const latestDashboardSnapshotRevisionRef = useRef<string | null>(null);
   const recentActivityRequestIdsRef = useRef<Set<number>>(new Set());
   const requestVersionRef = useRef(0);
@@ -176,7 +175,6 @@ export function useDashboardBootstrapData({
         setLoading(true);
       }
 
-      setRoutingDiagramError(null);
       try {
         const { snapshot, recentActivity, incidents } = await loadDashboardBootstrapData(
           revision,
@@ -215,8 +213,5 @@ export function useDashboardBootstrapData({
     fetchDashboardData,
     loading,
     reconcileDashboardSnapshot,
-    routingDiagramError,
-    routingDiagramLoading: loading,
-    setRoutingDiagramError,
   };
 }
