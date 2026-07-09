@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -25,6 +26,14 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/migrate"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
 )
+
+const updateStartupSeedsGoldenEnv = "PRISM_UPDATE_STARTUP_SEEDS_GOLDEN"
+
+var startupBackendBinary = struct {
+	once sync.Once
+	path string
+	err  error
+}{}
 
 func TestStartupCreatesLogPartitions(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -101,54 +110,7 @@ func TestStartupSeeds(t *testing.T) {
 		t.Fatalf("expected startup to apply baseline on empty database, got %q", result.Migration.Outcome)
 	}
 
-	profile := loadSingleProfile(t, testContext, conn, "name = 'Default'")
-	if profile.Description != DefaultProfileDescription {
-		t.Fatalf("expected default profile description %q, got %q", DefaultProfileDescription, profile.Description)
-	}
-	if !profile.IsActive || !profile.IsDefault || !profile.IsEditable {
-		t.Fatalf("expected seeded default profile to be active/default/editable, got %+v", profile)
-	}
-	if profile.Version != 1 {
-		t.Fatalf("expected first-boot default profile version 1, got %d", profile.Version)
-	}
-	if profile.DeletedAt.Valid {
-		t.Fatalf("expected seeded default profile to be non-deleted")
-	}
-
-	var userSettingsProfileID int
-	var reportCurrencyCode string
-	var reportCurrencySymbol string
-	var timezonePreference sql.NullString
-	if err := conn.QueryRow(
-		testContext,
-		`SELECT profile_id, report_currency_code, report_currency_symbol, timezone_preference FROM user_settings ORDER BY profile_id ASC LIMIT 1`,
-	).Scan(&userSettingsProfileID, &reportCurrencyCode, &reportCurrencySymbol, &timezonePreference); err != nil {
-		t.Fatalf("load seeded user_settings row: %v", err)
-	}
-	if userSettingsProfileID != profile.ID {
-		t.Fatalf("expected seeded user_settings row for default profile id %d, got %d", profile.ID, userSettingsProfileID)
-	}
-	if reportCurrencyCode != "USD" {
-		t.Fatalf("expected USD report currency code, got %q", reportCurrencyCode)
-	}
-	if reportCurrencySymbol != "$" {
-		t.Fatalf("expected $ report currency symbol, got %q", reportCurrencySymbol)
-	}
-	if timezonePreference.Valid {
-		t.Fatalf("expected nil timezone_preference on seeded user_settings row")
-	}
-
-	var appAuthCount int
-	if err := conn.QueryRow(testContext, `SELECT COUNT(*) FROM app_auth_settings WHERE singleton_key = 'app' AND auth_enabled = FALSE`).Scan(&appAuthCount); err != nil {
-		t.Fatalf("count seeded app auth settings: %v", err)
-	}
-	if appAuthCount != 1 {
-		t.Fatalf("expected exactly one seeded app auth settings row, got %d", appAuthCount)
-	}
-
-	assertCount(t, testContext, conn, `SELECT COUNT(*) FROM user_agent_client_rules WHERE is_system = TRUE`, len(startup.SystemUserAgentClientRuleDefaults))
-	assertCount(t, testContext, conn, `SELECT COUNT(*) FROM header_blocklist_rules WHERE is_system = TRUE`, len(startup.SystemHeaderBlocklistDefaults))
-	assertCount(t, testContext, conn, `SELECT COUNT(*) FROM loadbalance_strategies`, 0)
+	assertStartupSeedsGolden(t, testContext, conn)
 }
 
 func TestStartupSeedsMissingBootstrapOnly(t *testing.T) {
@@ -215,7 +177,7 @@ func TestBackendStartupWithStartupTelemetryConfig(t *testing.T) {
 		payload["telemetry"] = startupTelemetryBootstrapPayload(collector.URL)
 	})
 
-	binaryPath := buildBackendBinary(t, testContext)
+	binaryPath := startupBackendBinaryPath(t)
 	output := runBackendUntilHealthyThenInterrupt(t, testContext, binaryPath, configPath, backendPort)
 	if !strings.Contains(output, "starting prism backend") {
 		t.Fatalf("expected backend startup log, got:\n%s", output)
@@ -265,31 +227,9 @@ func TestStartupRuleSeeds(t *testing.T) {
 	}
 
 	now := time.Date(2026, 4, 18, 11, 30, 0, 0, time.UTC)
-	insertProfile(t, testContext, conn, profileSeed{
-		Name:        "Seed Profile",
-		Description: "existing profile",
-		IsActive:    true,
-		IsDefault:   false,
-		IsEditable:  true,
-		Version:     0,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
-	insertSystemUserAgentRule(t, testContext, conn, systemUserAgentRuleSeed{
-		Name:      "Claude Code",
-		Pattern:   "claude(?:\\s|-)?code",
-		Enabled:   false,
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
-	insertSystemHeaderBlocklistRule(t, testContext, conn, systemHeaderBlocklistRuleSeed{
-		Name:      "Custom Via Header",
-		MatchType: "exact",
-		Pattern:   "via",
-		Enabled:   false,
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
+	insertProfile(t, testContext, conn, "Seed Profile", "existing profile", true, false, true, 0, now)
+	insertSystemUserAgentRule(t, testContext, conn, "Claude Code", "claude(?:\\s|-)?code", false, now)
+	insertSystemHeaderBlocklistRule(t, testContext, conn, "Custom Via Header", "exact", "via", false, now)
 
 	service := newStartupService(t, harness.connectionString("startup_rule_seeds"), nil)
 	result, err := service.RunWithConn(testContext, conn)
@@ -352,23 +292,8 @@ func TestStartupIdempotency(t *testing.T) {
 	}
 
 	now := time.Date(2026, 4, 18, 12, 30, 0, 0, time.UTC)
-	profileID := insertProfile(t, testContext, conn, profileSeed{
-		Name:      "Idempotent Profile",
-		IsActive:  true,
-		IsDefault: false,
-		Version:   0,
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
-	insertEndpoint(t, testContext, conn, endpointSeed{
-		ProfileID: profileID,
-		Name:      "Primary endpoint",
-		BaseURL:   "https://api.example.com",
-		APIKey:    "plain-secret-token",
-		Position:  0,
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
+	profileID := insertProfile(t, testContext, conn, "Idempotent Profile", "", true, false, false, 0, now)
+	insertEndpoint(t, testContext, conn, profileID, "Primary endpoint", "https://api.example.com", "plain-secret-token", 0, now)
 
 	service := newStartupService(t, harness.connectionString("startup_idempotency"), nil)
 	firstResult, err := service.RunWithConn(testContext, conn)
@@ -429,60 +354,12 @@ func TestStartupPreservesRuntimeStatePersistenceAcrossRestart(t *testing.T) {
 	defaultProfile := loadSingleProfile(t, testContext, conn, "name = 'Default'")
 	now := time.Date(2026, 4, 18, 14, 0, 0, 0, time.UTC)
 	strategyID := insertLegacyLoadbalanceStrategy(t, testContext, conn, defaultProfile.ID, "Startup runtime persistence strategy", now)
-	openModelConfigID := insertModelConfig(t, testContext, conn, modelConfigSeed{
-		ProfileID:             defaultProfile.ID,
-		APIFamily:             "openai",
-		ModelID:               "startup-runtime-open-model",
-		LoadbalanceStrategyID: sql.NullInt64{Int64: int64(strategyID), Valid: true},
-		IsEnabled:             true,
-		CreatedAt:             now,
-		UpdatedAt:             now,
-	})
-	closedModelConfigID := insertModelConfig(t, testContext, conn, modelConfigSeed{
-		ProfileID:             defaultProfile.ID,
-		APIFamily:             "openai",
-		ModelID:               "startup-runtime-closed-model",
-		LoadbalanceStrategyID: sql.NullInt64{Int64: int64(strategyID), Valid: true},
-		IsEnabled:             true,
-		CreatedAt:             now,
-		UpdatedAt:             now,
-	})
-	openEndpointID := insertEndpoint(t, testContext, conn, endpointSeed{
-		ProfileID: defaultProfile.ID,
-		Name:      "Runtime open endpoint",
-		BaseURL:   "https://runtime-open.example.com",
-		APIKey:    "runtime-open-secret",
-		Position:  0,
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
-	closedEndpointID := insertEndpoint(t, testContext, conn, endpointSeed{
-		ProfileID: defaultProfile.ID,
-		Name:      "Runtime closed endpoint",
-		BaseURL:   "https://runtime-closed.example.com",
-		APIKey:    "runtime-closed-secret",
-		Position:  1,
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
-	openConnectionID := insertConnection(t, testContext, conn, connectionSeed{
-		ProfileID:     defaultProfile.ID,
-		ModelConfigID: openModelConfigID,
-		EndpointID:    openEndpointID,
-		Name:          "Runtime open connection",
-		Priority:      0,
-		CreatedAt:     now,
-		UpdatedAt:     now,
-	})
-	closedConnectionID := insertConnection(t, testContext, conn, connectionSeed{
-		ProfileID:     defaultProfile.ID,
-		ModelConfigID: closedModelConfigID,
-		EndpointID:    closedEndpointID,
-		Name:          "Runtime closed connection",
-		Priority:      1,
-		CreatedAt:     now,
-		UpdatedAt:     now,
-	})
+	openModelConfigID := insertModelConfig(t, testContext, conn, defaultProfile.ID, "startup-runtime-open-model", strategyID, now)
+	closedModelConfigID := insertModelConfig(t, testContext, conn, defaultProfile.ID, "startup-runtime-closed-model", strategyID, now)
+	openEndpointID := insertEndpoint(t, testContext, conn, defaultProfile.ID, "Runtime open endpoint", "https://runtime-open.example.com", "runtime-open-secret", 0, now)
+	closedEndpointID := insertEndpoint(t, testContext, conn, defaultProfile.ID, "Runtime closed endpoint", "https://runtime-closed.example.com", "runtime-closed-secret", 1, now)
+	openConnectionID := insertConnection(t, testContext, conn, defaultProfile.ID, openModelConfigID, openEndpointID, "Runtime open connection", 0, now)
+	closedConnectionID := insertConnection(t, testContext, conn, defaultProfile.ID, closedModelConfigID, closedEndpointID, "Runtime closed connection", 1, now)
 	failureKind := "transient_http"
 	nextRetryAt := now.Add(5 * time.Minute)
 	successObservedAt := now.Add(-30 * time.Second)
@@ -522,64 +399,6 @@ func TestStartupPreservesRuntimeStatePersistenceAcrossRestart(t *testing.T) {
 	}
 }
 
-type profileSeed struct {
-	Name        string
-	Description string
-	IsActive    bool
-	IsDefault   bool
-	IsEditable  bool
-	Version     int
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-}
-
-type modelConfigSeed struct {
-	ProfileID             int
-	APIFamily             string
-	ModelID               string
-	LoadbalanceStrategyID sql.NullInt64
-	IsEnabled             bool
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
-}
-
-type systemUserAgentRuleSeed struct {
-	Name      string
-	Pattern   string
-	Enabled   bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-type systemHeaderBlocklistRuleSeed struct {
-	Name      string
-	MatchType string
-	Pattern   string
-	Enabled   bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-type endpointSeed struct {
-	ProfileID int
-	Name      string
-	BaseURL   string
-	APIKey    string
-	Position  int
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-type connectionSeed struct {
-	ProfileID     int
-	ModelConfigID int
-	EndpointID    int
-	Name          string
-	Priority      int
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-}
-
 type runtimeStateSeed struct {
 	ProfileID               int
 	ConnectionID            int
@@ -596,89 +415,9 @@ type runtimeStateSeed struct {
 	UpdatedAt               time.Time
 }
 
-type profileSnapshot struct {
-	ID          int     `json:"id"`
-	Name        string  `json:"name"`
-	Description string  `json:"description"`
-	IsActive    bool    `json:"is_active"`
-	IsDefault   bool    `json:"is_default"`
-	IsEditable  bool    `json:"is_editable"`
-	Version     int     `json:"version"`
-	DeletedAt   *string `json:"deleted_at"`
-	CreatedAt   string  `json:"created_at"`
-	UpdatedAt   string  `json:"updated_at"`
-}
-
-type userSettingSnapshot struct {
-	ProfileID            int     `json:"profile_id"`
-	ReportCurrencyCode   string  `json:"report_currency_code"`
-	ReportCurrencySymbol string  `json:"report_currency_symbol"`
-	TimezonePreference   *string `json:"timezone_preference"`
-	CreatedAt            string  `json:"created_at"`
-	UpdatedAt            string  `json:"updated_at"`
-}
-
-type appAuthSettingsRecord struct {
-	SingletonKey                  string `json:"singleton_key"`
-	AuthEnabled                   bool   `json:"auth_enabled"`
-	EmailVerificationAttemptCount int    `json:"email_verification_attempt_count"`
-	MustChangePassword            bool   `json:"must_change_password"`
-	TokenVersion                  int    `json:"token_version"`
-	CreatedAt                     string `json:"created_at"`
-	UpdatedAt                     string `json:"updated_at"`
-}
-
-type systemHeaderRuleSnapshot struct {
-	Name      string `json:"name"`
-	MatchType string `json:"match_type"`
-	Pattern   string `json:"pattern"`
-	Enabled   bool   `json:"enabled"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
-}
-
-type systemUserAgentRuleSnapshot struct {
-	Name      string `json:"name"`
-	Pattern   string `json:"pattern"`
-	Enabled   bool   `json:"enabled"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
-}
-
-type endpointSnapshot struct {
-	ID        int    `json:"id"`
-	ProfileID int    `json:"profile_id"`
-	Name      string `json:"name"`
-	BaseURL   string `json:"base_url"`
-	APIKey    string `json:"api_key"`
-	Position  int    `json:"position"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
-}
-
-type runtimeStateSnapshot struct {
-	ProfileID               int     `json:"profile_id"`
-	ConnectionID            int     `json:"connection_id"`
-	CycleRetryAttempts      int     `json:"cycle_retry_attempts"`
-	CumulativeRetryAttempts int     `json:"cumulative_retry_attempts"`
-	NextRetryAt             *string `json:"next_retry_at"`
-	LastRetryDelayMS        int     `json:"last_retry_delay_ms"`
-	BanMode                 string  `json:"ban_mode"`
-	BannedUntilAt           *string `json:"banned_until_at"`
-	LastFailureKind         *string `json:"last_failure_kind"`
-	LastSuccessAt           *string `json:"last_success_at"`
-	LiveP95LatencyMS        *int32  `json:"live_p95_latency_ms"`
-	CreatedAt               string  `json:"created_at"`
-	UpdatedAt               string  `json:"updated_at"`
-}
-
-type startupStateSnapshot struct {
-	Profiles             []profileSnapshot             `json:"profiles"`
-	UserSettings         []userSettingSnapshot         `json:"user_settings"`
-	AppAuthSettings      []appAuthSettingsRecord       `json:"app_auth_settings"`
-	HeaderBlocklistRules []systemHeaderRuleSnapshot    `json:"header_blocklist_rules"`
-	UserAgentClientRules []systemUserAgentRuleSnapshot `json:"user_agent_client_rules"`
-	Endpoints            []endpointSnapshot            `json:"endpoints"`
+type rowDumpQuery struct {
+	name  string
+	query string
 }
 
 type startupBootstrapFileState struct {
@@ -725,21 +464,38 @@ func reserveLocalTCPPort(t *testing.T) int {
 	return addr.Port
 }
 
-func buildBackendBinary(t *testing.T, ctx context.Context) string {
+func startupBackendBinaryPath(t *testing.T) string {
 	t.Helper()
+	startupBackendBinary.once.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		startupBackendBinary.path, startupBackendBinary.err = buildBackendBinary(ctx)
+	})
+	if startupBackendBinary.err != nil {
+		t.Fatalf("%v", startupBackendBinary.err)
+	}
+	return startupBackendBinary.path
+}
+
+func buildBackendBinary(ctx context.Context) (string, error) {
 	packageDir, err := os.Getwd()
 	if err != nil {
-		t.Fatalf("resolve integration package directory: %v", err)
+		return "", fmt.Errorf("resolve integration package directory: %w", err)
 	}
 	backendRoot := filepath.Clean(filepath.Join(packageDir, "..", ".."))
-	binaryPath := filepath.Join(t.TempDir(), "prism-backend")
+	binaryDir, err := os.MkdirTemp("", "prism-startup-backend-*")
+	if err != nil {
+		return "", fmt.Errorf("create backend binary temp dir: %w", err)
+	}
+	binaryPath := filepath.Join(binaryDir, "prism-backend")
 	command := exec.CommandContext(ctx, "go", "build", "-o", binaryPath, "./cmd/prism-backend")
 	command.Dir = backendRoot
 	output, err := command.CombinedOutput()
 	if err != nil {
-		t.Fatalf("build backend binary: %v\n%s", err, output)
+		_ = os.RemoveAll(binaryDir)
+		return "", fmt.Errorf("build backend binary: %w\n%s", err, output)
 	}
-	return binaryPath
+	return binaryPath, nil
 }
 
 func runBackendUntilHealthyThenInterrupt(t *testing.T, ctx context.Context, binaryPath string, configPath string, port int) string {
@@ -822,7 +578,7 @@ func runBackendPrintEffectiveStartupSettings(t *testing.T, configPath, databaseU
 		t.Fatalf("resolve integration package directory: %v", err)
 	}
 	backendRoot := filepath.Clean(filepath.Join(packageDir, "..", ".."))
-	command := exec.CommandContext(ctx, "go", "run", "./cmd/prism-backend")
+	command := exec.CommandContext(ctx, startupBackendBinaryPath(t))
 	command.Dir = backendRoot
 	command.Env = append(os.Environ(),
 		config.BootstrapConfigPathEnv+"="+configPath,
@@ -1012,7 +768,7 @@ func assertCount(t *testing.T, ctx context.Context, conn *pgx.Conn, query string
 	}
 }
 
-func insertProfile(t *testing.T, ctx context.Context, conn *pgx.Conn, seed profileSeed) int {
+func insertProfile(t *testing.T, ctx context.Context, conn *pgx.Conn, name string, description string, active bool, defaultProfile bool, editable bool, version int, now time.Time) int {
 	t.Helper()
 	var profileID int
 	if err := conn.QueryRow(
@@ -1029,22 +785,22 @@ func insertProfile(t *testing.T, ctx context.Context, conn *pgx.Conn, seed profi
 			updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id`,
-		seed.Name,
-		seed.Description,
-		seed.IsActive,
-		seed.IsDefault,
-		seed.IsEditable,
-		seed.Version,
+		name,
+		description,
+		active,
+		defaultProfile,
+		editable,
+		version,
 		nil,
-		seed.CreatedAt,
-		seed.UpdatedAt,
+		now,
+		now,
 	).Scan(&profileID); err != nil {
-		t.Fatalf("insert profile %q: %v", seed.Name, err)
+		t.Fatalf("insert profile %q: %v", name, err)
 	}
 	return profileID
 }
 
-func insertModelConfig(t *testing.T, ctx context.Context, conn *pgx.Conn, seed modelConfigSeed) int {
+func insertModelConfig(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID int, modelID string, loadbalanceStrategyID int, now time.Time) int {
 	t.Helper()
 	var modelConfigID int
 	if err := conn.QueryRow(
@@ -1061,16 +817,16 @@ func insertModelConfig(t *testing.T, ctx context.Context, conn *pgx.Conn, seed m
 			updated_at
 		) VALUES ($1, $2::varchar(50), $3, $4, $5, CASE WHEN $2::varchar(50) = 'openai' THEN 'dual_native'::text ELSE NULL::text END, $6, $7, $8)
 		RETURNING id`,
-		seed.ProfileID,
-		seed.APIFamily,
-		seed.ModelID,
+		profileID,
+		"openai",
+		modelID,
 		nil,
-		nullInt64(seed.LoadbalanceStrategyID),
-		seed.IsEnabled,
-		seed.CreatedAt,
-		seed.UpdatedAt,
+		loadbalanceStrategyID,
+		true,
+		now,
+		now,
 	).Scan(&modelConfigID); err != nil {
-		t.Fatalf("insert model_config %q: %v", seed.ModelID, err)
+		t.Fatalf("insert model_config %q: %v", modelID, err)
 	}
 	return modelConfigID
 }
@@ -1092,7 +848,7 @@ func insertLegacyLoadbalanceStrategy(t *testing.T, ctx context.Context, conn *pg
 	return strategyID
 }
 
-func insertSystemUserAgentRule(t *testing.T, ctx context.Context, conn *pgx.Conn, seed systemUserAgentRuleSeed) {
+func insertSystemUserAgentRule(t *testing.T, ctx context.Context, conn *pgx.Conn, name string, pattern string, enabled bool, now time.Time) {
 	t.Helper()
 	if _, err := conn.Exec(
 		ctx,
@@ -1106,18 +862,18 @@ func insertSystemUserAgentRule(t *testing.T, ctx context.Context, conn *pgx.Conn
 			updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		nil,
-		seed.Name,
-		seed.Pattern,
-		seed.Enabled,
+		name,
+		pattern,
+		enabled,
 		true,
-		seed.CreatedAt,
-		seed.UpdatedAt,
+		now,
+		now,
 	); err != nil {
-		t.Fatalf("insert system user-agent rule %q: %v", seed.Name, err)
+		t.Fatalf("insert system user-agent rule %q: %v", name, err)
 	}
 }
 
-func insertSystemHeaderBlocklistRule(t *testing.T, ctx context.Context, conn *pgx.Conn, seed systemHeaderBlocklistRuleSeed) {
+func insertSystemHeaderBlocklistRule(t *testing.T, ctx context.Context, conn *pgx.Conn, name string, matchType string, pattern string, enabled bool, now time.Time) {
 	t.Helper()
 	if _, err := conn.Exec(
 		ctx,
@@ -1132,19 +888,19 @@ func insertSystemHeaderBlocklistRule(t *testing.T, ctx context.Context, conn *pg
 			updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		nil,
-		seed.Name,
-		seed.MatchType,
-		seed.Pattern,
-		seed.Enabled,
+		name,
+		matchType,
+		pattern,
+		enabled,
 		true,
-		seed.CreatedAt,
-		seed.UpdatedAt,
+		now,
+		now,
 	); err != nil {
-		t.Fatalf("insert system header blocklist rule %q: %v", seed.Name, err)
+		t.Fatalf("insert system header blocklist rule %q: %v", name, err)
 	}
 }
 
-func insertEndpoint(t *testing.T, ctx context.Context, conn *pgx.Conn, seed endpointSeed) int {
+func insertEndpoint(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID int, name string, baseURL string, apiKey string, position int, now time.Time) int {
 	t.Helper()
 	var endpointID int
 	if err := conn.QueryRow(
@@ -1159,24 +915,24 @@ func insertEndpoint(t *testing.T, ctx context.Context, conn *pgx.Conn, seed endp
 			updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id`,
-		seed.ProfileID,
-		seed.Name,
-		seed.BaseURL,
-		seed.APIKey,
-		seed.Position,
-		seed.CreatedAt,
-		seed.UpdatedAt,
+		profileID,
+		name,
+		baseURL,
+		apiKey,
+		position,
+		now,
+		now,
 	).Scan(&endpointID); err != nil {
-		t.Fatalf("insert endpoint %q: %v", seed.Name, err)
+		t.Fatalf("insert endpoint %q: %v", name, err)
 	}
 	return endpointID
 }
 
-func insertConnection(t *testing.T, ctx context.Context, conn *pgx.Conn, seed connectionSeed) int {
+func insertConnection(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID int, modelConfigID int, endpointID int, name string, priority int, now time.Time) int {
 	t.Helper()
 	var apiFamily string
-	if err := conn.QueryRow(ctx, `SELECT api_family FROM model_configs WHERE id = $1`, seed.ModelConfigID).Scan(&apiFamily); err != nil {
-		t.Fatalf("load model api family for connection %q: %v", seed.Name, err)
+	if err := conn.QueryRow(ctx, `SELECT api_family FROM model_configs WHERE id = $1`, modelConfigID).Scan(&apiFamily); err != nil {
+		t.Fatalf("load model api family for connection %q: %v", name, err)
 	}
 	var connectionID int
 	if err := conn.QueryRow(
@@ -1202,16 +958,16 @@ func insertConnection(t *testing.T, ctx context.Context, conn *pgx.Conn, seed co
 			updated_at
 		) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, $8, TRUE, $4, $5, NULL, NULL, 'healthy', NULL, NULL, $6, $7)
 		RETURNING id`,
-		seed.ProfileID,
+		profileID,
 		apiFamily,
-		seed.EndpointID,
-		seed.Priority,
-		seed.Name,
-		seed.CreatedAt,
-		seed.UpdatedAt,
+		endpointID,
+		priority,
+		name,
+		now,
+		now,
 		openAITextCapabilityForSeedAPIFamily(apiFamily),
 	).Scan(&connectionID); err != nil {
-		t.Fatalf("insert connection %q: %v", seed.Name, err)
+		t.Fatalf("insert connection %q: %v", name, err)
 	}
 	return connectionID
 }
@@ -1280,297 +1036,107 @@ type profileSeedRow struct {
 
 func snapshotStartupState(t *testing.T, ctx context.Context, conn *pgx.Conn) string {
 	t.Helper()
-	snapshot := startupStateSnapshot{
-		Profiles:             loadProfileSnapshots(t, ctx, conn),
-		UserSettings:         loadUserSettingSnapshots(t, ctx, conn),
-		AppAuthSettings:      loadAppAuthSettingsRecords(t, ctx, conn),
-		HeaderBlocklistRules: loadHeaderBlocklistRuleSnapshots(t, ctx, conn),
-		UserAgentClientRules: loadUserAgentRuleSnapshots(t, ctx, conn),
-		Endpoints:            loadEndpointSnapshots(t, ctx, conn),
-	}
-
-	raw, err := json.MarshalIndent(snapshot, "", "  ")
-	if err != nil {
-		t.Fatalf("marshal startup snapshot: %v", err)
-	}
-	return string(raw)
+	return dumpRows(t, ctx, conn, []rowDumpQuery{
+		{"profiles", `SELECT id, name, COALESCE(description, '') AS description, is_active, is_default, is_editable, version, deleted_at, created_at, updated_at FROM profiles ORDER BY id ASC`},
+		{"user_settings", `SELECT profile_id, report_currency_code, report_currency_symbol, timezone_preference, created_at, updated_at FROM user_settings ORDER BY profile_id ASC`},
+		{"app_auth_settings", `SELECT singleton_key, auth_enabled, email_verification_attempt_count, must_change_password, token_version, created_at, updated_at FROM app_auth_settings ORDER BY id ASC`},
+		{"header_blocklist_rules", `SELECT name, match_type, pattern, enabled, created_at, updated_at FROM header_blocklist_rules WHERE is_system = TRUE ORDER BY id ASC`},
+		{"user_agent_client_rules", `SELECT name, pattern, enabled, created_at, updated_at FROM user_agent_client_rules WHERE is_system = TRUE ORDER BY id ASC`},
+		{"endpoints", `SELECT id, profile_id, name, base_url, api_key, position, created_at, updated_at FROM endpoints ORDER BY id ASC`},
+		{"loadbalance_strategies", `SELECT COUNT(*) AS count FROM loadbalance_strategies`},
+	})
 }
 
-func loadProfileSnapshots(t *testing.T, ctx context.Context, conn *pgx.Conn) []profileSnapshot {
+func assertStartupSeedsGolden(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
-	rows, err := conn.Query(
-		ctx,
-		`SELECT id, name, COALESCE(description, ''), is_active, is_default, is_editable, version, deleted_at, created_at, updated_at FROM profiles ORDER BY id ASC`,
-	)
-	if err != nil {
-		t.Fatalf("query profile snapshots: %v", err)
-	}
-	defer rows.Close()
-
-	items := []profileSnapshot{}
-	for rows.Next() {
-		var (
-			item      profileSnapshot
-			deletedAt sql.NullTime
-			createdAt time.Time
-			updatedAt time.Time
-		)
-		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.IsActive, &item.IsDefault, &item.IsEditable, &item.Version, &deletedAt, &createdAt, &updatedAt); err != nil {
-			t.Fatalf("scan profile snapshot: %v", err)
+	path := filepath.Join("testdata", "startup", "seeds.golden")
+	actual := snapshotStartupState(t, ctx, conn) + "\n"
+	if os.Getenv(updateStartupSeedsGoldenEnv) == "1" {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("create startup seeds golden dir: %v", err)
 		}
-		item.DeletedAt = formatNullableTime(deletedAt)
-		item.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
-		item.UpdatedAt = updatedAt.UTC().Format(time.RFC3339Nano)
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate profile snapshots: %v", err)
-	}
-	return items
-}
-
-func loadUserSettingSnapshots(t *testing.T, ctx context.Context, conn *pgx.Conn) []userSettingSnapshot {
-	t.Helper()
-	rows, err := conn.Query(
-		ctx,
-		`SELECT profile_id, report_currency_code, report_currency_symbol, timezone_preference, created_at, updated_at FROM user_settings ORDER BY profile_id ASC`,
-	)
-	if err != nil {
-		t.Fatalf("query user_settings snapshots: %v", err)
-	}
-	defer rows.Close()
-
-	items := []userSettingSnapshot{}
-	for rows.Next() {
-		var (
-			item      userSettingSnapshot
-			tz        sql.NullString
-			createdAt time.Time
-			updatedAt time.Time
-		)
-		if err := rows.Scan(&item.ProfileID, &item.ReportCurrencyCode, &item.ReportCurrencySymbol, &tz, &createdAt, &updatedAt); err != nil {
-			t.Fatalf("scan user_settings snapshot: %v", err)
+		if err := os.WriteFile(path, []byte(actual), 0o644); err != nil {
+			t.Fatalf("update startup seeds golden: %v", err)
 		}
-		item.TimezonePreference = formatNullableString(tz)
-		item.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
-		item.UpdatedAt = updatedAt.UTC().Format(time.RFC3339Nano)
-		items = append(items, item)
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate user_settings snapshots: %v", err)
-	}
-	return items
-}
-
-func loadAppAuthSettingsRecords(t *testing.T, ctx context.Context, conn *pgx.Conn) []appAuthSettingsRecord {
-	t.Helper()
-	rows, err := conn.Query(
-		ctx,
-		`SELECT singleton_key, auth_enabled, email_verification_attempt_count, must_change_password, token_version, created_at, updated_at FROM app_auth_settings ORDER BY id ASC`,
-	)
+	expected, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("query app_auth_settings snapshots: %v", err)
+		t.Fatalf("read startup seeds golden %s: %v", path, err)
 	}
-	defer rows.Close()
-
-	items := []appAuthSettingsRecord{}
-	for rows.Next() {
-		var item appAuthSettingsRecord
-		var createdAt time.Time
-		var updatedAt time.Time
-		if err := rows.Scan(&item.SingletonKey, &item.AuthEnabled, &item.EmailVerificationAttemptCount, &item.MustChangePassword, &item.TokenVersion, &createdAt, &updatedAt); err != nil {
-			t.Fatalf("scan app_auth_settings snapshot: %v", err)
-		}
-		item.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
-		item.UpdatedAt = updatedAt.UTC().Format(time.RFC3339Nano)
-		items = append(items, item)
+	if string(expected) != actual {
+		t.Fatalf("startup seeds golden mismatch\nexpected:\n%s\nactual:\n%s\nset %s=1 to update", expected, actual, updateStartupSeedsGoldenEnv)
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate app_auth_settings snapshots: %v", err)
-	}
-	return items
-}
-
-func loadHeaderBlocklistRuleSnapshots(t *testing.T, ctx context.Context, conn *pgx.Conn) []systemHeaderRuleSnapshot {
-	t.Helper()
-	rows, err := conn.Query(
-		ctx,
-		`SELECT name, match_type, pattern, enabled, created_at, updated_at FROM header_blocklist_rules WHERE is_system = TRUE ORDER BY id ASC`,
-	)
-	if err != nil {
-		t.Fatalf("query header blocklist snapshots: %v", err)
-	}
-	defer rows.Close()
-
-	items := []systemHeaderRuleSnapshot{}
-	for rows.Next() {
-		var item systemHeaderRuleSnapshot
-		var createdAt time.Time
-		var updatedAt time.Time
-		if err := rows.Scan(&item.Name, &item.MatchType, &item.Pattern, &item.Enabled, &createdAt, &updatedAt); err != nil {
-			t.Fatalf("scan header blocklist snapshot: %v", err)
-		}
-		item.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
-		item.UpdatedAt = updatedAt.UTC().Format(time.RFC3339Nano)
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate header blocklist snapshots: %v", err)
-	}
-	return items
-}
-
-func loadUserAgentRuleSnapshots(t *testing.T, ctx context.Context, conn *pgx.Conn) []systemUserAgentRuleSnapshot {
-	t.Helper()
-	rows, err := conn.Query(
-		ctx,
-		`SELECT name, pattern, enabled, created_at, updated_at FROM user_agent_client_rules WHERE is_system = TRUE ORDER BY id ASC`,
-	)
-	if err != nil {
-		t.Fatalf("query user-agent rule snapshots: %v", err)
-	}
-	defer rows.Close()
-
-	items := []systemUserAgentRuleSnapshot{}
-	for rows.Next() {
-		var item systemUserAgentRuleSnapshot
-		var createdAt time.Time
-		var updatedAt time.Time
-		if err := rows.Scan(&item.Name, &item.Pattern, &item.Enabled, &createdAt, &updatedAt); err != nil {
-			t.Fatalf("scan user-agent rule snapshot: %v", err)
-		}
-		item.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
-		item.UpdatedAt = updatedAt.UTC().Format(time.RFC3339Nano)
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate user-agent rule snapshots: %v", err)
-	}
-	return items
-}
-
-func loadEndpointSnapshots(t *testing.T, ctx context.Context, conn *pgx.Conn) []endpointSnapshot {
-	t.Helper()
-	rows, err := conn.Query(
-		ctx,
-		`SELECT id, profile_id, name, base_url, api_key, position, created_at, updated_at FROM endpoints ORDER BY id ASC`,
-	)
-	if err != nil {
-		t.Fatalf("query endpoint snapshots: %v", err)
-	}
-	defer rows.Close()
-
-	items := []endpointSnapshot{}
-	for rows.Next() {
-		var item endpointSnapshot
-		var createdAt time.Time
-		var updatedAt time.Time
-		if err := rows.Scan(&item.ID, &item.ProfileID, &item.Name, &item.BaseURL, &item.APIKey, &item.Position, &createdAt, &updatedAt); err != nil {
-			t.Fatalf("scan endpoint snapshot: %v", err)
-		}
-		item.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
-		item.UpdatedAt = updatedAt.UTC().Format(time.RFC3339Nano)
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate endpoint snapshots: %v", err)
-	}
-	return items
 }
 
 func snapshotRuntimeStateRows(t *testing.T, ctx context.Context, conn *pgx.Conn) string {
 	t.Helper()
-	rows, err := conn.Query(
-		ctx,
-		`SELECT profile_id, connection_id, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at,
+	return dumpRows(t, ctx, conn, []rowDumpQuery{{
+		name: "routing_connection_runtime_state",
+		query: `SELECT profile_id, connection_id, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at,
 			last_retry_delay_ms, ban_mode, banned_until_at, last_failure_kind, last_success_at, live_p95_latency_ms,
 			created_at, updated_at
 		FROM routing_connection_runtime_state
 		ORDER BY profile_id ASC, connection_id ASC`,
-	)
-	if err != nil {
-		t.Fatalf("query runtime-state snapshots: %v", err)
-	}
-	defer rows.Close()
+	}})
+}
 
-	items := []runtimeStateSnapshot{}
-	for rows.Next() {
-		var (
-			item             runtimeStateSnapshot
-			nextRetryAt      sql.NullTime
-			bannedUntilAt    sql.NullTime
-			lastFailureKind  sql.NullString
-			lastSuccessAt    sql.NullTime
-			liveP95LatencyMS sql.NullInt32
-			createdAt        time.Time
-			updatedAt        time.Time
-		)
-		if err := rows.Scan(
-			&item.ProfileID,
-			&item.ConnectionID,
-			&item.CycleRetryAttempts,
-			&item.CumulativeRetryAttempts,
-			&nextRetryAt,
-			&item.LastRetryDelayMS,
-			&item.BanMode,
-			&bannedUntilAt,
-			&lastFailureKind,
-			&lastSuccessAt,
-			&liveP95LatencyMS,
-			&createdAt,
-			&updatedAt,
-		); err != nil {
-			t.Fatalf("scan runtime-state snapshot: %v", err)
+func dumpRows(t *testing.T, ctx context.Context, conn *pgx.Conn, queries []rowDumpQuery) string {
+	t.Helper()
+	var output strings.Builder
+	for _, spec := range queries {
+		if output.Len() > 0 {
+			output.WriteByte('\n')
 		}
-		item.NextRetryAt = formatNullableTime(nextRetryAt)
-		item.BannedUntilAt = formatNullableTime(bannedUntilAt)
-		item.LastFailureKind = formatNullableString(lastFailureKind)
-		item.LastSuccessAt = formatNullableTime(lastSuccessAt)
-		item.LiveP95LatencyMS = formatNullableInt32(liveP95LatencyMS)
-		item.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
-		item.UpdatedAt = updatedAt.UTC().Format(time.RFC3339Nano)
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate runtime-state snapshots: %v", err)
-	}
+		fmt.Fprintf(&output, "[%s]\n", spec.name)
+		rows, err := conn.Query(ctx, spec.query)
+		if err != nil {
+			t.Fatalf("query %s dump: %v", spec.name, err)
+		}
 
-	raw, err := json.MarshalIndent(items, "", "  ")
+		fields := rows.FieldDescriptions()
+		rowCount := 0
+		for rows.Next() {
+			values, err := rows.Values()
+			if err != nil {
+				rows.Close()
+				t.Fatalf("read %s dump row: %v", spec.name, err)
+			}
+			for index, value := range values {
+				if index > 0 {
+					output.WriteByte('\t')
+				}
+				output.WriteString(fields[index].Name)
+				output.WriteByte('=')
+				output.WriteString(formatDumpValue(t, value))
+			}
+			output.WriteByte('\n')
+			rowCount++
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			t.Fatalf("iterate %s dump: %v", spec.name, err)
+		}
+		rows.Close()
+		if rowCount == 0 {
+			output.WriteString("<empty>\n")
+		}
+	}
+	return strings.TrimRight(output.String(), "\n")
+}
+
+func formatDumpValue(t *testing.T, value any) string {
+	t.Helper()
+	switch typed := value.(type) {
+	case time.Time:
+		value = typed.UTC().Format(time.RFC3339Nano)
+	case []byte:
+		value = string(typed)
+	}
+	raw, err := json.Marshal(value)
 	if err != nil {
-		t.Fatalf("marshal runtime-state snapshots: %v", err)
+		t.Fatalf("marshal dump value %v: %v", value, err)
 	}
 	return string(raw)
-}
-
-func nullInt64(value sql.NullInt64) any {
-	if !value.Valid {
-		return nil
-	}
-	return value.Int64
-}
-
-func formatNullableTime(value sql.NullTime) *string {
-	if !value.Valid {
-		return nil
-	}
-	formatted := value.Time.UTC().Format(time.RFC3339Nano)
-	return &formatted
-}
-
-func formatNullableString(value sql.NullString) *string {
-	if !value.Valid {
-		return nil
-	}
-	formatted := value.String
-	return &formatted
-}
-
-func formatNullableInt32(value sql.NullInt32) *int32 {
-	if !value.Valid {
-		return nil
-	}
-	formatted := value.Int32
-	return &formatted
 }
 
 func nullableSeedString(value *string) any {
