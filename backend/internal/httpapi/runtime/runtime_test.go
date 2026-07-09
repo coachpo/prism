@@ -98,13 +98,7 @@ func TestBuildRequestPlanClassifiesGeminiStreamingByOperation(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodPost, test.path, nil)
-			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-
-			plan, err := service.buildRequestPlanFromSnapshot(request, test.rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
-			if err != nil {
-				t.Fatalf("build request plan: %v", err)
-			}
+			plan := mustBuildRequestPlanForTest(t, service, snapshot, test.path, test.rawBody, RuntimeProxyConfigSnapshot{})
 			if plan.IsStreamingRequest != test.wantStream {
 				t.Fatalf("expected IsStreamingRequest=%v for %s, got %v", test.wantStream, plan.RuntimeOperation.Name, plan.IsStreamingRequest)
 			}
@@ -113,117 +107,66 @@ func TestBuildRequestPlanClassifiesGeminiStreamingByOperation(t *testing.T) {
 }
 
 func TestBuildRequestPlan_ContextEstimationUnavailablePassesThrough(t *testing.T) {
-	serviceFactories := []struct {
-		name    string
-		service func() *Service
-	}{
-		{name: "legacy", service: newRequestPlanUnitService},
-		{name: "enforced", service: newEnforcedRequestPlanUnitService},
-	}
-
-	for _, test := range serviceFactories {
-		t.Run(test.name+"/responses", func(t *testing.T) {
-			service := test.service()
-			snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o"})
-			model := snapshot.ModelsByID["gpt-4o"]
-			snapshot.AccessTargetsBySourceModelID[model.ID] = nil
-			addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_711, 9_711, 0, requestPlanConnectionTargetOptions{
-				openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityResponsesOnly),
-			})
-			request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-
-			plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"gpt-4o","previous_response_id":"resp_123","input":"hello"}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
-			if err != nil {
-				t.Fatalf("build request plan: %v", err)
-			}
-			if plan.EffectiveRequestPath != "/v1/responses" {
-				t.Fatalf("expected native responses path, got %q", plan.EffectiveRequestPath)
-			}
-			if plan.SelectedTerminalTargetID == nil || *plan.SelectedTerminalTargetID != 2_711 {
-				t.Fatalf("expected selected terminal target 2711, got %+v", plan.SelectedTerminalTargetID)
-			}
+	forEachRequestPlanService(t, "responses", func(t *testing.T, service *Service) {
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o"})
+		model := snapshot.ModelsByID["gpt-4o"]
+		snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+		addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_711, 9_711, 0, requestPlanConnectionTargetOptions{
+			openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityResponsesOnly),
 		})
-	}
+		plan := mustBuildRequestPlanForTest(t, service, snapshot, "/v1/responses", []byte(`{"model":"gpt-4o","previous_response_id":"resp_123","input":"hello"}`), RuntimeProxyConfigSnapshot{})
+		if plan.EffectiveRequestPath != "/v1/responses" {
+			t.Fatalf("expected native responses path, got %q", plan.EffectiveRequestPath)
+		}
+		if plan.SelectedTerminalTargetID == nil || *plan.SelectedTerminalTargetID != 2_711 {
+			t.Fatalf("expected selected terminal target 2711, got %+v", plan.SelectedTerminalTargetID)
+		}
+	})
 }
 
 func TestBuildRequestPlan_ContextEstimationUnavailableChatPassesThroughWithoutTransportCall(t *testing.T) {
-	serviceFactories := []struct {
-		name    string
-		service func() *Service
-	}{
-		{name: "legacy", service: newRequestPlanUnitService},
-		{name: "enforced", service: newEnforcedRequestPlanUnitService},
-	}
-
-	for _, test := range serviceFactories {
-		t.Run(test.name+"/chat", func(t *testing.T) {
-			service := test.service()
-			transport := &ingressRoundTripRecorder{}
-			snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o"})
-			model := snapshot.ModelsByID["gpt-4o"]
-			snapshot.AccessTargetsBySourceModelID[model.ID] = nil
-			addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_712, 9_712, 0, requestPlanConnectionTargetOptions{
-				openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly),
-			})
-			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-
-			plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.invalid/image.png","detail":"high"}}]}]}`), RuntimeProxyConfigSnapshot{HTTPClient: &http.Client{Transport: transport}}, operationMatch, requestPlanTestProfileID, snapshot)
-			if err != nil {
-				t.Fatalf("build request plan: %v", err)
-			}
-			if plan.EffectiveRequestPath != "/v1/chat/completions" {
-				t.Fatalf("expected native chat path, got %q", plan.EffectiveRequestPath)
-			}
-			if got := transport.calls.Load(); got != 0 {
-				t.Fatalf("expected request planning to avoid transport calls, got %d", got)
-			}
+	forEachRequestPlanService(t, "chat", func(t *testing.T, service *Service) {
+		transport := &ingressRoundTripRecorder{}
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o"})
+		model := snapshot.ModelsByID["gpt-4o"]
+		snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+		addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_712, 9_712, 0, requestPlanConnectionTargetOptions{
+			openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly),
 		})
-	}
+		plan := mustBuildRequestPlanForTest(t, service, snapshot, "/v1/chat/completions", []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.invalid/image.png","detail":"high"}}]}]}`), RuntimeProxyConfigSnapshot{HTTPClient: &http.Client{Transport: transport}})
+		if plan.EffectiveRequestPath != "/v1/chat/completions" {
+			t.Fatalf("expected native chat path, got %q", plan.EffectiveRequestPath)
+		}
+		if got := transport.calls.Load(); got != 0 {
+			t.Fatalf("expected request planning to avoid transport calls, got %d", got)
+		}
+	})
 }
 
 func TestBuildRequestPlan_UnsupportedTranslatedShapeDoesNotSelectGenericTarget(t *testing.T) {
-	serviceFactories := []struct {
-		name    string
-		service func() *Service
-	}{
-		{name: "legacy", service: newRequestPlanUnitService},
-		{name: "enforced", service: newEnforcedRequestPlanUnitService},
-	}
-
-	for _, test := range serviceFactories {
-		t.Run(test.name+"/responses-previous-response-id", func(t *testing.T) {
-			service := test.service()
-			transport := &ingressRoundTripRecorder{}
-			snapshot := newRequestPlanSnapshot(
-				runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "responses-public"},
-				runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "chat-target-model"},
-			)
-			addRequestPlanProxyTarget(snapshot, "responses-public", "chat-target-model")
-			child := snapshot.ModelsByID["chat-target-model"]
-			snapshot.AccessTargetsBySourceModelID[child.ID] = nil
-			addRequestPlanConnectionTargetWithOptions(snapshot, child, 2_713, 9_713, 0, requestPlanConnectionTargetOptions{
-				openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly),
-			})
-			request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-
-			plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"responses-public","previous_response_id":"resp_123","input":"hello"}`), RuntimeProxyConfigSnapshot{HTTPClient: &http.Client{Transport: transport}}, operationMatch, requestPlanTestProfileID, snapshot)
-			if err != nil {
-				t.Fatalf("build request plan: %v", err)
-			}
-			if plan.EffectiveRequestPath != "/v1/chat/completions" {
-				t.Fatalf("expected translated chat completions path, got %q", plan.EffectiveRequestPath)
-			}
-			if plan.SelectedTerminalTargetID == nil || *plan.SelectedTerminalTargetID != 2_713 {
-				t.Fatalf("expected selected terminal target 2713, got %+v", plan.SelectedTerminalTargetID)
-			}
-			if got := transport.calls.Load(); got != 0 {
-				t.Fatalf("expected generic planner rejection to avoid transport calls, got %d", got)
-			}
+	forEachRequestPlanService(t, "responses-previous-response-id", func(t *testing.T, service *Service) {
+		transport := &ingressRoundTripRecorder{}
+		snapshot := newRequestPlanSnapshot(
+			runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "responses-public"},
+			runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "chat-target-model"},
+		)
+		addRequestPlanProxyTarget(snapshot, "responses-public", "chat-target-model")
+		child := snapshot.ModelsByID["chat-target-model"]
+		snapshot.AccessTargetsBySourceModelID[child.ID] = nil
+		addRequestPlanConnectionTargetWithOptions(snapshot, child, 2_713, 9_713, 0, requestPlanConnectionTargetOptions{
+			openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly),
 		})
-	}
+		plan := mustBuildRequestPlanForTest(t, service, snapshot, "/v1/responses", []byte(`{"model":"responses-public","previous_response_id":"resp_123","input":"hello"}`), RuntimeProxyConfigSnapshot{HTTPClient: &http.Client{Transport: transport}})
+		if plan.EffectiveRequestPath != "/v1/chat/completions" {
+			t.Fatalf("expected translated chat completions path, got %q", plan.EffectiveRequestPath)
+		}
+		if plan.SelectedTerminalTargetID == nil || *plan.SelectedTerminalTargetID != 2_713 {
+			t.Fatalf("expected selected terminal target 2713, got %+v", plan.SelectedTerminalTargetID)
+		}
+		if got := transport.calls.Load(); got != 0 {
+			t.Fatalf("expected generic planner rejection to avoid transport calls, got %d", got)
+		}
+	})
 }
 
 func TestBuildRequestPlanAppliesOperationRewriteRules(t *testing.T) {
@@ -235,13 +178,7 @@ func TestBuildRequestPlanAppliesOperationRewriteRules(t *testing.T) {
 		)
 		addRequestPlanProxyTarget(snapshot, "public-gemini", "target-gemini")
 		rawBody := []byte(`{"model":"body-should-not-change","contents":[]}`)
-		request := httptest.NewRequest(http.MethodPost, "/v1beta/models/public-gemini:generateContent", nil)
-		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-
-		plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
-		if err != nil {
-			t.Fatalf("build request plan: %v", err)
-		}
+		plan := mustBuildRequestPlanForTest(t, service, snapshot, "/v1beta/models/public-gemini:generateContent", rawBody, RuntimeProxyConfigSnapshot{})
 
 		if plan.EffectiveRequestPath != "/v1beta/models/target-gemini:generateContent" {
 			t.Fatalf("expected rewritten Gemini path, got %q", plan.EffectiveRequestPath)
@@ -306,13 +243,7 @@ func TestBuildRequestPlanAppliesOperationRewriteRules(t *testing.T) {
 				)
 				addRequestPlanProxyTarget(snapshot, test.publicModel, "mid-"+test.publicModel)
 				addRequestPlanProxyTarget(snapshot, "mid-"+test.publicModel, test.targetModel)
-				request := httptest.NewRequest(http.MethodPost, test.path, nil)
-				operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-
-				plan, err := service.buildRequestPlanFromSnapshot(request, test.rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
-				if err != nil {
-					t.Fatalf("build request plan: %v", err)
-				}
+				plan := mustBuildRequestPlanForTest(t, service, snapshot, test.path, test.rawBody, RuntimeProxyConfigSnapshot{})
 				if plan.EffectiveRequestPath != test.path {
 					t.Fatalf("expected body-bound operation to leave path unchanged, got %q", plan.EffectiveRequestPath)
 				}
@@ -330,10 +261,7 @@ func TestBuildRequestPlanAppliesOperationRewriteRules(t *testing.T) {
 		service := newRequestPlanUnitService()
 		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "gemini", ModelID: "gemini-native"})
 		rawBody := []byte(`{"model":"gemini-native","messages":[]}`)
-		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-
-		_, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+		err := buildRequestPlanErrorForTest(t, service, snapshot, "/v1/chat/completions", rawBody, RuntimeProxyConfigSnapshot{})
 		assertPlanDomainError(t, err, http.StatusBadRequest, "incompatible")
 	})
 
@@ -377,12 +305,7 @@ func TestUnifiedModelRoutingResolvesDirectOneHopAndMultiHop(t *testing.T) {
 	addRequestPlanProxyTarget(snapshot, "public-openai", "mid-openai")
 	addRequestPlanProxyTarget(snapshot, "mid-openai", "target-openai")
 
-	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"public-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
-	if err != nil {
-		t.Fatalf("build multi-hop request plan: %v", err)
-	}
+	plan := mustBuildRequestPlanForTest(t, service, snapshot, "/v1/chat/completions", []byte(`{"model":"public-openai","messages":[]}`), RuntimeProxyConfigSnapshot{})
 	if plan.ResolvedTargetModelID == nil || *plan.ResolvedTargetModelID != "target-openai" {
 		t.Fatalf("expected multi-hop final target target-openai, got %+v", plan.ResolvedTargetModelID)
 	}
@@ -391,10 +314,7 @@ func TestUnifiedModelRoutingResolvesDirectOneHopAndMultiHop(t *testing.T) {
 	}
 
 	directSnapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 4, APIFamily: "openai", ModelID: "direct-openai"})
-	directPlan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"direct-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, directSnapshot)
-	if err != nil {
-		t.Fatalf("build direct request plan: %v", err)
-	}
+	directPlan := mustBuildRequestPlanForTest(t, service, directSnapshot, "/v1/chat/completions", []byte(`{"model":"direct-openai","messages":[]}`), RuntimeProxyConfigSnapshot{})
 	if directPlan.ResolvedTargetModelID == nil || *directPlan.ResolvedTargetModelID != "direct-openai" || len(directPlan.Connections) != 1 {
 		t.Fatalf("expected direct model to resolve to its own connection, got target=%+v connections=%d", directPlan.ResolvedTargetModelID, len(directPlan.Connections))
 	}
@@ -411,12 +331,7 @@ func TestRuntimePlanningEmitsOrderedTerminalAttemptsAcrossModelTargets(t *testin
 	addRequestPlanModelTargetAtPosition(snapshot, "public-terminal-openai", "first-terminal-openai", 0)
 	addRequestPlanModelTargetAtPosition(snapshot, "public-terminal-openai", "second-terminal-openai", 1)
 
-	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"public-terminal-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
-	if err != nil {
-		t.Fatalf("build terminal-attempt plan: %v", err)
-	}
+	plan := mustBuildRequestPlanForTest(t, service, snapshot, "/v1/chat/completions", []byte(`{"model":"public-terminal-openai","messages":[]}`), RuntimeProxyConfigSnapshot{})
 	if len(plan.TerminalAttempts) != 2 || len(plan.Connections) != 2 {
 		t.Fatalf("expected two ordered terminal attempts and connections, got attempts=%d connections=%d", len(plan.TerminalAttempts), len(plan.Connections))
 	}
@@ -441,25 +356,15 @@ func TestRuntimePlanningRoundRobinCursorScopesToImmediateEnabledTargetSet(t *tes
 	snapshot.StrategiesByModelID[model.ID] = strategy
 	addRequestPlanConnectionTarget(snapshot, model, 2_001, 2, 1)
 
-	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	first, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"rr-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
-	if err != nil {
-		t.Fatalf("build first round-robin plan: %v", err)
-	}
-	second, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"rr-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
-	if err != nil {
-		t.Fatalf("build second round-robin plan: %v", err)
-	}
+	rawBody := []byte(`{"model":"rr-openai","messages":[]}`)
+	first := mustBuildRequestPlanForTest(t, service, snapshot, "/v1/chat/completions", rawBody, RuntimeProxyConfigSnapshot{})
+	second := mustBuildRequestPlanForTest(t, service, snapshot, "/v1/chat/completions", rawBody, RuntimeProxyConfigSnapshot{})
 	if first.Connections[0].ID == second.Connections[0].ID {
 		t.Fatalf("expected round-robin to rotate immediate targets, got %d twice", first.Connections[0].ID)
 	}
 
 	addRequestPlanConnectionTarget(snapshot, model, 3_001, 3, 2)
-	reset, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"rr-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
-	if err != nil {
-		t.Fatalf("build reset round-robin plan: %v", err)
-	}
+	reset := mustBuildRequestPlanForTest(t, service, snapshot, "/v1/chat/completions", rawBody, RuntimeProxyConfigSnapshot{})
 	if reset.Connections[0].ID != first.Connections[0].ID {
 		t.Fatalf("expected changed enabled target set hash to reset cursor to %d, got %d", first.Connections[0].ID, reset.Connections[0].ID)
 	}
@@ -467,13 +372,15 @@ func TestRuntimePlanningRoundRobinCursorScopesToImmediateEnabledTargetSet(t *tes
 
 func TestRuntimePlanningCycleAndNoEligibleTargetsFailDeterministically(t *testing.T) {
 	service := newRequestPlanUnitService()
-	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
 
-	noTargets := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "empty-openai"})
-	noTargets.AccessTargetsBySourceModelID[1] = nil
-	_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"empty-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, noTargets)
-	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "No eligible targets available for model 'empty-openai'.")
+	noTargets := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "public-openai"},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "empty-child-openai"},
+	)
+	addRequestPlanProxyTarget(noTargets, "public-openai", "empty-child-openai")
+	noTargets.AccessTargetsBySourceModelID[2] = nil
+	err := buildRequestPlanErrorForTest(t, service, noTargets, "/v1/chat/completions", []byte(`{"model":"public-openai","messages":[]}`), RuntimeProxyConfigSnapshot{})
+	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "No eligible targets available for model 'public-openai'.")
 
 	cycle := newRequestPlanSnapshot(
 		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "cycle-a"},
@@ -481,7 +388,7 @@ func TestRuntimePlanningCycleAndNoEligibleTargetsFailDeterministically(t *testin
 	)
 	addRequestPlanProxyTarget(cycle, "cycle-a", "cycle-b")
 	addRequestPlanProxyTarget(cycle, "cycle-b", "cycle-a")
-	_, err = service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"cycle-a","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, cycle)
+	err = buildRequestPlanErrorForTest(t, service, cycle, "/v1/chat/completions", []byte(`{"model":"cycle-a","messages":[]}`), RuntimeProxyConfigSnapshot{})
 	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "cycle detected")
 }
 
@@ -495,9 +402,7 @@ func TestRuntimePlanningDepthOverflowFailsDeterministically(t *testing.T) {
 	for i := 0; i < len(models)-1; i++ {
 		addRequestPlanProxyTarget(snapshot, models[i].ModelID, models[i+1].ModelID)
 	}
-	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"depth-00","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	err := buildRequestPlanErrorForTest(t, service, snapshot, "/v1/chat/completions", []byte(`{"model":"depth-00","messages":[]}`), RuntimeProxyConfigSnapshot{})
 	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "exceeded maximum depth of 32")
 }
 
@@ -574,76 +479,6 @@ func TestAttachRuntimePlanningFailureTelemetry_PreservesResolvedTargetModelWhenS
 	}
 	if runtimeErr.PlanningFailure.SelectedTerminalTargetID == nil || *runtimeErr.PlanningFailure.SelectedTerminalTargetID != selectedTerminalTargetID {
 		t.Fatalf("expected planning-failure telemetry to keep selected terminal target %d, got %+v", selectedTerminalTargetID, runtimeErr.PlanningFailure)
-	}
-}
-
-func TestBuildRequestPlan_RewritesResolvedTargetModel(t *testing.T) {
-	service := newRequestPlanUnitService()
-	snapshot := newRequestPlanSnapshot(
-		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "public-openai"},
-		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "mid-openai"},
-		runtimeModelRecord{ID: 3, APIFamily: "openai", ModelID: "target-openai"},
-	)
-	addRequestPlanProxyTarget(snapshot, "public-openai", "mid-openai")
-	addRequestPlanProxyTarget(snapshot, "mid-openai", "target-openai")
-
-	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-Profile-Id", "9999")
-	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	input := requestPlanningInput{
-		Request:         request,
-		RawBody:         []byte(`{"model":"public-openai","messages":[]}`),
-		RuntimeConfig:   RuntimeProxyConfigSnapshot{},
-		OperationMatch:  operationMatch,
-		ActiveProfileID: requestPlanTestProfileID,
-		Snapshot:        snapshot,
-	}
-
-	operation, err := resolveRequestOperation(input)
-	if err != nil {
-		t.Fatalf("resolve request operation: %v", err)
-	}
-	if operation.RequestedModelID != "public-openai" {
-		t.Fatalf("expected requested model public-openai, got %q", operation.RequestedModelID)
-	}
-	requestedModel, err := resolveRequestedModel(input, operation)
-	if err != nil {
-		t.Fatalf("resolve requested model: %v", err)
-	}
-
-	target, err := service.resolveRequestPlanTarget(input, operation, requestedModel)
-	if err != nil {
-		t.Fatalf("resolve request plan target: %v", err)
-	}
-	if target.RequestedModel.ModelID != "public-openai" {
-		t.Fatalf("expected requested model record public-openai, got %q", target.RequestedModel.ModelID)
-	}
-	if target.TargetModel.ModelID != "target-openai" {
-		t.Fatalf("expected resolved target model target-openai, got %q", target.TargetModel.ModelID)
-	}
-
-	plan, err := assembleRequestPlan(input, operation, target)
-	if err != nil {
-		t.Fatalf("assemble request plan: %v", err)
-	}
-	if plan.RequestedModelID != "public-openai" {
-		t.Fatalf("expected plan requested model public-openai, got %q", plan.RequestedModelID)
-	}
-	if plan.ResolvedTargetModelID == nil || *plan.ResolvedTargetModelID != "target-openai" {
-		t.Fatalf("expected plan resolved target model target-openai, got %+v", plan.ResolvedTargetModelID)
-	}
-	if got := extractModelFromBody(plan.UpstreamBody); got != "target-openai" {
-		t.Fatalf("expected rewritten upstream model target-openai, got %q", got)
-	}
-	if plan.ProfileID != requestPlanTestProfileID {
-		t.Fatalf("expected plan profile %d from active runtime state, got %d", requestPlanTestProfileID, plan.ProfileID)
-	}
-	if len(plan.Connections) != 1 {
-		t.Fatalf("expected one terminal connection, got %d", len(plan.Connections))
-	}
-	if got := plan.Connections[0].ProfileID; got != requestPlanTestProfileID {
-		t.Fatalf("expected terminal connection profile %d, got %d", requestPlanTestProfileID, got)
 	}
 }
 
@@ -730,95 +565,6 @@ func TestBuildRequestPlan_PreservesRecursiveModelStrategy(t *testing.T) {
 	}
 	if !bytes.Equal(secondAttempts[0].UpstreamBody, secondUpstream.UpstreamBody) {
 		t.Fatalf("expected second compiled attempt body to match second upstream request")
-	}
-}
-
-func TestResolveExecutionTarget_NoEligibleTargetsReturns503(t *testing.T) {
-	service := newRequestPlanUnitService()
-	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "empty-openai"})
-	snapshot.AccessTargetsBySourceModelID[1] = nil
-
-	_, err := service.resolveExecutionTargetFromSnapshot(requestPlanTestProfileID, snapshot, snapshot.ModelsByID["empty-openai"], mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation, service.nowUTC())
-	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "No eligible targets available for model 'empty-openai'.")
-}
-
-func TestResolveModelAccess_UsesRecursiveChildStrategy(t *testing.T) {
-	service := newRequestPlanUnitService()
-	snapshot := newRequestPlanSnapshot(
-		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "public-openai"},
-		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "child-openai"},
-	)
-	addRequestPlanProxyTarget(snapshot, "public-openai", "child-openai")
-
-	childModel := snapshot.ModelsByID["child-openai"]
-	snapshot.AccessTargetsBySourceModelID[childModel.ID] = nil
-	childStrategyID := requestPlanTestStrategyID + 2
-	roundRobin := "round-robin"
-	snapshot.StrategiesByModelID[childModel.ID] = loadbalance.RuntimeStrategy{ID: childStrategyID, Name: "child round robin", LegacyStrategyType: &roundRobin}
-	addRequestPlanConnectionTarget(snapshot, childModel, 2_101, 2_201, 0)
-	addRequestPlanConnectionTarget(snapshot, childModel, 2_102, 2_202, 1)
-
-	requestedModel := snapshot.ModelsByID["public-openai"]
-	first, err := service.resolveModelAccessFromSnapshot(requestPlanTestProfileID, snapshot, requestedModel, runtimeAccessResolutionContext{
-		RequestedModelID:   requestedModel.ModelID,
-		RequestedAPIFamily: requestedModel.APIFamily,
-		RawRequestBody:     nil,
-		VisitedModelIDs:    map[int]struct{}{},
-		ReferenceNow:       service.nowUTC(),
-	})
-	if err != nil {
-		t.Fatalf("resolve first recursive model access: %v", err)
-	}
-	second, err := service.resolveModelAccessFromSnapshot(requestPlanTestProfileID, snapshot, requestedModel, runtimeAccessResolutionContext{
-		RequestedModelID:   requestedModel.ModelID,
-		RequestedAPIFamily: requestedModel.APIFamily,
-		RawRequestBody:     nil,
-		VisitedModelIDs:    map[int]struct{}{},
-		ReferenceNow:       service.nowUTC(),
-	})
-	if err != nil {
-		t.Fatalf("resolve second recursive model access: %v", err)
-	}
-	if first.TargetModel.ModelID != "child-openai" || second.TargetModel.ModelID != "child-openai" {
-		t.Fatalf("expected recursive access to resolve child-openai, got first=%q second=%q", first.TargetModel.ModelID, second.TargetModel.ModelID)
-	}
-	if first.Strategy.ID != childStrategyID || second.Strategy.ID != childStrategyID {
-		t.Fatalf("expected recursive child strategy %d, got first=%d second=%d", childStrategyID, first.Strategy.ID, second.Strategy.ID)
-	}
-	if len(first.TerminalAttempts) != 2 || len(second.TerminalAttempts) != 2 {
-		t.Fatalf("expected recursive child to expose two terminal attempts, got first=%d second=%d", len(first.TerminalAttempts), len(second.TerminalAttempts))
-	}
-	if first.TerminalAttempts[0].Connection.ID == second.TerminalAttempts[0].Connection.ID {
-		t.Fatalf("expected recursive child strategy to rotate first terminal attempt, got %d twice", first.TerminalAttempts[0].Connection.ID)
-	}
-}
-
-func TestResolveModelAccess_NoEligibleTargetsUsesRequestedModelID(t *testing.T) {
-	service := newRequestPlanUnitService()
-	snapshot := newRequestPlanSnapshot(
-		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "public-openai"},
-		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "child-openai"},
-	)
-	addRequestPlanProxyTarget(snapshot, "public-openai", "child-openai")
-	snapshot.AccessTargetsBySourceModelID[snapshot.ModelsByID["child-openai"].ID] = nil
-	requestedModel := snapshot.ModelsByID["public-openai"]
-
-	_, err := service.resolveModelAccessFromSnapshot(requestPlanTestProfileID, snapshot, requestedModel, runtimeAccessResolutionContext{
-		RequestedModelID:   requestedModel.ModelID,
-		RequestedAPIFamily: requestedModel.APIFamily,
-		RawRequestBody:     nil,
-		VisitedModelIDs:    map[int]struct{}{},
-		ReferenceNow:       service.nowUTC(),
-	})
-	var noEligible *noEligibleTargetsError
-	if !errors.As(err, &noEligible) {
-		t.Fatalf("expected noEligibleTargetsError, got %v", err)
-	}
-	if noEligible.requestedModelID != "public-openai" {
-		t.Fatalf("expected requested model id public-openai, got %q", noEligible.requestedModelID)
-	}
-	if noEligible.Error() != "No eligible targets available for model 'public-openai'." {
-		t.Fatalf("expected no-eligible error detail for requested model, got %q", noEligible.Error())
 	}
 }
 
@@ -1351,7 +1097,7 @@ func TestSanitizedStreamErrorDetailNormalizesRedactsAndTruncates(t *testing.T) {
 }
 
 func TestBuildRuntimePricingResultUsesStreamUsageUnavailableOnlyForInterruptedStreams(t *testing.T) {
-	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{PricingUnit: runtimePricingUnitPerMillion, PricingCurrencyCode: "USD", InputPrice: "2", OutputPrice: "5", CachedInputPrice: "0", CacheCreationPrice: "0", ReasoningPrice: "0", Version: 1}
+	pricingTemplateSnapshot := runtimePricingTemplateForTest(nil)
 	reportCurrencySnapshot := runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}
 	inputTokens := 7
 	outputTokens := 13
@@ -1386,8 +1132,6 @@ func TestBuildRuntimePricingResultUsesStreamUsageUnavailableOnlyForInterruptedSt
 }
 
 func TestBuildRuntimePricingResultRequiresUsageBeforePriceData(t *testing.T) {
-	validPricingTemplateSnapshot := &runtimePricingTemplateSnapshot{PricingUnit: runtimePricingUnitPerMillion, PricingCurrencyCode: "USD", InputPrice: "2", OutputPrice: "5", CachedInputPrice: "0", CacheCreationPrice: "0", ReasoningPrice: "0", Version: 1}
-
 	tests := []struct {
 		name                    string
 		reportCurrencySnapshot  runtimeReportCurrencySnapshot
@@ -1405,46 +1149,32 @@ func TestBuildRuntimePricingResultRequiresUsageBeforePriceData(t *testing.T) {
 		{
 			name:                   "interrupted missing usage beats invalid input price",
 			reportCurrencySnapshot: runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
-			pricingTemplateSnapshot: &runtimePricingTemplateSnapshot{
-				PricingUnit:         runtimePricingUnitPerMillion,
-				PricingCurrencyCode: "USD",
-				InputPrice:          "not-a-decimal",
-				OutputPrice:         "5",
-				CachedInputPrice:    "0",
-				CacheCreationPrice:  "0",
-				ReasoningPrice:      "0",
-				Version:             1,
-			},
+			pricingTemplateSnapshot: runtimePricingTemplateForTest(func(snapshot *runtimePricingTemplateSnapshot) {
+				snapshot.InputPrice = "not-a-decimal"
+			}),
 			streamOutcome: runtimeStreamOutcomeUpstreamReadError,
 			wantReason:    runtimeUnpricedReasonStreamUsageUnavailable,
 		},
 		{
 			name:                   "completed missing usage beats invalid output price",
 			reportCurrencySnapshot: runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
-			pricingTemplateSnapshot: &runtimePricingTemplateSnapshot{
-				PricingUnit:         runtimePricingUnitPerMillion,
-				PricingCurrencyCode: "USD",
-				InputPrice:          "2",
-				OutputPrice:         "not-a-decimal",
-				CachedInputPrice:    "0",
-				CacheCreationPrice:  "0",
-				ReasoningPrice:      "0",
-				Version:             1,
-			},
+			pricingTemplateSnapshot: runtimePricingTemplateForTest(func(snapshot *runtimePricingTemplateSnapshot) {
+				snapshot.OutputPrice = "not-a-decimal"
+			}),
 			streamOutcome: runtimeStreamOutcomeCompleted,
 			wantReason:    runtimeUnpricedReasonMissingUsage,
 		},
 		{
 			name:                    "interrupted missing usage beats missing fx",
 			reportCurrencySnapshot:  runtimeReportCurrencySnapshot{Code: "EUR", Symbol: "EUR"},
-			pricingTemplateSnapshot: validPricingTemplateSnapshot,
+			pricingTemplateSnapshot: runtimePricingTemplateForTest(nil),
 			streamOutcome:           runtimeStreamOutcomeUpstreamEndedWithoutTerminal,
 			wantReason:              runtimeUnpricedReasonStreamUsageUnavailable,
 		},
 		{
 			name:                    "completed missing usage beats invalid fx",
 			reportCurrencySnapshot:  runtimeReportCurrencySnapshot{Code: "EUR", Symbol: "EUR"},
-			pricingTemplateSnapshot: validPricingTemplateSnapshot,
+			pricingTemplateSnapshot: runtimePricingTemplateForTest(nil),
 			endpointFXSnapshot:      &runtimeEndpointFXSnapshot{FXRate: "not-a-decimal"},
 			streamOutcome:           runtimeStreamOutcomeCompleted,
 			wantReason:              runtimeUnpricedReasonMissingUsage,
@@ -1538,17 +1268,7 @@ func TestRuntimeProxyConfigProviderDoesNotRequireBufferingMode(t *testing.T) {
 }
 
 func TestBuildRuntimePricingResult(t *testing.T) {
-	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{
-		ID:                  42,
-		PricingUnit:         runtimePricingUnitPerMillion,
-		PricingCurrencyCode: "USD",
-		InputPrice:          "2",
-		OutputPrice:         "5",
-		CachedInputPrice:    "1",
-		CacheCreationPrice:  "2",
-		ReasoningPrice:      "3",
-		Version:             7,
-	}
+	pricingTemplateSnapshot := runtimePricingTemplateForTest(nil)
 	reportCurrencySnapshot := runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}
 	zero := 0
 	positiveCacheRead := 4
@@ -1559,9 +1279,10 @@ func TestBuildRuntimePricingResult(t *testing.T) {
 	totalTokens := 20
 
 	tests := []struct {
-		name  string
-		usage responseUsage
-		want  runtimePricingResult
+		name     string
+		template *runtimePricingTemplateSnapshot
+		usage    responseUsage
+		want     runtimePricingResult
 	}{
 		{
 			name: "prices base usage when optional counters are omitted",
@@ -1570,29 +1291,7 @@ func TestBuildRuntimePricingResult(t *testing.T) {
 				OutputTokens: &outputTokens,
 				TotalTokens:  &totalTokens,
 			},
-			want: runtimePricingResult{
-				Billable:                          true,
-				Priced:                            true,
-				InputCostMicros:                   int64Ptr(20),
-				OutputCostMicros:                  int64Ptr(50),
-				CacheReadInputCostMicros:          int64Ptr(0),
-				CacheCreationInputCostMicros:      int64Ptr(0),
-				ReasoningCostMicros:               int64Ptr(0),
-				TotalCostOriginalMicros:           int64Ptr(70),
-				TotalCostUserCurrencyMicros:       int64Ptr(70),
-				CurrencyCodeOriginal:              stringPtr("USD"),
-				ReportCurrencyCode:                stringPtr("USD"),
-				ReportCurrencySymbol:              stringPtr("$"),
-				FXRateUsed:                        stringPtr("1"),
-				FXRateSource:                      stringPtr(runtimeFXSourceDefaultOneToOne),
-				PricingSnapshotUnit:               stringPtr(runtimePricingUnitPerMillion),
-				PricingSnapshotInput:              stringPtr("2"),
-				PricingSnapshotOutput:             stringPtr("5"),
-				PricingSnapshotCacheReadInput:     stringPtr("1"),
-				PricingSnapshotCacheCreationInput: stringPtr("2"),
-				PricingSnapshotReasoning:          stringPtr("3"),
-				PricingConfigVersionUsed:          intPtr(7),
-			},
+			want: basePricedResult(nil),
 		},
 		{
 			name: "keeps missing token usage for missing required base usage",
@@ -1615,29 +1314,7 @@ func TestBuildRuntimePricingResult(t *testing.T) {
 				CacheCreationInputTokens: &zero,
 				ReasoningTokens:          &zero,
 			},
-			want: runtimePricingResult{
-				Billable:                          true,
-				Priced:                            true,
-				InputCostMicros:                   int64Ptr(20),
-				OutputCostMicros:                  int64Ptr(50),
-				CacheReadInputCostMicros:          int64Ptr(0),
-				CacheCreationInputCostMicros:      int64Ptr(0),
-				ReasoningCostMicros:               int64Ptr(0),
-				TotalCostOriginalMicros:           int64Ptr(70),
-				TotalCostUserCurrencyMicros:       int64Ptr(70),
-				CurrencyCodeOriginal:              stringPtr("USD"),
-				ReportCurrencyCode:                stringPtr("USD"),
-				ReportCurrencySymbol:              stringPtr("$"),
-				FXRateUsed:                        stringPtr("1"),
-				FXRateSource:                      stringPtr(runtimeFXSourceDefaultOneToOne),
-				PricingSnapshotUnit:               stringPtr(runtimePricingUnitPerMillion),
-				PricingSnapshotInput:              stringPtr("2"),
-				PricingSnapshotOutput:             stringPtr("5"),
-				PricingSnapshotCacheReadInput:     stringPtr("1"),
-				PricingSnapshotCacheCreationInput: stringPtr("2"),
-				PricingSnapshotReasoning:          stringPtr("3"),
-				PricingConfigVersionUsed:          intPtr(7),
-			},
+			want: basePricedResult(nil),
 		},
 		{
 			name: "prices positive optional counters independently",
@@ -1649,35 +1326,44 @@ func TestBuildRuntimePricingResult(t *testing.T) {
 				CacheCreationInputTokens: &positiveCacheCreation,
 				ReasoningTokens:          &positiveReasoning,
 			},
-			want: runtimePricingResult{
-				Billable:                          true,
-				Priced:                            true,
-				InputCostMicros:                   int64Ptr(20),
-				OutputCostMicros:                  int64Ptr(50),
-				CacheReadInputCostMicros:          int64Ptr(4),
-				CacheCreationInputCostMicros:      int64Ptr(10),
-				ReasoningCostMicros:               int64Ptr(18),
-				TotalCostOriginalMicros:           int64Ptr(102),
-				TotalCostUserCurrencyMicros:       int64Ptr(102),
-				CurrencyCodeOriginal:              stringPtr("USD"),
-				ReportCurrencyCode:                stringPtr("USD"),
-				ReportCurrencySymbol:              stringPtr("$"),
-				FXRateUsed:                        stringPtr("1"),
-				FXRateSource:                      stringPtr(runtimeFXSourceDefaultOneToOne),
-				PricingSnapshotUnit:               stringPtr(runtimePricingUnitPerMillion),
-				PricingSnapshotInput:              stringPtr("2"),
-				PricingSnapshotOutput:             stringPtr("5"),
-				PricingSnapshotCacheReadInput:     stringPtr("1"),
-				PricingSnapshotCacheCreationInput: stringPtr("2"),
-				PricingSnapshotReasoning:          stringPtr("3"),
-				PricingConfigVersionUsed:          intPtr(7),
+			want: basePricedResult(func(want *runtimePricingResult) {
+				want.CacheReadInputCostMicros = int64Ptr(4)
+				want.CacheCreationInputCostMicros = int64Ptr(10)
+				want.ReasoningCostMicros = int64Ptr(18)
+				want.TotalCostOriginalMicros = int64Ptr(102)
+				want.TotalCostUserCurrencyMicros = int64Ptr(102)
+			}),
+		},
+		{
+			name: "prices positive component counters with concrete zero prices as free",
+			template: runtimePricingTemplateForTest(func(snapshot *runtimePricingTemplateSnapshot) {
+				snapshot.CachedInputPrice = "0"
+				snapshot.CacheCreationPrice = "0"
+				snapshot.ReasoningPrice = "0"
+			}),
+			usage: responseUsage{
+				InputTokens:              &inputTokens,
+				OutputTokens:             &outputTokens,
+				TotalTokens:              &totalTokens,
+				CacheReadInputTokens:     &positiveCacheRead,
+				CacheCreationInputTokens: &positiveCacheCreation,
+				ReasoningTokens:          &positiveReasoning,
 			},
+			want: basePricedResult(func(want *runtimePricingResult) {
+				want.PricingSnapshotCacheReadInput = stringPtr("0")
+				want.PricingSnapshotCacheCreationInput = stringPtr("0")
+				want.PricingSnapshotReasoning = stringPtr("0")
+			}),
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := buildRuntimePricingResult(reportCurrencySnapshot, pricingTemplateSnapshot, nil, test.usage, runtimeStreamOutcomeCompleted)
+			template := pricingTemplateSnapshot
+			if test.template != nil {
+				template = test.template
+			}
+			got := buildRuntimePricingResult(reportCurrencySnapshot, template, nil, test.usage, runtimeStreamOutcomeCompleted)
 			if !reflect.DeepEqual(got, test.want) {
 				t.Fatalf("expected pricing result %+v, got %+v", test.want, got)
 			}
@@ -1720,25 +1406,53 @@ func TestEnforceRuntimeSpendCoherence(t *testing.T) {
 	}
 }
 
-func TestBuildRuntimePricingResultUsesConcreteZeroComponentPrices(t *testing.T) {
+func TestBuildRuntimePricingResultRejectsInvalidConcretePriceWhenComponentIsUsed(t *testing.T) {
 	inputTokens := 10
 	outputTokens := 10
 	totalTokens := 20
-	zero := 0
-	positiveCacheRead := 4
-	positiveCacheCreation := 5
-	positiveReasoning := 6
-	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{
+	reasoningTokens := 3
+	pricingTemplateSnapshot := runtimePricingTemplateForTest(func(snapshot *runtimePricingTemplateSnapshot) {
+		snapshot.CachedInputPrice = "0"
+		snapshot.CacheCreationPrice = "0"
+		snapshot.ReasoningPrice = "not-a-decimal"
+	})
+
+	got := buildRuntimePricingResult(runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}, pricingTemplateSnapshot, nil, responseUsage{
+		InputTokens:     &inputTokens,
+		OutputTokens:    &outputTokens,
+		TotalTokens:     &totalTokens,
+		ReasoningTokens: &reasoningTokens,
+	}, runtimeStreamOutcomeCompleted)
+
+	want := runtimePricingResult{
+		Billable:       true,
+		UnpricedReason: stringPtr(runtimeUnpricedReasonMissingData),
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected invalid used concrete component price to degrade pricing: want %+v got %+v", want, got)
+	}
+}
+
+func runtimePricingTemplateForTest(mutate func(*runtimePricingTemplateSnapshot)) *runtimePricingTemplateSnapshot {
+	snapshot := &runtimePricingTemplateSnapshot{
+		ID:                  42,
 		PricingUnit:         runtimePricingUnitPerMillion,
 		PricingCurrencyCode: "USD",
 		InputPrice:          "2",
 		OutputPrice:         "5",
-		CachedInputPrice:    "0",
-		CacheCreationPrice:  "0",
-		ReasoningPrice:      "0",
+		CachedInputPrice:    "1",
+		CacheCreationPrice:  "2",
+		ReasoningPrice:      "3",
 		Version:             7,
 	}
-	want := runtimePricingResult{
+	if mutate != nil {
+		mutate(snapshot)
+	}
+	return snapshot
+}
+
+func basePricedResult(mutate func(*runtimePricingResult)) runtimePricingResult {
+	result := runtimePricingResult{
 		Billable:                          true,
 		Priced:                            true,
 		InputCostMicros:                   int64Ptr(20),
@@ -1756,88 +1470,15 @@ func TestBuildRuntimePricingResultUsesConcreteZeroComponentPrices(t *testing.T) 
 		PricingSnapshotUnit:               stringPtr(runtimePricingUnitPerMillion),
 		PricingSnapshotInput:              stringPtr("2"),
 		PricingSnapshotOutput:             stringPtr("5"),
-		PricingSnapshotCacheReadInput:     stringPtr("0"),
-		PricingSnapshotCacheCreationInput: stringPtr("0"),
-		PricingSnapshotReasoning:          stringPtr("0"),
+		PricingSnapshotCacheReadInput:     stringPtr("1"),
+		PricingSnapshotCacheCreationInput: stringPtr("2"),
+		PricingSnapshotReasoning:          stringPtr("3"),
 		PricingConfigVersionUsed:          intPtr(7),
 	}
-
-	tests := []struct {
-		name  string
-		usage responseUsage
-	}{
-		{
-			name: "omitted optional counters",
-			usage: responseUsage{
-				InputTokens:  &inputTokens,
-				OutputTokens: &outputTokens,
-				TotalTokens:  &totalTokens,
-			},
-		},
-		{
-			name: "zero optional counters",
-			usage: responseUsage{
-				InputTokens:              &inputTokens,
-				OutputTokens:             &outputTokens,
-				TotalTokens:              &totalTokens,
-				CacheReadInputTokens:     &zero,
-				CacheCreationInputTokens: &zero,
-				ReasoningTokens:          &zero,
-			},
-		},
-		{
-			name: "positive component counters with concrete zero prices",
-			usage: responseUsage{
-				InputTokens:              &inputTokens,
-				OutputTokens:             &outputTokens,
-				TotalTokens:              &totalTokens,
-				CacheReadInputTokens:     &positiveCacheRead,
-				CacheCreationInputTokens: &positiveCacheCreation,
-				ReasoningTokens:          &positiveReasoning,
-			},
-		},
+	if mutate != nil {
+		mutate(&result)
 	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got := buildRuntimePricingResult(runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}, pricingTemplateSnapshot, nil, test.usage, runtimeStreamOutcomeCompleted)
-			if !reflect.DeepEqual(got, want) {
-				t.Fatalf("expected concrete zero component prices to price as free: want %+v got %+v", want, got)
-			}
-		})
-	}
-}
-
-func TestBuildRuntimePricingResultRejectsInvalidConcretePriceWhenComponentIsUsed(t *testing.T) {
-	inputTokens := 10
-	outputTokens := 10
-	totalTokens := 20
-	reasoningTokens := 3
-	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{
-		PricingUnit:         runtimePricingUnitPerMillion,
-		PricingCurrencyCode: "USD",
-		InputPrice:          "2",
-		OutputPrice:         "5",
-		CachedInputPrice:    "0",
-		CacheCreationPrice:  "0",
-		ReasoningPrice:      "not-a-decimal",
-		Version:             7,
-	}
-
-	got := buildRuntimePricingResult(runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}, pricingTemplateSnapshot, nil, responseUsage{
-		InputTokens:     &inputTokens,
-		OutputTokens:    &outputTokens,
-		TotalTokens:     &totalTokens,
-		ReasoningTokens: &reasoningTokens,
-	}, runtimeStreamOutcomeCompleted)
-
-	want := runtimePricingResult{
-		Billable:       true,
-		UnpricedReason: stringPtr(runtimeUnpricedReasonMissingData),
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("expected invalid used concrete component price to degrade pricing: want %+v got %+v", want, got)
-	}
+	return result
 }
 
 type failingWriter struct {
@@ -1890,40 +1531,13 @@ const (
 	requestPlanTestStrategyID = 202
 )
 
-func TestOpenAITextCapabilityMatrix(t *testing.T) {
-	tests := []struct {
-		name       string
-		capability string
-		operation  string
-		wantNative bool
-	}{
-		{name: "responses-only supports responses", capability: providerauth.OpenAITextCapabilityResponsesOnly, operation: openAIUpstreamOperationResponses, wantNative: true},
-		{name: "responses-only does not support chat native", capability: providerauth.OpenAITextCapabilityResponsesOnly, operation: openAIUpstreamOperationChatCompletions},
-		{name: "chat-only supports chat", capability: providerauth.OpenAITextCapabilityChatCompletionsOnly, operation: openAIUpstreamOperationChatCompletions, wantNative: true},
-		{name: "dual-native supports responses", capability: providerauth.OpenAITextCapabilityDualNative, operation: openAIUpstreamOperationResponses, wantNative: true},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := providerauth.OpenAITextCapabilitySupportsNativeOperation(test.capability, test.operation); got != test.wantNative {
-				t.Fatalf("expected native=%v, got %v", test.wantNative, got)
-			}
-		})
-	}
-}
-
 func TestConnectionPlanningPreservesOpenAITextCapability(t *testing.T) {
 	service := newRequestPlanUnitService()
 	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "capability-openai"})
 	model := snapshot.ModelsByID["capability-openai"]
 	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
 	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_401, 9_401, 0, requestPlanConnectionTargetOptions{openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly)})
-	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-
-	plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"capability-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
-	if err != nil {
-		t.Fatalf("build request plan: %v", err)
-	}
+	plan := mustBuildRequestPlanForTest(t, service, snapshot, "/v1/chat/completions", []byte(`{"model":"capability-openai","messages":[]}`), RuntimeProxyConfigSnapshot{})
 	if len(plan.TerminalAttempts) != 1 {
 		t.Fatalf("expected one terminal attempt, got %d", len(plan.TerminalAttempts))
 	}
@@ -1931,6 +1545,43 @@ func TestConnectionPlanningPreservesOpenAITextCapability(t *testing.T) {
 	if attempt.Connection.OpenAITextCapability == nil || *attempt.Connection.OpenAITextCapability != providerauth.OpenAITextCapabilityChatCompletionsOnly {
 		t.Fatalf("expected connection text capability %q, got %+v", providerauth.OpenAITextCapabilityChatCompletionsOnly, attempt.Connection.OpenAITextCapability)
 	}
+}
+
+func forEachRequestPlanService(t *testing.T, name string, fn func(*testing.T, *Service)) {
+	t.Helper()
+	for _, test := range []struct {
+		name       string
+		newService func() *Service
+	}{
+		{name: "legacy", newService: newRequestPlanUnitService},
+		{name: "enforced", newService: newRequestPlanUnitService},
+	} {
+		t.Run(test.name+"/"+name, func(t *testing.T) {
+			fn(t, test.newService())
+		})
+	}
+}
+
+func mustBuildRequestPlanForTest(t *testing.T, service *Service, snapshot *planningSnapshot, path string, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot) requestPlan {
+	t.Helper()
+	plan, err := buildRequestPlanForTest(t, service, snapshot, path, rawBody, runtimeConfig)
+	if err != nil {
+		t.Fatalf("build request plan: %v", err)
+	}
+	return plan
+}
+
+func buildRequestPlanErrorForTest(t *testing.T, service *Service, snapshot *planningSnapshot, path string, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot) error {
+	t.Helper()
+	_, err := buildRequestPlanForTest(t, service, snapshot, path, rawBody, runtimeConfig)
+	return err
+}
+
+func buildRequestPlanForTest(t *testing.T, service *Service, snapshot *planningSnapshot, path string, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot) (requestPlan, error) {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodPost, path, nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+	return service.buildRequestPlanFromSnapshot(request, rawBody, runtimeConfig, operationMatch, requestPlanTestProfileID, snapshot)
 }
 
 func newRequestPlanUnitService() *Service {
@@ -2068,13 +1719,6 @@ func addRequestPlanConnectionTargetWithOptions(snapshot *planningSnapshot, model
 	})
 }
 
-func setRequestPlanStrategyType(snapshot *planningSnapshot, model runtimeModelRecord, strategyType string) {
-	legacyStrategyType := strings.TrimSpace(strategyType)
-	strategy := snapshot.StrategiesByModelID[model.ID]
-	strategy.LegacyStrategyType = &legacyStrategyType
-	snapshot.StrategiesByModelID[model.ID] = strategy
-}
-
 func assertRuntimeIntPtr(t *testing.T, got *int, want int, label string) {
 	t.Helper()
 	if got == nil || *got != want {
@@ -2086,20 +1730,6 @@ func assertRuntimeStringPtr(t *testing.T, got *string, want string, label string
 	t.Helper()
 	if got == nil || *got != want {
 		t.Fatalf("expected %s %q, got %+v", label, want, got)
-	}
-}
-
-func newRuntimeAccessResolutionContextForTest(service *Service, model runtimeModelRecord, operation RuntimeOperation, rawBody []byte) runtimeAccessResolutionContext {
-	return runtimeAccessResolutionContext{
-		RequestedModelID:              model.ModelID,
-		RequestedAPIFamily:            model.APIFamily,
-		RequestedOpenAIAcceptedFormat: model.OpenAIAcceptedFormat,
-		RequestOperation:              operation,
-		RawRequestBody:                rawBody,
-		VisitedModelIDs:               map[int]struct{}{model.ID: struct{}{}},
-		ConsideredModelPath:           appendRuntimeModelPath(nil, model.ModelID),
-		Depth:                         1,
-		ReferenceNow:                  service.nowUTC(),
 	}
 }
 
@@ -2246,13 +1876,7 @@ func TestBuildRequestPlan_EstimationUnavailablePassesThroughForOpenAIText(t *tes
 			addRequestPlanConnectionTargetWithOptions(snapshot, model, test.terminalTargetID, test.terminalTargetID+7_000, 0, requestPlanConnectionTargetOptions{
 				openAITextCapability: &test.capability,
 			})
-			request := httptest.NewRequest(http.MethodPost, test.path, nil)
-			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-
-			plan, err := service.buildRequestPlanFromSnapshot(request, test.rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
-			if err != nil {
-				t.Fatalf("build request plan: %v", err)
-			}
+			plan := mustBuildRequestPlanForTest(t, service, snapshot, test.path, test.rawBody, RuntimeProxyConfigSnapshot{})
 			if plan.EffectiveRequestPath != test.wantPath {
 				t.Fatalf("expected effective request path %q, got %q", test.wantPath, plan.EffectiveRequestPath)
 			}
