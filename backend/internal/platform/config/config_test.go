@@ -257,6 +257,26 @@ func TestNormalizeRuntimeTransportConfig(t *testing.T) {
 	})
 }
 
+func TestSeededBootstrapDocumentUsesDerivedPoolDefaults(t *testing.T) {
+	document, err := buildSeededBootstrapDocument(Load(), time.Date(2026, 7, 9, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("build seeded bootstrap document: %v", err)
+	}
+	wantPools := DefaultPostgresPoolsBudget()
+	pools := document.Database.Pools
+	if *pools.TotalMaxConns != int(wantPools.TotalMaxConns) {
+		t.Fatalf("seeded totalMaxConns=%d want %d", *pools.TotalMaxConns, wantPools.TotalMaxConns)
+	}
+	if *pools.Management.MaxConns != int(wantPools.Management.MaxConns) {
+		t.Fatalf("seeded management maxConns=%d want %d", *pools.Management.MaxConns, wantPools.Management.MaxConns)
+	}
+	wantAdmission := defaultManagementAdmissionBudget()
+	admission := document.Database.ManagementAdmission
+	if *admission.M2MaxConcurrent != int(wantAdmission.M2MaxConcurrent) || *admission.M3MaxConcurrent != int(wantAdmission.M3MaxConcurrent) {
+		t.Fatalf("seeded admission m2=%d m3=%d want %+v", *admission.M2MaxConcurrent, *admission.M3MaxConcurrent, wantAdmission)
+	}
+}
+
 func seededBootstrapDocument(t *testing.T) bootstrapConfigDocument {
 	t.Helper()
 	document, err := buildSeededBootstrapDocument(loadCanonicalDefaultSettings(""), time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC))
