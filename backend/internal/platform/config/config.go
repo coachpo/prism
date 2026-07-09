@@ -292,10 +292,12 @@ func defaultTelemetryConfig() TelemetryConfig {
 	}
 }
 
-// derivedPoolUnit maps host CPU count to the sizing unit for pool and
+// derivedPoolUnit maps usable CPU count to the sizing unit for pool and
 // admission defaults. Floor 8 keeps the /system/settings page fan-out
 // (5 concurrent M2 requests) admitted on small hosts; ceiling 16 keeps
 // the lane sum (53) well under the postgres default max_connections=100.
+// Callers pass runtime.GOMAXPROCS(0), which is cgroup-quota aware since
+// Go 1.25, so CPU-limited containers are not sized by the host core count.
 func derivedPoolUnit(cores int) int32 {
 	return int32(min(max(cores, 8), 16))
 }
@@ -322,7 +324,7 @@ func derivedManagementAdmissionBudget(cores int) ManagementAdmissionBudget {
 }
 
 func DefaultPostgresPoolsBudget() PostgresPoolsBudget {
-	return derivedPostgresPoolsBudget(runtime.NumCPU())
+	return derivedPostgresPoolsBudget(runtime.GOMAXPROCS(0))
 }
 
 func defaultManagementDatabasePoolBudget() DatabasePoolBudget {
@@ -334,7 +336,7 @@ func defaultRuntimeExecutionDatabasePoolBudget() DatabasePoolBudget {
 }
 
 func defaultManagementAdmissionBudget() ManagementAdmissionBudget {
-	return derivedManagementAdmissionBudget(runtime.NumCPU())
+	return derivedManagementAdmissionBudget(runtime.GOMAXPROCS(0))
 }
 
 func resolveDatabaseURLFromEnv() string {
@@ -388,14 +390,15 @@ func (s Settings) ManagementAdmissionBudget() ManagementAdmissionBudget {
 	return normalizeManagementAdmissionBudget(s.ManagementAdmissionControlBudget, defaultManagementAdmissionBudget(), maxLowerPriority)
 }
 
-// ManagementAdmissionClamp reports whether the configured M2/M3 admission
+// ManagementAdmissionClamp reports whether the configured M2 admission
 // budget was reduced to fit database.pools.management.maxConns, so callers
-// can surface the silent clamp at startup.
+// can surface the silent clamp at startup. Only the M2-vs-maxConns clamp is
+// reported: bootstrap validation already rejects m3 > m2, so a lowered
+// effective M3 can only be a consequence of the M2 clamp reported here.
 func (s Settings) ManagementAdmissionClamp() (configured, effective ManagementAdmissionBudget, clamped bool) {
 	configured = s.ManagementAdmissionControlBudget
 	effective = s.ManagementAdmissionBudget()
-	clamped = (configured.M2MaxConcurrent > 0 && configured.M2MaxConcurrent > effective.M2MaxConcurrent) ||
-		(configured.M3MaxConcurrent > 0 && configured.M3MaxConcurrent > effective.M3MaxConcurrent)
+	clamped = configured.M2MaxConcurrent > 0 && configured.M2MaxConcurrent > effective.M2MaxConcurrent
 	return configured, effective, clamped
 }
 

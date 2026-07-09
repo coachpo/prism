@@ -88,8 +88,8 @@ func TestPriorityUnitContract(t *testing.T) {
 		if err := budget.Validate(); err != nil {
 			t.Fatalf("default postgres pool budget invalid: %v", err)
 		}
-		if int64(budget.TotalMaxConns) != budget.SumMaxConns() {
-			t.Fatalf("expected total connection budget to match lane sum, got total=%d sum=%d", budget.TotalMaxConns, budget.SumMaxConns())
+		if budget.SumMaxConns() > 100 {
+			t.Fatalf("default budget must stay under postgres default max_connections=100, got sum=%d", budget.SumMaxConns())
 		}
 		want := []string{"background_jobs", "cache_refresh", "management", "runtime_execution", "runtime_feedback", "runtime_telemetry"}
 		if got := strings.Join(platformdb.SortedLaneNames(), ","); got != strings.Join(want, ",") {

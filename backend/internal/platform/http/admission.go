@@ -142,8 +142,10 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "stats endpoint model statistics", method: http.MethodGet, pattern: "/stats/endpoints/{endpoint_id}/models", tier: priority.ManagementTierM3},
 }
 
+// The clamp warning is emitted from buildHotAdmissionSnapshot, which runs on
+// both the startup path and every hot config apply; warning here as well
+// would log the same line twice per boot.
 func newHTTPAdmissionController(settings config.Settings) *admission.Controller {
-	warnIfManagementAdmissionClamped(settings)
 	managementBudget := settings.ManagementAdmissionBudget()
 	return admission.NewController(admission.Limits{
 		ManagementM1: managementM1AdmissionBudget(settings, managementBudget),

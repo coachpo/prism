@@ -33,8 +33,8 @@ func TestLoadCanonicalDefaultSettings(t *testing.T) {
 	if got := settings.RuntimeSideEffects(); got.AttemptTimeout != 10*time.Second {
 		t.Fatalf("unexpected canonical side-effects defaults: %+v", got)
 	}
-	assertPostgresPoolsBudget(t, settings.PostgresPoolsBudgetOrDefault(), derivedPostgresPoolsBudget(runtime.NumCPU()))
-	wantAdmission := derivedManagementAdmissionBudget(runtime.NumCPU())
+	assertPostgresPoolsBudget(t, settings.PostgresPoolsBudgetOrDefault(), derivedPostgresPoolsBudget(runtime.GOMAXPROCS(0)))
+	wantAdmission := derivedManagementAdmissionBudget(runtime.GOMAXPROCS(0))
 	if got := settings.ManagementAdmissionControlBudget; got != wantAdmission {
 		t.Fatalf("unexpected raw management admission defaults: %+v", got)
 	}
@@ -428,8 +428,9 @@ func TestDerivedPoolDefaults(t *testing.T) {
 				t.Fatalf("cores=%d unexpected %s budget: %+v", tc.cores, lane, got)
 			}
 		}
-		if int64(budget.TotalMaxConns) != budget.SumMaxConns() {
-			t.Fatalf("cores=%d total %d != lane sum %d", tc.cores, budget.TotalMaxConns, budget.SumMaxConns())
+		// 派生总量必须给 docker-compose 默认 postgres max_connections=100 留出余量。
+		if budget.SumMaxConns() > 60 {
+			t.Fatalf("cores=%d derived lane sum %d leaves no headroom under postgres max_connections=100", tc.cores, budget.SumMaxConns())
 		}
 		if err := budget.Validate(); err != nil {
 			t.Fatalf("cores=%d derived budget must validate: %v", tc.cores, err)
