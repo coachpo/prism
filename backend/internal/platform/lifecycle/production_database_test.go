@@ -1,61 +1,98 @@
 package lifecycle
 
 import (
-	"context"
-	"crypto/rand"
-	"encoding/hex"
-	"fmt"
-	"net"
-	"os"
-	"os/exec"
 	"slices"
-	"strings"
-	"sync"
 	"testing"
-	"time"
 
-	"github.com/jackc/pgx/v5"
-
+	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
+	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
+	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
+	"github.com/coachpo/prism/backend/internal/platform/alerting"
 	"github.com/coachpo/prism/backend/internal/platform/background"
 	"github.com/coachpo/prism/backend/internal/platform/config"
-	"github.com/coachpo/prism/backend/internal/platform/startup"
+	"github.com/coachpo/prism/backend/internal/platform/logretention"
+	"github.com/coachpo/prism/backend/internal/platform/managementjobs"
+	"github.com/coachpo/prism/backend/internal/platform/managementsideeffects"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var lifecycleTestPostgres struct {
-	once     sync.Once
-	name     string
-	hostPort string
-	err      error
-}
-
-func TestMain(m *testing.M) {
-	code := m.Run()
-	if lifecycleTestPostgres.name != "" {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		_ = runLifecycleDockerCommand(cleanupCtx, "rm", "-f", lifecycleTestPostgres.name)
-		cancel()
+func TestRegisterDatabaseBackgroundWorkersRegistersProductionWorkers(t *testing.T) {
+	scheduler := background.NewScheduler(background.Config{})
+	settings := config.Settings{
+		Host:                "127.0.0.1",
+		Port:                8000,
+		AppEnv:              config.EnvironmentProduction,
+		SecretEncryptionKey: "lifecycle-test-secret",
+		CORSAllowedOrigins:  "http://localhost:5173,http://127.0.0.1:5173",
+		AuthJWTSecret:       "lifecycle-test-jwt-secret",
 	}
-	os.Exit(code)
-}
 
-func TestBuildProductionResourcesRegistersProductionWorkers(t *testing.T) {
-	ctx, databaseURL := openLifecycleTestDatabase(t)
-	settings := lifecycleTestSettings(databaseURL)
+	refreshPool := &pgxpool.Pool{}
+	managementPool := &pgxpool.Pool{}
+	proxyKeyUsagePool := &pgxpool.Pool{}
+	backgroundPool := &pgxpool.Pool{}
+	runtimeExecutionPool := &pgxpool.Pool{}
+	runtimeTelemetryPool := &pgxpool.Pool{}
+	runtimeFeedbackPool := &pgxpool.Pool{}
 
-	resources, err := buildProductionResources(ctx, settings)
-	if err != nil {
-		t.Fatalf("build production resources: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := resources.cleanupForSetupFailure(context.Background()); err != nil {
-			t.Errorf("cleanup production resources: %v", err)
-		}
+	cache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{
+		RefreshPool:         refreshPool,
+		SecretEncryptionKey: settings.SecretEncryptionKey,
+		Scheduler:           scheduler,
 	})
-	if resources.scheduler == nil {
-		t.Fatal("expected production scheduler")
+	authCache := managementauth.NewRuntimeCacheFromShared(cache)
+	authService, err := managementauth.NewService(settings, managementauth.Options{
+		Pool:              managementPool,
+		ProxyKeyUsagePool: proxyKeyUsagePool,
+		RuntimeCache:      authCache,
+		Scheduler:         scheduler,
+	})
+	if err != nil {
+		t.Fatalf("build auth service: %v", err)
 	}
 
-	got := resources.scheduler.RegisteredWorkers()
+	logRetentionStore := logretention.NewStore(logretention.Options{Pool: backgroundPool})
+	alertWebhookOutbox := alerting.NewStore(alerting.Options{Pool: backgroundPool, Scheduler: scheduler})
+	managementSideEffects := managementsideeffects.NewDispatcher(managementsideeffects.Options{Pool: backgroundPool, Scheduler: scheduler})
+	managementJobs := managementjobs.NewStore(managementjobs.Options{Pool: backgroundPool, Scheduler: scheduler, LogRetention: logRetentionStore})
+
+	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{
+		ExecutionPool:             runtimeExecutionPool,
+		TelemetryPool:             runtimeTelemetryPool,
+		FeedbackPool:              runtimeFeedbackPool,
+		Cache:                     cache,
+		RuntimeState:              loadbalancedomain.NewLocalRuntimeStateStore(),
+		LogPartitionEnsurer:       logRetentionStore,
+		AssumeLogPartitionHorizon: true,
+		Scheduler:                 scheduler,
+		FeedbackPipeline:          runtimeapi.RuntimeFeedbackPipelineOptions{AlertOutbox: alertWebhookOutbox},
+		SideEffects:               runtimeSideEffectOptions(settings),
+	})
+	if err != nil {
+		t.Fatalf("build runtime service: %v", err)
+	}
+
+	err = registerDatabaseBackgroundWorkers(
+		databaseBackgroundServices{
+			scheduler:             scheduler,
+			managementSideEffects: managementSideEffects,
+			logRetention:          logRetentionStore,
+			managementJobs:        managementJobs,
+			alertWebhookOutbox:    alertWebhookOutbox,
+		},
+		runtimePlanningServices{
+			cache:     cache,
+			state:     loadbalancedomain.NewLocalRuntimeStateStore(),
+			authCache: authCache,
+		},
+		authServices{management: authService},
+		runtimeService,
+	)
+	if err != nil {
+		t.Fatalf("register production background workers: %v", err)
+	}
+
+	got := scheduler.RegisteredWorkers()
 	slices.Sort(got)
 	want := []background.WorkerName{
 		"alert_webhook_worker",
@@ -72,148 +109,4 @@ func TestBuildProductionResourcesRegistersProductionWorkers(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("production worker set = %v, want %v", got, want)
 	}
-}
-
-type lifecyclePostgresHarness struct {
-	hostPort string
-}
-
-func lifecyclePostgres(tb testing.TB) lifecyclePostgresHarness {
-	tb.Helper()
-	lifecycleTestPostgres.once.Do(func() {
-		containerName := "prism-lifecycle-" + lifecycleRandomSuffix()
-		if err := runLifecycleDockerCommand(context.Background(), "run", "--rm", "-d", "--name", containerName, "-e", "POSTGRES_DB=postgres", "-e", "POSTGRES_USER=prism", "-e", "POSTGRES_PASSWORD=prism", "-P", "postgres:16-alpine"); err != nil {
-			lifecycleTestPostgres.err = err
-			return
-		}
-		hostPort, err := lifecycleDockerPort(containerName)
-		if err != nil {
-			lifecycleTestPostgres.err = err
-			return
-		}
-		if err := lifecycleWaitForPostgres(hostPort); err != nil {
-			lifecycleTestPostgres.err = err
-			return
-		}
-		lifecycleTestPostgres.name = containerName
-		lifecycleTestPostgres.hostPort = hostPort
-	})
-	if lifecycleTestPostgres.err != nil {
-		tb.Fatalf("start lifecycle postgres harness: %v", lifecycleTestPostgres.err)
-	}
-	return lifecyclePostgresHarness{hostPort: lifecycleTestPostgres.hostPort}
-}
-
-func (h lifecyclePostgresHarness) connectionString(databaseName string) string {
-	return fmt.Sprintf("postgres://prism:prism@127.0.0.1:%s/%s?sslmode=disable", h.hostPort, databaseName)
-}
-
-func (h lifecyclePostgresHarness) openDatabase(tb testing.TB, ctx context.Context, databaseName string) *pgx.Conn {
-	tb.Helper()
-	adminConn, err := pgx.Connect(ctx, h.connectionString("postgres"))
-	if err != nil {
-		tb.Fatalf("connect admin database: %v", err)
-	}
-	defer func() { _ = adminConn.Close(ctx) }()
-	if _, err := adminConn.Exec(ctx, `DROP DATABASE IF EXISTS `+lifecycleQuoteIdentifier(databaseName)+` WITH (FORCE)`); err != nil {
-		tb.Fatalf("drop database %s: %v", databaseName, err)
-	}
-	if _, err := adminConn.Exec(ctx, `CREATE DATABASE `+lifecycleQuoteIdentifier(databaseName)); err != nil {
-		tb.Fatalf("create database %s: %v", databaseName, err)
-	}
-	conn, err := pgx.Connect(ctx, h.connectionString(databaseName))
-	if err != nil {
-		tb.Fatalf("connect database %s: %v", databaseName, err)
-	}
-	return conn
-}
-
-func openLifecycleTestDatabase(tb testing.TB) (context.Context, string) {
-	tb.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	tb.Cleanup(cancel)
-
-	harness := lifecyclePostgres(tb)
-	databaseName := "lifecycle_" + lifecycleRandomSuffix()
-	conn := harness.openDatabase(tb, ctx, databaseName)
-	tb.Cleanup(func() { _ = conn.Close(context.Background()) })
-
-	startupService, err := startup.New(startup.Options{
-		DatabaseURL:         harness.connectionString(databaseName),
-		SecretEncryptionKey: "lifecycle-test-secret",
-	})
-	if err != nil {
-		tb.Fatalf("build startup service: %v", err)
-	}
-	if _, err := startupService.RunWithConn(ctx, conn); err != nil {
-		tb.Fatalf("run startup service: %v", err)
-	}
-	return ctx, harness.connectionString(databaseName)
-}
-
-func lifecycleTestSettings(databaseURL string) config.Settings {
-	return config.Settings{
-		Host:                       "127.0.0.1",
-		Port:                       8000,
-		AppEnv:                     config.EnvironmentProduction,
-		DatabaseURL:                databaseURL,
-		SecretEncryptionKey:        "lifecycle-test-secret",
-		CORSAllowedOrigins:         "http://localhost:5173,http://127.0.0.1:5173",
-		AuthJWTSecret:              "lifecycle-test-jwt-secret",
-		AuthAccessTokenTTLSeconds:  900,
-		AuthRefreshTokenTTLSeconds: 604800,
-		AuthResetCodeTTLSeconds:    600,
-		AuthCookieName:             "prism_access_token",
-		AuthRefreshCookieName:      "prism_refresh_token",
-		AuthCookieSecure:           false,
-	}
-}
-
-func runLifecycleDockerCommand(ctx context.Context, args ...string) error {
-	command := exec.CommandContext(ctx, "docker", args...)
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("docker %s failed: %v\n%s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
-	}
-	return nil
-}
-
-func lifecycleDockerPort(containerName string) (string, error) {
-	command := exec.Command("docker", "port", containerName, "5432/tcp")
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("docker port %s failed: %v\n%s", containerName, err, strings.TrimSpace(string(output)))
-	}
-	firstLine := strings.TrimSpace(strings.Split(string(output), "\n")[0])
-	_, port, err := net.SplitHostPort(firstLine)
-	if err != nil {
-		return "", fmt.Errorf("parse docker port output %q: %w", firstLine, err)
-	}
-	return port, nil
-}
-
-func lifecycleWaitForPostgres(hostPort string) error {
-	deadline := time.Now().Add(45 * time.Second)
-	for time.Now().Before(deadline) {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		conn, err := pgx.Connect(ctx, fmt.Sprintf("postgres://prism:prism@127.0.0.1:%s/postgres?sslmode=disable", hostPort))
-		if err == nil {
-			_ = conn.Close(ctx)
-			cancel()
-			return nil
-		}
-		cancel()
-		time.Sleep(500 * time.Millisecond)
-	}
-	return fmt.Errorf("postgres container on port %s did not become ready in time", hostPort)
-}
-
-func lifecycleQuoteIdentifier(identifier string) string {
-	return `"` + strings.ReplaceAll(identifier, `"`, `""`) + `"`
-}
-
-func lifecycleRandomSuffix() string {
-	var buffer [4]byte
-	_, _ = rand.Read(buffer[:])
-	return hex.EncodeToString(buffer[:])
 }

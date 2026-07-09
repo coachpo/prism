@@ -186,6 +186,59 @@ func TestPricingTemplateConnections(t *testing.T) {
 	assertPricingTemplateUsageItem(t, second, connectionBID, "Template Connection B", modelBID, "s10-usage-model-b", endpointBID, "Usage Endpoint B")
 }
 
+func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
+	harness := newEndpointConnectionContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+
+	payload := map[string]any{
+		"mode": "upsert_by_name",
+		"templates": []map[string]any{
+			{"name": " gpt-4o ", "pricing_unit": "PER_1M", "pricing_currency_code": "usd", "input_price": "2.5", "output_price": "10", "cached_input_price": "1.25", "cache_creation_price": "0", "reasoning_price": "0", "description": " flagship "},
+			{"name": "gpt-4o-mini", "pricing_unit": "PER_1M", "pricing_currency_code": "USD", "input_price": "0.15", "output_price": "0.60"},
+		},
+	}
+
+	var imported struct {
+		Created int      `json:"created"`
+		Updated int      `json:"updated"`
+		Skipped []string `json:"skipped"`
+		Errors  []any    `json:"errors"`
+	}
+
+	createdResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import", payload, modelHeader(profileID))
+	assertStatus(t, createdResponse, http.StatusOK)
+	decodeJSONResponse(t, createdResponse, &imported)
+	if imported.Created != 2 || imported.Updated != 0 || len(imported.Skipped) != 0 || len(imported.Errors) != 0 {
+		t.Fatalf("unexpected created import response: %+v", imported)
+	}
+	assertPricingTemplateCount(t, harness, profileID, 2)
+
+	updatedResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import", payload, modelHeader(profileID))
+	assertStatus(t, updatedResponse, http.StatusOK)
+	decodeJSONResponse(t, updatedResponse, &imported)
+	if imported.Created != 0 || imported.Updated != 2 || len(imported.Skipped) != 0 || len(imported.Errors) != 0 {
+		t.Fatalf("unexpected upsert import response: %+v", imported)
+	}
+	assertPricingTemplateCount(t, harness, profileID, 2)
+
+	invalid := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import", map[string]any{
+		"mode": "upsert_by_name",
+		"templates": []map[string]any{
+			{"name": "bad-row-kept-out", "pricing_currency_code": "USD", "input_price": "1", "output_price": "2"},
+			{"name": "bad-price", "pricing_currency_code": "USD", "input_price": "-1", "output_price": "2"},
+		},
+	}, modelHeader(profileID))
+	assertStatus(t, invalid, http.StatusBadRequest)
+	assertPricingTemplateCount(t, harness, profileID, 2)
+
+	unknown := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import", map[string]any{
+		"mode":      "upsert_by_name",
+		"templates": []map[string]any{},
+		"surprise":  true,
+	}, modelHeader(profileID))
+	assertStatus(t, unknown, http.StatusBadRequest)
+}
+
 func insertContractConnectionWithState(t *testing.T, harness *contractHarness, profileID int, modelConfigID int, endpointID int, pricingTemplateID *int, priority int, isActive bool, customHeaders map[string]string, name *string, healthStatus string, healthDetail *string, lastHealthAt *time.Time) int {
 	t.Helper()
 	now := time.Now().UTC()
@@ -215,5 +268,16 @@ func assertPricingTemplateUsageItem(t *testing.T, payload map[string]any, connec
 	t.Helper()
 	if jsonInt(t, payload["connection_id"]) != connectionID || payload["connection_name"] != connectionName || jsonInt(t, payload["model_config_id"]) != modelConfigID || payload["model_id"] != modelID || jsonInt(t, payload["endpoint_id"]) != endpointID || payload["endpoint_name"] != endpointName {
 		t.Fatalf("unexpected pricing template usage row: %+v", payload)
+	}
+}
+
+func assertPricingTemplateCount(t *testing.T, harness *contractHarness, profileID int, want int) {
+	t.Helper()
+	var got int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT COUNT(*) FROM pricing_templates WHERE profile_id = $1`, profileID).Scan(&got); err != nil {
+		t.Fatalf("count pricing templates: %v", err)
+	}
+	if got != want {
+		t.Fatalf("expected %d pricing templates, got %d", want, got)
 	}
 }

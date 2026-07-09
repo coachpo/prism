@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -89,6 +90,9 @@ func TestModelCRUD(t *testing.T) {
 	decodeJSONResponse(t, createDraftResponse, &createDraftPayload)
 	assertNoLegacyModelFields(t, createDraftPayload)
 	assertAccessTargets(t, createDraftPayload, nil)
+	if createDraftPayload["openai_accepted_format"] != "dual_native" {
+		t.Fatalf("expected draft create payload to expose openai_accepted_format, got %+v", createDraftPayload)
+	}
 	if got := createDraftPayload["is_enabled"]; got != false {
 		t.Fatalf("expected omitted is_enabled to default false, got %+v", createDraftPayload)
 	}
@@ -117,6 +121,9 @@ func TestModelCRUD(t *testing.T) {
 	sourceModelConfigID := jsonInt(t, createPayload["id"])
 	assertNoLegacyModelFields(t, createPayload)
 	assertAccessTargets(t, createPayload, nil)
+	if createPayload["openai_accepted_format"] != "dual_native" {
+		t.Fatalf("expected create payload to expose openai_accepted_format, got %+v", createPayload)
+	}
 	if got := createPayload["is_enabled"]; got != false {
 		t.Fatalf("expected new model without is_enabled to default disabled, got %+v", createPayload)
 	}
@@ -153,6 +160,13 @@ func TestModelCRUD(t *testing.T) {
 	decodeJSONResponse(t, detailResponse, &detailPayload)
 	assertNoLegacyModelFields(t, detailPayload)
 	assertAccessTargets(t, detailPayload, []expectedAccessTarget{{TargetType: "model", TargetModelID: "s8-target-model", Position: 0, IsEnabled: true}})
+	if detailPayload["openai_accepted_format"] != "dual_native" {
+		t.Fatalf("expected detail payload to expose openai_accepted_format, got %+v", detailPayload)
+	}
+	detailTargets := detailPayload["access_targets"].([]any)
+	if len(detailTargets) != 1 || asMap(t, asMap(t, detailTargets[0])["target_model"])["openai_accepted_format"] != "dual_native" {
+		t.Fatalf("expected detail target model to expose openai_accepted_format, got %+v", detailPayload)
+	}
 	assertModelLoadbalanceStrategySummary(t, detailPayload["loadbalance_strategy"], strategyID, "S8 Access Strategy")
 
 	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/models", nil, modelHeader(defaultProfileID))
@@ -162,7 +176,18 @@ func TestModelCRUD(t *testing.T) {
 	listItem := findModelListItemByModelID(t, listPayload, "s8-access-model")
 	assertNoLegacyModelFields(t, listItem)
 	assertAccessTargets(t, listItem, []expectedAccessTarget{{TargetType: "model", TargetModelID: "s8-target-model", Position: 0, IsEnabled: true}})
+	if listItem["openai_accepted_format"] != "dual_native" {
+		t.Fatalf("expected list payload to expose openai_accepted_format, got %+v", listItem)
+	}
+	listTargets := listItem["access_targets"].([]any)
+	if len(listTargets) != 1 || asMap(t, asMap(t, listTargets[0])["target_model"])["openai_accepted_format"] != "dual_native" {
+		t.Fatalf("expected list target model to expose openai_accepted_format, got %+v", listItem)
+	}
 	assertModelLoadbalanceStrategySummary(t, listItem["loadbalance_strategy"], strategyID, "S8 Access Strategy")
+	otherFamilyItem := findModelListItemByModelID(t, listPayload, "s8-anthropic-target")
+	if otherFamilyItem["openai_accepted_format"] != nil {
+		t.Fatalf("expected non-OpenAI model to omit openai_accepted_format, got %+v", otherFamilyItem)
+	}
 
 	enabledZeroTargetsCreate := harness.requestJSON(
 		t,
@@ -339,6 +364,44 @@ func TestModelTargetMetadataAndObsoleteFields(t *testing.T) {
 	connectionPriorityUpdate := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/targets/%d", sourceModelID, connectionTargetID), map[string]any{"target_priority": 0}, modelHeader(profileID))
 	assertObsoleteAccessTargetError(t, connectionPriorityUpdate, "target_priority")
 	assertConnectionTargetState(t, harness, sourceModelID, connectionTargetID, connectionID, 1, true)
+}
+
+func TestModelOpenAIAcceptedFormatAndRemovedContextValidation(t *testing.T) {
+	harness := newModelContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "OpenAI Accepted Format Validation Strategy")
+	anthropicModelID := modelInsertModel(t, harness, profileID, nil, "anthropic", "openai-format-validation-anthropic", nil, &strategyID, false)
+	openAIModelID := modelInsertModel(t, harness, profileID, nil, "openai", "openai-format-validation-openai", nil, &strategyID, false)
+
+	missingFormatRequest, err := http.NewRequest(
+		http.MethodPost,
+		harness.url+"/api/models",
+		bytes.NewReader([]byte(fmt.Sprintf(`{"api_family":"openai","model_id":"missing-openai-accepted-format","loadbalance_strategy_id":%d,"is_enabled":false}`, strategyID))),
+	)
+	if err != nil {
+		t.Fatalf("build missing format request: %v", err)
+	}
+	missingFormatRequest.Header.Set("Content-Type", "application/json")
+	missingFormatRequest.Header.Set(profiledomain.ProfileIDHeader, fmt.Sprintf("%d", profileID))
+	missingFormat, err := harness.client.Do(missingFormatRequest)
+	if err != nil {
+		t.Fatalf("perform missing format request: %v", err)
+	}
+	t.Cleanup(func() { _ = missingFormat.Body.Close() })
+	assertErrorResponse(t, missingFormat, http.StatusBadRequest, "openai_accepted_format is required when api_family is 'openai'")
+
+	removedContext := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/models/%d", openAIModelID), map[string]any{
+		"context_window_tokens":                   8192,
+		"default_output_token_reserve":            4096,
+		"max_context_utilization":                 0.9,
+		"preferred_context_utilization_threshold": 0.8,
+	}, modelHeader(profileID))
+	assertStatus(t, removedContext, http.StatusBadRequest)
+
+	nonOpenAIFormat := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/models/%d", anthropicModelID), map[string]any{
+		"openai_accepted_format": "dual_native",
+	}, modelHeader(profileID))
+	assertErrorResponse(t, nonOpenAIFormat, http.StatusBadRequest, "openai_accepted_format is only allowed when api_family is 'openai'")
 }
 
 func TestDeleteReferencedModel(t *testing.T) {
@@ -640,6 +703,9 @@ func TestModelsByEndpoint(t *testing.T) {
 	}
 	if models[0]["model_id"] != "a-model" || models[1]["model_id"] != "facade-model" || models[2]["model_id"] != "z-model" {
 		t.Fatalf("expected by-endpoint helper to sort by model_id, got %+v", models)
+	}
+	if models[0]["openai_accepted_format"] != "dual_native" || models[1]["openai_accepted_format"] != "dual_native" || models[2]["openai_accepted_format"] != "dual_native" {
+		t.Fatalf("expected by-endpoint helper to expose openai_accepted_format for OpenAI models, got %+v", models)
 	}
 	assertModelListItemCounts(t, models[0], modelAID, 1, 0, 0, nil)
 	assertModelListItemCounts(t, models[1], facadeID, 1, 1, 0, nil)
