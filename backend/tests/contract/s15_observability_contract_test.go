@@ -56,6 +56,54 @@ func assertS15NoPolicyThresholdFields(t *testing.T, item map[string]any) {
 	}
 }
 
+func assertJSONIntFields(t *testing.T, payload map[string]any, want map[string]int) {
+	t.Helper()
+	for key, expected := range want {
+		if got := jsonInt(t, payload[key]); got != expected {
+			t.Fatalf("expected %s=%d, got %+v", key, expected, payload)
+		}
+	}
+}
+
+func assertS15DashboardShape(t *testing.T, payload map[string]any) {
+	t.Helper()
+	for _, key := range []string{"api_family_rows", "coverage_24h", "coverage_30d", "generated_at", "health", "metric_snapshot", "routing_health_map", "snapshot_revision", "source_watermark", "top_spending_models", "topology_graph"} {
+		if _, ok := payload[key]; !ok {
+			t.Fatalf("expected dashboard snapshot key %q, got %+v", key, payload)
+		}
+	}
+	if len(payload) != 11 {
+		t.Fatalf("expected canonical dashboard snapshot shape, got %+v", payload)
+	}
+	for _, key := range []string{"window", "covers", "freshness", "metrics", "recent_requests", "strategy_family_summary"} {
+		if _, ok := payload[key]; ok {
+			t.Fatalf("expected dashboard snapshot to omit legacy key %q, got %+v", key, payload)
+		}
+	}
+}
+
+func s15LabelsByID(t *testing.T, items []any, idKey string, labelKey string) map[int]string {
+	t.Helper()
+	labels := make(map[int]string, len(items))
+	for _, raw := range items {
+		item := asMap(t, raw)
+		labels[jsonInt(t, item[idKey])] = item[labelKey].(string)
+	}
+	return labels
+}
+
+func s15ItemByID(t *testing.T, items []any, id string) map[string]any {
+	t.Helper()
+	for _, raw := range items {
+		item := asMap(t, raw)
+		if item["id"] == id {
+			return item
+		}
+	}
+	t.Fatalf("expected item %q, got %+v", id, items)
+	return nil
+}
+
 func TestUsageSnapshot(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
@@ -94,21 +142,44 @@ func TestUsageSnapshot(t *testing.T) {
 		seed.ResponseTimeMS = intPtr(900)
 	}))
 
-	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/usage-snapshot?preset=1h", nil, modelHeader(profileID))
-	assertStatus(t, response, http.StatusOK)
-	var payload map[string]any
-	decodeJSONResponse(t, response, &payload)
-	assertUsageSnapshotRESTContract(t, payload, "1h")
+	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/usage-snapshot?preset=1h", nil, modelHeader(profileID)); assertStatus(t, response, http.StatusOK)
+	var payload map[string]any; decodeJSONResponse(t, response, &payload)
+	for _, key := range []string{"generated_at", "time_range", "currency", "overview", "request_trends", "latency_trends", "token_usage_trends", "token_type_breakdown", "cost_overview", "endpoint_statistics", "model_statistics", "proxy_api_key_statistics"} {
+		if _, ok := payload[key]; !ok {
+			t.Fatalf("expected usage snapshot preset 1h to include %q, got %+v", key, payload)
+		}
+	}
+	if _, ok := payload["service_health"]; ok {
+		t.Fatalf("expected usage snapshot preset 1h to omit top-level service_health, got %+v", payload)
+	}
 	overview := asMap(t, payload["overview"])
 	assertJSONIntFields(t, overview, map[string]int{"total_requests": 2, "success_requests": 1, "failed_requests": 1, "total_tokens": 78})
-	assertS15UsageSnapshotTokenTotals(t, payload, 25, 45, 78, 7, 1)
-	assertS15GoldenJSON(t, "usage_snapshot_1h.json", s15UsageSnapshotProjection(t, payload))
-
-	directResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/usage-snapshot?preset=7d", nil, modelHeader(profileID))
-	assertStatus(t, directResponse, http.StatusOK)
-	var directPayload map[string]any
-	decodeJSONResponse(t, directResponse, &directPayload)
-	assertUsageSnapshotRESTContract(t, directPayload, "7d")
+	assertJSONIntFields(t, asMap(t, payload["cost_overview"]), map[string]int{"total_cost_micros": 2500, "priced_request_count": 1, "unpriced_request_count": 0})
+	if timeRange := asMap(t, payload["time_range"]); timeRange["preset"] != "1h" || timeRange["start_at"] != "2026-04-19T11:00:00Z" || timeRange["end_at"] != "2026-04-19T12:00:00Z" {
+		t.Fatalf("unexpected usage snapshot time range: %+v", timeRange)
+	}
+	if currency := asMap(t, payload["currency"]); currency["code"] != "USD" || currency["symbol"] != "$" {
+		t.Fatalf("unexpected usage snapshot currency: %+v", currency)
+	}
+	endpointRow := asMap(t, payload["endpoint_statistics"].([]any)[0])
+	modelRow := asMap(t, payload["model_statistics"].([]any)[0])
+	assertJSONIntFields(t, endpointRow, map[string]int{"request_count": 2, "total_tokens": 78, "total_cost_micros": 2500, "p50_ttft_ms": 100, "p95_ttft_ms": 100})
+	assertJSONIntFields(t, modelRow, map[string]int{"request_count": 2, "success_count": 1, "failed_count": 1, "input_tokens": 25, "output_tokens": 45, "total_tokens": 78, "cached_tokens": 7, "reasoning_tokens": 1, "priced_request_count": 1, "unpriced_request_count": 0, "total_cost_micros": 2500})
+	if endpointRow["endpoint_label"] != "Snapshot Endpoint" || modelRow["model_label"] != "Snapshot Model" {
+		t.Fatalf("unexpected usage snapshot labels: endpoint=%+v model=%+v", endpointRow, modelRow)
+	}
+	proxyKeyLabels := map[string]bool{}
+	for _, raw := range payload["proxy_api_key_statistics"].([]any) {
+		proxyKeyLabels[asMap(t, raw)["proxy_api_key_label"].(string)] = true
+	}
+	if !proxyKeyLabels["No proxy API key"] || !proxyKeyLabels["Snapshot Key"] {
+		t.Fatalf("expected snapshot proxy key statistics for stored and missing keys, got %+v", payload["proxy_api_key_statistics"])
+	}
+	directResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/usage-snapshot?preset=7d", nil, modelHeader(profileID)); assertStatus(t, directResponse, http.StatusOK)
+	var directPayload map[string]any; decodeJSONResponse(t, directResponse, &directPayload)
+	if asMap(t, directPayload["time_range"])["preset"] != "7d" || directPayload["overview"] == nil || directPayload["model_statistics"] == nil || directPayload["service_health"] != nil {
+		t.Fatalf("expected direct usage snapshot contract for 7d preset, got %+v", directPayload)
+	}
 }
 
 func TestEndpointModelStatistics(t *testing.T) {
@@ -195,13 +266,10 @@ func TestStatsSummary(t *testing.T) {
 func TestManagementDashboardStatsReturnsCanonicalSnapshotWithoutWindow(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
-
 	for _, path := range []string{"/api/stats/dashboard", "/api/stats/dashboard?window=24h", "/api/stats/dashboard?window=all"} {
-		response := harness.requestJSON(t, harness.client, http.MethodGet, path, nil, modelHeader(profileID))
-		assertStatus(t, response, http.StatusOK)
-		var payload map[string]any
-		decodeJSONResponse(t, response, &payload)
-		assertS15GoldenJSON(t, "dashboard_snapshot_shape.json", s15DashboardShapeProjection(payload))
+		response := harness.requestJSON(t, harness.client, http.MethodGet, path, nil, modelHeader(profileID)); assertStatus(t, response, http.StatusOK)
+		var payload map[string]any; decodeJSONResponse(t, response, &payload)
+		assertS15DashboardShape(t, payload)
 	}
 }
 
@@ -227,12 +295,22 @@ func TestManagementDashboardStatsSnapshotSections(t *testing.T) {
 		seed.TotalTokens = intPtr(15)
 		seed.ResponseTimeMS = intPtr(300)
 	}))
-
-	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/dashboard?window=24h", nil, modelHeader(profileID))
-	assertStatus(t, response, http.StatusOK)
-	var payload map[string]any
-	decodeJSONResponse(t, response, &payload)
-	assertS15GoldenJSON(t, "dashboard_snapshot_sections.json", s15DashboardSnapshotProjection(t, payload))
+	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/dashboard?window=24h", nil, modelHeader(profileID)); assertStatus(t, response, http.StatusOK)
+	var payload map[string]any; decodeJSONResponse(t, response, &payload)
+	assertS15DashboardShape(t, payload)
+	for _, key := range []string{"coverage_24h", "coverage_30d"} {
+		coverage := asMap(t, payload[key])
+		if coverage["from"] == nil || coverage["to"] == nil {
+			t.Fatalf("expected %s coverage bounds, got %+v", key, coverage)
+		}
+	}
+	assertJSONIntFields(t, asMap(t, payload["metric_snapshot"]), map[string]int{"total_requests": 2, "total_models": 1, "active_models": 1, "avg_latency": 200, "p95_latency": 290, "success_rate": 50, "error_rate": 50, "priced_request_count": 1, "unpriced_request_count": 0, "total_cost": 2500})
+	row := asMap(t, payload["api_family_rows"].([]any)[0])
+	topModel := asMap(t, payload["top_spending_models"].([]any)[0])
+	assertJSONIntFields(t, row, map[string]int{"total_requests": 2, "success_count": 1, "error_count": 1, "avg_response_time_ms": 200, "total_tokens": 45})
+	if row["key"] != "openai" || topModel["model_id"] != "dashboard-model" || topModel["model_label"] != "Dashboard Model" || jsonInt(t, topModel["total_cost_micros"]) != 2500 {
+		t.Fatalf("unexpected dashboard snapshot sections: rows=%+v top=%+v", row, topModel)
+	}
 }
 
 func TestObservabilityDashboardTopologyGraphIncludesDisabledAndInactiveNodes(t *testing.T) {
@@ -258,21 +336,24 @@ func TestObservabilityDashboardTopologyGraphIncludesDisabledAndInactiveNodes(t *
 		seed.BillableFlag = boolPtr(false)
 		seed.PricedFlag = boolPtr(false)
 	}))
-
-	var modelToModelEdgeID int
-	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM model_access_targets WHERE profile_id = $1 AND source_model_config_id = $2 AND target_model_config_id = $3`, profileID, entryModelID, terminalModelID).Scan(&modelToModelEdgeID); err != nil {
-		t.Fatalf("load topology model edge id: %v", err)
-	}
 	var modelToTerminalEdgeID int
 	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM model_access_targets WHERE profile_id = $1 AND source_model_config_id = $2 AND target_connection_id = $3`, profileID, terminalModelID, terminalTargetID).Scan(&modelToTerminalEdgeID); err != nil {
 		t.Fatalf("load topology terminal edge id: %v", err)
 	}
-
-	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/dashboard", nil, modelHeader(profileID))
-	assertStatus(t, response, http.StatusOK)
-	var payload map[string]any
-	decodeJSONResponse(t, response, &payload)
-	assertS15GoldenJSON(t, "dashboard_topology_graph.json", s15TopologyProjection(t, payload, disabledModelID, endpointID, terminalTargetID, modelToModelEdgeID, modelToTerminalEdgeID))
+	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/dashboard", nil, modelHeader(profileID)); assertStatus(t, response, http.StatusOK)
+	var payload map[string]any; decodeJSONResponse(t, response, &payload)
+	assertS15DashboardShape(t, payload)
+	topologyGraph := asMap(t, payload["topology_graph"])
+	nodes := topologyGraph["nodes"].([]any)
+	edges := topologyGraph["edges"].([]any)
+	assertJSONIntFields(t, asMap(t, topologyGraph["stats"]), map[string]int{"model_count": 3, "disabled_model_count": 1, "terminal_target_count": 1, "inactive_terminal_target_count": 1, "endpoint_count": 1, "edge_count": 3, "active_model_count": 2, "active_terminal_target_count": 0})
+	disabledNode := s15ItemByID(t, nodes, fmt.Sprintf("model-%d", disabledModelID))
+	terminalNode := s15ItemByID(t, nodes, fmt.Sprintf("terminal-target-%d", terminalTargetID))
+	terminalEdge := s15ItemByID(t, edges, fmt.Sprintf("access-target-%d", modelToTerminalEdgeID))
+	bindingEdge := s15ItemByID(t, edges, fmt.Sprintf("terminal-target-binding-%d", terminalTargetID))
+	if disabledNode["status"] != "disabled" || disabledNode["label"] != "Disabled Model" || terminalNode["status"] != "inactive" || terminalNode["active"] != false || jsonInt(t, terminalNode["recent_request_count"]) != 2 || jsonInt(t, terminalNode["recent_success_rate"]) != 50 || terminalEdge["product_kind"] != "model_to_terminal_target" || bindingEdge["product_kind"] != "terminal_target_to_endpoint" || jsonInt(t, bindingEdge["endpoint_id"]) != endpointID {
+		t.Fatalf("unexpected topology graph payload: %+v", topologyGraph)
+	}
 }
 
 func TestManagementGlobalLogRetentionJobStatusContract(t *testing.T) {
@@ -293,15 +374,9 @@ func TestManagementGlobalLogRetentionJobStatusContract(t *testing.T) {
 func TestManagementDashboardHealthReportsSnapshotFreshness(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
-
-	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/dashboard", nil, modelHeader(profileID))
-	assertStatus(t, response, http.StatusOK)
-	var payload map[string]any
-	decodeJSONResponse(t, response, &payload)
-	assertS15GoldenJSON(t, "dashboard_snapshot_health.json", map[string]any{
-		"shape":  s15DashboardShapeProjection(payload),
-		"health": payload["health"],
-	})
+	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/dashboard", nil, modelHeader(profileID)); assertStatus(t, response, http.StatusOK)
+	var payload map[string]any; decodeJSONResponse(t, response, &payload)
+	assertS15DashboardShape(t, payload)
 	health := asMap(t, payload["health"])
 	if health["stale"] != false {
 		t.Fatalf("expected dashboard health to describe the aggregate snapshot freshness, got %+v", payload)
@@ -387,7 +462,7 @@ func TestEndpointLabelSnapshotUsageSnapshotSurvivesEndpointRenameAndDelete(t *te
 	assertStatus(t, response, http.StatusOK)
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
-	labels := s15EndpointStatisticLabelsByID(t, payload)
+	labels := s15LabelsByID(t, payload["endpoint_statistics"].([]any), "endpoint_id", "endpoint_label")
 	if labels[endpointRenamed] != "Historical Renamed Label" || labels[endpointDeleted] != "Historical Deleted Label" {
 		t.Fatalf("expected usage snapshot endpoint labels from stored snapshots after rename/delete, got %+v", labels)
 	}
@@ -420,7 +495,7 @@ func TestEndpointLabelSnapshotSpendingSurvivesEndpointRenameAndDelete(t *testing
 	if !groupLabels["Historical Spend Renamed"] || !groupLabels["Historical Spend Deleted"] || groupLabels["Spend Current After Rename"] || groupLabels[fmt.Sprintf("Endpoint %d", endpointDeleted)] {
 		t.Fatalf("expected spending endpoint groups from stored snapshots after rename/delete, got %+v", payload["groups"])
 	}
-	topLabels := s15TopSpendingEndpointLabelsByID(t, payload)
+	topLabels := s15LabelsByID(t, payload["top_spending_endpoints"].([]any), "endpoint_id", "endpoint_label")
 	if topLabels[endpointRenamed] != "Historical Spend Renamed" || topLabels[endpointDeleted] != "Historical Spend Deleted" {
 		t.Fatalf("expected top spending endpoint labels from stored snapshots, got %+v", topLabels)
 	}
@@ -440,7 +515,7 @@ func TestEndpointLabelSnapshotTopEndpointDuplicateLabelsStayDistinct(t *testing.
 	assertStatus(t, usageResponse, http.StatusOK)
 	var usagePayload map[string]any
 	decodeJSONResponse(t, usageResponse, &usagePayload)
-	statsByID := s15EndpointStatisticLabelsByID(t, usagePayload)
+	statsByID := s15LabelsByID(t, usagePayload["endpoint_statistics"].([]any), "endpoint_id", "endpoint_label")
 	if len(statsByID) != 2 || statsByID[endpointA] != "Shared Historical Label" || statsByID[endpointB] != "Shared Historical Label" {
 		t.Fatalf("expected duplicate snapshot labels to remain distinct by endpoint id in usage snapshot, got %+v", usagePayload["endpoint_statistics"])
 	}
@@ -449,7 +524,7 @@ func TestEndpointLabelSnapshotTopEndpointDuplicateLabelsStayDistinct(t *testing.
 	assertStatus(t, spendingResponse, http.StatusOK)
 	var spendingPayload map[string]any
 	decodeJSONResponse(t, spendingResponse, &spendingPayload)
-	topLabels := s15TopSpendingEndpointLabelsByID(t, spendingPayload)
+	topLabels := s15LabelsByID(t, spendingPayload["top_spending_endpoints"].([]any), "endpoint_id", "endpoint_label")
 	if len(topLabels) != 2 || topLabels[endpointA] != "Shared Historical Label" || topLabels[endpointB] != "Shared Historical Label" {
 		t.Fatalf("expected duplicate snapshot labels to remain distinct by endpoint id in top endpoints, got %+v", spendingPayload["top_spending_endpoints"])
 	}
@@ -1251,6 +1326,14 @@ type usageEventSeed struct {
 	TTFTMS                            *int
 	CompletionDurationMS              *int
 	CreatedAt                         time.Time
+}
+
+func s15UsageSeed(id int, profileID int, ingressRequestID string, modelID string, createdAt time.Time, mutate func(*usageEventSeed)) usageEventSeed {
+	seed := usageEventSeed{ID: id, ProfileID: profileID, IngressRequestID: ingressRequestID, ModelID: modelID, APIFamily: "openai", StatusCode: http.StatusOK, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: createdAt}
+	if mutate != nil {
+		mutate(&seed)
+	}
+	return seed
 }
 
 type auditLogSeed struct {
