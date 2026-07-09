@@ -786,7 +786,11 @@ Model-scoped overflow replay and its authoring fields are retired. Runtime plann
 ```
 GET /v1/models
 ```
-Response: Local OpenAI-shaped list of enabled `api_family="openai"` models for frozen Default profile id `1`. Prism does not contact upstream providers for this operation.
+Response without a `client_version` query parameter: local OpenAI-shaped `{"object":"list","data":[...]}` list of enabled `api_family="openai"` models for frozen Default profile id `1`.
+
+Response when the `client_version` query parameter is present, including an empty value: local Codex client catalog `{"models":[...]}`. Exact model slugs found in Prism's embedded Codex template retain the template metadata. Unknown OpenAI model ids inherit the `gpt-5.5` template as a usable fallback while overriding the slug, display name, description, and deterministic trailing priority. This response includes a weak content-derived `ETag`; an exact matching `If-None-Match` returns `304 Not Modified` with an empty body.
+
+Prism does not contact upstream providers for either response shape. Both shapes use the same enabled OpenAI model filter.
 
 #### Chat Completions
 ```

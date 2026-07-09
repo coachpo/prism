@@ -23,6 +23,9 @@ runtime/
 ├── operation_response_hooks.go  # Non-stream response parsing by operation
 ├── operation_stream_hooks.go    # SSE terminal and usage parsing by operation
 ├── operation_translation.go     # OpenAI Chat/Responses cross-translation boundary
+├── openai_models.go             # Local OpenAI model-list filtering and request branching
+├── codex_models.go              # Embedded Codex catalog synthesis plus ETag/304 handling
+├── codex_client_models.json     # Verbatim OpenAI Codex model metadata template
 ├── generations.go               # Generation-request shaping and upstream helpers
 ├── observability.go             # Request-log and usage-event shaping with operation metadata
 ├── log_partitions.go            # Runtime partition ensuring and cache
@@ -41,6 +44,7 @@ runtime/
 - Non-stream response parsing for text generation and token count operations: `operation_response_hooks.go`
 - SSE terminal classification and usage merging for OpenAI, Anthropic, and Gemini stream operations: `operation_stream_hooks.go`
 - OpenAI Chat/Responses translation and adjunct conversion rejection behavior: `operation_translation.go`, `operation_translation_request.go`, `operation_translation_response.go`, `operation_translation_stream.go`, `operation_translation_golden_test.go`, `testdata/openai_translation/`
+- Local OpenAI and Codex client model-list responses: `openai_models.go`, `codex_models.go`, `codex_client_models.json`, `codex_models_test.go`
 - Request-log and usage-event shaping plus `operation_name` persistence: `observability.go`, `../../../migrations/000001_initial_schema.sql`
 - Telemetry, feedback, and runtime side-effect ownership: `telemetry_outbox.go`, `feedback_pipeline.go`, `runtime_side_effects.go`
 - Partition ensuring and partition-cache behavior: `log_partitions.go`, `../../platform/logretention/`
@@ -59,6 +63,7 @@ runtime/
 - Keep retired exact-facade and context-fit preflight behavior out of runtime planning; preserve requested/resolved model observability through the ordinary target plan.
 - Keep token-count operations out of generation-only parsing and usage assumptions.
 - Keep operation translation explicit and operation-scoped; do not turn Chat/Responses translation into a generic vendor compatibility layer.
+- Keep `GET /v1/models` local. Requests with a `client_version` query parameter use the embedded Codex catalog shape and deterministic ETag; requests without it preserve the OpenAI `object`/`data` list.
 - Keep telemetry, feedback, and runtime side-effect work on durable outboxes or worker seams instead of the hot request path.
 - Keep runtime partition ensuring here plus `../../platform/logretention/`; handlers must not create or drop partitions ad hoc.
 
