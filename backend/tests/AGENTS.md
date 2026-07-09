@@ -8,7 +8,7 @@
 - Integration coverage for migrations, startup sequencing, launcher/bootstrap preservation, canonical seeding, partitioned log retention, runtime route-matrix forwarding, audit or stats persistence, and Dockerfile ownership.
 - Runtime coverage for operation route matrices, rejected-route isolation, hook residency, profile scoping, request-log contracts, request-generation params, runtime-created log partitions, published runtime snapshots, cache invalidation, telemetry outboxes, streaming buffering, responses parity, and `operation_name` persistence.
 - Priority coverage for admission budgets, physical DB lane isolation, scheduler ownership, async side effects, outboxes, failure semantics, and no-inline-fallback regressions.
-- CI runs `go test ./internal/platform/lifecycle ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...` plus `go build ./cmd/prism-backend`; other `internal/...` package tests remain separate local gates when package-local behavior changes need them.
+- CI runs `go test ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...`, `go test ./internal/... ./cmd/...`, and `go build ./cmd/prism-backend`.
 
 ## WHERE TO LOOK
 - Contract packages for observability or partition-helper coverage: `contract/`, `contract/log_partition_helpers_test.go`
@@ -32,6 +32,15 @@
 - Keep bootstrap tests aligned with the plaintext v1 contract: required `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout`, unsupported legacy encrypted files, restart-required external edits, preserved existing valid files, and parse-only mail config compatibility.
 - Keep runtime contract tests aligned with `internal/httpapi/runtime/operations.go`, hook residency, rejected-route isolation, streaming or non-streaming parity, and persisted `operation_name` fields.
 - When changing runtime upstream request/response logic, run both package-local runtime hook tests under `internal/httpapi/runtime` and the external `tests/runtime` suite.
+- Keep test ownership single-layer: process-local backend unit tests own pricing, planning, and stream classification without DB; DB contract suites own one API surface; frontend Vitest/lib owns pure frontend logic. Do not duplicate one behavior across layers or add INSERT-then-SELECT mirror tests.
+- Respect the frontend browser budget when backend changes need browser coverage: Playwright stays near five journey specs, adding one deletes one, and browser tests must not assert table-cell text or i18n fallback behavior.
+- Keep setup before the first act within 10 lines; use defaulted builders when it grows. Share Postgres per package through `TestMain` and template-DB cloning, and never run `docker run`, `go build`, or `go run` inside test functions.
+- Use baseline-plus-override helpers or golden files when expectations exceed eight fields. Use golden files for large shapes, inline assertions only for behavior the test cares about, and normalized `pg_dump` diffs instead of per-column DDL assertions.
+- Table-drive three or more cases that share the same act/assert shape with `t.Run`, and keep at most one narrative story test per resource.
+- Test Prism behavior, not platform internals or dependency output: do not grep production Go or TS source text, test Postgres internals, assert Recharts/xyflow rendering, or manually recalculate aggregation internals.
+- Let proves-not tests expire with removal PRs. Permanent exceptions are route-contract parity guards, because they own route-level absence, and Dockerfile contract tests, because they guard the shipped container contract.
+- Tests that remain must run in CI or document why they do not. Wire commands by glob, including `go test ./internal/... ./cmd/...` and the top-level `tests/...` suites, not hand-written file lists.
+- Prevent rebound: feature PR test line additions must not exceed product line additions, no plan-numbered test names, and a new shared helper must delete the copy/paste it replaces in the same PR.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 

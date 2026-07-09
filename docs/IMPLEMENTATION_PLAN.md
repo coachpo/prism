@@ -591,6 +591,7 @@ type UsageLatencyTrends struct { Hourly []UsageLatencyTrendSeries `json:"hourly"
 4. **`request_logs_contract_test.go` 在 `tests/runtime/` 不在 `tests/contract/`**；其 absence 循环 :247-251 只有 `"context_routing"` 一项是残留。
 5. **E1 的 outbox 模板**在 R3 中被删——实现 E1 时从 git 历史取 `email_outbox` 模板，或参照在世的 `managementsideeffects/outbox.go`。
 6. **e2e 计 47 个 spec**；9 个孤儿 lib 测试清单已核实为准确，但其通过性在 `pnpm install` 前不可知（Task 5 的 Step 3 是首次真实运行）。
+7. 测试精简已执行，见 TEST_REDUCTION_HANDOFF.md
 
 ## 附录 B：删除总量预期（验收参考）
 

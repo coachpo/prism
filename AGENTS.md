@@ -94,8 +94,11 @@ prism/
 ./start.sh full
 docker compose up --build
 cd backend && go test ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...
+cd backend && go test ./internal/... ./cmd/...
 cd backend && go build ./cmd/prism-backend
-cd frontend && pnpm run test && pnpm run test:lib && pnpm run test:server
+cd frontend && pnpm exec vitest run
+cd frontend && pnpm run test:lib
+cd frontend && pnpm run test:server
 cd frontend && pnpm run build
 cd frontend && pnpm run lint
 cd frontend && pnpm run test:e2e

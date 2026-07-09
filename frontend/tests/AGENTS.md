@@ -44,6 +44,15 @@
 - Keep shared test-only utilities in `helpers/` instead of scattering loader glue across suites.
 - Keep pinned Default-profile header and typed-client contract tests separate from Playwright route flows.
 - Do not invent extra test roots or child AGENTS files unless a subtree has a distinct runner or command boundary like `e2e/` and `lib/`.
+- Keep test ownership single-layer: backend unit tests own process-local pricing, planning, and stream classification without DB; DB contract suites own one API surface; frontend Vitest/lib owns pure frontend logic. Do not duplicate one behavior across layers or add INSERT-then-SELECT mirror tests.
+- Keep Playwright capped near five journey specs; adding a browser journey deletes one. Browser specs must not assert table-cell text or i18n fallback behavior.
+- Keep setup before the first act within 10 lines; use defaulted builders when it grows, reject e2e leading mocks over 50 lines, and keep container/build commands out of test functions.
+- Use baseline-plus-override helpers or golden files when expectations exceed eight fields. Use golden files for large shapes and inline assertions only for the fields the test cares about.
+- Table-drive three or more cases that share the same act/assert shape, and keep at most one narrative story test per resource.
+- Test Prism behavior, not platform internals or dependency output: do not grep production Go or TS source text, test Postgres internals, assert Recharts/xyflow rendering, or manually recalculate aggregation internals.
+- Let proves-not tests expire with removal PRs. Permanent exceptions are route-contract parity guards, because they own route-level absence, and backend Dockerfile contract tests, because they guard the shipped container contract.
+- Tests that remain must run in CI or document why they do not. Wire commands by glob: `pnpm exec vitest run`, `pnpm run test:lib`, `pnpm run test:server`, and the Playwright journey specs are CI gates.
+- Prevent rebound: feature PR test line additions must not exceed product line additions, no plan-numbered test names, and a new shared helper must delete the copy/paste it replaces in the same PR.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
