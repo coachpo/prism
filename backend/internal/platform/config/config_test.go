@@ -366,3 +366,53 @@ func assertPostgresPoolsBudget(t *testing.T, got PostgresPoolsBudget, want Postg
 		t.Fatalf("expected postgres pool budget to validate: %v", err)
 	}
 }
+
+func TestDerivedPoolDefaults(t *testing.T) {
+	for _, tc := range []struct {
+		cores int
+		unit  int32
+	}{
+		{cores: 1, unit: 8},
+		{cores: 8, unit: 8},
+		{cores: 12, unit: 12},
+		{cores: 32, unit: 16},
+	} {
+		budget := derivedPostgresPoolsBudget(tc.cores)
+		admission := derivedManagementAdmissionBudget(tc.cores)
+		if budget.Management.MaxConns != tc.unit+1 || budget.Management.MinIdleConns != 1 {
+			t.Fatalf("cores=%d unexpected management budget: %+v", tc.cores, budget.Management)
+		}
+		if budget.RuntimeExecution.MaxConns != tc.unit || budget.RuntimeExecution.MinIdleConns != 2 {
+			t.Fatalf("cores=%d unexpected runtime execution budget: %+v", tc.cores, budget.RuntimeExecution)
+		}
+		if budget.RuntimeTelemetry.MaxConns != tc.unit/2 {
+			t.Fatalf("cores=%d unexpected runtime telemetry budget: %+v", tc.cores, budget.RuntimeTelemetry)
+		}
+		for lane, got := range map[string]DatabasePoolBudget{
+			"runtimeFeedback": budget.RuntimeFeedback,
+			"cacheRefresh":    budget.CacheRefresh,
+			"backgroundJobs":  budget.BackgroundJobs,
+		} {
+			if got.MaxConns != tc.unit/4 || got.MinIdleConns != 0 {
+				t.Fatalf("cores=%d unexpected %s budget: %+v", tc.cores, lane, got)
+			}
+		}
+		if int64(budget.TotalMaxConns) != budget.SumMaxConns() {
+			t.Fatalf("cores=%d total %d != lane sum %d", tc.cores, budget.TotalMaxConns, budget.SumMaxConns())
+		}
+		if err := budget.Validate(); err != nil {
+			t.Fatalf("cores=%d derived budget must validate: %v", tc.cores, err)
+		}
+		if admission.M2MaxConcurrent != int64(tc.unit) || admission.M3MaxConcurrent != int64(tc.unit/2) {
+			t.Fatalf("cores=%d unexpected derived admission: %+v", tc.cores, admission)
+		}
+		// m2 必须正好占满 management lane 减 1(留 M1 位),否则默认值会被自身 clamp。
+		if admission.M2MaxConcurrent != int64(budget.Management.MaxConns-1) {
+			t.Fatalf("cores=%d m2=%d must equal management.maxConns-1=%d", tc.cores, admission.M2MaxConcurrent, budget.Management.MaxConns-1)
+		}
+	}
+	// 下限必须覆盖 settings 页 5 个并发 M2 请求。
+	if got := derivedManagementAdmissionBudget(1).M2MaxConcurrent; got < 6 {
+		t.Fatalf("floor m2=%d cannot admit the settings page fan-out of 5 concurrent M2 calls", got)
+	}
+}

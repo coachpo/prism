@@ -306,6 +306,35 @@ func defaultTelemetryConfig() TelemetryConfig {
 	}
 }
 
+// derivedPoolUnit maps host CPU count to the sizing unit for pool and
+// admission defaults. Floor 8 keeps the /system/settings page fan-out
+// (5 concurrent M2 requests) admitted on small hosts; ceiling 16 keeps
+// the lane sum (53) well under the postgres default max_connections=100.
+func derivedPoolUnit(cores int) int32 {
+	return int32(min(max(cores, 8), 16))
+}
+
+func derivedPostgresPoolsBudget(cores int) PostgresPoolsBudget {
+	unit := derivedPoolUnit(cores)
+	budget := PostgresPoolsBudget{
+		Management:       DatabasePoolBudget{MaxConns: unit + 1, MinIdleConns: 1},
+		RuntimeExecution: DatabasePoolBudget{MaxConns: unit, MinIdleConns: 2},
+		RuntimeTelemetry: DatabasePoolBudget{MaxConns: unit / 2, MinIdleConns: 1},
+		RuntimeFeedback:  DatabasePoolBudget{MaxConns: unit / 4, MinIdleConns: 0},
+		CacheRefresh:     DatabasePoolBudget{MaxConns: unit / 4, MinIdleConns: 0},
+		BackgroundJobs:   DatabasePoolBudget{MaxConns: unit / 4, MinIdleConns: 0},
+	}
+	budget.TotalMaxConns = int32(budget.SumMaxConns())
+	return budget
+}
+
+// derivedManagementAdmissionBudget keeps m2 == management.maxConns-1 so the
+// derived defaults are never clamped by normalizeManagementAdmissionBudget.
+func derivedManagementAdmissionBudget(cores int) ManagementAdmissionBudget {
+	unit := derivedPoolUnit(cores)
+	return ManagementAdmissionBudget{M2MaxConcurrent: int64(unit), M3MaxConcurrent: int64(unit / 2)}
+}
+
 func DefaultPostgresPoolsBudget() PostgresPoolsBudget {
 	return PostgresPoolsBudget{
 		TotalMaxConns:    defaultPostgresTotalMaxConns,
