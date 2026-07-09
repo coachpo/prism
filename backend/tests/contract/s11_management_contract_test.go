@@ -8,6 +8,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -21,17 +22,13 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
-	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
 func TestCostingSettings(t *testing.T) {
 	harness := newS11ContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
 
-	initial := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/costing", nil, modelHeader(defaultProfileID))
-	assertStatus(t, initial, http.StatusOK)
-	var initialPayload map[string]any
-	decodeJSONResponse(t, initial, &initialPayload)
+	initialPayload := requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/settings/costing", nil, modelHeader(defaultProfileID), http.StatusOK)
 	if initialPayload["report_currency_code"] != "USD" || initialPayload["report_currency_symbol"] != "$" {
 		t.Fatalf("expected default costing settings, got %+v", initialPayload)
 	}
@@ -64,10 +61,9 @@ func TestCostingSettings(t *testing.T) {
 	)
 	assertErrorResponse(t, invalidMapping, http.StatusBadRequest, fmt.Sprintf("No connection found for model_id='missing-model' and endpoint_id=%d", endpointID))
 
-	updated := harness.requestJSON(
+	updatedPayload, loadedPayload := putThenGetJSON(
 		t,
-		harness.client,
-		http.MethodPut,
+		harness,
 		"/api/settings/costing",
 		map[string]any{
 			"report_currency_code":   " eur ",
@@ -81,9 +77,6 @@ func TestCostingSettings(t *testing.T) {
 		},
 		modelHeader(defaultProfileID),
 	)
-	assertStatus(t, updated, http.StatusOK)
-	var updatedPayload map[string]any
-	decodeJSONResponse(t, updated, &updatedPayload)
 	if updatedPayload["profile_id"] != float64(defaultProfileID) || updatedPayload["report_currency_code"] != "EUR" || updatedPayload["report_currency_symbol"] != "€" || updatedPayload["timezone_preference"] != "Europe/Helsinki" {
 		t.Fatalf("expected updated costing settings payload, got %+v", updatedPayload)
 	}
@@ -96,11 +89,8 @@ func TestCostingSettings(t *testing.T) {
 		t.Fatalf("unexpected updated costing mapping: %+v", updatedMapping)
 	}
 
-	loaded := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/costing", nil, modelHeader(defaultProfileID))
-	assertStatus(t, loaded, http.StatusOK)
-	decodeJSONResponse(t, loaded, &updatedPayload)
-	if updatedPayload["report_currency_code"] != "EUR" || updatedPayload["timezone_preference"] != "Europe/Helsinki" {
-		t.Fatalf("expected costing settings round-trip to persist, got %+v", updatedPayload)
+	if loadedPayload["report_currency_code"] != "EUR" || loadedPayload["timezone_preference"] != "Europe/Helsinki" {
+		t.Fatalf("expected costing settings round-trip to persist, got %+v", loadedPayload)
 	}
 }
 
@@ -108,38 +98,33 @@ func TestTimezoneSettings(t *testing.T) {
 	harness := newS11ContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
 
-	initial := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/timezone", nil, modelHeader(defaultProfileID))
-	assertStatus(t, initial, http.StatusOK)
-	var payload map[string]any
-	decodeJSONResponse(t, initial, &payload)
+	payload := requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/settings/timezone", nil, modelHeader(defaultProfileID), http.StatusOK)
 	if payload["profile_id"] != float64(defaultProfileID) || payload["timezone_preference"] != nil {
 		t.Fatalf("expected default timezone payload, got %+v", payload)
 	}
 
-	updated := harness.requestJSON(
+	payload = requestJSONStatus[map[string]any](
 		t,
-		harness.client,
+		harness,
 		http.MethodPut,
 		"/api/settings/timezone",
 		map[string]any{"timezone_preference": " America/New_York "},
 		modelHeader(defaultProfileID),
+		http.StatusOK,
 	)
-	assertStatus(t, updated, http.StatusOK)
-	decodeJSONResponse(t, updated, &payload)
 	if payload["timezone_preference"] != "America/New_York" {
 		t.Fatalf("expected trimmed timezone preference, got %+v", payload)
 	}
 
-	cleared := harness.requestJSON(
+	payload = requestJSONStatus[map[string]any](
 		t,
-		harness.client,
+		harness,
 		http.MethodPut,
 		"/api/settings/timezone",
 		map[string]any{"timezone_preference": "   "},
 		modelHeader(defaultProfileID),
+		http.StatusOK,
 	)
-	assertStatus(t, cleared, http.StatusOK)
-	decodeJSONResponse(t, cleared, &payload)
 	if payload["timezone_preference"] != nil {
 		t.Fatalf("expected blank timezone preference to clear to null, got %+v", payload)
 	}
@@ -149,79 +134,65 @@ func TestAuditSettings(t *testing.T) {
 	harness := newS11ContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
 
-	initial := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/audit", nil, modelHeader(defaultProfileID))
-	assertStatus(t, initial, http.StatusOK)
-	var payload map[string]any
-	decodeJSONResponse(t, initial, &payload)
-	assertAuditSettingsPayload(t, payload, defaultProfileID, []map[string]bool{
+	wantDefault := []map[string]bool{
 		{"audit_enabled": false, "audit_capture_bodies": false},
 		{"audit_enabled": false, "audit_capture_bodies": false},
 		{"audit_enabled": false, "audit_capture_bodies": false},
-	})
-
-	updated := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPut,
-		"/api/settings/audit",
-		map[string]any{"settings": []map[string]any{
-			{"api_family": " Gemini ", "audit_enabled": true, "audit_capture_bodies": true},
-			{"api_family": "openai", "audit_enabled": true, "audit_capture_bodies": false},
-			{"api_family": "ANTHROPIC", "audit_enabled": false, "audit_capture_bodies": false},
-		}},
-		modelHeader(defaultProfileID),
-	)
-	assertStatus(t, updated, http.StatusOK)
-	decodeJSONResponse(t, updated, &payload)
-	assertAuditSettingsPayload(t, payload, defaultProfileID, []map[string]bool{
+	}
+	wantUpdated := []map[string]bool{
 		{"audit_enabled": true, "audit_capture_bodies": false},
 		{"audit_enabled": false, "audit_capture_bodies": false},
 		{"audit_enabled": true, "audit_capture_bodies": true},
-	})
+	}
+	wantOtherHeader := []map[string]bool{
+		{"audit_enabled": false, "audit_capture_bodies": false},
+		{"audit_enabled": true, "audit_capture_bodies": true},
+		{"audit_enabled": false, "audit_capture_bodies": false},
+	}
+	payload := requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/settings/audit", nil, modelHeader(defaultProfileID), http.StatusOK)
+	assertAuditSettingsPayload(t, payload, defaultProfileID, wantDefault)
+
+	payload = requestJSONStatus[map[string]any](
+		t,
+		harness,
+		http.MethodPut,
+		"/api/settings/audit",
+		auditSettingsRequest(
+			auditSetting(" Gemini ", true, true),
+			auditSetting("openai", true, false),
+			auditSetting("ANTHROPIC", false, false),
+		),
+		modelHeader(defaultProfileID),
+		http.StatusOK,
+	)
+	assertAuditSettingsPayload(t, payload, defaultProfileID, wantUpdated)
 	assertAuditSettingsRows(t, harness, defaultProfileID, map[string][2]bool{
 		"openai":    {true, false},
 		"anthropic": {false, false},
 		"gemini":    {true, true},
 	})
 
-	loaded := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/audit", nil, modelHeader(defaultProfileID))
-	assertStatus(t, loaded, http.StatusOK)
-	decodeJSONResponse(t, loaded, &payload)
-	assertAuditSettingsPayload(t, payload, defaultProfileID, []map[string]bool{
-		{"audit_enabled": true, "audit_capture_bodies": false},
-		{"audit_enabled": false, "audit_capture_bodies": false},
-		{"audit_enabled": true, "audit_capture_bodies": true},
-	})
+	payload = requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/settings/audit", nil, modelHeader(defaultProfileID), http.StatusOK)
+	assertAuditSettingsPayload(t, payload, defaultProfileID, wantUpdated)
 
 	otherProfileID := s11InsertAuditSettingsProfile(t, harness, "S11 Audit Settings Other")
-	other := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/audit", nil, modelHeader(otherProfileID))
-	assertStatus(t, other, http.StatusOK)
-	decodeJSONResponse(t, other, &payload)
-	assertAuditSettingsPayload(t, payload, defaultProfileID, []map[string]bool{
-		{"audit_enabled": true, "audit_capture_bodies": false},
-		{"audit_enabled": false, "audit_capture_bodies": false},
-		{"audit_enabled": true, "audit_capture_bodies": true},
-	})
+	payload = requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/settings/audit", nil, modelHeader(otherProfileID), http.StatusOK)
+	assertAuditSettingsPayload(t, payload, defaultProfileID, wantUpdated)
 
-	otherHeaderUpdate := harness.requestJSON(
+	payload = requestJSONStatus[map[string]any](
 		t,
-		harness.client,
+		harness,
 		http.MethodPut,
 		"/api/settings/audit",
-		map[string]any{"settings": []map[string]any{
-			{"api_family": "openai", "audit_enabled": false, "audit_capture_bodies": false},
-			{"api_family": "anthropic", "audit_enabled": true, "audit_capture_bodies": true},
-			{"api_family": "gemini", "audit_enabled": false, "audit_capture_bodies": false},
-		}},
+		auditSettingsRequest(
+			auditSetting("openai", false, false),
+			auditSetting("anthropic", true, true),
+			auditSetting("gemini", false, false),
+		),
 		modelHeader(otherProfileID),
+		http.StatusOK,
 	)
-	assertStatus(t, otherHeaderUpdate, http.StatusOK)
-	decodeJSONResponse(t, otherHeaderUpdate, &payload)
-	assertAuditSettingsPayload(t, payload, defaultProfileID, []map[string]bool{
-		{"audit_enabled": false, "audit_capture_bodies": false},
-		{"audit_enabled": true, "audit_capture_bodies": true},
-		{"audit_enabled": false, "audit_capture_bodies": false},
-	})
+	assertAuditSettingsPayload(t, payload, defaultProfileID, wantOtherHeader)
 	assertAuditSettingsRows(t, harness, defaultProfileID, map[string][2]bool{
 		"openai":    {false, false},
 		"anthropic": {true, true},
@@ -236,37 +207,37 @@ func TestAuditSettings(t *testing.T) {
 	}{
 		{
 			name: "unknown family",
-			body: map[string]any{"settings": []map[string]any{
-				{"api_family": "openai", "audit_enabled": true, "audit_capture_bodies": false},
-				{"api_family": "anthropic", "audit_enabled": false, "audit_capture_bodies": false},
-				{"api_family": "mistral", "audit_enabled": false, "audit_capture_bodies": false},
-			}},
+			body: auditSettingsRequest(
+				auditSetting("openai", true, false),
+				auditSetting("anthropic", false, false),
+				auditSetting("mistral", false, false),
+			),
 			detail: `api_family "mistral" is not supported`,
 		},
 		{
 			name: "duplicate family",
-			body: map[string]any{"settings": []map[string]any{
-				{"api_family": "openai", "audit_enabled": true, "audit_capture_bodies": false},
-				{"api_family": "openai", "audit_enabled": false, "audit_capture_bodies": false},
-				{"api_family": "gemini", "audit_enabled": false, "audit_capture_bodies": false},
-			}},
+			body: auditSettingsRequest(
+				auditSetting("openai", true, false),
+				auditSetting("openai", false, false),
+				auditSetting("gemini", false, false),
+			),
 			detail: "Duplicate audit setting for api_family=openai",
 		},
 		{
 			name: "missing family",
-			body: map[string]any{"settings": []map[string]any{
-				{"api_family": "openai", "audit_enabled": true, "audit_capture_bodies": false},
-				{"api_family": "anthropic", "audit_enabled": false, "audit_capture_bodies": false},
-			}},
+			body: auditSettingsRequest(
+				auditSetting("openai", true, false),
+				auditSetting("anthropic", false, false),
+			),
 			detail: "settings must include exactly openai, anthropic, and gemini",
 		},
 		{
 			name: "capture requires enabled",
-			body: map[string]any{"settings": []map[string]any{
-				{"api_family": "openai", "audit_enabled": false, "audit_capture_bodies": true},
-				{"api_family": "anthropic", "audit_enabled": false, "audit_capture_bodies": false},
-				{"api_family": "gemini", "audit_enabled": false, "audit_capture_bodies": false},
-			}},
+			body: auditSettingsRequest(
+				auditSetting("openai", false, true),
+				auditSetting("anthropic", false, false),
+				auditSetting("gemini", false, false),
+			),
 			detail: "audit_capture_bodies requires audit_enabled",
 		},
 	}
@@ -310,68 +281,18 @@ func TestAuditSettingsRouteContractProfileScope(t *testing.T) {
 }
 
 func TestPricingTemplateImportRouteContractInvalidatesPlanning(t *testing.T) {
-	raw, err := os.ReadFile("../../internal/platform/http/management_route_contract.json")
-	if err != nil {
-		t.Fatalf("read management route contract: %v", err)
-	}
-	var rows []struct {
-		RoutePattern        string   `json:"route_pattern"`
-		Methods             []string `json:"methods"`
-		ProfileScoped       bool     `json:"profile_scoped"`
-		InvalidatesPlanning bool     `json:"invalidates_planning"`
-	}
-	if err := json.Unmarshal(raw, &rows); err != nil {
-		t.Fatalf("parse management route contract: %v", err)
-	}
-	for _, row := range rows {
-		if row.RoutePattern != "/api/pricing-templates/import" {
-			continue
-		}
-		if !row.ProfileScoped || !row.InvalidatesPlanning || !stringSetEqual(row.Methods, []string{http.MethodPost}) {
-			t.Fatalf("unexpected pricing-template import route contract: %+v", row)
-		}
-		return
-	}
-	t.Fatal("/api/pricing-templates/import route contract entry not found")
+	assertManagementRouteContract(t, "/api/pricing-templates/import", []string{http.MethodPost}, true, true, "pricing-template import")
 }
 
 func TestLoadbalanceIncidentsRouteContractProfileScopedReadOnly(t *testing.T) {
-	raw, err := os.ReadFile("../../internal/platform/http/management_route_contract.json")
-	if err != nil {
-		t.Fatalf("read management route contract: %v", err)
-	}
-	var rows []struct {
-		RoutePattern        string   `json:"route_pattern"`
-		Methods             []string `json:"methods"`
-		ProfileScoped       bool     `json:"profile_scoped"`
-		InvalidatesPlanning bool     `json:"invalidates_planning"`
-	}
-	if err := json.Unmarshal(raw, &rows); err != nil {
-		t.Fatalf("parse management route contract: %v", err)
-	}
-	for _, row := range rows {
-		if row.RoutePattern != "/api/loadbalance/incidents" {
-			continue
-		}
-		if !row.ProfileScoped || row.InvalidatesPlanning || !stringSetEqual(row.Methods, []string{http.MethodGet}) {
-			t.Fatalf("unexpected loadbalance incidents route contract: %+v", row)
-		}
-		return
-	}
-	t.Fatal("/api/loadbalance/incidents route contract entry not found")
+	assertManagementRouteContract(t, "/api/loadbalance/incidents", []string{http.MethodGet}, true, false, "loadbalance incidents")
 }
 
 func TestGlobalLogRetentionSettingsAndJobs(t *testing.T) {
 	harness := newS11ContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
 
-	initial := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/log-retention", nil, modelHeader(defaultProfileID))
-	assertStatus(t, initial, http.StatusOK)
-	var payload map[string]any
-	decodeJSONResponse(t, initial, &payload)
-	if payload["request_logs_retention_days"] != nil || payload["statistics_retention_days"] != nil || payload["audit_logs_retention_days"] != nil || payload["loadbalance_events_retention_days"] != nil {
-		t.Fatalf("expected default global retention settings payload, got %+v", payload)
-	}
+	assertLogRetentionPayload(t, requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/settings/log-retention", nil, modelHeader(defaultProfileID), http.StatusOK), nil, nil, nil, nil)
 
 	invalid := harness.requestJSON(
 		t,
@@ -383,10 +304,9 @@ func TestGlobalLogRetentionSettingsAndJobs(t *testing.T) {
 	)
 	assertErrorResponse(t, invalid, http.StatusBadRequest, "request_logs_retention_days must be >= 1 when provided")
 
-	updated := harness.requestJSON(
+	updatedPayload, loadedPayload := putThenGetJSON(
 		t,
-		harness.client,
-		http.MethodPut,
+		harness,
 		"/api/settings/log-retention",
 		map[string]any{
 			"request_logs_retention_days":       14,
@@ -396,16 +316,12 @@ func TestGlobalLogRetentionSettingsAndJobs(t *testing.T) {
 		},
 		modelHeader(defaultProfileID),
 	)
-	assertStatus(t, updated, http.StatusOK)
-	decodeJSONResponse(t, updated, &payload)
-	if payload["request_logs_retention_days"] != float64(14) || payload["statistics_retention_days"] != float64(30) || payload["audit_logs_retention_days"] != float64(7) || payload["loadbalance_events_retention_days"] != float64(45) {
-		t.Fatalf("expected persisted global retention settings payload, got %+v", payload)
-	}
+	assertLogRetentionPayload(t, updatedPayload, intRef(14), intRef(30), intRef(7), intRef(45))
+	assertLogRetentionPayload(t, loadedPayload, intRef(14), intRef(30), intRef(7), intRef(45))
 
-	cleared := harness.requestJSON(
+	clearedPayload, loadedPayload := putThenGetJSON(
 		t,
-		harness.client,
-		http.MethodPut,
+		harness,
 		"/api/settings/log-retention",
 		map[string]any{
 			"request_logs_retention_days":       21,
@@ -415,18 +331,8 @@ func TestGlobalLogRetentionSettingsAndJobs(t *testing.T) {
 		},
 		modelHeader(defaultProfileID),
 	)
-	assertStatus(t, cleared, http.StatusOK)
-	decodeJSONResponse(t, cleared, &payload)
-	if payload["request_logs_retention_days"] != float64(21) || payload["statistics_retention_days"] != nil || payload["audit_logs_retention_days"] != float64(90) || payload["loadbalance_events_retention_days"] != nil {
-		t.Fatalf("expected global retention settings clear/update payload, got %+v", payload)
-	}
-
-	loaded := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/log-retention", nil, modelHeader(defaultProfileID))
-	assertStatus(t, loaded, http.StatusOK)
-	decodeJSONResponse(t, loaded, &payload)
-	if payload["request_logs_retention_days"] != float64(21) || payload["statistics_retention_days"] != nil || payload["audit_logs_retention_days"] != float64(90) || payload["loadbalance_events_retention_days"] != nil {
-		t.Fatalf("expected global retention settings round-trip to persist, got %+v", payload)
-	}
+	assertLogRetentionPayload(t, clearedPayload, intRef(21), nil, intRef(90), nil)
+	assertLogRetentionPayload(t, loadedPayload, intRef(21), nil, intRef(90), nil)
 
 	legacySettings := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/retention", nil, modelHeader(defaultProfileID))
 	assertStatus(t, legacySettings, http.StatusNotFound)
@@ -442,8 +348,7 @@ func TestGlobalLogRetentionSettingsAndJobs(t *testing.T) {
 		withHeader(modelHeader(defaultProfileID), "Idempotency-Key", "s11-log-retention-job"),
 	)
 	assertStatus(t, jobResponse, http.StatusAccepted)
-	var jobPayload map[string]any
-	decodeJSONResponse(t, jobResponse, &jobPayload)
+	jobPayload := decodeJSONMap(t, jobResponse)
 	jobID, ok := jobPayload["job_id"].(string)
 	statusURL, _ := jobPayload["status_url"].(string)
 	scope := asMap(t, jobPayload["scope"])
@@ -459,35 +364,10 @@ func TestLoadbalanceStrategyGet(t *testing.T) {
 	harness := newS11ContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
 
-	createResponse := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPost,
-		"/api/loadbalance/strategies",
-		map[string]any{
-			"name":                                   "S11 Legacy Detail",
-			"legacy_strategy_type":                   "round-robin",
-			"failure_status_codes":                   []int{503, 429, 500},
-			"ban_mode":                               "temporary",
-			"retry_base_delay_ms":                    1234,
-			"retry_backoff_multiplier":               3.5,
-			"retry_jitter_ratio":                     0.35,
-			"retry_max_delay_ms":                     456789,
-			"cycle_retry_attempt_limit":              7,
-			"ban_cumulative_retry_attempt_threshold": 9,
-			"ban_duration_seconds":                   1800,
-		},
-		modelHeader(defaultProfileID),
-	)
-	assertStatus(t, createResponse, http.StatusCreated)
-	var created map[string]any
-	decodeJSONResponse(t, createResponse, &created)
+	created := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/loadbalance/strategies", legacyStrategyPayload("S11 Legacy Detail", "round-robin", []int{503, 429, 500}, "temporary", 1234, 3.5, 0.35, 456789, 7, 9, 1800), modelHeader(defaultProfileID), http.StatusCreated)
 	strategyID := jsonInt(t, created["id"])
 
-	detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/loadbalance/strategies/%d", strategyID), nil, modelHeader(defaultProfileID))
-	assertStatus(t, detailResponse, http.StatusOK)
-	var detail map[string]any
-	decodeJSONResponse(t, detailResponse, &detail)
+	detail := requestJSONStatus[map[string]any](t, harness, http.MethodGet, fmt.Sprintf("/api/loadbalance/strategies/%d", strategyID), nil, modelHeader(defaultProfileID), http.StatusOK)
 	if detail["name"] != "S11 Legacy Detail" || detail["legacy_strategy_type"] != "round-robin" || jsonInt(t, detail["attached_model_count"]) != 0 {
 		t.Fatalf("expected legacy-only detail payload for edit flow, got %+v", detail)
 	}
@@ -508,19 +388,7 @@ func TestLoadbalanceRejectsRemovedStrategyShapes(t *testing.T) {
 	}{
 		{
 			name: "legacy cheapest eligible context",
-			body: map[string]any{
-				"name":                                   "S11 Removed Cheapest Eligible Context",
-				"legacy_strategy_type":                   "cheapest_eligible_context",
-				"failure_status_codes":                   []int{503, 429, 500},
-				"ban_mode":                               "temporary",
-				"retry_base_delay_ms":                    1500,
-				"retry_backoff_multiplier":               2.5,
-				"retry_jitter_ratio":                     0.15,
-				"retry_max_delay_ms":                     600000,
-				"cycle_retry_attempt_limit":              3,
-				"ban_cumulative_retry_attempt_threshold": 5,
-				"ban_duration_seconds":                   120,
-			},
+			body: legacyStrategyPayload("S11 Removed Cheapest Eligible Context", "cheapest_eligible_context", []int{503, 429, 500}, "temporary", 1500, 2.5, 0.15, 600000, 3, 5, 120),
 			assertDetail: func(t *testing.T, detail string) {
 				t.Helper()
 				if !strings.Contains(detail, "legacy_strategy_type") {
@@ -564,8 +432,7 @@ func TestLoadbalanceRejectsRemovedStrategyShapes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/loadbalance/strategies", tc.body, modelHeader(defaultProfileID))
 			assertStatus(t, response, http.StatusBadRequest)
-			var payload map[string]any
-			decodeJSONResponse(t, response, &payload)
+			payload := decodeJSONMap(t, response)
 			tc.assertDetail(t, fmt.Sprint(payload["detail"]))
 		})
 	}
@@ -575,110 +442,62 @@ func TestLoadbalanceStrategies(t *testing.T) {
 	harness := newS11ContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
 
-	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/loadbalance/strategies", nil, modelHeader(defaultProfileID))
-	assertStatus(t, listResponse, http.StatusOK)
-	var emptyList []map[string]any
-	decodeJSONResponse(t, listResponse, &emptyList)
+	emptyList := requestJSONStatus[[]map[string]any](t, harness, http.MethodGet, "/api/loadbalance/strategies", nil, modelHeader(defaultProfileID), http.StatusOK)
 	if len(emptyList) != 0 {
 		t.Fatalf("expected empty loadbalance strategy list at test start, got %+v", emptyList)
 	}
 
-	timeoutPolicyRejected := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPost,
-		"/api/loadbalance/strategies",
-		map[string]any{
-			"name":                 "S11 Timeout Legacy",
-			"legacy_strategy_type": "round-robin",
-			"timeout_policy":       map[string]any{"attempt_open_timeout_ms": 2000},
-		},
-		modelHeader(defaultProfileID),
-	)
-	assertStatus(t, timeoutPolicyRejected, http.StatusBadRequest)
-	var timeoutPayload map[string]any
-	decodeJSONResponse(t, timeoutPolicyRejected, &timeoutPayload)
-	if detail := timeoutPayload["detail"]; detail != `json: unknown field "timeout_policy"` {
-		t.Fatalf("expected timeout_policy rejection detail, got %+v", timeoutPayload)
-	}
-
 	removedRetryField := removedRetryAttemptsField()
-	retryMaxRejected := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPost,
-		"/api/loadbalance/strategies",
-		map[string]any{
-			"name":                 "S11 Removed Retry Limit",
-			"legacy_strategy_type": "round-robin",
-			removedRetryField:      4,
+	for _, tc := range []struct {
+		name   string
+		body   map[string]any
+		assert func(*testing.T, *http.Response)
+	}{
+		{
+			name: "timeout policy",
+			body: map[string]any{"name": "S11 Timeout Legacy", "legacy_strategy_type": "round-robin", "timeout_policy": map[string]any{"attempt_open_timeout_ms": 2000}},
+			assert: func(t *testing.T, response *http.Response) {
+				t.Helper()
+				assertStatus(t, response, http.StatusBadRequest)
+				if detail := decodeJSONMap(t, response)["detail"]; detail != `json: unknown field "timeout_policy"` {
+					t.Fatalf("expected timeout_policy rejection detail, got %+v", detail)
+				}
+			},
 		},
-		modelHeader(defaultProfileID),
-	)
-	assertStatus(t, retryMaxRejected, http.StatusBadRequest)
-	var retryMaxPayload map[string]any
-	decodeJSONResponse(t, retryMaxRejected, &retryMaxPayload)
-	if detail := retryMaxPayload["detail"]; detail != fmt.Sprintf("json: unknown field %q", removedRetryField) {
-		t.Fatalf("expected removed retry field structural rejection detail, got %+v", retryMaxPayload)
+		{
+			name: "removed retry limit",
+			body: map[string]any{"name": "S11 Removed Retry Limit", "legacy_strategy_type": "round-robin", removedRetryField: 4},
+			assert: func(t *testing.T, response *http.Response) {
+				t.Helper()
+				assertStatus(t, response, http.StatusBadRequest)
+				if detail := decodeJSONMap(t, response)["detail"]; detail != fmt.Sprintf("json: unknown field %q", removedRetryField) {
+					t.Fatalf("expected removed retry field structural rejection detail, got %+v", detail)
+				}
+			},
+		},
+		{
+			name: "removed ban mode",
+			body: legacyStrategyPayload("S11 Removed Ban Mode Rejected", "round-robin", nil, removedBanModeValue(), 60000, 2.0, 0.2, 900000, 2, 2, 0),
+			assert: func(t *testing.T, response *http.Response) {
+				t.Helper()
+				assertErrorResponse(t, response, http.StatusBadRequest, "ban_mode must be one of 'off', 'temporary', or 'until_reset'")
+			},
+		},
+		{
+			name: "threshold below cycle",
+			body: legacyStrategyPayload("S11 Threshold Below Cycle", "round-robin", nil, "temporary", 60000, 2.0, 0.2, 900000, 5, 4, 60),
+			assert: func(t *testing.T, response *http.Response) {
+				t.Helper()
+				assertErrorResponse(t, response, http.StatusBadRequest, "ban_cumulative_retry_attempt_threshold must be greater than or equal to cycle_retry_attempt_limit when ban_mode is 'temporary' or 'until_reset'")
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.assert(t, harness.requestJSON(t, harness.client, http.MethodPost, "/api/loadbalance/strategies", tc.body, modelHeader(defaultProfileID)))
+		})
 	}
 
-	removedModeRejected := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPost,
-		"/api/loadbalance/strategies",
-		map[string]any{
-			"name":                                   "S11 Removed Ban Mode Rejected",
-			"legacy_strategy_type":                   "round-robin",
-			"ban_mode":                               removedBanModeValue(),
-			"cycle_retry_attempt_limit":              2,
-			"ban_cumulative_retry_attempt_threshold": 2,
-			"ban_duration_seconds":                   0,
-		},
-		modelHeader(defaultProfileID),
-	)
-	assertErrorResponse(t, removedModeRejected, http.StatusBadRequest, "ban_mode must be one of 'off', 'temporary', or 'until_reset'")
-
-	thresholdRejected := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPost,
-		"/api/loadbalance/strategies",
-		map[string]any{
-			"name":                                   "S11 Threshold Below Cycle",
-			"legacy_strategy_type":                   "round-robin",
-			"ban_mode":                               "temporary",
-			"cycle_retry_attempt_limit":              5,
-			"ban_cumulative_retry_attempt_threshold": 4,
-			"ban_duration_seconds":                   60,
-		},
-		modelHeader(defaultProfileID),
-	)
-	assertErrorResponse(t, thresholdRejected, http.StatusBadRequest, "ban_cumulative_retry_attempt_threshold must be greater than or equal to cycle_retry_attempt_limit when ban_mode is 'temporary' or 'until_reset'")
-
-	createResponse := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPost,
-		"/api/loadbalance/strategies",
-		map[string]any{
-			"name":                                   "S11 Legacy Primary",
-			"legacy_strategy_type":                   "round-robin",
-			"failure_status_codes":                   []int{504, 500, 429},
-			"ban_mode":                               "temporary",
-			"retry_base_delay_ms":                    45000,
-			"retry_backoff_multiplier":               3.5,
-			"retry_jitter_ratio":                     0.4,
-			"retry_max_delay_ms":                     720000,
-			"cycle_retry_attempt_limit":              4,
-			"ban_cumulative_retry_attempt_threshold": 6,
-			"ban_duration_seconds":                   1800,
-		},
-		modelHeader(defaultProfileID),
-	)
-	assertStatus(t, createResponse, http.StatusCreated)
-	var created map[string]any
-	decodeJSONResponse(t, createResponse, &created)
+	created := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/loadbalance/strategies", legacyStrategyPayload("S11 Legacy Primary", "round-robin", []int{504, 500, 429}, "temporary", 45000, 3.5, 0.4, 720000, 4, 6, 1800), modelHeader(defaultProfileID), http.StatusCreated)
 	strategyID := jsonInt(t, created["id"])
 	if created["legacy_strategy_type"] != "round-robin" || created["ban_mode"] != "temporary" || jsonInt(t, created["cycle_retry_attempt_limit"]) != 4 || jsonInt(t, created["ban_cumulative_retry_attempt_threshold"]) != 6 {
 		t.Fatalf("expected created Ban Policy strategy payload, got %+v", created)
@@ -699,29 +518,7 @@ func TestLoadbalanceStrategies(t *testing.T) {
 	)
 	assertErrorResponse(t, duplicateName, http.StatusConflict, "Loadbalance strategy name already exists")
 
-	updated := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPut,
-		fmt.Sprintf("/api/loadbalance/strategies/%d", strategyID),
-		map[string]any{
-			"name":                                   "S11 Legacy Updated",
-			"legacy_strategy_type":                   "single",
-			"failure_status_codes":                   []int{503, 403},
-			"ban_mode":                               "until_reset",
-			"retry_base_delay_ms":                    0,
-			"retry_backoff_multiplier":               2.5,
-			"retry_jitter_ratio":                     0.1,
-			"retry_max_delay_ms":                     120000,
-			"cycle_retry_attempt_limit":              2,
-			"ban_cumulative_retry_attempt_threshold": 2,
-			"ban_duration_seconds":                   0,
-		},
-		modelHeader(defaultProfileID),
-	)
-	assertStatus(t, updated, http.StatusOK)
-	var updatedPayload map[string]any
-	decodeJSONResponse(t, updated, &updatedPayload)
+	updatedPayload := requestJSONStatus[map[string]any](t, harness, http.MethodPut, fmt.Sprintf("/api/loadbalance/strategies/%d", strategyID), legacyStrategyPayload("S11 Legacy Updated", "single", []int{503, 403}, "until_reset", 0, 2.5, 0.1, 120000, 2, 2, 0), modelHeader(defaultProfileID), http.StatusOK)
 	if updatedPayload["name"] != "S11 Legacy Updated" || updatedPayload["legacy_strategy_type"] != "single" || updatedPayload["ban_mode"] != "until_reset" || jsonInt(t, updatedPayload["retry_base_delay_ms"]) != 0 || jsonInt(t, updatedPayload["cycle_retry_attempt_limit"]) != 2 || jsonInt(t, updatedPayload["ban_cumulative_retry_attempt_threshold"]) != 2 || jsonInt(t, updatedPayload["ban_duration_seconds"]) != 0 {
 		t.Fatalf("expected updated Ban Policy payload, got %+v", updatedPayload)
 	}
@@ -732,8 +529,7 @@ func TestLoadbalanceStrategies(t *testing.T) {
 	modelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s11-attached-model", nil, "native", &strategyID, true)
 	blockedDelete := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/loadbalance/strategies/%d", strategyID), nil, modelHeader(defaultProfileID))
 	assertStatus(t, blockedDelete, http.StatusConflict)
-	var blockedPayload map[string]any
-	decodeJSONResponse(t, blockedDelete, &blockedPayload)
+	blockedPayload := decodeJSONMap(t, blockedDelete)
 	blockedDetail := asMap(t, blockedPayload["detail"])
 	if blockedDetail["message"] != "Cannot delete loadbalance strategy that is attached to models" || jsonInt(t, blockedDetail["attached_model_count"]) != 1 {
 		t.Fatalf("expected attached-model delete conflict detail, got %+v", blockedPayload)
@@ -742,10 +538,7 @@ func TestLoadbalanceStrategies(t *testing.T) {
 		t.Fatalf("delete attached model: %v", err)
 	}
 
-	deleteResponse := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/loadbalance/strategies/%d", strategyID), nil, modelHeader(defaultProfileID))
-	assertStatus(t, deleteResponse, http.StatusOK)
-	var deletedPayload map[string]any
-	decodeJSONResponse(t, deleteResponse, &deletedPayload)
+	deletedPayload := requestJSONStatus[map[string]any](t, harness, http.MethodDelete, fmt.Sprintf("/api/loadbalance/strategies/%d", strategyID), nil, modelHeader(defaultProfileID), http.StatusOK)
 	if deletedPayload["deleted"] != true {
 		t.Fatalf("expected delete confirmation payload, got %+v", deletedPayload)
 	}
@@ -756,10 +549,7 @@ func TestLoadbalanceLegacyDefaults(t *testing.T) {
 		harness := newS11ContractHarness(t)
 		defaultProfileID := modelLoadDefaultProfileID(t, harness)
 
-		first := harness.requestJSON(t, harness.client, http.MethodPost, "/api/loadbalance/strategies/defaults", nil, modelHeader(defaultProfileID))
-		assertStatus(t, first, http.StatusOK)
-		var firstPayload map[string]any
-		decodeJSONResponse(t, first, &firstPayload)
+		firstPayload := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/loadbalance/strategies/defaults", nil, modelHeader(defaultProfileID), http.StatusOK)
 		wantNames := []string{"Default single routing", "Default fill-first routing", "Default round-robin routing"}
 		assertStringList(t, firstPayload["created_names"], wantNames)
 		assertStringList(t, firstPayload["existing_names"], []string{})
@@ -776,10 +566,7 @@ func TestLoadbalanceLegacyDefaults(t *testing.T) {
 			}
 		}
 
-		second := harness.requestJSON(t, harness.client, http.MethodPost, "/api/loadbalance/strategies/defaults", nil, modelHeader(defaultProfileID))
-		assertStatus(t, second, http.StatusOK)
-		var secondPayload map[string]any
-		decodeJSONResponse(t, second, &secondPayload)
+		secondPayload := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/loadbalance/strategies/defaults", nil, modelHeader(defaultProfileID), http.StatusOK)
 		if jsonInt(t, secondPayload["created_count"]) != 0 {
 			t.Fatalf("expected idempotent defaults call to create nothing, got %+v", secondPayload)
 		}
@@ -792,10 +579,7 @@ func TestLoadbalanceLegacyDefaults(t *testing.T) {
 		defaultProfileID := modelLoadDefaultProfileID(t, harness)
 		s11InsertStrategy(t, harness, defaultProfileID, "Default single routing", "single", "off", 0)
 
-		response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/loadbalance/strategies/defaults", nil, modelHeader(defaultProfileID))
-		assertStatus(t, response, http.StatusOK)
-		var payload map[string]any
-		decodeJSONResponse(t, response, &payload)
+		payload := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/loadbalance/strategies/defaults", nil, modelHeader(defaultProfileID), http.StatusOK)
 		if jsonInt(t, payload["created_count"]) != 2 {
 			t.Fatalf("expected two missing defaults to be created, got %+v", payload)
 		}
@@ -808,10 +592,7 @@ func TestLoadbalanceLegacyDefaults(t *testing.T) {
 		defaultProfileID := modelLoadDefaultProfileID(t, harness)
 		s11InsertStrategy(t, harness, defaultProfileID, "Default fill-first routing", "round-robin", "off", 0)
 
-		response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/loadbalance/strategies/defaults", nil, modelHeader(defaultProfileID))
-		assertStatus(t, response, http.StatusConflict)
-		var payload map[string]any
-		decodeJSONResponse(t, response, &payload)
+		payload := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/loadbalance/strategies/defaults", nil, modelHeader(defaultProfileID), http.StatusConflict)
 		detail := asMap(t, payload["detail"])
 		if detail["message"] != "Canonical loadbalance strategy default name conflict" {
 			t.Fatalf("expected canonical conflict message, got %+v", payload)
@@ -823,184 +604,48 @@ func TestLoadbalanceLegacyDefaults(t *testing.T) {
 func TestHeaderBlocklist(t *testing.T) {
 	harness := newS11ContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
-
-	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/header-blocklist-rules", nil, modelHeader(defaultProfileID))
-	assertStatus(t, listResponse, http.StatusOK)
-	var rules []map[string]any
-	decodeJSONResponse(t, listResponse, &rules)
-	systemRule := findRuleByPattern(t, rules, "cf-")
-	if systemRule["is_system"] != true {
-		t.Fatalf("expected cf- system blocklist rule, got %+v", systemRule)
-	}
-
-	invalidPrefix := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPost,
-		"/api/config/header-blocklist-rules",
-		map[string]any{"name": "Bad Prefix", "match_type": "prefix", "pattern": "x-bad", "enabled": true},
-		modelHeader(defaultProfileID),
-	)
-	assertErrorResponse(t, invalidPrefix, http.StatusBadRequest, "prefix pattern must end with '-'")
-
-	createResponse := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPost,
-		"/api/config/header-blocklist-rules",
-		map[string]any{"name": "Custom Header", "match_type": "prefix", "pattern": " X-Custom- ", "enabled": true},
-		modelHeader(defaultProfileID),
-	)
-	assertStatus(t, createResponse, http.StatusCreated)
-	var created map[string]any
-	decodeJSONResponse(t, createResponse, &created)
-	createdID := jsonInt(t, created["id"])
-	if created["pattern"] != "x-custom-" || created["match_type"] != "prefix" || created["is_system"] != false {
-		t.Fatalf("expected normalized created header blocklist rule, got %+v", created)
-	}
-
-	duplicateCreate := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPost,
-		"/api/config/header-blocklist-rules",
-		map[string]any{"name": "Duplicate", "match_type": "prefix", "pattern": "x-custom-", "enabled": true},
-		modelHeader(defaultProfileID),
-	)
-	assertErrorResponse(t, duplicateCreate, http.StatusConflict, "Rule with match_type='prefix' and pattern='x-custom-' already exists")
-
-	getResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/config/header-blocklist-rules/%d", createdID), nil, modelHeader(defaultProfileID))
-	assertStatus(t, getResponse, http.StatusOK)
-
-	updated := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPatch,
-		fmt.Sprintf("/api/config/header-blocklist-rules/%d", createdID),
-		map[string]any{"name": "Updated Header", "match_type": "exact", "pattern": "x-custom-token", "enabled": false},
-		modelHeader(defaultProfileID),
-	)
-	assertStatus(t, updated, http.StatusOK)
-	var updatedPayload map[string]any
-	decodeJSONResponse(t, updated, &updatedPayload)
-	if updatedPayload["name"] != "Updated Header" || updatedPayload["match_type"] != "exact" || updatedPayload["pattern"] != "x-custom-token" || updatedPayload["enabled"] != false {
-		t.Fatalf("expected updated header blocklist payload, got %+v", updatedPayload)
-	}
-
-	toggleSystem := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPatch,
-		fmt.Sprintf("/api/config/header-blocklist-rules/%d", jsonInt(t, systemRule["id"])),
-		map[string]any{"enabled": false},
-		modelHeader(defaultProfileID),
-	)
-	assertStatus(t, toggleSystem, http.StatusOK)
-
-	immutability := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPatch,
-		fmt.Sprintf("/api/config/header-blocklist-rules/%d", jsonInt(t, systemRule["id"])),
-		map[string]any{"pattern": "cf-ray"},
-		modelHeader(defaultProfileID),
-	)
-	assertErrorResponse(t, immutability, http.StatusBadRequest, "Cannot modify pattern on a system rule. Only 'enabled' is mutable.")
-
-	deleteCustom := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/config/header-blocklist-rules/%d", createdID), nil, modelHeader(defaultProfileID))
-	assertStatus(t, deleteCustom, http.StatusOK)
-	var deletedPayload map[string]any
-	decodeJSONResponse(t, deleteCustom, &deletedPayload)
-	if deletedPayload["deleted"] != true {
-		t.Fatalf("expected delete confirmation payload, got %+v", deletedPayload)
-	}
-
-	deleteSystem := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/config/header-blocklist-rules/%d", jsonInt(t, systemRule["id"])), nil, modelHeader(defaultProfileID))
-	assertErrorResponse(t, deleteSystem, http.StatusNotFound, "Header blocklist rule not found")
+	runConfigRuleCRUDContract(t, harness, defaultProfileID, configRuleCRUDSpec{
+		listPath:              "/api/config/header-blocklist-rules",
+		systemKey:             "pattern",
+		systemValue:           "cf-",
+		systemWant:            map[string]any{"is_system": true},
+		invalidBody:           map[string]any{"name": "Bad Prefix", "match_type": "prefix", "pattern": "x-bad", "enabled": true},
+		invalidStatus:         http.StatusBadRequest,
+		invalidDetail:         "prefix pattern must end with '-'",
+		createBody:            map[string]any{"name": "Custom Header", "match_type": "prefix", "pattern": " X-Custom- ", "enabled": true},
+		createWant:            map[string]any{"pattern": "x-custom-", "match_type": "prefix", "is_system": false},
+		duplicateBody:         map[string]any{"name": "Duplicate", "match_type": "prefix", "pattern": "x-custom-", "enabled": true},
+		duplicateStatus:       http.StatusConflict,
+		duplicateDetail:       "Rule with match_type='prefix' and pattern='x-custom-' already exists",
+		updateBody:            map[string]any{"name": "Updated Header", "match_type": "exact", "pattern": "x-custom-token", "enabled": false},
+		updateWant:            map[string]any{"name": "Updated Header", "match_type": "exact", "pattern": "x-custom-token", "enabled": false},
+		systemToggleBody:      map[string]any{"enabled": false},
+		systemImmutableBody:   map[string]any{"pattern": "cf-ray"},
+		systemImmutableDetail: "Cannot modify pattern on a system rule. Only 'enabled' is mutable.",
+		deleteSystemDetail:    "Header blocklist rule not found",
+	})
 }
 
 func TestUserAgentRules(t *testing.T) {
 	harness := newS11ContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
-
-	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/user-agent-client-rules", nil, modelHeader(defaultProfileID))
-	assertStatus(t, listResponse, http.StatusOK)
-	var rules []map[string]any
-	decodeJSONResponse(t, listResponse, &rules)
-	claudeRule := findRuleByName(t, rules, "Claude Code")
-	if claudeRule["pattern"] != "claude(?:\\s|-)?(?:code|cli)" || claudeRule["is_system"] != true {
-		t.Fatalf("expected canonical Claude Code system rule, got %+v", claudeRule)
-	}
-
-	invalidRegex := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPost,
-		"/api/config/user-agent-client-rules",
-		map[string]any{"name": "Bad Regex", "pattern": "(", "enabled": true},
-		modelHeader(defaultProfileID),
-	)
-	assertErrorResponse(t, invalidRegex, http.StatusBadRequest, "pattern must be a valid regular expression")
-
-	createResponse := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPost,
-		"/api/config/user-agent-client-rules",
-		map[string]any{"name": "My SDK", "pattern": "my-sdk", "enabled": true},
-		modelHeader(defaultProfileID),
-	)
-	assertStatus(t, createResponse, http.StatusCreated)
-	var created map[string]any
-	decodeJSONResponse(t, createResponse, &created)
-	createdID := jsonInt(t, created["id"])
-	if created["name"] != "My SDK" || created["pattern"] != "my-sdk" || created["is_system"] != false {
-		t.Fatalf("expected created user-agent rule payload, got %+v", created)
-	}
-
-	getResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/config/user-agent-client-rules/%d", createdID), nil, modelHeader(defaultProfileID))
-	assertStatus(t, getResponse, http.StatusOK)
-
-	updated := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPatch,
-		fmt.Sprintf("/api/config/user-agent-client-rules/%d", createdID),
-		map[string]any{"name": "My SDK v2", "pattern": "my-sdk/v2", "enabled": false},
-		modelHeader(defaultProfileID),
-	)
-	assertStatus(t, updated, http.StatusOK)
-	var updatedPayload map[string]any
-	decodeJSONResponse(t, updated, &updatedPayload)
-	if updatedPayload["name"] != "My SDK v2" || updatedPayload["pattern"] != "my-sdk/v2" || updatedPayload["enabled"] != false {
-		t.Fatalf("expected updated user-agent rule payload, got %+v", updatedPayload)
-	}
-
-	toggleSystem := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPatch,
-		fmt.Sprintf("/api/config/user-agent-client-rules/%d", jsonInt(t, claudeRule["id"])),
-		map[string]any{"enabled": false},
-		modelHeader(defaultProfileID),
-	)
-	assertStatus(t, toggleSystem, http.StatusOK)
-
-	immutability := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPatch,
-		fmt.Sprintf("/api/config/user-agent-client-rules/%d", jsonInt(t, claudeRule["id"])),
-		map[string]any{"name": "Changed Claude"},
-		modelHeader(defaultProfileID),
-	)
-	assertErrorResponse(t, immutability, http.StatusBadRequest, "Cannot modify name on a system rule. Only 'enabled' is mutable.")
-
-	deleteCustom := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/config/user-agent-client-rules/%d", createdID), nil, modelHeader(defaultProfileID))
-	assertStatus(t, deleteCustom, http.StatusOK)
-
-	deleteSystem := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/config/user-agent-client-rules/%d", jsonInt(t, claudeRule["id"])), nil, modelHeader(defaultProfileID))
-	assertErrorResponse(t, deleteSystem, http.StatusNotFound, "User agent client rule not found")
+	runConfigRuleCRUDContract(t, harness, defaultProfileID, configRuleCRUDSpec{
+		listPath:              "/api/config/user-agent-client-rules",
+		systemKey:             "name",
+		systemValue:           "Claude Code",
+		systemWant:            map[string]any{"pattern": "claude(?:\\s|-)?(?:code|cli)", "is_system": true},
+		invalidBody:           map[string]any{"name": "Bad Regex", "pattern": "(", "enabled": true},
+		invalidStatus:         http.StatusBadRequest,
+		invalidDetail:         "pattern must be a valid regular expression",
+		createBody:            map[string]any{"name": "My SDK", "pattern": "my-sdk", "enabled": true},
+		createWant:            map[string]any{"name": "My SDK", "pattern": "my-sdk", "is_system": false},
+		updateBody:            map[string]any{"name": "My SDK v2", "pattern": "my-sdk/v2", "enabled": false},
+		updateWant:            map[string]any{"name": "My SDK v2", "pattern": "my-sdk/v2", "enabled": false},
+		systemToggleBody:      map[string]any{"enabled": false},
+		systemImmutableBody:   map[string]any{"name": "Changed Claude"},
+		systemImmutableDetail: "Cannot modify name on a system rule. Only 'enabled' is mutable.",
+		deleteSystemDetail:    "User agent client rule not found",
+	})
 }
 
 func newS11ContractHarness(t *testing.T) *contractHarness {
@@ -1155,59 +800,197 @@ func assertAuditSettingsRows(t *testing.T, harness *contractHarness, profileID i
 	}
 }
 
-func stringSetEqual(left []string, right []string) bool {
-	if len(left) != len(right) {
-		return false
+func requestJSONStatus[T any](t *testing.T, harness *contractHarness, method string, path string, body any, headers map[string]string, wantStatus int) T {
+	t.Helper()
+	response := harness.requestJSON(t, harness.client, method, path, body, headers)
+	assertStatus(t, response, wantStatus)
+	var payload T
+	decodeJSONResponse(t, response, &payload)
+	return payload
+}
+
+func decodeJSONMap(t *testing.T, response *http.Response) map[string]any {
+	t.Helper()
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	return payload
+}
+
+func putThenGetJSON(t *testing.T, harness *contractHarness, path string, body map[string]any, headers map[string]string) (map[string]any, map[string]any) {
+	t.Helper()
+	return requestJSONStatus[map[string]any](t, harness, http.MethodPut, path, body, headers, http.StatusOK), requestJSONStatus[map[string]any](t, harness, http.MethodGet, path, nil, headers, http.StatusOK)
+}
+
+func legacyStrategyPayload(name string, legacyStrategyType string, failureStatusCodes []int, banMode string, retryBaseDelayMS int, retryBackoffMultiplier float64, retryJitterRatio float64, retryMaxDelayMS int, cycleRetryAttemptLimit int, banCumulativeRetryAttemptThreshold int, banDurationSeconds int) map[string]any {
+	payload := map[string]any{
+		"name":                                   name,
+		"legacy_strategy_type":                   legacyStrategyType,
+		"ban_mode":                               banMode,
+		"retry_base_delay_ms":                    retryBaseDelayMS,
+		"retry_backoff_multiplier":               retryBackoffMultiplier,
+		"retry_jitter_ratio":                     retryJitterRatio,
+		"retry_max_delay_ms":                     retryMaxDelayMS,
+		"cycle_retry_attempt_limit":              cycleRetryAttemptLimit,
+		"ban_cumulative_retry_attempt_threshold": banCumulativeRetryAttemptThreshold,
+		"ban_duration_seconds":                   banDurationSeconds,
 	}
-	seen := map[string]int{}
-	for _, value := range left {
-		seen[value]++
+	if failureStatusCodes != nil {
+		payload["failure_status_codes"] = failureStatusCodes
 	}
-	for _, value := range right {
-		seen[value]--
-		if seen[value] < 0 {
-			return false
+	return payload
+}
+
+func auditSettingsRequest(settings ...map[string]any) map[string]any {
+	return map[string]any{"settings": settings}
+}
+
+func auditSetting(apiFamily string, auditEnabled bool, auditCaptureBodies bool) map[string]any {
+	return map[string]any{"api_family": apiFamily, "audit_enabled": auditEnabled, "audit_capture_bodies": auditCaptureBodies}
+}
+
+type managementRouteContractRow struct {
+	RoutePattern        string   `json:"route_pattern"`
+	Methods             []string `json:"methods"`
+	ProfileScoped       bool     `json:"profile_scoped"`
+	InvalidatesPlanning bool     `json:"invalidates_planning"`
+}
+
+func assertManagementRouteContract(t *testing.T, routePattern string, methods []string, profileScoped bool, invalidatesPlanning bool, name string) {
+	t.Helper()
+	raw, err := os.ReadFile("../../internal/platform/http/management_route_contract.json")
+	if err != nil {
+		t.Fatalf("read management route contract: %v", err)
+	}
+	var rows []managementRouteContractRow
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		t.Fatalf("parse management route contract: %v", err)
+	}
+	for _, row := range rows {
+		if row.RoutePattern != routePattern {
+			continue
+		}
+		if row.ProfileScoped != profileScoped || row.InvalidatesPlanning != invalidatesPlanning || !stringSetEqual(row.Methods, methods) {
+			t.Fatalf("unexpected %s route contract: %+v", name, row)
+		}
+		return
+	}
+	t.Fatalf("%s route contract entry not found", routePattern)
+}
+
+func assertLogRetentionPayload(t *testing.T, payload map[string]any, requestLogsRetentionDays *int, statisticsRetentionDays *int, auditLogsRetentionDays *int, loadbalanceEventsRetentionDays *int) {
+	t.Helper()
+	for key, want := range map[string]*int{
+		"request_logs_retention_days":       requestLogsRetentionDays,
+		"statistics_retention_days":         statisticsRetentionDays,
+		"audit_logs_retention_days":         auditLogsRetentionDays,
+		"loadbalance_events_retention_days": loadbalanceEventsRetentionDays,
+	} {
+		if want == nil {
+			if payload[key] != nil {
+				t.Fatalf("expected %s to be null, got %+v", key, payload)
+			}
+			continue
+		}
+		if payload[key] != float64(*want) {
+			t.Fatalf("expected %s=%d, got %+v", key, *want, payload)
 		}
 	}
-	return true
+}
+
+func assertDeletedPayload(t *testing.T, payload map[string]any) {
+	t.Helper()
+	if payload["deleted"] != true {
+		t.Fatalf("expected delete confirmation payload, got %+v", payload)
+	}
+}
+
+type configRuleCRUDSpec struct {
+	listPath              string
+	systemKey             string
+	systemValue           string
+	systemWant            map[string]any
+	invalidBody           map[string]any
+	invalidStatus         int
+	invalidDetail         string
+	createBody            map[string]any
+	createWant            map[string]any
+	duplicateBody         map[string]any
+	duplicateStatus       int
+	duplicateDetail       string
+	updateBody            map[string]any
+	updateWant            map[string]any
+	systemToggleBody      map[string]any
+	systemImmutableBody   map[string]any
+	systemImmutableDetail string
+	deleteSystemDetail    string
+}
+
+func runConfigRuleCRUDContract(t *testing.T, harness *contractHarness, profileID int, spec configRuleCRUDSpec) {
+	t.Helper()
+	headers := modelHeader(profileID)
+	systemRule := findRule(t, requestJSONStatus[[]map[string]any](t, harness, http.MethodGet, spec.listPath, nil, headers, http.StatusOK), spec.systemKey, spec.systemValue)
+	assertMapFields(t, systemRule, spec.systemWant)
+	assertErrorResponse(t, harness.requestJSON(t, harness.client, http.MethodPost, spec.listPath, spec.invalidBody, headers), spec.invalidStatus, spec.invalidDetail)
+	created := requestJSONStatus[map[string]any](t, harness, http.MethodPost, spec.listPath, spec.createBody, headers, http.StatusCreated)
+	assertMapFields(t, created, spec.createWant)
+	createdID := jsonInt(t, created["id"])
+	if spec.duplicateBody != nil {
+		assertErrorResponse(t, harness.requestJSON(t, harness.client, http.MethodPost, spec.listPath, spec.duplicateBody, headers), spec.duplicateStatus, spec.duplicateDetail)
+	}
+	assertStatus(t, harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("%s/%d", spec.listPath, createdID), nil, headers), http.StatusOK)
+	assertMapFields(t, requestJSONStatus[map[string]any](t, harness, http.MethodPatch, fmt.Sprintf("%s/%d", spec.listPath, createdID), spec.updateBody, headers, http.StatusOK), spec.updateWant)
+	assertStatus(t, harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("%s/%d", spec.listPath, jsonInt(t, systemRule["id"])), spec.systemToggleBody, headers), http.StatusOK)
+	assertErrorResponse(t, harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("%s/%d", spec.listPath, jsonInt(t, systemRule["id"])), spec.systemImmutableBody, headers), http.StatusBadRequest, spec.systemImmutableDetail)
+	assertDeletedPayload(t, requestJSONStatus[map[string]any](t, harness, http.MethodDelete, fmt.Sprintf("%s/%d", spec.listPath, createdID), nil, headers, http.StatusOK))
+	assertErrorResponse(t, harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("%s/%d", spec.listPath, jsonInt(t, systemRule["id"])), nil, headers), http.StatusNotFound, spec.deleteSystemDetail)
+}
+
+func assertMapFields(t *testing.T, payload map[string]any, want map[string]any) {
+	t.Helper()
+	for key, expected := range want {
+		if payload[key] != expected {
+			t.Fatalf("expected %s=%v, got %+v", key, expected, payload)
+		}
+	}
+}
+
+func intRef(value int) *int {
+	return &value
+}
+
+func stringSetEqual(left []string, right []string) bool {
+	sortedLeft, sortedRight := append([]string(nil), left...), append([]string(nil), right...)
+	slices.Sort(sortedLeft)
+	slices.Sort(sortedRight)
+	return slices.Equal(sortedLeft, sortedRight)
 }
 
 func assertStringList(t *testing.T, raw any, want []string) {
 	t.Helper()
-	actualItems, ok := raw.([]any)
+	items, ok := raw.([]any)
 	if !ok {
 		t.Fatalf("expected string list payload, got %T %+v", raw, raw)
 	}
-	actual := make([]string, 0, len(actualItems))
-	for _, item := range actualItems {
-		actual = append(actual, item.(string))
+	actual := make([]string, len(items))
+	for i, item := range items {
+		actual[i] = item.(string)
 	}
-	if len(actual) != len(want) {
+	if !slices.Equal(actual, want) {
 		t.Fatalf("expected string list %v, got %v", want, actual)
-	}
-	for index := range want {
-		if actual[index] != want[index] {
-			t.Fatalf("expected string list %v, got %v", want, actual)
-		}
 	}
 }
 
 func assertStrategyNames(t *testing.T, items []map[string]any, want []string) {
 	t.Helper()
-	actual := make([]string, 0, len(items))
-	for _, item := range items {
-		actual = append(actual, item["name"].(string))
+	actual := make([]string, len(items))
+	for i, item := range items {
+		actual[i] = item["name"].(string)
 	}
 	sort.Strings(actual)
-	sortedWant := append([]string(nil), want...)
-	sort.Strings(sortedWant)
-	if len(actual) != len(sortedWant) {
-		t.Fatalf("expected strategy names %v, got %v", sortedWant, actual)
-	}
-	for index := range sortedWant {
-		if actual[index] != sortedWant[index] {
-			t.Fatalf("expected strategy names %v, got %v", sortedWant, actual)
-		}
+	want = append([]string(nil), want...)
+	sort.Strings(want)
+	if !slices.Equal(actual, want) {
+		t.Fatalf("expected strategy names %v, got %v", want, actual)
 	}
 }
 
@@ -1259,44 +1042,27 @@ func asSliceOfMaps(t *testing.T, raw any) []map[string]any {
 	if !ok {
 		t.Fatalf("expected []any payload, got %T %+v", raw, raw)
 	}
-	result := make([]map[string]any, 0, len(items))
-	for _, item := range items {
-		result = append(result, asMap(t, item))
+	result := make([]map[string]any, len(items))
+	for i, item := range items {
+		result[i] = asMap(t, item)
 	}
 	return result
 }
 
-func findRuleByPattern(t *testing.T, rules []map[string]any, pattern string) map[string]any {
+func findRule(t *testing.T, rules []map[string]any, key string, value string) map[string]any {
 	t.Helper()
 	for _, rule := range rules {
-		if rule["pattern"] == pattern {
+		if rule[key] == value {
 			return rule
 		}
 	}
-	t.Fatalf("expected rule with pattern %q, got %+v", pattern, rules)
-	return nil
-}
-
-func findRuleByName(t *testing.T, rules []map[string]any, name string) map[string]any {
-	t.Helper()
-	for _, rule := range rules {
-		if rule["name"] == name {
-			return rule
-		}
-	}
-	t.Fatalf("expected rule with name %q, got %+v", name, rules)
+	t.Fatalf("expected rule with %s=%q, got %+v", key, value, rules)
 	return nil
 }
 
 func nullableTestString(value *string) any {
-	if value == nil {
-		return nil
+	if value != nil {
+		return *value
 	}
-	return *value
-}
-
-func TestProfileHeaderHelperSanity(_ *testing.T) {
-	_ = profiledomain.ProfileIDHeader
-	_ = sort.Ints
-	_ = json.Valid
+	return nil
 }
