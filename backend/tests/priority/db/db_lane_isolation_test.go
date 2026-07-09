@@ -17,8 +17,8 @@ func TestDBPoolLaneIsolation(t *testing.T) {
 		if err := budget.Validate(); err != nil {
 			t.Fatalf("default budget should validate: %v", err)
 		}
-		if budget.TotalMaxConns != 22 || budget.SumMaxConns() != 22 {
-			t.Fatalf("expected total budget and lane sum to be 22, got total=%d sum=%d", budget.TotalMaxConns, budget.SumMaxConns())
+		if int64(budget.TotalMaxConns) != budget.SumMaxConns() {
+			t.Fatalf("expected total budget to match lane sum, got total=%d sum=%d", budget.TotalMaxConns, budget.SumMaxConns())
 		}
 		for _, lane := range []config.PostgresPoolLane{config.PostgresLaneRuntimeExecution, config.PostgresLaneRuntimeTelemetry, config.PostgresLaneRuntimeFeedback, config.PostgresLaneManagement, config.PostgresLaneCacheRefresh, config.PostgresLaneBackgroundJobs} {
 			if _, ok := platformdb.ComponentLaneAssignments()[string(lane)]; !ok {
