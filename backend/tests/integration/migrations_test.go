@@ -719,8 +719,12 @@ func assertFreshBaselineSeedRows(t *testing.T, ctx context.Context, conn *pgx.Co
 		t.Fatalf("iterate runtime cache generations: %v", err)
 	}
 	for _, key := range []string{"auth:global:*", "model_catalog:global:*", "profile_runtime:global:*", "runtime_planning:global:*"} {
-		if got[key] != 0 {
-			t.Fatalf("expected runtime cache generation %q version 0, got %+v", key, got)
+		version, ok := got[key]
+		if !ok {
+			t.Fatalf("expected runtime cache generation %q, got %+v", key, got)
+		}
+		if version != 0 {
+			t.Fatalf("expected runtime cache generation %q version 0, got %d", key, version)
 		}
 	}
 
