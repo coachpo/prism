@@ -8,6 +8,7 @@
 domain/
 ├── audit/          # Audit service helpers and weak request-log references
 ├── loadbalance/    # Runtime connection state, strategy math, bans, and events
+│   └── AGENTS.md   # Ban Policy runtime-state and event rules
 ├── modelrouting/   # Ordered access-target and terminal-target routing helpers
 ├── stats/          # Dashboard, usage, spending, topology, and request-log projections
 │   └── AGENTS.md   # Stats read-model and retained-history rules
@@ -16,7 +17,7 @@ domain/
 
 ## WHERE TO LOOK
 - Audit domain helpers and request-log weak-reference semantics: `audit/`
-- Runtime connection state, Ban Policy transitions, round-robin/weighted cursors, and load-balance event payloads: `loadbalance/`
+- Runtime connection state, Ban Policy transitions, round-robin cursors, and load-balance event payloads: `loadbalance/AGENTS.md`, `loadbalance/`
 - Model-routing helper contracts shared with runtime planning and management authoring: `modelrouting/`, `terminaltarget/`
 - Dashboard aggregate snapshots, topology graphs, request-log read models, spending, throughput, usage snapshots, and rollups: `stats/AGENTS.md`, `stats/`
 - HTTP ownership that consumes these domains: `../httpapi/management/stats/AGENTS.md`, `../httpapi/runtime/AGENTS.md`

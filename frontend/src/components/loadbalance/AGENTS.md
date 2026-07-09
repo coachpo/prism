@@ -23,5 +23,5 @@
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
 
 ## ANTI-PATTERNS
-- Do not move route-state or realtime orchestration into this shared folder.
+- Do not move route-state or polling orchestration into this shared folder.
 - Do not duplicate page-local event formatting when the shared detail sheet or table already owns the presentation.

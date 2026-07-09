@@ -1,7 +1,7 @@
 # FRONTEND SETTINGS BILLING-CURRENCY CLUSTER KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/settings/sections/billing-currency/` owns the rendering leaf for the Profile-tab billing and currency UI. It presents reporting-currency and FX-mapping widgets while `../costing/` owns bootstrap, validation, CRUD state, save orchestration, and reporting-currency priming.
+`pages/settings/sections/billing-currency/` owns the rendering leaf for the Profile-tab billing and currency UI. It presents reporting-currency and FX-mapping widgets while `../../costing/` owns bootstrap, validation, CRUD state, save orchestration, and reporting-currency priming.
 
 ## STRUCTURE
 ```text
@@ -20,7 +20,7 @@ billing-currency/
 - Add-mapping form and endpoint selection: `FxMappingForm.tsx`
 - Mapping table, inline edit state, and delete actions: `FxMappingsTable.tsx`
 - Default-mapping summary copy: `FxMappingsSummary.tsx`
-- E2E seam for reporting-currency save and failed-save preservation: `../../../../../tests/e2e/settings-reporting-currency-save.spec.ts`
+- Reporting-currency save and failed-save preservation belong to frontend seam tests rather than dedicated Playwright specs.
 
 ## CONVENTIONS
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.

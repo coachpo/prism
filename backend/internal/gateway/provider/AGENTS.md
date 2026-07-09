@@ -8,6 +8,7 @@
 provider/
 ├── adapter.go, default_adapter.go  # Shared adapter contracts and safe defaults
 ├── openai/                         # Chat/Responses translation and stream conversion
+│   └── AGENTS.md                   # OpenAI translation and capability rules
 ├── anthropic/                      # Messages/count-token path and usage/stream parsing
 └── gemini/                         # GenerateContent/countTokens path and stream parsing
 ```
@@ -15,7 +16,7 @@ provider/
 ## WHERE TO LOOK
 - Adapter contract, envelopes, `TranslationMode`, `ConversionCapability`, and `TranslationLoss`: `adapter.go`
 - Default no-op behavior and unsupported-operation fallback: `default_adapter.go`
-- OpenAI Chat/Responses request, response, stream, reasoning, tool, and content handling: `openai/`
+- OpenAI Chat/Responses request, response, stream, reasoning, tool, and content handling: `openai/AGENTS.md`, `openai/`
 - Anthropic Messages request/response/count-token/stream handling: `anthropic/adapter.go`
 - Gemini GenerateContent, streamGenerateContent, and countTokens handling: `gemini/adapter.go`
 - Cross-provider expectations: `adapter_boundary_test.go`, `adapter_conformance_test.go`

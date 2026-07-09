@@ -13,7 +13,7 @@ components/
 ├── SpendTrustIndicator.tsx                            # Shared spend trust and fallback note
 ├── layout/app-layout/AGENTS.md                        # Post-upgrade shell cluster behind the mounted page wrapper
 ├── loadbalance/AGENTS.md                              # Shared loadbalance renderers
-├── statistics/AGENTS.md                               # Shared statistics renderers
+├── statistics/TopSpendingCard.tsx                     # Shared statistics renderer
 └── ui/AGENTS.md                                       # shadcn/ui primitives and local wrappers
 ```
 
@@ -30,7 +30,7 @@ components/
 ## CHILD DOCS
 - `layout/app-layout/AGENTS.md`: mounted shell chrome, sidebar navigation, user footer, and visible version-label ownership.
 - `loadbalance/AGENTS.md`: shared loadbalance badges, table, and event detail sheet.
-- `statistics/AGENTS.md`: shared statistics renderers.
+- Shared statistics renderer: `statistics/TopSpendingCard.tsx`; dashboard/statistics orchestration stays under `../pages/statistics/AGENTS.md`.
 - `ui/AGENTS.md`: shadcn/ui primitives and local wrappers in `src/components/ui/`.
 
 ## CONVENTIONS

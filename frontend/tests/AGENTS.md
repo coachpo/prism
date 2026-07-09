@@ -6,7 +6,7 @@
 ## TEST SPLIT
 - `e2e/` holds the five Playwright browser journey specs only; see `e2e/AGENTS.md`.
 - `lib/` holds high-centrality Node seam contracts; see `lib/AGENTS.md`.
-- `model-detail/` and `server/` hold the remaining focused seam-contract suites outside Playwright's browser runner.
+- `server/` holds the focused server seam outside Playwright's browser runner; the historical `model-detail/` node-test root is absent.
 - `helpers/` holds shared test-only utilities such as TypeScript module loading.
 - `../src/test/` holds Vitest/jsdom seams plus shared MSW setup; it is a separate frontend test layer outside this tree.
 
@@ -14,11 +14,11 @@
 - `../package.json` exposes `pnpm exec vitest run`, `pnpm run test:lib`, `pnpm run test:server`, and the browser regression entrypoint `pnpm run test:e2e`.
 - CI runs frontend `pnpm exec vitest run`, `test:lib`, `test:server`, `build`, `lint`, and the five Playwright journey specs in `e2e/`.
 - `pnpm test` runs the same Vitest layer in watch mode over `../src/**/*.test.{ts,tsx}` through `../vitest.config.ts`; use `pnpm exec vitest run` for the CI-equivalent gate.
-- `test:lib` runs every `*.test.mjs` directly under `lib/` plus `model-detail/`; there are no separate `main/` or `loadbalance/` node-test roots anymore.
+- `test:lib` runs every `*.test.mjs` directly under `lib/`; the package script still carries one unmatched historical model-detail glob, but there is no live model-detail test root. There are no separate `main/` or `loadbalance` node-test roots anymore.
 - `../playwright.config.ts` points Playwright at `./tests/e2e` and uses `http://127.0.0.1:15174` as the web server target.
 - Browser coverage lives in `e2e/auth-session-lifecycle.spec.ts`, `e2e/loadbalance-strategies-recovery.spec.ts`, `e2e/models-access-target-authoring.spec.ts`, `e2e/request-log-dedicated-audit-page.spec.ts`, and `e2e/shared-chart-statistics.spec.ts`.
 - Dashboard/statistics browser fixture data lives in `e2e/dashboard-aggregate-fixtures.ts`.
-- Model CRUD and access-target authoring seam coverage lives in `lib/model_form_state_contract.test.mjs`, `model-detail/*.test.mjs`, and `lib/profile_scope_header_contract.test.mjs`.
+- Model CRUD and access-target authoring seam coverage lives in `lib/model_form_state_contract.test.mjs`, `lib/management_api_model_targets_contract.test.mjs`, and `lib/profile_scope_header_contract.test.mjs`.
 - Dashboard routing list and bootstrap data-shaping seam coverage lives in `lib/dashboard_routing_list_contract.test.mjs` and `lib/dashboard_bootstrap_contract.test.mjs`.
 
 ## CHILD DOCS
@@ -29,7 +29,7 @@
 - Statistics and analytics browser coverage: `e2e/shared-chart-statistics.spec.ts`
 - Model/access-target seam coverage: `lib/model_form_state_contract.test.mjs`
 - Dashboard routing list seam coverage: `lib/dashboard_routing_list_contract.test.mjs`
-- Shared contract seams: `lib/*.test.mjs`, `model-detail/*.test.mjs`, `server/*.test.mjs`
+- Shared contract seams: `lib/*.test.mjs`, `server/*.test.mjs`
 - Shared test helpers: `helpers/loadTsModule.mjs`
 - Vitest/MSW seams outside this tree: `../src/test/setup.ts`, `../src/test/msw/server.ts`, `../src/test/msw/handlers.ts`
 
@@ -49,7 +49,7 @@
 - Keep setup before the first act within 10 lines; use defaulted builders when it grows, reject e2e leading mocks over 50 lines, and keep container/build commands out of test functions.
 - Use baseline-plus-override helpers or golden files when expectations exceed eight fields. Use golden files for large shapes and inline assertions only for the fields the test cares about.
 - Table-drive three or more cases that share the same act/assert shape, and keep at most one narrative story test per resource.
-- Test Prism behavior, not platform internals or dependency output: do not grep production Go or TS source text, test Postgres internals, assert Recharts/xyflow rendering, or manually recalculate aggregation internals.
+- Test Prism behavior, not platform internals or dependency output: do not grep production Go or TS source text, test Postgres internals, assert chart/graph library rendering, or manually recalculate aggregation internals.
 - Let proves-not tests expire with removal PRs. Permanent exceptions are route-contract parity guards, because they own route-level absence, and backend Dockerfile contract tests, because they guard the shipped container contract.
 - Tests that remain must run in CI or document why they do not. Wire commands by glob: `pnpm exec vitest run`, `pnpm run test:lib`, `pnpm run test:server`, and the Playwright journey specs are CI gates.
 - Prevent rebound: feature PR test line additions must not exceed product line additions, no plan-numbered test names, and a new shared helper must delete the copy/paste it replaces in the same PR.

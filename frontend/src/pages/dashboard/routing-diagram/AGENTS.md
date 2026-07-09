@@ -41,6 +41,6 @@ routing-diagram/
 
 ## ANTI-PATTERNS
 
-- Do not rebuild routing-diagram payload aggregation in `RoutingDiagramCard.tsx`, the dashboard hooks, or this cluster; consume backend `routing_health_map` data.
-- Do not reintroduce route-source REST fan-out or realtime route patches when the dashboard snapshot already carries canonical diagram data.
+- Do not rebuild routing-diagram payload aggregation in `RoutingDiagramCard.tsx`, the dashboard hooks, or this cluster; consume backend `topology_graph` data through the `RoutingDiagramData` contract.
+- Do not reintroduce route-source REST fan-out or page-local route patches when the dashboard snapshot already carries canonical diagram data.
 - Do not couple chart or node rendering directly to page-shell state when the barrel and helper files already own the diagram contract.

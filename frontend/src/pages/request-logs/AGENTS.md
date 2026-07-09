@@ -33,7 +33,7 @@ request-logs/
 - Filter-bar composition and shared filter constants: `FiltersBar.constants.ts`, `FiltersBarPrimaryFilters.tsx`, `FiltersBar.tsx`
 - Detail sheet, exact-request fetch, audit capture state, and sheet-scoped clipboard fallback: `RequestLogDetailSheet.tsx`, `useRequestLogDetail.ts`, `requestLogAuditState.ts`
 - Stream telemetry helpers and TTFT/rate display logic: `streamTelemetry.ts`, `detail/RequestLogOverviewTab.tsx`
-- E2E seams for exact-request mode, audit provenance states, TTFT, and post-TTFT output-rate handling: `../../../tests/e2e/request-log-audit-disabled-state.spec.ts`, `../../../tests/e2e/request-logs-ttft.spec.ts`, `../../../tests/e2e/request-logs-token-rate.spec.ts`
+- E2E seam for exact-request mode and dedicated audit-page states: `../../../tests/e2e/request-log-dedicated-audit-page.spec.ts`; shared request-log fixtures live in `../../../tests/e2e/request-log-dedicated-audit-fixtures.ts`.
 - Parent-covered detail cluster helpers: `detail/RequestLogOverviewTab.tsx`, `detail/RequestLogPayloadBlock.tsx`, `detail/requestLogDetailShared.tsx`, `detail/requestLogDetailUtils.ts`
 - Reporting-currency trust and spend display coupling: `../../context/ReportingCurrencyContext.tsx`, `../../lib/reportingCurrency.ts`, `detail/RequestLogOverviewTab.tsx`
 

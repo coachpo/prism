@@ -42,7 +42,7 @@ frontend/
 - Frontend zh-CN locale state, shared formatting, and static non-hook labels: `src/i18n/LocaleProvider.tsx`, `src/i18n/format.ts`, `src/i18n/staticMessages.ts`
 - Vite version injection, optional same-origin proxying for `/api`, `/health`, `/v1`, and `/v1beta`, dev or preview `/health`, launcher proxy env path, launcher port `5173` to the selected bootstrap file's backend port, and build metadata: `vite.config.ts`, `package.json`
 - Production `dist/` static server, SPA fallback, `PORT` default `3000`, and `/health`: `server.mjs`
-- Test split and browser config: `tests/AGENTS.md`, `tests/e2e/`, `tests/{lib,loadbalance,main,model-detail,server}/`, `playwright.config.ts`
+- Test split and browser config: `tests/AGENTS.md`, `tests/e2e/`, `tests/lib/`, `tests/server/`, `playwright.config.ts`
 - Cross-route rewrite helpers for query keys, invalidation, server validation, table rows, and design-system barrels: `src/shared/AGENTS.md`
 
 ## CONVENTIONS

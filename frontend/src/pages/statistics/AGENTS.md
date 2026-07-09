@@ -26,7 +26,7 @@ statistics/
 - Shared statistics cards and chart wrappers used by dashboard analytics: `../../components/AGENTS.md`
 - Shared presentation helpers and timezone-aware formatting inputs: `@/hooks/useTimezone`, `@/components/ui/chart.tsx`
 - Reporting-currency trust and cost-formatting seams: `@/context/ReportingCurrencyContext`, `@/lib/reportingCurrency`, `@/lib/costing`
-- E2E seams for shared chart statistics, TTFT percentiles, output-rate columns, selected-model totals, and proxy-key labels: `../../../tests/e2e/shared-chart-statistics.spec.ts`, `../../../tests/e2e/statistics-ttft.spec.ts`, `../../../tests/e2e/statistics-token-rate.spec.ts`, `../../../tests/e2e/statistics-filtered-totals.spec.ts`, `../../../tests/e2e/statistics-proxy-api-key-label.spec.ts`
+- E2E seam for shared chart statistics and dashboard analytics rendering: `../../../tests/e2e/shared-chart-statistics.spec.ts`; shared aggregate fixtures live in `../../../tests/e2e/dashboard-aggregate-fixtures.ts`.
 
 ## CONVENTIONS
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.

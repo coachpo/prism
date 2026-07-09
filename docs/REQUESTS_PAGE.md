@@ -4,9 +4,9 @@
 
 ## 1. Overview
 
-The Requests page is Prism's dedicated request-browser and investigation surface for proxied traffic. It is mounted at `/observe/requests` with legacy `/request-logs` redirects. It provides a profile-scoped view for browsing request history through a slim retained filter set and inspecting request-level overview details, with full audit payloads on a dedicated audit page.
+The Requests page is Prism's dedicated request-browser and investigation surface for proxied traffic. It is mounted at `/observe/requests`. It provides a profile-scoped view for browsing request history through a slim retained filter set and inspecting request-level overview details, with full audit payloads on a dedicated audit page.
 
-The backend request-log and audit APIs remain the source of truth. The frontend route is responsible for presenting that data in an operator-friendly investigation workflow without changing runtime proxy semantics. The canonical URL filter set keeps `ingress_request_id`, `model`, `endpoint`, `client_rule_id`, `resolved_target_model_id`, `status`, and `time_range`, while exact single-request investigation uses `request_id`.
+The backend request-log and audit APIs remain the source of truth. The frontend route is responsible for presenting that data in an operator-friendly investigation workflow without changing runtime proxy semantics. The canonical URL filter set keeps `ingress_request_id`, `model`, `endpoint`, `client_rule_id`, `resolved_target_model_id`, `status`, `status_code`, `error_text`, `priced`, `unpriced_reason`, and `time_range`, while exact single-request investigation uses `request_id`.
 
 The request-log route now uses split HTTP contracts: a slim list payload for browsing and a dedicated grouped detail payload for the sheet. Caller client filtering is server-backed through `client_rule_id` and matches `caller_user_agent` only. Upstream user-agent display stays informational.
 
@@ -16,9 +16,9 @@ The request-log route now uses split HTTP contracts: a slim list payload for bro
 - Support deep investigation of a single request through URL-addressable state.
 - Keep the retained browse filters server-backed and URL-addressable.
 - Expose linked audit payloads only when needed.
-- Support drill-down entry points from dashboard and model-detail views.
+- Support implemented drill-down entry points from dashboard overview, dashboard recent activity, and dashboard routing endpoint nodes.
 - Show requested model identity separately from the final target model chosen by unified access-target resolution.
-- Show requested model identity separately from final target, selected Terminal Target, endpoint, operation names, and translation mode.
+- Show requested model identity separately from final target, selected Terminal Target, and endpoint.
 
 ## 3. Non-Goals
 
@@ -48,7 +48,7 @@ The route should also integrate shared application services:
 
 Supported canonical query parameters:
 
-- Browse filters: `ingress_request_id`, `model`, `endpoint`, `client_rule_id`, `resolved_target_model_id`, `status`, `time_range`
+- Browse filters: `ingress_request_id`, `model`, `endpoint`, `client_rule_id`, `resolved_target_model_id`, `status`, `status_code`, `error_text`, `priced`, `unpriced_reason`, `time_range`
 - Pagination: `limit`, `cursor`
 - Exact-investigation flow: `request_id`
 - Row selection without exact mode: `selected_request_id`
@@ -75,8 +75,9 @@ Primary APIs:
 Required behavior:
 
 - Debounce fetches by 300 ms.
-- Send server-supported browse filters for model, ingress request grouping, endpoint, caller client rule, final target model, status family, and time window.
+- Send server-supported browse filters for model, ingress request grouping, endpoint, caller client rule, final target model, status family, exact status code, error text, priced state, unpriced reason, and time window.
 - Translate canonical URL state to backend request parameters: `model` -> `model_id`, `endpoint` -> `endpoint_id`, `status` -> `status_family`, and `cursor` -> `offset`.
+- Send `unpriced_reason` only when `priced=false`; other priced states omit it from backend params.
 - Send `ingress_request_id` as an exact server-backed grouping filter when present.
 - Keep list browsing on the slim list schema and fetch exact-request sheet data from the dedicated detail endpoint.
 - Track fetch ordering so stale responses cannot overwrite newer state.
@@ -108,7 +109,7 @@ Required behavior:
 
 ### 7.1 Filter And Triage Workflow
 
-The page should use only the retained browse filters in URL state and send them directly to the backend list route. The current canonical URL contract keeps `request_id`, `selected_request_id`, `ingress_request_id`, `model`, `endpoint`, `client_rule_id`, `resolved_target_model_id`, `status`, and `time_range`, and removes the old client-side search, token, latency, stream, outcome, and triage refinement layer. The Client dropdown must not expose regex, `client_scope`, or upstream matching language.
+The page should use only the retained browse filters in URL state and send them directly to the backend list route. The current canonical URL contract keeps `request_id`, `selected_request_id`, `ingress_request_id`, `model`, `endpoint`, `client_rule_id`, `resolved_target_model_id`, `status`, `status_code`, `error_text`, `priced`, `unpriced_reason`, and `time_range`, and removes the old client-side search, token, latency, stream, outcome, and triage refinement layer. The Client dropdown must not expose regex, `client_scope`, or upstream matching language.
 
 ### 7.2 Exact-Request Investigation Workflow
 
@@ -126,7 +127,7 @@ Grouped request-tracking workflow:
 - `request_id` remains a one-row deep link for exact attempt investigation.
 - `ingress_request_id` groups multiple attempt rows from one incoming runtime request without changing `request_id` semantics.
 - Grouped rows show all attempts for one incoming runtime request together.
-- The overview drawer should surface `ingress_request_id`, `attempt_number`, `provider_correlation_id`, requested model, final target model, selected Terminal Target, endpoint, operation names, and translation mode so operators can distinguish Prism grouping from upstream correlation and final response ownership.
+- The overview drawer should surface `ingress_request_id`, `attempt_number`, `provider_correlation_id`, requested model, final target model, selected Terminal Target, and endpoint so operators can distinguish Prism grouping from upstream correlation and final response ownership.
 
 ### 7.3 Table Workflow
 
@@ -144,9 +145,9 @@ Required behavior:
 
 ### 7.4 Detail Drawer Workflow
 
-`RequestLogDetailSheet` should expose an overview-only inspection drawer with request metadata, requested model vs final target model identity, token and cost breakdowns, routing context, and connection drill-down.
+`RequestLogDetailSheet` should expose an overview-only inspection drawer with request metadata, requested model vs final target model identity, token and cost breakdowns, and routing context.
 
-The drawer should also support direct navigation to the owning connection record and the dedicated full audit page.
+The drawer should support direct navigation to the dedicated full audit page when audit context is available.
 
 Dense overview requirements:
 
@@ -175,12 +176,8 @@ Other frontend surfaces should be able to deep-link into `/observe/requests` wit
 Dashboard should support request-log drill-down entry points for:
 
 - quick action button: `Review Requests`
-- routing diagram endpoint drill-downs
-- routing diagram route drill-downs
-
-### 9.2 Model Detail
-
-Model Detail should support request-log drill-down from the 24-hour connection metrics card.
+- recent activity row drill-downs by `request_id`
+- routing health endpoint-node drill-downs
 
 ## 10. Required Contracts
 
@@ -203,7 +200,7 @@ The Requests page must remain compatible with the following backend-facing and s
 6. Opening the dedicated full audit page triggers audit resolution, skips lookup when audit capture was disabled for that request, and keeps modal inspection free of audit payload fetches.
 7. The table remains usable at large result counts through virtualization, sticky headers, and explicit pagination controls.
 8. The list view stays on the slim list payload, while exact-request investigation uses the dedicated detail payload without re-expanding the table schema.
-9. Dashboard and Model Detail can emit deep links into `/observe/requests` without inventing route-local state outside the documented query contract.
+9. Dashboard overview, recent activity, and routing endpoint nodes can emit deep links into `/observe/requests` without inventing route-local state outside the documented query contract.
 10. The overview tab renders `ingress_request_id`, `attempt_number`, and `provider_correlation_id` when present so operators can distinguish incoming request grouping from per-attempt row identity.
 11. The request-log table and detail drawer render requested model vs final target model separately, falling back to the requested model when `resolved_target_model_id` matches `model_id`.
 12. Route-shell, filter, empty-state, and detail-drawer labels follow the active frontend locale while timestamp rendering stays aligned to the selected timezone and locale-aware formatting helpers.

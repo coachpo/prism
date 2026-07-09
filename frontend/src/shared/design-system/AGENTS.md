@@ -27,7 +27,7 @@ design-system/
 
 ## CONVENTIONS
 - Import this layer as `@/shared/design-system` before reaching into `@/components/ui`.
-- Keep components route-agnostic: no API calls, route params, Default-profile management state, websocket subscriptions, or i18n copy ownership.
+- Keep components route-agnostic: no API calls, route params, Default-profile management state, polling subscriptions, or i18n copy ownership.
 - Use semantic tokens, operator surface classes, density variables, and existing shadcn/lucide primitives.
 - Keep variants small and current-use only. Add a component when two routes really share the same UI structure.
 - Preserve accessibility basics from the underlying primitive: labels, focus state, disabled state, and keyboard behavior.

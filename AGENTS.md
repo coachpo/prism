@@ -1,4 +1,4 @@
-<!-- Generated: 2026-07-07 | branch: main | commit: 79f40ab -->
+<!-- Generated: 2026-07-09 | branch: main | commit: 76f4ab62 -->
 # PRISM REPO KNOWLEDGE BASE
 
 ## OVERVIEW
@@ -20,15 +20,16 @@ prism/
 ## HIERARCHY
 - `backend/AGENTS.md`: Go runtime root, Dockerfile, migrations, and regression boundaries.
 - `backend/internal/AGENTS.md`: backend source router for platform, domain, gateway, HTTP API, and small compatibility packages.
-- `backend/internal/platform/AGENTS.md`: process lifecycle, HTTP assembly, hot bootstrap runtime, DB lanes, scheduler, retention, side effects.
-- `backend/internal/domain/AGENTS.md`: HTTP-neutral audit, loadbalance, model-routing, stats, and terminal-target helpers; `domain/stats/AGENTS.md` owns stats read models.
-- `backend/internal/gateway/AGENTS.md`: provider-agnostic envelopes, hooks, routing, reservations, adapters, accounting; `gateway/provider/AGENTS.md` owns provider-native translation.
+- `backend/internal/platform/AGENTS.md`: process lifecycle, HTTP assembly, hot bootstrap runtime, DB lanes, scheduler, retention, side effects; `platform/startup/AGENTS.md` owns startup sequencing and seeds.
+- `backend/internal/domain/AGENTS.md`: HTTP-neutral audit, loadbalance, model-routing, stats, and terminal-target helpers; `domain/loadbalance/AGENTS.md` owns Ban Policy runtime state, and `domain/stats/AGENTS.md` owns stats read models.
+- `backend/internal/gateway/AGENTS.md`: provider-agnostic envelopes, hooks, routing, reservations, adapters, accounting; `gateway/core/AGENTS.md` owns shared gateway contracts, `gateway/provider/AGENTS.md` owns provider-native adapter rules, and `gateway/provider/openai/AGENTS.md` owns OpenAI Chat/Responses translation.
 - `backend/internal/httpapi/AGENTS.md`: mounted management, runtime, proxy-key usage, and request-context seams.
 - `backend/internal/httpapi/management/AGENTS.md`: `/api/*` management fanout and shared management conventions; leaf docs live below it.
 - `backend/internal/httpapi/runtime/AGENTS.md`: operation-registered proxy surfaces.
 - `frontend/AGENTS.md`: React/Vite dashboard root, route shell, providers, shadcn config, and frontend tests.
 - `frontend/src/AGENTS.md`: frontend source router for app, features, pages, components, context, hooks, i18n, shared, lib, shell, and tests.
 - `frontend/src/{app,features,pages,components,context,hooks,i18n,shared,lib}/AGENTS.md`: frontend route, shell, page, provider, hook, locale, API, and shared UI seams; `shared/design-system/AGENTS.md` and `lib/types/AGENTS.md` own high-centrality leaves.
+- `backend/tests/AGENTS.md`: Go regression root; `tests/contract/AGENTS.md`, `tests/integration/AGENTS.md`, and `tests/runtime/AGENTS.md` own the large suite boundaries.
 - `frontend/tests/AGENTS.md`: Playwright browser flows plus frontend seam/server/lib contract boundaries; `tests/e2e/AGENTS.md` and `tests/lib/AGENTS.md` own the large runner-specific leaves.
 - `docs/AGENTS.md`: durable docs ownership and local artifact handoff rules.
 
@@ -43,7 +44,7 @@ prism/
 | Runtime allowlist | `backend/internal/httpapi/runtime/operations.go` | Exact supported method/path operations and hook collections. |
 | Runtime executor | `backend/internal/httpapi/runtime/service.go`, `backend/internal/httpapi/runtime/runtime.go` | Ingress rejection, planning, provider transport, telemetry side effects. |
 | Frontend shell | `frontend/src/main.tsx`, `frontend/src/App.tsx` | Browser mount, providers, router, toasts. |
-| Routes | `frontend/src/app/router/appRouter.tsx`, `rewriteRoutes.ts` | Route tree, scopes, search schemas, legacy redirects. |
+| Routes | `frontend/src/app/router/appRouter.tsx`, `rewriteRoutes.ts` | Route tree, scopes, and search schemas. |
 | Frontend API | `frontend/src/lib/api/core.ts` | Typed HTTP client and same-origin request plumbing. |
 
 ## SHARED FACTS
@@ -54,11 +55,11 @@ prism/
 - The root `Dockerfile` builds a single app image with the Go backend, backend migrations/version, optional React static assets, Nginx, and `docker/entrypoint.sh`; `BUILD_FRONTEND=false` keeps backend proxy paths and serves a fallback page.
 - The root Nginx template proxies `/health`, `/api`, `/v1`, and `/v1beta` to the private backend upstream and serves SPA assets from `/usr/share/nginx/html`.
 - The runtime contract is operation-registered. Supported routes are allowlisted in `backend/internal/httpapi/runtime/operations.go`, and unsupported or wrong-method requests reject before provider transport, telemetry, audit, feedback, or durable runtime side effects.
-- Runtime request extraction, non-stream parsing, stream terminal classification, media multipart handling, and token-count behavior are split across `operation_request_hooks.go`, `operation_response_hooks.go`, `operation_stream_hooks.go`, and `operation_media_hooks.go` beside the shared runtime executor.
+- Runtime request extraction, non-stream parsing, stream terminal classification, and token-count behavior are split across `operation_request_hooks.go`, `operation_response_hooks.go`, and `operation_stream_hooks.go` beside the shared runtime executor.
 - `operation_name` is persisted in `request_logs` and `usage_request_events`, and the route matrix plus hook residency are regression-backed in backend runtime tests.
 - `usage_request_events.endpoint_label_snapshot` is the retained endpoint label source for usage snapshots, spending, and Top Endpoints while public stats JSON continues to expose `endpoint_label`.
 - Request-log browsing supports `client_rule_id` against caller User-Agent Client Rules only, plus `resolved_target_model_id` for final target filtering.
-- Model-owned context routing and overflow-promotion authoring were hard-deleted. Keep ordinary operation-registered routing, Terminal Targets, exact facades, Ban Policy strategies, and flat final-target observability as the live contract.
+- Model-owned context routing, overflow-promotion authoring, and exact facade routing were hard-deleted. Keep ordinary operation-registered routing, Terminal Targets, OpenAI sibling-operation translation, Ban Policy strategies, and flat final-target observability as the live contract.
 - Plaintext bootstrap startup is file-backed. Backend-owned canonical defaults are the source of truth for fresh seeds: `0.0.0.0:8000`, standalone database URL `postgres://prism:prism@localhost:5432/prism?sslmode=disable` unless `DATABASE_URL` is set, CORS `5173`, PostgreSQL pools and admission derived from CPU count via `unit = clamp(GOMAXPROCS, 8, 16)` (management `unit+1`, execution `unit`, telemetry `unit/2`, feedback/cache/jobs `unit/4`, total = lane sum 27–53, admission m2 `unit` / m3 `unit/2`), transport `100/16/16/300s/90s/0s/10s/1s`, and side-effect timeout `10s`; the root launcher sets `DATABASE_URL` to local PostgreSQL on host port `15432`. Runtime buffering is automatic and internal. Existing valid files are preserved until manual reset by stop, remove or relocate, and restart.
 - Mail config fields are parsed for live `config.json` compatibility only. Mail delivery and transport behavior are removed.
 - Backend database capacity is split into named lanes for runtime execution, telemetry, feedback, management, cache refresh, and background jobs. Background or management work must not borrow protected proxy capacity.
@@ -66,7 +67,7 @@ prism/
 - `backend/Dockerfile` runs the backend as `prism:prism` (`1000:1000`), owns `/app/config`, and defaults the container bootstrap path to `/app/config/config.json`.
 - Backend image builds use the repo root as Docker context (`docker build -f backend/Dockerfile .`), so root `.dockerignore` controls CI/backend image contents.
 - `.github/workflows/ci.yml` runs backend regression/build, frontend seam/server/build/lint, blocking Go/frontend dependency scanners, and non-blocking local-image Trivy evidence uploads.
-- `.github/workflows/docker-images.yml` publishes backend and frontend GHCR images for `linux/arm64` on `v*` tags and `workflow_dispatch` only, requires a green CI conclusion on the tagged commit before pushing, builds on native arm64 runners without QEMU, moves `latest` only on release tags, and can build one service or both.
+- `.github/workflows/docker-images.yml` publishes backend and frontend GHCR images for `linux/arm64` on `v*` tags and `workflow_dispatch` only, requires a green CI conclusion for tag pushes, builds on native arm64 runners without QEMU, moves `latest` only on release tags, and can build one service or both on manual dispatch.
 - `release.sh` keeps `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` aligned, verifies backend version metadata plus the frontend build, then commits, tags, and pushes one root release.
 - `.github/workflows/cleanup.yml` handles cleanup only, pruning untagged backend/frontend container versions.
 
@@ -79,12 +80,12 @@ prism/
 - Startup bootstrap loading/parsing contract: `backend/internal/platform/config/`
 - Partitioned log retention: `backend/internal/platform/logretention/`, `backend/internal/httpapi/runtime/log_partitions.go`, `backend/migrations/000001_initial_schema.sql`
 - Runtime proxy planning, telemetry, request-log detail, final-target attribution, and partition ensuring: `backend/internal/httpapi/runtime/`, `backend/tests/runtime/`, `frontend/src/pages/request-logs/`
-- Model access-target authoring and exact-facade validation: `backend/internal/httpapi/management/models/`, `frontend/src/pages/models/`
+- Model access-target authoring and removed exact-facade guards: `backend/internal/httpapi/management/models/`, `frontend/src/pages/models/`
 - Management settings and retention jobs: `backend/internal/httpapi/management/settings/`, `frontend/src/pages/settings/`, `docs/WORKFLOWS.md`
 - Frontend toolchain and shadcn registry config: `frontend/package.json`, `frontend/components.json`, `frontend/src/index.css`, `frontend/src/main.tsx`. The routing-diagram surface (`frontend/src/pages/dashboard/routing-diagram/`) renders as a plain list; it has no graph-rendering dependency.
 - Normative architecture and contract docs: `docs/ARCHITECTURE.md`, `docs/API_SPEC.md`, `docs/DATA_MODEL.md`
 - Supporting doc surfaces: `docs/PRD.md`, `docs/REQUESTS_PAGE.md`, `docs/WORKFLOWS.md`
-- Backend ownership tree: `backend/AGENTS.md`, `backend/internal/AGENTS.md`, `backend/internal/platform/AGENTS.md`, `backend/internal/domain/AGENTS.md`, `backend/internal/domain/stats/AGENTS.md`, `backend/internal/gateway/AGENTS.md`, `backend/internal/gateway/provider/AGENTS.md`, `backend/internal/httpapi/AGENTS.md`, `backend/internal/httpapi/management/AGENTS.md`, `backend/internal/httpapi/runtime/AGENTS.md`, `backend/internal/httpapi/management/*/AGENTS.md`, `backend/tests/AGENTS.md`
+- Backend ownership tree: `backend/AGENTS.md`, `backend/internal/AGENTS.md`, `backend/internal/platform/AGENTS.md`, `backend/internal/platform/startup/AGENTS.md`, `backend/internal/domain/AGENTS.md`, `backend/internal/domain/loadbalance/AGENTS.md`, `backend/internal/domain/stats/AGENTS.md`, `backend/internal/gateway/AGENTS.md`, `backend/internal/gateway/core/AGENTS.md`, `backend/internal/gateway/provider/AGENTS.md`, `backend/internal/gateway/provider/openai/AGENTS.md`, `backend/internal/httpapi/AGENTS.md`, `backend/internal/httpapi/management/AGENTS.md`, `backend/internal/httpapi/runtime/AGENTS.md`, `backend/internal/httpapi/management/*/AGENTS.md`, `backend/tests/AGENTS.md`, `backend/tests/{contract,integration,runtime}/AGENTS.md`
 - Frontend ownership tree: `frontend/AGENTS.md`, `frontend/src/AGENTS.md`, `frontend/src/app/AGENTS.md`, `frontend/src/features/AGENTS.md`, `frontend/src/pages/AGENTS.md`, `frontend/src/components/AGENTS.md`, `frontend/src/context/AGENTS.md`, `frontend/src/hooks/AGENTS.md`, `frontend/src/i18n/AGENTS.md`, `frontend/src/shared/AGENTS.md`, `frontend/src/shared/design-system/AGENTS.md`, `frontend/src/lib/AGENTS.md`, `frontend/src/lib/types/AGENTS.md`, `frontend/tests/AGENTS.md`, `frontend/tests/e2e/AGENTS.md`, `frontend/tests/lib/AGENTS.md`
 - Docs provenance, scratch-plan handoff, and live evidence routing: `docs/AGENTS.md`, `artifacts/plans/`, `artifacts/evidence/`
 
@@ -93,7 +94,7 @@ prism/
 ./start.sh headless
 ./start.sh full
 docker compose up --build
-cd backend && go test ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...
+cd backend && go test ./internal/platform/lifecycle ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...
 cd backend && go test ./internal/... ./cmd/...
 cd backend && go build ./cmd/prism-backend
 cd frontend && pnpm exec vitest run

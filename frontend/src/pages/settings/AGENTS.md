@@ -42,7 +42,7 @@ settings/
 - Section implementation boundary: `sections/AGENTS.md`
 - Costing bootstrap, derived state, FX mapping CRUD, and save boundary: `costing/AGENTS.md`
 - Local dialog ownership for destructive actions, vendor CRUD, and audit-rule editing: `dialogs/AGENTS.md`, `useAuditConfigurationData.ts`, `useRetentionDeletionData.ts`
-- E2E seams for reporting-currency save and retention flows: `../../../tests/e2e/settings-reporting-currency-save.spec.ts`, `../../../tests/e2e/settings-log-retention.spec.ts`
+- Settings seam coverage lives in frontend lib/Vitest tests; the capped Playwright journey set does not include dedicated settings specs.
 
 ## CHILD DOCS
 

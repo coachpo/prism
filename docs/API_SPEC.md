@@ -1,6 +1,6 @@
 # API Specification: Prism
 
-Local `./start.sh` backend base URL follows the selected bootstrap file's `server.port`; with the checked-in `config.json`, that is `http://localhost:8000`
+Local `./start.sh` backend base URL follows the selected bootstrap file's `server.port`; fresh repo-local bootstrap seeds use `http://localhost:8000`.
 
 Container and custom deployments use the listener configured in the plaintext bootstrap file. The root single-image Docker bundle publishes Nginx on `http://localhost:8080` by default and proxies to the private backend upstream on port `8000`.
 
@@ -13,7 +13,8 @@ Prism does not expose a backend-local `/metrics` operations endpoint or start te
   - Runtime proxy routes, which resolve against frozen Default profile id `1` and ignore management scope overrides.
 - Proxy endpoints (`/v1/*`, `/v1beta/*`) always resolve against frozen Default profile id `1` and ignore management scope overrides.
 - Global management routes include `/api/auth/*`, `/api/settings/auth*`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
-- Profile-scoped management routes include `/api/config/header-blocklist-rules*`, `/api/config/user-agent-client-rules*`, `/api/settings/costing`, `/api/settings/timezone`, `/api/settings/audit`, `/api/stats/*`, `/api/audit/*`, `/api/loadbalance/*`, `/api/models/*`, `/api/endpoints/*`, and `/api/connections/*`.
+- Management job routes `/api/management/jobs*` are low-priority management routes: list resolves Default-profile jobs, while read and cancel resolve Default-profile jobs and can fall back to global log-retention jobs by ID. The frontend does not treat them as `X-Profile-Id`-scoped routes.
+- Profile-scoped management routes include `/api/config/header-blocklist-rules*`, `/api/config/user-agent-client-rules*`, `/api/settings/costing`, `/api/settings/timezone`, `/api/settings/audit`, `/api/stats/*`, `/api/audit/*`, `/api/loadbalance/*`, `/api/models/*`, `/api/endpoints/*`, `/api/pricing-templates*`, and `/api/connections/*`.
 - Detail endpoints return `404` when a resource exists outside Default profile id `1`.
 - Scope-control failures return structured JSON with `code` and `detail`, where `code` is stable for machine handling and `detail` is safe to show to operators.
 
@@ -22,7 +23,7 @@ Prism does not expose a backend-local `/metrics` operations endpoint or start te
 
 ### 1.0 Startup Config File
 
-Prism loads steady-state startup settings from the plaintext `config.json` selected by `PRISM_CONFIG_PATH`. R2 removed the management API for editing that file; external edits require a Prism restart before they affect the running process.
+Prism loads steady-state startup settings from the plaintext `config.json` selected by `PRISM_CONFIG_PATH`. The live v1 file requires `meta`, `server`, `database.url`, `database.pools`, `database.managementAdmission`, `runtime.secretEncryptionKey`, `runtime.transport`, `runtime.sideEffects`, `http.corsAllowedOrigins`, and `auth`. Optional top-level sections are `alerting`, `mail`, `telemetry`, and `stateTransfer`; `mail`, `telemetry`, and `stateTransfer` are parsed for compatibility only and do not re-enable retired behavior. R2 removed the management API for editing that file; external edits require a Prism restart before they affect the running process.
 
 ### 1.1 Profiles
 
@@ -220,6 +221,12 @@ Request:
 ```
 Response `200`: `items[]`, where each item contains a `model_config_id` and the Terminal Targets owned by that model's enabled or disabled internal connection targets, ordered by target position.
 
+#### List Terminal Targets For One Model
+```
+GET /api/models/{model_config_id}/connections
+```
+Response `200`: Ordered array of Terminal Targets owned by the given model in the effective profile.
+
 #### Create Terminal Target
 ```
 POST /api/models/{model_config_id}/connections
@@ -308,6 +315,8 @@ DELETE /api/models/{model_config_id}/connections/{connection_id}
 Response `200`: `{ "deleted": true }`.
 
 Deletes the Terminal Target and its internal owner access-target row together, subject to enabled-model target validation. Public `DELETE /api/connections/{connection_id}` rejects mutation requests.
+
+Rejected legacy mutation routes return `400` with guidance to use model-scoped Terminal Target routes instead: `POST /api/connections`, `PUT/PATCH/DELETE /api/connections/{connection_id}`, `PUT /api/connections/{connection_id}/pricing-template`, `PUT /api/models/{model_config_id}/connections/{connection_id}`, `PUT /api/models/{model_config_id}/connections/{connection_id}/pricing-template`, and `PATCH /api/models/{model_config_id}/connections/{connection_id}/priority`.
 
 #### Model Target Routes
 ```
@@ -421,7 +430,7 @@ Response `200`: `{ "created": 1, "updated": 0, "skipped": [], "errors": [] }`.
 ```
 PUT /api/pricing-templates/{id}
 ```
-Request: Any mutable pricing template fields.
+Request: Full replacement for mutable pricing template fields. Missing, `null`, empty, and whitespace-only price component fields normalize to `"0"` before validation. Optional `expected_updated_at` is an RFC3339 optimistic-concurrency guard; when supplied, the backend returns `409` if it does not match the current row `updated_at`.
 Response `200`: Updated pricing template object.
 
 #### Delete Pricing Template
@@ -461,16 +470,20 @@ Lifecycle contract:
 - After invalidation, `GET /api/auth/session` returns `401`, while `GET /api/auth/status` continues to report the live global auth mode.
 
 #### Proxy API Keys
-- `GET /api/settings/auth/proxy-keys`
-- `POST /api/settings/auth/proxy-keys`
-- `PATCH /api/settings/auth/proxy-keys/{id}`
-- `POST /api/settings/auth/proxy-keys/{id}/rotate`
-- `DELETE /api/settings/auth/proxy-keys/{id}`
+```
+GET /api/settings/auth/proxy-keys
+POST /api/settings/auth/proxy-keys
+PATCH /api/settings/auth/proxy-keys/{id}
+POST /api/settings/auth/proxy-keys/{id}/rotate
+DELETE /api/settings/auth/proxy-keys/{id}
+```
 
 Proxy-key lifecycle contract:
-- Create and update payloads accept optional `expires_at` in RFC3339 form; `null` clears expiry.
-- List responses keep historical rows with `is_active`, `expires_at`, and `rotated_from_id` so the UI can render retired, expired, and rotated lineage without rewriting history.
-- Rotate is lineage-creating, not in-place mutation: the historical row becomes inactive, a successor row is created with `rotated_from_id` pointing at the predecessor, and only the successor response includes the new one-time secret.
+- List responses are arrays of proxy-key items with `id`, `name`, `key_prefix`, `key_preview`, `is_active`, `expires_at`, `last_used_at`, `last_used_ip`, `notes`, `rotated_from_id`, `created_at`, and `updated_at`.
+- Create accepts `name`, optional `notes`, and optional RFC3339 `expires_at`. Response `201` is `{ "key": "<one-time-secret>", "item": { ... } }`.
+- Update requires a non-empty `name` and accepts optional `notes`, `is_active`, and RFC3339 `expires_at`. Response `200` is the updated item. Omitted or JSON `null` `expires_at` preserves the current expiry; update does not expose a clear-expiry operation.
+- Rotate is lineage-creating, not in-place mutation: the historical row becomes inactive, a successor row is created with `rotated_from_id` pointing at the predecessor, and response `200` is `{ "key": "<one-time-secret>", "item": { ... } }`.
+- Delete returns `{ "deleted": true }`.
 
 #### Get Costing Settings
 ```
@@ -631,6 +644,7 @@ Response `200`:
     "pattern": "cf-ray",
     "enabled": true,
     "is_system": true,
+    "profile_id": null,
     "created_at": "2025-01-01T00:00:00Z",
     "updated_at": "2025-01-01T00:00:00Z"
   }
@@ -693,6 +707,8 @@ Prism's runtime proxy is an explicit allowlist, not a full vendor API clone. It 
 
 Runtime proxy routes ignore management `X-Profile-Id` overrides and always resolve against frozen Default profile id `1`. Profile-scoped management reads and writes are pinned to Default profile id `1`; they do not switch proxy traffic.
 
+When operator auth is enabled, runtime proxy routes require a valid active, unexpired proxy API key. Prism accepts the key as `Authorization: Bearer <key>`, `X-API-Key: <key>`, or `X-Goog-Api-Key: <key>`. Missing keys return `401` with `Proxy API key required`; invalid, inactive, expired, or unknown keys return `401` with `Invalid proxy API key`. When auth is disabled, supported runtime routes continue without proxy-key authentication.
+
 ### 2.1 Supported Runtime Operations
 
 | Operation | Canonical operation name | Supported request |
@@ -708,7 +724,7 @@ Runtime proxy routes ignore management `X-Profile-Id` overrides and always resol
 | Gemini stream generate content | `gemini.stream_generate_content` | `POST /v1beta/models/{model}:streamGenerateContent` |
 | Gemini token count | `gemini.count_tokens` | `POST /v1beta/models/{model}:countTokens` |
 
-Each allowlisted row maps to one canonical operation name. Provider-forwarded runtime operations persist that name as `operation_name` in runtime telemetry. Operation names are part of the runtime contract, not aliases for broader vendor route groups. The Gemini `{model}` path binding is one non-empty path segment. Nested Gemini model paths are not part of this runtime contract.
+Each allowlisted row maps to one canonical operation name. Provider-forwarded runtime operations persist that name as `operation_name` in runtime telemetry. Operation names are part of the runtime contract, not aliases for broader vendor route groups. The Gemini `{model}` path binding is one non-empty path segment and cannot contain `/` or `:`. Nested Gemini model paths are not part of this runtime contract.
 
 ### 2.2 Unsupported Routes and Methods
 
@@ -716,27 +732,29 @@ Unsupported runtime routes return a Prism JSON `404` response before Prism reads
 
 Wrong methods on supported runtime paths return a Prism JSON `405` response before the same downstream seams run. The response includes the supported method in `Allow`, and the current error detail is `Method not allowed for runtime operation`.
 
+Supported runtime operation request bodies are capped at `20 MiB`. Oversized requests return JSON `413` with `error: "request_body_too_large"` and `limit_bytes` before runtime planning or provider transport.
+
 ### 2.2A Routing Failures
 
-Runtime planning applies the requested model's ordered access graph and attached Ban Policy strategy before provider transport. If no eligible Terminal Target is available inside the current retry window, Prism returns a routing-availability error before opening an upstream request. Unsupported translated OpenAI sibling-operation shapes reject with `openai_request_translation_unsupported` when adapter capability checks fail.
+Runtime planning applies the requested model's ordered access graph and attached Ban Policy strategy before provider transport. If no eligible Terminal Target is available inside the current retry window, Prism returns a routing-availability error before opening an upstream request. If all otherwise eligible attempts are blocked by admission counters, Prism returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. Unsupported translated OpenAI sibling-operation shapes reject with `openai_request_translation_unsupported` when adapter capability checks fail.
 
 Request-log detail keeps flat final-target attribution fields such as `resolved_target_model_id`, `terminal_target_id`, `selected_terminal_target_id`, `endpoint_id`, and `operation_translation_mode`. Deleted model-owned routing metadata is not exposed on public detail responses.
 
 ### 2.2B OpenAI sibling-operation translation
 
-OpenAI Chat Completions and Responses targets can be siblings for runtime planning. Translation eligibility is explicit and terminal-target based through `openai_text_capability`: `responses_only`, `chat_completions_only`, or `dual_native`. Native-compatible terminal attempts keep `operation_translation_mode = "none"`, and native-compatible terminal attempts are preferred before any translated attempt. Compatible sibling targets may use `openai_responses_to_chat_completions` or `openai_chat_completions_to_responses` only when the selected connection's capability is not native for the ingress operation and the adapter approves the request shape.
+OpenAI Chat Completions and Responses targets can be siblings for runtime planning. Translation eligibility is explicit and terminal-target based through `openai_text_capability`: `responses_only`, `chat_completions_only`, or `dual_native`. Native-compatible terminal attempts keep `operation_translation_mode = "none"`, but planning still follows authored access-target and terminal-target order and chooses the first compatible native or translated mode. Compatible sibling targets may use `openai_responses_to_chat_completions` or `openai_chat_completions_to_responses` only when the selected connection's capability is not native for the ingress operation and the adapter approves the request shape.
 
-Sibling OpenAI text translation is native-first and always on for adapter-approved text-only shapes. There is no startup toggle. Unsupported shapes are not universally routable: tools, multimodal or file inputs, stateful Responses features, structured-output mismatches, streaming event-shape mismatches, and any other adapter-rejected conversion remain blocked by adapter capability checks and reject before provider transport with `openai_request_translation_unsupported` when translation compatibility is the blocker. Public Responses requests with stateful shapes such as `previous_response_id` can pass through when missing context estimation is the only blocker, but they still reject if translation compatibility fails. Responses adjunct operations, `openai.responses.input_tokens` and `openai.responses.compact`, require responses-capable targets and never translate to Chat Completions.
+Sibling OpenAI text translation is always on for adapter-approved Chat Completions and Responses shapes. There is no startup toggle. Unsupported shapes are not universally routable: adapter-rejected conversions remain blocked by capability checks and reject before provider transport with `openai_request_translation_unsupported` when translation compatibility is the blocker. Supported tool definitions, tool/function calls, media content parts, and some stream conversion shapes can translate; unsupported metadata can be recorded as explicit translation loss instead of forcing whole-request rejection. Public Responses requests with stateful shapes such as `previous_response_id` can pass through when missing context estimation is the only blocker, but they still reject if translation compatibility fails. Responses adjunct operations, `openai.responses.input_tokens` and `openai.responses.compact`, require responses-capable targets and never translate to Chat Completions.
 
 Translated non-stream and stream responses are rewritten back to the ingress operation shape for the client. Runtime usage remains canonical from the raw upstream payload or terminal stream event, translated responses strip unsafe entity headers before writing to the client, and audit body capture stays upstream-native rather than translated.
 
-For Chat Completions ingress promoted to a Responses-only target, the client contract remains Chat Completions. Non-stream responses return `object: "chat.completion"`, `choices`, the requested public model ID, and Chat-shaped usage fields. Prism does not expose the raw Responses envelope to the client. Streaming responses return Chat Completions SSE chunks and terminal `data: [DONE]` while accepting text lifecycle events from the Responses upstream: `response.output_item.added`, `response.content_part.added`, `response.output_text.delta`, `response.output_text.done`, `response.content_part.done`, `response.output_item.done`, and terminal `response.completed`. Unsupported semantic Responses stream shapes, including tools, function calls, and non-text content, still reject deterministically with `openai_stream_translation_unsupported`.
+For Chat Completions ingress promoted to a Responses-only target, the client contract remains Chat Completions. Non-stream responses return `object: "chat.completion"`, `choices`, the requested public model ID, and Chat-shaped usage fields. Prism does not expose the raw Responses envelope to the client. Streaming responses return Chat Completions SSE chunks and terminal `data: [DONE]` while accepting text lifecycle events from the Responses upstream: `response.output_item.added`, `response.content_part.added`, `response.output_text.delta`, `response.output_text.done`, `response.content_part.done`, `response.output_item.done`, and terminal `response.completed`. Adapter-supported tool/function-call and content event shapes can translate; unsupported semantic stream shapes still reject deterministically with `openai_stream_translation_unsupported`.
 
 Ingress observability remains stable: `operation_name` is always the client-visible operation. Additive upstream fields use `upstream_operation_name`, `operation_translation_mode`, and `upstream_request_path` for request logs, usage events, and request-log detail. `upstream_request_path` is the sanitized operation path Prism sent upstream, not an unbounded raw URL. For Chat ingress translated to Responses upstream, public request logs preserve `operation_name = "openai.chat_completions"`, may record `upstream_operation_name = "openai.responses"`, and preserve `operation_translation_mode = "openai_chat_completions_to_responses"`.
 
 #### 2.2B.1 Application capability matrix
 
-The following application-spec example assumes these OpenAI text capabilities:
+The following application-spec example assumes these OpenAI text capabilities and matching access-target order:
 - `gpt-5.5`: `dual_native`
 - `gpt-5.4`: `dual_native`
 - `deepseek-v4-flash`: `chat_completions_only`
@@ -866,6 +884,7 @@ POST /v1beta/models/{model}:streamGenerateContent
 ```
 Request uses the upstream Gemini native generate-content body with the model bound from the path.
 Response: Proxied directly from the upstream Gemini-compatible endpoint. Canonical operation name: `gemini.stream_generate_content`.
+The `{model}` binding must be one non-empty path segment and cannot contain `/` or `:`.
 
 #### Count Tokens
 ```
@@ -873,6 +892,7 @@ POST /v1beta/models/{model}:countTokens
 ```
 Request uses the upstream Gemini native token-count body with the model bound from the path.
 Response: Proxied directly from the upstream Gemini-compatible endpoint. Canonical operation name: `gemini.count_tokens`.
+For all Gemini runtime paths in this section, the `{model}` binding must be one non-empty path segment and cannot contain `/` or `:`.
 
 ### 2.6 Streaming
 
@@ -1187,6 +1207,7 @@ Response `200`:
       "is_stream": false,
       "stream_outcome": "not_streaming",
       "stream_error_kind": null,
+      "output_tokens": 42,
       "total_tokens": 57,
       "total_cost_user_currency_micros": 1250,
       "priced_flag": true,
@@ -1237,7 +1258,11 @@ Response `200`:
     "stream_error_detail": null
   },
   "request": {
+    "operation_name": "openai.chat_completions",
+    "upstream_operation_name": "openai.chat_completions",
+    "operation_translation_mode": "none",
     "request_path": "/v1/chat/completions",
+    "upstream_request_path": "/v1/chat/completions",
     "ingress_request_id": "ingress_req_42",
     "attempt_number": 2,
     "provider_correlation_id": "req_upstream_abc123",
@@ -1248,7 +1273,9 @@ Response `200`:
     "caller_client_display": "Codex",
     "upstream_client_display": "OpenAI SDK",
     "user_agent_overridden": false,
-    "error_detail": null
+    "error_detail": null,
+    "request_generation_params": {"temperature": 0.7},
+    "request_generation_params_status": "captured"
   },
   "routing": {
     "profile_id": 1,
@@ -1257,7 +1284,7 @@ Response `200`:
     "terminal_target_id": 1,
     "selected_terminal_target_id": 1,
     "endpoint_base_url": "https://api.openai.com",
-    "endpoint_description": "Primary production key",
+    "endpoint_description": "Primary OpenAI",
     "audit_enabled_at_request": false,
     "audit_capture_bodies_at_request": false
   },
@@ -1437,6 +1464,8 @@ Request and response fields:
 | `audit_logs_retention_days` | integer or null | Global audit-log retention days. `null` disables the stored policy. |
 | `statistics_retention_days` | integer or null | Global `usage_request_events` retention days. `null` disables the stored policy. |
 | `loadbalance_events_retention_days` | integer or null | Global load-balance event retention days. `null` disables the stored policy. |
+
+Every non-null retention-day value must be `>= 1`; the database enforces this lower bound for all four fields.
 
 Response `200`:
 ```json
@@ -1620,7 +1649,7 @@ Query parameters:
 | `connection_id` | integer | none | Filter by connection ID |
 | `from` | datetime | required | Inclusive start of bounded time range (RFC 3339) |
 | `to` | datetime | required | Exclusive end of bounded time range (RFC 3339) |
-| `limit` | integer | 50 | Max results (1-200) |
+| `limit` | integer | 50 | Max positive result count |
 | `cursor` | string | none | Opaque keyset cursor returned as `next_cursor` |
 | `sort` | string | `desc` | Only `desc` is supported |
 
@@ -1712,7 +1741,7 @@ GET /api/management/jobs/{job_id}
 POST /api/management/jobs/{job_id}/cancel
 ```
 
-`GET /api/management/jobs` returns recent jobs in scope. Audit-delete jobs are profile-scoped. Global log-retention jobs use `profile_id = 0` and are visible to operators as instance maintenance jobs:
+`GET /api/management/jobs` returns recent Default-profile jobs only. Audit-delete jobs are profile-scoped. Global log-retention jobs use `profile_id = 0`; they are not included in the list response, but the `status_url` returned by `POST /api/maintenance/log-retention/jobs` can be used to read them by ID through `GET /api/management/jobs/{job_id}`:
 ```json
 {
   "items": [
@@ -1744,7 +1773,7 @@ POST /api/management/jobs/{job_id}/cancel
 }
 ```
 
-`GET /api/management/jobs/{job_id}` returns the same job object. `POST /api/management/jobs/{job_id}/cancel` marks an in-scope job for cancellation and returns `202` with the job object. Unknown or out-of-scope jobs return `404`.
+`GET /api/management/jobs/{job_id}` first resolves the Default-profile job and then falls back to a global log-retention job with the same id. `POST /api/management/jobs/{job_id}/cancel` follows the same resolution order, marks the resolved job for cancellation, and returns `202` with the job object. Unknown or out-of-scope jobs return `404`.
 
 ### 5.4 Redaction Rules
 
@@ -1974,7 +2003,7 @@ Response `200`:
       "last_retry_delay_ms": 60000,
       "model_id": "gpt-4o",
       "endpoint_id": 12,
-        "ban_mode": "until_reset",
+      "ban_mode": "until_reset",
       "banned_until_at": null,
       "last_success_at": null,
       "summary": {
@@ -2041,7 +2070,7 @@ Response `200`:
 }
 ```
 
-`active_bans` is the current in-memory Ban Policy state for the effective profile. `recent_events` uses the loadbalance event item shape and includes recent `banned`, `unbanned`, `recovered`, and `retry_exhausted` rows without requiring a `model_id` filter.
+`active_bans` is the current Ban Policy runtime state for the effective profile. `recent_events` uses the loadbalance event item shape and includes recent `banned`, `unbanned`, `recovered`, and `retry_exhausted` rows without requiring a `model_id` filter.
 
 ### 6.11 Get Loadbalance Event Detail
 ```
@@ -2077,6 +2106,14 @@ Response `200`:
 GET /api/auth/public-bootstrap
 ```
 Initializes session and returns basic auth state for the login page.
+Response `200`:
+```json
+{
+  "authenticated": false,
+  "auth_enabled": true,
+  "username": null
+}
+```
 
 ### 7.3 Login
 ```
@@ -2091,24 +2128,47 @@ Request:
 }
 ```
 Response `200`: Session object. Sets the configured access-token and refresh-token cookies.
+```json
+{
+  "authenticated": true,
+  "auth_enabled": true,
+  "username": "admin"
+}
+```
 
 ### 7.4 Logout
 ```
 POST /api/auth/logout
 ```
 Clears session cookies and revokes the current refresh token.
+Response `200`:
+```json
+{
+  "authenticated": false,
+  "auth_enabled": true,
+  "username": null
+}
+```
 
 ### 7.5 Refresh Session
 ```
 POST /api/auth/refresh
 ```
-Uses the `refresh_token` cookie to issue a new session. Implements token family rotation.
+Uses the `refresh_token` cookie to issue a new session. Implements token family rotation. Response `200` uses the same session object shape as login.
 
 ### 7.6 Get Session
 ```
 GET /api/auth/session
 ```
 Returns the current authenticated session state.
+Response `200`:
+```json
+{
+  "authenticated": true,
+  "auth_enabled": true,
+  "username": "admin"
+}
+```
 
 ---
 

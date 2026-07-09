@@ -56,7 +56,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Model-owned overflow replay and exact facade routing have been removed. After headers, flush, SSE, or any client-visible bytes commit downstream output, Prism does not switch upstreams for that stream.
 - All failover attempts (including failed ones) are logged to `request_logs` for observability. When a Terminal Target returns a configured failover-triggering status code (`403`, `422`, `429`, `500`, `502`, `503`, `504`, `529` by default) or encounters a connection/timeout error, the failed attempt is logged before trying the next Terminal Target.
 - Request-log detail preserves requested public model identity, final target identity, selected Terminal Target, endpoint, operation names, and translation mode through flat fields.
-- Failover, recovery, and probe-eligibility transitions are persisted as `loadbalance_events` for audit and observability.
+- Retry scheduling, retry exhaustion, bans, unbans, recovery, and admission-rejection transitions are persisted as `loadbalance_events` for audit and observability.
 
 ### 4.5 Profile-Scoped Endpoints & Terminal Targets
 - **Endpoints** are profile-scoped credential objects containing a name, base URL, and API key.
@@ -69,16 +69,10 @@ Single operator (developer/power user) running the application locally or on a l
 - Manual Terminal Target test actions are removed from the management API and UI.
 - Terminal Target health indicators are driven by retained request-log data for real runtime traffic.
 
-### 4.6.1 Terminal Target Success Rate Badge
-- Each Terminal Target displays a **success rate badge** computed from `request_logs` data
+### 4.6.1 Terminal Target Success Rate Data
+- Terminal Target success-rate data is computed from `request_logs` data and exposed through request-derived stats and routing-health surfaces
 - Success rate = `COUNT(2xx status codes) / COUNT(total requests) * 100` for that Terminal Target
-- Badge color thresholds:
-  - **Green** (≥98%): Excellent health
-  - **Yellow** (75%–97.99%): Degraded health
-  - **Red** (<75%): Poor health
-  - **Gray** (N/A): No request data available (0 total requests)
-- The success rate badge is the primary visual indicator in the Terminal Targets list on the Model Detail page
-- Tooltip on hover shows: success rate percentage, total requests count, and success/error counts when available
+- No request data returns `null`/N/A rather than pretending to be 0% healthy
 
 ### 4.6.2 Model Health Display
 - The Models page displays an aggregated health indicator for each model
@@ -96,7 +90,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Add/edit/delete Terminal Targets from model detail
 - Toggle enabled/disabled access targets per model
 - Select an explicit load-balance strategy with Ban Policy settings per model
-- Dedicated model-detail route (`/models/:id`) with Terminal Target KPIs, current loadbalance state, and loadbalance event history
+- Dedicated model-detail route (`/models/:id`) for ordered access-target and Terminal Target configuration; current loadbalance state and loadbalance event history live under Ban Policies
 - Dedicated request-log browsing and investigation at `/observe/requests`, separate from dashboard analytics
 - Dedicated routes for pricing templates and proxy API key lifecycle management
 - Dashboard analytics lives under `/observe?tab=analytics` and replaces the old standalone statistics route
@@ -120,7 +114,7 @@ Token usage is extracted from upstream responses using api-family-aware parsing:
 - **OpenAI Responses input_tokens (non-streaming)**: Extracts `input_tokens` and `total_tokens` from top-level token-count payloads
 - **Anthropic Messages (non-streaming)**: Extracts from `usage` object
 - **Anthropic count_tokens (non-streaming)**: Extracts `input_tokens` from top-level
-- **OpenAI (streaming)**: Accumulated from SSE events (requires `include_usage=true`)
+- **OpenAI (streaming)**: Accumulated from terminal SSE usage events; translated Chat streams inject `stream_options.include_usage=true` upstream when needed
 - **Anthropic (streaming)**: Accumulated from SSE events (`message_start` and `message_delta`)
 - **Fallback**: If token data cannot be extracted, all token fields are logged as `null`
 - **Null vs zero token semantics**:

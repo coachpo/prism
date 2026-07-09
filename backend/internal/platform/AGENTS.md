@@ -20,6 +20,7 @@ platform/
 ├── migrate/                 # SQL migration runner and schema guards
 ├── priority/                # Priority metadata and context helpers
 ├── startup/                 # Startup sequencing, seeds, and secret normalization
+│   └── AGENTS.md            # Startup seed/default and preservation rules
 └── version/                 # Backend version loading
 ```
 
@@ -29,7 +30,7 @@ platform/
 - Shared body-size limits used by management/runtime HTTP: `bodylimits/`, `http/management_body_limits.go`
 - Management route profile-scope and runtime-cache invalidation contract: `http/management_route_contract.json`, consumed by frontend and backend drift tests
 - Plaintext bootstrap contract, restart-applied fields, and safe secret metadata: `config/AGENTS.md`, `config/`
-- Startup migration and seed flow: `startup/`, `migrate/`, `../../migrations/`
+- Startup migration and seed flow: `startup/AGENTS.md`, `startup/`, `migrate/`, `../../migrations/`
 - DB lane budgets and pool handles: `db/`
 - Partitioned log retention, daily partition horizon, retention deletes, and low-priority maintenance worker: `logretention/`, `managementjobs/jobs.go`
 - Background worker contracts and side-effect stores: `background/`, `managementsideeffects/`, `managementjobs/`

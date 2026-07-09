@@ -39,7 +39,7 @@ dashboard/
 - Dashboard polling flow: `useDashboardPolling.ts`, which refreshes REST snapshot and recent activity data through `useDashboardBootstrapData.ts`
 - Routing health list barrel and leaf cluster: `routingDiagram.ts`, `RoutingDiagramCard.tsx`, `routing-diagram/AGENTS.md`
 - KPI, highlight, recent-activity, and spend presentation: `DashboardMetricsGrid.tsx`, `DashboardHighlightsGrid.tsx`, `RecentActivityCard.tsx`, `TopSpendingModelsCard.tsx`, `DashboardPageSkeleton.tsx`
-- E2E seams for aggregate bootstrap and dashboard reporting-currency display: `../../../tests/e2e/dashboard-aggregate-overview.spec.ts`, `../../../tests/e2e/dashboard-reporting-currency.spec.ts`
+- E2E seam for dashboard aggregate/statistics rendering: `../../../tests/e2e/shared-chart-statistics.spec.ts`; shared aggregate fixtures live in `../../../tests/e2e/dashboard-aggregate-fixtures.ts`.
 
 ## CHILD DOCS
 

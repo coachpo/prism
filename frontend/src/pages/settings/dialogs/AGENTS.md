@@ -20,7 +20,7 @@ dialogs/
 - Shared delete-confirm flow for destructive settings actions: `DeleteConfirmDialog.tsx`
 - Audit-rule create, edit, and delete flows: `RuleDialog.tsx`, `DeleteRuleConfirmDialog.tsx`, `UserAgentClientRuleDialog.tsx`, `DeleteUserAgentClientRuleConfirmDialog.tsx`
 - Mutation state, Default-profile labels, and save orchestration feeding the dialogs: `../useSettingsPageData.ts`, `../useAuditConfigurationData.ts`, `../useRetentionDeletionData.ts`
-- E2E seams for user-agent/client rule copy: `../../../../tests/e2e/settings-user-agent-client-rules-copy.spec.ts`
+- User-agent/client rule copy belongs to frontend seam tests rather than a dedicated Playwright spec.
 
 ## CONVENTIONS
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.

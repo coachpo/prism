@@ -46,8 +46,7 @@ connections (profile-scoped private endpoint bindings)
   qps_limit, max_in_flight_non_stream, max_in_flight_stream
   is_active, priority
   name, auth_type, custom_headers, openai_text_capability
-  health_status, health_detail, last_health_check
-  monitoring_probe_interval_seconds
+  retained compatibility health/probe columns
   created_at, updated_at
   INDEX(profile_id, api_family, is_active, priority)
   INDEX(endpoint_id)
@@ -237,18 +236,18 @@ Profiles are retained storage namespaces. Multi-profile management is frozen: ma
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
-| name | VARCHAR(120) | NOT NULL, UNIQUE | Profile name |
+| name | VARCHAR(200) | NOT NULL, UNIQUE | Profile name |
 | description | TEXT | NULLABLE | Optional description |
-| is_active | BOOLEAN | NOT NULL, DEFAULT FALSE | Runtime-active marker |
-| is_default | BOOLEAN | NOT NULL, DEFAULT FALSE | Seeded default marker |
-| is_editable | BOOLEAN | NOT NULL, DEFAULT TRUE | Editable flag; current startup invariants keep the system default profile editable |
-| version | INTEGER | NOT NULL, DEFAULT 0 | Retained concurrency token |
+| is_active | BOOLEAN | NOT NULL | Runtime-active marker; application-managed seed value |
+| is_default | BOOLEAN | NOT NULL | Seeded default marker; application-managed seed value |
+| is_editable | BOOLEAN | NOT NULL | Editable flag; current startup invariants keep the system default profile editable |
+| version | INTEGER | NOT NULL | Retained concurrency token; application-managed value |
 | deleted_at | DATETIME | NULLABLE | Soft-delete marker for inactive rows |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+| created_at | DATETIME | NOT NULL | Creation timestamp; application-managed |
+| updated_at | DATETIME | NOT NULL | Last update timestamp; application-managed |
 
 Constraints and lifecycle rules:
-- Exactly one non-deleted profile is active at any time (partial unique index).
+- At most one row can have `is_active = true`; the partial unique index is not scoped by `deleted_at`.
 - Startup invariants ensure Default profile id `1` exists and remains editable.
 - Profile create, update, activate, and delete management routes are not exposed while multi-profile management is frozen.
 
@@ -265,9 +264,9 @@ Maps a model ID to fixed api family and routing behavior within one profile.
 | display_name | VARCHAR(200) | NULLABLE | Human-readable name |
 | loadbalance_strategy_id | INTEGER | NULLABLE, FK -> loadbalance_strategies.id | Strategy used while planning this model's targets |
 | openai_accepted_format | TEXT | NULLABLE | OpenAI model ingress contract: `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI models persist `NULL` |
-| is_enabled | BOOLEAN | NOT NULL, DEFAULT TRUE | Runtime availability |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+| is_enabled | BOOLEAN | NOT NULL | Runtime availability; create defaults omitted values to `false` in application code |
+| created_at | DATETIME | NOT NULL | Creation timestamp; application-managed |
+| updated_at | DATETIME | NOT NULL | Last update timestamp; application-managed |
 
 Constraints:
 - `UNIQUE(profile_id, model_id)`.
@@ -289,12 +288,12 @@ Ordered access targets. Public authoring creates same-family model targets only.
 | target_model_config_id | INTEGER | FK -> model_configs.id, NULLABLE, ON DELETE RESTRICT | Optional model target |
 | target_connection_id | INTEGER | FK -> connections.id, NULLABLE, ON DELETE RESTRICT | Optional Terminal Target ownership and routing edge |
 | position | INTEGER | NOT NULL, CHECK >= 0 | Zero-based contiguous authoring order |
-| is_enabled | BOOLEAN | NOT NULL, DEFAULT TRUE | Whether this ordered peer participates in routing |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+| is_enabled | BOOLEAN | NOT NULL | Whether this ordered peer participates in routing; application-managed value |
+| created_at | DATETIME | NOT NULL | Creation timestamp; application-managed |
+| updated_at | DATETIME | NOT NULL | Last update timestamp; application-managed |
 
 Constraints:
-- `UNIQUE(source_model_config_id, position)`.
+- `UNIQUE(source_model_config_id, position)` is the deferrable `uq_model_access_targets_source_position` constraint.
 - `target_type` is `model` or `connection`, and each row references exactly one matching target model or target connection.
 - Source and target rows must stay in the same profile and same `api_family`.
 - Positions are normalized and validated as contiguous `0..N-1` in management contracts.
@@ -312,18 +311,18 @@ Reusable explicit Ban Policy strategy objects attached by models within one prof
 | id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
 | name | VARCHAR(200) | NOT NULL | Strategy name (profile-unique) |
-| legacy_strategy_type | VARCHAR(40) | NOT NULL, CHECK IN (`single`, `fill-first`, `round-robin`) | Routing subtype |
+| legacy_strategy_type | VARCHAR(32) | NOT NULL, CHECK IN (`single`, `fill-first`, `round-robin`) | Routing subtype |
 | failure_status_codes | INTEGER[] | NOT NULL | Status codes that count as retry-window failures |
 | ban_mode | VARCHAR(20) | NOT NULL | `off`, `temporary`, or `until_reset` |
 | retry_base_delay_ms | INTEGER | NOT NULL | First retry-window delay in milliseconds |
-| retry_backoff_multiplier | NUMERIC | NOT NULL | Backoff multiplier |
-| retry_jitter_ratio | NUMERIC | NOT NULL | Retry-window jitter ratio |
+| retry_backoff_multiplier | DOUBLE PRECISION | NOT NULL | Backoff multiplier |
+| retry_jitter_ratio | DOUBLE PRECISION | NOT NULL | Retry-window jitter ratio |
 | retry_max_delay_ms | INTEGER | NOT NULL | Maximum retry-window delay in milliseconds |
 | cycle_retry_attempt_limit | INTEGER | NOT NULL | Inclusive retry-cycle exhaustion limit |
 | ban_cumulative_retry_attempt_threshold | INTEGER | NOT NULL | Inclusive cumulative retry threshold for Ban Policy bans, or zero when `ban_mode = off` |
 | ban_duration_seconds | INTEGER | NOT NULL | Temporary ban duration, or zero when mode requires no duration |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+| created_at | DATETIME | NOT NULL | Creation timestamp; application-managed |
+| updated_at | DATETIME | NOT NULL | Last update timestamp; application-managed |
 
 Constraints and lifecycle rules:
 - `UNIQUE(profile_id, name)`.
@@ -348,8 +347,8 @@ Reusable credential objects scoped to one profile.
 | base_url | VARCHAR(500) | NOT NULL | Upstream base URL |
 | api_key | VARCHAR(500) | NOT NULL | Prism-at-rest encrypted endpoint secret |
 | position | INTEGER | NOT NULL | Zero-based contiguous ordering index within profile |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+| created_at | DATETIME | NOT NULL | Creation timestamp; application-managed |
+| updated_at | DATETIME | NOT NULL | Last update timestamp; application-managed |
 
 Constraints and indexes:
 - `UNIQUE(profile_id, name)`.
@@ -369,19 +368,19 @@ Terminal Targets are represented as `connections` / `connection_id` in the compa
 | qps_limit | INTEGER | NULLABLE | Per-Terminal Target QPS cap; `NULL` means unlimited |
 | max_in_flight_non_stream | INTEGER | NULLABLE | Concurrent non-stream request cap; `NULL` means unlimited |
 | max_in_flight_stream | INTEGER | NULLABLE | Concurrent stream request cap; `NULL` means unlimited |
-| is_active | BOOLEAN | NOT NULL, DEFAULT TRUE | Active routing candidate |
-| priority | INTEGER | NOT NULL, DEFAULT 0 | Legacy fallback ordering hint for family-level reads; model routing order comes from access-target `position` |
+| is_active | BOOLEAN | NOT NULL | Active routing candidate; application-managed value |
+| priority | INTEGER | NOT NULL | Legacy fallback ordering hint for family-level reads; model routing order comes from access-target `position` |
 | name | TEXT | NULLABLE | Optional Terminal Target label |
 | auth_type | VARCHAR(50) | NULLABLE | Optional auth behavior metadata |
 | custom_headers | TEXT | NULLABLE | JSON headers applied before blocklist filtering |
-| health_status | VARCHAR(20) | NOT NULL, DEFAULT 'unknown' | `unknown`, `healthy`, `unhealthy` |
+| health_status | VARCHAR(20) | NOT NULL | `unknown`, `healthy`, `unhealthy`; application-managed compatibility value |
 | health_detail | TEXT | NULLABLE | Retained compatibility health detail |
 | last_health_check | DATETIME | NULLABLE | Retained compatibility health timestamp |
 | openai_probe_endpoint_variant | VARCHAR(40) | NULLABLE | Retained schema field for existing rows; the live UI no longer writes this metadata |
 | openai_text_capability | TEXT | NULLABLE | OpenAI Terminal Target text runtime capability: `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI Terminal Targets persist `NULL` |
 | monitoring_probe_interval_seconds | INTEGER | NOT NULL, DEFAULT 300 | Reserved monitoring cadence field |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+| created_at | DATETIME | NOT NULL | Creation timestamp; application-managed |
+| updated_at | DATETIME | NOT NULL | Last update timestamp; application-managed |
 
 Indexes include `idx_connections_profile_family_active_priority` for family-scoped active candidate reads, `idx_connections_endpoint_id` for endpoint dependency checks, and `idx_connections_pricing_template_id` for template dependency checks.
 
@@ -394,7 +393,7 @@ Connection invariants:
 - Deleting a Terminal Target removes its owning `model_access_targets.target_connection_id` row in the same operation.
 - Connection create/update contracts do not allow client-written `priority`; model-specific ordering changes flow through `/api/models/{model_config_id}/targets/{target_id}/position`.
 - OpenAI Terminal Targets require `openai_text_capability` in `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI Terminal Targets must keep it `NULL`.
-- `openai_text_capability` is the OpenAI text runtime capability source of truth for planning. `responses_only` supports native Responses generation and Responses adjunct operations, `chat_completions_only` supports native Chat Completions, and `dual_native` supports both native text generation shapes. Sibling translation can run only for adapter-approved text-only Chat Completions and Responses shapes when a terminal target is not native for the ingress operation.
+- `openai_text_capability` is the OpenAI text runtime capability source of truth for planning. `responses_only` supports native Responses generation and Responses adjunct operations, `chat_completions_only` supports native Chat Completions, and `dual_native` supports both native text generation shapes. Sibling translation can run only for adapter-approved Chat Completions and Responses shapes when a terminal target is not native for the ingress operation; authored access-target and terminal-target order still decides which compatible native or translated attempt is tried first.
 - `openai_probe_endpoint_variant` is retained for existing rows; live Terminal Target authoring uses `openai_text_capability` for OpenAI runtime planning.
 
 ### 2.7 `pricing_templates` (profile-scoped reusable token pricing)
@@ -407,16 +406,16 @@ Reusable token pricing definitions that can be attached to many Terminal Targets
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
 | name | VARCHAR(200) | NOT NULL | Template name (profile-unique) |
 | description | TEXT | NULLABLE | Optional notes |
-| pricing_unit | VARCHAR(20) | NOT NULL, DEFAULT 'PER_1M' | Billing unit |
+| pricing_unit | VARCHAR(20) | NOT NULL | Billing unit; application writes `PER_1M` in current flows |
 | pricing_currency_code | VARCHAR(3) | NOT NULL | Template currency code |
 | input_price | VARCHAR(20) | NOT NULL | Base input token price string |
 | output_price | VARCHAR(20) | NOT NULL | Base output token price string |
-| cached_input_price | VARCHAR(20) | NOT NULL | Cache-read input token price string |
-| cache_creation_price | VARCHAR(20) | NOT NULL | Cache-creation input token price string |
-| reasoning_price | VARCHAR(20) | NOT NULL | Reasoning output token price string |
-| version | INTEGER | NOT NULL, DEFAULT 1 | Auto-incremented on pricing-impacting changes |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+| cached_input_price | VARCHAR(20) | NOT NULL, DEFAULT '0' | Cache-read input token price string |
+| cache_creation_price | VARCHAR(20) | NOT NULL, DEFAULT '0' | Cache-creation input token price string |
+| reasoning_price | VARCHAR(20) | NOT NULL, DEFAULT '0' | Reasoning output token price string |
+| version | INTEGER | NOT NULL | Auto-incremented on pricing-impacting changes; application-managed value |
+| created_at | DATETIME | NOT NULL | Creation timestamp; application-managed |
+| updated_at | DATETIME | NOT NULL | Last update timestamp; application-managed |
 
 Constraint: `UNIQUE(profile_id, name)`.
 
@@ -436,10 +435,10 @@ Header blocklist is split between global system rules and profile-scoped user ru
 | name | VARCHAR(200) | NOT NULL | Rule label |
 | match_type | VARCHAR(20) | NOT NULL | `exact` or `prefix` |
 | pattern | VARCHAR(200) | NOT NULL | Header match token (case-insensitive) |
-| enabled | BOOLEAN | NOT NULL, DEFAULT TRUE | Rule enabled flag |
-| is_system | BOOLEAN | NOT NULL, DEFAULT FALSE | Protected global rule |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+| enabled | BOOLEAN | NOT NULL | Rule enabled flag; application-managed value |
+| is_system | BOOLEAN | NOT NULL | Protected global rule; application-managed value |
+| created_at | DATETIME | NOT NULL | Creation timestamp; application-managed |
+| updated_at | DATETIME | NOT NULL | Last update timestamp; application-managed |
 
 Constraints:
 - System rule: `is_system = TRUE` implies `profile_id IS NULL`.
@@ -454,11 +453,14 @@ Per-profile costing/report display preferences.
 |---|---|---|---|
 | id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL, UNIQUE | One row per profile |
-| report_currency_code | VARCHAR(3) | NOT NULL, DEFAULT 'USD' | Spending report currency |
-| report_currency_symbol | VARCHAR(5) | NOT NULL, DEFAULT '$' | Currency symbol |
+| report_currency_code | VARCHAR(3) | NOT NULL | Spending report currency; application-managed seed value |
+| report_currency_symbol | VARCHAR(5) | NOT NULL | Currency symbol; application-managed seed value |
 | timezone_preference | VARCHAR(100) | NULLABLE | Preferred timezone for UI/report rendering |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+| request_logs_retention_days | INTEGER | NULLABLE, CHECK >= 1 | Retained legacy per-profile retention field, ignored by current settings APIs |
+| statistics_retention_days | INTEGER | NULLABLE, CHECK >= 1 | Retained legacy per-profile retention field, ignored by current settings APIs |
+| audit_logs_retention_days | INTEGER | NULLABLE, CHECK >= 1 | Retained legacy per-profile retention field, ignored by current settings APIs |
+| created_at | DATETIME | NOT NULL | Creation timestamp; application-managed |
+| updated_at | DATETIME | NOT NULL | Last update timestamp; application-managed |
 
 ### 2.10 `endpoint_fx_rate_settings` (profile-scoped)
 
@@ -468,11 +470,11 @@ Custom FX mappings used by costing within one profile.
 |---|---|---|---|
 | id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
-| model_id | VARCHAR(100) | NOT NULL | Model identifier in profile scope |
+| model_id | VARCHAR(200) | NOT NULL | Model identifier in profile scope |
 | endpoint_id | INTEGER | NOT NULL | Endpoint reference in profile scope |
 | fx_rate | VARCHAR(20) | NOT NULL | Decimal exchange rate |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+| created_at | DATETIME | NOT NULL | Creation timestamp; application-managed |
+| updated_at | DATETIME | NOT NULL | Last update timestamp; application-managed |
 
 Constraint: `UNIQUE(profile_id, model_id, endpoint_id)`.
 
@@ -500,7 +502,7 @@ Telemetry rows for every proxy attempt with immutable profile attribution captur
 | proxy_api_key_id | INTEGER | NULLABLE | Proxy API key snapshot used for the request |
 | proxy_api_key_name_snapshot | VARCHAR(200) | NULLABLE | Display-name snapshot for the proxy key at request time |
 | endpoint_base_url | VARCHAR(500) | NULLABLE | Endpoint base URL snapshot |
-| endpoint_description | TEXT | NULLABLE | Endpoint description snapshot |
+| endpoint_description | TEXT | NULLABLE | Compatibility endpoint-name snapshot text |
 | status_code | INTEGER | NOT NULL | Upstream status code |
 | response_time_ms | INTEGER | NOT NULL | Latency in ms |
 | is_stream | BOOLEAN | NOT NULL | Streaming flag |
@@ -645,7 +647,7 @@ Audit rows for upstream attempts with immutable profile attribution. The table i
 | endpoint_id | INTEGER | NULLABLE | Endpoint snapshot |
 | connection_id | INTEGER | NULLABLE | Connection snapshot |
 | endpoint_base_url | VARCHAR(500) | NULLABLE | Endpoint base URL snapshot |
-| endpoint_description | TEXT | NULLABLE | Endpoint description snapshot |
+| endpoint_description | TEXT | NULLABLE | Compatibility endpoint-name snapshot text |
 | request_method/request_url/request_headers/request_body | mixed | request fields | Upstream request snapshot |
 | response_status/response_headers/response_body | mixed | response fields | Upstream response snapshot |
 | audit_enabled_at_request | BOOLEAN | NOT NULL, DEFAULT FALSE | Whether audit was enabled when the request started |
@@ -673,8 +675,8 @@ One row per profile and API family controls whether runtime attempts create audi
 | api_family | VARCHAR(50) | NOT NULL, CHECK IN (`openai`, `anthropic`, `gemini`) | Runtime compatibility family |
 | audit_enabled | BOOLEAN | NOT NULL | Whether attempts for this profile/family create audit rows |
 | audit_capture_bodies | BOOLEAN | NOT NULL | Whether request and response bodies may be stored |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+| created_at | DATETIME | NOT NULL | Creation timestamp; application-managed |
+| updated_at | DATETIME | NOT NULL | Last update timestamp; application-managed |
 
 Constraints:
 - `UNIQUE(profile_id, api_family)`.
@@ -719,10 +721,10 @@ Global normal-retention policy for partitioned log tables.
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | singleton_key | VARCHAR(20) | PK, CHECK = `global` | Singleton row key |
-| request_logs_retention_days | INTEGER | NULLABLE | Global request-log retention window |
-| audit_logs_retention_days | INTEGER | NULLABLE | Global audit-log retention window |
-| statistics_retention_days | INTEGER | NULLABLE | Global `usage_request_events` retention window |
-| loadbalance_events_retention_days | INTEGER | NULLABLE | Global load-balance event retention window |
+| request_logs_retention_days | INTEGER | NULLABLE, CHECK >= 1 | Global request-log retention window |
+| audit_logs_retention_days | INTEGER | NULLABLE, CHECK >= 1 | Global audit-log retention window |
+| statistics_retention_days | INTEGER | NULLABLE, CHECK >= 1 | Global `usage_request_events` retention window |
+| loadbalance_events_retention_days | INTEGER | NULLABLE, CHECK >= 1 | Global load-balance event retention window |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
@@ -834,9 +836,9 @@ Ephemeral hot-state row for per-connection admission counters and Ban Mode retry
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
 | connection_id | INTEGER | FK -> connections.id, NOT NULL | Private connection under Ban Policy tracking |
 | window_started_at | DATETIME | NULLABLE | Current QPS window start |
-| window_request_count | INTEGER | NOT NULL, DEFAULT 0 | Requests admitted in current one-second window |
-| in_flight_non_stream | INTEGER | NOT NULL, DEFAULT 0 | Current non-stream reservations |
-| in_flight_stream | INTEGER | NOT NULL, DEFAULT 0 | Current stream reservations |
+| window_request_count | INTEGER | NOT NULL | Requests admitted in current one-second window; application-managed zero value |
+| in_flight_non_stream | INTEGER | NOT NULL | Current non-stream reservations; application-managed zero value |
+| in_flight_stream | INTEGER | NOT NULL | Current stream reservations; application-managed zero value |
 | cycle_retry_attempts | INTEGER | NOT NULL | Retry attempts in the current retry cycle |
 | cumulative_retry_attempts | INTEGER | NOT NULL | Retry attempts accumulated for Ban Policy thresholding |
 | next_retry_at | DATETIME | NULLABLE | Wall-clock time when the next retry cycle can run |
@@ -846,8 +848,8 @@ Ephemeral hot-state row for per-connection admission counters and Ban Mode retry
 | last_failure_kind | VARCHAR(20) | NULLABLE | Latest retryable failure kind: `transient_http`, `connect_error`, or `timeout` |
 | last_success_at | DATETIME | NULLABLE | Successful response time that cleared retry state when relevant |
 | live_p95_latency_ms | INTEGER | NULLABLE | Passive-request latency signal |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Row creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last mutation timestamp |
+| created_at | DATETIME | NOT NULL | Row creation timestamp; application-managed |
+| updated_at | DATETIME | NOT NULL | Last mutation timestamp; application-managed |
 
 Constraints:
 - `UNIQUE(profile_id, connection_id)`.
@@ -873,8 +875,8 @@ Ephemeral lease rows used for non-stream attempts and streaming heartbeats.
 | lease_kind | VARCHAR(20) | NOT NULL | `stream` or `non_stream` |
 | expires_at | DATETIME | NOT NULL | Lease expiry for repair/reconciliation |
 | heartbeat_at | DATETIME | NULLABLE | Latest stream heartbeat when relevant |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Row creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last mutation timestamp |
+| created_at | DATETIME | NOT NULL | Row creation timestamp; application-managed |
+| updated_at | DATETIME | NOT NULL | Last mutation timestamp; application-managed |
 
 Constraints:
 - `lease_kind` is restricted to `stream` or `non_stream`.
@@ -887,7 +889,7 @@ Global operator authentication settings and credentials.
 |---|---|---|---|
 | id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
 | singleton_key | VARCHAR(20) | NOT NULL, UNIQUE | `app` |
-| auth_enabled | BOOLEAN | NOT NULL, DEFAULT FALSE | Auth toggle |
+| auth_enabled | BOOLEAN | NOT NULL | Auth toggle; application-managed value |
 | username | VARCHAR(200) | NULLABLE | Operator username |
 | email | VARCHAR(320) | NULLABLE | Retained legacy email column, unused by current auth responses |
 | pending_email | VARCHAR(320) | NULLABLE | Retained legacy pending email column, unused by current auth responses |
@@ -895,12 +897,12 @@ Global operator authentication settings and credentials.
 | email_bound_at | DATETIME | NULLABLE | Retained legacy email timestamp |
 | email_verification_code_hash | VARCHAR(64) | NULLABLE | Retained legacy email-code hash |
 | email_verification_expires_at | DATETIME | NULLABLE | Retained legacy email-code expiry |
-| email_verification_attempt_count | INTEGER | NOT NULL, DEFAULT 0 | Retained legacy email-code attempt count |
-| must_change_password | BOOLEAN | NOT NULL, DEFAULT FALSE | First-login follow-up flag |
+| email_verification_attempt_count | INTEGER | NOT NULL | Retained legacy email-code attempt count; application-managed zero value |
+| must_change_password | BOOLEAN | NOT NULL | First-login follow-up flag; application-managed value |
 | last_login_at | DATETIME | NULLABLE | Most recent successful login |
-| token_version | INTEGER | NOT NULL, DEFAULT 0 | Global token revocation version |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+| token_version | INTEGER | NOT NULL | Global token revocation version; application-managed zero value |
+| created_at | DATETIME | NOT NULL | Creation timestamp; application-managed |
+| updated_at | DATETIME | NOT NULL | Last update timestamp; application-managed |
 
 ### 2.22 `refresh_tokens`
 
@@ -911,14 +913,14 @@ Cookie-backed management sessions with family rotation and revocation.
 | id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
 | auth_subject_id | INTEGER | FK -> app_auth_settings.id, NOT NULL | Singleton operator auth subject |
 | token_hash | VARCHAR(64) | NOT NULL, UNIQUE | SHA-256 hash of the refresh token |
-| session_duration | VARCHAR(20) | NOT NULL, DEFAULT `7_days` | Requested session lifetime bucket |
+| session_duration | VARCHAR(20) | NOT NULL | Requested session lifetime bucket; application-managed default is `7_days` |
 | expires_at | DATETIME | NOT NULL | Refresh-token expiry |
 | rotated_from_id | INTEGER | FK -> refresh_tokens.id, NULLABLE | Previous token in the family |
 | revoked_at | DATETIME | NULLABLE | Revocation timestamp |
 | last_used_at | DATETIME | NULLABLE | Most recent redemption time |
 | user_agent | TEXT | NULLABLE | Client user-agent snapshot |
 | ip_address | VARCHAR(100) | NULLABLE | Client IP snapshot |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+| created_at | DATETIME | NOT NULL | Creation timestamp; application-managed |
 
 ### 2.23 `proxy_api_keys`
 
@@ -931,15 +933,15 @@ Runtime data-plane credentials.
 | key_prefix | VARCHAR(200) | NOT NULL, UNIQUE | Public prefix |
 | key_hash | VARCHAR(64) | NOT NULL | SHA-256 hash |
 | last_four | VARCHAR(4) | NOT NULL | Display suffix |
-| is_active | BOOLEAN | NOT NULL, DEFAULT TRUE | Active flag |
+| is_active | BOOLEAN | NOT NULL | Active flag; application-managed value |
 | expires_at | DATETIME | NULLABLE | Expiration timestamp |
 | last_used_at | DATETIME | NULLABLE | Most recent proxy use |
 | last_used_ip | VARCHAR(100) | NULLABLE | Most recent proxy client IP |
 | created_by_auth_subject_id | INTEGER | FK -> app_auth_settings.id, NULLABLE | Operator who created the key |
 | notes | TEXT | NULLABLE | Operator notes |
 | rotated_from_id | INTEGER | FK -> proxy_api_keys.id, NULLABLE | Previous key in a rotation chain |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+| created_at | DATETIME | NOT NULL | Creation timestamp; application-managed |
+| updated_at | DATETIME | NOT NULL | Last update timestamp; application-managed |
 
 Rotation and expiry semantics:
 - `rotated_from_id` preserves predecessor/successor lineage across key rotation instead of mutating one row in place.
@@ -954,6 +956,7 @@ These live tables are internal platform state rather than primary product config
 | `user_agent_client_rules` | system global or profile-scoped | `id`, nullable `profile_id`, `name`, `pattern`, `enabled`, `is_system`, timestamps; system rows have `profile_id IS NULL`, user rows have `profile_id IS NOT NULL`, and enabled rows drive caller User-Agent client labels and request-log filtering |
 | `login_throttle_ledger` | auth singleton support | Composite PK `(subject_key, remote_address)`, `failure_count`, failure timestamps, `locked_until`, timestamps; tracks login throttling state |
 | `management_outbox` | management side effects | `id`, `operation_id`, `event_type`, aggregate identity/version, unique `dedupe_key`, `payload`, status `pending|processing|retry|succeeded|failed_permanent`, attempt/lock fields, actor/trace metadata, timestamps |
+| `runtime_cache_generations` | runtime cache freshness | Composite PK `(domain, scope_type, scope_id)`, `version >= 0`, `updated_at`, `updated_by`, and `reason`; generation vectors make runtime snapshots fail closed or refresh when management mutations advance cache state |
 | `runtime_telemetry_outbox` | profile-scoped runtime side-effect handoff | `id`, `profile_id`, `ingress_request_id`, `payload`, `created_at`; durable runtime telemetry handoff rows are materialized by background workers and then deleted |
 | `alert_webhook_outbox` | durable failover incident webhook delivery | `id`, `event_type`, `payload_json`, unique `idempotency_key`, status `queued|sending|sent|dead`, attempt count, max attempts, next attempt, lock fields, sent/dead-letter timestamps, last error, timestamps; payloads carry `event_type`, `connection_id`, `endpoint_id`, `model_id`, optional `banned_until_at`, and `occurred_at` |
 | `loadbalance_round_robin_state` | profile-scoped routing state | `id`, `profile_id`, `model_config_id`, `next_cursor`, timestamps; one cursor row per profile/model for round-robin routing |
@@ -962,32 +965,52 @@ These live tables are internal platform state rather than primary product config
 
 ```sql
 -- Profiles
-CREATE UNIQUE INDEX idx_profiles_single_active ON profiles(is_active) WHERE is_active = TRUE;
-CREATE UNIQUE INDEX idx_profiles_single_default ON profiles(is_default) WHERE is_default = TRUE;
-CREATE INDEX idx_profiles_not_deleted ON profiles(deleted_at);
+CREATE UNIQUE INDEX uq_profiles_single_active ON profiles(is_active) WHERE is_active = TRUE;
+CREATE UNIQUE INDEX uq_profiles_single_default ON profiles(is_default) WHERE is_default = TRUE;
+ALTER TABLE profiles ADD CONSTRAINT profiles_name_key UNIQUE(name);
+CREATE INDEX idx_profiles_deleted_at ON profiles(deleted_at);
 
 -- Scoped uniqueness
-CREATE UNIQUE INDEX idx_model_configs_profile_model_id ON model_configs(profile_id, model_id);
-CREATE UNIQUE INDEX idx_model_access_targets_source_position ON model_access_targets(source_model_config_id, position);
-CREATE UNIQUE INDEX idx_model_access_targets_source_target_model ON model_access_targets(source_model_config_id, target_model_config_id) WHERE target_model_config_id IS NOT NULL;
-CREATE UNIQUE INDEX idx_model_access_targets_source_target_connection ON model_access_targets(source_model_config_id, target_connection_id) WHERE target_connection_id IS NOT NULL;
+ALTER TABLE model_configs ADD CONSTRAINT uq_model_configs_profile_model_id UNIQUE(profile_id, model_id);
+ALTER TABLE model_access_targets ADD CONSTRAINT uq_model_access_targets_source_position UNIQUE(source_model_config_id, "position") DEFERRABLE INITIALLY DEFERRED;
+CREATE UNIQUE INDEX uq_model_access_targets_source_target_model ON model_access_targets(source_model_config_id, target_model_config_id) WHERE target_model_config_id IS NOT NULL;
+CREATE UNIQUE INDEX uq_model_access_targets_source_target_connection ON model_access_targets(source_model_config_id, target_connection_id) WHERE target_connection_id IS NOT NULL;
 CREATE UNIQUE INDEX uq_model_access_targets_connection_owner ON model_access_targets(target_connection_id) WHERE target_connection_id IS NOT NULL;
-CREATE UNIQUE INDEX idx_endpoints_profile_name ON endpoints(profile_id, name);
-CREATE UNIQUE INDEX idx_endpoint_fx_profile_model_endpoint ON endpoint_fx_rate_settings(profile_id, model_id, endpoint_id);
-CREATE UNIQUE INDEX idx_user_settings_profile_id ON user_settings(profile_id);
+ALTER TABLE endpoints ADD CONSTRAINT uq_endpoints_profile_name UNIQUE(profile_id, name);
+ALTER TABLE endpoint_fx_rate_settings ADD CONSTRAINT uq_fx_profile_model_endpoint UNIQUE(profile_id, model_id, endpoint_id);
+ALTER TABLE user_settings ADD CONSTRAINT uq_user_settings_profile_id UNIQUE(profile_id);
+ALTER TABLE profile_api_family_audit_settings ADD CONSTRAINT uq_profile_api_family_audit_settings_profile_family UNIQUE(profile_id, api_family);
 
 -- Performance indexes
 CREATE INDEX idx_model_configs_profile_model_enabled ON model_configs(profile_id, model_id, is_enabled);
-CREATE INDEX idx_model_access_targets_target_model ON model_access_targets(target_model_config_id);
-CREATE INDEX idx_model_access_targets_target_connection ON model_access_targets(target_connection_id);
-CREATE INDEX idx_endpoints_profile_position ON endpoints(profile_id, position);
+CREATE INDEX idx_model_access_targets_profile_source_position ON model_access_targets(profile_id, source_model_config_id, "position");
+CREATE INDEX idx_model_access_targets_target_model ON model_access_targets(target_model_config_id) WHERE target_model_config_id IS NOT NULL;
+CREATE INDEX idx_model_access_targets_connection ON model_access_targets(target_connection_id) WHERE target_connection_id IS NOT NULL;
+CREATE INDEX idx_endpoints_profile_position ON endpoints(profile_id, "position");
 CREATE INDEX idx_connections_profile_family_active_priority ON connections(profile_id, api_family, is_active, priority);
 CREATE INDEX idx_connections_endpoint_id ON connections(endpoint_id);
 CREATE INDEX idx_connections_pricing_template_id ON connections(pricing_template_id);
+CREATE INDEX idx_fx_profile_model_endpoint ON endpoint_fx_rate_settings(profile_id, model_id, endpoint_id);
 CREATE INDEX idx_request_logs_profile_created_at ON request_logs(profile_id, created_at);
 CREATE INDEX idx_request_logs_ingress_request_id ON request_logs(ingress_request_id);
+CREATE INDEX idx_request_logs_billable_flag ON request_logs(billable_flag);
+CREATE INDEX idx_request_logs_priced_flag ON request_logs(priced_flag);
+CREATE INDEX ix_request_logs_api_family ON request_logs(api_family);
+CREATE INDEX ix_request_logs_connection_id ON request_logs(connection_id);
+CREATE INDEX ix_request_logs_endpoint_id ON request_logs(endpoint_id);
+CREATE INDEX ix_request_logs_id ON request_logs(id);
+CREATE INDEX ix_request_logs_model_id ON request_logs(model_id);
+CREATE INDEX ix_request_logs_proxy_api_key_id ON request_logs(proxy_api_key_id);
+CREATE INDEX ix_request_logs_status_code ON request_logs(status_code);
 CREATE INDEX idx_usage_request_events_profile_created_at ON usage_request_events(profile_id, created_at);
 CREATE INDEX idx_usage_request_events_profile_ingress_request ON usage_request_events(profile_id, ingress_request_id);
+CREATE INDEX idx_usage_request_events_ingress_request_id ON usage_request_events(ingress_request_id);
+CREATE INDEX ix_usage_request_events_api_family ON usage_request_events(api_family);
+CREATE INDEX ix_usage_request_events_connection_id ON usage_request_events(connection_id);
+CREATE INDEX ix_usage_request_events_endpoint_id ON usage_request_events(endpoint_id);
+CREATE INDEX ix_usage_request_events_id ON usage_request_events(id);
+CREATE INDEX ix_usage_request_events_model_id ON usage_request_events(model_id);
+CREATE INDEX ix_usage_request_events_proxy_api_key_id ON usage_request_events(proxy_api_key_id);
 CREATE INDEX idx_audit_logs_profile_created_at ON audit_logs(profile_id, created_at);
 CREATE INDEX idx_loadbalance_events_profile_created ON loadbalance_events(profile_id, created_at);
 CREATE INDEX idx_loadbalance_events_connection ON loadbalance_events(connection_id, created_at);
@@ -999,7 +1022,9 @@ CREATE INDEX idx_alert_webhook_outbox_dead_letters ON alert_webhook_outbox(dead_
 CREATE INDEX idx_routing_connection_runtime_state_profile_connection ON routing_connection_runtime_state(profile_id, connection_id);
 CREATE INDEX idx_routing_connection_runtime_leases_profile_connection ON routing_connection_runtime_leases(profile_id, connection_id);
 CREATE INDEX idx_routing_connection_runtime_leases_expires_at ON routing_connection_runtime_leases(expires_at);
-CREATE INDEX idx_endpoint_fx_profile_model_endpoint_lookup ON endpoint_fx_rate_settings(profile_id, model_id, endpoint_id);
+CREATE INDEX idx_runtime_cache_generations_domain_scope ON runtime_cache_generations(domain, scope_type, scope_id, version);
+CREATE UNIQUE INDEX uq_hbr_system_match_pattern ON header_blocklist_rules(match_type, pattern) WHERE is_system = TRUE;
+CREATE UNIQUE INDEX uq_uacr_system_pattern ON user_agent_client_rules(pattern) WHERE is_system = TRUE;
 
 -- Auth tables
 CREATE INDEX idx_refresh_tokens_revoked_at ON refresh_tokens(revoked_at);
