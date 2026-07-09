@@ -1,4 +1,4 @@
-FROM node:24-alpine AS base
+FROM node:26-alpine AS base
 
 WORKDIR /app
 
@@ -20,7 +20,7 @@ ENV VITE_GIT_RUN_NUMBER=$VITE_GIT_RUN_NUMBER
 ENV VITE_GIT_REVISION=$VITE_GIT_REVISION
 RUN pnpm run build
 
-FROM node:24-alpine AS runner
+FROM node:26-alpine AS runner
 
 WORKDIR /app
 
