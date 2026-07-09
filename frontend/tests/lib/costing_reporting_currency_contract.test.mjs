@@ -108,8 +108,8 @@ test("getActiveSpendTrustContext returns both currency trust and resolved spend 
 test("formatUnpricedReasonLabel distinguishes stream usage gaps from missing token usage", () => {
   const costing = loadCostingModule();
 
-  assert.equal(costing.formatUnpricedReasonLabel("MISSING_TOKEN_USAGE"), "Missing token usage");
-  assert.equal(costing.formatUnpricedReasonLabel("STREAM_USAGE_UNAVAILABLE"), "Usage unavailable");
+  assert.equal(costing.formatUnpricedReasonLabel("MISSING_TOKEN_USAGE"), "缺少令牌用量");
+  assert.equal(costing.formatUnpricedReasonLabel("STREAM_USAGE_UNAVAILABLE"), "用量不可用");
 });
 
 test("historical unknown stream rows are distinct from usage-unavailable pricing gaps", () => {

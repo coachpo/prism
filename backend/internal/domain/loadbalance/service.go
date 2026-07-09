@@ -94,6 +94,12 @@ type EventListResponse struct {
 	Offset int     `json:"offset"`
 }
 
+type IncidentListResponse struct {
+	ActiveBans   []CurrentStateItem `json:"active_bans"`
+	RecentEvents []Event            `json:"recent_events"`
+	GeneratedAt  time.Time          `json:"generated_at"`
+}
+
 type DeleteParams struct {
 	ProfileID     int
 	Before        *time.Time
@@ -104,6 +110,7 @@ type DeleteParams struct {
 
 type RuntimeCurrentStateProvider interface {
 	SnapshotCurrentState(profileID int, modelConfigID int, orderedConnectionIDs []int, referenceNow time.Time) []CurrentStateItem
+	SnapshotActiveBans(profileID int, referenceNow time.Time) []CurrentStateItem
 	ResetConnection(profileID int, connectionID int) bool
 	ResetRoundRobinCursor(profileID int, modelConfigID int) bool
 }
@@ -191,6 +198,38 @@ func ListEvents(ctx context.Context, exec queryExecutor, profileID int, modelID 
 		return EventListResponse{}, fmt.Errorf("iterate loadbalance events for profile %d model %q: %w", profileID, modelID, err)
 	}
 	return EventListResponse{Items: items, Total: total, Limit: limit, Offset: offset}, nil
+}
+
+func ListIncidents(ctx context.Context, exec queryExecutor, provider RuntimeCurrentStateProvider, profileID int, limit int, sinceHours int, referenceNow time.Time) (IncidentListResponse, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if sinceHours <= 0 {
+		sinceHours = 24
+	}
+	nowAt := referenceNow.UTC()
+	sinceAt := nowAt.Add(-time.Duration(sinceHours) * time.Hour)
+	rows, err := exec.Query(ctx, `SELECT id, profile_id, connection_id, event_type, failure_kind, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at, last_retry_delay_ms, model_id, endpoint_id, ban_mode, policy_cycle_retry_attempt_limit, policy_ban_cumulative_retry_attempt_threshold, banned_until_at, last_success_at, created_at FROM loadbalance_events WHERE profile_id = $1 AND created_at >= $2 AND event_type IN ('banned', 'unbanned', 'recovered', 'retry_exhausted') ORDER BY created_at DESC LIMIT $3`, profileID, sinceAt, limit)
+	if err != nil {
+		return IncidentListResponse{}, fmt.Errorf("query loadbalance incidents for profile %d: %w", profileID, err)
+	}
+	defer rows.Close()
+	recentEvents := make([]Event, 0)
+	for rows.Next() {
+		item, scanErr := scanEvent(rows)
+		if scanErr != nil {
+			return IncidentListResponse{}, scanErr
+		}
+		recentEvents = append(recentEvents, item.Event)
+	}
+	if err := rows.Err(); err != nil {
+		return IncidentListResponse{}, fmt.Errorf("iterate loadbalance incidents for profile %d: %w", profileID, err)
+	}
+	activeBans := []CurrentStateItem{}
+	if provider != nil {
+		activeBans = provider.SnapshotActiveBans(profileID, nowAt)
+	}
+	return IncidentListResponse{ActiveBans: activeBans, RecentEvents: recentEvents, GeneratedAt: nowAt}, nil
 }
 
 func GetEvent(ctx context.Context, exec queryExecutor, profileID int, eventID int64) (*EventDetail, error) {

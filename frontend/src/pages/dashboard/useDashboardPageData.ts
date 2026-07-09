@@ -3,12 +3,13 @@ import type {
   DashboardRecentActivityItem,
   DashboardRecentActivityResponse,
   DashboardSnapshot,
+  LoadbalanceIncidentListResponse,
   SpendingTopModel,
   StatGroup,
 } from "@/lib/types";
 import type { RoutingDiagramData } from "./routingDiagram";
 import { useDashboardBootstrapData } from "./useDashboardBootstrapData";
-import { useDashboardRealtime } from "./useDashboardRealtime";
+import { useDashboardPolling } from "./useDashboardPolling";
 
 interface UseDashboardPageDataInput {
   revision: number;
@@ -35,6 +36,7 @@ export interface DashboardOverviewData {
   apiFamilyRows: StatGroup[];
   metricSnapshot: DashboardMetricSnapshot;
   modelDisplayNames: Map<string, string>;
+  incidents: LoadbalanceIncidentListResponse | null;
   recentActivity: DashboardRecentActivityResponse | null;
   recentActivityItems: DashboardRecentActivityItem[];
   routingDiagramData: RoutingDiagramData | null;
@@ -112,6 +114,7 @@ function buildModelDisplayNames(
 
 function toDashboardOverviewData(
   snapshot: DashboardSnapshot | null,
+  incidents: LoadbalanceIncidentListResponse | null,
   recentActivity: DashboardRecentActivityResponse | null,
   recentActivityItems: DashboardRecentActivityItem[],
   routingDiagramError: string | null,
@@ -123,6 +126,7 @@ function toDashboardOverviewData(
     ),
     metricSnapshot: toDashboardMetricSnapshot(snapshot),
     modelDisplayNames: buildModelDisplayNames(snapshot, recentActivityItems),
+    incidents,
     recentActivity,
     recentActivityItems,
     routingDiagramData: snapshot?.topology_graph ?? null,
@@ -137,34 +141,27 @@ export function useDashboardPageData({
   selectedProfileId,
 }: UseDashboardPageDataInput) {
   const {
-    applyDashboardActivity,
     dashboardRecentActivity,
     dashboardRecentActivityItems,
+    dashboardIncidents,
     dashboardSnapshot,
     fetchDashboardData,
     loading,
-    reconcileDashboardSnapshot,
     routingDiagramError,
     routingDiagramLoading,
-    setRoutingDiagramError,
   } = useDashboardBootstrapData({
     revision,
     selectedProfileId,
   });
   const {
     clearRecentRequestHighlight,
-    connectionState,
     isRefreshing,
-    isSyncing,
     metricsHighlighted,
     recentNewIds,
     refreshDashboard,
-  } = useDashboardRealtime({
-    applyDashboardActivity,
+  } = useDashboardPolling({
     fetchDashboardData,
-    reconcileDashboardSnapshot,
     selectedProfileId,
-    setRoutingDiagramError,
   });
 
   useEffect(() => {
@@ -174,6 +171,7 @@ export function useDashboardPageData({
   const overviewData = useMemo<DashboardOverviewData>(() => {
     return toDashboardOverviewData(
       dashboardSnapshot,
+      dashboardIncidents,
       dashboardRecentActivity,
       dashboardRecentActivityItems,
       routingDiagramError,
@@ -182,6 +180,7 @@ export function useDashboardPageData({
   }, [
     dashboardRecentActivity,
     dashboardRecentActivityItems,
+    dashboardIncidents,
     dashboardSnapshot,
     routingDiagramError,
     routingDiagramLoading,
@@ -189,9 +188,7 @@ export function useDashboardPageData({
 
   return {
     clearRecentRequestHighlight,
-    connectionState,
     isRefreshing,
-    isSyncing,
     loading,
     metricsHighlighted,
     overviewData,

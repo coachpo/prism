@@ -14,19 +14,11 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/background"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
-	"github.com/coachpo/prism/backend/internal/platform/email/outbox"
 )
-
-type Mailer interface {
-	SendEmailVerificationOTP(context.Context, string, string) error
-	SendPasswordResetEmail(context.Context, string, string) error
-}
 
 type Options struct {
 	CORSOriginProvider        platformcors.OriginProvider
 	AuthRuntimeConfigProvider RuntimeAuthConfigProvider
-	Mailer                    Mailer
-	EmailOutbox               *outbox.Store
 	Now                       func() time.Time
 	Pool                      *pgxpool.Pool
 	ProxyKeyUsagePool         *pgxpool.Pool
@@ -35,22 +27,19 @@ type Options struct {
 }
 
 type Service struct {
-	pool                            *pgxpool.Pool
-	ownsPool                        bool
-	emailOutbox                     *outbox.Store
-	now                             func() time.Time
-	authJWTSecret                   string
-	staticAuthRuntimeConfig         RuntimeAuthConfigSnapshot
-	authRuntimeConfigProvider       RuntimeAuthConfigProvider
-	corsOriginProvider              platformcors.OriginProvider
-	proxyKeyPreviewSize             int
-	runtimeCache                    *RuntimeCache
-	proxyKeyUsagePool               *pgxpool.Pool
-	proxyKeyUsageWriter             *proxyAPIKeyUsageWriter
-	authSettingsSnapshotMu          sync.RWMutex
-	authSettingsSnapshot            *AppAuthSettingsSnapshot
-	realtimeAuthRevocationMu        sync.RWMutex
-	realtimeAuthRevocationListeners []func(RealtimeAuthRevocation)
+	pool                      *pgxpool.Pool
+	ownsPool                  bool
+	now                       func() time.Time
+	authJWTSecret             string
+	staticAuthRuntimeConfig   RuntimeAuthConfigSnapshot
+	authRuntimeConfigProvider RuntimeAuthConfigProvider
+	corsOriginProvider        platformcors.OriginProvider
+	proxyKeyPreviewSize       int
+	runtimeCache              *RuntimeCache
+	proxyKeyUsagePool         *pgxpool.Pool
+	proxyKeyUsageWriter       *proxyAPIKeyUsageWriter
+	authSettingsSnapshotMu    sync.RWMutex
+	authSettingsSnapshot      *AppAuthSettingsSnapshot
 }
 
 type authSubject struct {
@@ -83,7 +72,6 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 	service := &Service{
 		pool:                      pool,
 		ownsPool:                  ownsPool,
-		emailOutbox:               options.EmailOutbox,
 		now:                       now,
 		authJWTSecret:             settings.AuthJWTSecret,
 		staticAuthRuntimeConfig:   runtimeAuthConfigSnapshotFromSettings(settings),
@@ -175,27 +163,6 @@ func (s *Service) InvalidateAppAuthSettingsSnapshot() {
 	s.invalidateAppAuthSettingsSnapshot()
 }
 
-func (s *Service) RegisterRealtimeAuthRevocationListener(listener func(RealtimeAuthRevocation)) {
-	if s == nil || listener == nil {
-		return
-	}
-	s.realtimeAuthRevocationMu.Lock()
-	defer s.realtimeAuthRevocationMu.Unlock()
-	s.realtimeAuthRevocationListeners = append(s.realtimeAuthRevocationListeners, listener)
-}
-
-func (s *Service) publishRealtimeAuthRevocation(event RealtimeAuthRevocation) {
-	if s == nil || event.SubjectID <= 0 {
-		return
-	}
-	s.realtimeAuthRevocationMu.RLock()
-	listeners := append([]func(RealtimeAuthRevocation){}, s.realtimeAuthRevocationListeners...)
-	s.realtimeAuthRevocationMu.RUnlock()
-	for _, listener := range listeners {
-		listener(event)
-	}
-}
-
 func (s *Service) enqueueProxyAPIKeyUsage(keyID int, lastUsedAt time.Time, lastUsedIP string) error {
 	if s == nil || s.proxyKeyUsageWriter == nil {
 		return fmt.Errorf("proxy api key usage writer unavailable")
@@ -247,15 +214,11 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 		router.Post("/logout", s.handleLogout)
 		router.Post("/refresh", s.handleRefresh)
 		router.Get("/session", s.handleGetSession)
-		router.Post("/password-reset/request", s.handlePasswordResetRequest)
-		router.Post("/password-reset/confirm", s.handlePasswordResetConfirm)
 	})
 
 	api.Route("/settings", func(router chi.Router) {
 		router.Get("/auth", s.handleGetAuthSettings)
 		router.Put("/auth", s.handlePutAuthSettings)
-		router.Post("/auth/email-verification/request", s.handleEmailVerificationRequest)
-		router.Post("/auth/email-verification/confirm", s.handleEmailVerificationConfirm)
 		router.Get("/auth/proxy-keys", s.handleListProxyKeys)
 		router.Post("/auth/proxy-keys", s.handleCreateProxyKey)
 		router.Patch("/auth/proxy-keys/{key_id}", s.handleUpdateProxyKey)

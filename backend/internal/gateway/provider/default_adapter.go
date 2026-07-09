@@ -49,10 +49,6 @@ func (adapter DefaultAdapter) EstimateTokens(_ context.Context, _ ProviderReques
 	return TokenEstimate{}, nil
 }
 
-func (adapter DefaultAdapter) HandleMedia(_ context.Context, request MediaRequest) (MediaRequest, error) {
-	return request, nil
-}
-
 func (adapter DefaultAdapter) ConversionCapability(_ context.Context, request ConversionRequest) (ConversionCapability, error) {
 	return ConversionCapability{Mode: request.Mode}, nil
 }

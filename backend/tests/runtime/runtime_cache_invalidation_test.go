@@ -1,4 +1,4 @@
-package runtime_test
+package runtimetest
 
 import (
 	"context"
@@ -18,11 +18,9 @@ func TestRuntimeCacheInvalidation(t *testing.T) {
 	t.Run("AuthCacheInvalidationAfterProxyKeyRetire", runtimeAuthCacheInvalidationAfterProxyKeyRetire)
 	t.Run("AuthCacheInvalidationAfterProxyKeyExpiryMutation", runtimeAuthCacheInvalidationAfterProxyKeyExpiryMutation)
 	t.Run("AuthCacheInvalidationAfterAuthDisable", runtimeAuthCacheInvalidationAfterAuthDisable)
-	t.Run("AfterActiveProfileActivation", runtimeCacheInvalidationAfterActiveProfileActivation)
 	t.Run("PlanningCacheInvalidationAfterHeaderBlocklistWrite", runtimePlanningCacheInvalidationAfterHeaderBlocklistWrite)
 	t.Run("PlanningCacheInvalidationAfterAuditSettingsWrite", runtimePlanningCacheInvalidationAfterAuditSettingsWrite)
 	t.Run("PlanningCacheInvalidationAfterOwnerScopedConnectionAndTargetMutations", runtimePlanningCacheInvalidationAfterOwnerScopedConnectionAndTargetMutations)
-	t.Run("DashboardTopologyRepublishAfterModelMutation", TestDashboardSnapshotReplayWithoutRequestLog)
 }
 
 func runtimeAuthCacheInvalidationAfterProxyKeyRotation(t *testing.T) {
@@ -257,81 +255,6 @@ func runtimeAuthCacheInvalidationAfterAuthDisable(t *testing.T) {
 	}
 }
 
-func runtimeCacheInvalidationAfterActiveProfileActivation(t *testing.T) {
-	harness := newRuntimeHarness(t)
-	activeProfileID := harness.activeProfileID(t)
-	standbyProfileID := harness.createProfile(t, "Cache Activation Standby")
-	suffix := randomSuffix()
-	publicModelID := "cache-active-profile-" + suffix
-	activeRoute := harness.seedProxyRoute(t, runtimeRouteSeed{
-		ProfileID:       activeProfileID,
-		APIFamily:       "openai",
-		PublicModelID:   publicModelID,
-		TargetModelID:   "cache-active-target-" + suffix,
-		EndpointBaseURL: harness.upstream.baseURL("/cache-invalidation/active-profile"),
-		EndpointAPIKey:  "cache-active-profile-key",
-	})
-	standbyRoute := harness.seedProxyRoute(t, runtimeRouteSeed{
-		ProfileID:       standbyProfileID,
-		APIFamily:       "openai",
-		PublicModelID:   publicModelID,
-		TargetModelID:   "cache-standby-target-" + suffix,
-		EndpointBaseURL: harness.upstream.baseURL("/cache-invalidation/standby-profile"),
-		EndpointAPIKey:  "cache-standby-profile-key",
-	})
-
-	initialResponse := harness.requestJSON(
-		t,
-		http.MethodPost,
-		"/v1/chat/completions",
-		map[string]any{
-			"messages": []map[string]any{{"role": "user", "content": "prime active profile cache"}},
-			"model":    publicModelID,
-		},
-		nil,
-	)
-	assertStatus(t, initialResponse, http.StatusOK)
-
-	firstRequest := harness.upstream.lastRequest(t)
-	if firstRequest.Path != "/cache-invalidation/active-profile/v1/chat/completions" {
-		t.Fatalf("expected cached active profile to route through %q before activation, got %q", "/cache-invalidation/active-profile/v1/chat/completions", firstRequest.Path)
-	}
-	if firstRequest.Headers.Get("Authorization") != "Bearer "+activeRoute.EndpointAPIKey {
-		t.Fatalf("expected active profile upstream authorization header, got %q", firstRequest.Headers.Get("Authorization"))
-	}
-	if got := requestModelID(t, firstRequest.Body); got != activeRoute.TargetModelID {
-		t.Fatalf("expected active profile upstream model %q before activation, got %q", activeRoute.TargetModelID, got)
-	}
-
-	harness.activateProfile(t, standbyProfileID, activeProfileID)
-	harness.upstream.clear()
-
-	activationVisibleAt := time.Now()
-	activatedResponse := harness.requestJSON(
-		t,
-		http.MethodPost,
-		"/v1/chat/completions",
-		map[string]any{
-			"messages": []map[string]any{{"role": "user", "content": "read newly activated profile"}},
-			"model":    publicModelID,
-		},
-		nil,
-	)
-	assertStatus(t, activatedResponse, http.StatusOK)
-	assertRuntimeCacheInvalidationVisibleWithin(t, activationVisibleAt, "active-profile activation")
-
-	secondRequest := harness.upstream.lastRequest(t)
-	if secondRequest.Path != "/cache-invalidation/standby-profile/v1/chat/completions" {
-		t.Fatalf("expected activation write to invalidate cached active profile and route through %q, got %q", "/cache-invalidation/standby-profile/v1/chat/completions", secondRequest.Path)
-	}
-	if secondRequest.Headers.Get("Authorization") != "Bearer "+standbyRoute.EndpointAPIKey {
-		t.Fatalf("expected newly active profile upstream authorization header, got %q", secondRequest.Headers.Get("Authorization"))
-	}
-	if got := requestModelID(t, secondRequest.Body); got != standbyRoute.TargetModelID {
-		t.Fatalf("expected newly active profile upstream model %q after activation, got %q", standbyRoute.TargetModelID, got)
-	}
-}
-
 func runtimePlanningCacheInvalidationAfterHeaderBlocklistWrite(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
@@ -466,7 +389,7 @@ func runtimePlanningCacheInvalidationAfterOwnerScopedConnectionRoutes(t *testing
 	}
 
 	generation := harness.runtimeCache.PublishedGeneration()
-	createResponse := harness.requestJSON(t, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelConfigID), map[string]any{"endpoint_id": createEndpointID, "name": "cache owner created", "is_active": true, "openai_probe_endpoint_variant": "chat_completions_reasoning_none", "openai_text_capability": "chat_completions_only"}, runtimeModelHeader(profileID))
+	createResponse := harness.requestJSON(t, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelConfigID), map[string]any{"endpoint_id": createEndpointID, "name": "cache owner created", "is_active": true, "openai_text_capability": "chat_completions_only"}, runtimeModelHeader(profileID))
 	assertStatus(t, createResponse, http.StatusCreated)
 	harness.waitForRuntimeSnapshotGeneration(t, generation)
 	var createPayload map[string]any
@@ -485,7 +408,7 @@ func runtimePlanningCacheInvalidationAfterOwnerScopedConnectionRoutes(t *testing
 	remainingUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-owner-connection-delete"})
 	remainingEndpointID := harness.seedEndpoint(t, profileID, "cache-owner-delete-endpoint-"+suffix, remainingUpstream.baseURL("/cache-invalidation/owner-connection-delete"), "owner-delete-key", 2)
 	generation = harness.runtimeCache.PublishedGeneration()
-	secondCreateResponse := harness.requestJSON(t, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelConfigID), map[string]any{"endpoint_id": remainingEndpointID, "name": "cache owner remaining", "is_active": true, "openai_probe_endpoint_variant": "chat_completions_reasoning_none", "openai_text_capability": "chat_completions_only"}, runtimeModelHeader(profileID))
+	secondCreateResponse := harness.requestJSON(t, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelConfigID), map[string]any{"endpoint_id": remainingEndpointID, "name": "cache owner remaining", "is_active": true, "openai_text_capability": "chat_completions_only"}, runtimeModelHeader(profileID))
 	assertStatus(t, secondCreateResponse, http.StatusCreated)
 	harness.waitForRuntimeSnapshotGeneration(t, generation)
 

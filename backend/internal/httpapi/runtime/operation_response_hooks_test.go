@@ -51,13 +51,6 @@ func TestNonStreamResponseHooksByOperation(t *testing.T) {
 			wantKind:     operationResponseKindTokenCount,
 			wantUsage:    tokenCountResponseHookTestUsage(34),
 		},
-		{
-			name:         "openai image generation reserves media seam without text usage",
-			requestPath:  "/v1/images/generations",
-			payload:      `{"created":1700000000,"usage":{"prompt_tokens":999,"completion_tokens":999,"total_tokens":1998},"data":[{"url":"https://example.test/image.png"}]}`,
-			wantProvider: "openai",
-			wantKind:     operationResponseKindMedia,
-		},
 	}
 
 	for _, test := range tests {
@@ -99,34 +92,6 @@ func TestGeminiGenerateContentNormalizesUsageMetadataDisjointSplits(t *testing.T
 	wantUsage := responseUsage{InputTokens: intPtr(7), OutputTokens: intPtr(11), TotalTokens: intPtr(99), CacheReadInputTokens: intPtr(4), ReasoningTokens: intPtr(6)}
 	if got := capture.extractedUsage(); !reflect.DeepEqual(got, wantUsage) {
 		t.Fatalf("expected Gemini disjoint usage with provider total: want %+v got %+v", wantUsage, got)
-	}
-}
-
-func TestMediaResponsesDoNotCaptureUsagePayloads(t *testing.T) {
-	tests := []struct {
-		name        string
-		requestPath string
-	}{
-		{name: "image generation", requestPath: "/v1/images/generations"},
-		{name: "image edit", requestPath: "/v1/images/edits"},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			operation := mustResolveRuntimeOperation(t, http.MethodPost, test.requestPath).Operation
-			payload := `{"created":1700000000,"usage":{"prompt_tokens":999,"completion_tokens":999,"total_tokens":1998,"prompt_tokens_details":{"cached_tokens":777},"completion_tokens_details":{"reasoning_tokens":666}},"usageMetadata":{"promptTokenCount":999,"candidatesTokenCount":999,"totalTokenCount":1998,"cachedContentTokenCount":777,"thoughtsTokenCount":666},"data":[{"url":"https://example.test/image.png"}]}`
-			var forwarded bytes.Buffer
-			capture, err := proxyNonEventResponseAndCaptureByOperation(operation, TranslationModeNone, &forwarded, strings.NewReader(payload), "application/json", fixedResponseHookTestNow, false)
-			if err != nil {
-				t.Fatalf("capture media response: %v", err)
-			}
-			if forwarded.String() != payload {
-				t.Fatalf("expected media body to pass through unchanged, got %q", forwarded.String())
-			}
-			if got := capture.extractedUsage(); !reflect.DeepEqual(got, responseUsage{}) {
-				t.Fatalf("expected media response to capture no usage, got %+v", got)
-			}
-		})
 	}
 }
 

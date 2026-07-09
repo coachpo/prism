@@ -1,7 +1,7 @@
 # BACKEND MANAGEMENT MODELS KNOWLEDGE BASE
 
 ## OVERVIEW
-`management/models/` owns selected-profile model configuration routes under `/api/models*`. It manages model CRUD, public same-family model-target authoring with exact `target_model_id`, `position`, and `is_enabled`, private connection target preservation/mutation, obsolete nested create/update field rejection, and model lookups by endpoint for endpoint detail surfaces.
+`management/models/` owns model configuration routes under `/api/models*` pinned to Default profile id `1`. It manages model CRUD, public same-family model-target authoring with exact `target_model_id`, `position`, and `is_enabled`, private connection target preservation/mutation, obsolete nested create/update field rejection, and model lookups by endpoint for endpoint detail surfaces. `X-Profile-Id` may be accepted but is ignored; storage `profile_id` columns remain.
 
 ## STRUCTURE
 ```text
@@ -23,7 +23,7 @@ models/
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep model `api_family` as runtime compatibility truth.
-- Keep selected-profile model IDs unique inside the profile.
+- Keep model IDs unique inside Default profile id `1`.
 - Keep model load-balance strategy checks in this package, but strategy CRUD in `loadbalance/`.
 - Keep owner-scoped private connection routes in `connections/`, even when model detail responses include owned private connections.
 - Keep access targets ordered, same-profile, same-family, and acyclic.

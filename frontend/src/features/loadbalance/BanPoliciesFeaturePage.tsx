@@ -9,7 +9,6 @@ import { LoadbalanceEventDetailSheet } from "@/components/loadbalance/Loadbalanc
 import { LoadbalanceEventsTable } from "@/components/loadbalance/LoadbalanceEventsTable"
 import { DeleteLoadbalanceStrategyDialog } from "@/pages/loadbalance-strategies/DeleteLoadbalanceStrategyDialog"
 import { LoadbalanceStrategiesTable } from "@/pages/loadbalance-strategies/LoadbalanceStrategiesTable"
-import { useProfileContext } from "@/context/ProfileContext"
 import { useLocale } from "@/i18n/useLocale"
 import { useTimezone } from "@/hooks/useTimezone"
 import { api } from "@/lib/api"
@@ -29,10 +28,10 @@ import { useBanPoliciesFeatureData } from "./useBanPoliciesFeatureData"
 const EVENTS_PAGE_SIZE = 25
 
 export function BanPoliciesFeaturePage() {
-  const { selectedProfile, revision } = useProfileContext()
   const { messages } = useLocale()
+  const revision = 0
   const data = useBanPoliciesFeatureData(revision)
-  const selectedProfileLabel = selectedProfile ? `${selectedProfile.name} (#${selectedProfile.id})` : messages.loadbalanceStrategiesPage.selectedProfileFallback
+  const selectedProfileLabel = "Default (#1)"
 
   return (
     <OperatorPageShell data-testid="ban-policies-feature-page">
@@ -95,13 +94,13 @@ function BanPolicyCurrentStatePanel({ revision }: { revision: number }) {
   return (
     <OperatorSectionCard
       title="Current Ban Policy State"
-      description={`Inspect retry-window and ban state for one model config ID in the selected profile. Refresh after switching profiles; revision ${revision}.`}
+      description={`Inspect retry-window and ban state for one model config ID in Default profile id 1. Refresh after changes; revision ${revision}.`}
       contentClassName="flex flex-col gap-4"
     >
       <FieldGroup className="gap-4">
         <Field>
           <FieldLabel htmlFor="current-state-model-config-id">Model config ID</FieldLabel>
-          <FieldDescription>Use the model row ID from the selected profile.</FieldDescription>
+          <FieldDescription>Use the model row ID from Default profile id 1.</FieldDescription>
           <div className="flex flex-col gap-2 sm:flex-row">
             <Input
               id="current-state-model-config-id"
@@ -217,7 +216,7 @@ function BanPolicyEventsPanel({ revision }: { revision: number }) {
   return (
     <OperatorSectionCard
       title="Ban Policy Events"
-      description={`Review retry scheduled, retry exhausted, banned, unbanned, recovered, and admission rejected events for one model ID. Selected profile revision ${revision}.`}
+      description={`Review retry scheduled, retry exhausted, banned, unbanned, recovered, and admission rejected events for one model ID. Default profile revision ${revision}.`}
       contentClassName="flex flex-col gap-4"
     >
       <FieldGroup className="gap-4">

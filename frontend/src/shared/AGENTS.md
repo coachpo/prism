@@ -26,11 +26,11 @@ shared/
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
 - Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 - Keep this directory framework-level and cross-route. Feature-only schemas, payload builders, and mutation hooks belong beside their route feature.
-- Keep selected-profile query scope explicit in shared query keys. Global control surfaces should use global scope helpers, not fake profile ids.
+- Keep Default-profile query scope explicit in shared query keys. Global control surfaces should use global scope helpers, and accepted-but-ignored `X-Profile-Id` compatibility headers must not enter cache keys.
 - Keep server validation helpers shape-preserving so backend field paths remain visible to route forms.
 - Keep `index.ts` as the public barrel; avoid deep imports from feature code unless a helper intentionally stays private.
 
 ## ANTI-PATTERNS
 - Do not move shadcn primitives or route-specific table markup here.
 - Do not hide backend validation field names behind generic messages.
-- Do not create shared query invalidation shortcuts that blur selected-profile, active-runtime, and global scopes.
+- Do not create shared query invalidation shortcuts that blur Default-profile, runtime, and global scopes.

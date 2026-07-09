@@ -1,14 +1,11 @@
-package runtime_test
+package runtimetest
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -154,40 +151,6 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			responseContains: "route-matrix-compact",
 		},
 		{
-			name:          "OpenAIImageGenerations",
-			apiFamily:     "openai",
-			operationName: "openai.images.generations",
-			responsePayload: map[string]any{
-				"created": 1,
-				"data":    []map[string]any{{"url": "https://images.invalid/generated.png"}},
-				"usage":   map[string]any{"prompt_tokens": 999, "completion_tokens": 999, "total_tokens": 1998},
-			},
-			requestPath: routeMatrixStaticRequestPath("/v1/images/generations"),
-			requestBody: func(route seededRuntimeRoute, _ string) any {
-				return map[string]any{"model": route.PublicModelID, "prompt": "route matrix image generation", "temperature": 0.77, "stream": true}
-			},
-			wantUpstreamPath:  routeMatrixStaticUpstreamPath("/v1/images/generations"),
-			assertModelSource: assertRouteMatrixBodyModelBinding,
-			generationParams:  routeMatrixGenerationParamsExpectation{status: "missing"},
-			usage:             routeMatrixUsageExpectation{streamOutcome: "not_streaming"},
-			responseContains:  "generated.png",
-		},
-		{
-			name:            "OpenAIImageEdits",
-			apiFamily:       "openai",
-			operationName:   "openai.images.edits",
-			responsePayload: map[string]any{"created": 1, "data": []map[string]any{{"url": "https://images.invalid/edited.png"}}, "usage": map[string]any{"prompt_tokens": 999, "completion_tokens": 999, "total_tokens": 1998}},
-			requestPath:     routeMatrixStaticRequestPath("/v1/images/edits"),
-			rawRequestBody: func(t *testing.T, route seededRuntimeRoute) ([]byte, string) {
-				return newRuntimeImageEditMultipartBody(t, route.PublicModelID)
-			},
-			wantUpstreamPath:  routeMatrixStaticUpstreamPath("/v1/images/edits"),
-			assertModelSource: assertRouteMatrixMultipartImageEditBinding,
-			generationParams:  routeMatrixGenerationParamsExpectation{status: "missing"},
-			usage:             routeMatrixUsageExpectation{streamOutcome: "not_streaming"},
-			responseContains:  "edited.png",
-		},
-		{
 			name:          "AnthropicMessages",
 			apiFamily:     "anthropic",
 			operationName: "anthropic.messages",
@@ -287,8 +250,8 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			responseContains:  "totalTokens",
 		},
 	}
-	if len(tests) != 11 {
-		t.Fatalf("route matrix must cover exactly 11 registered POST operations, got %d", len(tests))
+	if len(tests) != 9 {
+		t.Fatalf("route matrix must cover exactly 9 registered POST operations, got %d", len(tests))
 	}
 
 	for _, test := range tests {
@@ -372,36 +335,6 @@ func TestGeminiStreamGenerateUsesPathStreaming(t *testing.T) {
 	assertRouteMatrixSharedCorePersistence(t, harness, profileID, route, "gemini.stream_generate_content", requestPath)
 	assertRouteMatrixUsage(t, harness, profileID, routeMatrixUsageExpectation{isStream: true, streamOutcome: "completed", inputTokens: routeMatrixInt64(7), outputTokens: routeMatrixInt64(11), totalTokens: routeMatrixInt64(28), cacheReadInputTokens: routeMatrixInt64(4), reasoningTokens: routeMatrixInt64(6)})
 	assertRouteMatrixGenerationParams(t, harness, profileID, routeMatrixGenerationParamsExpectation{status: "complete", params: map[string]any{"provider": "gemini", "temperature": 0.67}})
-}
-
-func TestOpenAIImageEditsMultipartForwarding(t *testing.T) {
-	harness := newRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	upstream := newRouteMatrixUpstream(t, "application/json", []byte(`{"created":1,"data":[{"url":"https://images.invalid/edge-edit.png"}],"usage":{"prompt_tokens":999,"completion_tokens":999,"total_tokens":1998}}`))
-	route := harness.seedProxyRoute(t, runtimeRouteSeed{
-		ProfileID:       profileID,
-		APIFamily:       "openai",
-		PublicModelID:   "route-matrix-image-edit-public-" + randomSuffix(),
-		TargetModelID:   "route-matrix-image-edit-target-" + randomSuffix(),
-		EndpointBaseURL: upstream.baseURL("/route-matrix/openai-image-edit-edge"),
-		EndpointAPIKey:  "route-matrix-image-edit-key",
-		CustomHeaders:   map[string]any{"X-Route-Matrix": "route-matrix-openai-image-edit-edge"},
-	})
-	requestPath := "/v1/images/edits"
-	rawBody, contentType := newRuntimeImageEditMultipartBody(t, route.PublicModelID)
-
-	response := performRuntimeRawRequest(t, harness, http.MethodPost, requestPath, rawBody, contentType)
-	assertStatus(t, response, http.StatusOK)
-	if responseBody := readResponseBody(t, response); !strings.Contains(responseBody, "edge-edit.png") {
-		t.Fatalf("expected image edit response to pass through, got %q", responseBody)
-	}
-
-	upstreamRequest := upstream.lastRequest(t)
-	assertRouteMatrixSharedCoreForwarding(t, upstreamRequest, route, "openai", "/route-matrix/openai-image-edit-edge/v1/images/edits", "route-matrix-openai-image-edit-edge")
-	assertRouteMatrixMultipartImageEditBinding(t, upstreamRequest, route, "")
-	assertRouteMatrixSharedCorePersistence(t, harness, profileID, route, "openai.images.edits", requestPath)
-	assertRouteMatrixUsage(t, harness, profileID, routeMatrixUsageExpectation{streamOutcome: "not_streaming"})
-	assertRouteMatrixGenerationParams(t, harness, profileID, routeMatrixGenerationParamsExpectation{status: "missing"})
 }
 
 type routeMatrixUpstream struct {
@@ -505,8 +438,6 @@ func routeMatrixOpenAITextCapability(operationName string) *string {
 		return runtimeStringPtr("chat_completions_only")
 	case "openai.responses", "openai.responses.input_tokens", "openai.responses.compact":
 		return runtimeStringPtr("responses_only")
-	case "openai.images.generations", "openai.images.edits":
-		return runtimeStringPtr("dual_native")
 	default:
 		return nil
 	}
@@ -531,26 +462,12 @@ func assertRouteMatrixGoldenUpstreamRequest(t *testing.T, operationName string, 
 		"path":    strings.ReplaceAll(request.Path, route.TargetModelID, "<target_model>"),
 		"headers": headers,
 	}
-	contentType := request.Headers.Get("Content-Type")
-	mediaType, _, err := mime.ParseMediaType(contentType)
-	if err != nil && strings.TrimSpace(contentType) != "" {
-		t.Fatalf("parse route-matrix content type %q: %v", contentType, err)
+	snapshot["content_type"] = strings.TrimSpace(strings.Split(request.Headers.Get("Content-Type"), ";")[0])
+	var body any
+	if err := json.Unmarshal(request.Body, &body); err != nil {
+		t.Fatalf("decode route-matrix upstream JSON for %s: %v", operationName, err)
 	}
-	if strings.HasPrefix(mediaType, "multipart/") {
-		snapshot["content_type"] = mediaType
-		snapshot["multipart_fields"] = normalizeRouteMatrixGoldenValue(map[string]any{
-			"model":  string(routeMatrixMultipartValue(t, request, "model")),
-			"prompt": string(routeMatrixMultipartValue(t, request, "prompt")),
-			"image":  fmt.Sprintf("<binary:%d>", len(routeMatrixMultipartValue(t, request, "image"))),
-		}, route)
-	} else {
-		snapshot["content_type"] = mediaType
-		var body any
-		if err := json.Unmarshal(request.Body, &body); err != nil {
-			t.Fatalf("decode route-matrix upstream JSON for %s: %v", operationName, err)
-		}
-		snapshot["json_body"] = normalizeRouteMatrixGoldenValue(body, route)
-	}
+	snapshot["json_body"] = normalizeRouteMatrixGoldenValue(body, route)
 
 	fixturePath := filepath.Join("testdata", "route_matrix_upstream", routeMatrixSlug(operationName)+".json")
 	raw, err := os.ReadFile(fixturePath)
@@ -628,51 +545,6 @@ func assertRouteMatrixPathModelBinding(t *testing.T, request upstreamRequestSnap
 	if got := requestModelID(t, request.Body); got != ignoredBodyModel {
 		t.Fatalf("expected path-bound operation to leave body model %q untouched, got %q in %s", ignoredBodyModel, got, string(request.Body))
 	}
-}
-
-func assertRouteMatrixMultipartImageEditBinding(t *testing.T, request upstreamRequestSnapshot, route seededRuntimeRoute, _ string) {
-	t.Helper()
-	if got := string(routeMatrixMultipartValue(t, request, "model")); got != route.TargetModelID {
-		t.Fatalf("expected multipart image edit model %q, got %q", route.TargetModelID, got)
-	}
-	if got := string(routeMatrixMultipartValue(t, request, "prompt")); got != "make the image brighter" {
-		t.Fatalf("expected multipart prompt to survive forwarding, got %q", got)
-	}
-	if got := string(routeMatrixMultipartValue(t, request, "image")); got != "fake-png-bytes" {
-		t.Fatalf("expected multipart image bytes to survive forwarding, got %q", got)
-	}
-}
-
-func routeMatrixMultipartValue(t *testing.T, request upstreamRequestSnapshot, fieldName string) []byte {
-	t.Helper()
-	_, params, err := mime.ParseMediaType(request.Headers.Get("Content-Type"))
-	if err != nil {
-		t.Fatalf("parse multipart content type %q: %v", request.Headers.Get("Content-Type"), err)
-	}
-	boundary := strings.TrimSpace(params["boundary"])
-	if boundary == "" {
-		t.Fatalf("expected multipart boundary in %q", request.Headers.Get("Content-Type"))
-	}
-	reader := multipart.NewReader(bytes.NewReader(request.Body), boundary)
-	for {
-		part, err := reader.NextPart()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			t.Fatalf("read multipart field %q: %v", fieldName, err)
-		}
-		value, readErr := io.ReadAll(part)
-		_ = part.Close()
-		if readErr != nil {
-			t.Fatalf("read multipart field %q body: %v", fieldName, readErr)
-		}
-		if part.FormName() == fieldName {
-			return value
-		}
-	}
-	t.Fatalf("expected multipart field %q in upstream request", fieldName)
-	return nil
 }
 
 func assertRouteMatrixSharedCorePersistence(t *testing.T, harness *runtimeHarness, profileID int, route seededRuntimeRoute, operationName string, requestPath string) {

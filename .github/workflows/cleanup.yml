@@ -18,6 +18,10 @@ jobs:
       matrix:
         service: [backend, frontend]
     steps:
+      # Safe only while docker-images.yml publishes single-manifest images
+      # (provenance/sbom disabled, single platform). Multi-platform or
+      # provenance-enabled pushes create untagged child manifests that this
+      # pruning would delete, breaking the tagged images.
       - name: Delete untagged package versions for ${{ matrix.service }}
         uses: actions/delete-package-versions@v5
         with:

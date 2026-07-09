@@ -1,7 +1,7 @@
 # FRONTEND SETTINGS SECTIONS KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/settings/sections/` owns the rendered settings sections used by `../../SettingsPage.tsx`. This folder covers the section-level UI for auth setup, audit and privacy, header-blocklist rules, user-agent or client rules, billing and currency, backup, retention and deletion, and timezone preferences, plus the nested `authentication/` and `billing-currency/` leaf clusters. Keep it focused on section rendering, not the shell or costing orchestration.
+`pages/settings/sections/` owns the rendered settings sections used by `../../SettingsPage.tsx`. This folder covers the section-level UI for auth setup, audit and privacy, header-blocklist rules, user-agent or client rules, billing and currency, retention and deletion, and timezone preferences, plus the nested `authentication/` and `billing-currency/` leaf clusters. Keep it focused on section rendering, not the shell or costing orchestration.
 
 ## STRUCTURE
 ```text
@@ -15,19 +15,17 @@ sections/
 ├── AuditConfigurationRulesPanel.tsx
 ├── AuditConfigurationRuleTable.tsx
 ├── BillingCurrencySection.tsx
-├── BackupSection.tsx
 ├── RetentionDeletionSection.tsx
 ├── TimezoneSection.tsx
-├── authentication/                # Auth status, setup grid, and recovery-email auth UI cluster
+├── authentication/                # Auth status, setup grid,
 └── billing-currency/AGENTS.md     # Reporting currency and FX mapping leaf cluster
 ```
 
 ## WHERE TO LOOK
 
-- Auth setup and verified-email prerequisites: `AuthenticationSection.tsx`, `authentication/`
+- Auth setup: `AuthenticationSection.tsx`, `authentication/`
 - Audit and privacy API-family audit rows, header blocklist, user-agent or client rule management, and rules-panel rendering: `AuditConfigurationSection.tsx`, `AuditConfigurationAPIFamilyCard.tsx`, `AuditConfigurationHeaderBlocklistCard.tsx`, `AuditConfigurationUserAgentClientRulesCard.tsx`, `AuditConfigurationRulesPanel.tsx`, `AuditConfigurationRuleActions.tsx`, `AuditConfigurationRuleSection.tsx`, `AuditConfigurationRuleTable.tsx`
 - Billing and currency section shell that renders reporting currency and FX mapping UI, while staying separate from costing state: `BillingCurrencySection.tsx`, `billing-currency/AGENTS.md`
-- Backup and config import or export section: `BackupSection.tsx`
 - Retention and deletion section: `RetentionDeletionSection.tsx`
 - Timezone preference section: `TimezoneSection.tsx`
 - Shared page shell, section IDs, and save-state helpers: `../AGENTS.md`, `../settingsPageHelpers.ts`, `../sectionSaveState.tsx`

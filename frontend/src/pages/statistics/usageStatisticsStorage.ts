@@ -12,6 +12,7 @@ const USAGE_STATISTICS_STORAGE_VERSION = 1;
 
 const DEFAULT_CHART_GRANULARITY: UsageStatisticsChartGranularityState = {
   costOverview: "hourly",
+  latencyTrends: "hourly",
   requestTrends: "hourly",
   tokenTypeBreakdown: "hourly",
   tokenUsageTrends: "hourly",
@@ -21,7 +22,7 @@ export function getDefaultUsageStatisticsPageState(): UsageStatisticsPageState {
   return {
     chartGranularity: { ...DEFAULT_CHART_GRANULARITY },
     selectedModelLines: [],
-    selectedTimeRange: "1h",
+    selectedTimeRange: "24h",
   };
 }
 
@@ -46,6 +47,9 @@ function parseChartGranularity(value: unknown): UsageStatisticsChartGranularityS
     costOverview: isUsageChartGranularity(value.costOverview)
       ? value.costOverview
       : DEFAULT_CHART_GRANULARITY.costOverview,
+    latencyTrends: isUsageChartGranularity(value.latencyTrends)
+      ? value.latencyTrends
+      : DEFAULT_CHART_GRANULARITY.latencyTrends,
     requestTrends: isUsageChartGranularity(value.requestTrends)
       ? value.requestTrends
       : DEFAULT_CHART_GRANULARITY.requestTrends,
@@ -145,7 +149,7 @@ function parseUsageStatisticsPageState(value: unknown): UsageStatisticsPageState
       : [],
     selectedTimeRange: isUsageSnapshotPreset(value.selectedTimeRange)
       ? value.selectedTimeRange
-      : "1h",
+      : "24h",
   };
 }
 

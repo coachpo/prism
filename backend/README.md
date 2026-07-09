@@ -9,12 +9,12 @@ This directory owns Prism's live Go backend service.
 ```text
 backend/
 ├── cmd/prism-backend/              # Go process entrypoint
-├── internal/httpapi/               # management, runtime, realtime, and shared handler seams
+├── internal/httpapi/               # management, runtime, and shared handler seams
 ├── internal/platform/              # config, server assembly, migrations, startup, workers, version
 ├── internal/domain/                # audit, loadbalance, and stats domain logic
 ├── internal/{endpoint,profile}domain/ # shared management-domain helpers
 ├── migrations/                     # fresh-install SQL baseline applied by the Go runtime
-├── testdata/                       # bundle, request, bootstrap, and realtime fixtures
+├── testdata/                       # request and bootstrap fixtures
 ├── tests/                          # Go contract, integration, and runtime regressions
 ├── docker-compose.yml              # local PostgreSQL provisioning
 ├── Dockerfile                      # Go backend image build
@@ -43,21 +43,19 @@ Supported runtime routes are:
 - `POST /v1/responses`
 - `POST /v1/responses/input_tokens`
 - `POST /v1/responses/compact`
-- `POST /v1/images/generations`
-- `POST /v1/images/edits`
 - `POST /v1/messages`
 - `POST /v1/messages/count_tokens`
 - `POST /v1beta/models/{model}:generateContent`
 - `POST /v1beta/models/{model}:streamGenerateContent`
 - `POST /v1beta/models/{model}:countTokens`
 
-After registry resolution, all supported operations share the same execution core for active-profile model access resolution, load-balance planning, upstream forwarding, and runtime telemetry. Ordered access targets resolve through same-family model targets and Terminal Targets before execution, while endpoints remain reusable across those model-private endpoint bindings. Operation hooks own request extraction, non-stream response parsing, stream terminal classification, and media or multipart handling around that shared core. Prism is a focused proxy for these operations, not a full vendor API clone.
+After registry resolution, all supported operations share the same execution core for frozen Default profile id=1 model access resolution, load-balance planning, upstream forwarding, and runtime telemetry. Ordered access targets resolve through same-family model targets and Terminal Targets before execution, while endpoints remain reusable across those model-private endpoint bindings. Operation hooks own request extraction, non-stream response parsing, and stream terminal classification around that shared core. Prism is a focused proxy for these operations, not a full vendor API clone.
 
-## Operations telemetry
+## Product observability
 
-Prism builds OpenTelemetry providers once at startup from the top-level `telemetry` section in the plaintext bootstrap JSON. Configure OTLP endpoint, protocol, compression, timeout, auth, TLS, metrics, and traces there; `OTEL_*` environment variables are not the steady-state Prism configuration source.
+The top-level `telemetry` section in the plaintext bootstrap JSON is parsed for existing `config.json` compatibility, but the backend no longer builds metrics or tracing exporters from it. `OTEL_*` environment variables are not Prism configuration.
 
-Send Prism OTLP metrics and traces to an OpenTelemetry Collector or Grafana Alloy, then route them to Prometheus/Grafana/Tempo or another backend from that collector layer. The backend no longer mounts a local `/metrics` endpoint. Retained request logs, spending, usage snapshots, dashboard aggregates, and model metrics remain product-facing PostgreSQL-backed APIs under `/api/stats/*`.
+The backend does not mount a local `/metrics` endpoint. Retained request logs, spending, usage snapshots, dashboard aggregates, and model metrics remain product-facing PostgreSQL-backed APIs under `/api/stats/*`.
 
 ## Verification
 
@@ -70,55 +68,24 @@ go build ./cmd/prism-backend
 ```
 
 ## Configuration
-- Supported steady-state backend startup uses `PRISM_CONFIG_PATH` and a plaintext bootstrap file such as `../config.json`; the file, not long-lived `OTEL_*` variables, owns OTLP telemetry settings.
+- Supported steady-state backend startup uses `PRISM_CONFIG_PATH` and a plaintext bootstrap file such as `../config.json`; long-lived `OTEL_*` variables are ignored.
 - Backend-owned canonical defaults are the source of truth for freshly seeded bootstrap files: server `0.0.0.0:8000`, standalone database URL `postgres://prism:prism@localhost:5432/prism?sslmode=disable` unless `DATABASE_URL` is set, CORS for `http://localhost:5173`, PostgreSQL pool total `24` with split `4/8/4/2/2/2/2`, transport `100/16/16/300s/90s/0s/10s/1s`, side-effect timeout `10s`, disabled telemetry, and management admission `3/2`.
 - When the bootstrap file already exists and is valid, Prism loads startup settings from it without rewriting it, even if it contains older values.
 - When the bootstrap file is missing, Prism seeds it from backend-owned defaults plus the optional `DATABASE_URL` input only; `../start.sh` supplies the local launcher DSN on host port `15432`.
-- The startup bootstrap contract is not DB-backed, and profile backup/restore, global log retention, and other settings-page state flows remain PostgreSQL-backed state transport.
+- The startup bootstrap contract is not DB-backed. Disaster recovery uses PostgreSQL `pg_dump` plus a copy of the plaintext bootstrap `config.json`; global log retention and other settings-page state flows remain PostgreSQL-backed state transport.
 - `../start.sh` reads the root `../.env`, provisions local PostgreSQL, defaults `PRISM_CONFIG_PATH` to `../config.json`, and seeds that plaintext bootstrap file only when it is missing so local runs keep frontend `5173` and the local PostgreSQL DSN on host port `15432`; fresh seeds default backend port to `8000`.
 - Before booting, `../start.sh` verifies that the selected bootstrap file keeps the local launcher host and database contract, then uses that file's configured backend port. If an existing valid file still carries old-but-valid values, reset manually by stopping Prism, removing or relocating the bootstrap file, and restarting.
 - Direct Go runs should prefer an absolute `PRISM_CONFIG_PATH`.
 - The backend container image runs as `prism:prism`, UID/GID `1000:1000`. If `PRISM_CONFIG_PATH` points inside `/app/config`, bind mount the containing host directory, such as `/absolute/secure/path/prism-config:/app/config:rw`, and make that directory writable by UID/GID `1000:1000`.
 - Prepare new host config directories with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`. Use the same one-time remediation for existing root-owned bind mounts before starting the non-root backend image.
-- Bootstrap writes are file-durable. Eligible hot fields apply immediately when written through the Startup tab or `PUT /api/config/bootstrap`; structural fields remain pending until restart.
-- Hot fields include CORS origins, auth TTL and cookie metadata, mail and SMTP settings, runtime transport settings, and M2/M3 management admission limits. Runtime buffering is internal and not exposed through bootstrap config.
-- Restart-required fields include listener host and port, database URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, auth JWT signing key, state-transfer bundle key, and all telemetry exporter/metrics/tracing fields.
-- Telemetry startup fields include `telemetry.enabled`, exporter endpoint/protocol/compression/timeout/auth/TLS values, `telemetry.metrics.enabled`, `telemetry.traces.enabled`, and `telemetry.traces.samplingRatio`. Enabled telemetry exports through OTLP to a Collector or Grafana Alloy; Prism does not provide a backend-local `/metrics` compatibility endpoint.
-- External edits to the bootstrap file are not watched automatically. Use the Startup tab or `PUT /api/config/bootstrap` to publish hot-eligible file edits into the running process.
-- The bootstrap API stays file-backed only, so `/api/config/bootstrap` is separate from PostgreSQL-backed settings flows.
+- Bootstrap edits are file-durable and restart-applied after R2. Edit the selected `config.json`, then restart Prism.
+- Runtime buffering is internal and not exposed through bootstrap config.
+- Startup fields include listener host and port, CORS origins, auth TTL and cookie metadata, runtime transport settings, M2/M3 management admission limits, database URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, auth JWT signing key, and parse-compatible telemetry fields. Legacy `mail` fields remain parse-compatible only.
+- Telemetry startup fields include `telemetry.enabled`, exporter endpoint/protocol/compression/timeout/auth/TLS values, `telemetry.metrics.enabled`, `telemetry.traces.enabled`, and `telemetry.traces.samplingRatio`; those fields parse for live-file compatibility but do not start exporters. Prism does not provide a backend-local `/metrics` compatibility endpoint.
+- External edits to the bootstrap file are not watched automatically and require restart.
 - Raw bootstrap files require `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` as Go duration strings. Fresh seeds set `runtime.transport.requestTimeout` to `"300s"` and `runtime.sideEffects.attemptTimeout` to `"10s"`. Missing either required field fails startup validation by design.
-- `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout and is hot-applicable through the Startup tab or API. `runtime.sideEffects.attemptTimeout` is restart-required and not hot-applied.
-- Auth email delivery is disabled when `mail` is missing or `mail.enabled=false`; disabled mode uses no-op delivery and does not dial SMTP.
-- To enable SMTP, set `mail.enabled=true`, `mail.from`, and `mail.smtp` through the Startup tab or API PUT. Enabled-but-invalid SMTP config fails validation or startup instead of silently falling back to no-op delivery.
-- SMTP config fields are `mail.from`, `mail.replyTo`, `mail.smtp.host`, `mail.smtp.port`, `mail.smtp.mode`, `mail.smtp.ehloHostname`, `mail.smtp.auth`, `mail.smtp.username`, `mail.smtp.password`, `mail.smtp.passwordFile`, `mail.smtp.timeout`, and `mail.smtp.tlsServerName`.
-- Supported `mail.smtp.mode` values are `starttls_required`, `implicit_tls`, and `plaintext_local_only`. `plaintext_local_only` is local or loopback only, and auth over non-local plaintext is forbidden.
-- `mail.smtp.auth` accepts `none` or `plain`. `plain` requires `username` plus exactly one of `password` or `passwordFile`; `passwordFile` is preferred for deployed secrets.
-- `mail.smtp.password` is secret-managed by the bootstrap API as `mail.smtp.password`. Safe responses return only metadata, and updates must use preserve or replace secret actions.
-- Roll back real delivery by removing `mail` or setting `mail.enabled=false` through the Startup tab or API PUT. Direct external file edits take effect only after restart unless they are later published through the API.
-- Local and automated tests use fake or no-op SMTP only. Do not use external SMTP credentials in regression tests.
-
-Enabled SMTP bootstrap example:
-
-```json
-{
-  "mail": {
-    "enabled": true,
-    "from": "Prism <noreply@example.com>",
-    "replyTo": "support@example.com",
-    "smtp": {
-      "host": "smtp.example.com",
-      "port": 587,
-      "mode": "starttls_required",
-      "ehloHostname": "prism.example.com",
-      "auth": "plain",
-      "username": "smtp-user",
-      "passwordFile": "/run/secrets/prism-smtp-password",
-      "timeout": "15s",
-      "tlsServerName": "smtp.example.com"
-    }
-  }
-}
-```
+- `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout. `runtime.sideEffects.attemptTimeout` is the runtime side-effect enqueue attempt budget. Both change only after editing `config.json` and restarting Prism.
+- Mail delivery was removed. Existing bootstrap files may keep a `mail` block for startup compatibility; Prism does not construct a mailer or send SMTP traffic.
 
 ## Database and runtime data
 - Fresh-install schema setup is Go-managed and applied from the single checked-in baseline under `migrations/` at startup.
@@ -129,10 +96,6 @@ Enabled SMTP bootstrap example:
 - Normal log retention is global across all profiles. Configure it through `/api/settings/log-retention` and run it through durable `log_retention` jobs from `POST /api/maintenance/log-retention/jobs`.
 - Retention drops whole daily child partitions whose upper bound is `<= cutoff`. Only the cutoff-overlapping boundary child receives bounded cleanup plus `VACUUM (ANALYZE, PROCESS_TOAST TRUE)`.
 - Audit rows keep weak request references through `request_log_id`, `request_log_created_at`, and `ingress_request_id`; request detail links can be missing after request-log retention expires first.
-- `VACUUM FULL`, `CLUSTER`, and `pg_repack` are manual or emergency shrink tools only, not automatic retention steps. The default local `postgres:16-alpine` database does not include `pg_repack`.
-
-For local PostgreSQL provisioning without the root launcher, run `docker compose up -d prism-postgres` from `backend/`.
-at`, and `ingress_request_id`; request detail links can be missing after request-log retention expires first.
 - `VACUUM FULL`, `CLUSTER`, and `pg_repack` are manual or emergency shrink tools only, not automatic retention steps. The default local `postgres:16-alpine` database does not include `pg_repack`.
 
 For local PostgreSQL provisioning without the root launcher, run `docker compose up -d prism-postgres` from `backend/`.

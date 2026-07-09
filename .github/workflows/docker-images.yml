@@ -3,17 +3,6 @@ name: Docker Images
 on:
   push:
     tags: ["v*"]
-    branches: [main]
-    paths:
-      - "backend/**"
-      - "frontend/**"
-      - ".github/workflows/docker-images.yml"
-  pull_request:
-    branches: [main]
-    paths:
-      - "backend/**"
-      - "frontend/**"
-      - ".github/workflows/docker-images.yml"
   workflow_dispatch:
     inputs:
       service:
@@ -28,7 +17,8 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a release publish mid-push; tag refs are unique per release anyway.
+  cancel-in-progress: false
 
 env:
   REGISTRY: ghcr.io
@@ -37,9 +27,51 @@ env:
   BUILD_PLATFORM: linux/arm64
 
 jobs:
-  build-and-push:
+  verify-ci:
+    # release.sh pushes the release commit and the tag together, so CI for that
+    # commit may still be running when this workflow starts. Publishing waits for
+    # a green CI conclusion on the tagged commit and refuses to ship otherwise.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Require green CI on the tagged commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for attempt in $(seq 1 60); do
+            conclusion=$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow ci.yml \
+              --commit "$GITHUB_SHA" \
+              --json status,conclusion \
+              --jq 'first | if .status == "completed" then .conclusion else "pending" end' 2>/dev/null || echo "none")
+            case "$conclusion" in
+              success)
+                echo "CI is green for $GITHUB_SHA"
+                exit 0
+                ;;
+              pending|none)
+                echo "CI for $GITHUB_SHA not finished yet (state: $conclusion), attempt $attempt/60"
+                sleep 30
+                ;;
+              *)
+                echo "CI concluded '$conclusion' for $GITHUB_SHA — refusing to publish images"
+                exit 1
+                ;;
+            esac
+          done
+          echo "Timed out waiting for CI on $GITHUB_SHA"
+          exit 1
+
+  build-and-push:
+    needs: verify-ci
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.verify-ci.result == 'success') }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -55,9 +87,6 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Set up QEMU (for arm64 emulation)
-        uses: docker/setup-qemu-action@v4
-
       - name: Set up Docker Buildx
         id: buildx
         uses: docker/setup-buildx-action@v4
@@ -65,7 +94,6 @@ jobs:
           driver: docker-container
 
       - name: Log in to GHCR
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
@@ -78,12 +106,11 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.service == 'backend' && env.IMAGE_NAME_BACKEND || env.IMAGE_NAME_FRONTEND }}
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
             type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,prefix=manual-,enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Resolve frontend build metadata from monorepo commit
         id: frontend_build_metadata
@@ -98,16 +125,19 @@ jobs:
           builder: ${{ steps.buildx.outputs.name }}
           context: ${{ matrix.service == 'backend' && '.' || format('./{0}', matrix.service) }}
           file: ${{ matrix.service == 'backend' && './backend/Dockerfile' || format('./{0}/Dockerfile', matrix.service) }}
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VITE_GIT_RUN_NUMBER=${{ github.run_number }}
-            VITE_GIT_REVISION=${{ steps.frontend_build_metadata.outputs.git_revision }}
+            ${{ matrix.service == 'frontend' && format('VITE_GIT_RUN_NUMBER={0}', steps.frontend_build_metadata.outputs.git_run_number) || '' }}
+            ${{ matrix.service == 'frontend' && format('VITE_GIT_REVISION={0}', steps.frontend_build_metadata.outputs.git_revision) || '' }}
           cache-from: |
             type=gha,scope=${{ matrix.service }}
           cache-to: |
             type=gha,scope=${{ matrix.service }},mode=max
           platforms: ${{ env.BUILD_PLATFORM }}
+          # Kept off on purpose: single-manifest images keep cleanup.yml's
+          # delete-only-untagged pruning safe. Enabling provenance/sbom creates
+          # untagged child manifests that the nightly cleanup would destroy.
           provenance: false
           sbom: false

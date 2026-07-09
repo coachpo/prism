@@ -1,8 +1,9 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, type KeyboardEvent, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
 import { cn } from "@/lib/utils";
+import { RoutingDiagramInspectorContent } from "./RoutingDiagramInspectorContent";
 import { RoutingDiagramLegend } from "./RoutingDiagramLegend";
 import { RoutingDiagramVisualizationShell } from "./RoutingDiagramVisualizationShell";
 import {
@@ -18,13 +19,17 @@ import type {
 } from "../routingDiagram";
 
 interface RoutingDiagramMobileListProps {
+  inspectedNode?: RoutingDiagramNode | null;
   mobileData: RoutingDiagramMobileData;
   onActivateNode: (node: RoutingDiagramNode) => void;
+  onInspectNode: (node: RoutingDiagramNode) => void;
 }
 
 export function RoutingDiagramMobileList({
+  inspectedNode,
   mobileData,
   onActivateNode,
+  onInspectNode,
 }: RoutingDiagramMobileListProps) {
   const { formatNumber, messages } = useLocale();
   const nodeById = useMemo(() => {
@@ -37,6 +42,11 @@ export function RoutingDiagramMobileList({
     <RoutingDiagramVisualizationShell
       visualization={
         <div className="grid gap-3" data-testid="routing-diagram-mobile">
+          {inspectedNode ? (
+            <div data-testid="routing-diagram-inspector" className="max-w-full justify-self-start">
+              <RoutingDiagramInspectorContent node={inspectedNode} />
+            </div>
+          ) : null}
           {mobileData.sections.map((section) => (
             <section key={section.kind} className="grid gap-2">
               <div className="flex items-center justify-between gap-3">
@@ -56,6 +66,7 @@ export function RoutingDiagramMobileList({
                     node={node}
                     nodeById={nodeById}
                     onActivateNode={onActivateNode}
+                    onInspectNode={onInspectNode}
                   />
                 ))}
               </div>
@@ -73,10 +84,12 @@ function MobileNodeCard({
   node,
   nodeById,
   onActivateNode,
+  onInspectNode,
 }: {
   node: RoutingDiagramMobileNode;
   nodeById: Map<string, RoutingDiagramMobileNode>;
   onActivateNode: (node: RoutingDiagramNode) => void;
+  onInspectNode: (node: RoutingDiagramNode) => void;
 }) {
   const { formatNumber, messages } = useLocale();
   const actionText =
@@ -94,12 +107,26 @@ function MobileNodeCard({
   return (
     <article
       className={cn(
-        "border border-outline-variant p-3",
+        "cursor-pointer border border-outline-variant p-3 transition-colors hover:border-outline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         nodeVisual.shapeClassName,
         muted && "border-dashed opacity-70",
       )}
       data-node-shape={nodeVisual.shape}
       style={getRoutingDiagramNodeCardStyle(nodeVisual, muted)}
+      data-testid={`routing-diagram-list-node-${node.id}`}
+      role="button"
+      tabIndex={0}
+      aria-label={node.label}
+      onClick={() => onInspectNode(node)}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) {
+          return;
+        }
+        if (isActivationKey(event)) {
+          event.preventDefault();
+          onInspectNode(node);
+        }
+      }}
     >
       <div className="flex flex-col gap-3">
         <div className="grid gap-2">
@@ -134,7 +161,10 @@ function MobileNodeCard({
             size="xs"
             className="w-full justify-center"
             aria-label={actionLabel ?? undefined}
-            onClick={() => onActivateNode(node)}
+            onClick={(event) => {
+              event.stopPropagation();
+              onActivateNode(node);
+            }}
           >
             {actionText}
           </Button>
@@ -206,7 +236,10 @@ function RelationGroup({
                 size="xs"
                 className="h-auto max-w-full justify-start whitespace-normal px-2.5 py-1 text-left"
                 aria-label={actionLabel ?? undefined}
-                onClick={() => onActivateNode(relatedNode)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onActivateNode(relatedNode);
+                }}
               >
                 {relatedNode.label}
               </Button>
@@ -305,4 +338,8 @@ function groupRelationsByKind(
   }
 
   return Array.from(grouped.entries());
+}
+
+function isActivationKey(event: KeyboardEvent<HTMLElement>): boolean {
+  return event.key === "Enter" || event.key === " ";
 }

@@ -143,6 +143,7 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 		params.ClientRulePattern = &rule.RawPattern
 	}
 	whereClause, args := buildRequestLogBrowseWhere(params)
+	// ponytail: 全量 COUNT，日志量上万后换估算或 keyset 分页
 	countQuery := `SELECT COUNT(*) FROM request_logs WHERE ` + whereClause
 	var total int
 	if err := exec.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
@@ -352,11 +353,29 @@ func buildRequestLogBrowseWhere(params RequestLogListParams) (string, []any) {
 	}
 	if params.StatusFamily != nil {
 		switch strings.TrimSpace(strings.ToLower(*params.StatusFamily)) {
+		case "2xx":
+			clauses = append(clauses, "status_code BETWEEN 200 AND 299")
 		case "4xx":
 			clauses = append(clauses, "status_code BETWEEN 400 AND 499")
 		case "5xx":
 			clauses = append(clauses, "status_code BETWEEN 500 AND 599")
 		}
+	}
+	if params.StatusCode != nil {
+		args = append(args, *params.StatusCode)
+		clauses = append(clauses, fmt.Sprintf("status_code = $%d", len(args)))
+	}
+	if params.ErrorText != nil && strings.TrimSpace(*params.ErrorText) != "" {
+		args = append(args, "%"+strings.TrimSpace(*params.ErrorText)+"%")
+		clauses = append(clauses, fmt.Sprintf("error_detail ILIKE $%d", len(args)))
+	}
+	if params.PricedFlag != nil {
+		args = append(args, *params.PricedFlag)
+		clauses = append(clauses, fmt.Sprintf("priced_flag = $%d", len(args)))
+	}
+	if params.UnpricedReason != nil && strings.TrimSpace(*params.UnpricedReason) != "" {
+		args = append(args, strings.TrimSpace(*params.UnpricedReason))
+		clauses = append(clauses, fmt.Sprintf("unpriced_reason = $%d", len(args)))
 	}
 	if params.FromTime != nil {
 		args = append(args, params.FromTime.UTC())
@@ -570,7 +589,6 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 	item.CallerUserAgent = nullableString(callerUserAgent)
 	item.UpstreamUserAgent = nullableString(upstreamUserAgent)
 	item.EndpointBaseURL = nullableString(endpointBaseURL)
-	item = normalizeRequestLogListSpendState(item)
 	return item, nil
 }
 
@@ -688,7 +706,6 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	item.PricingSnapshotCacheCreationInput = nullableString(pricingSnapshotCacheCreationInput)
 	item.PricingSnapshotReasoning = nullableString(pricingSnapshotReasoning)
 	item.PricingConfigVersionUsed = nullableInt32(pricingConfigVersionUsed)
-	item = normalizeRequestLogDetailSpendState(item)
 	return item, nil
 }
 
@@ -711,23 +728,4 @@ func nullableJSONRawMessage(raw []byte) *json.RawMessage {
 	}
 	message := json.RawMessage(append([]byte(nil), raw...))
 	return &message
-}
-
-func normalizeRequestLogListSpendState(item requestLogListRow) requestLogListRow {
-	item.PricedFlag, item.UnpricedReason = normalizeObservedSpendCoherence(successfulStatusCode(item.StatusCode), item.PricedFlag, item.UnpricedReason, item.TotalCostUserCurrencyMicros != nil)
-	return item
-}
-
-func normalizeRequestLogDetailSpendState(item requestLogDetailRow) requestLogDetailRow {
-	success := successfulStatusCode(item.StatusCode)
-	if item.SuccessFlag != nil {
-		success = *item.SuccessFlag
-	}
-	item.PricedFlag, item.UnpricedReason = normalizeObservedSpendCoherence(success, item.PricedFlag, item.UnpricedReason, item.TotalCostUserCurrencyMicros != nil)
-	item.FXRateUsed, item.FXRateSource = normalizeObservedFXCoherence(success, item.PricedFlag, item.UnpricedReason, item.TotalCostUserCurrencyMicros != nil, item.CurrencyCodeOriginal, item.ReportCurrencyCode, item.FXRateUsed, item.FXRateSource)
-	return item
-}
-
-func successfulStatusCode(statusCode int) bool {
-	return statusCode >= 200 && statusCode <= 299
 }

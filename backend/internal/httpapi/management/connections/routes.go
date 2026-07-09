@@ -18,11 +18,10 @@ import (
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
-	"github.com/coachpo/prism/backend/internal/providercompat"
-	"github.com/coachpo/prism/backend/internal/targetcompat"
+	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
-const ownerScopedConnectionMutationDetail = "terminal target mutations must use owner-scoped routes under " + targetcompat.OwnerScopedConnectionRoutePath
+const ownerScopedConnectionMutationDetail = "terminal target mutations must use owner-scoped routes under /api/models/{model_config_id}/connections"
 
 func (s *Service) handleListConnectionsBatch(w http.ResponseWriter, r *http.Request) {
 	var requestBody modelConnectionsBatchRequest
@@ -183,10 +182,6 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		if err := validateLimiter("max_in_flight_stream", requestBody.MaxInFlightStream); err != nil {
 			return connectionResponse{}, err
 		}
-		openAIProbeVariant, err := resolveOpenAIProbeEndpointVariant(owner.APIFamily, requestBody.OpenAIProbeEndpointVariant)
-		if err != nil {
-			return connectionResponse{}, err
-		}
 		openAITextCapability, err := resolveOpenAITextCapabilityCreate(owner.APIFamily, requestBody.OpenAITextCapability)
 		if err != nil {
 			return connectionResponse{}, err
@@ -205,23 +200,21 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		}
 		now := s.nowUTC()
 		item := connectionResponse{
-			ProfileID:                  profile.ID,
-			APIFamily:                  owner.APIFamily,
-			EndpointID:                 endpoint.ID,
-			IsActive:                   resolvedBool(requestBody.IsActive, true),
-			Priority:                   position,
-			Name:                       normalizeOptionalString(requestBody.Name),
-			AuthType:                   authType,
-			CustomHeaders:              normalizeHeaders(requestBody.CustomHeaders),
-			OpenAIProbeEndpointVariant: openAIProbeVariant,
-			OpenAITextCapability:       openAITextCapability,
-			PricingTemplateID:          pricingTemplateID,
-			QPSLimit:                   requestBody.QPSLimit,
-			MaxInFlightNonStream:       requestBody.MaxInFlightNonStream,
-			MaxInFlightStream:          requestBody.MaxInFlightStream,
-			HealthStatus:               "unknown",
-			CreatedAt:                  now,
-			UpdatedAt:                  now,
+			ProfileID:            profile.ID,
+			APIFamily:            owner.APIFamily,
+			EndpointID:           endpoint.ID,
+			IsActive:             resolvedBool(requestBody.IsActive, true),
+			Priority:             position,
+			Name:                 normalizeOptionalString(requestBody.Name),
+			AuthType:             authType,
+			CustomHeaders:        normalizeHeaders(requestBody.CustomHeaders),
+			OpenAITextCapability: openAITextCapability,
+			PricingTemplateID:    pricingTemplateID,
+			QPSLimit:             requestBody.QPSLimit,
+			MaxInFlightNonStream: requestBody.MaxInFlightNonStream,
+			MaxInFlightStream:    requestBody.MaxInFlightStream,
+			CreatedAt:            now,
+			UpdatedAt:            now,
 		}
 		connectionID, err := insertTerminalTarget(r.Context(), tx, terminalTargetRecordFromConnectionResponse(item))
 		if err != nil {
@@ -338,16 +331,13 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 		if err != nil {
 			return connectionResponse{}, err
 		}
-		if !providercompat.SameAPIFamily(apiFamily, owner.APIFamily) {
+		if !providerauth.SameAPIFamily(apiFamily, owner.APIFamily) {
 			return connectionResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "api_family must match owner model api_family"}
 		}
 		next.APIFamily = apiFamily
 	}
-	if !providercompat.SameAPIFamily(next.APIFamily, owner.APIFamily) {
+	if !providerauth.SameAPIFamily(next.APIFamily, owner.APIFamily) {
 		return connectionResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: "Connection api_family must match owner model api_family"}
-	}
-	if !providercompat.IsOpenAI(next.APIFamily) {
-		next.OpenAIProbeEndpointVariant = nil
 	}
 	openAITextCapability, err := resolveOpenAITextCapabilityUpdate(current.APIFamily, next.APIFamily, current.OpenAITextCapability, requestBody.OpenAITextCapability)
 	if err != nil {
@@ -387,13 +377,6 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 	}
 	if requestBody.CustomHeaders.Set {
 		next.CustomHeaders = normalizeHeaders(requestBody.CustomHeaders.Value)
-	}
-	if requestBody.OpenAIProbeEndpointVariant.Set {
-		variant, err := resolveOpenAIProbeEndpointVariant(next.APIFamily, requestBody.OpenAIProbeEndpointVariant.Value)
-		if err != nil {
-			return connectionResponse{}, err
-		}
-		next.OpenAIProbeEndpointVariant = variant
 	}
 	if requestBody.PricingTemplateID.Set {
 		pricingTemplateID, err := validatePricingTemplateID(ctx, tx, profileID, requestBody.PricingTemplateID.Value)
@@ -511,10 +494,6 @@ func (s *Service) handleRejectModelConnectionLegacyMutation(w http.ResponseWrite
 	s.writeConnectionMutationRouteError(w, r)
 }
 
-func (s *Service) handleLegacyModelConnectionNotFound(w http.ResponseWriter, r *http.Request) {
-	http.NotFound(w, r)
-}
-
 func (s *Service) writeConnectionMutationRouteError(w http.ResponseWriter, r *http.Request) {
 	responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, ownerScopedConnectionMutationDetail)
 }
@@ -623,14 +602,14 @@ func validateLimiter(fieldName string, value *int) error {
 }
 
 func validateAPIFamily(value string, required bool) (string, error) {
-	normalized := providercompat.NormalizeAPIFamily(value)
+	normalized := providerauth.NormalizeAPIFamily(value)
 	if normalized == "" {
 		if required {
 			return "", &domainError{StatusCode: http.StatusBadRequest, Detail: "api_family is required"}
 		}
 		return "", nil
 	}
-	if !providercompat.IsSupportedAPIFamily(normalized) {
+	if !providerauth.IsSupportedAPIFamily(normalized) {
 		return "", &domainError{StatusCode: http.StatusBadRequest, Detail: "api_family must be one of 'openai', 'anthropic', or 'gemini'"}
 	}
 	return normalized, nil
@@ -641,7 +620,7 @@ func validateOwnerScopedAPIFamily(value string, ownerAPIFamily string) error {
 	if err != nil {
 		return err
 	}
-	if apiFamily != "" && !providercompat.SameAPIFamily(apiFamily, ownerAPIFamily) {
+	if apiFamily != "" && !providerauth.SameAPIFamily(apiFamily, ownerAPIFamily) {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: "api_family must match owner model api_family"}
 	}
 	return nil
@@ -653,7 +632,7 @@ func ensureConnectionAPIFamilyUpdateAllowed(ctx context.Context, exec queryExecu
 		return err
 	}
 	for _, reference := range references {
-		if !providercompat.SameAPIFamily(reference.APIFamily, apiFamily) {
+		if !providerauth.SameAPIFamily(reference.APIFamily, apiFamily) {
 			return &domainError{StatusCode: http.StatusConflict, Detail: fmt.Sprintf("Cannot change api_family: models [%s] target this connection", joinConnectionReferenceModelIDs(references))}
 		}
 	}
@@ -685,8 +664,8 @@ func validateAuthType(value *string) (*string, error) {
 	if value == nil {
 		return nil, nil
 	}
-	normalized := providercompat.NormalizeAPIFamily(*value)
-	if normalized == "" || !providercompat.IsSupportedAuthType(normalized) {
+	normalized := providerauth.NormalizeAPIFamily(*value)
+	if normalized == "" || !providerauth.IsSupportedAuthType(normalized) {
 		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "auth_type must be one of 'openai', 'anthropic', or 'gemini'"}
 	}
 	return &normalized, nil
@@ -703,7 +682,7 @@ func resolveOpenAITextCapabilityCreate(apiFamily string, value *string) (*string
 }
 
 func resolveOpenAITextCapabilityUpdate(previousAPIFamily string, nextAPIFamily string, current *string, update optionalString) (*string, error) {
-	if !providercompat.IsOpenAI(nextAPIFamily) {
+	if !providerauth.IsOpenAI(nextAPIFamily) {
 		if update.Set && update.Value != nil && strings.TrimSpace(*update.Value) != "" {
 			return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is only supported for OpenAI-family connections"}
 		}
@@ -712,14 +691,14 @@ func resolveOpenAITextCapabilityUpdate(previousAPIFamily string, nextAPIFamily s
 	if update.Set {
 		return normalizeOpenAITextCapability(nextAPIFamily, update.Value, true)
 	}
-	if providercompat.IsOpenAI(previousAPIFamily) && current != nil && strings.TrimSpace(*current) != "" {
+	if providerauth.IsOpenAI(previousAPIFamily) && current != nil && strings.TrimSpace(*current) != "" {
 		return normalizeOpenAITextCapability(nextAPIFamily, current, true)
 	}
 	return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is required for OpenAI-family connections"}
 }
 
 func normalizeOpenAITextCapability(apiFamily string, value *string, requiredForOpenAI bool) (*string, error) {
-	if !providercompat.IsOpenAI(apiFamily) {
+	if !providerauth.IsOpenAI(apiFamily) {
 		if value != nil && strings.TrimSpace(*value) != "" {
 			return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is only supported for OpenAI-family connections"}
 		}
@@ -738,20 +717,6 @@ func normalizeOpenAITextCapability(apiFamily string, value *string, requiredForO
 	default:
 		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is invalid"}
 	}
-}
-
-func resolveOpenAIProbeEndpointVariant(apiFamily string, value *string) (*string, error) {
-	variant, err := providercompat.NormalizeConnectionOpenAIProbeEndpointVariant(apiFamily, value)
-	if errors.Is(err, providercompat.ErrOpenAIProbeEndpointVariantUnsupported) {
-		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_probe_endpoint_variant is only supported for OpenAI-family connections"}
-	}
-	if errors.Is(err, providercompat.ErrOpenAIProbeEndpointVariantInvalid) {
-		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_probe_endpoint_variant is invalid"}
-	}
-	if err != nil {
-		return nil, err
-	}
-	return variant, nil
 }
 
 func normalizeHeaders(value map[string]string) map[string]string {

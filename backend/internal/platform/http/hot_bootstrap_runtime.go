@@ -12,7 +12,6 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/admission"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
-	"github.com/coachpo/prism/backend/internal/platform/email"
 )
 
 type HotBootstrapConfigRuntime struct {
@@ -30,9 +29,9 @@ type HotBootstrapConfigRetiredResources struct {
 type hotBootstrapConfigRuntimeSnapshot struct {
 	cors         platformcors.Snapshot
 	auth         HotAuthRuntimeSnapshot
-	mail         HotMailSnapshot
 	runtimeProxy HotRuntimeProxySnapshot
 	admission    HotAdmissionSnapshot
+	alerting     HotAlertingSnapshot
 }
 
 func NewHotBootstrapConfigRuntime(settings config.Settings) (*HotBootstrapConfigRuntime, error) {
@@ -61,6 +60,7 @@ func (r *HotBootstrapConfigRuntime) Validate(settings config.Settings) error {
 	return nil
 }
 
+// ponytail: publish has no management API caller after R2; keep it until the hot runtime interface is pruned.
 func (r *HotBootstrapConfigRuntime) Publish(settings config.Settings) (config.BootstrapConfigHotApplyRetiredResources, error) {
 	if r == nil {
 		return HotBootstrapConfigRetiredResources{}, fmt.Errorf("hot bootstrap config runtime is nil")
@@ -85,14 +85,6 @@ func (r *HotBootstrapConfigRuntime) AuthRuntimeConfigSnapshot() managementauth.R
 	return managementauth.RuntimeAuthConfigSnapshot(r.AuthSnapshot())
 }
 
-func (r *HotBootstrapConfigRuntime) MailSnapshot() HotMailSnapshot {
-	return r.Snapshot().Mail()
-}
-
-func (r *HotBootstrapConfigRuntime) Mailer() email.Mailer {
-	return r.MailSnapshot().Mailer()
-}
-
 func (r *HotBootstrapConfigRuntime) RuntimeProxySnapshot() HotRuntimeProxySnapshot {
 	return r.Snapshot().RuntimeProxy()
 }
@@ -104,6 +96,14 @@ func (r *HotBootstrapConfigRuntime) RuntimeProxyConfigSnapshot() runtimeapi.Runt
 
 func (r *HotBootstrapConfigRuntime) AdmissionSnapshot() HotAdmissionSnapshot {
 	return r.Snapshot().Admission()
+}
+
+func (r *HotBootstrapConfigRuntime) AlertingSnapshot() HotAlertingSnapshot {
+	return r.Snapshot().Alerting()
+}
+
+func (r *HotBootstrapConfigRuntime) AlertingWebhookURL() string {
+	return r.AlertingSnapshot().WebhookURL()
 }
 
 func (r HotBootstrapConfigRetiredResources) CloseIdleConnections() {
@@ -127,13 +127,6 @@ func (s HotBootstrapConfigSnapshot) Auth() HotAuthRuntimeSnapshot {
 	return s.snapshot.auth
 }
 
-func (s HotBootstrapConfigSnapshot) Mail() HotMailSnapshot {
-	if s.snapshot == nil {
-		return HotMailSnapshot{}
-	}
-	return s.snapshot.mail
-}
-
 func (s HotBootstrapConfigSnapshot) RuntimeProxy() HotRuntimeProxySnapshot {
 	if s.snapshot == nil {
 		return HotRuntimeProxySnapshot{}
@@ -148,6 +141,13 @@ func (s HotBootstrapConfigSnapshot) Admission() HotAdmissionSnapshot {
 	return s.snapshot.admission
 }
 
+func (s HotBootstrapConfigSnapshot) Alerting() HotAlertingSnapshot {
+	if s.snapshot == nil {
+		return HotAlertingSnapshot{}
+	}
+	return s.snapshot.alerting
+}
+
 func (s *hotBootstrapConfigRuntimeSnapshot) closeIdleConnections() {
 	if s == nil {
 		return
@@ -156,16 +156,12 @@ func (s *hotBootstrapConfigRuntimeSnapshot) closeIdleConnections() {
 }
 
 func buildHotBootstrapConfigRuntimeSnapshot(settings config.Settings) (*hotBootstrapConfigRuntimeSnapshot, error) {
-	mailSnapshot, err := buildHotMailSnapshot(settings.Mail)
-	if err != nil {
-		return nil, err
-	}
 	return &hotBootstrapConfigRuntimeSnapshot{
 		cors:         buildHotCORSSnapshot(settings),
 		auth:         buildHotAuthRuntimeSnapshot(settings),
-		mail:         mailSnapshot,
 		runtimeProxy: buildHotRuntimeProxySnapshot(settings),
 		admission:    buildHotAdmissionSnapshot(settings),
+		alerting:     buildHotAlertingSnapshot(settings),
 	}, nil
 }
 
@@ -181,40 +177,10 @@ func buildHotAuthRuntimeSnapshot(settings config.Settings) HotAuthRuntimeSnapsho
 	return HotAuthRuntimeSnapshot{
 		AccessTokenTTL:    time.Duration(settings.AuthAccessTokenTTLSeconds) * time.Second,
 		RefreshTokenTTL:   time.Duration(settings.AuthRefreshTokenTTLSeconds) * time.Second,
-		ResetCodeTTL:      time.Duration(settings.AuthResetCodeTTLSeconds) * time.Second,
 		AccessCookieName:  strings.TrimSpace(settings.AuthCookieName),
 		RefreshCookieName: strings.TrimSpace(settings.AuthRefreshCookieName),
 		CookieSecure:      settings.AuthCookieSecure,
 	}
-}
-
-type HotMailSnapshot struct {
-	config          config.MailConfig
-	mailer          email.Mailer
-	deliveryEnabled bool
-}
-
-func buildHotMailSnapshot(mailConfig config.MailConfig) (HotMailSnapshot, error) {
-	mailer, enabled, err := email.NewMailer(mailConfig)
-	if err != nil {
-		return HotMailSnapshot{}, fmt.Errorf("create hot mailer: %w", err)
-	}
-	return HotMailSnapshot{config: mailConfig, mailer: mailer, deliveryEnabled: enabled}, nil
-}
-
-func (s HotMailSnapshot) Config() config.MailConfig {
-	return s.config
-}
-
-func (s HotMailSnapshot) Mailer() email.Mailer {
-	if s.mailer == nil {
-		return email.DisabledMailer{}
-	}
-	return s.mailer
-}
-
-func (s HotMailSnapshot) DeliveryEnabled() bool {
-	return s.deliveryEnabled
 }
 
 type HotRuntimeProxySnapshot struct {
@@ -299,4 +265,16 @@ func (s HotAdmissionSnapshot) Limits() admission.Limits {
 
 func (s HotAdmissionSnapshot) Controller() *admission.Controller {
 	return s.controller
+}
+
+type HotAlertingSnapshot struct {
+	webhookURL string
+}
+
+func buildHotAlertingSnapshot(settings config.Settings) HotAlertingSnapshot {
+	return HotAlertingSnapshot{webhookURL: strings.TrimSpace(settings.Alerting.WebhookURL)}
+}
+
+func (s HotAlertingSnapshot) WebhookURL() string {
+	return strings.TrimSpace(s.webhookURL)
 }

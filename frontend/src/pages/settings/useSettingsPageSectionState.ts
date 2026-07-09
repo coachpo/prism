@@ -27,21 +27,20 @@ function replaceSettingsLocation(tab: SettingsTab, sectionId: string | null) {
   }
 
   const search = params.toString();
-  const hash = sectionId ?? (tab === SETTINGS_TABS.startup ? SETTINGS_TABS.startup : null);
+  const hash = sectionId;
   const nextUrl = `${window.location.pathname}${search ? `?${search}` : ""}${hash ? `#${hash}` : ""}`;
   window.history.replaceState(null, "", nextUrl);
 }
 function isKnownHash(hash: string): boolean {
-  return hash === SETTINGS_TABS.startup || INSTANCE_SECTION_IDS.has(hash) || SETTINGS_SECTION_IDS.has(hash);
+  return INSTANCE_SECTION_IDS.has(hash) || SETTINGS_SECTION_IDS.has(hash);
 }
 
 function isSettingsTab(value: string): value is SettingsTab {
-  return value === SETTINGS_TABS.profile || value === SETTINGS_TABS.global || value === SETTINGS_TABS.startup;
+  return value === SETTINGS_TABS.profile || value === SETTINGS_TABS.global;
 }
 
 function resolveTab(hash: string, tabParam = "", sectionParam = ""): SettingsTab {
   if (isKnownHash(hash)) {
-    if (hash === SETTINGS_TABS.startup) return SETTINGS_TABS.startup;
     return INSTANCE_SECTION_IDS.has(hash) ? SETTINGS_TABS.global : SETTINGS_TABS.profile;
   }
 
@@ -52,7 +51,7 @@ function resolveTab(hash: string, tabParam = "", sectionParam = ""): SettingsTab
 }
 
 function resolveSectionId(tab: SettingsTab, hash: string, sectionParam = ""): string | null {
-  if (hash === SETTINGS_TABS.startup || INSTANCE_SECTION_IDS.has(hash)) return null;
+  if (INSTANCE_SECTION_IDS.has(hash)) return null;
   if (SETTINGS_SECTION_IDS.has(hash)) return hash;
   if (tab === SETTINGS_TABS.profile && SETTINGS_SECTION_IDS.has(sectionParam)) return sectionParam;
   return tab === SETTINGS_TABS.profile ? DEFAULT_PROFILE_SECTION_ID : null;
@@ -99,12 +98,6 @@ export function useSettingsPageSectionState() {
 
   const setActiveTab = useCallback((nextTab: SettingsTab) => {
     setActiveTabState(nextTab);
-    if (nextTab === SETTINGS_TABS.startup) {
-      setActiveSectionId(null);
-      setIsAuditConfigurationFocused(false);
-      replaceSettingsLocation(SETTINGS_TABS.startup, null);
-      return;
-    }
     if (nextTab === SETTINGS_TABS.global) {
       setActiveSectionId(null);
       setIsAuditConfigurationFocused(false);

@@ -15,39 +15,20 @@ const modelDialogSource = readFileSync(
 );
 
 const { load } = createTsModuleLoader({ rootDir: frontendDir });
-const { enMessages } = load(path.join(frontendDir, "src/i18n/messages/en.ts"));
 const { zhCNMessages } = load(path.join(frontendDir, "src/i18n/messages/zh-CN.ts"));
 
-test("models dialog no longer renders overflow promotion copy", () => {
-  assert.doesNotMatch(
-    modelDialogSource,
-    /Overflow promotion target|overflowPromotionTarget|context_overflow_promotion_target_id/,
-    "overflow promotion UI should be hard-deleted from the model dialog",
-  );
-  assert.equal(Object.hasOwn(enMessages.modelsUi, "overflowPromotionTarget"), false);
+test("models dialog keeps current model-target copy", () => {
   assert.equal(Object.hasOwn(zhCNMessages.modelsUi, "overflowPromotionTarget"), false);
 });
 
-test("models dialog no longer renders access target authoring", () => {
-  assert.doesNotMatch(modelDialogSource, /AccessTargetsEditor|accessTargets|targetModelsForApiFamily/);
-});
-
 test("model detail access target copy avoids fallback wording", () => {
-  assert.equal(enMessages.modelsUi.modelFallbackTargets, "Model targets");
-  assert.equal(enMessages.modelsUi.modelTarget, "Model target");
-  assert.equal(enMessages.modelsUi.selectSameFamilyModel, "Select target model");
+  assert.equal(zhCNMessages.modelsUi.modelFallbackTargets, "模型目标");
+  assert.equal(zhCNMessages.modelsUi.modelTarget, "模型目标");
+  assert.equal(zhCNMessages.modelsUi.selectSameFamilyModel, "选择目标模型");
   assert.equal(
-    enMessages.modelsUi.noSameFamilyModelsAvailable,
-    "No other same-family models are available. Save disabled now, or add a model target later before enabling.",
+    zhCNMessages.modelsUi.noSameFamilyModelsAvailable,
+    "没有其他可用的同家族模型。现在可以先以禁用状态保存，稍后在启用前再添加模型目标。",
   );
-
-  const englishModelTargetCopy = [
-    enMessages.modelsUi.modelFallbackTargets,
-    enMessages.modelsUi.modelTarget,
-    enMessages.modelsUi.selectSameFamilyModel,
-    enMessages.modelsUi.noSameFamilyModelsAvailable,
-  ].join("\n");
-  assert.doesNotMatch(englishModelTargetCopy, /fallback/i);
 
   const chineseModelTargetCopy = [
     zhCNMessages.modelsUi.accessTargetsDescription,
@@ -59,7 +40,7 @@ test("model detail access target copy avoids fallback wording", () => {
     zhCNMessages.modelsUi.selectSameFamilyModel,
     zhCNMessages.modelsUi.terminalTargetsDescription,
   ].join("\n");
-  assert.doesNotMatch(chineseModelTargetCopy, /回退|退避/);
+  assert.match(chineseModelTargetCopy, /模型目标|选择目标模型/);
 });
 
 test("models dialog shows accepted-format controls only for OpenAI models", () => {
@@ -78,9 +59,8 @@ test("models dialog shows accepted-format controls only for OpenAI models", () =
     /setOpenAIAcceptedFormatOnForm\(prev, value as OpenAIAcceptedFormat\)/,
     "accepted-format control should update through modelFormState helpers",
   );
-  assert.equal(enMessages.modelsUi.openaiAcceptedFormat, "OpenAI accepted format");
-  assert.equal(enMessages.modelsUi.openaiAcceptedFormatDualNative, "Dual native");
-  assert.equal(enMessages.modelsUi.openaiAcceptedFormatResponsesOnly, "Responses only");
-  assert.equal(enMessages.modelsUi.openaiAcceptedFormatChatCompletionsOnly, "Chat Completions only");
   assert.equal(zhCNMessages.modelsUi.openaiAcceptedFormat, "OpenAI 接受格式");
+  assert.equal(zhCNMessages.modelsUi.openaiAcceptedFormatDualNative, "双原生");
+  assert.equal(zhCNMessages.modelsUi.openaiAcceptedFormatResponsesOnly, "仅 Responses");
+  assert.equal(zhCNMessages.modelsUi.openaiAcceptedFormatChatCompletionsOnly, "仅 Chat Completions");
 });

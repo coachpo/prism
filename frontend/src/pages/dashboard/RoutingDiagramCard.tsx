@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Field,
@@ -14,9 +14,9 @@ import {
   getRoutingDiagramEmptyState,
   getRoutingDiagramGraph,
   getRoutingDiagramMobileData,
-  RoutingDiagramFlow,
   RoutingDiagramMobileList,
   type RoutingDiagramData,
+  type RoutingDiagramGraphNode,
   type RoutingDiagramNode,
 } from "./routingDiagram";
 import { useLocale } from "@/i18n/useLocale";
@@ -40,45 +40,8 @@ export function RoutingDiagramCard({
   onDrillDownRequests,
 }: RoutingDiagramCardProps) {
   const { messages } = useLocale();
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const [containerWidth, setContainerWidth] = useState(0);
   const [hiddenModelIds, setHiddenModelIds] = useState<ReadonlySet<string>>(() => new Set());
-  const [viewportHeight, setViewportHeight] = useState(() =>
-    typeof window === "undefined" ? 0 : window.innerHeight,
-  );
-
-  useLayoutEffect(() => {
-    const element = containerRef.current;
-    if (!element) {
-      return;
-    }
-
-    const updateMeasurements = () => {
-      setContainerWidth(element.getBoundingClientRect().width);
-      setViewportHeight(window.innerHeight);
-    };
-
-    updateMeasurements();
-    window.addEventListener("resize", updateMeasurements);
-
-    if (typeof ResizeObserver === "undefined") {
-      return () => window.removeEventListener("resize", updateMeasurements);
-    }
-
-    const observer = new ResizeObserver(() => {
-      updateMeasurements();
-    });
-
-    observer.observe(element);
-    return () => {
-      window.removeEventListener("resize", updateMeasurements);
-      observer.disconnect();
-    };
-  }, []);
-
-  const hasMeasuredContainer = containerWidth > 0;
-  const isCompact = hasMeasuredContainer && containerWidth < 640;
-  const chartHeight = isCompact ? 320 : Math.max(760, viewportHeight - 120);
+  const [inspectedNodeId, setInspectedNodeId] = useState<string | null>(null);
 
   const graphData = useMemo(() => {
     return data ? getRoutingDiagramGraph(data) : { nodes: [], edges: [] };
@@ -109,6 +72,10 @@ export function RoutingDiagramCard({
   const mobileData = useMemo(() => {
     return getRoutingDiagramMobileData(filteredGraphData);
   }, [filteredGraphData]);
+
+  const inspectedNode = useMemo(() => {
+    return filteredGraphData.nodes.find((node) => node.id === inspectedNodeId) ?? null;
+  }, [filteredGraphData.nodes, inspectedNodeId]);
 
   const modelFilterActive = selectedModelIds.size < modelFilterOptions.length;
 
@@ -200,42 +167,34 @@ export function RoutingDiagramCard({
     [onDrillDownRequests, onSelectModel],
   );
 
+  const inspectNode = useCallback((node: RoutingDiagramGraphNode) => {
+    setInspectedNodeId(node.id);
+  }, []);
+
   return (
-    <div ref={containerRef}>
-      <RoutingDiagramShell
-        chartContent={
-          data && hasChartContent ? (
-            isCompact ? (
-              <RoutingDiagramMobileList mobileData={mobileData} onActivateNode={activateNode} />
-            ) : hasMeasuredContainer ? (
-              <RoutingDiagramFlow
-                graphData={filteredGraphData}
-                chartHeight={chartHeight}
-                onActivateNode={activateNode}
-              />
-            ) : (
-              <div
-                data-testid="routing-diagram-desktop-pending"
-                className="w-full rounded-xl border border-outline-variant bg-surface"
-                style={{ height: chartHeight }}
-                aria-hidden="true"
-              />
-            )
-          ) : null
-        }
-        emptyState={
-          emptyState
-            ? {
-                description: emptyState.description,
-                title: emptyState.title,
-              }
-            : undefined
-        }
-        error={error}
-        headerContent={headerContent}
-        loading={loading}
-      />
-    </div>
+    <RoutingDiagramShell
+      chartContent={
+        data && hasChartContent ? (
+          <RoutingDiagramMobileList
+            inspectedNode={inspectedNode}
+            mobileData={mobileData}
+            onActivateNode={activateNode}
+            onInspectNode={inspectNode}
+          />
+        ) : null
+      }
+      emptyState={
+        emptyState
+          ? {
+              description: emptyState.description,
+              title: emptyState.title,
+            }
+          : undefined
+      }
+      error={error}
+      headerContent={headerContent}
+      loading={loading}
+    />
   );
 }
 

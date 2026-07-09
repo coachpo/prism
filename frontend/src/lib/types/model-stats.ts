@@ -389,7 +389,7 @@ export interface StatsSummary {
   groups: StatGroup[];
 }
 
-export type RequestStatusFamily = "4xx" | "5xx";
+export type RequestStatusFamily = "2xx" | "4xx" | "5xx";
 
 export const STATS_FROM_TIME_PARAM = "from_time" as const;
 export const STATS_TO_TIME_PARAM = "to_time" as const;
@@ -400,6 +400,10 @@ export interface StatsRequestParams {
   client_rule_id?: number;
   resolved_target_model_id?: string;
   status_family?: RequestStatusFamily;
+  status_code?: number;
+  error_text?: string;
+  priced?: boolean;
+  unpriced_reason?: string;
   from_time?: string;
   endpoint_id?: number;
   limit?: number;
@@ -622,7 +626,6 @@ export interface DashboardTopologyNode {
   connection_id?: number | null;
   endpoint_id?: number | null;
   active?: boolean | null;
-  health_status?: string | null;
   recent_request_count?: number | null;
   recent_success_rate?: number | null;
   last_request_at?: string | null;
@@ -752,23 +755,6 @@ export interface DashboardRecentActivityResponse {
 export interface DashboardRecentActivityParams {
   limit?: number;
 }
-
-export interface DashboardRealtimeSnapshotPayload {
-  type: "dashboard.snapshot";
-  profile_id: number;
-  snapshot: DashboardSnapshot;
-}
-
-export interface DashboardRealtimeActivityPayload {
-  type: "dashboard.activity";
-  profile_id: number;
-  activity_watermark: DashboardRecentActivityWatermark;
-  activity: DashboardRecentActivityItem;
-}
-
-export type DashboardRealtimePayload =
-  | DashboardRealtimeSnapshotPayload
-  | DashboardRealtimeActivityPayload;
 
 export interface EndpointModelsBatchParams {
   endpoint_ids: number[];

@@ -210,12 +210,7 @@ func (s Service) seedAppAuthSettings(ctx context.Context, conn *pgx.Conn) error 
 				singleton_key,
 				auth_enabled,
 				username,
-				email,
-				pending_email,
 				password_hash,
-				email_bound_at,
-				email_verification_code_hash,
-				email_verification_expires_at,
 				email_verification_attempt_count,
 				must_change_password,
 				last_login_at,
@@ -223,15 +218,10 @@ func (s Service) seedAppAuthSettings(ctx context.Context, conn *pgx.Conn) error 
 				created_at,
 				updated_at
 			) VALUES (
-				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10
 			)`,
 			AppAuthSingletonKey,
 			false,
-			nil,
-			nil,
-			nil,
-			nil,
-			nil,
 			nil,
 			nil,
 			0,

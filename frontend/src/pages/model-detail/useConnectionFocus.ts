@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import type { SetURLSearchParams } from "react-router-dom";
 import type { ModelConfig } from "@/lib/types";
+
+type SetURLSearchParams = (next: URLSearchParams, options?: { replace?: boolean }) => void;
 
 interface UseConnectionFocusInput {
   model: ModelConfig | null;

@@ -1,6 +1,7 @@
 package loadbalance
 
 import (
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -152,29 +153,43 @@ func (s *LocalRuntimeStateStore) SnapshotCurrentState(profileID int, modelConfig
 	for _, state := range states {
 		state.mu.Lock()
 		state.refreshAvailabilityLocked(nowAt)
-		snapshot := state.snapshotLocked()
-		item := CurrentStateItem{
-			ConnectionID:            snapshot.ConnectionID,
-			WindowStartedAt:         cloneTimePointer(snapshot.WindowStartedAt),
-			WindowRequestCount:      snapshot.WindowRequestCount,
-			InFlightNonStream:       snapshot.InFlightNonStream,
-			InFlightStream:          snapshot.InFlightStream,
-			CycleRetryAttempts:      snapshot.CycleRetryAttempts,
-			CumulativeRetryAttempts: snapshot.CumulativeRetryAttempts,
-			NextRetryAt:             cloneTimePointer(snapshot.NextRetryAt),
-			LastRetryDelayMS:        snapshot.LastRetryDelayMS,
-			BanMode:                 snapshot.BanMode,
-			BannedUntilAt:           cloneTimePointer(snapshot.BannedUntilAt),
-			LastFailureKind:         cloneStringPointer(snapshot.LastFailureKind),
-			LastSuccessAt:           cloneTimePointer(snapshot.LastSuccessAt),
-			LiveP95LatencyMS:        cloneIntPointer(snapshot.LiveP95LatencyMS),
-			State:                   deriveCurrentState(snapshot.BanMode, snapshot.BannedUntilAt, snapshot.NextRetryAt, nowAt),
-			CreatedAt:               state.createdAt.UTC(),
-			UpdatedAt:               state.updatedAt.UTC(),
-		}
+		item := currentStateItemFromLocalStateLocked(state, nowAt)
 		state.mu.Unlock()
 		items = append(items, item)
 	}
+	return items
+}
+
+func (s *LocalRuntimeStateStore) SnapshotActiveBans(profileID int, referenceNow time.Time) []CurrentStateItem {
+	if s == nil || profileID <= 0 {
+		return []CurrentStateItem{}
+	}
+	profile, ok := s.lookupProfile(profileID)
+	if !ok {
+		return []CurrentStateItem{}
+	}
+	profile.mu.RLock()
+	states := make([]*localRuntimeConnectionState, 0, len(profile.connections))
+	for _, state := range profile.connections {
+		if state != nil {
+			states = append(states, state)
+		}
+	}
+	profile.mu.RUnlock()
+
+	nowAt := referenceNow.UTC()
+	items := make([]CurrentStateItem, 0, len(states))
+	for _, state := range states {
+		state.mu.Lock()
+		item := currentStateItemFromLocalStateLocked(state, nowAt)
+		state.mu.Unlock()
+		if (item.BannedUntilAt != nil && item.BannedUntilAt.After(nowAt)) || strings.EqualFold(strings.TrimSpace(item.BanMode), "until_reset") {
+			items = append(items, item)
+		}
+	}
+	sort.Slice(items, func(left, right int) bool {
+		return items[left].ConnectionID < items[right].ConnectionID
+	})
 	return items
 }
 
@@ -516,6 +531,29 @@ func (s *LocalRuntimeStateStore) recordRuntimeFailure(profileID int, modelConfig
 
 func (state *localRuntimeConnectionState) snapshotLocked() RuntimeConnectionState {
 	return cloneRuntimeConnectionState(state.state)
+}
+
+func currentStateItemFromLocalStateLocked(state *localRuntimeConnectionState, nowAt time.Time) CurrentStateItem {
+	snapshot := state.snapshotLocked()
+	return CurrentStateItem{
+		ConnectionID:            snapshot.ConnectionID,
+		WindowStartedAt:         cloneTimePointer(snapshot.WindowStartedAt),
+		WindowRequestCount:      snapshot.WindowRequestCount,
+		InFlightNonStream:       snapshot.InFlightNonStream,
+		InFlightStream:          snapshot.InFlightStream,
+		CycleRetryAttempts:      snapshot.CycleRetryAttempts,
+		CumulativeRetryAttempts: snapshot.CumulativeRetryAttempts,
+		NextRetryAt:             cloneTimePointer(snapshot.NextRetryAt),
+		LastRetryDelayMS:        snapshot.LastRetryDelayMS,
+		BanMode:                 snapshot.BanMode,
+		BannedUntilAt:           cloneTimePointer(snapshot.BannedUntilAt),
+		LastFailureKind:         cloneStringPointer(snapshot.LastFailureKind),
+		LastSuccessAt:           cloneTimePointer(snapshot.LastSuccessAt),
+		LiveP95LatencyMS:        cloneIntPointer(snapshot.LiveP95LatencyMS),
+		State:                   deriveCurrentState(snapshot.BanMode, snapshot.BannedUntilAt, snapshot.NextRetryAt, nowAt),
+		CreatedAt:               state.createdAt.UTC(),
+		UpdatedAt:               state.updatedAt.UTC(),
+	}
 }
 
 func (state *localRuntimeConnectionState) admissionRejectionReasonLocked(admission RuntimeConnectionAdmission, policy runtimeAdmissionPolicy, isStreaming bool, referenceNow time.Time) string {

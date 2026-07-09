@@ -13,13 +13,12 @@ export function useLocale() {
     throw new Error("useLocale must be used within a LocaleProvider");
   }
 
-  const { locale, messages, setLocale } = context;
+  const { locale, messages } = context;
 
   return useMemo(
     () => ({
       locale,
       messages,
-      setLocale,
       formatCompactNumber: (value: number) => formatCompactNumber(value, locale),
       formatNumber: (value: number, options?: Intl.NumberFormatOptions) =>
         formatNumber(value, locale, options),
@@ -31,6 +30,6 @@ export function useLocale() {
         options?: Intl.DateTimeFormatOptions,
       ) => formatTimestampForLocale(locale, timezone, isoString, options),
     }),
-    [locale, messages, setLocale],
+    [locale, messages],
   );
 }

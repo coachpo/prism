@@ -10,9 +10,24 @@ const __dirname = path.dirname(__filename);
 const frontendDir = path.resolve(__dirname, "../..");
 
 const { load } = createTsModuleLoader({ rootDir: frontendDir });
-const { parsePageState, stateToParams } = load(
+const { DEFAULTS, parsePageState, stateToParams } = load(
   path.join(frontendDir, "src/pages/request-logs/queryParams.ts"),
 );
+test("request-log filter state defaults to 24h and preserves exact status/error filters", () => {
+  assert.equal(DEFAULTS.time_range, "24h");
+
+  const state = parsePageState(new URLSearchParams("status=success&status_code=429&error_text=timeout"));
+
+  assert.equal(state.status_family, "2xx");
+  assert.equal(state.status_code, "429");
+  assert.equal(state.error_text, "timeout");
+
+  const params = stateToParams(state);
+  assert.equal(params.get("status"), "success");
+  assert.equal(params.get("status_code"), "429");
+  assert.equal(params.get("error_text"), "timeout");
+  assert.equal(params.has("time_range"), false);
+});
 test("request-log filter state round-trips caller client and final target model params", () => {
   const state = parsePageState(
     new URLSearchParams(
@@ -32,6 +47,16 @@ test("request-log filter state round-trips caller client and final target model 
   assert.equal(params.get("selected_request_id"), "202");
   assert.equal(params.has("clientRuleId"), false);
 });
+test("request-log filter state round-trips pricing filters", () => {
+  const state = parsePageState(new URLSearchParams("priced=false&unpriced_reason=MISSING_PRICE_DATA"));
+
+  assert.equal(state.priced, "false");
+  assert.equal(state.unpriced_reason, "MISSING_PRICE_DATA");
+
+  const params = stateToParams(state);
+  assert.equal(params.get("priced"), "false");
+  assert.equal(params.get("unpriced_reason"), "MISSING_PRICE_DATA");
+});
 test("request-log filter state omits empty browse filters but keeps exact anchors", () => {
   const params = stateToParams({
     ingress_request_id: "",
@@ -39,7 +64,11 @@ test("request-log filter state omits empty browse filters but keeps exact anchor
     endpoint_id: "",
     client_rule_id: "",
     resolved_target_model_id: "",
-    time_range: "1h",
+    status_code: "",
+    error_text: "",
+    priced: "all",
+    unpriced_reason: "",
+    time_range: "24h",
     status_family: "all",
     limit: 100,
     offset: 0,

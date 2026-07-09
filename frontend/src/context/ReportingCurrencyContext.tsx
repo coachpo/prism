@@ -8,7 +8,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useProfileContext } from "@/context/ProfileContext";
 import {
   DEFAULT_REPORTING_CURRENCY_STATE,
   getReportingCurrencyState,
@@ -35,13 +34,7 @@ interface ReportingCurrencyContextValue {
 
 const ReportingCurrencyContext = createContext<ReportingCurrencyContextValue | undefined>(undefined);
 
-function buildReportingCurrencyCacheKey(selectedProfileId: number | null) {
-  if (selectedProfileId === null) {
-    return null;
-  }
-
-  return `profile:${selectedProfileId}`;
-}
+const pinnedReportingCurrencyCacheKey = "profile:1";
 
 export function ReportingCurrencyProvider({
   children,
@@ -50,11 +43,7 @@ export function ReportingCurrencyProvider({
   children: ReactNode;
   fallback?: ReactNode;
 }) {
-  const { selectedProfileId } = useProfileContext();
-  const cacheKey = useMemo(
-    () => buildReportingCurrencyCacheKey(selectedProfileId),
-    [selectedProfileId],
-  );
+  const cacheKey = pinnedReportingCurrencyCacheKey;
   const requestIdRef = useRef(0);
   const [readyCacheKey, setReadyCacheKey] = useState<string | null>(null);
   const [currencyState, setCurrencyState] = useState<ReportingCurrencyState>(

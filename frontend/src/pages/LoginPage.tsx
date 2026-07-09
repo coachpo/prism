@@ -1,5 +1,5 @@
 import { useState, type ComponentProps } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate, useSearch } from "@tanstack/react-router";
 import { toast } from "sonner";
 
 import { AuthPageShell } from "@/pages/AuthPageShell";
@@ -14,9 +14,16 @@ import type { LoginSessionDuration } from "@/lib/types";
 
 type LoginFormSubmitEvent = Parameters<NonNullable<ComponentProps<"form">["onSubmit"]>>[0];
 
+function resolveLoginRedirect(redirect: string | undefined): string {
+  if (redirect?.startsWith("/") && !redirect.startsWith("//")) {
+    return redirect;
+  }
+  return "/observe";
+}
+
 export function LoginPage() {
   const navigate = useNavigate();
-  const location = useLocation();
+  const search = useSearch({ from: "/auth/login" });
   const { authEnabled, authenticated, loading, login } = useAuth();
   const { locale, messages } = useLocale();
   const [username, setUsername] = useState("");
@@ -25,32 +32,19 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   if (!loading && !authEnabled) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/observe" replace />;
   }
 
   if (!loading && authenticated) {
-    const fromLocation = (location.state as {
-      from?: { pathname?: string; search?: string; hash?: string };
-    } | null)?.from;
-    const nextPath = fromLocation
-      ? `${fromLocation.pathname ?? ""}${fromLocation.search ?? ""}${fromLocation.hash ?? ""}`
-      : null;
-    return <Navigate to={nextPath || "/dashboard"} replace />;
+    return <Navigate to={resolveLoginRedirect(search.redirect)} replace />;
   }
 
   const handleSubmit = async (event: LoginFormSubmitEvent) => {
     event.preventDefault();
     setSubmitting(true);
     try {
-      const fromLocation = (location.state as {
-        from?: { pathname?: string; search?: string; hash?: string };
-      } | null)?.from;
-      const nextPath = fromLocation
-        ? `${fromLocation.pathname ?? ""}${fromLocation.search ?? ""}${fromLocation.hash ?? ""}`
-        : null;
-
       await login(username.trim(), password, sessionDuration);
-      navigate(nextPath || "/dashboard", { replace: true });
+      await navigate({ to: resolveLoginRedirect(search.redirect), replace: true });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : messages.auth.loginFailed);
     } finally {
@@ -108,24 +102,14 @@ export function LoginPage() {
             </Select>
           </Field>
 
-          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <Button
-              type="button"
-              variant="link"
-              className="justify-start px-0 text-muted-foreground hover:text-foreground"
-              onClick={() => navigate("/forgot-password")}
-            >
-              {messages.auth.forgotPasswordQuestion}
-            </Button>
-            <Button
-              type="submit"
-              className="min-w-28"
-              disabled={submitting || loading}
-            >
-              {submitting ? <Spinner data-icon="inline-start" /> : null}
-              {submitting ? messages.auth.signingIn : messages.auth.signIn}
-            </Button>
-          </div>
+          <Button
+            type="submit"
+            className="min-w-28 self-end"
+            disabled={submitting || loading}
+          >
+            {submitting ? <Spinner data-icon="inline-start" /> : null}
+            {submitting ? messages.auth.signingIn : messages.auth.signIn}
+          </Button>
         </FieldGroup>
       </form>
     </AuthPageShell>

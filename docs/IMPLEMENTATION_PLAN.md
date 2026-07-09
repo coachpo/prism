@@ -18,7 +18,7 @@
 - **G2 启动配置 schema 只加不减：** 现网 `config.json` 包含 `mail`、`telemetry`、`stateTransfer.bundleEncryptionKey`、`database.pools.realtime` 等字段，且 bootstrap 解析**拒绝未知字段**。任何功能移除都**保留对应字段的解析**（parsed-but-unused，加 `// ponytail:` 注释标记），只删除消费行为。删字段 = 现网重启失败。
 - **G3 i18n 机制：** `frontend/src/i18n/messages/en.ts` 同时承载 `Messages` 类型块（约 1300–1900 行）与英文值块（约 3200 行起）；`zh-CN.ts:1` 从它导入类型。**任何 key 增删都是 3 处编辑**：en.ts 类型 + en.ts 值 + zh-CN.ts 值。删 key 时 en.ts 先行，否则 `pnpm run build`（tsc）报错。
 - **G4 路由契约：** 管理路由的增删必须与 `backend/internal/platform/http/management_route_contract.json` 同一提交修改；守卫测试为 `backend/internal/platform/http/server_test.go:460` 与 `backend/tests/contract/s11_management_contract_test.go:261`（两者运行时重读该 JSON）。
-- **G5 文档同 PR：** 每个任务同 PR 更新 `docs/API_SPEC.md`（及涉及的 ARCHITECTURE/DATA_MODEL）与被改动包的 AGENTS.md。`.omo/` 已废弃（P0-1 清理引用），一切计划/文档写 `docs/`。
+- **G5 文档同 PR：** 每个任务同 PR 更新 `docs/API_SPEC.md`（及涉及的 ARCHITECTURE/DATA_MODEL）与被改动包的 AGENTS.md。废弃的旧隐藏计划目录引用已清理，一切计划/文档写 `docs/`。
 - **G6 标准验证（下文各任务以「标准验证」指代）：**
 
   ```bash
@@ -60,14 +60,14 @@
 
 # 阶段 P0：半天快赢
 
-### Task 1: T7 — 文档修复（.omo 引用 + ARCHITECTURE 图）
+### Task 1: T7 — 文档修复（废弃目录引用 + ARCHITECTURE 图）
 
 **Files:**
-- Modify: `AGENTS.md`（根，:5,:16,:33,:52,:75,:90,:120 共 7 处 `.omo/` 引用）
+- Modify: `AGENTS.md`（根，:5,:16,:33,:52,:75,:90,:120 共 7 处废弃目录引用）
 - Modify: `docs/AGENTS.md`（:4,:23,:24,:41,:58 共 5 处）
 - Modify: `docs/ARCHITECTURE.md:5-22`（错乱的 ASCII 图）
 
-- [ ] **Step 1：** 删除/改写根 `AGENTS.md` 与 `docs/AGENTS.md` 的全部 12 处 `.omo/` 引用。改写口径：活动计划与长期文档一律放 `docs/`；不要创建 `.omo/` 目录（owner 已确认该目录废弃）。
+- [ ] **Step 1：** 删除/改写根 `AGENTS.md` 与 `docs/AGENTS.md` 的全部 12 处废弃目录引用。改写口径：活动计划与长期文档一律放 `docs/`；不要创建旧隐藏计划目录（owner 已确认该目录废弃）。
 - [ ] **Step 2：** 将 `docs/ARCHITECTURE.md:5-22` 整块 ASCII 图替换为一行文字（保留 :24 的脚注）：
 
   ```
@@ -75,8 +75,8 @@
   ```
 
   同文件 :64-65 提到 `BrowserRouter` 与 legacy redirects 的两行归 T2/T3 的 PR 管，此处不动。
-- [ ] **Step 3：** 验证：`rg -n "\.omo" AGENTS.md docs/` → 0 命中。
-- [ ] **Step 4：** 提交：`git commit -m "docs: remove stale .omo references and fix architecture diagram"`
+- [ ] **Step 3：** 验证：`rg -n "\\.[o]mo" AGENTS.md docs/` → 0 命中。
+- [ ] **Step 4：** 提交：`git commit -m "docs: remove stale .o""mo references and fix architecture diagram"`
 
 ### Task 2: E4a — 接通死参数 `to_time`
 
@@ -178,16 +178,16 @@
   - `production.go`：:18 import、:196 结构体字段、:367-372 构造/注册块，及 `services.configBundle` 的所有拷贝点（文件内搜 `configBundle`）。
   - `server_test.go`：:21 import、:403 构造实参；`management_body_limits_test.go`：:15、:96 及 bundle 路由用例。
   - `management_body_limits.go:50-51` 的 `ConfigBundleRequestBodyLimitBytes` 分支；`bodylimits/body_limits.go:15` 常量。
-  - 措辞修订（代码保留）：`providercompat/doc.go:5,9`、`domain/modelrouting/doc.go:5` 中提及 configbundle 的注释。
+  - 措辞修订（代码保留）：`providerauth/doc.go:5,9`、`domain/modelrouting/doc.go:5` 中提及 configbundle 的注释。
 - [ ] **Step 3：** 前端接线：`useSettingsPageData.ts` :12/:28/:80 三处、`SettingsProfileTab.tsx` :5/:35-53、`settingsPageHelpers.ts:21` 的 `{ id: "backup" }`、`lib/api/observability.ts:163-179` 的四个 bundle 客户端方法、`lib/types/config-audit-settings.ts` 只删 bundle 四类型（audit-settings 类型保留）、`package.json` 删 `test:config` 脚本（:18）——若 Task 5 已 glob 化 test:lib 则无清单可改，直接 `git rm` 两个 lib 测试文件即可。
-- [ ] **Step 4：** 路由契约：`management_route_contract.json:54-57` 删 4 行（`/api/config/profile/export`、`export/with-secrets`、`import/preview`、`import`）。同提交，G4 的守卫测试自愈。
+- [ ] **Step 4：** 路由契约：`management_route_contract.json:54-57` 删 4 条配置包导出/导入路由。同提交，G4 的守卫测试自愈。
 - [ ] **Step 5：** i18n（G3，en.ts 类型+值、zh-CN 值三处齐删）：`backup`（en :362/:2290，zh :366）、`settingsBackup`（en :881/:2815，zh :885）、`settingsBackupData` + `settingsBackupValidation`（en :930/:941 + 值块，zh :934/:945）。**注意** `backupCapable`/`backupReady`（en :757-758/:2688-2689）属另一命名空间，先 `rg -l 'backupCapable|backupReady' frontend/src` 确认消费者再决定。
 - [ ] **Step 6：** 文档同 PR：`docs/API_SPEC.md`（:778-960 四个端点段 + :15-16 scoping 列表）、`docs/WORKFLOWS.md:230-249,273`、`docs/ARCHITECTURE.md:223,235`、`docs/DATA_MODEL.md`（:3,:326,:328,:381-382,:449,:709,:1122-1124 的 "version: 3 bundle" 表述）、`docs/PRD.md:226`、根 `README.md:26,270`、`frontend/README.md:16`，以及涉及的各 AGENTS.md（management、httpapi、backend、根、frontend lib/api/settings/sections、tests、docs）。README 处补一句替代方案：灾备用 `pg_dump`。
 - [ ] **Step 7：** 验证：
 
   ```bash
   rg -il configbundle backend/ frontend/src frontend/tests docs/API_SPEC.md docs/DATA_MODEL.md docs/ARCHITECTURE.md README.md   # 0 命中（DEVELOPMENT_DIRECTION.md 历史除外）
-  rg -l "config/profile/export|config/profile/import" backend frontend docs README.md                                            # 0 命中
+  rg -l "config/profile/(export|import)" backend frontend docs README.md                                                        # 0 命中
   ```
 
   标准验证全绿；契约 JSON 从 62 行降到 58。
@@ -198,7 +198,7 @@
 **前置：R1 已合入**（共享 `management_branch.go`/`dependencies.go`/`production.go`/`server_test.go`/`management_body_limits*`）。
 
 **Files:**
-- Delete: `backend/internal/httpapi/management/bootstrapconfig/`（3 文件整目录）；`backend/tests/contract/bootstrap_config_contract_test.go`；`backend/tests/integration/bootstrap_config_test.go`；`backend/internal/platform/config/bootstrap_management_test.go`；`frontend/src/features/settings/startup/`（8 文件整目录）；`frontend/src/lib/types/bootstrap-config.ts`；`frontend/tests/e2e/settings-startup-tab.spec.ts`；`frontend/tests/lib/bootstrap_config_contract.test.mjs`
+- Delete: `backend/internal/httpapi/management/bootstrapconfig/`（3 文件整目录）；`backend/tests/contract/bootstrap_config_contract_test.go`；`backend/tests/integration/bootstrap_config_test.go`；`backend/internal/platform/config/bootstrap_management_test.go`；`frontend/src/features/settings/startup/`（8 文件整目录）；`frontend/src/lib/types/bootstrap-config.ts`；`frontend/tests/e2e/settings-startup-tab.spec.ts`（已于测试精简批次 1 提前完成）；`frontend/tests/lib/bootstrap_config_contract.test.mjs`
 - Modify: 见下（核心是 `platform/config/` 的 KEEP/DELETE 切分）
 
 **Interfaces（KEEP，运行时内核）：** `config.go` 全部 Settings 解析；`bootstrap.go` 的加载路径——`NewBootstrapConfigManager`(:443)、`Load`(:447)、`LoadFromEnv`(:459)、`LoadOrSeed`(:467)、`LoadOrSeedFromEnv`(:492)、`LoadBootstrapConfigDocument`(:500)、`Parse`(:611)、`WriteAtomically`(:619)、`WriteAtomicallyIfAbsent`(:641)、`seedPayloadFromDefaults`(:1722)、`BootstrapConfigSnapshot`；`bootstrap_apply.go` 的分类核心——`BootstrapConfigHotApplyRuntime` 接口(:39)、字段注册表(:140-293)、`BootstrapConfigFieldDiff`；整个 `platform/http/hot_bootstrap_runtime.go`（它是全部管理服务的 CORS/admission provider；其 `Publish()`(:64) 失去唯一调用者——留 `// ponytail:` 注释，后续再修剪）。
@@ -251,7 +251,7 @@
   ```
 
   FK 安全已核实：四表的 FK 全部**向外**指向存活的 `app_auth_settings`，无表引用它们，无需 CASCADE。`migrations_test.go` 的已应用清单加 000008。**顺序红线：迁移不得先于停止写入 `email_outbox` 的代码合入。**
-- [ ] **Step 6（测试裁剪）：** `auth_control_plane_test.go`（2,000 行）删 password-reset/email-verification/mail 用例，保留 login/logout/refresh/throttle/proxy-key；`scheduler_ownership_test.go` 删 email-outbox worker 归属断言。
+- [ ] **Step 6（测试裁剪）：** ⚠️ contract 套件的 `TestMain` 与共享 harness 住在 `auth_control_plane_test.go`（:45,:123,:1143）——**先把 harness 抽到 `tests/contract/harness_test.go`**，再对该文件（2,000 行）删 password-reset/email-verification/mail 用例，保留 login/logout/refresh/throttle/proxy-key；`scheduler_ownership_test.go` 删 email-outbox worker 归属断言。
 - [ ] **Step 7（i18n + 文档）：** 按 G3 删 key 组：forgot/reset（en 类型 :8-11,:20-23、值 :1916-1929）、passkey/WebAuthn 全部（含 `settingsPasskeysData` 整块 :820）、email-verification（:766-767）、recoveryEmail（:784-787），zh-CN 镜像。文档：`API_SPEC.md` 删 mail 段 :80-101,:171-198,:227 与热应用注册表中 `auth.reset_code_ttl_seconds`/`mail.*` 行、删 password-reset/email-verification 端点段；`DATA_MODEL.md` 删四表章节；README mail 段；相关 AGENTS.md。**路由契约无需改**（`/api/auth/*` 不在契约 JSON；现存的 auth PUT 与 3 条 proxy-key 行全部存活）。
 - [ ] **Step 8：** 验证：
 
@@ -269,15 +269,16 @@
 **前置：R3 已合入。策略：冻结不挖列**——所有 `profile_id` 列/FK/索引原样保留，解冻路径就是两处 `ponytail:` 注释。
 
 **Files:**
-- Delete: `backend/internal/httpapi/management/profiles/`（整包）；前端 `ProfileSwitcher.tsx`、`ProfileDialogs.tsx`、`useProfileSwitcherState.ts`、`useProfileDialogState.ts`、`navigationProfileConfig.ts`、`context/ProfileContext.tsx`、`context/profile/` 整目录、`frontend/tests/lib/profile_selection_contract.test.mjs`、`frontend/tests/e2e/profile-scope-bootstrap.spec.ts`、`profile-scope-route-headers.spec.ts`
-- Modify: 钉点 + 接线见下；`backend/tests/runtime/profile_scope_test.go`（3,571 行**替换为一个钉死回归**，保留文件名）
+- Delete: `backend/internal/httpapi/management/profiles/`（整包）；前端 `ProfileSwitcher.tsx`、`ProfileDialogs.tsx`、`useProfileSwitcherState.ts`、`useProfileDialogState.ts`、`navigationProfileConfig.ts`、`context/ProfileContext.tsx`、`context/profile/` 整目录、`frontend/tests/lib/profile_selection_contract.test.mjs`、`frontend/tests/e2e/profile-scope-bootstrap.spec.ts`（已于测试精简批次 1 提前完成）、`profile-scope-route-headers.spec.ts`（已于测试精简批次 1 提前完成）
+- Modify: 钉点 + 接线见下；`backend/tests/runtime/profile_scope_test.go`（**先抽 harness 再裁剪**，见 Step 4——不可直接替换全文）
+- Delete: `backend/tests/contract/profile_scope_test.go`（481 行，`/api/profiles` CRUD/activate 契约 :29-172——路由随本任务消失；其"scope header 接受但钉死"的价值并入 Step 4 的新回归）
 - **KEEP：** `backend/internal/profiledomain/` 整包（钉点所在 + `startup/profiles.go` 靠它保证 Default 存在）；`frontend/tests/lib/profile_scope_header_contract.test.mjs`（配合前端"继续发 header"的懒方案，原样存活）
 
 - [ ] **Step 0（预检，风险 #4）：** `rg -n 'bootstrap' frontend/src/context/profile/bootstrap.ts` 查看 `api.profiles.bootstrap()` 返回物——若只有档案列表+active id，前端替换即硬编码 `{id: 1}`；若喂了别的壳层启动数据，先安排替代来源再动手。
 - [ ] **Step 1（THE 钉点）：** `backend/internal/profiledomain/scope.go:11` 的 `ResolveEffectiveProfile` **签名不变**，函数体替换为忽略 `rawHeader`、`return LoadNonDeletedProfile(ctx, exec, 1)`（错误映射沿用现有 not-found）。签名不变 ⇒ 全部 12 个调用点零改动。注释：`// ponytail: pinned to Default profile id=1; unfreeze by restoring header parsing`。
 - [ ] **Step 2：** 后端接线：`management_branch.go:47` 去 `profilesService` 形参、删 :76-78 mount 与 import；`production.go` 删构造与实参；`runtime_cache_invalidation.go` 删 `invalidates_active_profile` 死分支。
 - [ ] **Step 3：** 前端懒方案：`lib/api/core.ts:13-14` 删 `setApiProfileId`，`currentProfileId` 改 const `= 1`（:77 的 `headers["X-Profile-Id"]` 继续无条件发 `1`，后端反正忽略），注释 `// ponytail: profile pinned to Default(1)`；`lib/api/management.ts` 删 `api.profiles` 客户端段；`appRouter.tsx:18` 去 `ProfileProvider` 包装；`AppSidebar.tsx`/`useAppLayoutState.ts`/`useShellNavigation.ts` 去 ProfileSwitcher 渲染与状态钩子（锚点用 `rg -n 'ProfileSwitcher|useProfileSwitcherState|ProfileDialogs' frontend/src/components/layout`）。收尾横扫：`rg -l 'ProfileContext|useProfile|setApiProfileId|activateProfile' frontend/src` 每一处都必须被编辑或删除。
-- [ ] **Step 4（新钉死回归，替换 profile_scope_test.go 全文）：** 一个测试：对任一 profile-scoped 管理路由分别带 `X-Profile-Id: 999` 与不带 header 请求，断言都成功且读写落在 `profile_id = 1`。**这个测试的存在就是防止有人把冻结"修"回去。**
+- [ ] **Step 4（profile_scope_test.go：先抽 harness、再迁移、最后裁剪——⚠️ 直接替换全文会弄断整个 runtime 套件）：** 该文件里住着 runtime 套件的 `TestMain`(:150)、~1,290 行共享 harness（:43-165,:2184-3428）与 ~1,860 行仍有效的负载均衡/封禁/租约测试（:502-2183,:3172-3253）。顺序：(a) harness 连同 `TestMain`、`startSharedPostgresHarness`、docker helper(:3525-3542) 抽到新文件 `runtime_harness_test.go`；(b) LB/封禁/租约测试迁往 `proxy_selector_test.go` 或新领域文件；(c) 把 ~420 行真正的 scope 测试（:166-501）缩成一个钉死回归：对任一 profile-scoped 管理路由分别带 `X-Profile-Id: 999` 与不带 header 请求，断言都成功且读写落在 `profile_id = 1`。**这个测试的存在就是防止有人把冻结"修"回去。**（Step 7 的 `wc -l` 验证目标相应指新的 scope 测试文件，非套件 harness 文件。）
 - [ ] **Step 5：** 路由契约：删第 6 行 `/api/profiles/{profile_id}/activate`（唯一 `invalidates_active_profile` 条目）；所有 `"profile_scoped": true` 标志**原样保留**（查询仍按 profile 1 作用域）。检查两个守卫测试有无显式 `/api/profiles` 期望。
 - [ ] **Step 6：** i18n：删 `profiles:` 块（en 类型 :1020、值 :2961，zh 镜像）。文档：`API_SPEC.md` 删 `/api/profiles*` 端点段、`X-Profile-Id` 契约改写为「接受但忽略；恒为 Default(1)」；`DATA_MODEL.md` §2.1 保留但注明冻结（删 :277 "最多 10 个"）；`ARCHITECTURE.md` 作用域段；`frontend/src/lib/api/AGENTS.md` :9,:18-19,:30-31,:47 改写。
 - [ ] **Step 7：** 验证：
@@ -317,7 +318,7 @@
 - [ ] **Step 4：** asyncmetrics 调用剥离（10 文件）：`managementjobs/jobs.go`、`logretention/maintenance.go`、`auth/proxy_key_usage_writer.go`、`runtime/feedback_pipeline.go`、`runtime/runtime_side_effects.go`、`managementsideeffects/outbox.go`、`runtime/telemetry_outbox.go`、`background/scheduler.go`（`platform/email/*` 两处若 R3 已删则不存在）。
 - [ ] **Step 5：** 进程装配：`main.go` :17,:33,:91-98,:129,:134,:154-161 的 providers 构建/关停舞步；`lifecycle/app.go` :30,:41,:55,:133-135 与 `production.go` :44,:53,:80,:87,:513-514 的 `TelemetryShutdown` 钩子。**保留** `production.go:140-158,:401,:409` 池 lane。
 - [ ] **Step 6（G2 裁决）：** `config.go` 的 `TelemetryConfig` 及子结构、`bootstrap.go` 的 telemetry 解析**保留**（纯字符串配置，无 OTel import；现网 config.json 含该节）——加 `// ponytail: telemetry config parsed for live config.json compat; exporters removed`。仅当校验逻辑引用已删导出器构造时改为宽松通过。
-- [ ] **Step 7：** `go.mod` 删 9 个直接 OTel 模块 + `go mod tidy`（间接依赖 :33-35 自清）。测试修复：`tests/integration/management_audit_stats_phase7_test.go`、`tests/runtime/request_logs_contract_test.go` 的 telemetry import。前端 `StartupTelemetrySection.tsx` 已随 R2 消失，确认即可。
+- [ ] **Step 7：** `go.mod` 删 9 个直接 OTel 模块 + `go mod tidy`（间接依赖 :33-35 自清）。测试修复：`tests/integration/management_audit_stats_phase7_test.go`、`tests/runtime/request_logs_contract_test.go` 的 telemetry import；**整删 `tests/contract/s15_observability_contract_test.go:558-574` 的 `TestManagementMetricsEndpointRemovedAfterOTLP`**（它逐字读 `management_branch.go`/`db/pools.go`/`db/telemetry.go` 源码文本，变体 1 落地即挂）。前端 `StartupTelemetrySection.tsx` 已随 R2 消失，确认即可。
 - [ ] **Step 8：** 文档：`API_SPEC.md:202` telemetry 重启字段行、`ARCHITECTURE.md` OTel 段、`platform/AGENTS.md`、`runtime/AGENTS.md`、README:21 OTel 特性段改写。验证：`rg -in "opentelemetry|asyncmetrics|startRuntimeSpan" backend --glob '!docs/**'` → 0；`grep -c opentelemetry backend/go.mod` → 0；标准验证。
 - [ ] 提交：`git commit -m "feat!: remove OTel telemetry path"`（或变体 2：`build: drop gRPC OTLP exporter pair`）
 
@@ -331,7 +332,7 @@
   - 整删：`lib/websocket.ts`、`lib/websocket/` 目录、`hooks/useRealtimeData.ts`、`components/WebSocketStatusIndicator.tsx`（先 `rg -l WebSocketStatusIndicator frontend/src` 清渲染点）、`pages/statistics/useUsageStatisticsRealtimeData.ts`。
 - [ ] **Step 2（后端）：** 整删 `httpapi/realtime/`（10 文件）、`management/auth/realtime.go`、`tests/runtime/realtime_test.go`；接线：`management_branch.go` :21/:36/:47/:79-80、`dependencies.go` :20/:43、`auth/service.go` :52-53,:178-193 撤销监听注册表及发布点（grep `publishRealtimeAuthRevocation`）、`production.go:409` 去 `DashboardUpdates`/`AnalyticsUpdates` 与两个 publisher 构造，再顺着 `rg -n "DashboardUpdates|AnalyticsUpdates" backend/internal` 删 runtime 侧 Options 字段与发布点（**编译扇出最大的一步**）。
 - [ ] **Step 3（lane + nginx，G2 适用）：** `db/pools.go` 删 `Realtime` lane（:27,:54,:60,:69,:101,:131,:142,:203）与 `PostgresLaneRealtime`；`config.go` 的 `Realtime DatabasePoolBudget` 字段**保留解析**、忽略取值（现网 config.json 可能含 `database.pools.realtime`）——ponytail 注释。`docker/nginx.conf.template:64-73` 删 `/api/realtime/ws` 块。
-- [ ] **Step 4：** 测试与文档：`tests/priority/db/db_lane_isolation_test.go` 等 realtime lane 引用；`frontend/tests/lib/analytics_websocket_contract.test.mjs` 删（glob 下直接 rm）；e2e `analytics-websocket-native.spec.ts`、`launcher-same-origin-realtime.spec.ts` 删。i18n：`rg "messages\." frontend/src/components/WebSocketStatusIndicator.tsx frontend/src/hooks/useRealtimeData.ts`（删除前枚举）得出的 key 从 en/zh 删。文档：`API_SPEC.md` :15、:202 realtime 池行、:1649、§8 整章（:2621-2725+）；`ARCHITECTURE.md`；`pages/dashboard/AGENTS.md:54-56` 改写；hooks/lib/components/statistics/src 各 AGENTS。README:96 nginx 段的 `/api/realtime/ws` 提法。
+- [ ] **Step 4：** 测试与文档：`tests/priority/db/db_lane_isolation_test.go` 等 realtime lane 引用；`frontend/tests/lib/analytics_websocket_contract.test.mjs`、**`websocket_contract.test.mjs`（557 行）、`dashboard_realtime_reconnect_contract.test.mjs`（230 行）** 删（三者都在 glob 后的 test:lib 即 CI 里，漏删后两个则本任务落地即红）；e2e `analytics-websocket-native.spec.ts`、`launcher-same-origin-realtime.spec.ts` 删。i18n：`rg "messages\." frontend/src/components/WebSocketStatusIndicator.tsx frontend/src/hooks/useRealtimeData.ts`（删除前枚举）得出的 key 从 en/zh 删。文档：`API_SPEC.md` :15、:202 realtime 池行、:1649、§8 整章（:2621-2725+）；`ARCHITECTURE.md`；`pages/dashboard/AGENTS.md:54-56` 改写；hooks/lib/components/statistics/src 各 AGENTS。README:96 nginx 段的 `/api/realtime/ws` 提法。
 - [ ] **Step 5：** 验证：`rg -in "realtime|websocket" backend/internal frontend/src --glob '!**/AGENTS.md'` → 0；标准验证；手测仪表盘 Network 面板每 ~30s 一次 `GET /api/stats/dashboard`、无 `/api/realtime/ws` 尝试、近期活动按 `request_log_id` 去重正常。
 - [ ] 提交：`git commit -m "feat!: retire realtime websocket in favor of REST polling"`
 
@@ -342,13 +343,13 @@
 - [ ] **Step 1：** 整删 `frontend/src/pages/dashboard/routing-diagram/` 下 7 个 flow 文件：`RoutingDiagramFlow.tsx`、`RoutingDiagramFlowEdge.tsx`、`RoutingDiagramFlowNode.tsx`、`routingDiagramFlowState.ts`、`routingDiagramFlowLayout.ts`、`routingDiagramFlowEdgeStyle.ts`、`routingDiagramLayout.ts`。**保留**：`routingDiagramContracts.ts`、`RoutingDiagramMobileList.tsx`、`RoutingDiagramLegend.tsx`、`RoutingDiagramVisualizationShell.tsx`、`RoutingDiagramInspectorContent.tsx`、`routingDiagramPresentationUtils.ts`。
 - [ ] **Step 2：** `RoutingDiagramCard.tsx` 删桌面分支（:218 `data-testid="routing-diagram-desktop-pending"` 区域）与桌面/移动开关，恒走列表路径；barrel `routingDiagram.ts` 去已删模块再导出。**核查** `RoutingDiagramVisualizationShell` 的视口分支能单列降级。
 - [ ] **Step 3：** `main.tsx:7` 删 `import "@xyflow/react/dist/style.css"`；`package.json:29` 删 `"@xyflow/react"`。数据管道（`useDashboardBootstrapData`/`useDashboardPageData` 的 `routingDiagramData`、`DashboardPage.tsx:124-126` props）不动。
-- [ ] **Step 4：** i18n：仅删被已删文件独占引用的 key（en 有 97 处 `routing` 命中、zh 40 处——对幸存引用做差集；`RoutingDiagramShell.tsx:31-73` 与 MobileList 用的列表/空态 key 保留）。e2e `dashboard-routing-shell.spec.ts` 删。AGENTS：`routing-diagram/AGENTS.md`、`pages/dashboard/AGENTS.md:57` 改写为"纯列表"。
+- [ ] **Step 4：** i18n：仅删被已删文件独占引用的 key（en 有 97 处 `routing` 命中、zh 40 处——对幸存引用做差集；`RoutingDiagramShell.tsx:31-73` 与 MobileList 用的列表/空态 key 保留）。e2e `dashboard-routing-shell.spec.ts` 删（已于测试精简批次 1 提前完成）；**⚠️ CI 级：`frontend/tests/lib/dashboard_routing_flow_layout_contract.test.mjs`（1,406 行）在 CI 的 test:lib 里且 ≥11/18 个测试加载 Step 1 删除的模块——必须同 PR 删除**（graph/inspector/mobile 相关 ~80–400 行可拆出保留）。AGENTS：`routing-diagram/AGENTS.md`、`pages/dashboard/AGENTS.md:57` 改写为"纯列表"。
 - [ ] **Step 5：** 验证：`rg -n "xyflow" frontend` → 0；标准验证 frontend；手测 `/observe?tab=routing` 渲染分区表、点节点仍开 inspector。
 - [ ] 提交：`git commit -m "feat: replace routing diagram flow rendering with plain list"`
 
 ### Task 14: R9a — 连接健康探测路由移除
 
-- [ ] **Step 1：** 整删 `management/connections/health.go`、`health_test.go`、`frontend/src/pages/model-detail/useConnectionHealthChecks.ts`、e2e `model-detail-connection-dialog-probe.spec.ts`、`frontend/tests/model-detail/connection_probe_behavior_contract.test.mjs`。
+- [ ] **Step 1：** 整删 `management/connections/health.go`、`health_test.go`、`frontend/src/pages/model-detail/useConnectionHealthChecks.ts`、e2e `model-detail-connection-dialog-probe.spec.ts`（已于测试精简批次 1 提前完成）、`frontend/tests/model-detail/connection_probe_behavior_contract.test.mjs`；**另删两个直打该路由的后端测试**（路由删除后无法编译）：`backend/tests/runtime/runtime_phase4_health_check_test.go`（329 行，:55,:94）与 `backend/tests/contract/connection_s10_contract_test.go` 的 health 部分（:51-120,:340，~160 行）。
 - [ ] **Step 2：** `connections/service.go` 删 4 条挂载及 handler：:98（health-check-preview legacy 404）、:103（`POST .../connections/{connection_id}/health`）、:104、:114（legacy reject）；删 Service 结构体的 `persistedHealthChecks` singleflight 字段。
 - [ ] **Step 3：** 契约 JSON :17 删 health 行（grep `health` 确认含 legacy 行）；前端 `lib/api/management.ts:375` 方法 + :10 类型 import、`lib/types/routing.ts` 的 `HealthCheckResponse`、`useModelDetailDataSupport.ts` apply helpers、`ConnectionDialog.tsx` 按钮/props、`ModelDetailFeaturePage.tsx` + `useModelDetailFeatureData.ts` 接线（prop 名先 `rg -n "HealthCheckResponse" frontend/src` 枚举）；i18n 删 ConnectionDialog 的 health-check 文案 key；`API_SPEC.md` 对应段。README:24 成功率徽章句不动（那是请求数据驱动的，非探测）。
 - [ ] **Step 4：** 验证：`rg -in "healthcheck" backend/internal/httpapi/management/connections frontend/src` → 0（平台 `/health` 存活探针无关，保留）；标准验证。
@@ -468,7 +469,7 @@ type UsageLatencyTrends struct { Hourly []UsageLatencyTrendSeries `json:"hourly"
 **Files:**
 - Modify: `domain/loadbalance/service.go`（`ListEvents`:166 旁新增 `ListIncidents`；`RuntimeCurrentStateProvider`:105-109 加方法）、`domain/loadbalance/runtime_state.go`、`domain/loadbalance/runtime_events.go`（:106,:114,:125 三个 Insert 返回 eventType）、`httpapi/management/loadbalance/observability.go`（:59-64 旁新 handler）、`httpapi/management/loadbalance/service.go:82-95`（挂载）、`httpapi/runtime/feedback_pipeline.go:205-217`（入队点）、`platform/config/config.go` + `bootstrap.go`（`alerting.webhookUrl` 热应用字段）、`production.go`（worker 注册，:428-439 注册环）、`pages/dashboard/DashboardOverviewTab.tsx`（横幅）、`useDashboardPageData.ts`（取数）
 - Create: `backend/internal/platform/alerting/`（webhook outbox worker）、`backend/migrations/000011_alert_webhook_outbox.sql`
-- Test: 复制 `email_outbox_priority_test.go` 为 `alert_webhook_priority_test.go`（**注意：R3 已删原文件——从 git 历史 `git show <R3^>:backend/tests/priority/outbox/email_outbox_priority_test.go` 取模板**）；handler 用例进 `management/loadbalance/routes_test.go`
+- Test: 复制 `email_outbox_priority_test.go` 为 `alert_webhook_priority_test.go`（**注意：R3 已删原文件——从 git 历史 `git show <R3^>:backend/tests/priority/outbox/email_outbox_priority_test.go` 取模板**）；handler 用例进 `tests/contract/s11_management_contract_test.go`（包内 `loadbalance/routes_test.go` 已由测试精简交接批次 4 删除）
 
 **Interfaces（Produces）：**
 - `GET /api/loadbalance/incidents`（profile-scoped 只读）：
@@ -565,19 +566,12 @@ type UsageLatencyTrends struct { Hourly []UsageLatencyTrendSeries `json:"hourly"
 - [ ] **Step 4：** 文档：`ARCHITECTURE.md:64` 去 BrowserRouter 提法；相关前端 AGENTS。验证：`rg -l "react-router-dom" frontend/src frontend/package.json` → 0；标准验证；手测 `/observe`、`/models/$id?tab=…`、`/observe/requests?request_id=…`、审计页深链。
 - [ ] **Step 5：** 提交：`git commit -m "refactor!: unify on TanStack Router, drop react-router-dom"`
 
-### Task 24: T6 — 两个 compat 包正名（前置：R1、R9a 已删两个引用点）
+### Task 24: T6 — 两个小包正名（前置：R1、R9a 已删两个引用点）
 
-- [ ] **Step 1（targetcompat 收编）：** 术语定为 **"connection"**（DB 持久值即 `target_type = 'connection'`，`models/store_test.go:494` 种子可证；**存储值不动**）。把 `targetcompat/glossary.go`（29 行，包内唯一文件）的常量/helper 收进 `domain/modelrouting`（那里 :13-14,:84-96 本就在别名/包装它们）；`models/routes.go` 的 17 处 `targetcompat.X` 改 `modelrouting.X`（:482,:616,:626,:629,:657,:662,:668,:670,:673,:680,:726,:776,:793,:841,:855,:1138,:1257）；`connections/routes.go:25` 的 `OwnerScopedConnectionRoutePath` 移入 modelrouting 或就地内联字符串；删 `backend/internal/targetcompat/`。
-- [ ] **Step 2（providercompat → providerauth）：** 活代码误名纠正（它是运行时规划的 `ResolveAuthProfile`/`IsOpenAI`，不是兼容层）。机械改名：
-
-  ```bash
-  git mv backend/internal/providercompat backend/internal/providerauth
-  grep -rl providercompat backend | xargs sed -i '' 's/providercompat/providerauth/g' && gofmt -w backend/internal
-  ```
-
-  16 个 import 点核对清单：`connections/routes.go:21`、`connections/routes_test.go:14`、`settings/routes.go:22`、`domain/modelrouting/modelrouting.go:8`、runtime 侧 10 文件（`planning_snapshot.go:20` 及其测试、`operation_translation.go:12` 及两测试、`response_translation_execution_metadata_test.go:15`、`routing_plan_validate.go:9`、`runtime.go:26`、`runtime_test.go:19`、`coding_agent_format_bridge.go:9`）——`configbundle/import.go` 与 `connections/health.go` 两点已随 R1/R9a 消失。改名后包文件 `providercompat.go`→`providerauth.go`、测试同步。
-- [ ] **Step 3：** 验证：`rg -n "targetcompat|providercompat" backend/ docs/ AGENTS.md` → 0（`*.md` 漏网是本任务唯一常见事故）；标准验证 backend。
-- [ ] **Step 4：** 提交：`git commit -m "refactor: fold targetcompat into modelrouting, rename providercompat to providerauth"`
+- [x] **Step 1：** access-target glossary constants/helpers now live in `domain/modelrouting`; stored `target_type = "connection"` remains unchanged, and the obsolete package directory is gone.
+- [x] **Step 2：** provider API-family/auth helpers now live under `backend/internal/providerauth`; imports, package declarations, and tests were renamed together.
+- [x] **Step 3：** old package-name references are absent from backend, docs, and root AGENTS surfaces; focused backend verification ran.
+- [x] **Step 4：** Task commit created.
 
 ### Task 25: T8 — i18n 反转为 zh-CN 单语（决策门 D6；建议在 R2 与各页面删除之后——两文件已被动瘦身）
 
@@ -598,6 +592,7 @@ type UsageLatencyTrends struct { Hourly []UsageLatencyTrendSeries `json:"hourly"
 4. **`request_logs_contract_test.go` 在 `tests/runtime/` 不在 `tests/contract/`**；其 absence 循环 :247-251 只有 `"context_routing"` 一项是残留。
 5. **E1 的 outbox 模板**在 R3 中被删——实现 E1 时从 git 历史取 `email_outbox` 模板，或参照在世的 `managementsideeffects/outbox.go`。
 6. **e2e 计 47 个 spec**；9 个孤儿 lib 测试清单已核实为准确，但其通过性在 `pnpm install` 前不可知（Task 5 的 Step 3 是首次真实运行）。
+7. 测试精简已执行，见 TEST_REDUCTION_HANDOFF.md
 
 ## 附录 B：删除总量预期（验收参考）
 

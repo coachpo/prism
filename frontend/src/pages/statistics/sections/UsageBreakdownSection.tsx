@@ -1,6 +1,6 @@
 import { useId, useMemo } from "react";
+import { Link } from "@tanstack/react-router";
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, XAxis, YAxis } from "recharts";
-import { Link } from "react-router-dom";
 import { SpendTrustNote } from "@/components/SpendTrustIndicator";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -460,7 +460,7 @@ export function UsageBreakdownSection({
               <OperatorEmptyState
                 action={
                   <Button asChild size="sm">
-                    <Link to="/pricing-templates">{messages.statistics.openPricingTemplates}</Link>
+                    <Link to="/route/pricing">{messages.statistics.openPricingTemplates}</Link>
                   </Button>
                 }
                 className="py-10"

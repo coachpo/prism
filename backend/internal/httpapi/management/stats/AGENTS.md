@@ -1,7 +1,7 @@
 # BACKEND MANAGEMENT STATS KNOWLEDGE BASE
 
 ## OVERVIEW
-`management/stats/` owns selected-profile observability reads under `/api/stats/*`. It serves stats-only dashboard aggregate snapshots, separate dashboard recent activity, request-log list or detail, summary, spending, throughput, model metrics, connection success rates, usage snapshots, and endpoint model statistics. Dashboard snapshot invalidation is an internal side-effect seam in this package, not a public stats route.
+`management/stats/` owns observability reads under `/api/stats/*` pinned to Default profile id `1`. It serves stats-only dashboard aggregate snapshots, separate dashboard recent activity, request-log list or detail, summary, spending, throughput, model metrics, connection success rates, usage snapshots, and endpoint model statistics. Dashboard snapshot invalidation is an internal side-effect seam in this package, not a public stats route. `X-Profile-Id` may be accepted but is ignored; storage `profile_id` columns remain.
 
 ## STRUCTURE
 ```text

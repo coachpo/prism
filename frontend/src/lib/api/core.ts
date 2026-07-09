@@ -8,13 +8,10 @@ const API_BASE =
     ? rawApiBase.trim().replace(/\/+$/, "")
     : "";
 
-let currentProfileId: number | null = null;
+// ponytail: profile pinned to Default(1).
+const currentProfileId = 1;
 
-export function setApiProfileId(profileId: number | null) {
-  currentProfileId = profileId;
-}
-
-export function getApiProfileId(): number | null {
+export function getApiProfileId(): number {
   return currentProfileId;
 }
 
@@ -55,15 +52,9 @@ const AUTH_REFRESH_EXEMPT_PATHS = new Set([
   "/api/auth/login",
   "/api/auth/logout",
   "/api/auth/refresh",
-  "/api/auth/password-reset/request",
-  "/api/auth/password-reset/confirm",
 ]);
 
 function shouldAttachProfileHeader(path: string): boolean {
-  if (currentProfileId === null) {
-    return false;
-  }
-
   return isProfileScopedManagementRoute(path);
 }
 

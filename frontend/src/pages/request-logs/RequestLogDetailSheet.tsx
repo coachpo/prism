@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "@tanstack/react-router";
 import { Terminal } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import {
@@ -54,7 +54,10 @@ export function RequestLogDetailSheet({
             <div className="flex min-w-0 flex-col gap-3">
               <div className="flex justify-end">
                 <Button variant="outline" size="sm" asChild>
-                  <Link to={`/observe/requests/${request.summary.id}/audit`}>
+                  <Link
+                    to="/observe/requests/$requestId/audit"
+                    params={{ requestId: String(request.summary.id) }}
+                  >
                     <Terminal data-icon="inline-start" />
                     {messages.requestLogs.openDedicatedAuditPage}
                   </Link>

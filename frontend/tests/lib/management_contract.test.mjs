@@ -67,10 +67,6 @@ const coreMock = {
       return options.method === "DELETE" ? undefined : { id: 77, model_config_id: 42 };
     }
 
-    if (path === "/api/models/42/connections/77/health") {
-      return { connection_id: 77, health_status: "healthy" };
-    }
-
     if (path === "/api/connections/77/references") {
       return {
         connection_id: 77,
@@ -104,9 +100,6 @@ const { loadbalanceStrategies, endpoints, models, connections } = load(
   path.join(frontendDir, "src/lib/api/management.ts"),
 );
 
-const removedRetryAttemptsKey = ["retry", "max", "attempts"].join("_");
-const removedBanMode = ["man", "ual"].join("");
-
 test("management loadbalance strategy normalization accepts explicit Ban Policy payloads", async () => {
   requestCalls.length = 0;
   loadbalanceStrategyPayloads = [buildStrategyPayload()];
@@ -133,44 +126,7 @@ test("management loadbalance strategy normalization accepts explicit Ban Policy 
       updated_at: "2026-04-09T00:00:00Z",
     },
   ]);
-  assert.ok(!Object.hasOwn(strategies[0], removedRetryAttemptsKey));
   assert.deepEqual(requestCalls.map((call) => call.path), ["/api/loadbalance/strategies"]);
-});
-
-test("management loadbalance strategy normalization rejects removed cheapest eligible context payloads", async () => {
-  requestCalls.length = 0;
-  loadbalanceStrategyPayloads = [
-    buildStrategyPayload({
-      id: 2,
-      name: "Cheapest eligible context",
-      legacy_strategy_type: "cheapest_eligible_context",
-    }),
-  ];
-
-  await assert.rejects(
-    () => loadbalanceStrategies.list(),
-    /legacy_strategy_type/,
-  );
-});
-
-test("management loadbalance strategy normalization rejects the removed retry attempt key", async () => {
-  requestCalls.length = 0;
-  loadbalanceStrategyPayloads = [buildStrategyPayload({ [removedRetryAttemptsKey]: 3 })];
-
-  await assert.rejects(
-    () => loadbalanceStrategies.list(),
-    new RegExp(removedRetryAttemptsKey),
-  );
-});
-
-test("management loadbalance strategy normalization rejects the removed reset-only ban value", async () => {
-  requestCalls.length = 0;
-  loadbalanceStrategyPayloads = [buildStrategyPayload({ ban_mode: removedBanMode })];
-
-  await assert.rejects(
-    () => loadbalanceStrategies.list(),
-    /ban_mode/,
-  );
 });
 
 test("management endpoints contract accepts timeout-free endpoint payloads", async () => {
@@ -197,21 +153,18 @@ test("management endpoints contract accepts timeout-free endpoint payloads", asy
   assert.deepEqual(requestCalls.map((call) => call.path), ["/api/endpoints"]);
 });
 
-
 test("management model connection helpers use owner-scoped route shapes", async () => {
   requestCalls.length = 0;
 
   await models.connections.list(42);
   await models.connections.create(42, { endpoint_id: 11, is_active: true });
   await models.connections.update(42, 77, { is_active: false });
-  await models.connections.healthCheck(42, 77);
   await models.connections.delete(42, 77);
 
   assert.deepEqual(requestCalls.map((call) => [call.path, call.options.method ?? "GET"]), [
     ["/api/models/42/connections", "GET"],
     ["/api/models/42/connections", "POST"],
     ["/api/models/42/connections/77", "PATCH"],
-    ["/api/models/42/connections/77/health", "POST"],
     ["/api/models/42/connections/77", "DELETE"],
   ]);
 });

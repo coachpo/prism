@@ -7,7 +7,6 @@ import type {
   EndpointModelsBatchParams,
   EndpointModelsBatchResponse,
   EndpointUpdate,
-  HealthCheckResponse,
   LegacyLoadbalanceStrategyType,
   LoadbalanceBanMode,
   LoadbalanceBanPolicyFields,
@@ -28,12 +27,9 @@ import type {
   PricingTemplate,
   PricingTemplateConnectionsResponse,
   PricingTemplateCreate,
+  PricingTemplateImportRequest,
+  PricingTemplateImportResponse,
   PricingTemplateUpdate,
-  Profile,
-  ProfileActivateRequest,
-  ProfileBootstrapResponse,
-  ProfileCreate,
-  ProfileUpdate,
 } from "../types";
 import { normalizeFailureStatusCodes } from "../loadbalanceRoutingPolicy";
 import { request } from "./core";
@@ -278,28 +274,6 @@ function normalizeModelConfig(model: RawModelConfig): ManagedModelConfig {
   };
 }
 
-export const profiles = {
-  bootstrap: () => request<ProfileBootstrapResponse>("/api/profiles/bootstrap"),
-  list: () => request<Profile[]>("/api/profiles"),
-  getActive: () => request<Profile>("/api/profiles/active"),
-  create: (data: ProfileCreate) =>
-    request<Profile>("/api/profiles", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-  update: (id: number, data: ProfileUpdate) =>
-    request<Profile>(`/api/profiles/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify(data),
-    }),
-  delete: (id: number) => request<void>(`/api/profiles/${id}`, { method: "DELETE" }),
-  activate: (id: number, payload: ProfileActivateRequest) =>
-    request<Profile>(`/api/profiles/${id}/activate`, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-};
-
 export const models = {
   list: () =>
     request<RawModelConfigListItem[]>("/api/models").then((models) =>
@@ -371,10 +345,6 @@ export const models = {
       }),
     delete: (modelConfigId: number, connectionId: number) =>
       request<void>(`/api/models/${modelConfigId}/connections/${connectionId}`, { method: "DELETE" }),
-    healthCheck: (modelConfigId: number, connectionId: number) =>
-      request<HealthCheckResponse>(`/api/models/${modelConfigId}/connections/${connectionId}/health`, {
-        method: "POST",
-      }),
   },
 };
 
@@ -449,6 +419,11 @@ export const pricingTemplates = {
   get: (id: number) => request<PricingTemplate>(`/api/pricing-templates/${id}`),
   create: (data: PricingTemplateCreate) =>
     request<PricingTemplate>("/api/pricing-templates", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  importTemplates: (data: PricingTemplateImportRequest) =>
+    request<PricingTemplateImportResponse>("/api/pricing-templates/import", {
       method: "POST",
       body: JSON.stringify(data),
     }),

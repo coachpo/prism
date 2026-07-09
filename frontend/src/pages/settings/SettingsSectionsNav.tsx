@@ -14,7 +14,6 @@ export function SettingsSectionsNav({
 }: SettingsSectionsNavProps) {
   const { messages } = useLocale();
   const labels: Record<string, string> = {
-    backup: messages.settingsPage.backup,
     "billing-currency": messages.settingsPage.billingCurrency,
     timezone: messages.settingsPage.timezone,
     "audit-configuration": messages.settingsPage.auditPrivacy,

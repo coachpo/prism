@@ -36,7 +36,7 @@ test("profile scope helper matches profile-scoped rows in the route contract man
   const scopedRows = routeContract.filter((row) => row.profile_scoped);
   const scopedNonInvalidatingRows = scopedRows.filter(isNonInvalidating);
 
-  assert.equal(routeContract.length, 60, "manifest row count should stay locked");
+  assert.equal(routeContract.length, 56, "manifest row count should stay locked");
   assert.ok(scopedRows.length > 0, "manifest should include profile-scoped rows");
   assert.ok(
     scopedNonInvalidatingRows.length > 0,
@@ -68,17 +68,12 @@ test("profile scope helper keeps non-profile-scoped manifest rows and runtime ro
     globalRows.some((row) => row.invalidates_auth),
     "manifest should include global auth invalidation rows",
   );
-  assert.ok(
-    globalRows.some((row) => row.invalidates_active_profile),
-    "manifest should include global active-profile invalidation rows",
-  );
   for (const row of globalRows) {
     const route = samplePath(row.route_pattern);
     assert.equal(isProfileScopedManagementRoute(route), false, `${route} should stay global`);
   }
 
   for (const route of [
-    "/api/realtime/ws",
     "/v1/chat/completions",
     "/v1beta/models/gemini:generateContent",
   ]) {

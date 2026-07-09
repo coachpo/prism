@@ -1,25 +1,25 @@
 # FRONTEND I18N KNOWLEDGE BASE
 
 ## OVERVIEW
-`src/i18n/` owns Prism's frontend-only locale boundary, including locale selection, persistence, large locale catalogs, shared formatting helpers, and static label helpers for non-hook code.
+`src/i18n/` owns Prism's frontend-only zh-CN locale boundary, including the single locale catalog, shared formatting helpers, and static label helpers for non-hook code.
 
 ## STRUCTURE
 ```
 i18n/
-├── LocaleProvider.tsx   # Runtime locale state and document.lang sync
+├── LocaleProvider.tsx   # Runtime zh-CN state and document.lang sync
 ├── locale-context.ts    # Shared React context contract
 ├── useLocale.ts         # Locale, messages, and format helper hook
 ├── format.ts            # Intl helpers for formatting and collation
 ├── staticMessages.ts    # Static label lookup and known-label helpers for non-hook callers
 └── messages/
-    ├── en.ts
+    ├── index.ts
     └── zh-CN.ts
 ```
 
 ## WHERE TO LOOK
 
 - Provider mount point: `../main.tsx`
-- Shell and route consumers: `../App.tsx`, `../components/LanguageSwitcher.tsx`, `../components/ThemeToggle.tsx`, `../components/WebSocketStatusIndicator.tsx`, `../components/layout/page.tsx`
+- Shell and route consumers: `../App.tsx`, `../components/ThemeToggle.tsx`, `../components/layout/page.tsx`
 - Shared formatting consumers: `../hooks/useTimezone.ts`, `../lib/timezone.ts`, `../lib/costing.ts`, and page helpers under `../pages/`
 - Static label helpers for non-hook callers, fallback labels, Ban Policy labels, and known-label comparisons: `staticMessages.ts`
 
@@ -29,11 +29,10 @@ i18n/
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
-- Keep locale selection frontend-only.
+- Keep the frontend locale fixed to `zh-CN`.
 - Keep `document.documentElement.lang` synchronized through `LocaleProvider.tsx`.
-- Keep the reusable message catalogs in `messages/en.ts` and `messages/zh-CN.ts` as the primary user-facing string store.
-- Persist locale selection through `LocaleProvider.tsx` and its `localStorage` key instead of introducing a second preference store.
-- Add new user-facing strings to the catalogs when they belong to reusable shell or route surfaces, including shared explicit Ban Policy wording and final-target observability labels.
+- Keep `messages/zh-CN.ts` as the only language and `Messages` type source; `messages/index.ts` is the public re-export.
+- Add new user-facing strings to the zh-CN catalog when they belong to reusable shell or route surfaces, including shared explicit Ban Policy wording and final-target observability labels.
 - Route shared formatting through `format.ts` or `useLocale()` instead of ad hoc `Intl.*` usage.
 - Use `staticMessages.ts` when a non-hook caller needs locale-aware fallback labels, Ban Policy labels, or known-label comparisons instead of importing React hooks.
 

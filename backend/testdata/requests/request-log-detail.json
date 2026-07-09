@@ -47,7 +47,7 @@
     "request_generation_params_status": "complete"
   },
   "routing": {
-    "profile_id": 2,
+    "profile_id": 1,
     "endpoint_id": 12,
     "terminal_target_id": 34,
     "selected_terminal_target_id": 34,

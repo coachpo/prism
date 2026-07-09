@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
-	"github.com/coachpo/prism/backend/internal/platform/asyncmetrics"
+	"github.com/coachpo/prism/backend/internal/platform/alerting"
 	"github.com/coachpo/prism/backend/internal/platform/background"
 )
 
@@ -27,6 +28,7 @@ type RuntimeFeedbackPipelineOptions struct {
 	WorkerCount   int
 	WriteTimeout  time.Duration
 	Hooks         *RuntimeFeedbackPipelineHooks
+	AlertOutbox   *alerting.Store
 }
 
 type RuntimeFeedbackPipelineHooks struct {
@@ -70,6 +72,8 @@ type runtimeFeedbackEvent struct {
 	ProfileID      int
 	ConnectionID   int
 	ModelConfigID  int
+	EndpointID     int
+	ModelID        string
 	APIFamily      string
 	TraceContext   runtimeTraceContext
 	Strategy       loadbalance.RuntimeStrategy
@@ -85,6 +89,7 @@ type runtimeFeedbackPipeline struct {
 	store         *runtimeFeedbackStore
 	runtimeState  *loadbalance.LocalRuntimeStateStore
 	logPartitions *runtimeLogPartitionCache
+	alertOutbox   *alerting.Store
 	options       RuntimeFeedbackPipelineOptions
 	scheduler     *background.Scheduler
 	mu            sync.Mutex
@@ -92,7 +97,7 @@ type runtimeFeedbackPipeline struct {
 }
 
 func newRuntimeFeedbackPipeline(store *runtimeFeedbackStore, runtimeState *loadbalance.LocalRuntimeStateStore, logPartitions *runtimeLogPartitionCache, options RuntimeFeedbackPipelineOptions) *runtimeFeedbackPipeline {
-	return &runtimeFeedbackPipeline{store: store, runtimeState: runtimeState, logPartitions: logPartitions, options: normalizeRuntimeFeedbackPipelineOptions(options)}
+	return &runtimeFeedbackPipeline{store: store, runtimeState: runtimeState, logPartitions: logPartitions, alertOutbox: options.AlertOutbox, options: normalizeRuntimeFeedbackPipelineOptions(options)}
 }
 
 func (p *runtimeFeedbackPipeline) RegisterBackgroundWorker(scheduler *background.Scheduler) error {
@@ -117,42 +122,26 @@ func (p *runtimeFeedbackPipeline) TryEnqueue(event runtimeFeedbackEvent) Runtime
 }
 
 func (p *runtimeFeedbackPipeline) TryEnqueueContext(ctx context.Context, event runtimeFeedbackEvent) RuntimeFeedbackEnqueueResult {
-	ctx = runtimeTraceDetachedContext(ctx)
-	ctx, span := startRuntimeSpan(ctx, "feedback.enqueue", runtimeTraceFeedbackAttributes(event)...)
-	defer span.End()
+	ctx = runtimeDetachedContext(ctx)
 	if event.TraceContext.empty() {
 		event.TraceContext = runtimeTraceContextFromContext(ctx)
 	}
 	if p == nil || p.scheduler == nil {
-		runtimeTraceSetFeedbackStatus(span, RuntimeFeedbackDroppedUnavailable)
-		runtimeTraceMarkError(span, "feedback_enqueue_failed")
-		asyncmetrics.RecordOutcome(ctx, "runtime_feedback_pipeline", "enqueue", asyncmetrics.OutcomeUnavailable)
 		return p.observeEnqueue(RuntimeFeedbackEnqueueResult{Status: RuntimeFeedbackDroppedUnavailable, Reason: "pipeline_unavailable"})
 	}
 	if err := event.validate(); err != nil {
-		runtimeTraceSetFeedbackStatus(span, RuntimeFeedbackDroppedInvalid)
-		runtimeTraceMarkError(span, "feedback_enqueue_failed")
-		asyncmetrics.RecordOutcome(ctx, "runtime_feedback_pipeline", "enqueue", asyncmetrics.OutcomeInvalid)
 		return p.observeEnqueue(RuntimeFeedbackEnqueueResult{Status: RuntimeFeedbackDroppedInvalid, Reason: err.Error()})
 	}
 	p.mu.Lock()
 	closed := p.closed
 	p.mu.Unlock()
 	if closed {
-		runtimeTraceSetFeedbackStatus(span, RuntimeFeedbackDroppedUnavailable)
-		runtimeTraceMarkError(span, "feedback_enqueue_failed")
-		asyncmetrics.RecordOutcome(ctx, "runtime_feedback_pipeline", "enqueue", asyncmetrics.OutcomeUnavailable)
 		return p.observeEnqueue(RuntimeFeedbackEnqueueResult{Status: RuntimeFeedbackDroppedUnavailable, Reason: "pipeline_closed"})
 	}
 	result := p.scheduler.Submit(ctx, background.JobRequest{Worker: runtimeFeedbackWorkerName, Payload: event})
 	if result.Status != background.SubmitAccepted {
-		runtimeTraceSetFeedbackStatus(span, RuntimeFeedbackDroppedBackpressure)
-		runtimeTraceMarkError(span, "feedback_enqueue_failed")
-		asyncmetrics.RecordOutcome(ctx, "runtime_feedback_pipeline", "enqueue", asyncmetrics.OutcomeBackpressure)
 		return p.observeEnqueue(RuntimeFeedbackEnqueueResult{Status: RuntimeFeedbackDroppedBackpressure, Reason: string(result.Status)})
 	}
-	runtimeTraceSetFeedbackStatus(span, RuntimeFeedbackAccepted)
-	asyncmetrics.RecordOutcome(ctx, "runtime_feedback_pipeline", "enqueue", asyncmetrics.OutcomeAccepted)
 	return p.observeEnqueue(RuntimeFeedbackEnqueueResult{Status: RuntimeFeedbackAccepted, Reason: "accepted"})
 }
 
@@ -166,29 +155,20 @@ func (p *runtimeFeedbackPipeline) Close() {
 }
 
 func (p *runtimeFeedbackPipeline) handleScheduledFeedback(ctx context.Context, job background.Job) background.JobResult {
-	startedAt := time.Now()
-	asyncmetrics.AddInflight(ctx, "runtime_feedback_pipeline", "write", 1)
-	defer asyncmetrics.AddInflight(ctx, "runtime_feedback_pipeline", "write", -1)
 	event, ok := job.Payload.(runtimeFeedbackEvent)
 	if !ok {
 		p.observeWrite(RuntimeFeedbackWriteResult{Success: false, Err: fmt.Errorf("invalid runtime feedback payload")})
-		asyncmetrics.RecordDuration(ctx, "runtime_feedback_pipeline", "write", asyncmetrics.OutcomeInvalid, time.Since(startedAt))
 		return background.JobResult{Status: background.JobSucceeded}
 	}
 	ctx = event.TraceContext.context(ctx)
-	ctx, span := startRuntimeSpan(ctx, "feedback.write", runtimeTraceFeedbackAttributes(event)...)
-	defer span.End()
 	writeCtx, cancel := context.WithTimeout(ctx, p.options.WriteTimeout)
 	defer cancel()
 	if err := p.persist(writeCtx, event); err != nil {
-		runtimeTraceMarkError(span, "feedback_write_failed")
 		p.observeWrite(RuntimeFeedbackWriteResult{Success: false, Kind: event.Kind, Err: err})
-		asyncmetrics.RecordDuration(ctx, "runtime_feedback_pipeline", runtimeFeedbackMetricOperation(event.Kind), asyncmetrics.OutcomeFailure, time.Since(startedAt))
 		slog.Warn("runtime feedback write failed", "kind", event.Kind, "profile_id", event.ProfileID, "connection_id", event.ConnectionID, "error", err)
 		return background.JobResult{Status: background.JobSucceeded}
 	}
 	p.observeWrite(RuntimeFeedbackWriteResult{Success: true, Kind: event.Kind})
-	asyncmetrics.RecordDuration(ctx, "runtime_feedback_pipeline", runtimeFeedbackMetricOperation(event.Kind), asyncmetrics.OutcomeSuccess, time.Since(startedAt))
 	return background.JobResult{Status: background.JobSucceeded}
 }
 
@@ -201,22 +181,43 @@ func (p *runtimeFeedbackPipeline) persist(ctx context.Context, event runtimeFeed
 			return err
 		}
 	}
+	enqueuedAlert := false
 	_, err := pgxutil.InTxValue(ctx, p.store.pool, "runtime_feedback", func(tx pgx.Tx) (bool, error) {
+		alertOutbox := p.alertOutbox
+		enqueueIncidentAlert := func(incident loadbalance.RuntimeIncidentEvent, ok bool, err error) (bool, error) {
+			if err != nil || !ok || alertOutbox == nil {
+				return true, err
+			}
+			payload, payloadOK := runtimeIncidentAlertPayloadFromDomain(incident)
+			if !payloadOK {
+				return true, nil
+			}
+			if err := alertOutbox.EnqueueTx(ctx, tx, payload); err != nil {
+				return false, err
+			}
+			enqueuedAlert = true
+			return true, nil
+		}
 		switch event.Kind {
 		case runtimeFeedbackAdmissionRejected:
 			return true, loadbalance.InsertRuntimeAdmissionRejectedEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ModelConfigID, event.ConnectionID, event.State, event.ObservedAt)
 		case runtimeFeedbackUnbanned:
-			return true, loadbalance.InsertRuntimeUnbannedEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ModelConfigID, event.ConnectionID, event.State, event.ObservedAt)
+			return enqueueIncidentAlert(loadbalance.InsertRuntimeUnbannedEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ModelConfigID, event.ConnectionID, event.State, event.ObservedAt))
 		case runtimeFeedbackSuccessRecovery:
-			return true, loadbalance.InsertRuntimeRecoveryEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ModelConfigID, event.ConnectionID, event.Transition, event.Strategy, event.CompletedAt)
+			return enqueueIncidentAlert(loadbalance.InsertRuntimeRecoveryEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ModelConfigID, event.ConnectionID, event.Transition, event.Strategy, event.CompletedAt))
 		case runtimeFeedbackFailoverHTTP, runtimeFeedbackTransportFailure:
-			return true, loadbalance.InsertRuntimeFailureEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ModelConfigID, event.ConnectionID, event.Transition, event.Strategy, event.FailureKind, event.CompletedAt)
+			return enqueueIncidentAlert(loadbalance.InsertRuntimeFailureEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ModelConfigID, event.ConnectionID, event.Transition, event.Strategy, event.FailureKind, event.CompletedAt))
 		default:
 			return false, fmt.Errorf("unsupported runtime feedback kind %q", event.Kind)
 		}
 	})
 	if err != nil {
 		return fmt.Errorf("persist runtime feedback: %w", err)
+	}
+	if enqueuedAlert && p.alertOutbox != nil {
+		if err := p.alertOutbox.Wake(context.Background()); err != nil {
+			slog.Warn("alert webhook worker wake failed", "error", err)
+		}
 	}
 	return nil
 }
@@ -276,11 +277,45 @@ func normalizeRuntimeFeedbackPipelineOptions(options RuntimeFeedbackPipelineOpti
 	return options
 }
 
-func runtimeFeedbackMetricOperation(kind runtimeFeedbackKind) string {
-	switch kind {
-	case runtimeFeedbackAdmissionRejected, runtimeFeedbackUnbanned, runtimeFeedbackSuccessRecovery, runtimeFeedbackFailoverHTTP, runtimeFeedbackTransportFailure:
-		return string(kind)
-	default:
-		return "unknown_feedback"
+func runtimeIncidentAlertPayload(event runtimeFeedbackEvent, eventType string, bannedUntilAt *time.Time) (alerting.IncidentPayload, bool) {
+	if eventType != "banned" && eventType != "unbanned" && eventType != "recovered" {
+		return alerting.IncidentPayload{}, false
 	}
+	modelID := strings.TrimSpace(event.ModelID)
+	if event.ConnectionID <= 0 || event.EndpointID <= 0 || modelID == "" {
+		return alerting.IncidentPayload{}, false
+	}
+	occurredAt := event.CompletedAt
+	if occurredAt.IsZero() {
+		occurredAt = event.ObservedAt
+	}
+	if occurredAt.IsZero() {
+		return alerting.IncidentPayload{}, false
+	}
+	var bannedUntil *time.Time
+	if bannedUntilAt != nil {
+		resolved := bannedUntilAt.UTC()
+		bannedUntil = &resolved
+	}
+	return alerting.IncidentPayload{
+		EventType:     eventType,
+		ConnectionID:  event.ConnectionID,
+		EndpointID:    event.EndpointID,
+		ModelID:       modelID,
+		BannedUntilAt: bannedUntil,
+		OccurredAt:    occurredAt.UTC(),
+	}, true
+}
+
+func runtimeIncidentAlertPayloadFromDomain(incident loadbalance.RuntimeIncidentEvent) (alerting.IncidentPayload, bool) {
+	if incident.EndpointID == nil || incident.ModelID == nil {
+		return alerting.IncidentPayload{}, false
+	}
+	event := runtimeFeedbackEvent{
+		ConnectionID: incident.ConnectionID,
+		EndpointID:   *incident.EndpointID,
+		ModelID:      *incident.ModelID,
+		CompletedAt:  incident.OccurredAt,
+	}
+	return runtimeIncidentAlertPayload(event, incident.EventType, incident.BannedUntilAt)
 }

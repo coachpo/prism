@@ -5,13 +5,17 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/coachpo/prism/backend/internal/providercompat"
-	"github.com/coachpo/prism/backend/internal/targetcompat"
+	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
 const (
-	TargetTypeModel    = targetcompat.AccessTargetTypeModel
-	TargetTypeTerminal = targetcompat.PersistedTerminalTargetType
+	TargetTypeModel                = "model"
+	TargetTypeTerminal             = "connection"
+	ConnectionIDFieldName          = "connection_id"
+	TerminalTargetIDFieldName      = "terminal_target_id"
+	ConnectionObjectFieldName      = "connection"
+	TerminalTargetObjectFieldName  = "terminal_target"
+	OwnerScopedConnectionRoutePath = "/api/models/{model_config_id}/connections"
 )
 
 type ModelNode struct {
@@ -81,23 +85,23 @@ type Cycle[T comparable] struct {
 }
 
 func NormalizeTargetType(value string) string {
-	return targetcompat.NormalizeAccessTargetType(value)
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 func IsModelTargetType(value string) bool {
-	return targetcompat.IsModelAccessTargetType(value)
+	return NormalizeTargetType(value) == TargetTypeModel
 }
 
 func IsTerminalTargetType(value string) bool {
-	return targetcompat.IsTerminalTargetAccessTargetType(value)
+	return NormalizeTargetType(value) == TargetTypeTerminal
 }
 
 func IsSupportedTargetType(value string) bool {
-	return targetcompat.IsSupportedAccessTargetType(value)
+	return IsModelTargetType(value) || IsTerminalTargetType(value)
 }
 
 func SameAPIFamily(left string, right string) bool {
-	return providercompat.SameAPIFamily(left, right)
+	return providerauth.SameAPIFamily(left, right)
 }
 
 func TargetEnabled(value *bool) bool {
@@ -241,7 +245,7 @@ func ResolveAuthoredAccessTargets(targets []AuthoredAccessTarget, options Resolv
 			modelID := model.ModelID
 			configID := model.ConfigID
 			resolved = append(resolved, ResolvedAccessTarget{
-				TargetType:          targetcompat.AccessTargetTypeModel,
+				TargetType:          TargetTypeModel,
 				Position:            target.Position,
 				IsEnabled:           TargetEnabled(target.IsEnabled),
 				TargetModelConfigID: &configID,
@@ -259,7 +263,7 @@ func ResolveAuthoredAccessTargets(targets []AuthoredAccessTarget, options Resolv
 			terminalID := terminal.ID
 			terminalRef := terminal.Ref
 			resolved = append(resolved, ResolvedAccessTarget{
-				TargetType:        targetcompat.PersistedTerminalTargetType,
+				TargetType:        TargetTypeTerminal,
 				Position:          target.Position,
 				IsEnabled:         TargetEnabled(target.IsEnabled),
 				TerminalTargetID:  &terminalID,

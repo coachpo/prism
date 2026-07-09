@@ -1,10 +1,8 @@
 import { useCallback } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { RefreshCw } from "lucide-react";
-import { useNavigate } from "react-router-dom";
-import { WebSocketStatusIndicator } from "@/components/WebSocketStatusIndicator";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useProfileContext } from "@/context/ProfileContext";
 import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
 import { DashboardAnalyticsContent } from "@/pages/dashboard/DashboardAnalyticsContent";
@@ -42,45 +40,42 @@ function DashboardAggregateSection({
   activeTab: Extract<DashboardTab, "overview" | "routing">;
 }) {
   const navigate = useNavigate();
-  const { revision, selectedProfile } = useProfileContext();
   const { format: formatTime } = useTimezone();
   const { messages } = useLocale();
   const data = useDashboardPageData({
-    revision,
-    selectedProfileId: selectedProfile?.id ?? null,
+    revision: 0,
+    selectedProfileId: 1,
   });
   const openAnalyticsTab = useCallback(() => {
     pageState.setTab("analytics");
   }, [pageState]);
   const handleReviewRequests = useCallback(() => {
-    navigate("/request-logs");
+    void navigate({ to: "/observe/requests" });
+  }, [navigate]);
+  const handleViewLoadbalanceEvents = useCallback(() => {
+    void navigate({ to: "/route/ban-policies" });
   }, [navigate]);
   const handleSelectRecentActivity = useCallback(
     (requestLogId: number) => {
-      const searchParams = new URLSearchParams({ request_id: String(requestLogId) });
-      navigate(`/request-logs?${searchParams.toString()}`);
+      void navigate({ to: "/observe/requests", search: { request_id: String(requestLogId) } });
     },
     [navigate],
   );
   const handleSelectModel = useCallback(
     (modelConfigId: number) => {
-      navigate(`/models/${modelConfigId}`);
+      void navigate({ to: "/models/$modelId", params: { modelId: String(modelConfigId) } });
     },
     [navigate],
   );
   const handleDrillDownRequests = useCallback(
     (params: { endpoint_id?: number; model_id?: string }) => {
-      const searchParams = new URLSearchParams();
-
-      if (params.endpoint_id) {
-        searchParams.set("endpoint_id", String(params.endpoint_id));
-      }
-
-      if (params.model_id) {
-        searchParams.set("model_id", params.model_id);
-      }
-
-      navigate(`/request-logs?${searchParams.toString()}`);
+      void navigate({
+        to: "/observe/requests",
+        search: {
+          endpoint: params.endpoint_id ? String(params.endpoint_id) : undefined,
+          model: params.model_id,
+        },
+      });
     },
     [navigate],
   );
@@ -101,7 +96,6 @@ function DashboardAggregateSection({
         >
           <RefreshCw className={`h-4 w-4 ${data.isRefreshing ? "animate-spin" : ""}`} />
         </Button>
-        <WebSocketStatusIndicator connectionState={data.connectionState} isSyncing={data.isSyncing} />
       </OperatorPageHeader>
 
       <DashboardTabs pageState={pageState} />
@@ -117,6 +111,7 @@ function DashboardAggregateSection({
           onOpenAnalytics={openAnalyticsTab}
           onInspectSpending={openAnalyticsTab}
           onReviewRequests={handleReviewRequests}
+          onViewLoadbalanceEvents={handleViewLoadbalanceEvents}
           onSelectRecentActivity={handleSelectRecentActivity}
         />
       ) : (

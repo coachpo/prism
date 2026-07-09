@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net"
-	"net/mail"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -37,17 +35,14 @@ type BootstrapConfigManager struct {
 }
 
 const (
-	BootstrapConfigSecretDatabaseURL                        = "database.url"
-	BootstrapConfigSecretRuntimeSecretEncryptionKey         = "runtime.secretEncryptionKey"
-	BootstrapConfigSecretAuthJWTSigningKey                  = "auth.jwtSigningKey"
-	BootstrapConfigSecretStateTransferBundleKey             = "stateTransfer.bundleEncryptionKey"
-	BootstrapConfigSecretMailSMTPPassword                   = "mail.smtp.password"
-	BootstrapConfigSecretTelemetryAuthorizationHeader       = "telemetry.exporter.auth.authorizationHeader"
-	BootstrapConfigConfirmationServerHostChange             = "server-host-change"
-	BootstrapConfigConfirmationServerPortChange             = "server-port-change"
-	BootstrapConfigConfirmationDatabaseURLChange            = "database-url-change"
-	BootstrapConfigConfirmationAuthJWTSigningKeyChange      = "auth-jwt-signing-key-change"
-	BootstrapConfigConfirmationStateTransferBundleKeyChange = "state-transfer-bundle-encryption-key-change"
+	BootstrapConfigSecretDatabaseURL                   = "database.url"
+	BootstrapConfigSecretRuntimeSecretEncryptionKey    = "runtime.secretEncryptionKey"
+	BootstrapConfigSecretAuthJWTSigningKey             = "auth.jwtSigningKey"
+	BootstrapConfigSecretTelemetryAuthorizationHeader  = "telemetry.exporter.auth.authorizationHeader"
+	BootstrapConfigConfirmationServerHostChange        = "server-host-change"
+	BootstrapConfigConfirmationServerPortChange        = "server-port-change"
+	BootstrapConfigConfirmationDatabaseURLChange       = "database-url-change"
+	BootstrapConfigConfirmationAuthJWTSigningKeyChange = "auth-jwt-signing-key-change"
 )
 
 type BootstrapConfigSecretAction string
@@ -69,48 +64,13 @@ type BootstrapConfigSnapshot struct {
 	Secrets       map[string]BootstrapConfigSecretMetadata `json:"secrets"`
 }
 
-type BootstrapConfigResponse struct {
-	ConfigPath         string                                    `json:"config_path"`
-	SchemaVersion      int                                       `json:"schema_version"`
-	FileRevision       int                                       `json:"file_revision"`
-	LoadedRevision     int                                       `json:"loaded_revision"`
-	DocumentETag       string                                    `json:"document_etag"`
-	LoadedDocumentETag string                                    `json:"loaded_document_etag"`
-	CreatedAt          string                                    `json:"created_at"`
-	UpdatedAt          string                                    `json:"updated_at"`
-	RestartRequired    bool                                      `json:"restart_required"`
-	Writable           bool                                      `json:"writable"`
-	ApplyCapabilities  map[string]BootstrapConfigFieldCapability `json:"apply_capabilities"`
-	PlannedChanges     *BootstrapConfigPlannedChanges            `json:"planned_changes,omitempty"`
-	ApplyResult        *BootstrapConfigApplyResult               `json:"apply_result,omitempty"`
-	Values             BootstrapConfigValues                     `json:"values"`
-	Secrets            map[string]BootstrapConfigSecretMetadata  `json:"secrets"`
-}
-
-type BootstrapConfigPlannedChanges struct {
-	ChangedFields   []BootstrapConfigFieldChange `json:"changed_fields"`
-	RestartRequired bool                         `json:"restart_required"`
-}
-
-type BootstrapConfigApplyResult struct {
-	AppliedNowFields      []string `json:"applied_now_fields"`
-	RestartRequiredFields []string `json:"restart_required_fields"`
-	UnchangedFields       []string `json:"unchanged_fields"`
-	PendingHotApplyFields []string `json:"pending_hot_apply_fields"`
-	FailedHotApplyFields  []string `json:"failed_hot_apply_fields"`
-}
-
-type BootstrapConfigResponseOptions struct {
-	PlannedChanges *BootstrapConfigPlannedChanges
-	ApplyResult    *BootstrapConfigApplyResult
-}
-
 type BootstrapConfigValues struct {
 	Server    *BootstrapConfigServerValues    `json:"server"`
 	Database  *BootstrapConfigDatabaseValues  `json:"database"`
 	Runtime   *BootstrapConfigRuntimeValues   `json:"runtime"`
 	HTTP      *BootstrapConfigHTTPValues      `json:"http"`
 	Auth      *BootstrapConfigAuthValues      `json:"auth"`
+	Alerting  *BootstrapConfigAlertingValues  `json:"alerting"`
 	Mail      *BootstrapConfigMailValues      `json:"mail,omitempty"`
 	Telemetry *BootstrapConfigTelemetryValues `json:"telemetry,omitempty"`
 }
@@ -131,7 +91,7 @@ type BootstrapConfigDatabasePoolsValues struct {
 	RuntimeExecution *BootstrapConfigDatabasePoolValues `json:"runtime_execution"`
 	RuntimeTelemetry *BootstrapConfigDatabasePoolValues `json:"runtime_telemetry"`
 	RuntimeFeedback  *BootstrapConfigDatabasePoolValues `json:"runtime_feedback"`
-	Realtime         *BootstrapConfigDatabasePoolValues `json:"realtime"`
+	Realtime         *BootstrapConfigDatabasePoolValues `json:"realtime,omitempty"`
 	CacheRefresh     *BootstrapConfigDatabasePoolValues `json:"cache_refresh"`
 	BackgroundJobs   *BootstrapConfigDatabasePoolValues `json:"background_jobs"`
 }
@@ -180,6 +140,10 @@ type BootstrapConfigAuthValues struct {
 	AccessCookieName       *string `json:"access_cookie_name"`
 	RefreshCookieName      *string `json:"refresh_cookie_name"`
 	CookieSecure           *bool   `json:"cookie_secure"`
+}
+
+type BootstrapConfigAlertingValues struct {
+	WebhookURL *string `json:"webhook_url"`
 }
 
 type BootstrapConfigMailValues struct {
@@ -246,52 +210,6 @@ type BootstrapConfigSecretUpdate struct {
 	Value  *string                     `json:"value,omitempty"`
 }
 
-type BootstrapConfigUpdateRequest struct {
-	ExpectedRevision int                                    `json:"expected_revision"`
-	ExpectedETag     string                                 `json:"expected_etag"`
-	Values           *BootstrapConfigValues                 `json:"values"`
-	SecretUpdates    map[string]BootstrapConfigSecretUpdate `json:"secret_updates"`
-	Confirmations    []string                               `json:"confirmations,omitempty"`
-}
-
-type BootstrapConfigPreparedUpdate struct {
-	Payload  []byte                  `json:"-"`
-	Snapshot BootstrapConfigSnapshot `json:"snapshot"`
-	Noop     bool                    `json:"noop"`
-}
-
-type BootstrapConfigConflictError struct {
-	ExpectedRevision int
-	CurrentRevision  int
-	ExpectedETag     string
-	CurrentETag      string
-}
-
-func (e *BootstrapConfigConflictError) Error() string {
-	return "bootstrap config has changed since it was loaded"
-}
-
-type BootstrapConfigSecretOperationError struct {
-	Field  string
-	Action BootstrapConfigSecretAction
-	Reason string
-}
-
-func (e *BootstrapConfigSecretOperationError) Error() string {
-	if e.Action == "" {
-		return fmt.Sprintf("bootstrap config secret %s is invalid: %s", e.Field, e.Reason)
-	}
-	return fmt.Sprintf("bootstrap config secret %s action %q is invalid: %s", e.Field, e.Action, e.Reason)
-}
-
-type BootstrapConfigMissingConfirmationsError struct {
-	RequiredConfirmations []string
-}
-
-func (e *BootstrapConfigMissingConfirmationsError) Error() string {
-	return fmt.Sprintf("bootstrap config update requires confirmations: %s", strings.Join(e.RequiredConfirmations, ", "))
-}
-
 type bootstrapConfigDocument struct {
 	Meta          *bootstrapMeta          `json:"meta"`
 	Server        *bootstrapServer        `json:"server"`
@@ -299,9 +217,10 @@ type bootstrapConfigDocument struct {
 	Runtime       *bootstrapRuntime       `json:"runtime"`
 	HTTP          *bootstrapHTTP          `json:"http"`
 	Auth          *bootstrapAuth          `json:"auth"`
+	Alerting      *bootstrapAlerting      `json:"alerting,omitempty"`
 	Mail          *bootstrapMail          `json:"mail,omitempty"`
 	Telemetry     *bootstrapTelemetry     `json:"telemetry,omitempty"`
-	StateTransfer *bootstrapStateTransfer `json:"stateTransfer"`
+	StateTransfer *bootstrapStateTransfer `json:"stateTransfer,omitempty"`
 }
 
 type bootstrapMeta struct {
@@ -328,7 +247,7 @@ type bootstrapDatabasePools struct {
 	RuntimeExecution *bootstrapDatabasePool `json:"runtimeExecution"`
 	RuntimeTelemetry *bootstrapDatabasePool `json:"runtimeTelemetry"`
 	RuntimeFeedback  *bootstrapDatabasePool `json:"runtimeFeedback"`
-	Realtime         *bootstrapDatabasePool `json:"realtime"`
+	Realtime         *bootstrapDatabasePool `json:"realtime,omitempty"` // ponytail: parsed for live config.json compat; ignored
 	CacheRefresh     *bootstrapDatabasePool `json:"cacheRefresh"`
 	BackgroundJobs   *bootstrapDatabasePool `json:"backgroundJobs"`
 }
@@ -367,6 +286,24 @@ type bootstrapRuntimeSideEffects struct {
 
 type bootstrapRuntimeRouting struct{}
 
+func (r *bootstrapRuntimeRouting) UnmarshalJSON(raw []byte) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	for field := range fields {
+		// Legacy startup field kept only so existing config.json files continue to parse after removal.
+		if field == "openaiTerminalTranslationMode" {
+			continue
+		}
+		return fmt.Errorf("json: unknown field %q", field)
+	}
+	return nil
+}
+
 type bootstrapHTTP struct {
 	CORSAllowedOrigins *[]string `json:"corsAllowedOrigins"`
 }
@@ -375,10 +312,14 @@ type bootstrapAuth struct {
 	JWTSigningKey          *string `json:"jwtSigningKey"`
 	AccessTokenTTLSeconds  *int    `json:"accessTokenTtlSeconds"`
 	RefreshTokenTTLSeconds *int    `json:"refreshTokenTtlSeconds"`
-	ResetCodeTTLSeconds    *int    `json:"resetCodeTtlSeconds"`
+	ResetCodeTTLSeconds    *int    `json:"resetCodeTtlSeconds"` // ponytail: parsed for live config.json compat; ignored by settings
 	AccessCookieName       *string `json:"accessCookieName"`
 	RefreshCookieName      *string `json:"refreshCookieName"`
 	CookieSecure           *bool   `json:"cookieSecure"`
+}
+
+type bootstrapAlerting struct {
+	WebhookURL *string `json:"webhookUrl"`
 }
 
 type bootstrapMail struct {
@@ -437,7 +378,7 @@ type bootstrapTelemetryTraces struct {
 }
 
 type bootstrapStateTransfer struct {
-	BundleEncryptionKey *string `json:"bundleEncryptionKey"`
+	BundleEncryptionKey *string `json:"bundleEncryptionKey"` // ponytail: parsed for live config.json compat; feature removed
 }
 
 func NewBootstrapConfigManager(options BootstrapConfigManagerOptions) BootstrapConfigManager {
@@ -500,112 +441,6 @@ func (m BootstrapConfigManager) LoadOrSeedFromEnv() (Settings, error) {
 func (m BootstrapConfigManager) LoadBootstrapConfigDocument(path string) (BootstrapConfigSnapshot, Settings, error) {
 	_, snapshot, settings, _, err := m.loadBootstrapConfigDocument(path)
 	return snapshot, settings, err
-}
-
-func BuildBootstrapConfigResponse(snapshot BootstrapConfigSnapshot, currentSettings Settings, liveSettings Settings, loadedRevision int, loadedDocumentETag string, writable bool, options BootstrapConfigResponseOptions) BootstrapConfigResponse {
-	loadedETag := strings.TrimSpace(loadedDocumentETag)
-	fieldDiff, err := DiffBootstrapConfigSettings(liveSettings, currentSettings)
-	restartRequired := err == nil && fieldDiff.RestartRequired()
-	if options.PlannedChanges != nil {
-		restartRequired = options.PlannedChanges.RestartRequired
-	}
-	if options.ApplyResult != nil {
-		restartRequired = len(options.ApplyResult.RestartRequiredFields) > 0
-	}
-	return BootstrapConfigResponse{
-		ConfigPath:         snapshot.ConfigPath,
-		SchemaVersion:      snapshot.SchemaVersion,
-		FileRevision:       snapshot.FileRevision,
-		LoadedRevision:     loadedRevision,
-		DocumentETag:       snapshot.DocumentETag,
-		LoadedDocumentETag: loadedETag,
-		CreatedAt:          snapshot.CreatedAt,
-		UpdatedAt:          snapshot.UpdatedAt,
-		RestartRequired:    restartRequired,
-		Writable:           writable,
-		ApplyCapabilities:  BootstrapConfigApplyCapabilities(),
-		PlannedChanges:     options.PlannedChanges,
-		ApplyResult:        options.ApplyResult,
-		Values:             snapshot.Values,
-		Secrets:            snapshot.Secrets,
-	}
-}
-
-func (m BootstrapConfigManager) PrepareBootstrapConfigUpdate(path string, request BootstrapConfigUpdateRequest) (BootstrapConfigPreparedUpdate, error) {
-	currentDocument, currentSnapshot, _, currentPayload, err := m.loadBootstrapConfigDocument(path)
-	if err != nil {
-		return BootstrapConfigPreparedUpdate{}, err
-	}
-	if err := validateBootstrapConfigExpectations(currentSnapshot, request); err != nil {
-		return BootstrapConfigPreparedUpdate{}, err
-	}
-
-	candidate := cloneBootstrapConfigDocument(currentDocument)
-	applyBootstrapConfigValues(&candidate, request.Values)
-	if err := applyBootstrapConfigSecretUpdates(&candidate, currentDocument, request.SecretUpdates); err != nil {
-		return BootstrapConfigPreparedUpdate{}, err
-	}
-	if err := candidate.validateSchema(); err != nil {
-		return BootstrapConfigPreparedUpdate{}, err
-	}
-	if err := candidate.validateSemantics(); err != nil {
-		return BootstrapConfigPreparedUpdate{}, err
-	}
-	if _, err := candidate.toSettings(); err != nil {
-		return BootstrapConfigPreparedUpdate{}, err
-	}
-	if requiredConfirmations := missingBootstrapConfigConfirmations(currentDocument, candidate, request.Confirmations); len(requiredConfirmations) > 0 {
-		return BootstrapConfigPreparedUpdate{}, &BootstrapConfigMissingConfirmationsError{RequiredConfirmations: requiredConfirmations}
-	}
-
-	candidatePayload, err := canonicalBootstrapConfigPayload(candidate)
-	if err != nil {
-		return BootstrapConfigPreparedUpdate{}, err
-	}
-	if bytes.Equal(candidatePayload, currentPayload) {
-		return BootstrapConfigPreparedUpdate{Payload: cloneBytes(currentPayload), Snapshot: currentSnapshot, Noop: true}, nil
-	}
-
-	revision, err := requiredIntMin("meta.revision", currentDocument.Meta.Revision, 1)
-	if err != nil {
-		return BootstrapConfigPreparedUpdate{}, err
-	}
-	candidate.Meta.Revision = intPointer(revision + 1)
-	candidate.Meta.UpdatedAt = stringPointer(m.resolvedTimeNow()().UTC().Format(time.RFC3339))
-
-	updatedSnapshot, _, updatedPayload, err := buildBootstrapConfigSnapshot(currentSnapshot.ConfigPath, candidate)
-	if err != nil {
-		return BootstrapConfigPreparedUpdate{}, err
-	}
-	return BootstrapConfigPreparedUpdate{Payload: cloneBytes(updatedPayload), Snapshot: updatedSnapshot}, nil
-}
-
-func (m BootstrapConfigManager) ValidateBootstrapConfigUpdate(path string, request BootstrapConfigUpdateRequest) (BootstrapConfigPreparedUpdate, error) {
-	return m.PrepareBootstrapConfigUpdate(path, request)
-}
-
-func (m BootstrapConfigManager) WriteBootstrapConfigUpdate(path string, prepared BootstrapConfigPreparedUpdate) (BootstrapConfigSnapshot, error) {
-	if prepared.Noop {
-		return prepared.Snapshot, nil
-	}
-	if len(bytes.TrimSpace(prepared.Payload)) == 0 {
-		return BootstrapConfigSnapshot{}, fmt.Errorf("bootstrap config prepared payload is empty")
-	}
-	if err := m.WriteAtomically(path, prepared.Payload); err != nil {
-		return BootstrapConfigSnapshot{}, err
-	}
-	return prepared.Snapshot, nil
-}
-
-func (m BootstrapConfigManager) SaveBootstrapConfigUpdate(path string, request BootstrapConfigUpdateRequest) (BootstrapConfigPreparedUpdate, error) {
-	prepared, err := m.PrepareBootstrapConfigUpdate(path, request)
-	if err != nil {
-		return BootstrapConfigPreparedUpdate{}, err
-	}
-	if _, err := m.WriteBootstrapConfigUpdate(path, prepared); err != nil {
-		return BootstrapConfigPreparedUpdate{}, err
-	}
-	return prepared, nil
 }
 
 func (m BootstrapConfigManager) Parse(raw []byte) (Settings, error) {
@@ -736,241 +571,6 @@ func buildBootstrapConfigSnapshot(path string, document bootstrapConfigDocument)
 	}, settings, cloneBytes(canonicalPayload), nil
 }
 
-func validateBootstrapConfigExpectations(current BootstrapConfigSnapshot, request BootstrapConfigUpdateRequest) error {
-	expectedETag := strings.TrimSpace(request.ExpectedETag)
-	if request.ExpectedRevision == current.FileRevision && expectedETag == current.DocumentETag {
-		return nil
-	}
-	return &BootstrapConfigConflictError{
-		ExpectedRevision: request.ExpectedRevision,
-		CurrentRevision:  current.FileRevision,
-		ExpectedETag:     expectedETag,
-		CurrentETag:      current.DocumentETag,
-	}
-}
-
-func applyBootstrapConfigValues(document *bootstrapConfigDocument, values *BootstrapConfigValues) {
-	if values == nil {
-		document.Server = nil
-		document.Database = nil
-		document.Runtime = nil
-		document.HTTP = nil
-		document.Auth = nil
-		document.Mail = nil
-		document.Telemetry = nil
-		return
-	}
-	databaseURL := currentBootstrapDatabaseURL(document)
-	runtimeSecret := currentBootstrapRuntimeSecret(document)
-	authJWTSigningKey := currentBootstrapAuthJWTSigningKey(document)
-	mailSMTPPassword := currentBootstrapMailSMTPPassword(document)
-	telemetryAuthorizationHeader := currentBootstrapTelemetryAuthorizationHeader(document)
-	telemetryWasOmitted := document.Telemetry == nil
-	document.Server = bootstrapServerFromSafeValues(values.Server)
-	document.Database = bootstrapDatabaseFromSafeValues(values.Database, databaseURL)
-	document.Runtime = bootstrapRuntimeFromSafeValues(values.Runtime, runtimeSecret)
-	document.HTTP = bootstrapHTTPFromSafeValues(values.HTTP)
-	document.Auth = bootstrapAuthFromSafeValues(values.Auth, authJWTSigningKey)
-	document.Mail = bootstrapMailFromSafeValues(values.Mail, mailSMTPPassword)
-	document.Telemetry = bootstrapTelemetryFromSafeValues(values.Telemetry, telemetryAuthorizationHeader)
-	if telemetryWasOmitted && isDisabledSafeBootstrapTelemetry(values.Telemetry) {
-		document.Telemetry = nil
-	}
-}
-
-func applyBootstrapConfigSecretUpdates(candidate *bootstrapConfigDocument, current bootstrapConfigDocument, updates map[string]BootstrapConfigSecretUpdate) error {
-	if len(updates) == 0 {
-		return nil
-	}
-	unknownFields := make([]string, 0)
-	for field := range updates {
-		if !isKnownBootstrapConfigSecretField(field) {
-			unknownFields = append(unknownFields, field)
-		}
-	}
-	if len(unknownFields) > 0 {
-		slices.Sort(unknownFields)
-		return &BootstrapConfigSecretOperationError{Field: unknownFields[0], Reason: "unsupported secret field"}
-	}
-	for _, field := range orderedBootstrapConfigSecretFields() {
-		update, ok := updates[field]
-		if !ok {
-			continue
-		}
-		switch update.Action {
-		case BootstrapConfigSecretActionPreserve:
-			continue
-		case BootstrapConfigSecretActionReplace:
-			if field == BootstrapConfigSecretRuntimeSecretEncryptionKey {
-				return &BootstrapConfigSecretOperationError{Field: field, Action: update.Action, Reason: "runtime secret encryption key is preserve-only in v1"}
-			}
-			if field == BootstrapConfigSecretMailSMTPPassword && !bootstrapMailEnabled(candidate.Mail) {
-				continue
-			}
-			if field == BootstrapConfigSecretTelemetryAuthorizationHeader && !bootstrapTelemetryAuthorizationHeaderEnabled(candidate.Telemetry) {
-				continue
-			}
-			value, err := replacementBootstrapSecretValue(field, update.Value, current)
-			if err != nil {
-				return err
-			}
-			setBootstrapConfigSecret(candidate, field, value)
-		case BootstrapConfigSecretActionClear:
-			if field != BootstrapConfigSecretTelemetryAuthorizationHeader {
-				return &BootstrapConfigSecretOperationError{Field: field, Action: update.Action, Reason: "clear is only supported for telemetry authorization header"}
-			}
-			clearBootstrapConfigSecret(candidate, field)
-		default:
-			return &BootstrapConfigSecretOperationError{Field: field, Action: update.Action, Reason: "action must be preserve, replace, or clear"}
-		}
-	}
-	return nil
-}
-
-func replacementBootstrapSecretValue(field string, value *string, current bootstrapConfigDocument) (string, error) {
-	if value == nil {
-		return "", &BootstrapConfigSecretOperationError{Field: field, Action: BootstrapConfigSecretActionReplace, Reason: "replacement value is required"}
-	}
-	trimmed := strings.TrimSpace(*value)
-	if trimmed == "" {
-		return "", &BootstrapConfigSecretOperationError{Field: field, Action: BootstrapConfigSecretActionReplace, Reason: "replacement value is required"}
-	}
-	metadata := bootstrapConfigSecretMetadata(current)[field]
-	if isRedactedBootstrapSecretPlaceholder(trimmed, metadata) || databaseURLHasRedactedQueryPlaceholder(field, trimmed) {
-		return "", &BootstrapConfigSecretOperationError{Field: field, Action: BootstrapConfigSecretActionReplace, Reason: "replacement value must not be a redacted placeholder"}
-	}
-	return trimmed, nil
-}
-
-func isRedactedBootstrapSecretPlaceholder(value string, metadata BootstrapConfigSecretMetadata) bool {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return false
-	}
-	if metadata.Masked != "" && trimmed == metadata.Masked {
-		return true
-	}
-	if isBootstrapRedactedToken(trimmed) {
-		return true
-	}
-	lower := strings.ToLower(trimmed)
-	return strings.Contains(trimmed, ":***@") || strings.Contains(lower, "%2a%2a%2a") || strings.Contains(lower, "[redacted]")
-}
-
-func databaseURLHasRedactedQueryPlaceholder(field string, value string) bool {
-	if field != BootstrapConfigSecretDatabaseURL {
-		return false
-	}
-	parsed, err := url.Parse(strings.TrimSpace(value))
-	if err != nil {
-		return false
-	}
-	query := parsed.Query()
-	for key, values := range query {
-		if !isSensitiveDatabaseURLQueryKey(key) {
-			continue
-		}
-		for _, item := range values {
-			if isBootstrapRedactedToken(item) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func isBootstrapRedactedToken(value string) bool {
-	lower := strings.ToLower(strings.TrimSpace(value))
-	switch lower {
-	case "***", "set", "configured", "redacted", "[redacted]", "********":
-		return true
-	default:
-		return strings.Contains(lower, "%2a%2a%2a") || strings.Contains(lower, "[redacted]")
-	}
-}
-
-func setBootstrapConfigSecret(document *bootstrapConfigDocument, field string, value string) {
-	switch field {
-	case BootstrapConfigSecretDatabaseURL:
-		if document.Database == nil {
-			document.Database = &bootstrapDatabase{}
-		}
-		document.Database.URL = stringPointer(value)
-	case BootstrapConfigSecretAuthJWTSigningKey:
-		if document.Auth == nil {
-			document.Auth = &bootstrapAuth{}
-		}
-		document.Auth.JWTSigningKey = stringPointer(value)
-	case BootstrapConfigSecretStateTransferBundleKey:
-		if document.StateTransfer == nil {
-			document.StateTransfer = &bootstrapStateTransfer{}
-		}
-		document.StateTransfer.BundleEncryptionKey = stringPointer(value)
-	case BootstrapConfigSecretMailSMTPPassword:
-		if document.Mail == nil {
-			document.Mail = &bootstrapMail{}
-		}
-		if document.Mail.SMTP == nil {
-			document.Mail.SMTP = &bootstrapSMTP{}
-		}
-		document.Mail.SMTP.Password = stringPointer(value)
-	case BootstrapConfigSecretTelemetryAuthorizationHeader:
-		if document.Telemetry == nil {
-			document.Telemetry = &bootstrapTelemetry{}
-		}
-		if document.Telemetry.Exporter == nil {
-			document.Telemetry.Exporter = &bootstrapTelemetryExporter{}
-		}
-		if document.Telemetry.Exporter.Auth == nil {
-			document.Telemetry.Exporter.Auth = &bootstrapTelemetryExporterAuth{}
-		}
-		document.Telemetry.Exporter.Auth.AuthorizationHeader = stringPointer(value)
-	}
-}
-
-func clearBootstrapConfigSecret(document *bootstrapConfigDocument, field string) {
-	switch field {
-	case BootstrapConfigSecretTelemetryAuthorizationHeader:
-		if document.Telemetry == nil || document.Telemetry.Exporter == nil || document.Telemetry.Exporter.Auth == nil {
-			return
-		}
-		document.Telemetry.Exporter.Auth.AuthorizationHeader = nil
-	}
-}
-
-func missingBootstrapConfigConfirmations(current bootstrapConfigDocument, candidate bootstrapConfigDocument, confirmations []string) []string {
-	provided := make(map[string]struct{}, len(confirmations))
-	for _, confirmation := range confirmations {
-		trimmed := strings.TrimSpace(confirmation)
-		if trimmed != "" {
-			provided[trimmed] = struct{}{}
-		}
-	}
-	required := make([]string, 0, 5)
-	if bootstrapStringValueChanged(current.Server.Host, candidate.Server.Host) {
-		required = append(required, BootstrapConfigConfirmationServerHostChange)
-	}
-	if bootstrapIntValueChanged(current.Server.Port, candidate.Server.Port) {
-		required = append(required, BootstrapConfigConfirmationServerPortChange)
-	}
-	if bootstrapStringValueChanged(current.Database.URL, candidate.Database.URL) {
-		required = append(required, BootstrapConfigConfirmationDatabaseURLChange)
-	}
-	if bootstrapStringValueChanged(current.Auth.JWTSigningKey, candidate.Auth.JWTSigningKey) {
-		required = append(required, BootstrapConfigConfirmationAuthJWTSigningKeyChange)
-	}
-	if bootstrapStringValueChanged(current.StateTransfer.BundleEncryptionKey, candidate.StateTransfer.BundleEncryptionKey) {
-		required = append(required, BootstrapConfigConfirmationStateTransferBundleKeyChange)
-	}
-	missing := make([]string, 0, len(required))
-	for _, confirmation := range required {
-		if _, ok := provided[confirmation]; !ok {
-			missing = append(missing, confirmation)
-		}
-	}
-	return missing
-}
-
 func safeBootstrapConfigValues(document bootstrapConfigDocument) BootstrapConfigValues {
 	return BootstrapConfigValues{
 		Server: &BootstrapConfigServerValues{
@@ -1000,6 +600,7 @@ func safeBootstrapConfigValues(document bootstrapConfigDocument) BootstrapConfig
 			RefreshCookieName:      cloneStringPointer(document.Auth.RefreshCookieName),
 			CookieSecure:           cloneBoolPointer(document.Auth.CookieSecure),
 		},
+		Alerting:  safeBootstrapAlertingValues(document.Alerting),
 		Mail:      safeBootstrapMailValues(document.Mail),
 		Telemetry: safeBootstrapTelemetryValues(document.Telemetry),
 	}
@@ -1010,8 +611,6 @@ func bootstrapConfigSecretMetadata(document bootstrapConfigDocument) map[string]
 		BootstrapConfigSecretDatabaseURL:                  secretMetadata(document.Database.URL, true, maskBootstrapDatabaseURL),
 		BootstrapConfigSecretRuntimeSecretEncryptionKey:   secretMetadata(document.Runtime.SecretEncryptionKey, false, maskConfiguredBootstrapSecret),
 		BootstrapConfigSecretAuthJWTSigningKey:            secretMetadata(document.Auth.JWTSigningKey, true, maskConfiguredBootstrapSecret),
-		BootstrapConfigSecretStateTransferBundleKey:       secretMetadata(document.StateTransfer.BundleEncryptionKey, true, maskConfiguredBootstrapSecret),
-		BootstrapConfigSecretMailSMTPPassword:             secretMetadata(bootstrapMailSMTPPassword(document.Mail), true, maskConfiguredBootstrapSecret),
 		BootstrapConfigSecretTelemetryAuthorizationHeader: secretMetadata(bootstrapTelemetryAuthorizationHeader(document.Telemetry), true, maskConfiguredBootstrapSecret),
 	}
 }
@@ -1180,7 +779,14 @@ func bootstrapAuthFromSafeValues(values *BootstrapConfigAuthValues, jwtSigningKe
 	}
 }
 
-func bootstrapMailFromSafeValues(values *BootstrapConfigMailValues, smtpPassword *string) *bootstrapMail {
+func bootstrapAlertingFromSafeValues(values *BootstrapConfigAlertingValues) *bootstrapAlerting {
+	if values == nil {
+		return nil
+	}
+	return &bootstrapAlerting{WebhookURL: cloneStringPointer(values.WebhookURL)}
+}
+
+func bootstrapMailFromSafeValues(values *BootstrapConfigMailValues) *bootstrapMail {
 	if values == nil || values.Enabled == nil || !*values.Enabled {
 		return canonicalDisabledBootstrapMailDocument()
 	}
@@ -1188,17 +794,13 @@ func bootstrapMailFromSafeValues(values *BootstrapConfigMailValues, smtpPassword
 		Enabled: cloneBoolPointer(values.Enabled),
 		From:    cloneStringPointer(values.From),
 		ReplyTo: cloneStringPointer(values.ReplyTo),
-		SMTP:    bootstrapSMTPFromSafeValues(values.SMTP, smtpPassword),
+		SMTP:    bootstrapSMTPFromSafeValues(values.SMTP),
 	}
 }
 
-func bootstrapSMTPFromSafeValues(values *BootstrapConfigMailSMTPValues, smtpPassword *string) *bootstrapSMTP {
+func bootstrapSMTPFromSafeValues(values *BootstrapConfigMailSMTPValues) *bootstrapSMTP {
 	if values == nil {
 		return nil
-	}
-	preservedPassword := cloneStringPointer(smtpPassword)
-	if hasNonEmptyString(values.PasswordFile) {
-		preservedPassword = nil
 	}
 	return &bootstrapSMTP{
 		Host:          cloneStringPointer(values.Host),
@@ -1207,7 +809,6 @@ func bootstrapSMTPFromSafeValues(values *BootstrapConfigMailSMTPValues, smtpPass
 		EHLOHostname:  cloneStringPointer(values.EHLOHostname),
 		Auth:          cloneStringPointer(values.Auth),
 		Username:      cloneStringPointer(values.Username),
-		Password:      preservedPassword,
 		PasswordFile:  cloneStringPointer(values.PasswordFile),
 		Timeout:       cloneStringPointer(values.Timeout),
 		TLSServerName: cloneStringPointer(values.TLSServerName),
@@ -1303,13 +904,6 @@ func currentBootstrapAuthJWTSigningKey(document *bootstrapConfigDocument) *strin
 	return cloneStringPointer(document.Auth.JWTSigningKey)
 }
 
-func currentBootstrapMailSMTPPassword(document *bootstrapConfigDocument) *string {
-	if document == nil {
-		return nil
-	}
-	return cloneStringPointer(bootstrapMailSMTPPassword(document.Mail))
-}
-
 func currentBootstrapTelemetryAuthorizationHeader(document *bootstrapConfigDocument) *string {
 	if document == nil {
 		return nil
@@ -1317,63 +911,11 @@ func currentBootstrapTelemetryAuthorizationHeader(document *bootstrapConfigDocum
 	return cloneStringPointer(bootstrapTelemetryAuthorizationHeader(document.Telemetry))
 }
 
-func bootstrapMailSMTPPassword(mailConfig *bootstrapMail) *string {
-	if mailConfig == nil || mailConfig.SMTP == nil {
-		return nil
-	}
-	return mailConfig.SMTP.Password
-}
-
-func bootstrapMailEnabled(mailConfig *bootstrapMail) bool {
-	return mailConfig != nil && mailConfig.Enabled != nil && *mailConfig.Enabled
-}
-
 func bootstrapTelemetryAuthorizationHeader(telemetry *bootstrapTelemetry) *string {
 	if telemetry == nil || telemetry.Exporter == nil || telemetry.Exporter.Auth == nil {
 		return nil
 	}
 	return telemetry.Exporter.Auth.AuthorizationHeader
-}
-
-func bootstrapTelemetryAuthorizationHeaderEnabled(telemetry *bootstrapTelemetry) bool {
-	if telemetry == nil || telemetry.Exporter == nil || telemetry.Exporter.Auth == nil || telemetry.Exporter.Auth.Mode == nil {
-		return false
-	}
-	return strings.TrimSpace(*telemetry.Exporter.Auth.Mode) == string(TelemetryExporterAuthModeAuthorizationHeader)
-}
-
-func orderedBootstrapConfigSecretFields() []string {
-	return []string{
-		BootstrapConfigSecretDatabaseURL,
-		BootstrapConfigSecretRuntimeSecretEncryptionKey,
-		BootstrapConfigSecretAuthJWTSigningKey,
-		BootstrapConfigSecretStateTransferBundleKey,
-		BootstrapConfigSecretMailSMTPPassword,
-		BootstrapConfigSecretTelemetryAuthorizationHeader,
-	}
-}
-
-func isKnownBootstrapConfigSecretField(field string) bool {
-	switch field {
-	case BootstrapConfigSecretDatabaseURL, BootstrapConfigSecretRuntimeSecretEncryptionKey, BootstrapConfigSecretAuthJWTSigningKey, BootstrapConfigSecretStateTransferBundleKey, BootstrapConfigSecretMailSMTPPassword, BootstrapConfigSecretTelemetryAuthorizationHeader:
-		return true
-	default:
-		return false
-	}
-}
-
-func bootstrapStringValueChanged(current *string, candidate *string) bool {
-	if current == nil || candidate == nil {
-		return false
-	}
-	return strings.TrimSpace(*current) != strings.TrimSpace(*candidate)
-}
-
-func bootstrapIntValueChanged(current *int, candidate *int) bool {
-	if current == nil || candidate == nil {
-		return false
-	}
-	return *current != *candidate
 }
 
 func parseBootstrapConfigDocument(raw []byte) (bootstrapConfigDocument, error) {
@@ -1419,7 +961,8 @@ func cloneBootstrapConfigDocument(document bootstrapConfigDocument) bootstrapCon
 	clone.Runtime = bootstrapRuntimeFromSafeValues(safeBootstrapRuntimeValues(document.Runtime), currentBootstrapRuntimeSecret(&document))
 	clone.HTTP = bootstrapHTTPFromSafeValues(safeBootstrapHTTPValues(document.HTTP))
 	clone.Auth = bootstrapAuthFromSafeValues(safeBootstrapAuthValues(document.Auth), currentBootstrapAuthJWTSigningKey(&document))
-	clone.Mail = bootstrapMailFromSafeValues(safeBootstrapMailValues(document.Mail), currentBootstrapMailSMTPPassword(&document))
+	clone.Alerting = bootstrapAlertingFromSafeValues(safeBootstrapAlertingValues(document.Alerting))
+	clone.Mail = bootstrapMailFromSafeValues(safeBootstrapMailValues(document.Mail))
 	clone.Telemetry = cloneBootstrapTelemetry(document.Telemetry)
 	if document.StateTransfer != nil {
 		clone.StateTransfer = &bootstrapStateTransfer{BundleEncryptionKey: cloneStringPointer(document.StateTransfer.BundleEncryptionKey)}
@@ -1567,6 +1110,13 @@ func safeBootstrapAuthValues(auth *bootstrapAuth) *BootstrapConfigAuthValues {
 		RefreshCookieName:      cloneStringPointer(auth.RefreshCookieName),
 		CookieSecure:           cloneBoolPointer(auth.CookieSecure),
 	}
+}
+
+func safeBootstrapAlertingValues(alerting *bootstrapAlerting) *BootstrapConfigAlertingValues {
+	if alerting == nil {
+		return &BootstrapConfigAlertingValues{WebhookURL: stringPointer("")}
+	}
+	return &BootstrapConfigAlertingValues{WebhookURL: cloneStringPointer(alerting.WebhookURL)}
 }
 
 func safeBootstrapMailValues(mailConfig *bootstrapMail) *BootstrapConfigMailValues {
@@ -1813,9 +1363,6 @@ func (d bootstrapConfigDocument) validateSchema() error {
 	if d.Auth == nil {
 		return missingBootstrapFieldError("auth")
 	}
-	if d.StateTransfer == nil {
-		return missingBootstrapFieldError("stateTransfer")
-	}
 	if err := d.Meta.validate(); err != nil {
 		return err
 	}
@@ -1834,8 +1381,8 @@ func (d bootstrapConfigDocument) validateSchema() error {
 	if err := d.Auth.validate(); err != nil {
 		return err
 	}
-	if d.Mail != nil {
-		if err := d.Mail.validate(); err != nil {
+	if d.Alerting != nil {
+		if err := d.Alerting.validate(); err != nil {
 			return err
 		}
 	}
@@ -1844,7 +1391,10 @@ func (d bootstrapConfigDocument) validateSchema() error {
 			return err
 		}
 	}
-	return d.StateTransfer.validate()
+	if d.StateTransfer != nil {
+		return d.StateTransfer.validate()
+	}
+	return nil
 }
 
 func (m bootstrapMeta) validate() error {
@@ -1936,9 +1486,6 @@ func (p *bootstrapDatabasePools) toPostgresPoolsBudget() (PostgresPoolsBudget, e
 		return PostgresPoolsBudget{}, err
 	}
 	if budget.RuntimeFeedback, err = lanePool(PostgresLaneRuntimeFeedback, p.RuntimeFeedback); err != nil {
-		return PostgresPoolsBudget{}, err
-	}
-	if budget.Realtime, err = lanePool(PostgresLaneRealtime, p.Realtime); err != nil {
 		return PostgresPoolsBudget{}, err
 	}
 	if budget.CacheRefresh, err = lanePool(PostgresLaneCacheRefresh, p.CacheRefresh); err != nil {
@@ -2054,9 +1601,6 @@ func (a bootstrapAuth) validate() error {
 	if _, err := requiredIntMin("auth.refreshTokenTtlSeconds", a.RefreshTokenTTLSeconds, 1); err != nil {
 		return err
 	}
-	if _, err := requiredIntMin("auth.resetCodeTtlSeconds", a.ResetCodeTTLSeconds, 1); err != nil {
-		return err
-	}
 	if _, err := requiredTrimmedString("auth.accessCookieName", a.AccessCookieName, 1, 200); err != nil {
 		return err
 	}
@@ -2067,121 +1611,13 @@ func (a bootstrapAuth) validate() error {
 	return err
 }
 
-func (m bootstrapMail) validate() error {
-	enabled, err := requiredBool("mail.enabled", m.Enabled)
-	if err != nil {
-		return err
-	}
-	if m.From != nil {
-		if _, err := optionalMailAddress("mail.from", m.From); err != nil {
-			return err
-		}
-	}
-	if m.ReplyTo != nil {
-		if _, err := optionalMailAddress("mail.replyTo", m.ReplyTo); err != nil {
-			return err
-		}
-	}
-	if enabled {
-		if _, err := requiredMailAddress("mail.from", m.From); err != nil {
-			return err
-		}
-		if m.SMTP == nil {
-			return missingBootstrapFieldError("mail.smtp")
-		}
-	}
-	if m.SMTP != nil {
-		return m.SMTP.validate(enabled)
-	}
-	return nil
-}
-
-func (s bootstrapSMTP) validate(enabled bool) error {
-	if enabled {
-		if _, err := requiredTrimmedString("mail.smtp.host", s.Host, 1, 255); err != nil {
-			return err
-		}
-		if _, err := requiredIntRange("mail.smtp.port", s.Port, 1, 65535); err != nil {
-			return err
-		}
-		if _, err := requiredEnumString("mail.smtp.mode", s.Mode, allowedMailSMTPModes()); err != nil {
-			return err
-		}
-		if _, err := parseDurationField("mail.smtp.timeout", s.Timeout); err != nil {
-			return err
-		}
-	}
-	if s.Host != nil {
-		if _, err := optionalTrimmedString("mail.smtp.host", s.Host, 255); err != nil {
-			return err
-		}
-	}
-	if s.Port != nil {
-		if _, err := requiredIntRange("mail.smtp.port", s.Port, 1, 65535); err != nil {
-			return err
-		}
-	}
-	if s.Mode != nil {
-		if _, err := requiredEnumString("mail.smtp.mode", s.Mode, allowedMailSMTPModes()); err != nil {
-			return err
-		}
-	}
-	if s.Auth != nil {
-		if _, err := requiredEnumString("mail.smtp.auth", s.Auth, allowedMailSMTPAuthModes()); err != nil {
-			return err
-		}
-	}
-	if s.EHLOHostname != nil {
-		if _, err := optionalTrimmedString("mail.smtp.ehloHostname", s.EHLOHostname, 255); err != nil {
-			return err
-		}
-	}
-	if s.Username != nil {
-		if _, err := optionalTrimmedString("mail.smtp.username", s.Username, 320); err != nil {
-			return err
-		}
-	}
-	if s.PasswordFile != nil {
-		if _, err := optionalTrimmedString("mail.smtp.passwordFile", s.PasswordFile, 0); err != nil {
-			return err
-		}
-	}
-	if s.TLSServerName != nil {
-		if _, err := optionalTrimmedString("mail.smtp.tlsServerName", s.TLSServerName, 255); err != nil {
-			return err
-		}
-	}
-	if s.Timeout != nil {
-		if _, err := parseDurationField("mail.smtp.timeout", s.Timeout); err != nil {
-			return err
-		}
-	}
-	if hasNonEmptyString(s.Password) && hasNonEmptyString(s.PasswordFile) {
-		return fmt.Errorf("bootstrap config fields mail.smtp.password and mail.smtp.passwordFile are mutually exclusive")
-	}
-	if enabled {
-		auth := normalizedMailSMTPAuth(s.Auth)
-		if auth == MailSMTPAuthPlain {
-			if _, err := requiredTrimmedString("mail.smtp.username", s.Username, 1, 320); err != nil {
-				return err
-			}
-			if !hasNonEmptyString(s.Password) && !hasNonEmptyString(s.PasswordFile) {
-				return fmt.Errorf("bootstrap config field mail.smtp.password or mail.smtp.passwordFile is required when mail.smtp.auth is plain")
-			}
-		}
-		mode := normalizedMailSMTPMode(s.Mode)
-		if mode == MailSMTPModePlaintextLocalOnly {
-			if !isLocalSMTPHost(strings.TrimSpace(*s.Host)) {
-				return fmt.Errorf("bootstrap config field mail.smtp.mode plaintext_local_only requires a localhost or loopback host")
-			}
-		}
-	}
-	return nil
+func (a bootstrapAlerting) validate() error {
+	_, err := a.toAlertingConfig()
+	return err
 }
 
 func (s bootstrapStateTransfer) validate() error {
-	_, err := requiredTrimmedString("stateTransfer.bundleEncryptionKey", s.BundleEncryptionKey, 1, 0)
-	return err
+	return nil
 }
 
 func (d bootstrapConfigDocument) validateSemantics() error {
@@ -2207,9 +1643,6 @@ func (d bootstrapConfigDocument) validateSemantics() error {
 	m3MaxConcurrent, _ := requiredIntMin("database.managementAdmission.m3MaxConcurrent", d.Database.ManagementAdmission.M3MaxConcurrent, 1)
 	if m3MaxConcurrent > m2MaxConcurrent {
 		return fmt.Errorf("bootstrap config field database.managementAdmission.m3MaxConcurrent must be less than or equal to database.managementAdmission.m2MaxConcurrent")
-	}
-	if d.Mail != nil {
-		return d.Mail.validate()
 	}
 	return nil
 }
@@ -2253,21 +1686,20 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	bundleEncryptionKey, err := requiredTrimmedString("stateTransfer.bundleEncryptionKey", d.StateTransfer.BundleEncryptionKey, 1, 0)
-	if err != nil {
-		return Settings{}, err
+	bundleEncryptionKey := ""
+	if d.StateTransfer != nil && d.StateTransfer.BundleEncryptionKey != nil {
+		bundleEncryptionKey = strings.TrimSpace(*d.StateTransfer.BundleEncryptionKey)
 	}
 	accessTokenTTLSeconds, _ := requiredIntMin("auth.accessTokenTtlSeconds", d.Auth.AccessTokenTTLSeconds, 1)
 	refreshTokenTTLSeconds, _ := requiredIntMin("auth.refreshTokenTtlSeconds", d.Auth.RefreshTokenTTLSeconds, 1)
-	resetCodeTTLSeconds, _ := requiredIntMin("auth.resetCodeTtlSeconds", d.Auth.ResetCodeTTLSeconds, 1)
 	accessCookieName, _ := requiredTrimmedString("auth.accessCookieName", d.Auth.AccessCookieName, 1, 200)
 	refreshCookieName, _ := requiredTrimmedString("auth.refreshCookieName", d.Auth.RefreshCookieName, 1, 200)
 	cookieSecure, _ := requiredBool("auth.cookieSecure", d.Auth.CookieSecure)
-	mailConfig, err := d.Mail.toMailConfig()
+	telemetryConfig, err := d.Telemetry.toTelemetryConfig()
 	if err != nil {
 		return Settings{}, err
 	}
-	telemetryConfig, err := d.Telemetry.toTelemetryConfig()
+	alertingConfig, err := d.Alerting.toAlertingConfig()
 	if err != nil {
 		return Settings{}, err
 	}
@@ -2286,113 +1718,36 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 		ManagementDatabasePoolBudget:     postgresPoolsBudget.Management,
 		ManagementAdmissionControlBudget: ManagementAdmissionBudget{M2MaxConcurrent: int64(m2MaxConcurrent), M3MaxConcurrent: int64(m3MaxConcurrent)},
 		SecretEncryptionKey:              runtimeSecretEncryptionKey,
-		ConfigBundleEncryptionKey:        bundleEncryptionKey,
+		StateTransferBundleEncryptionKey: bundleEncryptionKey,
 		CORSAllowedOrigins:               strings.Join(corsAllowedOrigins, ","),
 		AuthJWTSecret:                    jwtSigningKey,
 		AuthAccessTokenTTLSeconds:        accessTokenTTLSeconds,
 		AuthRefreshTokenTTLSeconds:       refreshTokenTTLSeconds,
-		AuthResetCodeTTLSeconds:          resetCodeTTLSeconds,
+		AuthResetCodeTTLSeconds:          defaultAuthResetCodeTTLSeconds,
 		AuthCookieName:                   accessCookieName,
 		AuthRefreshCookieName:            refreshCookieName,
 		AuthCookieSecure:                 cookieSecure,
-		Mail:                             mailConfig,
+		Alerting:                         alertingConfig,
+		Mail:                             defaultMailConfig(),
 	}, nil
 }
 
-func (m *bootstrapMail) toMailConfig() (MailConfig, error) {
-	if m == nil {
-		return defaultMailConfig(), nil
+func (a *bootstrapAlerting) toAlertingConfig() (AlertingConfig, error) {
+	if a == nil || a.WebhookURL == nil {
+		return AlertingConfig{}, nil
 	}
-	enabled, err := requiredBool("mail.enabled", m.Enabled)
+	webhookURL, err := optionalTrimmedString("alerting.webhookUrl", a.WebhookURL, 4096)
 	if err != nil {
-		return MailConfig{}, err
+		return AlertingConfig{}, err
 	}
-	result := defaultMailConfig()
-	result.Enabled = enabled
-	if m.From != nil {
-		from, err := optionalMailAddress("mail.from", m.From)
-		if err != nil {
-			return MailConfig{}, err
-		}
-		result.From = from
+	if webhookURL == "" {
+		return AlertingConfig{}, nil
 	}
-	if enabled {
-		from, err := requiredMailAddress("mail.from", m.From)
-		if err != nil {
-			return MailConfig{}, err
-		}
-		result.From = from
+	parsed, err := url.Parse(webhookURL)
+	if err != nil || strings.TrimSpace(parsed.Host) == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return AlertingConfig{}, fmt.Errorf("bootstrap config field alerting.webhookUrl must use http or https")
 	}
-	if m.ReplyTo != nil {
-		replyTo, err := optionalMailAddress("mail.replyTo", m.ReplyTo)
-		if err != nil {
-			return MailConfig{}, err
-		}
-		result.ReplyTo = replyTo
-	}
-	if m.SMTP == nil {
-		return result, nil
-	}
-	smtp, err := m.SMTP.toMailSMTPConfig(enabled)
-	if err != nil {
-		return MailConfig{}, err
-	}
-	result.SMTP = smtp
-	return result, nil
-}
-
-func (s bootstrapSMTP) toMailSMTPConfig(enabled bool) (MailSMTPConfig, error) {
-	result := MailSMTPConfig{Timeout: defaultMailSMTPTimeout}
-	if s.Host != nil {
-		result.Host = strings.TrimSpace(*s.Host)
-	}
-	if s.Port != nil {
-		port, err := requiredIntRange("mail.smtp.port", s.Port, 1, 65535)
-		if err != nil {
-			return MailSMTPConfig{}, err
-		}
-		result.Port = port
-	}
-	if s.Mode != nil {
-		mode, err := requiredEnumString("mail.smtp.mode", s.Mode, allowedMailSMTPModes())
-		if err != nil {
-			return MailSMTPConfig{}, err
-		}
-		result.Mode = MailSMTPMode(mode)
-	}
-	if s.EHLOHostname != nil {
-		result.EHLOHostname = strings.TrimSpace(*s.EHLOHostname)
-	}
-	if s.Auth != nil {
-		auth, err := requiredEnumString("mail.smtp.auth", s.Auth, allowedMailSMTPAuthModes())
-		if err != nil {
-			return MailSMTPConfig{}, err
-		}
-		result.Auth = MailSMTPAuth(auth)
-	}
-	if s.Username != nil {
-		result.Username = strings.TrimSpace(*s.Username)
-	}
-	if s.Password != nil {
-		result.Password = strings.TrimSpace(*s.Password)
-	}
-	if s.PasswordFile != nil {
-		result.PasswordFile = strings.TrimSpace(*s.PasswordFile)
-	}
-	if s.Timeout != nil {
-		timeout, err := parseDurationField("mail.smtp.timeout", s.Timeout)
-		if err != nil {
-			return MailSMTPConfig{}, err
-		}
-		result.Timeout = timeout
-	}
-	if s.TLSServerName != nil {
-		result.TLSServerName = strings.TrimSpace(*s.TLSServerName)
-	}
-	if enabled && result.Auth == "" {
-		result.Auth = MailSMTPAuthNone
-	}
-	return result, nil
+	return AlertingConfig{WebhookURL: webhookURL}, nil
 }
 
 func (t *bootstrapTelemetry) validate() error {
@@ -2667,10 +2022,6 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 	if authJWTSecret == "" {
 		return bootstrapConfigDocument{}, fmt.Errorf("seeded auth JWT signing key is empty")
 	}
-	bundleEncryptionKey := strings.TrimSpace(settings.ConfigBundleEncryptionKey)
-	if bundleEncryptionKey == "" {
-		bundleEncryptionKey = runtimeSecretEncryptionKey
-	}
 	timestamp := now.UTC().Format(time.RFC3339)
 
 	return bootstrapConfigDocument{
@@ -2692,7 +2043,6 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 				RuntimeExecution: bootstrapDatabasePoolFromBudget(postgresPoolsBudget.RuntimeExecution),
 				RuntimeTelemetry: bootstrapDatabasePoolFromBudget(postgresPoolsBudget.RuntimeTelemetry),
 				RuntimeFeedback:  bootstrapDatabasePoolFromBudget(postgresPoolsBudget.RuntimeFeedback),
-				Realtime:         bootstrapDatabasePoolFromBudget(postgresPoolsBudget.Realtime),
 				CacheRefresh:     bootstrapDatabasePoolFromBudget(postgresPoolsBudget.CacheRefresh),
 				BackgroundJobs:   bootstrapDatabasePoolFromBudget(postgresPoolsBudget.BackgroundJobs),
 			},
@@ -2729,14 +2079,14 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 			RefreshCookieName:      stringPointer(strings.TrimSpace(settings.AuthRefreshCookieName)),
 			CookieSecure:           boolPointer(settings.AuthCookieSecure),
 		},
+		Alerting: &bootstrapAlerting{
+			WebhookURL: stringPointer(strings.TrimSpace(settings.Alerting.WebhookURL)),
+		},
 		Mail: &bootstrapMail{
 			Enabled: boolPointer(false),
 		},
 		Telemetry: &bootstrapTelemetry{
 			Enabled: boolPointer(false),
-		},
-		StateTransfer: &bootstrapStateTransfer{
-			BundleEncryptionKey: stringPointer(bundleEncryptionKey),
 		},
 	}, nil
 }
@@ -2825,36 +2175,6 @@ func optionalTrimmedString(path string, value *string, maxLength int) (string, e
 	return trimmed, nil
 }
 
-func requiredMailAddress(path string, value *string) (string, error) {
-	resolved, err := requiredTrimmedString(path, value, 1, 320)
-	if err != nil {
-		return "", err
-	}
-	if _, err := mail.ParseAddress(resolved); err != nil {
-		return "", fmt.Errorf("bootstrap config field %s must be a valid email address", path)
-	}
-	return resolved, nil
-}
-
-func optionalMailAddress(path string, value *string) (string, error) {
-	resolved, err := optionalTrimmedString(path, value, 320)
-	if err != nil || resolved == "" {
-		return resolved, err
-	}
-	if _, err := mail.ParseAddress(resolved); err != nil {
-		return "", fmt.Errorf("bootstrap config field %s must be a valid email address", path)
-	}
-	return resolved, nil
-}
-
-func allowedMailSMTPModes() []string {
-	return []string{string(MailSMTPModeStartTLSRequired), string(MailSMTPModeImplicitTLS), string(MailSMTPModePlaintextLocalOnly)}
-}
-
-func allowedMailSMTPAuthModes() []string {
-	return []string{string(MailSMTPAuthNone), string(MailSMTPAuthPlain)}
-}
-
 func allowedTelemetryExporterProtocols() []string {
 	return []string{string(TelemetryExporterProtocolGRPC), string(TelemetryExporterProtocolHTTPProtobuf)}
 }
@@ -2865,37 +2185,6 @@ func allowedTelemetryExporterCompressions() []string {
 
 func allowedTelemetryExporterAuthModes() []string {
 	return []string{string(TelemetryExporterAuthModeNone), string(TelemetryExporterAuthModeAuthorizationHeader)}
-}
-
-func normalizedMailSMTPMode(value *string) MailSMTPMode {
-	if value == nil {
-		return ""
-	}
-	return MailSMTPMode(strings.TrimSpace(*value))
-}
-
-func normalizedMailSMTPAuth(value *string) MailSMTPAuth {
-	if value == nil {
-		return MailSMTPAuthNone
-	}
-	return MailSMTPAuth(strings.TrimSpace(*value))
-}
-
-func hasNonEmptyString(value *string) bool {
-	return value != nil && strings.TrimSpace(*value) != ""
-}
-
-func isLocalSMTPHost(host string) bool {
-	trimmed := strings.TrimSpace(host)
-	if trimmed == "" {
-		return false
-	}
-	lower := strings.ToLower(strings.TrimSuffix(trimmed, "."))
-	if lower == "localhost" {
-		return true
-	}
-	parsed := net.ParseIP(trimmed)
-	return parsed != nil && parsed.IsLoopback()
 }
 
 func requiredDateTime(path string, value *string) (time.Time, error) {
@@ -2999,7 +2288,6 @@ type bootstrapUnsupportedFieldProbe struct {
 	SecretPayload json.RawMessage            `json:"secretPayload"`
 	Database      map[string]json.RawMessage `json:"database"`
 	Auth          map[string]json.RawMessage `json:"auth"`
-	StateTransfer map[string]json.RawMessage `json:"stateTransfer"`
 }
 
 func detectUnsupportedBootstrapFormat(raw []byte) error {
@@ -3016,9 +2304,6 @@ func detectUnsupportedBootstrapFormat(raw []byte) error {
 	}
 	if hasBootstrapMapField(probe.Auth, "jwtSigningKeySecretRef") {
 		unsupportedFields = append(unsupportedFields, "auth.jwtSigningKeySecretRef")
-	}
-	if hasBootstrapMapField(probe.StateTransfer, "bundleEncryptionKeySecretRef") {
-		unsupportedFields = append(unsupportedFields, "stateTransfer.bundleEncryptionKeySecretRef")
 	}
 	if len(unsupportedFields) == 0 {
 		return nil

@@ -39,7 +39,6 @@ type DashboardTopologyNode struct {
 	ConnectionID       *int       `json:"connection_id,omitempty"`
 	EndpointID         *int       `json:"endpoint_id,omitempty"`
 	Active             *bool      `json:"active,omitempty"`
-	HealthStatus       *string    `json:"health_status,omitempty"`
 	RecentRequestCount *int       `json:"recent_request_count,omitempty"`
 	RecentSuccessRate  *float64   `json:"recent_success_rate,omitempty"`
 	LastRequestAt      *time.Time `json:"last_request_at,omitempty"`
@@ -63,21 +62,20 @@ type DashboardTopologyEdge struct {
 }
 
 type dashboardTopologyAccessTarget struct {
-	ID                           int
-	SourceModelConfigID          int
-	TargetType                   string
-	TargetModelConfigID          *int
-	TargetConnectionID           *int
-	Position                     int
-	IsEnabled                    bool
-	TargetModelID                *string
-	TargetModelDisplayName       *string
-	TargetConnectionName         *string
-	TargetConnectionActive       *bool
-	TargetConnectionHealthStatus *string
-	TargetEndpointID             *int
-	TargetEndpointName           *string
-	TargetEndpointBaseURL        *string
+	ID                     int
+	SourceModelConfigID    int
+	TargetType             string
+	TargetModelConfigID    *int
+	TargetConnectionID     *int
+	Position               int
+	IsEnabled              bool
+	TargetModelID          *string
+	TargetModelDisplayName *string
+	TargetConnectionName   *string
+	TargetConnectionActive *bool
+	TargetEndpointID       *int
+	TargetEndpointName     *string
+	TargetEndpointBaseURL  *string
 }
 
 type dashboardTopologyConnectionTelemetry struct {
@@ -163,7 +161,6 @@ func loadDashboardTopologyAccessTargets(ctx context.Context, exec queryExecutor,
 		target_models.display_name,
 		connections.name,
 		connections.is_active,
-		connections.health_status,
 		endpoints.id,
 		endpoints.name,
 		endpoints.base_url
@@ -187,11 +184,10 @@ func loadDashboardTopologyAccessTargets(ctx context.Context, exec queryExecutor,
 		var targetModelDisplayName sql.NullString
 		var targetConnectionName sql.NullString
 		var targetConnectionActive sql.NullBool
-		var targetConnectionHealthStatus sql.NullString
 		var targetEndpointID sql.NullInt32
 		var targetEndpointName sql.NullString
 		var targetEndpointBaseURL sql.NullString
-		if err := rows.Scan(&item.ID, &item.SourceModelConfigID, &item.TargetType, &targetModelConfigID, &targetConnectionID, &item.Position, &item.IsEnabled, &targetModelID, &targetModelDisplayName, &targetConnectionName, &targetConnectionActive, &targetConnectionHealthStatus, &targetEndpointID, &targetEndpointName, &targetEndpointBaseURL); err != nil {
+		if err := rows.Scan(&item.ID, &item.SourceModelConfigID, &item.TargetType, &targetModelConfigID, &targetConnectionID, &item.Position, &item.IsEnabled, &targetModelID, &targetModelDisplayName, &targetConnectionName, &targetConnectionActive, &targetEndpointID, &targetEndpointName, &targetEndpointBaseURL); err != nil {
 			return nil, fmt.Errorf("scan dashboard topology access target: %w", err)
 		}
 		item.TargetModelConfigID = nullableInt32(targetModelConfigID)
@@ -200,7 +196,6 @@ func loadDashboardTopologyAccessTargets(ctx context.Context, exec queryExecutor,
 		item.TargetModelDisplayName = normalizeOptionalString(nullableString(targetModelDisplayName))
 		item.TargetConnectionName = normalizeOptionalString(nullableString(targetConnectionName))
 		item.TargetConnectionActive = nullableBool(targetConnectionActive)
-		item.TargetConnectionHealthStatus = normalizeOptionalString(nullableString(targetConnectionHealthStatus))
 		item.TargetEndpointID = nullableInt32(targetEndpointID)
 		item.TargetEndpointName = normalizeOptionalString(nullableString(targetEndpointName))
 		item.TargetEndpointBaseURL = normalizeOptionalString(nullableString(targetEndpointBaseURL))
@@ -270,13 +265,9 @@ func newDashboardTopologyTerminalTargetNode(accessTarget dashboardTopologyAccess
 	if !active {
 		status = "inactive"
 	}
-	healthStatus := strings.TrimSpace(stringValue(accessTarget.TargetConnectionHealthStatus))
-	if healthStatus == "" {
-		healthStatus = "unknown"
-	}
 	label := dashboardTopologyTerminalTargetLabel(accessTarget.TargetConnectionName, terminalTargetID)
 	sublabel := dashboardTopologyTerminalTargetSublabel(accessTarget)
-	node := DashboardTopologyNode{ID: dashboardTopologyTerminalTargetNodeID(terminalTargetID), Kind: "connection", ProductKind: statsStringPtr("terminal_target"), Label: label, Status: status, TerminalTargetID: &terminalTargetID, ConnectionID: &terminalTargetID, Active: statsBoolPtr(active), HealthStatus: &healthStatus, RecentRequestCount: statsIntPtr(telemetry.RecentRequestCount), LastRequestAt: telemetry.LastRequestAt}
+	node := DashboardTopologyNode{ID: dashboardTopologyTerminalTargetNodeID(terminalTargetID), Kind: "connection", ProductKind: statsStringPtr("terminal_target"), Label: label, Status: status, TerminalTargetID: &terminalTargetID, ConnectionID: &terminalTargetID, Active: statsBoolPtr(active), RecentRequestCount: statsIntPtr(telemetry.RecentRequestCount), LastRequestAt: telemetry.LastRequestAt}
 	if sublabel != nil {
 		node.Sublabel = sublabel
 	}

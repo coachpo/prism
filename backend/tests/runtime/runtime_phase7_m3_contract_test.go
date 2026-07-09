@@ -1,43 +1,14 @@
-package runtime_test
+package runtimetest
 
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
-	goruntime "runtime"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/coachpo/prism/backend/internal/platform/admission"
 	"github.com/coachpo/prism/backend/internal/platform/priority"
 )
-
-func TestM3ShedsManagementAuditBeforeDashboardStats(t *testing.T) {
-	admissionSource := runtimePhase7ReadBackendSource(t, "internal/platform/http/admission.go")
-	for _, route := range []string{`pattern: "/audit/logs", tier: priority.ManagementTierM3`, `pattern: "/audit/logs/delete-jobs", tier: priority.ManagementTierM3`, `pattern: "/maintenance/log-retention/jobs", tier: priority.ManagementTierM3`, `pattern: "/management/jobs", tier: priority.ManagementTierM3`, `pattern: "/stats/dashboard", tier: priority.ManagementTierM3`} {
-		if !strings.Contains(admissionSource, route) {
-			t.Fatalf("expected M3 admission classification for %s", route)
-		}
-	}
-	if strings.Index(admissionSource, `pattern: "/audit/logs"`) > strings.Index(admissionSource, `pattern: "/stats/dashboard"`) {
-		t.Fatalf("expected audit management routes to be classified before dashboard stats in M3 first-shed inventory")
-	}
-}
-
-func TestM3ThrottlesManagementMaintenanceWorkers(t *testing.T) {
-	jobsSource := runtimePhase7ReadBackendSource(t, "internal/platform/managementjobs/jobs.go")
-	lifecycleSource := runtimePhase7ReadBackendSource(t, "internal/platform/lifecycle/production.go")
-	for _, want := range []string{"PriorityLowBackground", "MaxPriority: background.PriorityLowBackground", "QueueLimit: 32", "ConcurrencyLimit: 1"} {
-		if !strings.Contains(jobsSource, want) {
-			t.Fatalf("expected management jobs worker throttle evidence %q", want)
-		}
-	}
-	if !strings.Contains(lifecycleSource, "backgroundJobsPool := databasePools.BackgroundJobs.Raw()") || !strings.Contains(lifecycleSource, "managementJobs.RegisterBackgroundWorker") {
-		t.Fatalf("expected management jobs to use scheduler-owned background_jobs lane")
-	}
-}
 
 func TestM3ManagementShedIncludesRetryAfter(t *testing.T) {
 	controller := admission.NewController(admission.Limits{ManagementM3: 1})
@@ -70,22 +41,4 @@ func TestManagementWorkDoesNotExhaustRuntimeCapacity(t *testing.T) {
 		t.Fatalf("expected runtime proxy capacity to remain independent of management/background pressure: %v", err)
 	}
 	releaseProxy()
-}
-
-func runtimePhase7ReadBackendSource(t *testing.T, relative string) string {
-	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(runtimePhase7BackendRoot(t), relative))
-	if err != nil {
-		t.Fatalf("read backend source %s: %v", relative, err)
-	}
-	return string(raw)
-}
-
-func runtimePhase7BackendRoot(t *testing.T) string {
-	t.Helper()
-	_, filename, _, ok := goruntime.Caller(0)
-	if !ok {
-		t.Fatal("resolve caller")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
 }

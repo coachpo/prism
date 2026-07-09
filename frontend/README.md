@@ -1,6 +1,6 @@
 # Prism Frontend
 
-React 19 management dashboard for Prism. This package owns the browser UI, the typed frontend API boundary, profile-scoped management flows, realtime updates, and the route shells for observe, request logs, models, model detail, endpoints, loadbalance strategies, settings, proxy API keys, and pricing templates.
+React 19 management dashboard for Prism. This package owns the browser UI, the typed frontend API boundary, profile-scoped management flows, REST-polled dashboard updates, and the route shells for observe, request logs, models, model detail, endpoints, loadbalance strategies, settings, proxy API keys, and pricing templates.
 
 ## Frontend-only commands
 
@@ -8,12 +8,9 @@ React 19 management dashboard for Prism. This package owns the browser UI, the t
 pnpm install
 pnpm run dev
 pnpm run test:lib
-pnpm run test:config
 pnpm run build
 pnpm run lint
 ```
-
-Config import and export hardening follows this focused-to-broad validation order: focused backend configbundle tests, focused frontend seam tests, focused frontend Playwright specs, broadened backend Go suites, frontend `test:e2e`, frontend `build`, frontend `lint`, backend build.
 
 Prism targets Node.js 24+ and uses the `pnpm@10.30.1` toolchain declared in `package.json`.
 
@@ -36,10 +33,9 @@ When started through the checked-in root launcher, Prism serves the frontend at 
 - `src/pages/` owns compatibility route-domain clusters still imported by feature routes.
 - `src/main.tsx` owns browser mounting plus the locale, theme, tooltip, and toast providers.
 - `src/lib/api.ts` is the public typed API boundary.
-- `src/lib/websocket.ts` owns the realtime client used by `useRealtimeData()`.
-- `src/context/` owns auth bootstrap and selected-profile management scope.
+- `src/context/` owns auth bootstrap and the frozen Default-profile management scope.
 - `src/components/` owns shared shell chrome and cross-route widgets, including loadbalance and statistics helpers.
-- `src/components/layout/app-layout/navigationProfileConfig.ts` owns shell nav links, profile-scoped prefixes, and the visible version label.
+- `src/components/layout/app-layout/` owns shell nav links, profile-scoped prefixes, and the visible version label. There is no profile switcher in the shell.
 
 For deeper implementation boundaries, use `src/pages/AGENTS.md`, `src/lib/AGENTS.md`, `src/context/AGENTS.md`, and nearby feature docs.
 

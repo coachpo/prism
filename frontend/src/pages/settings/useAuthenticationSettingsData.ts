@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { NavigateFunction } from "react-router-dom";
 import { broadcastAuthStateChange } from "@/context/auth/broadcast";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
@@ -9,13 +8,9 @@ import { validateAuthPassword } from "./settingsPageHelpers";
 
 interface UseAuthenticationSettingsDataInput {
   enabled: boolean;
-  navigate: NavigateFunction;
+  navigate: (to: string, options?: { replace?: boolean }) => void;
   refreshAuth: () => Promise<void>;
   revision: number;
-}
-
-function getAuthenticationMessages() {
-  return getStaticMessages().settingsAuthentication;
 }
 
 function getMessages() {
@@ -31,13 +26,9 @@ export function useAuthenticationSettingsData({
   const [authSettings, setAuthSettings] = useState<AuthSettings | null>(null);
   const [authEnabledInput, setAuthEnabledInput] = useState(false);
   const [authUsername, setAuthUsername] = useState("");
-  const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authPasswordConfirm, setAuthPasswordConfirm] = useState("");
   const [authSaving, setAuthSaving] = useState(false);
-  const [emailVerificationOtp, setEmailVerificationOtp] = useState("");
-  const [sendingEmailVerification, setSendingEmailVerification] = useState(false);
-  const [confirmingEmailVerification, setConfirmingEmailVerification] = useState(false);
 
   const fetchAuthSettings = useCallback(async () => {
     const messages = getMessages();
@@ -46,10 +37,8 @@ export function useAuthenticationSettingsData({
       setAuthSettings(data);
       setAuthEnabledInput(data.auth_enabled);
       setAuthUsername(data.username ?? "");
-      setAuthEmail(data.pending_email ?? data.email ?? "");
       setAuthPassword("");
       setAuthPasswordConfirm("");
-      setEmailVerificationOtp("");
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -103,7 +92,6 @@ export function useAuthenticationSettingsData({
         setAuthSettings(saved);
         setAuthEnabledInput(saved.auth_enabled);
         setAuthUsername(saved.username ?? "");
-        setAuthEmail(saved.pending_email ?? saved.email ?? "");
         setAuthPassword("");
         setAuthPasswordConfirm("");
         broadcastAuthStateChange();
@@ -116,7 +104,7 @@ export function useAuthenticationSettingsData({
 
         if (!wasEnabled && saved.auth_enabled) {
           toast.success(messages.auth.signInToContinue);
-          navigate("/login", { replace: true });
+          navigate("/auth/login", { replace: true });
           return;
         }
 
@@ -135,81 +123,9 @@ export function useAuthenticationSettingsData({
     [authEnabledInput, authPassword, authPasswordError, authPasswordMismatch, authSettings, authUsername, navigate, refreshAuth]
   );
 
-  const handleRequestEmailVerification = useCallback(async () => {
-    const messages = getMessages();
-    const authenticationMessages = getAuthenticationMessages();
-    if (!authEmail.trim()) {
-      toast.error(authenticationMessages.emailRequired);
-      return;
-    }
 
-    setSendingEmailVerification(true);
-    try {
-      const result = await api.settings.auth.requestEmailVerification({
-        email: authEmail.trim(),
-      });
-      setAuthSettings((prev) =>
-        prev
-          ? {
-              ...prev,
-              email: result.email,
-              email_bound_at: result.email_bound_at,
-              pending_email: result.pending_email,
-              email_verification_required: Boolean(result.pending_email),
-            }
-          : prev
-      );
-      toast.success(authenticationMessages.verificationCodeSent);
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : messages.settingsAuthentication.emailVerificationFailed,
-      );
-    } finally {
-      setSendingEmailVerification(false);
-    }
-  }, [authEmail]);
-
-  const handleConfirmEmailVerification = useCallback(async () => {
-    const authenticationMessages = getAuthenticationMessages();
-    if (!emailVerificationOtp.trim()) {
-      toast.error(authenticationMessages.verificationCodeRequired);
-      return;
-    }
-
-    setConfirmingEmailVerification(true);
-    try {
-      const result = await api.settings.auth.confirmEmailVerification({
-        otp_code: emailVerificationOtp.trim(),
-      });
-      setAuthSettings((prev) =>
-        prev
-          ? {
-              ...prev,
-              email: result.email,
-              email_bound_at: result.email_bound_at,
-              pending_email: result.pending_email,
-              email_verification_required: Boolean(result.pending_email),
-            }
-          : prev
-      );
-      setAuthEmail(result.email ?? authEmail);
-      setEmailVerificationOtp("");
-      toast.success(authenticationMessages.emailVerificationSucceeded);
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : authenticationMessages.emailVerificationFailed,
-      );
-    } finally {
-      setConfirmingEmailVerification(false);
-    }
-  }, [authEmail, emailVerificationOtp]);
 
   return {
-    authEmail,
     authEnabledInput,
     authPassword,
     authPasswordConfirm,
@@ -218,16 +134,9 @@ export function useAuthenticationSettingsData({
     authSaving,
     authSettings,
     authUsername,
-    confirmingEmailVerification,
-    emailVerificationOtp,
-    handleConfirmEmailVerification,
-    handleRequestEmailVerification,
     handleSaveAuthSettings,
-    sendingEmailVerification,
-    setAuthEmail,
     setAuthPassword,
     setAuthPasswordConfirm,
     setAuthUsername,
-    setEmailVerificationOtp,
   };
 }

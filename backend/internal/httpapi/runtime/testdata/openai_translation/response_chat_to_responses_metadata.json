@@ -1,0 +1,1 @@
+{"created_at":1700000001,"id":"chatcmpl_meta","model":"responses-public","object":"response","output":[{"content":[{"text":"hello","type":"output_text"}],"role":"assistant","type":"message"}],"status":"completed","usage":{"input_tokens":10,"output_tokens":6,"total_tokens":16}}

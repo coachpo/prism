@@ -6,12 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5"
-
-	"github.com/coachpo/prism/backend/internal/providercompat"
 )
 
 func connectionStringRef(value string) *string {
@@ -75,24 +74,24 @@ func TestValidateLimiterAndAuthType(t *testing.T) {
 	}
 }
 
-func TestResolveOpenAIProbeEndpointVariantAndHelpers(t *testing.T) {
-	if got, err := resolveOpenAIProbeEndpointVariant("openai", nil); err != nil || got == nil || *got != providercompat.DefaultOpenAIProbeEndpointVariant {
-		t.Fatalf("expected default OpenAI probe variant, got value=%#v err=%v", got, err)
+func TestConnectionRequestsRejectOpenAIProbeEndpointVariant(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		target any
+	}{
+		{name: "create", target: &connectionCreateRequest{}},
+		{name: "update", target: &connectionUpdateRequest{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/api/models/1/connections", strings.NewReader(`{"openai_probe_endpoint_variant":"responses_minimal"}`))
+			if err := decodeJSONBody(request, test.target); err == nil {
+				t.Fatal("expected removed probe variant field to be rejected")
+			}
+		})
 	}
-	if got, err := resolveOpenAIProbeEndpointVariant("openai", connectionStringRef("chat_completions_minimal")); err != nil || got == nil || *got != "chat_completions_minimal" {
-		t.Fatalf("expected explicit OpenAI probe variant, got value=%#v err=%v", got, err)
-	}
-	if _, err := resolveOpenAIProbeEndpointVariant("openai", connectionStringRef("bogus")); err == nil {
-		t.Fatal("expected invalid OpenAI probe variant to fail")
-	} else {
-		requireConnectionDomainError(t, err, http.StatusUnprocessableEntity, "openai_probe_endpoint_variant is invalid")
-	}
-	if _, err := resolveOpenAIProbeEndpointVariant("gemini", connectionStringRef("responses_minimal")); err == nil {
-		t.Fatal("expected non-OpenAI probe variant to fail")
-	} else {
-		requireConnectionDomainError(t, err, http.StatusUnprocessableEntity, "openai_probe_endpoint_variant is only supported for OpenAI-family connections")
-	}
+}
 
+func TestConnectionHelpers(t *testing.T) {
 	if got := normalizeHeaders(map[string]string{}); got != nil {
 		t.Fatalf("expected empty headers to normalize to nil, got %#v", got)
 	}
@@ -137,23 +136,6 @@ func TestResolveOpenAITextCapability(t *testing.T) {
 	}
 }
 
-func TestResolveOpenAIProbeEndpointVariantCharacterizesAllAcceptedValues(t *testing.T) {
-	for _, variant := range []string{"responses_minimal", "responses_reasoning_none", "chat_completions_minimal", "chat_completions_reasoning_none"} {
-		t.Run(variant, func(t *testing.T) {
-			got, err := resolveOpenAIProbeEndpointVariant("openai", connectionStringRef(" "+variant+" "))
-			if err != nil {
-				t.Fatalf("expected variant %q to resolve, got %v", variant, err)
-			}
-			if got == nil || *got != variant {
-				t.Fatalf("expected normalized variant %q, got %#v", variant, got)
-			}
-		})
-	}
-	if got, err := resolveOpenAIProbeEndpointVariant("anthropic", connectionStringRef(" \t ")); err != nil || got != nil {
-		t.Fatalf("expected blank non-OpenAI variant to be ignored, got value=%#v err=%v", got, err)
-	}
-}
-
 func TestRouteInt(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/connections/42", nil)
 	routeContext := chi.NewRouteContext()
@@ -174,25 +156,21 @@ func TestTerminalTargetRecordAdapterPreservesConnectionResponseShape(t *testing.
 	modelConfigID := 7
 	name := "primary"
 	authType := "openai"
-	variant := "chat_completions_minimal"
 	textCapability := "chat_completions_only"
 	pricingTemplateID := 11
 	qpsLimit := 12
 	maxNonStream := 3
 	maxStream := 4
-	healthDetail := "ok"
-	checkedAt := time.Date(2026, time.June, 7, 12, 30, 0, 0, time.UTC)
 	now := time.Date(2026, time.June, 7, 12, 0, 0, 0, time.UTC)
 
 	connection := connectionResponse{
 		ID: 42, ProfileID: 5, ModelConfigID: &modelConfigID, APIFamily: "openai", EndpointID: 9,
 		IsActive: true, Priority: 2, Name: &name, AuthType: &authType,
-		CustomHeaders: map[string]string{"X-Test": "1"}, OpenAIProbeEndpointVariant: &variant,
+		CustomHeaders:        map[string]string{"X-Test": "1"},
 		OpenAITextCapability: &textCapability, PricingTemplateID: &pricingTemplateID,
 		QPSLimit: &qpsLimit, MaxInFlightNonStream: &maxNonStream, MaxInFlightStream: &maxStream,
 		PricingTemplate: &connectionPricingTemplateSummary{ID: 11, Name: "standard", PricingUnit: "tokens", PricingCurrencyCode: "USD", Version: 1},
-		HealthStatus:    "healthy", HealthDetail: &healthDetail, LastHealthCheck: &checkedAt,
-		CreatedAt: now, UpdatedAt: now,
+		CreatedAt:       now, UpdatedAt: now,
 	}
 	converted := connectionResponseFromTerminalTargetRecord(terminalTargetRecordFromConnectionResponse(connection))
 	if !reflect.DeepEqual(converted, connection) {

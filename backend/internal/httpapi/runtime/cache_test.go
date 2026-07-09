@@ -28,9 +28,9 @@ func TestSharedCachePublishedSnapshotsCloneProfilesAndProxyKeysButSharePlanningS
 		},
 	})
 
-	firstProfile, err := cache.LoadPublishedActiveProfile()
+	firstProfile, err := cache.LoadPublishedDefaultProfile()
 	if err != nil {
-		t.Fatalf("load published active profile: %v", err)
+		t.Fatalf("load published default profile: %v", err)
 	}
 	firstPlanning, err := cache.LoadPublishedPlanningSnapshot(42)
 	if err != nil {
@@ -47,7 +47,7 @@ func TestSharedCachePublishedSnapshotsCloneProfilesAndProxyKeysButSharePlanningS
 	mutatedDescription := "mutated-description"
 	firstProfile.Description = &mutatedDescription
 	if firstProfile.Description == nil || *firstProfile.Description != mutatedDescription {
-		t.Fatalf("expected first active profile read to be locally mutable, got %+v", firstProfile)
+		t.Fatalf("expected first default profile read to be locally mutable, got %+v", firstProfile)
 	}
 	firstPlanning.ReportCurrency.Code = "mutated-code"
 	firstPlanning.ModelsByID["published-planning"] = runtimeModelRecord{ModelID: "mutated-model"}
@@ -60,12 +60,12 @@ func TestSharedCachePublishedSnapshotsCloneProfilesAndProxyKeysButSharePlanningS
 		firstKey.ExpiresAt = &mutatedExpiry
 	}
 
-	secondProfile, err := cache.LoadPublishedActiveProfile()
+	secondProfile, err := cache.LoadPublishedDefaultProfile()
 	if err != nil {
-		t.Fatalf("reload published active profile: %v", err)
+		t.Fatalf("reload published default profile: %v", err)
 	}
 	if secondProfile.Description == nil || *secondProfile.Description != "published-active description" {
-		t.Fatalf("expected active profile clone to remain immutable, got %+v", secondProfile)
+		t.Fatalf("expected default profile clone to remain immutable, got %+v", secondProfile)
 	}
 
 	secondPlanning, err := cache.LoadPublishedPlanningSnapshot(42)

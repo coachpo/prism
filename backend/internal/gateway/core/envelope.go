@@ -18,10 +18,8 @@ const (
 type EndpointShape string
 
 const (
-	EndpointShapeTextGeneration  EndpointShape = "text_generation"
-	EndpointShapeTokenCount      EndpointShape = "token_count"
-	EndpointShapeImageGeneration EndpointShape = "image_generation"
-	EndpointShapeImageEdit       EndpointShape = "image_edit"
+	EndpointShapeTextGeneration EndpointShape = "text_generation"
+	EndpointShapeTokenCount     EndpointShape = "token_count"
 )
 
 type OperationDescriptor struct {

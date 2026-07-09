@@ -19,15 +19,15 @@ import (
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	"github.com/coachpo/prism/backend/internal/platform/managementjobs"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
-	"github.com/coachpo/prism/backend/internal/providercompat"
+	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
 var currencyCodeRE = regexp.MustCompile(`^[A-Z]{3}$`)
 
 var auditAPIFamilies = []string{
-	providercompat.APIFamilyOpenAI,
-	providercompat.APIFamilyAnthropic,
-	providercompat.APIFamilyGemini,
+	providerauth.APIFamilyOpenAI,
+	providerauth.APIFamilyAnthropic,
+	providerauth.APIFamilyGemini,
 }
 
 func (s *Service) handleGetAuditSettings(w http.ResponseWriter, r *http.Request) {
@@ -337,7 +337,7 @@ func buildRetentionSettingsResponse(settingsRow logRetentionSettingsRow) retenti
 func buildAuditSettingsResponse(profileID int, rows []auditSettingsRow) auditSettingsResponse {
 	byFamily := make(map[string]auditSetting, len(rows))
 	for _, row := range rows {
-		family := providercompat.NormalizeAPIFamily(row.APIFamily)
+		family := providerauth.NormalizeAPIFamily(row.APIFamily)
 		byFamily[family] = auditSetting{APIFamily: family, AuditEnabled: row.AuditEnabled, AuditCaptureBodies: row.AuditCaptureBodies}
 	}
 	settings := make([]auditSetting, 0, len(auditAPIFamilies))
@@ -414,7 +414,7 @@ func normalizeAndValidateAuditSettingsRequest(requestBody *auditSettingsUpdateRe
 	seen := make(map[string]auditSetting, len(auditAPIFamilies))
 	for index := range requestBody.Settings {
 		setting := requestBody.Settings[index]
-		family := providercompat.NormalizeAPIFamily(setting.APIFamily)
+		family := providerauth.NormalizeAPIFamily(setting.APIFamily)
 		if !isAuditAPIFamily(family) {
 			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("api_family %q is not supported", setting.APIFamily)}
 		}
@@ -441,7 +441,7 @@ func normalizeAndValidateAuditSettingsRequest(requestBody *auditSettingsUpdateRe
 }
 
 func isAuditAPIFamily(value string) bool {
-	if !providercompat.IsSupportedAPIFamily(value) {
+	if !providerauth.IsSupportedAPIFamily(value) {
 		return false
 	}
 	return slices.Contains(auditAPIFamilies, value)

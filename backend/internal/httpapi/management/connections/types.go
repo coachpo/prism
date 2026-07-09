@@ -133,37 +133,35 @@ func (value *optionalEndpointCreate) UnmarshalJSON(data []byte) error {
 }
 
 type connectionCreateRequest struct {
-	APIFamily                  string                 `json:"api_family"`
-	EndpointID                 *int                   `json:"endpoint_id"`
-	EndpointCreate             *endpointCreateRequest `json:"endpoint_create"`
-	IsActive                   *bool                  `json:"is_active"`
-	Name                       *string                `json:"name"`
-	AuthType                   *string                `json:"auth_type"`
-	CustomHeaders              map[string]string      `json:"custom_headers"`
-	OpenAIProbeEndpointVariant *string                `json:"openai_probe_endpoint_variant"`
-	OpenAITextCapability       *string                `json:"openai_text_capability"`
-	PricingTemplateID          *int                   `json:"pricing_template_id"`
-	QPSLimit                   *int                   `json:"qps_limit"`
-	MaxInFlightNonStream       *int                   `json:"max_in_flight_non_stream"`
-	MaxInFlightStream          *int                   `json:"max_in_flight_stream"`
-	Priority                   presenceMarker         `json:"priority"`
+	APIFamily            string                 `json:"api_family"`
+	EndpointID           *int                   `json:"endpoint_id"`
+	EndpointCreate       *endpointCreateRequest `json:"endpoint_create"`
+	IsActive             *bool                  `json:"is_active"`
+	Name                 *string                `json:"name"`
+	AuthType             *string                `json:"auth_type"`
+	CustomHeaders        map[string]string      `json:"custom_headers"`
+	OpenAITextCapability *string                `json:"openai_text_capability"`
+	PricingTemplateID    *int                   `json:"pricing_template_id"`
+	QPSLimit             *int                   `json:"qps_limit"`
+	MaxInFlightNonStream *int                   `json:"max_in_flight_non_stream"`
+	MaxInFlightStream    *int                   `json:"max_in_flight_stream"`
+	Priority             presenceMarker         `json:"priority"`
 }
 
 type connectionUpdateRequest struct {
-	APIFamily                  optionalString         `json:"api_family"`
-	EndpointID                 optionalInt            `json:"endpoint_id"`
-	EndpointCreate             optionalEndpointCreate `json:"endpoint_create"`
-	IsActive                   optionalBool           `json:"is_active"`
-	Name                       optionalString         `json:"name"`
-	AuthType                   optionalString         `json:"auth_type"`
-	CustomHeaders              optionalHeaders        `json:"custom_headers"`
-	OpenAIProbeEndpointVariant optionalString         `json:"openai_probe_endpoint_variant"`
-	OpenAITextCapability       optionalString         `json:"openai_text_capability"`
-	PricingTemplateID          optionalInt            `json:"pricing_template_id"`
-	QPSLimit                   optionalInt            `json:"qps_limit"`
-	MaxInFlightNonStream       optionalInt            `json:"max_in_flight_non_stream"`
-	MaxInFlightStream          optionalInt            `json:"max_in_flight_stream"`
-	Priority                   presenceMarker         `json:"priority"`
+	APIFamily            optionalString         `json:"api_family"`
+	EndpointID           optionalInt            `json:"endpoint_id"`
+	EndpointCreate       optionalEndpointCreate `json:"endpoint_create"`
+	IsActive             optionalBool           `json:"is_active"`
+	Name                 optionalString         `json:"name"`
+	AuthType             optionalString         `json:"auth_type"`
+	CustomHeaders        optionalHeaders        `json:"custom_headers"`
+	OpenAITextCapability optionalString         `json:"openai_text_capability"`
+	PricingTemplateID    optionalInt            `json:"pricing_template_id"`
+	QPSLimit             optionalInt            `json:"qps_limit"`
+	MaxInFlightNonStream optionalInt            `json:"max_in_flight_non_stream"`
+	MaxInFlightStream    optionalInt            `json:"max_in_flight_stream"`
+	Priority             presenceMarker         `json:"priority"`
 }
 
 type connectionPriorityMoveRequest struct {
@@ -176,14 +174,6 @@ type connectionPricingTemplateUpdateRequest struct {
 
 type modelConnectionsBatchRequest struct {
 	ModelConfigIDs []int `json:"model_config_ids"`
-}
-
-type healthCheckResponse struct {
-	ConnectionID   int       `json:"connection_id"`
-	HealthStatus   string    `json:"health_status"`
-	CheckedAt      time.Time `json:"checked_at"`
-	Detail         string    `json:"detail"`
-	ResponseTimeMS int       `json:"response_time_ms"`
 }
 
 type endpointResponse struct {
@@ -207,29 +197,25 @@ type connectionPricingTemplateSummary struct {
 }
 
 type connectionResponse struct {
-	ID                         int                               `json:"id"`
-	ProfileID                  int                               `json:"profile_id"`
-	ModelConfigID              *int                              `json:"model_config_id,omitempty"`
-	APIFamily                  string                            `json:"api_family"`
-	EndpointID                 int                               `json:"endpoint_id"`
-	Endpoint                   *endpointResponse                 `json:"endpoint"`
-	IsActive                   bool                              `json:"is_active"`
-	Priority                   int                               `json:"priority"`
-	Name                       *string                           `json:"name"`
-	AuthType                   *string                           `json:"auth_type"`
-	CustomHeaders              map[string]string                 `json:"custom_headers"`
-	OpenAIProbeEndpointVariant *string                           `json:"openai_probe_endpoint_variant"`
-	OpenAITextCapability       *string                           `json:"openai_text_capability"`
-	PricingTemplateID          *int                              `json:"pricing_template_id"`
-	QPSLimit                   *int                              `json:"qps_limit"`
-	MaxInFlightNonStream       *int                              `json:"max_in_flight_non_stream"`
-	MaxInFlightStream          *int                              `json:"max_in_flight_stream"`
-	PricingTemplate            *connectionPricingTemplateSummary `json:"pricing_template"`
-	HealthStatus               string                            `json:"health_status"`
-	HealthDetail               *string                           `json:"health_detail"`
-	LastHealthCheck            *time.Time                        `json:"last_health_check"`
-	CreatedAt                  time.Time                         `json:"created_at"`
-	UpdatedAt                  time.Time                         `json:"updated_at"`
+	ID                   int                               `json:"id"`
+	ProfileID            int                               `json:"profile_id"`
+	ModelConfigID        *int                              `json:"model_config_id,omitempty"`
+	APIFamily            string                            `json:"api_family"`
+	EndpointID           int                               `json:"endpoint_id"`
+	Endpoint             *endpointResponse                 `json:"endpoint"`
+	IsActive             bool                              `json:"is_active"`
+	Priority             int                               `json:"priority"`
+	Name                 *string                           `json:"name"`
+	AuthType             *string                           `json:"auth_type"`
+	CustomHeaders        map[string]string                 `json:"custom_headers"`
+	OpenAITextCapability *string                           `json:"openai_text_capability"`
+	PricingTemplateID    *int                              `json:"pricing_template_id"`
+	QPSLimit             *int                              `json:"qps_limit"`
+	MaxInFlightNonStream *int                              `json:"max_in_flight_non_stream"`
+	MaxInFlightStream    *int                              `json:"max_in_flight_stream"`
+	PricingTemplate      *connectionPricingTemplateSummary `json:"pricing_template"`
+	CreatedAt            time.Time                         `json:"created_at"`
+	UpdatedAt            time.Time                         `json:"updated_at"`
 }
 
 type connectionReferenceResponse struct {
@@ -258,6 +244,24 @@ type pricingTemplateConnectionUsageItem struct {
 type pricingTemplateConnectionsResponse struct {
 	TemplateID int                                  `json:"template_id"`
 	Items      []pricingTemplateConnectionUsageItem `json:"items"`
+}
+
+type pricingTemplateImportRequest struct {
+	Mode      string                         `json:"mode"`
+	Templates []pricingTemplateCreateRequest `json:"templates"`
+}
+
+type pricingTemplateImportError struct {
+	Index  int    `json:"index"`
+	Name   string `json:"name,omitempty"`
+	Detail string `json:"detail"`
+}
+
+type pricingTemplateImportResponse struct {
+	Created int                          `json:"created"`
+	Updated int                          `json:"updated"`
+	Skipped []string                     `json:"skipped"`
+	Errors  []pricingTemplateImportError `json:"errors"`
 }
 
 type modelConnectionsBatchItem struct {

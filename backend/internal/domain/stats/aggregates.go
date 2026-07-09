@@ -176,8 +176,7 @@ func buildDashboardStatsSummary(records []usageEventRecord, params StatsSummaryP
 	response.TotalRequests = len(records)
 	latencies := make([]int, 0, len(records))
 	groups := map[string]*dashboardStatsSummaryGroup{}
-	for _, rawRecord := range records {
-		record := normalizeUsageEventPricingCoherence(rawRecord)
+	for _, record := range records {
 		if record.SuccessFlag {
 			response.SuccessCount++
 		}
@@ -444,8 +443,7 @@ func GetEndpointModelStatistics(ctx context.Context, exec queryExecutor, params 
 		return nil, err
 	}
 	aggregates := map[string]*endpointModelAggregate{}
-	for _, rawRecord := range records {
-		record := normalizeUsageEventPricingCoherence(rawRecord)
+	for _, record := range records {
 		group := aggregates[record.ModelID]
 		modelLabel := record.ModelID
 		if record.CurrentModelLabel != nil && strings.TrimSpace(*record.CurrentModelLabel) != "" {
@@ -527,8 +525,7 @@ func GetSpending(ctx context.Context, exec queryExecutor, params SpendingParams)
 		return SpendingReportResponse{}, err
 	}
 	successRecords := make([]usageEventRecord, 0)
-	for _, rawRecord := range records {
-		record := normalizeUsageEventPricingCoherence(rawRecord)
+	for _, record := range records {
 		if record.SuccessFlag {
 			successRecords = append(successRecords, record)
 		}

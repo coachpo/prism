@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { runInThisContext } from "node:vm";
@@ -19,7 +19,7 @@ function resolveExistingFile(basePath) {
     path.join(basePath, "index.js"),
   ];
 
-  const resolvedPath = candidates.find((candidate) => existsSync(candidate));
+  const resolvedPath = candidates.find((candidate) => existsSync(candidate) && statSync(candidate).isFile());
   assert.ok(resolvedPath, `Could not resolve TypeScript module for ${basePath}`);
   return resolvedPath;
 }

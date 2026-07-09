@@ -19,14 +19,10 @@ type loginRequest struct {
 }
 
 type authSettingsResponse struct {
-	AuthEnabled               bool       `json:"auth_enabled"`
-	Username                  *string    `json:"username"`
-	Email                     *string    `json:"email"`
-	EmailBoundAt              *time.Time `json:"email_bound_at"`
-	PendingEmail              *string    `json:"pending_email"`
-	EmailVerificationRequired bool       `json:"email_verification_required"`
-	HasPassword               bool       `json:"has_password"`
-	ProxyKeyLimit             int        `json:"proxy_key_limit"`
+	AuthEnabled   bool    `json:"auth_enabled"`
+	Username      *string `json:"username"`
+	HasPassword   bool    `json:"has_password"`
+	ProxyKeyLimit int     `json:"proxy_key_limit"`
 }
 
 type authSettingsUpdateRequest struct {
@@ -35,32 +31,8 @@ type authSettingsUpdateRequest struct {
 	Password    *string `json:"password"`
 }
 
-type passwordResetRequest struct {
-	UsernameOrEmail string `json:"username_or_email"`
-}
-
 type successResponse struct {
 	Success bool `json:"success"`
-}
-
-type passwordResetConfirmRequest struct {
-	OTPCode     string `json:"otp_code"`
-	NewPassword string `json:"new_password"`
-}
-
-type emailVerificationRequest struct {
-	Email string `json:"email"`
-}
-
-type emailVerificationConfirmRequest struct {
-	OTPCode string `json:"otp_code"`
-}
-
-type emailVerificationResponse struct {
-	Success      bool       `json:"success"`
-	PendingEmail *string    `json:"pending_email"`
-	Email        *string    `json:"email"`
-	EmailBoundAt *time.Time `json:"email_bound_at"`
 }
 
 type proxyAPIKeyResponse struct {

@@ -66,6 +66,26 @@ export interface PricingTemplateCreate {
   reasoning_price?: PricingComponentPrice;
 }
 
+export type PricingTemplateImportMode = "upsert_by_name" | "create_only";
+
+export interface PricingTemplateImportRequest {
+  mode: PricingTemplateImportMode;
+  templates: PricingTemplateCreate[];
+}
+
+export interface PricingTemplateImportError {
+  index: number;
+  name?: string;
+  detail: string;
+}
+
+export interface PricingTemplateImportResponse {
+  created: number;
+  updated: number;
+  skipped: string[];
+  errors: PricingTemplateImportError[];
+}
+
 export interface PricingTemplateUpdate {
   expected_updated_at: string;
   name?: string;
@@ -112,12 +132,6 @@ export type OpenAIAcceptedFormat =
 
 export type OpenAITextCapability = OpenAIAcceptedFormat;
 
-export type OpenAIProbeEndpointVariant =
-  | "responses_minimal"
-  | "responses_reasoning_none"
-  | "chat_completions_minimal"
-  | "chat_completions_reasoning_none";
-
 export interface Connection {
   id: number;
   profile_id: number;
@@ -131,15 +145,11 @@ export interface Connection {
   auth_type: string | null;
   custom_headers: Record<string, string> | null;
   openai_text_capability: OpenAITextCapability | null;
-  openai_probe_endpoint_variant: OpenAIProbeEndpointVariant | null;
   pricing_template_id: number | null;
   qps_limit: number | null;
   max_in_flight_non_stream: number | null;
   max_in_flight_stream: number | null;
   pricing_template: ConnectionPricingTemplateSummary | null;
-  health_status: string;
-  health_detail: string | null;
-  last_health_check: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -155,7 +165,6 @@ export interface ConnectionCreate {
   auth_type?: string | null;
   custom_headers?: Record<string, string> | null;
   openai_text_capability?: OpenAITextCapability | null;
-  openai_probe_endpoint_variant?: OpenAIProbeEndpointVariant | null;
   pricing_template_id?: number | null;
   qps_limit?: number | null;
   max_in_flight_non_stream?: number | null;
@@ -171,7 +180,6 @@ export interface ConnectionUpdate {
   auth_type?: string | null;
   custom_headers?: Record<string, string> | null;
   openai_text_capability?: OpenAITextCapability | null;
-  openai_probe_endpoint_variant?: OpenAIProbeEndpointVariant | null;
   pricing_template_id?: number | null;
   qps_limit?: number | null;
   max_in_flight_non_stream?: number | null;
@@ -187,21 +195,6 @@ export type ModelTerminalTargetCreate = ModelConnectionCreate;
 export type ModelConnectionUpdate = Omit<ConnectionUpdate, "api_family">;
 
 export type ModelTerminalTargetUpdate = ModelConnectionUpdate;
-
-export interface HealthCheckResponse {
-  connection_id: number;
-  health_status: string;
-  checked_at: string;
-  detail: string;
-  response_time_ms: number;
-}
-
-export interface ConnectionHealthCheckPreviewResponse {
-  health_status: string;
-  checked_at: string;
-  detail: string;
-  response_time_ms: number;
-}
 
 export interface ConnectionReference {
   target_id: number;

@@ -1,7 +1,7 @@
 # FRONTEND PROXY API KEYS COMPATIBILITY CLUSTER
 
 ## OVERVIEW
-`pages/proxy-api-keys/` keeps proxy-key widgets still imported by the feature-owned `/control/proxy-keys` route under `src/features/proxy-keys/`. Runtime proxy API keys are global instance credentials, not selected-profile state.
+`pages/proxy-api-keys/` keeps proxy-key widgets still imported by the feature-owned `/control/proxy-keys` route under `src/features/proxy-keys/`. Runtime proxy API keys are global instance credentials, not Default-profile management state.
 
 ## STRUCTURE
 ```text
@@ -23,7 +23,7 @@ proxy-api-keys/
 ## CONVENTIONS
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
 - Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
-- Treat proxy API key management as a global auth-settings workflow, not a selected-profile feature.
+- Treat proxy API key management as a global auth-settings workflow, not a Default-profile feature.
 - Bootstrap auth settings and existing keys in parallel with `Promise.allSettled()` in the feature data hook.
 - Patch the local key list after create, edit, rotate, and delete flows instead of reloading the whole page.
-- Do not scope proxy-key UX to the selected profile; runtime keys are global instance credentials.
+- Do not scope proxy-key UX to Default-profile management state; runtime keys are global instance credentials.

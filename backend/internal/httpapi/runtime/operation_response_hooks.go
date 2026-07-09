@@ -20,7 +20,6 @@ type operationResponseKind string
 const (
 	operationResponseKindTextGeneration operationResponseKind = "text_generation"
 	operationResponseKindTokenCount     operationResponseKind = "token_count"
-	operationResponseKindMedia          operationResponseKind = "media"
 )
 
 type operationNonStreamResponseParser func(operationResponseHooks, io.Writer, io.Reader, string, func() time.Time, bool) (runtimeResponseCapture, error)
@@ -55,16 +54,6 @@ var operationResponseHooksByCollectionID = map[string]operationResponseHooks{
 		Kind:                   operationResponseKindTextGeneration,
 		UsageRule:              runtimeUsageRuleOpenAIResponses,
 		ParseNonStreamResponse: proxyNonEventResponseAndCaptureUsage,
-	},
-	runtimeHookCollectionOpenAIImagesGeneration: {
-		Provider:               "openai",
-		Kind:                   operationResponseKindMedia,
-		ParseNonStreamResponse: proxyNonEventResponseAndCaptureWithoutUsage,
-	},
-	runtimeHookCollectionOpenAIImagesEdit: {
-		Provider:               "openai",
-		Kind:                   operationResponseKindMedia,
-		ParseNonStreamResponse: proxyNonEventResponseAndCaptureWithoutUsage,
 	},
 	"anthropic.messages": {
 		Provider:               "anthropic",
@@ -339,16 +328,9 @@ func proxyNonEventResponseAndCaptureWithoutUsage(hooks operationResponseHooks, d
 	completedAt := now()
 	capture := runtimeResponseCapture{CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming}
 	if captureAuditBody {
-		capture.AuditBody = capturedNonUsageAuditBody(hooks, auditBuffer.Bytes(), contentType)
+		capture.AuditBody = append([]byte(nil), auditBuffer.Bytes()...)
 	}
 	return capture, err
-}
-
-func capturedNonUsageAuditBody(hooks operationResponseHooks, rawBody []byte, contentType string) []byte {
-	if hooks.Provider == "openai" && hooks.Kind == operationResponseKindMedia {
-		return openai.RedactImageResponseAuditBody(rawBody, contentType)
-	}
-	return append([]byte(nil), rawBody...)
 }
 
 func proxyNonEventTokenCountResponseAndCaptureUsage(hooks operationResponseHooks, dst io.Writer, src io.Reader, contentType string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {

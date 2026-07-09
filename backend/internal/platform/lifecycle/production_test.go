@@ -38,9 +38,8 @@ func TestProductionCleanupOrdersSideEffectDrainBeforeSchedulerStopAndDBCloseLast
 		}
 	}
 	resources := &productionResources{
-		scheduler:        scheduler,
-		realtimeShutdown: []ShutdownHook{record("realtime close", nil)},
-		sideEffectDrain:  []ShutdownHook{record("side effect drain", sideEffectErr)},
+		scheduler:       scheduler,
+		sideEffectDrain: []ShutdownHook{record("side effect drain", sideEffectErr)},
 		serviceClose: []ShutdownHook{func(ctx context.Context) error {
 			assertSetupFailureCleanupContext(t, ctx)
 			result := scheduler.Submit(ctx, background.JobRequest{Worker: workerName})
@@ -59,7 +58,7 @@ func TestProductionCleanupOrdersSideEffectDrainBeforeSchedulerStopAndDBCloseLast
 	if !errors.Is(err, sideEffectErr) {
 		t.Fatalf("cleanup error %v does not include %v", err, sideEffectErr)
 	}
-	want := []string{"realtime close", "side effect drain", "service close", "db close"}
+	want := []string{"side effect drain", "service close", "db close"}
 	if !reflect.DeepEqual(events, want) {
 		t.Fatalf("cleanup order = %v, want %v", events, want)
 	}
@@ -89,34 +88,6 @@ func TestRuntimeSideEffectOptionsFromSettings(t *testing.T) {
 	}
 }
 
-func TestProductionAppBuildsWithStartupTelemetry(t *testing.T) {
-	settings := config.Settings{
-		Host:                   "127.0.0.1",
-		Port:                   18000,
-		AppEnv:                 config.EnvironmentDevelopment,
-		RuntimeTransportConfig: config.RuntimeTransportConfig{RequestTimeout: time.Second},
-	}
-	var shutdownCalled bool
-	app, server, err := NewProductionApp(context.Background(), settings, ProductionOptions{
-		TelemetryShutdown: func(context.Context) error {
-			shutdownCalled = true
-			return nil
-		},
-	})
-	if err != nil {
-		t.Fatalf("build production app with startup telemetry: %v", err)
-	}
-	if app == nil || server == nil {
-		t.Fatalf("expected app and server, got app=%v server=%v", app, server)
-	}
-	if err := app.Shutdown(context.Background()); err != nil {
-		t.Fatalf("shutdown production app with startup telemetry: %v", err)
-	}
-	if !shutdownCalled {
-		t.Fatal("expected startup telemetry shutdown hook to flush during lifecycle shutdown")
-	}
-}
-
 func TestNewProductionAppUsesPlatformHTTPServerAssemblyWithoutDatabaseOwnership(t *testing.T) {
 	settings := config.Settings{
 		Host:                   "127.0.0.1",
@@ -124,7 +95,7 @@ func TestNewProductionAppUsesPlatformHTTPServerAssemblyWithoutDatabaseOwnership(
 		AppEnv:                 config.EnvironmentDevelopment,
 		RuntimeTransportConfig: config.RuntimeTransportConfig{RequestTimeout: time.Second},
 	}
-	app, server, err := NewProductionApp(context.Background(), settings, ProductionOptions{})
+	app, server, err := NewProductionApp(context.Background(), settings)
 	if err != nil {
 		t.Fatalf("build production app without database: %v", err)
 	}

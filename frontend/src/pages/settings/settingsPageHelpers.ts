@@ -10,7 +10,6 @@ import { isValidPositiveDecimalString } from "@/lib/costing";
 export const SETTINGS_TABS = {
   profile: "profile",
   global: "global",
-  startup: "startup",
 } as const;
 
 export type SettingsTab = (typeof SETTINGS_TABS)[keyof typeof SETTINGS_TABS];
@@ -18,7 +17,6 @@ export type SettingsTab = (typeof SETTINGS_TABS)[keyof typeof SETTINGS_TABS];
 export const INSTANCE_SECTION_IDS = new Set(["authentication", "retention-deletion", "vendor-management"]);
 
 export const SETTINGS_SECTIONS = [
-  { id: "backup" },
   { id: "billing-currency" },
   { id: "timezone" },
   { id: "audit-configuration" },

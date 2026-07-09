@@ -10,7 +10,7 @@ Prism fronts multiple LLM API families through explicit runtime operations, lett
 
 ### Core capabilities
 
-- **Operation-registered runtime support**: allowed routes are `GET /v1/models`, `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/responses/input_tokens`, `POST /v1/responses/compact`, `POST /v1/images/generations`, `POST /v1/images/edits`, `POST /v1/messages`, `POST /v1/messages/count_tokens`, `POST /v1beta/models/{model}:generateContent`, `POST /v1beta/models/{model}:streamGenerateContent`, and `POST /v1beta/models/{model}:countTokens`
+- **Operation-registered runtime support**: allowed routes are `GET /v1/models`, `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/responses/input_tokens`, `POST /v1/responses/compact`, `POST /v1/messages`, `POST /v1/messages/count_tokens`, `POST /v1beta/models/{model}:generateContent`, `POST /v1beta/models/{model}:streamGenerateContent`, and `POST /v1beta/models/{model}:countTokens`
 - **Not a full vendor API clone**: unsupported vendor routes are rejected before provider transport, telemetry, audit, or feedback side effects
 - **Terminal Targets**: public model IDs resolve through ordered model targets, while each terminal target is a model-private endpoint binding managed from model detail. Endpoints remain reusable across Terminal Targets
 - **Explicit Ban Policy routing**: reusable load-balance strategies use `single`, `fill-first`, or `round-robin` routing plus retry-window settings, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, and `off`, `temporary`, or `until_reset` ban modes
@@ -18,12 +18,12 @@ Prism fronts multiple LLM API families through explicit runtime operations, lett
 
 ### Observability & management
 
-- **OpenTelemetry operations path**: startup JSON configures OTLP metrics and traces for a Collector or Grafana Alloy pipeline feeding Prometheus/Grafana/Tempo-style operations stacks
+- **Product observability**: retained request history, usage events, spending, request-log detail, and dashboard aggregates are stored in PostgreSQL-backed APIs
 - **Retained request history**: product-facing request logs, spending, usage snapshots, and dashboard aggregates remain in PostgreSQL for `/request-logs` and `/api/stats/*`
 - **Audit logging**: optional request/response body capture with header redaction
 - **Success-rate badges**: Terminal Target health based on recent request data
-- **Startup bootstrap config**: strict plaintext `config.json` management through `/settings#startup`, with hot apply for eligible runtime fields, restart-required OTLP telemetry fields, masked secret metadata, and explicit confirmation for dangerous structural changes
-- **Config export/import**: PostgreSQL-backed profile bundles with profile-scoped replace-mode import
+- **Startup bootstrap config**: strict plaintext `config.json` startup loading; external edits require a Prism restart after R2
+- **Plain backup path**: disaster recovery uses `pg_dump` for PostgreSQL state plus a copy of the plaintext `config.json`
 - **Caller client filtering**: request logs filter caller clients through User-Agent Client Rules using `client_rule_id`, while final target filtering uses `resolved_target_model_id`
 
 ### Architecture
@@ -39,7 +39,7 @@ Prism fronts multiple LLM API families through explicit runtime operations, lett
 
 ### Prerequisites
 
-- Go 1.26.4 toolchain
+- Go 1.26.5 toolchain
 - Node.js 24+
 - pnpm
 - Docker with Docker Compose
@@ -93,7 +93,7 @@ docker build -t prism-single .
 docker build --build-arg BUILD_FRONTEND=false -t prism-single-backend-only .
 ```
 
-The image exposes only public port `8080` by default. Nginx serves `/` from the built frontend, falls back to `/index.html` for frontend route refreshes, and proxies `/health`, `/api`, `/api/realtime/ws`, `/v1`, and `/v1beta` to the private backend upstream. `/api/realtime/ws` includes websocket upgrade headers. `BUILD_FRONTEND=false` skips the React build and serves a minimal fallback page at `/` while keeping backend proxy paths available.
+The image exposes only public port `8080` by default. Nginx serves `/` from the built frontend, falls back to `/index.html` for frontend route refreshes, and proxies `/health`, `/api`, `/v1`, and `/v1beta` to the private backend upstream. `BUILD_FRONTEND=false` skips the React build and serves a minimal fallback page at `/` while keeping backend proxy paths available.
 
 For direct Docker runs with an external PostgreSQL container:
 
@@ -118,7 +118,7 @@ docker run --rm \
   prism-single
 ```
 
-Startup uses a plaintext bootstrap file owned by `PRISM_CONFIG_PATH`. Freshly seeded files use backend-owned canonical defaults, including `0.0.0.0:8000`, CORS for local development, `runtime.transport.requestTimeout` as `"300s"`, and `runtime.sideEffects.attemptTimeout` as `"10s"`. Existing valid bootstrap files are preserved, even when they contain older values. If a persisted file already contains a different database URL or backend port, update it through `/settings#startup` or reset the config volume intentionally.
+Startup uses a plaintext bootstrap file owned by `PRISM_CONFIG_PATH`. Freshly seeded files use backend-owned canonical defaults, including `0.0.0.0:8000`, CORS for local development, `runtime.transport.requestTimeout` as `"300s"`, and `runtime.sideEffects.attemptTimeout` as `"10s"`. Existing valid bootstrap files are preserved, even when they contain older values. If a persisted file already contains a different database URL or backend port, edit `config.json` directly and restart Prism, or reset the config volume intentionally.
 
 The application image runs as `prism:prism`, UID/GID `1000:1000`. Named Compose volumes work out of the box. If you use a host bind mount for `/app/config`, make the host directory writable by UID/GID `1000:1000`, for example with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`.
 
@@ -142,9 +142,7 @@ docker pull ghcr.io/coachpo/prism-frontend:latest
 - [Data Model](docs/DATA_MODEL.md)
 - [Workflows](docs/WORKFLOWS.md)
 - [Requests Page Notes](docs/REQUESTS_PAGE.md)
-- [Test Case Generation Methodology](docs/TEST_CASE_GENERATION_METHODOLOGY.md)
 - [PRD](docs/PRD.md)
-- [Smoke Test Plan](docs/SMOKE_TEST_PLAN.md)
 
 The checked-in `docs/` tree is reserved for durable reference material and archive notes. Local scratch plans and run evidence are kept outside `docs/` under ignored `artifacts/`. Endpoint snapshot and request-log filter details live in the active docs rather than only in archived smoke evidence.
 
@@ -165,7 +163,7 @@ The root-local `./release.sh` helper is the monorepo release gate for Prism. It 
 ./release.sh 0.2.4 --yes
 ```
 
-The helper creates one root `vX.Y.Z` tag. That tag triggers `.github/workflows/docker-images.yml` to publish the backend and frontend images from the monorepo checkout.
+The helper creates one root `vX.Y.Z` tag. That tag triggers `.github/workflows/docker-images.yml` to publish the backend and frontend images from the monorepo checkout; publishing waits for a green CI conclusion on the tagged commit and refuses to ship if CI failed. `latest` moves only on release tags, never on ordinary `main` pushes.
 
 ### Backend
 
@@ -198,7 +196,7 @@ The CI workflow treats backend and frontend dependency scanners as blocking rele
 - Backend vulnerability scanning runs plain `govulncheck ./...` from `backend/`; the blocking step intentionally avoids machine-readable output modes that can exit successfully despite findings.
 - Frontend production dependency scanning runs `pnpm audit --prod --audit-level=high` from `frontend/` after `pnpm install --frozen-lockfile`; registry failures are not ignored or failed open.
 
-Container vulnerability scanning is evidence-only in this wave. CI locally builds `prism-backend:ci` and `prism-frontend:ci`, scans those exact local tags with pinned Trivy using `--severity HIGH,CRITICAL --ignore-unfixed --exit-code 0`, uploads the reports as artifacts, and writes an explicit non-blocking status summary. Container scans are not gating yet because Trivy advisory database and network drift can make image-vulnerability gating unstable even when the scanned source revision is unchanged. Release image publishing remains owned by `.github/workflows/docker-images.yml`; scanner evidence does not scan mutable remote `latest` tags.
+Container vulnerability scanning is evidence-only in this wave. CI locally builds `prism-backend:ci`, `prism-frontend:ci`, and the root single-image bundle `prism-single:ci`, scans those exact local tags with pinned Trivy using `--severity HIGH,CRITICAL --ignore-unfixed --exit-code 0`, uploads the reports as artifacts, and writes an explicit non-blocking status summary. Container scans are not gating yet because Trivy advisory database and network drift can make image-vulnerability gating unstable even when the scanned source revision is unchanged. Release image publishing remains owned by `.github/workflows/docker-images.yml`; scanner evidence does not scan mutable remote `latest` tags.
 
 ---
 
@@ -213,15 +211,15 @@ Plaintext bootstrap startup uses the startup JSON as the steady-state source, wi
 - `PRISM_CONFIG_PATH` points at a plaintext bootstrap file such as `config.json`
 - `DATABASE_URL` is optional seed/startup input. Backend-native seeds default to `postgres://prism:prism@localhost:5432/prism?sslmode=disable`; `./start.sh` sets it to the local launcher PostgreSQL DSN on host port `15432`.
 
-The Startup tab at `/settings#startup` manages that plaintext file directly. GET returns masked metadata only, field-level apply capabilities, and pending apply state only when the file differs from the live applied baseline. PUT applies explicit preserve or replace secret actions with expected revision and etag checks, writes the file, and immediately publishes eligible hot fields. Dangerous host, port, database, JWT signing key, and bundle key changes require confirmation tokens. `runtime.secretEncryptionKey` is preserve only in v1, and redacted placeholders are not persisted.
+The plaintext startup file is edited outside the dashboard. R2 removed the Startup settings tab and bootstrap management API, so external `config.json` edits always require a Prism restart before they affect the running process. `runtime.secretEncryptionKey`, JWT signing keys, database URLs, and telemetry authorization headers remain raw file secrets.
 
-That bootstrap file owns startup values directly. Hot-eligible fields include CORS origins, auth TTL and cookie metadata, mail and SMTP settings, runtime transport settings, and M2/M3 management admission limits. Runtime buffering is automatic and not user-configurable. Listener host and port, database URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, JWT signing key, bundle key changes, and all telemetry exporter/metrics/tracing settings still require restart. If an encrypted bootstrap file is still present, replace it before booting.
+That bootstrap file owns startup values directly. Runtime buffering is automatic and not user-configurable. If an encrypted bootstrap file is still present, replace it before booting.
 
-Operational telemetry is configured through the top-level `telemetry` section in the startup JSON, not through long-lived `OTEL_*` environment variables. Point Prism at an OTLP Collector or Grafana Alloy endpoint from that file, then let Collector/Alloy fan metrics and traces into Prometheus, Grafana, Tempo, or another backend. Prism no longer exposes a backend-local `/metrics` scrape endpoint; retained request-history, spending, usage, and dashboard aggregate APIs remain product-facing PostgreSQL-backed APIs under `/api/stats/*`.
+The top-level startup `telemetry` section is still parsed so existing live `config.json` files keep loading, but Prism no longer starts metrics or tracing exporters from it. Prism does not expose a backend-local `/metrics` scrape endpoint; retained request-history, spending, usage, and dashboard aggregate APIs remain product-facing PostgreSQL-backed APIs under `/api/stats/*`.
 
-Plaintext bootstrap files must include `runtime.transport.requestTimeout`, seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout`, seeded as `"10s"`. Missing either required field fails startup validation by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout and is hot-applicable through the Startup tab or API. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget, is restart-required, and is not hot-applied.
+Plaintext bootstrap files must include `runtime.transport.requestTimeout`, seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout`, seeded as `"10s"`. Missing either required field fails startup validation by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget. Both values now change only after editing `config.json` and restarting Prism.
 
-Auth email delivery is disabled by default. Existing bootstrap files with no `mail` block still start and use no-op delivery with no SMTP network activity. Seeded local configs include the explicit disabled shape:
+Mail delivery was removed. Existing bootstrap files with a `mail` block still parse for startup compatibility, and seeded local configs keep the explicit disabled shape:
 
 ```json
 {
@@ -230,31 +228,6 @@ Auth email delivery is disabled by default. Existing bootstrap files with no `ma
   }
 }
 ```
-
-To send password-reset and recovery-email verification messages, set `mail.enabled=true`, provide `mail.from`, and add SMTP settings. Prism validates enabled SMTP at startup, so missing or invalid enabled settings fail startup instead of falling back to no-op delivery. Supported SMTP modes are `starttls_required`, `implicit_tls`, and `plaintext_local_only`; `plaintext_local_only` is accepted only for localhost or loopback hosts, and auth over non-local plaintext is forbidden.
-
-```json
-{
-  "mail": {
-    "enabled": true,
-    "from": "Prism <noreply@example.com>",
-    "replyTo": "support@example.com",
-    "smtp": {
-      "host": "smtp.example.com",
-      "port": 587,
-      "mode": "starttls_required",
-      "ehloHostname": "prism.example.com",
-      "auth": "plain",
-      "username": "smtp-user",
-      "passwordFile": "/run/secrets/prism-smtp-password",
-      "timeout": "15s",
-      "tlsServerName": "smtp.example.com"
-    }
-  }
-}
-```
-
-`mail.smtp.auth` may be `none` or `plain`. When it is `plain`, set `username` plus exactly one password source: `mail.smtp.password` or `mail.smtp.passwordFile`. Prefer `passwordFile` for deployed systems. If you store `mail.smtp.password` in the bootstrap file, the safe bootstrap API never returns the plaintext value; it reports secret metadata only and updates it through preserve or replace secret actions. SMTP changes apply immediately when saved through the Startup tab or API PUT and hot publish succeeds. To roll back delivery, remove `mail` or set `mail.enabled=false` through the Startup tab or API PUT; direct external file edits are not watched automatically.
 
 Other configuration notes:
 
@@ -266,7 +239,7 @@ Other configuration notes:
 - `./start.sh full` serves the browser through the launcher origin, with Vite proxying management traffic and supported runtime operation traffic to the backend so local browser traffic stays same-origin
 - Standalone frontend development can still point at a remote backend with explicit `VITE_API_BASE`
 
-If you compose a root `.env` for `./start.sh`, keep `PRISM_CONFIG_PATH` unset to use the repo-local `config.json`, or point it at another plaintext bootstrap file. The launcher seeds that file only when it is missing, using backend-owned canonical defaults plus the launcher-provided local PostgreSQL DSN on host port `15432`; fresh seeds still default backend port to `8000`. It does not rewrite an existing valid bootstrap file. Prism does not watch external edits to this file. Use `/settings#startup` or `PUT /api/config/bootstrap` when a hot-eligible edit should reach the running process. To force a fresh seed, stop Prism, remove or relocate the bootstrap file, then restart. Profile backup/restore and other settings-page state flows remain PostgreSQL-backed state transport and are not loaded from `config.json`.
+If you compose a root `.env` for `./start.sh`, keep `PRISM_CONFIG_PATH` unset to use the repo-local `config.json`, or point it at another plaintext bootstrap file. The launcher seeds that file only when it is missing, using backend-owned canonical defaults plus the launcher-provided local PostgreSQL DSN on host port `15432`; fresh seeds still default backend port to `8000`. It does not rewrite an existing valid bootstrap file. Prism does not watch external edits to this file. After R2, every external `config.json` edit requires a Prism restart. To force a fresh seed, stop Prism, remove or relocate the bootstrap file, then restart. Disaster recovery should back up PostgreSQL with `pg_dump` and copy the selected plaintext `config.json`.
 
 When `VITE_API_BASE` is unset, frontend requests stay same-origin. Local `./start.sh full` keeps management requests and supported runtime operation requests on the launcher origin through Vite proxying; standalone frontend workflows can still set `VITE_API_BASE` explicitly.
 
@@ -274,7 +247,7 @@ When `VITE_API_BASE` is unset, frontend requests stay same-origin. Local `./star
 
 Prism uses PostgreSQL with Go-backend-managed migrations applied automatically on startup. Development contract changes are clean cut: incompatible local data should be reset and recreated, with no backfill path promised for old pricing, token, or Ban Policy semantics.
 
-Load-balance strategy defaults are created explicitly from the Loadbalance Strategies page for the selected profile as explicit Ban Policy strategies. Retry-cycle exhaustion uses `cycle_retry_attempts >= cycle_retry_attempt_limit`; Ban Policy bans use `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`; current-state views stay scoped to the model-private connection while loadbalance events keep policy threshold snapshots for history:
+Load-balance strategy defaults are created explicitly from the Loadbalance Strategies page for frozen Default profile id=1 as explicit Ban Policy strategies. Retry-cycle exhaustion uses `cycle_retry_attempts >= cycle_retry_attempt_limit`; Ban Policy bans use `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`; current-state views stay scoped to the model-private connection while loadbalance events keep policy threshold snapshots for history:
 
 - `Default single routing`
 - `Default fill-first routing`

@@ -42,12 +42,8 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "auth logout", method: http.MethodPost, pattern: "/auth/logout", tier: priority.ManagementTierM1},
 	{name: "auth refresh", method: http.MethodPost, pattern: "/auth/refresh", tier: priority.ManagementTierM1},
 	{name: "auth session", method: http.MethodGet, pattern: "/auth/session", tier: priority.ManagementTierM1},
-	{name: "password reset request", method: http.MethodPost, pattern: "/auth/password-reset/request", tier: priority.ManagementTierM1},
-	{name: "password reset confirm", method: http.MethodPost, pattern: "/auth/password-reset/confirm", tier: priority.ManagementTierM1},
 	{name: "auth settings read", method: http.MethodGet, pattern: "/settings/auth", tier: priority.ManagementTierM2},
 	{name: "auth settings write", method: http.MethodPut, pattern: "/settings/auth", tier: priority.ManagementTierM2},
-	{name: "auth email verification request", method: http.MethodPost, pattern: "/settings/auth/email-verification/request", tier: priority.ManagementTierM2},
-	{name: "auth email verification confirm", method: http.MethodPost, pattern: "/settings/auth/email-verification/confirm", tier: priority.ManagementTierM2},
 	{name: "auth proxy keys list", method: http.MethodGet, pattern: "/settings/auth/proxy-keys", tier: priority.ManagementTierM2},
 	{name: "auth proxy keys create", method: http.MethodPost, pattern: "/settings/auth/proxy-keys", tier: priority.ManagementTierM2},
 	{name: "auth proxy key update", method: http.MethodPatch, pattern: "/settings/auth/proxy-keys/{key_id}", tier: priority.ManagementTierM2},
@@ -60,13 +56,6 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "management jobs list", method: http.MethodGet, pattern: "/management/jobs", tier: priority.ManagementTierM3},
 	{name: "management job read", method: http.MethodGet, pattern: "/management/jobs/{job_id}", tier: priority.ManagementTierM3},
 	{name: "management job cancel", method: http.MethodPost, pattern: "/management/jobs/{job_id}/cancel", tier: priority.ManagementTierM3},
-	{name: "bootstrap config read", method: http.MethodGet, pattern: "/config/bootstrap", tier: priority.ManagementTierM2},
-	{name: "bootstrap config validate", method: http.MethodPost, pattern: "/config/bootstrap/validate", tier: priority.ManagementTierM2},
-	{name: "bootstrap config write", method: http.MethodPut, pattern: "/config/bootstrap", tier: priority.ManagementTierM2},
-	{name: "profile config export", method: http.MethodGet, pattern: "/config/profile/export", tier: priority.ManagementTierM3},
-	{name: "profile config export with secrets", method: http.MethodPost, pattern: "/config/profile/export/with-secrets", tier: priority.ManagementTierM3},
-	{name: "profile config import preview", method: http.MethodPost, pattern: "/config/profile/import/preview", tier: priority.ManagementTierM3},
-	{name: "profile config import", method: http.MethodPost, pattern: "/config/profile/import", tier: priority.ManagementTierM3},
 	{name: "config header rules list", method: http.MethodGet, pattern: "/config/header-blocklist-rules", tier: priority.ManagementTierM2},
 	{name: "config header rule read", method: http.MethodGet, pattern: "/config/header-blocklist-rules/{rule_id}", tier: priority.ManagementTierM2},
 	{name: "config header rule create", method: http.MethodPost, pattern: "/config/header-blocklist-rules", tier: priority.ManagementTierM2},
@@ -82,11 +71,8 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "model connection create", method: http.MethodPost, pattern: "/models/{model_config_id}/connections", tier: priority.ManagementTierM2},
 	{name: "model connection update", method: http.MethodPatch, pattern: "/models/{model_config_id}/connections/{connection_id}", tier: priority.ManagementTierM2},
 	{name: "model connection delete", method: http.MethodDelete, pattern: "/models/{model_config_id}/connections/{connection_id}", tier: priority.ManagementTierM2},
-	{name: "model connection health-check", method: http.MethodPost, pattern: "/models/{model_config_id}/connections/{connection_id}/health", tier: priority.ManagementTierM3},
-	{name: "legacy model health-check preview rejection", method: http.MethodPost, pattern: "/models/{model_config_id}/connections/health-check-preview", tier: priority.ManagementTierM3},
 	{name: "legacy model connection put rejection", method: http.MethodPut, pattern: "/models/{model_config_id}/connections/{connection_id}", tier: priority.ManagementTierM2},
 	{name: "legacy model connection pricing-template rejection", method: http.MethodPut, pattern: "/models/{model_config_id}/connections/{connection_id}/pricing-template", tier: priority.ManagementTierM2},
-	{name: "legacy model connection health-check rejection", method: http.MethodPost, pattern: "/models/{model_config_id}/connections/{connection_id}/health-check", tier: priority.ManagementTierM3},
 	{name: "legacy model connection priority rejection", method: http.MethodPatch, pattern: "/models/{model_config_id}/connections/{connection_id}/priority", tier: priority.ManagementTierM2},
 	{name: "connections list", method: http.MethodGet, pattern: "/connections", tier: priority.ManagementTierM2},
 	{name: "public connection create rejection", method: http.MethodPost, pattern: "/connections", tier: priority.ManagementTierM2},
@@ -95,10 +81,10 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "public connection patch rejection", method: http.MethodPatch, pattern: "/connections/{connection_id}", tier: priority.ManagementTierM2},
 	{name: "public connection pricing-template rejection", method: http.MethodPut, pattern: "/connections/{connection_id}/pricing-template", tier: priority.ManagementTierM2},
 	{name: "public connection delete rejection", method: http.MethodDelete, pattern: "/connections/{connection_id}", tier: priority.ManagementTierM2},
-	{name: "public connection health-check rejection", method: http.MethodPost, pattern: "/connections/{connection_id}/health-check", tier: priority.ManagementTierM3},
 	{name: "connection references list", method: http.MethodGet, pattern: "/connections/{connection_id}/references", tier: priority.ManagementTierM2},
 	{name: "pricing templates list", method: http.MethodGet, pattern: "/pricing-templates", tier: priority.ManagementTierM2},
 	{name: "pricing template create", method: http.MethodPost, pattern: "/pricing-templates", tier: priority.ManagementTierM2},
+	{name: "pricing template import", method: http.MethodPost, pattern: "/pricing-templates/import", tier: priority.ManagementTierM2},
 	{name: "pricing template read", method: http.MethodGet, pattern: "/pricing-templates/{template_id}", tier: priority.ManagementTierM2},
 	{name: "pricing template update", method: http.MethodPut, pattern: "/pricing-templates/{template_id}", tier: priority.ManagementTierM2},
 	{name: "pricing template delete", method: http.MethodDelete, pattern: "/pricing-templates/{template_id}", tier: priority.ManagementTierM2},
@@ -118,6 +104,7 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "loadbalance strategy delete", method: http.MethodDelete, pattern: "/loadbalance/strategies/{strategy_id}", tier: priority.ManagementTierM2},
 	{name: "loadbalance current-state list", method: http.MethodGet, pattern: "/loadbalance/current-state", tier: priority.ManagementTierM3},
 	{name: "loadbalance current-state reset", method: http.MethodPost, pattern: "/loadbalance/current-state/{connection_id}/reset", tier: priority.ManagementTierM2},
+	{name: "loadbalance incidents list", method: http.MethodGet, pattern: "/loadbalance/incidents", tier: priority.ManagementTierM3},
 	{name: "loadbalance events list", method: http.MethodGet, pattern: "/loadbalance/events", tier: priority.ManagementTierM3},
 	{name: "loadbalance event read", method: http.MethodGet, pattern: "/loadbalance/events/{event_id}", tier: priority.ManagementTierM3},
 	{name: "models by endpoints", method: http.MethodPost, pattern: "/models/by-endpoints", tier: priority.ManagementTierM2},
@@ -133,14 +120,6 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "model delete", method: http.MethodDelete, pattern: "/models/{model_config_id}", tier: priority.ManagementTierM2},
 	{name: "models by endpoint", method: http.MethodGet, pattern: "/models/by-endpoint/{endpoint_id}", tier: priority.ManagementTierM2},
 	{name: "models list", method: http.MethodGet, pattern: "/models", tier: priority.ManagementTierM2},
-	{name: "profiles list", method: http.MethodGet, pattern: "/profiles", tier: priority.ManagementTierM2},
-	{name: "profiles active", method: http.MethodGet, pattern: "/profiles/active", tier: priority.ManagementTierM1},
-	{name: "profiles bootstrap", method: http.MethodGet, pattern: "/profiles/bootstrap", tier: priority.ManagementTierM1},
-	{name: "profile create", method: http.MethodPost, pattern: "/profiles", tier: priority.ManagementTierM2},
-	{name: "profile update", method: http.MethodPatch, pattern: "/profiles/{profile_id}", tier: priority.ManagementTierM2},
-	{name: "profile activate", method: http.MethodPost, pattern: "/profiles/{profile_id}/activate", tier: priority.ManagementTierM1},
-	{name: "profile delete", method: http.MethodDelete, pattern: "/profiles/{profile_id}", tier: priority.ManagementTierM2},
-	{name: "realtime websocket", method: http.MethodGet, pattern: "/realtime/ws", tier: priority.ManagementTierM3, releaseAdmissionFromHandler: true},
 	{name: "settings audit read", method: http.MethodGet, pattern: "/settings/audit", tier: priority.ManagementTierM2},
 	{name: "settings audit write", method: http.MethodPut, pattern: "/settings/audit", tier: priority.ManagementTierM2},
 	{name: "settings costing read", method: http.MethodGet, pattern: "/settings/costing", tier: priority.ManagementTierM2},
@@ -194,7 +173,6 @@ func (c *managementAdmissionController) Middleware(next http.Handler) http.Handl
 			controller = c.provider.AdmissionSnapshot().Controller()
 		}
 		requestContext, release, err := controller.Admit(r.Context(), routeSpec.AdmissionSpec())
-		recordAdmissionDecision(r.Context(), httpTelemetryBranchManagement, string(routeSpec.tier), err)
 		if err != nil {
 			writeAdmissionError(w, err)
 			return
@@ -228,7 +206,6 @@ func proxyAdmissionProviderMiddleware(provider hotAdmissionProvider, fallbackCon
 			Timeout:  timeout,
 		}
 		requestContext, release, err := controller.Admit(r.Context(), spec)
-		recordAdmissionDecision(r.Context(), httpTelemetryBranchRuntime, admissionTelemetryTierNone, err)
 		if err != nil {
 			writeAdmissionError(w, err)
 			return

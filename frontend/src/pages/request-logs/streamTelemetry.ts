@@ -1,4 +1,4 @@
-import type { Messages } from "@/i18n/messages/en";
+import type { Messages } from "@/i18n/messages";
 import type { StreamOutcome } from "@/lib/types";
 import type { OperatorBadgeIntent } from "@/shared/design-system";
 
@@ -7,7 +7,7 @@ export function isStreamUsageUnavailableReason(reason: string | null | undefined
 }
 
 export function hasStreamTelemetryOutcome(outcome: StreamOutcome | null | undefined): boolean {
-  return outcome !== null && outcome !== undefined;
+  return outcome !== null && outcome !== undefined && outcome !== "not_streaming";
 }
 
 export function isHistoricalUnknownStreamRow(

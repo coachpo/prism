@@ -9,10 +9,10 @@ Validated again against current repo surfaces on 2026-07-07:
 ## Evidence Sources
 
 - Frontend route surface: `frontend/src/app/router/appRouter.tsx` and `frontend/src/app/router/rewriteRoutes.ts`
-- Shell navigation and route scoping: `frontend/src/components/layout/app-layout/navigationProfileConfig.ts`
+- Shell navigation and route scoping: `frontend/src/components/layout/app-layout/useShellNavigation.ts`
 - Auth bootstrap and session flow: `frontend/src/context/AuthContext.tsx`
-- Selected-profile scoping: `frontend/src/context/ProfileContext.tsx`, `frontend/src/lib/api/core.ts`, `frontend/src/lib/api/profileScope.ts`
-- Backend router assembly: `backend/internal/httpapi/management/`, `backend/internal/httpapi/runtime/`, `backend/internal/httpapi/realtime/`, and `backend/internal/platform/http/server.go`
+- Default-profile scoping: `frontend/src/lib/api/core.ts`, `frontend/src/lib/api/profileScope.ts`
+- Backend router assembly: `backend/internal/httpapi/management/`, `backend/internal/httpapi/runtime/`, and `backend/internal/platform/http/server.go`
 - Backend API reference: `docs/API_SPEC.md`
 - Request-log details: `docs/REQUESTS_PAGE.md`
 
@@ -24,20 +24,17 @@ Validated again against current repo surfaces on 2026-07-07:
 
 ## Shared Scope Rules
 
-- Public auth routes are `/auth/login`, `/auth/forgot-password`, and `/auth/reset-password`; legacy `/login`, `/forgot-password`, and `/reset-password` redirect there.
+- Public auth routes are `/auth/login`.
 - Protected shell routes cover `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/route/pricing`, `/system/settings`, and `/control/proxy-keys`; analytics is under `/observe?tab=analytics`.
-- `selectedProfile` controls profile-scoped management requests through `X-Profile-Id`.
-- Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/profiles/*`, `/api/settings/auth*`, `/api/realtime/ws`, `GET/PUT /api/config/bootstrap`, `POST /api/config/bootstrap/validate`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
-- `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`.
-- Runtime proxy traffic on `/v1/*` and `/v1beta/*` always uses the active profile, not the selected profile.
+- Profile-scoped management requests are pinned to Default profile id `1`. `X-Profile-Id` is still accepted for compatibility, but the backend ignores its value.
+- Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/settings/auth*`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
+- Runtime proxy traffic on `/v1/*` and `/v1beta/*` ignores management profile headers and resolves against frozen Default profile id `1`.
 
 ## 1. Sign In And Session Bootstrap
 
 **User entrypoints**
 
 - `/auth/login`
-- `/auth/forgot-password`
-- `/auth/reset-password`
 
 **Frontend flow**
 
@@ -54,31 +51,23 @@ Validated again against current repo surfaces on 2026-07-07:
 - `POST /api/auth/logout`
 - `POST /api/auth/refresh`
 - `GET /api/auth/session`
-- `POST /api/auth/password-reset/request`
-- `POST /api/auth/password-reset/confirm`
 
-## 2. Shell Bootstrap And Profile Selection
+## 2. Shell Bootstrap
 
 **User entrypoints**
 
 - Any protected route
-- Header profile switcher in the shell
 
 **Frontend flow**
 
 1. `AuthProvider` confirms the operator session.
-2. `ProfileProvider` loads the profile list, active profile, and profile cap from one bootstrap call.
-3. The shell renders sidebar groups, breadcrumbs, language/theme controls, and the version label.
-4. Changing the selected profile updates `setApiProfileId()` and refreshes profile-scoped management data.
-5. Activating a profile is an explicit runtime action, distinct from selecting one in the shell.
+2. The shell renders sidebar groups, breadcrumbs, language/theme controls, and the version label.
+3. Default-profile pages send the pinned compatibility `X-Profile-Id: 1` header from the shared API client.
 
 **Backend touchpoints**
 
 - `GET /api/auth/status`
-- `GET /api/profiles/bootstrap`
-- `GET /api/profiles/active`
-- `POST /api/profiles/{profile_id}/activate`
-- Profile-scoped `/api/*` routes with `X-Profile-Id`
+- Default-profile-scoped `/api/*` routes with accepted-but-ignored `X-Profile-Id`
 
 ## 3. Dashboard And Statistics
 
@@ -91,7 +80,7 @@ Validated again against current repo surfaces on 2026-07-07:
 
 1. Dashboard overview bootstrap loads KPI cards, spending summaries, throughput, and routing data from the stats-only aggregate snapshot.
 2. Dashboard overview bootstrap loads recent activity from the separate recent-activity feed.
-3. The dashboard subscribes to realtime `dashboard.snapshot` messages for aggregate reconciliation and `dashboard.activity` messages for feed reconciliation.
+3. The dashboard polls REST stats endpoints every 30 seconds for aggregate and recent-activity reconciliation.
 4. Quick actions send operators into the analytics tab or `/observe/requests` for deeper analysis.
 5. The analytics tab stays aggregate-focused and uses its own snapshot presets rather than request-level drill-down.
 
@@ -99,8 +88,7 @@ Validated again against current repo surfaces on 2026-07-07:
 
 - `GET /api/stats/dashboard` for the overview aggregate snapshot, including backend-computed Routing Health Map data
 - `GET /api/stats/dashboard/recent-activity` for bounded request-history-backed dashboard activity
-- `WS /api/realtime/ws` for overview `dashboard.snapshot` and `dashboard.activity` reconciliation, and for analytics `analytics.snapshot` payloads
-- `GET /api/stats/usage-snapshot` for API callers, debugging, analytics REST fallback, and manual-refresh fallback when realtime analytics has not supplied a current snapshot
+- `GET /api/stats/usage-snapshot` for API callers, debugging, analytics polling, and manual refresh
 - `GET /api/stats/endpoints/{endpoint_id}/models` for analytics endpoint drilldown rows
 
 ## 4. Model Management And Model Detail
@@ -115,7 +103,7 @@ Validated again against current repo surfaces on 2026-07-07:
 1. Operators list, search, create, edit, and delete model configs.
 2. Public model create and edit flows author ordered targets that point only to same-family models.
 3. Model detail is the Terminal Target management surface for the model's owned endpoint bindings.
-4. Model detail loads owned Terminal Target KPIs, current Ban Policy retry-window state, loadbalance event history, and manual health-check actions.
+4. Model detail loads owned Terminal Target KPIs, current Ban Policy retry-window state, and loadbalance event history.
 5. Request-log handoff preserves the requested model while final-target fields show the terminal model reached through the access graph.
 
 **Backend touchpoints**
@@ -137,7 +125,6 @@ Validated again against current repo surfaces on 2026-07-07:
 - `POST /api/models/{model_config_id}/connections`
 - `PATCH /api/models/{model_config_id}/connections/{connection_id}`
 - `DELETE /api/models/{model_config_id}/connections/{connection_id}`
-- `POST /api/models/{model_config_id}/connections/{connection_id}/health`
 
 ## 5. Endpoints, Loadbalance Strategies, And Pricing Templates
 
@@ -154,8 +141,8 @@ Validated again against current repo surfaces on 2026-07-07:
 3. Pricing templates define reusable cost models attached to Terminal Targets with five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`.
 4. Pricing-template management saves explicit strings for every component. Missing/null/blank inputs normalize to `"0"`; explicit `"0"` is configured free pricing, not missing pricing data.
 5. Request logs and cost math consume canonical disjoint token components: base input, cache-read input, cache-creation input, base output, and reasoning output. Aggregate `cached_tokens` is derived-only for presentation.
-6. These resources are profile-scoped and are usually managed before or alongside model-detail work.
-7. The defaults action creates the canonical loadbalance strategy rows for the currently selected profile only.
+6. These resources are Default-profile-scoped and are usually managed before or alongside model-detail work.
+7. The defaults action creates the canonical loadbalance strategy rows for Default profile id `1`.
 
 **Backend touchpoints**
 
@@ -172,7 +159,7 @@ Validated again against current repo surfaces on 2026-07-07:
 - `PUT /api/loadbalance/strategies/{strategy_id}`
 - `DELETE /api/loadbalance/strategies/{strategy_id}`
 
-The loadbalance strategy routes continue to use selected-profile scope through `X-Profile-Id`, and the defaults action is a no-body POST that returns the created/current canonical rows plus creation metadata.
+The loadbalance strategy routes are pinned to Default profile id `1`, and the defaults action is a no-body POST that returns the created/current canonical rows plus creation metadata.
 - `GET /api/pricing-templates`
 - `POST /api/pricing-templates`
 - `GET /api/pricing-templates/{template_id}`
@@ -214,26 +201,15 @@ For the page-specific query contract and UI behavior, see `docs/REQUESTS_PAGE.md
 
 **Frontend flow**
 
-1. Settings splits into Profile, Global, and Startup tabs.
-2. Profile-scoped settings cover backup, reporting currency and FX mappings, timezone, audit/privacy defaults, and config rules. Rows with missing FX data remain pricing failures; explicit `"0"` component prices are configured free pricing and do not become `MISSING_PRICE_DATA`.
+1. Settings splits into Profile and Global tabs.
+2. Profile-scoped settings cover reporting currency and FX mappings, timezone, audit/privacy defaults, and config rules. Rows with missing FX data remain pricing failures; explicit `"0"` component prices are configured free pricing and do not become `MISSING_PRICE_DATA`.
 3. Global settings cover operator authentication, log retention policies, and broad retention/deletion jobs.
-4. The Startup tab edits the plaintext bootstrap file under `/system/settings?tab=startup#startup`, but backend-provided values and backend-owned canonical defaults remain the source of truth.
+4. Startup settings remain in the plaintext bootstrap file selected by `PRISM_CONFIG_PATH`; edit `config.json` directly and restart Prism to apply changes.
 5. Proxy API keys are managed on their own route and stay global rather than profile-scoped.
 
-Auth email delivery for password reset and recovery-email verification is transport-backed only when startup config has `mail.enabled=true`. Missing `mail` and `mail.enabled=false` mean disabled no-op delivery, so Prism starts without SMTP and does not dial SMTP. Enabled SMTP is strict: invalid host, port, mode, timeout, credential, or plaintext rules fail validation or startup instead of silently using no-op delivery.
+Mail bootstrap fields remain parse-compatible for existing `config.json` files, but Prism no longer sends mail. Fresh bootstrap seeds use backend `8000`, frontend `5173`, and PostgreSQL `15432`, but `./start.sh` follows the existing bootstrap file's configured `server.port` when one already exists. `runtime.transport.requestTimeout` is seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout` is seeded as `"10s"`. Direct external `config.json` edits are not watched automatically, and existing valid files are not rewritten by the launcher. To reset startup defaults, stop Prism, remove or relocate the bootstrap file, and restart.
 
-The Startup tab treats `mail.smtp.password` as a secret field. Safe bootstrap payloads show metadata only, and operators should either preserve or replace that secret through the bootstrap update flow or point `mail.smtp.passwordFile` at a local secret file. SMTP transport changes apply immediately when saved through the Startup tab or API PUT and hot publish succeeds. Fresh bootstrap seeds use backend `8000`, frontend `5173`, and PostgreSQL `15432`, but `./start.sh` follows the existing bootstrap file's configured `server.port` when one already exists. `runtime.transport.requestTimeout` is seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout` is seeded as `"10s"`. Request timeout is hot-applicable for future provider requests, while side-effects attempt timeout is restart-required. Direct external `config.json` edits are not watched automatically, and existing valid files are not rewritten by the launcher. To reset startup defaults, stop Prism, remove or relocate the bootstrap file, and restart. To roll back delivery, remove `mail` or set `mail.enabled=false` through the Startup tab or API PUT.
-
-OpenAI text sibling translation is not a startup-control lane. Operators set runtime OpenAI text support on each Terminal Target through `openai_text_capability`, using `responses_only`, `chat_completions_only`, or `dual_native`. Profile bundle export/import remains on `version: 3` and carries that Terminal Target capability with the profile-scoped connection data.
-
-The configuration-operations flow is explicit in both lanes:
-- profile export defaults to the safe redacted bundle at `GET /api/config/profile/export`
-- secret-bearing profile export uses `POST /api/config/profile/export/with-secrets` with `X-Prism-Dangerous-Confirm: profile-export`
-- profile import uses frontend local schema validation, upload, backend preview, then apply with `X-Prism-Preview-Token`
-- preview is invalidated when the selected profile or bundle changes, and apply requires the current selection/profile to still match the ready preview token
-- profile import replaces profile-scoped rows only, while other profiles and request logs remain untouched
-- profile import rejects `connection_ref` values used by multiple models because imported connections are model-private endpoint bindings
-- apply stays header-bound, and the raw bundle JSON is not rewritten in transit
+OpenAI text sibling translation is not a startup-control lane. Operators set runtime OpenAI text support on each Terminal Target through `openai_text_capability`, using `responses_only`, `chat_completions_only`, or `dual_native`.
 
 **Backend touchpoints**
 
@@ -243,10 +219,6 @@ The configuration-operations flow is explicit in both lanes:
 - `PUT /api/settings/timezone`
 - `GET /api/settings/audit`
 - `PUT /api/settings/audit`
-- `GET /api/config/profile/export`
-- `POST /api/config/profile/export/with-secrets`
-- `POST /api/config/profile/import/preview`
-- `POST /api/config/profile/import`
 - `GET /api/config/header-blocklist-rules`
 - `PATCH /api/config/header-blocklist-rules/{rule_id}`
 - `DELETE /api/config/header-blocklist-rules/{rule_id}`
@@ -257,8 +229,6 @@ The configuration-operations flow is explicit in both lanes:
 - `DELETE /api/config/user-agent-client-rules/{rule_id}`
 - `GET /api/settings/auth`
 - `PUT /api/settings/auth`
-- `POST /api/settings/auth/email-verification/request`
-- `POST /api/settings/auth/email-verification/confirm`
 - `GET /api/settings/auth/proxy-keys`
 - `POST /api/settings/auth/proxy-keys`
 - `PATCH /api/settings/auth/proxy-keys/{key_id}`
@@ -269,8 +239,6 @@ The configuration-operations flow is explicit in both lanes:
 - `POST /api/maintenance/log-retention/jobs`
 
 Global log retention covers `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
-
-Profile export and import stay selected-profile scoped. `POST /api/config/profile/import/preview` is a profile-scoped config readiness route and requires `X-Profile-Id`.
 
 ## 8. Runtime Proxy Traffic
 
@@ -297,15 +265,13 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 - `POST /v1/responses`
 - `POST /v1/responses/input_tokens`
 - `POST /v1/responses/compact`
-- `POST /v1/images/generations`
-- `POST /v1/images/edits`
 - `POST /v1/messages`
 - `POST /v1/messages/count_tokens`
 - `POST /v1beta/models/{model}:generateContent`
 - `POST /v1beta/models/{model}:streamGenerateContent`
 - `POST /v1beta/models/{model}:countTokens`
 
-These 12 allowlisted runtime routes are defined in `backend/internal/httpapi/runtime/operations.go` and are intentionally separate from `/api/*` management routes. Prism does not treat `/v1` or `/v1beta` as catch-all prefixes.
+These 10 allowlisted runtime routes are defined in `backend/internal/httpapi/runtime/operations.go` and are intentionally separate from `/api/*` management routes. Prism does not treat `/v1` or `/v1beta` as catch-all prefixes.
 
 ## 9. Priority Operations Runbook
 
@@ -319,10 +285,10 @@ The expected pass signal is exit code `0`. Failures should be treated as regress
 
 Operational triage by symptom:
 
-- Lane budget pressure: identify the labeled DB lane first. `runtime_execution` protects proxy work; `management`, `realtime`, `cache_refresh`, `runtime_telemetry`, `runtime_feedback`, and `background_jobs` have separate budgets and should be remediated at their owning workload instead of increasing unrelated pools.
+- Lane budget pressure: identify the labeled DB lane first. `runtime_execution` protects proxy work; `management`, `cache_refresh`, `runtime_telemetry`, `runtime_feedback`, and `background_jobs` have separate budgets and should be remediated at their owning workload instead of increasing unrelated pools.
 - Overload or `Retry-After`: honor the retry delay and reduce client concurrency. M3 reporting and maintenance routes are expected to shed before M2/M1 management work, and management/background pressure should not affect proxy execution capacity.
 - Scheduler lag: expect delayed, coalesced, retried, or dropped background work according to worker policy. Do not add ad hoc goroutines or timers; register new recurring, retrying, or delayed work with the scheduler.
-- Outbox failures: inspect the relevant durable store state. Email outbox retries or dead-letters delivery without leaking OTPs or SMTP credentials; management side-effect outbox rows retry or become permanent failures without rolling back committed primary state.
+- Outbox failures: inspect the relevant durable store state. Management side-effect outbox rows retry or become permanent failures without rolling back committed primary state.
 - Runtime telemetry loss: accepted runtime activity intents should drain to the telemetry outbox unless terminal validation or forced shutdown prevents completion. Treat lost accepted telemetry as a durability incident.
 - Runtime feedback loss: feedback is best effort and may drop on queue full, invalid event, closed pipeline, or store failure. Drops should be accounted for, but they must not delay or fail proxy responses.
 - Audit or stat lag: raw audit reads remain bounded by time window and keyset cursor. Dashboard overview reads come from the canonical `/api/stats/dashboard` aggregate snapshot, including backend-computed Routing Health Map data, and broad deletes run as durable management jobs.

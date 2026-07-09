@@ -5,10 +5,6 @@ export interface AuthStatus {
 export interface AuthSettings {
   auth_enabled: boolean;
   username: string | null;
-  email: string | null;
-  email_bound_at: string | null;
-  pending_email: string | null;
-  email_verification_required: boolean;
   has_password: boolean;
   proxy_key_limit: number;
 }
@@ -17,21 +13,6 @@ export interface AuthSettingsUpdate {
   auth_enabled: boolean;
   username?: string | null;
   password?: string | null;
-}
-
-export interface EmailVerificationRequest {
-  email: string;
-}
-
-export interface EmailVerificationConfirmRequest {
-  otp_code: string;
-}
-
-export interface EmailVerificationResponse {
-  success: boolean;
-  pending_email: string | null;
-  email: string | null;
-  email_bound_at: string | null;
 }
 
 export type LoginSessionDuration = "session" | "7_days" | "30_days";
@@ -47,15 +28,6 @@ export interface SessionResponse {
   authenticated: boolean;
   auth_enabled: boolean;
   username: string | null;
-}
-
-export interface PasswordResetRequest {
-  username_or_email: string;
-}
-
-export interface PasswordResetConfirmRequest {
-  otp_code: string;
-  new_password: string;
 }
 
 export interface ProxyApiKey {

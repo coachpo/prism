@@ -1,0 +1,20 @@
+event: response.created
+data: {"response":{"created_at":1700000000,"id":"chatcmpl_reasoning","model":"responses-public","object":"response","output":[],"status":"in_progress"},"type":"response.created"}
+
+event: response.output_item.added
+data: {"item":{"id":"rs_chatcmpl_reasoning","summary":[],"type":"reasoning"},"output_index":0,"type":"response.output_item.added"}
+
+event: response.reasoning_text.delta
+data: {"delta":"plan","item_id":"rs_chatcmpl_reasoning","output_index":0,"summary_index":0,"type":"response.reasoning_text.delta"}
+
+event: response.reasoning_text.delta
+data: {"delta":"hidden","item_id":"rs_chatcmpl_reasoning","output_index":0,"summary_index":0,"type":"response.reasoning_text.delta"}
+
+event: response.output_item.added
+data: {"item":{"content":[],"id":"msg_0","role":"assistant","type":"message"},"output_index":1,"type":"response.output_item.added"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"answer","item_id":"msg_0","output_index":1,"type":"response.output_text.delta"}
+
+event: response.completed
+data: {"response":{"created_at":1700000000,"id":"chatcmpl_reasoning","model":"responses-public","object":"response","output":[{"id":"rs_resp_chat","summary":[{"text":"planhidden","type":"summary_text"}],"type":"reasoning"},{"content":[{"text":"answer","type":"output_text"}],"role":"assistant","type":"message"}],"status":"completed"},"type":"response.completed"}

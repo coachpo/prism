@@ -79,11 +79,6 @@ function isTruthyEnvFlag(value: string | undefined) {
 
 function createLauncherProxyConfig(target: string): Record<string, string | ProxyOptions> {
   return {
-    "/api/realtime/ws": {
-      target,
-      changeOrigin: true,
-      ws: true,
-    },
     "/api": {
       target,
       changeOrigin: true,

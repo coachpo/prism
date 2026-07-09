@@ -1,7 +1,7 @@
 import { Download, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import type { Messages } from "@/i18n/messages/en";
+import type { Messages } from "@/i18n/messages";
 import { useLocale } from "@/i18n/useLocale";
 import type { UsageSnapshotPreset } from "@/lib/types";
 

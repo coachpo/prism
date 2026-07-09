@@ -1,7 +1,6 @@
-package runtime_test
+package runtimetest
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -491,94 +490,6 @@ func TestRuntimeStreamingTerminalHandoffFailureAfterPartialOutput(t *testing.T) 
 	}
 }
 
-func BenchmarkRuntimeDurableTelemetryHotPath(b *testing.B) {
-	benchmarkRuntimeDurableTelemetryHotPath(b)
-}
-
-func BenchmarkRuntimeTelemetryHotPath(b *testing.B) {
-	benchmarkRuntimeDurableTelemetryHotPath(b)
-}
-
-func benchmarkRuntimeDurableTelemetryHotPath(b *testing.B) {
-	harness := newRuntimeHarnessWithConfig(b, runtimeHarnessConfig{
-		RuntimeOptions: runtimeapi.Options{TelemetryOutbox: runtimeapi.TelemetryOutboxOptions{
-			ShutdownTimeout: 100 * time.Millisecond,
-		}},
-	})
-	profileID := harness.activeProfileID(b)
-	upstream := newRuntimeBenchmarkUpstream(b, http.StatusOK, runtimeBenchmarkHotPathResponse())
-	route := harness.seedProxyRoute(b, runtimeRouteSeed{
-		ProfileID:       profileID,
-		APIFamily:       "openai",
-		PublicModelID:   "benchmark-telemetry-hot-path-public-" + randomSuffix(),
-		TargetModelID:   "benchmark-telemetry-hot-path-target-" + randomSuffix(),
-		EndpointBaseURL: upstream.baseURL("/benchmark/telemetry-hot-path"),
-		EndpointAPIKey:  "benchmark-telemetry-hot-path-key",
-	})
-	rawBody := runtimeBenchmarkRequestBody(b, route.PublicModelID, "phase-4 durable telemetry hot path benchmark")
-
-	statusCode, _, err := performRuntimeBenchmarkRequest(harness.client, harness.url+"/v1/chat/completions", rawBody)
-	if err != nil {
-		b.Fatalf("warm runtime telemetry hot-path benchmark request: %v", err)
-	}
-	if statusCode != http.StatusOK {
-		b.Fatalf("expected warm runtime telemetry hot-path status 200, got %d", statusCode)
-	}
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		statusCode, _, err = performRuntimeBenchmarkRequest(harness.client, harness.url+"/v1/chat/completions", rawBody)
-		if err != nil {
-			b.Fatalf("run runtime telemetry hot-path benchmark request: %v", err)
-		}
-		if statusCode != http.StatusOK {
-			b.Fatalf("expected runtime telemetry hot-path status 200, got %d", statusCode)
-		}
-	}
-}
-
-func BenchmarkRuntimeAuthUsageAsyncHotPath(b *testing.B) {
-	harness := newRuntimeHarnessWithConfig(b, runtimeHarnessConfig{
-		RuntimeOptions: runtimeapi.Options{TelemetryOutbox: runtimeapi.TelemetryOutboxOptions{
-			ShutdownTimeout: 100 * time.Millisecond,
-		}},
-	})
-	profileID := harness.activeProfileID(b)
-	proxyAPIKey := harness.enableRuntimeProxyAPIKeyAuth(b)
-	upstream := newRuntimeBenchmarkUpstream(b, http.StatusOK, runtimeBenchmarkHotPathResponse())
-	route := harness.seedProxyRoute(b, runtimeRouteSeed{
-		ProfileID:       profileID,
-		APIFamily:       "openai",
-		PublicModelID:   "benchmark-auth-usage-public-" + randomSuffix(),
-		TargetModelID:   "benchmark-auth-usage-target-" + randomSuffix(),
-		EndpointBaseURL: upstream.baseURL("/benchmark/auth-usage"),
-		EndpointAPIKey:  "benchmark-auth-usage-key",
-	})
-	rawBody := runtimeBenchmarkRequestBody(b, route.PublicModelID, "phase-4 auth usage async hot path benchmark")
-	headers := map[string]string{"Authorization": "Bearer " + proxyAPIKey}
-
-	statusCode, _, err := performRuntimeBenchmarkRequestWithHeaders(harness.client, harness.url+"/v1/chat/completions", rawBody, headers)
-	if err != nil {
-		b.Fatalf("warm runtime auth usage async benchmark request: %v", err)
-	}
-	if statusCode != http.StatusOK {
-		b.Fatalf("expected warm runtime auth usage async benchmark status 200, got %d", statusCode)
-	}
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		statusCode, _, err = performRuntimeBenchmarkRequestWithHeaders(harness.client, harness.url+"/v1/chat/completions", rawBody, headers)
-		if err != nil {
-			b.Fatalf("run runtime auth usage async benchmark request: %v", err)
-		}
-		if statusCode != http.StatusOK {
-			b.Fatalf("expected runtime auth usage async benchmark status 200, got %d", statusCode)
-		}
-	}
-}
-
 type runtimeTelemetryCounts struct {
 	RequestLogs int
 	UsageEvents int
@@ -722,27 +633,6 @@ func (g *runtimeTelemetryMaterializeGate) Release() {
 
 func useDurableRuntimeTelemetryMode(settings *config.Settings) {
 	settings.RuntimeTelemetryMode = config.RuntimeTelemetryModeDurableOutbox
-}
-
-func performRuntimeBenchmarkRequestWithHeaders(client *http.Client, url string, rawBody []byte, headers map[string]string) (int, int, error) {
-	request, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(rawBody))
-	if err != nil {
-		return 0, 0, fmt.Errorf("build benchmark request: %w", err)
-	}
-	request.Header.Set("Content-Type", "application/json")
-	for key, value := range headers {
-		request.Header.Set(key, value)
-	}
-	response, err := client.Do(request)
-	if err != nil {
-		return 0, 0, fmt.Errorf("perform benchmark request: %w", err)
-	}
-	defer func() { _ = response.Body.Close() }()
-	responseBody, err := io.ReadAll(response.Body)
-	if err != nil {
-		return response.StatusCode, 0, fmt.Errorf("read benchmark response body: %w", err)
-	}
-	return response.StatusCode, len(responseBody), nil
 }
 
 func assertRuntimeClosePending(t *testing.T, closeResult <-chan time.Duration, timeout time.Duration) {

@@ -70,9 +70,11 @@ export function UsageStatisticsContent({ data, state }: UsageStatisticsContentPr
 
           <UsageTrendsSection
             chartGranularity={{
+              latencyTrends: state.state.chartGranularity.latencyTrends,
               requestTrends: state.state.chartGranularity.requestTrends,
               tokenUsageTrends: state.state.chartGranularity.tokenUsageTrends,
             }}
+            latencyTrendSeries={data.latencyTrendSeries}
             onSetChartGranularity={state.setChartGranularity}
             requestTrendSeries={data.requestTrendSeries}
             tokenUsageTrendSeries={data.tokenUsageTrendSeries}

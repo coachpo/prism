@@ -1,3 +1,5 @@
+import { Fragment, type ReactNode } from "react";
+import { Link } from "@tanstack/react-router";
 import { Activity, DollarSign, Server } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { SpendTrustNote } from "@/components/SpendTrustIndicator";
@@ -12,17 +14,30 @@ function formatSpendCoverageDetail(
   unpricedRequestCount: number,
   messages: ReturnType<typeof useLocale>["messages"],
 ) {
-  const detailParts = [messages.statistics.requestBasedSpend];
+  const detailParts: ReactNode[] = [messages.statistics.requestBasedSpend];
 
   if (pricedRequestCount > 0) {
     detailParts.push(messages.statistics.pricedRequests(String(pricedRequestCount)));
   }
 
   if (unpricedRequestCount > 0) {
-    detailParts.push(messages.statistics.unpriced(String(unpricedRequestCount)));
+    detailParts.push(
+      <Link
+        className="font-medium text-primary underline-offset-4 hover:underline"
+        search={{ priced: "false", time_range: "30d" }}
+        to="/observe/requests"
+      >
+        {messages.statistics.unpriced(String(unpricedRequestCount))}
+      </Link>,
+    );
   }
 
-  return detailParts.join(" · ");
+  return detailParts.map((part, index) => (
+    <Fragment key={index}>
+      {index > 0 ? " · " : null}
+      {part}
+    </Fragment>
+  ));
 }
 
 interface DashboardMetricsGridProps {

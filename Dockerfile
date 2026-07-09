@@ -1,4 +1,4 @@
-FROM golang:1.26.4-bookworm AS backend-builder
+FROM golang:1.26.5-bookworm AS backend-builder
 
 WORKDIR /app/backend
 

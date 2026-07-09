@@ -24,7 +24,7 @@ The request-log route now uses split HTTP contracts: a slim list payload for bro
 
 - Replace dashboard or statistics summaries.
 - Change backend request-log, audit-log, or costing contracts.
-- Change active-profile runtime routing behavior for `/v1/*` and `/v1beta/*`.
+- Change frozen Default-profile runtime routing behavior for `/v1/*` and `/v1beta/*`.
 
 ## 4. Route Responsibilities
 
@@ -37,7 +37,7 @@ The page route should act as a thin orchestration shell with four primary respon
 
 The route should also integrate shared application services:
 
-- `useProfileContext()` for selected-profile and profile-revision refresh behavior.
+- Default profile id `1` is frozen for management reads; `X-Profile-Id` may still be sent by shared API code but is ignored.
 - `useTimezone()` plus the shared frontend locale boundary for locale-aware timestamp formatting.
 - `useLocale()` for route-shell, filter, empty-state, and detail-drawer copy.
 - `TooltipProvider` for table and filter affordances.
@@ -195,7 +195,7 @@ The Requests page must remain compatible with the following backend-facing and s
 
 ## 11. Acceptance Criteria
 
-1. Visiting `/observe/requests` loads a paginated request list plus filter-reference data for the selected profile.
+1. Visiting `/observe/requests` loads a paginated request list plus filter-reference data for Default profile id `1`.
 2. Server-backed filter changes update URL state with `replace: true` semantics and reset pagination to the first page.
 3. The retained browse filters update URL state with `replace: true` semantics and drive refreshed list requests directly, without a client-side search or triage refinement layer. `client_rule_id` filters caller user agents only, and `resolved_target_model_id` filters final target models.
 4. Visiting `/observe/requests?request_id=<id>` opens exact-request investigation mode with the focus banner and detail-drawer support.

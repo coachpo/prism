@@ -51,7 +51,7 @@ func validateEndpointDescriptor(descriptor OperationDescriptor) []FieldError {
 
 func validEndpointShape(shape EndpointShape) bool {
 	switch shape {
-	case EndpointShapeTextGeneration, EndpointShapeTokenCount, EndpointShapeImageGeneration, EndpointShapeImageEdit:
+	case EndpointShapeTextGeneration, EndpointShapeTokenCount:
 		return true
 	default:
 		return false

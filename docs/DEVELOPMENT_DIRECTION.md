@@ -55,9 +55,9 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 
 ### R5. 图片生成/编辑路由（决策点：确认无此需求后删）
 
-- **现状**：`runtime/operations.go:52-53` 的 `/v1/images/generations|edits` + `gateway/provider/openai/images.go`（~300 LOC，含 multipart 与正文脱敏）+ `operation_media_hooks.go` 等 ≈ **1.5–2k LOC**。线上无任何图片流量。
+- **现状**：图片生成/编辑运行时路由已移除；OpenAI 保留 models、Chat Completions、Responses、Responses input_tokens、Responses compact。
 - **原因**：coding agent 场景用不到图片生成；multipart/媒体钩子是运行时里独有的一条特殊路径，删掉后运行时钩子族更均质。
-- **怎么做**：先查 `request_logs.operation_name` 历史确认为零，然后从 operations 注册表移除两个操作、删媒体钩子与 provider 适配、清对应测试。**注意**：`/v1/responses/input_tokens` 与 `/v1/responses/compact` 是给 coding agent 的令牌计数/压缩服务的（`operations.go:50-51`），与 opencode 用法直接相关——**保留**。
+- **执行结果**：已确认历史使用为零并删除图片运行时路径、媒体钩子、provider 适配和对应测试。**注意**：`/v1/responses/input_tokens` 与 `/v1/responses/compact` 是给 coding agent 的令牌计数/压缩服务的，与 opencode 用法直接相关——**保留**。
 
 ### R6. OTel 遥测（决策点：是否真有 Collector 在收）
 
@@ -65,13 +65,11 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 - **原因**：面向 Prometheus/Grafana/Tempo 运维栈的路径，对单人部署价值存疑。产品内的统计（`/api/stats/*`）完全不依赖它。
 - **怎么做**：如果你没有在跑 Collector/Alloy → 整条移除（telemetry 启动配置段一起删）。如果偶尔用 → 至少删掉不用的那套 OTLP 传输（gRPC 或 HTTP 二选一），直接依赖数可从 16 降到 ~9。
 
-### R7. 实时 WebSocket（决策点：与告警增强 E1 绑定，二选一）
+### R7. 实时 WebSocket（已决策：D2 退役）
 
-- **现状**：`httpapi/realtime/` 2,503 LOC / 10 文件 + 独立 DB 连接 lane（24 连接中占 2）+ `management/auth/realtime.go` + Nginx `/api/realtime/ws` 规则 + 前端 `websocket.ts`（~390）与 `useRealtimeData`。它只服务仪表盘推送，而仪表盘本就有等价的 REST 拉取（`pages/dashboard/AGENTS.md:56`）。
-- **原因**：日均 4 个请求的场景，30 秒轮询与推送不可区分。但它也是 E1（故障转移告警）现成的推送通道。
-- **怎么做**：一次性决策，不要维持现状——
-  - **方案 A（推荐，更懒）**：退役 websocket，仪表盘改轮询；E1 的"人不在页面上也要知道"用 webhook 外推解决（见 E1），页面内横幅靠轮询。
-  - **方案 B**：保留 websocket 并让 E1 复用它推 incident 事件，但接受这 ~3k LOC 与专用 DB lane 的长期成本。
+- **现状**：R7 已选择方案 A，实时推送路由、独立 DB 连接 lane、后端 auth 接线、Nginx 推送规则、前端推送客户端与订阅 hook 已退役。仪表盘使用等价的 REST 拉取。
+- **原因**：日均 4 个请求的场景，30 秒轮询与推送不可区分；E1 的离页告警改走 webhook-via-outbox，不复用 websocket。
+- **执行结果**：不要恢复 websocket/realtime 通道；页面内新鲜度靠 REST 轮询，离页通知只走 E1 webhook 外推。
 
 ### R8. 路由拓扑图（决策点：如果你不看它，删）
 
@@ -108,7 +106,7 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 
 ### E2. 未定价请求下钻（直接解释线上那"4 个未定价"）
 
-- **现状**：行数据已带 priced/unpriced 与原因字段（`domain/stats/request_logs.go:193-194`），聚合侧已有 `UnpricedBreakdown`（`rollups.go:549-555`），原因枚举齐全：`PRICING_DISABLED`（连接没挂价格模板，`runtime_pricing.go:45-47`）、`MISSING_TOKEN_USAGE`、`STREAM_USAGE_UNAVAILABLE`（流被中断时常见——coding agent 恰好爱中断流，`runtime_pricing.go:127-134`）、`MISSING_PRICE_DATA`（含缺 FX，`runtime_pricing.go:136-153`）。**但请求日志列表的查询参数解析不支持按计价状态过滤**（`management/stats/service.go:536-566`），仪表盘的"N 个未定价"也不可点击。
+- **现状**：行数据已带 priced/unpriced 与原因字段（`domain/stats/request_logs.go`），聚合侧已有 `UnpricedBreakdown`（`aggregates.go`），原因枚举齐全：`PRICING_DISABLED`、`MISSING_TOKEN_USAGE`、`STREAM_USAGE_UNAVAILABLE`、`MISSING_PRICE_DATA`。请求日志列表已支持按计价状态与原因过滤，仪表盘点击串联另排。
 - **怎么做**：参数解析器加 `priced=true|false`（可选 `unpriced_reason=`）；前端把"4 个未定价请求"做成带过滤的跳转链接；支出 KPI 旁展示已有的 UnpricedBreakdown。全是接线工作，无新数据。
 
 ### E3. 价格目录/预设（降低费用估算的维护成本与覆盖缺口）
@@ -125,11 +123,11 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 - **默认时间范围**：默认"最近 1 小时"在低流量下打开即空。改默认 24h，或记住上次选择（localStorage 一行事）。分析页同理。
 - **过滤补全**：状态族目前只有 4xx/5xx，补 2xx/成功、精确状态码、错误文本搜索。
 - **导出**：当前列表查询结果加 CSV/JSON 导出（分析页已有"导出快照 JSON"先例）。
-- **实时尾随**：仅当 R7 选了方案 B 才顺手做（`dashboard.activity` 频道已有，`httpapi/realtime/AGENTS.md:32`）；选方案 A 则不做。
+- **实时尾随**：R7 已选方案 A，因此页面内实时 tail 不做；需要离页通知时走 E1 webhook-via-outbox。
 
 ### E5. 延迟趋势图
 
-- **现状**：p95 只有时点值、且是 Go 侧现算的（`rollups.go:145-147,212-214`）；`response_time_ms`/`ttft_ms` 列早已在 `request_logs` 上。
+- **现状**：p95 只有时点值、且是 Go 侧现算的；`response_time_ms`/`ttft_ms` 列早已在 `request_logs` 上。
 - **怎么做**：分析页加一张 p50/p95 随时间曲线（复用现有 recharts 与分桶查询模式）。对"今天上游是不是变慢了"这个日常问题，比平均值有用得多。
 
 ## 4. 技术债清理清单（按优先级）
@@ -143,8 +141,7 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 
 ### T2. 双路由器统一
 
-- `react-router-dom` 与 `@tanstack/react-router` **同时挂载**（`App.tsx:13-15`）；TanStack 已拥有完整路由树 + zod search schema（`appRouter.tsx:236-397`），react-router 残存于 ~23 个文件（`useNavigate`×7、`Link`×5、`useSearchParams`×3、`useLocation`×3、`CompatNavigate` 及嵌套 `Routes`）。
-- 机械迁移量 1–2 天，删依赖后每次页面加载少 ~40kB min+gz；先做 T3 会更顺（legacy 路由删除同时移除 `matchPath`/`Navigate` 用法）。
+- 已完成：前端路由统一由 TanStack Router 承担，路由树和 zod search schema 继续归 `appRouter.tsx` 管理。
 
 ### T3. 11 条 legacy 重定向路由删除
 
@@ -152,25 +149,25 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 
 ### T4. 测试地基修整
 
-- `frontend/tests/lib/` 23 个文件中 **9 个没接进 `test:lib`**（已核实清单：`analytics_websocket_contract`、`costing_reporting_currency_contract`、`log_retention_api_contract`、`management_contract`、`pricing-template-form-state-normalization`、`profile_selection_contract`、`reporting_currency_contract`、`request_log_audit_state_contract`、`request_log_filter_state_contract`）——逐个决定接入或删除，并把 `test:lib` 从手写文件枚举改成 glob。
+- `frontend/package.json` 的 `test:lib` 已改为 glob，覆盖 `frontend/tests/lib/*.test.mjs` 与 `frontend/tests/model-detail/*.test.mjs`；websocket lib 测试已随 R7 删除。剩余未接入脚本的 .mjs 只在 `frontend/tests/loadbalance/` 与 `frontend/tests/main/`，按测试精简批次决定接入或删除。
 - Playwright e2e ~17.5k LOC 不在 CI：按 §2 的删减自动缩水后，把存活的核心流（请求日志、模型配置）挑 3–5 条进 CI，其余删；顺带清掉 plan 编号命名（`task-6/8/9/10/11/17-*.spec.ts`）。
 - 后端 ~49% 测试占比集中在将被冻结/删除的功能上（profile_scope 3,571 行、auth 控制面 2,000 行），随功能一起退役。
 
 ### T5. 统计读写不一致（核心链路上的隐性债）
 
-- 三处**读时修补**写入端不一致的"支出一致性"归一化逻辑（`domain/stats/request_logs.go:716-733`、`snapshot.go:643-685`）——修正写入端，删掉补丁。
-- `management_stat_buckets` 预聚合表建了但**服务路径没用它**：现状是把命中的 `usage_request_events` 全量载入内存、Go 里聚合（`rollups.go:898-948`、`GetSpending`:511、`GetStatsSummary`:105）。要么接线要么删表。日均 4 请求无感，流量上来是悬崖。
+- 支出一致性在运行时写入前修正；读侧不再修补 `priced_flag`、`unpriced_reason`、`fx_rate_*`。
+- `management_stat_buckets` 与 `management_stat_refresh_state` 已删除；仪表盘继续从 `usage_request_events` 经 `aggregates.go` 内存聚合。
 - 请求日志列表每次都全量重载端点/模型/UA 规则并跑 `COUNT(*)`（`request_logs.go:123-158`）——同上，先记账不动，`// ponytail: 全量 COUNT，日志量上万后换估算或 keyset 分页`。
 
 ### T6. 命名与小件
 
-- `backend/internal/targetcompat/glossary.go`（29 行）：`connection`↔`terminal_target` 改名改了一半，选定一个词收尾删掉。
-- `backend/internal/providercompat/`（~540 LOC）：是**在用的活逻辑**（`ResolveAuthProfile`，`runtime/planning_snapshot.go:129,195` 调用），名字却像兼容垫片——改名（如 `providerauth`），不要误删。
+- `backend/internal/domain/modelrouting/` 已收编 access-target glossary；持久值统一保留 `connection`。
+- `backend/internal/providerauth/` 是运行时规划在用的 provider auth/API-family 逻辑（`ResolveAuthProfile`，`runtime/planning_snapshot.go` 调用），不要误删。
 - God files 顺带拆：`platform/config/bootstrap.go` 3,038、`runtime/observability.go` 2,320、`i18n/messages/en.ts` 3,866（前端最大文件）。不专项立项，谁动谁拆。
 
 ### T7. 文档修正
 
-- root `AGENTS.md:52,75,90` 与 `docs/AGENTS.md` 多处引用 `.omo/plans/`、`.omo/evidence/`——**该目录不存在**，改掉或建目录。
+- root `AGENTS.md:52,75,90` 与 `docs/AGENTS.md` 多处引用废弃的计划/证据目录——**该目录不存在**，应改写为 `docs/` 下的计划/文档口径并清理旧引用。
 - `ARCHITECTURE.md` 的 ASCII 架构图已错位，修复或删图留文字。
 - 其余文档新鲜度尚可（`API_SPEC.md` 2,817 行随 HEAD 更新）。§2 删除项落地时同步删对应章节即可。
 
@@ -182,7 +179,7 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 
 | 阶段 | 内容 | 预估规模 |
 |---|---|---|
-| **P0 快赢**（半天） | T1 的 test:e2e shim、stub 清理、absence 测试删除；T3 legacy 路由；T7 `.omo` 引用；E4 的 `to_time` 接线/删除；T4 的 test:lib glob 化 | 全是删除与一行修补 |
+| **P0 快赢**（半天） | T1 的 test:e2e shim、stub 清理、absence 测试删除；T3 legacy 路由；T7 废弃目录引用；E4 的 `to_time` 接线/删除；T4 的剩余孤儿 .mjs 处置 | 全是删除与一行修补 |
 | **P1 大减法**（1–2 周，按 R1→R2→R3→R4 顺序，每项独立成 PR） | configbundle → 启动标签页+bootstrapconfig → 认证链瘦身 → profiles 冻结；期间拍板 R5–R8 四个决策点并执行 | 净删 ~15k–20k LOC |
 | **P2 核心增强**（与 P1 可并行，1–2 周） | E1 故障转移可见性+webhook → E2 未定价下钻 → E4 日志页体验 → E3 价格导入 → E5 延迟趋势 | 每项 ≤ 数百 LOC 新增 |
 | **P3 结构债**（穿插进行） | T2 双路由器统一 → T5 统计读写修正 → T6 命名收尾 | 1 周内 |
@@ -192,8 +189,7 @@ Prism 的核心价值链是：**代理运行时（多上游转发 + 负载均衡
 ## 6. 需要 owner 拍板的决策点
 
 1. **OTel**：现在有没有 Collector/Alloy 在收 Prism 的指标？没有 → R6 整删；有 → 只删一套 OTLP 传输。
-2. **实时推送**：R7 方案 A（退役 websocket，告警走 webhook + 轮询）还是方案 B（保留并复用为告警通道）？——推荐 A。
-3. **路由拓扑图**：`/observe?tab=routing` 你日常看吗？不看 → R8 删图留表。
-4. **操作员登录**：反代兜底后是否彻底移除用户名密码登录（R3 第二步）？
-5. **图片路由**：确认 `request_logs.operation_name` 无 images 记录后执行 R5。
+2. **路由拓扑图**：`/observe?tab=routing` 你日常看吗？不看 → R8 删图留表。
+3. **操作员登录**：反代兜底后是否彻底移除用户名密码登录（R3 第二步）？
+4. **图片路由**：R5 已执行；后续如需图片能力按新需求重新设计。
 6. **英文语言包**：是否为开源发布需求（决定 T8 方向）。

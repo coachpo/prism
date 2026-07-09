@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"slices"
 	"testing"
@@ -12,23 +13,9 @@ func TestBootstrapConfigApplyRegistryCoversPlanFields(t *testing.T) {
 		bootstrapFieldHTTPCORSAllowedOrigins,
 		bootstrapFieldAuthAccessTokenTTLSeconds,
 		bootstrapFieldAuthRefreshTokenTTLSeconds,
-		bootstrapFieldAuthResetCodeTTLSeconds,
 		bootstrapFieldAuthAccessCookieName,
 		bootstrapFieldAuthRefreshCookieName,
 		bootstrapFieldAuthCookieSecure,
-		bootstrapFieldMailEnabled,
-		bootstrapFieldMailFrom,
-		bootstrapFieldMailReplyTo,
-		bootstrapFieldMailSMTPHost,
-		bootstrapFieldMailSMTPPort,
-		bootstrapFieldMailSMTPMode,
-		bootstrapFieldMailSMTPEHLOHostname,
-		bootstrapFieldMailSMTPAuth,
-		bootstrapFieldMailSMTPUsername,
-		bootstrapFieldMailSMTPPasswordFile,
-		bootstrapFieldMailSMTPTimeout,
-		bootstrapFieldMailSMTPTLSServerName,
-		BootstrapConfigSecretMailSMTPPassword,
 		bootstrapFieldRuntimeTransportMaxIdleConns,
 		bootstrapFieldRuntimeTransportMaxIdleConnsPerHost,
 		bootstrapFieldRuntimeTransportMaxConnsPerHost,
@@ -39,6 +26,7 @@ func TestBootstrapConfigApplyRegistryCoversPlanFields(t *testing.T) {
 		bootstrapFieldRuntimeTransportExpectContinueTimeout,
 		bootstrapFieldDatabaseManagementAdmissionM2Max,
 		bootstrapFieldDatabaseManagementAdmissionM3Max,
+		bootstrapFieldAlertingWebhookURL,
 	}
 	restartFields := []string{
 		bootstrapFieldRuntimeSideEffectsAttemptTimeout,
@@ -66,15 +54,12 @@ func TestBootstrapConfigApplyRegistryCoversPlanFields(t *testing.T) {
 		bootstrapFieldDatabasePoolsRuntimeTelemetryMinIdle,
 		bootstrapFieldDatabasePoolsRuntimeFeedbackMaxConns,
 		bootstrapFieldDatabasePoolsRuntimeFeedbackMinIdle,
-		bootstrapFieldDatabasePoolsRealtimeMaxConns,
-		bootstrapFieldDatabasePoolsRealtimeMinIdleConns,
 		bootstrapFieldDatabasePoolsCacheRefreshMaxConns,
 		bootstrapFieldDatabasePoolsCacheRefreshMinIdle,
 		bootstrapFieldDatabasePoolsBackgroundJobsMaxConns,
 		bootstrapFieldDatabasePoolsBackgroundJobsMinIdle,
 		BootstrapConfigSecretRuntimeSecretEncryptionKey,
 		BootstrapConfigSecretAuthJWTSigningKey,
-		BootstrapConfigSecretStateTransferBundleKey,
 	}
 	capabilities := BootstrapConfigApplyCapabilities()
 	fields := BootstrapConfigApplyCapabilityFields()
@@ -89,7 +74,10 @@ func TestBootstrapConfigApplyRegistryCoversPlanFields(t *testing.T) {
 	assertBootstrapConfirmationToken(t, capabilities, bootstrapFieldServerPort, BootstrapConfigConfirmationServerPortChange)
 	assertBootstrapConfirmationToken(t, capabilities, BootstrapConfigSecretDatabaseURL, BootstrapConfigConfirmationDatabaseURLChange)
 	assertBootstrapConfirmationToken(t, capabilities, BootstrapConfigSecretAuthJWTSigningKey, BootstrapConfigConfirmationAuthJWTSigningKeyChange)
-	assertBootstrapConfirmationToken(t, capabilities, BootstrapConfigSecretStateTransferBundleKey, BootstrapConfigConfirmationStateTransferBundleKeyChange)
+	legacyBundlePath := "state" + "Transfer.bundle" + "EncryptionKey"
+	if _, ok := ClassifyBootstrapConfigField(legacyBundlePath); ok {
+		t.Fatal("expected removed legacy bundle key to stay out of the bootstrap API field registry")
+	}
 	if _, ok := ClassifyBootstrapConfigField("database.pools.management.*"); ok {
 		t.Fatal("expected wildcard pool paths to stay out of the exact field registry")
 	}
@@ -171,6 +159,21 @@ func TestTelemetryFieldsAreRestartRequired(t *testing.T) {
 	assertBootstrapFieldModes(t, capabilities, telemetryFields, BootstrapConfigApplyModeRestartRequired)
 }
 
+func TestBootstrapConfigFieldDiffDetectsAlertingWebhookURLHotApply(t *testing.T) {
+	current := bootstrapApplyTestValues(t)
+	requested := cloneManagementValues(t, current)
+	requested.Alerting.WebhookURL = stringPointer("https://alerts.example.test/hook")
+	diff, err := DiffBootstrapConfigFields(current, requested, preserveManagementSecretUpdates())
+	if err != nil {
+		t.Fatalf("diff alerting webhook URL bootstrap field: %v", err)
+	}
+	assertBootstrapFieldsEqual(t, diff.ChangedHotApplyFields, []string{bootstrapFieldAlertingWebhookURL})
+	assertBootstrapFieldsEqual(t, diff.ChangedRestartRequiredFields, nil)
+	if diff.RestartRequired() {
+		t.Fatal("expected alerting webhook URL diff to hot apply")
+	}
+}
+
 func TestBootstrapConfigFieldDiffDetectsRuntimeSideEffectsAttemptTimeoutRestartOnly(t *testing.T) {
 	current := bootstrapApplyTestValues(t)
 	requested := cloneManagementValues(t, current)
@@ -215,20 +218,17 @@ func TestBootstrapConfigFieldDiffEmitsSecretUpdatePaths(t *testing.T) {
 	updates[BootstrapConfigSecretDatabaseURL] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
 	updates[BootstrapConfigSecretRuntimeSecretEncryptionKey] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
 	updates[BootstrapConfigSecretAuthJWTSigningKey] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
-	updates[BootstrapConfigSecretStateTransferBundleKey] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
-	updates[BootstrapConfigSecretMailSMTPPassword] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
 	updates[BootstrapConfigSecretTelemetryAuthorizationHeader] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace}
 	diff, err := DiffBootstrapConfigFields(current, cloneManagementValues(t, current), updates)
 	if err != nil {
 		t.Fatalf("diff secret update bootstrap fields: %v", err)
 	}
-	assertBootstrapFieldsEqual(t, diff.ChangedHotApplyFields, []string{BootstrapConfigSecretMailSMTPPassword})
+	assertBootstrapFieldsEqual(t, diff.ChangedHotApplyFields, nil)
 	assertBootstrapFieldsEqual(t, diff.ChangedRestartRequiredFields, []string{
 		BootstrapConfigSecretTelemetryAuthorizationHeader,
 		BootstrapConfigSecretDatabaseURL,
 		BootstrapConfigSecretRuntimeSecretEncryptionKey,
 		BootstrapConfigSecretAuthJWTSigningKey,
-		BootstrapConfigSecretStateTransferBundleKey,
 	})
 }
 
@@ -271,38 +271,42 @@ func TestBootstrapConfigFieldDiffRejectsUnclassifiedPaths(t *testing.T) {
 	assertBootstrapFieldsEqual(t, classificationError.Fields, []string{"unknown.secret"})
 }
 
-func TestBootstrapConfigApplyResultFromDiffInitializesEffectFields(t *testing.T) {
-	current := bootstrapApplyTestValues(t)
-	requested := cloneManagementValues(t, current)
-	nextAccessTokenTTL := *current.Auth.AccessTokenTTLSeconds + 60
-	nextPort := *current.Server.Port + 1
-	requested.Auth.AccessTokenTTLSeconds = &nextAccessTokenTTL
-	requested.Server.Port = &nextPort
-	diff, err := DiffBootstrapConfigFields(current, requested, preserveManagementSecretUpdates())
-	if err != nil {
-		t.Fatalf("diff bootstrap fields for apply result: %v", err)
-	}
-
-	result := BootstrapConfigApplyResultFromDiff(diff)
-
-	assertBootstrapFieldsEqual(t, result.AppliedNowFields, []string{})
-	assertBootstrapFieldsEqual(t, result.RestartRequiredFields, []string{bootstrapFieldServerPort})
-	assertBootstrapFieldsEqual(t, result.PendingHotApplyFields, []string{bootstrapFieldAuthAccessTokenTTLSeconds})
-	assertBootstrapFieldsEqual(t, result.FailedHotApplyFields, []string{})
-	if !containsString(result.UnchangedFields, bootstrapFieldAuthRefreshTokenTTLSeconds) {
-		t.Fatal("expected apply result unchanged fields to include untouched capabilities")
-	}
-}
-
 func bootstrapApplyTestValues(t *testing.T) BootstrapConfigValues {
 	t.Helper()
-	createdAt := time.Date(2026, 4, 26, 14, 0, 0, 0, time.UTC)
-	path, _ := writeManagementTestDocument(t, newManagementTestDocument(t, createdAt))
-	snapshot, _, err := NewBootstrapConfigManager(BootstrapConfigManagerOptions{}).LoadBootstrapConfigDocument(path)
+	path := t.TempDir() + "/config.json"
+	manager := NewBootstrapConfigManager(BootstrapConfigManagerOptions{TimeNow: func() time.Time {
+		return time.Date(2026, 4, 26, 14, 0, 0, 0, time.UTC)
+	}})
+	if _, err := manager.LoadOrSeed(path); err != nil {
+		t.Fatalf("seed bootstrap apply test values: %v", err)
+	}
+	snapshot, _, err := manager.LoadBootstrapConfigDocument(path)
 	if err != nil {
 		t.Fatalf("load bootstrap apply test values: %v", err)
 	}
 	return snapshot.Values
+}
+
+func cloneManagementValues(t *testing.T, values BootstrapConfigValues) BootstrapConfigValues {
+	t.Helper()
+	payload, err := json.Marshal(values)
+	if err != nil {
+		t.Fatalf("marshal bootstrap config values: %v", err)
+	}
+	var clone BootstrapConfigValues
+	if err := json.Unmarshal(payload, &clone); err != nil {
+		t.Fatalf("unmarshal bootstrap config values: %v", err)
+	}
+	return clone
+}
+
+func preserveManagementSecretUpdates() map[string]BootstrapConfigSecretUpdate {
+	return map[string]BootstrapConfigSecretUpdate{
+		BootstrapConfigSecretDatabaseURL:                  {Action: BootstrapConfigSecretActionPreserve},
+		BootstrapConfigSecretRuntimeSecretEncryptionKey:   {Action: BootstrapConfigSecretActionPreserve},
+		BootstrapConfigSecretAuthJWTSigningKey:            {Action: BootstrapConfigSecretActionPreserve},
+		BootstrapConfigSecretTelemetryAuthorizationHeader: {Action: BootstrapConfigSecretActionPreserve},
+	}
 }
 
 func assertBootstrapFieldModes(t *testing.T, capabilities map[string]BootstrapConfigFieldCapability, fields []string, mode BootstrapConfigApplyMode) {

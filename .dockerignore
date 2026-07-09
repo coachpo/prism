@@ -37,3 +37,4 @@ frontend/.env.*
 
 backend/tmp
 backend/.cache
+.superpowers

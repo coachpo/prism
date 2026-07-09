@@ -1,34 +1,28 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { useAuth } from "@/context/useAuth";
-import { useProfileContext } from "@/context/ProfileContext";
 import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
-import { useLocale } from "@/i18n/useLocale";
 import { renderSectionSaveState } from "./sectionSaveState";
 import type { SettingsSaveSection } from "./settingsSaveTypes";
 import { SETTINGS_TABS, type SettingsTab } from "./settingsPageHelpers";
 import { useAuditConfigurationData } from "./useAuditConfigurationData";
 import { useAuthenticationSettingsData } from "./useAuthenticationSettingsData";
-import { useConfigBackupData } from "./useConfigBackupData";
 import { useCostingSettingsData } from "./useCostingSettingsData";
 import { useRetentionDeletionData } from "./useRetentionDeletionData";
 
 export function useSettingsPageData(activeTab: SettingsTab) {
-  const navigate = useNavigate();
-  const { messages } = useLocale();
+  const tanStackNavigate = useNavigate();
+  const navigate = useCallback((to: string, options?: { replace?: boolean }) => {
+    void tanStackNavigate({ to, replace: options?.replace });
+  }, [tanStackNavigate]);
   const { refreshAuth } = useAuth();
-  const { selectedProfile, revision, bumpRevision } = useProfileContext();
+  const [revision, setRevision] = useState(0);
   const { prime: primeReportingCurrency } = useReportingCurrencyContext();
-  const selectedProfileLabel = selectedProfile
-    ? `${selectedProfile.name} (#${selectedProfile.id})`
-    : messages.settingsPage.selectedProfileFallback;
+  const selectedProfileLabel = "Default (#1)";
+  const bumpRevision = () => setRevision((current) => current + 1);
 
   const [recentlySavedSection, setRecentlySavedSection] = useState<SettingsSaveSection | null>(null);
 
-  const backup = useConfigBackupData({
-    bumpRevision,
-    selectedProfileId: selectedProfile?.id ?? null,
-  });
   const isProfileTabActive = activeTab === SETTINGS_TABS.profile;
   const isGlobalTabActive = activeTab === SETTINGS_TABS.global;
   const auth = useAuthenticationSettingsData({
@@ -77,7 +71,6 @@ export function useSettingsPageData(activeTab: SettingsTab) {
     recentlySavedSection,
     renderSaveStateForSection,
     selectedProfileLabel,
-    ...backup,
     ...auth,
     ...costing,
     ...audit,

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/coachpo/prism/backend/internal/gateway/provider/openai"
-	"github.com/coachpo/prism/backend/internal/providercompat"
+	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
 type codingAgentFormatPlan struct {
@@ -18,7 +18,7 @@ type codingAgentFormatPlan struct {
 }
 
 func planCodingAgentFormatRequest(operation RuntimeOperation, rawBody []byte, targetModelID string, connection runtimeConnection) (codingAgentFormatPlan, bool, error) {
-	acceptedFormat := providercompat.OpenAITextCapabilityDualNative
+	acceptedFormat := providerauth.OpenAITextCapabilityDualNative
 	mode, supported := resolveTranslationMode(operation, &acceptedFormat, connection.OpenAITextCapability)
 	if !supported || mode == TranslationModeNone {
 		return codingAgentFormatPlan{}, false, nil

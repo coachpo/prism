@@ -538,6 +538,10 @@ func parseRequestLogListParams(r *http.Request, profileID int) (statsdomain.Requ
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
 	}
+	toTime, err := parseOptionalTime(r, "to_time")
+	if err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
 	endpointID, err := parseOptionalInt(r, "endpoint_id")
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
@@ -562,7 +566,49 @@ func parseRequestLogListParams(r *http.Request, profileID int) (statsdomain.Requ
 		normalized := strings.ToLower(strings.TrimSpace(*statusFamily))
 		statusFamily = &normalized
 	}
-	return statsdomain.RequestLogListParams{ProfileID: profileID, IngressRequestID: normalizedQueryString(r, "ingress_request_id"), ModelID: normalizedQueryString(r, "model_id"), ResolvedTargetModelID: normalizedQueryString(r, "resolved_target_model_id"), StatusFamily: statusFamily, FromTime: fromTime, EndpointID: endpointID, ClientRuleID: clientRuleID, Limit: limit, Offset: offset}, nil
+	statusCode, err := parseOptionalInt(r, "status_code")
+	if err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
+	pricedFlag, err := parseOptionalBool(r, "priced")
+	if err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
+	unpricedReason, err := parseOptionalUnpricedReason(r, "unpriced_reason")
+	if err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
+	return statsdomain.RequestLogListParams{ProfileID: profileID, IngressRequestID: normalizedQueryString(r, "ingress_request_id"), ModelID: normalizedQueryString(r, "model_id"), ResolvedTargetModelID: normalizedQueryString(r, "resolved_target_model_id"), StatusFamily: statusFamily, StatusCode: statusCode, ErrorText: normalizedQueryString(r, "error_text"), PricedFlag: pricedFlag, UnpricedReason: unpricedReason, FromTime: fromTime, ToTime: toTime, EndpointID: endpointID, ClientRuleID: clientRuleID, Limit: limit, Offset: offset}, nil
+}
+
+func parseOptionalBool(r *http.Request, key string) (*bool, error) {
+	value := strings.TrimSpace(r.URL.Query().Get(key))
+	if value == "" {
+		return nil, nil
+	}
+	switch value {
+	case "true":
+		parsed := true
+		return &parsed, nil
+	case "false":
+		parsed := false
+		return &parsed, nil
+	default:
+		return nil, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "invalid " + key}
+	}
+}
+
+func parseOptionalUnpricedReason(r *http.Request, key string) (*string, error) {
+	value := strings.TrimSpace(r.URL.Query().Get(key))
+	if value == "" {
+		return nil, nil
+	}
+	switch value {
+	case "PRICING_DISABLED", "MISSING_TOKEN_USAGE", "STREAM_USAGE_UNAVAILABLE", "MISSING_PRICE_DATA":
+		return &value, nil
+	default:
+		return nil, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "invalid " + key}
+	}
 }
 
 func parseDashboardRecentActivityLimit(r *http.Request) (int, error) {

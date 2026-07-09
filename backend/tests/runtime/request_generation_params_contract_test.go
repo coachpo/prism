@@ -1,4 +1,4 @@
-package runtime_test
+package runtimetest
 
 import (
 	"bytes"
@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -82,12 +81,11 @@ func TestRuntimeRequestGenerationParamsPersistProviderMatrix(t *testing.T) {
 	})
 }
 
-func TestRuntimeOperationNamePersistsForTextTokenCountAndMedia(t *testing.T) {
+func TestRuntimeOperationNamePersistsForTextAndTokenCount(t *testing.T) {
 	tests := []struct {
 		name          string
 		apiFamily     string
 		operationName string
-		media         bool
 		perform       func(t *testing.T, harness *runtimeHarness, route seededRuntimeRoute) *http.Response
 	}{
 		{
@@ -114,25 +112,6 @@ func TestRuntimeOperationNamePersistsForTextTokenCountAndMedia(t *testing.T) {
 				return harness.requestJSON(t, http.MethodPost, fmt.Sprintf("/v1beta/models/%s:countTokens", route.PublicModelID), map[string]any{"contents": []map[string]any{{"role": "user", "parts": []map[string]any{{"text": "persist gemini token-count operation name"}}}}}, nil)
 			},
 		},
-		{
-			name:          "OpenAIImageGenerations",
-			apiFamily:     "openai",
-			operationName: "openai.images.generations",
-			media:         true,
-			perform: func(t *testing.T, harness *runtimeHarness, route seededRuntimeRoute) *http.Response {
-				return harness.requestJSON(t, http.MethodPost, "/v1/images/generations", map[string]any{"model": route.PublicModelID, "prompt": "hidden image prompt", "size": "1024x1024", "stream": true, "temperature": 0.7}, nil)
-			},
-		},
-		{
-			name:          "OpenAIImageEdits",
-			apiFamily:     "openai",
-			operationName: "openai.images.edits",
-			media:         true,
-			perform: func(t *testing.T, harness *runtimeHarness, route seededRuntimeRoute) *http.Response {
-				body, contentType := newRuntimeImageEditMultipartBody(t, route.PublicModelID)
-				return performRuntimeRawRequest(t, harness, http.MethodPost, "/v1/images/edits", body, contentType)
-			},
-		},
 	}
 
 	for _, test := range tests {
@@ -145,9 +124,6 @@ func TestRuntimeOperationNamePersistsForTextTokenCountAndMedia(t *testing.T) {
 			response := test.perform(t, harness, route)
 			assertStatus(t, response, http.StatusOK)
 			assertLatestRuntimeOperationName(t, harness.conn, profileID, test.operationName)
-			if test.media {
-				assertLatestRequestGenerationParamsMissing(t, harness.conn, profileID)
-			}
 		})
 	}
 }
@@ -337,30 +313,7 @@ func performRuntimeRawRequest(t *testing.T, harness *runtimeHarness, method stri
 	return response
 }
 
-func newRuntimeImageEditMultipartBody(t *testing.T, model string) ([]byte, string) {
-	t.Helper()
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	if err := writer.WriteField("model", model); err != nil {
-		t.Fatalf("write image edit model field: %v", err)
-	}
-	if err := writer.WriteField("prompt", "make the image brighter"); err != nil {
-		t.Fatalf("write image edit prompt field: %v", err)
-	}
-	imagePart, err := writer.CreateFormFile("image", "input.png")
-	if err != nil {
-		t.Fatalf("create image edit file field: %v", err)
-	}
-	if _, err := imagePart.Write([]byte("fake-png-bytes")); err != nil {
-		t.Fatalf("write image edit file bytes: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close image edit multipart writer: %v", err)
-	}
-	return body.Bytes(), writer.FormDataContentType()
-}
-
-func seedTranslatedOpenAIProxyRoute(t *testing.T, harness *runtimeHarness, profileID int, publicModelPrefix string, targetModelPrefix string, endpointBaseURL string, endpointAPIKey string, openAIProbeEndpointVariant string, openAITextCapability string) seededRuntimeRoute {
+func seedTranslatedOpenAIProxyRoute(t *testing.T, harness *runtimeHarness, profileID int, publicModelPrefix string, targetModelPrefix string, endpointBaseURL string, endpointAPIKey string, openAITextCapability string) seededRuntimeRoute {
 	t.Helper()
 	suffix := randomSuffix()
 	strategyID := harness.seedLegacyStrategy(t, profileID, "translated-openai-"+suffix, "fill-first")
@@ -370,7 +323,7 @@ func seedTranslatedOpenAIProxyRoute(t *testing.T, harness *runtimeHarness, profi
 	targetModelConfigID := harness.seedModel(t, profileID, "openai", targetModelID, "native", &strategyID)
 	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
 	endpointID := harness.seedEndpoint(t, profileID, publicModelPrefix+"-endpoint-"+suffix, endpointBaseURL, endpointAPIKey, 0)
-	connectionID := harness.seedConnectionWithOpenAIProbeVariantAndTextCapability(t, profileID, targetModelConfigID, endpointID, publicModelPrefix+"-connection-"+suffix, nil, nil, 0, &openAIProbeEndpointVariant, &openAITextCapability)
+	connectionID := harness.seedConnectionWithOpenAITextCapability(t, profileID, targetModelConfigID, endpointID, publicModelPrefix+"-connection-"+suffix, nil, nil, 0, &openAITextCapability)
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	return seededRuntimeRoute{PublicModelID: publicModelID, TargetModelID: targetModelID, ConnectionID: connectionID}
 }

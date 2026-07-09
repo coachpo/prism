@@ -1,14 +1,10 @@
-package integration_test
+package integrationtest
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
-	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -20,6 +16,8 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/migrate"
 )
 
+const updateMigrationSchemaGoldenEnv = "PRISM_UPDATE_MIGRATION_SCHEMA_GOLDEN"
+
 var expectedPrismMigrationVersions = []string{
 	migrate.DefaultBaselineVersion,
 	"000002_context_overflow_promotion_target",
@@ -28,6 +26,10 @@ var expectedPrismMigrationVersions = []string{
 	"000005_remove_access_target_weight_priority_add_audit_family_settings",
 	"000006_openai_accepted_format",
 	"000007_remove_context_capabilities_and_facades",
+	"000008_drop_dead_auth_tables",
+	"000009_stats_write_coherence",
+	"000010_drop_management_stat_rollups",
+	"000011_alert_webhook_outbox",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
@@ -36,7 +38,8 @@ func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
 
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "fresh_apply")
+	databaseName := "fresh_apply"
+	conn := harness.openEmptyDatabase(t, testContext, databaseName)
 	defer func() { _ = conn.Close(testContext) }()
 
 	result, err := runner.Run(testContext, conn)
@@ -50,19 +53,8 @@ func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
 	expectedVersions := expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion)
 	assertMigrationVersions(t, "applied versions", result.Versions, expectedVersions)
 	assertHistoryVersions(t, testContext, conn, expectedVersions)
-	assertRequestLogAuditEnabledColumnContract(t, testContext, conn)
-	assertRequestLogGenerationParamsColumnContract(t, testContext, conn)
-	assertPricingTemplateConcretePriceColumnContract(t, testContext, conn)
-	assertStreamOutcomeTelemetryColumnContracts(t, testContext, conn)
-	assertRuntimeCacheGenerationContract(t, testContext, conn)
-	assertPartitionedLogSchemaContract(t, testContext, conn)
-	assertModelAccessTargetConnectionOwnerIndexContract(t, testContext, conn)
-	assertModelAccessTargetsRankingColumnsAbsent(t, testContext, conn)
-	assertContextCapabilityAndFacadeColumnsAbsent(t, testContext, conn)
-	assertProfileAPIFamilyAuditSettingsContract(t, testContext, conn)
-	assertTranslatedObservabilityColumnContracts(t, testContext, conn)
-	assertEndpointLabelSnapshotColumnContract(t, testContext, conn)
-	assertOpenAIAcceptedFormatColumnContract(t, testContext, conn)
+	assertMigratedSchemaGolden(t, testContext, harness, databaseName)
+	assertFreshBaselineSeedRows(t, testContext, conn)
 }
 
 func TestAccessTargetRankingRemovalAndAuditFamilySettingsMigration(t *testing.T) {
@@ -71,7 +63,7 @@ func TestAccessTargetRankingRemovalAndAuditFamilySettingsMigration(t *testing.T)
 
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "access_target_ranking_drop_audit_family")
+	conn := harness.openEmptyDatabase(t, testContext, "access_target_ranking_drop_audit_family")
 	defer func() { _ = conn.Close(testContext) }()
 
 	seedPreAuditFamilyMigrationSchema(t, testContext, conn)
@@ -83,11 +75,12 @@ func TestAccessTargetRankingRemovalAndAuditFamilySettingsMigration(t *testing.T)
 	if result.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected access-target ranking removal migration to apply, got %q", result.Outcome)
 	}
-	assertMigrationVersions(t, "access-target ranking removal migration versions", result.Versions, []string{"000005_remove_access_target_weight_priority_add_audit_family_settings", "000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades"})
+	assertMigrationVersions(t, "access-target ranking removal migration versions", result.Versions, []string{"000005_remove_access_target_weight_priority_add_audit_family_settings", "000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades", "000008_drop_dead_auth_tables", "000009_stats_write_coherence", "000010_drop_management_stat_rollups", "000011_alert_webhook_outbox"})
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
-	assertModelAccessTargetsRankingColumnsAbsent(t, testContext, conn)
-	assertContextCapabilityAndFacadeColumnsAbsent(t, testContext, conn)
-	assertProfileAPIFamilyAuditSettingsContract(t, testContext, conn)
+	assertColumnsAbsent(t, testContext, conn, "model_access_targets", "weight", "target_priority")
+	assertColumnsAbsent(t, testContext, conn, "model_configs", "facade_enabled", "facade_selection_policy", "facade_fallback_policy")
+	assertColumnsAbsent(t, testContext, conn, "connections", "context_window_tokens", "context_window_tokens_overridden", "default_output_token_reserve", "default_output_token_reserve_overridden", "max_context_utilization", "max_context_utilization_overridden", "preferred_context_utilization_threshold", "preferred_context_utilization_threshold_overridden")
+	assertTablePresence(t, testContext, conn, "profile_api_family_audit_settings", true)
 }
 
 func TestProfileAPIFamilyAuditSettingsFreshConstraints(t *testing.T) {
@@ -96,7 +89,7 @@ func TestProfileAPIFamilyAuditSettingsFreshConstraints(t *testing.T) {
 
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "audit_family_settings_constraints")
+	conn := harness.openEmptyDatabase(t, testContext, "audit_family_settings_constraints")
 	defer func() { _ = conn.Close(testContext) }()
 
 	result, err := runner.Run(testContext, conn)
@@ -107,28 +100,7 @@ func TestProfileAPIFamilyAuditSettingsFreshConstraints(t *testing.T) {
 		t.Fatalf("expected audit family settings fresh baseline to apply, got %q", result.Outcome)
 	}
 
-	assertProfileAPIFamilyAuditSettingsContract(t, testContext, conn)
 	assertProfileAPIFamilyAuditSettingsDataConstraints(t, testContext, conn)
-}
-
-func TestPartitionedLogSchemaContract(t *testing.T) {
-	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	harness := newPostgresHarness(t)
-	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "partitioned_log_schema_contract")
-	defer func() { _ = conn.Close(testContext) }()
-
-	result, err := runner.Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("run partitioned log schema baseline: %v", err)
-	}
-	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected partitioned log schema baseline to apply, got %q", result.Outcome)
-	}
-
-	assertPartitionedLogSchemaContract(t, testContext, conn)
 }
 
 func TestEndpointLabelSnapshotFreshSchemaContract(t *testing.T) {
@@ -137,7 +109,7 @@ func TestEndpointLabelSnapshotFreshSchemaContract(t *testing.T) {
 
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "endpoint_label_snapshot_fresh")
+	conn := harness.openEmptyDatabase(t, testContext, "endpoint_label_snapshot_fresh")
 	defer func() { _ = conn.Close(testContext) }()
 
 	result, err := runner.Run(testContext, conn)
@@ -148,9 +120,9 @@ func TestEndpointLabelSnapshotFreshSchemaContract(t *testing.T) {
 		t.Fatalf("expected endpoint label snapshot fresh baseline to apply, got %q", result.Outcome)
 	}
 
-	assertEndpointLabelSnapshotColumnContract(t, testContext, conn)
+	assertColumnNotNull(t, testContext, conn, "usage_request_events", "endpoint_label_snapshot")
 	partitionName := ensureDailyLogPartition(t, testContext, conn, "usage_request_events", time.Date(2026, 1, 2, 12, 0, 0, 0, time.UTC), "fresh")
-	assertEndpointLabelSnapshotPartitionColumn(t, testContext, conn, partitionName)
+	assertColumnNotNull(t, testContext, conn, partitionName, "endpoint_label_snapshot")
 }
 
 func TestEndpointLabelSnapshotMigrationBackfillsExistingRows(t *testing.T) {
@@ -164,7 +136,7 @@ func TestEndpointLabelSnapshotMigrationBackfillsExistingRows(t *testing.T) {
 		}
 		return strings.Replace(sql, "    endpoint_label_snapshot text NOT NULL,\n", "", 1)
 	})
-	conn := harness.openDatabase(t, testContext, "endpoint_label_snapshot_backfill")
+	conn := harness.openEmptyDatabase(t, testContext, "endpoint_label_snapshot_backfill")
 	defer func() { _ = conn.Close(testContext) }()
 
 	oldResult, err := oldRunner.Run(testContext, conn)
@@ -185,10 +157,10 @@ func TestEndpointLabelSnapshotMigrationBackfillsExistingRows(t *testing.T) {
 	if newResult.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected endpoint label snapshot migration to apply, got %q", newResult.Outcome)
 	}
-	assertMigrationVersions(t, "endpoint label snapshot migration versions", newResult.Versions, []string{"000004_endpoint_label_snapshot", "000005_remove_access_target_weight_priority_add_audit_family_settings", "000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades"})
+	assertMigrationVersions(t, "endpoint label snapshot migration versions", newResult.Versions, []string{"000004_endpoint_label_snapshot", "000005_remove_access_target_weight_priority_add_audit_family_settings", "000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades", "000008_drop_dead_auth_tables", "000009_stats_write_coherence", "000010_drop_management_stat_rollups", "000011_alert_webhook_outbox"})
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
-	assertEndpointLabelSnapshotColumnContract(t, testContext, conn)
-	assertEndpointLabelSnapshotPartitionColumn(t, testContext, conn, fixture.usagePartition)
+	assertColumnNotNull(t, testContext, conn, "usage_request_events", "endpoint_label_snapshot")
+	assertColumnNotNull(t, testContext, conn, fixture.usagePartition, "endpoint_label_snapshot")
 	assertEndpointLabelSnapshotBackfillRows(t, testContext, conn, fixture.expectedLabels)
 }
 
@@ -198,7 +170,7 @@ func TestMigrationBackfillsOpenAIAcceptedFormatToDualNative(t *testing.T) {
 
 	harness := newPostgresHarness(t)
 	oldRunner := newRunnerThroughMigration(t, "000005_remove_access_target_weight_priority_add_audit_family_settings", nil)
-	conn := harness.openDatabase(t, testContext, "openai_accepted_format_backfill")
+	conn := harness.openEmptyDatabase(t, testContext, "openai_accepted_format_backfill")
 	defer func() { _ = conn.Close(testContext) }()
 
 	oldResult, err := oldRunner.Run(testContext, conn)
@@ -221,10 +193,57 @@ func TestMigrationBackfillsOpenAIAcceptedFormatToDualNative(t *testing.T) {
 	if newResult.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected openai accepted format migration to apply, got %q", newResult.Outcome)
 	}
-	assertMigrationVersions(t, "openai accepted format migration versions", newResult.Versions, []string{"000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades"})
+	assertMigrationVersions(t, "openai accepted format migration versions", newResult.Versions, []string{"000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades", "000008_drop_dead_auth_tables", "000009_stats_write_coherence", "000010_drop_management_stat_rollups", "000011_alert_webhook_outbox"})
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
-	assertOpenAIAcceptedFormatColumnContract(t, testContext, conn)
+	assertColumnsExist(t, testContext, conn, "model_configs", "openai_accepted_format")
 	assertOpenAIAcceptedFormatBackfillRows(t, testContext, conn)
+}
+
+func TestStatsWriteCoherenceMigrationBackfillsHistoricalRows(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	oldRunner := newRunnerThroughMigration(t, "000008_drop_dead_auth_tables", nil)
+	conn := harness.openEmptyDatabase(t, testContext, "stats_write_coherence_backfill")
+	defer func() { _ = conn.Close(testContext) }()
+
+	oldResult, err := oldRunner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run pre-stats-coherence migrations: %v", err)
+	}
+	if oldResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected pre-stats-coherence migrations to apply, got %q", oldResult.Outcome)
+	}
+	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsThrough(t, "000008_drop_dead_auth_tables"))
+
+	createdAt := time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)
+	ensureDailyLogPartition(t, testContext, conn, "request_logs", createdAt, "stats-coherence")
+	ensureDailyLogPartition(t, testContext, conn, "usage_request_events", createdAt, "stats-coherence")
+	profileID := seedEndpointLabelSnapshotProfile(t, testContext, conn, "stats-coherence")
+
+	insertStatsCoherenceRequestLog(t, testContext, conn, profileID, "request-missing-cost", true, nil, nil, nil, nil, nil, nil, createdAt)
+	insertStatsCoherenceRequestLog(t, testContext, conn, profileID, "request-has-cost", false, nil, int64Ptr(1250), stringPtr("USD"), stringPtr("USD"), nil, nil, createdAt.Add(time.Minute))
+	insertStatsCoherenceRequestLog(t, testContext, conn, profileID, "request-explicit-reason", true, stringPtr("  MISSING_TOKEN_USAGE  "), nil, nil, nil, nil, nil, createdAt.Add(2*time.Minute))
+	insertStatsCoherenceUsageEvent(t, testContext, conn, profileID, "usage-missing-cost", true, nil, nil, nil, nil, nil, nil, createdAt)
+	insertStatsCoherenceUsageEvent(t, testContext, conn, profileID, "usage-has-cost", false, nil, int64Ptr(1250), stringPtr("USD"), stringPtr("USD"), nil, nil, createdAt.Add(time.Minute))
+
+	newResult, err := newRunner(t).Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("apply stats write coherence migrations: %v", err)
+	}
+	if newResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected stats write coherence migrations to apply, got %q", newResult.Outcome)
+	}
+	assertMigrationVersions(t, "stats write coherence migration versions", newResult.Versions, []string{"000009_stats_write_coherence", "000010_drop_management_stat_rollups", "000011_alert_webhook_outbox"})
+	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
+
+	assertStatsCoherenceRow(t, testContext, conn, "request_logs", "request-missing-cost", false, "MISSING_PRICE_DATA", nil, nil)
+	assertStatsCoherenceRow(t, testContext, conn, "request_logs", "request-has-cost", true, "", stringPtr("1"), stringPtr("DEFAULT_1_TO_1"))
+	assertStatsCoherenceRow(t, testContext, conn, "request_logs", "request-explicit-reason", false, "MISSING_TOKEN_USAGE", nil, nil)
+	assertStatsCoherenceRow(t, testContext, conn, "usage_request_events", "usage-missing-cost", false, "MISSING_PRICE_DATA", nil, nil)
+	assertStatsCoherenceRow(t, testContext, conn, "usage_request_events", "usage-has-cost", true, "", stringPtr("1"), stringPtr("DEFAULT_1_TO_1"))
+	assertManagementStatRollupTablesAbsent(t, testContext, conn)
 }
 
 func TestDirtyDatabaseWithoutMigrationHistoryFails(t *testing.T) {
@@ -235,7 +254,7 @@ func TestDirtyDatabaseWithoutMigrationHistoryFails(t *testing.T) {
 	runner := newRunner(t)
 
 	t.Run("missing_history", func(t *testing.T) {
-		conn := harness.openDatabase(t, testContext, "existing_without_history")
+		conn := harness.openEmptyDatabase(t, testContext, "existing_without_history")
 		defer func() { _ = conn.Close(testContext) }()
 
 		if _, err := conn.Exec(testContext, `CREATE TABLE app_auth_settings (id BIGSERIAL PRIMARY KEY)`); err != nil {
@@ -254,7 +273,7 @@ func TestDirtyDatabaseWithoutMigrationHistoryFails(t *testing.T) {
 	})
 
 	t.Run("obsolete_history", func(t *testing.T) {
-		conn := harness.openDatabase(t, testContext, "existing_obsolete_history")
+		conn := harness.openEmptyDatabase(t, testContext, "existing_obsolete_history")
 		defer func() { _ = conn.Close(testContext) }()
 
 		if _, err := conn.Exec(testContext, `CREATE TABLE prism_schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); err != nil {
@@ -285,7 +304,7 @@ func TestBaselineSecondRunNoop(t *testing.T) {
 
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "baseline_second_run_noop")
+	conn := harness.openEmptyDatabase(t, testContext, "baseline_second_run_noop")
 	defer func() { _ = conn.Close(testContext) }()
 
 	firstResult, err := runner.Run(testContext, conn)
@@ -308,7 +327,7 @@ func TestBaselineSecondRunNoop(t *testing.T) {
 	}
 
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
-	assertModelAccessTargetConnectionOwnerIndexContract(t, testContext, conn)
+	assertIndexPresence(t, testContext, conn, "model_access_targets", "uq_model_access_targets_connection_owner", true)
 }
 
 func TestTranslatedObservabilitySchemaGuardUpgradesStampedDatabase(t *testing.T) {
@@ -317,7 +336,7 @@ func TestTranslatedObservabilitySchemaGuardUpgradesStampedDatabase(t *testing.T)
 
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "translated_observability_schema_guard")
+	conn := harness.openEmptyDatabase(t, testContext, "translated_observability_schema_guard")
 	defer func() { _ = conn.Close(testContext) }()
 
 	firstResult, err := runner.Run(testContext, conn)
@@ -352,9 +371,9 @@ func TestTranslatedObservabilitySchemaGuardUpgradesStampedDatabase(t *testing.T)
 		t.Fatalf("expected translated observability guard rerun to noop, got %q", guardResult.Outcome)
 	}
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
-	assertTranslatedObservabilityColumnContracts(t, testContext, conn)
-	assertEndpointLabelSnapshotColumnContract(t, testContext, conn)
-	assertEndpointLabelSnapshotPartitionColumn(t, testContext, conn, fixture.usagePartition)
+	assertTranslatedObservabilityColumns(t, testContext, conn)
+	assertColumnNotNull(t, testContext, conn, "usage_request_events", "endpoint_label_snapshot")
+	assertColumnNotNull(t, testContext, conn, fixture.usagePartition, "endpoint_label_snapshot")
 	assertEndpointLabelSnapshotBackfillRows(t, testContext, conn, fixture.expectedLabels)
 }
 
@@ -366,7 +385,7 @@ func TestModelPrivateConnectionOwnershipSchemaGuard(t *testing.T) {
 	runner := newRunner(t)
 
 	t.Run("creates_missing_index_for_stamped_database", func(t *testing.T) {
-		conn := harness.openDatabase(t, testContext, "ownership_guard_clean")
+		conn := harness.openEmptyDatabase(t, testContext, "ownership_guard_clean")
 		defer func() { _ = conn.Close(testContext) }()
 
 		result, err := runner.Run(testContext, conn)
@@ -389,11 +408,11 @@ func TestModelPrivateConnectionOwnershipSchemaGuard(t *testing.T) {
 		if guardResult.Outcome != migrate.OutcomeNoop {
 			t.Fatalf("expected stamped schema guard run to noop, got %q", guardResult.Outcome)
 		}
-		assertModelAccessTargetConnectionOwnerIndexContract(t, testContext, conn)
+		assertIndexPresence(t, testContext, conn, "model_access_targets", "uq_model_access_targets_connection_owner", true)
 	})
 
 	t.Run("fails_duplicate_owners_before_creating_index", func(t *testing.T) {
-		conn := harness.openDatabase(t, testContext, "ownership_guard_duplicates")
+		conn := harness.openEmptyDatabase(t, testContext, "ownership_guard_duplicates")
 		defer func() { _ = conn.Close(testContext) }()
 
 		result, err := runner.Run(testContext, conn)
@@ -426,68 +445,6 @@ func TestModelPrivateConnectionOwnershipSchemaGuard(t *testing.T) {
 		}
 		assertIndexPresence(t, testContext, conn, "model_access_targets", "uq_model_access_targets_connection_owner", false)
 	})
-}
-
-func TestRuntimeCacheGenerationSchemaContract(t *testing.T) {
-	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	harness := newPostgresHarness(t)
-	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "runtime_cache_generation_schema")
-	defer func() { _ = conn.Close(testContext) }()
-
-	result, err := runner.Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("run runtime cache generation schema baseline: %v", err)
-	}
-	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected runtime cache generation schema baseline to apply, got %q", result.Outcome)
-	}
-	assertRuntimeCacheGenerationContract(t, testContext, conn)
-}
-
-type postgresHarness struct {
-	containerName string
-	hostPort      string
-}
-
-func newPostgresHarness(t *testing.T) postgresHarness {
-	t.Helper()
-
-	containerName := "prism-s3-" + randomSuffix(t)
-	runDockerCommand(t, context.Background(), "run", "--rm", "-d", "--name", containerName, "-e", "POSTGRES_DB=postgres", "-e", "POSTGRES_USER=prism", "-e", "POSTGRES_PASSWORD=prism", "-P", "postgres:16-alpine")
-
-	t.Cleanup(func() {
-		cleanupContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		_ = exec.CommandContext(cleanupContext, "docker", "rm", "-f", containerName).Run()
-	})
-
-	hostPort := dockerPort(t, containerName)
-	waitForPostgres(t, hostPort)
-
-	return postgresHarness{containerName: containerName, hostPort: hostPort}
-}
-
-func (h postgresHarness) openDatabase(t *testing.T, ctx context.Context, databaseName string) *pgx.Conn {
-	t.Helper()
-
-	adminConn := connect(t, ctx, h.connectionString("postgres"))
-	defer func() { _ = adminConn.Close(ctx) }()
-
-	if _, err := adminConn.Exec(ctx, `DROP DATABASE IF EXISTS `+quoteIdentifier(databaseName)+` WITH (FORCE)`); err != nil {
-		t.Fatalf("drop database %s: %v", databaseName, err)
-	}
-	if _, err := adminConn.Exec(ctx, `CREATE DATABASE `+quoteIdentifier(databaseName)); err != nil {
-		t.Fatalf("create database %s: %v", databaseName, err)
-	}
-
-	return connect(t, ctx, h.connectionString(databaseName))
-}
-
-func (h postgresHarness) connectionString(databaseName string) string {
-	return fmt.Sprintf("postgres://prism:prism@127.0.0.1:%s/%s?sslmode=disable", h.hostPort, databaseName)
 }
 
 func newRunner(t *testing.T) migrate.Runner {
@@ -631,6 +588,8 @@ func seedPreAuditFamilyMigrationSchema(t *testing.T, ctx context.Context, conn *
 		`CREATE TABLE profiles (id integer PRIMARY KEY, name character varying(200) NOT NULL, description text, is_active boolean NOT NULL, is_default boolean NOT NULL, is_editable boolean NOT NULL, version integer NOT NULL, deleted_at timestamp with time zone, created_at timestamp with time zone NOT NULL, updated_at timestamp with time zone NOT NULL)`,
 		`CREATE TABLE model_configs (id integer PRIMARY KEY, profile_id integer NOT NULL, api_family character varying(50) NOT NULL, model_id character varying(200) NOT NULL, facade_enabled boolean DEFAULT false NOT NULL, facade_selection_policy character varying(100), facade_fallback_policy character varying(100), is_enabled boolean NOT NULL, created_at timestamp with time zone NOT NULL, updated_at timestamp with time zone NOT NULL, CONSTRAINT ck_model_configs_facade_policy_contract CHECK (((NOT facade_enabled) AND ((facade_selection_policy IS NULL) OR ((facade_selection_policy)::text = 'weighted_eligible_context'::text)) AND ((facade_fallback_policy IS NULL) OR ((facade_fallback_policy)::text = 'redistribute_ineligible_weight'::text))) OR (facade_enabled AND ((facade_selection_policy)::text = 'weighted_eligible_context'::text) AND ((facade_fallback_policy)::text = 'redistribute_ineligible_weight'::text))))`,
 		`CREATE TABLE model_access_targets (id integer PRIMARY KEY, profile_id integer NOT NULL, source_model_config_id integer NOT NULL, target_type character varying(20) NOT NULL, target_model_config_id integer, target_connection_id integer, position integer NOT NULL, weight integer, target_priority integer, is_enabled boolean NOT NULL, created_at timestamp with time zone NOT NULL, updated_at timestamp with time zone NOT NULL, CONSTRAINT chk_model_access_targets_target_metadata CHECK (((((target_type)::text = 'model'::text) AND (weight IS NOT NULL) AND (weight >= 1) AND (target_priority IS NOT NULL) AND (target_priority >= 0)) OR (((target_type)::text = 'connection'::text) AND (weight IS NULL) AND (target_priority IS NULL)))), CONSTRAINT chk_model_access_targets_one_target CHECK (((((target_type)::text = 'model'::text) AND (target_model_config_id IS NOT NULL) AND (target_connection_id IS NULL)) OR (((target_type)::text = 'connection'::text) AND (target_model_config_id IS NULL) AND (target_connection_id IS NOT NULL)))))`,
+		`CREATE TABLE request_logs (id integer PRIMARY KEY, profile_id integer NOT NULL, status_code integer, success_flag boolean, priced_flag boolean, unpriced_reason text, total_cost_user_currency_micros bigint, currency_code_original character varying(10), report_currency_code character varying(10), fx_rate_used character varying(20), fx_rate_source character varying(30))`,
+		`CREATE TABLE usage_request_events (id integer PRIMARY KEY, profile_id integer NOT NULL, status_code integer, success_flag boolean, billable_flag boolean, priced_flag boolean, unpriced_reason text, total_cost_user_currency_micros bigint, currency_code_original character varying(10), report_currency_code character varying(10), fx_rate_used character varying(20), fx_rate_source character varying(30), endpoint_label_snapshot text NOT NULL DEFAULT '')`,
 		`INSERT INTO profiles (id, name, is_active, is_default, is_editable, version, created_at, updated_at) VALUES (1, 'pre-audit-family', FALSE, FALSE, TRUE, 1, NOW(), NOW())`,
 		`INSERT INTO model_configs (id, profile_id, api_family, model_id, facade_enabled, facade_selection_policy, facade_fallback_policy, is_enabled, created_at, updated_at) VALUES (1, 1, 'openai', 'pre-router', FALSE, NULL, NULL, TRUE, NOW(), NOW()), (2, 1, 'openai', 'pre-target', FALSE, NULL, NULL, TRUE, NOW(), NOW())`,
 		`INSERT INTO model_access_targets (id, profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES (1, 1, 1, 'model', 2, 0, 7, 3, TRUE, NOW(), NOW())`,
@@ -647,128 +606,208 @@ func seedPreAuditFamilyMigrationSchema(t *testing.T, ctx context.Context, conn *
 	}
 }
 
-func assertModelAccessTargetsRankingColumnsAbsent(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+func assertMigratedSchemaGolden(t *testing.T, ctx context.Context, harness postgresHarness, databaseName string) {
 	t.Helper()
-	var columnCount int
-	if err := conn.QueryRow(ctx, `
-		SELECT count(*)
-		FROM information_schema.columns
-		WHERE table_schema = 'public'
-		  AND table_name = 'model_access_targets'
-		  AND column_name = ANY($1::text[])`, []string{"weight", "target_priority"}).Scan(&columnCount); err != nil {
-		t.Fatalf("check model_access_targets ranking column absence: %v", err)
-	}
-	if columnCount != 0 {
-		t.Fatalf("expected model_access_targets weight/target_priority columns to be absent, got %d", columnCount)
-	}
-	assertConstraintPresence(t, ctx, conn, "model_access_targets", "chk_model_access_targets_target_metadata", false)
-	assertConstraintDefinitionContains(t, ctx, conn, "chk_model_access_targets_one_target", "target_model_config_id", "target_connection_id")
-}
+	actual := normalizeSchemaDump(runDockerCommandOrFail(
+		t,
+		ctx,
+		"exec",
+		"-e",
+		"PGPASSWORD=prism",
+		harness.containerName,
+		"pg_dump",
+		"--host=127.0.0.1",
+		"--username=prism",
+		"--dbname="+databaseName,
+		"--schema=public",
+		"--schema-only",
+		"--no-comments",
+		"--no-owner",
+		"--no-privileges",
+		"--no-security-labels",
+		"--no-tablespaces",
+	))
 
-func assertContextCapabilityAndFacadeColumnsAbsent(t *testing.T, ctx context.Context, conn *pgx.Conn) {
-	t.Helper()
-	removedColumns := map[string][]string{
-		"connections": {
-			"context_window_tokens",
-			"context_window_tokens_overridden",
-			"default_output_token_reserve",
-			"default_output_token_reserve_overridden",
-			"max_context_utilization",
-			"max_context_utilization_overridden",
-			"preferred_context_utilization_threshold",
-			"preferred_context_utilization_threshold_overridden",
-		},
-		"model_configs": {
-			"facade_enabled",
-			"facade_selection_policy",
-			"facade_fallback_policy",
-		},
-	}
-	for tableName, columnNames := range removedColumns {
-		for _, columnName := range columnNames {
-			assertColumnAbsent(t, ctx, conn, tableName, columnName)
+	path := filepath.Join("testdata", "migrations", "schema.sql")
+	if os.Getenv(updateMigrationSchemaGoldenEnv) != "" {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("create migration schema golden dir: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(actual+"\n"), 0o644); err != nil {
+			t.Fatalf("update migration schema golden: %v", err)
 		}
 	}
-	assertConstraintPresence(t, ctx, conn, "model_configs", "ck_model_configs_facade_policy_contract", false)
-	assertConstraintPresence(t, ctx, conn, "connections", "ck_connections_context_window_tokens", false)
-	assertConstraintPresence(t, ctx, conn, "connections", "ck_connections_default_output_token_reserve", false)
-	assertConstraintPresence(t, ctx, conn, "connections", "ck_connections_max_context_utilization", false)
-	assertConstraintPresence(t, ctx, conn, "connections", "ck_connections_preferred_context_utilization_threshold", false)
+
+	rawExpected, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read migration schema golden %s: %v", path, err)
+	}
+	expected := strings.TrimSpace(string(rawExpected))
+	if actual != expected {
+		t.Fatalf("migration schema golden mismatch\n%s\n\nset %s=1 to update", firstSchemaDiff(expected, actual), updateMigrationSchemaGoldenEnv)
+	}
 }
 
-func assertColumnAbsent(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, columnName string) {
+func normalizeSchemaDump(value string) string {
+	lines := strings.Split(value, "\n")
+	statements := make([]string, 0, len(lines)/3)
+	current := make([]string, 0, 8)
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "--") ||
+			strings.HasPrefix(trimmed, "SET ") ||
+			strings.HasPrefix(trimmed, "SELECT pg_catalog.set_config(") ||
+			strings.HasPrefix(trimmed, `\restrict`) ||
+			strings.HasPrefix(trimmed, `\unrestrict`) {
+			continue
+		}
+		current = append(current, trimmed)
+		if strings.HasSuffix(trimmed, ";") {
+			statements = append(statements, strings.Join(strings.Fields(strings.Join(current, " ")), " "))
+			current = current[:0]
+		}
+	}
+	if len(current) > 0 {
+		statements = append(statements, strings.Join(strings.Fields(strings.Join(current, " ")), " "))
+	}
+	return strings.Join(statements, "\n")
+}
+
+func firstSchemaDiff(expected string, actual string) string {
+	expectedLines := strings.Split(expected, "\n")
+	actualLines := strings.Split(actual, "\n")
+	limit := len(expectedLines)
+	if len(actualLines) > limit {
+		limit = len(actualLines)
+	}
+	for index := range limit {
+		var want, got string
+		if index < len(expectedLines) {
+			want = expectedLines[index]
+		}
+		if index < len(actualLines) {
+			got = actualLines[index]
+		}
+		if want != got {
+			return fmt.Sprintf("line %d\nwant: %s\ngot:  %s", index+1, want, got)
+		}
+	}
+	return "schema lengths differ"
+}
+
+func assertFreshBaselineSeedRows(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+
+	rows, err := conn.Query(ctx, `SELECT domain, scope_type, scope_id, version FROM runtime_cache_generations ORDER BY domain ASC`)
+	if err != nil {
+		t.Fatalf("query runtime cache generations: %v", err)
+	}
+	defer rows.Close()
+	got := map[string]int64{}
+	for rows.Next() {
+		var domain, scopeType, scopeID string
+		var version int64
+		if err := rows.Scan(&domain, &scopeType, &scopeID, &version); err != nil {
+			t.Fatalf("scan runtime cache generation: %v", err)
+		}
+		got[domain+":"+scopeType+":"+scopeID] = version
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate runtime cache generations: %v", err)
+	}
+	for _, key := range []string{"auth:global:*", "model_catalog:global:*", "profile_runtime:global:*", "runtime_planning:global:*"} {
+		version, ok := got[key]
+		if !ok {
+			t.Fatalf("expected runtime cache generation %q, got %+v", key, got)
+		}
+		if version != 0 {
+			t.Fatalf("expected runtime cache generation %q version 0, got %d", key, version)
+		}
+	}
+
+	var retentionRows int
+	if err := conn.QueryRow(ctx, `SELECT count(*) FROM log_retention_settings WHERE singleton_key = 'global'`).Scan(&retentionRows); err != nil {
+		t.Fatalf("count global log_retention_settings row: %v", err)
+	}
+	if retentionRows != 1 {
+		t.Fatalf("expected one global log_retention_settings row, got %d", retentionRows)
+	}
+}
+
+func assertTablePresence(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, wantExists bool) {
+	t.Helper()
+	var exists bool
+	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1)`, tableName).Scan(&exists); err != nil {
+		t.Fatalf("check table %s presence: %v", tableName, err)
+	}
+	if exists != wantExists {
+		t.Fatalf("expected table %s exists=%v, got %v", tableName, wantExists, exists)
+	}
+}
+
+func assertColumnsExist(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, columnNames ...string) {
+	t.Helper()
+	for _, columnName := range columnNames {
+		assertColumnPresence(t, ctx, conn, tableName, columnName, true)
+	}
+}
+
+func assertColumnsAbsent(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, columnNames ...string) {
+	t.Helper()
+	for _, columnName := range columnNames {
+		assertColumnPresence(t, ctx, conn, tableName, columnName, false)
+	}
+}
+
+func assertColumnPresence(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, columnName string, wantExists bool) {
 	t.Helper()
 	var exists bool
 	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2)`, tableName, columnName).Scan(&exists); err != nil {
-		t.Fatalf("check %s.%s absence: %v", tableName, columnName, err)
+		t.Fatalf("check %s.%s presence: %v", tableName, columnName, err)
 	}
-	if exists {
-		t.Fatalf("expected %s.%s to be absent", tableName, columnName)
+	if exists != wantExists {
+		t.Fatalf("expected %s.%s exists=%v, got %v", tableName, columnName, wantExists, exists)
 	}
 }
 
-func assertProfileAPIFamilyAuditSettingsContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+func assertColumnNotNull(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, columnName string) {
 	t.Helper()
-	rows, err := conn.Query(ctx, `
-		SELECT column_name, data_type, COALESCE(character_maximum_length, 0), is_nullable
-		FROM information_schema.columns
-		WHERE table_schema = 'public'
-		  AND table_name = 'profile_api_family_audit_settings'`)
-	if err != nil {
-		t.Fatalf("load profile_api_family_audit_settings columns: %v", err)
+	var nullable string
+	if err := conn.QueryRow(ctx, `SELECT is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`, tableName, columnName).Scan(&nullable); err != nil {
+		t.Fatalf("load %s.%s nullability: %v", tableName, columnName, err)
 	}
-	defer rows.Close()
-	columns := map[string]partitionedLogColumnContract{}
-	for rows.Next() {
-		var name string
-		var contract partitionedLogColumnContract
-		if err := rows.Scan(&name, &contract.dataType, &contract.maxLength, &contract.nullable); err != nil {
-			t.Fatalf("scan profile_api_family_audit_settings column: %v", err)
-		}
-		columns[name] = contract
+	if nullable != "NO" {
+		t.Fatalf("expected %s.%s to be NOT NULL, got %q", tableName, columnName, nullable)
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate profile_api_family_audit_settings columns: %v", err)
-	}
-	assertColumnContract(t, columns, "id", "integer", 0, "NO")
-	assertColumnContract(t, columns, "profile_id", "integer", 0, "NO")
-	assertColumnContract(t, columns, "api_family", "character varying", 50, "NO")
-	assertColumnContract(t, columns, "audit_enabled", "boolean", 0, "NO")
-	assertColumnContract(t, columns, "audit_capture_bodies", "boolean", 0, "NO")
-	assertColumnContract(t, columns, "created_at", "timestamp with time zone", 0, "NO")
-	assertColumnContract(t, columns, "updated_at", "timestamp with time zone", 0, "NO")
-	assertConstraintPresence(t, ctx, conn, "profile_api_family_audit_settings", "profile_api_family_audit_settings_pkey", true)
-	assertConstraintDefinitionContains(t, ctx, conn, "uq_profile_api_family_audit_settings_profile_family", "UNIQUE", "profile_id", "api_family")
-	assertConstraintDefinitionContains(t, ctx, conn, "chk_profile_api_family_audit_settings_api_family", "openai", "anthropic", "gemini")
-	assertConstraintDefinitionContains(t, ctx, conn, "chk_profile_api_family_audit_settings_capture_requires_enabled", "audit_enabled", "audit_capture_bodies")
-	assertConstraintDefinitionContains(t, ctx, conn, "profile_api_family_audit_settings_profile_id_fkey", "FOREIGN KEY", "profiles", "ON DELETE CASCADE")
 }
 
-func assertOpenAIAcceptedFormatColumnContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+func assertTranslatedObservabilityColumns(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
-	rows, err := conn.Query(ctx, `
-		SELECT column_name, data_type, COALESCE(character_maximum_length, 0), is_nullable
-		FROM information_schema.columns
-		WHERE table_schema = 'public'
-		  AND table_name = 'model_configs'`)
-	if err != nil {
-		t.Fatalf("load model_configs columns: %v", err)
+	for _, tableName := range []string{"request_logs", "usage_request_events"} {
+		assertColumnsExist(t, ctx, conn, tableName, "upstream_operation_name", "operation_translation_mode", "upstream_request_path")
 	}
-	defer rows.Close()
-	columns := map[string]partitionedLogColumnContract{}
-	for rows.Next() {
-		var name string
-		var contract partitionedLogColumnContract
-		if err := rows.Scan(&name, &contract.dataType, &contract.maxLength, &contract.nullable); err != nil {
-			t.Fatalf("scan model_configs column: %v", err)
-		}
-		columns[name] = contract
+}
+
+func assertIndexPresence(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, indexName string, wantExists bool) {
+	t.Helper()
+	var exists bool
+	if err := conn.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM pg_index idx
+			JOIN pg_class index_class ON index_class.oid = idx.indexrelid
+			JOIN pg_class table_class ON table_class.oid = idx.indrelid
+			JOIN pg_namespace n ON n.oid = table_class.relnamespace
+			WHERE n.nspname = 'public' AND table_class.relname = $1 AND index_class.relname = $2
+		)`, tableName, indexName).Scan(&exists); err != nil {
+		t.Fatalf("check index %s on %s: %v", indexName, tableName, err)
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate model_configs columns: %v", err)
+	if exists != wantExists {
+		t.Fatalf("expected index %s on %s exists=%v, got %v", indexName, tableName, wantExists, exists)
 	}
-	assertColumnContract(t, columns, "openai_accepted_format", "text", 0, "YES")
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_model_configs_openai_accepted_format", "responses_only", "chat_completions_only", "dual_native")
 }
 
 func seedOpenAIAcceptedFormatProfile(t *testing.T, ctx context.Context, conn *pgx.Conn) int {
@@ -859,36 +898,6 @@ func assertSQLConstraintError(t *testing.T, err error, constraintName string) {
 	}
 }
 
-func assertConstraintPresence(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, constraintName string, wantExists bool) {
-	t.Helper()
-	var exists bool
-	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass($1) AND conname = $2)`, "public."+tableName, constraintName).Scan(&exists); err != nil {
-		t.Fatalf("check constraint %s on %s: %v", constraintName, tableName, err)
-	}
-	if exists != wantExists {
-		t.Fatalf("expected constraint %s on %s exists=%v, got %v", constraintName, tableName, wantExists, exists)
-	}
-}
-
-func assertIndexDefinitionContains(t *testing.T, ctx context.Context, conn *pgx.Conn, indexName string, fragments ...string) {
-	t.Helper()
-	var definition string
-	if err := conn.QueryRow(ctx, `SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND indexname = $1`, indexName).Scan(&definition); err != nil {
-		t.Fatalf("load index definition %s: %v", indexName, err)
-	}
-	for _, fragment := range fragments {
-		if !strings.Contains(definition, fragment) {
-			t.Fatalf("expected index %s definition %q to contain %q", indexName, definition, fragment)
-		}
-	}
-}
-
-func assertModelAccessTargetConnectionOwnerIndexContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
-	t.Helper()
-	assertIndexDefinitionContains(t, ctx, conn, "uq_model_access_targets_connection_owner", "CREATE UNIQUE INDEX", "target_connection_id", "target_connection_id IS NOT NULL")
-	assertIndexUniqueness(t, ctx, conn, "model_access_targets", "uq_model_access_targets_connection_owner", true)
-}
-
 func dropModelAccessTargetConnectionOwnerIndex(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
 	if _, err := conn.Exec(ctx, `DROP INDEX IF EXISTS uq_model_access_targets_connection_owner`); err != nil {
@@ -911,7 +920,7 @@ func seedModelOwnershipConnection(t *testing.T, ctx context.Context, conn *pgx.C
 	}
 
 	var connectionID int
-	if err := conn.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_probe_endpoint_variant, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, 'openai', $2, NULL, NULL, NULL, NULL, NULL, 'dual_native', TRUE, 0, $3, NULL, NULL, 'healthy', NULL, NULL, $4, $4) RETURNING id`, profileID, endpointID, "ownership-guard-"+label, now).Scan(&connectionID); err != nil {
+	if err := conn.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, 'openai', $2, NULL, NULL, NULL, NULL, 'dual_native', TRUE, 0, $3, NULL, NULL, 'healthy', NULL, NULL, $4, $4) RETURNING id`, profileID, endpointID, "ownership-guard-"+label, now).Scan(&connectionID); err != nil {
 		t.Fatalf("seed ownership connection %q: %v", label, err)
 	}
 
@@ -930,145 +939,6 @@ func seedModelAccessTargetConnectionOwner(t *testing.T, ctx context.Context, con
 		t.Fatalf("seed ownership access target for model %q connection %d: %v", modelID, connectionID, err)
 	}
 	return sourceModelConfigID
-}
-
-func assertConstraintDefinitionContains(t *testing.T, ctx context.Context, conn *pgx.Conn, constraintName string, fragments ...string) {
-	t.Helper()
-	var definition string
-	if err := conn.QueryRow(ctx, `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = $1`, constraintName).Scan(&definition); err != nil {
-		t.Fatalf("load constraint definition %s: %v", constraintName, err)
-	}
-	for _, fragment := range fragments {
-		if !strings.Contains(definition, fragment) {
-			t.Fatalf("expected constraint %s definition %q to contain %q", constraintName, definition, fragment)
-		}
-	}
-}
-
-func assertRequestLogAuditEnabledColumnContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
-	t.Helper()
-
-	var isNullable string
-	var columnDefault string
-	if err := conn.QueryRow(
-		ctx,
-		`SELECT is_nullable, COALESCE(column_default, '')
-		FROM information_schema.columns
-		WHERE table_schema = 'public' AND table_name = 'request_logs' AND column_name = 'audit_enabled_at_request'`,
-	).Scan(&isNullable, &columnDefault); err != nil {
-		t.Fatalf("load request_logs audit_enabled_at_request column contract: %v", err)
-	}
-	if isNullable != "NO" {
-		t.Fatalf("expected request_logs.audit_enabled_at_request to be NOT NULL, got is_nullable=%q", isNullable)
-	}
-	if !strings.Contains(strings.ToLower(columnDefault), "false") {
-		t.Fatalf("expected request_logs.audit_enabled_at_request default to contain false, got %q", columnDefault)
-	}
-}
-
-func assertRequestLogGenerationParamsColumnContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
-	t.Helper()
-	rows, err := conn.Query(ctx, `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'request_logs' AND column_name = ANY($1::text[]) ORDER BY column_name ASC`, []string{"request_generation_params", "request_generation_params_status"})
-	if err != nil {
-		t.Fatalf("load request_logs generation params column contract: %v", err)
-	}
-	defer rows.Close()
-	got := map[string][2]string{}
-	for rows.Next() {
-		var name string
-		var dataType string
-		var nullable string
-		if err := rows.Scan(&name, &dataType, &nullable); err != nil {
-			t.Fatalf("scan request_logs generation params column contract: %v", err)
-		}
-		got[name] = [2]string{dataType, nullable}
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate request_logs generation params column contract: %v", err)
-	}
-	if got["request_generation_params"] != [2]string{"jsonb", "YES"} {
-		t.Fatalf("expected request_generation_params nullable jsonb, got %+v", got["request_generation_params"])
-	}
-	if got["request_generation_params_status"] != [2]string{"character varying", "YES"} {
-		t.Fatalf("expected request_generation_params_status nullable varchar, got %+v", got["request_generation_params_status"])
-	}
-}
-
-func assertTranslatedObservabilityColumnContracts(t *testing.T, ctx context.Context, conn *pgx.Conn) {
-	t.Helper()
-	rows, err := conn.Query(ctx, `
-		SELECT table_name, column_name, data_type, COALESCE(character_maximum_length, 0), is_nullable
-		FROM information_schema.columns
-		WHERE table_schema = 'public'
-		  AND ((table_name = 'request_logs' AND column_name = ANY($1::text[]))
-		    OR (table_name = 'usage_request_events' AND column_name = ANY($2::text[])))
-		ORDER BY table_name ASC, column_name ASC`,
-		[]string{"upstream_operation_name", "operation_translation_mode", "upstream_request_path"},
-		[]string{"upstream_operation_name", "operation_translation_mode", "upstream_request_path"},
-	)
-	if err != nil {
-		t.Fatalf("load translated observability column contracts: %v", err)
-	}
-	defer rows.Close()
-
-	contracts := map[string]partitionedLogColumnContract{}
-	for rows.Next() {
-		var tableName string
-		var columnName string
-		var contract partitionedLogColumnContract
-		if err := rows.Scan(&tableName, &columnName, &contract.dataType, &contract.maxLength, &contract.nullable); err != nil {
-			t.Fatalf("scan translated observability column contract: %v", err)
-		}
-		contracts[tableName+"."+columnName] = contract
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate translated observability column contracts: %v", err)
-	}
-
-	assertColumnContract(t, contracts, "request_logs.upstream_operation_name", "character varying", 120, "YES")
-	assertColumnContract(t, contracts, "request_logs.operation_translation_mode", "character varying", 80, "YES")
-	assertColumnContract(t, contracts, "request_logs.upstream_request_path", "character varying", 500, "YES")
-	assertColumnContract(t, contracts, "usage_request_events.upstream_operation_name", "character varying", 120, "YES")
-	assertColumnContract(t, contracts, "usage_request_events.operation_translation_mode", "character varying", 80, "YES")
-	assertColumnContract(t, contracts, "usage_request_events.upstream_request_path", "character varying", 500, "YES")
-}
-
-func assertEndpointLabelSnapshotColumnContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
-	t.Helper()
-	var dataType string
-	var nullable string
-	var columnDefault string
-	if err := conn.QueryRow(ctx, `
-		SELECT data_type, is_nullable, COALESCE(column_default, '')
-		FROM information_schema.columns
-		WHERE table_schema = 'public'
-		  AND table_name = 'usage_request_events'
-		  AND column_name = 'endpoint_label_snapshot'`).Scan(&dataType, &nullable, &columnDefault); err != nil {
-		t.Fatalf("load usage_request_events.endpoint_label_snapshot column contract: %v", err)
-	}
-	if dataType != "text" || nullable != "NO" {
-		t.Fatalf("expected usage_request_events.endpoint_label_snapshot text NOT NULL, got type=%q nullable=%q", dataType, nullable)
-	}
-	if columnDefault != "" {
-		t.Fatalf("expected usage_request_events.endpoint_label_snapshot to have no default, got %q", columnDefault)
-	}
-}
-
-func assertEndpointLabelSnapshotPartitionColumn(t *testing.T, ctx context.Context, conn *pgx.Conn, partitionName string) {
-	t.Helper()
-	var dataType string
-	var nullable string
-	if err := conn.QueryRow(ctx, `
-		SELECT data_type, is_nullable
-		FROM information_schema.columns
-		WHERE table_schema = 'public'
-		  AND table_name = $1
-		  AND column_name = 'endpoint_label_snapshot'`, partitionName).Scan(&dataType, &nullable); err != nil {
-		t.Fatalf("load %s.endpoint_label_snapshot column contract: %v", partitionName, err)
-	}
-	if dataType != "text" || nullable != "NO" {
-		t.Fatalf("expected %s.endpoint_label_snapshot text NOT NULL, got type=%q nullable=%q", partitionName, dataType, nullable)
-	}
 }
 
 func assertEndpointLabelSnapshotBackfillRows(t *testing.T, ctx context.Context, conn *pgx.Conn, expected map[string]string) {
@@ -1112,524 +982,94 @@ func assertEndpointLabelSnapshotBackfillRows(t *testing.T, ctx context.Context, 
 	}
 }
 
-func assertPricingTemplateConcretePriceColumnContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+func insertStatsCoherenceRequestLog(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID int, ingressRequestID string, priced bool, unpricedReason *string, cost *int64, currencyCodeOriginal *string, reportCurrencyCode *string, fxRateUsed *string, fxRateSource *string, createdAt time.Time) {
 	t.Helper()
-	for _, columnName := range []string{"cached_input_price", "cache_creation_price", "reasoning_price"} {
-		var dataType string
-		var maxLength int
-		var isNullable string
-		var columnDefault string
-		if err := conn.QueryRow(
-			ctx,
-			`SELECT data_type, COALESCE(character_maximum_length, 0), is_nullable, COALESCE(column_default, '')
-			FROM information_schema.columns
-			WHERE table_schema = 'public' AND table_name = 'pricing_templates' AND column_name = $1`,
-			columnName,
-		).Scan(&dataType, &maxLength, &isNullable, &columnDefault); err != nil {
-			t.Fatalf("load pricing_templates.%s column contract: %v", columnName, err)
-		}
-		if dataType != "character varying" || maxLength != 20 || isNullable != "NO" {
-			t.Fatalf("expected pricing_templates.%s varchar(20) NOT NULL, got data_type=%q max_length=%d is_nullable=%q", columnName, dataType, maxLength, isNullable)
-		}
-		if !strings.Contains(columnDefault, "'0'::character varying") {
-			t.Fatalf("expected pricing_templates.%s default to contain zero varchar, got %q", columnName, columnDefault)
-		}
-	}
-}
-
-func assertRuntimeCacheGenerationContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
-	t.Helper()
-	rows, err := conn.Query(ctx, `
-		SELECT domain, scope_type, scope_id, version
-		FROM runtime_cache_generations
-		ORDER BY domain ASC`)
+	_, err := conn.Exec(ctx, `
+		INSERT INTO request_logs (profile_id, ingress_request_id, model_id, api_family, status_code, success_flag, billable_flag, priced_flag, unpriced_reason, total_cost_user_currency_micros, currency_code_original, report_currency_code, fx_rate_used, fx_rate_source, response_time_ms, is_stream, request_path, created_at)
+		VALUES ($1, $2, 'stats-coherence-model', 'openai', 200, TRUE, TRUE, $3, $4, $5, $6, $7, $8, $9, 100, FALSE, '/v1/chat/completions', $10)`,
+		profileID, ingressRequestID, priced, nullableStringValue(unpricedReason), nullableInt64Value(cost), nullableStringValue(currencyCodeOriginal), nullableStringValue(reportCurrencyCode), nullableStringValue(fxRateUsed), nullableStringValue(fxRateSource), createdAt.UTC())
 	if err != nil {
-		t.Fatalf("query runtime cache generations: %v", err)
-	}
-	defer rows.Close()
-	got := map[string]int64{}
-	for rows.Next() {
-		var domain string
-		var scopeType string
-		var scopeID string
-		var version int64
-		if err := rows.Scan(&domain, &scopeType, &scopeID, &version); err != nil {
-			t.Fatalf("scan runtime cache generation: %v", err)
-		}
-		got[domain+":"+scopeType+":"+scopeID] = version
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate runtime cache generations: %v", err)
-	}
-	for _, key := range []string{"auth:global:*", "model_catalog:global:*", "profile_runtime:global:*", "runtime_planning:global:*"} {
-		version, ok := got[key]
-		if !ok {
-			t.Fatalf("expected runtime cache generation row %q, got %+v", key, got)
-		}
-		if version != 0 {
-			t.Fatalf("expected bootstrap runtime cache generation %q version 0, got %d", key, version)
-		}
-	}
-	var constraintName string
-	if err := conn.QueryRow(ctx, `
-		SELECT constraint_name
-		FROM information_schema.table_constraints
-		WHERE table_schema = 'public'
-		  AND table_name = 'runtime_cache_generations'
-		  AND constraint_type = 'PRIMARY KEY'`).Scan(&constraintName); err != nil {
-		t.Fatalf("load runtime cache generations primary key: %v", err)
-	}
-	if strings.TrimSpace(constraintName) == "" {
-		t.Fatal("expected runtime_cache_generations primary key")
+		t.Fatalf("insert stats coherence request log %q: %v", ingressRequestID, err)
 	}
 }
 
-type streamTelemetryColumnContract struct {
-	dataType      string
-	maxLength     int
-	isNullable    string
-	columnDefault string
-}
-
-func assertStreamOutcomeTelemetryColumnContracts(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+func insertStatsCoherenceUsageEvent(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID int, ingressRequestID string, priced bool, unpricedReason *string, cost *int64, currencyCodeOriginal *string, reportCurrencyCode *string, fxRateUsed *string, fxRateSource *string, createdAt time.Time) {
 	t.Helper()
-	rows, err := conn.Query(ctx, `
-		SELECT table_name, column_name, data_type, COALESCE(character_maximum_length, 0), is_nullable, COALESCE(column_default, '')
-		FROM information_schema.columns
-		WHERE table_schema = 'public'
-		  AND table_name = ANY($1::text[])
-		  AND column_name = ANY($2::text[])
-		ORDER BY table_name ASC, column_name ASC`, []string{"request_logs", "usage_request_events"}, []string{"stream_outcome", "stream_error_kind", "stream_error_detail"})
+	_, err := conn.Exec(ctx, `
+		INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, api_family, status_code, success_flag, billable_flag, priced_flag, unpriced_reason, total_cost_user_currency_micros, currency_code_original, report_currency_code, fx_rate_used, fx_rate_source, attempt_count, request_path, created_at, endpoint_label_snapshot)
+		VALUES ($1, $2, 'stats-coherence-model', 'openai', 200, TRUE, TRUE, $3, $4, $5, $6, $7, $8, $9, 1, '/v1/chat/completions', $10, 'Stats Coherence Endpoint')`,
+		profileID, ingressRequestID, priced, nullableStringValue(unpricedReason), nullableInt64Value(cost), nullableStringValue(currencyCodeOriginal), nullableStringValue(reportCurrencyCode), nullableStringValue(fxRateUsed), nullableStringValue(fxRateSource), createdAt.UTC())
 	if err != nil {
-		t.Fatalf("load stream telemetry column contracts: %v", err)
-	}
-	defer rows.Close()
-
-	contracts := map[string]streamTelemetryColumnContract{}
-	for rows.Next() {
-		var tableName string
-		var columnName string
-		var contract streamTelemetryColumnContract
-		if err := rows.Scan(&tableName, &columnName, &contract.dataType, &contract.maxLength, &contract.isNullable, &contract.columnDefault); err != nil {
-			t.Fatalf("scan stream telemetry column contract: %v", err)
-		}
-		contracts[tableName+"."+columnName] = contract
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate stream telemetry column contracts: %v", err)
-	}
-
-	assertStreamTelemetryColumn(t, contracts, "request_logs.stream_outcome", "character varying", 50, "NO", "not_streaming")
-	assertStreamTelemetryColumn(t, contracts, "request_logs.stream_error_kind", "character varying", 50, "YES", "")
-	assertStreamTelemetryColumn(t, contracts, "request_logs.stream_error_detail", "text", 0, "YES", "")
-	assertStreamTelemetryColumn(t, contracts, "usage_request_events.stream_outcome", "character varying", 50, "NO", "not_streaming")
-	assertStreamTelemetryColumn(t, contracts, "usage_request_events.stream_error_kind", "character varying", 50, "YES", "")
-	if _, exists := contracts["usage_request_events.stream_error_detail"]; exists {
-		t.Fatal("expected usage_request_events.stream_error_detail to remain absent")
+		t.Fatalf("insert stats coherence usage event %q: %v", ingressRequestID, err)
 	}
 }
 
-func assertStreamTelemetryColumn(t *testing.T, contracts map[string]streamTelemetryColumnContract, key string, dataType string, maxLength int, isNullable string, defaultContains string) {
+func assertStatsCoherenceRow(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, ingressRequestID string, wantPriced bool, wantReason string, wantFXRate *string, wantFXSource *string) {
 	t.Helper()
-	contract, ok := contracts[key]
-	if !ok {
-		t.Fatalf("expected stream telemetry column %s to exist", key)
+	if tableName != "request_logs" && tableName != "usage_request_events" {
+		t.Fatalf("unsupported stats coherence table %q", tableName)
 	}
-	if contract.dataType != dataType || contract.maxLength != maxLength || contract.isNullable != isNullable {
-		t.Fatalf("expected %s contract type=%q length=%d nullable=%q, got %+v", key, dataType, maxLength, isNullable, contract)
+	var priced sql.NullBool
+	var reason sql.NullString
+	var fxRate sql.NullString
+	var fxSource sql.NullString
+	if err := conn.QueryRow(ctx, fmt.Sprintf(`SELECT priced_flag, unpriced_reason, fx_rate_used, fx_rate_source FROM public.%s WHERE ingress_request_id = $1`, tableName), ingressRequestID).Scan(&priced, &reason, &fxRate, &fxSource); err != nil {
+		t.Fatalf("load %s stats coherence row %q: %v", tableName, ingressRequestID, err)
 	}
-	if defaultContains == "" {
-		if contract.columnDefault != "" {
-			t.Fatalf("expected %s to have no default, got %q", key, contract.columnDefault)
+	if !priced.Valid || priced.Bool != wantPriced {
+		t.Fatalf("expected %s row %q priced=%t, got %+v", tableName, ingressRequestID, wantPriced, priced)
+	}
+	if wantReason == "" {
+		if reason.Valid {
+			t.Fatalf("expected %s row %q unpriced_reason=NULL, got %q", tableName, ingressRequestID, reason.String)
+		}
+	} else if !reason.Valid || reason.String != wantReason {
+		t.Fatalf("expected %s row %q unpriced_reason=%q, got %+v", tableName, ingressRequestID, wantReason, reason)
+	}
+	assertNullableStringValue(t, tableName+"."+ingressRequestID+".fx_rate_used", fxRate, wantFXRate)
+	assertNullableStringValue(t, tableName+"."+ingressRequestID+".fx_rate_source", fxSource, wantFXSource)
+}
+
+func assertNullableStringValue(t *testing.T, label string, got sql.NullString, want *string) {
+	t.Helper()
+	if want == nil {
+		if got.Valid {
+			t.Fatalf("expected %s=NULL, got %q", label, got.String)
 		}
 		return
 	}
-	if !strings.Contains(strings.ToLower(contract.columnDefault), strings.ToLower(defaultContains)) {
-		t.Fatalf("expected %s default to contain %q, got %q", key, defaultContains, contract.columnDefault)
+	if !got.Valid || got.String != *want {
+		t.Fatalf("expected %s=%q, got %+v", label, *want, got)
 	}
 }
 
-func assertPartitionedLogSchemaContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+func nullableStringValue(value *string) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func nullableInt64Value(value *int64) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func assertManagementStatRollupTablesAbsent(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
-
-	logTables := []string{"audit_logs", "request_logs", "usage_request_events", "loadbalance_events"}
-	assertPartitionedLogRoots(t, ctx, conn, logTables)
-	assertPartitionedLogPrimaryKeys(t, ctx, conn, logTables)
-	assertPartitionedLogIDDefaults(t, ctx, conn, logTables)
-	assertPartitionedLogRootIDIndexes(t, ctx, conn, logTables)
-	assertPartitionedLogLookupIndexes(t, ctx, conn)
-	assertPartitionedLogStorageParameterLimitation(t, ctx, conn, logTables)
-	assertAuditLogWeakRequestLinkContract(t, ctx, conn)
-	assertLogRetentionSettingsContract(t, ctx, conn)
-	assertNoLogChildPartitions(t, ctx, conn)
-}
-
-func assertPartitionedLogRoots(t *testing.T, ctx context.Context, conn *pgx.Conn, logTables []string) {
-	t.Helper()
-	rows, err := conn.Query(ctx, `
-		SELECT c.relname, c.relkind::text
-		FROM pg_class c
-		JOIN pg_namespace n ON n.oid = c.relnamespace
-		WHERE n.nspname = 'public' AND c.relname = ANY($1::text[])
-		ORDER BY c.relname ASC`, logTables)
-	if err != nil {
-		t.Fatalf("load partitioned log roots: %v", err)
-	}
-	defer rows.Close()
-
-	kinds := map[string]string{}
-	for rows.Next() {
-		var name string
-		var relkind string
-		if err := rows.Scan(&name, &relkind); err != nil {
-			t.Fatalf("scan partitioned log root: %v", err)
-		}
-		kinds[name] = relkind
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate partitioned log roots: %v", err)
-	}
-	for _, tableName := range logTables {
-		if kinds[tableName] != "p" {
-			t.Fatalf("expected %s to have relkind p, got %q in %+v", tableName, kinds[tableName], kinds)
-		}
-	}
-}
-
-func assertPartitionedLogPrimaryKeys(t *testing.T, ctx context.Context, conn *pgx.Conn, logTables []string) {
-	t.Helper()
-	for _, tableName := range logTables {
-		var columns string
-		if err := conn.QueryRow(ctx, `
-			SELECT string_agg(att.attname, ',' ORDER BY keys.key_order)
-			FROM pg_constraint con
-			JOIN unnest(con.conkey) WITH ORDINALITY AS keys(attnum, key_order) ON true
-			JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = keys.attnum
-			WHERE con.conrelid = $1::regclass AND con.contype = 'p'`, "public."+tableName).Scan(&columns); err != nil {
-			t.Fatalf("load %s primary key columns: %v", tableName, err)
-		}
-		if columns != "created_at,id" {
-			t.Fatalf("expected %s primary key on created_at,id, got %q", tableName, columns)
-		}
-	}
-}
-
-func assertPartitionedLogIDDefaults(t *testing.T, ctx context.Context, conn *pgx.Conn, logTables []string) {
-	t.Helper()
-	for _, tableName := range logTables {
-		var dataType string
-		var isNullable string
-		var columnDefault string
-		if err := conn.QueryRow(ctx, `
-			SELECT data_type, is_nullable, COALESCE(column_default, '')
-			FROM information_schema.columns
-			WHERE table_schema = 'public' AND table_name = $1 AND column_name = 'id'`, tableName).Scan(&dataType, &isNullable, &columnDefault); err != nil {
-			t.Fatalf("load %s id column contract: %v", tableName, err)
-		}
-		if dataType != "bigint" || isNullable != "NO" {
-			t.Fatalf("expected %s.id bigint not null, got type=%q nullable=%q", tableName, dataType, isNullable)
-		}
-		if !strings.Contains(columnDefault, "nextval") || !strings.Contains(columnDefault, tableName+"_id_seq") {
-			t.Fatalf("expected %s.id sequence default, got %q", tableName, columnDefault)
-		}
-	}
-}
-
-func assertPartitionedLogRootIDIndexes(t *testing.T, ctx context.Context, conn *pgx.Conn, logTables []string) {
-	t.Helper()
-	for _, tableName := range logTables {
-		assertIndexUniqueness(t, ctx, conn, tableName, "ix_"+tableName+"_id", false)
-	}
-}
-
-func assertPartitionedLogLookupIndexes(t *testing.T, ctx context.Context, conn *pgx.Conn) {
-	t.Helper()
-	expectedIndexes := map[string]string{
-		"audit_logs":           "idx_audit_logs_profile_request_created_id_desc",
-		"request_logs":         "idx_request_logs_profile_created_at",
-		"usage_request_events": "idx_usage_request_events_profile_ingress_request",
-		"loadbalance_events":   "idx_loadbalance_events_profile_created",
-	}
-	for tableName, indexName := range expectedIndexes {
-		assertIndexExists(t, ctx, conn, tableName, indexName)
-	}
-	assertIndexUniqueness(t, ctx, conn, "audit_logs", "ix_audit_logs_request_log_id", false)
-}
-
-type partitionedLogStorageState struct {
-	reloptions  string
-	toastRelOID int64
-}
-
-func assertPartitionedLogStorageParameterLimitation(t *testing.T, ctx context.Context, conn *pgx.Conn, logTables []string) {
-	t.Helper()
-
-	// PostgreSQL 16 proof: .sisyphus/evidence/task-1-partitioned-root-reloptions-proof.txt.
-	// Partitioned parents reject heap autovacuum reloptions and expose no TOAST
-	// relation. If a server ever exposes either surface, require the planned
-	// reloptions here instead of letting a missing storage contract pass silently.
-	states := loadPartitionedLogStorageStates(t, ctx, conn, logTables)
-	for _, tableName := range logTables {
-		state := states[tableName]
-		if state.reloptions != "" {
-			assertReloptionsContain(t, tableName, state.reloptions, []string{
-				"autovacuum_vacuum_scale_factor=0.02",
-				"autovacuum_vacuum_threshold=10000",
-			})
-			continue
-		}
-
-		assertPartitionedRootHeapReloptionsRejected(t, ctx, conn, tableName)
-	}
-
-	for _, tableName := range logTables {
-		state := states[tableName]
-		if state.toastRelOID == 0 {
-			continue
-		}
-		assertToastReloptions(t, ctx, conn, tableName, state.toastRelOID)
-	}
-}
-
-func loadPartitionedLogStorageStates(t *testing.T, ctx context.Context, conn *pgx.Conn, logTables []string) map[string]partitionedLogStorageState {
-	t.Helper()
-	rows, err := conn.Query(ctx, `
-		SELECT c.relname, COALESCE(array_to_string(c.reloptions, ','), ''), c.reltoastrelid::oid::int8
-		FROM pg_class c
-		JOIN pg_namespace n ON n.oid = c.relnamespace
-		WHERE n.nspname = 'public' AND c.relname = ANY($1::text[])`, logTables)
-	if err != nil {
-		t.Fatalf("load partitioned log storage states: %v", err)
-	}
-	defer rows.Close()
-
-	states := map[string]partitionedLogStorageState{}
-	for rows.Next() {
-		var tableName string
-		var toastRelOID int64
-		var state partitionedLogStorageState
-		if err := rows.Scan(&tableName, &state.reloptions, &toastRelOID); err != nil {
-			t.Fatalf("scan partitioned log storage state: %v", err)
-		}
-		state.toastRelOID = toastRelOID
-		states[tableName] = state
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate partitioned log storage states: %v", err)
-	}
-	for _, tableName := range logTables {
-		if _, ok := states[tableName]; !ok {
-			t.Fatalf("expected storage state for %s", tableName)
-		}
-	}
-	return states
-}
-
-func assertPartitionedRootHeapReloptionsRejected(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string) {
-	t.Helper()
-	_, err := conn.Exec(ctx, `ALTER TABLE public.`+quoteIdentifier(tableName)+` SET (autovacuum_vacuum_scale_factor = 0.02, autovacuum_vacuum_threshold = 10000)`)
-	if err == nil {
-		t.Fatalf("expected PostgreSQL 16 to reject heap autovacuum reloptions on partitioned root %s", tableName)
-	}
-	if !strings.Contains(err.Error(), "cannot specify storage parameters for a partitioned table") {
-		t.Fatalf("expected partitioned root storage-parameter rejection for %s, got %v", tableName, err)
-	}
-}
-
-func assertToastReloptions(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, toastRelOID int64) {
-	t.Helper()
-	var toastReloptions string
-	if err := conn.QueryRow(ctx, `SELECT COALESCE(array_to_string(reloptions, ','), '') FROM pg_class WHERE oid = $1::oid`, toastRelOID).Scan(&toastReloptions); err != nil {
-		t.Fatalf("load %s toast reloptions: %v", tableName, err)
-	}
-	assertReloptionsContain(t, tableName+" toast", toastReloptions, []string{
-		"autovacuum_vacuum_scale_factor=0.02",
-		"autovacuum_vacuum_threshold=10000",
-	})
-}
-
-func assertReloptionsContain(t *testing.T, relationName string, reloptions string, expectedOptions []string) {
-	t.Helper()
-	for _, option := range expectedOptions {
-		if !strings.Contains(reloptions, option) {
-			t.Fatalf("expected %s reloptions to contain %q, got %q", relationName, option, reloptions)
-		}
-	}
-}
-
-func assertIndexExists(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, indexName string) {
-	t.Helper()
-	assertIndexPresence(t, ctx, conn, tableName, indexName, true)
-}
-
-func assertIndexPresence(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, indexName string, wantExists bool) {
-	t.Helper()
-	var exists bool
-	if err := conn.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM pg_index idx
-			JOIN pg_class index_class ON index_class.oid = idx.indexrelid
-			JOIN pg_class table_class ON table_class.oid = idx.indrelid
-			JOIN pg_namespace n ON n.oid = table_class.relnamespace
-			WHERE n.nspname = 'public' AND table_class.relname = $1 AND index_class.relname = $2
-		)`, tableName, indexName).Scan(&exists); err != nil {
-		t.Fatalf("check index %s on %s: %v", indexName, tableName, err)
-	}
-	if exists != wantExists {
-		t.Fatalf("expected index %s on %s exists=%v, got %v", indexName, tableName, wantExists, exists)
-	}
-}
-
-func assertIndexUniqueness(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, indexName string, wantUnique bool) {
-	t.Helper()
-	var isUnique bool
-	if err := conn.QueryRow(ctx, `
-		SELECT idx.indisunique
-		FROM pg_index idx
-		JOIN pg_class index_class ON index_class.oid = idx.indexrelid
-		JOIN pg_class table_class ON table_class.oid = idx.indrelid
-		JOIN pg_namespace n ON n.oid = table_class.relnamespace
-		WHERE n.nspname = 'public' AND table_class.relname = $1 AND index_class.relname = $2`, tableName, indexName).Scan(&isUnique); err != nil {
-		t.Fatalf("load index %s on %s uniqueness: %v", indexName, tableName, err)
-	}
-	if isUnique != wantUnique {
-		t.Fatalf("expected index %s on %s unique=%v, got %v", indexName, tableName, wantUnique, isUnique)
-	}
-}
-
-type partitionedLogColumnContract struct {
-	dataType  string
-	maxLength int
-	nullable  string
-}
-
-func assertAuditLogWeakRequestLinkContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
-	t.Helper()
-	rows, err := conn.Query(ctx, `
-		SELECT column_name, data_type, COALESCE(character_maximum_length, 0), is_nullable
-		FROM information_schema.columns
-		WHERE table_schema = 'public'
-		  AND table_name = 'audit_logs'
-		  AND column_name = ANY($1::text[])`, []string{"request_log_id", "request_log_created_at", "ingress_request_id"})
-	if err != nil {
-		t.Fatalf("load audit weak request-link columns: %v", err)
-	}
-	defer rows.Close()
-
-	columns := map[string]partitionedLogColumnContract{}
-	for rows.Next() {
-		var name string
-		var contract partitionedLogColumnContract
-		if err := rows.Scan(&name, &contract.dataType, &contract.maxLength, &contract.nullable); err != nil {
-			t.Fatalf("scan audit weak request-link column: %v", err)
-		}
-		columns[name] = contract
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate audit weak request-link columns: %v", err)
-	}
-
-	assertColumnContract(t, columns, "request_log_id", "bigint", 0, "YES")
-	assertColumnContract(t, columns, "request_log_created_at", "timestamp with time zone", 0, "YES")
-	assertColumnContract(t, columns, "ingress_request_id", "character varying", 36, "YES")
-
-	var hasHardFK bool
-	if err := conn.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM pg_constraint
-			WHERE conrelid = 'public.audit_logs'::regclass
-			  AND conname = 'audit_logs_request_log_id_fkey'
-		)`).Scan(&hasHardFK); err != nil {
-		t.Fatalf("check audit_logs request_log_id fkey absence: %v", err)
-	}
-	if hasHardFK {
-		t.Fatal("expected audit_logs_request_log_id_fkey to be absent")
-	}
-}
-
-func assertColumnContract(t *testing.T, columns map[string]partitionedLogColumnContract, columnName string, dataType string, maxLength int, nullable string) {
-	t.Helper()
-	contract, ok := columns[columnName]
-	if !ok {
-		t.Fatalf("expected column %s to exist", columnName)
-	}
-	if contract.dataType != dataType || contract.maxLength != maxLength || contract.nullable != nullable {
-		t.Fatalf("expected column %s type=%q length=%d nullable=%q, got %+v", columnName, dataType, maxLength, nullable, contract)
-	}
-}
-
-func assertLogRetentionSettingsContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
-	t.Helper()
-	dayColumns := []string{"request_logs_retention_days", "audit_logs_retention_days", "statistics_retention_days", "loadbalance_events_retention_days"}
-	rows, err := conn.Query(ctx, `
-		SELECT column_name, data_type, COALESCE(character_maximum_length, 0), is_nullable
-		FROM information_schema.columns
-		WHERE table_schema = 'public'
-		  AND table_name = 'log_retention_settings'
-		  AND right(column_name, length('_retention_days')) = '_retention_days'`)
-	if err != nil {
-		t.Fatalf("load log_retention_settings day columns: %v", err)
-	}
-	defer rows.Close()
-
-	columns := map[string]partitionedLogColumnContract{}
-	for rows.Next() {
-		var name string
-		var contract partitionedLogColumnContract
-		if err := rows.Scan(&name, &contract.dataType, &contract.maxLength, &contract.nullable); err != nil {
-			t.Fatalf("scan log_retention_settings day column: %v", err)
-		}
-		columns[name] = contract
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate log_retention_settings day columns: %v", err)
-	}
-	if len(columns) != len(dayColumns) {
-		t.Fatalf("log_retention_settings day columns = %v want %v", columns, dayColumns)
-	}
-	for _, columnName := range dayColumns {
-		assertColumnContract(t, columns, columnName, "integer", 0, "YES")
-	}
-
-	var singletonRows int
-	if err := conn.QueryRow(ctx, `SELECT count(*) FROM public.log_retention_settings WHERE singleton_key = 'global'`).Scan(&singletonRows); err != nil {
-		t.Fatalf("count global log_retention_settings row: %v", err)
-	}
-	if singletonRows != 1 {
-		t.Fatalf("expected one global log_retention_settings row, got %d", singletonRows)
-	}
-
-	var constraintCount int
+	var count int
+	tableNames := []string{"management_stat_" + "buckets", "management_stat_" + "refresh_state"}
 	if err := conn.QueryRow(ctx, `
 		SELECT count(*)
-		FROM pg_constraint
-		WHERE conrelid = 'public.log_retention_settings'::regclass
-		  AND contype = 'c'`).Scan(&constraintCount); err != nil {
-		t.Fatalf("count log_retention_settings check constraints: %v", err)
+		FROM information_schema.tables
+		WHERE table_schema = 'public'
+		  AND table_name = ANY($1::text[])`, tableNames).Scan(&count); err != nil {
+		t.Fatalf("check management stat rollup tables: %v", err)
 	}
-	if constraintCount != 5 {
-		t.Fatalf("expected five log_retention_settings check constraints, got %d", constraintCount)
-	}
-	assertConstraintDefinitionContains(t, ctx, conn, "log_retention_settings_singleton_key_check", "'global'")
-}
-
-func assertNoLogChildPartitions(t *testing.T, ctx context.Context, conn *pgx.Conn) {
-	t.Helper()
-	var childCount int
-	if err := conn.QueryRow(ctx, `
-		SELECT count(*)
-		FROM pg_inherits
-		WHERE inhparent IN (
-			'public.audit_logs'::regclass,
-			'public.request_logs'::regclass,
-			'public.usage_request_events'::regclass,
-			'public.loadbalance_events'::regclass
-		)`).Scan(&childCount); err != nil {
-		t.Fatalf("count log child partitions: %v", err)
-	}
-	if childCount != 0 {
-		t.Fatalf("expected migration to create partitioned roots only, got %d child partitions", childCount)
+	if count != 0 {
+		t.Fatalf("expected management stat rollup tables to be absent, got %d", count)
 	}
 }
 
@@ -1767,78 +1207,4 @@ func sortedMapKeys(values map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-func connect(t *testing.T, ctx context.Context, dsn string) *pgx.Conn {
-	t.Helper()
-
-	conn, err := pgx.Connect(ctx, dsn)
-	if err != nil {
-		t.Fatalf("connect to postgres %s: %v", dsn, err)
-	}
-
-	return conn
-}
-
-func dockerPort(t *testing.T, containerName string) string {
-	t.Helper()
-
-	output := runDockerCommand(t, context.Background(), "port", containerName, "5432/tcp")
-	firstLine := strings.TrimSpace(strings.Split(output, "\n")[0])
-	_, port, err := net.SplitHostPort(firstLine)
-	if err != nil {
-		t.Fatalf("parse docker port output %q: %v", firstLine, err)
-	}
-
-	return port
-}
-
-func waitForPostgres(t *testing.T, hostPort string) {
-	t.Helper()
-
-	deadline := time.Now().Add(45 * time.Second)
-	for time.Now().Before(deadline) {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		conn, err := pgx.Connect(ctx, fmt.Sprintf("postgres://prism:prism@127.0.0.1:%s/postgres?sslmode=disable", hostPort))
-		if err == nil {
-			_ = conn.Close(ctx)
-			cancel()
-			return
-		}
-		cancel()
-		time.Sleep(500 * time.Millisecond)
-	}
-
-	t.Fatalf("postgres container on port %s did not become ready in time", hostPort)
-}
-
-func runDockerCommand(t *testing.T, ctx context.Context, args ...string) string {
-	t.Helper()
-
-	command := exec.CommandContext(ctx, "docker", args...)
-	output, err := command.CombinedOutput()
-	if err != nil {
-		t.Fatalf("docker %s failed: %v\n%s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
-	}
-
-	return strings.TrimSpace(string(output))
-}
-
-func quoteIdentifier(identifier string) string {
-	return `"` + strings.ReplaceAll(identifier, `"`, `""`) + `"`
-}
-
-func quoteLiteral(value string) string {
-	return `'` + strings.ReplaceAll(value, `'`, `''`) + `'`
-}
-
-func randomSuffix(t *testing.T) string {
-	t.Helper()
-
-	buffer := make([]byte, 4)
-	if _, err := rand.Read(buffer); err != nil {
-		t.Fatalf("generate random suffix: %v", err)
-	}
-
-	return hex.EncodeToString(buffer)
 }

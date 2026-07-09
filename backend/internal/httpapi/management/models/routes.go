@@ -20,7 +20,6 @@ import (
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
-	"github.com/coachpo/prism/backend/internal/targetcompat"
 )
 
 type endpointModelsBatchRequest struct {
@@ -479,7 +478,7 @@ func (s *Service) deletePrivateConnectionTargetFromMutationItems(ctx context.Con
 		return false, &domainError{StatusCode: http.StatusNotFound, Detail: "Model access target not found"}
 	}
 	item := items[index]
-	if !targetcompat.IsTerminalTargetAccessTargetType(item.Request.TargetType) {
+	if !modelrouting.IsTerminalTargetType(item.Request.TargetType) {
 		return false, nil
 	}
 	if item.Request.ConnectionID == nil {
@@ -613,7 +612,7 @@ func accessTargetRequestFromCreate(input modelAccessTargetCreateRequest, existin
 	if position < 0 || position > existingCount {
 		return modelAccessTargetRequest{}, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("position must be between 0 and %d", existingCount)}
 	}
-	request := modelAccessTargetRequest{TargetType: targetcompat.NormalizeAccessTargetType(input.TargetType), TargetModelID: normalizeOptionalString(input.TargetModelID, false, false), ConnectionID: copyIntPtr(input.ConnectionID), Position: position, IsEnabled: input.IsEnabled}
+	request := modelAccessTargetRequest{TargetType: modelrouting.NormalizeTargetType(input.TargetType), TargetModelID: normalizeOptionalString(input.TargetModelID, false, false), ConnectionID: copyIntPtr(input.ConnectionID), Position: position, IsEnabled: input.IsEnabled}
 	if err := validatePublicAccessTarget(request); err != nil {
 		return modelAccessTargetRequest{}, err
 	}
@@ -623,10 +622,10 @@ func accessTargetRequestFromCreate(input modelAccessTargetCreateRequest, existin
 func accessTargetRequestFromRecord(record accessTargetRecord) modelAccessTargetRequest {
 	enabled := record.IsEnabled
 	request := modelAccessTargetRequest{TargetType: record.TargetType, Position: record.Position, IsEnabled: &enabled}
-	if targetcompat.IsModelAccessTargetType(record.TargetType) && record.TargetModel != nil {
+	if modelrouting.IsModelTargetType(record.TargetType) && record.TargetModel != nil {
 		request.TargetModelID = stringPtr(record.TargetModel.ModelID)
 	}
-	if targetcompat.IsTerminalTargetAccessTargetType(record.TargetType) {
+	if modelrouting.IsTerminalTargetType(record.TargetType) {
 		request.ConnectionID = copyIntPtr(record.TargetConnectionID)
 	}
 	return request
@@ -654,30 +653,30 @@ func updateAccessTargetMutationItem(items []accessTargetMutationItem, targetID i
 		return nil, &domainError{StatusCode: http.StatusNotFound, Detail: "Model access target not found"}
 	}
 	item := items[index]
-	if targetcompat.IsTerminalTargetAccessTargetType(item.Request.TargetType) {
+	if modelrouting.IsTerminalTargetType(item.Request.TargetType) {
 		return updateConnectionAccessTargetMutationItem(items, targetID, index, input)
 	}
 	updated := item.Request
 	if input.TargetType.Set {
-		if input.TargetType.Value != nil && targetcompat.IsTerminalTargetAccessTargetType(*input.TargetType.Value) {
+		if input.TargetType.Value != nil && modelrouting.IsTerminalTargetType(*input.TargetType.Value) {
 			return nil, connectionAccessTargetsManagedError()
 		}
 		if input.TargetType.Value == nil {
 			updated.TargetType = ""
 		} else {
-			updated.TargetType = targetcompat.NormalizeAccessTargetType(*input.TargetType.Value)
+			updated.TargetType = modelrouting.NormalizeTargetType(*input.TargetType.Value)
 		}
-		if targetcompat.IsModelAccessTargetType(updated.TargetType) {
+		if modelrouting.IsModelTargetType(updated.TargetType) {
 			updated.ConnectionID = nil
 		}
-		if targetcompat.IsTerminalTargetAccessTargetType(updated.TargetType) {
+		if modelrouting.IsTerminalTargetType(updated.TargetType) {
 			updated.TargetModelID = nil
 		}
 	}
 	if input.TargetModelID.Set {
 		updated.TargetModelID = normalizeOptionalString(input.TargetModelID.Value, false, false)
 		if !input.TargetType.Set && updated.TargetModelID != nil && strings.TrimSpace(*updated.TargetModelID) != "" {
-			updated.TargetType = targetcompat.AccessTargetTypeModel
+			updated.TargetType = modelrouting.TargetTypeModel
 			updated.ConnectionID = nil
 		}
 	}
@@ -723,7 +722,7 @@ func deleteAccessTargetMutationItem(items []accessTargetMutationItem, targetID i
 	if index == -1 {
 		return nil, &domainError{StatusCode: http.StatusNotFound, Detail: "Model access target not found"}
 	}
-	if targetcompat.IsTerminalTargetAccessTargetType(items[index].Request.TargetType) {
+	if modelrouting.IsTerminalTargetType(items[index].Request.TargetType) {
 		return nil, connectionAccessTargetsManagedError()
 	}
 	items = append(items[:index], items[index+1:]...)
@@ -773,7 +772,7 @@ func hasEnabledAccessTargetMutationItem(items []accessTargetMutationItem) bool {
 func modelAccessTargetRequestsOnly(values []modelAccessTargetRequest) []modelAccessTargetRequest {
 	items := make([]modelAccessTargetRequest, 0, len(values))
 	for _, value := range values {
-		if targetcompat.IsModelAccessTargetType(value.TargetType) {
+		if modelrouting.IsModelTargetType(value.TargetType) {
 			items = append(items, value)
 		}
 	}
@@ -790,7 +789,7 @@ func preservedConnectionTargetsFromRecords(records []accessTargetRecord) []prese
 	sortAccessTargetRecords(ordered)
 	items := make([]preservedConnectionAccessTarget, 0)
 	for _, record := range ordered {
-		if !targetcompat.IsTerminalTargetAccessTargetType(record.TargetType) {
+		if !modelrouting.IsTerminalTargetType(record.TargetType) {
 			continue
 		}
 		items = append(items, preservedConnectionAccessTarget{ID: record.ID, Position: record.Position, IsEnabled: record.IsEnabled})
@@ -838,7 +837,7 @@ func preservedConnectionTargetsFromMutationItems(items []accessTargetMutationIte
 	normalizeMutationItemPositions(items)
 	preserved := make([]preservedConnectionAccessTarget, 0)
 	for _, item := range items {
-		if !targetcompat.IsTerminalTargetAccessTargetType(item.Request.TargetType) {
+		if !modelrouting.IsTerminalTargetType(item.Request.TargetType) {
 			continue
 		}
 		enabled := true
@@ -852,7 +851,7 @@ func preservedConnectionTargetsFromMutationItems(items []accessTargetMutationIte
 
 func hasConnectionAccessTargetRecords(records []accessTargetRecord) bool {
 	for _, record := range records {
-		if targetcompat.IsTerminalTargetAccessTargetType(record.TargetType) {
+		if modelrouting.IsTerminalTargetType(record.TargetType) {
 			return true
 		}
 	}
@@ -1135,7 +1134,7 @@ func normalizeAccessTargets(values []modelAccessTargetRequest) []modelAccessTarg
 	normalized := make([]modelAccessTargetRequest, 0, len(values))
 	for _, value := range values {
 		normalizedTarget := value
-		normalizedTarget.TargetType = targetcompat.NormalizeAccessTargetType(value.TargetType)
+		normalizedTarget.TargetType = modelrouting.NormalizeTargetType(value.TargetType)
 		normalizedTarget.TargetModelID = normalizeOptionalString(value.TargetModelID, false, false)
 		normalized = append(normalized, normalizedTarget)
 	}
@@ -1254,7 +1253,7 @@ func validatePublicAccessTargets(accessTargets []modelAccessTargetRequest) error
 }
 
 func validatePublicAccessTarget(accessTarget modelAccessTargetRequest) error {
-	if targetcompat.IsTerminalTargetAccessTargetType(accessTarget.TargetType) || accessTarget.ConnectionID != nil {
+	if modelrouting.IsTerminalTargetType(accessTarget.TargetType) || accessTarget.ConnectionID != nil {
 		return connectionAccessTargetsManagedError()
 	}
 	return nil

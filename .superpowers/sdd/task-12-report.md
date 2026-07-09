@@ -1,0 +1,115 @@
+STATUS: DONE_WITH_CONCERNS
+
+Commits:
+- `feat!: retire realtime websocket in favor of REST polling` (created by this task; final hash reported by the assistant after commit creation)
+
+Files changed:
+- Frontend dashboard/statistics polling: `frontend/src/pages/dashboard/useDashboardPolling.ts`, `frontend/src/pages/dashboard/useDashboardPageData.ts`, `frontend/src/pages/dashboard/useDashboardBootstrapData.ts`, `frontend/src/pages/statistics/useUsageStatisticsPageData.ts`, `frontend/src/pages/DashboardPage.tsx`
+- Frontend realtime removal: deleted websocket client/helper/hook/status component files under `frontend/src/lib/websocket*`, `frontend/src/hooks/useRealtimeData.ts`, `frontend/src/components/WebSocketStatusIndicator.tsx`, `frontend/src/pages/statistics/useUsageStatisticsRealtimeData.ts`, and deleted websocket-focused frontend tests.
+- Backend realtime removal: deleted `backend/internal/httpapi/realtime/`, `backend/internal/httpapi/management/auth/realtime.go`, `backend/tests/runtime/realtime_test.go`, and `backend/testdata/realtime/`.
+- Backend wiring/lane cleanup: updated runtime telemetry outbox/service options, auth service/routes, platform HTTP/lifecycle assembly, DB pools, bootstrap config parsing, default pool budget, tests, and removed `github.com/gorilla/websocket`.
+- Proxy/docs/contracts: removed nginx websocket proxying, Vite websocket proxying, updated README, durable docs, AGENTS files, i18n catalogs, and dashboard/statistics contract tests.
+
+Verification:
+- `rg -in "realtime|websocket" backend/internal frontend/src --glob '!**/AGENTS.md'`: remaining matches are only `backend/internal/platform/config` parsed-but-unused `database.pools.realtime` compatibility fields/tests required by G2; no frontend source matches.
+- `rg -n "/api/realtime/ws" . --glob '!docs/TEST_REDUCTION_*.md' --glob '!docs/IMPLEMENTATION_PLAN.md' --glob '!*.log' --glob '!node_modules/**' --glob '!frontend/dist/**'`: no matches.
+- `rg -n "gorilla/websocket|WebSocketStatusIndicator|useRealtimeData|frontend/src/lib/websocket|PostgresLaneRealtime|DashboardUpdates|AnalyticsUpdates|RealtimeService" backend frontend docker docs README.md AGENTS.md --glob '!docs/TEST_REDUCTION_*.md' --glob '!docs/IMPLEMENTATION_PLAN.md' --glob '!frontend/dist/**'`: no matches.
+- `cd frontend && pnpm run test`: PASS, 11 files / 31 tests.
+- `cd frontend && pnpm run test:lib`: PASS, 87 tests.
+- `cd frontend && pnpm run test:server`: PASS, 4 tests.
+- `cd frontend && pnpm run lint`: PASS.
+- `cd frontend && pnpm run build`: PASS; Vite reported existing large chunk warnings.
+- `cd backend && go build ./cmd/prism-backend`: PASS.
+- `cd backend && go test ./internal/platform/config ./internal/platform/db ./internal/platform/http ./internal/platform/lifecycle ./internal/httpapi/management/auth ./internal/httpapi/runtime`: PASS.
+- `cd backend && go test ./tests/priority/db`: PASS.
+- `cd backend && go test ./tests/priority/unit ./tests/priority/scheduler`: PASS.
+- `cd backend && go test ./tests/contract`: FAIL before assertions due local Docker/Postgres harness readiness: `postgres container on port 33255 did not become ready in time`.
+- `cd backend && go test ./tests/runtime`: FAIL before assertions due local Docker/Postgres harness issue: `no public port '5432/tcp' published for prism-s14-runtime-8caaaf70`.
+- `cd backend && go test ./tests/priority/...`: FAIL in existing priority cache source-string guard, `runtime cache generation implementation missing "LoadFreshActiveRuntimePlan"`; unrelated to the realtime retirement paths touched here.
+- Attempts to run the full Docker-backed backend suite and the full integration package were interrupted after the local harness stalled without further output.
+
+Concerns:
+- Backend Docker-backed suites could not run to assertions in this environment because the local Postgres harness did not become ready or did not publish the expected port.
+- The full priority suite still has an unrelated cache guard mismatch around `LoadFreshActiveRuntimePlan`; focused DB/scheduler/unit priority checks for this task pass.
+
+---
+
+STATUS: FIXED_TASK_12_REVIEW
+
+Changes:
+- Cleared cached endpoint-model drilldowns on every accepted usage snapshot and keyed the endpoint table reset by snapshot `generated_at`, so REST polling cannot leave stale drilldown rows cached across snapshot refreshes.
+- Added a focused Vitest hook regression covering the poll path, cache invalidation, table reset key change, and reload of a previously loaded endpoint drilldown.
+- Updated `docs/DEVELOPMENT_DIRECTION.md` so R7 is resolved as D2 websocket retirement and E1 alerting is webhook-via-outbox, not websocket reuse.
+
+Verification:
+- RED: `cd frontend && pnpm exec vitest run src/pages/statistics/useUsageStatisticsPageData.test.tsx` failed before the production fix because endpoint 10 still returned the stale cached model after polling.
+- PASS: `cd frontend && pnpm exec vitest run src/pages/statistics/useUsageStatisticsPageData.test.tsx`.
+- PASS: `cd frontend && pnpm run test -- --run`.
+- PASS: `cd frontend && pnpm run test:lib`.
+- PASS: `cd frontend && pnpm run lint`.
+- PASS: `cd frontend && pnpm run build` (existing Vite large chunk warnings only).
+- PASS: `rg -n "R7 方案|方案 B|保留 websocket|与告警增强 E1 绑定|WebSocket（决策点|实时推送.*保留" docs/DEVELOPMENT_DIRECTION.md` returned no matches.
+- Checked: `rg -in "realtime|websocket" backend/internal frontend/src --glob '!**/AGENTS.md'` only returns the existing parsed-but-ignored stale `database.pools.realtime` compatibility fields/tests under `backend/internal/platform/config`.
+
+Concerns:
+- None.
+
+---
+
+STATUS: FIXED_TASK_12_DOC_STALENESS_REVIEW
+
+Commit:
+- `a6b70170` (`docs: update websocket retirement direction`)
+
+Changes:
+- Updated untracked `docs/TEST_SUITE_REDUCTION.md` so R7 lib-test miss notes are resolved and the remaining frontend .mjs delete list/count matches current state.
+- Updated tracked `docs/DEVELOPMENT_DIRECTION.md` so T4 reflects the current globbed `test:lib` script, removed websocket lib tests, and only the remaining orphan .mjs locations.
+
+Verification:
+- PASS: focused stale R7 lib-test-name grep against `docs/TEST_SUITE_REDUCTION.md` returned no matches.
+- PASS: focused stale websocket unconnected-lib/test-list wording grep against `docs/DEVELOPMENT_DIRECTION.md` returned no matches.
+- PASS: `git diff --check -- docs/DEVELOPMENT_DIRECTION.md`.
+- PASS: cached diff before commit contained only `docs/DEVELOPMENT_DIRECTION.md`.
+
+Concerns:
+- Existing unrelated dirty files were left untouched: `.superpowers/sdd/task-9-report.md`, `docs/IMPLEMENTATION_PLAN.md`, `docs/TEST_REDUCTION_HANDOFF.md`, and `docs/TEST_REDUCTION_PLAN.md`.
+- `docs/TEST_SUITE_REDUCTION.md` remains untracked scratch/doc handoff material and was not staged or committed.
+
+---
+
+STATUS: FIXED_TASK_12_STATISTICS_POLLING_REVIEW
+
+Changes:
+- Scoped endpoint model drilldown writes to the accepted snapshot scope and `generated_at`, so an in-flight drilldown cannot repopulate cleared drilldown state after a newer polling snapshot is accepted.
+- Kept existing usage snapshot errors visible during silent polling retries until a successful snapshot is accepted.
+- Added focused hook regressions for stale drilldown resolution and silent polling error preservation.
+
+Verification:
+- RED: `cd frontend && pnpm exec vitest run src/pages/statistics/useUsageStatisticsPageData.test.tsx` failed on both new regressions before the hook fix.
+- PASS: `cd frontend && pnpm exec vitest run src/pages/statistics/useUsageStatisticsPageData.test.tsx`.
+- PASS: `cd frontend && pnpm run test -- --run`.
+- PASS: `cd frontend && pnpm run test:lib`.
+- PASS: `cd frontend && pnpm run lint`.
+
+Concerns:
+- None.
+
+---
+
+STATUS: FIXED_TASK_12_STALE_DOC_REVIEW
+
+Commit:
+- `0349ac0eae29` (`docs: update frontend test scope after websocket retirement`)
+
+Changes:
+- Updated untracked `docs/TEST_REDUCTION_HANDOFF.md` so R7 realtime-test removal is already landed, not pending or excluded as live coverage, and removed the stale deleted spec names from the batch list.
+- Updated tracked `frontend/tests/AGENTS.md` so `test:lib` is documented as globbed coverage for all direct `lib/*.test.mjs` plus `model-detail/*.test.mjs`.
+
+Verification:
+- PASS: stale handoff/test-scope grep returned no matches for deleted realtime paths, deleted e2e names, old batch-2 exclusion wording, or stale `lib/*.test.mjs`/`test:lib` allowlist wording.
+- PASS: current-state grep found the updated `test:lib` glob wording, `32 个` e2e count, and R7 landed notes.
+- PASS: `git diff --check -- docs/TEST_REDUCTION_HANDOFF.md frontend/tests/AGENTS.md`.
+- PASS: committed only `frontend/tests/AGENTS.md`; `docs/TEST_REDUCTION_HANDOFF.md` remains untracked and unstaged.
+
+Concerns:
+- Existing unrelated dirty files remain untouched: `.superpowers/sdd/task-9-report.md`, `docs/IMPLEMENTATION_PLAN.md`, `docs/TEST_REDUCTION_PLAN.md`, and `docs/TEST_SUITE_REDUCTION.md`.

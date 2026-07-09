@@ -14,12 +14,12 @@ Developers and power users working with multiple LLM API families face:
 
 ## 3. Target User
 
-Single operator (developer/power user) running the application locally or on a local network. Prism supports optional operator authentication for management APIs and proxy API keys for runtime traffic. It also supports profile-based configuration isolation for one operator (selected profile vs active profile); this is not auth multi-tenancy.
+Single operator (developer/power user) running the application locally or on a local network. Prism supports optional operator authentication for management APIs and proxy API keys for runtime traffic. Management configuration is pinned to frozen Default profile id `1` while runtime traffic always resolves to frozen Default profile id `1`; `X-Profile-Id` and profile fields are compatibility/storage attribution only. This is not auth multi-tenancy.
 
 ## 4. Core Features
 
 ### 4.1 Multi-Family Proxy
-- Operation-registered proxy support for explicit OpenAI Chat Completions, Responses, Images, Anthropic Messages/count-token, and Gemini generate/stream/count-token operations
+- Operation-registered proxy support for explicit OpenAI Chat Completions, Responses, Anthropic Messages/count-token, and Gemini generate/stream/count-token operations
 - Supports both streaming (SSE) and non-streaming responses
 - Preserves native request/response formats per API family
 - Runtime compatibility is fixed by `api_family`
@@ -65,21 +65,9 @@ Single operator (developer/power user) running the application locally or on a l
 - Endpoints can be reused across multiple models within the same profile.
 - Deleting an endpoint is blocked if any Terminal Targets in that profile still reference it.
 
-### 4.6 Terminal Target Health Detection
-- Manual health check remains available for each Terminal Target from the management UI.
-- Health probes send a minimal request using the Terminal Target's configured model ID and the same URL-building logic as the proxy engine to validate URL routing, authentication, and model availability end to end.
-- API-family-specific request format:
-  - **OpenAI**: endpoint base URL joined with `/v1/responses` or `/v1/chat/completions` based on `openai_probe_endpoint_variant`; the current OpenAI variants are `responses_minimal`, `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`. This probe choice is health-check-only. Runtime OpenAI text capability comes from `openai_text_capability`.
-  - **Anthropic**: endpoint base URL joined with `/v1/messages` with `model`, `max_tokens: 1`, and a simple message
-  - **Gemini**: endpoint base URL joined with `/v1beta/models/{model}:generateContent` with minimal content payload
-  - 2xx response → `healthy`
-  - 401/403 → `unhealthy` (authentication failed)
-  - 429 → `healthy` (connection works, just rate-limited)
-  - Connection error / timeout → `unhealthy`
-  - Other errors → `unhealthy`
-- Health checks are available in:
-  - Model Detail -> Terminal Targets list -> Actions menu ("Check Health")
-  - Model Detail -> Add/Edit Terminal Target dialog ("Test Terminal Target" button)
+### 4.6 Terminal Target Request Health
+- Manual Terminal Target test actions are removed from the management API and UI.
+- Terminal Target health indicators are driven by retained request-log data for real runtime traffic.
 
 ### 4.6.1 Terminal Target Success Rate Badge
 - Each Terminal Target displays a **success rate badge** computed from `request_logs` data
@@ -90,8 +78,7 @@ Single operator (developer/power user) running the application locally or on a l
   - **Red** (<75%): Poor health
   - **Gray** (N/A): No request data available (0 total requests)
 - The success rate badge is the primary visual indicator in the Terminal Targets list on the Model Detail page
-- The manual health check still updates `health_status` and `health_detail` in the database
-- Tooltip on hover shows: success rate percentage, total requests count, success/error counts, and last health check detail (if available)
+- Tooltip on hover shows: success rate percentage, total requests count, and success/error counts when available
 
 ### 4.6.2 Model Health Display
 - The Models page displays an aggregated health indicator for each model
@@ -109,24 +96,17 @@ Single operator (developer/power user) running the application locally or on a l
 - Add/edit/delete Terminal Targets from model detail
 - Toggle enabled/disabled access targets per model
 - Select an explicit load-balance strategy with Ban Policy settings per model
-- Manual health check for Terminal Targets with visual status indicators
-- Dedicated model-detail route (`/models/:id`) with manual health checks, Terminal Target KPIs, current loadbalance state, and loadbalance event history
+- Dedicated model-detail route (`/models/:id`) with Terminal Target KPIs, current loadbalance state, and loadbalance event history
 - Dedicated request-log browsing and investigation at `/observe/requests`, separate from dashboard analytics
 - Dedicated routes for pricing templates and proxy API key lifecycle management
 - Dashboard analytics lives under `/observe?tab=analytics` and replaces the old standalone statistics route
-- Global profile selector in the app shell controls the selected profile (management scope).
-- Active profile indicator is shown globally; runtime activation is an explicit action.
-- The protected shell bootstraps profile state from one profile-bootstrap response, while sidebar navigation and breadcrumbs are derived from local route metadata.
-- Profile create/edit/delete dialogs include active-profile delete guardrails and capacity guidance.
-- Settings is split between Profile-scoped sections (backup, billing/currency, timezone, audit/privacy, and config rules) and a Global tab for instance auth, global retention policies, and retention/deletion jobs.
+- The protected shell renders sidebar navigation and breadcrumbs from local route metadata.
+- Settings is split between Default-profile sections (billing/currency, timezone, audit/privacy, and config rules) and a Global tab for instance auth, global retention policies, and retention/deletion jobs.
 
 ### 4.8 Configuration Persistence
 - Runtime and management configuration is stored in PostgreSQL with Go-backend-managed schema migrations applied at startup
-- Startup/bootstrap process settings are owned by the plaintext `config.json` bootstrap file and managed through `/system/settings?tab=startup#startup`
+- Startup/bootstrap process settings are owned by the plaintext `config.json` bootstrap file; external edits require a Prism restart after R2
 - The default profile exists from the first startup and remains editable after initialization
-- Config export/import uses the profile-bundle contract: profile bundles are `version: 3` with `bundle_kind: profile_config`
-- Profile bundles carry `profile_settings`, encrypted `secret_payload`, top-level `loadbalance_strategies`, top-level `connections` for Terminal Targets, model `access_targets`, and `api_family`
-- Profile import preview validates bundle kind, version, secret decryption, and model compatibility before replace-mode import; unsupported versions are rejected
 - Database setup is managed by the Go backend runtime and applies the checked-in fresh-install baseline on startup
 ### 4.9 Request Statistics & Analytics
 - Automatic logging of all proxy requests with telemetry data
@@ -150,7 +130,7 @@ Token usage is extracted from upstream responses using api-family-aware parsing:
 #### 4.9.2 Token Costing
 The gateway computes the cost of each request based on the extracted token usage and the connection's assigned pricing template.
 - **Pricing Templates**: Pricing is profile-scoped and reusable. Connections reference templates via `pricing_template_id` instead of storing inline price fields.
-- **Pricing behavior**: Pricing templates use five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Management writes and profile bundle v3 import normalize missing/null/blank pricing inputs to `"0"` before validation.
+- **Pricing behavior**: Pricing templates use five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Management writes normalize missing/null/blank pricing inputs to `"0"` before validation.
 - **Semantic Note**: Explicit `"0"` means configured free pricing. `MISSING_PRICE_DATA` is reserved for absent, unusable, or invalid pricing snapshots, or missing FX data. Token costing uses canonical disjoint components: base input, cache-read input, cache-creation input, base output, and reasoning output; aggregate `cached_tokens` is derived-only for presentation.
 
 - Statistics dashboard in the Web UI with:
@@ -165,8 +145,8 @@ The gateway computes the cost of each request based on the extracted token usage
   - Get the stats-only dashboard snapshot and separate dashboard recent activity feed
   - Get aggregated statistics (counts, averages, totals) with grouping
   - Get the usage snapshot and endpoint model statistics directly when needed
-- Dashboard realtime streams split overview messages over WebSocket: `dashboard.snapshot` for aggregate stats and topology, and `dashboard.activity` for one recent activity item
-- Dashboard Analytics uses websocket-native `analytics.snapshot` payloads scoped by `{profile_id,preset}`. Each snapshot is a full replacement that includes the usage snapshot plus endpoint model statistics keyed by endpoint ID string.
+- Dashboard overview polls REST stats for the aggregate snapshot and separate recent activity feed.
+- Dashboard Analytics polls the REST usage snapshot for the selected preset and treats each accepted snapshot as a full replacement; endpoint model statistics load through REST drilldown endpoints.
 
 ### 4.10 Request Audit Logging
 Full HTTP request/response recording for proxied requests, stored in the database for auditing and debugging.
@@ -220,14 +200,13 @@ Allow users to configure custom HTTP headers on individual Terminal Targets. The
 ### 4.14 Configurable Header Blocklist
 Database-backed header blocklist with CRUD API. Supports exact and prefix match types. System defaults for Cloudflare tunnel metadata, tracing headers, and standard proxy headers. Applied by the Go runtime on every request.
 
-### 4.15 Profile Isolation & Management
-- Profiles are isolated configuration namespaces (for example A/B/C) with one globally active profile for runtime routing at any time
-- Selected profile controls management/API scope; active profile controls `/v1/*` and `/v1beta/*` runtime traffic
-- Management APIs require `X-Profile-Id` for profile-scoped `/api/*` routes, while global management routes stay outside selected-profile scoping. Global routes include profiles, auth, realtime, auth-setting flows, `GET/PUT /api/config/bootstrap`, `POST /api/config/bootstrap/validate`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`. `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`
-- Profile lifecycle supports create/list/update/activate/delete where delete is soft-delete for inactive profiles (`deleted_at`)
-- Active profile deletion is rejected; activation uses an optimistic CAS guard (`expected_active_profile_id`) and returns `409` on conflict
-- Capacity is capped at 10 non-deleted profiles; creating an 11th profile is rejected until one profile is deleted
-- Observability rows (`request_logs`, `audit_logs`) carry immutable `profile_id` attribution for historical correctness
+### 4.15 Frozen Profile Scope
+- Prism preserves the `profiles` table and all `profile_id` storage columns for historical attribution and a future unfreeze path.
+- Profile-scoped management APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
+- Global management routes stay outside profile scoping. Global routes include auth, auth-setting flows, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
+- Profile lifecycle APIs are not exposed in the current management surface.
+- Runtime proxy traffic on `/v1/*` and `/v1beta/*` ignores management profile headers and always resolves against frozen Default profile id `1`; `X-Profile-Id` and profile fields remain compatibility/storage attribution only.
+- Observability rows (`request_logs`, `audit_logs`) carry immutable `profile_id` attribution for historical correctness.
 
 
 ## 5. Non-Functional Requirements
@@ -246,12 +225,12 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 
 | Component | Technology |
 |---|---|
-| Backend | Go 1.26.4, chi, pgx, gorilla/websocket |
+| Backend | Go 1.26.5, chi, pgx |
 | HTTP Client | Go `net/http` streaming transport |
 | Database | PostgreSQL via pgx |
-| Frontend | React 19, Vite 8, TypeScript, Tailwind CSS 4, shadcn/ui, TanStack Router, React Router 7 compatibility |
+| Frontend | React 19, Vite 8, TypeScript, Tailwind CSS 4, shadcn/ui, TanStack Router |
 | API Contract | `docs/API_SPEC.md` markdown reference |
-| Communication | REST API with JSON, SSE for streaming proxy, WebSocket for realtime updates |
+| Communication | REST API with JSON and SSE for streaming proxy responses |
 
 ## 7. Out of Scope (v1)
 

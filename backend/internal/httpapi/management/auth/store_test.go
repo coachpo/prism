@@ -34,14 +34,13 @@ func TestRuntimeAuthConfigSnapshotFallsBackToStaticSettings(t *testing.T) {
 	service := &Service{staticAuthRuntimeConfig: runtimeAuthConfigSnapshotFromSettings(config.Settings{
 		AuthAccessTokenTTLSeconds:  11,
 		AuthRefreshTokenTTLSeconds: 13,
-		AuthResetCodeTTLSeconds:    17,
 		AuthCookieName:             " static_access ",
 		AuthRefreshCookieName:      " static_refresh ",
 		AuthCookieSecure:           true,
 	})}
 
 	snapshot := service.runtimeAuthConfigSnapshot()
-	if snapshot.AccessTokenTTL != 11*time.Second || snapshot.RefreshTokenTTL != 13*time.Second || snapshot.ResetCodeTTL != 17*time.Second {
+	if snapshot.AccessTokenTTL != 11*time.Second || snapshot.RefreshTokenTTL != 13*time.Second {
 		t.Fatalf("unexpected static TTL snapshot: %+v", snapshot)
 	}
 	if snapshot.AccessCookieName != "static_access" || snapshot.RefreshCookieName != "static_refresh" || !snapshot.CookieSecure {
@@ -54,14 +53,12 @@ func TestRuntimeAuthConfigSnapshotUsesProviderWhenPresent(t *testing.T) {
 		staticAuthRuntimeConfig: runtimeAuthConfigSnapshotFromSettings(config.Settings{
 			AuthAccessTokenTTLSeconds:  11,
 			AuthRefreshTokenTTLSeconds: 13,
-			AuthResetCodeTTLSeconds:    17,
 			AuthCookieName:             "static_access",
 			AuthRefreshCookieName:      "static_refresh",
 		}),
 		authRuntimeConfigProvider: testRuntimeAuthConfigProvider{snapshot: RuntimeAuthConfigSnapshot{
 			AccessTokenTTL:    19 * time.Second,
 			RefreshTokenTTL:   23 * time.Second,
-			ResetCodeTTL:      29 * time.Second,
 			AccessCookieName:  "hot_access",
 			RefreshCookieName: "hot_refresh",
 			CookieSecure:      true,
@@ -69,7 +66,7 @@ func TestRuntimeAuthConfigSnapshotUsesProviderWhenPresent(t *testing.T) {
 	}
 
 	snapshot := service.runtimeAuthConfigSnapshot()
-	if snapshot.AccessTokenTTL != 19*time.Second || snapshot.RefreshTokenTTL != 23*time.Second || snapshot.ResetCodeTTL != 29*time.Second {
+	if snapshot.AccessTokenTTL != 19*time.Second || snapshot.RefreshTokenTTL != 23*time.Second {
 		t.Fatalf("unexpected provider TTL snapshot: %+v", snapshot)
 	}
 	if snapshot.AccessCookieName != "hot_access" || snapshot.RefreshCookieName != "hot_refresh" || !snapshot.CookieSecure {
@@ -99,7 +96,7 @@ func TestNormalizeUsernameAndNotes(t *testing.T) {
 	}
 }
 
-func TestValidateProxyKeyNameAndEmail(t *testing.T) {
+func TestValidateProxyKeyName(t *testing.T) {
 	if got, err := validateProxyKeyName("  Primary Key  "); err != nil || got != "Primary Key" {
 		t.Fatalf("expected trimmed proxy key name, got name=%q err=%v", got, err)
 	}
@@ -114,19 +111,6 @@ func TestValidateProxyKeyNameAndEmail(t *testing.T) {
 		requireAuthDomainError(t, err, 400, "name must be at most 200 characters")
 	}
 
-	if got, err := validateEmail("  admin@example.com  "); err != nil || got != "admin@example.com" {
-		t.Fatalf("expected trimmed email, got email=%q err=%v", got, err)
-	}
-	if _, err := validateEmail("invalid"); err == nil {
-		t.Fatal("expected invalid email to fail")
-	} else {
-		requireAuthDomainError(t, err, 400, "email must be valid")
-	}
-	if _, err := validateEmail(strings.Repeat("a", 321) + "@example.com"); err == nil {
-		t.Fatal("expected overly long email to fail")
-	} else {
-		requireAuthDomainError(t, err, 400, "email must be at most 320 characters")
-	}
 }
 
 func TestLoginThrottleKeyNormalizesSubjectAndRemoteAddress(t *testing.T) {

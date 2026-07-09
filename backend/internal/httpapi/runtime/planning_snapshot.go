@@ -17,7 +17,8 @@ import (
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
 	gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
 	"github.com/coachpo/prism/backend/internal/gateway/provider/openai"
-	"github.com/coachpo/prism/backend/internal/providercompat"
+	"github.com/coachpo/prism/backend/internal/profiledomain"
+	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
 type planningSnapshot struct {
@@ -126,7 +127,7 @@ func buildPlanningSnapshot(ctx context.Context, tx pgx.Tx, profileID int, secret
 
 func compileRuntimeConnection(connection runtimeConnection, apiFamily string, secretEncryptionKey string) (runtimeConnection, error) {
 	compiled := connection
-	config, err := providercompat.ResolveAuthProfile(connection.AuthType, apiFamily)
+	config, err := providerauth.ResolveAuthProfile(connection.AuthType, apiFamily)
 	if err != nil {
 		return runtimeConnection{}, err
 	}
@@ -153,27 +154,14 @@ func compileRuntimeConnection(connection runtimeConnection, apiFamily string, se
 }
 
 func listPublishedPlanningProfileIDs(ctx context.Context, tx pgx.Tx) ([]int, error) {
-	rows, err := tx.Query(
-		ctx,
-		`SELECT id FROM profiles WHERE deleted_at IS NULL ORDER BY id ASC`,
-	)
+	profile, found, err := profiledomain.LoadNonDeletedProfile(ctx, tx, profiledomain.DefaultProfileID)
 	if err != nil {
-		return nil, fmt.Errorf("query published planning profile ids: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-
-	profileIDs := make([]int, 0)
-	for rows.Next() {
-		var profileID int
-		if err := rows.Scan(&profileID); err != nil {
-			return nil, fmt.Errorf("scan published planning profile id: %w", err)
-		}
-		profileIDs = append(profileIDs, profileID)
+	if !found {
+		return nil, fmt.Errorf("%w: default profile %d not found", ErrPublishedRuntimeSnapshotUnavailable, profiledomain.DefaultProfileID)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate published planning profile ids: %w", err)
-	}
-	return profileIDs, nil
+	return []int{profile.ID}, nil
 }
 
 const runtimeAccessResolverMaxDepth = 32
@@ -192,7 +180,7 @@ type runtimeAccessResolutionContext struct {
 }
 
 func (model runtimeModelRecord) allowsOpenAITextSiblingTranslation() bool {
-	return providercompat.IsOpenAI(model.APIFamily)
+	return providerauth.IsOpenAI(model.APIFamily)
 }
 
 type runtimeResolvedAccessPlan struct {
@@ -842,7 +830,7 @@ func listActiveConnectionsForProfile(ctx context.Context, tx pgx.Tx, profileID i
 		`SELECT connections.id, connections.profile_id, connections.api_family, connections.endpoint_id,
 			connections.priority, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream,
 			connections.name, connections.auth_type, connections.custom_headers, connections.pricing_template_id,
-			connections.openai_probe_endpoint_variant, connections.openai_text_capability,
+			connections.openai_text_capability,
 			pricing_templates.id, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code,
 			pricing_templates.input_price::text, pricing_templates.output_price::text,
 			pricing_templates.cached_input_price::text, pricing_templates.cache_creation_price::text,
@@ -883,7 +871,6 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 	var authType sql.NullString
 	var customHeaders sql.NullString
 	var pricingTemplateID sql.NullInt32
-	var openAIProbeEndpointVariant sql.NullString
 	var openAITextCapability sql.NullString
 	var templateID sql.NullInt32
 	var templatePricingUnit sql.NullString
@@ -909,7 +896,6 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 		&authType,
 		&customHeaders,
 		&pricingTemplateID,
-		&openAIProbeEndpointVariant,
 		&openAITextCapability,
 		&templateID,
 		&templatePricingUnit,
@@ -934,7 +920,6 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 	record.AuthType = nullableString(authType)
 	record.CustomHeaders = parseCustomHeaders(customHeaders)
 	record.PricingTemplateID = nullableInt32(pricingTemplateID)
-	record.OpenAIProbeEndpointVariant = nullableString(openAIProbeEndpointVariant)
 	record.OpenAITextCapability = nullableString(openAITextCapability)
 	record.Endpoint.Name = nullableString(endpointName)
 	if templateID.Valid {
@@ -955,21 +940,20 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 
 func runtimeConnectionFromTerminalTargetRecord(record terminaltarget.RuntimeRecord) runtimeConnection {
 	item := runtimeConnection{
-		ID:                         record.ID,
-		ProfileID:                  record.ProfileID,
-		APIFamily:                  record.APIFamily,
-		EndpointID:                 record.EndpointID,
-		Priority:                   record.Priority,
-		QPSLimit:                   record.QPSLimit,
-		MaxInFlightNonStream:       record.MaxInFlightNonStream,
-		MaxInFlightStream:          record.MaxInFlightStream,
-		Name:                       record.Name,
-		AuthType:                   record.AuthType,
-		EncryptedEndpointAPIKey:    record.Endpoint.EncryptedAPIKey,
-		CustomHeaders:              record.CustomHeaders,
-		PricingTemplateID:          record.PricingTemplateID,
-		OpenAIProbeEndpointVariant: record.OpenAIProbeEndpointVariant,
-		OpenAITextCapability:       record.OpenAITextCapability,
+		ID:                      record.ID,
+		ProfileID:               record.ProfileID,
+		APIFamily:               record.APIFamily,
+		EndpointID:              record.EndpointID,
+		Priority:                record.Priority,
+		QPSLimit:                record.QPSLimit,
+		MaxInFlightNonStream:    record.MaxInFlightNonStream,
+		MaxInFlightStream:       record.MaxInFlightStream,
+		Name:                    record.Name,
+		AuthType:                record.AuthType,
+		EncryptedEndpointAPIKey: record.Endpoint.EncryptedAPIKey,
+		CustomHeaders:           record.CustomHeaders,
+		PricingTemplateID:       record.PricingTemplateID,
+		OpenAITextCapability:    record.OpenAITextCapability,
 		Endpoint: runtimeEndpoint{
 			ID:      record.Endpoint.ID,
 			Name:    record.Endpoint.Name,

@@ -14,7 +14,6 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	"github.com/coachpo/prism/backend/internal/platform/lifecycle"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
-	platformtelemetry "github.com/coachpo/prism/backend/internal/platform/telemetry"
 )
 
 const (
@@ -30,15 +29,12 @@ var (
 	newStartupRunner = func(options startup.Options) (startupRunner, error) {
 		return startup.New(options)
 	}
-	newTelemetryProviders = platformtelemetry.BuildProviders
-	newPlatformApp        = lifecycle.NewProductionApp
+	newPlatformApp = lifecycle.NewProductionApp
 )
 
 type bootstrapStartupConfig struct {
-	Settings           config.Settings
-	ConfigPath         string
-	LoadedRevision     int
-	LoadedDocumentETag string
+	Settings   config.Settings
+	ConfigPath string
 }
 
 func main() {
@@ -88,17 +84,6 @@ func run(ctx context.Context) error {
 		return nil
 	}
 
-	telemetryProviders, err := newTelemetryProviders(ctx, settings.Telemetry)
-	if err != nil {
-		return newRunError("failed to build telemetry providers", err)
-	}
-	telemetryOwnedByLifecycle := false
-	defer func() {
-		if !telemetryOwnedByLifecycle {
-			shutdownStartupTelemetry(telemetryProviders)
-		}
-	}()
-
 	startupService, err := newStartupRunner(startup.Options{
 		DatabaseURL:         settings.DatabaseURL,
 		SecretEncryptionKey: settings.SecretEncryptionKey,
@@ -120,18 +105,10 @@ func run(ctx context.Context) error {
 		startupResult.Migration.Outcome,
 	)
 
-	app, server, err := newPlatformApp(ctx, settings, lifecycle.ProductionOptions{
-		BootstrapConfig: lifecycle.BootstrapConfigOptions{
-			ConfigPath:         bootstrapConfig.ConfigPath,
-			LoadedRevision:     bootstrapConfig.LoadedRevision,
-			LoadedDocumentETag: bootstrapConfig.LoadedDocumentETag,
-		},
-		TelemetryShutdown: telemetryProviders.Shutdown,
-	})
+	app, server, err := newPlatformApp(ctx, settings)
 	if err != nil {
 		return newRunError("failed to build server", err)
 	}
-	telemetryOwnedByLifecycle = true
 
 	slog.Info(
 		"starting prism backend",
@@ -151,17 +128,6 @@ func runStartupWithTimeout(ctx context.Context, service startupRunner, timeout t
 	return service.Run(startupCtx)
 }
 
-func shutdownStartupTelemetry(telemetryProviders interface{ Shutdown(context.Context) error }) {
-	if telemetryProviders == nil {
-		return
-	}
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := telemetryProviders.Shutdown(shutdownCtx); err != nil {
-		slog.Warn("startup telemetry shutdown failed", "error", err)
-	}
-}
-
 func loadBootstrapSettings() (bootstrapStartupConfig, error) {
 	bootstrapConfigPath := strings.TrimSpace(os.Getenv(config.BootstrapConfigPathEnv))
 	if bootstrapConfigPath == "" {
@@ -169,15 +135,13 @@ func loadBootstrapSettings() (bootstrapStartupConfig, error) {
 	}
 
 	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
-	snapshot, settings, err := loadBootstrapConfigDocumentWithRepair(manager, bootstrapConfigPath)
+	_, settings, err := loadBootstrapConfigDocumentWithRepair(manager, bootstrapConfigPath)
 	if err != nil {
 		return bootstrapStartupConfig{}, err
 	}
 	return bootstrapStartupConfig{
-		Settings:           settings,
-		ConfigPath:         bootstrapConfigPath,
-		LoadedRevision:     snapshot.FileRevision,
-		LoadedDocumentETag: snapshot.DocumentETag,
+		Settings:   settings,
+		ConfigPath: bootstrapConfigPath,
 	}, nil
 }
 

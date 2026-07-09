@@ -1,40 +1,29 @@
-package contract_test
+package contracttest
 
 import (
 	"context"
 	"fmt"
 	"testing"
+
 	"time"
+
+	"github.com/coachpo/prism/backend/tests/testsupport/logpartitions"
 )
 
-type contractTestLogPartition struct {
-	tableName string
-	timestamp time.Time
+func contractTestLogPartitionFor(tableName string, timestamp time.Time) logpartitions.Partition {
+	return logpartitions.For(tableName, timestamp)
 }
 
-func contractTestLogPartitionFor(tableName string, timestamp time.Time) contractTestLogPartition {
-	return contractTestLogPartition{tableName: tableName, timestamp: timestamp.UTC()}
-}
-
-func ensureContractTestLogPartitions(tb testing.TB, harness *contractHarness, partitions ...contractTestLogPartition) {
+func ensureContractTestLogPartitions(tb testing.TB, harness *contractHarness, partitions ...logpartitions.Partition) {
 	tb.Helper()
 	if harness == nil || harness.conn == nil {
 		tb.Fatal("contract log partition helper requires harness connection")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	seen := make(map[string]struct{}, len(partitions))
-	for _, partition := range partitions {
-		day := utcContractPartitionDay(partition.timestamp)
-		key := partition.tableName + ":" + day.Format("20060102")
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		if err := ensureContractTestLogPartition(ctx, harness, partition.tableName, day); err != nil {
-			tb.Fatalf("ensure %s partition for %s: %v", partition.tableName, day.Format("2006-01-02"), err)
-		}
-	}
+	logpartitions.Ensure(tb, partitions, func(tableName string, day time.Time) error {
+		return ensureContractTestLogPartition(ctx, harness, tableName, day)
+	})
 }
 
 func ensureContractTestLogPartition(ctx context.Context, harness *contractHarness, tableName string, day time.Time) error {
@@ -51,8 +40,8 @@ func ensureContractTestLogPartition(ctx context.Context, harness *contractHarnes
 			`toast.autovacuum_vacuum_threshold = 10000)`,
 		quoteIdentifier(partitionName),
 		quoteIdentifier(tableName),
-		quoteContractTimestamp(day),
-		quoteContractTimestamp(end),
+		logpartitions.QuoteTimestamp(day),
+		logpartitions.QuoteTimestamp(end),
 	)
 	if _, err := harness.conn.Exec(ctx, query); err != nil {
 		return fmt.Errorf("create partition %s for %s: %w", partitionName, tableName, err)
@@ -89,10 +78,5 @@ func isContractManagedLogTable(tableName string) bool {
 }
 
 func utcContractPartitionDay(timestamp time.Time) time.Time {
-	utc := timestamp.UTC()
-	return time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC)
-}
-
-func quoteContractTimestamp(timestamp time.Time) string {
-	return "'" + timestamp.UTC().Format("2006-01-02 15:04:05-07:00") + "'"
+	return logpartitions.Day(timestamp)
 }

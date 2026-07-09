@@ -6,8 +6,6 @@ export type PrismRouteScope = "public" | "protected-global" | "protected-selecte
 export type PrismRouteId =
   | "observe"
   | "auth-login"
-  | "auth-forgot-password"
-  | "auth-reset-password"
   | "models"
   | "model-detail"
   | "route-endpoints"
@@ -27,7 +25,12 @@ export const observeSearchSchema = z.object({
   tab: z.enum(["overview", "analytics", "routing"]).catch("overview"),
 })
 
+export const authLoginSearchSchema = z.object({
+  redirect: optionalSearchStringSchema.catch(undefined),
+})
+
 export const requestLogSearchSchema = z.object({
+  client_rule_id: searchStringSchema.catch(""),
   cursor: z.coerce.number().int().min(0).catch(0),
   endpoint: searchStringSchema.catch(""),
   endpoint_id: searchStringSchema.catch(""),
@@ -37,10 +40,15 @@ export const requestLogSearchSchema = z.object({
   model_id: searchStringSchema.catch(""),
   offset: z.coerce.number().int().min(0).catch(0),
   request_id: requestIdSearchSchema,
+  resolved_target_model_id: searchStringSchema.catch(""),
   selected_request_id: requestIdSearchSchema,
-  status: z.enum(["all", "client_error", "error"]).catch("all"),
-  status_family: z.enum(["all", "4xx", "5xx"]).catch("all"),
-  time_range: z.enum(["1h", "6h", "24h", "7d", "30d", "all"]).catch("1h"),
+  status: z.enum(["all", "success", "client_error", "error"]).catch("all"),
+  status_code: searchStringSchema.catch(""),
+  error_text: searchStringSchema.catch(""),
+  priced: z.enum(["all", "true", "false"]).catch("all"),
+  unpriced_reason: searchStringSchema.catch(""),
+  status_family: z.enum(["all", "2xx", "4xx", "5xx"]).catch("all"),
+  time_range: z.enum(["1h", "6h", "24h", "7d", "30d", "all"]).catch("24h"),
 })
 
 export const requestAuditSearchSchema = z.object({
@@ -48,36 +56,29 @@ export const requestAuditSearchSchema = z.object({
   cursor: optionalSearchStringSchema.catch(undefined),
 })
 
-export const resetPasswordSearchSchema = z.object({
-  token: z.string().optional(),
-  code: z.string().optional(),
-})
-
 export const settingsSearchSchema = z.object({
-  tab: z.enum(["profile", "global", "startup"]).catch("profile"),
+  tab: z.enum(["profile", "global"]).catch("profile"),
   section: z.string().optional(),
 })
 
 export const emptySearchSchema = z.object({})
 
 export type ObserveSearch = z.input<typeof observeSearchSchema>
+export type AuthLoginSearch = z.input<typeof authLoginSearchSchema>
 export type RequestLogSearch = z.input<typeof requestLogSearchSchema>
 export type RequestAuditSearch = z.input<typeof requestAuditSearchSchema>
-export type ResetPasswordSearch = z.input<typeof resetPasswordSearchSchema>
 export type SettingsSearch = z.input<typeof settingsSearchSchema>
 export type ModelDetailRouteSearch = z.input<typeof modelDetailSearchSchema>
 interface StaticRouteDefinition {
   readonly id: Exclude<PrismRouteId, "model-detail" | "observe-request-audit">
   readonly path: string
   readonly scope: PrismRouteScope
-  readonly searchSchema: typeof emptySearchSchema | typeof observeSearchSchema | typeof requestLogSearchSchema | typeof resetPasswordSearchSchema | typeof settingsSearchSchema
+  readonly searchSchema: typeof authLoginSearchSchema | typeof emptySearchSchema | typeof observeSearchSchema | typeof requestLogSearchSchema | typeof settingsSearchSchema
 }
 
 export const prismRouteDefinitions = [
   { id: "observe", path: "/observe", scope: "mixed", searchSchema: observeSearchSchema },
-  { id: "auth-login", path: "/auth/login", scope: "public", searchSchema: emptySearchSchema },
-  { id: "auth-forgot-password", path: "/auth/forgot-password", scope: "public", searchSchema: emptySearchSchema },
-  { id: "auth-reset-password", path: "/auth/reset-password", scope: "public", searchSchema: resetPasswordSearchSchema },
+  { id: "auth-login", path: "/auth/login", scope: "public", searchSchema: authLoginSearchSchema },
   { id: "models", path: "/models", scope: "protected-selected-profile", searchSchema: emptySearchSchema },
   { id: "route-endpoints", path: "/route/endpoints", scope: "protected-selected-profile", searchSchema: emptySearchSchema },
   { id: "route-ban-policies", path: "/route/ban-policies", scope: "protected-selected-profile", searchSchema: emptySearchSchema },
@@ -91,24 +92,10 @@ export const prismDynamicRouteDefinitions = [
   { id: "model-detail", path: "/models/$modelId", scope: "protected-selected-profile" },
   { id: "observe-request-audit", path: "/observe/requests/$requestId/audit", scope: "protected-selected-profile" },
 ] as const
-export const rewriteCompatibilityRoutePaths = [
-  "/dashboard",
-  "/login",
-  "/forgot-password",
-  "/reset-password",
-  "/endpoints",
-  "/loadbalance-strategies",
-  "/settings",
-  "/proxy-api-keys",
-  "/pricing-templates",
-  "/request-logs",
-  "/request-logs/$requestId/audit",
-] as const
 
 export const rewriteRoutePaths = [
   ...prismRouteDefinitions.map((route) => route.path),
   ...prismDynamicRouteDefinitions.map((route) => route.path),
-  ...rewriteCompatibilityRoutePaths,
 ] as const
 
 export type RewriteRoutePath = (typeof rewriteRoutePaths)[number]
@@ -116,8 +103,6 @@ export type RewriteRoutePath = (typeof rewriteRoutePaths)[number]
 export const prismPathById = {
   observe: "/observe",
   "auth-login": "/auth/login",
-  "auth-forgot-password": "/auth/forgot-password",
-  "auth-reset-password": "/auth/reset-password",
   models: "/models",
   "model-detail": "/models/$modelId",
   "route-endpoints": "/route/endpoints",
@@ -129,39 +114,10 @@ export const prismPathById = {
   "observe-request-audit": "/observe/requests/$requestId/audit",
 } as const satisfies Record<PrismRouteId, RewriteRoutePath>
 
-export const legacyRouteRedirects = {
-  "/": "/observe",
-  "/dashboard": "/observe",
-  "/login": "/auth/login",
-  "/forgot-password": "/auth/forgot-password",
-  "/reset-password": "/auth/reset-password",
-  "/endpoints": "/route/endpoints",
-  "/loadbalance-strategies": "/route/ban-policies",
-  "/settings": "/system/settings",
-  "/proxy-api-keys": "/control/proxy-keys",
-  "/pricing-templates": "/route/pricing",
-  "/request-logs": "/observe/requests",
-} as const
-
-export type LegacyRoutePath = keyof typeof legacyRouteRedirects
-
 export function buildModelDetailPath(modelId: string | number): string {
   return `/models/${encodeURIComponent(String(modelId))}`
 }
 
 export function buildRequestAuditPath(requestId: string | number): string {
   return `/observe/requests/${encodeURIComponent(String(requestId))}/audit`
-}
-
-export function buildLegacyRequestAuditRedirect(requestId: string | number): string {
-  return buildRequestAuditPath(requestId)
-}
-
-export function getLegacyRedirectPath(pathname: string): string | null {
-  if (pathname.startsWith("/request-logs/") && pathname.endsWith("/audit")) {
-    const requestId = pathname.slice("/request-logs/".length, -"/audit".length)
-    return requestId ? buildLegacyRequestAuditRedirect(decodeURIComponent(requestId)) : null
-  }
-
-  return legacyRouteRedirects[pathname as LegacyRoutePath] ?? null
 }

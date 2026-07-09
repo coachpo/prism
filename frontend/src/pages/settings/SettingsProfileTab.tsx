@@ -2,7 +2,6 @@ import type { RefObject } from "react";
 import { SettingsSectionsNav } from "./SettingsSectionsNav";
 import type { SettingsPageData } from "./useSettingsPageData";
 import { AuditConfigurationSection } from "./sections/AuditConfigurationSection";
-import { BackupSection } from "./sections/BackupSection";
 import { BillingCurrencySection } from "./sections/BillingCurrencySection";
 import { TimezoneSection } from "./sections/TimezoneSection";
 
@@ -32,26 +31,6 @@ export function SettingsProfileTab({
         </aside>
 
         <div className="flex flex-col gap-5">
-          <BackupSection
-            selectedProfileLabel={data.selectedProfileLabel}
-            exportSecretsAcknowledged={data.exportSecretsAcknowledged}
-            exportingMode={data.exportingMode}
-            fileInputRef={data.fileInputRef}
-            handleDangerousExport={data.handleDangerousExport}
-            handleFileSelect={data.handleFileSelect}
-            handleImport={data.handleImport}
-            handlePreviewImport={data.handlePreviewImport}
-            handleSafeExport={data.handleSafeExport}
-            importing={data.importing}
-            importSummary={data.importSummary}
-            parsedConfig={data.parsedConfig}
-            previewInvalidationReason={data.previewInvalidationReason}
-            previewResult={data.previewResult}
-            previewing={data.previewing}
-            selectedFile={data.selectedFile}
-            setExportSecretsAcknowledged={data.setExportSecretsAcknowledged}
-          />
-
           <BillingCurrencySection
             billingDirty={data.billingDirty}
             renderSectionSaveState={data.renderSaveStateForSection}

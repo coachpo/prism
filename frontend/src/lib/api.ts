@@ -1,4 +1,4 @@
-import { ApiError, getApiProfileId, setApiProfileId } from "./api/core";
+import { ApiError, getApiProfileId } from "./api/core";
 import { auth, settings } from "./api/authSettings";
 import {
   audit,
@@ -16,10 +16,9 @@ import {
   loadbalanceStrategies,
   models,
   pricingTemplates,
-  profiles,
 } from "./api/management";
 
-export { ApiError, getApiProfileId, setApiProfileId };
+export { ApiError, getApiProfileId };
 export { stats } from "./api/observability";
 
 export const api = {
@@ -32,7 +31,6 @@ export const api = {
   loadbalanceStrategies,
   models,
   pricingTemplates,
-  profiles,
   settings: {
     ...settings,
     audit: settingsAudit,

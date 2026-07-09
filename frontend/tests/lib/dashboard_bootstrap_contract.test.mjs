@@ -115,15 +115,20 @@ function recentActivity(items) {
   };
 }
 
-test("dashboard bootstrap production code has no request-log snapshot freshness path", () => {
-  const source = readFileSync(hookPath, "utf8");
-  const removedSnapshotField = new RegExp(["recent", "requests"].join("_"));
+function incidents() {
+  return {
+    active_bans: [],
+    recent_events: [],
+    generated_at: "2026-05-04T00:00:00Z",
+  };
+}
 
-  assert.doesNotMatch(source, /getLatestDashboardSnapshotRequestId/);
-  assert.doesNotMatch(source, /latestDashboardRequestIdRef/);
-  assert.doesNotMatch(source, removedSnapshotField);
-  assert.doesNotMatch(source, /allowEqualRequestId/);
-  assert.doesNotMatch(source, /source_watermark[\s\S]*[<>]=?/);
+test("dashboard bootstrap production code keeps snapshot revision and recent activity hooks", () => {
+  const source = readFileSync(hookPath, "utf8");
+  assert.match(source, /shouldApplyDashboardSnapshotRevision/);
+  assert.match(source, /snapshot_revision/);
+  assert.match(source, /DashboardRecentActivityWatermark/);
+  assert.match(source, /dashboardRecentActivity/);
 });
 
 test("snapshot reconciliation accepts only lexicographically newer revisions", () => {
@@ -161,7 +166,14 @@ test("bootstrap fetches snapshot and recent activity through separate typed API 
   const calls = [];
   const expectedSnapshot = snapshot("03");
   const expectedActivity = recentActivity([activityItem(101)]);
+  const expectedIncidents = incidents();
   const api = {
+    loadbalance: {
+      listIncidents: async (params) => {
+        calls.push(["listIncidents", params]);
+        return expectedIncidents;
+      },
+    },
     stats: {
       dashboard: async () => {
         calls.push(["dashboard"]);
@@ -181,10 +193,12 @@ test("bootstrap fetches snapshot and recent activity through separate typed API 
   assert.deepEqual(calls, [
     ["dashboard"],
     ["dashboardRecentActivity", { limit: 12 }],
+    ["listIncidents", { limit: 10, since_hours: 24 }],
   ]);
-  assert.deepEqual(result, { recentActivityApplied: true, snapshotApplied: true });
+  assert.deepEqual(result, { newRecentActivityIds: [101], recentActivityApplied: true, snapshotApplied: true });
   assert.equal(harness.states[1], expectedSnapshot);
   assert.equal(harness.states[2], expectedActivity);
+  assert.equal(harness.states[3], expectedIncidents);
 });
 
 test("recent activity merge dedupes by request-log ID without changing snapshot freshness", () => {

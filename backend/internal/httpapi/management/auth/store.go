@@ -37,21 +37,15 @@ type queryExecutor interface {
 }
 
 type appAuthSettingsRow struct {
-	ID                            int
-	AuthEnabled                   bool
-	Username                      sql.NullString
-	Email                         sql.NullString
-	PendingEmail                  sql.NullString
-	PasswordHash                  sql.NullString
-	EmailBoundAt                  sql.NullTime
-	EmailVerificationCodeHash     sql.NullString
-	EmailVerificationExpiresAt    sql.NullTime
-	EmailVerificationAttemptCount int
-	MustChangePassword            bool
-	LastLoginAt                   sql.NullTime
-	TokenVersion                  int
-	CreatedAt                     time.Time
-	UpdatedAt                     time.Time
+	ID                 int
+	AuthEnabled        bool
+	Username           sql.NullString
+	PasswordHash       sql.NullString
+	MustChangePassword bool
+	LastLoginAt        sql.NullTime
+	TokenVersion       int
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 type AppAuthSettingsSnapshot struct {
@@ -101,17 +95,6 @@ type proxyAPIKeyRow struct {
 	UpdatedAt              time.Time
 }
 
-type passwordResetChallengeRow struct {
-	ID            int
-	AuthSubjectID int
-	OTPHash       string
-	ExpiresAt     time.Time
-	ConsumedAt    sql.NullTime
-	AttemptCount  int
-	RequestedIP   sql.NullString
-	CreatedAt     time.Time
-}
-
 type loginThrottleKey struct {
 	SubjectKey    string
 	RemoteAddress string
@@ -156,29 +139,18 @@ func (s *Service) loadOrCreateAppAuthSettings(ctx context.Context, exec queryExe
 			singleton_key,
 			auth_enabled,
 			username,
-			email,
-			pending_email,
 			password_hash,
-			email_bound_at,
-			email_verification_code_hash,
-			email_verification_expires_at,
 			email_verification_attempt_count,
 			must_change_password,
 			last_login_at,
 			token_version,
 			created_at,
 			updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-		RETURNING id, auth_enabled, username, email, pending_email, password_hash, email_bound_at,
-			email_verification_code_hash, email_verification_expires_at, email_verification_attempt_count,
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		RETURNING id, auth_enabled, username, password_hash,
 			must_change_password, last_login_at, token_version, created_at, updated_at`,
 		"app",
 		false,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
 		nil,
 		nil,
 		0,
@@ -194,8 +166,7 @@ func (s *Service) loadOrCreateAppAuthSettings(ctx context.Context, exec queryExe
 func loadAppAuthSettings(ctx context.Context, exec queryExecutor) (appAuthSettingsRow, error) {
 	scanner := exec.QueryRow(
 		ctx,
-		`SELECT id, auth_enabled, username, email, pending_email, password_hash, email_bound_at,
-			email_verification_code_hash, email_verification_expires_at, email_verification_attempt_count,
+		`SELECT id, auth_enabled, username, password_hash,
 			must_change_password, last_login_at, token_version, created_at, updated_at
 		FROM app_auth_settings
 		WHERE singleton_key = $1
@@ -212,13 +183,7 @@ func scanAppAuthSettings(scanner interface{ Scan(...any) error }) (appAuthSettin
 		&row.ID,
 		&row.AuthEnabled,
 		&row.Username,
-		&row.Email,
-		&row.PendingEmail,
 		&row.PasswordHash,
-		&row.EmailBoundAt,
-		&row.EmailVerificationCodeHash,
-		&row.EmailVerificationExpiresAt,
-		&row.EmailVerificationAttemptCount,
 		&row.MustChangePassword,
 		&row.LastLoginAt,
 		&row.TokenVersion,
@@ -445,8 +410,7 @@ func (s *Service) updateLastLogin(ctx context.Context, tx pgx.Tx, settingsID int
 		`UPDATE app_auth_settings
 		SET last_login_at = $2, updated_at = $2
 		WHERE id = $1
-		RETURNING id, auth_enabled, username, email, pending_email, password_hash, email_bound_at,
-			email_verification_code_hash, email_verification_expires_at, email_verification_attempt_count,
+		RETURNING id, auth_enabled, username, password_hash,
 			must_change_password, last_login_at, token_version, created_at, updated_at`,
 		settingsID,
 		timestamp,
@@ -685,9 +649,6 @@ func (s *Service) updateAuthSettings(ctx context.Context, tx pgx.Tx, settingsRow
 		if username == nil || *username == "" {
 			return authSettingsMutationResult{}, &domainError{StatusCode: 400, Detail: "username is required"}
 		}
-		if !settingsRow.Email.Valid || !settingsRow.EmailBoundAt.Valid {
-			return authSettingsMutationResult{}, &domainError{StatusCode: 400, Detail: "A verified email is required"}
-		}
 		if !settingsRow.PasswordHash.Valid && (password == nil || *password == "") {
 			return authSettingsMutationResult{}, &domainError{StatusCode: 400, Detail: "password is required"}
 		}
@@ -737,8 +698,7 @@ func (s *Service) updateAuthSettings(ctx context.Context, tx pgx.Tx, settingsRow
 		`UPDATE app_auth_settings
 		SET auth_enabled = $2, username = $3, password_hash = $4, token_version = $5, updated_at = $6
 		WHERE id = $1
-		RETURNING id, auth_enabled, username, email, pending_email, password_hash, email_bound_at,
-			email_verification_code_hash, email_verification_expires_at, email_verification_attempt_count,
+		RETURNING id, auth_enabled, username, password_hash,
 			must_change_password, last_login_at, token_version, created_at, updated_at`,
 		settingsRow.ID,
 		updatedRow.AuthEnabled,
@@ -752,213 +712,6 @@ func (s *Service) updateAuthSettings(ctx context.Context, tx pgx.Tx, settingsRow
 		return authSettingsMutationResult{}, fmt.Errorf("update auth settings: %w", err)
 	}
 	return authSettingsMutationResult{Row: row, SessionInvalidated: settingsRow.AuthEnabled && revokeSessions}, nil
-}
-
-func (s *Service) beginEmailVerification(ctx context.Context, tx pgx.Tx, authConfig RuntimeAuthConfigSnapshot, settingsRow appAuthSettingsRow, email string) (appAuthSettingsRow, string, error) {
-	otpCode, err := generateOTPCode()
-	if err != nil {
-		return appAuthSettingsRow{}, "", err
-	}
-	now := s.nowUTC()
-	expiresAt := now.Add(authConfig.ResetCodeTTL)
-	scanner := tx.QueryRow(
-		ctx,
-		`UPDATE app_auth_settings
-		SET pending_email = $2,
-			email_verification_code_hash = $3,
-			email_verification_expires_at = $4,
-			email_verification_attempt_count = 0,
-			updated_at = $5
-		WHERE id = $1
-		RETURNING id, auth_enabled, username, email, pending_email, password_hash, email_bound_at,
-			email_verification_code_hash, email_verification_expires_at, email_verification_attempt_count,
-			must_change_password, last_login_at, token_version, created_at, updated_at`,
-		settingsRow.ID,
-		email,
-		hashOpaqueToken(otpCode),
-		expiresAt,
-		now,
-	)
-	updatedRow, err := scanAppAuthSettings(scanner)
-	if err != nil {
-		return appAuthSettingsRow{}, "", fmt.Errorf("begin email verification: %w", err)
-	}
-	return updatedRow, otpCode, nil
-}
-
-func (s *Service) confirmEmailVerification(ctx context.Context, tx pgx.Tx, settingsRow appAuthSettingsRow, otpCode string) (appAuthSettingsRow, error) {
-	now := s.nowUTC()
-	if !settingsRow.PendingEmail.Valid || !settingsRow.EmailVerificationCodeHash.Valid || !settingsRow.EmailVerificationExpiresAt.Valid || settingsRow.EmailVerificationExpiresAt.Time.Before(now) {
-		return appAuthSettingsRow{}, &domainError{StatusCode: 400, Detail: "Email verification code is invalid or expired"}
-	}
-	if settingsRow.EmailVerificationAttemptCount >= 5 {
-		return appAuthSettingsRow{}, &domainError{StatusCode: 429, Detail: "Too many verification attempts"}
-	}
-	attemptCount := settingsRow.EmailVerificationAttemptCount + 1
-	if !verifyOpaqueToken(otpCode, settingsRow.EmailVerificationCodeHash.String) {
-		if _, err := tx.Exec(
-			ctx,
-			`UPDATE app_auth_settings SET email_verification_attempt_count = $2, updated_at = $3 WHERE id = $1`,
-			settingsRow.ID,
-			attemptCount,
-			now,
-		); err != nil {
-			return appAuthSettingsRow{}, fmt.Errorf("record email verification attempt: %w", err)
-		}
-		return appAuthSettingsRow{}, &domainError{StatusCode: 400, Detail: "Email verification code is invalid or expired"}
-	}
-	scanner := tx.QueryRow(
-		ctx,
-		`UPDATE app_auth_settings
-		SET email = $2,
-			email_bound_at = $3,
-			pending_email = NULL,
-			email_verification_code_hash = NULL,
-			email_verification_expires_at = NULL,
-			email_verification_attempt_count = 0,
-			updated_at = $3
-		WHERE id = $1
-		RETURNING id, auth_enabled, username, email, pending_email, password_hash, email_bound_at,
-			email_verification_code_hash, email_verification_expires_at, email_verification_attempt_count,
-			must_change_password, last_login_at, token_version, created_at, updated_at`,
-		settingsRow.ID,
-		settingsRow.PendingEmail.String,
-		now,
-	)
-	updatedRow, err := scanAppAuthSettings(scanner)
-	if err != nil {
-		return appAuthSettingsRow{}, fmt.Errorf("confirm email verification: %w", err)
-	}
-	return updatedRow, nil
-}
-
-func (s *Service) createPasswordResetChallenge(ctx context.Context, tx pgx.Tx, authConfig RuntimeAuthConfigSnapshot, settingsRow appAuthSettingsRow, requestedIP string) (string, int, time.Time, error) {
-	otpCode, err := generateOTPCode()
-	if err != nil {
-		return "", 0, time.Time{}, err
-	}
-	now := s.nowUTC()
-	expiresAt := now.Add(authConfig.ResetCodeTTL)
-	if _, err := tx.Exec(
-		ctx,
-		`UPDATE password_reset_challenges SET consumed_at = $2 WHERE auth_subject_id = $1 AND consumed_at IS NULL`,
-		settingsRow.ID,
-		now,
-	); err != nil {
-		return "", 0, time.Time{}, fmt.Errorf("revoke existing password reset challenges: %w", err)
-	}
-	var challengeID int
-	if err := tx.QueryRow(
-		ctx,
-		`INSERT INTO password_reset_challenges (
-			auth_subject_id,
-			otp_hash,
-			expires_at,
-			consumed_at,
-			attempt_count,
-			requested_ip,
-			created_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id`,
-		settingsRow.ID,
-		hashOpaqueToken(otpCode),
-		expiresAt,
-		nil,
-		0,
-		nullableTrimmedString(requestedIP),
-		now,
-	).Scan(&challengeID); err != nil {
-		return "", 0, time.Time{}, fmt.Errorf("insert password reset challenge: %w", err)
-	}
-	return otpCode, challengeID, expiresAt, nil
-}
-
-func (s *Service) loadLatestPasswordResetChallenge(ctx context.Context, exec queryExecutor, authSubjectID int) (passwordResetChallengeRow, error) {
-	scanner := exec.QueryRow(
-		ctx,
-		`SELECT id, auth_subject_id, otp_hash, expires_at, consumed_at, attempt_count, requested_ip, created_at
-		FROM password_reset_challenges
-		WHERE auth_subject_id = $1 AND consumed_at IS NULL
-		ORDER BY id DESC
-		LIMIT 1`,
-		authSubjectID,
-	)
-	row := passwordResetChallengeRow{}
-	err := scanner.Scan(
-		&row.ID,
-		&row.AuthSubjectID,
-		&row.OTPHash,
-		&row.ExpiresAt,
-		&row.ConsumedAt,
-		&row.AttemptCount,
-		&row.RequestedIP,
-		&row.CreatedAt,
-	)
-	if err != nil {
-		return passwordResetChallengeRow{}, err
-	}
-	return row, nil
-}
-
-func (s *Service) consumePasswordResetChallenge(ctx context.Context, tx pgx.Tx, otpCode string, newPassword string) (appAuthSettingsRow, error) {
-	settingsRow, err := s.loadOrCreateAppAuthSettings(ctx, tx)
-	if err != nil {
-		return appAuthSettingsRow{}, fmt.Errorf("load auth settings: %w", err)
-	}
-	challenge, err := s.loadLatestPasswordResetChallenge(ctx, tx, settingsRow.ID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return appAuthSettingsRow{}, &domainError{StatusCode: 400, Detail: "Reset code is invalid or expired"}
-		}
-		return appAuthSettingsRow{}, fmt.Errorf("load password reset challenge: %w", err)
-	}
-	now := s.nowUTC()
-	if challenge.ExpiresAt.Before(now) {
-		return appAuthSettingsRow{}, &domainError{StatusCode: 400, Detail: "Reset code is invalid or expired"}
-	}
-	if challenge.AttemptCount >= 5 {
-		return appAuthSettingsRow{}, &domainError{StatusCode: 429, Detail: "Too many reset attempts"}
-	}
-	newAttemptCount := challenge.AttemptCount + 1
-	if !verifyOpaqueToken(otpCode, challenge.OTPHash) {
-		if _, err := tx.Exec(ctx, `UPDATE password_reset_challenges SET attempt_count = $2 WHERE id = $1`, challenge.ID, newAttemptCount); err != nil {
-			return appAuthSettingsRow{}, fmt.Errorf("record password reset attempt: %w", err)
-		}
-		return appAuthSettingsRow{}, &domainError{StatusCode: 400, Detail: "Reset code is invalid or expired"}
-	}
-	hash, err := hashPassword(newPassword)
-	if err != nil {
-		return appAuthSettingsRow{}, err
-	}
-	if _, err := tx.Exec(
-		ctx,
-		`UPDATE password_reset_challenges SET consumed_at = $2, attempt_count = $3 WHERE id = $1`,
-		challenge.ID,
-		now,
-		newAttemptCount,
-	); err != nil {
-		return appAuthSettingsRow{}, fmt.Errorf("consume password reset challenge: %w", err)
-	}
-	if err := s.revokeAllRefreshTokens(ctx, tx, settingsRow.ID); err != nil {
-		return appAuthSettingsRow{}, err
-	}
-	scanner := tx.QueryRow(
-		ctx,
-		`UPDATE app_auth_settings
-		SET password_hash = $2, token_version = token_version + 1, must_change_password = FALSE, updated_at = $3
-		WHERE id = $1
-		RETURNING id, auth_enabled, username, email, pending_email, password_hash, email_bound_at,
-			email_verification_code_hash, email_verification_expires_at, email_verification_attempt_count,
-			must_change_password, last_login_at, token_version, created_at, updated_at`,
-		settingsRow.ID,
-		hash,
-		now,
-	)
-	updatedRow, err := scanAppAuthSettings(scanner)
-	if err != nil {
-		return appAuthSettingsRow{}, fmt.Errorf("update password reset auth settings: %w", err)
-	}
-	return updatedRow, nil
 }
 
 func (s *Service) listProxyAPIKeys(ctx context.Context, exec queryExecutor) ([]proxyAPIKeyRow, error) {
@@ -1237,23 +990,10 @@ func (s *Service) recordProxyAPIKeyUsage(ctx context.Context, keyID int, lastUse
 
 func (s *Service) buildAuthSettingsResponse(row appAuthSettingsRow) authSettingsResponse {
 	return authSettingsResponse{
-		AuthEnabled:               row.AuthEnabled,
-		Username:                  nullableString(row.Username),
-		Email:                     nullableString(row.Email),
-		EmailBoundAt:              nullableTime(row.EmailBoundAt),
-		PendingEmail:              nullableString(row.PendingEmail),
-		EmailVerificationRequired: row.PendingEmail.Valid,
-		HasPassword:               row.PasswordHash.Valid,
-		ProxyKeyLimit:             proxyKeyLimit,
-	}
-}
-
-func (s *Service) buildEmailVerificationResponse(row appAuthSettingsRow) emailVerificationResponse {
-	return emailVerificationResponse{
-		Success:      true,
-		PendingEmail: nullableString(row.PendingEmail),
-		Email:        nullableString(row.Email),
-		EmailBoundAt: nullableTime(row.EmailBoundAt),
+		AuthEnabled:   row.AuthEnabled,
+		Username:      nullableString(row.Username),
+		HasPassword:   row.PasswordHash.Valid,
+		ProxyKeyLimit: proxyKeyLimit,
 	}
 }
 
@@ -1323,17 +1063,6 @@ func validateProxyKeyName(value string) (string, error) {
 	}
 	if len(trimmed) > 200 {
 		return "", &domainError{StatusCode: 400, Detail: "name must be at most 200 characters"}
-	}
-	return trimmed, nil
-}
-
-func validateEmail(value string) (string, error) {
-	trimmed := strings.TrimSpace(value)
-	if !strings.Contains(trimmed, "@") || strings.HasPrefix(trimmed, "@") || strings.HasSuffix(trimmed, "@") {
-		return "", &domainError{StatusCode: 400, Detail: "email must be valid"}
-	}
-	if len(trimmed) > 320 {
-		return "", &domainError{StatusCode: 400, Detail: "email must be at most 320 characters"}
 	}
 	return trimmed, nil
 }

@@ -33,12 +33,11 @@ func TestLoadCanonicalDefaultSettings(t *testing.T) {
 		t.Fatalf("unexpected canonical side-effects defaults: %+v", got)
 	}
 	assertPostgresPoolsBudget(t, settings.PostgresPoolsBudgetOrDefault(), PostgresPoolsBudget{
-		TotalMaxConns:    24,
+		TotalMaxConns:    22,
 		Management:       DatabasePoolBudget{MaxConns: 4, MinIdleConns: 1},
 		RuntimeExecution: DatabasePoolBudget{MaxConns: 8, MinIdleConns: 2},
 		RuntimeTelemetry: DatabasePoolBudget{MaxConns: 4, MinIdleConns: 1},
 		RuntimeFeedback:  DatabasePoolBudget{MaxConns: 2, MinIdleConns: 0},
-		Realtime:         DatabasePoolBudget{MaxConns: 2, MinIdleConns: 0},
 		CacheRefresh:     DatabasePoolBudget{MaxConns: 2, MinIdleConns: 0},
 		BackgroundJobs:   DatabasePoolBudget{MaxConns: 2, MinIdleConns: 0},
 	})
@@ -52,8 +51,8 @@ func TestLoadCanonicalDefaultSettings(t *testing.T) {
 	if reservedM1 := int64(settings.ManagementDatabaseBudget().MaxConns) - admission.M2MaxConcurrent; reservedM1 != 1 {
 		t.Fatalf("expected management lane to leave M1 reservation of 1, got %d", reservedM1)
 	}
-	if settings.SecretEncryptionKey != defaultSeedSecretEncryptionKey || settings.ConfigBundleEncryptionKey != defaultSeedSecretEncryptionKey || settings.AuthJWTSecret != defaultAuthJWTSecret {
-		t.Fatalf("unexpected canonical secret defaults: runtime=%q bundle=%q jwt=%q", settings.SecretEncryptionKey, settings.ConfigBundleEncryptionKey, settings.AuthJWTSecret)
+	if settings.SecretEncryptionKey != defaultSeedSecretEncryptionKey || settings.StateTransferBundleEncryptionKey != "" || settings.AuthJWTSecret != defaultAuthJWTSecret {
+		t.Fatalf("unexpected canonical secret defaults: runtime=%q stateTransfer=%q jwt=%q", settings.SecretEncryptionKey, settings.StateTransferBundleEncryptionKey, settings.AuthJWTSecret)
 	}
 	if settings.Mail.Enabled || settings.Mail.SMTP.Timeout != defaultMailSMTPTimeout {
 		t.Fatalf("unexpected canonical disabled mail defaults: %+v", settings.Mail)
@@ -95,19 +94,58 @@ func TestTelemetryDefaults(t *testing.T) {
 	assertTelemetryDefaults(t, parsed.Telemetry)
 }
 
-func TestBootstrapConfigRejectsStaleOpenAITerminalTranslationMode(t *testing.T) {
+func TestAlertingWebhookURLDefaultsParsesAndValidates(t *testing.T) {
+	settings := loadCanonicalDefaultSettings("")
+	if settings.Alerting.WebhookURL != "" {
+		t.Fatalf("expected alerting webhook URL to default empty, got %q", settings.Alerting.WebhookURL)
+	}
+
+	document := seededBootstrapDocument(t)
+	document.Alerting = &bootstrapAlerting{WebhookURL: stringPointer(" https://alerts.example.test/hook ")}
+	parsed, err := NewBootstrapConfigManager(BootstrapConfigManagerOptions{}).Parse(marshalBootstrapDocument(t, document))
+	if err != nil {
+		t.Fatalf("parse valid alerting webhook URL: %v", err)
+	}
+	if parsed.Alerting.WebhookURL != "https://alerts.example.test/hook" {
+		t.Fatalf("unexpected alerting webhook URL: %q", parsed.Alerting.WebhookURL)
+	}
+
+	document.Alerting.WebhookURL = stringPointer("ftp://alerts.example.test/hook")
+	_, err = NewBootstrapConfigManager(BootstrapConfigManagerOptions{}).Parse(marshalBootstrapDocument(t, document))
+	if err == nil || !strings.Contains(err.Error(), "alerting.webhookUrl must use http or https") {
+		t.Fatalf("expected invalid alerting webhook URL to fail, got %v", err)
+	}
+}
+
+func TestBootstrapConfigAcceptsStaleOpenAITerminalTranslationMode(t *testing.T) {
 	var payload map[string]any
 	if err := json.Unmarshal(seededBootstrapPayload(t), &payload); err != nil {
 		t.Fatalf("decode seeded bootstrap payload: %v", err)
 	}
 	payload["runtime"].(map[string]any)["routing"] = map[string]any{"openaiTerminalTranslationMode": "safe_only"}
 
-	_, err := NewBootstrapConfigManager(BootstrapConfigManagerOptions{}).Parse(mustMarshalBootstrapPayload(t, payload))
-	if err == nil {
-		t.Fatal("expected stale OpenAI terminal translation mode field to fail")
+	settings, err := NewBootstrapConfigManager(BootstrapConfigManagerOptions{}).Parse(mustMarshalBootstrapPayload(t, payload))
+	if err != nil {
+		t.Fatalf("expected stale OpenAI terminal translation mode field to be ignored, got %v", err)
 	}
-	if !strings.Contains(err.Error(), `unknown field "openaiTerminalTranslationMode"`) {
-		t.Fatalf("expected unknown-field error for stale OpenAI terminal translation mode, got %v", err)
+	if settings.RuntimeTransportConfig.RequestTimeout != defaultRuntimeTransportRequestTimeout {
+		t.Fatalf("expected stale routing field to leave runtime settings unchanged, got %+v", settings.RuntimeTransportConfig)
+	}
+}
+
+func TestBootstrapConfigAcceptsStaleRealtimePool(t *testing.T) {
+	var payload map[string]any
+	if err := json.Unmarshal(seededBootstrapPayload(t), &payload); err != nil {
+		t.Fatalf("decode seeded bootstrap payload: %v", err)
+	}
+	payload["database"].(map[string]any)["pools"].(map[string]any)["realtime"] = map[string]any{"maxConns": float64(0), "minIdleConns": float64(0)}
+
+	settings, err := NewBootstrapConfigManager(BootstrapConfigManagerOptions{}).Parse(mustMarshalBootstrapPayload(t, payload))
+	if err != nil {
+		t.Fatalf("expected stale realtime pool field to be ignored, got %v", err)
+	}
+	if got := settings.PostgresPoolsBudgetOrDefault().SumMaxConns(); got != 22 {
+		t.Fatalf("expected stale realtime pool to stay out of active budget, got sum=%d", got)
 	}
 }
 

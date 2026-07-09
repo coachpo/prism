@@ -23,7 +23,7 @@ func (s *Service) handleOpenAIModelsList(w http.ResponseWriter, r *http.Request)
 		writeDomainError(w, runtimeSnapshotDomainError(ErrPublishedRuntimeSnapshotUnavailable))
 		return
 	}
-	_, snapshot, err := s.cache.LoadFreshActiveRuntimePlan(r.Context())
+	_, snapshot, err := s.cache.LoadFreshDefaultRuntimePlan(r.Context())
 	if err != nil {
 		writeDomainError(w, runtimeSnapshotDomainError(err))
 		return

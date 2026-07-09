@@ -39,15 +39,12 @@ export const rewriteQueryKeys = {
       requestAudit: (requestId: number | string, search: unknown) => [...profile, "audit", "request-log", String(requestId), search] as const,
       costing: () => [...profile, "settings", "costing"] as const,
       timezone: () => [...profile, "settings", "timezone"] as const,
-      profileConfig: () => [...profile, "config", "profile"] as const,
       configRules: () => [...profile, "config", "rules"] as const,
     }
   },
   global: {
     all: globalRoot,
     auth: () => [...globalRoot, "auth"] as const,
-    profiles: () => [...globalRoot, "profiles"] as const,
-    activeProfile: () => [...globalRoot, "profiles", "active"] as const,
     settingsAuth: () => [...globalRoot, "settings", "auth"] as const,
     proxyApiKeys: () => [...globalRoot, "settings", "auth", "proxy-keys"] as const,
     logRetention: () => [...globalRoot, "settings", "log-retention"] as const,

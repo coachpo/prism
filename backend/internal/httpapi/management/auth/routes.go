@@ -10,26 +10,21 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/httpapi/requestcontext"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
-	"github.com/coachpo/prism/backend/internal/platform/email/outbox"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 )
 
 var publicManagementPaths = map[string]struct{}{
-	"/api/auth/status":                 {},
-	"/api/auth/public-bootstrap":       {},
-	"/api/auth/login":                  {},
-	"/api/auth/logout":                 {},
-	"/api/auth/refresh":                {},
-	"/api/auth/password-reset/request": {},
-	"/api/auth/password-reset/confirm": {},
-	"/api/realtime/ws":                 {},
+	"/api/auth/status":           {},
+	"/api/auth/public-bootstrap": {},
+	"/api/auth/login":            {},
+	"/api/auth/logout":           {},
+	"/api/auth/refresh":          {},
 }
 
 func isPublicManagementPath(path string) bool {
@@ -62,29 +57,24 @@ func (s *Service) managementMiddleware(next http.Handler) http.Handler {
 
 		snapshot, err := s.loadAppAuthSettingsSnapshot(r.Context())
 		if err != nil {
-			recordAuthDecision(r.Context(), authTelemetryBranchManagement, "settings_error")
 			responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
 			return
 		}
 		if !snapshot.AuthEnabled {
-			recordAuthDecision(r.Context(), authTelemetryBranchManagement, "disabled")
 			next.ServeHTTP(w, r)
 			return
 		}
 		if isPublicManagementPath(r.URL.Path) {
-			recordAuthDecision(r.Context(), authTelemetryBranchManagement, "public")
 			next.ServeHTTP(w, r)
 			return
 		}
 		authConfig := s.runtimeAuthConfigSnapshot()
 		authSubject, ok := s.authSubjectFromAccessSnapshot(r, authConfig, snapshot)
 		if !ok {
-			recordAuthDecision(r.Context(), authTelemetryBranchManagement, "unauthenticated")
 			responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Authentication required")
 			return
 		}
 		contextWithSubject := context.WithValue(r.Context(), authSubjectContextKey{}, authSubject)
-		recordAuthDecision(contextWithSubject, authTelemetryBranchManagement, "authenticated")
 		next.ServeHTTP(w, r.WithContext(contextWithSubject))
 	})
 }
@@ -99,38 +89,31 @@ func (s *Service) runtimeMiddleware(next http.Handler) http.Handler {
 		authSettings, err := s.loadRuntimeAuthSettings(r.Context())
 		if err != nil {
 			if isPublishedSnapshotUnavailable(err) {
-				recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "snapshot_unavailable")
 				responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusServiceUnavailable, "Runtime authentication snapshot is unavailable. Retry later.")
 				return
 			}
-			recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "settings_error")
 			responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
 			return
 		}
 		if !authSettings.AuthEnabled {
-			recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "disabled")
 			next.ServeHTTP(w, r)
 			return
 		}
 		rawKey, _ := extractProxyAPIKey(r.Header)
 		if rawKey == "" {
-			recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "missing_proxy_key")
 			responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Proxy API key required")
 			return
 		}
 		proxyKey, err := s.verifyProxyAPIKey(r.Context(), rawKey)
 		if err != nil {
 			if isPublishedSnapshotUnavailable(err) {
-				recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "snapshot_unavailable")
 				responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusServiceUnavailable, "Runtime authentication snapshot is unavailable. Retry later.")
 				return
 			}
-			recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "verify_error")
 			responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to verify proxy API key")
 			return
 		}
 		if proxyKey == nil {
-			recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "invalid_proxy_key")
 			responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Invalid proxy API key")
 			return
 		}
@@ -146,7 +129,6 @@ func (s *Service) runtimeMiddleware(next http.Handler) http.Handler {
 				slog.Error("failed to enqueue proxy API key usage", "error", err, "key_id", proxyKey.ID)
 			}
 		}
-		recordAuthDecision(contextWithProxyKey, authTelemetryBranchRuntime, "authenticated")
 		next.ServeHTTP(w, r.WithContext(contextWithProxyKey))
 	})
 }
@@ -286,15 +268,13 @@ func (s *Service) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) handleLogout(w http.ResponseWriter, r *http.Request) {
 	authConfig := s.runtimeAuthConfigSnapshot()
-	var revokedSubjectID *int
 	if err := pgxutil.InTx(r.Context(), s.pool, "auth", func(tx pgx.Tx) error {
 		cookie, cookieErr := r.Cookie(authConfig.RefreshCookieName)
 		if cookieErr == nil && strings.TrimSpace(cookie.Value) != "" {
-			subjectID, revokeErr := s.revokeRefreshToken(r.Context(), tx, cookie.Value)
+			_, revokeErr := s.revokeRefreshToken(r.Context(), tx, cookie.Value)
 			if revokeErr != nil {
 				return revokeErr
 			}
-			revokedSubjectID = subjectID
 		}
 		return nil
 	}); err != nil {
@@ -305,15 +285,6 @@ func (s *Service) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
 		return
-	}
-	if revokedSubjectID == nil {
-		if subject, ok := s.authSubjectFromAccessCookie(r, authConfig, settingsRow); ok {
-			subjectID := subject.ID
-			revokedSubjectID = &subjectID
-		}
-	}
-	if revokedSubjectID != nil {
-		s.publishRealtimeAuthRevocation(RealtimeAuthRevocation{SubjectID: *revokedSubjectID})
 	}
 	s.clearAuthCookies(w, authConfig)
 	responseutil.WriteJSON(w, http.StatusOK, sessionResponse{Authenticated: false, AuthEnabled: settingsRow.AuthEnabled, Username: nil})
@@ -364,101 +335,6 @@ func (s *Service) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	responseutil.WriteJSON(w, http.StatusOK, sessionResponse{Authenticated: true, AuthEnabled: settingsRow.AuthEnabled, Username: stringPointer(username)})
 }
 
-func (s *Service) handlePasswordResetRequest(w http.ResponseWriter, r *http.Request) {
-	authConfig := s.runtimeAuthConfigSnapshot()
-	var requestBody passwordResetRequest
-	if err := decodeJSONBody(r, &requestBody); err != nil {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
-		return
-	}
-	identifier := strings.TrimSpace(requestBody.UsernameOrEmail)
-	result, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (struct {
-		SettingsRow appAuthSettingsRow
-		ShouldSend  bool
-	}, error) {
-		settingsRow, loadErr := s.loadOrCreateAppAuthSettings(r.Context(), tx)
-		if loadErr != nil {
-			return struct {
-				SettingsRow appAuthSettingsRow
-				ShouldSend  bool
-			}{}, fmt.Errorf("load auth settings: %w", loadErr)
-		}
-		if !settingsRow.AuthEnabled || !settingsRow.Email.Valid || identifier == "" {
-			return struct {
-				SettingsRow appAuthSettingsRow
-				ShouldSend  bool
-			}{SettingsRow: settingsRow}, nil
-		}
-		allowedIdentifiers := map[string]struct{}{}
-		if settingsRow.Username.Valid {
-			allowedIdentifiers[settingsRow.Username.String] = struct{}{}
-		}
-		allowedIdentifiers[settingsRow.Email.String] = struct{}{}
-		if _, ok := allowedIdentifiers[identifier]; !ok {
-			return struct {
-				SettingsRow appAuthSettingsRow
-				ShouldSend  bool
-			}{SettingsRow: settingsRow}, nil
-		}
-		otpCode, challengeID, expiresAt, createErr := s.createPasswordResetChallenge(r.Context(), tx, authConfig, settingsRow, requestIP(r))
-		if createErr != nil {
-			return struct {
-				SettingsRow appAuthSettingsRow
-				ShouldSend  bool
-			}{}, createErr
-		}
-		if enqueueErr := s.enqueueAuthEmail(r.Context(), tx, outbox.Job{
-			Kind:           outbox.KindPasswordReset,
-			RecipientEmail: settingsRow.Email.String,
-			Template:       outbox.TemplatePasswordReset,
-			Secret:         otpCode,
-			IdempotencyKey: fmt.Sprintf("password_reset:%d:%d", settingsRow.ID, challengeID),
-			Payload: map[string]any{
-				"auth_subject_id": settingsRow.ID,
-				"challenge_id":    challengeID,
-				"expires_at":      expiresAt.UTC().Format(time.RFC3339),
-			},
-		}); enqueueErr != nil {
-			return struct {
-				SettingsRow appAuthSettingsRow
-				ShouldSend  bool
-			}{}, enqueueErr
-		}
-		return struct {
-			SettingsRow appAuthSettingsRow
-			ShouldSend  bool
-		}{SettingsRow: settingsRow, ShouldSend: true}, nil
-	})
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	_ = result
-	responseutil.WriteJSON(w, http.StatusOK, successResponse{Success: true})
-}
-
-func (s *Service) handlePasswordResetConfirm(w http.ResponseWriter, r *http.Request) {
-	authConfig := s.runtimeAuthConfigSnapshot()
-	var requestBody passwordResetConfirmRequest
-	if err := decodeJSONBody(r, &requestBody); err != nil {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
-		return
-	}
-	updatedRow, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (appAuthSettingsRow, error) {
-		return s.consumePasswordResetChallenge(r.Context(), tx, strings.TrimSpace(requestBody.OTPCode), requestBody.NewPassword)
-	})
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	s.invalidateAppAuthSettingsSnapshot()
-	if updatedRow.AuthEnabled {
-		s.publishRealtimeAuthRevocation(RealtimeAuthRevocation{SubjectID: updatedRow.ID})
-	}
-	s.clearAuthCookies(w, authConfig)
-	responseutil.WriteJSON(w, http.StatusOK, successResponse{Success: true})
-}
-
 func (s *Service) handleGetAuthSettings(w http.ResponseWriter, r *http.Request) {
 	settingsRow, err := s.loadOrCreateAppAuthSettings(r.Context(), s.pool)
 	if err != nil {
@@ -488,85 +364,9 @@ func (s *Service) handlePutAuthSettings(w http.ResponseWriter, r *http.Request) 
 	}
 	s.invalidateAppAuthSettingsSnapshot()
 	if result.SessionInvalidated {
-		s.publishRealtimeAuthRevocation(RealtimeAuthRevocation{SubjectID: result.Row.ID})
 		s.clearAuthCookies(w, authConfig)
 	}
 	responseutil.WriteJSON(w, http.StatusOK, s.buildAuthSettingsResponse(result.Row))
-}
-
-func (s *Service) handleEmailVerificationRequest(w http.ResponseWriter, r *http.Request) {
-	authConfig := s.runtimeAuthConfigSnapshot()
-	var requestBody emailVerificationRequest
-	if err := decodeJSONBody(r, &requestBody); err != nil {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
-		return
-	}
-	email, err := validateEmail(requestBody.Email)
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	var updatedRow appAuthSettingsRow
-	err = pgxutil.InTx(r.Context(), s.pool, "auth", func(tx pgx.Tx) error {
-		settingsRow, loadErr := s.loadOrCreateAppAuthSettings(r.Context(), tx)
-		if loadErr != nil {
-			return fmt.Errorf("load auth settings: %w", loadErr)
-		}
-		currentRow, otpCode, beginErr := s.beginEmailVerification(r.Context(), tx, authConfig, settingsRow, email)
-		if beginErr != nil {
-			return beginErr
-		}
-		if enqueueErr := s.enqueueAuthEmail(r.Context(), tx, outbox.Job{
-			Kind:           outbox.KindEmailVerificationOTP,
-			RecipientEmail: email,
-			Template:       outbox.TemplateEmailVerificationOTP,
-			Secret:         otpCode,
-			IdempotencyKey: fmt.Sprintf("email_verification_otp:%d:%d", currentRow.ID, currentRow.EmailVerificationExpiresAt.Time.UnixNano()),
-			Payload: map[string]any{
-				"auth_subject_id": currentRow.ID,
-				"expires_at":      currentRow.EmailVerificationExpiresAt.Time.UTC().Format(time.RFC3339),
-			},
-		}); enqueueErr != nil {
-			return enqueueErr
-		}
-		updatedRow = currentRow
-		return nil
-	})
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	responseutil.WriteJSON(w, http.StatusOK, s.buildEmailVerificationResponse(updatedRow))
-}
-
-func (s *Service) enqueueAuthEmail(ctx context.Context, tx pgx.Tx, job outbox.Job) error {
-	if s == nil || s.emailOutbox == nil {
-		return fmt.Errorf("email outbox unavailable")
-	}
-	if _, err := s.emailOutbox.EnqueueTx(ctx, tx, job); err != nil {
-		return fmt.Errorf("enqueue auth email outbox job: %w", err)
-	}
-	return nil
-}
-
-func (s *Service) handleEmailVerificationConfirm(w http.ResponseWriter, r *http.Request) {
-	var requestBody emailVerificationConfirmRequest
-	if err := decodeJSONBody(r, &requestBody); err != nil {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
-		return
-	}
-	updatedRow, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (appAuthSettingsRow, error) {
-		settingsRow, loadErr := s.loadOrCreateAppAuthSettings(r.Context(), tx)
-		if loadErr != nil {
-			return appAuthSettingsRow{}, fmt.Errorf("load auth settings: %w", loadErr)
-		}
-		return s.confirmEmailVerification(r.Context(), tx, settingsRow, strings.TrimSpace(requestBody.OTPCode))
-	})
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	responseutil.WriteJSON(w, http.StatusOK, s.buildEmailVerificationResponse(updatedRow))
 }
 
 func (s *Service) handleListProxyKeys(w http.ResponseWriter, r *http.Request) {
@@ -673,7 +473,6 @@ func (s *Service) handleDeleteProxyKey(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleRuntimeProbe(w http.ResponseWriter, r *http.Request) {
 	proxyKey, ok := runtimeProxyKeyFromRequest(r)
 	if !ok || proxyKey.ID <= 0 {
-		recordAuthDecision(r.Context(), authTelemetryBranchRuntime, "missing_proxy_key")
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Proxy API key required")
 		return
 	}

@@ -1,7 +1,7 @@
 # BACKEND MANAGEMENT LOADBALANCE KNOWLEDGE BASE
 
 ## OVERVIEW
-`management/loadbalance/` owns selected-profile load-balance management under `/api/loadbalance/*`. It manages strategy CRUD, canonical default-strategy creation, current runtime state inspection/reset, and load-balance event reads.
+`management/loadbalance/` owns Default-profile load-balance management under `/api/loadbalance/*`. It manages strategy CRUD, canonical default-strategy creation, current runtime state inspection/reset, and load-balance event reads.
 
 ## STRUCTURE
 ```text
@@ -23,7 +23,7 @@ loadbalance/
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
-- Keep strategy CRUD selected-profile scoped.
+- Keep strategy CRUD pinned to Default profile id `1`. `X-Profile-Id` compatibility headers are ignored here.
 - Don't delete strategies attached to models.
 - Keep current-state reset/list wired through `LocalRuntimeStateStore` and the loadbalance domain.
 - Keep event reads here; request logs and statistics stay in `stats/`.

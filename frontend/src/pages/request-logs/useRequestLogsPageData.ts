@@ -26,6 +26,10 @@ const EMPTY_FILTER_OPTIONS: FilterOptions = {
   resolved_target_models: [],
 };
 
+function parseOptionalStatusCode(value: string): number | undefined {
+  return /^\d+$/.test(value) ? Number(value) : undefined;
+}
+
 interface UseRequestLogsPageDataParams {
   enabled?: boolean;
   revision: number;
@@ -74,6 +78,10 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
       client_rule_id: state.client_rule_id ? parseInt(state.client_rule_id, 10) : undefined,
       resolved_target_model_id: state.resolved_target_model_id || undefined,
       status_family: state.status_family === "all" ? undefined : state.status_family,
+      status_code: parseOptionalStatusCode(state.status_code),
+      error_text: state.error_text || undefined,
+      priced: state.priced === "all" ? undefined : state.priced === "true",
+      unpriced_reason: state.priced === "false" ? state.unpriced_reason || undefined : undefined,
       endpoint_id: state.endpoint_id ? parseInt(state.endpoint_id, 10) : undefined,
       [STATS_FROM_TIME_PARAM]: fromTime,
       limit: state.limit,
@@ -113,6 +121,10 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
     state.client_rule_id,
     state.resolved_target_model_id,
     state.status_family,
+    state.status_code,
+    state.error_text,
+    state.priced,
+    state.unpriced_reason,
     state.endpoint_id,
     state.time_range,
     state.limit,

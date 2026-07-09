@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { useProfileContext } from "@/context/ProfileContext";
 import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
 import { useRequestLogPageState } from "./request-logs/useRequestLogPageState";
@@ -14,14 +13,13 @@ import { Button } from "@/components/ui/button";
 import { OperatorCallout, OperatorEmptyState, OperatorPageHeader, OperatorPageShell } from "@/shared/design-system";
 
 export function RequestLogsPage() {
-  const { revision } = useProfileContext();
   const { format } = useTimezone();
   const { messages } = useLocale();
   const actions = useRequestLogPageState();
   const { state, isExactMode } = actions;
 
   const { items, total, loading, error, filterOptions, filterOptionsLoaded, refresh } =
-    useRequestLogsPageData({ revision, state, enabled: !isExactMode });
+    useRequestLogsPageData({ revision: 0, state, enabled: !isExactMode });
 
   const selectedRequestId = useMemo(() => {
     if (isExactMode) {

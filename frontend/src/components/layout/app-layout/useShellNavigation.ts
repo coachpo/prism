@@ -1,20 +1,79 @@
 import { useMemo } from "react";
-import { matchPath, useLocation } from "react-router-dom";
-import { useLocale } from "@/i18n/useLocale";
-import type { Messages } from "@/i18n/messages/en";
+import { useRouterState } from "@tanstack/react-router";
+import type { LucideIcon } from "lucide-react";
 import {
-  SHELL_ROUTE_METADATA,
-  SHELL_SIDEBAR_ITEMS,
-  type ShellRouteId,
-  type ShellRouteMetadata,
-  type ShellSidebarItemDefinition,
-} from "./navigationProfileConfig";
+  Coins,
+  FileText,
+  KeyRound,
+  LayoutDashboard,
+  Plug,
+  Scale,
+  Server,
+  Settings,
+} from "lucide-react";
+import { useLocale } from "@/i18n/useLocale";
+import type { Messages } from "@/i18n/messages";
+import { APP_VERSION, formatVersionLabel } from "@/lib/appVersion";
+
+export type NavLabelKey = keyof Messages["nav"];
+
+export type ShellSidebarGroupId = "overview" | "configuration" | "observability" | "access";
+
+export type ShellSidebarItemId =
+  | "dashboard"
+  | "models"
+  | "endpoints"
+  | "loadbalance-strategies"
+  | "settings"
+  | "proxy-api-keys"
+  | "pricing-templates"
+  | "request-logs";
+
+export type ShellRouteId = ShellSidebarItemId | "model-detail" | "request-log-audit";
+
+export interface ShellSidebarItemDefinition {
+  groupId: ShellSidebarGroupId;
+  icon: LucideIcon;
+  id: ShellSidebarItemId;
+  labelKey: NavLabelKey;
+  to: string;
+}
+
+export interface ShellRouteMetadata {
+  canonicalPath: string;
+  id: ShellRouteId;
+  pathPattern: string;
+  profileScoped: boolean;
+  sidebarItemId: ShellSidebarItemId;
+  sidebarItem?: ShellSidebarItemDefinition;
+}
+
+export const SHELL_ROUTE_METADATA: readonly ShellRouteMetadata[] = [
+  { canonicalPath: "/observe", id: "dashboard", pathPattern: "/observe", profileScoped: false, sidebarItem: { groupId: "overview", icon: LayoutDashboard, id: "dashboard", labelKey: "dashboard", to: "/observe" }, sidebarItemId: "dashboard" },
+  { canonicalPath: "/models", id: "models", pathPattern: "/models", profileScoped: true, sidebarItem: { groupId: "configuration", icon: Server, id: "models", labelKey: "models", to: "/models" }, sidebarItemId: "models" },
+  { canonicalPath: "/models/:id", id: "model-detail", pathPattern: "/models/:id", profileScoped: true, sidebarItemId: "models" },
+  { canonicalPath: "/route/endpoints", id: "endpoints", pathPattern: "/route/endpoints", profileScoped: true, sidebarItem: { groupId: "configuration", icon: Plug, id: "endpoints", labelKey: "endpoints", to: "/route/endpoints" }, sidebarItemId: "endpoints" },
+  { canonicalPath: "/route/ban-policies", id: "loadbalance-strategies", pathPattern: "/route/ban-policies", profileScoped: true, sidebarItem: { groupId: "configuration", icon: Scale, id: "loadbalance-strategies", labelKey: "loadbalanceStrategies", to: "/route/ban-policies" }, sidebarItemId: "loadbalance-strategies" },
+  { canonicalPath: "/system/settings", id: "settings", pathPattern: "/system/settings", profileScoped: false, sidebarItem: { groupId: "access", icon: Settings, id: "settings", labelKey: "settings", to: "/system/settings" }, sidebarItemId: "settings" },
+  { canonicalPath: "/control/proxy-keys", id: "proxy-api-keys", pathPattern: "/control/proxy-keys", profileScoped: false, sidebarItem: { groupId: "access", icon: KeyRound, id: "proxy-api-keys", labelKey: "apiKeys", to: "/control/proxy-keys" }, sidebarItemId: "proxy-api-keys" },
+  { canonicalPath: "/route/pricing", id: "pricing-templates", pathPattern: "/route/pricing", profileScoped: true, sidebarItem: { groupId: "configuration", icon: Coins, id: "pricing-templates", labelKey: "pricingTemplates", to: "/route/pricing" }, sidebarItemId: "pricing-templates" },
+  { canonicalPath: "/observe/requests", id: "request-logs", pathPattern: "/observe/requests", profileScoped: true, sidebarItem: { groupId: "observability", icon: FileText, id: "request-logs", labelKey: "requestLogs", to: "/observe/requests" }, sidebarItemId: "request-logs" },
+  { canonicalPath: "/observe/requests/:requestId/audit", id: "request-log-audit", pathPattern: "/observe/requests/:requestId/audit", profileScoped: true, sidebarItemId: "request-logs" },
+];
+
+export const SHELL_SIDEBAR_ITEMS: readonly ShellSidebarItemDefinition[] = SHELL_ROUTE_METADATA.flatMap(
+  (route) => (route.sidebarItem ? [route.sidebarItem] : [])
+);
+
+const GIT_RUN_NUMBER = String(import.meta.env.VITE_GIT_RUN_NUMBER ?? "local").trim() || "local";
+const GIT_REVISION = String(import.meta.env.VITE_GIT_REVISION ?? "unknown").trim() || "unknown";
+
+export const VERSION_LABEL = formatVersionLabel(APP_VERSION, GIT_RUN_NUMBER, GIT_REVISION);
 
 type ShellBreadcrumbLeafId =
   | "request-logs-request"
   | "settings-audit-configuration"
   | "settings-authentication"
-  | "settings-backup"
   | "settings-billing-currency"
   | "settings-retention-deletion"
   | "settings-timezone";
@@ -52,10 +111,6 @@ const SETTINGS_HASH_BREADCRUMBS: Record<
     id: "settings-authentication",
     label: (messages) => messages.settingsAuthentication.authentication,
   },
-  backup: {
-    id: "settings-backup",
-    label: (messages) => messages.settingsPage.backup,
-  },
   "billing-currency": {
     id: "settings-billing-currency",
     label: (messages) => messages.settingsPage.billingCurrency,
@@ -82,12 +137,30 @@ function normalizeParams(
   );
 }
 
+function matchShellPath(pathPattern: string, pathname: string): Record<string, string> | null {
+  const patternParts = pathPattern.split("/").filter(Boolean);
+  const pathParts = pathname.split("/").filter(Boolean);
+  if (patternParts.length !== pathParts.length) return null;
+
+  const params: Record<string, string> = {};
+  for (let index = 0; index < patternParts.length; index += 1) {
+    const patternPart = patternParts[index];
+    const pathPart = pathParts[index] ?? "";
+    if (patternPart.startsWith(":")) {
+      params[patternPart.slice(1)] = decodeURIComponent(pathPart);
+      continue;
+    }
+    if (patternPart !== pathPart) return null;
+  }
+  return params;
+}
+
 function matchShellRoute(pathname: string): MatchedShellRoute {
   for (const route of SHELL_ROUTE_METADATA) {
-    const match = matchPath({ end: true, path: route.pathPattern }, pathname);
-    if (match) {
+    const params = matchShellPath(route.pathPattern, pathname);
+    if (params) {
       return {
-        params: normalizeParams(match.params),
+        params: normalizeParams(params),
         route,
       };
     }
@@ -127,7 +200,7 @@ function buildBreadcrumbs(
       const settingsLeaf = SETTINGS_HASH_BREADCRUMBS[sectionHash];
       if (settingsLeaf) {
         return [
-          { current: false, href: "/settings", id: "settings", label: messages.nav.settings },
+          { current: false, href: "/system/settings", id: "settings", label: messages.nav.settings },
           {
             current: true,
             href: null,
@@ -192,7 +265,7 @@ function buildBreadcrumbs(
 }
 
 export function useShellNavigation(): ShellNavigationState {
-  const location = useLocation();
+  const location = useRouterState({ select: (state) => state.location });
   const { messages } = useLocale();
 
   return useMemo(() => {
@@ -206,10 +279,10 @@ export function useShellNavigation(): ShellNavigationState {
 
     return {
       activeSidebarItem,
-      breadcrumbs: buildBreadcrumbs(matchedRoute, messages, location.hash, location.search),
+      breadcrumbs: buildBreadcrumbs(matchedRoute, messages, location.hash, location.searchStr),
       isProfileScopedPage: matchedRoute.route.profileScoped,
       matchedRoute: matchedRoute.route,
       sidebarItems,
     };
-  }, [location.hash, location.pathname, location.search, messages]);
+  }, [location.hash, location.pathname, location.searchStr, messages]);
 }

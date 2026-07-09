@@ -81,144 +81,91 @@ func (recorder *lifecycleRecorder) contextFor(name string) (contextObservation, 
 	return observation, exists
 }
 
-type blockingHTTPServer struct {
-	recorder     *lifecycleRecorder
-	shutdownName string
-	serveErr     error
-	started      chan struct{}
-	shutdown     chan struct{}
-	shutdownOnce sync.Once
+type testHTTPServer struct {
+	recorder            *lifecycleRecorder
+	url                 string
+	started             chan struct{}
+	shutdownStarted     chan struct{}
+	listenAndServe      func() error
+	shutdown            func(context.Context) error
+	close               func() error
+	startOnce           sync.Once
+	shutdownStartedOnce sync.Once
 }
 
-func newBlockingHTTPServer(recorder *lifecycleRecorder, shutdownName string, serveErr error) *blockingHTTPServer {
-	return &blockingHTTPServer{
-		recorder:     recorder,
-		shutdownName: shutdownName,
-		serveErr:     serveErr,
-		started:      make(chan struct{}),
-		shutdown:     make(chan struct{}),
+func newTestHTTPServer(
+	recorder *lifecycleRecorder,
+	listenAndServe func() error,
+	shutdown func(context.Context) error,
+	close func() error,
+) *testHTTPServer {
+	return &testHTTPServer{
+		recorder:        recorder,
+		started:         make(chan struct{}),
+		shutdownStarted: make(chan struct{}),
+		listenAndServe:  listenAndServe,
+		shutdown:        shutdown,
+		close:           close,
 	}
 }
 
-func (server *blockingHTTPServer) ListenAndServe() error {
-	close(server.started)
-	<-server.shutdown
-	return server.serveErr
-}
-
-func (server *blockingHTTPServer) Shutdown(ctx context.Context) error {
-	server.recorder.record(server.shutdownName, ctx)
-	server.shutdownOnce.Do(func() {
-		close(server.shutdown)
-	})
-	return nil
-}
-
-func (server *blockingHTTPServer) waitStarted(t *testing.T) {
-	t.Helper()
-	select {
-	case <-server.started:
-	case <-time.After(time.Second):
-		t.Fatal("server did not start")
+func (server *testHTTPServer) ListenAndServe() error {
+	server.startOnce.Do(func() { close(server.started) })
+	if server.listenAndServe == nil {
+		return nil
 	}
+	return server.listenAndServe()
 }
 
-type deadlineBlockingHTTPServer struct {
-	recorder     *lifecycleRecorder
-	shutdownName string
-	started      chan struct{}
-	serveDone    chan struct{}
-	closeOnce    sync.Once
-}
-
-func newDeadlineBlockingHTTPServer(recorder *lifecycleRecorder, shutdownName string) *deadlineBlockingHTTPServer {
-	return &deadlineBlockingHTTPServer{
-		recorder:     recorder,
-		shutdownName: shutdownName,
-		started:      make(chan struct{}),
-		serveDone:    make(chan struct{}),
-	}
-}
-
-func (server *deadlineBlockingHTTPServer) ListenAndServe() error {
-	close(server.started)
-	<-server.serveDone
-	return http.ErrServerClosed
-}
-
-func (server *deadlineBlockingHTTPServer) Shutdown(ctx context.Context) error {
-	server.recorder.record(server.shutdownName, ctx)
-	<-ctx.Done()
-	return ctx.Err()
-}
-
-func (server *deadlineBlockingHTTPServer) Close() error {
-	server.closeOnce.Do(func() { close(server.serveDone) })
-	return nil
-}
-
-func (server *deadlineBlockingHTTPServer) waitStarted(t *testing.T) {
-	t.Helper()
-	select {
-	case <-server.started:
-	case <-time.After(time.Second):
-		t.Fatal("server did not start")
-	}
-}
-
-type immediateHTTPServer struct {
-	recorder     *lifecycleRecorder
-	shutdownName string
-	serveErr     error
-	shutdownErr  error
-}
-
-func (server *immediateHTTPServer) ListenAndServe() error {
-	return server.serveErr
-}
-
-func (server *immediateHTTPServer) Shutdown(ctx context.Context) error {
+func (server *testHTTPServer) Shutdown(ctx context.Context) error {
 	if server.recorder != nil {
-		server.recorder.record(server.shutdownName, ctx)
+		server.recorder.record("http shutdown", ctx)
 	}
-	return server.shutdownErr
+	server.shutdownStartedOnce.Do(func() { close(server.shutdownStarted) })
+	if server.shutdown == nil {
+		return nil
+	}
+	return server.shutdown(ctx)
 }
 
-type listenerHTTPServer struct {
-	server          *http.Server
-	listener        net.Listener
-	recorder        *lifecycleRecorder
-	shutdownName    string
-	shutdownStarted chan struct{}
-	shutdownOnce    sync.Once
+func (server *testHTTPServer) Close() error {
+	if server.close == nil {
+		return nil
+	}
+	return server.close()
 }
 
-func (server *listenerHTTPServer) ListenAndServe() error {
-	return server.server.Serve(server.listener)
+func (server *testHTTPServer) URL() string {
+	return server.url
 }
 
-func (server *listenerHTTPServer) Shutdown(ctx context.Context) error {
-	server.recorder.record(server.shutdownName, ctx)
-	server.shutdownOnce.Do(func() { close(server.shutdownStarted) })
-	return server.server.Shutdown(ctx)
-}
-
-func (server *listenerHTTPServer) Close() error {
-	return server.server.Close()
-}
-
-func (server *listenerHTTPServer) URL() string {
-	return "http://" + server.listener.Addr().String()
+func (server *testHTTPServer) waitStarted(t *testing.T) {
+	t.Helper()
+	select {
+	case <-server.started:
+	case <-time.After(time.Second):
+		t.Fatal("server did not start")
+	}
 }
 
 func TestAppRunCancellationTriggersLifecycleShutdownOrder(t *testing.T) {
 	recorder := newLifecycleRecorder()
-	server := newBlockingHTTPServer(recorder, "http shutdown", http.ErrServerClosed)
+	serveDone := make(chan struct{})
+	var shutdownOnce sync.Once
+	server := newTestHTTPServer(recorder, func() error {
+		<-serveDone
+		return http.ErrServerClosed
+	},
+		func(context.Context) error {
+			shutdownOnce.Do(func() { close(serveDone) })
+			return nil
+		},
+		nil,
+	)
 	app := NewApp(Options{
-		HTTPServer:       server,
-		RealtimeShutdown: []ShutdownHook{recorder.hook("realtime shutdown")},
-		SideEffectDrain:  []ShutdownHook{recorder.hook("side effect drain")},
-		SchedulerStop:    recorder.hook("scheduler stop"),
+		HTTPServer:      server,
+		SideEffectDrain: []ShutdownHook{recorder.hook("side effect drain")},
+		SchedulerStop:   recorder.hook("scheduler stop"),
 		ServiceClose: []ShutdownHook{
 			recorder.hook("runtime service close"),
 			recorder.hook("management service close"),
@@ -247,7 +194,6 @@ func TestAppRunCancellationTriggersLifecycleShutdownOrder(t *testing.T) {
 
 	wantOrder := []string{
 		"http shutdown",
-		"realtime shutdown",
 		"side effect drain",
 		"scheduler stop",
 		"runtime service close",
@@ -267,14 +213,13 @@ func TestAppRunCancellationTriggersLifecycleShutdownOrder(t *testing.T) {
 
 func TestAppShutdownLogsPhaseOrder(t *testing.T) {
 	logs := captureLifecycleSlog(t)
-	server := &immediateHTTPServer{}
+	server := newTestHTTPServer(nil, nil, nil, nil)
 	app := NewApp(Options{
-		HTTPServer:       server,
-		RealtimeShutdown: []ShutdownHook{func(context.Context) error { return nil }},
-		SideEffectDrain:  []ShutdownHook{func(context.Context) error { return nil }},
-		SchedulerStop:    func(context.Context) error { return nil },
-		ServiceClose:     []ShutdownHook{func(context.Context) error { return nil }},
-		DBClose:          func(context.Context) error { return nil },
+		HTTPServer:      server,
+		SideEffectDrain: []ShutdownHook{func(context.Context) error { return nil }},
+		SchedulerStop:   func(context.Context) error { return nil },
+		ServiceClose:    []ShutdownHook{func(context.Context) error { return nil }},
+		DBClose:         func(context.Context) error { return nil },
 	})
 
 	if err := app.Shutdown(context.Background()); err != nil {
@@ -283,7 +228,6 @@ func TestAppShutdownLogsPhaseOrder(t *testing.T) {
 
 	assertShutdownPhaseLogOrder(t, logs.String(), []string{
 		"http_shutdown",
-		"realtime_shutdown",
 		"side_effect_drain",
 		"scheduler_stop",
 		"service_close",
@@ -294,50 +238,32 @@ func TestAppShutdownLogsPhaseOrder(t *testing.T) {
 	}
 }
 
-func TestAppShutdownFlushesTelemetry(t *testing.T) {
-	recorder := newLifecycleRecorder()
-	server := &immediateHTTPServer{recorder: recorder, shutdownName: "http shutdown"}
-	app := NewApp(Options{
-		HTTPServer:        server,
-		RealtimeShutdown:  []ShutdownHook{recorder.hook("realtime shutdown")},
-		SideEffectDrain:   []ShutdownHook{recorder.hook("side effect drain")},
-		SchedulerStop:     recorder.hook("scheduler stop"),
-		ServiceClose:      []ShutdownHook{recorder.hook("service close")},
-		TelemetryShutdown: recorder.hook("telemetry shutdown"),
-		DBClose:           recorder.hook("db close"),
-	})
-	ctx := context.WithValue(context.Background(), traceContextKey{}, "telemetry-shutdown")
-	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(time.Minute))
-	defer cancel()
-
-	if err := app.Shutdown(ctx); err != nil {
-		t.Fatalf("shutdown: %v", err)
-	}
-	wantOrder := []string{"http shutdown", "realtime shutdown", "side effect drain", "scheduler stop", "service close", "telemetry shutdown", "db close"}
-	assertOrder(t, recorder.snapshot(), wantOrder)
-	assertContexts(t, recorder, wantOrder, "telemetry-shutdown")
-	assertCallCounts(t, recorder, wantOrder, 1)
-
-	if err := app.Shutdown(ctx); err != nil {
-		t.Fatalf("second shutdown: %v", err)
-	}
-	assertOrder(t, recorder.snapshot(), wantOrder)
-	assertCallCounts(t, recorder, wantOrder, 1)
-}
-
 func TestAppRunNoDeadlineCancellationUsesDefaultShutdownDeadline(t *testing.T) {
 	previousTimeout := defaultShutdownTimeout
 	defaultShutdownTimeout = 30 * time.Millisecond
 	t.Cleanup(func() { defaultShutdownTimeout = previousTimeout })
 
 	recorder := newLifecycleRecorder()
-	server := newDeadlineBlockingHTTPServer(recorder, "http shutdown")
+	serveDone := make(chan struct{})
+	var closeOnce sync.Once
+	server := newTestHTTPServer(recorder, func() error {
+		<-serveDone
+		return http.ErrServerClosed
+	},
+		func(ctx context.Context) error {
+			<-ctx.Done()
+			return ctx.Err()
+		},
+		func() error {
+			closeOnce.Do(func() { close(serveDone) })
+			return nil
+		},
+	)
 	app := NewApp(Options{
-		HTTPServer:       server,
-		RealtimeShutdown: []ShutdownHook{recorder.hook("realtime shutdown")},
-		SideEffectDrain:  []ShutdownHook{recorder.hook("side effect drain")},
-		SchedulerStop:    recorder.hook("scheduler stop"),
-		DBClose:          recorder.hook("db close"),
+		HTTPServer:      server,
+		SideEffectDrain: []ShutdownHook{recorder.hook("side effect drain")},
+		SchedulerStop:   recorder.hook("scheduler stop"),
+		DBClose:         recorder.hook("db close"),
 	})
 	ctx := context.WithValue(context.Background(), traceContextKey{}, "signal-cancel")
 	ctx, cancel := context.WithCancel(ctx)
@@ -355,7 +281,7 @@ func TestAppRunNoDeadlineCancellationUsesDefaultShutdownDeadline(t *testing.T) {
 		t.Fatal("Run hung after no-deadline cancellation")
 	}
 
-	wantOrder := []string{"http shutdown", "realtime shutdown", "side effect drain", "scheduler stop", "db close"}
+	wantOrder := []string{"http shutdown", "side effect drain", "scheduler stop", "db close"}
 	assertOrder(t, recorder.snapshot(), wantOrder)
 	assertContexts(t, recorder, wantOrder, "signal-cancel")
 }
@@ -380,16 +306,12 @@ func TestShutdownContextPreservesEarlierCallerDeadline(t *testing.T) {
 }
 
 func TestAppShutdownKeepsDBCloseLastAfterHookErrors(t *testing.T) {
-	realtimeErr := errors.New("realtime shutdown failed")
 	schedulerErr := errors.New("scheduler stop failed")
 	serviceErr := errors.New("service close failed")
 	recorder := newLifecycleRecorder()
-	server := &immediateHTTPServer{recorder: recorder, shutdownName: "http shutdown"}
+	server := newTestHTTPServer(recorder, nil, nil, nil)
 	app := NewApp(Options{
-		HTTPServer: server,
-		RealtimeShutdown: []ShutdownHook{
-			recorder.errorHook("realtime shutdown", realtimeErr),
-		},
+		HTTPServer:      server,
 		SideEffectDrain: []ShutdownHook{recorder.hook("side effect drain")},
 		SchedulerStop:   recorder.errorHook("scheduler stop", schedulerErr),
 		ServiceClose: []ShutdownHook{
@@ -403,7 +325,7 @@ func TestAppShutdownKeepsDBCloseLastAfterHookErrors(t *testing.T) {
 	defer cancel()
 
 	err := app.Shutdown(ctx)
-	for _, wantErr := range []error{realtimeErr, schedulerErr, serviceErr} {
+	for _, wantErr := range []error{schedulerErr, serviceErr} {
 		if !errors.Is(err, wantErr) {
 			t.Fatalf("Shutdown error %v does not include %v", err, wantErr)
 		}
@@ -411,7 +333,6 @@ func TestAppShutdownKeepsDBCloseLastAfterHookErrors(t *testing.T) {
 
 	wantOrder := []string{
 		"http shutdown",
-		"realtime shutdown",
 		"side effect drain",
 		"scheduler stop",
 		"runtime service close",
@@ -423,7 +344,7 @@ func TestAppShutdownKeepsDBCloseLastAfterHookErrors(t *testing.T) {
 	assertCallCounts(t, recorder, wantOrder, 1)
 
 	secondErr := app.Shutdown(ctx)
-	for _, wantErr := range []error{realtimeErr, schedulerErr, serviceErr} {
+	for _, wantErr := range []error{schedulerErr, serviceErr} {
 		if !errors.Is(secondErr, wantErr) {
 			t.Fatalf("second Shutdown error %v does not include %v", secondErr, wantErr)
 		}
@@ -514,64 +435,84 @@ func TestAppRunSurfacesHTTPShutdownDeadlineAndStillClosesResources(t *testing.T)
 }
 
 func TestAppRunDistinguishesExpectedServerClosedFromUnexpectedServeError(t *testing.T) {
-	t.Run("expected server closed", func(t *testing.T) {
-		recorder := newLifecycleRecorder()
-		server := &immediateHTTPServer{
-			recorder:     recorder,
-			shutdownName: "http shutdown",
-			serveErr:     http.ErrServerClosed,
-		}
-		app := NewApp(Options{
-			HTTPServer: server,
-			DBClose:    recorder.hook("db close"),
+	serveErr := errors.New("listen failed")
+	tests := []struct {
+		name       string
+		serveErr   error
+		wantErr    error
+		runContext func() (context.Context, context.CancelFunc)
+		wantOrder  []string
+		wantTrace  string
+		wantCalls  int
+	}{
+		{
+			name:     "expected server closed",
+			serveErr: http.ErrServerClosed,
+			runContext: func() (context.Context, context.CancelFunc) {
+				return context.Background(), func() {}
+			},
+		},
+		{
+			name:     "unexpected serve error",
+			serveErr: serveErr,
+			wantErr:  serveErr,
+			runContext: func() (context.Context, context.CancelFunc) {
+				ctx := context.WithValue(context.Background(), traceContextKey{}, "serve-error")
+				return context.WithDeadline(ctx, time.Now().Add(time.Minute))
+			},
+			wantOrder: []string{"http shutdown", "db close"},
+			wantTrace: "serve-error",
+			wantCalls: 1,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := newLifecycleRecorder()
+			server := newTestHTTPServer(recorder, func() error {
+				return test.serveErr
+			},
+				nil,
+				nil,
+			)
+			app := NewApp(Options{
+				HTTPServer: server,
+				DBClose:    recorder.hook("db close"),
+			})
+			ctx, cancel := test.runContext()
+			defer cancel()
+
+			err := app.Run(ctx)
+			if !errors.Is(err, test.wantErr) {
+				t.Fatalf("Run error %v does not include %v", err, test.wantErr)
+			}
+			assertOrder(t, recorder.snapshot(), test.wantOrder)
+			if len(test.wantOrder) == 0 {
+				return
+			}
+			assertContexts(t, recorder, test.wantOrder, test.wantTrace)
+			assertCallCounts(t, recorder, test.wantOrder, test.wantCalls)
 		})
-
-		if err := app.Run(context.Background()); err != nil {
-			t.Fatalf("Run returned error for expected server close: %v", err)
-		}
-		assertOrder(t, recorder.snapshot(), nil)
-	})
-
-	t.Run("unexpected serve error", func(t *testing.T) {
-		serveErr := errors.New("listen failed")
-		recorder := newLifecycleRecorder()
-		server := &immediateHTTPServer{
-			recorder:     recorder,
-			shutdownName: "http shutdown",
-			serveErr:     serveErr,
-		}
-		app := NewApp(Options{
-			HTTPServer: server,
-			DBClose:    recorder.hook("db close"),
-		})
-		ctx := context.WithValue(context.Background(), traceContextKey{}, "serve-error")
-		ctx, cancel := context.WithDeadline(ctx, time.Now().Add(time.Minute))
-		defer cancel()
-
-		err := app.Run(ctx)
-		if !errors.Is(err, serveErr) {
-			t.Fatalf("Run error %v does not include serve error %v", err, serveErr)
-		}
-		wantOrder := []string{"http shutdown", "db close"}
-		assertOrder(t, recorder.snapshot(), wantOrder)
-		assertContexts(t, recorder, wantOrder, "serve-error")
-		assertCallCounts(t, recorder, wantOrder, 1)
-	})
+	}
 }
 
-func newListenerHTTPServer(t *testing.T, recorder *lifecycleRecorder, handler http.Handler) *listenerHTTPServer {
+func newListenerHTTPServer(t *testing.T, recorder *lifecycleRecorder, handler http.Handler) *testHTTPServer {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	server := &listenerHTTPServer{
-		server:          &http.Server{Handler: handler},
-		listener:        listener,
-		recorder:        recorder,
-		shutdownName:    "http shutdown",
-		shutdownStarted: make(chan struct{}),
-	}
+	httpServer := &http.Server{Handler: handler}
+	server := newTestHTTPServer(recorder, func() error {
+		return httpServer.Serve(listener)
+	},
+		func(ctx context.Context) error {
+			return httpServer.Shutdown(ctx)
+		},
+		func() error {
+			return httpServer.Close()
+		},
+	)
+	server.url = "http://" + listener.Addr().String()
 	t.Cleanup(func() { _ = server.Close() })
 	return server
 }

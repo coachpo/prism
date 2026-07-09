@@ -1,6 +1,6 @@
 # Data Model Document: Prism
 
-Scope: profile-isolated runtime and management model with pricing templates, profile-scoped explicit Ban Policy routing, UNLOGGED routing hot state, endpoint label snapshots, user-agent client rules, and the current `version: 3` profile bundle format.
+Scope: profile-isolated runtime and management model with pricing templates, profile-scoped explicit Ban Policy routing, UNLOGGED routing hot state, endpoint label snapshots, and user-agent client rules.
 
 ## 1. Entity Relationship Diagram
 
@@ -45,7 +45,7 @@ connections (profile-scoped private endpoint bindings)
   pricing_template_id FK -> pricing_templates.id (nullable, RESTRICT)
   qps_limit, max_in_flight_non_stream, max_in_flight_stream
   is_active, priority
-  name, auth_type, custom_headers, openai_probe_endpoint_variant, openai_text_capability
+  name, auth_type, custom_headers, openai_text_capability
   health_status, health_detail, last_health_check
   monitoring_probe_interval_seconds
   created_at, updated_at
@@ -219,21 +219,6 @@ refresh_tokens
   user_agent, ip_address
   created_at
 
-password_reset_challenges
-  id PK
-  auth_subject_id FK -> app_auth_settings.id
-  otp_hash
-  expires_at, consumed_at, attempt_count
-  requested_ip
-  created_at
-
-webauthn_challenges
-  id PK
-  challenge_key UNIQUE
-  challenge
-  expires_at
-  created_at
-
 proxy_api_keys
   id PK
   name, key_prefix UNIQUE, key_hash, last_four
@@ -241,21 +226,13 @@ proxy_api_keys
   created_by_auth_subject_id FK -> app_auth_settings.id, notes, rotated_from_id
   created_at, updated_at
 
-webauthn_credentials
-  id PK
-  auth_subject_id FK -> app_auth_settings.id
-  credential_id UNIQUE, public_key, sign_count
-  device_name, aaguid, transports
-  backup_eligible, backup_state
-  last_used_at, last_used_ip, created_at, updated_at
-
 ```
 
 ## 2. Table Definitions
 
 ### 2.1 `profiles`
 
-Profiles are isolated configuration namespaces. One profile is active for runtime routing at any time.
+Profiles are retained storage namespaces. Multi-profile management is frozen: management reads and writes are pinned to Default profile id `1`, while runtime loads the published Default profile id `1` snapshot.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
@@ -265,16 +242,15 @@ Profiles are isolated configuration namespaces. One profile is active for runtim
 | is_active | BOOLEAN | NOT NULL, DEFAULT FALSE | Runtime-active marker |
 | is_default | BOOLEAN | NOT NULL, DEFAULT FALSE | Seeded default marker |
 | is_editable | BOOLEAN | NOT NULL, DEFAULT TRUE | Editable flag; current startup invariants keep the system default profile editable |
-| version | INTEGER | NOT NULL, DEFAULT 0 | Optimistic concurrency token for activation CAS |
-| deleted_at | DATETIME | NULLABLE | Soft-delete marker for inactive profiles |
+| version | INTEGER | NOT NULL, DEFAULT 0 | Retained concurrency token |
+| deleted_at | DATETIME | NULLABLE | Soft-delete marker for inactive rows |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
 Constraints and lifecycle rules:
 - Exactly one non-deleted profile is active at any time (partial unique index).
-- Startup invariants ensure the single default profile exists and remains editable.
-- Routine delete is soft-delete (`deleted_at`) and only allowed for inactive profiles.
-- Capacity limit: maximum 10 non-deleted profiles (`deleted_at IS NULL`) enforced at application level.
+- Startup invariants ensure Default profile id `1` exists and remains editable.
+- Profile create, update, activate, and delete management routes are not exposed while multi-profile management is frozen.
 
 ### 2.2 `model_configs` (profile-scoped)
 
@@ -323,9 +299,9 @@ Constraints:
 - Source and target rows must stay in the same profile and same `api_family`.
 - Positions are normalized and validated as contiguous `0..N-1` in management contracts.
 - Position is an ordering key only, not priority, tier, or weight. Duplicate positions reject before write.
-- Obsolete public payload keys `weight` and `target_priority` reject in management model APIs and config-bundle import or preview. The fresh schema has no columns for those values.
+- Obsolete public payload keys `weight` and `target_priority` reject in management model APIs. The fresh schema has no columns for those values.
 - Runtime routing evaluates enabled same-family model targets by flat `position` and stable IDs. Connection-owner targets remain terminal routing edges, not public model-target candidates.
-- Go management and config-bundle import validation rejects self-reference, cross-profile targets, cross-api-family targets, and cycles; these relationship semantics are not enforced by database triggers.
+- Go management validation rejects self-reference, cross-profile targets, cross-api-family targets, and cycles; these relationship semantics are not enforced by database triggers.
 
 ### 2.4 `loadbalance_strategies` (profile-scoped reusable routing behavior)
 
@@ -357,7 +333,7 @@ Constraints and lifecycle rules:
 - Retry-cycle exhaustion is inclusive at `cycle_retry_attempts >= cycle_retry_attempt_limit`.
 - Ban creation is inclusive at `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`; Prism does not derive the ban threshold from the cycle limit.
 - `ban_mode = off` requires threshold and duration `0`; `temporary` requires threshold `>= cycle_retry_attempt_limit` plus positive duration; `until_reset` requires threshold `>= cycle_retry_attempt_limit` plus duration `0`.
-- The selected profile's loadbalance strategies page exposes a `Create Defaults` action that explicitly creates `Default single routing`, `Default fill-first routing`, and `Default round-robin routing` for that profile.
+- The loadbalance strategies page exposes a `Create Defaults` action that explicitly creates `Default single routing`, `Default fill-first routing`, and `Default round-robin routing` for Default profile id `1`.
 - Strategies cannot be deleted while attached to one or more models.
 
 ### 2.5 `endpoints` (profile-scoped credentials)
@@ -378,8 +354,6 @@ Reusable credential objects scoped to one profile.
 Constraints and indexes:
 - `UNIQUE(profile_id, name)`.
 - `INDEX(profile_id, position)` for ordered reads.
-- Profile config export never emits plaintext `api_key`; the `version: 3` profile bundle uses `api_key_secret_ref` plus encrypted `secret_payload.entries[]` instead.
-- Endpoints with no upstream credential export `api_key_secret_ref = null` and do not emit a bundle secret entry.
 
 ### 2.6 `connections` (profile-scoped Terminal Target storage)
 
@@ -401,9 +375,9 @@ Terminal Targets are represented as `connections` / `connection_id` in the compa
 | auth_type | VARCHAR(50) | NULLABLE | Optional auth behavior metadata |
 | custom_headers | TEXT | NULLABLE | JSON headers applied before blocklist filtering |
 | health_status | VARCHAR(20) | NOT NULL, DEFAULT 'unknown' | `unknown`, `healthy`, `unhealthy` |
-| health_detail | TEXT | NULLABLE | Last health-check detail |
-| last_health_check | DATETIME | NULLABLE | Last health-check timestamp |
-| openai_probe_endpoint_variant | VARCHAR(40) | NULLABLE | OpenAI-family probe target and payload variant; `responses_minimal` is the default for OpenAI Terminal Targets, while non-OpenAI Terminal Targets persist `NULL` |
+| health_detail | TEXT | NULLABLE | Retained compatibility health detail |
+| last_health_check | DATETIME | NULLABLE | Retained compatibility health timestamp |
+| openai_probe_endpoint_variant | VARCHAR(40) | NULLABLE | Retained schema field for existing rows; the live UI no longer writes this metadata |
 | openai_text_capability | TEXT | NULLABLE | OpenAI Terminal Target text runtime capability: `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI Terminal Targets persist `NULL` |
 | monitoring_probe_interval_seconds | INTEGER | NOT NULL, DEFAULT 300 | Reserved monitoring cadence field |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
@@ -416,12 +390,12 @@ Connection invariants:
 - Product-facing routing surfaces present these rows as Terminal Targets while persisted compatibility remains `connections` and `target_type = "connection"`.
 - A connection can be referenced by exactly one model access target in the same profile.
 - The partial unique index `uq_model_access_targets_connection_owner` enforces one owner for every non-null `target_connection_id`.
-- Public model target authoring cannot attach Terminal Targets by ID. Model detail creates, updates, health-checks, and deletes Terminal Targets through model-scoped routes.
+- Public model target authoring cannot attach Terminal Targets by ID. Model detail creates, updates, reorders, and deletes Terminal Targets through model-scoped routes.
 - Deleting a Terminal Target removes its owning `model_access_targets.target_connection_id` row in the same operation.
 - Connection create/update contracts do not allow client-written `priority`; model-specific ordering changes flow through `/api/models/{model_config_id}/targets/{target_id}/position`.
 - OpenAI Terminal Targets require `openai_text_capability` in `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI Terminal Targets must keep it `NULL`.
 - `openai_text_capability` is the OpenAI text runtime capability source of truth for planning. `responses_only` supports native Responses generation and Responses adjunct operations, `chat_completions_only` supports native Chat Completions, and `dual_native` supports both native text generation shapes. Sibling translation can run only for adapter-approved text-only Chat Completions and Responses shapes when a terminal target is not native for the ingress operation.
-- `openai_probe_endpoint_variant` is health-probe-only metadata. It selects the lightweight OpenAI probe endpoint and payload variant, and it does not derive runtime capability or request shape.
+- `openai_probe_endpoint_variant` is retained for existing rows; live Terminal Target authoring uses `openai_text_capability` for OpenAI runtime planning.
 
 ### 2.7 `pricing_templates` (profile-scoped reusable token pricing)
 
@@ -446,7 +420,7 @@ Reusable token pricing definitions that can be attached to many Terminal Targets
 
 Constraint: `UNIQUE(profile_id, name)`.
 
-Pricing templates use five concrete pricing strings in steady state. Management API writes and profile bundle v3 import normalize missing, null, or blank pricing inputs for any of the five pricing fields to `"0"` before decimal validation. Explicit `"0"` means configured free pricing. `MISSING_PRICE_DATA` applies only when a pricing template or runtime pricing snapshot is absent, unusable, or invalid, or when required FX data cannot be applied.
+Pricing templates use five concrete pricing strings in steady state. Management API writes normalize missing, null, or blank pricing inputs for any of the five pricing fields to `"0"` before decimal validation. Explicit `"0"` means configured free pricing. `MISSING_PRICE_DATA` applies only when a pricing template or runtime pricing snapshot is absent, unusable, or invalid, or when required FX data cannot be applied.
 
 Token costing consumes canonical disjoint token components: base input, cache-read input, cache-creation input, base output, reasoning output, and provider or derived total. `cached_tokens` is derived-only for aggregate and presentation surfaces from cache-read plus cache-creation input tokens.
 
@@ -581,7 +555,7 @@ Request-log semantics:
 - `model_id` records the requested model ID while `resolved_target_model_id` records the final target model ID selected for that attempt.
 - `operation_name` and `request_path` remain ingress-led. `upstream_operation_name`, `operation_translation_mode`, and `upstream_request_path` are additive upstream attribution for native or translated attempts.
 - `selected_terminal_target_id` can differ from `connection_id` when the planner selected one terminal target but execution later failed over to another attempt.
-- `stream_error_detail` is exposed only by exact request-log detail reads. List and realtime payloads expose `stream_outcome` and `stream_error_kind` without detail text.
+- `stream_error_detail` is exposed only by exact request-log detail reads. List and dashboard recent-activity payloads expose `stream_outcome` and `stream_error_kind` without detail text.
 - Prism prices only observed usage. `STREAM_USAGE_UNAVAILABLE` marks interrupted or no-terminal stream rows where required tokens are absent; completed streams missing required usage keep `MISSING_TOKEN_USAGE`.
 - Token usage fields are canonical disjoint components. `input_tokens` is base input only, `output_tokens` is base output only, and cache-read input, cache-creation input, and reasoning output stay in their split fields.
 - Pricing snapshots persist the five concrete pricing strings used for the attempt. Explicit `"0"` prices mean configured free pricing, while absent or invalid pricing snapshots and missing FX data stay unpriced with `MISSING_PRICE_DATA`.
@@ -705,8 +679,7 @@ One row per profile and API family controls whether runtime attempts create audi
 Constraints:
 - `UNIQUE(profile_id, api_family)`.
 - `audit_capture_bodies` requires `audit_enabled`.
-- Management `PUT /api/settings/audit` full-replaces the three supported family rows for the selected profile.
-- Config bundles store this policy under `profile_settings.audit_api_family_settings` in stable `openai`, `anthropic`, `gemini` order and import it as a full replacement.
+- Management `PUT /api/settings/audit` full-replaces the three supported family rows for Default profile id `1`.
 - Runtime snapshots load policy by profile and model `api_family`; request-time booleans are copied into existing request-log and audit-log provenance fields.
 
 ### 2.15 `loadbalance_events` (partitioned immutable profile attribution)
@@ -916,14 +889,14 @@ Global operator authentication settings and credentials.
 | singleton_key | VARCHAR(20) | NOT NULL, UNIQUE | `app` |
 | auth_enabled | BOOLEAN | NOT NULL, DEFAULT FALSE | Auth toggle |
 | username | VARCHAR(200) | NULLABLE | Operator username |
-| email | VARCHAR(320) | NULLABLE | Verified email |
-| pending_email | VARCHAR(320) | NULLABLE | Email awaiting OTP confirmation |
+| email | VARCHAR(320) | NULLABLE | Retained legacy email column, unused by current auth responses |
+| pending_email | VARCHAR(320) | NULLABLE | Retained legacy pending email column, unused by current auth responses |
 | password_hash | TEXT | NULLABLE | Argon2 password hash |
-| email_bound_at | DATETIME | NULLABLE | When the verified email was bound |
-| email_verification_code_hash | VARCHAR(64) | NULLABLE | Hashed OTP for email verification |
-| email_verification_expires_at | DATETIME | NULLABLE | Email verification expiry |
-| email_verification_attempt_count | INTEGER | NOT NULL, DEFAULT 0 | Failed email-verification attempts |
-| must_change_password | BOOLEAN | NOT NULL, DEFAULT FALSE | First-login/reset follow-up flag |
+| email_bound_at | DATETIME | NULLABLE | Retained legacy email timestamp |
+| email_verification_code_hash | VARCHAR(64) | NULLABLE | Retained legacy email-code hash |
+| email_verification_expires_at | DATETIME | NULLABLE | Retained legacy email-code expiry |
+| email_verification_attempt_count | INTEGER | NOT NULL, DEFAULT 0 | Retained legacy email-code attempt count |
+| must_change_password | BOOLEAN | NOT NULL, DEFAULT FALSE | First-login follow-up flag |
 | last_login_at | DATETIME | NULLABLE | Most recent successful login |
 | token_version | INTEGER | NOT NULL, DEFAULT 0 | Global token revocation version |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
@@ -972,55 +945,7 @@ Rotation and expiry semantics:
 - `rotated_from_id` preserves predecessor/successor lineage across key rotation instead of mutating one row in place.
 - Expired or retired keys remain as historical rows; runtime enforcement uses `is_active` plus `expires_at`, while management list views keep the rows for attribution and lineage.
 
-### 2.24 `password_reset_challenges`
-
-Password-reset OTP challenges for the singleton operator account.
-
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
-| auth_subject_id | INTEGER | FK -> app_auth_settings.id, NOT NULL | Operator auth subject |
-| otp_hash | VARCHAR(64) | NOT NULL | Hashed OTP |
-| expires_at | DATETIME | NOT NULL | Challenge expiry |
-| consumed_at | DATETIME | NULLABLE | Consumption timestamp |
-| attempt_count | INTEGER | NOT NULL, DEFAULT 0 | Failed-attempt counter |
-| requested_ip | VARCHAR(100) | NULLABLE | Request origin IP |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-
-### 2.25 `webauthn_challenges`
-
-Retained internal challenge storage from the earlier passkey design. Prism's current supported auth surface does not expose active passkey ceremonies.
-
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
-| challenge_key | VARCHAR(100) | NOT NULL, UNIQUE | Lookup key |
-| challenge | BYTEA | NOT NULL | Raw challenge bytes |
-| expires_at | DATETIME | NOT NULL | Challenge expiry |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-
-### 2.26 `webauthn_credentials`
-
-Retained internal credential storage from the earlier passkey design. Prism's current supported auth surface does not expose active passkey credential management.
-
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
-| auth_subject_id | INTEGER | FK -> app_auth_settings.id, NOT NULL | Singleton operator auth subject |
-| credential_id | BYTEA | NOT NULL, UNIQUE | Raw credential ID |
-| public_key | BYTEA | NOT NULL | Credential public key |
-| sign_count | BIGINT | NOT NULL, DEFAULT 0 | Authenticator signature counter |
-| device_name | VARCHAR(200) | NULLABLE | Operator-provided device label |
-| aaguid | BYTEA | NULLABLE | Authenticator AAGUID |
-| transports | TEXT[] | NULLABLE | Reported authenticator transports |
-| backup_eligible | BOOLEAN | NULLABLE, DEFAULT FALSE | Backup eligibility flag |
-| backup_state | BOOLEAN | NULLABLE, DEFAULT FALSE | Current backup/sync state |
-| last_used_at | DATETIME | NULLABLE | Most recent assertion time |
-| last_used_ip | VARCHAR(45) | NULLABLE | Most recent assertion IP |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
-
-### 2.27 Additional Live Platform Tables
+### 2.24 Additional Live Platform Tables
 
 These live tables are internal platform state rather than primary product configuration surfaces. They remain part of the active schema and are owned by their platform packages.
 
@@ -1028,12 +953,10 @@ These live tables are internal platform state rather than primary product config
 |---|---|---|
 | `user_agent_client_rules` | system global or profile-scoped | `id`, nullable `profile_id`, `name`, `pattern`, `enabled`, `is_system`, timestamps; system rows have `profile_id IS NULL`, user rows have `profile_id IS NOT NULL`, and enabled rows drive caller User-Agent client labels and request-log filtering |
 | `login_throttle_ledger` | auth singleton support | Composite PK `(subject_key, remote_address)`, `failure_count`, failure timestamps, `locked_until`, timestamps; tracks login throttling state |
-| `email_outbox` | auth/mail background work | UUID `id`, `kind`, `recipient_email`, `template`, `payload_json`, optional encrypted email secret, unique `idempotency_key`, status `queued|sending|sent|dead`, attempt/lease timestamps, sent/dead-letter timestamps, `last_error`, timestamps |
 | `management_outbox` | management side effects | `id`, `operation_id`, `event_type`, aggregate identity/version, unique `dedupe_key`, `payload`, status `pending|processing|retry|succeeded|failed_permanent`, attempt/lock fields, actor/trace metadata, timestamps |
 | `runtime_telemetry_outbox` | profile-scoped runtime side-effect handoff | `id`, `profile_id`, `ingress_request_id`, `payload`, `created_at`; durable runtime telemetry handoff rows are materialized by background workers and then deleted |
+| `alert_webhook_outbox` | durable failover incident webhook delivery | `id`, `event_type`, `payload_json`, unique `idempotency_key`, status `queued|sending|sent|dead`, attempt count, max attempts, next attempt, lock fields, sent/dead-letter timestamps, last error, timestamps; payloads carry `event_type`, `connection_id`, `endpoint_id`, `model_id`, optional `banned_until_at`, and `occurred_at` |
 | `loadbalance_round_robin_state` | profile-scoped routing state | `id`, `profile_id`, `model_config_id`, `next_cursor`, timestamps; one cursor row per profile/model for round-robin routing |
-| `management_stat_buckets` | internal stats rollup helper | Composite PK `(bucket_start, bucket_size, metric, dimension_key, dimension_value)`, numeric `value`, `source_high_water_mark`, `generated_at`; retained for internal rollup helpers and tests, not the primary dashboard contract |
-| `management_stat_refresh_state` | internal stats rollup helper | PK `job_name`, `last_source_high_water_mark`, `last_success_at`, `last_error`, `updated_at`; tracks internal rollup refresh progress |
 
 ## 3. Indexes and Constraints (Profile Isolation)
 
@@ -1069,43 +992,39 @@ CREATE INDEX idx_audit_logs_profile_created_at ON audit_logs(profile_id, created
 CREATE INDEX idx_loadbalance_events_profile_created ON loadbalance_events(profile_id, created_at);
 CREATE INDEX idx_loadbalance_events_connection ON loadbalance_events(connection_id, created_at);
 CREATE INDEX idx_loadbalance_events_event_type ON loadbalance_events(event_type);
+CREATE UNIQUE INDEX idx_alert_webhook_outbox_idempotency_key ON alert_webhook_outbox(idempotency_key);
+CREATE INDEX idx_alert_webhook_outbox_due ON alert_webhook_outbox(next_attempt_at, created_at, id) WHERE status = 'queued';
+CREATE INDEX idx_alert_webhook_outbox_stale_locks ON alert_webhook_outbox(locked_until) WHERE status = 'sending';
+CREATE INDEX idx_alert_webhook_outbox_dead_letters ON alert_webhook_outbox(dead_lettered_at DESC) WHERE status = 'dead';
 CREATE INDEX idx_routing_connection_runtime_state_profile_connection ON routing_connection_runtime_state(profile_id, connection_id);
 CREATE INDEX idx_routing_connection_runtime_leases_profile_connection ON routing_connection_runtime_leases(profile_id, connection_id);
 CREATE INDEX idx_routing_connection_runtime_leases_expires_at ON routing_connection_runtime_leases(expires_at);
 CREATE INDEX idx_endpoint_fx_profile_model_endpoint_lookup ON endpoint_fx_rate_settings(profile_id, model_id, endpoint_id);
 
--- Auth and retained passkey-era tables
+-- Auth tables
 CREATE INDEX idx_refresh_tokens_revoked_at ON refresh_tokens(revoked_at);
 CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
 CREATE INDEX idx_proxy_api_keys_is_active ON proxy_api_keys(is_active);
-CREATE INDEX idx_password_reset_challenges_expires_at ON password_reset_challenges(expires_at);
-CREATE INDEX idx_password_reset_challenges_consumed_at ON password_reset_challenges(consumed_at);
-CREATE INDEX idx_webauthn_challenges_expires_at ON webauthn_challenges(expires_at);
-CREATE INDEX idx_webauthn_challenges_challenge_key ON webauthn_challenges(challenge_key);
-CREATE INDEX idx_webauthn_credentials_auth_subject ON webauthn_credentials(auth_subject_id);
-CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_used_at);
 ```
 
 ## 4. Relationship and Ownership Rules
 
 - Profile-scoped entities include `model_configs`, `model_access_targets`, `loadbalance_strategies`, `endpoints`, `connections`, `pricing_templates`, `user_settings`, `endpoint_fx_rate_settings`, `profile_api_family_audit_settings`, `routing_connection_runtime_state`, `routing_connection_runtime_leases`, `loadbalance_round_robin_state`, `runtime_telemetry_outbox`, profile-owned `management_jobs`, user `header_blocklist_rules`, and user `user_agent_client_rules`.
-- `app_auth_settings` is the singleton auth root for `refresh_tokens`, `proxy_api_keys`, and `password_reset_challenges`; retained `webauthn_credentials` rows remain schema-level historical state rather than an active supported workflow surface.
-- `request_logs`, `usage_request_events`, `audit_logs`, and `loadbalance_events` keep immutable `profile_id` attribution and are not rewritten when active profile changes.
+- `app_auth_settings` is the singleton auth root for `refresh_tokens` and `proxy_api_keys`.
+- `request_logs`, `usage_request_events`, `audit_logs`, and `loadbalance_events` keep immutable `profile_id` attribution and are not rewritten when the runtime profile snapshot changes.
 - `request_logs.ingress_request_id` is the canonical operator drill-in key for grouped request investigation.
 - `routing_connection_runtime_state` and `routing_connection_runtime_leases` are profile-scoped runtime state and intentionally `UNLOGGED`; operators accept reset-on-crash semantics.
-- Cross-profile resource lookups are treated as not found (`404`) under effective profile scope.
+- Cross-profile resource lookups are treated as not found (`404`) because management scope is pinned to Default profile id `1`.
 - Private connection create/update must enforce profile consistency between the connection and endpoint references. The single owner is enforced through `model_access_targets.target_connection_id`.
 
 ## 5. Deletion and Retention Semantics
 
-- Routine profile deletion (`DELETE /api/profiles/{id}`) is soft-delete of inactive profile (`deleted_at` set).
-- Active profile deletion is rejected.
-- Profile-scoped config entities are removable through explicit profile-targeted replace/purge workflows.
+- Profile deletion routes are not exposed while multi-profile management is frozen.
 - Historical telemetry/audit retention is independent; routine profile delete does not erase historical attribution rows.
 
 ## 6. Runtime Isolation Notes
 
-- Proxy routing always resolves against the active profile snapshot.
+- Proxy routing always resolves against frozen Default profile id `1`.
 - Runtime routing state is persisted in profile-scoped hot tables and namespaced by `(profile_id, connection_id)` so retry-window, admission, and ban decisions do not leak across profiles.
 - Ban Mode state stays with the same per-connection runtime row and tracks retry-cycle attempts, cumulative attempts, next retry timing, ban mode, and temporary-ban expiry together.
 - Admission state is persisted in profile-scoped `UNLOGGED` hot tables plus lease rows and remains namespaced by `(profile_id, connection_id)` to avoid cross-profile leakage.
@@ -1115,16 +1034,8 @@ CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_use
 - Ban Mode thresholding uses cumulative retry attempts for the private connection owned by the terminal model path.
 - Non-retryable client errors do not force-clear existing persisted current state; successful responses (`2xx`/`3xx`) clear persisted retry and ban state for the connection.
 - Resetting current state deletes the row and therefore clears retry-window counters, next retry timing, and ban state together.
-- Header blocklist at runtime is resolved as: all enabled system rules + enabled user rules for active profile.
+- Header blocklist at runtime is resolved as: all enabled system rules + enabled user rules for frozen Default profile id `1`.
 
-## 7. Config Import/Export Versioning
-
-- OpenAI text capability is profile-scoped Terminal Target data. Profile bundle v3 carries `connections[].openai_text_capability`, and startup config has no OpenAI text translation mode field.
-- Profile bundles never export plaintext endpoint `api_key`; endpoints with credentials use `api_key_secret_ref` plus encrypted secret entries, and endpoints without credentials use `api_key_secret_ref = null`.
-- Persisted rows created by import always receive fresh database IDs; the version-3 profile bundle contract omits internal IDs entirely and relies on name-based references.
-- Profile import replace semantics are targeted by effective profile context and do not globally delete other profiles.
-
-
-## 8. Invariant Notes
+## 7. Invariant Notes
 
 - Runtime hot state remains profile-scoped and reset-on-crash by design.

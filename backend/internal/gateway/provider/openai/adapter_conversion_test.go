@@ -5,13 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
-	"mime"
-	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/coachpo/prism/backend/internal/gateway/provider"
@@ -50,111 +46,6 @@ func TestAdapterRejectsAdjunctConversionBeforeTranslation(t *testing.T) {
 	if adapterErr.HTTPStatus != http.StatusBadRequest || adapterErr.Code != "openai_request_translation_unsupported" || adapterErr.Fields["unsupported_reason"] != "operation_translation_unsupported" {
 		t.Fatalf("expected typed adjunct conversion rejection, got %+v", adapterErr)
 	}
-}
-
-func TestAdapterBuildImageUpstreamRequestRewritesJSONAndMultipart(t *testing.T) {
-	adapter := openai.New()
-	generation, err := adapter.BuildImageUpstreamRequest(context.Background(), openai.ImageUpstreamRequest{
-		Operation:     provider.Operation{Name: openai.OperationImagesGenerations, APIFamily: provider.APIFamilyOpenAI},
-		RawBody:       []byte(`{"model":"public-image","prompt":"cat"}`),
-		ContentType:   "application/json",
-		TargetModelID: "target-image",
-	})
-	if err != nil {
-		t.Fatalf("build image generation request: %v", err)
-	}
-	if generation.Method != http.MethodPost || generation.Path != "/v1/images/generations" || adapterTestJSONModel(t, generation.Body) != "target-image" {
-		t.Fatalf("unexpected image generation upstream request: %+v body=%s", generation, string(generation.Body))
-	}
-
-	editBody, editContentType := adapterImageEditMultipartBody(t, "public-image")
-	edit, err := adapter.BuildImageUpstreamRequest(context.Background(), openai.ImageUpstreamRequest{Operation: provider.Operation{Name: openai.OperationImagesEdits, APIFamily: provider.APIFamilyOpenAI}, RawBody: editBody, ContentType: editContentType, TargetModelID: "target-image"})
-	if err != nil {
-		t.Fatalf("build image edit request: %v", err)
-	}
-	if edit.Method != http.MethodPost || edit.Path != "/v1/images/edits" || adapterMultipartValue(t, edit.Body, editContentType, "model") != "target-image" || adapterMultipartValue(t, edit.Body, editContentType, "image") != "fake-png-bytes" {
-		t.Fatalf("unexpected image edit upstream request: %+v body=%s", edit, string(edit.Body))
-	}
-}
-
-func TestImageAuditRedactionRemovesImageBytes(t *testing.T) {
-	request := openai.RedactImageRequestAuditBody([]byte(`{"model":"gpt-image-1","prompt":"draw","image":"raw-image-bytes"}`), "application/json")
-	if strings.Contains(string(request), "raw-image-bytes") || !strings.Contains(string(request), "gpt-image-1") {
-		t.Fatalf("expected JSON request redaction to keep metadata only, got %s", string(request))
-	}
-	response := openai.RedactImageResponseAuditBody([]byte(`{"data":[{"b64_json":"raw-base64-image"},{"url":"https://example.test/image.png"}]}`), "application/json")
-	if strings.Contains(string(response), "raw-base64-image") || !strings.Contains(string(response), "image.png") {
-		t.Fatalf("expected JSON response redaction to remove b64 image bytes, got %s", string(response))
-	}
-
-	editBody, editContentType := adapterImageEditMultipartBody(t, "gpt-image-1")
-	multipartRequest := openai.RedactImageRequestAuditBody(editBody, editContentType)
-	if strings.Contains(string(multipartRequest), "fake-png-bytes") || !strings.Contains(string(multipartRequest), "gpt-image-1") || !strings.Contains(string(multipartRequest), "input.png") {
-		t.Fatalf("expected multipart request redaction to remove file bytes only, got %s", string(multipartRequest))
-	}
-}
-
-func adapterTestJSONModel(t *testing.T, body []byte) string {
-	t.Helper()
-	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
-		t.Fatalf("decode adapter JSON body: %v", err)
-	}
-	model, _ := payload["model"].(string)
-	return model
-}
-
-func adapterImageEditMultipartBody(t *testing.T, model string) ([]byte, string) {
-	t.Helper()
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	if err := writer.WriteField("model", model); err != nil {
-		t.Fatalf("write image edit model field: %v", err)
-	}
-	if err := writer.WriteField("prompt", "make the image brighter"); err != nil {
-		t.Fatalf("write image edit prompt field: %v", err)
-	}
-	imagePart, err := writer.CreateFormFile("image", "input.png")
-	if err != nil {
-		t.Fatalf("create image edit file field: %v", err)
-	}
-	if _, err := imagePart.Write([]byte("fake-png-bytes")); err != nil {
-		t.Fatalf("write image edit file bytes: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close image edit multipart writer: %v", err)
-	}
-	return body.Bytes(), writer.FormDataContentType()
-}
-
-func adapterMultipartValue(t *testing.T, body []byte, contentType string, field string) string {
-	t.Helper()
-	_, params, err := mime.ParseMediaType(contentType)
-	if err != nil {
-		t.Fatalf("parse multipart content type: %v", err)
-	}
-	reader := multipart.NewReader(bytes.NewReader(body), params["boundary"])
-	for {
-		part, err := reader.NextPart()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			t.Fatalf("read multipart part: %v", err)
-		}
-		if part.FormName() != field {
-			_ = part.Close()
-			continue
-		}
-		value, err := io.ReadAll(part)
-		_ = part.Close()
-		if err != nil {
-			t.Fatalf("read multipart field %s: %v", field, err)
-		}
-		return string(value)
-	}
-	t.Fatalf("multipart field %s not found", field)
-	return ""
 }
 
 func assertAdapterGoldenJSON(t *testing.T, name string, actual []byte) {

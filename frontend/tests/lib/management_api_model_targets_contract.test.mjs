@@ -29,8 +29,7 @@ test("model target reorder client uses the explicit position route contract", as
 
   try {
     apiModule = loadApi();
-    const { api, setApiProfileId } = apiModule;
-    setApiProfileId(42);
+    const { api } = apiModule;
 
     await api.models.targets.movePosition(10, 20, 3);
 
@@ -41,12 +40,11 @@ test("model target reorder client uses the explicit position route contract", as
           method: "PATCH",
           body: JSON.stringify({ to_index: 3 }),
           credentials: "include",
-          headers: { "Content-Type": "application/json", "X-Profile-Id": "42" },
+          headers: { "Content-Type": "application/json", "X-Profile-Id": "1" },
         },
       },
     ]);
   } finally {
-    apiModule?.setApiProfileId(null);
     globalThis.fetch = originalFetch;
   }
 });
@@ -97,12 +95,10 @@ test("model target client rejects obsolete routing metadata from API responses",
 
   try {
     apiModule = loadApi();
-    const { api, setApiProfileId } = apiModule;
-    setApiProfileId(42);
+    const { api } = apiModule;
 
     await assert.rejects(api.models.list(), /access_targets\.weight/);
   } finally {
-    apiModule?.setApiProfileId(null);
     globalThis.fetch = originalFetch;
   }
 });

@@ -22,24 +22,20 @@ type ShutdownHook func(context.Context) error
 
 // Options lists the runtime resources App owns in explicit shutdown order.
 type Options struct {
-	HTTPServer        HTTPServer
-	RealtimeShutdown  []ShutdownHook
-	SideEffectDrain   []ShutdownHook
-	SchedulerStop     ShutdownHook
-	ServiceClose      []ShutdownHook
-	TelemetryShutdown ShutdownHook
-	DBClose           ShutdownHook
+	HTTPServer      HTTPServer
+	SideEffectDrain []ShutdownHook
+	SchedulerStop   ShutdownHook
+	ServiceClose    []ShutdownHook
+	DBClose         ShutdownHook
 }
 
 // App owns Prism runtime resources once startup has completed.
 type App struct {
-	httpServer        HTTPServer
-	realtimeShutdown  []ShutdownHook
-	sideEffectDrain   []ShutdownHook
-	schedulerStop     ShutdownHook
-	serviceClose      []ShutdownHook
-	telemetryShutdown ShutdownHook
-	dbClose           ShutdownHook
+	httpServer      HTTPServer
+	sideEffectDrain []ShutdownHook
+	schedulerStop   ShutdownHook
+	serviceClose    []ShutdownHook
+	dbClose         ShutdownHook
 
 	shutdownOnce sync.Once
 	shutdownErr  error
@@ -47,13 +43,11 @@ type App struct {
 
 func NewApp(options Options) *App {
 	return &App{
-		httpServer:        options.HTTPServer,
-		realtimeShutdown:  append([]ShutdownHook(nil), options.RealtimeShutdown...),
-		sideEffectDrain:   append([]ShutdownHook(nil), options.SideEffectDrain...),
-		schedulerStop:     options.SchedulerStop,
-		serviceClose:      append([]ShutdownHook(nil), options.ServiceClose...),
-		telemetryShutdown: options.TelemetryShutdown,
-		dbClose:           options.DBClose,
+		httpServer:      options.HTTPServer,
+		sideEffectDrain: append([]ShutdownHook(nil), options.SideEffectDrain...),
+		schedulerStop:   options.SchedulerStop,
+		serviceClose:    append([]ShutdownHook(nil), options.ServiceClose...),
+		dbClose:         options.DBClose,
 	}
 }
 
@@ -108,12 +102,6 @@ func (app *App) Shutdown(ctx context.Context) error {
 				}
 			}
 		}
-		if len(app.realtimeShutdown) > 0 {
-			logShutdownPhaseStarted("realtime_shutdown")
-		}
-		for _, hook := range app.realtimeShutdown {
-			errs = appendError(errs, hook(ctx))
-		}
 		if len(app.sideEffectDrain) > 0 {
 			logShutdownPhaseStarted("side_effect_drain")
 		}
@@ -129,10 +117,6 @@ func (app *App) Shutdown(ctx context.Context) error {
 		}
 		for _, hook := range app.serviceClose {
 			errs = appendError(errs, hook(ctx))
-		}
-		if app.telemetryShutdown != nil {
-			logShutdownPhaseStarted("telemetry_shutdown")
-			errs = appendError(errs, app.telemetryShutdown(ctx))
 		}
 		if app.dbClose != nil {
 			logShutdownPhaseStarted("db_close")

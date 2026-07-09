@@ -1,6 +1,4 @@
 import { useCallback, useMemo, useState } from "react"
-import { createSearchParams, type SetURLSearchParams, type URLSearchParamsInit } from "react-router-dom"
-import { useProfileContext } from "@/context/ProfileContext"
 import type {
   Connection,
   Endpoint,
@@ -24,14 +22,20 @@ import { useModelDetailDialogState } from "@/pages/model-detail/useModelDetailDi
 import { useModelDetailModelForm } from "@/pages/model-detail/useModelDetailModelForm"
 import { useModelLoadbalanceCurrentState } from "@/pages/model-detail/useModelLoadbalanceCurrentState"
 
+type URLSearchParamsInit = ConstructorParameters<typeof URLSearchParams>[0]
+type SetURLSearchParams = (
+  nextInit: URLSearchParamsInit | ((current: URLSearchParams) => URLSearchParamsInit),
+  options?: { replace?: boolean },
+) => void
+
 function resolveSearchParamsInit(
   nextInit: URLSearchParamsInit | ((current: URLSearchParams) => URLSearchParamsInit) | undefined,
   current: URLSearchParams,
 ): URLSearchParams {
   if (typeof nextInit === "function") {
-    return createSearchParams(nextInit(current))
+    return new URLSearchParams(nextInit(current))
   }
-  return createSearchParams(nextInit)
+  return new URLSearchParams(nextInit)
 }
 
 interface UseModelDetailFeatureDataInput {
@@ -47,7 +51,7 @@ export function useModelDetailFeatureData({
   setSearchParams,
   navigateTo,
 }: UseModelDetailFeatureDataInput) {
-  const { revision } = useProfileContext()
+  const revision = 0
   const modelConfigId = modelId ? Number.parseInt(modelId, 10) : undefined
 
   const [model, setModel] = useState<ModelConfig | null>(null)
@@ -73,10 +77,6 @@ export function useModelDetailFeatureData({
     isConnectionDialogOpen,
     setIsConnectionDialogOpen,
     editingConnection,
-    dialogTestingConnection,
-    setDialogTestingConnection,
-    dialogTestResult,
-    setDialogTestResult,
     createMode,
     setCreateMode,
     selectedEndpointId,
@@ -124,20 +124,13 @@ export function useModelDetailFeatureData({
   })
 
   const {
-    healthCheckingIds,
     reorderInFlight,
     handleReorderConnections,
-    handleHealthCheck,
-    handleDialogTestConnection,
   } = useModelDetailConnectionFlows({
     model,
     modelConfigId,
     connections,
     setConnections,
-    editingConnection,
-    refreshCurrentState,
-    setDialogTestingConnection,
-    setDialogTestResult,
   })
 
   const {
@@ -234,10 +227,6 @@ export function useModelDetailFeatureData({
     editingConnection,
     connectionSearch,
     setConnectionSearch,
-    healthCheckingIds,
-    dialogTestingConnection,
-    dialogTestResult,
-    clearDialogTestResult: () => setDialogTestResult(null),
     currentStateByConnectionId,
     resettingConnectionIds,
     focusedConnectionId,
@@ -258,8 +247,6 @@ export function useModelDetailFeatureData({
     openConnectionDialog,
     handleConnectionSubmit,
     handleDeleteConnection,
-    handleHealthCheck,
-    handleDialogTestConnection,
     handleToggleActive,
     handleAddAccessTarget,
     handleMoveAccessTarget,

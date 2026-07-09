@@ -124,6 +124,45 @@ func buildRuntimePricingResult(reportCurrencySnapshot runtimeReportCurrencySnaps
 	return result
 }
 
+func enforceRuntimeSpendCoherence(success bool, result runtimePricingResult) runtimePricingResult {
+	result.UnpricedReason = runtimeOptionalTrimmedStringPointer(result.UnpricedReason)
+	if !success || !result.Billable {
+		return result
+	}
+	if result.UnpricedReason != nil {
+		result.Priced = false
+		result.FXRateUsed = nil
+		result.FXRateSource = nil
+		return result
+	}
+	if result.TotalCostUserCurrencyMicros != nil {
+		result.Priced = true
+		result.FXRateUsed, result.FXRateSource = coherentRuntimeFXSnapshot(result)
+		return result
+	}
+	if result.Priced {
+		result.Priced = false
+		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
+	}
+	result.FXRateUsed = nil
+	result.FXRateSource = nil
+	return result
+}
+
+func coherentRuntimeFXSnapshot(result runtimePricingResult) (*string, *string) {
+	normalizedRate := runtimeOptionalTrimmedStringPointer(result.FXRateUsed)
+	normalizedSource := runtimeOptionalTrimmedStringPointer(result.FXRateSource)
+	if normalizedRate != nil || normalizedSource != nil {
+		return normalizedRate, normalizedSource
+	}
+	normalizedOriginalCurrency := runtimeOptionalTrimmedStringPointer(result.CurrencyCodeOriginal)
+	normalizedReportCurrency := runtimeOptionalTrimmedStringPointer(result.ReportCurrencyCode)
+	if normalizedOriginalCurrency != nil && normalizedReportCurrency != nil && *normalizedOriginalCurrency == *normalizedReportCurrency {
+		return stringPtr("1"), stringPtr(runtimeFXSourceDefaultOneToOne)
+	}
+	return nil, nil
+}
+
 func runtimeStreamOutcomeMakesUsageUnavailable(outcome string) bool {
 	switch strings.TrimSpace(outcome) {
 	case runtimeStreamOutcomeProviderIncomplete, runtimeStreamOutcomeClientDisconnected, runtimeStreamOutcomeUpstreamReadError, runtimeStreamOutcomeUpstreamEndedWithoutTerminal, runtimeStreamOutcomeUnknown:
@@ -223,4 +262,11 @@ func runtimeOptionalTrimmedString(value string) *string {
 		return nil
 	}
 	return stringPtr(trimmed)
+}
+
+func runtimeOptionalTrimmedStringPointer(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	return runtimeOptionalTrimmedString(*value)
 }

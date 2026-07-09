@@ -4,369 +4,35 @@ Local `./start.sh` backend base URL follows the selected bootstrap file's `serve
 
 Container and custom deployments use the listener configured in the plaintext bootstrap file. The root single-image Docker bundle publishes Nginx on `http://localhost:8080` by default and proxies to the private backend upstream on port `8000`.
 
-Prism does not expose a backend-local `/metrics` operations endpoint. Configure OTLP metrics and traces in startup JSON, send them to an OpenTelemetry Collector or Grafana Alloy, and connect Prometheus/Grafana/Tempo or another backend from that collector layer. The retained `/api/stats/*` routes remain product-facing request-history and aggregate APIs.
+Prism does not expose a backend-local `/metrics` operations endpoint or start telemetry exporters. The startup `telemetry` block is parsed for existing `config.json` compatibility only. The retained `/api/stats/*` routes remain product-facing request-history and aggregate APIs.
 
 ## 0. Profile Context Semantics
 - Prism has three route classes:
   - Global management routes, which omit `X-Profile-Id`.
-  - Profile-scoped management routes, which require `X-Profile-Id` and resolve against the selected profile.
-  - Runtime proxy routes, which always use the active profile and ignore management scope overrides.
-- Proxy endpoints (`/v1/*`, `/v1beta/*`) always use the active profile and ignore management scope overrides.
-- Global management routes include `/api/profiles/*`, `/api/auth/*`, `/api/realtime/*`, `/api/settings/auth*`, `GET/PUT /api/config/bootstrap`, `POST /api/config/bootstrap/validate`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`. `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`.
-- Profile-scoped management routes include `/api/config/profile/import`, `/api/config/header-blocklist-rules*`, `/api/config/user-agent-client-rules*`, `/api/settings/costing`, `/api/settings/timezone`, `/api/settings/audit`, `/api/stats/*`, `/api/audit/*`, `/api/loadbalance/*`, `/api/models/*`, `/api/endpoints/*`, `/api/connections/*`, and the other non-global `/api/config/profile/*` routes.
-- Detail endpoints return `404` when a resource exists in another profile but not in the effective profile context.
+  - Profile-scoped management routes, which accept `X-Profile-Id` but ignore its value and resolve against Default profile id `1`.
+  - Runtime proxy routes, which resolve against frozen Default profile id `1` and ignore management scope overrides.
+- Proxy endpoints (`/v1/*`, `/v1beta/*`) always resolve against frozen Default profile id `1` and ignore management scope overrides.
+- Global management routes include `/api/auth/*`, `/api/settings/auth*`, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
+- Profile-scoped management routes include `/api/config/header-blocklist-rules*`, `/api/config/user-agent-client-rules*`, `/api/settings/costing`, `/api/settings/timezone`, `/api/settings/audit`, `/api/stats/*`, `/api/audit/*`, `/api/loadbalance/*`, `/api/models/*`, `/api/endpoints/*`, and `/api/connections/*`.
+- Detail endpoints return `404` when a resource exists outside Default profile id `1`.
 - Scope-control failures return structured JSON with `code` and `detail`, where `code` is stable for machine handling and `detail` is safe to show to operators.
 
 
 ## 1. Management API (`/api/*`)
 
-### 1.0 Bootstrap Config
+### 1.0 Startup Config File
 
-The startup bootstrap contract is a plaintext `config.json` management surface. It is not a PostgreSQL-backed settings bundle. Backend-owned canonical defaults are the source of truth for freshly seeded files, including disabled telemetry and a standalone database URL on port `5432` unless `DATABASE_URL` is set; the root launcher sets `DATABASE_URL` to the local PostgreSQL DSN on host port `15432` before local seeding. The entrypoint has a narrow repair path for stale files rejected only because they still contain the retired `docsEnabled` field; other invalid legacy shapes fail validation. API-managed writes update the file and immediately apply fields that are marked `hot_apply`; structural fields, including every telemetry exporter/metrics/tracing field, are durable for the next Prism start. Existing valid files are preserved until the operator resets manually by stopping Prism, removing or relocating the bootstrap file, and restarting.
-
-#### Get Bootstrap Config
-```
-GET /api/config/bootstrap
-```
-
-Response `200` returns safe metadata only. Raw secret values never appear in the payload. Safe bootstrap API values use snake_case under `values.runtime`, so the raw `runtime.transport.requestTimeout` file setting appears as `values.runtime.transport.request_timeout`, and raw `runtime.sideEffects.attemptTimeout` appears as `values.runtime.side_effects.attempt_timeout`. The `apply_capabilities` registry uses canonical field paths such as `transport.request_timeout` and `side_effects.attempt_timeout`.
-
-GET is a read of the managed file plus the live applied baseline. Current responses always include `apply_capabilities`. They include `apply_result` only when file values differ from the live applied baseline, such as after a failed hot apply or an external file edit that changes a hot field. Current no-drift responses omit `planned_changes` and `apply_result`. `restart_required` is true only when the file contains restart-required drift from the live baseline. External edits to `config.json` are not watched automatically; operators must use the Startup tab or API PUT to publish hot-eligible file edits into the running process.
-```json
-{
-  "config_path": "config.json",
-  "schema_version": 1,
-  "file_revision": 12,
-  "loaded_revision": 12,
-  "document_etag": "sha256:abc123",
-  "loaded_document_etag": "sha256:abc123",
-  "created_at": "2026-04-28T00:00:00Z",
-  "updated_at": "2026-04-28T00:00:00Z",
-  "restart_required": false,
-  "writable": true,
-  "apply_capabilities": {
-    "http.cors_allowed_origins": { "mode": "hot_apply" },
-    "transport.request_timeout": { "mode": "hot_apply" },
-    "side_effects.attempt_timeout": { "mode": "restart_required" },
-    "server.port": {
-      "mode": "restart_required",
-      "confirmation_token": "server-port-change"
-    },
-    "database.url": {
-      "mode": "restart_required",
-      "confirmation_token": "database-url-change"
-    }
-  },
-  "values": {
-    "server": {
-      "host": "0.0.0.0",
-      "port": 8000
-    },
-    "runtime": {
-      "transport": {
-        "max_idle_conns": 100,
-        "max_idle_conns_per_host": 16,
-        "max_conns_per_host": 16,
-        "request_timeout": "300s",
-        "idle_conn_timeout": "90s",
-        "response_header_timeout": "0s",
-        "tls_handshake_timeout": "10s",
-        "expect_continue_timeout": "1s"
-      },
-      "side_effects": {
-        "attempt_timeout": "10s"
-      }
-    },
-    "mail": {
-      "enabled": false,
-      "from": null,
-      "reply_to": null,
-      "smtp": null
-    },
-    "telemetry": {
-      "enabled": false
-    }
-  },
-  "secrets": {
-    "database.url": {
-      "configured": true,
-      "editable": true,
-      "masked": "postgres://prism:***@localhost:15432/prism?sslmode=disable"
-    },
-    "runtime.secretEncryptionKey": {
-      "configured": true,
-      "editable": false,
-      "masked": "preserve-only"
-    },
-    "mail.smtp.password": {
-      "configured": false,
-      "editable": true,
-      "masked": ""
-    },
-    "telemetry.exporter.auth.authorizationHeader": {
-      "configured": false,
-      "editable": true,
-      "masked": ""
-    }
-  }
-}
-```
-
-The underlying `config.json` file must include raw `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` as Go duration strings. Fresh seeds set them to `"300s"` and `"10s"`. Missing either required field fails validation and startup by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout and is hot-applicable through PUT. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget, is restart-required, and is not hot-applied. Runtime buffering is automatic and not user-configurable. OpenAI text sibling translation has no startup config control; runtime capability comes from each OpenAI Terminal Target's `openai_text_capability`.
-
-Raw runtime startup config uses camelCase JSON field names in the file:
-
-```json
-{
-  "runtime": {
-    "transport": {
-      "requestTimeout": "300s",
-      "idleConnTimeout": "90s",
-      "responseHeaderTimeout": "0s",
-      "tlsHandshakeTimeout": "10s",
-      "expectContinueTimeout": "1s"
-    },
-    "sideEffects": {
-      "attemptTimeout": "10s"
-    }
-  }
-}
-```
-
-The underlying `config.json` file may also include an optional top-level `telemetry` block. Missing telemetry and `telemetry.enabled=false` both mean disabled no-op OpenTelemetry export. Enabled telemetry requires exporter endpoint, protocol (`grpc` or `http/protobuf`), compression (`none` or `gzip`), timeout, auth mode (`none` or `authorization_header`), TLS values, metrics enabled, traces enabled, and traces sampling ratio. These fields are restart-required: PUT persists them, but Prism rebuilds providers only on restart. `telemetry.exporter.auth.authorizationHeader` is secret-managed and appears only in `secrets` metadata plus `secret_updates`.
-
-Raw telemetry startup config uses camelCase JSON field names in the file:
-
-```json
-{
-  "telemetry": {
-    "enabled": true,
-    "exporter": {
-      "endpoint": "http://otel-collector:4318",
-      "protocol": "http/protobuf",
-      "compression": "gzip",
-      "timeout": "10s",
-      "auth": {
-        "mode": "authorization_header",
-        "authorizationHeader": "Bearer collector-token"
-      },
-      "tls": {
-        "insecureSkipVerify": false,
-        "caFile": "/etc/prism/otel-ca.pem"
-      }
-    },
-    "metrics": {
-      "enabled": true
-    },
-    "traces": {
-      "enabled": true,
-      "samplingRatio": 1
-    }
-  }
-}
-```
-
-Use the startup JSON as Prism's steady-state telemetry source. `OTEL_*` environment variables are not Prism's supported long-term configuration path, and Prism does not expose a backend-local `/metrics` scrape endpoint. Export OTLP to Collector or Alloy and attach Prometheus/Grafana/Tempo from there.
-
-The underlying `config.json` file may also include an optional top-level `mail` block. Missing `mail` and `mail.enabled=false` both mean disabled no-op auth email delivery with no SMTP network activity. Seeded configs use `{ "mail": { "enabled": false } }`.
-
-Enabled SMTP startup config uses camelCase JSON field names in the file:
-
-```json
-{
-  "mail": {
-    "enabled": true,
-    "from": "Prism <noreply@example.com>",
-    "replyTo": "support@example.com",
-    "smtp": {
-      "host": "smtp.example.com",
-      "port": 587,
-      "mode": "starttls_required",
-      "ehloHostname": "prism.example.com",
-      "auth": "plain",
-      "username": "smtp-user",
-      "passwordFile": "/run/secrets/prism-smtp-password",
-      "timeout": "15s",
-      "tlsServerName": "smtp.example.com"
-    }
-  }
-}
-```
-
-Supported `mail.smtp.mode` values are `starttls_required`, `implicit_tls`, and `plaintext_local_only`. `plaintext_local_only` is valid only for localhost or loopback SMTP hosts, and auth over non-local plaintext is forbidden. `mail.smtp.auth` accepts `none` or `plain`; `plain` requires `mail.smtp.username` plus exactly one of `mail.smtp.password` or `mail.smtp.passwordFile`. `mail.smtp.timeout` must parse as a Go duration such as `15s`.
-
-Safe bootstrap API values omit plaintext secrets and use snake_case for API fields, such as runtime `request_timeout`, `side_effects.attempt_timeout`, mail `reply_to`, `ehlo_hostname`, `password_file`, `tls_server_name`, telemetry `sampling_ratio`, `insecure_skip_verify`, and `ca_file`. `mail.smtp.password` and `telemetry.exporter.auth.authorizationHeader` appear only in `secrets` metadata and in `secret_updates`. To keep the current secret, send a `preserve` action. To change it, send a `replace` action with a non-placeholder value. Safe GET and validate responses never return the password or telemetry authorization-header value.
-
-The durable field registry is exposed through `apply_capabilities`. Hot-apply fields are `http.cors_allowed_origins`; auth TTL and cookie metadata fields `auth.access_token_ttl_seconds`, `auth.refresh_token_ttl_seconds`, `auth.reset_code_ttl_seconds`, `auth.access_cookie_name`, `auth.refresh_cookie_name`, and `auth.cookie_secure`; mail fields `mail.enabled`, `mail.from`, `mail.reply_to`, `mail.smtp.host`, `mail.smtp.port`, `mail.smtp.mode`, `mail.smtp.ehlo_hostname`, `mail.smtp.auth`, `mail.smtp.username`, `mail.smtp.password`, `mail.smtp.password_file`, `mail.smtp.timeout`, and `mail.smtp.tls_server_name`; runtime fields `transport.max_idle_conns`, `transport.max_idle_conns_per_host`, `transport.max_conns_per_host`, `transport.idle_conn_timeout`, `transport.request_timeout`, `transport.response_header_timeout`, `transport.tls_handshake_timeout`, and `transport.expect_continue_timeout`; and management admission fields `database.management_admission.m2_max_concurrent` and `database.management_admission.m3_max_concurrent`. `side_effects.attempt_timeout` and all `telemetry.*` fields are intentionally absent from hot-apply fields.
-
-Restart-required fields are listener fields `server.host` and `server.port`; `database.url`; PostgreSQL pool fields `database.pools.total_max_conns`, `database.pools.management.max_conns`, `database.pools.management.min_idle_conns`, `database.pools.runtime_execution.max_conns`, `database.pools.runtime_execution.min_idle_conns`, `database.pools.runtime_telemetry.max_conns`, `database.pools.runtime_telemetry.min_idle_conns`, `database.pools.runtime_feedback.max_conns`, `database.pools.runtime_feedback.min_idle_conns`, `database.pools.realtime.max_conns`, `database.pools.realtime.min_idle_conns`, `database.pools.cache_refresh.max_conns`, `database.pools.cache_refresh.min_idle_conns`, `database.pools.background_jobs.max_conns`, and `database.pools.background_jobs.min_idle_conns`; runtime field `side_effects.attempt_timeout`; telemetry fields `telemetry.enabled`, `telemetry.exporter.endpoint`, `telemetry.exporter.protocol`, `telemetry.exporter.compression`, `telemetry.exporter.timeout`, `telemetry.exporter.auth.mode`, `telemetry.exporter.auth.authorizationHeader`, `telemetry.exporter.tls.insecure_skip_verify`, `telemetry.exporter.tls.ca_file`, `telemetry.metrics.enabled`, `telemetry.traces.enabled`, and `telemetry.traces.sampling_ratio`; and secret fields `runtime.secretEncryptionKey`, `auth.jwtSigningKey`, and `stateTransfer.bundleEncryptionKey`. Confirmation tokens are required for `server.host`, `server.port`, `database.url`, `auth.jwtSigningKey`, and `stateTransfer.bundleEncryptionKey` changes. There is no hot apply for listener, database URL, pool budgets, telemetry provider settings, `side_effects.attempt_timeout`, JWT signing keys, state-transfer bundle keys, or the runtime secret encryption key.
-
-#### Validate Bootstrap Config
-```
-POST /api/config/bootstrap/validate
-```
-
-Request bodies follow the same shape as PUT, including required non-zero `expected_revision`, required non-empty `expected_etag`, `values`, `secret_updates`, and optional `confirmations`. Validation checks secret actions, confirmation requirements, field classification, and exact revision/etag concurrency before any file write. It returns the safe response shape with `apply_capabilities` plus `planned_changes`, where `changed_fields[]` contains each changed field and its `mode`. Validate does not write `config.json`, does not publish hot settings, and does not alter the live applied baseline.
-
-#### Update Bootstrap Config
-```
-PUT /api/config/bootstrap
-```
-
-PUT prepares and validates the requested file, validates hot runtime resources before writing, writes `config.json`, then publishes changed hot fields. A successful write returns the same safe response shape as GET, with `apply_capabilities` and `apply_result`. Updates require both the non-zero `expected_revision` and non-empty `expected_etag` to match the current file metadata, secret fields use explicit `preserve` or `replace` actions, redacted placeholders are not persisted, and dangerous changes require confirmation tokens for:
-- `server-host-change`
-- `server-port-change`
-- `database-url-change`
-- `auth-jwt-signing-key-change`
-- `state-transfer-bundle-encryption-key-change`
-
-`apply_result.applied_now_fields[]` lists hot fields published to the running process during this PUT. `restart_required_fields[]` lists changed structural fields that remain file-durable until restart. `pending_hot_apply_fields[]` lists hot fields written to the file but not yet applied to the live baseline. `failed_hot_apply_fields[]` lists hot fields whose publish step failed. `unchanged_fields[]` lists registered fields that did not change. Top-level `restart_required` is true when restart-required fields differ from the live applied baseline.
-
-`runtime.secretEncryptionKey` is preserve-only in v1.
-
-`mail.smtp.password` is editable through the same secret update map:
-
-```json
-{
-  "secret_updates": {
-    "mail.smtp.password": {
-      "action": "replace",
-      "value": "new-smtp-password"
-    }
-  }
-}
-```
-
-`telemetry.exporter.auth.authorizationHeader` is also secret-managed. Replace it when `telemetry.exporter.auth.mode` is `authorization_header`, preserve it to keep the current collector credential, or clear it when switching auth mode to `none`.
-
-```json
-{
-  "secret_updates": {
-    "telemetry.exporter.auth.authorizationHeader": {
-      "action": "replace",
-      "value": "Bearer collector-token"
-    }
-  }
-}
-```
-
-If hot publish fails after the file write, the response is HTTP `500` and still uses the bootstrap response shape with top-level `apply_result` plus `detail.message = "Failed to apply bootstrap config"` and `detail.failed_hot_apply_fields[]`. The file remains written. Failed hot fields stay pending against the live applied baseline, so a later GET shows `apply_result.pending_hot_apply_fields[]` and a later PUT can retry the publish. Removing `mail` or setting `mail.enabled=false` disables real delivery immediately when hot apply succeeds, or after restart if the change is still pending. If `mail.enabled=true` and SMTP config is incomplete or invalid, validation and startup fail with redacted errors rather than silently using no-op delivery.
+Prism loads steady-state startup settings from the plaintext `config.json` selected by `PRISM_CONFIG_PATH`. R2 removed the management API for editing that file; external edits require a Prism restart before they affect the running process.
 
 ### 1.1 Profiles
-#### List Profiles
-```
-GET /api/profiles
-```
-Response `200`: Array of profile objects.
-```json
-[
-  {
-    "id": 1,
-    "name": "Default",
-    "description": "System default profile",
-    "is_active": true,
-    "is_default": true,
-    "is_editable": true,
-    "version": 5,
-    "created_at": "2025-01-01T00:00:00Z",
-    "updated_at": "2025-01-01T00:00:00Z"
-  }
-]
-```
 
-#### Bootstrap Profiles for the Shell
-```
-GET /api/profiles/bootstrap
-```
-Response `200`:
-```json
-{
-  "profiles": [
-    {
-      "id": 1,
-      "name": "Default",
-      "description": "System default profile",
-      "is_active": true,
-      "is_default": true,
-      "is_editable": true,
-      "version": 5,
-      "created_at": "2025-01-01T00:00:00Z",
-      "updated_at": "2025-01-01T00:00:00Z"
-    }
-  ],
-  "active_profile": {
-    "id": 1,
-    "name": "Default",
-    "description": "System default profile",
-    "is_active": true,
-    "is_default": true,
-    "is_editable": true,
-    "version": 5,
-    "created_at": "2025-01-01T00:00:00Z",
-    "updated_at": "2025-01-01T00:00:00Z"
-  },
-  "profile_limits": {
-    "max_profiles": 10
-  }
-}
-```
-
-`active_profile` may be `null` when no runtime profile is currently active. The frontend shell uses this bootstrap endpoint as its single source for profile list, active-profile runtime metadata, and the max-profile creation cap.
-
-#### Get Active Profile
-```
-GET /api/profiles/active
-```
-Response `200`: Active profile object (same schema as list item).
-
-#### Create Profile
-```
-POST /api/profiles
-```
-Request:
-```json
-{
-  "name": "Profile A",
-  "description": "OpenAI workspace"
-}
-```
-Response `201`: Created profile object.
-Returns `409` if 10 non-deleted profiles already exist.
-New profiles are always created with `is_default=false` and `is_editable=true`.
-
-#### Update Profile
-```
-PATCH /api/profiles/{id}
-```
-Request fields: `name` (optional), `description` (optional).
-Response `200`: Updated profile object.
-Returns `400` if attempting to update a non-editable profile.
-
-#### Activate Profile (CAS)
-```
-POST /api/profiles/{id}/activate
-```
-Request:
-```json
-{
-  "expected_active_profile_id": 1
-}
-```
-Response `200`: Updated active profile object.
-Returns `409` when the expected active profile ID no longer matches the current active profile.
-
-#### Delete Profile
-```
-DELETE /api/profiles/{id}
-```
-Response `200`: `{ "deleted": true }` for deletable profiles.
-Returns `400` if the target profile is currently active or is the default profile.
+The profile management API is frozen. Prism preserves the `profiles` table and all `profile_id` storage columns, but no longer exposes `/api/profiles*` management routes. Profile-scoped management APIs are pinned to Default profile id `1`.
 
 ---
 
 ### 1.2 Catalog Management
 
-Prism no longer exposes a catalog management product surface. Model compatibility is carried by each model's required `api_family`, and profile configuration import does not create or translate catalog data.
+Prism no longer exposes a catalog management product surface. Model compatibility is carried by each model's required `api_family`; catalog metadata does not participate in runtime routing.
 
 ---
 
@@ -528,7 +194,7 @@ After a successful delete, later endpoints in the same profile are compacted so 
 
 ### 1.5 Terminal Targets and Model Access Targets
 
-Terminal Targets are Prism's product term for model-private endpoint bindings within one profile. Terminal Targets are represented as `connections` / `connection_id` in the compatibility API and database schema. A compatibility connection carries its owner model's `api_family`, endpoint reference or inline endpoint create payload, health metadata, pricing template, and optional admission limits. Endpoints remain reusable, so many Terminal Targets may point at the same endpoint. `model_access_targets.target_type="connection"` is an internal ownership and runtime routing edge, not a public assignment surface for connection IDs.
+Terminal Targets are Prism's product term for model-private endpoint bindings within one profile. Terminal Targets are represented as `connections` / `connection_id` in the compatibility API and database schema. A compatibility connection carries its owner model's `api_family`, endpoint reference or inline endpoint create payload, pricing template, and optional admission limits. Endpoints remain reusable, so many Terminal Targets may point at the same endpoint. `model_access_targets.target_type="connection"` is an internal ownership and runtime routing edge, not a public assignment surface for connection IDs.
 
 #### List Terminal Targets Through `/api/connections`
 ```
@@ -567,7 +233,6 @@ Request (using existing endpoint):
   "custom_headers": {
     "X-Custom-Org": "org-123"
   },
-  "openai_probe_endpoint_variant": "responses_minimal",
   "openai_text_capability": "responses_only",
   "pricing_template_id": 2,
   "qps_limit": 3,
@@ -585,7 +250,6 @@ Request (inline endpoint creation):
   },
   "is_active": true,
   "name": "Regional fallback",
-  "openai_probe_endpoint_variant": "responses_minimal",
   "openai_text_capability": "dual_native",
   "pricing_template_id": null,
   "qps_limit": null,
@@ -601,13 +265,12 @@ Create semantics:
 - `priority` is rejected with `422`; Terminal Target ordering for a model is owned by `/api/models/{model_config_id}/targets` positions.
 - Limiter fields are optional. `null` means unlimited. Positive integers apply per-connection request admission limits.
 - `openai_text_capability` is the OpenAI text runtime capability source of truth for OpenAI-family Terminal Targets. It accepts `responses_only`, `chat_completions_only`, or `dual_native`, and is required for OpenAI rows. Non-OpenAI rows must omit it or persist `null`.
-- `openai_probe_endpoint_variant` selects only the lightweight OpenAI health-check target plus payload variant for OpenAI-family connections. Supported values are `responses_minimal` (default), `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`. It does not derive runtime capability or request shape. For non-OpenAI families, providing this field is rejected and omitted values persist as `null`.
 
 #### Update Terminal Target
 ```
 PATCH /api/models/{model_config_id}/connections/{connection_id}
 ```
-Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `openai_probe_endpoint_variant`, `openai_text_capability`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
+Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `openai_text_capability`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
 
 `endpoint_create` is supported on update and is mutually exclusive with `endpoint_id`. `priority` is rejected with `422`. The owner model and connection `api_family` are immutable.
 
@@ -646,27 +309,6 @@ Response `200`: `{ "deleted": true }`.
 
 Deletes the Terminal Target and its internal owner access-target row together, subject to enabled-model target validation. Public `DELETE /api/connections/{connection_id}` rejects mutation requests.
 
-#### Health Check Terminal Target
-```
-POST /api/models/{model_config_id}/connections/{connection_id}/health
-```
-Sends an api-family-specific lightweight request using the owner model and persists the Terminal Target health result. The route validates URL routing, authentication, ownership, and model availability end to end. Public connection-level health-check mutation routes reject writes.
-
-Response `200`:
-```json
-{
-  "connection_id": 1,
-  "health_status": "healthy",
-  "checked_at": "2025-01-15T10:30:00Z",
-  "detail": "Connection successful",
-  "response_time_ms": 523
-}
-```
-API-family-specific health-check probes:
-- OpenAI: the endpoint base URL joined with `/v1/responses` or `/v1/chat/completions` based on the persisted `openai_probe_endpoint_variant`; the specific variant also controls whether the probe uses the minimal payload shape or the `reasoning: none` payload shape.
-- Anthropic: the endpoint base URL joined with `/v1/messages` with a one-token user prompt.
-- Gemini: the endpoint base URL joined with `/v1beta/models/{model}:generateContent` with minimal content payload.
-
 #### Model Target Routes
 ```
 GET /api/models/{model_config_id}/targets
@@ -688,14 +330,14 @@ Model target rows define a model's ordered access graph. Public authoring create
 ```
 
 Target semantics:
-- Public `POST /api/models/{model_config_id}/targets` accepts `target_type="model"` with exact `target_model_id`, `position`, and `is_enabled`. Obsolete `weight` and `target_priority` keys reject on create, update, patch, config import, and preview payloads.
+- Public `POST /api/models/{model_config_id}/targets` accepts `target_type="model"` with exact `target_model_id`, `position`, and `is_enabled`. Obsolete `weight` and `target_priority` keys reject on create, update, and patch payloads.
 - Runtime routing consumes exact target-model IDs only. Target payloads do not accept regex matcher fields, capability-metadata expansion, weighted policy names, or hidden priority fields.
 - Public target authoring rejects submitted `target_type="connection"`, `connection_id`, or `target_connection_id` values. Private connections are created and managed through `/api/models/{model_config_id}/connections`.
 - `PUT` and `PATCH /api/models/{model_config_id}/targets/{target_id}` update target metadata within the owning model scope. For internal connection targets, `PATCH` accepts only `position` and `is_enabled`; pointer fields are immutable and obsolete weight fields must stay omitted.
 - `PATCH /api/models/{model_config_id}/targets/{target_id}/position` is the dedicated move route and accepts `to_index`.
 - Existing internal `target_type="connection"` rows identify the source model that owns a private connection and provide the runtime terminal routing edge.
 - Target positions are contiguous starting at `0` and determine routing order for that source model. Position is an ordering key only, not a priority, tier, or weight replacement.
-- Target validation is selected-profile scoped, same-family, enabled-target aware, and cycle-safe.
+- Target validation is Default-profile scoped, same-family, enabled-target aware, and cycle-safe.
 
 #### Base URL Validation
 
@@ -748,6 +390,33 @@ Response `201`: Created pricing template object.
 
 Pricing templates use five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Create and update ingress normalizes missing, `null`, empty, and whitespace-only values for any of those five fields to `"0"` before decimal validation. Explicit `"0"` is configured free pricing. It is not missing price data. `MISSING_PRICE_DATA` is reserved for absent, unusable, or invalid pricing snapshots, or for required FX data that cannot be applied.
 
+#### Import Pricing Templates
+```
+POST /api/pricing-templates/import
+```
+Request:
+```json
+{
+  "mode": "upsert_by_name",
+  "templates": [
+    {
+      "name": "gpt-4o",
+      "pricing_unit": "PER_1M",
+      "pricing_currency_code": "USD",
+      "input_price": "2.5",
+      "output_price": "10",
+      "cached_input_price": "1.25",
+      "cache_creation_price": "0",
+      "reasoning_price": "0",
+      "description": "OpenAI GPT-4o"
+    }
+  ]
+}
+```
+Response `200`: `{ "created": 1, "updated": 0, "skipped": [], "errors": [] }`.
+
+`mode` is either `upsert_by_name` or `create_only`. Imports are Default-profile scoped and use one transaction: validation errors return `400` with row-level `errors[]`, and no templates are created or updated.
+
 #### Update Pricing Template
 ```
 PUT /api/pricing-templates/{id}
@@ -769,214 +438,13 @@ GET /api/pricing-templates/{id}/connections
 Response `200`: Usage payload with `template_id` and `items[]` (`connection_id`, `connection_name`, `model_config_id`, `model_id`, `endpoint_id`, `endpoint_name`).
 ---
 
-### 1.7 Config Export/Import
-
-Prism uses one profile config-bundle ownership domain: `version: 3`, profile-scoped config only.
-
-#### Export Profile Configuration
-```
-GET /api/config/profile/export
-```
-Response `200`:
-```json
-{
-  "version": 3,
-  "bundle_kind": "profile_config",
-  "exported_at": "2026-04-04T15:00:00Z",
-  "endpoints": [
-    {
-      "name": "Primary OpenAI",
-      "base_url": "https://api.openai.com",
-      "api_key_secret_ref": null,
-      "position": 0
-    }
-  ],
-  "pricing_templates": [],
-  "loadbalance_strategies": [],
-  "connections": [
-    {
-      "ref": "openai-primary",
-      "endpoint_name": "Primary OpenAI",
-      "api_family": "openai",
-      "is_active": true,
-      "priority": 0,
-      "name": "Primary production key",
-      "auth_type": null,
-      "custom_headers": {},
-      "openai_probe_endpoint_variant": "responses_minimal",
-      "openai_text_capability": "responses_only",
-      "pricing_template_name": null,
-      "qps_limit": null,
-      "max_in_flight_non_stream": null,
-      "max_in_flight_stream": null
-    }
-  ],
-  "models": [
-    {
-      "model_id": "gpt-4o",
-      "api_family": "openai",
-      "display_name": "GPT-4o",
-      "loadbalance_strategy_name": "Default fill-first routing",
-      "openai_accepted_format": "dual_native",
-      "is_enabled": true,
-      "access_targets": [
-        {
-          "target_type": "connection",
-          "connection_ref": "openai-primary",
-          "position": 0,
-          "is_enabled": true
-        }
-      ]
-    }
-  ],
-  "profile_settings": {
-    "report_currency_code": "USD",
-    "report_currency_symbol": "$",
-    "timezone_preference": "Europe/Helsinki",
-    "audit_api_family_settings": [
-      { "api_family": "openai", "audit_enabled": true, "audit_capture_bodies": false },
-      { "api_family": "anthropic", "audit_enabled": false, "audit_capture_bodies": false },
-      { "api_family": "gemini", "audit_enabled": false, "audit_capture_bodies": false }
-    ],
-    "endpoint_fx_mappings": []
-  },
-  "header_blocklist_rules": [],
-  "user_agent_client_rules": [],
-  "secret_payload": {
-    "kind": "encrypted",
-    "cipher": "fernet-v1",
-    "key_id": "sha256:...",
-    "entries": []
-  }
-}
-```
-The response includes a `Content-Disposition` header to trigger a file download: `attachment; filename="prism-profile-config-v3-YYYY-MM-DD.json"`.
-
-Profile export semantics:
-- `bundle_kind` is always `profile_config`.
-- `GET /api/config/profile/export` returns the safe redacted default bundle.
-- `POST /api/config/profile/export/with-secrets` returns the dangerous full secret-bearing bundle and requires `X-Prism-Dangerous-Confirm: profile-export`.
-- Safe exports never include plaintext `endpoints[].api_key`.
-- Safe exports null reusable endpoint secret refs and do not include `secret_payload.entries[]`.
-- Dangerous exports include `secret_payload.entries[]` and reusable endpoint secret refs.
-- Export fails if a stored endpoint secret cannot be decrypted before bundle encryption.
-- Profile bundles preserve top-level private connection records, model `access_targets`, same-family model routing, OpenAI accepted-format metadata, and attached loadbalance strategy references. Each exported `connection_ref` must be owned by exactly one model access target.
-- Exported access targets use the flat ordered shape only: `target_type`, the target pointer (`target_model_id` for model targets or `connection_ref` for Terminal Target ownership refs), `position`, and `is_enabled`. Profile bundles never export `weight` or `target_priority`.
-- Export includes `profile_settings.audit_api_family_settings` in stable `openai`, `anthropic`, `gemini` order. Import treats that array as the full audit-policy replacement for the selected profile.
-
-#### Preview Profile Import
-```
-POST /api/config/profile/import/preview
-```
-Request: Full profile bundle using `version: 3` and `bundle_kind: "profile_config"`.
-
-This preview route is profile-scoped and requires `X-Profile-Id`.
-
-Response `200`:
-```json
-{
-  "ready": true,
-  "version": 3,
-  "bundle_kind": "profile_config",
-  "endpoints_imported": 2,
-  "pricing_templates_imported": 4,
-  "strategies_imported": 2,
-  "models_imported": 5,
-  "connections_imported": 10,
-  "replacement_scope": {
-    "target": "selected_profile",
-    "endpoints": 2,
-    "pricing_templates": 4,
-    "loadbalance_strategies": 2,
-    "models": 5,
-    "connections": 10,
-    "header_blocklist_rules": 2,
-    "user_agent_client_rules": 1,
-    "profile_settings": true
-  },
-  "untouched_scope": {
-    "other_profiles": true,
-    "request_logs": true
-  },
-  "secret_summary": {
-    "endpoint_secret_refs": 1,
-    "secret_payload_entries": 1,
-    "decryptable_secret_refs": 1
-  },
-  "preview_token": "ptok_...",
-  "bundle_fingerprint": "sha256:...",
-  "secret_key_id": "sha256:...",
-  "decryptable_secret_refs": [
-    "endpoint:Primary OpenAI:api_key"
-  ],
-  "blocking_errors": [],
-  "warnings": []
-}
-```
-
-Preview semantics:
-- Preview is the authoritative backend readiness check for profile import.
-- The backend validates bundle kind/version, top-level private connection references, ordered model access targets, required `api_family`, and secret decryption before returning `ready: true`.
-- Preview rejects any `connection_ref` used by multiple models or any imported connection ref that cannot be owned by exactly one model.
-- Preview rejects profile bundle versions other than `3`; older profile bundle versions return `400`.
-- Profile bundles stay on `version: 3` and carry OpenAI Terminal Target runtime text capability through `connections[].openai_text_capability`. There is no bootstrap-owned translation mode control in the bundle or startup config.
-- Preview returns a server-issued preview token, and apply must send that token in `X-Prism-Preview-Token`.
-- Preview rejects plaintext or otherwise non-encrypted `secret_payload.entries[].ciphertext` values.
-- When bundle key validation or secret decryption fails, preview returns `ready: false` with `blocking_errors[]` and does not mutate profile state.
-
-#### Import Profile Configuration
-```
-POST /api/config/profile/import
-```
-Request: Full profile bundle using `version: 3` and `bundle_kind: "profile_config"`.
-
-This import route is profile-scoped and requires `X-Profile-Id`.
-
-Apply semantics:
-- `X-Prism-Preview-Token` is required on apply.
-- Missing preview token returns `400`.
-- Invalid, stale, or mismatched preview token returns `409`.
-- The preview/apply linkage lives in the header only; the raw bundle JSON stays unchanged.
-
-Response `200`:
-```json
-{
-  "endpoints_imported": 2,
-  "pricing_templates_imported": 4,
-  "strategies_imported": 2,
-  "models_imported": 5,
-  "connections_imported": 10
-}
-```
-
-Profile import semantics:
-- Import is profile-targeted and replaces configuration in the effective profile only.
-- Other profiles are not deleted or mutated.
-- The profile import lanes replace profile-scoped rows only, including endpoints, Terminal Targets represented as top-level private `connections`, model configs, model access targets, profile settings, loadbalance strategies, header blocklist rules, and user-agent client rules that belong to the effective profile.
-- Other profiles and request logs remain untouched.
-- Imported models carry required `api_family` directly. Profile import rejects unsupported model compatibility shapes instead of translating catalog metadata.
-- When endpoint `position` is present, import uses it as the ordering hint; when omitted, import falls back to endpoint file order. Persisted endpoint positions are normalized to contiguous `0..N-1` values.
-- Exported model access targets are ordered by `position`. During import, access-target positions are normalized to contiguous `0..N-1` values while preserving relative payload order; `position` remains an ordering key only.
-- Obsolete model-target `weight` and `target_priority` fields reject instead of being normalized. Exact-facade fields and connection context capability fields are retired and reject as unknown fields.
-- Import decrypts bundle secrets before any destructive mutation begins, then re-encrypts them into Prism's normal at-rest secret storage.
-- Endpoints with `api_key_secret_ref: null` import as no-auth endpoints with an empty stored endpoint secret.
-- Wrong bundle key or unreadable secret payloads fail before profile replacement starts.
-- Internal IDs (`endpoint_id`, `connection_id`, `pricing_template_id`) remain omitted from the profile bundle. The contract uses name-based references such as `endpoint_name`, `pricing_template_name`, `connection_ref`, and exact `target_model_id` values.
-- Exported/imported models carry ordered `access_targets` entries with model targets and internally owned Terminal Target compatibility entries plus `position` and `is_enabled` metadata.
-- Exported/imported Terminal Targets live at the top-level `connections` bundle key. Each entry includes top-level `ref`, `api_family`, endpoint and pricing-template name references, `is_active`, `priority`, name/auth/custom-header fields, OpenAI probe variant metadata, explicit `openai_text_capability`, `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited for limiter fields. OpenAI connections require `openai_text_capability`; non-OpenAI connections must omit it or use `null`. `connection_ref` remains the model access-target pointer to one of these top-level `ref` values.
-- Import rejects `connection_ref` values used by multiple models, duplicate Terminal Target ownership inside the bundle, and existing DB ownership collisions detected before profile replacement starts.
-- Exported pricing templates always carry the five pricing fields as concrete strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Profile bundle v3 import normalizes missing, null, or blank pricing inputs for any of those fields to `"0"` before validation.
-- Exported/imported loadbalance strategies include routing family in `legacy_strategy_type`, limited to `single`, `fill-first`, and `round-robin`.
-- Their explicit Ban Policy shape carries failure status codes, retry-window fields, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, ban mode, and ban duration. Import rejects removed keys and accepts only `off`, `temporary`, or `until_reset` for `ban_mode`.
-- Other profile config version numbers are unsupported.
-
-### 1.8 Settings API
+### 1.7 Settings API
 
 #### Get Auth Settings
 ```
 GET /api/settings/auth
 ```
-Response `200`: Global operator-auth settings (`auth_enabled`, `username`, `email`, `pending_email`, `email_verification_required`, `has_password`, `proxy_key_limit`).
+Response `200`: Global operator-auth settings (`auth_enabled`, `username`, `has_password`, `proxy_key_limit`).
 
 #### Update Auth Settings
 ```
@@ -991,18 +459,6 @@ Lifecycle contract:
 - Disabling auth clears the current browser cookies in the response and invalidates stale management sessions immediately.
 - Changing the operator username or password invalidates stale management sessions immediately, even when auth remains enabled.
 - After invalidation, `GET /api/auth/session` returns `401`, while `GET /api/auth/status` continues to report the live global auth mode.
-
-#### Request Email Verification
-```
-POST /api/settings/auth/email-verification/request
-```
-
-When auth email delivery is disabled, this workflow remains no-op-compatible. When SMTP is enabled, delivery uses the configured transport. Recovery-email verification send failures return a generic error and roll back the pending email state.
-
-#### Confirm Email Verification
-```
-POST /api/settings/auth/email-verification/confirm
-```
 
 #### Proxy API Keys
 - `GET /api/settings/auth/proxy-keys`
@@ -1036,7 +492,7 @@ Response `200`:
 }
 ```
 
-`/api/settings/auth*` routes are global management endpoints. `/api/settings/costing`, `/api/settings/timezone`, and `/api/settings/audit` are profile-scoped and require `X-Profile-Id`.
+`/api/settings/auth*` routes are global management endpoints. `/api/settings/costing`, `/api/settings/timezone`, and `/api/settings/audit` are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
 
 #### Update Costing Settings
 ```
@@ -1066,7 +522,7 @@ GET /api/settings/timezone
 Response `200`:
 ```json
 {
-  "profile_id": 2,
+  "profile_id": 1,
   "timezone_preference": "Europe/Helsinki"
 }
 ```
@@ -1083,7 +539,7 @@ Request:
 ```
 Response `200`: Updated timezone object.
 
-There is no standalone `/api/settings/monitoring` route or `/api/monitoring/*` family in the current live API contract. Current operator-facing observability and routing-health surfaces are provided through `/api/stats/*`, `/api/audit/*`, `/api/loadbalance/*`, and the manual Terminal Target health endpoints.
+There is no standalone `/api/settings/monitoring` route, `/api/monitoring/*` family, or Terminal Target probe route in the current live API contract. Current operator-facing observability and routing-health surfaces are provided through `/api/stats/*`, `/api/audit/*`, and `/api/loadbalance/*`.
 
 ---
 
@@ -1233,9 +689,9 @@ The former CLIProxyAPI management control plane and runtime context-overflow pro
 
 ## 2. Runtime Proxy API
 
-Prism's runtime proxy is an explicit allowlist, not a full vendor API clone. It supports only the operations listed in this section through the active profile. Other vendor routes, including stored-object, retrieve, delete, cancel, embedding, file, batch, and admin APIs, are outside Prism's runtime contract unless they appear in this allowlist.
+Prism's runtime proxy is an explicit allowlist, not a full vendor API clone. It supports only the operations listed in this section through frozen Default profile id `1`. Other vendor routes, including stored-object, retrieve, delete, cancel, embedding, file, batch, and admin APIs, are outside Prism's runtime contract unless they appear in this allowlist.
 
-Runtime proxy routes ignore management `X-Profile-Id` overrides and always use the active runtime profile. Selected-profile management scope changes configuration reads and writes only; it does not switch proxy traffic.
+Runtime proxy routes ignore management `X-Profile-Id` overrides and always resolve against frozen Default profile id `1`. Profile-scoped management reads and writes are pinned to Default profile id `1`; they do not switch proxy traffic.
 
 ### 2.1 Supported Runtime Operations
 
@@ -1246,8 +702,6 @@ Runtime proxy routes ignore management `X-Profile-Id` overrides and always use t
 | OpenAI Responses | `openai.responses` | `POST /v1/responses` |
 | OpenAI Responses input tokens | `openai.responses.input_tokens` | `POST /v1/responses/input_tokens` |
 | OpenAI Responses compact | `openai.responses.compact` | `POST /v1/responses/compact` |
-| OpenAI image generations | `openai.images.generations` | `POST /v1/images/generations` |
-| OpenAI image edits | `openai.images.edits` | `POST /v1/images/edits` |
 | Anthropic Messages | `anthropic.messages` | `POST /v1/messages` |
 | Anthropic token count | `anthropic.count_tokens` | `POST /v1/messages/count_tokens` |
 | Gemini generate content | `gemini.generate_content` | `POST /v1beta/models/{model}:generateContent` |
@@ -1314,7 +768,7 @@ Model-scoped overflow replay and its authoring fields are retired. Runtime plann
 ```
 GET /v1/models
 ```
-Response: Local OpenAI-shaped list of enabled `api_family="openai"` models in the active runtime profile. Prism does not contact upstream providers for this operation.
+Response: Local OpenAI-shaped list of enabled `api_family="openai"` models for frozen Default profile id `1`. Prism does not contact upstream providers for this operation.
 
 #### Chat Completions
 ```
@@ -1361,20 +815,6 @@ POST /v1/responses/compact
 ```
 Request uses the OpenAI Responses compaction format, including body-bound `model` and `input`.
 Response: Proxied directly from the upstream OpenAI-compatible endpoint. Canonical operation name: `openai.responses.compact`.
-
-#### Image Generations
-```
-POST /v1/images/generations
-```
-Request uses the upstream OpenAI-compatible image generation body, including body-bound `model`.
-Response: Proxied directly from the upstream OpenAI-compatible endpoint. Canonical operation name: `openai.images.generations`.
-
-#### Image Edits
-```
-POST /v1/images/edits
-```
-Request uses the upstream OpenAI-compatible image edit body, including body-bound `model`. JSON and multipart request bodies are supported for model binding and forwarding.
-Response: Proxied directly from the upstream OpenAI-compatible endpoint. Canonical operation name: `openai.images.edits`.
 
 ### 2.4 Anthropic Operations
 
@@ -1453,7 +893,6 @@ The gateway extracts token usage from upstream responses and logs canonical disj
 | `anthropic.count_tokens` | `{"input_tokens": N}` | Top-level count as base `input_tokens` and `total_tokens`; `output_tokens` = null |
 | `gemini.generate_content`, `gemini.stream_generate_content` when handled as non-stream JSON | `{"usageMetadata": {"promptTokenCount": N, "cachedContentTokenCount": N, "candidatesTokenCount": N, "thoughtsTokenCount": N, "totalTokenCount": N}}` | Base input subtracts cache-read input; base output subtracts reasoning output; provider `totalTokenCount` stays authoritative |
 | `gemini.count_tokens` | `{"totalTokens": N}` or `{"total_tokens": N}` | Top-level count as base `input_tokens` and `total_tokens`; `output_tokens` = null |
-| `openai.images.generations`, `openai.images.edits` | Media response bodies | Token fields remain `null`; media hooks copy the upstream response without estimating tokens |
 
 **Streaming responses:**
 The gateway accumulates SSE chunks during streaming and extracts usage from operation-specific terminal events:
@@ -1490,7 +929,7 @@ The health contract is not version only. It is the operator-facing target for ba
 
 ## 4. Statistics API
 
-Stats APIs are profile-scoped and require `X-Profile-Id`.
+Stats APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
 
 ### 4.0 Dashboard Stats
 ```
@@ -1566,7 +1005,6 @@ Response `200`:
         "connection_id": 1,
         "endpoint_id": 12,
         "active": false,
-        "health_status": "healthy",
         "recent_request_count": 2,
         "recent_success_rate": 100,
         "last_request_at": "2026-04-19T11:55:00Z"
@@ -1598,7 +1036,7 @@ Response `200`:
 }
 ```
 
-`routing_health_map` and `topology_graph` are assembled by the backend from selected-profile model, access-target, endpoint, connection, and final-attributed usage-event data. API clients must not rebuild route edges from separate management reads. Disabled models remain as muted `status="disabled"` model nodes, inactive terminal targets remain as muted `status="inactive"` nodes with `active=false`, and terminal-target nodes retain `connection_id` as the persisted compatibility identifier. During the additive compatibility wave, the backend keeps topology compatibility kinds (`kind="connection"`, `kind="model_to_connection"`, and `kind="connection_to_endpoint"`) while exposing product-facing terminal-target meaning through `product_kind`.
+`routing_health_map` and `topology_graph` are assembled by the backend from Default-profile model, access-target, endpoint, connection, and final-attributed usage-event data. API clients must not rebuild route edges from separate management reads. Disabled models remain as muted `status="disabled"` model nodes, inactive terminal targets remain as muted `status="inactive"` nodes with `active=false`, and terminal-target nodes retain `connection_id` as the persisted compatibility identifier. During the additive compatibility wave, the backend keeps topology compatibility kinds (`kind="connection"`, `kind="model_to_connection"`, and `kind="connection_to_endpoint"`) while exposing product-facing terminal-target meaning through `product_kind`.
 
 ### 4.0A Dashboard Recent Activity
 ```
@@ -1646,7 +1084,7 @@ Recent activity links into request-log investigation by `request_log_id`. It doe
 ```
 GET /api/stats/usage-snapshot
 ```
-This is the REST analytics snapshot contract for API callers and debugging. The `/observe?tab=analytics` UI receives the same snapshot shape through `analytics.snapshot` WebSocket messages, but this REST endpoint remains supported and documented.
+This is the REST analytics snapshot contract for API callers, debugging, and the `/observe?tab=analytics` UI polling path.
 
 Query parameters:
 | Parameter | Type | Default | Description |
@@ -1656,6 +1094,8 @@ Query parameters:
 The snapshot is backed by `backend/internal/httpapi/management/stats/service.go` together with the aggregation types and query helpers in `backend/internal/domain/stats/snapshot.go` and `backend/internal/domain/stats/types.go`.
 
 The snapshot is aggregated from persisted usage-event rows. Endpoint aggregates read the stored `usage_request_events.endpoint_label_snapshot` value and expose it as public `endpoint_label`, so historical labels survive later endpoint renames or deletion. `/api/stats/dashboard` is the canonical overview aggregate that also includes the backend-computed Routing Health Map. Exact request investigation remains on `/observe/requests`, while dashboard and other pages continue to use the shared stats routes below.
+
+Response `200` includes `latency_trends` alongside `request_trends`, `token_usage_trends`, `token_type_breakdown`, and `cost_overview`. `latency_trends.hourly[]` and `latency_trends.daily[]` use the same series key/label shape as request trends; each point exposes `bucket_start`, `p50_ms`, and `p95_ms`. Empty latency buckets keep the bucket and return `null` percentile values.
 
 `GET /api/stats/requests/operations` is not part of the current management API.
 
@@ -1681,13 +1121,23 @@ Query parameters:
 |---|---|---|---|
 | `ingress_request_id` | string | — | Exact incoming-request grouping ID shared by per-attempt rows |
 | `model_id` | string | — | Filter by model ID |
-| `status_family` | string | — | Filter by status family (`4xx` or `5xx`) |
+| `status_family` | string | — | Filter by status family (`2xx`, `4xx`, or `5xx`) |
+| `status_code` | integer | — | Exact response status-code filter |
+| `error_text` | string | — | Case-insensitive substring match against `error_detail` |
+| `priced` | boolean | — | Filter by retained request-log `priced_flag` (`true` or `false`) |
+| `unpriced_reason` | string | — | Exact unpriced reason filter: `PRICING_DISABLED`, `MISSING_TOKEN_USAGE`, `STREAM_USAGE_UNAVAILABLE`, or `MISSING_PRICE_DATA` |
 | `from_time` | datetime | — | Start of time range (ISO 8601) |
+| `to_time` | datetime | — | End of time range (ISO 8601) |
 | `endpoint_id` | integer | — | Filter by endpoint ID |
 | `client_rule_id` | integer | none | Filter by caller client, matched against `caller_user_agent` only through enabled User-Agent Client Rules |
 | `resolved_target_model_id` | string | none | Filter by final target model selected for the attempt |
 | `limit` | integer | 50 | Result limit; must be positive |
 | `offset` | integer | 0 | Pagination offset |
+
+Frontend request-log route contract:
+- `/observe/requests` defaults to the last 24 hours by deriving `from_time` from `time_range=24h`; generated URLs omit `time_range=24h` because it is the page default.
+- The page's `status=success` URL alias maps to backend `status_family=2xx`; direct `status_family=2xx`, `4xx`, and `5xx` are also supported backend filters.
+- The page CSV export is client-only and exports only the rows already loaded on the current table page. There is no full-range server-side CSV export endpoint.
 
 Response `200`:
 ```json
@@ -1755,7 +1205,7 @@ Response `200`:
 }
 ```
 
-The list route is the slim browse contract used by `/observe/requests` and other row-summary consumers. It keeps one row per upstream attempt, returns `filter_options.endpoints` for the endpoint dropdown, `filter_options.models` for the requested-model dropdown, `filter_options.clients` for caller client filtering, and `filter_options.resolved_target_models` for final-target filtering. It includes requested-model labels, final-target labels, `stream_outcome`, and `stream_error_kind` for display. The current request-log page uses page sizes `100`, `300`, and `500`, with `100` as the frontend default. This retained-history route is the operator drill-in surface for investigation, not a dashboard aggregate or an OTLP metrics endpoint.
+The list route is the slim browse contract used by `/observe/requests` and other row-summary consumers. It keeps one row per upstream attempt, returns `filter_options.endpoints` for the endpoint dropdown, `filter_options.models` for the requested-model dropdown, `filter_options.clients` for caller client filtering, and `filter_options.resolved_target_models` for final-target filtering. It includes requested-model labels, final-target labels, `stream_outcome`, and `stream_error_kind` for display. The current request-log page uses page sizes `100`, `300`, and `500`, with `100` as the frontend default. This retained-history route is the operator drill-in surface for investigation, not a dashboard aggregate or metrics endpoint.
 
 `filter_options` always includes `endpoints`, `models`, `clients`, and `resolved_target_models`. `filter_options.models` is request-log scoped and contains `{ model_id, model_label }` entries. `filter_options.clients` contains `{ client_rule_id, client_label }` entries built from enabled User-Agent Client Rules. `client_rule_id` filtering is caller-only and matches `caller_user_agent`; it never matches `upstream_user_agent`. `filter_options.resolved_target_models` contains `{ resolved_target_model_id, model_label }` entries for final-target filtering. Empty option sets are returned as empty arrays instead of omitted fields. `ingress_request_id` groups multiple attempt rows that belong to one incoming runtime request. `model_id` stays the requested model and `resolved_target_model_id` captures the final target model for that attempt, while request-log row and detail payloads use `resolved_target_model_label` for the matching display label.
 
@@ -1801,7 +1251,7 @@ Response `200`:
     "error_detail": null
   },
   "routing": {
-    "profile_id": 2,
+    "profile_id": 1,
     "endpoint_label": "Primary OpenAI",
     "endpoint_id": 12,
     "terminal_target_id": 1,
@@ -1853,7 +1303,7 @@ Request-log detail uses the same canonical disjoint token components as runtime 
 
 Request-log detail keeps ingress and upstream attribution separate. `request.operation_name` and `request.request_path` are ingress-led. `request.upstream_operation_name`, `request.operation_translation_mode`, and `request.upstream_request_path` describe the provider-facing operation selected for the attempt. Native attempts use `operation_translation_mode = "none"` and usually keep ingress and upstream fields equal; translated attempts keep canonical usage from the upstream payload while presenting the client-visible operation in `operation_name`.
 
-Ordinary target-graph attempts preserve the top-level requested and resolved model fields without rewriting client-visible response-body identity. Request-log detail exposes resolved model and selected Terminal Target attribution; retired exact-facade planner trace attributes are no longer emitted.
+Ordinary target-graph attempts preserve the top-level requested and resolved model fields without rewriting client-visible response-body identity. Request-log detail exposes resolved model and selected Terminal Target attribution.
 
 Response `404`: returned when the request ID is missing or out of scope for the effective profile.
 
@@ -1861,7 +1311,7 @@ Stream telemetry values are stable strings. `stream_outcome` is one of `not_stre
 
 The request-log sheet consumes this grouped detail contract as overview-only data. Linked audit payload resolution is isolated to the dedicated `/observe/requests/{request_id}/audit` page, which uses `request_log_id` plus a UTC window derived from `summary.created_at`. The derived frontend window is `created_at` minus 12 hours through `created_at` plus 12 hours, serialized explicitly as canonical audit `from` and `to` query parameters.
 
-The request-history, spending, throughput, usage-snapshot, model-metrics, connection-success-rate, and dashboard aggregate APIs in this section remain product-facing PostgreSQL-backed surfaces. OTLP metrics and traces are exported through the startup-configured Collector/Alloy path and are not surfaced as a backend-local `/metrics` compatibility route.
+The request-history, spending, throughput, usage-snapshot, model-metrics, connection-success-rate, and dashboard aggregate APIs in this section remain product-facing PostgreSQL-backed surfaces. Prism no longer starts metrics or tracing exporters and does not surface a backend-local `/metrics` compatibility route.
 
 ### 4.4 Get Aggregated Statistics
 ```
@@ -1978,7 +1428,7 @@ GET /api/settings/log-retention
 PUT /api/settings/log-retention
 ```
 
-These routes are global and do not use `X-Profile-Id`. They store the instance-wide normal retention policy for all profiles. Request-log, audit-log, statistics, and load-balance list/detail APIs still filter by selected profile, but retention settings do not.
+These routes are global and do not use `X-Profile-Id`. They store the instance-wide normal retention policy. Request-log, audit-log, statistics, and load-balance list/detail APIs are pinned to Default profile id `1`, but retention settings do not.
 
 Request and response fields:
 | Field | Type | Description |
@@ -2033,7 +1483,7 @@ Response `202`:
 }
 ```
 
-The response sets `Location` to the same job status URL. The job type is `log_retention`, uses `profile_id = 0`, and applies across all profiles.
+The response sets `Location` to the same job status URL. The job type is `log_retention`, uses `profile_id = 0`, and applies across the instance.
 
 Retention drops whole daily child partitions whose upper bound is `<= cutoff`. Only the single child partition that overlaps the cutoff receives a bounded row delete, followed by `VACUUM (ANALYZE, PROCESS_TOAST TRUE)` on that boundary child.
 
@@ -2119,7 +1569,7 @@ Unpriced reasons distinguish pricing configuration gaps from observed usage gaps
 
 ## 5. Audit API
 
-Audit APIs are profile-scoped and require `X-Profile-Id`.
+Audit APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
 
 ### 5.0 API-Family Audit Settings
 ```
@@ -2127,12 +1577,12 @@ GET /api/settings/audit
 PUT /api/settings/audit
 ```
 
-`/api/settings/audit` is selected-profile scoped through `X-Profile-Id`. `GET` returns exactly three rows in stable order: `openai`, `anthropic`, `gemini`. Missing persisted rows default to `audit_enabled=false` and `audit_capture_bodies=false`.
+`/api/settings/audit` is pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored. `GET` returns exactly three rows in stable order: `openai`, `anthropic`, `gemini`. Missing persisted rows default to `audit_enabled=false` and `audit_capture_bodies=false`.
 
 Response `200`:
 ```json
 {
-  "profile_id": 2,
+  "profile_id": 1,
   "settings": [
     { "api_family": "openai", "audit_enabled": true, "audit_capture_bodies": false },
     { "api_family": "anthropic", "audit_enabled": false, "audit_capture_bodies": false },
@@ -2182,7 +1632,7 @@ Response `200`:
   "items": [
     {
       "id": 1,
-      "profile_id": 2,
+      "profile_id": 1,
       "request_log_id": 42,
       "model_id": "gpt-4o",
       "endpoint_id": 12,
@@ -2222,7 +1672,7 @@ Response `200`:
 ```json
 {
   "id": 1,
-  "profile_id": 2,
+  "profile_id": 1,
   "request_log_id": 42,
   "model_id": "gpt-4o",
   "endpoint_id": 12,
@@ -2249,7 +1699,7 @@ Response `404`: Audit log not found.
 
 ### 5.3 Audit Log Retention
 
-Audit log list and detail APIs remain selected-profile scoped. Normal audit-log cleanup is global and uses `POST /api/maintenance/log-retention/jobs` with `table = "audit_logs"`, or the stored `audit_logs_retention_days` value from `/api/settings/log-retention`.
+Audit log list and detail APIs remain pinned to Default profile id `1`. Normal audit-log cleanup is global and uses `POST /api/maintenance/log-retention/jobs` with `table = "audit_logs"`, or the stored `audit_logs_retention_days` value from `/api/settings/log-retention`.
 
 The retired audit cleanup endpoints are not part of the current API. Retention jobs return `202` with a job object, not a boolean acknowledgement.
 
@@ -2314,7 +1764,7 @@ When body capture is enabled for the request, Prism stores the captured request 
 
 ## 6. Loadbalance API
 
-Loadbalance APIs are profile-scoped and require `X-Profile-Id`.
+Loadbalance APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
 
 ### 6.1 List Loadbalance Strategies
 ```
@@ -2328,7 +1778,7 @@ POST /api/loadbalance/strategies/defaults
 ```
 No request body.
 
-This endpoint is selected-profile scoped through `X-Profile-Id` and creates the canonical explicit Ban Policy defaults for that profile only: `Default single routing`, `Default fill-first routing`, and `Default round-robin routing`.
+This endpoint is pinned to Default profile id `1` and creates the canonical explicit Ban Policy defaults for that profile only: `Default single routing`, `Default fill-first routing`, and `Default round-robin routing`.
 
 Response `200`:
 ```json
@@ -2336,7 +1786,7 @@ Response `200`:
   "items": [
     {
       "id": 12,
-      "profile_id": 3,
+      "profile_id": 1,
       "name": "Default fill-first routing",
       "legacy_strategy_type": "fill-first",
       "failure_status_codes": [403, 422, 429, 500, 502, 503, 504, 529],
@@ -2358,7 +1808,7 @@ Response `200`:
 
 The response includes the full current strategy list in `items` plus creation metadata so the caller can tell which canonical rows were created versus already present.
 
-Returns `409` when one or more canonical default names are already occupied by non-canonical strategies in the selected profile. In that case, the error payload includes `code` plus `detail.conflicting_names` with the conflicting names.
+Returns `409` when one or more canonical default names are already occupied by non-canonical strategies in Default profile id `1`. In that case, the error payload includes `code` plus `detail.conflicting_names` with the conflicting names.
 
 ### 6.3 Create Loadbalance Strategy
 ```
@@ -2415,7 +1865,7 @@ Strategy responses include the persisted explicit Ban Policy strategy document:
 ```json
 {
   "id": 12,
-  "profile_id": 3,
+  "profile_id": 1,
   "name": "round-robin-primary",
   "legacy_strategy_type": "round-robin",
   "failure_status_codes": [403, 422, 429, 500, 502, 503, 504, 529],
@@ -2512,7 +1962,7 @@ Response `200`:
   "items": [
     {
       "id": 1,
-      "profile_id": 2,
+      "profile_id": 1,
       "connection_id": 1,
       "event_type": "banned",
       "failure_kind": "transient_http",
@@ -2544,15 +1994,64 @@ Response `200`:
 
 Loadbalance event types are `retry_scheduled`, `retry_exhausted`, `banned`, `unbanned`, `recovered`, and `admission_rejected`. They record retry-cycle attempts, cumulative attempts, next retry timing, last retry delay, optional ban metadata, optional success time, and the model, endpoint, and vendor snapshots for operator review. Events produced by Ban Policy evaluation also expose immutable policy snapshots as `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold`, so historical event detail explains the threshold that was active when the event was written.
 
-### 6.10 Get Loadbalance Event Detail
+### 6.10 List Loadbalance Incidents
+```
+GET /api/loadbalance/incidents
+```
+
+Query parameters:
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `limit` | integer | 50 | Max recent incident events |
+| `since_hours` | integer | 24 | Recent event lookback window |
+
+Response `200`:
+```json
+{
+  "active_bans": [
+    {
+      "connection_id": 3,
+      "ban_mode": "temporary",
+      "banned_until_at": "2026-03-30T08:30:00Z",
+      "cumulative_retry_attempts": 7,
+      "next_retry_at": null,
+      "state": "banned",
+      "created_at": "2026-03-30T08:00:00Z",
+      "updated_at": "2026-03-30T08:01:00Z"
+    }
+  ],
+  "recent_events": [
+    {
+      "id": 22,
+      "profile_id": 1,
+      "connection_id": 3,
+      "event_type": "banned",
+      "model_id": "gpt-4o",
+      "endpoint_id": 12,
+      "summary": {
+        "event": "Connection was banned",
+        "reason": "The retryable HTTP failure pushed cumulative retry attempts to 7.",
+        "operation": "Prism removed this model-private connection from routing until the ban expires or an operator resets it.",
+        "cooldown": "1 minute"
+      },
+      "created_at": "2026-03-30T08:01:00Z"
+    }
+  ],
+  "generated_at": "2026-03-30T08:05:00Z"
+}
+```
+
+`active_bans` is the current in-memory Ban Policy state for the effective profile. `recent_events` uses the loadbalance event item shape and includes recent `banned`, `unbanned`, `recovered`, and `retry_exhausted` rows without requiring a `model_id` filter.
+
+### 6.11 Get Loadbalance Event Detail
 ```
 GET /api/loadbalance/events/{id}
 ```
 Response `200`: Single event object with the same Ban Policy retry-window metadata, policy snapshot fields, and summary fields as the list item.
 
-### 6.11 Loadbalance Event Retention
+### 6.12 Loadbalance Event Retention
 
-Loadbalance event list and detail APIs remain selected-profile scoped. Normal cleanup is global and uses `POST /api/maintenance/log-retention/jobs` with `table = "loadbalance_events"`, or the stored `loadbalance_events_retention_days` value from `/api/settings/log-retention`.
+Loadbalance event list and detail APIs remain pinned to Default profile id `1`. Normal cleanup is global and uses `POST /api/maintenance/log-retention/jobs` with `table = "loadbalance_events"`, or the stored `loadbalance_events_retention_days` value from `/api/settings/log-retention`.
 
 The retired load-balance cleanup endpoint is not part of the current API. Retention jobs return `202` with a job object, not a boolean acknowledgement.
 
@@ -2611,194 +2110,15 @@ GET /api/auth/session
 ```
 Returns the current authenticated session state.
 
-### 7.7 Password Reset
-- `POST /api/auth/password-reset/request`: Request a reset email.
-- `POST /api/auth/password-reset/confirm`: Confirm reset with OTP and new password.
-
-
 ---
 
-## 8. Realtime API
+## 8. Error Responses
 
-Realtime routes are global management routes and do not use `X-Profile-Id`. WebSocket subscriptions carry `profile_id` explicitly in the message payload.
-
-### 8.1 WebSocket Transport
-```
-WS /api/realtime/ws
-```
-
-Authentication:
-- When operator auth is disabled, the socket can connect without cookies.
-- When operator auth is enabled, the backend validates the configured access-token cookie before allowing subscriptions.
-
-Supported channels:
-- `dashboard`
-- `analytics`
-
-Common client -> server messages:
-```text
-{ "type": "ping" }
-{ "type": "pong" }
-{ "type": "unsubscribe" }
-```
-
-Common server -> client messages include:
-- `authenticated`
-- `heartbeat`
-- `subscribed`
-- `unsubscribed`
-- `error`
-- `pong`
-
-### 8.2 Dashboard WebSocket Channel
-
-The dashboard channel is the overview channel for the main dashboard page. It is profile-scoped by the message payload and broadcasts two message families. Snapshot messages carry stats-only aggregate state. Activity messages carry one request-history item. It is separate from the scoped Analytics channel.
-
-Client -> server messages:
-```text
-{ "type": "subscribe", "profile_id": 2, "channel": "dashboard" }
-{ "type": "unsubscribe_channel", "channel": "dashboard" }
-```
-
-Dashboard server -> client messages include `dashboard.snapshot` and `dashboard.activity`.
-
-Example `dashboard.snapshot` payload:
+Resource-scope errors follow this format:
 ```json
 {
-  "type": "dashboard.snapshot",
-  "profile_id": 2,
-  "snapshot": {
-    "generated_at": "2026-04-19T12:00:00Z",
-    "snapshot_revision": "01JZ8Y3K2N4P6R8T0V1W2X3Y4Z",
-    "source_watermark": {
-      "latest_usage_event_created_at": "2026-04-19T11:59:58Z",
-      "latest_usage_event_id": 345
-    },
-    "coverage_24h": {
-      "from": "2026-04-18T12:00:00Z",
-      "to": "2026-04-19T12:00:00Z"
-    },
-    "coverage_30d": {
-      "from": "2026-03-20T12:00:00Z",
-      "to": "2026-04-19T12:00:00Z"
-    },
-    "health": { "lag_seconds": 0, "stale": false, "stale_after_seconds": 120 },
-    "metric_snapshot": { "total_requests": 42, "success_rate": 97.62 },
-    "api_family_rows": [],
-    "strategy_summary": { "legacy_count": 8, "unassigned_count": 2 },
-    "top_spending_models": [],
-    "routing_health_map": { "nodes": [], "links": [], "endpointCount": 0, "modelCount": 0 }
-  }
-}
-```
-
-Example `dashboard.activity` payload:
-```json
-{
-  "type": "dashboard.activity",
-  "profile_id": 2,
-  "activity_watermark": {
-    "latest_request_log_created_at": "2026-04-19T11:59:59Z",
-    "latest_request_log_id": 101
-  },
-  "activity": {
-    "request_log_id": 101,
-    "created_at": "2026-04-19T11:59:59Z",
-    "model_id": "gpt-4o",
-    "model_label": "GPT-4o",
-    "endpoint_id": 12,
-    "endpoint_label": "Primary OpenAI",
-    "status_code": 200,
-    "response_time_ms": 523,
-    "is_stream": true,
-    "stream_outcome": "completed",
-    "total_tokens": 1234,
-    "total_cost_user_currency_micros": 1250000,
-    "priced_flag": true,
-    "report_currency_symbol": "$"
-  }
-}
-```
-
-The frontend orders dashboard snapshots by lexicographic `snapshot.snapshot_revision`. The `source_watermark` field is diagnostic. Activity rows are merged by `request_log_id` for feed dedupe and request-log drilldown only.
-
-### 8.3 Analytics WebSocket Channel
-
-The analytics channel serves `/observe?tab=analytics`. A subscription is scoped by `{profile_id,preset}` in the message payload. Supported presets are `1h`, `6h`, `24h`, `7d`, `30d`, and `all`.
-
-Client -> server messages:
-```text
-{ "type": "subscribe", "profile_id": 2, "channel": "analytics", "preset": "24h" }
-{ "type": "refresh", "profile_id": 2, "channel": "analytics", "preset": "24h" }
-{ "type": "unsubscribe_channel", "channel": "analytics", "preset": "24h" }
-```
-
-`subscribe` sends `subscribed` and then an initial `analytics.snapshot` for that exact scope. `refresh` sends a fresh direct `analytics.snapshot` for an existing connection-local subscription. `unsubscribe_channel` is preset-scoped and connection-local, so it does not include `profile_id`.
-
-Analytics server -> client messages include:
-- `analytics.snapshot`
-- `analytics.error`
-
-Each `analytics.snapshot` is a full replacement for one `{profile_id,preset}` scope. The `snapshot` field uses the same `UsageSnapshotResponse` shape as `GET /api/stats/usage-snapshot`. The `endpoint_model_statistics_by_endpoint_id` field is keyed by endpoint ID as a string and carries the endpoint model statistics rows that are otherwise available from `GET /api/stats/endpoints/{endpoint_id}/models` for API and debug callers.
-
-Example `analytics.snapshot` payload:
-```json
-{
-  "type": "analytics.snapshot",
-  "channel": "analytics",
-  "profile_id": 2,
-  "preset": "24h",
-  "sequence": 3,
-  "generated_at": "2026-05-04T12:00:00Z",
-  "snapshot": {
-    "generated_at": "2026-05-04T12:00:00Z",
-    "time_range": {
-      "preset": "24h",
-      "start_at": "2026-05-03T12:00:00Z",
-      "end_at": "2026-05-04T12:00:00Z"
-    },
-    "currency": { "code": "USD", "symbol": "$" },
-    "overview": { "total_requests": 42, "success_rate": 97.62 },
-    "request_trends": { "hourly": [], "daily": [] },
-    "token_usage_trends": { "hourly": [], "daily": [] },
-    "token_type_breakdown": { "hourly": [], "daily": [] },
-    "cost_overview": { "total_cost_micros": 1250000, "hourly": [], "daily": [] },
-    "endpoint_statistics": [],
-    "model_statistics": [],
-    "proxy_api_key_statistics": []
-  },
-  "endpoint_model_statistics_by_endpoint_id": {
-    "12": [
-      {
-        "model_id": "gpt-4o",
-        "model_label": "GPT-4o",
-        "request_count": 42,
-        "success_rate": 97.62
-      }
-    ]
-  }
-}
-```
-
-Example `analytics.error` payload:
-```json
-{
-  "type": "analytics.error",
-  "channel": "analytics",
-  "profile_id": 2,
-  "preset": "24h",
-  "code": "snapshot_failed",
-  "message": "Failed to build analytics snapshot"
-}
-```
-
-## 9. Error Responses
-
-Scope-control errors follow this format:
-```json
-{
-  "code": "profile_scope_header_missing",
-  "detail": "X-Profile-Id header is required"
+  "code": "profile_scope_profile_not_found",
+  "detail": "Profile 1 not found"
 }
 ```
 
@@ -2806,7 +2126,7 @@ Scope-control errors follow this format:
 |---|---|
 | 400 | Bad request (invalid input) |
 | 404 | Resource not found |
-| 409 | Conflict (stale activation CAS version, profile capacity reached, or duplicate scoped identifier) |
+| 409 | Conflict (duplicate scoped identifier) |
 | 502 | Upstream service error |
 | 503 | No active Terminal Targets available |
 

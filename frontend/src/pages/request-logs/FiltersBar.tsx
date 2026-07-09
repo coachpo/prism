@@ -41,7 +41,12 @@ export function FiltersBar({ actions, filterOptions, filterOptionsLoaded, onRefr
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
           {hasActiveFilters && (
-            <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={actions.clearFilters}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 gap-1.5 text-xs"
+              onClick={actions.clearFilters}
+            >
               <X className="h-3 w-3" />
               {messages.statistics.clearFilters}
             </Button>

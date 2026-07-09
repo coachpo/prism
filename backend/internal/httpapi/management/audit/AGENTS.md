@@ -1,7 +1,7 @@
 # BACKEND MANAGEMENT AUDIT KNOWLEDGE BASE
 
 ## OVERVIEW
-`management/audit/` owns selected-profile audit-log reads under `/api/audit/*` plus management job list/get/cancel routes under `/api/management/jobs*`. It serves audit-log browsing, audit-log detail lookup, and management-job status or cancellation without moving request execution or retention ownership into this package.
+`management/audit/` owns Default-profile audit-log reads under `/api/audit/*` plus management job list/get/cancel routes under `/api/management/jobs*`. It serves audit-log browsing, audit-log detail lookup, and management-job status or cancellation without moving request execution or retention ownership into this package.
 
 ## STRUCTURE
 ```text
@@ -17,7 +17,7 @@ audit/
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
-- Keep audit-log reads selected-profile scoped through effective-profile resolution.
+- Keep audit-log reads pinned to Default profile id `1`. `X-Profile-Id` may still be accepted for compatibility, but it is ignored here and rows keep their `profile_id` storage columns.
 - Keep audit list windows bounded and explicit; unsupported filters and ascending sort stay rejected.
 - Keep management job status and cancellation here, while job creation and retention settings stay in `settings/` and platform workers.
 - Keep audit-log payload reads separate from runtime request execution and request-log retention ownership.

@@ -18,8 +18,8 @@ gateway/
 - Preserved runtime/gateway semantics, ingress rejection, and streaming safety: `CONTRACTS.md`
 - Pipeline seams and shared envelopes: `core/pipeline.go`, `core/envelope.go`, `core/routing.go`, `core/errors.go`
 - Hook phase ordering, permissions, payload cloning, rejection behavior, and execution records: `core/hooks.go`, `core/hooks_test.go`
-- Provider adapter interface, default behavior, token/media/conversion contracts, and hook-behavior declarations: `provider/AGENTS.md`, `provider/adapter.go`, `provider/default_adapter.go`
-- OpenAI Chat/Responses conversion, image operations, and overflow classification: `provider/openai/`
+- Provider adapter interface, default behavior, token/conversion contracts, and hook-behavior declarations: `provider/AGENTS.md`, `provider/adapter.go`, `provider/default_adapter.go`
+- OpenAI Chat/Responses conversion and overflow classification: `provider/openai/`
 - Anthropic Messages/count-token path rewriting, usage extraction, and stream terminal classification: `provider/anthropic/`
 - Gemini model-path rewriting, GenerateContent variants, token counting, and stream parsing: `provider/gemini/`
 - Candidate ordering, reservation admission, retry-window policy, redirect narrowing, and route-reason canonicalization: `routing/planner.go`, `routing/reservation_manager.go`, `routing/retry_policy.go`, `routing/redirects.go`
@@ -28,7 +28,7 @@ gateway/
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep `httpapi/runtime/operations.go` as Prism's concrete runtime allowlist; gateway routing code stays generic and reusable.
-- Keep provider-native request/response/stream/media behavior inside provider adapters, not in route planning or accounting.
+- Keep provider-native request/response/stream behavior inside provider adapters, not in route planning or accounting.
 - Keep hook payloads clone-safe and permission-gated. Do not leak body/header access beyond declared hook permissions.
 - Keep route reasons canonical across `core`, `routing`, runtime observability, and accounting.
 - Keep reservation decisions in `routing/` and release owned reservations when runtime attempts end.

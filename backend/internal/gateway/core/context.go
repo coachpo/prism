@@ -4,10 +4,6 @@ import (
 	"context"
 	"strings"
 	"time"
-
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/trace"
 )
 
 type RequestContext struct {
@@ -23,26 +19,16 @@ type TraceContext struct {
 }
 
 func NewRequestContext(ctx context.Context, requestID string, receivedAt time.Time) RequestContext {
-	spanContext := trace.SpanContextFromContext(ctx)
-	traceID := ""
-	if spanContext.IsValid() {
-		traceID = spanContext.TraceID().String()
-	}
 	return RequestContext{
 		RequestID:    strings.TrimSpace(requestID),
-		TraceID:      traceID,
+		TraceID:      "",
 		TraceContext: TraceContextFromContext(ctx),
 		ReceivedAt:   receivedAt.UTC(),
 	}
 }
 
 func TraceContextFromContext(ctx context.Context) TraceContext {
-	if ctx == nil || !trace.SpanContextFromContext(ctx).IsValid() {
-		return TraceContext{}
-	}
-	carrier := propagation.MapCarrier{}
-	otel.GetTextMapPropagator().Inject(ctx, carrier)
-	return TraceContext{TraceParent: carrier["traceparent"], TraceState: carrier["tracestate"]}
+	return TraceContext{}
 }
 
 func (traceContext TraceContext) Empty() bool {
@@ -56,12 +42,5 @@ func (traceContext TraceContext) Context(parent context.Context) context.Context
 	if traceContext.Empty() {
 		return parent
 	}
-	carrier := propagation.MapCarrier{}
-	if strings.TrimSpace(traceContext.TraceParent) != "" {
-		carrier["traceparent"] = strings.TrimSpace(traceContext.TraceParent)
-	}
-	if strings.TrimSpace(traceContext.TraceState) != "" {
-		carrier["tracestate"] = strings.TrimSpace(traceContext.TraceState)
-	}
-	return otel.GetTextMapPropagator().Extract(parent, carrier)
+	return parent
 }

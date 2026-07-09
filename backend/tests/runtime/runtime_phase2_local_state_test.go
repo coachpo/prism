@@ -1,4 +1,4 @@
-package runtime_test
+package runtimetest
 
 import (
 	"fmt"
@@ -88,13 +88,13 @@ func TestRuntimeCircuitRecoveryUsesLocalStateOnly(t *testing.T) {
 	probeEligibleAt := time.Now().UTC().Add(-1 * time.Minute)
 	priorFailureKind := "transient_http"
 	harness.runtimeService.RuntimeState().SeedConnectionState(profileID, targetModelConfigID, connectionID, loadbalancedomain.RuntimeConnectionState{
-		ConnectionID:              connectionID,
-		CycleRetryAttempts:        1,
-		CumulativeRetryAttempts:   1,
-		LastFailureKind:           &priorFailureKind,
-		LastRetryDelayMS:          60_000,
-		BanMode:                   "off",
-		NextRetryAt:               &probeEligibleAt,
+		ConnectionID:            connectionID,
+		CycleRetryAttempts:      1,
+		CumulativeRetryAttempts: 1,
+		LastFailureKind:         &priorFailureKind,
+		LastRetryDelayMS:        60_000,
+		BanMode:                 "off",
+		NextRetryAt:             &probeEligibleAt,
 	}, probeEligibleAt, probeEligibleAt)
 
 	response, snapshot := harness.captureJSONRequest(t, http.MethodPost, "/v1/chat/completions", map[string]any{
@@ -106,92 +106,5 @@ func TestRuntimeCircuitRecoveryUsesLocalStateOnly(t *testing.T) {
 	state, ok := harness.runtimeService.RuntimeState().SnapshotConnectionState(profileID, connectionID)
 	if !ok || state.CycleRetryAttempts != 0 || state.CumulativeRetryAttempts != 0 || state.NextRetryAt != nil {
 		t.Fatalf("expected success to recover local retry state, got %+v ok=%t", state, ok)
-	}
-}
-
-func BenchmarkRuntimeLocalAdmissionContention(b *testing.B) {
-	harness := newRuntimePhase0HarnessWithOptions(b, runtimePhase0HarnessOptions{SettingsMutator: useBenchmarkRuntimeTransportOverrides})
-	profileID := harness.activeProfileID(b)
-	route := harness.seedProxyRoute(b, runtimeRouteSeed{
-		ProfileID:       profileID,
-		APIFamily:       "openai",
-		PublicModelID:   "benchmark-phase2-admission-public-" + randomSuffix(),
-		TargetModelID:   "benchmark-phase2-admission-target-" + randomSuffix(),
-		EndpointBaseURL: harness.upstream.baseURL("/benchmark/phase2/admission"),
-		EndpointAPIKey:  "benchmark-phase2-admission-key",
-	})
-	rawBody := runtimeBenchmarkRequestBody(b, route.PublicModelID, "phase-2 local admission contention")
-	statusCode, _, err := performRuntimeBenchmarkRequest(harness.client, harness.url+"/v1/chat/completions", rawBody)
-	if err != nil || statusCode != http.StatusOK {
-		b.Fatalf("warm phase-2 local admission benchmark request failed: status=%d err=%v", statusCode, err)
-	}
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if err := runRuntimeBenchmarkStorm(harness.client, harness.url+"/v1/chat/completions", rawBody, runtimePhase0AdmissionContentionConcurrency); err != nil {
-			b.Fatalf("run phase-2 local admission contention benchmark: %v", err)
-		}
-	}
-}
-
-func BenchmarkRuntimeLocalRoundRobinContention(b *testing.B) {
-	harness := newRuntimePhase0HarnessWithOptions(b, runtimePhase0HarnessOptions{SettingsMutator: useBenchmarkRuntimeTransportOverrides})
-	profileID := harness.activeProfileID(b)
-	suffix := randomSuffix()
-	strategyID := harness.seedLegacyStrategy(b, profileID, "benchmark-phase2-round-robin-"+suffix, "round-robin")
-	publicModelID := "benchmark-phase2-round-robin-public-" + suffix
-	targetModelID := "benchmark-phase2-round-robin-target-" + suffix
-	targetModelConfigID := harness.seedModel(b, profileID, "gemini", targetModelID, "native", &strategyID)
-	publicModelConfigID := harness.seedModel(b, profileID, "gemini", publicModelID, "proxy", nil)
-	harness.seedProxyTarget(b, publicModelConfigID, targetModelConfigID)
-	firstEndpointID := harness.seedEndpoint(b, profileID, "benchmark-phase2-round-robin-first-"+suffix, harness.upstream.baseURL("/benchmark/phase2/round-robin/first"), "benchmark-phase2-round-robin-first-key", 0)
-	secondEndpointID := harness.seedEndpoint(b, profileID, "benchmark-phase2-round-robin-second-"+suffix, harness.upstream.baseURL("/benchmark/phase2/round-robin/second"), "benchmark-phase2-round-robin-second-key", 1)
-	harness.seedConnection(b, profileID, targetModelConfigID, firstEndpointID, "benchmark-phase2-round-robin-connection-a-"+suffix, nil, nil, 0)
-	harness.seedConnection(b, profileID, targetModelConfigID, secondEndpointID, "benchmark-phase2-round-robin-connection-b-"+suffix, nil, nil, 1)
-	requestURL := fmt.Sprintf("%s/v1beta/models/%s:generateContent", harness.url, publicModelID)
-	rawBody := runtimePhase0GeminiBenchmarkRequestBody(b, "phase-2 local round-robin contention")
-	statusCode, _, err := performRuntimeBenchmarkRequest(harness.client, requestURL, rawBody)
-	if err != nil || statusCode != http.StatusOK {
-		b.Fatalf("warm phase-2 local round-robin benchmark request failed: status=%d err=%v", statusCode, err)
-	}
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		statusCode, _, err = performRuntimeBenchmarkRequest(harness.client, requestURL, rawBody)
-		if err != nil || statusCode != http.StatusOK {
-			b.Fatalf("run phase-2 local round-robin benchmark request failed: status=%d err=%v", statusCode, err)
-		}
-	}
-}
-
-func BenchmarkRuntimeCircuitFailureRecovery(b *testing.B) {
-	harness := newRuntimePhase0HarnessWithOptions(b, runtimePhase0HarnessOptions{SettingsMutator: useBenchmarkRuntimeTransportOverrides})
-	profileID := harness.activeProfileID(b)
-	suffix := randomSuffix()
-	primaryUpstream := newRuntimeBenchmarkUpstream(b, http.StatusServiceUnavailable, []byte(`{"error":"phase2 primary unavailable"}`))
-	secondaryUpstream := newRuntimeBenchmarkUpstream(b, http.StatusOK, runtimeBenchmarkHotPathResponse())
-	autoRecovery := `{"mode":"enabled","status_codes":[503],"cooldown":{"base_seconds":60,"failure_threshold":1,"backoff_multiplier":2.0,"max_cooldown_seconds":900},"ban":{"mode":"off","max_open_strikes_before_ban":0,"ban_duration_seconds":0}}`
-	strategyID := harness.seedLegacyStrategyWithAutoRecovery(b, profileID, "benchmark-phase2-circuit-"+suffix, "fill-first", autoRecovery)
-	publicModelID := "benchmark-phase2-circuit-public-" + suffix
-	targetModelID := "benchmark-phase2-circuit-target-" + suffix
-	targetModelConfigID := harness.seedModel(b, profileID, "openai", targetModelID, "native", &strategyID)
-	publicModelConfigID := harness.seedModel(b, profileID, "openai", publicModelID, "proxy", nil)
-	harness.seedProxyTarget(b, publicModelConfigID, targetModelConfigID)
-	primaryEndpointID := harness.seedEndpoint(b, profileID, "benchmark-phase2-circuit-primary-"+suffix, primaryUpstream.baseURL("/benchmark/phase2/circuit/primary"), "benchmark-phase2-circuit-primary-key", 0)
-	secondaryEndpointID := harness.seedEndpoint(b, profileID, "benchmark-phase2-circuit-secondary-"+suffix, secondaryUpstream.baseURL("/benchmark/phase2/circuit/secondary"), "benchmark-phase2-circuit-secondary-key", 1)
-	harness.seedConnection(b, profileID, targetModelConfigID, primaryEndpointID, "benchmark-phase2-circuit-primary-connection-"+suffix, nil, nil, 0)
-	harness.seedConnection(b, profileID, targetModelConfigID, secondaryEndpointID, "benchmark-phase2-circuit-secondary-connection-"+suffix, nil, nil, 1)
-	rawBody := runtimeBenchmarkRequestBody(b, publicModelID, "phase-2 circuit failure recovery")
-	statusCode, _, err := performRuntimeBenchmarkRequest(harness.client, harness.url+"/v1/chat/completions", rawBody)
-	if err != nil || statusCode != http.StatusOK {
-		b.Fatalf("warm phase-2 circuit benchmark request failed: status=%d err=%v", statusCode, err)
-	}
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		statusCode, _, err = performRuntimeBenchmarkRequest(harness.client, harness.url+"/v1/chat/completions", rawBody)
-		if err != nil || statusCode != http.StatusOK {
-			b.Fatalf("run phase-2 circuit benchmark request failed: status=%d err=%v", statusCode, err)
-		}
 	}
 }

@@ -5,6 +5,7 @@ import type {
   DashboardRecentActivityResponse,
   DashboardRecentActivityWatermark,
   DashboardSnapshot,
+  LoadbalanceIncidentListResponse,
 } from "@/lib/types";
 
 export const DASHBOARD_RECENT_ACTIVITY_LIMIT = 12;
@@ -22,10 +23,12 @@ export type DashboardActivityReconciler = (
 ) => boolean;
 
 export type DashboardBootstrapFetchResult = {
+  newRecentActivityIds: number[];
   recentActivityApplied: boolean;
   snapshotApplied: boolean;
 };
 type DashboardBootstrapData = {
+  incidents: LoadbalanceIncidentListResponse;
   recentActivity: DashboardRecentActivityResponse;
   snapshot: DashboardSnapshot;
 };
@@ -84,7 +87,8 @@ async function loadDashboardBootstrapData(
   const loadPromise = Promise.all([
     api.stats.dashboard(),
     api.stats.dashboardRecentActivity({ limit: DASHBOARD_RECENT_ACTIVITY_LIMIT }),
-  ]).then(([snapshot, recentActivity]) => ({ snapshot, recentActivity }));
+    api.loadbalance.listIncidents({ limit: 10, since_hours: 24 }),
+  ]).then(([snapshot, recentActivity, incidents]) => ({ snapshot, recentActivity, incidents }));
 
   if (reuseInFlight) {
     dashboardBootstrapPromise = {
@@ -108,6 +112,8 @@ export function useDashboardBootstrapData({
   const [dashboardSnapshot, setDashboardSnapshot] = useState<DashboardSnapshot | null>(null);
   const [dashboardRecentActivity, setDashboardRecentActivity] =
     useState<DashboardRecentActivityResponse | null>(null);
+  const [dashboardIncidents, setDashboardIncidents] =
+    useState<LoadbalanceIncidentListResponse | null>(null);
   const [routingDiagramError, setRoutingDiagramError] = useState<string | null>(null);
   const latestDashboardSnapshotRevisionRef = useRef<string | null>(null);
   const recentActivityRequestIdsRef = useRef<Set<number>>(new Set());
@@ -153,6 +159,7 @@ export function useDashboardBootstrapData({
     recentActivityRequestIdsRef.current = new Set();
     setDashboardSnapshot(null);
     setDashboardRecentActivity(null);
+    setDashboardIncidents(null);
   }, [selectedProfileId]);
 
   const fetchDashboardData = useCallback(
@@ -171,22 +178,26 @@ export function useDashboardBootstrapData({
 
       setRoutingDiagramError(null);
       try {
-        const { snapshot, recentActivity } = await loadDashboardBootstrapData(
+        const { snapshot, recentActivity, incidents } = await loadDashboardBootstrapData(
           revision,
           selectedProfileId,
           { reuseInFlight },
         );
 
         if (requestVersion !== requestVersionRef.current) {
-          return { recentActivityApplied: false, snapshotApplied: false };
+          return { newRecentActivityIds: [], recentActivityApplied: false, snapshotApplied: false };
         }
 
+        const newRecentActivityIds = recentActivity.items
+          .filter((item) => !recentActivityRequestIdsRef.current.has(item.request_log_id))
+          .map((item) => item.request_log_id);
         const snapshotApplied = reconcileDashboardSnapshot(snapshot);
         replaceDashboardRecentActivity(recentActivity);
-        return { recentActivityApplied: true, snapshotApplied };
+        setDashboardIncidents(incidents);
+        return { newRecentActivityIds, recentActivityApplied: true, snapshotApplied };
       } catch (error) {
         console.error("Failed to fetch dashboard data", error);
-        return { recentActivityApplied: false, snapshotApplied: false };
+        return { newRecentActivityIds: [], recentActivityApplied: false, snapshotApplied: false };
       } finally {
         if (requestVersion === requestVersionRef.current) {
           setLoading(false);
@@ -197,6 +208,7 @@ export function useDashboardBootstrapData({
   );
   return {
     applyDashboardActivity,
+    dashboardIncidents,
     dashboardRecentActivity,
     dashboardRecentActivityItems: dashboardRecentActivity?.items ?? [],
     dashboardSnapshot,

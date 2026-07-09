@@ -16,21 +16,6 @@ type AuthState = {
   username: string | null;
 };
 
-function createProfile() {
-  return {
-    id: 1,
-    name: "Default",
-    description: null,
-    is_active: true,
-    is_default: true,
-    is_editable: true,
-    version: 1,
-    created_at: timestamp,
-    deleted_at: null,
-    updated_at: timestamp,
-  };
-}
-
 function createAuthSettings(state: AuthState) {
   return {
     auth_enabled: state.authEnabled,
@@ -44,12 +29,6 @@ function createAuthSettings(state: AuthState) {
   };
 }
 
-async function seedLocale(page: Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem("prism.locale", "en");
-  });
-}
-
 async function fulfillJson(route: Route, body: unknown, status = 200) {
   await route.fulfill({
     status,
@@ -59,7 +38,6 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
 }
 
 async function installAuthLifecycleRoutes(context: BrowserContext) {
-  const profile = createProfile();
   const authState: AuthState = {
     authEnabled: true,
     authenticated: false,
@@ -143,15 +121,6 @@ async function installAuthLifecycleRoutes(context: BrowserContext) {
       return;
     }
 
-    if (pathname === "/api/profiles/bootstrap") {
-      await fulfillJson(route, {
-        profiles: [profile],
-        active_profile: profile,
-        profile_limits: { max_profiles: 5 },
-      });
-      return;
-    }
-
     if (pathname === "/api/settings/costing") {
       await fulfillJson(route, {
         report_currency_code: "USD",
@@ -189,6 +158,11 @@ async function installAuthLifecycleRoutes(context: BrowserContext) {
 
     if (pathname === "/api/stats/dashboard/recent-activity") {
       await fulfillJson(route, createDashboardRecentActivityResponse([]));
+      return;
+    }
+
+    if (pathname === "/api/loadbalance/incidents") {
+      await fulfillJson(route, { active_bans: [], recent_events: [], generated_at: timestamp });
       return;
     }
 
@@ -275,31 +249,30 @@ async function installAuthLifecycleRoutes(context: BrowserContext) {
 }
 
 async function loginToProxyKeys(page: Page) {
-  await page.goto("/login");
-  await page.getByLabel("Username").fill("admin");
-  await page.getByLabel("Password").fill("password123");
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.goto("/auth/login");
+  await page.getByLabel("用户名").fill("admin");
+  await page.getByLabel("密码").fill("password123");
+  await page.getByRole("button", { name: "登录" }).click();
   await expect(page.getByTestId("observe-dashboard")).toBeVisible();
 
   await page.goto("/control/proxy-keys");
   await expect(page).toHaveURL(/\/control\/proxy-keys$/);
-  await expect(page.getByRole("heading", { name: "Proxy API Keys" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "代理 API 密钥" })).toBeVisible();
 }
 
 test.describe("auth session lifecycle", () => {
-  test.beforeEach(async ({ context, page }) => {
+  test.beforeEach(async ({ context }) => {
     await installAuthLifecycleRoutes(context);
-    await seedLocale(page);
   });
 
   test("logs in to a protected shell route and logs out cleanly", async ({ page }) => {
     await loginToProxyKeys(page);
 
     await page.getByRole("button", { name: /admin/i }).click();
-    await page.getByRole("menuitem", { name: "Sign out" }).click();
+    await page.getByRole("menuitem", { name: "退出登录" }).click();
 
-    await expect(page).toHaveURL(/\/auth\/login$/);
-    await expect(page.getByLabel("Username")).toBeVisible();
+    await expect(page).toHaveURL(/\/auth\/login(?:\?.*)?$/);
+    await expect(page.getByLabel("用户名")).toBeVisible();
   });
 
   test("disabling auth in one tab clears stale session identity in another tab without breaking the shell", async ({
@@ -309,9 +282,8 @@ test.describe("auth session lifecycle", () => {
     await loginToProxyKeys(page);
 
     const controlPage = await context.newPage();
-    await seedLocale(controlPage);
     await controlPage.goto("/control/proxy-keys");
-    await expect(controlPage.getByRole("heading", { name: "Proxy API Keys" })).toBeVisible();
+    await expect(controlPage.getByRole("heading", { name: "代理 API 密钥" })).toBeVisible();
 
     await controlPage.evaluate(async () => {
       await fetch("/api/settings/auth", {
@@ -324,8 +296,8 @@ test.describe("auth session lifecycle", () => {
     });
     await controlPage.reload();
 
-    await expect(controlPage.getByText("Authentication disabled")).toBeVisible();
-    await expect(page.getByText("Authentication disabled")).toBeVisible();
+    await expect(controlPage.getByText("身份验证已禁用")).toBeVisible();
+    await expect(page.getByText("身份验证已禁用")).toBeVisible();
     await expect(page).toHaveURL(/\/control\/proxy-keys$/);
   });
 
@@ -333,9 +305,8 @@ test.describe("auth session lifecycle", () => {
     await loginToProxyKeys(page);
 
     const controlPage = await context.newPage();
-    await seedLocale(controlPage);
     await controlPage.goto("/control/proxy-keys");
-    await expect(controlPage.getByRole("heading", { name: "Proxy API Keys" })).toBeVisible();
+    await expect(controlPage.getByRole("heading", { name: "代理 API 密钥" })).toBeVisible();
 
     await controlPage.evaluate(async () => {
       await fetch("/api/settings/auth", {
@@ -352,8 +323,8 @@ test.describe("auth session lifecycle", () => {
     });
     await controlPage.reload();
 
-    await expect(controlPage).toHaveURL(/\/auth\/login$/);
-    await expect(page).toHaveURL(/\/auth\/login$/);
-    await expect(page.getByLabel("Username")).toBeVisible();
+    await expect(controlPage).toHaveURL(/\/auth\/login(?:\?.*)?$/);
+    await expect(page).toHaveURL(/\/auth\/login(?:\?.*)?$/);
+    await expect(page.getByLabel("用户名")).toBeVisible();
   });
 });

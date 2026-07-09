@@ -14,22 +14,18 @@ import (
 	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
 	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
-	managementbootstrapconfig "github.com/coachpo/prism/backend/internal/httpapi/management/bootstrapconfig"
-	managementconfigbundle "github.com/coachpo/prism/backend/internal/httpapi/management/configbundle"
 	managementconfigrules "github.com/coachpo/prism/backend/internal/httpapi/management/configrules"
 	managementconnections "github.com/coachpo/prism/backend/internal/httpapi/management/connections"
 	managementendpoints "github.com/coachpo/prism/backend/internal/httpapi/management/endpoints"
 	managementloadbalance "github.com/coachpo/prism/backend/internal/httpapi/management/loadbalance"
 	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
-	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
 	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
-	realtimeapi "github.com/coachpo/prism/backend/internal/httpapi/realtime"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
+	"github.com/coachpo/prism/backend/internal/platform/alerting"
 	"github.com/coachpo/prism/backend/internal/platform/background"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformdb "github.com/coachpo/prism/backend/internal/platform/db"
-	"github.com/coachpo/prism/backend/internal/platform/email/outbox"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
 	"github.com/coachpo/prism/backend/internal/platform/logretention"
 	"github.com/coachpo/prism/backend/internal/platform/managementjobs"
@@ -37,31 +33,21 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/version"
 )
 
-type BootstrapConfigOptions = platformhttp.BootstrapConfigOptions
-
-type ProductionOptions struct {
-	BootstrapConfig   BootstrapConfigOptions
-	TelemetryShutdown ShutdownHook
-}
-
 type productionResources struct {
-	deps              platformhttp.Dependencies
-	scheduler         *background.Scheduler
-	realtimeShutdown  []ShutdownHook
-	sideEffectDrain   []ShutdownHook
-	serviceClose      []ShutdownHook
-	telemetryShutdown ShutdownHook
-	dbClose           ShutdownHook
+	deps            platformhttp.Dependencies
+	scheduler       *background.Scheduler
+	sideEffectDrain []ShutdownHook
+	serviceClose    []ShutdownHook
+	dbClose         ShutdownHook
 }
 
-func NewProductionApp(ctx context.Context, settings config.Settings, options ProductionOptions) (*App, *http.Server, error) {
-	resources, err := buildProductionResources(ctx, settings, options)
+func NewProductionApp(ctx context.Context, settings config.Settings) (*App, *http.Server, error) {
+	resources, err := buildProductionResources(ctx, settings)
 	if err != nil {
 		return nil, nil, err
 	}
 	server, err := platformhttp.NewServer(settings, platformhttp.ServerOptions{
-		BootstrapConfig: options.BootstrapConfig,
-		Dependencies:    resources.deps,
+		Dependencies: resources.deps,
 	})
 	if err != nil {
 		return nil, nil, errors.Join(err, resources.cleanupForSetupFailure(ctx))
@@ -72,20 +58,18 @@ func NewProductionApp(ctx context.Context, settings config.Settings, options Pro
 		}
 	}
 	app := NewApp(Options{
-		HTTPServer:        server,
-		RealtimeShutdown:  resources.realtimeShutdown,
-		SideEffectDrain:   resources.sideEffectDrain,
-		SchedulerStop:     resources.schedulerStopHook(),
-		ServiceClose:      resources.serviceClose,
-		TelemetryShutdown: resources.telemetryShutdown,
-		DBClose:           resources.dbClose,
+		HTTPServer:      server,
+		SideEffectDrain: resources.sideEffectDrain,
+		SchedulerStop:   resources.schedulerStopHook(),
+		ServiceClose:    resources.serviceClose,
+		DBClose:         resources.dbClose,
 	})
 	return app, server, nil
 }
 
-func buildProductionResources(ctx context.Context, settings config.Settings, options ProductionOptions) (*productionResources, error) {
-	resources := &productionResources{telemetryShutdown: options.TelemetryShutdown}
-	if err := resources.configureHTTPAssembly(settings, options); err != nil {
+func buildProductionResources(ctx context.Context, settings config.Settings) (*productionResources, error) {
+	resources := &productionResources{}
+	if err := resources.configureHTTPAssembly(settings); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(settings.DatabaseURL) == "" {
@@ -106,7 +90,7 @@ func buildProductionResources(ctx context.Context, settings config.Settings, opt
 	return resources, nil
 }
 
-func (resources *productionResources) configureHTTPAssembly(settings config.Settings, options ProductionOptions) error {
+func (resources *productionResources) configureHTTPAssembly(settings config.Settings) error {
 	loadedVersion, err := version.Load()
 	if err != nil {
 		return err
@@ -118,19 +102,6 @@ func (resources *productionResources) configureHTTPAssembly(settings config.Sett
 	resources.deps.Version = loadedVersion
 	resources.deps.HotBootstrapConfigRuntime = hotBootstrapConfigRuntime
 	resources.deps.CORSOriginProvider = hotBootstrapConfigRuntime
-	if strings.TrimSpace(options.BootstrapConfig.ConfigPath) != "" {
-		bootstrapConfigService, bootstrapErr := managementbootstrapconfig.NewService(settings, managementbootstrapconfig.Options{
-			ConfigPath:         options.BootstrapConfig.ConfigPath,
-			LoadedRevision:     options.BootstrapConfig.LoadedRevision,
-			LoadedDocumentETag: options.BootstrapConfig.LoadedDocumentETag,
-			CORSOriginProvider: hotBootstrapConfigRuntime,
-			HotApplyRuntime:    hotBootstrapConfigRuntime,
-		})
-		if bootstrapErr != nil {
-			return bootstrapErr
-		}
-		resources.deps.BootstrapConfigService = bootstrapConfigService
-	}
 	return nil
 }
 
@@ -139,7 +110,6 @@ type databaseLanePools struct {
 	runtimeExecution *pgxpool.Pool
 	runtimeTelemetry *pgxpool.Pool
 	runtimeFeedback  *pgxpool.Pool
-	realtime         *pgxpool.Pool
 	cacheRefresh     *pgxpool.Pool
 	backgroundJobs   *pgxpool.Pool
 }
@@ -149,7 +119,6 @@ func newDatabaseLanePools(databasePools *platformdb.DatabasePools) databaseLaneP
 	runtimeExecutionPool := databasePools.RuntimeExecution.Raw()
 	runtimeTelemetryPool := databasePools.RuntimeTelemetry.Raw()
 	runtimeFeedbackPool := databasePools.RuntimeFeedback.Raw()
-	realtimePool := databasePools.Realtime.Raw()
 	cacheRefreshPool := databasePools.CacheRefresh.Raw()
 	backgroundJobsPool := databasePools.BackgroundJobs.Raw()
 	return databaseLanePools{
@@ -157,7 +126,6 @@ func newDatabaseLanePools(databasePools *platformdb.DatabasePools) databaseLaneP
 		runtimeExecution: runtimeExecutionPool,
 		runtimeTelemetry: runtimeTelemetryPool,
 		runtimeFeedback:  runtimeFeedbackPool,
-		realtime:         realtimePool,
 		cacheRefresh:     cacheRefreshPool,
 		backgroundJobs:   backgroundJobsPool,
 	}
@@ -168,6 +136,7 @@ type databaseBackgroundServices struct {
 	managementSideEffects *managementsideeffects.Dispatcher
 	logRetention          *logretention.Store
 	managementJobs        *managementjobs.Store
+	alertWebhookOutbox    *alerting.Store
 }
 
 type runtimePlanningServices struct {
@@ -177,14 +146,12 @@ type runtimePlanningServices struct {
 }
 
 type authServices struct {
-	emailOutbox *outbox.Store
-	management  *managementauth.Service
-	runtime     *managementauth.Service
+	management *managementauth.Service
+	runtime    *managementauth.Service
 }
 
 type managementServices struct {
 	dashboardSnapshots *statsdomain.DashboardAggregateStore
-	profiles           *managementprofiles.Service
 	models             *managementmodels.Service
 	endpoints          *managementendpoints.Service
 	connections        *managementconnections.Service
@@ -193,13 +160,6 @@ type managementServices struct {
 	audit              *managementaudit.Service
 	stats              *managementstats.Service
 	configRules        *managementconfigrules.Service
-	configBundle       *managementconfigbundle.Service
-}
-
-type realtimeServices struct {
-	service            *realtimeapi.Service
-	dashboardPublisher *realtimeapi.AsyncDashboardPublisher
-	analyticsPublisher *realtimeapi.AsyncAnalyticsPublisher
 }
 
 func (resources *productionResources) configureDatabaseBackedServices(ctx context.Context, settings config.Settings, databasePools *platformdb.DatabasePools) error {
@@ -220,18 +180,14 @@ func (resources *productionResources) configureDatabaseBackedServices(ctx contex
 	if err != nil {
 		return err
 	}
-	realtime, err := resources.buildRealtimeServices(settings, lanes, backgroundServices.scheduler, auth.management, management.dashboardSnapshots)
+	runtimeService, err := resources.buildRuntimeService(settings, lanes, backgroundServices, planning)
 	if err != nil {
 		return err
 	}
-	runtimeService, err := resources.buildRuntimeService(settings, lanes, backgroundServices, planning, realtime)
-	if err != nil {
+	if err := registerDatabaseBackgroundWorkers(backgroundServices, planning, auth, runtimeService); err != nil {
 		return err
 	}
-	if err := registerDatabaseBackgroundWorkers(backgroundServices, planning, auth, realtime, runtimeService); err != nil {
-		return err
-	}
-	resources.publishDatabaseBackedDependencies(auth, management, realtime, runtimeService, planning)
+	resources.publishDatabaseBackedDependencies(auth, management, runtimeService, planning)
 	return nil
 }
 
@@ -242,11 +198,13 @@ func (resources *productionResources) buildDatabaseBackgroundServices(ctx contex
 	managementSideEffects := managementsideeffects.NewDispatcher(managementsideeffects.Options{Pool: backgroundJobsPool, Scheduler: backgroundScheduler})
 	logRetentionStore := logretention.NewStore(logretention.Options{Pool: backgroundJobsPool})
 	managementJobs := managementjobs.NewStore(managementjobs.Options{Pool: backgroundJobsPool, Scheduler: backgroundScheduler, LogRetention: logRetentionStore})
+	alertWebhookOutbox := alerting.NewStore(alerting.Options{Pool: backgroundJobsPool, Scheduler: backgroundScheduler, WebhookURLProvider: resources.deps.HotBootstrapConfigRuntime})
 	services := databaseBackgroundServices{
 		scheduler:             backgroundScheduler,
 		managementSideEffects: managementSideEffects,
 		logRetention:          logRetentionStore,
 		managementJobs:        managementJobs,
+		alertWebhookOutbox:    alertWebhookOutbox,
 	}
 	if err := logRetentionStore.EnsurePartitionHorizon(ctx); err != nil {
 		return services, fmt.Errorf("bootstrap log partition horizon: %w", err)
@@ -276,9 +234,8 @@ func (resources *productionResources) buildAuthServices(settings config.Settings
 	backgroundJobsPool := lanes.backgroundJobs
 	runtimeAuthCache := planning.authCache
 	backgroundScheduler := backgroundServices.scheduler
-	emailOutbox := outbox.NewStore(outbox.Options{Pool: backgroundJobsPool, MailerProvider: resources.deps.HotBootstrapConfigRuntime, SecretEncryptionKey: settings.SecretEncryptionKey, Scheduler: backgroundScheduler})
-	services := authServices{emailOutbox: emailOutbox}
-	managementAuthService, err := managementauth.NewService(settings, managementauth.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, AuthRuntimeConfigProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool, ProxyKeyUsagePool: backgroundJobsPool, EmailOutbox: emailOutbox, Scheduler: backgroundScheduler})
+	services := authServices{}
+	managementAuthService, err := managementauth.NewService(settings, managementauth.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, AuthRuntimeConfigProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool, ProxyKeyUsagePool: backgroundJobsPool, Scheduler: backgroundScheduler})
 	if err != nil {
 		return services, err
 	}
@@ -302,13 +259,6 @@ func (resources *productionResources) buildManagementServices(settings config.Se
 	runtimeState := planning.state
 	dashboardSnapshots := statsdomain.NewDashboardAggregateStore()
 	services := managementServices{dashboardSnapshots: dashboardSnapshots}
-	profileService, err := managementprofiles.NewService(settings, managementprofiles.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool})
-	if err != nil {
-		return services, err
-	}
-	services.profiles = profileService
-	resources.registerServiceClose(closeFuncHook(profileService.Close))
-
 	modelsService, err := managementmodels.NewService(settings, managementmodels.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool})
 	if err != nil {
 		return services, err
@@ -364,49 +314,19 @@ func (resources *productionResources) buildManagementServices(settings config.Se
 	}
 	services.configRules = configRulesService
 	resources.registerServiceClose(closeFuncHook(configRulesService.Close))
-	configBundleService, err := managementconfigbundle.NewService(settings, managementconfigbundle.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool})
-	if err != nil {
-		return services, err
-	}
-	services.configBundle = configBundleService
-	resources.registerServiceClose(closeFuncHook(configBundleService.Close))
 	return services, nil
 }
 
-func (resources *productionResources) buildRealtimeServices(settings config.Settings, lanes databaseLanePools, scheduler *background.Scheduler, managementAuthService *managementauth.Service, dashboardSnapshots *statsdomain.DashboardAggregateStore) (realtimeServices, error) {
-	realtimePool := lanes.realtime
-	realtimeService, err := realtimeapi.NewService(settings, realtimeapi.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, RealtimePool: realtimePool, AuthService: managementAuthService, DashboardSnapshots: dashboardSnapshots})
-	if err != nil {
-		return realtimeServices{}, err
-	}
-	services := realtimeServices{service: realtimeService}
-	resources.realtimeShutdown = append(resources.realtimeShutdown, closeFuncHook(realtimeService.Close))
-
-	asyncDashboardPublisher := realtimeapi.NewAsyncDashboardPublisher(realtimeService, realtimeapi.AsyncDashboardPublisherOptions{Scheduler: scheduler})
-	realtimeService.SetAsyncDashboardPublisher(asyncDashboardPublisher)
-	services.dashboardPublisher = asyncDashboardPublisher
-	resources.registerSideEffectDrain(closeFuncHook(asyncDashboardPublisher.Close))
-	resources.registerServiceClose(closeFuncHook(asyncDashboardPublisher.Close))
-
-	asyncAnalyticsPublisher := realtimeapi.NewAsyncAnalyticsPublisher(realtimeService, realtimeapi.AsyncAnalyticsPublisherOptions{Scheduler: scheduler})
-	realtimeService.SetAsyncAnalyticsPublisher(asyncAnalyticsPublisher)
-	services.analyticsPublisher = asyncAnalyticsPublisher
-	resources.registerSideEffectDrain(closeFuncHook(asyncAnalyticsPublisher.Close))
-	resources.registerServiceClose(closeFuncHook(asyncAnalyticsPublisher.Close))
-	return services, nil
-}
-
-func (resources *productionResources) buildRuntimeService(settings config.Settings, lanes databaseLanePools, backgroundServices databaseBackgroundServices, planning runtimePlanningServices, realtime realtimeServices) (*runtimeapi.Service, error) {
+func (resources *productionResources) buildRuntimeService(settings config.Settings, lanes databaseLanePools, backgroundServices databaseBackgroundServices, planning runtimePlanningServices) (*runtimeapi.Service, error) {
 	runtimeExecutionPool := lanes.runtimeExecution
 	runtimeTelemetryPool := lanes.runtimeTelemetry
 	runtimeFeedbackPool := lanes.runtimeFeedback
 	backgroundScheduler := backgroundServices.scheduler
 	logRetentionStore := backgroundServices.logRetention
+	alertWebhookOutbox := backgroundServices.alertWebhookOutbox
 	runtimePlanningCache := planning.cache
 	runtimeState := planning.state
-	asyncDashboardPublisher := realtime.dashboardPublisher
-	asyncAnalyticsPublisher := realtime.analyticsPublisher
-	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimeExecutionPool, TelemetryPool: runtimeTelemetryPool, FeedbackPool: runtimeFeedbackPool, RuntimeProxyConfigProvider: resources.deps.HotBootstrapConfigRuntime, DashboardUpdates: asyncDashboardPublisher, AnalyticsUpdates: asyncAnalyticsPublisher, Cache: runtimePlanningCache, RuntimeState: runtimeState, LogPartitionEnsurer: logRetentionStore, AssumeLogPartitionHorizon: true, Scheduler: backgroundScheduler, SideEffects: runtimeSideEffectOptions(settings)})
+	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimeExecutionPool, TelemetryPool: runtimeTelemetryPool, FeedbackPool: runtimeFeedbackPool, RuntimeProxyConfigProvider: resources.deps.HotBootstrapConfigRuntime, Cache: runtimePlanningCache, RuntimeState: runtimeState, LogPartitionEnsurer: logRetentionStore, AssumeLogPartitionHorizon: true, Scheduler: backgroundScheduler, FeedbackPipeline: runtimeapi.RuntimeFeedbackPipelineOptions{AlertOutbox: alertWebhookOutbox}, SideEffects: runtimeSideEffectOptions(settings)})
 	if err != nil {
 		return nil, err
 	}
@@ -415,25 +335,21 @@ func (resources *productionResources) buildRuntimeService(settings config.Settin
 	return runtimeService, nil
 }
 
-func registerDatabaseBackgroundWorkers(backgroundServices databaseBackgroundServices, planning runtimePlanningServices, auth authServices, realtime realtimeServices, runtimeService *runtimeapi.Service) error {
+func registerDatabaseBackgroundWorkers(backgroundServices databaseBackgroundServices, planning runtimePlanningServices, auth authServices, runtimeService *runtimeapi.Service) error {
 	backgroundScheduler := backgroundServices.scheduler
 	runtimePlanningCache := planning.cache
 	managementAuthService := auth.management
-	emailOutbox := auth.emailOutbox
 	managementJobs := backgroundServices.managementJobs
 	managementSideEffects := backgroundServices.managementSideEffects
+	alertWebhookOutbox := backgroundServices.alertWebhookOutbox
 	logRetentionStore := backgroundServices.logRetention
-	asyncDashboardPublisher := realtime.dashboardPublisher
-	asyncAnalyticsPublisher := realtime.analyticsPublisher
 	for _, register := range []func(*background.Scheduler) error{
 		runtimePlanningCache.RegisterBackgroundWorker,
 		managementAuthService.RegisterBackgroundWorkers,
-		emailOutbox.RegisterBackgroundWorker,
 		managementJobs.RegisterBackgroundWorker,
 		managementSideEffects.RegisterBackgroundWorker,
+		alertWebhookOutbox.RegisterBackgroundWorker,
 		logRetentionStore.RegisterBackgroundWorker,
-		asyncDashboardPublisher.RegisterBackgroundWorker,
-		asyncAnalyticsPublisher.RegisterBackgroundWorker,
 		runtimeService.RegisterBackgroundWorkers,
 	} {
 		if err := register(backgroundScheduler); err != nil {
@@ -443,18 +359,15 @@ func registerDatabaseBackgroundWorkers(backgroundServices databaseBackgroundServ
 	return nil
 }
 
-func (resources *productionResources) publishDatabaseBackedDependencies(auth authServices, management managementServices, realtime realtimeServices, runtimeService *runtimeapi.Service, planning runtimePlanningServices) {
+func (resources *productionResources) publishDatabaseBackedDependencies(auth authServices, management managementServices, runtimeService *runtimeapi.Service, planning runtimePlanningServices) {
 	resources.deps.AuditService = management.audit
 	resources.deps.AuthService = auth.management
 	resources.deps.RuntimeAuthService = auth.runtime
-	resources.deps.ConfigBundleService = management.configBundle
 	resources.deps.ConfigRulesService = management.configRules
 	resources.deps.ConnectionsService = management.connections
 	resources.deps.EndpointsService = management.endpoints
 	resources.deps.LoadbalanceService = management.loadbalance
 	resources.deps.ModelsService = management.models
-	resources.deps.ProfilesService = management.profiles
-	resources.deps.RealtimeService = realtime.service
 	resources.deps.RuntimeService = runtimeService
 	resources.deps.RuntimeCache = planning.cache
 	resources.deps.RuntimeState = planning.state
@@ -498,9 +411,6 @@ func (resources *productionResources) cleanup(ctx context.Context) error {
 		return nil
 	}
 	var errs []error
-	for _, hook := range resources.realtimeShutdown {
-		errs = appendError(errs, hook(ctx))
-	}
 	for _, hook := range resources.sideEffectDrain {
 		errs = appendError(errs, hook(ctx))
 	}
@@ -509,9 +419,6 @@ func (resources *productionResources) cleanup(ctx context.Context) error {
 	}
 	for _, hook := range resources.serviceClose {
 		errs = appendError(errs, hook(ctx))
-	}
-	if resources.telemetryShutdown != nil {
-		errs = appendError(errs, resources.telemetryShutdown(ctx))
 	}
 	if resources.dbClose != nil {
 		errs = appendError(errs, resources.dbClose(ctx))
