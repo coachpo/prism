@@ -20,97 +20,203 @@ import (
 
 const runtimeStreamingAssertionDeadline = 500 * time.Millisecond
 
-func TestRuntimeResponseStreamingPreservesUsage(t *testing.T) {
-	harness := newRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	largeContent := strings.Repeat("phase-2-stream-usage-", 32768)
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Body != nil {
-			_, _ = io.Copy(io.Discard, r.Body)
-			_ = r.Body.Close()
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"id":     "chatcmpl-phase-2-streaming-usage",
-			"object": "chat.completion",
-			"choices": []map[string]any{{
-				"index":   0,
-				"message": map[string]any{"role": "assistant", "content": largeContent},
-			}},
-			"usage": map[string]any{"prompt_tokens": 7, "completion_tokens": 13, "total_tokens": 20},
+func TestRuntimeResponseStreamingUsageCoverage(t *testing.T) {
+	tests := []struct {
+		name          string
+		apiFamily     string
+		operation     string
+		prompt        string
+		rawResponse   string
+		responseField string
+		responseValue string
+		wantInput     int64
+		wantOutput    int64
+		wantTotal     int64
+	}{
+		{
+			name:          "OpenAIChat",
+			apiFamily:     "openai",
+			operation:     "chat",
+			prompt:        "preserve usage during response streaming",
+			rawResponse:   fmt.Sprintf(`{"id":"chatcmpl-phase-2-streaming-usage","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"%s"}}],"usage":{"prompt_tokens":7,"completion_tokens":13,"total_tokens":20}}`, strings.Repeat("phase-2-stream-usage-", 32768)),
+			responseField: "id",
+			responseValue: "chatcmpl-phase-2-streaming-usage",
+			wantInput:     7,
+			wantOutput:    13,
+			wantTotal:     20,
+		},
+		{
+			name:          "OpenAINestedUsageSpoof",
+			apiFamily:     "openai",
+			operation:     "chat",
+			prompt:        "ignore nested spoofed usage during response streaming",
+			rawResponse:   `{"id":"chatcmpl-phase-2-streaming-usage-security","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":[{"type":"output_text","text":"hello"},{"type":"output_json","value":{"usage":{"prompt_tokens":999,"completion_tokens":999,"total_tokens":1998}}}]}}],"usage":{"prompt_tokens":7,"completion_tokens":13,"total_tokens":20}}`,
+			responseField: "id",
+			responseValue: "chatcmpl-phase-2-streaming-usage-security",
+			wantInput:     7,
+			wantOutput:    13,
+			wantTotal:     20,
+		},
+		{
+			name:          "OpenAIResponses",
+			apiFamily:     "openai",
+			operation:     "responses",
+			prompt:        "streaming responses usage",
+			rawResponse:   fmt.Sprintf(`{"id":"resp_streaming_openai_responses","object":"response","model":"streaming-responses-target","output":[{"id":"msg_streaming_openai_responses","type":"message","role":"assistant","content":[{"type":"output_text","text":"%s"}]}],"usage":{"input_tokens":19,"output_tokens":23,"total_tokens":42}}`, strings.Repeat("streaming-openai-responses-usage-", 2048)),
+			responseField: "id",
+			responseValue: "resp_streaming_openai_responses",
+			wantInput:     19,
+			wantOutput:    23,
+			wantTotal:     42,
+		},
+		{
+			name:          "Anthropic",
+			apiFamily:     "anthropic",
+			operation:     "messages",
+			prompt:        "streaming anthropic usage",
+			rawResponse:   fmt.Sprintf(`{"id":"msg-streaming-anthropic","type":"message","content":[{"type":"text","text":"%s"}],"usage":{"input_tokens":5,"output_tokens":8}}`, strings.Repeat("streaming-anthropic-usage-", 2048)),
+			responseField: "id",
+			responseValue: "msg-streaming-anthropic",
+			wantInput:     5,
+			wantOutput:    8,
+			wantTotal:     13,
+		},
+		{
+			name:          "Gemini",
+			apiFamily:     "gemini",
+			operation:     "generate",
+			prompt:        "streaming gemini usage",
+			rawResponse:   fmt.Sprintf(`{"responseId":"gemini-streaming-usage","candidates":[{"content":{"parts":[{"text":"%s"}]}}],"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":17,"totalTokenCount":28}}`, strings.Repeat("streaming-gemini-usage-", 2048)),
+			responseField: "responseId",
+			responseValue: "gemini-streaming-usage",
+			wantInput:     11,
+			wantOutput:    17,
+			wantTotal:     28,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			harness := newRuntimeHarness(t)
+			profileID := harness.activeProfileID(t)
+			endpointBaseURL := newRuntimeStreamingUsageBaseURL(t, test.rawResponse)
+
+			route := harness.seedProxyRoute(t, runtimeRouteSeed{
+				ProfileID:       profileID,
+				APIFamily:       test.apiFamily,
+				PublicModelID:   "streaming-usage-public-" + randomSuffix(),
+				TargetModelID:   "streaming-usage-target-" + randomSuffix(),
+				EndpointBaseURL: endpointBaseURL,
+				EndpointAPIKey:  "streaming-usage-key",
+			})
+
+			requestPath, requestBody := runtimeStreamingUsageRequest(t, test.operation, route.PublicModelID, test.prompt)
+			response := harness.requestJSON(t, http.MethodPost, requestPath, requestBody, nil)
+			assertStatus(t, response, http.StatusOK)
+			assertResponseField(t, response, test.responseField, test.responseValue)
+			assertLatestRequestLogUsage(t, harness.conn, profileID, false, test.wantInput, test.wantOutput, test.wantTotal)
+			assertLatestUsageEventUsage(t, harness.conn, profileID, test.wantInput, test.wantOutput, test.wantTotal)
 		})
-	}))
-	defer upstream.Close()
-
-	route := harness.seedProxyRoute(t, runtimeRouteSeed{
-		ProfileID:       profileID,
-		APIFamily:       "openai",
-		PublicModelID:   "phase-2-stream-usage-public-" + randomSuffix(),
-		TargetModelID:   "phase-2-stream-usage-target-" + randomSuffix(),
-		EndpointBaseURL: upstream.URL,
-		EndpointAPIKey:  "phase-2-stream-usage-key",
-	})
-
-	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
-		"messages": []map[string]any{{"role": "user", "content": "preserve usage during response streaming"}},
-		"model":    route.PublicModelID,
-	}, nil)
-	assertStatus(t, response, http.StatusOK)
-	assertResponseField(t, response, "id", "chatcmpl-phase-2-streaming-usage")
-	assertLatestRequestLogUsage(t, harness.conn, profileID, false, 7, 13, 20)
-	assertLatestUsageEventUsage(t, harness.conn, profileID, 7, 13, 20)
+	}
 }
 
-func TestRuntimeResponseStreamingIgnoresNestedSpoofedUsage(t *testing.T) {
-	harness := newRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
+func newRuntimeStreamingUsageBaseURL(t *testing.T, rawResponse string) string {
+	t.Helper()
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {
 			_, _ = io.Copy(io.Discard, r.Body)
 			_ = r.Body.Close()
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"id":"chatcmpl-phase-2-streaming-usage-security","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":[{"type":"output_text","text":"hello"},{"type":"output_json","value":{"usage":{"prompt_tokens":999,"completion_tokens":999,"total_tokens":1998}}}]}}],"usage":{"prompt_tokens":7,"completion_tokens":13,"total_tokens":20}}`)
+		_, _ = io.WriteString(w, rawResponse)
 	}))
-	defer upstream.Close()
+	t.Cleanup(upstream.Close)
+	return upstream.URL
+}
 
-	route := harness.seedProxyRoute(t, runtimeRouteSeed{
-		ProfileID:       profileID,
-		APIFamily:       "openai",
-		PublicModelID:   "phase-2-stream-usage-security-public-" + randomSuffix(),
-		TargetModelID:   "phase-2-stream-usage-security-target-" + randomSuffix(),
-		EndpointBaseURL: upstream.URL,
-		EndpointAPIKey:  "phase-2-stream-usage-security-key",
-	})
+func runtimeStreamingUsageRequest(t *testing.T, operation string, publicModelID string, prompt string) (string, any) {
+	t.Helper()
+	switch operation {
+	case "chat":
+		return "/v1/chat/completions", map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": prompt}},
+			"model":    publicModelID,
+		}
+	case "responses":
+		return "/v1/responses", map[string]any{"model": publicModelID, "input": prompt}
+	case "messages":
+		return "/v1/messages", map[string]any{
+			"model":      publicModelID,
+			"max_tokens": 32,
+			"messages":   []map[string]any{{"role": "user", "content": prompt}},
+		}
+	case "generate":
+		return fmt.Sprintf("/v1beta/models/%s:generateContent", publicModelID), runtimePhase0GeminiRequest(prompt)
+	default:
+		t.Fatalf("unsupported streaming usage operation %q", operation)
+		return "", nil
+	}
+}
+
+func TestRuntimeStreamingPassthroughBecomesReadableBeforeUpstreamCompletion(t *testing.T) {
+	harness, profileID, upstream, publicModelID := newRuntimeLargeResponseRoute(t, "streaming-passthrough-public-", "streaming-passthrough-target-", "/streaming/passthrough", "streaming-passthrough-key")
+	defer upstream.close()
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
-		"messages": []map[string]any{{"role": "user", "content": "ignore nested spoofed usage during response streaming"}},
-		"model":    route.PublicModelID,
+		"messages": []map[string]any{{"role": "user", "content": "streaming passthrough becomes readable before upstream completion"}},
+		"model":    publicModelID,
 	}, nil)
 	assertStatus(t, response, http.StatusOK)
-	assertResponseField(t, response, "id", "chatcmpl-phase-2-streaming-usage-security")
+	upstream.waitUntilFirstChunk(t, 5*time.Second)
+
+	readCh := make(chan []byte, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		buffer := make([]byte, 64)
+		n, err := response.Body.Read(buffer)
+		if err != nil && err != io.EOF {
+			errCh <- err
+			return
+		}
+		readCh <- append([]byte(nil), buffer[:n]...)
+	}()
+
+	var firstChunk []byte
+	select {
+	case err := <-errCh:
+		t.Fatalf("expected streamed response bytes before upstream completion, got read error: %v", err)
+	case firstChunk = <-readCh:
+		if len(firstChunk) == 0 {
+			t.Fatal("expected at least one streamed response byte before upstream completion")
+		}
+	case <-time.After(runtimeStreamingAssertionDeadline):
+		t.Fatal("expected response body to become readable before upstream finished; non-SSE response is still fully buffered")
+	}
+
+	upstream.releaseResponse()
+	rest, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("read streaming passthrough response tail: %v", err)
+	}
+	payload := string(append(firstChunk, rest...))
+	if !strings.Contains(payload, `"id":"chatcmpl-phase-2-large-response"`) {
+		t.Fatalf("expected streamed response payload to pass through the upstream id, got %q", payload)
+	}
+	if !strings.Contains(payload, `"usage":{"prompt_tokens":7,"completion_tokens":13,"total_tokens":20}`) {
+		t.Fatalf("expected streamed response payload to pass through upstream usage, got %q", payload)
+	}
+
 	assertLatestRequestLogUsage(t, harness.conn, profileID, false, 7, 13, 20)
 	assertLatestUsageEventUsage(t, harness.conn, profileID, 7, 13, 20)
 }
 
 func TestRuntimeLargeNonStreamResponseWaitsForDurableHandoffBeforeCommit(t *testing.T) {
-	harness := newRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	upstream := newChunkedLargeResponseUpstream(t)
+	harness, profileID, upstream, publicModelID := newRuntimeLargeResponseRoute(t, "phase-2-large-response-public-", "phase-2-large-response-target-", "/phase-2/large-response", "phase-2-large-response-key")
 	defer upstream.close()
-
-	route := harness.seedProxyRoute(t, runtimeRouteSeed{
-		ProfileID:       profileID,
-		APIFamily:       "openai",
-		PublicModelID:   "phase-2-large-response-public-" + randomSuffix(),
-		TargetModelID:   "phase-2-large-response-target-" + randomSuffix(),
-		EndpointBaseURL: upstream.baseURL("/phase-2/large-response"),
-		EndpointAPIKey:  "phase-2-large-response-key",
-	})
 
 	resultCh := startAsyncPriorityRequest(t, harness.client, http.MethodPost, harness.url+"/v1/chat/completions", map[string]any{
 		"messages": []map[string]any{{"role": "user", "content": "wait for durable handoff before non-sse response commit"}},
-		"model":    route.PublicModelID,
+		"model":    publicModelID,
 	}, nil)
 	upstream.waitUntilFirstChunk(t, 5*time.Second)
 
@@ -132,6 +238,22 @@ func TestRuntimeLargeNonStreamResponseWaitsForDurableHandoffBeforeCommit(t *test
 		t.Fatalf("expected provider body after durable handoff, got %s", result.Body)
 	}
 	assertLatestRequestLogUsage(t, harness.conn, profileID, false, 7, 13, 20)
+}
+
+func newRuntimeLargeResponseRoute(t *testing.T, publicPrefix string, targetPrefix string, upstreamPath string, apiKey string) (*runtimeHarness, int, *chunkedLargeResponseUpstream, string) {
+	t.Helper()
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	upstream := newChunkedLargeResponseUpstream(t)
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   publicPrefix + randomSuffix(),
+		TargetModelID:   targetPrefix + randomSuffix(),
+		EndpointBaseURL: upstream.baseURL(upstreamPath),
+		EndpointAPIKey:  apiKey,
+	})
+	return harness, profileID, upstream, route.PublicModelID
 }
 
 func TestRuntimeRequestCancellationStopsUpstream(t *testing.T) {
@@ -187,71 +309,76 @@ func TestRuntimeRequestCancellationStopsUpstream(t *testing.T) {
 	}
 }
 
-func TestRuntimeBufferedFallbackForRewritePath(t *testing.T) {
-	harness := newRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	upstream := newArrivalRecordingUpstream(t)
-	defer upstream.close()
+func TestRuntimeBufferedFallbacks(t *testing.T) {
+	t.Run("RewritePathKeepsBytesBufferedUntilModelRewriteIsSafe", func(t *testing.T) {
+		harness := newRuntimeHarness(t)
+		profileID := harness.activeProfileID(t)
+		upstream := newArrivalRecordingUpstream(t)
+		defer upstream.close()
 
-	route := harness.seedProxyRoute(t, runtimeRouteSeed{
-		ProfileID:       profileID,
-		APIFamily:       "openai",
-		PublicModelID:   "phase-2-buffered-fallback-public-" + randomSuffix(),
-		TargetModelID:   "phase-2-buffered-fallback-target-" + randomSuffix(),
-		EndpointBaseURL: upstream.baseURL("/phase-2/buffered-fallback"),
-		EndpointAPIKey:  "phase-2-buffered-fallback-key",
+		route := harness.seedProxyRoute(t, runtimeRouteSeed{
+			ProfileID:       profileID,
+			APIFamily:       "openai",
+			PublicModelID:   "buffered-fallback-public-" + randomSuffix(),
+			TargetModelID:   "buffered-fallback-target-" + randomSuffix(),
+			EndpointBaseURL: upstream.baseURL("/buffered-fallback"),
+			EndpointAPIKey:  "buffered-fallback-key",
+		})
+
+		rawBody := mustMarshalBenchmarkJSON(t, map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": strings.Repeat("buffered-fallback-", 4096)}},
+			"model":    route.PublicModelID,
+		})
+		result := performSplitRuntimeRequest(t, harness.client, harness.url+"/v1/chat/completions", rawBody, upstream.assertNotStartedWithin)
+		if result.Err != nil {
+			t.Fatalf("expected buffered-fallback request to succeed, got error: %v", result.Err)
+		}
+		if result.StatusCode != http.StatusOK {
+			t.Fatalf("expected buffered-fallback request status 200, got %d with body %s", result.StatusCode, result.Body)
+		}
+		if got := requestModelID(t, upstream.waitForRequestBody(t, 5*time.Second)); got != route.TargetModelID {
+			t.Fatalf("expected buffered fallback to preserve model rewrite to %q, got %q", route.TargetModelID, got)
+		}
 	})
 
-	rawBody := mustMarshalBenchmarkJSON(t, map[string]any{
-		"messages": []map[string]any{{"role": "user", "content": strings.Repeat("phase-2-buffered-fallback-", 4096)}},
-		"model":    route.PublicModelID,
+	t.Run("ReplayableGeminiBytesStayBufferedWhenMultipleConnectionsExist", func(t *testing.T) {
+		harness := newRuntimeHarness(t)
+		profileID := harness.activeProfileID(t)
+		primaryUpstream := newArrivalRecordingUpstream(t)
+		defer primaryUpstream.close()
+		secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+			"responseId":    "gemini-streaming-secondary",
+			"usageMetadata": map[string]any{"promptTokenCount": 7, "candidatesTokenCount": 13, "totalTokenCount": 20},
+		})
+
+		suffix := randomSuffix()
+		publicModelID := "buffered-gemini-public-" + suffix
+		targetModelID := "buffered-gemini-target-" + suffix
+		strategyID := harness.seedLegacyStrategy(t, profileID, "buffered-gemini-"+suffix, "fill-first")
+		targetModelConfigID := harness.seedModel(t, profileID, "gemini", targetModelID, "native", &strategyID)
+		publicModelConfigID := harness.seedModel(t, profileID, "gemini", publicModelID, "proxy", nil)
+		harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+		primaryEndpointID := harness.seedEndpoint(t, profileID, "buffered-gemini-primary-"+suffix, primaryUpstream.baseURL("/buffered/gemini/primary"), "buffered-gemini-primary-key", 0)
+		secondaryEndpointID := harness.seedEndpoint(t, profileID, "buffered-gemini-secondary-"+suffix, secondaryUpstream.baseURL("/buffered/gemini/secondary"), "buffered-gemini-secondary-key", 1)
+		harness.seedConnection(t, profileID, targetModelConfigID, primaryEndpointID, "buffered-gemini-primary-connection-"+suffix, nil, nil, 0)
+		harness.seedConnection(t, profileID, targetModelConfigID, secondaryEndpointID, "buffered-gemini-secondary-connection-"+suffix, nil, nil, 1)
+
+		rawBody := mustMarshalBenchmarkJSON(t, runtimePhase0GeminiRequest(strings.Repeat("buffered-gemini-", 4096)))
+		requestPath := fmt.Sprintf("%s/v1beta/models/%s:generateContent", harness.url, publicModelID)
+		result := performSplitRuntimeRequest(t, harness.client, requestPath, rawBody, primaryUpstream.assertNotStartedWithin)
+		if result.Err != nil {
+			t.Fatalf("expected replayable gemini buffered request to succeed, got error: %v", result.Err)
+		}
+		if result.StatusCode != http.StatusOK {
+			t.Fatalf("expected replayable gemini buffered request status 200, got %d with body %s", result.StatusCode, result.Body)
+		}
+		if got := len(secondaryUpstream.requestsSnapshot()); got != 0 {
+			t.Fatalf("expected replayable gemini request to complete on the primary connection without failover, got %d secondary requests", got)
+		}
+		if got := string(primaryUpstream.waitForRequestBody(t, 5*time.Second)); !strings.Contains(got, "buffered-gemini-") {
+			t.Fatalf("expected buffered gemini request body to reach the primary upstream intact, got %q", got)
+		}
 	})
-	splitAt := len(rawBody) / 2
-	pipeReader, pipeWriter := io.Pipe()
-	request, err := http.NewRequest(http.MethodPost, harness.url+"/v1/chat/completions", pipeReader)
-	if err != nil {
-		t.Fatalf("build buffered-fallback runtime request: %v", err)
-	}
-	request.Header.Set("Content-Type", "application/json")
-
-	resultCh := make(chan concurrentRuntimeRequestResult, 1)
-	go func() {
-		response, requestErr := harness.client.Do(request)
-		if requestErr != nil {
-			resultCh <- concurrentRuntimeRequestResult{Err: requestErr}
-			return
-		}
-		defer func() { _ = response.Body.Close() }()
-		body, readErr := io.ReadAll(response.Body)
-		if readErr != nil {
-			resultCh <- concurrentRuntimeRequestResult{Err: readErr}
-			return
-		}
-		resultCh <- concurrentRuntimeRequestResult{StatusCode: response.StatusCode, Body: strings.TrimSpace(string(body))}
-	}()
-
-	if _, err := pipeWriter.Write(rawBody[:splitAt]); err != nil {
-		t.Fatalf("write first buffered-fallback body chunk: %v", err)
-	}
-	upstream.assertNotStartedWithin(t, runtimeStreamingAssertionDeadline)
-	if _, err := pipeWriter.Write(rawBody[splitAt:]); err != nil {
-		t.Fatalf("write second buffered-fallback body chunk: %v", err)
-	}
-	if err := pipeWriter.Close(); err != nil {
-		t.Fatalf("close buffered-fallback body writer: %v", err)
-	}
-
-	body := upstream.waitForRequestBody(t, 5*time.Second)
-	result := awaitAsyncRequest(t, resultCh, 5*time.Second)
-	if result.Err != nil {
-		t.Fatalf("expected buffered-fallback request to succeed, got error: %v", result.Err)
-	}
-	if result.StatusCode != http.StatusOK {
-		t.Fatalf("expected buffered-fallback request status 200, got %d with body %s", result.StatusCode, result.Body)
-	}
-	if got := requestModelID(t, body); got != route.TargetModelID {
-		t.Fatalf("expected buffered fallback to preserve model rewrite to %q, got %q", route.TargetModelID, got)
-	}
 }
 
 func assertLatestUsageEventUsage(t *testing.T, conn *pgx.Conn, profileID int, wantInput int64, wantOutput int64, wantTotal int64) {
@@ -269,6 +396,45 @@ func assertLatestUsageEventUsage(t *testing.T, conn *pgx.Conn, profileID int, wa
 	if !inputTokens.Valid || inputTokens.Int64 != wantInput || !outputTokens.Valid || outputTokens.Int64 != wantOutput || !totalTokens.Valid || totalTokens.Int64 != wantTotal {
 		t.Fatalf("expected usage_request_events usage %d/%d/%d, got input=%+v output=%+v total=%+v", wantInput, wantOutput, wantTotal, inputTokens, outputTokens, totalTokens)
 	}
+}
+
+func performSplitRuntimeRequest(t *testing.T, client *http.Client, url string, rawBody []byte, assertNotStarted func(t *testing.T, timeout time.Duration)) concurrentRuntimeRequestResult {
+	t.Helper()
+	splitAt := len(rawBody) / 2
+	pipeReader, pipeWriter := io.Pipe()
+	request, err := http.NewRequest(http.MethodPost, url, pipeReader)
+	if err != nil {
+		t.Fatalf("build split runtime request %s: %v", url, err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+
+	resultCh := make(chan concurrentRuntimeRequestResult, 1)
+	go func() {
+		response, requestErr := client.Do(request)
+		if requestErr != nil {
+			resultCh <- concurrentRuntimeRequestResult{Err: requestErr}
+			return
+		}
+		defer func() { _ = response.Body.Close() }()
+		body, readErr := io.ReadAll(response.Body)
+		if readErr != nil {
+			resultCh <- concurrentRuntimeRequestResult{Err: readErr}
+			return
+		}
+		resultCh <- concurrentRuntimeRequestResult{StatusCode: response.StatusCode, Body: strings.TrimSpace(string(body))}
+	}()
+
+	if _, err := pipeWriter.Write(rawBody[:splitAt]); err != nil {
+		t.Fatalf("write first split runtime request body chunk: %v", err)
+	}
+	assertNotStarted(t, runtimeStreamingAssertionDeadline)
+	if _, err := pipeWriter.Write(rawBody[splitAt:]); err != nil {
+		t.Fatalf("write second split runtime request body chunk: %v", err)
+	}
+	if err := pipeWriter.Close(); err != nil {
+		t.Fatalf("close split runtime request body writer: %v", err)
+	}
+	return awaitAsyncRequest(t, resultCh, 5*time.Second)
 }
 
 type readChunkResult struct {
@@ -462,161 +628,131 @@ func (u *arrivalRecordingUpstream) close() {
 }
 
 func TestRuntimeStreamingDoesNotRetryAfterFirstEvent(t *testing.T) {
-	harness := newRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	suffix := randomSuffix()
-	modelID := "no-retry-stream-public-" + suffix
-	var primaryMu sync.Mutex
-	primaryRequests := 0
-	primaryUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.Copy(io.Discard, r.Body)
-		_ = r.Body.Close()
-		primaryMu.Lock()
-		primaryRequests++
-		primaryMu.Unlock()
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			t.Fatal("streaming upstream writer does not support flushing")
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl-no-retry-stream\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"}}]}\n\n")
-		flusher.Flush()
-	}))
-	defer primaryUpstream.Close()
-	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-stream-secondary"})
+	tests := []struct {
+		name              string
+		modelIDPrefix     string
+		apiFamily         string
+		operation         string
+		prompt            string
+		primaryStreamBody string
+		primaryContains   string
+		secondaryResponse map[string]any
+	}{
+		{
+			name:              "OpenAIChat",
+			modelIDPrefix:     "no-retry-stream-public-",
+			apiFamily:         "openai",
+			operation:         "chat",
+			prompt:            "stream must not retry after first event",
+			primaryStreamBody: "data: {\"id\":\"chatcmpl-no-retry-stream\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"}}]}\n\n",
+			primaryContains:   "partial",
+			secondaryResponse: map[string]any{"id": "chatcmpl-stream-secondary"},
+		},
+		{
+			name:              "Anthropic",
+			modelIDPrefix:     "no-retry-anthropic-stream-public-",
+			apiFamily:         "anthropic",
+			operation:         "messages",
+			prompt:            "stream must not retry after Anthropic first event",
+			primaryStreamBody: "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3}}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"partial anthropic\"}}\n\n",
+			primaryContains:   "partial anthropic",
+			secondaryResponse: map[string]any{"id": "msg-stream-secondary", "type": "message"},
+		},
+		{
+			name:              "GeminiPartialReadFailure",
+			modelIDPrefix:     "no-retry-gemini-stream-public-",
+			apiFamily:         "gemini",
+			operation:         "streamGenerate",
+			prompt:            "stream must not retry after Gemini partial event",
+			primaryStreamBody: "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"partial gemini\"}]}}]}\n\n",
+			primaryContains:   "partial gemini",
+			secondaryResponse: map[string]any{"responseId": "gemini-stream-secondary"},
+		},
+	}
 
-	seedRetryPolicyNativeRoute(t, harness, profileID, modelID, primaryUpstream.URL+"/retry/stream/primary", secondaryUpstream.baseURL("/retry/stream/secondary"))
-	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
-		"messages": []map[string]any{{"role": "user", "content": "stream must not retry after first event"}},
-		"model":    modelID,
-		"stream":   true,
-	}, nil)
-	assertStatus(t, response, http.StatusOK)
-	body := readResponseBody(t, response)
-	if !strings.Contains(body, "partial") {
-		t.Fatalf("expected partial streaming payload, got %q", body)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			harness := newRuntimeHarness(t)
+			profileID := harness.activeProfileID(t)
+			modelID := test.modelIDPrefix + randomSuffix()
+			var primaryMu sync.Mutex
+			primaryRequests := 0
+			primaryUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body)
+				_ = r.Body.Close()
+				primaryMu.Lock()
+				primaryRequests++
+				primaryMu.Unlock()
+				flusher, ok := w.(http.Flusher)
+				if !ok {
+					t.Fatal("streaming upstream writer does not support flushing")
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, test.primaryStreamBody)
+				flusher.Flush()
+			}))
+			defer primaryUpstream.Close()
+			secondaryUpstream := newScriptedUpstream(t, http.StatusOK, test.secondaryResponse)
+
+			switch test.apiFamily {
+			case "openai":
+				seedRetryPolicyNativeRoute(t, harness, profileID, modelID, primaryUpstream.URL+"/retry/stream/primary", secondaryUpstream.baseURL("/retry/stream/secondary"))
+			default:
+				seedRetryPolicyRoute(t, harness, profileID, test.apiFamily, modelID, primaryUpstream.URL+"/retry/"+strings.ToLower(test.name)+"/primary", secondaryUpstream.baseURL("/retry/"+strings.ToLower(test.name)+"/secondary"))
+			}
+
+			requestPath, requestBody := runtimeStreamingRetryRequest(t, test.operation, modelID, test.prompt)
+			response := harness.requestJSON(t, http.MethodPost, requestPath, requestBody, nil)
+			assertStatus(t, response, http.StatusOK)
+			if body := readResponseBody(t, response); !strings.Contains(body, test.primaryContains) {
+				t.Fatalf("expected streaming payload containing %q, got %q", test.primaryContains, body)
+			}
+			primaryMu.Lock()
+			gotPrimary := primaryRequests
+			primaryMu.Unlock()
+			if gotPrimary != 1 {
+				t.Fatalf("expected primary stream to receive one request, got %d", gotPrimary)
+			}
+			assertNoScriptedUpstreamRequests(t, secondaryUpstream, "post-commit stream retry candidate")
+		})
 	}
-	primaryMu.Lock()
-	gotPrimary := primaryRequests
-	primaryMu.Unlock()
-	if gotPrimary != 1 {
-		t.Fatalf("expected primary stream to receive one request, got %d", gotPrimary)
-	}
-	assertNoScriptedUpstreamRequests(t, secondaryUpstream, "post-commit stream retry candidate")
 }
 
-func TestRuntimeAnthropicStreamingDoesNotRetryAfterFirstEvent(t *testing.T) {
-	harness := newRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	suffix := randomSuffix()
-	modelID := "no-retry-anthropic-stream-public-" + suffix
-	var primaryMu sync.Mutex
-	primaryRequests := 0
-	primaryUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.Copy(io.Discard, r.Body)
-		_ = r.Body.Close()
-		primaryMu.Lock()
-		primaryRequests++
-		primaryMu.Unlock()
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			t.Fatal("streaming upstream writer does not support flushing")
+func runtimeStreamingRetryRequest(t *testing.T, operation string, modelID string, prompt string) (string, any) {
+	t.Helper()
+	switch operation {
+	case "chat":
+		return "/v1/chat/completions", map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": prompt}},
+			"model":    modelID,
+			"stream":   true,
 		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3}}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"partial anthropic\"}}\n\n")
-		flusher.Flush()
-	}))
-	defer primaryUpstream.Close()
-	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "msg-stream-secondary", "type": "message"})
-
-	seedRetryPolicyAnthropicRoute(t, harness, profileID, modelID, primaryUpstream.URL+"/retry/anthropic-stream/primary", secondaryUpstream.baseURL("/retry/anthropic-stream/secondary"))
-	response := harness.requestJSON(t, http.MethodPost, "/v1/messages", map[string]any{
-		"messages": []map[string]any{{"role": "user", "content": "stream must not retry after Anthropic first event"}},
-		"model":    modelID,
-		"stream":   true,
-	}, nil)
-	assertStatus(t, response, http.StatusOK)
-	body := readResponseBody(t, response)
-	if !strings.Contains(body, "partial anthropic") {
-		t.Fatalf("expected partial Anthropic streaming payload, got %q", body)
+	case "messages":
+		return "/v1/messages", map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": prompt}},
+			"model":    modelID,
+			"stream":   true,
+		}
+	case "streamGenerate":
+		return "/v1beta/models/" + modelID + ":streamGenerateContent", map[string]any{
+			"contents": []map[string]any{{"role": "user", "parts": []map[string]any{{"text": prompt}}}},
+		}
+	default:
+		t.Fatalf("unsupported streaming retry operation %q", operation)
+		return "", nil
 	}
-	primaryMu.Lock()
-	gotPrimary := primaryRequests
-	primaryMu.Unlock()
-	if gotPrimary != 1 {
-		t.Fatalf("expected primary Anthropic stream to receive one request, got %d", gotPrimary)
-	}
-	assertNoScriptedUpstreamRequests(t, secondaryUpstream, "post-commit Anthropic stream retry candidate")
 }
 
-func TestRuntimeGeminiStreamingDoesNotRetryAfterPartialReadFailure(t *testing.T) {
-	harness := newRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	suffix := randomSuffix()
-	modelID := "no-retry-gemini-stream-public-" + suffix
-	var primaryMu sync.Mutex
-	primaryRequests := 0
-	primaryUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.Copy(io.Discard, r.Body)
-		_ = r.Body.Close()
-		primaryMu.Lock()
-		primaryRequests++
-		primaryMu.Unlock()
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			t.Fatal("streaming upstream writer does not support flushing")
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"partial gemini\"}]}}]}\n\n")
-		flusher.Flush()
-	}))
-	defer primaryUpstream.Close()
-	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"responseId": "gemini-stream-secondary"})
-
-	seedRetryPolicyGeminiRoute(t, harness, profileID, modelID, primaryUpstream.URL+"/retry/gemini-stream/primary", secondaryUpstream.baseURL("/retry/gemini-stream/secondary"))
-	response := harness.requestJSON(t, http.MethodPost, "/v1beta/models/"+modelID+":streamGenerateContent", map[string]any{
-		"contents": []map[string]any{{"role": "user", "parts": []map[string]any{{"text": "stream must not retry after Gemini partial event"}}}},
-	}, nil)
-	assertStatus(t, response, http.StatusOK)
-	body := readResponseBody(t, response)
-	if !strings.Contains(body, "partial gemini") {
-		t.Fatalf("expected partial Gemini streaming payload, got %q", body)
-	}
-	primaryMu.Lock()
-	gotPrimary := primaryRequests
-	primaryMu.Unlock()
-	if gotPrimary != 1 {
-		t.Fatalf("expected primary Gemini stream to receive one request, got %d", gotPrimary)
-	}
-	assertNoScriptedUpstreamRequests(t, secondaryUpstream, "post-commit Gemini stream retry candidate")
-}
-
-func seedRetryPolicyAnthropicRoute(t *testing.T, harness *runtimeHarness, profileID int, modelID string, primaryBaseURL string, secondaryBaseURL string) {
+func seedRetryPolicyRoute(t *testing.T, harness *runtimeHarness, profileID int, apiFamily string, modelID string, primaryBaseURL string, secondaryBaseURL string) {
 	t.Helper()
 	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
-	strategyID := harness.seedLegacyStrategy(t, profileID, "retry-policy-anthropic-"+randomSuffix(), "fill-first")
-	modelConfigID := harness.seedModel(t, profileID, "anthropic", modelID, "native", &strategyID)
-	primaryEndpointID := harness.seedEndpoint(t, profileID, "retry-policy-anthropic-primary-"+randomSuffix(), primaryBaseURL, "retry-policy-anthropic-primary-key", 0)
-	secondaryEndpointID := harness.seedEndpoint(t, profileID, "retry-policy-anthropic-secondary-"+randomSuffix(), secondaryBaseURL, "retry-policy-anthropic-secondary-key", 1)
-	harness.seedConnection(t, profileID, modelConfigID, primaryEndpointID, "retry-policy-anthropic-primary-connection-"+randomSuffix(), nil, nil, 0)
-	harness.seedConnection(t, profileID, modelConfigID, secondaryEndpointID, "retry-policy-anthropic-secondary-connection-"+randomSuffix(), nil, nil, 1)
-	releaseRefresh()
-	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
-	harness.runtimeService.RuntimeState().ResetProfile(profileID)
-}
-
-func seedRetryPolicyGeminiRoute(t *testing.T, harness *runtimeHarness, profileID int, modelID string, primaryBaseURL string, secondaryBaseURL string) {
-	t.Helper()
-	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
-	strategyID := harness.seedLegacyStrategy(t, profileID, "retry-policy-gemini-"+randomSuffix(), "fill-first")
-	modelConfigID := harness.seedModel(t, profileID, "gemini", modelID, "native", &strategyID)
-	primaryEndpointID := harness.seedEndpoint(t, profileID, "retry-policy-gemini-primary-"+randomSuffix(), primaryBaseURL, "retry-policy-gemini-primary-key", 0)
-	secondaryEndpointID := harness.seedEndpoint(t, profileID, "retry-policy-gemini-secondary-"+randomSuffix(), secondaryBaseURL, "retry-policy-gemini-secondary-key", 1)
-	harness.seedConnection(t, profileID, modelConfigID, primaryEndpointID, "retry-policy-gemini-primary-connection-"+randomSuffix(), nil, nil, 0)
-	harness.seedConnection(t, profileID, modelConfigID, secondaryEndpointID, "retry-policy-gemini-secondary-connection-"+randomSuffix(), nil, nil, 1)
+	strategyID := harness.seedLegacyStrategy(t, profileID, "retry-policy-"+apiFamily+"-"+randomSuffix(), "fill-first")
+	modelConfigID := harness.seedModel(t, profileID, apiFamily, modelID, "native", &strategyID)
+	primaryEndpointID := harness.seedEndpoint(t, profileID, "retry-policy-"+apiFamily+"-primary-"+randomSuffix(), primaryBaseURL, "retry-policy-"+apiFamily+"-primary-key", 0)
+	secondaryEndpointID := harness.seedEndpoint(t, profileID, "retry-policy-"+apiFamily+"-secondary-"+randomSuffix(), secondaryBaseURL, "retry-policy-"+apiFamily+"-secondary-key", 1)
+	harness.seedConnection(t, profileID, modelConfigID, primaryEndpointID, "retry-policy-"+apiFamily+"-primary-connection-"+randomSuffix(), nil, nil, 0)
+	harness.seedConnection(t, profileID, modelConfigID, secondaryEndpointID, "retry-policy-"+apiFamily+"-secondary-connection-"+randomSuffix(), nil, nil, 1)
 	releaseRefresh()
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	harness.runtimeService.RuntimeState().ResetProfile(profileID)
