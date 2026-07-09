@@ -20,16 +20,6 @@ const updateMigrationSchemaGoldenEnv = "PRISM_UPDATE_MIGRATION_SCHEMA_GOLDEN"
 
 var expectedPrismMigrationVersions = []string{
 	migrate.DefaultBaselineVersion,
-	"000002_context_overflow_promotion_target",
-	"000003_openai_text_capability",
-	"000004_endpoint_label_snapshot",
-	"000005_remove_access_target_weight_priority_add_audit_family_settings",
-	"000006_openai_accepted_format",
-	"000007_remove_context_capabilities_and_facades",
-	"000008_drop_dead_auth_tables",
-	"000009_stats_write_coherence",
-	"000010_drop_management_stat_rollups",
-	"000011_alert_webhook_outbox",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
@@ -55,32 +45,6 @@ func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
 	assertHistoryVersions(t, testContext, conn, expectedVersions)
 	assertMigratedSchemaGolden(t, testContext, harness, databaseName)
 	assertFreshBaselineSeedRows(t, testContext, conn)
-}
-
-func TestAccessTargetRankingRemovalAndAuditFamilySettingsMigration(t *testing.T) {
-	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	harness := newPostgresHarness(t)
-	runner := newRunner(t)
-	conn := harness.openEmptyDatabase(t, testContext, "access_target_ranking_drop_audit_family")
-	defer func() { _ = conn.Close(testContext) }()
-
-	seedPreAuditFamilyMigrationSchema(t, testContext, conn)
-
-	result, err := runner.Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("apply access-target ranking removal migration: %v", err)
-	}
-	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected access-target ranking removal migration to apply, got %q", result.Outcome)
-	}
-	assertMigrationVersions(t, "access-target ranking removal migration versions", result.Versions, []string{"000005_remove_access_target_weight_priority_add_audit_family_settings", "000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades", "000008_drop_dead_auth_tables", "000009_stats_write_coherence", "000010_drop_management_stat_rollups", "000011_alert_webhook_outbox"})
-	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
-	assertColumnsAbsent(t, testContext, conn, "model_access_targets", "weight", "target_priority")
-	assertColumnsAbsent(t, testContext, conn, "model_configs", "facade_enabled", "facade_selection_policy", "facade_fallback_policy")
-	assertColumnsAbsent(t, testContext, conn, "connections", "context_window_tokens", "context_window_tokens_overridden", "default_output_token_reserve", "default_output_token_reserve_overridden", "max_context_utilization", "max_context_utilization_overridden", "preferred_context_utilization_threshold", "preferred_context_utilization_threshold_overridden")
-	assertTablePresence(t, testContext, conn, "profile_api_family_audit_settings", true)
 }
 
 func TestProfileAPIFamilyAuditSettingsFreshConstraints(t *testing.T) {
@@ -123,127 +87,6 @@ func TestEndpointLabelSnapshotFreshSchemaContract(t *testing.T) {
 	assertColumnNotNull(t, testContext, conn, "usage_request_events", "endpoint_label_snapshot")
 	partitionName := ensureDailyLogPartition(t, testContext, conn, "usage_request_events", time.Date(2026, 1, 2, 12, 0, 0, 0, time.UTC), "fresh")
 	assertColumnNotNull(t, testContext, conn, partitionName, "endpoint_label_snapshot")
-}
-
-func TestEndpointLabelSnapshotMigrationBackfillsExistingRows(t *testing.T) {
-	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-
-	harness := newPostgresHarness(t)
-	oldRunner := newRunnerThroughMigration(t, "000003_openai_text_capability", func(version string, sql string) string {
-		if version != migrate.DefaultBaselineVersion {
-			return sql
-		}
-		return strings.Replace(sql, "    endpoint_label_snapshot text NOT NULL,\n", "", 1)
-	})
-	conn := harness.openEmptyDatabase(t, testContext, "endpoint_label_snapshot_backfill")
-	defer func() { _ = conn.Close(testContext) }()
-
-	oldResult, err := oldRunner.Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("run pre-endpoint-label-snapshot migrations: %v", err)
-	}
-	if oldResult.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected pre-endpoint-label-snapshot migrations to apply, got %q", oldResult.Outcome)
-	}
-	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsThrough(t, "000003_openai_text_capability"))
-
-	fixture := seedEndpointLabelSnapshotBackfillRows(t, testContext, conn, "migration", false)
-
-	newResult, err := newRunner(t).Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("apply endpoint label snapshot migration: %v", err)
-	}
-	if newResult.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected endpoint label snapshot migration to apply, got %q", newResult.Outcome)
-	}
-	assertMigrationVersions(t, "endpoint label snapshot migration versions", newResult.Versions, []string{"000004_endpoint_label_snapshot", "000005_remove_access_target_weight_priority_add_audit_family_settings", "000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades", "000008_drop_dead_auth_tables", "000009_stats_write_coherence", "000010_drop_management_stat_rollups", "000011_alert_webhook_outbox"})
-	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
-	assertColumnNotNull(t, testContext, conn, "usage_request_events", "endpoint_label_snapshot")
-	assertColumnNotNull(t, testContext, conn, fixture.usagePartition, "endpoint_label_snapshot")
-	assertEndpointLabelSnapshotBackfillRows(t, testContext, conn, fixture.expectedLabels)
-}
-
-func TestMigrationBackfillsOpenAIAcceptedFormatToDualNative(t *testing.T) {
-	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	harness := newPostgresHarness(t)
-	oldRunner := newRunnerThroughMigration(t, "000005_remove_access_target_weight_priority_add_audit_family_settings", nil)
-	conn := harness.openEmptyDatabase(t, testContext, "openai_accepted_format_backfill")
-	defer func() { _ = conn.Close(testContext) }()
-
-	oldResult, err := oldRunner.Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("run pre-openai-accepted-format migrations: %v", err)
-	}
-	if oldResult.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected pre-openai-accepted-format migrations to apply, got %q", oldResult.Outcome)
-	}
-	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsThrough(t, "000005_remove_access_target_weight_priority_add_audit_family_settings"))
-
-	profileID := seedOpenAIAcceptedFormatProfile(t, testContext, conn)
-	seedOpenAIAcceptedFormatModel(t, testContext, conn, profileID, "gpt-existing", "openai")
-	seedOpenAIAcceptedFormatModel(t, testContext, conn, profileID, "claude-existing", "anthropic")
-
-	newResult, err := newRunner(t).Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("apply openai accepted format migration: %v", err)
-	}
-	if newResult.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected openai accepted format migration to apply, got %q", newResult.Outcome)
-	}
-	assertMigrationVersions(t, "openai accepted format migration versions", newResult.Versions, []string{"000006_openai_accepted_format", "000007_remove_context_capabilities_and_facades", "000008_drop_dead_auth_tables", "000009_stats_write_coherence", "000010_drop_management_stat_rollups", "000011_alert_webhook_outbox"})
-	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
-	assertColumnsExist(t, testContext, conn, "model_configs", "openai_accepted_format")
-	assertOpenAIAcceptedFormatBackfillRows(t, testContext, conn)
-}
-
-func TestStatsWriteCoherenceMigrationBackfillsHistoricalRows(t *testing.T) {
-	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-
-	harness := newPostgresHarness(t)
-	oldRunner := newRunnerThroughMigration(t, "000008_drop_dead_auth_tables", nil)
-	conn := harness.openEmptyDatabase(t, testContext, "stats_write_coherence_backfill")
-	defer func() { _ = conn.Close(testContext) }()
-
-	oldResult, err := oldRunner.Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("run pre-stats-coherence migrations: %v", err)
-	}
-	if oldResult.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected pre-stats-coherence migrations to apply, got %q", oldResult.Outcome)
-	}
-	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsThrough(t, "000008_drop_dead_auth_tables"))
-
-	createdAt := time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)
-	ensureDailyLogPartition(t, testContext, conn, "request_logs", createdAt, "stats-coherence")
-	ensureDailyLogPartition(t, testContext, conn, "usage_request_events", createdAt, "stats-coherence")
-	profileID := seedEndpointLabelSnapshotProfile(t, testContext, conn, "stats-coherence")
-
-	insertStatsCoherenceRequestLog(t, testContext, conn, profileID, "request-missing-cost", true, nil, nil, nil, nil, nil, nil, createdAt)
-	insertStatsCoherenceRequestLog(t, testContext, conn, profileID, "request-has-cost", false, nil, int64Ptr(1250), stringPtr("USD"), stringPtr("USD"), nil, nil, createdAt.Add(time.Minute))
-	insertStatsCoherenceRequestLog(t, testContext, conn, profileID, "request-explicit-reason", true, stringPtr("  MISSING_TOKEN_USAGE  "), nil, nil, nil, nil, nil, createdAt.Add(2*time.Minute))
-	insertStatsCoherenceUsageEvent(t, testContext, conn, profileID, "usage-missing-cost", true, nil, nil, nil, nil, nil, nil, createdAt)
-	insertStatsCoherenceUsageEvent(t, testContext, conn, profileID, "usage-has-cost", false, nil, int64Ptr(1250), stringPtr("USD"), stringPtr("USD"), nil, nil, createdAt.Add(time.Minute))
-
-	newResult, err := newRunner(t).Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("apply stats write coherence migrations: %v", err)
-	}
-	if newResult.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected stats write coherence migrations to apply, got %q", newResult.Outcome)
-	}
-	assertMigrationVersions(t, "stats write coherence migration versions", newResult.Versions, []string{"000009_stats_write_coherence", "000010_drop_management_stat_rollups", "000011_alert_webhook_outbox"})
-	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
-
-	assertStatsCoherenceRow(t, testContext, conn, "request_logs", "request-missing-cost", false, "MISSING_PRICE_DATA", nil, nil)
-	assertStatsCoherenceRow(t, testContext, conn, "request_logs", "request-has-cost", true, "", stringPtr("1"), stringPtr("DEFAULT_1_TO_1"))
-	assertStatsCoherenceRow(t, testContext, conn, "request_logs", "request-explicit-reason", false, "MISSING_TOKEN_USAGE", nil, nil)
-	assertStatsCoherenceRow(t, testContext, conn, "usage_request_events", "usage-missing-cost", false, "MISSING_PRICE_DATA", nil, nil)
-	assertStatsCoherenceRow(t, testContext, conn, "usage_request_events", "usage-has-cost", true, "", stringPtr("1"), stringPtr("DEFAULT_1_TO_1"))
-	assertManagementStatRollupTablesAbsent(t, testContext, conn)
 }
 
 func TestDirtyDatabaseWithoutMigrationHistoryFails(t *testing.T) {
@@ -469,44 +312,6 @@ func expectedMigrationVersionsFrom(t *testing.T, start string) []string {
 	return nil
 }
 
-func expectedMigrationVersionsThrough(t *testing.T, end string) []string {
-	t.Helper()
-	for index, version := range expectedPrismMigrationVersions {
-		if version == end {
-			return append([]string(nil), expectedPrismMigrationVersions[:index+1]...)
-		}
-	}
-	t.Fatalf("unknown migration version %q", end)
-	return nil
-}
-
-func newRunnerThroughMigration(t *testing.T, latestVersion string, mutateSQL func(version string, sql string) string) migrate.Runner {
-	t.Helper()
-
-	migrationsDir := t.TempDir()
-	sourceDir := migrate.DefaultMigrationsDir()
-	for _, version := range expectedMigrationVersionsThrough(t, latestVersion) {
-		filename := version + ".sql"
-		raw, err := os.ReadFile(filepath.Join(sourceDir, filename))
-		if err != nil {
-			t.Fatalf("read source migration %s: %v", filename, err)
-		}
-		sql := string(raw)
-		if mutateSQL != nil {
-			sql = mutateSQL(version, sql)
-		}
-		if err := os.WriteFile(filepath.Join(migrationsDir, filename), []byte(sql), 0o600); err != nil {
-			t.Fatalf("write temporary migration %s: %v", filename, err)
-		}
-	}
-
-	runner, err := migrate.New(migrate.Options{MigrationsDir: migrationsDir})
-	if err != nil {
-		t.Fatalf("build temporary migration runner: %v", err)
-	}
-	return runner
-}
-
 func assertMigrationVersions(t *testing.T, label string, got []string, expected []string) {
 	t.Helper()
 	if len(got) != len(expected) {
@@ -578,31 +383,6 @@ func assertHistoryVersionMissing(t *testing.T, ctx context.Context, conn *pgx.Co
 	}
 	if exists {
 		t.Fatalf("expected prism migration history version %s to remain absent", version)
-	}
-}
-
-func seedPreAuditFamilyMigrationSchema(t *testing.T, ctx context.Context, conn *pgx.Conn) {
-	t.Helper()
-	statements := []string{
-		`CREATE TABLE prism_schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-		`CREATE TABLE profiles (id integer PRIMARY KEY, name character varying(200) NOT NULL, description text, is_active boolean NOT NULL, is_default boolean NOT NULL, is_editable boolean NOT NULL, version integer NOT NULL, deleted_at timestamp with time zone, created_at timestamp with time zone NOT NULL, updated_at timestamp with time zone NOT NULL)`,
-		`CREATE TABLE model_configs (id integer PRIMARY KEY, profile_id integer NOT NULL, api_family character varying(50) NOT NULL, model_id character varying(200) NOT NULL, facade_enabled boolean DEFAULT false NOT NULL, facade_selection_policy character varying(100), facade_fallback_policy character varying(100), is_enabled boolean NOT NULL, created_at timestamp with time zone NOT NULL, updated_at timestamp with time zone NOT NULL, CONSTRAINT ck_model_configs_facade_policy_contract CHECK (((NOT facade_enabled) AND ((facade_selection_policy IS NULL) OR ((facade_selection_policy)::text = 'weighted_eligible_context'::text)) AND ((facade_fallback_policy IS NULL) OR ((facade_fallback_policy)::text = 'redistribute_ineligible_weight'::text))) OR (facade_enabled AND ((facade_selection_policy)::text = 'weighted_eligible_context'::text) AND ((facade_fallback_policy)::text = 'redistribute_ineligible_weight'::text))))`,
-		`CREATE TABLE model_access_targets (id integer PRIMARY KEY, profile_id integer NOT NULL, source_model_config_id integer NOT NULL, target_type character varying(20) NOT NULL, target_model_config_id integer, target_connection_id integer, position integer NOT NULL, weight integer, target_priority integer, is_enabled boolean NOT NULL, created_at timestamp with time zone NOT NULL, updated_at timestamp with time zone NOT NULL, CONSTRAINT chk_model_access_targets_target_metadata CHECK (((((target_type)::text = 'model'::text) AND (weight IS NOT NULL) AND (weight >= 1) AND (target_priority IS NOT NULL) AND (target_priority >= 0)) OR (((target_type)::text = 'connection'::text) AND (weight IS NULL) AND (target_priority IS NULL)))), CONSTRAINT chk_model_access_targets_one_target CHECK (((((target_type)::text = 'model'::text) AND (target_model_config_id IS NOT NULL) AND (target_connection_id IS NULL)) OR (((target_type)::text = 'connection'::text) AND (target_model_config_id IS NULL) AND (target_connection_id IS NOT NULL)))))`,
-		`CREATE TABLE request_logs (id integer PRIMARY KEY, profile_id integer NOT NULL, status_code integer, success_flag boolean, priced_flag boolean, unpriced_reason text, total_cost_user_currency_micros bigint, currency_code_original character varying(10), report_currency_code character varying(10), fx_rate_used character varying(20), fx_rate_source character varying(30))`,
-		`CREATE TABLE usage_request_events (id integer PRIMARY KEY, profile_id integer NOT NULL, status_code integer, success_flag boolean, billable_flag boolean, priced_flag boolean, unpriced_reason text, total_cost_user_currency_micros bigint, currency_code_original character varying(10), report_currency_code character varying(10), fx_rate_used character varying(20), fx_rate_source character varying(30), endpoint_label_snapshot text NOT NULL DEFAULT '')`,
-		`INSERT INTO profiles (id, name, is_active, is_default, is_editable, version, created_at, updated_at) VALUES (1, 'pre-audit-family', FALSE, FALSE, TRUE, 1, NOW(), NOW())`,
-		`INSERT INTO model_configs (id, profile_id, api_family, model_id, facade_enabled, facade_selection_policy, facade_fallback_policy, is_enabled, created_at, updated_at) VALUES (1, 1, 'openai', 'pre-router', FALSE, NULL, NULL, TRUE, NOW(), NOW()), (2, 1, 'openai', 'pre-target', FALSE, NULL, NULL, TRUE, NOW(), NOW())`,
-		`INSERT INTO model_access_targets (id, profile_id, source_model_config_id, target_type, target_model_config_id, position, weight, target_priority, is_enabled, created_at, updated_at) VALUES (1, 1, 1, 'model', 2, 0, 7, 3, TRUE, NOW(), NOW())`,
-	}
-	for _, statement := range statements {
-		if _, err := conn.Exec(ctx, statement); err != nil {
-			t.Fatalf("seed pre-audit-family migration schema with %q: %v", statement, err)
-		}
-	}
-	for _, version := range expectedMigrationVersionsThrough(t, "000004_endpoint_label_snapshot") {
-		if _, err := conn.Exec(ctx, `INSERT INTO prism_schema_migrations (version) VALUES ($1)`, version); err != nil {
-			t.Fatalf("seed migration history version %s: %v", version, err)
-		}
 	}
 }
 
@@ -810,56 +590,6 @@ func assertIndexPresence(t *testing.T, ctx context.Context, conn *pgx.Conn, tabl
 	}
 }
 
-func seedOpenAIAcceptedFormatProfile(t *testing.T, ctx context.Context, conn *pgx.Conn) int {
-	t.Helper()
-	now := time.Now().UTC()
-	var profileID int
-	if err := conn.QueryRow(ctx, `INSERT INTO profiles (name, description, is_active, is_default, is_editable, version, created_at, updated_at) VALUES ('accepted-format-profile', NULL, FALSE, FALSE, TRUE, 1, $1, $1) RETURNING id`, now).Scan(&profileID); err != nil {
-		t.Fatalf("seed accepted-format profile: %v", err)
-	}
-	return profileID
-}
-
-func seedOpenAIAcceptedFormatModel(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID int, modelID string, apiFamily string) {
-	t.Helper()
-	now := time.Now().UTC()
-	if _, err := conn.Exec(ctx, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $3, FALSE, $4, $4)`, profileID, apiFamily, modelID, now); err != nil {
-		t.Fatalf("seed accepted-format model %q: %v", modelID, err)
-	}
-}
-
-func assertOpenAIAcceptedFormatBackfillRows(t *testing.T, ctx context.Context, conn *pgx.Conn) {
-	t.Helper()
-	rows, err := conn.Query(ctx, `SELECT model_id, openai_accepted_format FROM model_configs ORDER BY model_id ASC`)
-	if err != nil {
-		t.Fatalf("query accepted-format backfill rows: %v", err)
-	}
-	defer rows.Close()
-	values := map[string]*string{}
-	for rows.Next() {
-		var modelID string
-		var format sql.NullString
-		if err := rows.Scan(&modelID, &format); err != nil {
-			t.Fatalf("scan accepted-format backfill row: %v", err)
-		}
-		if format.Valid {
-			value := format.String
-			values[modelID] = &value
-		} else {
-			values[modelID] = nil
-		}
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate accepted-format backfill rows: %v", err)
-	}
-	if values["gpt-existing"] == nil || *values["gpt-existing"] != "dual_native" {
-		t.Fatalf("expected OpenAI model to backfill dual_native, got %+v", values["gpt-existing"])
-	}
-	if values["claude-existing"] != nil {
-		t.Fatalf("expected non-OpenAI model to keep null accepted format, got %q", *values["claude-existing"])
-	}
-}
-
 func assertProfileAPIFamilyAuditSettingsDataConstraints(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
 	now := time.Now().UTC()
@@ -941,6 +671,33 @@ func seedModelAccessTargetConnectionOwner(t *testing.T, ctx context.Context, con
 	return sourceModelConfigID
 }
 
+func assertNullableStringValue(t *testing.T, label string, got sql.NullString, want *string) {
+	t.Helper()
+	if want == nil {
+		if got.Valid {
+			t.Fatalf("expected %s=NULL, got %q", label, got.String)
+		}
+		return
+	}
+	if !got.Valid || got.String != *want {
+		t.Fatalf("expected %s=%q, got %+v", label, *want, got)
+	}
+}
+
+func nullableStringValue(value *string) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func nullableInt64Value(value *int64) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
 func assertEndpointLabelSnapshotBackfillRows(t *testing.T, ctx context.Context, conn *pgx.Conn, expected map[string]string) {
 	t.Helper()
 	rows, err := conn.Query(ctx, `
@@ -979,97 +736,6 @@ func assertEndpointLabelSnapshotBackfillRows(t *testing.T, ctx context.Context, 
 		if strings.TrimSpace(label) == "" {
 			t.Fatalf("expected non-empty endpoint label snapshot for ingress %q", ingressRequestID)
 		}
-	}
-}
-
-func insertStatsCoherenceRequestLog(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID int, ingressRequestID string, priced bool, unpricedReason *string, cost *int64, currencyCodeOriginal *string, reportCurrencyCode *string, fxRateUsed *string, fxRateSource *string, createdAt time.Time) {
-	t.Helper()
-	_, err := conn.Exec(ctx, `
-		INSERT INTO request_logs (profile_id, ingress_request_id, model_id, api_family, status_code, success_flag, billable_flag, priced_flag, unpriced_reason, total_cost_user_currency_micros, currency_code_original, report_currency_code, fx_rate_used, fx_rate_source, response_time_ms, is_stream, request_path, created_at)
-		VALUES ($1, $2, 'stats-coherence-model', 'openai', 200, TRUE, TRUE, $3, $4, $5, $6, $7, $8, $9, 100, FALSE, '/v1/chat/completions', $10)`,
-		profileID, ingressRequestID, priced, nullableStringValue(unpricedReason), nullableInt64Value(cost), nullableStringValue(currencyCodeOriginal), nullableStringValue(reportCurrencyCode), nullableStringValue(fxRateUsed), nullableStringValue(fxRateSource), createdAt.UTC())
-	if err != nil {
-		t.Fatalf("insert stats coherence request log %q: %v", ingressRequestID, err)
-	}
-}
-
-func insertStatsCoherenceUsageEvent(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID int, ingressRequestID string, priced bool, unpricedReason *string, cost *int64, currencyCodeOriginal *string, reportCurrencyCode *string, fxRateUsed *string, fxRateSource *string, createdAt time.Time) {
-	t.Helper()
-	_, err := conn.Exec(ctx, `
-		INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, api_family, status_code, success_flag, billable_flag, priced_flag, unpriced_reason, total_cost_user_currency_micros, currency_code_original, report_currency_code, fx_rate_used, fx_rate_source, attempt_count, request_path, created_at, endpoint_label_snapshot)
-		VALUES ($1, $2, 'stats-coherence-model', 'openai', 200, TRUE, TRUE, $3, $4, $5, $6, $7, $8, $9, 1, '/v1/chat/completions', $10, 'Stats Coherence Endpoint')`,
-		profileID, ingressRequestID, priced, nullableStringValue(unpricedReason), nullableInt64Value(cost), nullableStringValue(currencyCodeOriginal), nullableStringValue(reportCurrencyCode), nullableStringValue(fxRateUsed), nullableStringValue(fxRateSource), createdAt.UTC())
-	if err != nil {
-		t.Fatalf("insert stats coherence usage event %q: %v", ingressRequestID, err)
-	}
-}
-
-func assertStatsCoherenceRow(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, ingressRequestID string, wantPriced bool, wantReason string, wantFXRate *string, wantFXSource *string) {
-	t.Helper()
-	if tableName != "request_logs" && tableName != "usage_request_events" {
-		t.Fatalf("unsupported stats coherence table %q", tableName)
-	}
-	var priced sql.NullBool
-	var reason sql.NullString
-	var fxRate sql.NullString
-	var fxSource sql.NullString
-	if err := conn.QueryRow(ctx, fmt.Sprintf(`SELECT priced_flag, unpriced_reason, fx_rate_used, fx_rate_source FROM public.%s WHERE ingress_request_id = $1`, tableName), ingressRequestID).Scan(&priced, &reason, &fxRate, &fxSource); err != nil {
-		t.Fatalf("load %s stats coherence row %q: %v", tableName, ingressRequestID, err)
-	}
-	if !priced.Valid || priced.Bool != wantPriced {
-		t.Fatalf("expected %s row %q priced=%t, got %+v", tableName, ingressRequestID, wantPriced, priced)
-	}
-	if wantReason == "" {
-		if reason.Valid {
-			t.Fatalf("expected %s row %q unpriced_reason=NULL, got %q", tableName, ingressRequestID, reason.String)
-		}
-	} else if !reason.Valid || reason.String != wantReason {
-		t.Fatalf("expected %s row %q unpriced_reason=%q, got %+v", tableName, ingressRequestID, wantReason, reason)
-	}
-	assertNullableStringValue(t, tableName+"."+ingressRequestID+".fx_rate_used", fxRate, wantFXRate)
-	assertNullableStringValue(t, tableName+"."+ingressRequestID+".fx_rate_source", fxSource, wantFXSource)
-}
-
-func assertNullableStringValue(t *testing.T, label string, got sql.NullString, want *string) {
-	t.Helper()
-	if want == nil {
-		if got.Valid {
-			t.Fatalf("expected %s=NULL, got %q", label, got.String)
-		}
-		return
-	}
-	if !got.Valid || got.String != *want {
-		t.Fatalf("expected %s=%q, got %+v", label, *want, got)
-	}
-}
-
-func nullableStringValue(value *string) any {
-	if value == nil {
-		return nil
-	}
-	return *value
-}
-
-func nullableInt64Value(value *int64) any {
-	if value == nil {
-		return nil
-	}
-	return *value
-}
-
-func assertManagementStatRollupTablesAbsent(t *testing.T, ctx context.Context, conn *pgx.Conn) {
-	t.Helper()
-	var count int
-	tableNames := []string{"management_stat_" + "buckets", "management_stat_" + "refresh_state"}
-	if err := conn.QueryRow(ctx, `
-		SELECT count(*)
-		FROM information_schema.tables
-		WHERE table_schema = 'public'
-		  AND table_name = ANY($1::text[])`, tableNames).Scan(&count); err != nil {
-		t.Fatalf("check management stat rollup tables: %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("expected management stat rollup tables to be absent, got %d", count)
 	}
 }
 

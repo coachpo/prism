@@ -1,23 +1,27 @@
--- Prism fresh-install baseline schema.
--- Historical upgrade migrations are intentionally squashed for the pre-user product.
+-- Prism initial schema baseline.
+-- Squashed from historical migrations 000001-000011 for the 1.0.0 breaking release.
+-- Single source of truth for a fresh database; no deltas applied on top.
 
-SET statement_timeout = 0;
-SET lock_timeout = 0;
-SET idle_in_transaction_session_timeout = 0;
-SET client_encoding = 'UTF8';
-SET standard_conforming_strings = on;
-SET check_function_bodies = false;
-SET xmloption = content;
-SET client_min_messages = warning;
-SET row_security = off;
 
-SET default_tablespace = '';
-
-SET default_table_access_method = heap;
-
---
--- Name: app_auth_settings; Type: TABLE; Schema: public; Owner: -
---
+CREATE TABLE public.alert_webhook_outbox (
+    id uuid NOT NULL,
+    event_type text NOT NULL,
+    payload_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    idempotency_key text NOT NULL,
+    status text DEFAULT 'queued'::text NOT NULL,
+    attempt_count integer DEFAULT 0 NOT NULL,
+    max_attempts integer DEFAULT 8 NOT NULL,
+    next_attempt_at timestamp with time zone DEFAULT now() NOT NULL,
+    locked_by text,
+    locked_until timestamp with time zone,
+    sent_at timestamp with time zone,
+    dead_lettered_at timestamp with time zone,
+    last_error text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT alert_webhook_outbox_attempts_check CHECK (((attempt_count >= 0) AND (max_attempts > 0) AND (attempt_count <= max_attempts))),
+    CONSTRAINT alert_webhook_outbox_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'sending'::text, 'sent'::text, 'dead'::text])))
+);
 
 CREATE TABLE public.app_auth_settings (
     id integer NOT NULL,
@@ -38,11 +42,6 @@ CREATE TABLE public.app_auth_settings (
     updated_at timestamp with time zone NOT NULL
 );
 
-
---
--- Name: app_auth_settings_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.app_auth_settings_id_seq
     AS integer
     START WITH 1
@@ -51,34 +50,7 @@ CREATE SEQUENCE public.app_auth_settings_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: app_auth_settings_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.app_auth_settings_id_seq OWNED BY public.app_auth_settings.id;
-
-
---
--- Name: login_throttle_ledger; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.login_throttle_ledger (
-    subject_key character varying(320) NOT NULL,
-    remote_address character varying(100) NOT NULL,
-    failure_count integer NOT NULL,
-    first_failed_at timestamp with time zone NOT NULL,
-    last_failed_at timestamp with time zone NOT NULL,
-    locked_until timestamp with time zone,
-    created_at timestamp with time zone NOT NULL,
-    updated_at timestamp with time zone NOT NULL,
-    CONSTRAINT ck_login_throttle_ledger_failure_count CHECK ((failure_count >= 0))
-);
-
-
---
--- Name: audit_logs; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.audit_logs (
     id bigint NOT NULL,
@@ -108,11 +80,6 @@ CREATE TABLE public.audit_logs (
 )
 PARTITION BY RANGE (created_at);
 
-
---
--- Name: audit_logs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.audit_logs_id_seq
     START WITH 1
     INCREMENT BY 1
@@ -120,17 +87,7 @@ CREATE SEQUENCE public.audit_logs_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: audit_logs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.audit_logs_id_seq OWNED BY public.audit_logs.id;
-
-
---
--- Name: connections; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.connections (
     id integer NOT NULL,
@@ -153,13 +110,10 @@ CREATE TABLE public.connections (
     updated_at timestamp with time zone NOT NULL,
     openai_probe_endpoint_variant character varying(40),
     monitoring_probe_interval_seconds integer DEFAULT 300 NOT NULL,
-    CONSTRAINT ck_connections_openai_probe_endpoint_variant CHECK (((openai_probe_endpoint_variant IS NULL) OR ((openai_probe_endpoint_variant)::text = ANY ((ARRAY['responses_minimal'::character varying, 'responses_reasoning_none'::character varying, 'chat_completions_minimal'::character varying, 'chat_completions_reasoning_none'::character varying])::text[]))))
+    openai_text_capability text,
+    CONSTRAINT ck_connections_openai_probe_endpoint_variant CHECK (((openai_probe_endpoint_variant IS NULL) OR ((openai_probe_endpoint_variant)::text = ANY (ARRAY[('responses_minimal'::character varying)::text, ('responses_reasoning_none'::character varying)::text, ('chat_completions_minimal'::character varying)::text, ('chat_completions_reasoning_none'::character varying)::text])))),
+    CONSTRAINT ck_connections_openai_text_capability CHECK (((((api_family)::text = 'openai'::text) AND (openai_text_capability IS NOT NULL) AND (openai_text_capability = ANY (ARRAY['responses_only'::text, 'chat_completions_only'::text, 'dual_native'::text]))) OR (((api_family)::text <> 'openai'::text) AND (openai_text_capability IS NULL))))
 );
-
-
---
--- Name: connections_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
 
 CREATE SEQUENCE public.connections_id_seq
     AS integer
@@ -169,45 +123,7 @@ CREATE SEQUENCE public.connections_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: connections_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.connections_id_seq OWNED BY public.connections.id;
-
-
---
--- Name: email_outbox; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.email_outbox (
-    id uuid NOT NULL,
-    kind text NOT NULL,
-    recipient_email text NOT NULL,
-    template text NOT NULL,
-    payload_json jsonb DEFAULT '{}'::jsonb NOT NULL,
-    email_secret_ciphertext text,
-    idempotency_key text NOT NULL,
-    status text DEFAULT 'queued'::text NOT NULL,
-    attempt_count integer DEFAULT 0 NOT NULL,
-    max_attempts integer DEFAULT 8 NOT NULL,
-    next_attempt_at timestamp with time zone DEFAULT now() NOT NULL,
-    locked_by text,
-    locked_until timestamp with time zone,
-    sent_at timestamp with time zone,
-    dead_lettered_at timestamp with time zone,
-    last_error text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT email_outbox_attempts_check CHECK (((attempt_count >= 0) AND (max_attempts > 0) AND (attempt_count <= max_attempts))),
-    CONSTRAINT email_outbox_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'sending'::text, 'sent'::text, 'dead'::text])))
-);
-
-
---
--- Name: endpoint_fx_rate_settings; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.endpoint_fx_rate_settings (
     id integer NOT NULL,
@@ -219,11 +135,6 @@ CREATE TABLE public.endpoint_fx_rate_settings (
     updated_at timestamp with time zone NOT NULL
 );
 
-
---
--- Name: endpoint_fx_rate_settings_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.endpoint_fx_rate_settings_id_seq
     AS integer
     START WITH 1
@@ -232,17 +143,7 @@ CREATE SEQUENCE public.endpoint_fx_rate_settings_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: endpoint_fx_rate_settings_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.endpoint_fx_rate_settings_id_seq OWNED BY public.endpoint_fx_rate_settings.id;
-
-
---
--- Name: endpoints; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.endpoints (
     id integer NOT NULL,
@@ -255,11 +156,6 @@ CREATE TABLE public.endpoints (
     updated_at timestamp with time zone NOT NULL
 );
 
-
---
--- Name: endpoints_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.endpoints_id_seq
     AS integer
     START WITH 1
@@ -268,17 +164,7 @@ CREATE SEQUENCE public.endpoints_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: endpoints_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.endpoints_id_seq OWNED BY public.endpoints.id;
-
-
---
--- Name: header_blocklist_rules; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.header_blocklist_rules (
     id integer NOT NULL,
@@ -293,11 +179,6 @@ CREATE TABLE public.header_blocklist_rules (
     CONSTRAINT ck_hbr_profile_scope CHECK ((((is_system = true) AND (profile_id IS NULL)) OR ((is_system = false) AND (profile_id IS NOT NULL))))
 );
 
-
---
--- Name: header_blocklist_rules_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.header_blocklist_rules_id_seq
     AS integer
     START WITH 1
@@ -306,17 +187,7 @@ CREATE SEQUENCE public.header_blocklist_rules_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: header_blocklist_rules_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.header_blocklist_rules_id_seq OWNED BY public.header_blocklist_rules.id;
-
-
---
--- Name: loadbalance_events; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.loadbalance_events (
     id bigint NOT NULL,
@@ -336,22 +207,17 @@ CREATE TABLE public.loadbalance_events (
     banned_until_at timestamp with time zone,
     last_success_at timestamp with time zone,
     created_at timestamp with time zone NOT NULL,
-    CONSTRAINT chk_event_type CHECK (((event_type)::text = ANY ((ARRAY['retry_scheduled'::character varying, 'retry_exhausted'::character varying, 'banned'::character varying, 'unbanned'::character varying, 'recovered'::character varying, 'admission_rejected'::character varying])::text[]))),
-    CONSTRAINT chk_failure_kind CHECK ((((failure_kind)::text = ANY ((ARRAY['transient_http'::character varying, 'connect_error'::character varying, 'timeout'::character varying])::text[])) OR (failure_kind IS NULL))),
-    CONSTRAINT chk_loadbalance_events_ban_mode CHECK ((((ban_mode)::text = ANY ((ARRAY['off'::character varying, 'temporary'::character varying, 'until_reset'::character varying])::text[])) OR (ban_mode IS NULL))),
-    CONSTRAINT chk_loadbalance_events_cycle_attempts_nonneg CHECK ((cycle_retry_attempts >= 0)),
+    CONSTRAINT chk_event_type CHECK (((event_type)::text = ANY (ARRAY[('retry_scheduled'::character varying)::text, ('retry_exhausted'::character varying)::text, ('banned'::character varying)::text, ('unbanned'::character varying)::text, ('recovered'::character varying)::text, ('admission_rejected'::character varying)::text]))),
+    CONSTRAINT chk_failure_kind CHECK ((((failure_kind)::text = ANY (ARRAY[('transient_http'::character varying)::text, ('connect_error'::character varying)::text, ('timeout'::character varying)::text])) OR (failure_kind IS NULL))),
+    CONSTRAINT chk_loadbalance_events_ban_mode CHECK ((((ban_mode)::text = ANY (ARRAY[('off'::character varying)::text, ('temporary'::character varying)::text, ('until_reset'::character varying)::text])) OR (ban_mode IS NULL))),
     CONSTRAINT chk_loadbalance_events_cumulative_attempts_nonneg CHECK ((cumulative_retry_attempts >= 0)),
+    CONSTRAINT chk_loadbalance_events_cycle_attempts_nonneg CHECK ((cycle_retry_attempts >= 0)),
     CONSTRAINT chk_loadbalance_events_policy_ban_threshold CHECK (((policy_ban_cumulative_retry_attempt_threshold IS NULL) OR ((policy_ban_cumulative_retry_attempt_threshold >= 0) AND (policy_ban_cumulative_retry_attempt_threshold <= 500)))),
     CONSTRAINT chk_loadbalance_events_policy_ban_threshold_gte_cycle_limit CHECK (((policy_cycle_retry_attempt_limit IS NULL) OR (policy_ban_cumulative_retry_attempt_threshold IS NULL) OR (policy_ban_cumulative_retry_attempt_threshold = 0) OR (policy_ban_cumulative_retry_attempt_threshold >= policy_cycle_retry_attempt_limit))),
     CONSTRAINT chk_loadbalance_events_policy_cycle_retry_attempt_limit CHECK (((policy_cycle_retry_attempt_limit IS NULL) OR ((policy_cycle_retry_attempt_limit >= 1) AND (policy_cycle_retry_attempt_limit <= 50)))),
     CONSTRAINT chk_loadbalance_events_retry_delay_nonneg CHECK ((last_retry_delay_ms >= 0))
 )
 PARTITION BY RANGE (created_at);
-
-
---
--- Name: loadbalance_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
 
 CREATE SEQUENCE public.loadbalance_events_id_seq
     START WITH 1
@@ -360,17 +226,7 @@ CREATE SEQUENCE public.loadbalance_events_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: loadbalance_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.loadbalance_events_id_seq OWNED BY public.loadbalance_events.id;
-
-
---
--- Name: loadbalance_round_robin_state; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.loadbalance_round_robin_state (
     id integer NOT NULL,
@@ -382,11 +238,6 @@ CREATE TABLE public.loadbalance_round_robin_state (
     CONSTRAINT ck_loadbalance_round_robin_state_next_cursor_nonnegative CHECK ((next_cursor >= 0))
 );
 
-
---
--- Name: loadbalance_round_robin_state_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.loadbalance_round_robin_state_id_seq
     AS integer
     START WITH 1
@@ -395,17 +246,7 @@ CREATE SEQUENCE public.loadbalance_round_robin_state_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: loadbalance_round_robin_state_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.loadbalance_round_robin_state_id_seq OWNED BY public.loadbalance_round_robin_state.id;
-
-
---
--- Name: loadbalance_strategies; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.loadbalance_strategies (
     id integer NOT NULL,
@@ -414,7 +255,7 @@ CREATE TABLE public.loadbalance_strategies (
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
     legacy_strategy_type character varying(32) NOT NULL,
-    failure_status_codes integer[] DEFAULT ARRAY[403, 422, 429, 500, 502, 503, 504, 529]::integer[] NOT NULL,
+    failure_status_codes integer[] DEFAULT ARRAY[403, 422, 429, 500, 502, 503, 504, 529] NOT NULL,
     ban_mode character varying(20) DEFAULT 'off'::character varying NOT NULL,
     retry_base_delay_ms integer DEFAULT 60000 NOT NULL,
     retry_backoff_multiplier double precision DEFAULT 2.0 NOT NULL,
@@ -423,22 +264,17 @@ CREATE TABLE public.loadbalance_strategies (
     cycle_retry_attempt_limit integer DEFAULT 3 NOT NULL,
     ban_cumulative_retry_attempt_threshold integer DEFAULT 0 NOT NULL,
     ban_duration_seconds integer DEFAULT 0 NOT NULL,
-    CONSTRAINT chk_loadbalance_strategies_ban_cumulative_retry_attempt_threshold CHECK (((((ban_mode)::text = 'off'::text) AND (ban_cumulative_retry_attempt_threshold = 0)) OR (((ban_mode)::text <> 'off'::text) AND (ban_cumulative_retry_attempt_threshold >= 1) AND (ban_cumulative_retry_attempt_threshold <= 500)))),
-    CONSTRAINT chk_loadbalance_strategies_ban_duration CHECK (((((ban_mode)::text = 'temporary'::text) AND (ban_duration_seconds >= 1) AND (ban_duration_seconds <= 86400)) OR (((ban_mode)::text = ANY ((ARRAY['off'::character varying, 'until_reset'::character varying])::text[])) AND (ban_duration_seconds = 0)))),
-    CONSTRAINT chk_loadbalance_strategies_ban_mode CHECK (((ban_mode)::text = ANY ((ARRAY['off'::character varying, 'temporary'::character varying, 'until_reset'::character varying])::text[]))),
+    CONSTRAINT chk_loadbalance_strategies_ban_cumulative_retry_attempt_thresho CHECK (((((ban_mode)::text = 'off'::text) AND (ban_cumulative_retry_attempt_threshold = 0)) OR (((ban_mode)::text <> 'off'::text) AND (ban_cumulative_retry_attempt_threshold >= 1) AND (ban_cumulative_retry_attempt_threshold <= 500)))),
+    CONSTRAINT chk_loadbalance_strategies_ban_duration CHECK (((((ban_mode)::text = 'temporary'::text) AND (ban_duration_seconds >= 1) AND (ban_duration_seconds <= 86400)) OR (((ban_mode)::text = ANY (ARRAY[('off'::character varying)::text, ('until_reset'::character varying)::text])) AND (ban_duration_seconds = 0)))),
+    CONSTRAINT chk_loadbalance_strategies_ban_mode CHECK (((ban_mode)::text = ANY (ARRAY[('off'::character varying)::text, ('temporary'::character varying)::text, ('until_reset'::character varying)::text]))),
     CONSTRAINT chk_loadbalance_strategies_ban_threshold_gte_cycle_limit CHECK ((((ban_mode)::text = 'off'::text) OR (ban_cumulative_retry_attempt_threshold >= cycle_retry_attempt_limit))),
     CONSTRAINT chk_loadbalance_strategies_cycle_retry_attempt_limit CHECK (((cycle_retry_attempt_limit >= 1) AND (cycle_retry_attempt_limit <= 50))),
-    CONSTRAINT chk_loadbalance_strategies_legacy_strategy_type CHECK (((legacy_strategy_type)::text = ANY ((ARRAY['single'::character varying, 'fill-first'::character varying, 'round-robin'::character varying])::text[]))),
+    CONSTRAINT chk_loadbalance_strategies_legacy_strategy_type CHECK (((legacy_strategy_type)::text = ANY (ARRAY[('single'::character varying)::text, ('fill-first'::character varying)::text, ('round-robin'::character varying)::text]))),
     CONSTRAINT chk_loadbalance_strategies_retry_backoff_multiplier CHECK (((retry_backoff_multiplier >= (1.0)::double precision) AND (retry_backoff_multiplier <= (10.0)::double precision))),
     CONSTRAINT chk_loadbalance_strategies_retry_base_delay_ms CHECK (((retry_base_delay_ms >= 0) AND (retry_base_delay_ms <= 86400000))),
     CONSTRAINT chk_loadbalance_strategies_retry_jitter_ratio CHECK (((retry_jitter_ratio >= (0.0)::double precision) AND (retry_jitter_ratio <= (1.0)::double precision))),
     CONSTRAINT chk_loadbalance_strategies_retry_max_delay_ms CHECK (((retry_max_delay_ms >= 1) AND (retry_max_delay_ms <= 86400000)))
 );
-
-
---
--- Name: loadbalance_strategies_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
 
 CREATE SEQUENCE public.loadbalance_strategies_id_seq
     AS integer
@@ -448,17 +284,7 @@ CREATE SEQUENCE public.loadbalance_strategies_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: loadbalance_strategies_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.loadbalance_strategies_id_seq OWNED BY public.loadbalance_strategies.id;
-
-
---
--- Name: log_retention_settings; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.log_retention_settings (
     singleton_key character varying(20) NOT NULL,
@@ -475,10 +301,17 @@ CREATE TABLE public.log_retention_settings (
     CONSTRAINT log_retention_settings_statistics_retention_days_check CHECK (((statistics_retention_days IS NULL) OR (statistics_retention_days >= 1)))
 );
 
-
---
--- Name: management_job_events; Type: TABLE; Schema: public; Owner: -
---
+CREATE TABLE public.login_throttle_ledger (
+    subject_key character varying(320) NOT NULL,
+    remote_address character varying(100) NOT NULL,
+    failure_count integer NOT NULL,
+    first_failed_at timestamp with time zone NOT NULL,
+    last_failed_at timestamp with time zone NOT NULL,
+    locked_until timestamp with time zone,
+    created_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT ck_login_throttle_ledger_failure_count CHECK ((failure_count >= 0))
+);
 
 CREATE TABLE public.management_job_events (
     id bigint NOT NULL,
@@ -489,11 +322,6 @@ CREATE TABLE public.management_job_events (
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
-
---
--- Name: management_job_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.management_job_events_id_seq
     START WITH 1
     INCREMENT BY 1
@@ -501,17 +329,7 @@ CREATE SEQUENCE public.management_job_events_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: management_job_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.management_job_events_id_seq OWNED BY public.management_job_events.id;
-
-
---
--- Name: management_jobs; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.management_jobs (
     id text NOT NULL,
@@ -546,11 +364,6 @@ CREATE TABLE public.management_jobs (
     CONSTRAINT management_jobs_type_check CHECK ((type = ANY (ARRAY['audit_delete'::text, 'log_retention'::text])))
 );
 
-
---
--- Name: management_outbox; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE public.management_outbox (
     id bigint NOT NULL,
     operation_id text NOT NULL,
@@ -573,11 +386,6 @@ CREATE TABLE public.management_outbox (
     CONSTRAINT management_outbox_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'processing'::text, 'retry'::text, 'succeeded'::text, 'failed_permanent'::text])))
 );
 
-
---
--- Name: management_outbox_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.management_outbox_id_seq
     START WITH 1
     INCREMENT BY 1
@@ -585,83 +393,7 @@ CREATE SEQUENCE public.management_outbox_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: management_outbox_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.management_outbox_id_seq OWNED BY public.management_outbox.id;
-
-
---
--- Name: management_stat_buckets; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.management_stat_buckets (
-    bucket_start timestamp with time zone NOT NULL,
-    bucket_size text NOT NULL,
-    metric text NOT NULL,
-    dimension_key text DEFAULT ''::text NOT NULL,
-    dimension_value text DEFAULT ''::text NOT NULL,
-    value numeric NOT NULL,
-    source_high_water_mark timestamp with time zone NOT NULL,
-    generated_at timestamp with time zone NOT NULL
-);
-
-
---
--- Name: management_stat_refresh_state; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.management_stat_refresh_state (
-    job_name text NOT NULL,
-    last_source_high_water_mark timestamp with time zone NOT NULL,
-    last_success_at timestamp with time zone,
-    last_error text,
-    updated_at timestamp with time zone NOT NULL
-);
-
-
---
--- Name: model_configs; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.model_configs (
-    id integer NOT NULL,
-    profile_id integer NOT NULL,
-    api_family character varying(50) NOT NULL,
-    model_id character varying(200) NOT NULL,
-    display_name character varying(200),
-    loadbalance_strategy_id integer,
-    is_enabled boolean NOT NULL,
-    created_at timestamp with time zone NOT NULL,
-    updated_at timestamp with time zone NOT NULL
-);
-
-
---
--- Name: model_configs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.model_configs_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: model_configs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.model_configs_id_seq OWNED BY public.model_configs.id;
-
-
---
--- Name: model_access_targets; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.model_access_targets (
     id integer NOT NULL,
@@ -674,52 +406,10 @@ CREATE TABLE public.model_access_targets (
     is_enabled boolean NOT NULL,
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT chk_model_access_targets_one_target CHECK (((((target_type)::text = 'model'::text) AND (target_model_config_id IS NOT NULL) AND (target_connection_id IS NULL)) OR (((target_type)::text = 'connection'::text) AND (target_model_config_id IS NULL) AND (target_connection_id IS NOT NULL)))),
     CONSTRAINT chk_model_access_targets_position_nonnegative CHECK (("position" >= 0)),
-    CONSTRAINT chk_model_access_targets_target_type CHECK (((target_type)::text = ANY ((ARRAY['model'::character varying, 'connection'::character varying])::text[]))),
-    CONSTRAINT chk_model_access_targets_one_target CHECK (((((target_type)::text = 'model'::text) AND (target_model_config_id IS NOT NULL) AND (target_connection_id IS NULL)) OR (((target_type)::text = 'connection'::text) AND (target_model_config_id IS NULL) AND (target_connection_id IS NOT NULL))))
+    CONSTRAINT chk_model_access_targets_target_type CHECK (((target_type)::text = ANY (ARRAY[('model'::character varying)::text, ('connection'::character varying)::text])))
 );
-
-
---
--- Name: profile_api_family_audit_settings; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.profile_api_family_audit_settings (
-    id integer NOT NULL,
-    profile_id integer NOT NULL,
-    api_family character varying(50) NOT NULL,
-    audit_enabled boolean NOT NULL,
-    audit_capture_bodies boolean NOT NULL,
-    created_at timestamp with time zone NOT NULL,
-    updated_at timestamp with time zone NOT NULL,
-    CONSTRAINT chk_profile_api_family_audit_settings_api_family CHECK (((api_family)::text = ANY ((ARRAY['openai'::character varying, 'anthropic'::character varying, 'gemini'::character varying])::text[]))),
-    CONSTRAINT chk_profile_api_family_audit_settings_capture_requires_enabled CHECK ((audit_enabled OR (NOT audit_capture_bodies)))
-);
-
-
---
--- Name: profile_api_family_audit_settings_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.profile_api_family_audit_settings_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: profile_api_family_audit_settings_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.profile_api_family_audit_settings_id_seq OWNED BY public.profile_api_family_audit_settings.id;
-
-
---
--- Name: model_access_targets_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
 
 CREATE SEQUENCE public.model_access_targets_id_seq
     AS integer
@@ -729,35 +419,23 @@ CREATE SEQUENCE public.model_access_targets_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: model_access_targets_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.model_access_targets_id_seq OWNED BY public.model_access_targets.id;
 
-
---
--- Name: password_reset_challenges; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.password_reset_challenges (
+CREATE TABLE public.model_configs (
     id integer NOT NULL,
-    auth_subject_id integer NOT NULL,
-    otp_hash character varying(64) NOT NULL,
-    expires_at timestamp with time zone NOT NULL,
-    consumed_at timestamp with time zone,
-    attempt_count integer NOT NULL,
-    requested_ip character varying(100),
-    created_at timestamp with time zone NOT NULL
+    profile_id integer NOT NULL,
+    api_family character varying(50) NOT NULL,
+    model_id character varying(200) NOT NULL,
+    display_name character varying(200),
+    loadbalance_strategy_id integer,
+    is_enabled boolean NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    openai_accepted_format text,
+    CONSTRAINT ck_model_configs_openai_accepted_format CHECK (((((api_family)::text = 'openai'::text) AND (openai_accepted_format IS NOT NULL) AND (openai_accepted_format = ANY (ARRAY['responses_only'::text, 'chat_completions_only'::text, 'dual_native'::text]))) OR (((api_family)::text <> 'openai'::text) AND (openai_accepted_format IS NULL))))
 );
 
-
---
--- Name: password_reset_challenges_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.password_reset_challenges_id_seq
+CREATE SEQUENCE public.model_configs_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -765,17 +443,7 @@ CREATE SEQUENCE public.password_reset_challenges_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: password_reset_challenges_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.password_reset_challenges_id_seq OWNED BY public.password_reset_challenges.id;
-
-
---
--- Name: pricing_templates; Type: TABLE; Schema: public; Owner: -
---
+ALTER SEQUENCE public.model_configs_id_seq OWNED BY public.model_configs.id;
 
 CREATE TABLE public.pricing_templates (
     id integer NOT NULL,
@@ -794,11 +462,6 @@ CREATE TABLE public.pricing_templates (
     updated_at timestamp with time zone NOT NULL
 );
 
-
---
--- Name: pricing_templates_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.pricing_templates_id_seq
     AS integer
     START WITH 1
@@ -807,17 +470,29 @@ CREATE SEQUENCE public.pricing_templates_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: pricing_templates_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.pricing_templates_id_seq OWNED BY public.pricing_templates.id;
 
+CREATE TABLE public.profile_api_family_audit_settings (
+    id integer NOT NULL,
+    profile_id integer NOT NULL,
+    api_family character varying(50) NOT NULL,
+    audit_enabled boolean NOT NULL,
+    audit_capture_bodies boolean NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT chk_profile_api_family_audit_settings_api_family CHECK (((api_family)::text = ANY (ARRAY[('openai'::character varying)::text, ('anthropic'::character varying)::text, ('gemini'::character varying)::text]))),
+    CONSTRAINT chk_profile_api_family_audit_settings_capture_requires_enabled CHECK ((audit_enabled OR (NOT audit_capture_bodies)))
+);
 
---
--- Name: profiles; Type: TABLE; Schema: public; Owner: -
---
+CREATE SEQUENCE public.profile_api_family_audit_settings_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE public.profile_api_family_audit_settings_id_seq OWNED BY public.profile_api_family_audit_settings.id;
 
 CREATE TABLE public.profiles (
     id integer NOT NULL,
@@ -832,11 +507,6 @@ CREATE TABLE public.profiles (
     updated_at timestamp with time zone NOT NULL
 );
 
-
---
--- Name: profiles_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.profiles_id_seq
     AS integer
     START WITH 1
@@ -845,17 +515,7 @@ CREATE SEQUENCE public.profiles_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: profiles_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.profiles_id_seq OWNED BY public.profiles.id;
-
-
---
--- Name: proxy_api_keys; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.proxy_api_keys (
     id integer NOT NULL,
@@ -874,11 +534,6 @@ CREATE TABLE public.proxy_api_keys (
     updated_at timestamp with time zone NOT NULL
 );
 
-
---
--- Name: proxy_api_keys_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.proxy_api_keys_id_seq
     AS integer
     START WITH 1
@@ -887,17 +542,7 @@ CREATE SEQUENCE public.proxy_api_keys_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: proxy_api_keys_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.proxy_api_keys_id_seq OWNED BY public.proxy_api_keys.id;
-
-
---
--- Name: refresh_tokens; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.refresh_tokens (
     id integer NOT NULL,
@@ -913,11 +558,6 @@ CREATE TABLE public.refresh_tokens (
     created_at timestamp with time zone NOT NULL
 );
 
-
---
--- Name: refresh_tokens_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.refresh_tokens_id_seq
     AS integer
     START WITH 1
@@ -926,17 +566,7 @@ CREATE SEQUENCE public.refresh_tokens_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: refresh_tokens_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.refresh_tokens_id_seq OWNED BY public.refresh_tokens.id;
-
-
---
--- Name: request_logs; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.request_logs (
     id bigint NOT NULL,
@@ -1007,11 +637,6 @@ CREATE TABLE public.request_logs (
 )
 PARTITION BY RANGE (created_at);
 
-
---
--- Name: request_logs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.request_logs_id_seq
     START WITH 1
     INCREMENT BY 1
@@ -1019,17 +644,7 @@ CREATE SEQUENCE public.request_logs_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: request_logs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.request_logs_id_seq OWNED BY public.request_logs.id;
-
-
---
--- Name: routing_connection_runtime_leases; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE UNLOGGED TABLE public.routing_connection_runtime_leases (
     lease_token character varying(64) NOT NULL,
@@ -1040,13 +655,8 @@ CREATE UNLOGGED TABLE public.routing_connection_runtime_leases (
     heartbeat_at timestamp with time zone,
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
-    CONSTRAINT ck_routing_connection_runtime_leases_kind CHECK (((lease_kind)::text = ANY ((ARRAY['stream'::character varying, 'non_stream'::character varying])::text[])))
+    CONSTRAINT ck_routing_connection_runtime_leases_kind CHECK (((lease_kind)::text = ANY (ARRAY[('stream'::character varying)::text, ('non_stream'::character varying)::text])))
 );
-
-
---
--- Name: routing_connection_runtime_state; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE UNLOGGED TABLE public.routing_connection_runtime_state (
     id integer NOT NULL,
@@ -1067,20 +677,15 @@ CREATE UNLOGGED TABLE public.routing_connection_runtime_state (
     live_p95_latency_ms integer,
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
-    CONSTRAINT ck_rt_state_ban_mode CHECK (((ban_mode)::text = ANY ((ARRAY['off'::character varying, 'temporary'::character varying, 'until_reset'::character varying])::text[]))),
-    CONSTRAINT ck_rt_state_last_failure_kind CHECK ((((last_failure_kind)::text = ANY ((ARRAY['transient_http'::character varying, 'connect_error'::character varying, 'timeout'::character varying])::text[])) OR (last_failure_kind IS NULL))),
-    CONSTRAINT ck_rt_state_cycle_attempts_nonneg CHECK ((cycle_retry_attempts >= 0)),
+    CONSTRAINT ck_rt_state_ban_mode CHECK (((ban_mode)::text = ANY (ARRAY[('off'::character varying)::text, ('temporary'::character varying)::text, ('until_reset'::character varying)::text]))),
     CONSTRAINT ck_rt_state_cumulative_attempts_nonneg CHECK ((cumulative_retry_attempts >= 0)),
-    CONSTRAINT ck_rt_state_retry_delay_nonneg CHECK ((last_retry_delay_ms >= 0)),
+    CONSTRAINT ck_rt_state_cycle_attempts_nonneg CHECK ((cycle_retry_attempts >= 0)),
+    CONSTRAINT ck_rt_state_last_failure_kind CHECK ((((last_failure_kind)::text = ANY (ARRAY[('transient_http'::character varying)::text, ('connect_error'::character varying)::text, ('timeout'::character varying)::text])) OR (last_failure_kind IS NULL))),
     CONSTRAINT ck_rt_state_non_stream_nonneg CHECK ((in_flight_non_stream >= 0)),
+    CONSTRAINT ck_rt_state_retry_delay_nonneg CHECK ((last_retry_delay_ms >= 0)),
     CONSTRAINT ck_rt_state_stream_nonneg CHECK ((in_flight_stream >= 0)),
     CONSTRAINT ck_rt_state_window_count_nonneg CHECK ((window_request_count >= 0))
 );
-
-
---
--- Name: routing_connection_runtime_state_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
 
 CREATE UNLOGGED SEQUENCE public.routing_connection_runtime_state_id_seq
     AS integer
@@ -1090,17 +695,7 @@ CREATE UNLOGGED SEQUENCE public.routing_connection_runtime_state_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: routing_connection_runtime_state_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.routing_connection_runtime_state_id_seq OWNED BY public.routing_connection_runtime_state.id;
-
-
---
--- Name: runtime_cache_generations; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.runtime_cache_generations (
     domain text NOT NULL,
@@ -1113,11 +708,6 @@ CREATE TABLE public.runtime_cache_generations (
     CONSTRAINT runtime_cache_generations_version_check CHECK ((version >= 0))
 );
 
-
---
--- Name: runtime_telemetry_outbox; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE public.runtime_telemetry_outbox (
     id bigint NOT NULL,
     profile_id integer NOT NULL,
@@ -1126,11 +716,6 @@ CREATE TABLE public.runtime_telemetry_outbox (
     created_at timestamp with time zone NOT NULL
 );
 
-
---
--- Name: runtime_telemetry_outbox_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.runtime_telemetry_outbox_id_seq
     START WITH 1
     INCREMENT BY 1
@@ -1138,17 +723,7 @@ CREATE SEQUENCE public.runtime_telemetry_outbox_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: runtime_telemetry_outbox_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.runtime_telemetry_outbox_id_seq OWNED BY public.runtime_telemetry_outbox.id;
-
-
---
--- Name: usage_request_events; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.usage_request_events (
     id bigint NOT NULL,
@@ -1209,11 +784,6 @@ CREATE TABLE public.usage_request_events (
 )
 PARTITION BY RANGE (created_at);
 
-
---
--- Name: usage_request_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.usage_request_events_id_seq
     START WITH 1
     INCREMENT BY 1
@@ -1221,17 +791,7 @@ CREATE SEQUENCE public.usage_request_events_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: usage_request_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.usage_request_events_id_seq OWNED BY public.usage_request_events.id;
-
-
---
--- Name: user_agent_client_rules; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.user_agent_client_rules (
     id integer NOT NULL,
@@ -1245,11 +805,6 @@ CREATE TABLE public.user_agent_client_rules (
     CONSTRAINT ck_uacr_profile_scope CHECK ((((is_system = true) AND (profile_id IS NULL)) OR ((is_system = false) AND (profile_id IS NOT NULL))))
 );
 
-
---
--- Name: user_agent_client_rules_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.user_agent_client_rules_id_seq
     AS integer
     START WITH 1
@@ -1258,17 +813,7 @@ CREATE SEQUENCE public.user_agent_client_rules_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: user_agent_client_rules_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.user_agent_client_rules_id_seq OWNED BY public.user_agent_client_rules.id;
-
-
---
--- Name: user_settings; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.user_settings (
     id integer NOT NULL,
@@ -1286,11 +831,6 @@ CREATE TABLE public.user_settings (
     CONSTRAINT user_settings_statistics_retention_days_check CHECK (((statistics_retention_days IS NULL) OR (statistics_retention_days >= 1)))
 );
 
-
---
--- Name: user_settings_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.user_settings_id_seq
     AS integer
     START WITH 1
@@ -1299,1830 +839,520 @@ CREATE SEQUENCE public.user_settings_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: user_settings_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.user_settings_id_seq OWNED BY public.user_settings.id;
-
-
---
--- Name: webauthn_challenges; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.webauthn_challenges (
-    id integer NOT NULL,
-    challenge_key character varying(100) NOT NULL,
-    challenge bytea NOT NULL,
-    expires_at timestamp with time zone NOT NULL,
-    created_at timestamp with time zone NOT NULL
-);
-
-
---
--- Name: webauthn_challenges_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.webauthn_challenges_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: webauthn_challenges_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.webauthn_challenges_id_seq OWNED BY public.webauthn_challenges.id;
-
-
---
--- Name: webauthn_credentials; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.webauthn_credentials (
-    id integer NOT NULL,
-    auth_subject_id integer NOT NULL,
-    credential_id bytea NOT NULL,
-    public_key bytea NOT NULL,
-    sign_count bigint DEFAULT '0'::bigint NOT NULL,
-    device_name character varying(200),
-    aaguid bytea,
-    transports text[],
-    backup_eligible boolean DEFAULT false,
-    backup_state boolean DEFAULT false,
-    last_used_at timestamp with time zone,
-    last_used_ip character varying(45),
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: webauthn_credentials_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.webauthn_credentials_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: webauthn_credentials_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.webauthn_credentials_id_seq OWNED BY public.webauthn_credentials.id;
-
-
---
--- Name: app_auth_settings id; Type: DEFAULT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.app_auth_settings ALTER COLUMN id SET DEFAULT nextval('public.app_auth_settings_id_seq'::regclass);
 
-
---
--- Name: audit_logs id; Type: DEFAULT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.audit_logs ALTER COLUMN id SET DEFAULT nextval('public.audit_logs_id_seq'::regclass);
-
-
---
--- Name: connections id; Type: DEFAULT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.connections ALTER COLUMN id SET DEFAULT nextval('public.connections_id_seq'::regclass);
 
-
---
--- Name: endpoint_fx_rate_settings id; Type: DEFAULT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.endpoint_fx_rate_settings ALTER COLUMN id SET DEFAULT nextval('public.endpoint_fx_rate_settings_id_seq'::regclass);
-
-
---
--- Name: endpoints id; Type: DEFAULT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.endpoints ALTER COLUMN id SET DEFAULT nextval('public.endpoints_id_seq'::regclass);
 
-
---
--- Name: header_blocklist_rules id; Type: DEFAULT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.header_blocklist_rules ALTER COLUMN id SET DEFAULT nextval('public.header_blocklist_rules_id_seq'::regclass);
-
-
---
--- Name: loadbalance_events id; Type: DEFAULT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.loadbalance_events ALTER COLUMN id SET DEFAULT nextval('public.loadbalance_events_id_seq'::regclass);
 
-
---
--- Name: loadbalance_round_robin_state id; Type: DEFAULT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.loadbalance_round_robin_state ALTER COLUMN id SET DEFAULT nextval('public.loadbalance_round_robin_state_id_seq'::regclass);
-
-
---
--- Name: loadbalance_strategies id; Type: DEFAULT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.loadbalance_strategies ALTER COLUMN id SET DEFAULT nextval('public.loadbalance_strategies_id_seq'::regclass);
 
-
---
--- Name: management_job_events id; Type: DEFAULT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.management_job_events ALTER COLUMN id SET DEFAULT nextval('public.management_job_events_id_seq'::regclass);
-
-
---
--- Name: management_outbox id; Type: DEFAULT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.management_outbox ALTER COLUMN id SET DEFAULT nextval('public.management_outbox_id_seq'::regclass);
 
-
---
--- Name: model_configs id; Type: DEFAULT; Schema: public; Owner: -
---
+ALTER TABLE ONLY public.model_access_targets ALTER COLUMN id SET DEFAULT nextval('public.model_access_targets_id_seq'::regclass);
 
 ALTER TABLE ONLY public.model_configs ALTER COLUMN id SET DEFAULT nextval('public.model_configs_id_seq'::regclass);
 
-
---
--- Name: model_access_targets id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.model_access_targets ALTER COLUMN id SET DEFAULT nextval('public.model_access_targets_id_seq'::regclass);
-
-
---
--- Name: profile_api_family_audit_settings id; Type: DEFAULT; Schema: public; Owner: -
---
+ALTER TABLE ONLY public.pricing_templates ALTER COLUMN id SET DEFAULT nextval('public.pricing_templates_id_seq'::regclass);
 
 ALTER TABLE ONLY public.profile_api_family_audit_settings ALTER COLUMN id SET DEFAULT nextval('public.profile_api_family_audit_settings_id_seq'::regclass);
 
-
---
--- Name: password_reset_challenges id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.password_reset_challenges ALTER COLUMN id SET DEFAULT nextval('public.password_reset_challenges_id_seq'::regclass);
-
-
---
--- Name: pricing_templates id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.pricing_templates ALTER COLUMN id SET DEFAULT nextval('public.pricing_templates_id_seq'::regclass);
-
-
---
--- Name: profiles id; Type: DEFAULT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.profiles ALTER COLUMN id SET DEFAULT nextval('public.profiles_id_seq'::regclass);
-
-
---
--- Name: proxy_api_keys id; Type: DEFAULT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.proxy_api_keys ALTER COLUMN id SET DEFAULT nextval('public.proxy_api_keys_id_seq'::regclass);
 
-
---
--- Name: refresh_tokens id; Type: DEFAULT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.refresh_tokens ALTER COLUMN id SET DEFAULT nextval('public.refresh_tokens_id_seq'::regclass);
-
-
---
--- Name: request_logs id; Type: DEFAULT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.request_logs ALTER COLUMN id SET DEFAULT nextval('public.request_logs_id_seq'::regclass);
 
-
---
--- Name: routing_connection_runtime_state id; Type: DEFAULT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.routing_connection_runtime_state ALTER COLUMN id SET DEFAULT nextval('public.routing_connection_runtime_state_id_seq'::regclass);
-
-
---
--- Name: runtime_telemetry_outbox id; Type: DEFAULT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.runtime_telemetry_outbox ALTER COLUMN id SET DEFAULT nextval('public.runtime_telemetry_outbox_id_seq'::regclass);
 
-
---
--- Name: usage_request_events id; Type: DEFAULT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.usage_request_events ALTER COLUMN id SET DEFAULT nextval('public.usage_request_events_id_seq'::regclass);
-
-
---
--- Name: user_agent_client_rules id; Type: DEFAULT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.user_agent_client_rules ALTER COLUMN id SET DEFAULT nextval('public.user_agent_client_rules_id_seq'::regclass);
 
-
---
--- Name: user_settings id; Type: DEFAULT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.user_settings ALTER COLUMN id SET DEFAULT nextval('public.user_settings_id_seq'::regclass);
 
-
---
--- Name: webauthn_challenges id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.webauthn_challenges ALTER COLUMN id SET DEFAULT nextval('public.webauthn_challenges_id_seq'::regclass);
-
-
---
--- Name: webauthn_credentials id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.webauthn_credentials ALTER COLUMN id SET DEFAULT nextval('public.webauthn_credentials_id_seq'::regclass);
-
-
---
--- Name: app_auth_settings app_auth_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
+ALTER TABLE ONLY public.alert_webhook_outbox
+    ADD CONSTRAINT alert_webhook_outbox_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY public.app_auth_settings
     ADD CONSTRAINT app_auth_settings_pkey PRIMARY KEY (id);
 
-
---
--- Name: audit_logs audit_logs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.audit_logs
     ADD CONSTRAINT audit_logs_pkey PRIMARY KEY (created_at, id);
-
-
---
--- Name: connections connections_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.connections
     ADD CONSTRAINT connections_pkey PRIMARY KEY (id);
 
-
---
--- Name: connections uq_connections_id_profile; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.connections
-    ADD CONSTRAINT uq_connections_id_profile UNIQUE (id, profile_id);
-
-
---
--- Name: email_outbox email_outbox_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.email_outbox
-    ADD CONSTRAINT email_outbox_pkey PRIMARY KEY (id);
-
-
---
--- Name: endpoint_fx_rate_settings endpoint_fx_rate_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.endpoint_fx_rate_settings
     ADD CONSTRAINT endpoint_fx_rate_settings_pkey PRIMARY KEY (id);
-
-
---
--- Name: endpoints endpoints_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.endpoints
     ADD CONSTRAINT endpoints_pkey PRIMARY KEY (id);
 
-
---
--- Name: header_blocklist_rules header_blocklist_rules_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.header_blocklist_rules
     ADD CONSTRAINT header_blocklist_rules_pkey PRIMARY KEY (id);
-
-
---
--- Name: loadbalance_events loadbalance_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.loadbalance_events
     ADD CONSTRAINT loadbalance_events_pkey PRIMARY KEY (created_at, id);
 
-
---
--- Name: loadbalance_round_robin_state loadbalance_round_robin_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.loadbalance_round_robin_state
     ADD CONSTRAINT loadbalance_round_robin_state_pkey PRIMARY KEY (id);
-
-
---
--- Name: loadbalance_strategies loadbalance_strategies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.loadbalance_strategies
     ADD CONSTRAINT loadbalance_strategies_pkey PRIMARY KEY (id);
 
-
---
--- Name: login_throttle_ledger login_throttle_ledger_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
+ALTER TABLE ONLY public.log_retention_settings
+    ADD CONSTRAINT log_retention_settings_pkey PRIMARY KEY (singleton_key);
 
 ALTER TABLE ONLY public.login_throttle_ledger
     ADD CONSTRAINT login_throttle_ledger_pkey PRIMARY KEY (subject_key, remote_address);
 
-
---
--- Name: log_retention_settings log_retention_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.log_retention_settings
-    ADD CONSTRAINT log_retention_settings_pkey PRIMARY KEY (singleton_key);
-
-
---
--- Name: management_job_events management_job_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.management_job_events
     ADD CONSTRAINT management_job_events_pkey PRIMARY KEY (id);
-
-
---
--- Name: management_jobs management_jobs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.management_jobs
     ADD CONSTRAINT management_jobs_pkey PRIMARY KEY (id);
 
-
---
--- Name: management_outbox management_outbox_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.management_outbox
     ADD CONSTRAINT management_outbox_pkey PRIMARY KEY (id);
-
-
---
--- Name: management_stat_buckets management_stat_buckets_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.management_stat_buckets
-    ADD CONSTRAINT management_stat_buckets_pkey PRIMARY KEY (bucket_start, bucket_size, metric, dimension_key, dimension_value);
-
-
---
--- Name: management_stat_refresh_state management_stat_refresh_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.management_stat_refresh_state
-    ADD CONSTRAINT management_stat_refresh_state_pkey PRIMARY KEY (job_name);
-
-
---
--- Name: model_configs model_configs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.model_configs
-    ADD CONSTRAINT model_configs_pkey PRIMARY KEY (id);
-
-
---
--- Name: model_access_targets model_access_targets_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.model_access_targets
     ADD CONSTRAINT model_access_targets_pkey PRIMARY KEY (id);
 
-
---
--- Name: profile_api_family_audit_settings profile_api_family_audit_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.profile_api_family_audit_settings
-    ADD CONSTRAINT profile_api_family_audit_settings_pkey PRIMARY KEY (id);
-
-
---
--- Name: password_reset_challenges password_reset_challenges_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.password_reset_challenges
-    ADD CONSTRAINT password_reset_challenges_pkey PRIMARY KEY (id);
-
-
---
--- Name: pricing_templates pricing_templates_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
+ALTER TABLE ONLY public.model_configs
+    ADD CONSTRAINT model_configs_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY public.pricing_templates
     ADD CONSTRAINT pricing_templates_pkey PRIMARY KEY (id);
 
-
---
--- Name: profiles profiles_name_key; Type: CONSTRAINT; Schema: public; Owner: -
---
+ALTER TABLE ONLY public.profile_api_family_audit_settings
+    ADD CONSTRAINT profile_api_family_audit_settings_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY public.profiles
     ADD CONSTRAINT profiles_name_key UNIQUE (name);
 
-
---
--- Name: profiles profiles_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.profiles
     ADD CONSTRAINT profiles_pkey PRIMARY KEY (id);
-
-
---
--- Name: proxy_api_keys proxy_api_keys_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.proxy_api_keys
     ADD CONSTRAINT proxy_api_keys_pkey PRIMARY KEY (id);
 
-
---
--- Name: refresh_tokens refresh_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.refresh_tokens
     ADD CONSTRAINT refresh_tokens_pkey PRIMARY KEY (id);
-
-
---
--- Name: refresh_tokens refresh_tokens_token_hash_key; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.refresh_tokens
     ADD CONSTRAINT refresh_tokens_token_hash_key UNIQUE (token_hash);
 
-
---
--- Name: request_logs request_logs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.request_logs
     ADD CONSTRAINT request_logs_pkey PRIMARY KEY (created_at, id);
-
-
---
--- Name: routing_connection_runtime_leases routing_connection_runtime_leases_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.routing_connection_runtime_leases
     ADD CONSTRAINT routing_connection_runtime_leases_pkey PRIMARY KEY (lease_token);
 
-
---
--- Name: routing_connection_runtime_state routing_connection_runtime_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.routing_connection_runtime_state
     ADD CONSTRAINT routing_connection_runtime_state_pkey PRIMARY KEY (id);
-
-
---
--- Name: runtime_cache_generations runtime_cache_generations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.runtime_cache_generations
     ADD CONSTRAINT runtime_cache_generations_pkey PRIMARY KEY (domain, scope_type, scope_id);
 
-
---
--- Name: runtime_telemetry_outbox runtime_telemetry_outbox_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.runtime_telemetry_outbox
     ADD CONSTRAINT runtime_telemetry_outbox_pkey PRIMARY KEY (id);
-
-
---
--- Name: app_auth_settings uq_app_auth_settings_singleton_key; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.app_auth_settings
     ADD CONSTRAINT uq_app_auth_settings_singleton_key UNIQUE (singleton_key);
 
-
---
--- Name: webauthn_credentials uq_credential_id; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.webauthn_credentials
-    ADD CONSTRAINT uq_credential_id UNIQUE (credential_id);
-
-
---
--- Name: endpoints uq_endpoints_profile_name; Type: CONSTRAINT; Schema: public; Owner: -
---
+ALTER TABLE ONLY public.connections
+    ADD CONSTRAINT uq_connections_id_profile UNIQUE (id, profile_id);
 
 ALTER TABLE ONLY public.endpoints
     ADD CONSTRAINT uq_endpoints_profile_name UNIQUE (profile_id, name);
 
-
---
--- Name: endpoint_fx_rate_settings uq_fx_profile_model_endpoint; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.endpoint_fx_rate_settings
     ADD CONSTRAINT uq_fx_profile_model_endpoint UNIQUE (profile_id, model_id, endpoint_id);
-
-
---
--- Name: header_blocklist_rules uq_hbr_profile_match_pattern; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.header_blocklist_rules
     ADD CONSTRAINT uq_hbr_profile_match_pattern UNIQUE (profile_id, match_type, pattern);
 
-
---
--- Name: loadbalance_round_robin_state uq_loadbalance_round_robin_state_profile_model; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.loadbalance_round_robin_state
     ADD CONSTRAINT uq_loadbalance_round_robin_state_profile_model UNIQUE (profile_id, model_config_id);
-
-
---
--- Name: loadbalance_strategies uq_loadbalance_strategies_profile_id_id; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.loadbalance_strategies
     ADD CONSTRAINT uq_loadbalance_strategies_profile_id_id UNIQUE (profile_id, id);
 
-
---
--- Name: loadbalance_strategies uq_loadbalance_strategies_profile_name; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.loadbalance_strategies
     ADD CONSTRAINT uq_loadbalance_strategies_profile_name UNIQUE (profile_id, name);
-
-
---
--- Name: model_configs uq_model_configs_profile_model_id; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.model_configs
-    ADD CONSTRAINT uq_model_configs_profile_model_id UNIQUE (profile_id, model_id);
-
-
---
--- Name: model_configs uq_model_configs_id_profile; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.model_configs
-    ADD CONSTRAINT uq_model_configs_id_profile UNIQUE (id, profile_id);
-
-
---
--- Name: model_access_targets uq_model_access_targets_source_position; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.model_access_targets
     ADD CONSTRAINT uq_model_access_targets_source_position UNIQUE (source_model_config_id, "position") DEFERRABLE INITIALLY DEFERRED;
 
+ALTER TABLE ONLY public.model_configs
+    ADD CONSTRAINT uq_model_configs_id_profile UNIQUE (id, profile_id);
 
---
--- Name: profile_api_family_audit_settings uq_profile_api_family_audit_settings_profile_family; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.profile_api_family_audit_settings
-    ADD CONSTRAINT uq_profile_api_family_audit_settings_profile_family UNIQUE (profile_id, api_family);
-
-
---
--- Name: pricing_templates uq_pricing_templates_profile_name; Type: CONSTRAINT; Schema: public; Owner: -
---
+ALTER TABLE ONLY public.model_configs
+    ADD CONSTRAINT uq_model_configs_profile_model_id UNIQUE (profile_id, model_id);
 
 ALTER TABLE ONLY public.pricing_templates
     ADD CONSTRAINT uq_pricing_templates_profile_name UNIQUE (profile_id, name);
 
-
---
--- Name: proxy_api_keys uq_proxy_api_keys_prefix; Type: CONSTRAINT; Schema: public; Owner: -
---
+ALTER TABLE ONLY public.profile_api_family_audit_settings
+    ADD CONSTRAINT uq_profile_api_family_audit_settings_profile_family UNIQUE (profile_id, api_family);
 
 ALTER TABLE ONLY public.proxy_api_keys
     ADD CONSTRAINT uq_proxy_api_keys_prefix UNIQUE (key_prefix);
 
-
---
--- Name: routing_connection_runtime_state uq_routing_connection_runtime_state_profile_connection; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.routing_connection_runtime_state
     ADD CONSTRAINT uq_routing_connection_runtime_state_profile_connection UNIQUE (profile_id, connection_id);
-
-
---
--- Name: user_settings uq_user_settings_profile_id; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.user_settings
     ADD CONSTRAINT uq_user_settings_profile_id UNIQUE (profile_id);
 
-
---
--- Name: usage_request_events usage_request_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.usage_request_events
     ADD CONSTRAINT usage_request_events_pkey PRIMARY KEY (created_at, id);
-
-
---
--- Name: user_agent_client_rules user_agent_client_rules_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.user_agent_client_rules
     ADD CONSTRAINT user_agent_client_rules_pkey PRIMARY KEY (id);
 
-
---
--- Name: user_settings user_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.user_settings
     ADD CONSTRAINT user_settings_pkey PRIMARY KEY (id);
 
+CREATE INDEX idx_alert_webhook_outbox_dead_letters ON public.alert_webhook_outbox USING btree (dead_lettered_at DESC) WHERE (status = 'dead'::text);
 
---
--- Name: webauthn_challenges webauthn_challenges_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
+CREATE INDEX idx_alert_webhook_outbox_due ON public.alert_webhook_outbox USING btree (next_attempt_at, created_at, id) WHERE (status = 'queued'::text);
 
-ALTER TABLE ONLY public.webauthn_challenges
-    ADD CONSTRAINT webauthn_challenges_pkey PRIMARY KEY (id);
+CREATE UNIQUE INDEX idx_alert_webhook_outbox_idempotency_key ON public.alert_webhook_outbox USING btree (idempotency_key);
 
-
---
--- Name: webauthn_credentials webauthn_credentials_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.webauthn_credentials
-    ADD CONSTRAINT webauthn_credentials_pkey PRIMARY KEY (id);
-
-
---
--- Name: idx_audit_logs_connection_id; Type: INDEX; Schema: public; Owner: -
---
+CREATE INDEX idx_alert_webhook_outbox_stale_locks ON public.alert_webhook_outbox USING btree (locked_until) WHERE (status = 'sending'::text);
 
 CREATE INDEX idx_audit_logs_connection_id ON ONLY public.audit_logs USING btree (connection_id);
 
-
---
--- Name: idx_audit_logs_profile_connection_created_id_desc; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_audit_logs_profile_connection_created_id_desc ON ONLY public.audit_logs USING btree (profile_id, connection_id, created_at DESC, id DESC);
-
-
---
--- Name: idx_audit_logs_profile_created_at; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_audit_logs_profile_created_at ON ONLY public.audit_logs USING btree (profile_id, created_at);
 
-
---
--- Name: idx_audit_logs_profile_created_id_desc; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_audit_logs_profile_created_id_desc ON ONLY public.audit_logs USING btree (profile_id, created_at DESC, id DESC);
-
-
---
--- Name: idx_audit_logs_profile_endpoint_created_id_desc; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_audit_logs_profile_endpoint_created_id_desc ON ONLY public.audit_logs USING btree (profile_id, endpoint_id, created_at DESC, id DESC);
 
-
---
--- Name: idx_audit_logs_profile_model_created_id_desc; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_audit_logs_profile_model_created_id_desc ON ONLY public.audit_logs USING btree (profile_id, model_id, created_at DESC, id DESC);
-
-
---
--- Name: idx_audit_logs_profile_request_created_id_desc; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_audit_logs_profile_request_created_id_desc ON ONLY public.audit_logs USING btree (profile_id, request_log_id, created_at DESC, id DESC);
 
-
---
--- Name: idx_audit_logs_profile_status_created_id_desc; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_audit_logs_profile_status_created_id_desc ON ONLY public.audit_logs USING btree (profile_id, response_status, created_at DESC, id DESC);
-
-
---
--- Name: idx_connections_endpoint_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_connections_endpoint_id ON public.connections USING btree (endpoint_id);
-
-
---
--- Name: idx_connections_api_family; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_connections_api_family ON public.connections USING btree (api_family);
 
-
---
--- Name: idx_connections_is_active; Type: INDEX; Schema: public; Owner: -
---
+CREATE INDEX idx_connections_endpoint_id ON public.connections USING btree (endpoint_id);
 
 CREATE INDEX idx_connections_is_active ON public.connections USING btree (is_active);
 
-
---
--- Name: idx_connections_pricing_template_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_connections_pricing_template_id ON public.connections USING btree (pricing_template_id);
-
-
---
--- Name: idx_connections_priority; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_connections_priority ON public.connections USING btree (priority);
 
-
---
--- Name: idx_connections_profile_id; Type: INDEX; Schema: public; Owner: -
---
+CREATE INDEX idx_connections_profile_family_active_priority ON public.connections USING btree (profile_id, api_family, is_active, priority);
 
 CREATE INDEX idx_connections_profile_id ON public.connections USING btree (profile_id);
 
-
---
--- Name: idx_connections_profile_family_active_priority; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_connections_profile_family_active_priority ON public.connections USING btree (profile_id, api_family, is_active, priority);
-
-
---
--- Name: idx_email_outbox_dead_letters; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_email_outbox_dead_letters ON public.email_outbox USING btree (dead_lettered_at DESC) WHERE (status = 'dead'::text);
-
-
---
--- Name: idx_email_outbox_due; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_email_outbox_due ON public.email_outbox USING btree (next_attempt_at, created_at, id) WHERE (status = 'queued'::text);
-
-
---
--- Name: idx_email_outbox_idempotency_key; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX idx_email_outbox_idempotency_key ON public.email_outbox USING btree (idempotency_key);
-
-
---
--- Name: idx_email_outbox_kind; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_email_outbox_kind ON public.email_outbox USING btree (kind);
-
-
---
--- Name: idx_email_outbox_stale_locks; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_email_outbox_stale_locks ON public.email_outbox USING btree (locked_until) WHERE (status = 'sending'::text);
-
-
---
--- Name: idx_endpoints_profile_position; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_endpoints_profile_position ON public.endpoints USING btree (profile_id, "position");
-
-
---
--- Name: idx_fx_endpoint_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_fx_endpoint_id ON public.endpoint_fx_rate_settings USING btree (endpoint_id);
 
-
---
--- Name: idx_fx_profile_model_endpoint; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_fx_profile_model_endpoint ON public.endpoint_fx_rate_settings USING btree (profile_id, model_id, endpoint_id);
-
-
---
--- Name: idx_hbr_enabled; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_hbr_enabled ON public.header_blocklist_rules USING btree (enabled);
 
-
---
--- Name: idx_loadbalance_events_connection; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_loadbalance_events_connection ON ONLY public.loadbalance_events USING btree (connection_id, created_at);
-
-
---
--- Name: idx_loadbalance_events_event_type; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_loadbalance_events_event_type ON ONLY public.loadbalance_events USING btree (event_type);
 
-
---
--- Name: idx_loadbalance_events_profile_created; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_loadbalance_events_profile_created ON ONLY public.loadbalance_events USING btree (profile_id, created_at);
-
-
---
--- Name: idx_loadbalance_round_robin_state_profile_model; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_loadbalance_round_robin_state_profile_model ON public.loadbalance_round_robin_state USING btree (profile_id, model_config_id);
 
-
---
--- Name: idx_loadbalance_strategies_profile_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_loadbalance_strategies_profile_id ON public.loadbalance_strategies USING btree (profile_id);
-
-
---
--- Name: idx_management_job_events_job_created; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_management_job_events_job_created ON public.management_job_events USING btree (job_id, created_at, id);
-
-
---
--- Name: idx_management_jobs_due; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_management_jobs_due ON public.management_jobs USING btree (next_attempt_at, created_at, id) WHERE (state = ANY (ARRAY['queued'::text, 'running'::text]));
-
-
---
--- Name: idx_management_jobs_idempotency; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX idx_management_jobs_idempotency ON public.management_jobs USING btree (type, requested_by, idempotency_key) WHERE (idempotency_key IS NOT NULL);
-
-
---
--- Name: idx_management_jobs_type_state_updated; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_management_jobs_type_state_updated ON public.management_jobs USING btree (type, state, updated_at DESC);
-
-
---
--- Name: idx_management_outbox_aggregate; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_management_outbox_aggregate ON public.management_outbox USING btree (aggregate_type, aggregate_id, aggregate_version);
-
-
---
--- Name: idx_management_outbox_dedupe_key; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX idx_management_outbox_dedupe_key ON public.management_outbox USING btree (dedupe_key);
-
-
---
--- Name: idx_management_outbox_operation; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_management_outbox_operation ON public.management_outbox USING btree (operation_id);
-
-
---
--- Name: idx_management_outbox_polling; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_management_outbox_polling ON public.management_outbox USING btree (status, next_attempt_at, created_at, id);
-
-
---
--- Name: idx_management_stat_buckets_dashboard_profile; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_management_stat_buckets_dashboard_profile ON public.management_stat_buckets USING btree (dimension_key, dimension_value, bucket_size, metric);
-
-
---
--- Name: idx_model_configs_loadbalance_strategy_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_model_configs_loadbalance_strategy_id ON public.model_configs USING btree (loadbalance_strategy_id);
-
-
---
--- Name: idx_model_configs_profile_model_enabled; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_model_configs_profile_model_enabled ON public.model_configs USING btree (profile_id, model_id, is_enabled);
-
-
---
--- Name: idx_model_access_targets_connection; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_model_access_targets_connection ON public.model_access_targets USING btree (target_connection_id) WHERE (target_connection_id IS NOT NULL);
-
-
---
--- Name: uq_model_access_targets_connection_owner; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX uq_model_access_targets_connection_owner ON public.model_access_targets USING btree (target_connection_id) WHERE (target_connection_id IS NOT NULL);
-
-
---
--- Name: idx_model_access_targets_profile_source_position; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_model_access_targets_profile_source_position ON public.model_access_targets USING btree (profile_id, source_model_config_id, "position");
-
-
---
--- Name: idx_model_access_targets_target_model; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_model_access_targets_target_model ON public.model_access_targets USING btree (target_model_config_id) WHERE (target_model_config_id IS NOT NULL);
-
-
---
--- Name: idx_profile_api_family_audit_settings_profile_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_profile_api_family_audit_settings_profile_id ON public.profile_api_family_audit_settings USING btree (profile_id);
-
-
---
--- Name: uq_model_access_targets_source_target_connection; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX uq_model_access_targets_source_target_connection ON public.model_access_targets USING btree (source_model_config_id, target_connection_id) WHERE (target_connection_id IS NOT NULL);
-
-
---
--- Name: uq_model_access_targets_source_target_model; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX uq_model_access_targets_source_target_model ON public.model_access_targets USING btree (source_model_config_id, target_model_config_id) WHERE (target_model_config_id IS NOT NULL);
-
-
---
--- Name: idx_login_throttle_ledger_locked_until; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_login_throttle_ledger_locked_until ON public.login_throttle_ledger USING btree (locked_until) WHERE (locked_until IS NOT NULL);
 
-
---
--- Name: idx_login_throttle_ledger_updated_at; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_login_throttle_ledger_updated_at ON public.login_throttle_ledger USING btree (updated_at);
 
+CREATE INDEX idx_management_job_events_job_created ON public.management_job_events USING btree (job_id, created_at, id);
 
---
--- Name: idx_password_reset_challenges_consumed_at; Type: INDEX; Schema: public; Owner: -
---
+CREATE INDEX idx_management_jobs_due ON public.management_jobs USING btree (next_attempt_at, created_at, id) WHERE (state = ANY (ARRAY['queued'::text, 'running'::text]));
 
-CREATE INDEX idx_password_reset_challenges_consumed_at ON public.password_reset_challenges USING btree (consumed_at);
+CREATE UNIQUE INDEX idx_management_jobs_idempotency ON public.management_jobs USING btree (type, requested_by, idempotency_key) WHERE (idempotency_key IS NOT NULL);
 
+CREATE INDEX idx_management_jobs_type_state_updated ON public.management_jobs USING btree (type, state, updated_at DESC);
 
---
--- Name: idx_password_reset_challenges_expires_at; Type: INDEX; Schema: public; Owner: -
---
+CREATE INDEX idx_management_outbox_aggregate ON public.management_outbox USING btree (aggregate_type, aggregate_id, aggregate_version);
 
-CREATE INDEX idx_password_reset_challenges_expires_at ON public.password_reset_challenges USING btree (expires_at);
+CREATE UNIQUE INDEX idx_management_outbox_dedupe_key ON public.management_outbox USING btree (dedupe_key);
 
+CREATE INDEX idx_management_outbox_operation ON public.management_outbox USING btree (operation_id);
 
---
--- Name: idx_pricing_templates_profile_id; Type: INDEX; Schema: public; Owner: -
---
+CREATE INDEX idx_management_outbox_polling ON public.management_outbox USING btree (status, next_attempt_at, created_at, id);
+
+CREATE INDEX idx_model_access_targets_connection ON public.model_access_targets USING btree (target_connection_id) WHERE (target_connection_id IS NOT NULL);
+
+CREATE INDEX idx_model_access_targets_profile_source_position ON public.model_access_targets USING btree (profile_id, source_model_config_id, "position");
+
+CREATE INDEX idx_model_access_targets_target_model ON public.model_access_targets USING btree (target_model_config_id) WHERE (target_model_config_id IS NOT NULL);
+
+CREATE INDEX idx_model_configs_loadbalance_strategy_id ON public.model_configs USING btree (loadbalance_strategy_id);
+
+CREATE INDEX idx_model_configs_profile_model_enabled ON public.model_configs USING btree (profile_id, model_id, is_enabled);
 
 CREATE INDEX idx_pricing_templates_profile_id ON public.pricing_templates USING btree (profile_id);
 
-
---
--- Name: idx_profiles_deleted_at; Type: INDEX; Schema: public; Owner: -
---
+CREATE INDEX idx_profile_api_family_audit_settings_profile_id ON public.profile_api_family_audit_settings USING btree (profile_id);
 
 CREATE INDEX idx_profiles_deleted_at ON public.profiles USING btree (deleted_at);
 
-
---
--- Name: idx_proxy_api_keys_is_active; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_proxy_api_keys_is_active ON public.proxy_api_keys USING btree (is_active);
-
-
---
--- Name: idx_refresh_tokens_expires_at; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_refresh_tokens_expires_at ON public.refresh_tokens USING btree (expires_at);
 
-
---
--- Name: idx_refresh_tokens_revoked_at; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_refresh_tokens_revoked_at ON public.refresh_tokens USING btree (revoked_at);
-
-
---
--- Name: idx_request_logs_billable_flag; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_request_logs_billable_flag ON ONLY public.request_logs USING btree (billable_flag);
 
-
---
--- Name: idx_request_logs_ingress_request_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_request_logs_ingress_request_id ON ONLY public.request_logs USING btree (ingress_request_id);
-
-
---
--- Name: idx_request_logs_priced_flag; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_request_logs_priced_flag ON ONLY public.request_logs USING btree (priced_flag);
 
-
---
--- Name: idx_request_logs_profile_created_at; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_request_logs_profile_created_at ON ONLY public.request_logs USING btree (profile_id, created_at);
-
-
---
--- Name: idx_routing_connection_runtime_leases_expires_at; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_routing_connection_runtime_leases_expires_at ON public.routing_connection_runtime_leases USING btree (expires_at);
 
-
---
--- Name: idx_routing_connection_runtime_leases_profile_connection; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_routing_connection_runtime_leases_profile_connection ON public.routing_connection_runtime_leases USING btree (profile_id, connection_id);
-
-
---
--- Name: idx_routing_connection_runtime_state_profile_connection; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_routing_connection_runtime_state_profile_connection ON public.routing_connection_runtime_state USING btree (profile_id, connection_id);
 
-
---
--- Name: idx_runtime_cache_generations_domain_scope; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_runtime_cache_generations_domain_scope ON public.runtime_cache_generations USING btree (domain, scope_type, scope_id, version);
-
-
---
--- Name: idx_runtime_telemetry_outbox_created_at; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_runtime_telemetry_outbox_created_at ON public.runtime_telemetry_outbox USING btree (created_at, id);
 
-
---
--- Name: idx_runtime_telemetry_outbox_profile_ingress_request_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_runtime_telemetry_outbox_profile_ingress_request_id ON public.runtime_telemetry_outbox USING btree (profile_id, ingress_request_id);
-
-
---
--- Name: idx_uacr_enabled; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_uacr_enabled ON public.user_agent_client_rules USING btree (enabled);
 
-
---
--- Name: idx_usage_request_events_ingress_request_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_usage_request_events_ingress_request_id ON ONLY public.usage_request_events USING btree (ingress_request_id);
-
-
---
--- Name: idx_usage_request_events_profile_created_at; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_usage_request_events_profile_created_at ON ONLY public.usage_request_events USING btree (profile_id, created_at);
 
-
---
--- Name: idx_usage_request_events_profile_ingress_request; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_usage_request_events_profile_ingress_request ON ONLY public.usage_request_events USING btree (profile_id, ingress_request_id);
-
-
---
--- Name: idx_webauthn_challenges_challenge_key; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_webauthn_challenges_challenge_key ON public.webauthn_challenges USING btree (challenge_key);
-
-
---
--- Name: idx_webauthn_challenges_expires_at; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_webauthn_challenges_expires_at ON public.webauthn_challenges USING btree (expires_at);
-
-
---
--- Name: idx_webauthn_credentials_auth_subject; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_webauthn_credentials_auth_subject ON public.webauthn_credentials USING btree (auth_subject_id);
-
-
---
--- Name: idx_webauthn_credentials_last_used; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_webauthn_credentials_last_used ON public.webauthn_credentials USING btree (last_used_at);
-
-
---
--- Name: ix_audit_logs_connection_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX ix_audit_logs_connection_id ON ONLY public.audit_logs USING btree (connection_id);
 
-
---
--- Name: ix_audit_logs_created_at; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX ix_audit_logs_created_at ON ONLY public.audit_logs USING btree (created_at);
-
-
---
--- Name: ix_audit_logs_endpoint_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX ix_audit_logs_endpoint_id ON ONLY public.audit_logs USING btree (endpoint_id);
 
-
---
--- Name: ix_audit_logs_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX ix_audit_logs_id ON ONLY public.audit_logs USING btree (id);
-
-
---
--- Name: ix_audit_logs_model_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX ix_audit_logs_model_id ON ONLY public.audit_logs USING btree (model_id);
 
-
---
--- Name: ix_audit_logs_profile_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX ix_audit_logs_profile_id ON ONLY public.audit_logs USING btree (profile_id);
-
-
---
--- Name: ix_audit_logs_request_log_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX ix_audit_logs_request_log_id ON ONLY public.audit_logs USING btree (request_log_id);
 
-
---
--- Name: ix_audit_logs_response_status; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX ix_audit_logs_response_status ON ONLY public.audit_logs USING btree (response_status);
-
-
---
--- Name: ix_connections_profile_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX ix_connections_profile_id ON public.connections USING btree (profile_id);
 
-
---
--- Name: ix_endpoint_fx_rate_settings_profile_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX ix_endpoint_fx_rate_settings_profile_id ON public.endpoint_fx_rate_settings USING btree (profile_id);
-
-
---
--- Name: ix_endpoints_profile_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX ix_endpoints_profile_id ON public.endpoints USING btree (profile_id);
 
-
---
--- Name: ix_header_blocklist_rules_profile_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX ix_header_blocklist_rules_profile_id ON public.header_blocklist_rules USING btree (profile_id);
-
-
---
--- Name: ix_loadbalance_events_created_at; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX ix_loadbalance_events_created_at ON ONLY public.loadbalance_events USING btree (created_at);
 
-
---
--- Name: ix_loadbalance_events_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX ix_loadbalance_events_id ON ONLY public.loadbalance_events USING btree (id);
-
-
---
--- Name: ix_loadbalance_events_profile_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX ix_loadbalance_events_profile_id ON ONLY public.loadbalance_events USING btree (profile_id);
 
-
---
--- Name: ix_loadbalance_strategies_profile_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX ix_loadbalance_strategies_profile_id ON public.loadbalance_strategies USING btree (profile_id);
-
-
---
--- Name: ix_model_configs_profile_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX ix_model_configs_profile_id ON public.model_configs USING btree (profile_id);
 
-
---
--- Name: ix_password_reset_challenges_auth_subject_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_password_reset_challenges_auth_subject_id ON public.password_reset_challenges USING btree (auth_subject_id);
-
-
---
--- Name: ix_pricing_templates_profile_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX ix_pricing_templates_profile_id ON public.pricing_templates USING btree (profile_id);
-
-
---
--- Name: ix_refresh_tokens_auth_subject_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX ix_refresh_tokens_auth_subject_id ON public.refresh_tokens USING btree (auth_subject_id);
 
-
---
--- Name: ix_request_logs_api_family; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX ix_request_logs_api_family ON ONLY public.request_logs USING btree (api_family);
-
-
---
--- Name: ix_request_logs_connection_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX ix_request_logs_connection_id ON ONLY public.request_logs USING btree (connection_id);
 
-
---
--- Name: ix_request_logs_created_at; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX ix_request_logs_created_at ON ONLY public.request_logs USING btree (created_at);
-
-
---
--- Name: ix_request_logs_endpoint_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX ix_request_logs_endpoint_id ON ONLY public.request_logs USING btree (endpoint_id);
 
-
---
--- Name: ix_request_logs_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX ix_request_logs_id ON ONLY public.request_logs USING btree (id);
-
-
---
--- Name: ix_request_logs_model_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX ix_request_logs_model_id ON ONLY public.request_logs USING btree (model_id);
 
-
---
--- Name: ix_request_logs_profile_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX ix_request_logs_profile_id ON ONLY public.request_logs USING btree (profile_id);
-
-
---
--- Name: ix_request_logs_proxy_api_key_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX ix_request_logs_proxy_api_key_id ON ONLY public.request_logs USING btree (proxy_api_key_id);
 
-
---
--- Name: ix_request_logs_status_code; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX ix_request_logs_status_code ON ONLY public.request_logs USING btree (status_code);
-
-
---
--- Name: ix_usage_request_events_api_family; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX ix_usage_request_events_api_family ON ONLY public.usage_request_events USING btree (api_family);
 
-
---
--- Name: ix_usage_request_events_connection_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX ix_usage_request_events_connection_id ON ONLY public.usage_request_events USING btree (connection_id);
-
-
---
--- Name: ix_usage_request_events_created_at; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX ix_usage_request_events_created_at ON ONLY public.usage_request_events USING btree (created_at);
 
-
---
--- Name: ix_usage_request_events_endpoint_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX ix_usage_request_events_endpoint_id ON ONLY public.usage_request_events USING btree (endpoint_id);
-
-
---
--- Name: ix_usage_request_events_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX ix_usage_request_events_id ON ONLY public.usage_request_events USING btree (id);
 
-
---
--- Name: ix_usage_request_events_model_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX ix_usage_request_events_model_id ON ONLY public.usage_request_events USING btree (model_id);
-
-
---
--- Name: ix_usage_request_events_profile_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX ix_usage_request_events_profile_id ON ONLY public.usage_request_events USING btree (profile_id);
 
-
---
--- Name: ix_usage_request_events_proxy_api_key_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX ix_usage_request_events_proxy_api_key_id ON ONLY public.usage_request_events USING btree (proxy_api_key_id);
-
-
---
--- Name: ix_user_agent_client_rules_profile_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX ix_user_agent_client_rules_profile_id ON public.user_agent_client_rules USING btree (profile_id);
 
-
---
--- Name: ix_user_settings_profile_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX ix_user_settings_profile_id ON public.user_settings USING btree (profile_id);
-
-
---
--- Name: ix_webauthn_challenges_challenge_key; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX ix_webauthn_challenges_challenge_key ON public.webauthn_challenges USING btree (challenge_key);
-
-
---
--- Name: uq_hbr_system_match_pattern; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE UNIQUE INDEX uq_hbr_system_match_pattern ON public.header_blocklist_rules USING btree (match_type, pattern) WHERE (is_system = true);
 
+CREATE UNIQUE INDEX uq_model_access_targets_connection_owner ON public.model_access_targets USING btree (target_connection_id) WHERE (target_connection_id IS NOT NULL);
 
---
--- Name: uq_profiles_single_active; Type: INDEX; Schema: public; Owner: -
---
+CREATE UNIQUE INDEX uq_model_access_targets_source_target_connection ON public.model_access_targets USING btree (source_model_config_id, target_connection_id) WHERE (target_connection_id IS NOT NULL);
+
+CREATE UNIQUE INDEX uq_model_access_targets_source_target_model ON public.model_access_targets USING btree (source_model_config_id, target_model_config_id) WHERE (target_model_config_id IS NOT NULL);
 
 CREATE UNIQUE INDEX uq_profiles_single_active ON public.profiles USING btree (is_active) WHERE (is_active = true);
 
-
---
--- Name: uq_profiles_single_default; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE UNIQUE INDEX uq_profiles_single_default ON public.profiles USING btree (is_default) WHERE (is_default = true);
 
-
---
--- Name: uq_uacr_system_pattern; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE UNIQUE INDEX uq_uacr_system_pattern ON public.user_agent_client_rules USING btree (pattern) WHERE (is_system = true);
-
-
---
--- Name: audit_logs audit_logs_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE public.audit_logs
     ADD CONSTRAINT audit_logs_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE RESTRICT;
 
-
---
--- Name: connections connections_endpoint_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.connections
     ADD CONSTRAINT connections_endpoint_id_fkey FOREIGN KEY (endpoint_id) REFERENCES public.endpoints(id) ON DELETE RESTRICT;
-
-
---
--- Name: connections connections_pricing_template_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.connections
     ADD CONSTRAINT connections_pricing_template_id_fkey FOREIGN KEY (pricing_template_id) REFERENCES public.pricing_templates(id) ON DELETE RESTRICT;
 
-
---
--- Name: connections connections_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.connections
     ADD CONSTRAINT connections_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
-
-
---
--- Name: endpoint_fx_rate_settings endpoint_fx_rate_settings_endpoint_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.endpoint_fx_rate_settings
     ADD CONSTRAINT endpoint_fx_rate_settings_endpoint_id_fkey FOREIGN KEY (endpoint_id) REFERENCES public.endpoints(id) ON DELETE CASCADE;
 
-
---
--- Name: endpoint_fx_rate_settings endpoint_fx_rate_settings_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.endpoint_fx_rate_settings
     ADD CONSTRAINT endpoint_fx_rate_settings_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
-
-
---
--- Name: endpoints endpoints_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.endpoints
     ADD CONSTRAINT endpoints_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
 
-
---
--- Name: model_configs fk_model_configs_profile_loadbalance_strategy; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.model_configs
     ADD CONSTRAINT fk_model_configs_profile_loadbalance_strategy FOREIGN KEY (profile_id, loadbalance_strategy_id) REFERENCES public.loadbalance_strategies(profile_id, id) ON DELETE RESTRICT;
-
-
---
--- Name: header_blocklist_rules header_blocklist_rules_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.header_blocklist_rules
     ADD CONSTRAINT header_blocklist_rules_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
 
-
---
--- Name: loadbalance_events loadbalance_events_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE public.loadbalance_events
     ADD CONSTRAINT loadbalance_events_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE RESTRICT;
-
-
---
--- Name: loadbalance_round_robin_state loadbalance_round_robin_state_model_config_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.loadbalance_round_robin_state
     ADD CONSTRAINT loadbalance_round_robin_state_model_config_id_fkey FOREIGN KEY (model_config_id) REFERENCES public.model_configs(id) ON DELETE CASCADE;
 
-
---
--- Name: loadbalance_strategies loadbalance_strategies_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.loadbalance_strategies
     ADD CONSTRAINT loadbalance_strategies_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
-
-
---
--- Name: management_job_events management_job_events_job_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.management_job_events
     ADD CONSTRAINT management_job_events_job_id_fkey FOREIGN KEY (job_id) REFERENCES public.management_jobs(id) ON DELETE CASCADE;
 
-
---
--- Name: model_configs model_configs_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.model_configs
-    ADD CONSTRAINT model_configs_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
-
-
---
--- Name: model_access_targets model_access_targets_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.model_access_targets
     ADD CONSTRAINT model_access_targets_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
-
-
---
--- Name: model_access_targets model_access_targets_source_model_profile_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.model_access_targets
     ADD CONSTRAINT model_access_targets_source_model_profile_fkey FOREIGN KEY (source_model_config_id, profile_id) REFERENCES public.model_configs(id, profile_id) ON DELETE CASCADE;
 
-
---
--- Name: model_access_targets model_access_targets_target_connection_profile_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.model_access_targets
     ADD CONSTRAINT model_access_targets_target_connection_profile_fkey FOREIGN KEY (target_connection_id, profile_id) REFERENCES public.connections(id, profile_id) ON DELETE RESTRICT;
-
-
---
--- Name: model_access_targets model_access_targets_target_model_profile_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.model_access_targets
     ADD CONSTRAINT model_access_targets_target_model_profile_fkey FOREIGN KEY (target_model_config_id, profile_id) REFERENCES public.model_configs(id, profile_id) ON DELETE RESTRICT;
 
-
---
--- Name: profile_api_family_audit_settings profile_api_family_audit_settings_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.profile_api_family_audit_settings
-    ADD CONSTRAINT profile_api_family_audit_settings_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
-
-
---
--- Name: password_reset_challenges password_reset_challenges_auth_subject_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.password_reset_challenges
-    ADD CONSTRAINT password_reset_challenges_auth_subject_id_fkey FOREIGN KEY (auth_subject_id) REFERENCES public.app_auth_settings(id) ON DELETE CASCADE;
-
-
---
--- Name: pricing_templates pricing_templates_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
+ALTER TABLE ONLY public.model_configs
+    ADD CONSTRAINT model_configs_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY public.pricing_templates
     ADD CONSTRAINT pricing_templates_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
 
-
---
--- Name: proxy_api_keys proxy_api_keys_created_by_auth_subject_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
+ALTER TABLE ONLY public.profile_api_family_audit_settings
+    ADD CONSTRAINT profile_api_family_audit_settings_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY public.proxy_api_keys
     ADD CONSTRAINT proxy_api_keys_created_by_auth_subject_id_fkey FOREIGN KEY (created_by_auth_subject_id) REFERENCES public.app_auth_settings(id) ON DELETE SET NULL;
 
-
---
--- Name: proxy_api_keys proxy_api_keys_rotated_from_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.proxy_api_keys
     ADD CONSTRAINT proxy_api_keys_rotated_from_id_fkey FOREIGN KEY (rotated_from_id) REFERENCES public.proxy_api_keys(id) ON DELETE SET NULL;
-
-
---
--- Name: refresh_tokens refresh_tokens_auth_subject_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.refresh_tokens
     ADD CONSTRAINT refresh_tokens_auth_subject_id_fkey FOREIGN KEY (auth_subject_id) REFERENCES public.app_auth_settings(id) ON DELETE CASCADE;
 
-
---
--- Name: refresh_tokens refresh_tokens_rotated_from_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.refresh_tokens
     ADD CONSTRAINT refresh_tokens_rotated_from_id_fkey FOREIGN KEY (rotated_from_id) REFERENCES public.refresh_tokens(id) ON DELETE SET NULL;
-
-
---
--- Name: request_logs request_logs_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE public.request_logs
     ADD CONSTRAINT request_logs_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE RESTRICT;
 
-
---
--- Name: request_logs request_logs_proxy_api_key_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE public.request_logs
     ADD CONSTRAINT request_logs_proxy_api_key_id_fkey FOREIGN KEY (proxy_api_key_id) REFERENCES public.proxy_api_keys(id) ON DELETE SET NULL;
-
-
---
--- Name: routing_connection_runtime_leases routing_connection_runtime_leases_connection_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.routing_connection_runtime_leases
     ADD CONSTRAINT routing_connection_runtime_leases_connection_id_fkey FOREIGN KEY (connection_id) REFERENCES public.connections(id) ON DELETE CASCADE;
 
-
---
--- Name: routing_connection_runtime_leases routing_connection_runtime_leases_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.routing_connection_runtime_leases
     ADD CONSTRAINT routing_connection_runtime_leases_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
-
-
---
--- Name: routing_connection_runtime_state routing_connection_runtime_state_connection_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.routing_connection_runtime_state
     ADD CONSTRAINT routing_connection_runtime_state_connection_id_fkey FOREIGN KEY (connection_id) REFERENCES public.connections(id) ON DELETE CASCADE;
 
-
---
--- Name: routing_connection_runtime_state routing_connection_runtime_state_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.routing_connection_runtime_state
     ADD CONSTRAINT routing_connection_runtime_state_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
-
-
---
--- Name: runtime_telemetry_outbox runtime_telemetry_outbox_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.runtime_telemetry_outbox
     ADD CONSTRAINT runtime_telemetry_outbox_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE RESTRICT;
 
-
---
--- Name: usage_request_events usage_request_events_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE public.usage_request_events
     ADD CONSTRAINT usage_request_events_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE RESTRICT;
-
-
---
--- Name: usage_request_events usage_request_events_proxy_api_key_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE public.usage_request_events
     ADD CONSTRAINT usage_request_events_proxy_api_key_id_fkey FOREIGN KEY (proxy_api_key_id) REFERENCES public.proxy_api_keys(id) ON DELETE SET NULL;
 
-
---
--- Name: user_agent_client_rules user_agent_client_rules_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.user_agent_client_rules
     ADD CONSTRAINT user_agent_client_rules_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
 
-
---
--- Name: user_settings user_settings_profile_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.user_settings
     ADD CONSTRAINT user_settings_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
-
-
---
--- Name: webauthn_credentials webauthn_credentials_auth_subject_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.webauthn_credentials
-    ADD CONSTRAINT webauthn_credentials_auth_subject_id_fkey FOREIGN KEY (auth_subject_id) REFERENCES public.app_auth_settings(id) ON DELETE CASCADE;
 
 
 -- Migration-owned singleton/bootstrap rows.
