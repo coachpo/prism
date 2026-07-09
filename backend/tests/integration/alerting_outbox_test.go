@@ -167,12 +167,8 @@ func newAlertingIntegrationPool(t *testing.T) (context.Context, *pgxpool.Pool) {
 	t.Cleanup(cancel)
 
 	harness := newPostgresHarness(t)
-	runner := newRunner(t)
 	databaseName := "alerting_outbox_" + randomSuffix(t)
 	conn := harness.openDatabase(t, ctx, databaseName)
-	if _, err := runner.Run(ctx, conn); err != nil {
-		t.Fatalf("run migrations: %v", err)
-	}
 	if err := conn.Close(ctx); err != nil {
 		t.Fatalf("close setup connection: %v", err)
 	}

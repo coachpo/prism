@@ -31,7 +31,7 @@ func TestLogRetentionPartitionLifecycle(t *testing.T) {
 	harness := newPostgresHarness(t)
 	databaseName := "log_retention_partition_lifecycle"
 	databaseURL := harness.connectionString(databaseName)
-	conn := harness.openDatabase(t, testContext, databaseName)
+	conn := harness.openEmptyDatabase(t, testContext, databaseName)
 
 	service := newStartupService(t, databaseURL, nil)
 	if _, err := service.RunWithConn(testContext, conn); err != nil {
@@ -100,12 +100,8 @@ func TestScheduledGlobalLogRetentionProcessesStoredSettings(t *testing.T) {
 	defer cancel()
 
 	harness := newPostgresHarness(t)
-	runner := newRunner(t)
 	databaseName := "scheduled_global_log_retention"
 	conn := harness.openDatabase(t, testContext, databaseName)
-	if _, err := runner.Run(testContext, conn); err != nil {
-		t.Fatalf("run migrations: %v", err)
-	}
 	if err := conn.Close(testContext); err != nil {
 		t.Fatalf("close migration connection: %v", err)
 	}

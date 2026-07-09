@@ -32,11 +32,7 @@ func TestLogRetentionJobDropsExpiredPartitions(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	harness := newPostgresHarness(t)
-	runner := newRunner(t)
 	conn := harness.openDatabase(t, ctx, "log_retention_job_partitions")
-	if _, err := runner.Run(ctx, conn); err != nil {
-		t.Fatalf("run migrations: %v", err)
-	}
 	if err := conn.Close(ctx); err != nil {
 		t.Fatalf("close setup conn: %v", err)
 	}
@@ -84,11 +80,7 @@ func TestLogRetentionSettingsAndJobRoutesAreGlobal(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	harness := newPostgresHarness(t)
-	runner := newRunner(t)
 	conn := harness.openDatabase(t, ctx, "log_retention_settings_routes")
-	if _, err := runner.Run(ctx, conn); err != nil {
-		t.Fatalf("run migrations: %v", err)
-	}
 	if err := conn.Close(ctx); err != nil {
 		t.Fatalf("close setup conn: %v", err)
 	}
@@ -244,12 +236,8 @@ func TestDashboardRecentActivityEmptyContract(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	harness := newPostgresHarness(t)
-	runner := newRunner(t)
 	databaseName := "dashboard_recent_activity_empty"
 	conn := harness.openDatabase(t, ctx, databaseName)
-	if _, err := runner.Run(ctx, conn); err != nil {
-		t.Fatalf("run migrations: %v", err)
-	}
 	profileID := phase7InsertProfile(t, ctx, conn)
 	if err := conn.Close(ctx); err != nil {
 		t.Fatalf("close setup conn: %v", err)
@@ -283,12 +271,8 @@ func TestDashboardRecentActivityBoundedContract(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	harness := newPostgresHarness(t)
-	runner := newRunner(t)
 	databaseName := "dashboard_recent_activity_bounded"
 	conn := harness.openDatabase(t, ctx, databaseName)
-	if _, err := runner.Run(ctx, conn); err != nil {
-		t.Fatalf("run migrations: %v", err)
-	}
 	profileID := phase7InsertProfile(t, ctx, conn)
 	route := phase7InsertDashboardRoutingTarget(t, ctx, conn, profileID, "recent-activity")
 	for i := range 55 {
@@ -645,22 +629,14 @@ func phase7PartitionExists(partitions []logretention.Partition, partitionName st
 func phase7MigratedConn(t *testing.T, ctx context.Context, name string) *pgx.Conn {
 	t.Helper()
 	harness := newPostgresHarness(t)
-	runner := newRunner(t)
 	conn := harness.openDatabase(t, ctx, name)
-	if _, err := runner.Run(ctx, conn); err != nil {
-		t.Fatalf("run migrations for %s: %v", name, err)
-	}
 	return conn
 }
 
 func phase7JobStore(t *testing.T, ctx context.Context, name string) (*managementjobs.Store, *pgxpool.Pool, int) {
 	t.Helper()
 	harness := newPostgresHarness(t)
-	runner := newRunner(t)
 	conn := harness.openDatabase(t, ctx, name)
-	if _, err := runner.Run(ctx, conn); err != nil {
-		t.Fatalf("run migrations for %s: %v", name, err)
-	}
 	profileID := phase7InsertProfile(t, ctx, conn)
 	if err := conn.Close(ctx); err != nil {
 		t.Fatalf("close setup conn: %v", err)

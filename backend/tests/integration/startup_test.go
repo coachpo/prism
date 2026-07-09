@@ -41,7 +41,7 @@ func TestStartupCreatesLogPartitions(t *testing.T) {
 
 	harness := newPostgresHarness(t)
 	databaseName := "startup_creates_log_partitions"
-	conn := harness.openDatabase(t, testContext, databaseName)
+	conn := harness.openEmptyDatabase(t, testContext, databaseName)
 	defer func() { _ = conn.Close(testContext) }()
 
 	service := newStartupService(t, harness.connectionString(databaseName), nil)
@@ -68,7 +68,7 @@ func TestStartupFailsWhenLogPartitionBootstrapFails(t *testing.T) {
 
 	harness := newPostgresHarness(t)
 	databaseName := "startup_fails_log_partition_bootstrap"
-	conn := harness.openDatabase(t, testContext, databaseName)
+	conn := harness.openEmptyDatabase(t, testContext, databaseName)
 	defer func() { _ = conn.Close(testContext) }()
 
 	service := newStartupService(t, harness.connectionString(databaseName), nil)
@@ -96,7 +96,7 @@ func TestStartupSeeds(t *testing.T) {
 	defer cancel()
 
 	harness := newPostgresHarness(t)
-	conn := harness.openDatabase(t, testContext, "startup_seeds")
+	conn := harness.openEmptyDatabase(t, testContext, "startup_seeds")
 	defer func() { _ = conn.Close(testContext) }()
 
 	service := newStartupService(t, harness.connectionString("startup_seeds"), nil)
@@ -155,7 +155,7 @@ func TestBackendStartupWithStartupTelemetryConfig(t *testing.T) {
 
 	harness := newPostgresHarness(t)
 	databaseName := "backend_startup_telemetry_config"
-	conn := harness.openDatabase(t, testContext, databaseName)
+	conn := harness.openEmptyDatabase(t, testContext, databaseName)
 	defer func() { _ = conn.Close(testContext) }()
 
 	configPath := filepath.Join(t.TempDir(), "bootstrap.json")
@@ -191,7 +191,7 @@ func TestStartupIgnoresLegacySkipEnv(t *testing.T) {
 	defer cancel()
 
 	harness := newPostgresHarness(t)
-	conn := harness.openDatabase(t, testContext, "startup_ignores_legacy_skip_env")
+	conn := harness.openEmptyDatabase(t, testContext, "startup_ignores_legacy_skip_env")
 	defer func() { _ = conn.Close(testContext) }()
 
 	service := newStartupService(t, harness.connectionString("startup_ignores_legacy_skip_env"), nil)
@@ -218,7 +218,7 @@ func TestStartupRuleSeeds(t *testing.T) {
 	defer cancel()
 
 	harness := newPostgresHarness(t)
-	conn := harness.openDatabase(t, testContext, "startup_rule_seeds")
+	conn := harness.openEmptyDatabase(t, testContext, "startup_rule_seeds")
 	defer func() { _ = conn.Close(testContext) }()
 
 	runner := newRunner(t)
@@ -283,7 +283,7 @@ func TestStartupIdempotency(t *testing.T) {
 	defer cancel()
 
 	harness := newPostgresHarness(t)
-	conn := harness.openDatabase(t, testContext, "startup_idempotency")
+	conn := harness.openEmptyDatabase(t, testContext, "startup_idempotency")
 	defer func() { _ = conn.Close(testContext) }()
 
 	runner := newRunner(t)
@@ -336,7 +336,7 @@ func TestStartupPreservesRuntimeStatePersistenceAcrossRestart(t *testing.T) {
 	defer cancel()
 
 	harness := newPostgresHarness(t)
-	conn := harness.openDatabase(t, testContext, "startup_runtime_state_persistence")
+	conn := harness.openEmptyDatabase(t, testContext, "startup_runtime_state_persistence")
 	defer func() { _ = conn.Close(testContext) }()
 
 	runner := newRunner(t)

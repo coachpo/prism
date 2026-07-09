@@ -17,12 +17,8 @@ func TestLogRetentionStoreEnsurePartitionHorizon(t *testing.T) {
 	defer cancel()
 
 	harness := newPostgresHarness(t)
-	runner := newRunner(t)
 	databaseName := "logretention_store_horizon"
 	conn := harness.openDatabase(t, ctx, databaseName)
-	if _, err := runner.Run(ctx, conn); err != nil {
-		t.Fatalf("run migrations: %v", err)
-	}
 	if err := conn.Close(ctx); err != nil {
 		t.Fatalf("close setup conn: %v", err)
 	}
@@ -79,12 +75,8 @@ func TestLogRetentionStoreDropExpiredPartitionsAndBoundaryDelete(t *testing.T) {
 	defer cancel()
 
 	harness := newPostgresHarness(t)
-	runner := newRunner(t)
 	databaseName := "logretention_store_cutoff"
 	conn := harness.openDatabase(t, ctx, databaseName)
-	if _, err := runner.Run(ctx, conn); err != nil {
-		t.Fatalf("run migrations: %v", err)
-	}
 	if err := conn.Close(ctx); err != nil {
 		t.Fatalf("close setup conn: %v", err)
 	}

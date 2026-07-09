@@ -49,9 +49,6 @@ func TestRuntimeNegativeRouteMatrixMountedThroughPlatform(t *testing.T) {
 	databaseName := "runtime_negative_routes_" + randomSuffix(t)
 	conn := postgres.openDatabase(t, testContext, databaseName)
 	defer func() { _ = conn.Close(testContext) }()
-	if _, err := newRunner(t).Run(testContext, conn); err != nil {
-		t.Fatalf("apply runtime negative-route baseline: %v", err)
-	}
 
 	databaseURL := postgres.connectionString(databaseName)
 	executionPool := openIntegrationRuntimePool(t, testContext, databaseURL, "execution")

@@ -39,7 +39,7 @@ func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
 	databaseName := "fresh_apply"
-	conn := harness.openDatabase(t, testContext, databaseName)
+	conn := harness.openEmptyDatabase(t, testContext, databaseName)
 	defer func() { _ = conn.Close(testContext) }()
 
 	result, err := runner.Run(testContext, conn)
@@ -63,7 +63,7 @@ func TestAccessTargetRankingRemovalAndAuditFamilySettingsMigration(t *testing.T)
 
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "access_target_ranking_drop_audit_family")
+	conn := harness.openEmptyDatabase(t, testContext, "access_target_ranking_drop_audit_family")
 	defer func() { _ = conn.Close(testContext) }()
 
 	seedPreAuditFamilyMigrationSchema(t, testContext, conn)
@@ -89,7 +89,7 @@ func TestProfileAPIFamilyAuditSettingsFreshConstraints(t *testing.T) {
 
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "audit_family_settings_constraints")
+	conn := harness.openEmptyDatabase(t, testContext, "audit_family_settings_constraints")
 	defer func() { _ = conn.Close(testContext) }()
 
 	result, err := runner.Run(testContext, conn)
@@ -109,7 +109,7 @@ func TestEndpointLabelSnapshotFreshSchemaContract(t *testing.T) {
 
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "endpoint_label_snapshot_fresh")
+	conn := harness.openEmptyDatabase(t, testContext, "endpoint_label_snapshot_fresh")
 	defer func() { _ = conn.Close(testContext) }()
 
 	result, err := runner.Run(testContext, conn)
@@ -136,7 +136,7 @@ func TestEndpointLabelSnapshotMigrationBackfillsExistingRows(t *testing.T) {
 		}
 		return strings.Replace(sql, "    endpoint_label_snapshot text NOT NULL,\n", "", 1)
 	})
-	conn := harness.openDatabase(t, testContext, "endpoint_label_snapshot_backfill")
+	conn := harness.openEmptyDatabase(t, testContext, "endpoint_label_snapshot_backfill")
 	defer func() { _ = conn.Close(testContext) }()
 
 	oldResult, err := oldRunner.Run(testContext, conn)
@@ -170,7 +170,7 @@ func TestMigrationBackfillsOpenAIAcceptedFormatToDualNative(t *testing.T) {
 
 	harness := newPostgresHarness(t)
 	oldRunner := newRunnerThroughMigration(t, "000005_remove_access_target_weight_priority_add_audit_family_settings", nil)
-	conn := harness.openDatabase(t, testContext, "openai_accepted_format_backfill")
+	conn := harness.openEmptyDatabase(t, testContext, "openai_accepted_format_backfill")
 	defer func() { _ = conn.Close(testContext) }()
 
 	oldResult, err := oldRunner.Run(testContext, conn)
@@ -205,7 +205,7 @@ func TestStatsWriteCoherenceMigrationBackfillsHistoricalRows(t *testing.T) {
 
 	harness := newPostgresHarness(t)
 	oldRunner := newRunnerThroughMigration(t, "000008_drop_dead_auth_tables", nil)
-	conn := harness.openDatabase(t, testContext, "stats_write_coherence_backfill")
+	conn := harness.openEmptyDatabase(t, testContext, "stats_write_coherence_backfill")
 	defer func() { _ = conn.Close(testContext) }()
 
 	oldResult, err := oldRunner.Run(testContext, conn)
@@ -254,7 +254,7 @@ func TestDirtyDatabaseWithoutMigrationHistoryFails(t *testing.T) {
 	runner := newRunner(t)
 
 	t.Run("missing_history", func(t *testing.T) {
-		conn := harness.openDatabase(t, testContext, "existing_without_history")
+		conn := harness.openEmptyDatabase(t, testContext, "existing_without_history")
 		defer func() { _ = conn.Close(testContext) }()
 
 		if _, err := conn.Exec(testContext, `CREATE TABLE app_auth_settings (id BIGSERIAL PRIMARY KEY)`); err != nil {
@@ -273,7 +273,7 @@ func TestDirtyDatabaseWithoutMigrationHistoryFails(t *testing.T) {
 	})
 
 	t.Run("obsolete_history", func(t *testing.T) {
-		conn := harness.openDatabase(t, testContext, "existing_obsolete_history")
+		conn := harness.openEmptyDatabase(t, testContext, "existing_obsolete_history")
 		defer func() { _ = conn.Close(testContext) }()
 
 		if _, err := conn.Exec(testContext, `CREATE TABLE prism_schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); err != nil {
@@ -304,7 +304,7 @@ func TestBaselineSecondRunNoop(t *testing.T) {
 
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "baseline_second_run_noop")
+	conn := harness.openEmptyDatabase(t, testContext, "baseline_second_run_noop")
 	defer func() { _ = conn.Close(testContext) }()
 
 	firstResult, err := runner.Run(testContext, conn)
@@ -336,7 +336,7 @@ func TestTranslatedObservabilitySchemaGuardUpgradesStampedDatabase(t *testing.T)
 
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "translated_observability_schema_guard")
+	conn := harness.openEmptyDatabase(t, testContext, "translated_observability_schema_guard")
 	defer func() { _ = conn.Close(testContext) }()
 
 	firstResult, err := runner.Run(testContext, conn)
@@ -385,7 +385,7 @@ func TestModelPrivateConnectionOwnershipSchemaGuard(t *testing.T) {
 	runner := newRunner(t)
 
 	t.Run("creates_missing_index_for_stamped_database", func(t *testing.T) {
-		conn := harness.openDatabase(t, testContext, "ownership_guard_clean")
+		conn := harness.openEmptyDatabase(t, testContext, "ownership_guard_clean")
 		defer func() { _ = conn.Close(testContext) }()
 
 		result, err := runner.Run(testContext, conn)
@@ -412,7 +412,7 @@ func TestModelPrivateConnectionOwnershipSchemaGuard(t *testing.T) {
 	})
 
 	t.Run("fails_duplicate_owners_before_creating_index", func(t *testing.T) {
-		conn := harness.openDatabase(t, testContext, "ownership_guard_duplicates")
+		conn := harness.openEmptyDatabase(t, testContext, "ownership_guard_duplicates")
 		defer func() { _ = conn.Close(testContext) }()
 
 		result, err := runner.Run(testContext, conn)
@@ -608,7 +608,7 @@ func seedPreAuditFamilyMigrationSchema(t *testing.T, ctx context.Context, conn *
 
 func assertMigratedSchemaGolden(t *testing.T, ctx context.Context, harness postgresHarness, databaseName string) {
 	t.Helper()
-	actual := normalizeSchemaDump(runDockerCommand(
+	actual := normalizeSchemaDump(runDockerCommandOrFail(
 		t,
 		ctx,
 		"exec",
