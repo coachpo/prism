@@ -250,12 +250,14 @@ export function UsageBreakdownSection({
       input_tokens: { color: "var(--color-chart-1)", label: messages.statistics.input },
       output_tokens: { color: "var(--color-chart-2)", label: messages.statistics.output },
       reasoning_tokens: { color: "var(--color-chart-3)", label: messages.requestLogs.reasoning },
+      total_input_tokens: { color: "var(--color-chart-5)", label: messages.statistics.totalInput },
     }),
     [
       messages.requestLogs.reasoning,
       messages.statistics.cachedPrefix,
       messages.statistics.input,
       messages.statistics.output,
+      messages.statistics.totalInput,
     ],
   );
   const costConfig = useMemo<ChartConfig>(
@@ -272,6 +274,13 @@ export function UsageBreakdownSection({
   );
   const tokenBreakdownSeries = useMemo(
     () => [
+      {
+        color: "var(--color-chart-5)",
+        dataKey: "total_input_tokens",
+        gradientId: `${chartId}-total-input-tokens`,
+        label: messages.statistics.totalInput,
+        strokeDasharray: "5 4",
+      },
       {
         color: "var(--color-chart-1)",
         dataKey: "input_tokens",
@@ -303,13 +312,21 @@ export function UsageBreakdownSection({
       messages.statistics.cachedPrefix,
       messages.statistics.input,
       messages.statistics.output,
+      messages.statistics.totalInput,
     ],
   );
   const modelRequestItems = useMemo(() => buildModelRequestItems(modelStatistics), [modelStatistics]);
   const endpointRequestItems = useMemo(() => buildEndpointRequestItems(endpointStatistics), [endpointStatistics]);
 
-  const tokenBreakdownDescription = `${messages.statistics.input} + ${messages.statistics.output} + ${messages.statistics.cachedPrefix} + ${messages.requestLogs.reasoning}`;
-  const tokenData = tokenTypeBreakdown;
+  const tokenBreakdownDescription = `${messages.statistics.totalInput} + ${messages.statistics.input} + ${messages.statistics.output} + ${messages.statistics.cachedPrefix} + ${messages.requestLogs.reasoning}`;
+  const tokenData = useMemo(
+    () =>
+      tokenTypeBreakdown.map((point) => ({
+        ...point,
+        total_input_tokens: point.input_tokens + point.cached_tokens,
+      })),
+    [tokenTypeBreakdown],
+  );
 
   const formatBucket = (value: string, granularity: UsageChartGranularity) => {
     const date = new Date(value);
@@ -427,6 +444,7 @@ export function UsageBreakdownSection({
                       key={series.dataKey}
                       name={series.label}
                       stroke={series.color}
+                      strokeDasharray={"strokeDasharray" in series ? series.strokeDasharray : undefined}
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       strokeWidth={2}

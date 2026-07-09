@@ -165,7 +165,8 @@ test.describe("shared chart statistics regression", () => {
 
     await expect(requestTrendsCard.locator(".recharts-cartesian-grid")).toBeVisible();
     await expect(tokenUsageCard.locator(".recharts-area-curve")).toHaveCount(1);
-    await expect(tokenBreakdownCard.locator(".recharts-area-curve")).toHaveCount(4);
+    await expect(tokenBreakdownCard).toContainText(/Total input|总输入/);
+    await expect(tokenBreakdownCard.locator(".recharts-area-curve")).toHaveCount(5);
 
     await expect(hourlyButton(tokenUsageCard)).toHaveAttribute("aria-pressed", "true");
     await dailyButton(tokenUsageCard).click();

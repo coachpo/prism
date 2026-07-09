@@ -1375,6 +1375,7 @@ export const zhCNMessages = {
     timeWindow: "时间范围",
     timeWindowTotal: (seconds: MessageArg) => `总计 ${seconds} 秒`,
     to: "结束时间",
+    totalInput: "总输入",
     totalSpend: "总支出",
     totalTokens: "总令牌数",
     throughputExplanation: "每个数据点都表示 1 分钟时间桶。RPM 对应该分钟内记录的请求数，而平均 RPM 会把所选窗口归一化为每分钟请求数。",
