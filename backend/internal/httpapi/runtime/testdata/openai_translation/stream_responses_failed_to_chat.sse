@@ -1,3 +1,0 @@
-data: {"created":1700000000,"error":{"code":"bad_gateway","message":"upstream failed","type":"server_error"},"id":"resp_failed","model":"responses-public","object":"chat.completion.chunk"}
-
-data: [DONE]

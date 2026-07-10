@@ -23,7 +23,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Supports both streaming (SSE) and non-streaming responses
 - Preserves native request/response formats per API family
 - Runtime compatibility is fixed by `api_family`
-- `GET /v1/models` is local: requests with `client_version` use the embedded Codex catalog shape with a deterministic weak ETag/`304` path; requests without it use the local OpenAI `object`/`data` list
+- `GET /v1/models` is local: requests with `client_version` use the current Codex catalog, seeded from the embedded copy and refreshed asynchronously from OpenAI at startup and every 24 hours, with a deterministic weak ETag/`304` path; requests without it use the local OpenAI `object`/`data` list
 
 ### 4.2 Model Configuration
 - Map each model to a fixed runtime `api_family`
@@ -55,7 +55,7 @@ Single operator (developer/power user) running the application locally or on a l
   - Runtime admission, Ban Policy, lease, and round-robin state is process-local and is intentionally ephemeral across process restarts; retained SQL hot-state tables are compatibility schema, not the production hot path
 - Proxy request forwarding may apply compatibility normalizations while preserving API-family-native response formats
 - Model-owned overflow replay and exact facade routing have been removed. After headers, flush, SSE, or any client-visible bytes commit downstream output, Prism does not switch upstreams for that stream.
-- Request-log materialization distinguishes actual upstream attempts from synthetic failures. Telemetry-eligible target-resolution/translation errors carrying `PlanningFailure`, plus `admission_exhausted`, can produce synthetic rows without endpoint/connection. Malformed bodies, unknown models, API-family mismatches, registry-rejected requests, and the terminal all-transport `502` path do not retain request history.
+- Request-log materialization distinguishes actual upstream attempts from synthetic failures. Telemetry-eligible target-resolution or native-compatibility errors carrying `PlanningFailure`, plus `admission_exhausted`, can produce synthetic rows without endpoint/connection. Malformed bodies, unknown models, API-family mismatches, registry-rejected requests, and the terminal all-transport `502` path do not retain request history.
 - Request-log detail preserves requested public model identity, final target identity, selected Terminal Target, endpoint, operation names, and translation mode through flat fields.
 - Retry scheduling, retry exhaustion, bans, unbans, recovery, and admission-rejection transitions are persisted as `loadbalance_events` for audit and observability.
 
@@ -103,7 +103,7 @@ Token usage is extracted from upstream responses using api-family-aware parsing:
 - **OpenAI Responses input_tokens (non-streaming)**: Extracts `input_tokens` and `total_tokens` from top-level token-count payloads
 - **Anthropic Messages (non-streaming)**: Extracts from `usage` object
 - **Anthropic count_tokens (non-streaming)**: Extracts `input_tokens` from top-level
-- **OpenAI (streaming)**: Accumulated from terminal SSE usage events; translated Chat streams inject `stream_options.include_usage=true` upstream when needed
+- **OpenAI (streaming)**: Accumulated from terminal SSE usage events for native Chat Completions or Responses streams
 - **Anthropic (streaming)**: Accumulated from SSE events (`message_start` and `message_delta`)
 - **Fallback**: If token data cannot be extracted, all token fields are logged as `null`
 - **Null vs zero token semantics**:
@@ -156,7 +156,7 @@ Audit redaction is intentionally limited:
 - Redaction happens at write time only for those three request-header names; audit access must therefore be restricted accordingly.
 
 #### 4.10.4 Routing And Delivery Boundaries
-Audit policy does not change model selection, Terminal Target selection, or client-facing response translation:
+Audit policy does not change model selection, Terminal Target selection, or client-facing response handling:
 - A successful provider-forwarded `2xx` response requires the applicable durable telemetry handoff before Prism commits or first flushes the response. If that handoff fails before client-visible output, Prism returns a runtime observability error instead of the successful response.
 - After handoff, background materialization and non-required side-effect failures are isolated from the proxied response path.
 - Unsupported or wrong-method runtime registry rejections do not enter telemetry or audit handling.

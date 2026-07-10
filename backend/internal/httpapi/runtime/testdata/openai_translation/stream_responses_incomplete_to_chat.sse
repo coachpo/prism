@@ -1,7 +1,0 @@
-data: {"choices":[{"delta":{"role":"assistant"},"index":0}],"object":"chat.completion.chunk"}
-
-data: {"choices":[{"delta":{"content":"partial"},"index":0}],"object":"chat.completion.chunk"}
-
-data: {"choices":[{"delta":{},"finish_reason":"length","index":0}],"id":"resp_incomplete","model":"responses-target","object":"chat.completion.chunk"}
-
-data: [DONE]

@@ -2,27 +2,47 @@ package providerauth
 
 import "testing"
 
+func TestOpenAITextWireCompatibilityNativeOrReject(t *testing.T) {
+	tests := []struct {
+		name                string
+		ingressOperation    string
+		modelAcceptedFormat string
+		targetCapability    string
+		want                string
+	}{
+		{name: "responses native", ingressOperation: OpenAIUpstreamOperationResponses, modelAcceptedFormat: OpenAITextCapabilityDualNative, targetCapability: OpenAITextCapabilityResponsesOnly, want: OpenAIWireCompatibilityNative},
+		{name: "model rejects caller wire", ingressOperation: OpenAIUpstreamOperationResponses, modelAcceptedFormat: OpenAITextCapabilityChatCompletionsOnly, targetCapability: OpenAITextCapabilityResponsesOnly, want: OpenAIWireCompatibilityReject},
+		{name: "target rejects caller wire", ingressOperation: OpenAIUpstreamOperationResponses, modelAcceptedFormat: OpenAITextCapabilityDualNative, targetCapability: OpenAITextCapabilityChatCompletionsOnly, want: OpenAIWireCompatibilityReject},
+		{name: "responses adjunct rejects chat target", ingressOperation: OpenAIUpstreamOperationResponsesInputTokens, modelAcceptedFormat: OpenAITextCapabilityDualNative, targetCapability: OpenAITextCapabilityChatCompletionsOnly, want: OpenAIWireCompatibilityReject},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := OpenAITextWireCompatibility(test.ingressOperation, test.modelAcceptedFormat, test.targetCapability); got != test.want {
+				t.Fatalf("expected compatibility %q, got %q", test.want, got)
+			}
+		})
+	}
+}
+
 func TestOpenAITextCapabilityHelpers(t *testing.T) {
 	tests := []struct {
-		name              string
-		capability        string
-		ingressOperation  string
-		wantSupported     bool
-		wantNative        bool
-		wantMode          string
-		wantModeSupported bool
+		name             string
+		capability       string
+		ingressOperation string
+		wantSupported    bool
+		wantNative       bool
 	}{
-		{name: "responses only supports responses native", capability: OpenAITextCapabilityResponsesOnly, ingressOperation: OpenAIUpstreamOperationResponses, wantSupported: true, wantNative: true, wantMode: OpenAITextTranslationModeNone, wantModeSupported: true},
-		{name: "chat only supports chat native", capability: OpenAITextCapabilityChatCompletionsOnly, ingressOperation: OpenAIUpstreamOperationChatCompletions, wantSupported: true, wantNative: true, wantMode: OpenAITextTranslationModeNone, wantModeSupported: true},
-		{name: "responses only translates chat ingress", capability: OpenAITextCapabilityResponsesOnly, ingressOperation: OpenAIUpstreamOperationChatCompletions, wantSupported: true, wantMode: OpenAITextTranslationModeChatToResponses, wantModeSupported: true},
-		{name: "chat only translates responses ingress", capability: OpenAITextCapabilityChatCompletionsOnly, ingressOperation: OpenAIUpstreamOperationResponses, wantSupported: true, wantMode: OpenAITextTranslationModeResponsesToChat, wantModeSupported: true},
-		{name: "dual native keeps chat native", capability: OpenAITextCapabilityDualNative, ingressOperation: OpenAIUpstreamOperationChatCompletions, wantSupported: true, wantNative: true, wantMode: OpenAITextTranslationModeNone, wantModeSupported: true},
-		{name: "dual native keeps responses native", capability: OpenAITextCapabilityDualNative, ingressOperation: OpenAIUpstreamOperationResponses, wantSupported: true, wantNative: true, wantMode: OpenAITextTranslationModeNone, wantModeSupported: true},
-		{name: "responses adjunct input tokens stays native on responses only", capability: OpenAITextCapabilityResponsesOnly, ingressOperation: OpenAIUpstreamOperationResponsesInputTokens, wantSupported: true, wantNative: true, wantMode: OpenAITextTranslationModeNone, wantModeSupported: true},
-		{name: "responses adjunct input tokens stays native on dual native", capability: OpenAITextCapabilityDualNative, ingressOperation: OpenAIUpstreamOperationResponsesInputTokens, wantSupported: true, wantNative: true, wantMode: OpenAITextTranslationModeNone, wantModeSupported: true},
-		{name: "responses adjunct input tokens rejects chat only", capability: OpenAITextCapabilityChatCompletionsOnly, ingressOperation: OpenAIUpstreamOperationResponsesInputTokens, wantSupported: true, wantMode: "", wantModeSupported: false},
-		{name: "responses adjunct stays native on responses only", capability: OpenAITextCapabilityResponsesOnly, ingressOperation: OpenAIUpstreamOperationResponsesCompact, wantSupported: true, wantNative: true, wantMode: OpenAITextTranslationModeNone, wantModeSupported: true},
-		{name: "responses adjunct compact stays native on dual native", capability: OpenAITextCapabilityDualNative, ingressOperation: OpenAIUpstreamOperationResponsesCompact, wantSupported: true, wantNative: true, wantMode: OpenAITextTranslationModeNone, wantModeSupported: true},
+		{name: "responses only supports responses native", capability: OpenAITextCapabilityResponsesOnly, ingressOperation: OpenAIUpstreamOperationResponses, wantSupported: true, wantNative: true},
+		{name: "chat only supports chat native", capability: OpenAITextCapabilityChatCompletionsOnly, ingressOperation: OpenAIUpstreamOperationChatCompletions, wantSupported: true, wantNative: true},
+		{name: "responses only rejects chat ingress", capability: OpenAITextCapabilityResponsesOnly, ingressOperation: OpenAIUpstreamOperationChatCompletions, wantSupported: true},
+		{name: "chat only rejects responses ingress", capability: OpenAITextCapabilityChatCompletionsOnly, ingressOperation: OpenAIUpstreamOperationResponses, wantSupported: true},
+		{name: "dual native keeps chat native", capability: OpenAITextCapabilityDualNative, ingressOperation: OpenAIUpstreamOperationChatCompletions, wantSupported: true, wantNative: true},
+		{name: "dual native keeps responses native", capability: OpenAITextCapabilityDualNative, ingressOperation: OpenAIUpstreamOperationResponses, wantSupported: true, wantNative: true},
+		{name: "responses adjunct input tokens stays native on responses only", capability: OpenAITextCapabilityResponsesOnly, ingressOperation: OpenAIUpstreamOperationResponsesInputTokens, wantSupported: true, wantNative: true},
+		{name: "responses adjunct input tokens stays native on dual native", capability: OpenAITextCapabilityDualNative, ingressOperation: OpenAIUpstreamOperationResponsesInputTokens, wantSupported: true, wantNative: true},
+		{name: "responses adjunct input tokens rejects chat only", capability: OpenAITextCapabilityChatCompletionsOnly, ingressOperation: OpenAIUpstreamOperationResponsesInputTokens, wantSupported: true},
+		{name: "responses adjunct stays native on responses only", capability: OpenAITextCapabilityResponsesOnly, ingressOperation: OpenAIUpstreamOperationResponsesCompact, wantSupported: true, wantNative: true},
+		{name: "responses adjunct compact stays native on dual native", capability: OpenAITextCapabilityDualNative, ingressOperation: OpenAIUpstreamOperationResponsesCompact, wantSupported: true, wantNative: true},
 		{name: "responses adjunct requires responses support", capability: OpenAITextCapabilityChatCompletionsOnly, ingressOperation: OpenAIUpstreamOperationResponsesCompact, wantSupported: true},
 		{name: "invalid capability unsupported", capability: "unknown", ingressOperation: OpenAIUpstreamOperationResponses},
 	}
@@ -33,10 +53,6 @@ func TestOpenAITextCapabilityHelpers(t *testing.T) {
 			}
 			if got := OpenAITextCapabilitySupportsNativeOperation(test.capability, test.ingressOperation); got != test.wantNative {
 				t.Fatalf("expected native=%v, got %v", test.wantNative, got)
-			}
-			mode, ok := OpenAITextSiblingTranslationMode(test.capability, test.ingressOperation)
-			if ok != test.wantModeSupported || mode != test.wantMode {
-				t.Fatalf("expected mode=%q supported=%v, got mode=%q supported=%v", test.wantMode, test.wantModeSupported, mode, ok)
 			}
 		})
 	}

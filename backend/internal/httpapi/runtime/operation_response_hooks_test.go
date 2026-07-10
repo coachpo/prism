@@ -64,7 +64,7 @@ func TestNonStreamResponseHooksByOperation(t *testing.T) {
 				t.Fatalf("expected %s/%s hooks, got %+v", test.wantProvider, test.wantKind, hooks)
 			}
 			var forwarded bytes.Buffer
-			capture, err := proxyNonEventResponseAndCaptureByOperation(operation, TranslationModeNone, &forwarded, strings.NewReader(test.payload), "application/json", fixedResponseHookTestNow, false)
+			capture, err := proxyNonEventResponseAndCaptureByOperation(operation, &forwarded, strings.NewReader(test.payload), "application/json", fixedResponseHookTestNow, false)
 			if err != nil {
 				t.Fatalf("capture non-stream response: %v", err)
 			}
@@ -82,7 +82,7 @@ func TestGeminiGenerateContentNormalizesUsageMetadataDisjointSplits(t *testing.T
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1beta/models/gemini-2.5-pro:generateContent").Operation
 	payload := `{"responseId":"gemini-hook","usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":17,"totalTokenCount":99,"cachedContentTokenCount":4,"thoughtsTokenCount":6}}`
 	var forwarded bytes.Buffer
-	capture, err := proxyNonEventResponseAndCaptureByOperation(operation, TranslationModeNone, &forwarded, strings.NewReader(payload), "application/json", fixedResponseHookTestNow, false)
+	capture, err := proxyNonEventResponseAndCaptureByOperation(operation, &forwarded, strings.NewReader(payload), "application/json", fixedResponseHookTestNow, false)
 	if err != nil {
 		t.Fatalf("capture Gemini non-stream usage: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestAnthropicMessagesNonStreamUsagePreservesCacheSplits(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/messages").Operation
 	payload := `{"id":"msg-anthropic-usage","type":"message","content":[{"type":"thinking","thinking":"do not synthesize reasoning"}],"usage":{"input_tokens":7,"cache_read_input_tokens":2,"cache_creation_input_tokens":3,"output_tokens":13,"output_tokens_details":{"reasoning_tokens":99}}}`
 	var forwarded bytes.Buffer
-	capture, err := proxyNonEventResponseAndCaptureByOperation(operation, TranslationModeNone, &forwarded, strings.NewReader(payload), "application/json", fixedResponseHookTestNow, false)
+	capture, err := proxyNonEventResponseAndCaptureByOperation(operation, &forwarded, strings.NewReader(payload), "application/json", fixedResponseHookTestNow, false)
 	if err != nil {
 		t.Fatalf("capture Anthropic non-stream usage: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestCountTokensResponsesDoNotUseGenerationUsage(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			operation := mustResolveRuntimeOperation(t, http.MethodPost, test.requestPath).Operation
 			var forwarded bytes.Buffer
-			capture, err := proxyNonEventResponseAndCaptureByOperation(operation, TranslationModeNone, &forwarded, strings.NewReader(test.payload), "application/json", fixedResponseHookTestNow, false)
+			capture, err := proxyNonEventResponseAndCaptureByOperation(operation, &forwarded, strings.NewReader(test.payload), "application/json", fixedResponseHookTestNow, false)
 			if err != nil {
 				t.Fatalf("capture token-count response: %v", err)
 			}
@@ -155,7 +155,7 @@ func TestRuntimeUsageNormalizationKeepsProviderTotalPrecedence(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
 	payload := `{"id":"chatcmpl-total-precedence","usage":{"prompt_tokens":7,"completion_tokens":13,"total_tokens":99}}`
 	var forwarded bytes.Buffer
-	capture, err := proxyNonEventResponseAndCaptureByOperation(operation, TranslationModeNone, &forwarded, strings.NewReader(payload), "application/json", fixedResponseHookTestNow, false)
+	capture, err := proxyNonEventResponseAndCaptureByOperation(operation, &forwarded, strings.NewReader(payload), "application/json", fixedResponseHookTestNow, false)
 	if err != nil {
 		t.Fatalf("capture provider-total usage: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestRuntimeUsageNormalizationDerivesMissingTotalOnlyWhenAllowed(t *testing.
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/messages").Operation
 	payload := `{"id":"msg-derived-total","usage":{"input_tokens":7,"output_tokens":13}}`
 	var forwarded bytes.Buffer
-	capture, err := proxyNonEventResponseAndCaptureByOperation(operation, TranslationModeNone, &forwarded, strings.NewReader(payload), "application/json", fixedResponseHookTestNow, false)
+	capture, err := proxyNonEventResponseAndCaptureByOperation(operation, &forwarded, strings.NewReader(payload), "application/json", fixedResponseHookTestNow, false)
 	if err != nil {
 		t.Fatalf("capture derived-total usage: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestRuntimeInvalidUsageDiscard(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			operation := mustResolveRuntimeOperation(t, http.MethodPost, test.requestPath).Operation
 			var forwarded bytes.Buffer
-			capture, err := proxyNonEventResponseAndCaptureByOperation(operation, TranslationModeNone, &forwarded, strings.NewReader(test.payload), "application/json", fixedResponseHookTestNow, false)
+			capture, err := proxyNonEventResponseAndCaptureByOperation(operation, &forwarded, strings.NewReader(test.payload), "application/json", fixedResponseHookTestNow, false)
 			if err != nil {
 				t.Fatalf("capture invalid usage: %v", err)
 			}
@@ -240,7 +240,7 @@ func TestGeminiUsageMetadataInvalidSplitsDiscard(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1beta/models/gemini-2.5-pro:generateContent").Operation
 			var forwarded bytes.Buffer
-			capture, err := proxyNonEventResponseAndCaptureByOperation(operation, TranslationModeNone, &forwarded, strings.NewReader(test.payload), "application/json", fixedResponseHookTestNow, false)
+			capture, err := proxyNonEventResponseAndCaptureByOperation(operation, &forwarded, strings.NewReader(test.payload), "application/json", fixedResponseHookTestNow, false)
 			if err != nil {
 				t.Fatalf("capture invalid Gemini usage: %v", err)
 			}

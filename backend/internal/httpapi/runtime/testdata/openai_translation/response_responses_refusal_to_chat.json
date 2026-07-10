@@ -1,1 +1,0 @@
-{"choices":[{"finish_reason":"stop","index":0,"message":{"content":"","refusal":"I cannot help with that.","role":"assistant"}}],"id":"resp_refusal","model":"responses-target","object":"chat.completion"}

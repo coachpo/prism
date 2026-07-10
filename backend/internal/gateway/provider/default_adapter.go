@@ -49,18 +49,6 @@ func (adapter DefaultAdapter) EstimateTokens(_ context.Context, _ ProviderReques
 	return TokenEstimate{}, nil
 }
 
-func (adapter DefaultAdapter) ConversionCapability(_ context.Context, request ConversionRequest) (ConversionCapability, error) {
-	return ConversionCapability{Mode: request.Mode}, nil
-}
-
-func (adapter DefaultAdapter) TranslateRequest(_ context.Context, request ConversionRequest) (TranslatedRequest, error) {
-	return TranslatedRequest{Body: append([]byte(nil), request.RawBody...)}, nil
-}
-
-func (adapter DefaultAdapter) TranslateResponse(_ context.Context, request ConversionRequest) (TranslatedResponse, error) {
-	return TranslatedResponse{Body: append([]byte(nil), request.RawBody...)}, nil
-}
-
 func (adapter DefaultAdapter) ClassifyOverflow(_ context.Context, _ UpstreamResponse) OverflowClassification {
 	return OverflowClassification{}
 }

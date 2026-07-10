@@ -2,17 +2,14 @@ package runtime
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/coachpo/prism/backend/internal/gateway/provider"
 	anthropicprovider "github.com/coachpo/prism/backend/internal/gateway/provider/anthropic"
 	geminiprovider "github.com/coachpo/prism/backend/internal/gateway/provider/gemini"
-	"github.com/coachpo/prism/backend/internal/gateway/provider/openai"
 )
 
 type operationResponseKind string
@@ -94,52 +91,12 @@ func responseHooksForOperation(operation RuntimeOperation) (operationResponseHoo
 	return hooks, ok
 }
 
-func proxyNonEventResponseAndCaptureByOperation(operation RuntimeOperation, translationMode TranslationMode, dst io.Writer, src io.Reader, contentType string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
-	if translationMode != "" && translationMode != TranslationModeNone {
-		return proxyTranslatedOpenAINonEventResponseAndCapture(translationMode, "", dst, src, now, captureAuditBody)
-	}
+func proxyNonEventResponseAndCaptureByOperation(operation RuntimeOperation, dst io.Writer, src io.Reader, contentType string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
 	hooks, ok := responseHooksForOperation(operation)
 	if !ok || hooks.ParseNonStreamResponse == nil {
 		return proxyNonEventResponseAndCaptureWithoutUsage(operationResponseHooks{}, dst, src, contentType, now, captureAuditBody)
 	}
 	return hooks.ParseNonStreamResponse(hooks, dst, src, contentType, now, captureAuditBody)
-}
-
-func proxyTranslatedOpenAINonEventResponseAndCapture(translationMode TranslationMode, requestedModelID string, dst io.Writer, src io.Reader, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
-	rawBody, err := readBoundedResponseBody(src, openAITranslatedNonStreamResponseBodyLimit)
-	if err != nil {
-		return runtimeResponseCapture{}, err
-	}
-	adapter := openai.New()
-	clientResponse, err := adapter.AdaptNonStreamResponse(context.Background(), provider.UpstreamResponse{
-		Operation:        provider.Operation{Name: runtimeUpstreamOperationName(RuntimeOperation{Name: openAIUpstreamOperationResponses}, translationMode)},
-		StatusCode:       http.StatusOK,
-		Body:             rawBody,
-		TranslationMode:  providerTranslationMode(translationMode),
-		RequestedModelID: requestedModelID,
-	})
-	if err != nil {
-		if domainErr := domainErrorFromProviderAdapterError(err); domainErr != nil {
-			return runtimeResponseCapture{}, domainErr
-		}
-		return runtimeResponseCapture{}, err
-	}
-	usage, usageRule := responseUsageFromProviderEnvelope(clientResponse.Usage)
-	if _, err := dst.Write(clientResponse.Body); err != nil {
-		return runtimeResponseCapture{}, err
-	}
-	completedAt := now()
-	capture := runtimeResponseCapture{
-		Body:          append([]byte(nil), rawBody...),
-		Usage:         usage,
-		UsageRule:     usageRule,
-		CompletedAt:   &completedAt,
-		StreamOutcome: runtimeStreamOutcomeNotStreaming,
-	}
-	if captureAuditBody {
-		capture.AuditBody = append([]byte(nil), rawBody...)
-	}
-	return capture, nil
 }
 
 type cliProxyAPIOverflowClassification struct {
@@ -158,7 +115,7 @@ const (
 	cliProxyAPIOverflowClassifierMessageText = "message_text"
 )
 
-func classifyCLIProxyAPIOverflowResponse(statusCode int, rawBody []byte, translationMode TranslationMode) cliProxyAPIOverflowClassification {
+func classifyCLIProxyAPIOverflowResponse(statusCode int, rawBody []byte) cliProxyAPIOverflowClassification {
 	if !cliProxyAPIOverflowStatusAllowed(statusCode) {
 		return cliProxyAPIOverflowClassification{}
 	}
@@ -166,7 +123,7 @@ func classifyCLIProxyAPIOverflowResponse(statusCode int, rawBody []byte, transla
 	if !ok {
 		return cliProxyAPIOverflowClassification{}
 	}
-	evidence, ok := extractCLIProxyAPIOverflowEvidence(payload, translationMode)
+	evidence, ok := extractCLIProxyAPIOverflowEvidence(payload)
 	if !ok {
 		return cliProxyAPIOverflowClassification{}
 	}
@@ -209,17 +166,11 @@ func decodeCLIProxyAPIOverflowPayload(rawBody []byte) (map[string]any, bool) {
 	return payload, true
 }
 
-func extractCLIProxyAPIOverflowEvidence(payload map[string]any, translationMode TranslationMode) (cliProxyAPIOverflowEvidence, bool) {
+func extractCLIProxyAPIOverflowEvidence(payload map[string]any) (cliProxyAPIOverflowEvidence, bool) {
 	if payload == nil {
 		return cliProxyAPIOverflowEvidence{}, false
 	}
 	errorPayload, hasErrorObject := payload["error"].(map[string]any)
-	if translationMode != "" && translationMode != TranslationModeNone {
-		if !hasErrorObject {
-			return cliProxyAPIOverflowEvidence{}, false
-		}
-		return extractCLIProxyAPIOverflowEvidenceFromErrorObject(errorPayload, payload)
-	}
 	if hasErrorObject {
 		return extractCLIProxyAPIOverflowEvidenceFromErrorObject(errorPayload, payload)
 	}

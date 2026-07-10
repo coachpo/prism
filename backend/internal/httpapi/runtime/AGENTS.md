@@ -22,9 +22,10 @@ runtime/
 ├── operation_request_hooks.go   # Request hook registry and streaming-intent selection
 ├── operation_response_hooks.go  # Non-stream response parsing by operation
 ├── operation_stream_hooks.go    # SSE terminal and usage parsing by operation
-├── operation_translation.go     # OpenAI Chat/Responses cross-translation boundary
+├── operation_translation.go     # OpenAI native wire-compatibility and rejection boundary
 ├── openai_models.go             # Local OpenAI model-list filtering and request branching
-├── codex_models.go              # Embedded Codex catalog synthesis plus ETag/304 handling
+├── codex_models.go              # Mutable Codex catalog synthesis plus ETag/304 handling
+├── codex_models_updater.go      # Startup/24h upstream refresh with embedded fallback
 ├── codex_client_models.json     # Verbatim OpenAI Codex model metadata template
 ├── generations.go               # Generation-request shaping and upstream helpers
 ├── observability.go             # Request-log and usage-event shaping with operation metadata
@@ -43,13 +44,13 @@ runtime/
 - Automatic generation-param extraction and operation-directed request hooks: `request_generation_params.go`, `operation_request_hooks.go`
 - Non-stream response parsing for text generation and token count operations: `operation_response_hooks.go`
 - SSE terminal classification and usage merging for OpenAI, Anthropic, and Gemini stream operations: `operation_stream_hooks.go`
-- OpenAI Chat/Responses translation and adjunct conversion rejection behavior: `operation_translation.go`, `operation_translation_request.go`, `operation_translation_response.go`, `operation_translation_stream.go`, `operation_translation_golden_test.go`, `testdata/openai_translation/`
-- Local OpenAI and Codex client model-list responses: `openai_models.go`, `codex_models.go`, `codex_client_models.json`, `codex_models_test.go`
+- OpenAI native wire compatibility, mismatched-target skipping, and unsupported-wire rejection behavior: `operation_translation.go`, `planning_snapshot.go`, `runtime_test.go`
+- Local OpenAI and refreshable Codex client model-list responses: `openai_models.go`, `codex_models.go`, `codex_models_updater.go`, `codex_client_models.json`, `codex_models_test.go`
 - Request-log and usage-event shaping plus `operation_name` persistence: `observability.go`, `../../../migrations/000001_initial_schema.sql`
 - Telemetry, feedback, and runtime side-effect ownership: `telemetry_outbox.go`, `feedback_pipeline.go`, `runtime_side_effects.go`
 - Partition ensuring and partition-cache behavior: `log_partitions.go`, `../../platform/logretention/`
 - Internal runtime regression coverage: `operations_test.go`, `service_ingress_test.go`, `request_generation_params_test.go`, `request_generation_params_runtime_test.go`, `operation_hook_residency_test.go`, `operation_response_hooks_test.go`, `operation_response_overflow_classifier_test.go`, `gateway_typed_hooks_bridge_test.go`, `planning_snapshot_contract_test.go`, `routing_plan_test.go`, `runtime_test.go`
-- Route-matrix, translation, streaming, body-limit, and rejected-route coverage: `../../../tests/runtime/body_limits_test.go`, `../../../tests/runtime/operation_route_matrix_test.go`, `../../../tests/runtime/operation_route_matrix_translation_test.go`, `../../../tests/runtime/runtime_streaming_buffering_test.go`, `../../../tests/runtime/rejected_route_isolation_test.go`, `../../../tests/runtime/request_generation_params_contract_test.go`, `../../../tests/integration/runtime_route_matrix_test.go`
+- Route-matrix, native compatibility, streaming, body-limit, and rejected-route coverage: `../../../tests/runtime/body_limits_test.go`, `../../../tests/runtime/operation_route_matrix_test.go`, `../../../tests/runtime/operation_route_matrix_openai_compatibility_test.go`, `../../../tests/runtime/runtime_streaming_buffering_test.go`, `../../../tests/runtime/rejected_route_isolation_test.go`, `../../../tests/runtime/request_generation_params_contract_test.go`, `../../../tests/integration/runtime_route_matrix_test.go`
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
@@ -62,8 +63,8 @@ runtime/
 - Keep the shared execution core in `service.go` and `runtime.go`; provider-native differences belong in request, response, or stream hooks instead of forked executors.
 - Keep retired exact-facade and context-fit preflight behavior out of runtime planning; preserve requested/resolved model observability through the ordinary target plan.
 - Keep token-count operations out of generation-only parsing and usage assumptions.
-- Keep operation translation explicit and operation-scoped; do not turn Chat/Responses translation into a generic vendor compatibility layer.
-- Keep `GET /v1/models` local. Requests with a `client_version` query parameter use the embedded Codex catalog shape and deterministic ETag; requests without it preserve the OpenAI `object`/`data` list.
+- Keep OpenAI text routing native-only: both the model's accepted format and the connection capability must support the ingress operation, otherwise planning skips or rejects the attempt.
+- Keep `GET /v1/models` local. Requests with a `client_version` query parameter use the current Codex catalog shape and deterministic ETag; startup and 24-hour refreshes may replace the embedded seed, while requests without `client_version` preserve the OpenAI `object`/`data` list.
 - Keep telemetry, feedback, and runtime side-effect work on durable outboxes or worker seams instead of the hot request path.
 - Keep runtime partition ensuring here plus `../../platform/logretention/`; handlers must not create or drop partitions ad hoc.
 
@@ -78,7 +79,7 @@ runtime/
 - Do not inject management-only `X-Profile-Id` logic or auth-session state into runtime proxy handlers.
 - Do not reintroduce exact facades, context-window preflight filtering, or facade-level response-body model rewriting.
 - Do not reuse text-generation hooks for token-count operations.
-- Do not hide unsupported translation paths behind provider fallbacks or best-effort request rewrites.
+- Do not reintroduce OpenAI Chat/Responses sibling translation, provider fallbacks, or best-effort request rewrites.
 - Do not bypass the telemetry outbox, feedback pipeline, or runtime side-effect manager with inline writes or sends.
 - Do not duplicate upstream auth/header shaping, operation matching, or provider-path parsing in sibling packages.
 - Do not run retention cleanup or partition maintenance outside `log_partitions.go` and `../../platform/logretention/`.

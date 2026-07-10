@@ -187,6 +187,7 @@ func (resources *productionResources) configureDatabaseBackedServices(ctx contex
 	if err := registerDatabaseBackgroundWorkers(backgroundServices, planning, auth, runtimeService); err != nil {
 		return err
 	}
+	runtimeapi.StartCodexCatalogUpdater(ctx)
 	resources.publishDatabaseBackedDependencies(auth, management, runtimeService, planning)
 	return nil
 }

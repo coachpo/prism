@@ -1,1 +1,0 @@
-{"max_tokens":64,"messages":[{"content":"system note","role":"system"},{"content":"hello","role":"user"}],"model":"chat-target","temperature":0.2}

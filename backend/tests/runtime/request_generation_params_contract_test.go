@@ -313,10 +313,10 @@ func performRuntimeRawRequest(t *testing.T, harness *runtimeHarness, method stri
 	return response
 }
 
-func seedTranslatedOpenAIProxyRoute(t *testing.T, harness *runtimeHarness, profileID int, publicModelPrefix string, targetModelPrefix string, endpointBaseURL string, endpointAPIKey string, openAITextCapability string) seededRuntimeRoute {
+func seedOpenAIProxyRoute(t *testing.T, harness *runtimeHarness, profileID int, publicModelPrefix string, targetModelPrefix string, endpointBaseURL string, endpointAPIKey string, openAITextCapability string) seededRuntimeRoute {
 	t.Helper()
 	suffix := randomSuffix()
-	strategyID := harness.seedLegacyStrategy(t, profileID, "translated-openai-"+suffix, "fill-first")
+	strategyID := harness.seedLegacyStrategy(t, profileID, "openai-"+suffix, "fill-first")
 	publicModelID := publicModelPrefix + "-" + suffix
 	targetModelID := targetModelPrefix + "-" + suffix
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &strategyID)

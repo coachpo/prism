@@ -1,1 +1,0 @@
-{"choices":[{"finish_reason":"stop","index":0,"message":{"content":"hello","role":"assistant"}}],"created":1700000001,"id":"resp_meta","model":"chat-public","object":"chat.completion","usage":{"completion_tokens":6,"prompt_tokens":10,"total_tokens":16}}

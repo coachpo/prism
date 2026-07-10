@@ -3,7 +3,6 @@ package provider_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"testing"
 
@@ -89,34 +88,11 @@ func TestProviderAdaptersExposeCurrentBehavior(t *testing.T) {
 	}
 }
 
-func TestOpenAIAdapterBridgesTranslationAndOverflowClassifiers(t *testing.T) {
+func TestOpenAIAdapterClassifiesOverflow(t *testing.T) {
 	adapter := openai.New()
-	request := provider.ConversionRequest{
-		Operation:     provider.Operation{Name: "openai.responses"},
-		Mode:          provider.TranslationModeOpenAIResponsesToChatCompletions,
-		RawBody:       []byte(`{"model":"gpt-test","input":"hello"}`),
-		TargetModelID: "gpt-upstream",
-	}
-	capability, err := adapter.ConversionCapability(context.Background(), request)
-	if err != nil {
-		t.Fatalf("classify conversion: %v", err)
-	}
-	if !capability.RequestSupported || !capability.ResponseSupported || !capability.StreamSupported {
-		t.Fatalf("expected safe conversion capability, got %+v", capability)
-	}
-
-	translated, err := adapter.TranslateRequest(context.Background(), request)
-	if err != nil {
-		t.Fatalf("translate request: %v", err)
-	}
-	if translated.Path != "/v1/chat/completions" || len(translated.Body) == 0 {
-		t.Fatalf("unexpected translated request: %+v", translated)
-	}
-
 	classification := adapter.ClassifyOverflow(context.Background(), provider.UpstreamResponse{
-		StatusCode:      400,
-		Body:            []byte(`{"error":{"message":"maximum context length exceeded","code":"context_length_exceeded"}}`),
-		TranslationMode: provider.TranslationModeNone,
+		StatusCode: 400,
+		Body:       []byte(`{"error":{"message":"maximum context length exceeded","code":"context_length_exceeded"}}`),
 	})
 	if !classification.Promotable || classification.ErrorCode != "context_length_exceeded" {
 		t.Fatalf("expected promotable overflow classification, got %+v", classification)
@@ -157,20 +133,26 @@ func TestOpenAIAdapterBuildsExactTextUpstreamRequests(t *testing.T) {
 	}
 }
 
-func TestOpenAIAdapterRejectsUnsupportedTextConversionWithTypedError(t *testing.T) {
+func TestOpenAIAdapterExtractsNativeUsage(t *testing.T) {
 	adapter := openai.New()
-	_, err := adapter.BuildTextUpstreamRequest(context.Background(), openai.TextUpstreamRequest{
-		Operation:       provider.Operation{Name: openai.OperationResponses},
-		RawBody:         []byte(`{"model":"responses-public","input":"hello","text":{"format":"json_schema"}}`),
-		TargetModelID:   "chat-target",
-		TranslationMode: provider.TranslationModeOpenAIResponsesToChatCompletions,
-	})
-	var adapterErr *provider.AdapterError
-	if !errors.As(err, &adapterErr) {
-		t.Fatalf("expected provider adapter error, got %v", err)
+	tests := []struct {
+		name       string
+		operation  string
+		body       string
+		wantInput  int
+		wantOutput int
+		wantTotal  int
+	}{
+		{name: "chat completions", operation: openai.OperationChatCompletions, body: `{"usage":{"prompt_tokens":7,"completion_tokens":13,"total_tokens":20}}`, wantInput: 7, wantOutput: 13, wantTotal: 20},
+		{name: "responses", operation: openai.OperationResponses, body: `{"usage":{"input_tokens":11,"output_tokens":17,"total_tokens":28}}`, wantInput: 11, wantOutput: 17, wantTotal: 28},
 	}
-	if adapterErr.HTTPStatus != http.StatusBadRequest || adapterErr.Code != "openai_request_translation_unsupported" || adapterErr.Fields["unsupported_reason"] != "responses_text_format" {
-		t.Fatalf("expected typed unsupported conversion error, got %+v", adapterErr)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			usage, err := adapter.ExtractUsage(context.Background(), provider.UpstreamResponse{Operation: provider.Operation{Name: test.operation}, Body: []byte(test.body)})
+			if err != nil || usage.InputTokens == nil || usage.OutputTokens == nil || usage.TotalTokens == nil || *usage.InputTokens != test.wantInput || *usage.OutputTokens != test.wantOutput || *usage.TotalTokens != test.wantTotal {
+				t.Fatalf("extract native usage: usage=%+v err=%v", usage, err)
+			}
+		})
 	}
 }
 

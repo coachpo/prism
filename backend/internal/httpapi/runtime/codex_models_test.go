@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/coachpo/prism/backend/internal/profiledomain"
+	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
 func TestCodexModelsCatalogKnownModelsSatisfyClientContract(t *testing.T) {
@@ -253,6 +254,45 @@ func TestOpenAIModelsHandlerPreservesLegacyBytesAndBranchesToCodexCatalog(t *tes
 	}
 	if len(payload) != 1 || payload["models"] == nil {
 		t.Fatalf("expected client_version request to return only models, got %+v", payload)
+	}
+}
+
+func TestCodexModelsCatalogFiltersByAcceptedOpenAIFormatWithoutChangingPlainList(t *testing.T) {
+	tests := []struct {
+		modelID   string
+		format    string
+		wantCodex bool
+	}{
+		{modelID: "gpt-5.5", format: providerauth.OpenAITextCapabilityResponsesOnly, wantCodex: true},
+		{modelID: "gpt-5.4", format: providerauth.OpenAITextCapabilityChatCompletionsOnly, wantCodex: false},
+		{modelID: "gpt-5.4-mini", format: providerauth.OpenAITextCapabilityDualNative, wantCodex: true},
+	}
+	models := make([]runtimeModelRecord, 0, len(tests))
+	for index, test := range tests {
+		format := test.format
+		models = append(models, runtimeModelRecord{
+			ID:                   index + 1,
+			APIFamily:            "openai",
+			ModelID:              test.modelID,
+			OpenAIAcceptedFormat: &format,
+		})
+	}
+	snapshot := modelsCatalogTestSnapshot(models...)
+	codexModels := modelsBySlug(t, buildCodexModelsCatalogResponse(snapshot).Models)
+	plainModels := buildOpenAIModelsListResponse(snapshot)
+	plainIDs := make(map[string]struct{}, len(plainModels.Data))
+	for _, model := range plainModels.Data {
+		plainIDs[model.ID] = struct{}{}
+	}
+
+	for _, test := range tests {
+		_, codexListed := codexModels[test.modelID]
+		if codexListed != test.wantCodex {
+			t.Errorf("Codex listed %q = %t, want %t for format %q", test.modelID, codexListed, test.wantCodex, test.format)
+		}
+		if _, plainListed := plainIDs[test.modelID]; !plainListed {
+			t.Errorf("plain OpenAI list omitted %q with format %q", test.modelID, test.format)
+		}
 	}
 }
 

@@ -20,7 +20,7 @@ backend/
 │   │   └── stats/              # request-log and aggregate query logic
 │   ├── gateway/
 │   │   ├── core/               # provider-neutral routing, accounting, and envelopes
-│   │   ├── provider/           # provider-native adapters and OpenAI translation
+│   │   ├── provider/           # provider-native adapters and usage parsing
 │   │   └── routing/            # route and target-selection helpers
 │   ├── httpapi/
 │   │   ├── management/         # /api/* management handlers and conventions
@@ -130,7 +130,7 @@ Scheduler lag means background workers are queued, coalesced, delayed, retried, 
 
 Durable outboxes expose failure as queued, retry, sent/succeeded, dead-letter, or permanent-failure state depending on the store. Management mutations place follow-up events in `management_outbox` in the primary transaction and wake the `management_side_effect_outbox` dispatcher after commit; handler failures retry or become visibly permanent failures without rolling back the committed management mutation. Dashboard snapshot invalidation is one such after-commit side effect. Failover incident webhook alerts use `alert_webhook_outbox` and the `alert_webhook_worker`; runtime feedback writes enqueue alert payloads in the same transaction as the loadbalance event, and webhook HTTP POSTs run only in background work.
 
-Runtime telemetry has durable success handoffs, scheduled activity handoffs, and background materialization. Every provider-forwarded successful `2xx` response requires a durable `runtime_telemetry_outbox` row: buffered or translated responses commit a completed envelope before the response is committed, while passthrough SSE and non-SSE responses commit an accepted row before the first flush and finalize that row after response capture completes. Captured non-`2xx` activity, telemetry-eligible target-resolution/translation planning failures carrying `PlanningFailure`, and `admission_exhausted` execution failures first use a bounded in-memory scheduler side-effect queue, which later attempts durable outbox insertion and can be lost if rejected, terminally failed, or abandoned during shutdown. A worker materializes accepted outbox rows into `request_logs`, `audit_logs`, `usage_request_events`, and proxy-key usage in one transaction before deleting the outbox row. Runtime feedback is separately and intentionally lossy under pressure; queue-full, invalid, closed, or store-failure cases drop feedback with accounting and never block proxy responses.
+Runtime telemetry has durable success handoffs, scheduled activity handoffs, and background materialization. Every provider-forwarded successful `2xx` response requires a durable `runtime_telemetry_outbox` row: buffered responses commit a completed envelope before the response is committed, while passthrough SSE and non-SSE responses commit an accepted row before the first flush and finalize that row after response capture completes. Captured non-`2xx` activity, telemetry-eligible target-resolution or native-compatibility planning failures carrying `PlanningFailure`, and `admission_exhausted` execution failures first use a bounded in-memory scheduler side-effect queue, which later attempts durable outbox insertion and can be lost if rejected, terminally failed, or abandoned during shutdown. A worker materializes accepted outbox rows into `request_logs`, `audit_logs`, `usage_request_events`, and proxy-key usage in one transaction before deleting the outbox row. Runtime feedback is separately and intentionally lossy under pressure; queue-full, invalid, closed, or store-failure cases drop feedback with accounting and never block proxy responses.
 
 Audit and statistics reads are bounded. Raw audit lists require backend-enforced time windows and keyset cursors. `GET /api/stats/dashboard` still returns backend-computed `routing_health_map`, but the current dashboard adapter does not render it; the production Models table presents retained success rate, P95 latency, and 24-hour request count as text rather than health badges. The connection-success-rate API also exists without a current production UI consumer. Broad deletes run as durable management jobs.
 
@@ -144,11 +144,11 @@ Global CORS handling runs before the runtime branch. The runtime branch then app
 
 `GET /v1/models` is the exception: `openai.models` branches to the local models-list handler before provider request-body handling, planning, or provider execution core. Every other registered proxy operation enters the shared runtime and gateway path: it resolves against frozen Default profile id `1`, resolves ordered access targets, applies the attached Ban Policy strategy, claims local attempt state, builds an upstream request, and hands activity to telemetry seams. The provider adapter is selected during planned-upstream request construction, not registry resolution. Request, non-stream response, and stream hooks are looked up by `HookCollectionID`, allowing related operations such as token counting or compact Responses to use hook collections different from their canonical operation names. Those hooks own generation extraction and stream intent, non-stream parsing and token usage, and stream terminal classification and usage merge respectively.
 
-OpenAI Chat Completions and Responses can translate only across explicit sibling-operation terminal targets. Planning remains ingress-led: estimation, generation-parameter extraction, and persisted `operation_name` come from the client-visible operation. Translation requires three gates: the model's `openai_accepted_format`, the selected connection's `openai_text_capability` (`responses_only`, `chat_completions_only`, or `dual_native`), and the OpenAI adapter's conversion-capability check for the actual request, response, and stream shapes. If all gates allow it, the attempt is native with `operation_translation_mode = "none"` or translated with `openai_responses_to_chat_completions` or `openai_chat_completions_to_responses`. Attempt ordering still follows authored access-target and terminal-target order; Prism does not globally reorder native-compatible attempts ahead of translated ones. Responses adjunct operations require responses-capable targets and never sibling-translate. Translation rewrites supported request shapes after target selection, rewrites non-stream or stream responses back to the ingress shape for the client, preserves canonical usage from upstream payloads or stream terminal events, and drops unsafe entity headers from translated responses.
+OpenAI Chat Completions and Responses are operation-native. Planning requires the model's `openai_accepted_format` and the selected connection's `openai_text_capability` (`responses_only`, `chat_completions_only`, or `dual_native`) to support the ingress operation. Incompatible terminal attempts are skipped in authored order so the next target can be tried; if every otherwise eligible attempt is incompatible, Prism returns the typed `400 openai_request_translation_unsupported` response before provider transport. Current native attempts record `operation_translation_mode = "none"`; the columns and stats reads remain for historical rows. Responses adjunct operations require responses-capable targets.
 
 Runtime observability stores canonical disjoint token components. Base input, cache-read input, cache-creation input, base output, and reasoning output are separate dimensions, while provider totals remain authoritative when supplied. Pricing uses five concrete pricing strings from the attached template snapshot, and explicit `"0"` component prices mean configured free pricing instead of a missing-price condition.
 
-Terminal Target `openai_text_capability` remains connection-owned metadata used by supported OpenAI operation-translation checks. Model-owned capability authoring, context-window preflight filtering, and overflow-promotion routing have been removed; ordinary strategy selection now uses explicit Ban Policy routing families.
+Terminal Target `openai_text_capability` remains connection-owned metadata used by native OpenAI wire-compatibility checks. Model-owned capability authoring, context-window preflight filtering, overflow-promotion routing, and sibling-operation translation have been removed; ordinary strategy selection now uses explicit Ban Policy routing families.
 
 ### 3.1 Runtime Request With Private Connection Target
 
@@ -205,7 +205,7 @@ Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
 
 OpenAI runtime support is limited to the registered local models list plus the chat, Responses generation, Responses input-token, and Responses compact operations listed above. Stored Responses object lifecycle APIs, including retrieve, list, delete, and cancel routes, are outside Prism's supported contract.
 
-The local OpenAI models operation branches only on presence of the `client_version` query parameter. Ordinary callers retain the OpenAI `object`/`data` response, while Codex clients receive the embedded model-catalog metadata with a stable weak ETag and exact-match `304` support. Both branches read the same frozen Default-profile runtime snapshot and never contact an upstream provider.
+The local OpenAI models operation branches only on presence of the `client_version` query parameter. Ordinary callers retain the OpenAI `object`/`data` response. Codex clients receive the current model-catalog metadata with a stable weak ETag and exact-match `304` support, excluding `chat_completions_only` models. The store starts from the embedded catalog and refreshes asynchronously from the OpenAI Codex repository at startup and every 24 hours; failures retain the last good catalog. Both request branches read the frozen Default-profile runtime snapshot and never contact a configured model provider.
 
 Note: Gemini requests use `/v1beta/models/{model}:...` paths only. When access-target resolution reaches a different final Gemini model ID, Prism rewrites the model ID segment in the URL path before forwarding upstream.
 For Gemini, `gemini.stream_generate_content` and the `:streamGenerateContent` path are authoritative for stream classification even when the request body omits `stream: true`; `gemini.generate_content` remains non-stream generate content, and `gemini.count_tokens` remains the token-count operation.
@@ -370,7 +370,7 @@ Client -> Operation registry -> Router / Planner -> Terminal target -> Endpoint 
                                                          ↓
                                               Applicable telemetry handoff
                                                          ↓
-  Buffered or translated 2xx: completed durable outbox row before response commit
+  Buffered 2xx: completed durable outbox row before response commit
   Passthrough SSE or non-SSE 2xx: durable accepted row before first flush, then final payload update
   Captured non-2xx: bounded in-memory side-effect queue, then outbox attempt
   Eligible PlanningFailure or admission_exhausted: bounded in-memory side-effect queue, then outbox attempt
@@ -382,15 +382,15 @@ Client -> Operation registry -> Router / Planner -> Terminal target -> Endpoint 
                                 - Delete the durable outbox row
 ```
 
-Unsupported routes and wrong methods are rejected before telemetry. Early request/planning errors such as malformed bodies, unknown models, and API-family mismatches do not carry `PlanningFailure` and therefore do not create synthetic history. Eligible target-resolution/translation planning failures, captured non-`2xx` activity, and admission activity can be lost before they reach the outbox, and a final all-transport-failures `502` is not currently covered by execution-failure telemetry. Operators must therefore not interpret retained history as a complete ledger of every transport failure.
+Unsupported routes and wrong methods are rejected before telemetry. Early request/planning errors such as malformed bodies, unknown models, and API-family mismatches do not carry `PlanningFailure` and therefore do not create synthetic history. Eligible target-resolution or native-compatibility planning failures, captured non-`2xx` activity, and admission activity can be lost before they reach the outbox, and a final all-transport-failures `502` is not currently covered by execution-failure telemetry. Operators must therefore not interpret retained history as a complete ledger of every transport failure.
 
 ### 7.3 Data Captured
 
 - Profile ID attribution, requested model ID, final target model ID, api family, terminal-target compatibility ID, endpoint base URL, and endpoint description
 - Prism `ingress_request_id`, per-request `attempt_number`, persisted ingress `operation_name`, additive `upstream_operation_name`, `operation_translation_mode`, `upstream_request_path`, and best-effort `provider_correlation_id`
 - HTTP status code, response time (ms)
-- Token usage (input, output, total), extracted by upstream operation response or stream hooks before any client-facing response translation
-- Flat final-target attribution, including requested model, resolved target model, selected terminal target, endpoint, operation, upstream operation, translation mode, and sanitized upstream request path.
+- Token usage (input, output, total), extracted by native upstream operation response or stream hooks
+- Flat final-target attribution, including requested model, resolved target model, selected terminal target, endpoint, operation, upstream operation, current-or-historical translation mode, and sanitized upstream request path.
 - Stream flag, ingress request path, sanitized upstream request path, error details
 
 Request-log semantics are per-materialized attempt: one incoming runtime request can create multiple request-log rows when failover or retries occur. `ingress_request_id` groups those rows while `request_id` remains the unique identifier for one stored attempt row. Final usage ownership stays with the final returned response.
@@ -407,7 +407,7 @@ These query APIs intentionally remain product-facing retained-history surfaces f
 
 ### 8.1 Concept
 
-Audit logging records request-time provenance without changing routing choices or client-facing response translation. Before persistence, it redacts only the three configured upstream request authentication header names. Runtime snapshots load audit policy from `profile_api_family_audit_settings` by profile and model API family, then retain request-time booleans in the telemetry envelope. Materialization creates one audit row for each audited upstream attempt, including failover attempts, and metadata-only requests still create audit metadata when audit is enabled. Body capture is allowed only when audit is enabled for that family. The audited request body can be stored for each attempted upstream request; the response body is stored only for the final attempt. Translated OpenAI audit bodies remain upstream-native, never substituted with the rewritten client-facing request or response body.
+Audit logging records request-time provenance without changing routing choices or client-facing response handling. Before persistence, it redacts only the three configured upstream request authentication header names. Runtime snapshots load audit policy from `profile_api_family_audit_settings` by profile and model API family, then retain request-time booleans in the telemetry envelope. Materialization creates one audit row for each audited upstream attempt, including failover attempts, and metadata-only requests still create audit metadata when audit is enabled. Body capture is allowed only when audit is enabled for that family. The audited request body can be stored for each attempted upstream request; the response body is stored only for the final attempt.
 
 ### 8.2 Audit Flow
 
@@ -429,7 +429,7 @@ Client -> supported runtime operation
 
 - Audit policy and body capture never change routing, target selection, or client-facing response adaptation.
 - Audit materialization occurs with durable runtime telemetry rather than inline `INSERT`s in the proxy handler.
-- Telemetry handoff has its own durability rules: buffered or translated successful responses require a completed outbox handoff before response commit; passthrough SSE and non-SSE success require an accepted outbox row before first flush and a later final update. Asynchronous captured non-`2xx` and eligible synthetic failure activity can be rejected or abandoned before materialization.
+- Telemetry handoff has its own durability rules: buffered successful responses require a completed outbox handoff before response commit; passthrough SSE and non-SSE success require an accepted outbox row before first flush and a later final update. Asynchronous captured non-`2xx` and eligible synthetic failure activity can be rejected or abandoned before materialization.
 
 ### 8.4 Redaction
 
@@ -445,7 +445,7 @@ The audit detail view is reached from request investigation at `/observe/request
 
 ### 8.6 Upstream Response Encoding
 
-Prism's upstream transport sets `DisableCompression: true` and removes the client `Accept-Encoding` header. Prism neither asks Go to automatically decompress upstream responses nor conditionally decompresses them for audit capture. Audit captures the response bytes actually read from the upstream response; a translated OpenAI response may then be adapted for the client separately.
+Prism's upstream transport sets `DisableCompression: true` and removes the client `Accept-Encoding` header. Prism neither asks Go to automatically decompress upstream responses nor conditionally decompresses them for audit capture. Audit captures the response bytes actually read from the native upstream response.
 
 ## 9. Global Log Retention
 

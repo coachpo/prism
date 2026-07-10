@@ -7,9 +7,6 @@ package runtime
 //   codex-rs/models-manager/models.json @ 3380969a29134630d56feb6218e8e8dcc5e8196d
 //   fetched 2026-07-10.
 //
-// To refresh, download the source file, verify that every enabled known model
-// still has an exact slug match, and replace codex_client_models.json unchanged.
-
 import (
 	"crypto/sha256"
 	_ "embed"
@@ -19,6 +16,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
 //go:embed codex_client_models.json
@@ -33,10 +32,25 @@ type codexModelTemplates struct {
 	maxPriority int
 }
 
-var codexModelTemplatesOnce = sync.OnceValue(func() codexModelTemplates {
+var (
+	codexModelTemplatesMu    sync.RWMutex
+	codexModelTemplatesStore codexModelTemplates
+	codexModelTemplatesHash  [sha256.Size]byte
+)
+
+func init() {
+	templates, err := parseCodexCatalog(codexClientModelsJSON)
+	if err != nil {
+		panic(fmt.Sprintf("parse embedded Codex models catalog: %v", err))
+	}
+	codexModelTemplatesStore = templates
+	codexModelTemplatesHash = sha256.Sum256(codexClientModelsJSON)
+}
+
+func parseCodexCatalog(data []byte) (codexModelTemplates, error) {
 	var payload codexModelsCatalogResponse
-	if err := json.Unmarshal(codexClientModelsJSON, &payload); err != nil {
-		panic(fmt.Sprintf("decode embedded Codex models catalog: %v", err))
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return codexModelTemplates{}, fmt.Errorf("decode Codex models catalog: %w", err)
 	}
 
 	templates := codexModelTemplates{
@@ -45,26 +59,28 @@ var codexModelTemplatesOnce = sync.OnceValue(func() codexModelTemplates {
 	for _, model := range payload.Models {
 		slug, ok := model["slug"].(string)
 		if !ok || strings.TrimSpace(slug) == "" {
-			panic("embedded Codex models catalog contains a model without a slug")
+			return codexModelTemplates{}, fmt.Errorf("Codex models catalog contains a model without a slug")
 		}
 		if _, exists := templates.bySlug[slug]; exists {
-			panic(fmt.Sprintf("embedded Codex models catalog contains duplicate slug %q", slug))
+			return codexModelTemplates{}, fmt.Errorf("Codex models catalog contains duplicate slug %q", slug)
 		}
 		priority, ok := codexCatalogPriority(model)
 		if !ok {
-			panic(fmt.Sprintf("embedded Codex model %q has an invalid priority", slug))
+			return codexModelTemplates{}, fmt.Errorf("Codex model %q has an invalid priority", slug)
 		}
 		templates.bySlug[slug] = model
 		templates.maxPriority = max(templates.maxPriority, priority)
 	}
 	if _, ok := templates.bySlug["gpt-5.5"]; !ok {
-		panic(`embedded Codex models catalog is missing fallback template "gpt-5.5"`)
+		return codexModelTemplates{}, fmt.Errorf(`Codex models catalog is missing fallback template "gpt-5.5"`)
 	}
-	return templates
-})
+	return templates, nil
+}
 
 func loadCodexTemplates() (map[string]map[string]any, int) {
-	templates := codexModelTemplatesOnce()
+	codexModelTemplatesMu.RLock()
+	defer codexModelTemplatesMu.RUnlock()
+	templates := codexModelTemplatesStore
 	return templates.bySlug, templates.maxPriority
 }
 
@@ -74,6 +90,9 @@ func buildCodexModelsCatalogResponse(snapshot *planningSnapshot) codexModelsCata
 	entries := make([]map[string]any, 0, len(models))
 	unknownSequence := 0
 	for _, model := range models {
+		if model.OpenAIAcceptedFormat != nil && *model.OpenAIAcceptedFormat == providerauth.OpenAITextCapabilityChatCompletionsOnly {
+			continue
+		}
 		template, ok := templates[model.ModelID]
 		if !ok {
 			unknownSequence++

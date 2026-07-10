@@ -18,10 +18,10 @@
   },
   "request": {
     "operation_name": "openai.chat_completions",
-    "upstream_operation_name": "openai.chat_completions",
-    "operation_translation_mode": "none",
+    "upstream_operation_name": "openai.responses",
+    "operation_translation_mode": "openai_chat_completions_to_responses",
     "request_path": "/v1/chat/completions",
-    "upstream_request_path": "/v1/chat/completions",
+    "upstream_request_path": "/v1/responses",
     "ingress_request_id": "ingress_req_42",
     "attempt_number": 2,
     "provider_correlation_id": "req_upstream_abc123",

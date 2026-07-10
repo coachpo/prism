@@ -401,7 +401,7 @@ Connection invariants:
 - Deleting a Terminal Target removes its owning `model_access_targets.target_connection_id` row in the same operation.
 - Connection create/update contracts do not allow client-written `priority`; model-specific ordering changes flow through `/api/models/{model_config_id}/targets/{target_id}/position`.
 - OpenAI Terminal Targets require `openai_text_capability` in `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI Terminal Targets must keep it `NULL`.
-- `openai_text_capability` is the OpenAI text runtime capability source of truth for planning. `responses_only` supports native Responses generation and Responses adjunct operations, `chat_completions_only` supports native Chat Completions, and `dual_native` supports both native text generation shapes. Sibling translation can run only for adapter-approved Chat Completions and Responses shapes when a terminal target is not native for the ingress operation; authored access-target and terminal-target order still decides which compatible native or translated attempt is tried first.
+- `openai_text_capability` is the connection-owned OpenAI text runtime capability source of truth for planning. `responses_only` supports native Responses generation and Responses adjunct operations, `chat_completions_only` supports native Chat Completions, and `dual_native` supports both native text generation shapes. The requested model's `openai_accepted_format` gates the ingress operation with `400 openai_request_translation_unsupported`; incompatible Terminal Target connections are skipped in authored order so later native attempts remain eligible, and an otherwise eligible set exhausted only by wire incompatibility returns the same typed `400` before provider transport. Ordinary availability exhaustion without such an attempt remains `503`.
 - `openai_probe_endpoint_variant` is retained for existing rows; live Terminal Target authoring uses `openai_text_capability` for OpenAI runtime planning.
 
 ### 2.7 `pricing_templates` (profile-scoped reusable token pricing)
@@ -488,7 +488,7 @@ Constraint: `UNIQUE(profile_id, model_id, endpoint_id)`.
 
 ### 2.11 `request_logs` (partitioned immutable profile attribution)
 
-Telemetry rows have immutable profile attribution captured at request start. Captured upstream attempts in materialized execution envelopes produce one row each. Telemetry-eligible target-resolution/translation planning failures carrying `PlanningFailure`, plus execution failures accepted by the runtime telemetry path, produce synthetic failure rows without an endpoint or connection. The table is range-partitioned by UTC `created_at` day. The partition-compatible primary key is `(created_at, id)`, with `id` still sequence-backed for lookup convenience.
+Telemetry rows have immutable profile attribution captured at request start. Captured upstream attempts in materialized execution envelopes produce one row each. Telemetry-eligible target-resolution or native-compatibility planning failures carrying `PlanningFailure`, plus execution failures accepted by the runtime telemetry path, produce synthetic failure rows without an endpoint or connection. The table is range-partitioned by UTC `created_at` day. The partition-compatible primary key is `(created_at, id)`, with `id` still sequence-backed for lookup convenience.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
@@ -501,7 +501,7 @@ Telemetry rows have immutable profile attribution captured at request start. Cap
 | attempt_number | INTEGER | NULLABLE | Per-ingress attempt order, starting at 1 |
 | operation_name | VARCHAR(120) | NULLABLE | Ingress canonical operation name; runtime writers populate it for supported operations |
 | upstream_operation_name | VARCHAR(120) | NULLABLE | Provider-facing operation name used for the attempt |
-| operation_translation_mode | VARCHAR(80) | NULLABLE | `none`, `openai_responses_to_chat_completions`, or `openai_chat_completions_to_responses` |
+| operation_translation_mode | VARCHAR(80) | NULLABLE | Current writes use `none`/NULL; retired translation values remain readable on historical rows |
 | upstream_request_path | VARCHAR(500) | NULLABLE | Sanitized provider-facing operation path |
 | provider_correlation_id | VARCHAR(255) | NULLABLE | Best-effort provider-visible correlation ID |
 | endpoint_id | INTEGER | NULLABLE | Endpoint snapshot |
@@ -560,7 +560,7 @@ Telemetry rows have immutable profile attribution captured at request start. Cap
 
 Request-log semantics:
 - Each captured upstream attempt in a materialized execution envelope writes one row, not one row per incoming runtime request.
-- Target-resolution errors attach `PlanningFailure` only for HTTP `503` or `openai_request_translation_unsupported`; those telemetry-eligible planning failures, plus execution failures that enter the runtime failure telemetry path (currently `admission_exhausted`), can write a synthetic row with no `endpoint_id` or `connection_id`.
+- Target-resolution errors attach `PlanningFailure` for HTTP `503` or `openai_request_translation_unsupported`; those telemetry-eligible planning failures, plus execution failures that enter the runtime failure telemetry path (currently `admission_exhausted`), can write a synthetic row with no `endpoint_id` or `connection_id`.
 - Earlier errors such as malformed request bodies, unknown models, and API-family mismatches do not carry `PlanningFailure` and do not write synthetic history.
 - When all launched transport attempts fail and execution returns its terminal `502`, the current executor drops its captured attempt list and does not materialize request or usage history for that failure.
 - Unsupported or wrong-method requests rejected by the operation registry write no request log, audit log, usage event, or telemetry-outbox row.
@@ -568,7 +568,7 @@ Request-log semantics:
 - `attempt_number` preserves retry/failover ordering within that group.
 - `model_id` records the requested model ID while `resolved_target_model_id` records the final target model ID selected for that attempt.
 - `operation_name` is nullable in the schema for compatibility, but materialized rows for registered operations, including synthetic failures, carry a non-empty canonical operation name. Registry rejection creates no row and therefore has no persisted operation name.
-- `operation_name` and `request_path` remain ingress-led. `upstream_operation_name`, `operation_translation_mode`, and `upstream_request_path` are additive upstream attribution for native or translated attempts.
+- `operation_name` and `request_path` remain ingress-led. `upstream_operation_name`, `operation_translation_mode`, and `upstream_request_path` are additive upstream attribution. Current OpenAI attempts are native and use `none`/NULL; historical translation values remain intact.
 - `selected_terminal_target_id` can differ from `connection_id` when the planner selected one terminal target but execution later failed over to another attempt.
 - `stream_error_detail` is exposed only by exact request-log detail reads. List and dashboard recent-activity payloads expose `stream_outcome` and `stream_error_kind` without detail text.
 - Prism prices only observed usage. `STREAM_USAGE_UNAVAILABLE` marks interrupted or no-terminal stream rows where required tokens are absent; completed streams missing required usage keep `MISSING_TOKEN_USAGE`.
@@ -589,7 +589,7 @@ Usage-event rows are the finalized source for the unified statistics snapshot. T
 | api_family | VARCHAR(50) | NOT NULL | Fixed runtime compatibility family |
 | operation_name | VARCHAR(120) | NULLABLE | Ingress canonical operation name; runtime writers populate it for supported operations |
 | upstream_operation_name | VARCHAR(120) | NULLABLE | Provider-facing operation name for finalized attribution |
-| operation_translation_mode | VARCHAR(80) | NULLABLE | Translation mode copied from the finalized attempt |
+| operation_translation_mode | VARCHAR(80) | NULLABLE | Current finalized attempts use `none`/NULL; historical translation values are preserved |
 | upstream_request_path | VARCHAR(500) | NULLABLE | Sanitized provider-facing operation path |
 | request_path | VARCHAR(500) | NOT NULL | Ingress route path that finalized the event |
 | endpoint_id | INTEGER | NULLABLE | Endpoint snapshot |
@@ -690,7 +690,7 @@ Audit-link semantics:
 - Request-log retention does not clear weak-link metadata. Audit list/detail responses expose `request_log_missing=true` only when `request_log_id` and `request_log_created_at` are both non-null and the `(profile_id, request_log_id, request_log_created_at)` tuple no longer resolves.
 - Audit retention and request-log retention are independent global jobs.
 - When body capture is enabled, every audit-enabled attempt can store its upstream request body. Only the final attempt can store the captured upstream response body.
-- Translated OpenAI audit capture uses upstream-native request and response bodies, never the translated client-facing shape.
+- OpenAI audit capture stores native upstream request and response bodies.
 - Request and response bodies are not redacted. Other request-header values and all response-header values can also contain sensitive data.
 
 ### 2.14 `profile_api_family_audit_settings` (profile-scoped audit policy)

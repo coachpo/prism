@@ -1,1 +1,0 @@
-{"code":"openai_request_translation_unsupported","detail":"Prism cannot translate this OpenAI request shape for the selected target.","http_status":400,"translation_mode":"openai_responses_to_chat_completions","unsupported_reason":"responses_text_format"}

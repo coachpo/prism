@@ -12,12 +12,6 @@ const (
 	APIFamilyGemini    = "gemini"
 )
 
-const (
-	TranslationModeNone                             TranslationMode = "none"
-	TranslationModeOpenAIResponsesToChatCompletions TranslationMode = "openai_responses_to_chat_completions"
-	TranslationModeOpenAIChatCompletionsToResponses TranslationMode = "openai_chat_completions_to_responses"
-)
-
 type AdapterError struct {
 	HTTPStatus int
 	Code       string
@@ -31,8 +25,6 @@ func (err *AdapterError) Error() string {
 	}
 	return err.Detail
 }
-
-type TranslationMode string
 
 type Operation struct {
 	Name             string
@@ -65,22 +57,19 @@ type UpstreamTarget struct {
 }
 
 type UpstreamRequest struct {
-	Method          string
-	Path            string
-	Header          http.Header
-	Body            []byte
-	TranslationLoss *TranslationLoss
+	Method string
+	Path   string
+	Header http.Header
+	Body   []byte
 }
 
 type UpstreamResponse struct {
-	Operation        Operation
-	StatusCode       int
-	Header           http.Header
-	Body             []byte
-	BodyReader       io.Reader
-	ContentType      string
-	TranslationMode  TranslationMode
-	RequestedModelID string
+	Operation   Operation
+	StatusCode  int
+	Header      http.Header
+	Body        []byte
+	BodyReader  io.Reader
+	ContentType string
 }
 
 type ClientResponse struct {
@@ -91,11 +80,9 @@ type ClientResponse struct {
 }
 
 type StreamRequest struct {
-	Operation        Operation
-	Reader           io.Reader
-	Writer           io.Writer
-	TranslationMode  TranslationMode
-	RequestedModelID string
+	Operation Operation
+	Reader    io.Reader
+	Writer    io.Writer
 }
 
 type StreamResult struct {
@@ -118,40 +105,6 @@ type TokenEstimate struct {
 	InputTokens  int
 	OutputTokens int
 	Source       string
-}
-
-type ConversionRequest struct {
-	Operation        Operation
-	RawBody          []byte
-	Mode             TranslationMode
-	TargetModelID    string
-	RequestedModelID string
-}
-
-type ConversionCapability struct {
-	Mode                  TranslationMode
-	RequestSupported      bool
-	ResponseSupported     bool
-	StreamSupported       bool
-	UnsupportedReason     string
-	HTTPStatus            int
-	UpstreamOperationName string
-}
-
-type TranslationLoss struct {
-	DroppedFields []string
-	MappedFields  []string
-}
-
-type TranslatedRequest struct {
-	Path            string
-	Body            []byte
-	TranslationLoss *TranslationLoss
-}
-
-type TranslatedResponse struct {
-	Body  []byte
-	Usage UsageEnvelope
 }
 
 type OverflowClassification struct {
@@ -203,9 +156,6 @@ type ProviderAdapter interface {
 	AdaptStream(context.Context, StreamRequest) (StreamResult, error)
 	ExtractUsage(context.Context, UpstreamResponse) (UsageEnvelope, error)
 	EstimateTokens(context.Context, ProviderRequest) (TokenEstimate, error)
-	ConversionCapability(context.Context, ConversionRequest) (ConversionCapability, error)
-	TranslateRequest(context.Context, ConversionRequest) (TranslatedRequest, error)
-	TranslateResponse(context.Context, ConversionRequest) (TranslatedResponse, error)
 	ClassifyOverflow(context.Context, UpstreamResponse) OverflowClassification
 	CurrentBehavior(context.Context, Operation) (CurrentOperationBehavior, bool)
 }

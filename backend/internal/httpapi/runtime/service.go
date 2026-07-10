@@ -431,64 +431,37 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 	var responseCapture runtimeResponseCapture
 	contentType := strings.ToLower(strings.TrimSpace(execution.Response.Header.Get("Content-Type")))
 	captureAuditBody := execution.AuditEnabledAtRequest && execution.AuditCaptureBodiesAtRequest
-	finalResponseTranslation := finalResponseTranslationForSerialization(plan, execution)
-	translationMode := finalResponseTranslation.TranslationMode
 	if strings.Contains(contentType, "text/event-stream") {
 		if _, ok := streamHooksForProxyResponse(plan.RuntimeOperation, plan.IsStreamingRequest); ok {
-			if !finalResponseTranslation.ResponseTranslationDirection.requiresTranslation() {
-				copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
-				proxyWriter.WriteHeader(execution.Response.StatusCode)
-				acceptedRowID := int64(0)
-				if s.runtimeResponseRequiresDurableHandoff(execution) {
-					rowID, err := s.enqueueStreamingRuntimeActivityAcceptedBeforeResponse(plan, execution, r, startedAt)
-					if err != nil {
-						writeRuntimeObservabilityHandoffError(w)
-						return
-					}
-					acceptedRowID = rowID
-					proxyWriter.Flush()
-				}
-				responseCapture, streamErr := proxyEventStreamAndCaptureCompletedResponseForFinalAttemptWithRequestBodies(plan.RuntimeOperation, finalResponseTranslation, plan.RawRequestBody, plan.UpstreamBody, r.Context(), proxyWriter, execution.Response.Body, s.nowUTC, captureAuditBody)
-				if streamErr != nil {
-					slog.Debug("runtime stream proxy ended with classified error", "error", streamErr, "stream_outcome", responseCapture.StreamOutcome)
-				}
-				if acceptedRowID > 0 {
-					if err := s.finalizeStreamingRuntimeActivityBeforeCompletion(acceptedRowID, plan, execution, r, startedAt, responseCapture); err != nil {
-						writeRuntimeObservabilityHandoffStreamError(proxyWriter)
-						return
-					}
-				} else {
-					s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
-				}
-				proxyWriter.Commit()
-				return
-			}
-
-			var translatedStream bytes.Buffer
-			responseCapture, streamErr := proxyEventStreamAndCaptureCompletedResponseForFinalAttemptWithRequestBodies(plan.RuntimeOperation, finalResponseTranslation, plan.RawRequestBody, plan.UpstreamBody, r.Context(), &translatedStream, execution.Response.Body, s.nowUTC, captureAuditBody)
-			if streamErr != nil {
-				slog.Debug("runtime translated stream proxy failed", "error", streamErr, "stream_outcome", responseCapture.StreamOutcome)
-				writeTranslatedOpenAIError(w, streamErr, "Failed to translate upstream stream")
-				return
-			}
-			copyTranslatedResponseHeadersWithContentType(proxyWriter.Header(), execution.Response.Header, "text/event-stream")
+			copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
 			proxyWriter.WriteHeader(execution.Response.StatusCode)
+			acceptedRowID := int64(0)
 			if s.runtimeResponseRequiresDurableHandoff(execution) {
-				if err := s.enqueueRuntimeActivityBeforeResponse(plan, execution, r, startedAt, responseCapture); err != nil {
+				rowID, err := s.enqueueStreamingRuntimeActivityAcceptedBeforeResponse(plan, execution, r, startedAt)
+				if err != nil {
 					writeRuntimeObservabilityHandoffError(w)
+					return
+				}
+				acceptedRowID = rowID
+				proxyWriter.Flush()
+			}
+			responseCapture, streamErr := proxyEventStreamAndCaptureCompletedResponse(plan.RuntimeOperation, r.Context(), proxyWriter, execution.Response.Body, s.nowUTC, captureAuditBody)
+			if streamErr != nil {
+				slog.Debug("runtime stream proxy ended with classified error", "error", streamErr, "stream_outcome", responseCapture.StreamOutcome)
+			}
+			if acceptedRowID > 0 {
+				if err := s.finalizeStreamingRuntimeActivityBeforeCompletion(acceptedRowID, plan, execution, r, startedAt, responseCapture); err != nil {
+					writeRuntimeObservabilityHandoffStreamError(proxyWriter)
 					return
 				}
 			} else {
 				s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
 			}
-			if _, err := proxyWriter.Write(translatedStream.Bytes()); err != nil {
-				return
-			}
 			proxyWriter.Commit()
 			return
 		}
 	}
-	if !nonStreamResponseRequiresBufferedInspection(execution.Response.StatusCode, finalResponseTranslation) {
+	if !nonStreamResponseRequiresBufferedInspection(execution.Response.StatusCode) {
 		copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
 		proxyWriter.WriteHeader(execution.Response.StatusCode)
 		acceptedRowID := int64(0)
@@ -501,7 +474,7 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 			acceptedRowID = rowID
 			proxyWriter.Flush()
 		}
-		passthroughCapture, passthroughErr := proxyNonEventResponseAndCaptureByOperation(plan.RuntimeOperation, translationMode, proxyWriter, execution.Response.Body, contentType, s.nowUTC, captureAuditBody)
+		passthroughCapture, passthroughErr := proxyNonEventResponseAndCaptureByOperation(plan.RuntimeOperation, proxyWriter, execution.Response.Body, contentType, s.nowUTC, captureAuditBody)
 		responseCapture = passthroughCapture
 		if passthroughErr != nil {
 			if !proxyWriter.Committed() {
@@ -521,128 +494,28 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 	}
 	sourceRawBody, err := readAndCloseRuntimeResponseBody(execution.Response)
 	if err != nil {
-		if translationMode != "" && translationMode != TranslationModeNone {
-			writeDomainError(w, openAITranslatedUpstreamResponseReadFailedDomainError(plan.RuntimeOperation, translationMode))
-			return
-		}
 		writeError(w, http.StatusBadGateway, "", "Failed to read upstream response", nil)
 		return
 	}
-	finalRawBody := sourceRawBody
-	finalPlan := plan
-	finalExecution := execution
-	finalResponseTranslation = finalResponseTranslationForSerialization(finalPlan, finalExecution)
-	responseCapture, err = s.writeBufferedNonStreamResponse(proxyWriter, finalPlan, finalExecution, finalResponseTranslation, finalRawBody)
+	responseCapture, err = s.writeBufferedNonStreamResponse(proxyWriter, plan, execution, sourceRawBody)
 	if err != nil {
-		var domainErr *domainError
-		if errors.As(err, &domainErr) && domainErr != nil {
-			writeTranslatedOpenAIError(w, err, "Failed to translate upstream response")
-			return
-		}
 		if !proxyWriter.Committed() {
 			writeError(w, http.StatusBadGateway, "", "Failed to read upstream response", nil)
 		}
 		return
 	}
-	if s.runtimeResponseRequiresDurableHandoff(finalExecution) {
-		if err := s.enqueueRuntimeActivityBeforeResponse(finalPlan, finalExecution, r, startedAt, responseCapture); err != nil {
+	if s.runtimeResponseRequiresDurableHandoff(execution) {
+		if err := s.enqueueRuntimeActivityBeforeResponse(plan, execution, r, startedAt, responseCapture); err != nil {
 			writeRuntimeObservabilityHandoffError(w)
 			return
 		}
 	} else {
-		s.recordRuntimeActivity(finalPlan, finalExecution, r, startedAt, responseCapture)
+		s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
 	}
 	proxyWriter.Commit()
 }
 
-func finalResponseTranslationForSerialization(plan requestPlan, execution executionResult) runtimeFinalResponseTranslationMetadata {
-	attemptMetadata := finalResponseTranslationMetadataFromFinalExecutionAttempt(execution)
-	metadata := cloneRuntimeFinalResponseTranslationMetadata(execution.FinalResponseTranslation)
-	if shouldUseFinalAttemptResponseTranslationMetadata(metadata, attemptMetadata) {
-		metadata = attemptMetadata
-	}
-	if metadata == nil {
-		metadata = &runtimeFinalResponseTranslationMetadata{TranslationMode: TranslationModeNone, ResponseTranslationDirection: runtimeFinalResponseTranslationDirectionNone}
-	}
-	return *completeFinalResponseTranslationMetadata(plan, metadata, false)
-}
-
-func finalResponseTranslationMetadataFromFinalExecutionAttempt(execution executionResult) *runtimeFinalResponseTranslationMetadata {
-	if len(execution.Attempts) == 0 {
-		return nil
-	}
-	return finalResponseTranslationMetadataFromExecutionAttempt(execution.Attempts[len(execution.Attempts)-1])
-}
-
-func shouldUseFinalAttemptResponseTranslationMetadata(metadata *runtimeFinalResponseTranslationMetadata, attemptMetadata *runtimeFinalResponseTranslationMetadata) bool {
-	if metadata == nil {
-		return attemptMetadata != nil
-	}
-	if attemptMetadata == nil || !attemptMetadata.ResponseTranslationDirection.requiresTranslation() {
-		return false
-	}
-	if metadata.ResponseTranslationDirection.requiresTranslation() {
-		return false
-	}
-	return !runtimeFinalResponseTranslationDirectionFromMode(metadata.TranslationMode).requiresTranslation()
-}
-
-func finalResponseTranslationForPromotedMerge(finalPlan requestPlan, promotedExecution executionResult) *runtimeFinalResponseTranslationMetadata {
-	metadata := cloneRuntimeFinalResponseTranslationMetadata(promotedExecution.FinalResponseTranslation)
-	if metadata == nil && len(promotedExecution.Attempts) > 0 {
-		metadata = finalResponseTranslationMetadataFromExecutionAttempt(promotedExecution.Attempts[len(promotedExecution.Attempts)-1])
-	}
-	if metadata == nil {
-		return nil
-	}
-	return completeFinalResponseTranslationMetadata(finalPlan, metadata, true)
-}
-
-func finalResponseTranslationMetadataFromExecutionAttempt(finalAttempt executionAttempt) *runtimeFinalResponseTranslationMetadata {
-	translationMode := normalizedRuntimeTranslationMode(finalAttempt.OperationTranslationMode)
-	return &runtimeFinalResponseTranslationMetadata{
-		TranslationMode:              translationMode,
-		SelectedTerminalTargetID:     intPtr(finalAttempt.Connection.ID),
-		UpstreamOperationName:        strings.TrimSpace(finalAttempt.UpstreamOperationName),
-		UpstreamRequestPath:          strings.TrimSpace(finalAttempt.UpstreamRequestPath),
-		ResponseTranslationDirection: runtimeFinalResponseTranslationDirectionFromMode(translationMode),
-	}
-}
-
-func completeFinalResponseTranslationMetadata(plan requestPlan, metadata *runtimeFinalResponseTranslationMetadata, overrideClientFields bool) *runtimeFinalResponseTranslationMetadata {
-	metadata.TranslationMode = normalizedRuntimeTranslationMode(metadata.TranslationMode)
-	metadata.ResponseTranslationDirection = normalizedRuntimeFinalResponseTranslationDirection(metadata.ResponseTranslationDirection)
-	if metadata.ResponseTranslationDirection == runtimeFinalResponseTranslationDirectionNone {
-		metadata.ResponseTranslationDirection = runtimeFinalResponseTranslationDirectionFromMode(metadata.TranslationMode)
-	}
-	if overrideClientFields || strings.TrimSpace(metadata.RequestedModelID) == "" {
-		metadata.RequestedModelID = strings.TrimSpace(plan.RequestedModelID)
-	}
-	if overrideClientFields || strings.TrimSpace(metadata.ClientOperationName) == "" {
-		metadata.ClientOperationName = strings.TrimSpace(plan.RuntimeOperation.Name)
-	}
-	upstreamMode := finalResponseTranslationUpstreamMetadataMode(*metadata)
-	if strings.TrimSpace(metadata.UpstreamOperationName) == "" {
-		metadata.UpstreamOperationName = runtimeUpstreamOperationName(plan.RuntimeOperation, upstreamMode)
-	}
-	if strings.TrimSpace(metadata.UpstreamRequestPath) == "" {
-		metadata.UpstreamRequestPath = dereferenceString(runtimeUpstreamRequestPath(plan.RuntimeOperation, upstreamMode, plan.EffectiveRequestPath))
-	}
-	return metadata
-}
-
-func finalResponseTranslationUpstreamMetadataMode(metadata runtimeFinalResponseTranslationMetadata) TranslationMode {
-	translationMode, err := runtimeTranslationModeForFinalResponseDirection(metadata.ResponseTranslationDirection)
-	if err == nil && translationMode != TranslationModeNone {
-		return translationMode
-	}
-	return normalizedRuntimeTranslationMode(metadata.TranslationMode)
-}
-
-func nonStreamResponseRequiresBufferedInspection(statusCode int, finalResponseTranslation runtimeFinalResponseTranslationMetadata) bool {
-	if finalResponseTranslation.ResponseTranslationDirection.requiresTranslation() {
-		return true
-	}
+func nonStreamResponseRequiresBufferedInspection(statusCode int) bool {
 	return cliProxyAPIOverflowStatusAllowed(statusCode)
 }
 
@@ -677,37 +550,12 @@ func readAndCloseRuntimeResponseBody(response *http.Response) ([]byte, error) {
 	return body, nil
 }
 
-func shouldPreserveRawTranslatedOverflowResponse(statusCode int, rawBody []byte, translationMode TranslationMode) bool {
-	if translationMode == "" || translationMode == TranslationModeNone {
-		return false
-	}
-	if classifyCLIProxyAPIOverflowResponse(statusCode, rawBody, translationMode).Promotable {
-		return false
-	}
-	return classifyCLIProxyAPIOverflowResponse(statusCode, rawBody, TranslationModeNone).Promotable
-}
-
-func (s *Service) writeBufferedNonStreamResponse(proxyWriter *runtimeDeferredCommitWriter, plan requestPlan, execution executionResult, finalResponseTranslation runtimeFinalResponseTranslationMetadata, rawBody []byte) (runtimeResponseCapture, error) {
+func (s *Service) writeBufferedNonStreamResponse(proxyWriter *runtimeDeferredCommitWriter, plan requestPlan, execution executionResult, rawBody []byte) (runtimeResponseCapture, error) {
 	contentType := strings.ToLower(strings.TrimSpace(execution.Response.Header.Get("Content-Type")))
 	captureAuditBody := execution.AuditEnabledAtRequest && execution.AuditCaptureBodiesAtRequest
-	translationMode := finalResponseTranslation.TranslationMode
-	if !finalResponseTranslation.ResponseTranslationDirection.requiresTranslation() || shouldPreserveRawTranslatedOverflowResponse(execution.Response.StatusCode, rawBody, translationMode) {
-		copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
-		proxyWriter.WriteHeader(execution.Response.StatusCode)
-		return proxyNonEventResponseAndCaptureByOperation(plan.RuntimeOperation, TranslationModeNone, proxyWriter, bytes.NewReader(rawBody), contentType, s.nowUTC, captureAuditBody)
-	}
-
-	var translatedBody bytes.Buffer
-	responseCapture, err := proxyNonEventResponseAndCaptureForFinalAttemptWithRequestBody(finalResponseTranslation, plan.RawRequestBody, &translatedBody, bytes.NewReader(rawBody), s.nowUTC, captureAuditBody)
-	if err != nil {
-		return runtimeResponseCapture{}, err
-	}
-	copyTranslatedResponseHeaders(proxyWriter.Header(), execution.Response.Header)
+	copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
 	proxyWriter.WriteHeader(execution.Response.StatusCode)
-	if _, err := proxyWriter.Write(translatedBody.Bytes()); err != nil {
-		return runtimeResponseCapture{}, err
-	}
-	return responseCapture, nil
+	return proxyNonEventResponseAndCaptureByOperation(plan.RuntimeOperation, proxyWriter, bytes.NewReader(rawBody), contentType, s.nowUTC, captureAuditBody)
 }
 
 // Downstream bytes become committed only when Commit or Flush runs. This keeps
@@ -1417,19 +1265,6 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		return
 	}
 	writeError(w, http.StatusInternalServerError, "", "Internal server error", nil)
-}
-
-func writeTranslatedOpenAIError(w http.ResponseWriter, err error, fallbackDetail string) {
-	var runtimeErr *domainError
-	if errors.As(err, &runtimeErr) {
-		writeDomainError(w, err)
-		return
-	}
-	detail := strings.TrimSpace(fallbackDetail)
-	if detail == "" {
-		detail = "Failed to translate upstream response"
-	}
-	writeError(w, http.StatusBadGateway, "", detail, nil)
 }
 
 func writeError(w http.ResponseWriter, statusCode int, errorCode string, detail string, fields map[string]any) {

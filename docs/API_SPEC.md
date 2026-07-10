@@ -755,21 +755,15 @@ Supported runtime operation request bodies are capped at `20 MiB`. Oversized req
 
 ### 2.2A Routing Failures
 
-Runtime planning evaluates ordered same-family model targets, aggregates their eligible Terminal Target attempts, and uses direct Terminal Targets only when no model-target candidate is eligible. The attached Ban Policy strategy then orders and filters the resulting attempts before provider transport. If no eligible Terminal Target is available inside the current retry window, Prism returns a routing-availability error before opening an upstream request. If all otherwise eligible attempts are blocked by admission counters, Prism returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. Unsupported translated OpenAI sibling-operation shapes reject with `openai_request_translation_unsupported` when adapter capability checks fail.
+Runtime planning evaluates ordered same-family model targets, aggregates their eligible Terminal Target attempts, and uses direct Terminal Targets only when no model-target candidate is eligible. The attached Ban Policy strategy then orders and filters the resulting attempts before provider transport. If no eligible Terminal Target is available inside the current retry window, Prism returns a routing-availability error before opening an upstream request. If all otherwise eligible attempts are blocked by admission counters, Prism returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. An OpenAI text request whose requested model does not accept the ingress operation rejects immediately with `400 openai_request_translation_unsupported`. Terminal Target connections that do not natively support the operation are skipped so later native attempts remain eligible; if every otherwise eligible attempt is wire-incompatible, Prism returns the same typed `400` with `translation_mode: "none"` and `unsupported_reason: "operation_translation_unsupported"` before provider transport. Availability failures with no otherwise eligible attempt retain the ordinary `503` no-eligible-target response.
 
 Request-log detail keeps flat final-target attribution fields such as `resolved_target_model_id`, `terminal_target_id`, `selected_terminal_target_id`, `endpoint_id`, and `operation_translation_mode`. Deleted model-owned routing metadata is not exposed on public detail responses.
 
-### 2.2B OpenAI sibling-operation translation
+### 2.2B OpenAI native wire compatibility
 
-OpenAI Chat Completions and Responses targets can be siblings for runtime planning. Translation eligibility is explicit and terminal-target based through `openai_text_capability`: `responses_only`, `chat_completions_only`, or `dual_native`. Native-compatible terminal attempts keep `operation_translation_mode = "none"`, while the planner preserves authored access-target and terminal-target order as it aggregates compatible native or translated attempts. Compatible sibling targets may use `openai_responses_to_chat_completions` or `openai_chat_completions_to_responses` only when the selected connection's capability is not native for the ingress operation and the adapter approves the request shape.
+OpenAI text routing is native-only. The requested model's `openai_accepted_format` and each Terminal Target connection's `openai_text_capability` use `responses_only`, `chat_completions_only`, or `dual_native`; both must support the ingress operation. A requested-model format mismatch returns `400 openai_request_translation_unsupported` before target resolution. A mismatched connection is skipped so load balancing can try the next authored target; when every otherwise eligible connection is incompatible, Prism returns the same typed `400` before provider transport. The response detail is `Prism cannot translate this OpenAI request shape for the selected target.`, with `translation_mode: "none"` and `unsupported_reason: "operation_translation_unsupported"`. Responses adjunct operations, `openai.responses.input_tokens` and `openai.responses.compact`, also require a responses-capable target.
 
-Sibling OpenAI text translation is always on for adapter-approved Chat Completions and Responses shapes. There is no startup toggle. Unsupported shapes are not universally routable: adapter-rejected conversions remain blocked by capability checks and reject before provider transport with `openai_request_translation_unsupported` when translation compatibility is the blocker. Supported tool definitions, tool/function calls, media content parts, and some stream conversion shapes can translate; unsupported metadata can be recorded as explicit translation loss instead of forcing whole-request rejection. Public Responses requests with stateful shapes such as `previous_response_id` can pass through when missing context estimation is the only blocker, but they still reject if translation compatibility fails. Responses adjunct operations, `openai.responses.input_tokens` and `openai.responses.compact`, require responses-capable targets and never translate to Chat Completions.
-
-Translated non-stream and stream responses are rewritten back to the ingress operation shape for the client. Runtime usage remains canonical from the raw upstream payload or terminal stream event, translated responses strip unsafe entity headers before writing to the client, and audit body capture stays upstream-native rather than translated.
-
-For Chat Completions ingress promoted to a Responses-only target, the client contract remains Chat Completions. Non-stream responses return `object: "chat.completion"`, `choices`, the requested public model ID, and Chat-shaped usage fields. Prism does not expose the raw Responses envelope to the client. Streaming responses return Chat Completions SSE chunks and terminal `data: [DONE]` while accepting text lifecycle events from the Responses upstream: `response.output_item.added`, `response.content_part.added`, `response.output_text.delta`, `response.output_text.done`, `response.content_part.done`, `response.output_item.done`, and terminal `response.completed`. Adapter-supported tool/function-call and content event shapes can translate; unsupported semantic stream shapes still reject deterministically with `openai_stream_translation_unsupported`.
-
-Ingress observability remains stable: `operation_name` is always the client-visible operation. Additive upstream fields use `upstream_operation_name`, `operation_translation_mode`, and `upstream_request_path` for request logs, usage events, and request-log detail. `upstream_request_path` is the sanitized operation path Prism sent upstream, not an unbounded raw URL. For Chat ingress translated to Responses upstream, public request logs preserve `operation_name = "openai.chat_completions"`, may record `upstream_operation_name = "openai.responses"`, and preserve `operation_translation_mode = "openai_chat_completions_to_responses"`.
+Prism does not convert requests, non-stream responses, or streams between Chat Completions and Responses. Native attempts use the ingress operation's upstream path and preserve `operation_translation_mode = "none"`. The `operation_translation_mode` columns and request-log fields remain readable for historical rows that recorded the retired translation values.
 
 #### 2.2B.1 Application capability matrix
 
@@ -786,18 +780,16 @@ Native request behavior:
 | `gpt-5.5` | `/v1/chat/completions` | `dual_native` | `/v1/chat/completions` | `none` | Chat Completions |
 | `gpt-5.4` | `/v1/responses` | `dual_native` | `/v1/responses` | `none` | Responses |
 | `gpt-5.4` | `/v1/chat/completions` | `dual_native` | `/v1/chat/completions` | `none` | Chat Completions |
-| `deepseek-v4-flash` | `/v1/responses` | `chat_completions_only` | `/v1/chat/completions` | `openai_responses_to_chat_completions` | Responses |
+| `deepseek-v4-flash` | `/v1/responses` | `chat_completions_only` | No upstream request | N/A | Rejected |
 | `deepseek-v4-flash` | `/v1/chat/completions` | `chat_completions_only` | `/v1/chat/completions` | `none` | Chat Completions |
-
-Translated rows above remain subject to adapter approval for the specific request shape. If a request shape is not safely translatable, Prism rejects that translated candidate instead of forcing conversion.
 
 ### 2.2C Retired Exact OpenAI Facade Routing
 
-Exact OpenAI facade routing and its model fields are retired. Runtime planning uses the requested model's ordinary access-target graph, operation translation checks, Terminal Target runtime capability, and the attached Ban Policy strategy. Prism no longer performs context-window preflight filtering or returns context-window-exceeded planning errors.
+Exact OpenAI facade routing and its model fields are retired. Runtime planning uses the requested model's ordinary access-target graph, native Terminal Target capability checks, and the attached Ban Policy strategy. Prism no longer performs context-window preflight filtering or returns context-window-exceeded planning errors.
 
 ### 2.2D Retired Overflow Replay
 
-Model-scoped overflow replay and its authoring fields are retired. Runtime planning now uses the ordinary operation registry, access-target graph, sibling-operation translation checks, and the attached Ban Policy strategy. Public request-log and usage surfaces keep flat requested model, final target, Terminal Target, endpoint, and operation fields without nested retired routing metadata.
+Model-scoped overflow replay and its authoring fields are retired. Runtime planning now uses the ordinary operation registry, access-target graph, native wire-compatibility checks, and the attached Ban Policy strategy. Public request-log and usage surfaces keep flat requested model, final target, Terminal Target, endpoint, and operation fields without nested retired routing metadata.
 
 ### 2.3 OpenAI Operations
 
@@ -807,9 +799,9 @@ GET /v1/models
 ```
 Response without a `client_version` query parameter: local OpenAI-shaped `{"object":"list","data":[...]}` list of enabled `api_family="openai"` models for frozen Default profile id `1`.
 
-Response when the `client_version` query parameter is present, including an empty value: local Codex client catalog `{"models":[...]}`. Exact model slugs found in Prism's embedded Codex template retain the template metadata. Unknown OpenAI model ids inherit the `gpt-5.5` template as a usable fallback while overriding the slug, display name, description, and deterministic trailing priority. This response includes a weak content-derived `ETag`; an exact matching `If-None-Match` returns `304 Not Modified` with an empty body.
+Response when the `client_version` query parameter is present, including an empty value: local Codex client catalog `{"models":[...]}`. Prism seeds the metadata store from the embedded Codex catalog, refreshes it asynchronously from the OpenAI Codex repository at startup and every 24 hours, and keeps the last good catalog on fetch or validation failure. Exact model slugs found in the current catalog retain its metadata. Unknown OpenAI model ids inherit the `gpt-5.5` template as a usable fallback while overriding the slug, display name, description, and deterministic trailing priority. Models configured as `chat_completions_only` are absent because Codex uses the Responses wire. This response includes a weak content-derived `ETag`; an exact matching `If-None-Match` returns `304 Not Modified` with an empty body.
 
-Prism does not contact upstream providers for either response shape. Both shapes use the same enabled OpenAI model filter.
+Prism does not contact configured model providers for either response shape. The plain list contains every enabled OpenAI model; the Codex branch additionally removes `chat_completions_only` models. Catalog refresh runs only in the background and never blocks this handler.
 
 #### Chat Completions
 ```
@@ -827,7 +819,7 @@ Request (standard OpenAI format):
   "stream": false
 }
 ```
-Response: Native attempts are proxied from the upstream OpenAI-compatible endpoint. Translated sibling attempts are rewritten back to Chat Completions shape before the client sees them. Canonical operation name: `openai.chat_completions`.
+Response: Native attempts are proxied from an upstream Chat Completions-capable OpenAI endpoint. Canonical operation name: `openai.chat_completions`.
 
 #### Responses
 ```
@@ -841,7 +833,7 @@ Request (OpenAI Responses generation format):
   "stream": false
 }
 ```
-Response: Native attempts are proxied from the upstream OpenAI-compatible endpoint. Translated sibling attempts are rewritten back to Responses shape before the client sees them. Canonical operation name: `openai.responses`.
+Response: Native attempts are proxied from an upstream Responses-capable OpenAI endpoint. Canonical operation name: `openai.responses`.
 
 #### Responses Input Tokens
 ```
@@ -919,7 +911,7 @@ For all Gemini runtime paths in this section, the `{model}` binding must be one 
 
 ### 2.6 Streaming
 
-Streaming stays operation-native for native attempts: `openai.chat_completions`, `openai.responses`, and `anthropic.messages` use their upstream-compatible request body flags, while `gemini.stream_generate_content` uses `POST /v1beta/models/{model}:streamGenerateContent`. Native streaming responses are proxied from upstream; translated OpenAI sibling streams are rewritten back to the ingress operation's SSE shape.
+Streaming stays operation-native: `openai.chat_completions`, `openai.responses`, and `anthropic.messages` use their upstream-compatible request body flags, while `gemini.stream_generate_content` uses `POST /v1beta/models/{model}:streamGenerateContent`. Streaming responses are proxied from a natively compatible upstream.
 For Gemini, the `gemini.stream_generate_content` path is authoritative: `POST /v1beta/models/{model}:streamGenerateContent` is treated as streaming even when the request body omits `stream: true`. `gemini.generate_content` remains the non-stream generate-content operation.
 
 ### 2.7 Token Usage Extraction
@@ -1307,7 +1299,7 @@ Response `200`:
 
 Request-log detail uses the same canonical disjoint token components as runtime persistence: base input, base output, cache-read input, cache-creation input, reasoning output, and provider or derived total. Pricing snapshots store the five concrete pricing strings used for the attempt. Explicit `"0"` prices are configured free pricing and produce zero component cost without marking the row unpriced. Public request-log detail routing exposes `terminal_target_id` and `selected_terminal_target_id`; it does not expose `routing.connection_id` on the detail surface.
 
-Request-log detail keeps ingress and upstream attribution separate. `request.operation_name` and `request.request_path` are ingress-led. `request.upstream_operation_name`, `request.operation_translation_mode`, and `request.upstream_request_path` describe the provider-facing operation selected for the attempt. Native attempts use `operation_translation_mode = "none"` and usually keep ingress and upstream fields equal; translated attempts keep canonical usage from the upstream payload while presenting the client-visible operation in `operation_name`.
+Request-log detail keeps ingress and upstream attribution separate. `request.operation_name` and `request.request_path` are ingress-led. `request.upstream_operation_name`, `request.operation_translation_mode`, and `request.upstream_request_path` describe the provider-facing operation selected for the attempt. Current OpenAI attempts use `operation_translation_mode = "none"` and keep ingress and upstream operation shapes equal. Historical rows retain and expose any translation mode recorded before sibling conversion was removed.
 
 Ordinary target-graph attempts preserve the top-level requested and resolved model fields without rewriting client-visible response-body identity. Request-log detail exposes resolved model and selected Terminal Target attribution.
 
@@ -1714,7 +1706,7 @@ Response `200`:
 }
 ```
 
-When body capture is enabled, request bodies can be stored for every audited upstream attempt. Only the final attempt can store a non-empty `response_body`, and `response_body_stored=true` means that final response bytes were retained; `is_stream` does not prevent that storage. For translated OpenAI sibling-operation attempts, `request_body` and `response_body` remain raw upstream-native payloads or SSE bytes. They do not store the translated client-facing request or response shape.
+When body capture is enabled, request bodies can be stored for every audited upstream attempt. Only the final attempt can store a non-empty `response_body`, and `response_body_stored=true` means that final response bytes were retained; `is_stream` does not prevent that storage. Captured OpenAI bodies are the native upstream payloads or SSE bytes.
 If body capture is disabled for a request, both `request_body` and `response_body` are `null`. Rows with `response_body_stored=false` have no stored response body, including old rows that were written before streaming response capture was available.
 
 Response `404`: Audit log not found.
@@ -1774,7 +1766,7 @@ POST /api/management/jobs/{job_id}/cancel
 
 Audit redaction is deliberately narrow. Before stored upstream **request** headers are serialized, Prism replaces the values of exactly `authorization`, `x-api-key`, and `x-goog-api-key` (case-insensitive) with `[REDACTED]`. It does not preserve an `Authorization` scheme and does not redact other request-header names by pattern.
 
-Stored upstream response headers are serialized as captured without header redaction. Captured request and response bodies are also stored as captured and can contain user-provided secrets or PII. Body capture is request-time provenance via `audit_capture_bodies_at_request`; when disabled, both `request_body` and `response_body` are `null`. For translated OpenAI attempts, stored bodies remain upstream-native because provider conversion owns request, response, and stream shape conversion while runtime owns audit storage.
+Stored upstream response headers are serialized as captured without header redaction. Captured request and response bodies are also stored as captured and can contain user-provided secrets or PII. Body capture is request-time provenance via `audit_capture_bodies_at_request`; when disabled, both `request_body` and `response_body` are `null`.
 
 ### 5.5 Body Size Limits
 

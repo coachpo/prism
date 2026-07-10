@@ -221,7 +221,7 @@ For the page-specific query contract and UI behavior, see `docs/REQUESTS_PAGE.md
 
 Mail bootstrap fields remain parse-compatible for existing `config.json` files, but Prism no longer sends mail. Fresh bootstrap seeds use backend `8000`, frontend `5173`, and PostgreSQL `15432`, but `./start.sh` follows the existing bootstrap file's configured `server.port` when one already exists. `runtime.transport.requestTimeout` is seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout` is seeded as `"10s"`. Direct external `config.json` edits are not watched automatically, and existing valid files are not rewritten by the launcher. To reset startup defaults, stop Prism, remove or relocate the bootstrap file, and restart.
 
-OpenAI text sibling translation is not a startup-control lane. Operators set runtime OpenAI text support on each Terminal Target through `openai_text_capability`, using `responses_only`, `chat_completions_only`, or `dual_native`.
+OpenAI text routing is native-only. Operators set runtime support on each Terminal Target through `openai_text_capability`, using `responses_only`, `chat_completions_only`, or `dual_native`; incompatible Chat Completions/Responses attempts are skipped rather than translated.
 
 **Backend touchpoints**
 
@@ -288,7 +288,7 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 - `POST /v1beta/models/{model}:countTokens`
 
 These 10 allowlisted runtime routes are defined in `backend/internal/httpapi/runtime/operations.go` and are intentionally separate from `/api/*` management routes. Prism does not treat `/v1` or `/v1beta` as catch-all prefixes.
-`GET /v1/models` remains local: without `client_version` it returns the OpenAI-shaped list; with `client_version` it returns the embedded Codex catalog, a content-derived weak `ETag`, and `304 Not Modified` on an exact `If-None-Match`.
+`GET /v1/models` remains local: without `client_version` it returns the OpenAI-shaped list; with `client_version` it returns the current Codex catalog, seeded from the embedded copy and refreshed asynchronously from OpenAI at startup and every 24 hours, plus a content-derived weak `ETag` and `304 Not Modified` on an exact `If-None-Match`.
 
 ## 9. Priority Operations Runbook
 

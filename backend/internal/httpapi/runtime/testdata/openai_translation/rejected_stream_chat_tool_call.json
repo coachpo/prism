@@ -1,1 +1,0 @@
-{"code":"openai_stream_translation_unsupported","detail":"Prism cannot translate this OpenAI stream shape for the selected target.","http_status":502,"translation_mode":"openai_responses_to_chat_completions","unsupported_reason":"chat_tool_call_stream"}

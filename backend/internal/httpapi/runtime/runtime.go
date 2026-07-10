@@ -20,16 +20,10 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
-	"github.com/coachpo/prism/backend/internal/gateway/provider"
 	gatewayrouting "github.com/coachpo/prism/backend/internal/gateway/routing"
-	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
-const (
-	openAIUpstreamOperationResponses       = providerauth.OpenAIUpstreamOperationResponses
-	openAIUpstreamOperationChatCompletions = providerauth.OpenAIUpstreamOperationChatCompletions
-	runtimeAdmissionExhaustedErrorCode     = "admission_exhausted"
-)
+const runtimeAdmissionExhaustedErrorCode = "admission_exhausted"
 
 type runtimeFeedbackStore struct {
 	pool *pgxpool.Pool
@@ -49,16 +43,6 @@ var hopByHopHeaders = map[string]struct{}{
 	"transfer-encoding":   {},
 	"upgrade":             {},
 	"host":                {},
-}
-
-var translatedResponseUnsafeEntityHeaders = map[string]struct{}{
-	"content-encoding": {},
-	"content-length":   {},
-	"content-md5":      {},
-	"content-range":    {},
-	"digest":           {},
-	"etag":             {},
-	"last-modified":    {},
 }
 
 var clientAuthHeaders = map[string]struct{}{
@@ -140,65 +124,6 @@ type runtimeConnection struct {
 	Endpoint                runtimeEndpoint
 }
 
-type runtimeTranslationLossDecision struct {
-	Lossy         bool     `json:"lossy"`
-	Direction     string   `json:"direction"`
-	DroppedFields []string `json:"dropped_fields,omitempty"`
-	MappedFields  []string `json:"mapped_fields,omitempty"`
-}
-
-func cloneRuntimeTranslationLossDecision(source *runtimeTranslationLossDecision) *runtimeTranslationLossDecision {
-	if source == nil || !source.Lossy {
-		return nil
-	}
-	return &runtimeTranslationLossDecision{
-		Lossy:         source.Lossy,
-		Direction:     strings.TrimSpace(source.Direction),
-		DroppedFields: cloneRuntimeStringList(source.DroppedFields),
-		MappedFields:  cloneRuntimeStringList(source.MappedFields),
-	}
-}
-
-func cloneRuntimeStringList(source []string) []string {
-	if len(source) == 0 {
-		return nil
-	}
-	cloned := make([]string, 0, len(source))
-	for _, value := range source {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			cloned = append(cloned, trimmed)
-		}
-	}
-	return cloned
-}
-
-func runtimeTranslationLossDecisionFromProvider(loss *provider.TranslationLoss, mode TranslationMode) *runtimeTranslationLossDecision {
-	if loss == nil {
-		return nil
-	}
-	dropped := cloneRuntimeStringList(loss.DroppedFields)
-	mapped := cloneRuntimeStringList(loss.MappedFields)
-	if len(dropped) == 0 && len(mapped) == 0 {
-		return nil
-	}
-	direction := runtimeTranslationLossDirection(mode)
-	if direction == "" {
-		return nil
-	}
-	return &runtimeTranslationLossDecision{Lossy: true, Direction: direction, DroppedFields: dropped, MappedFields: mapped}
-}
-
-func runtimeTranslationLossDirection(mode TranslationMode) string {
-	switch normalizedRuntimeTranslationMode(mode) {
-	case TranslationModeOpenAIResponsesToChatCompletions:
-		return "responses_to_chat"
-	case TranslationModeOpenAIChatCompletionsToResponses:
-		return "chat_to_responses"
-	default:
-		return ""
-	}
-}
-
 func cloneRuntimeIntPointer(source *int) *int {
 	if source == nil {
 		return nil
@@ -235,69 +160,12 @@ func runtimeTranslationModePointer(mode TranslationMode) *string {
 	return stringPtr(string(normalized))
 }
 
-type runtimeFinalResponseTranslationDirection string
-
-const (
-	runtimeFinalResponseTranslationDirectionNone                          runtimeFinalResponseTranslationDirection = "none"
-	runtimeFinalResponseTranslationDirectionResponsesUpstreamToChatClient runtimeFinalResponseTranslationDirection = "responses_upstream_to_chat_client"
-	runtimeFinalResponseTranslationDirectionChatUpstreamToResponsesClient runtimeFinalResponseTranslationDirection = "chat_upstream_to_responses_client"
-)
-
-func normalizedRuntimeFinalResponseTranslationDirection(direction runtimeFinalResponseTranslationDirection) runtimeFinalResponseTranslationDirection {
-	if strings.TrimSpace(string(direction)) == "" {
-		return runtimeFinalResponseTranslationDirectionNone
-	}
-	return direction
+func runtimeUpstreamOperationName(operation RuntimeOperation, _ TranslationMode) string {
+	return strings.TrimSpace(operation.Name)
 }
 
-func (direction runtimeFinalResponseTranslationDirection) requiresTranslation() bool {
-	return normalizedRuntimeFinalResponseTranslationDirection(direction) != runtimeFinalResponseTranslationDirectionNone
-}
-
-func runtimeFinalResponseTranslationDirectionFromMode(mode TranslationMode) runtimeFinalResponseTranslationDirection {
-	switch normalizedRuntimeTranslationMode(mode) {
-	case TranslationModeOpenAIResponsesToChatCompletions:
-		return runtimeFinalResponseTranslationDirectionChatUpstreamToResponsesClient
-	case TranslationModeOpenAIChatCompletionsToResponses:
-		return runtimeFinalResponseTranslationDirectionResponsesUpstreamToChatClient
-	default:
-		return runtimeFinalResponseTranslationDirectionNone
-	}
-}
-
-func runtimeTranslationModeForFinalResponseDirection(direction runtimeFinalResponseTranslationDirection) (TranslationMode, error) {
-	switch normalizedRuntimeFinalResponseTranslationDirection(direction) {
-	case runtimeFinalResponseTranslationDirectionNone:
-		return TranslationModeNone, nil
-	case runtimeFinalResponseTranslationDirectionResponsesUpstreamToChatClient:
-		return TranslationModeOpenAIChatCompletionsToResponses, nil
-	case runtimeFinalResponseTranslationDirectionChatUpstreamToResponsesClient:
-		return TranslationModeOpenAIResponsesToChatCompletions, nil
-	default:
-		return TranslationModeNone, fmt.Errorf("unsupported final response translation direction %q", direction)
-	}
-}
-
-func runtimeUpstreamOperationName(operation RuntimeOperation, mode TranslationMode) string {
-	switch normalizedRuntimeTranslationMode(mode) {
-	case TranslationModeOpenAIResponsesToChatCompletions:
-		return openAIUpstreamOperationChatCompletions
-	case TranslationModeOpenAIChatCompletionsToResponses:
-		return openAIUpstreamOperationResponses
-	default:
-		return strings.TrimSpace(operation.Name)
-	}
-}
-
-func runtimeUpstreamRequestPathTemplate(operation RuntimeOperation, mode TranslationMode) string {
-	switch normalizedRuntimeTranslationMode(mode) {
-	case TranslationModeOpenAIResponsesToChatCompletions:
-		return "/v1/chat/completions"
-	case TranslationModeOpenAIChatCompletionsToResponses:
-		return "/v1/responses"
-	default:
-		return strings.TrimSpace(operation.PathTemplate)
-	}
+func runtimeUpstreamRequestPathTemplate(operation RuntimeOperation, _ TranslationMode) string {
+	return strings.TrimSpace(operation.PathTemplate)
 }
 
 func runtimeUpstreamRequestPath(operation RuntimeOperation, mode TranslationMode, effectivePath string) *string {
@@ -310,34 +178,6 @@ func runtimeUpstreamRequestPath(operation RuntimeOperation, mode TranslationMode
 		return nil
 	}
 	return stringPtr(trimmed)
-}
-
-func finalResponseTranslationMetadataFromAttempt(operation RuntimeOperation, attempt runtimeTerminalAttempt, requestedModelID string, selectedTerminalTargetID int) *runtimeFinalResponseTranslationMetadata {
-	mode := normalizedRuntimeTranslationMode(attempt.TranslationMode)
-	return &runtimeFinalResponseTranslationMetadata{
-		TranslationMode:              mode,
-		RequestedModelID:             strings.TrimSpace(requestedModelID),
-		ClientOperationName:          strings.TrimSpace(operation.Name),
-		SelectedTerminalTargetID:     intPtr(selectedTerminalTargetID),
-		UpstreamOperationName:        runtimeUpstreamOperationName(operation, mode),
-		UpstreamRequestPath:          dereferenceString(runtimeUpstreamRequestPath(operation, mode, attempt.EffectiveRequestPath)),
-		ResponseTranslationDirection: runtimeFinalResponseTranslationDirectionFromMode(mode),
-	}
-}
-
-func cloneRuntimeFinalResponseTranslationMetadata(source *runtimeFinalResponseTranslationMetadata) *runtimeFinalResponseTranslationMetadata {
-	if source == nil {
-		return nil
-	}
-	return &runtimeFinalResponseTranslationMetadata{
-		TranslationMode:              normalizedRuntimeTranslationMode(source.TranslationMode),
-		RequestedModelID:             strings.TrimSpace(source.RequestedModelID),
-		ClientOperationName:          strings.TrimSpace(source.ClientOperationName),
-		SelectedTerminalTargetID:     cloneRuntimeIntPointer(source.SelectedTerminalTargetID),
-		UpstreamOperationName:        strings.TrimSpace(source.UpstreamOperationName),
-		UpstreamRequestPath:          strings.TrimSpace(source.UpstreamRequestPath),
-		ResponseTranslationDirection: normalizedRuntimeFinalResponseTranslationDirection(source.ResponseTranslationDirection),
-	}
 }
 
 type headerBlocklistRule struct {
@@ -477,7 +317,6 @@ type plannedUpstreamRequest struct {
 	IsStreamingRequest      bool
 	ClientHeaders           map[string]string
 	RequestGenerationParams requestGenerationParamsSnapshot
-	TranslationLoss         *runtimeTranslationLossDecision
 }
 
 type runtimeTerminalAttempt struct {
@@ -489,7 +328,6 @@ type runtimeTerminalAttempt struct {
 	UpstreamBody              []byte
 	AuditEnabledAtRequest     bool
 	AuditCaptureBodiesRequest bool
-	TranslationLoss           *runtimeTranslationLossDecision
 }
 
 type runtimeRequestBodySource struct {
@@ -561,16 +399,6 @@ type executionAttempt struct {
 	OperationTranslationMode    TranslationMode
 }
 
-type runtimeFinalResponseTranslationMetadata struct {
-	TranslationMode              TranslationMode
-	RequestedModelID             string
-	ClientOperationName          string
-	SelectedTerminalTargetID     *int
-	UpstreamOperationName        string
-	UpstreamRequestPath          string
-	ResponseTranslationDirection runtimeFinalResponseTranslationDirection
-}
-
 type executionResult struct {
 	Response                    *http.Response
 	Connection                  runtimeConnection
@@ -578,7 +406,6 @@ type executionResult struct {
 	ResolvedTargetModelID       *string
 	AuditEnabledAtRequest       bool
 	AuditCaptureBodiesAtRequest bool
-	FinalResponseTranslation    *runtimeFinalResponseTranslationMetadata
 	AttemptCount                int
 	Attempts                    []executionAttempt
 	RouteReason                 gatewaycore.RouteReason
@@ -714,24 +541,19 @@ func attachRuntimePlanningFailureTelemetry(err error, input requestPlanningInput
 	if !errors.As(err, &runtimeErr) || runtimeErr == nil {
 		return err
 	}
-	if runtimeErr.ErrorCode != openAIRequestTranslationUnsupportedErrorCode {
-		if runtimeErr.StatusCode != http.StatusServiceUnavailable {
-			return err
-		}
+	_, unsupportedWire := isRequestTranslationUnsupportedError(runtimeErr)
+	if !unsupportedWire && runtimeErr.StatusCode != http.StatusServiceUnavailable {
+		return err
 	}
 	generationParams := extractBufferedRequestGenerationParams(operation.Match.Operation, input.RawBody)
 	selectedTerminalTargetID := cloneRuntimeIntPointer(runtimeErr.SelectedTerminalTargetID)
-	translationMode := TranslationModeNone
-	if fieldValue, ok := runtimeErr.Fields["translation_mode"].(string); ok && strings.TrimSpace(fieldValue) != "" {
-		translationMode = normalizedRuntimeTranslationMode(TranslationMode(strings.TrimSpace(fieldValue)))
-	}
 	var upstreamOperationName *string
 	var upstreamRequestPath *string
 	var operationTranslationMode *string
-	if runtimeErr.ErrorCode == openAIRequestTranslationUnsupportedErrorCode {
-		upstreamOperationName = stringPtr(runtimeUpstreamOperationName(operation.Match.Operation, translationMode))
-		upstreamRequestPath = runtimeUpstreamRequestPath(operation.Match.Operation, translationMode, "")
-		operationTranslationMode = runtimeTranslationModePointer(translationMode)
+	if unsupportedWire {
+		upstreamOperationName = stringPtr(runtimeUpstreamOperationName(operation.Match.Operation, TranslationModeNone))
+		upstreamRequestPath = runtimeUpstreamRequestPath(operation.Match.Operation, TranslationModeNone, "")
+		operationTranslationMode = runtimeTranslationModePointer(TranslationModeNone)
 	}
 	var resolvedTargetModelID *string
 	if runtimeErr.ResolvedTargetModelID != nil && strings.TrimSpace(*runtimeErr.ResolvedTargetModelID) != "" {
@@ -765,7 +587,7 @@ func (s *Service) resolveRequestPlanTarget(input requestPlanningInput, operation
 	if err != nil {
 		return resolvedExecutionTarget{}, err
 	}
-	resolved, err := s.resolveExecutionTargetFromRoutingPlanWithOptions(input.ActiveProfileID, routingPlan, requestedModel, operation.Match.Operation, input.RawBody, s.nowUTC())
+	resolved, err := s.resolveExecutionTargetFromRoutingPlanWithOptions(input.ActiveProfileID, routingPlan, requestedModel, operation.Match.Operation, s.nowUTC())
 	if err != nil {
 		return resolvedExecutionTarget{}, err
 	}
@@ -800,30 +622,18 @@ func buildPlannedUpstreamRequest(input requestPlanningInput, operation resolvedR
 	}
 	effectiveRequestPath := input.Request.URL.Path
 	upstreamBody := input.RawBody
-	var translationLoss *runtimeTranslationLossDecision
-	switch attempt.TranslationMode {
-	case "", TranslationModeNone:
-		switch operation.Match.Operation.ModelBindingSource {
-		case RuntimeOperationModelBindingPath:
-			pathModelID := strings.TrimSpace(operation.Match.PathParams["model"])
-			if pathModelID != "" && pathModelID != attempt.TargetModel.ModelID {
-				effectiveRequestPath = rewriteModelInPath(input.Request.URL.Path, pathModelID, attempt.TargetModel.ModelID)
-			}
-		case RuntimeOperationModelBindingBody:
-			if bodyModelID := extractModelFromBody(input.RawBody); bodyModelID != "" && bodyModelID != attempt.TargetModel.ModelID {
-				upstreamBody = rewriteModelInBody(input.RawBody, attempt.TargetModel.ModelID)
-			}
-		default:
-			return plannedUpstreamRequest{}, unsupportedOperationModelBindingError(operation.Match.Operation)
+	switch operation.Match.Operation.ModelBindingSource {
+	case RuntimeOperationModelBindingPath:
+		pathModelID := strings.TrimSpace(operation.Match.PathParams["model"])
+		if pathModelID != "" && pathModelID != attempt.TargetModel.ModelID {
+			effectiveRequestPath = rewriteModelInPath(input.Request.URL.Path, pathModelID, attempt.TargetModel.ModelID)
+		}
+	case RuntimeOperationModelBindingBody:
+		if bodyModelID := extractModelFromBody(input.RawBody); bodyModelID != "" && bodyModelID != attempt.TargetModel.ModelID {
+			upstreamBody = rewriteModelInBody(input.RawBody, attempt.TargetModel.ModelID)
 		}
 	default:
-		translatedPath, translatedBody, loss, err := translateOpenAIRequestWithLoss(input.RawBody, attempt.TranslationMode, attempt.TargetModel.ModelID)
-		if err != nil {
-			return plannedUpstreamRequest{}, err
-		}
-		effectiveRequestPath = translatedPath
-		upstreamBody = translatedBody
-		translationLoss = loss
+		return plannedUpstreamRequest{}, unsupportedOperationModelBindingError(operation.Match.Operation)
 	}
 
 	return plannedUpstreamRequest{
@@ -833,7 +643,6 @@ func buildPlannedUpstreamRequest(input requestPlanningInput, operation resolvedR
 		IsStreamingRequest:      requestWantsStreamForOperation(operation.Match.Operation, input.RawBody, effectiveRequestPath),
 		ClientHeaders:           flattenHeaders(input.Request.Header),
 		RequestGenerationParams: extractBufferedRequestGenerationParams(operation.Match.Operation, input.RawBody),
-		TranslationLoss:         translationLoss,
 	}, nil
 }
 
@@ -891,7 +700,6 @@ func buildPlannedTerminalAttempts(input requestPlanningInput, operation resolved
 		planned.UpstreamBody = upstreamRequest.UpstreamBody
 		planned.AuditEnabledAtRequest = attempt.TargetModel.AuditEnabled
 		planned.AuditCaptureBodiesRequest = attempt.TargetModel.AuditEnabled && attempt.TargetModel.AuditCaptureBodies
-		planned.TranslationLoss = cloneRuntimeTranslationLossDecision(upstreamRequest.TranslationLoss)
 		plannedAttempts = append(plannedAttempts, planned)
 		if index == 0 {
 			firstUpstream = upstreamRequest
@@ -1105,7 +913,6 @@ func (state *requestExecutionState) result(plan requestPlan, outcome executionOu
 		ResolvedTargetModelID:       stringPointerIfNotEmpty(outcome.TerminalAttempt.TargetModel.ModelID),
 		AuditEnabledAtRequest:       outcome.TerminalAttempt.AuditEnabledAtRequest,
 		AuditCaptureBodiesAtRequest: outcome.TerminalAttempt.AuditCaptureBodiesRequest,
-		FinalResponseTranslation:    finalResponseTranslationMetadataFromAttempt(plan.RuntimeOperation, outcome.TerminalAttempt, plan.RequestedModelID, outcome.TerminalAttempt.Connection.ID),
 		AttemptCount:                state.launchedAttempts,
 		Attempts:                    state.attempts,
 		RouteReason:                 runtimeExecutionRouteReason(state.routeReason),
@@ -1739,38 +1546,12 @@ func copyResponseHeaders(target http.Header, source http.Header) {
 	}
 }
 
-func copyTranslatedResponseHeaders(target http.Header, source http.Header) {
-	copyTranslatedResponseHeadersWithContentType(target, source, "application/json")
-}
-
-func copyTranslatedResponseHeadersWithContentType(target http.Header, source http.Header, contentType string) {
-	for key, values := range filterTranslatedResponseHeaders(source) {
-		for _, value := range values {
-			target.Add(key, value)
-		}
-	}
-	target.Set("Content-Type", contentType)
-}
-
 func filterResponseHeaders(source http.Header) http.Header {
-	return filterResponseHeadersWithEntitySafety(source, false)
-}
-
-func filterTranslatedResponseHeaders(source http.Header) http.Header {
-	return filterResponseHeadersWithEntitySafety(source, true)
-}
-
-func filterResponseHeadersWithEntitySafety(source http.Header, translated bool) http.Header {
 	filtered := make(http.Header)
 	for key, values := range source {
 		keyLower := strings.ToLower(strings.TrimSpace(key))
 		if _, blocked := hopByHopHeaders[keyLower]; blocked {
 			continue
-		}
-		if translated {
-			if _, unsafeEntity := translatedResponseUnsafeEntityHeaders[keyLower]; unsafeEntity {
-				continue
-			}
 		}
 		for _, value := range values {
 			filtered.Add(key, value)

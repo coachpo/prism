@@ -1,12 +1,15 @@
 package runtimetest
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+
+	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 )
 
 func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
@@ -20,6 +23,7 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 		wantOperationName     string
 		wantUpstreamOperation string
 		wantTranslationMode   string
+		wantStatus            int
 	}{
 		{
 			name:        "chat ingress stays native on chat-only target",
@@ -33,32 +37,25 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 			wantOperationName:     "openai.chat_completions",
 			wantUpstreamOperation: "openai.chat_completions",
 			wantTranslationMode:   "none",
+			wantStatus:            http.StatusOK,
 		},
 		{
-			name:        "responses ingress translates to chat-only target",
+			name:        "responses ingress rejects chat-only target",
 			requestPath: "/v1/responses",
 			requestBody: func(route seededRuntimeRoute) map[string]any {
-				return map[string]any{"model": route.PublicModelID, "input": "translated responses ingress", "include": []string{"file_search_call.results"}, "text": map[string]any{"format": map[string]any{"type": "json_schema", "json_schema": map[string]any{"name": "answer", "schema": map[string]any{"type": "object"}}}, "verbosity": "low"}, "reasoning": map[string]any{"effort": "medium", "encrypted_content": "opaque"}, "max_output_tokens": 64}
+				return map[string]any{"model": route.PublicModelID, "input": "rejected responses ingress", "max_output_tokens": 64}
 			},
-			upstreamResponse:      `{"id":"chatcmpl_translated_responses","object":"chat.completion","created":1700000002,"model":"chat-only-upstream","choices":[{"index":0,"message":{"role":"assistant","content":"translated responses ingress"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":7,"total_tokens":12}}`,
-			textCapability:        "chat_completions_only",
-			wantUpstreamPath:      "/v1/chat/completions",
-			wantOperationName:     "openai.responses",
-			wantUpstreamOperation: "openai.chat_completions",
-			wantTranslationMode:   "openai_responses_to_chat_completions",
+			textCapability: "chat_completions_only",
+			wantStatus:     http.StatusBadRequest,
 		},
 		{
-			name:        "chat ingress translates to responses-only target",
+			name:        "chat ingress rejects responses-only target",
 			requestPath: "/v1/chat/completions",
 			requestBody: func(route seededRuntimeRoute) map[string]any {
-				return map[string]any{"model": route.PublicModelID, "messages": []map[string]any{{"role": "user", "content": "translated chat ingress"}}, "max_completion_tokens": 64}
+				return map[string]any{"model": route.PublicModelID, "messages": []map[string]any{{"role": "user", "content": "rejected chat ingress"}}, "max_completion_tokens": 64}
 			},
-			upstreamResponse:      `{"id":"resp_translated_chat","object":"response","created_at":1700000003,"model":"responses-only-upstream","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"translated chat ingress"}]}],"usage":{"input_tokens":5,"output_tokens":7,"total_tokens":12}}`,
-			textCapability:        "responses_only",
-			wantUpstreamPath:      "/v1/responses",
-			wantOperationName:     "openai.chat_completions",
-			wantUpstreamOperation: "openai.responses",
-			wantTranslationMode:   "openai_chat_completions_to_responses",
+			textCapability: "responses_only",
+			wantStatus:     http.StatusBadRequest,
 		},
 		{
 			name:        "responses ingress stays native on responses-only target",
@@ -72,6 +69,7 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 			wantOperationName:     "openai.responses",
 			wantUpstreamOperation: "openai.responses",
 			wantTranslationMode:   "none",
+			wantStatus:            http.StatusOK,
 		},
 		{
 			name:        "chat ingress stays native on dual-native target",
@@ -85,6 +83,7 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 			wantOperationName:     "openai.chat_completions",
 			wantUpstreamOperation: "openai.chat_completions",
 			wantTranslationMode:   "none",
+			wantStatus:            http.StatusOK,
 		},
 		{
 			name:        "responses ingress stays native on dual-native target",
@@ -98,6 +97,7 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 			wantOperationName:     "openai.responses",
 			wantUpstreamOperation: "openai.responses",
 			wantTranslationMode:   "none",
+			wantStatus:            http.StatusOK,
 		},
 	}
 
@@ -105,23 +105,56 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			harness := newEnforcedRuntimeHarness(t)
 			profileID := harness.activeProfileID(t)
-			upstream := newTranslatedRouteMatrixUpstream(t, test.upstreamResponse, http.Header{"Content-Type": []string{"application/json"}})
+			upstream := newCapabilityRouteMatrixUpstream(t, test.upstreamResponse, http.Header{"Content-Type": []string{"application/json"}})
 			endpointAPIKey := "route-matrix-capability-key-" + routeMatrixSlug(test.name)
-			route := seedTranslatedOpenAIProxyRoute(t, harness, profileID, "route-matrix-capability-public", "route-matrix-capability-target", upstream.baseURL(""), endpointAPIKey, test.textCapability)
+			route := seedOpenAIProxyRoute(t, harness, profileID, "route-matrix-capability-public", "route-matrix-capability-target", upstream.baseURL(""), endpointAPIKey, test.textCapability)
 
 			response := harness.requestJSON(t, http.MethodPost, test.requestPath, test.requestBody(route), nil)
-			assertStatus(t, response, http.StatusOK)
+			if test.wantStatus != http.StatusOK {
+				assertRouteMatrixUnsupportedWire(t, response)
+				if got := len(upstream.requestsSnapshot()); got != 0 {
+					t.Fatalf("expected incompatible target to reject before provider transport, got %d upstream calls", got)
+				}
+				return
+			}
+			assertStatus(t, response, test.wantStatus)
 			requests := upstream.requestsSnapshot()
 			if len(requests) != 1 {
 				t.Fatalf("expected one upstream request, got %d", len(requests))
 			}
-			assertTranslatedRouteMatrixUpstreamRequest(t, requests[0], route, test.wantUpstreamPath, endpointAPIKey)
+			assertCapabilityRouteMatrixUpstreamRequest(t, requests[0], route, test.wantUpstreamPath, endpointAPIKey)
 			assertRouteMatrixPersistedAttribution(t, harness, profileID, route.ConnectionID, test.wantOperationName, routeMatrixPersistedAttributionExpectation{
 				upstreamOperationName: test.wantUpstreamOperation,
 				translationMode:       test.wantTranslationMode,
 				upstreamRequestPath:   test.wantUpstreamPath,
 			})
 		})
+	}
+}
+
+func TestOperationRouteMatrixResponsesRejectsChatOnlyRequestedModelFormat(t *testing.T) {
+	harness := newEnforcedRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	upstream := newCapabilityRouteMatrixUpstream(t, `{"id":"unused"}`, http.Header{"Content-Type": []string{"application/json"}})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:            profileID,
+		APIFamily:            "openai",
+		PublicModelID:        "route-matrix-chat-format-public-" + randomSuffix(),
+		TargetModelID:        "route-matrix-chat-format-target-" + randomSuffix(),
+		EndpointBaseURL:      upstream.baseURL(""),
+		EndpointAPIKey:       "route-matrix-chat-format-key",
+		OpenAITextCapability: runtimeStringPtr("dual_native"),
+	})
+	tag, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET openai_accepted_format = 'chat_completions_only', updated_at = NOW() WHERE profile_id = $1 AND model_id = $2`, profileID, route.PublicModelID)
+	if err != nil || tag.RowsAffected() != 1 {
+		t.Fatalf("set requested model accepted format: rows=%d err=%v", tag.RowsAffected(), err)
+	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": route.PublicModelID, "input": "reject model wire"}, nil)
+	assertRouteMatrixUnsupportedWire(t, response)
+	if got := len(upstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected requested-model wire mismatch to reject before provider transport, got %d calls", got)
 	}
 }
 
@@ -158,7 +191,7 @@ func TestOperationRouteMatrixResponsesAdjunctCapabilityMatrix(t *testing.T) {
 			t.Run(test.name+" native "+capability, func(t *testing.T) {
 				harness := newRuntimeHarness(t)
 				profileID := harness.activeProfileID(t)
-				upstream := newTranslatedRouteMatrixUpstream(t, test.upstreamResponse, http.Header{"Content-Type": []string{"application/json"}})
+				upstream := newCapabilityRouteMatrixUpstream(t, test.upstreamResponse, http.Header{"Content-Type": []string{"application/json"}})
 				endpointAPIKey := "route-matrix-adjunct-key-" + routeMatrixSlug(test.name) + "-" + capability
 				route := harness.seedProxyRoute(t, runtimeRouteSeed{
 					ProfileID:            profileID,
@@ -176,7 +209,7 @@ func TestOperationRouteMatrixResponsesAdjunctCapabilityMatrix(t *testing.T) {
 				if len(requests) != 1 {
 					t.Fatalf("expected one native adjunct upstream request, got %d", len(requests))
 				}
-				assertTranslatedRouteMatrixUpstreamRequest(t, requests[0], route, test.requestPath, endpointAPIKey)
+				assertCapabilityRouteMatrixUpstreamRequest(t, requests[0], route, test.requestPath, endpointAPIKey)
 				assertRouteMatrixPersistedAttribution(t, harness, profileID, route.ConnectionID, test.operationName, routeMatrixPersistedAttributionExpectation{
 					upstreamOperationName: test.operationName,
 					translationMode:       "none",
@@ -188,7 +221,7 @@ func TestOperationRouteMatrixResponsesAdjunctCapabilityMatrix(t *testing.T) {
 		t.Run(test.name+" rejects chat-only", func(t *testing.T) {
 			harness := newRuntimeHarness(t)
 			profileID := harness.activeProfileID(t)
-			upstream := newTranslatedRouteMatrixUpstream(t, test.upstreamResponse, http.Header{"Content-Type": []string{"application/json"}})
+			upstream := newCapabilityRouteMatrixUpstream(t, test.upstreamResponse, http.Header{"Content-Type": []string{"application/json"}})
 			route := harness.seedProxyRoute(t, runtimeRouteSeed{
 				ProfileID:            profileID,
 				APIFamily:            "openai",
@@ -200,7 +233,7 @@ func TestOperationRouteMatrixResponsesAdjunctCapabilityMatrix(t *testing.T) {
 			})
 
 			response := harness.requestJSON(t, http.MethodPost, test.requestPath, test.requestBody(route), nil)
-			assertTranslatedRouteMatrixNoEligibleTargets(t, response, route.PublicModelID)
+			assertRouteMatrixUnsupportedWire(t, response)
 			if got := len(upstream.requestsSnapshot()); got != 0 {
 				t.Fatalf("expected chat-only adjunct target to reject before provider transport, got %d upstream calls", got)
 			}
@@ -208,43 +241,52 @@ func TestOperationRouteMatrixResponsesAdjunctCapabilityMatrix(t *testing.T) {
 	}
 }
 
-func assertTranslatedRouteMatrixUpstreamRequest(t *testing.T, request upstreamRequestSnapshot, route seededRuntimeRoute, wantPath string, endpointAPIKey string) {
+func assertCapabilityRouteMatrixUpstreamRequest(t *testing.T, request upstreamRequestSnapshot, route seededRuntimeRoute, wantPath string, endpointAPIKey string) {
 	t.Helper()
 	if request.Method != http.MethodPost {
-		t.Fatalf("expected translated upstream POST, got %s", request.Method)
+		t.Fatalf("expected upstream POST, got %s", request.Method)
 	}
 	if request.Path != wantPath {
-		t.Fatalf("expected translated upstream path %q, got %q", wantPath, request.Path)
+		t.Fatalf("expected upstream path %q, got %q", wantPath, request.Path)
 	}
 	if got := requestModelID(t, request.Body); got != route.TargetModelID {
-		t.Fatalf("expected translated upstream body model %q, got %q in %s", route.TargetModelID, got, string(request.Body))
+		t.Fatalf("expected upstream body model %q, got %q in %s", route.TargetModelID, got, string(request.Body))
 	}
 	if request.Headers.Get("Authorization") != "Bearer "+endpointAPIKey {
-		t.Fatalf("expected translated upstream bearer auth %q, got %q", "Bearer "+endpointAPIKey, request.Headers.Get("Authorization"))
+		t.Fatalf("expected upstream bearer auth %q, got %q", "Bearer "+endpointAPIKey, request.Headers.Get("Authorization"))
 	}
 }
 
-func assertTranslatedRouteMatrixNoEligibleTargets(t *testing.T, response *http.Response, publicModelID string) {
+func assertRouteMatrixUnsupportedWire(t *testing.T, response *http.Response) {
 	t.Helper()
-	assertStatus(t, response, http.StatusServiceUnavailable)
-	if detail := runtimeResponseDetail(t, response); detail != "No eligible targets available for model '"+publicModelID+"'." {
-		t.Fatalf("expected no eligible target detail, got %q", detail)
+	assertStatus(t, response, http.StatusBadRequest)
+	payload := runtimeResponsePayload(t, response)
+	want := map[string]string{
+		"error":              "openai_request_translation_unsupported",
+		"detail":             "Prism cannot translate this OpenAI request shape for the selected target.",
+		"translation_mode":   "none",
+		"unsupported_reason": "operation_translation_unsupported",
+	}
+	for key, value := range want {
+		if got, _ := payload[key].(string); got != value {
+			t.Fatalf("expected response %s=%q, got %+v", key, value, payload)
+		}
 	}
 }
 
-type translatedRouteMatrixUpstream struct {
+type capabilityRouteMatrixUpstream struct {
 	server   *httptest.Server
 	mu       sync.Mutex
 	requests []upstreamRequestSnapshot
 }
 
-func newTranslatedRouteMatrixUpstream(t *testing.T, responseBody string, responseHeaders http.Header) *translatedRouteMatrixUpstream {
+func newCapabilityRouteMatrixUpstream(t *testing.T, responseBody string, responseHeaders http.Header) *capabilityRouteMatrixUpstream {
 	t.Helper()
-	upstream := &translatedRouteMatrixUpstream{}
+	upstream := &capabilityRouteMatrixUpstream{}
 	upstream.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			t.Fatalf("read translated route-matrix upstream body: %v", err)
+			t.Fatalf("read route-matrix upstream body: %v", err)
 		}
 		_ = r.Body.Close()
 		upstream.mu.Lock()
@@ -269,11 +311,11 @@ func newTranslatedRouteMatrixUpstream(t *testing.T, responseBody string, respons
 	return upstream
 }
 
-func (u *translatedRouteMatrixUpstream) baseURL(path string) string {
+func (u *capabilityRouteMatrixUpstream) baseURL(path string) string {
 	return strings.TrimRight(u.server.URL, "/") + path
 }
 
-func (u *translatedRouteMatrixUpstream) requestsSnapshot() []upstreamRequestSnapshot {
+func (u *capabilityRouteMatrixUpstream) requestsSnapshot() []upstreamRequestSnapshot {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	cloned := make([]upstreamRequestSnapshot, len(u.requests))

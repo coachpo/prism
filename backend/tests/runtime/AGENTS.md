@@ -18,7 +18,7 @@ runtime/
 
 ## WHERE TO LOOK
 - Harness setup, seed helpers, and upstream test server plumbing: `runtime_harness.go`, `runtime_harness_test.go`
-- Operation route matrix and translation matrix coverage: `operation_route_matrix_test.go`, `operation_route_matrix_translation_test.go`
+- Operation route matrix and OpenAI native-compatibility coverage: `operation_route_matrix_test.go`, `operation_route_matrix_openai_compatibility_test.go`
 - Rejected-route isolation before body reads, provider transport, telemetry, audit, feedback, or side effects: `rejected_route_isolation_test.go`
 - Request-log contracts, final-target filters, client-rule filters, grouped ingress rows, and pricing fields: `request_logs_contract_test.go`
 - Runtime planning, failover, current-state mutation, recovery, and admission exhaustion: `proxy_selector_test.go`
@@ -33,6 +33,6 @@ runtime/
 - Runtime unsupported-route tests are permanent absence guards because they protect the shipped allowlist contract.
 
 ## ANTI-PATTERNS
-- Do not turn this suite into provider-unit tests; provider translation units live under `internal/gateway/provider` and runtime hook units live under `internal/httpapi/runtime`.
+- Do not turn this suite into provider-unit tests; provider-native adapter units live under `internal/gateway/provider` and runtime hook units live under `internal/httpapi/runtime`.
 - Do not duplicate one behavior across contract, integration, and runtime suites without a distinct black-box boundary.
 - Do not run build, docker, or external process commands inside test functions.

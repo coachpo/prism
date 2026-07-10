@@ -3,7 +3,6 @@ package runtime
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -143,8 +142,8 @@ func TestBuildRequestPlan_ContextEstimationUnavailableChatPassesThroughWithoutTr
 	})
 }
 
-func TestBuildRequestPlan_UnsupportedTranslatedShapeDoesNotSelectGenericTarget(t *testing.T) {
-	forEachRequestPlanService(t, "responses-previous-response-id", func(t *testing.T, service *Service) {
+func TestBuildRequestPlan_ResponsesRejectsChatOnlyTarget(t *testing.T) {
+	forEachRequestPlanService(t, "responses-chat-only", func(t *testing.T, service *Service) {
 		transport := &ingressRoundTripRecorder{}
 		snapshot := newRequestPlanSnapshot(
 			runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "responses-public"},
@@ -156,17 +155,48 @@ func TestBuildRequestPlan_UnsupportedTranslatedShapeDoesNotSelectGenericTarget(t
 		addRequestPlanConnectionTargetWithOptions(snapshot, child, 2_713, 9_713, 0, requestPlanConnectionTargetOptions{
 			openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly),
 		})
-		plan := mustBuildRequestPlanForTest(t, service, snapshot, "/v1/responses", []byte(`{"model":"responses-public","previous_response_id":"resp_123","input":"hello"}`), RuntimeProxyConfigSnapshot{HTTPClient: &http.Client{Transport: transport}})
-		if plan.EffectiveRequestPath != "/v1/chat/completions" {
-			t.Fatalf("expected translated chat completions path, got %q", plan.EffectiveRequestPath)
+		err := buildRequestPlanErrorForTest(t, service, snapshot, "/v1/responses", []byte(`{"model":"responses-public","input":"hello"}`), RuntimeProxyConfigSnapshot{HTTPClient: &http.Client{Transport: transport}})
+		assertPlanDomainError(t, err, http.StatusBadRequest, openAIRequestTranslationUnsupportedDetail)
+		domainErr, ok := isRequestTranslationUnsupportedError(err)
+		if !ok {
+			t.Fatalf("expected typed unsupported-wire error, got %v", err)
 		}
-		if plan.SelectedTerminalTargetID == nil || *plan.SelectedTerminalTargetID != 2_713 {
-			t.Fatalf("expected selected terminal target 2713, got %+v", plan.SelectedTerminalTargetID)
+		if got := stringValue(domainErr.Fields["translation_mode"]); got != "none" {
+			t.Fatalf("expected translation mode none, got %q", got)
+		}
+		if got := stringValue(domainErr.Fields["unsupported_reason"]); got != openAIRequestTranslationUnsupportedReason {
+			t.Fatalf("expected unsupported reason %q, got %q", openAIRequestTranslationUnsupportedReason, got)
 		}
 		if got := transport.calls.Load(); got != 0 {
-			t.Fatalf("expected generic planner rejection to avoid transport calls, got %d", got)
+			t.Fatalf("expected planner to reject incompatible graph before transport, got %d calls", got)
 		}
 	})
+}
+
+func TestBuildRequestPlan_SkipsNonNativeConnection(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "responses-public"},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "chat-child"},
+	)
+	model := snapshot.ModelsByID["responses-public"]
+	addRequestPlanProxyTarget(snapshot, "responses-public", "chat-child")
+	child := snapshot.ModelsByID["chat-child"]
+	snapshot.AccessTargetsBySourceModelID[child.ID] = nil
+	addRequestPlanConnectionTargetWithOptions(snapshot, child, 2_714, 9_714, 0, requestPlanConnectionTargetOptions{
+		openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly),
+	})
+	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_715, 9_715, 1, requestPlanConnectionTargetOptions{
+		openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityResponsesOnly),
+	})
+
+	plan := mustBuildRequestPlanForTest(t, service, snapshot, "/v1/responses", []byte(`{"model":"responses-public","input":"hello"}`), RuntimeProxyConfigSnapshot{})
+	if plan.SelectedTerminalTargetID == nil || *plan.SelectedTerminalTargetID != 2_715 {
+		t.Fatalf("expected planner to skip chat-only connection and select 2715, got %+v", plan.SelectedTerminalTargetID)
+	}
+	if len(plan.TerminalAttempts) != 1 || plan.TerminalAttempts[0].Connection.ID != 2_715 || plan.TerminalAttempts[0].TranslationMode != TranslationModeNone {
+		t.Fatalf("expected only the native responses attempt, got %+v", plan.TerminalAttempts)
+	}
 }
 
 func TestBuildRequestPlanAppliesOperationRewriteRules(t *testing.T) {
@@ -457,8 +487,8 @@ func TestAttachRuntimePlanningFailureTelemetry_PreservesResolvedTargetModelWhenS
 	runtimeErr := &domainError{
 		StatusCode:               http.StatusBadRequest,
 		ErrorCode:                openAIRequestTranslationUnsupportedErrorCode,
-		Detail:                   "translation unsupported",
-		Fields:                   map[string]any{"translation_mode": string(TranslationModeOpenAIResponsesToChatCompletions)},
+		Detail:                   openAIRequestTranslationUnsupportedDetail,
+		Fields:                   map[string]any{"translation_mode": "none", "unsupported_reason": openAIRequestTranslationUnsupportedReason},
 		ResolvedTargetModelID:    &resolvedTargetModelID,
 		SelectedTerminalTargetID: &selectedTerminalTargetID,
 	}
@@ -475,10 +505,13 @@ func TestAttachRuntimePlanningFailureTelemetry_PreservesResolvedTargetModelWhenS
 		t.Fatal("expected planning-failure telemetry to be attached")
 	}
 	if runtimeErr.ResolvedTargetModelID == nil || *runtimeErr.ResolvedTargetModelID != resolvedTargetModelID {
-		t.Fatalf("expected translated planning failure to preserve resolved target %q, got %+v", resolvedTargetModelID, runtimeErr.ResolvedTargetModelID)
+		t.Fatalf("expected planning failure to preserve resolved target %q, got %+v", resolvedTargetModelID, runtimeErr.ResolvedTargetModelID)
 	}
 	if runtimeErr.PlanningFailure.SelectedTerminalTargetID == nil || *runtimeErr.PlanningFailure.SelectedTerminalTargetID != selectedTerminalTargetID {
 		t.Fatalf("expected planning-failure telemetry to keep selected terminal target %d, got %+v", selectedTerminalTargetID, runtimeErr.PlanningFailure)
+	}
+	if runtimeErr.PlanningFailure.OperationTranslationMode == nil || *runtimeErr.PlanningFailure.OperationTranslationMode != "none" {
+		t.Fatalf("expected planning-failure telemetry to retain translation mode none, got %+v", runtimeErr.PlanningFailure)
 	}
 }
 
@@ -639,69 +672,6 @@ func TestClassifySSEStreamOutcome(t *testing.T) {
 				t.Fatalf("expected error kind %+v, got %+v", test.wantKind, got.kind)
 			}
 		})
-	}
-}
-
-func TestWriteProxyResponseTranslatedOpenAIReadFailureReturnsDiagnostic502(t *testing.T) {
-	service := newRequestPlanUnitService()
-	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
-	translationMode := TranslationModeOpenAIChatCompletionsToResponses
-	connection := runtimeConnection{ID: 42, APIFamily: "openai", Endpoint: runtimeEndpoint{ID: 7}}
-	plan := requestPlan{
-		RequestedModelID: "deepseek-v4-pro",
-		RuntimeOperation: operation,
-		TerminalAttempts: []runtimeTerminalAttempt{{
-			Connection:      connection,
-			TranslationMode: translationMode,
-		}},
-	}
-	execution := executionResult{
-		Response: &http.Response{
-			StatusCode: http.StatusNotFound,
-			Header:     make(http.Header),
-			Body:       io.NopCloser(&errorAfterReader{err: errors.New("truncated upstream response")}),
-		},
-		Connection: connection,
-		FinalResponseTranslation: &runtimeFinalResponseTranslationMetadata{
-			TranslationMode:          translationMode,
-			RequestedModelID:         plan.RequestedModelID,
-			SelectedTerminalTargetID: intPtr(connection.ID),
-			UpstreamOperationName:    openAIUpstreamOperationResponses,
-			UpstreamRequestPath:      "/v1/responses",
-		},
-	}
-	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	responseRecorder := httptest.NewRecorder()
-
-	service.writeProxyResponse(responseRecorder, request, plan, execution, service.nowUTC())
-
-	response := responseRecorder.Result()
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusBadGateway {
-		body, _ := io.ReadAll(response.Body)
-		t.Fatalf("expected status 502, got %d with body %s", response.StatusCode, string(body))
-	}
-	var payload map[string]any
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode enriched read failure payload: %v", err)
-	}
-	want := map[string]string{
-		"error":                      openAITranslatedUpstreamResponseReadFailedErrorCode,
-		"detail":                     openAITranslatedUpstreamResponseReadFailedDetail,
-		"operation_translation_mode": string(translationMode),
-		"upstream_operation_name":    openAIUpstreamOperationResponses,
-		"upstream_request_path":      "/v1/responses",
-		"diagnostic_hint":            openAITranslatedUpstreamResponseReadFailedHint,
-	}
-	for key, value := range want {
-		if got, _ := payload[key].(string); got != value {
-			t.Fatalf("expected payload[%s]=%q, got %+v", key, value, payload)
-		}
-	}
-	for _, forbidden := range []string{"upstream_body", "endpoint_url", "headers", "authorization"} {
-		if _, ok := payload[forbidden]; ok {
-			t.Fatalf("expected payload to omit sensitive field %q: %+v", forbidden, payload)
-		}
 	}
 }
 
@@ -1801,7 +1771,7 @@ func TestProxyNonEventResponseAndCaptureUsageAcceptsOnlySupportedUsageSchemaPath
 		t.Run(test.name, func(t *testing.T) {
 			operation := mustResolveRuntimeOperation(t, http.MethodPost, test.requestPath).Operation
 			var forwarded bytes.Buffer
-			capture, err := proxyNonEventResponseAndCaptureByOperation(operation, TranslationModeNone, &forwarded, strings.NewReader(test.payload), "application/json", time.Now, false)
+			capture, err := proxyNonEventResponseAndCaptureByOperation(operation, &forwarded, strings.NewReader(test.payload), "application/json", time.Now, false)
 			if err != nil {
 				t.Fatalf("capture streamed non-sse usage: %v", err)
 			}
@@ -1832,57 +1802,5 @@ func TestGeminiProxyEventStreamClassifiesReadFailureAfterPartialChunk(t *testing
 	}
 	if capture.Usage.hasValues() || capture.CompletedAt != nil {
 		t.Fatalf("expected no completed usage after partial read failure, got %+v", capture)
-	}
-}
-
-func TestBuildRequestPlan_EstimationUnavailablePassesThroughForOpenAIText(t *testing.T) {
-	tests := []struct {
-		name             string
-		path             string
-		modelID          string
-		rawBody          []byte
-		capability       string
-		wantPath         string
-		wantTranslation  TranslationMode
-		terminalTargetID int
-	}{
-		{
-			name:             "chat to responses translation",
-			path:             "/v1/chat/completions",
-			modelID:          "unknown-tokenizer-chat-public",
-			rawBody:          []byte(`{"model":"unknown-tokenizer-chat-public","messages":[{"role":"user","content":"hello"}]}`),
-			capability:       providerauth.OpenAITextCapabilityResponsesOnly,
-			wantPath:         "/v1/responses",
-			wantTranslation:  TranslationModeOpenAIChatCompletionsToResponses,
-			terminalTargetID: 2_971,
-		},
-		{
-			name:             "responses to chat translation",
-			path:             "/v1/responses",
-			modelID:          "unknown-tokenizer-responses-public",
-			rawBody:          []byte(`{"model":"unknown-tokenizer-responses-public","input":"hello"}`),
-			capability:       providerauth.OpenAITextCapabilityChatCompletionsOnly,
-			wantPath:         "/v1/chat/completions",
-			wantTranslation:  TranslationModeOpenAIResponsesToChatCompletions,
-			terminalTargetID: 2_972,
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			service := newRequestPlanUnitService()
-			snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: test.modelID})
-			model := snapshot.ModelsByID[test.modelID]
-			snapshot.AccessTargetsBySourceModelID[model.ID] = nil
-			addRequestPlanConnectionTargetWithOptions(snapshot, model, test.terminalTargetID, test.terminalTargetID+7_000, 0, requestPlanConnectionTargetOptions{
-				openAITextCapability: &test.capability,
-			})
-			plan := mustBuildRequestPlanForTest(t, service, snapshot, test.path, test.rawBody, RuntimeProxyConfigSnapshot{})
-			if plan.EffectiveRequestPath != test.wantPath {
-				t.Fatalf("expected effective request path %q, got %q", test.wantPath, plan.EffectiveRequestPath)
-			}
-			if len(plan.TerminalAttempts) != 1 || plan.TerminalAttempts[0].TranslationMode != test.wantTranslation {
-				t.Fatalf("expected translation mode %q, got %+v", test.wantTranslation, plan.TerminalAttempts)
-			}
-		})
 	}
 }

@@ -11,62 +11,6 @@ import (
 	"github.com/coachpo/prism/backend/internal/gateway/provider/openai"
 )
 
-type openAITextAttemptCompatibilityResult struct {
-	Compatible      bool
-	TranslationMode TranslationMode
-	Err             error
-}
-
-func planOpenAITextAttemptCompatibility(operation RuntimeOperation, rawBody []byte, openAIAcceptedFormat *string, attempt runtimeTerminalAttempt, adapter openai.Adapter) openAITextAttemptCompatibilityResult {
-	mode, supported := resolveTranslationMode(operation, openAIAcceptedFormat, attempt.Connection.OpenAITextCapability)
-	if !supported {
-		return openAITextAttemptCompatibilityResult{}
-	}
-	if mode == TranslationModeNone || strings.TrimSpace(string(mode)) == "" {
-		return openAITextAttemptCompatibilityResult{Compatible: true, TranslationMode: TranslationModeNone}
-	}
-	providerOperation := providerOperationFromRuntime(operation)
-	if !openai.IsTextOperation(providerOperation) {
-		return openAITextAttemptCompatibilityResult{}
-	}
-	providerMode := providerTranslationMode(mode)
-	capability, err := adapter.ConversionCapability(context.Background(), provider.ConversionRequest{
-		Operation:     providerOperation,
-		RawBody:       rawBody,
-		Mode:          providerMode,
-		TargetModelID: attempt.TargetModel.ModelID,
-	})
-	if err != nil {
-		if domainErr := domainErrorFromProviderAdapterError(err); domainErr != nil {
-			return openAITextAttemptCompatibilityResult{Err: domainErr}
-		}
-		return openAITextAttemptCompatibilityResult{Err: err}
-	}
-	if domainErr := domainErrorFromOpenAITextConversionCapability(capability, mode); domainErr != nil {
-		return openAITextAttemptCompatibilityResult{Err: domainErr}
-	}
-	return openAITextAttemptCompatibilityResult{Compatible: true, TranslationMode: mode}
-}
-
-func domainErrorFromOpenAITextConversionCapability(capability provider.ConversionCapability, fallbackMode TranslationMode) *domainError {
-	if capability.RequestSupported && capability.ResponseSupported && capability.StreamSupported {
-		return nil
-	}
-	mode := TranslationMode(capability.Mode)
-	if strings.TrimSpace(string(mode)) == "" {
-		mode = fallbackMode
-	}
-	reason := strings.TrimSpace(capability.UnsupportedReason)
-	if reason == "" {
-		reason = "unsupported_request_shape"
-	}
-	status := capability.HTTPStatus
-	if status == 0 {
-		status = http.StatusBadRequest
-	}
-	return openAITranslationUnsupportedDomainError(status, openAIRequestTranslationUnsupportedErrorCode, openAIRequestTranslationUnsupportedDetail, mode, reason)
-}
-
 func buildOpenAITextPlannedUpstreamRequest(input requestPlanningInput, operation resolvedRequestOperation, attempt runtimeTerminalAttempt) (plannedUpstreamRequest, bool, error) {
 	providerOperation := providerOperationFromRuntime(operation.Match.Operation)
 	if !openai.IsTextOperation(providerOperation) {
@@ -74,12 +18,9 @@ func buildOpenAITextPlannedUpstreamRequest(input requestPlanningInput, operation
 	}
 	adapter := openai.New()
 	upstream, err := adapter.BuildTextUpstreamRequest(context.Background(), openai.TextUpstreamRequest{
-		Operation:       providerOperation,
-		RawBody:         input.RawBody,
-		ContentType:     operation.ContentType,
-		RequestPath:     input.Request.URL.Path,
-		TargetModelID:   attempt.TargetModel.ModelID,
-		TranslationMode: providerTranslationMode(attempt.TranslationMode),
+		Operation:     providerOperation,
+		RawBody:       input.RawBody,
+		TargetModelID: attempt.TargetModel.ModelID,
 	})
 	if err != nil {
 		if domainErr := domainErrorFromProviderAdapterError(err); domainErr != nil {
@@ -99,7 +40,6 @@ func buildOpenAITextPlannedUpstreamRequest(input requestPlanningInput, operation
 		IsStreamingRequest:      requestWantsStreamForOperation(operation.Match.Operation, input.RawBody, effectiveRequestPath),
 		ClientHeaders:           flattenHeaders(input.Request.Header),
 		RequestGenerationParams: extractBufferedRequestGenerationParams(operation.Match.Operation, input.RawBody),
-		TranslationLoss:         runtimeTranslationLossDecisionFromProvider(upstream.TranslationLoss, attempt.TranslationMode),
 	}, true, nil
 }
 

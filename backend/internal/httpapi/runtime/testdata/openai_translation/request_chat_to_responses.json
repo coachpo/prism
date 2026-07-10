@@ -1,1 +1,0 @@
-{"input":[{"content":[{"text":"hello","type":"input_text"}],"role":"user","type":"message"}],"instructions":"system note","max_output_tokens":32,"model":"responses-target","reasoning":{"effort":"low"}}
