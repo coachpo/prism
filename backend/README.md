@@ -29,7 +29,7 @@ Recommended local entrypoints:
 ../start.sh full
 ```
 
-When launched through `../start.sh`, the backend listens on the selected bootstrap file's port — `http://localhost:18000` with the checked-in `../config.json` — and the frontend is served on `http://localhost:5173` in full mode.
+When launched through `../start.sh`, the backend listens on the selected bootstrap file's port, while the frontend is served on `http://localhost:5173` in full mode. The repo-local default bootstrap path is `../config.json`, which is ignored by Git; a newly seeded bootstrap config listens on `http://localhost:8000`.
 
 Direct Go runs from `backend/` use `PRISM_CONFIG_PATH` and a plaintext bootstrap file such as `../config.json`. The only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`; backend-native seeds default the database URL to `postgres://prism:prism@localhost:5432/prism?sslmode=disable`, while `../start.sh` supplies the local launcher DSN on host port `15432`.
 
@@ -39,6 +39,7 @@ The backend mounts runtime handlers under `/v1` and `/v1beta`, but Prism does no
 
 Supported runtime routes are:
 
+- `GET /v1/models`
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
 - `POST /v1/responses/input_tokens`
@@ -49,7 +50,7 @@ Supported runtime routes are:
 - `POST /v1beta/models/{model}:streamGenerateContent`
 - `POST /v1beta/models/{model}:countTokens`
 
-After registry resolution, all supported operations share the same execution core for frozen Default profile id=1 model access resolution, load-balance planning, upstream forwarding, and runtime telemetry. Ordered access targets resolve through same-family model targets and Terminal Targets before execution, while endpoints remain reusable across those model-private endpoint bindings. Operation hooks own request extraction, non-stream response parsing, and stream terminal classification around that shared core. Prism is a focused proxy for these operations, not a full vendor API clone.
+`GET /v1/models` is served locally from the runtime snapshot and does not enter provider transport. Every other supported operation shares the execution core for frozen Default profile id=1 model access resolution, load-balance planning, upstream forwarding, and runtime telemetry. Ordered access targets resolve through same-family model targets and Terminal Targets before execution, while endpoints remain reusable across those model-private endpoint bindings. Operation hooks own request extraction, non-stream response parsing, and stream terminal classification around that shared core. Prism is a focused proxy for these operations, not a full vendor API clone.
 
 ## Product observability
 
@@ -69,7 +70,7 @@ go build ./cmd/prism-backend
 
 ## Configuration
 - Supported steady-state backend startup uses `PRISM_CONFIG_PATH` and a plaintext bootstrap file such as `../config.json`; long-lived `OTEL_*` variables are ignored.
-- Backend-owned canonical defaults are the source of truth for freshly seeded bootstrap files: server `0.0.0.0:8000`, standalone database URL `postgres://prism:prism@localhost:5432/prism?sslmode=disable` unless `DATABASE_URL` is set, CORS for `http://localhost:5173`, PostgreSQL pool total `24` with split `4/8/4/2/2/2/2`, transport `100/16/16/300s/90s/0s/10s/1s`, side-effect timeout `10s`, disabled telemetry, and management admission `3/2`.
+- Backend-owned canonical defaults are the source of truth for freshly seeded bootstrap files: server `0.0.0.0:8000`, standalone database URL `postgres://prism:prism@localhost:5432/prism?sslmode=disable` unless `DATABASE_URL` is set, CORS for `http://localhost:5173`, PostgreSQL pools and management admission derived from `unit = clamp(GOMAXPROCS(0), 8, 16)`. The six lane maxima are management `unit + 1`, runtime execution `unit`, telemetry `unit / 2`, and feedback, cache refresh, and background jobs `unit / 4` each, for a total of 27 through 53. M2/M3 admission defaults are `unit` and `unit / 2`. Transport is `100/16/16/300s/90s/0s/10s/1s`, side-effect timeout is `10s`, and telemetry remains disabled.
 - When the bootstrap file already exists and is valid, Prism loads startup settings from it without rewriting it, even if it contains older values.
 - When the bootstrap file is missing, Prism seeds it from backend-owned defaults plus the optional `DATABASE_URL` input only; `../start.sh` supplies the local launcher DSN on host port `15432`.
 - The startup bootstrap contract is not DB-backed. Disaster recovery uses PostgreSQL `pg_dump` plus a copy of the plaintext bootstrap `config.json`; global log retention and other settings-page state flows remain PostgreSQL-backed state transport.
@@ -95,7 +96,7 @@ go build ./cmd/prism-backend
 - Request telemetry, usage attribution, audit rows, and load-balance history live in PostgreSQL partitioned log tables.
 - Normal log retention is global across all profiles. Configure it through `/api/settings/log-retention` and run it through durable `log_retention` jobs from `POST /api/maintenance/log-retention/jobs`.
 - Retention drops whole daily child partitions whose upper bound is `<= cutoff`. Only the cutoff-overlapping boundary child receives bounded cleanup plus `VACUUM (ANALYZE, PROCESS_TOAST TRUE)`.
-- Audit rows keep weak request references through `request_log_id`, `request_log_created_at`, and `ingress_request_id`; request detail links can be missing after request-log retention expires first.
+- Audit rows keep weak request references through `request_log_id`, `request_log_created_at`, and `ingress_request_id`; request-log retention does not clear those fields, and audit reads report `request_log_missing=true` only when both request-log link fields are present but the `(profile_id, request_log_id, request_log_created_at)` tuple no longer resolves.
 - `VACUUM FULL`, `CLUSTER`, and `pg_repack` are manual or emergency shrink tools only, not automatic retention steps. The default local `postgres:16-alpine` database does not include `pg_repack`.
 
 For local PostgreSQL provisioning without the root launcher, run `docker compose up -d prism-postgres` from `backend/`.

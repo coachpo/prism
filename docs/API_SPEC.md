@@ -21,7 +21,24 @@ Prism does not expose a backend-local `/metrics` operations endpoint or start te
 
 ## 1. Management API (`/api/*`)
 
-### 1.0 Startup Config File
+### 1.0 Request Boundary
+
+Global CORS handling runs before both management and runtime branches and answers qualifying preflight requests with `204` before route middleware runs.
+
+For management routes, the mounted request path applies runtime-cache invalidation handling, management admission, request-body limits, management-session authentication, and then the mounted management router. `POST`, `PUT`, and `PATCH` requests under `/api/auth/*` are limited to `64 KiB`; other mutating management requests are limited to `1 MiB`. The limit wrapper observes reads from the request body. If a downstream handler reads past the limit, Prism replaces its response with `413`:
+```json
+{
+  "error": "request_body_too_large",
+  "message": "Request body exceeds the maximum allowed size.",
+  "limit_bytes": 65536
+}
+```
+
+The wrapper is installed before management authentication, but authentication or admission can reject a request before any body read. For example, an oversized unauthenticated request to a protected management route can return its normal `401` authentication response rather than `413`.
+
+When operator auth is enabled, the exact public management paths are `GET /api/auth/status`, `GET /api/auth/public-bootstrap`, `POST /api/auth/login`, `POST /api/auth/logout`, and `POST /api/auth/refresh`. Other `/api/*` paths, including `GET /api/auth/session`, require a valid access-token cookie. Auth is bypassed for all management routes while operator auth is disabled.
+
+### 1.0A Startup Config File
 
 Prism loads steady-state startup settings from the plaintext `config.json` selected by `PRISM_CONFIG_PATH`. The live v1 file requires `meta`, `server`, `database.url`, `database.pools`, `database.managementAdmission`, `runtime.secretEncryptionKey`, `runtime.transport`, `runtime.sideEffects`, `http.corsAllowedOrigins`, and `auth`. Optional top-level sections are `alerting`, `mail`, `telemetry`, and `stateTransfer`; `mail`, `telemetry`, and `stateTransfer` are parsed for compatibility only and do not re-enable retired behavior. R2 removed the management API for editing that file; external edits require a Prism restart before they affect the running process.
 
@@ -707,7 +724,9 @@ Prism's runtime proxy is an explicit allowlist, not a full vendor API clone. It 
 
 Runtime proxy routes ignore management `X-Profile-Id` overrides and always resolve against frozen Default profile id `1`. Profile-scoped management reads and writes are pinned to Default profile id `1`; they do not switch proxy traffic.
 
-When operator auth is enabled, runtime proxy routes require a valid active, unexpired proxy API key. Prism accepts the key as `Authorization: Bearer <key>`, `X-API-Key: <key>`, or `X-Goog-Api-Key: <key>`. Missing keys return `401` with `Proxy API key required`; invalid, inactive, expired, or unknown keys return `401` with `Invalid proxy API key`. When auth is disabled, supported runtime routes continue without proxy-key authentication.
+After global CORS handling, the runtime branch applies HTTP proxy admission, then runtime proxy-key authentication, and only then the exact operation registry. HTTP admission and auth can therefore reject a `/v1` or `/v1beta` request before registry resolution. Registry rejections themselves do not read the request body or invoke planning, terminal-target admission, provider transport, telemetry, audit, feedback, or runtime side effects.
+
+When operator auth is enabled, runtime proxy routes require a valid active, unexpired proxy API key. Prism checks `Authorization: Bearer <key>` first, then `X-API-Key`, then `X-Goog-Api-Key`. Missing keys return `401` with `Proxy API key required`; invalid, inactive, expired, or unknown keys return `401` with `Invalid proxy API key`. When auth is disabled, supported runtime routes continue without proxy-key authentication.
 
 ### 2.1 Supported Runtime Operations
 
@@ -728,7 +747,7 @@ Each allowlisted row maps to one canonical operation name. Provider-forwarded ru
 
 ### 2.2 Unsupported Routes and Methods
 
-Unsupported runtime routes return a Prism JSON `404` response before Prism reads the request body, resolves a model, contacts a provider, creates runtime admission state, submits runtime side effects, or writes runtime persistence rows. The current error detail is `Runtime operation not found`.
+Unsupported runtime routes return a Prism JSON `404` response before Prism reads the request body, resolves a model, claims local Terminal Target admission state, contacts a provider, submits runtime side effects, or writes runtime persistence rows. The current error detail is `Runtime operation not found`.
 
 Wrong methods on supported runtime paths return a Prism JSON `405` response before the same downstream seams run. The response includes the supported method in `Allow`, and the current error detail is `Method not allowed for runtime operation`.
 
@@ -736,13 +755,13 @@ Supported runtime operation request bodies are capped at `20 MiB`. Oversized req
 
 ### 2.2A Routing Failures
 
-Runtime planning applies the requested model's ordered access graph and attached Ban Policy strategy before provider transport. If no eligible Terminal Target is available inside the current retry window, Prism returns a routing-availability error before opening an upstream request. If all otherwise eligible attempts are blocked by admission counters, Prism returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. Unsupported translated OpenAI sibling-operation shapes reject with `openai_request_translation_unsupported` when adapter capability checks fail.
+Runtime planning evaluates ordered same-family model targets, aggregates their eligible Terminal Target attempts, and uses direct Terminal Targets only when no model-target candidate is eligible. The attached Ban Policy strategy then orders and filters the resulting attempts before provider transport. If no eligible Terminal Target is available inside the current retry window, Prism returns a routing-availability error before opening an upstream request. If all otherwise eligible attempts are blocked by admission counters, Prism returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. Unsupported translated OpenAI sibling-operation shapes reject with `openai_request_translation_unsupported` when adapter capability checks fail.
 
 Request-log detail keeps flat final-target attribution fields such as `resolved_target_model_id`, `terminal_target_id`, `selected_terminal_target_id`, `endpoint_id`, and `operation_translation_mode`. Deleted model-owned routing metadata is not exposed on public detail responses.
 
 ### 2.2B OpenAI sibling-operation translation
 
-OpenAI Chat Completions and Responses targets can be siblings for runtime planning. Translation eligibility is explicit and terminal-target based through `openai_text_capability`: `responses_only`, `chat_completions_only`, or `dual_native`. Native-compatible terminal attempts keep `operation_translation_mode = "none"`, but planning still follows authored access-target and terminal-target order and chooses the first compatible native or translated mode. Compatible sibling targets may use `openai_responses_to_chat_completions` or `openai_chat_completions_to_responses` only when the selected connection's capability is not native for the ingress operation and the adapter approves the request shape.
+OpenAI Chat Completions and Responses targets can be siblings for runtime planning. Translation eligibility is explicit and terminal-target based through `openai_text_capability`: `responses_only`, `chat_completions_only`, or `dual_native`. Native-compatible terminal attempts keep `operation_translation_mode = "none"`, while the planner preserves authored access-target and terminal-target order as it aggregates compatible native or translated attempts. Compatible sibling targets may use `openai_responses_to_chat_completions` or `openai_chat_completions_to_responses` only when the selected connection's capability is not native for the ingress operation and the adapter approves the request shape.
 
 Sibling OpenAI text translation is always on for adapter-approved Chat Completions and Responses shapes. There is no startup toggle. Unsupported shapes are not universally routable: adapter-rejected conversions remain blocked by capability checks and reject before provider transport with `openai_request_translation_unsupported` when translation compatibility is the blocker. Supported tool definitions, tool/function calls, media content parts, and some stream conversion shapes can translate; unsupported metadata can be recorded as explicit translation loss instead of forcing whole-request rejection. Public Responses requests with stateful shapes such as `previous_response_id` can pass through when missing context estimation is the only blocker, but they still reject if translation compatibility fails. Responses adjunct operations, `openai.responses.input_tokens` and `openai.responses.compact`, require responses-capable targets and never translate to Chat Completions.
 
@@ -959,7 +978,7 @@ Stats APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for 
 ```
 GET /api/stats/dashboard
 ```
-This is the canonical overview dashboard read path. It returns one backend-computed, stats-only aggregate snapshot for the effective profile, including overview metrics, API-family rows, top-spending models, and the Routing Health Map. It does not include recent request rows, request-log IDs, or request-log cursor data. Recent activity is served by `GET /api/stats/dashboard/recent-activity`.
+This is the canonical overview dashboard read path. It returns one backend-computed, stats-only aggregate snapshot for the effective profile, including overview metrics, API-family rows, top-spending models, and a `routing_health_map` response field. It does not include recent request rows, request-log IDs, or request-log cursor data. Recent activity is served by `GET /api/stats/dashboard/recent-activity`. The current production dashboard does not render `routing_health_map`.
 
 Query parameters: none. Legacy `window` query values are ignored. The endpoint always returns the canonical aggregate snapshot and does not expose the old top-level `window`, `covers`, `freshness`, or `metrics` shape. Snapshot freshness is ordered by lexicographic `snapshot_revision`; `source_watermark` is diagnostic only.
 
@@ -1073,7 +1092,7 @@ Query parameters:
 
 The snapshot is backed by `backend/internal/httpapi/management/stats/service.go` together with the aggregation types and query helpers in `backend/internal/domain/stats/snapshot.go` and `backend/internal/domain/stats/types.go`.
 
-The snapshot is aggregated from persisted usage-event rows. Endpoint aggregates read the stored `usage_request_events.endpoint_label_snapshot` value and expose it as public `endpoint_label`, so historical labels survive later endpoint renames or deletion. `/api/stats/dashboard` is the canonical overview aggregate that also includes the backend-computed Routing Health Map. Exact request investigation remains on `/observe/requests`, while dashboard and other pages continue to use the shared stats routes below.
+The snapshot is aggregated from persisted usage-event rows. Endpoint aggregates read the stored `usage_request_events.endpoint_label_snapshot` value and expose it as public `endpoint_label`, so historical labels survive later endpoint renames or deletion. `/api/stats/dashboard` is the canonical overview aggregate and includes a backend-computed `routing_health_map` response field; the current dashboard leaves that field unrendered. Exact request investigation remains on `/observe/requests`, while dashboard and other pages continue to use the shared stats routes below.
 
 Response `200` includes `latency_trends` alongside `request_trends`, `token_usage_trends`, `token_type_breakdown`, and `cost_overview`. `latency_trends.hourly[]` and `latency_trends.daily[]` use the same series key/label shape as request trends; each point exposes `bucket_start`, `p50_ms`, and `p95_ms`. Empty latency buckets keep the bucket and return `null` percentile values.
 
@@ -1476,7 +1495,7 @@ The response sets `Location` to the same job status URL. The job type is `log_re
 
 Retention drops whole daily child partitions whose upper bound is `<= cutoff`. Only the single child partition that overlaps the cutoff receives a bounded row delete, followed by `VACUUM (ANALYZE, PROCESS_TOAST TRUE)` on that boundary child.
 
-Audit rows keep weak request metadata. They retain `request_log_id`, `request_log_created_at`, and `ingress_request_id` when known, but request detail links can be missing after request-log retention expires first.
+Audit rows keep weak request metadata. Request-log retention does not clear `request_log_id`, `request_log_created_at`, or `ingress_request_id`; audit reads return `request_log_missing=true` only when both request-log link fields are non-null and the `(profile_id, request_log_id, request_log_created_at)` tuple no longer resolves.
 
 ### 4.9 Get Spending Reports
 ```
@@ -1609,11 +1628,11 @@ Query parameters:
 | `connection_id` | integer | none | Filter by connection ID |
 | `from` | datetime | required | Inclusive start of bounded time range (RFC 3339) |
 | `to` | datetime | required | Exclusive end of bounded time range (RFC 3339) |
-| `limit` | integer | 50 | Max positive result count |
+| `limit` | integer | 50 | Positive result count; values above `200` are silently capped to `200` |
 | `cursor` | string | none | Opaque keyset cursor returned as `next_cursor` |
 | `sort` | string | `desc` | Only `desc` is supported |
 
-The list API returns one row per upstream attempt. If a proxy request fails over across connections, each attempt has its own audit row. The `from` and `to` window is required and may not exceed 7 days, including when `request_log_id` is supplied. The backend has no fallback, default audit window, or legacy time-window aliases for request-log lookups. Unsupported query keys return `400` with `audit_filter_unsupported`.
+The list API returns one row per upstream attempt. If a proxy request fails over across connections, each attempt has its own audit row. The `from` and `to` window is required and may not exceed 7 days, including when `request_log_id` is supplied. The backend has no fallback, default audit window, or legacy time-window aliases for request-log lookups. When `request_log_id` identifies an existing request whose request-time audit flag is disabled, the list returns `409` with `Audit capture unavailable for this request`. Unsupported query keys return `400` with `audit_filter_unsupported`.
 
 Response `200`:
 ```json
@@ -1623,6 +1642,9 @@ Response `200`:
       "id": 1,
       "profile_id": 1,
       "request_log_id": 42,
+      "request_log_created_at": "2025-01-15T10:30:00Z",
+      "ingress_request_id": "ingress_req_42",
+      "request_log_missing": false,
       "model_id": "gpt-4o",
       "endpoint_id": 12,
       "connection_id": 1,
@@ -1630,11 +1652,15 @@ Response `200`:
       "endpoint_description": "Primary production key",
       "request_method": "POST",
       "request_url": "https://api.openai.com/v1/chat/completions",
-      "request_headers": "{\"content-type\": \"application/json\", \"authorization\": \"Bearer [REDACTED]\"}",
-      "request_body_preview": "{\"model\":\"gpt-4o\",\"messages\":[{\"role\":\"user\",\"con...",
+      "request_headers": "{\"content-type\": \"application/json\", \"authorization\": \"[REDACTED]\"}",
+      "request_body_preview": "{\"model\":\"gpt-4o\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello!\"}]}",
+      "request_body_stored": true,
       "response_status": 200,
+      "response_body_stored": true,
       "is_stream": false,
       "duration_ms": 1234,
+      "audit_enabled_at_request": true,
+      "audit_capture_bodies_at_request": true,
       "created_at": "2025-01-15T10:30:00Z"
     }
   ],
@@ -1649,8 +1675,8 @@ Response `200`:
 }
 ```
 
-The list API returns `request_body_preview` (first 200 characters of the request body) instead of the full body. Use the detail API for full content.
-If body capture was off at request time, `request_body_preview` is `null` even though the audit metadata still exists. `response_body_stored` means captured response bytes were stored, independent of `is_stream`; rows with `response_body_stored=false` have no stored response body. Rows whose `request_log_id` is `null` are orphaned audit rows from deleted request logs, and they remain visible in the audit APIs.
+The list API returns `request_body_preview` instead of the full body. It keeps at most the first 200 Unicode code points and does not append an ellipsis or another truncation marker. Use the detail API for full content.
+If body capture was off at request time, `request_body_preview` is `null` even though the audit metadata still exists. `response_body_stored` means captured response bytes were stored, independent of `is_stream`; rows with `response_body_stored=false` have no stored response body. Audit rows preserve `request_log_id`, `request_log_created_at`, and `ingress_request_id` after request-log retention. `request_log_missing=true` means both request-log link fields are present but the `(profile_id, request_log_id, request_log_created_at)` tuple no longer resolves. If either link field is null, `request_log_missing` is false.
 Rows are ordered by `(created_at DESC, id DESC)`. Pagination is keyset-based: when `has_more=true`, pass the returned `next_cursor` with the same window, sort, and filters. The audit list response does not include `total` or `offset`.
 
 ### 5.2 Get Audit Log Detail
@@ -1663,6 +1689,9 @@ Response `200`:
   "id": 1,
   "profile_id": 1,
   "request_log_id": 42,
+  "request_log_created_at": "2025-01-15T10:30:00Z",
+  "ingress_request_id": "ingress_req_42",
+  "request_log_missing": false,
   "model_id": "gpt-4o",
   "endpoint_id": 12,
   "connection_id": 1,
@@ -1670,21 +1699,27 @@ Response `200`:
   "endpoint_description": "Primary production key",
   "request_method": "POST",
   "request_url": "https://api.openai.com/v1/chat/completions",
-  "request_headers": "{\"content-type\": \"application/json\", \"authorization\": \"Bearer [REDACTED]\"}",
+  "request_headers": "{\"content-type\": \"application/json\", \"authorization\": \"[REDACTED]\"}",
   "request_body": "{\"model\":\"gpt-4o\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello!\"}],\"temperature\":0.7}",
+  "request_body_stored": true,
   "response_status": 200,
   "response_headers": "{\"content-type\": \"application/json\", \"x-request-id\": \"req_abc123\"}",
   "response_body": "{\"id\":\"chatcmpl-abc\",\"choices\":[...],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":20}}",
+  "response_body_stored": true,
   "is_stream": false,
   "duration_ms": 1234,
+  "audit_enabled_at_request": true,
+  "audit_capture_bodies_at_request": true,
   "created_at": "2025-01-15T10:30:00Z"
 }
 ```
 
-When body capture is enabled and non-empty response bytes are captured, `response_body` stores those bytes and `response_body_stored=true`; `is_stream` does not prevent storage. For translated OpenAI sibling-operation attempts, `request_body` and `response_body` remain raw upstream-native payloads or SSE bytes. They do not store the translated client-facing request or response shape.
+When body capture is enabled, request bodies can be stored for every audited upstream attempt. Only the final attempt can store a non-empty `response_body`, and `response_body_stored=true` means that final response bytes were retained; `is_stream` does not prevent that storage. For translated OpenAI sibling-operation attempts, `request_body` and `response_body` remain raw upstream-native payloads or SSE bytes. They do not store the translated client-facing request or response shape.
 If body capture is disabled for a request, both `request_body` and `response_body` are `null`. Rows with `response_body_stored=false` have no stored response body, including old rows that were written before streaming response capture was available.
 
 Response `404`: Audit log not found.
+
+Response `409`: `Audit capture unavailable for this request` when the requested audit detail has audit disabled at request time.
 
 ### 5.3 Audit Log Retention
 
@@ -1692,7 +1727,7 @@ Audit log list and detail APIs remain pinned to Default profile id `1`. Normal a
 
 The retired audit cleanup endpoints are not part of the current API. Retention jobs return `202` with a job object, not a boolean acknowledgement.
 
-Audit rows retain weak request metadata in `request_log_id`, `request_log_created_at`, and `ingress_request_id`. A request detail link can be missing after request-log retention expires before audit-log retention.
+Audit rows retain weak request metadata in `request_log_id`, `request_log_created_at`, and `ingress_request_id`; retention does not clear those fields. `request_log_missing=true` requires both request-log link fields and reports that the `(profile_id, request_log_id, request_log_created_at)` tuple no longer resolves, so a request detail link can be unavailable after request-log retention expires before audit-log retention.
 
 ### 5.3A Management Job Status and Cancel
 ```
@@ -1709,7 +1744,7 @@ POST /api/management/jobs/{job_id}/cancel
       "id": "job_0123456789abcdef01234567",
       "type": "audit_delete",
       "state": "queued",
-      "requested_by": "profile:2",
+      "requested_by": "profile:1",
       "requested_at": "2026-04-19T12:00:00Z",
       "started_at": null,
       "finished_at": null,
@@ -1737,17 +1772,13 @@ POST /api/management/jobs/{job_id}/cancel
 
 ### 5.4 Redaction Rules
 
-All audit log entries have sensitive header values redacted before storage:
-- `authorization` → `Bearer [REDACTED]`
-- `x-api-key` → `[REDACTED]`
-- `x-goog-api-key` → `[REDACTED]`
-- Any header name containing `key`, `secret`, `token`, or `auth` (case-insensitive) → value replaced with `[REDACTED]`
+Audit redaction is deliberately narrow. Before stored upstream **request** headers are serialized, Prism replaces the values of exactly `authorization`, `x-api-key`, and `x-goog-api-key` (case-insensitive) with `[REDACTED]`. It does not preserve an `Authorization` scheme and does not redact other request-header names by pattern.
 
-Request and response bodies are not header-redacted and may contain user-provided secrets or PII. Body capture is request-time provenance via `audit_capture_bodies_at_request`; when disabled, both `request_body` and `response_body` are `null`. For translated OpenAI attempts, stored bodies remain upstream-native because provider conversion owns request, response, and stream shape conversion while runtime owns audit storage.
+Stored upstream response headers are serialized as captured without header redaction. Captured request and response bodies are also stored as captured and can contain user-provided secrets or PII. Body capture is request-time provenance via `audit_capture_bodies_at_request`; when disabled, both `request_body` and `response_body` are `null`. For translated OpenAI attempts, stored bodies remain upstream-native because provider conversion owns request, response, and stream shape conversion while runtime owns audit storage.
 
 ### 5.5 Body Size Limits
 
-When body capture is enabled for the request, Prism stores the captured request and response body strings for the upstream attempt. Current storage does not define a documented truncation marker.
+When body capture is enabled, Prism can store the captured request body for each audited upstream attempt and the captured response body for the final attempt only. Audit list previews are limited to the first 200 Unicode code points without an appended truncation marker; detail bodies are not truncated by this preview helper.
 
 ---
 
@@ -1797,7 +1828,7 @@ Response `200`:
 
 The response includes the full current strategy list in `items` plus creation metadata so the caller can tell which canonical rows were created versus already present.
 
-Returns `409` when one or more canonical default names are already occupied by non-canonical strategies in Default profile id `1`. In that case, the error payload includes `code` plus `detail.conflicting_names` with the conflicting names.
+Returns `409` when one or more canonical default names are already occupied by non-canonical strategies in Default profile id `1`. In that case, `detail` is an object with `message` and `conflicting_names`.
 
 ### 6.3 Create Loadbalance Strategy
 ```
@@ -1931,8 +1962,8 @@ Response `200`:
 }
 ```
 
-`cleared=false` is returned when no persisted current-state row existed for that `(profile_id, connection_id)` pair.
-Reset clears retry-window counters, next retry timing, ban state, and the related round-robin cursor for an attached model when one exists.
+`cleared=false` is returned when no process-local state or related round-robin cursor existed for that connection.
+Reset clears process-local retry-window counters, next retry timing, ban state, admission counters, and the related round-robin cursor for an attached model when one exists. This state is intentionally ephemeral and is lost on backend restart; retained SQL runtime-state tables are compatibility schema, not the production hot path.
 
 ### 6.9 List Loadbalance Events
 ```
@@ -2134,7 +2165,14 @@ Response `200`:
 
 ## 8. Error Responses
 
-Resource-scope errors follow this format:
+Prism does not have one universal error envelope. Management handlers normally return:
+```json
+{
+  "detail": "human-readable detail"
+}
+```
+
+Profile-resolution failures add a stable `code`:
 ```json
 {
   "code": "profile_scope_profile_not_found",
@@ -2142,13 +2180,39 @@ Resource-scope errors follow this format:
 }
 ```
 
+Audit and statistics domain-validation errors use a nested structured envelope. `details` is present only when the domain error includes structured detail:
+```json
+{
+  "error": {
+    "code": "audit_window_too_large",
+    "message": "Audit event windows may not exceed 7 days.",
+    "details": {
+      "max_window_seconds": 604800
+    }
+  }
+}
+```
+
+Runtime handlers return `detail`, and include `error` only when the runtime error has a machine-readable code:
+```json
+{
+  "error": "admission_exhausted",
+  "detail": "No eligible Terminal Target passed admission."
+}
+```
+
+The request-size guard is a separate envelope with `error`, `message`, and `limit_bytes`, as documented above.
+
 | Status Code | Meaning |
 |---|---|
 | 400 | Bad request (invalid input) |
+| 401 | Management session or runtime proxy key is missing or invalid |
+| 405 | Wrong method for an allowlisted runtime path |
 | 404 | Resource not found |
 | 409 | Conflict (duplicate scoped identifier) |
+| 413 | Request body exceeds the mounted route limit |
 | 502 | Upstream service error |
-| 503 | No active Terminal Targets available |
+| 503 | Runtime routing/admission unavailable or another service snapshot is unavailable |
 
 ---
 

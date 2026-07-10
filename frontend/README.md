@@ -16,7 +16,7 @@ Prism targets Node.js 24+ and uses the `pnpm@10.30.1` toolchain declared in `pac
 
 Use `frontend/.env.example` as the standalone frontend env sample when you want to point the frontend at a non-launcher backend.
 
-When started through the checked-in root launcher, Prism serves the frontend at `http://localhost:5173` and proxies same-origin backend traffic to the selected bootstrap file's listener port. With the checked-in `../config.json`, that backend URL is `http://localhost:18000`. For full-stack local setup, launcher behavior, and shared repository context, start at `../README.md` and `./AGENTS.md`.
+When started through the root launcher, Prism serves the frontend at `http://localhost:5173` and proxies same-origin backend traffic to the selected bootstrap file's listener port. The repo-local default `../config.json` is ignored by Git; a newly seeded bootstrap config listens on `http://localhost:8000`. For full-stack local setup, launcher behavior, and shared repository context, start at `../README.md` and `./AGENTS.md`.
 
 ## Runtime notes
 
@@ -27,8 +27,8 @@ When started through the checked-in root launcher, Prism serves the frontend at 
 
 ## Route and ownership map
 
-- Public auth routes: `/login`, `/forgot-password`, `/reset-password`
-- `/` redirects to `/dashboard`
+- Public auth route: `/auth/login`
+- `/` redirects to `/observe`
 - `src/App.tsx` mounts the public auth routes plus the protected shell routes for observe, request logs, models, model detail, endpoints, loadbalance strategies, settings, proxy API keys, and pricing templates.
 - `src/pages/` owns compatibility route-domain clusters still imported by feature routes.
 - `src/main.tsx` owns browser mounting plus the locale, theme, tooltip, and toast providers.

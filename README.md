@@ -19,9 +19,9 @@ Prism fronts multiple LLM API families through explicit runtime operations, lett
 ### Observability & management
 
 - **Product observability**: retained request history, usage events, spending, request-log detail, and dashboard aggregates are stored in PostgreSQL-backed APIs
-- **Retained request history**: product-facing request logs, spending, usage snapshots, and dashboard aggregates remain in PostgreSQL for `/request-logs` and `/api/stats/*`
-- **Audit logging**: optional request/response body capture with header redaction
-- **Success-rate badges**: Terminal Target health based on recent request data
+- **Retained request history**: product-facing request logs, spending, usage snapshots, and dashboard aggregates remain in PostgreSQL for `/observe/requests` and `/api/stats/*`
+- **Audit logging**: optional request/response body capture with narrow request-auth-header redaction
+- **Model telemetry**: recent success rate, P95 latency, and request count shown as plain model-table values
 - **Startup bootstrap config**: strict plaintext `config.json` startup loading; external edits require a Prism restart after R2
 - **Plain backup path**: disaster recovery uses `pg_dump` for PostgreSQL state plus a copy of the plaintext `config.json`
 - **Caller client filtering**: request logs filter caller clients through User-Agent Client Rules using `client_rule_id`, while final target filtering uses `resolved_target_model_id`
@@ -56,9 +56,9 @@ cd prism
 
 Prism is a monorepo: the backend and frontend live in the same checkout under `backend/` and `frontend/`.
 
-The launcher keeps frontend `5173` and PostgreSQL `15432` fixed, and it follows the selected bootstrap file's backend listener port. In this repo's checked-in `config.json`, that backend port is `18000`; freshly seeded startup configs default it to `8000`.
+The launcher keeps frontend `5173` and PostgreSQL `15432` fixed, and it follows the selected bootstrap file's backend listener port. The repo-local default bootstrap path is ignored by Git and is seeded only when absent; freshly seeded startup configs default the backend to `8000`.
 
-Log retention is configured from the Settings Global tab. Normal retention is global across all profiles and runs as durable `log_retention` jobs. It drops expired daily log partitions first, then cleans only the cutoff-overlapping boundary partition and vacuums that child with `VACUUM (ANALYZE, PROCESS_TOAST TRUE)`. Manual shrink tools such as `VACUUM FULL`, `CLUSTER`, and `pg_repack` are emergency operator actions only; `pg_repack` is not available in the default local `postgres:16-alpine` image.
+Log retention is configured from the Settings `实例` tab (internal query value `global`). Normal retention is global across all profiles and runs as durable `log_retention` jobs. It drops expired daily log partitions first, then cleans only the cutoff-overlapping boundary partition and vacuums that child with `VACUUM (ANALYZE, PROCESS_TOAST TRUE)`. Manual shrink tools such as `VACUUM FULL`, `CLUSTER`, and `pg_repack` are emergency operator actions only; `pg_repack` is not available in the default local `postgres:16-alpine` image.
 
 For subproject-specific setup and commands, use:
 

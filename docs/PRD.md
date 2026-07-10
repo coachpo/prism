@@ -23,6 +23,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Supports both streaming (SSE) and non-streaming responses
 - Preserves native request/response formats per API family
 - Runtime compatibility is fixed by `api_family`
+- `GET /v1/models` is local: requests with `client_version` use the embedded Codex catalog shape with a deterministic weak ETag/`304` path; requests without it use the local OpenAI `object`/`data` list
 
 ### 4.2 Model Configuration
 - Map each model to a fixed runtime `api_family`
@@ -32,7 +33,7 @@ Single operator (developer/power user) running the application locally or on a l
 - CRUD operations for all configurations are available via REST API
 
 ### 4.3 Unified Model Access Routing
-- Ordered access targets resolve recursively to Terminal Targets before runtime execution
+- Ordered same-family model targets are evaluated as an aggregate; direct Terminal Targets are the fallback when no model-target candidate is eligible
 - Model-target entries must stay within the same `api_family`, cannot target themselves, and cannot introduce cycles
 - Internal connection-target entries are terminal ownership and routing edges for Terminal Targets; model-target entries can compose chains while preserving deterministic order
 - Each model owns its reusable load-balance strategy, so nested model targets evaluate strategy and Ban Policy at their own graph level
@@ -51,14 +52,14 @@ Single operator (developer/power user) running the application locally or on a l
 - Failover-worthy HTTP responses are governed by the attached strategy's configured failure status codes and retry-window settings
   - Non-failover client errors outside the configured failure status set (for example `400` or `404` with default policies) do not force-clear existing Ban Policy state
   - Each Terminal Target can optionally define `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited
-  - Limiter state is persisted in PostgreSQL `UNLOGGED` tables and is intentionally ephemeral after crash or unclean shutdown
+  - Runtime admission, Ban Policy, lease, and round-robin state is process-local and is intentionally ephemeral across process restarts; retained SQL hot-state tables are compatibility schema, not the production hot path
 - Proxy request forwarding may apply compatibility normalizations while preserving API-family-native response formats
 - Model-owned overflow replay and exact facade routing have been removed. After headers, flush, SSE, or any client-visible bytes commit downstream output, Prism does not switch upstreams for that stream.
-- All failover attempts (including failed ones) are logged to `request_logs` for observability. When a Terminal Target returns a configured failover-triggering status code (`403`, `422`, `429`, `500`, `502`, `503`, `504`, `529` by default) or encounters a connection/timeout error, the failed attempt is logged before trying the next Terminal Target.
+- Request-log materialization distinguishes actual upstream attempts from synthetic failures. Telemetry-eligible target-resolution/translation errors carrying `PlanningFailure`, plus `admission_exhausted`, can produce synthetic rows without endpoint/connection. Malformed bodies, unknown models, API-family mismatches, registry-rejected requests, and the terminal all-transport `502` path do not retain request history.
 - Request-log detail preserves requested public model identity, final target identity, selected Terminal Target, endpoint, operation names, and translation mode through flat fields.
 - Retry scheduling, retry exhaustion, bans, unbans, recovery, and admission-rejection transitions are persisted as `loadbalance_events` for audit and observability.
 
-### 4.5 Profile-Scoped Endpoints & Terminal Targets
+### 4.5 Default-Profile Endpoints & Terminal Targets
 - **Endpoints** are profile-scoped credential objects containing a name, base URL, and API key.
 - **Models** carry fixed `api_family` metadata.
 - **Terminal Targets** are profile-scoped model routing, costing, and health configurations that reference endpoints in the same profile.
@@ -67,21 +68,9 @@ Single operator (developer/power user) running the application locally or on a l
 
 ### 4.6 Terminal Target Request Health
 - Manual Terminal Target test actions are removed from the management API and UI.
-- Terminal Target health indicators are driven by retained request-log data for real runtime traffic.
-
-### 4.6.1 Terminal Target Success Rate Data
-- Terminal Target success-rate data is computed from `request_logs` data and exposed through request-derived stats and routing-health surfaces
-- Success rate = `COUNT(2xx status codes) / COUNT(total requests) * 100` for that Terminal Target
-- No request data returns `null`/N/A rather than pretending to be 0% healthy
-
-### 4.6.2 Model Health Display
-- The Models page displays an aggregated health indicator for each model
-- Model health is computed from retained `request_logs` rows grouped by requested `model_id`
-- Model health = successful request-log rows (`2xx`) divided by total request-log rows for that requested model ID
-- If a model has no request data, it shows "N/A" (gray)
-- Display format: A colored badge showing the aggregated success rate percentage
-  - Same color thresholds as Terminal Target badges: ≥98% green, 75-98% yellow, <75% red, N/A gray
-- Shown in the **Models** page model list table as the success-rate column. Dashboard overview surfaces aggregate health through overview cards, recent activity, and top-spending summaries instead of a model-overview table.
+- Backend request-derived stats can expose Terminal Target success-rate and routing-health read models for real runtime traffic. These are API/read-model capabilities, not a current per-target health-badge workflow.
+- The Models page renders plain telemetry text for each model: 24-hour success rate, P95 latency, and 24-hour request count, plus a 30-day spend value. Missing success data is shown as `- Success`; there are no colored success-rate thresholds or health badges.
+- The current model-detail UI does not render Terminal Target success-rate indicators, and the dashboard does not render the backend `routing_health_map` response field.
 
 ### 4.7 Web UI (Management Dashboard)
 - View all configured models and their reachable Terminal Targets
@@ -95,7 +84,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Dedicated routes for pricing templates and proxy API key lifecycle management
 - Dashboard analytics lives under `/observe?tab=analytics` and replaces the old standalone statistics route
 - The protected shell renders sidebar navigation and breadcrumbs from local route metadata.
-- Settings is split between Default-profile sections (billing/currency, timezone, audit/privacy, and config rules) and a Global tab for instance auth, global retention policies, and retention/deletion jobs.
+- Settings visibly uses **全局** and **实例** tabs. The internal query values remain `profile` and `global`: `全局` contains billing/currency, timezone, audit/privacy, and config rules; `实例` contains authentication, global retention policies, and retention/deletion.
 
 ### 4.8 Configuration Persistence
 - Runtime and management configuration is stored in PostgreSQL with Go-backend-managed schema migrations applied at startup
@@ -103,9 +92,9 @@ Single operator (developer/power user) running the application locally or on a l
 - The default profile exists from the first startup and remains editable after initialization
 - Database setup is managed by the Go backend runtime and applies the checked-in fresh-install baseline on startup
 ### 4.9 Request Statistics & Analytics
-- Automatic logging of all proxy requests with telemetry data
-- Each request log captures: profile ID attribution, requested `model_id`, final `resolved_target_model_id` when an access-target path is selected, `api_family`, Terminal Target used through compatibility connection attribution (ID, endpoint base URL, description), Prism `ingress_request_id`, per-request `attempt_number`, best-effort `provider_correlation_id`, caller and upstream client display, HTTP status, response time (ms), token usage when available from upstream response, whether the request was streamed, selected terminal target, operation names, translation mode, and timestamp
-- Request logs remain one row per upstream attempt; `ingress_request_id` groups all attempts from one incoming runtime request.
+- Local `GET /v1/models` produces no runtime telemetry. Provider-forwarded operations create retained history only when activity reaches a telemetry handoff: successful `2xx` responses use the durable response-path handoff, captured non-`2xx` responses use scheduled activity handoff, and the narrow `PlanningFailure`/`admission_exhausted` classes use synthetic failure handoff. Registry rejections and the earlier planning errors listed above do not create request history.
+- Each retained request-log detail can capture: profile ID attribution, requested `model_id`, final `resolved_target_model_id` when an access-target path is selected, `api_family`, Terminal Target used through compatibility connection attribution (ID, endpoint base URL, description), Prism `ingress_request_id`, per-request `attempt_number`, best-effort `provider_correlation_id`, caller and upstream client display, HTTP status, response time (ms), token usage when available from upstream response, whether the request was streamed, selected Terminal Target, operation names, translation mode, and timestamp.
+- A normal upstream attempt is represented by one request-log row; telemetry-eligible `PlanningFailure` or `admission_exhausted` activity may add a synthetic row without endpoint/connection. `ingress_request_id` groups retained attempt rows from one incoming runtime request. The current detail sheet shows the request path and routing fields, while operation names, translation mode, and upstream path are persisted and returned by the detail API but are not rendered in that sheet.
 
 #### 4.9.1 Token Usage Extraction
 Token usage is extracted from upstream responses using api-family-aware parsing:
@@ -126,14 +115,18 @@ The gateway computes the cost of each request based on the extracted token usage
 - **Pricing Templates**: Pricing is profile-scoped and reusable. Connections reference templates via `pricing_template_id` instead of storing inline price fields.
 - **Pricing behavior**: Pricing templates use five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Management writes normalize missing/null/blank pricing inputs to `"0"` before validation.
 - **Semantic Note**: Explicit `"0"` means configured free pricing. `MISSING_PRICE_DATA` is reserved for absent, unusable, or invalid pricing snapshots, or missing FX data. Token costing uses canonical disjoint components: base input, cache-read input, cache-creation input, base output, and reasoning output; aggregate `cached_tokens` is derived-only for presentation.
+- **Historical costing provenance**: Request-log details retain and display report currency, original/source currency, FX rate and source, pricing unit, pricing configuration version, and all five pricing snapshot components. Lists and CSV use each row's stored report-currency symbol rather than recomputing historical requests from the current settings.
 
 - Statistics dashboard in the Web UI with:
-  - Overview cards: total requests, average response time, success rate, total tokens used
+  - Overview KPI cards for Active Models, Requests 24h, Spending 30d, and Average RPM
+  - Overview supporting tiles for average latency, P95 latency, error rate, and streaming share, plus API-family mix, recent activity, quick actions, and top-spending models
+  - Dashboard incidents for active bans and recent loadbalance events; the backend `routing_health_map` is returned in the snapshot but is not rendered by the current UI
   - Aggregate endpoint, model, and proxy-key usage views sourced from the unified usage snapshot with endpoint labels read from stored `endpoint_label_snapshot` values
   - Separate recent activity feed that links into request-log investigation without being embedded in the dashboard snapshot
   - Analytics controls: time presets (`1h`, `6h`, `24h`, `7d`, `30d`, `all`) plus model-line selection for usage trend comparison
-  - Summary statistics grouped by model and api family
-- Dedicated request investigation UI at `/observe/requests` with server-backed coarse filters, caller-only `client_rule_id` filtering, final-target `resolved_target_model_id` filtering, grouped `ingress_request_id` tracking, an overview detail drawer, and a dedicated full audit page
+  - Analytics KPI cards for requests/success rate, total tokens with component breakdown, RPM, TPM, and total spend, followed by usage trends and aggregate endpoint/model/proxy-key tables
+  - Summary statistics grouped by model and API family
+- Dedicated request investigation UI at `/observe/requests` with server-backed coarse filters, caller-only `client_rule_id` filtering, final-target `resolved_target_model_id` filtering, grouped `ingress_request_id` tracking, an overview detail sheet, and a dedicated full audit page
 - REST API for querying statistics remains available for API callers and debugging:
   - List request logs with pagination and filters
   - Get the stats-only dashboard snapshot and separate dashboard recent activity feed
@@ -151,36 +144,38 @@ Full HTTP request/response recording for proxied requests, stored in the databas
 - Toggling audit settings affects new requests only
 
 #### 4.10.2 What Gets Recorded
-For each audited upstream attempt (including failover attempts):
-- **Request**: HTTP method, full upstream URL, all headers (redacted), request body
-- **Response**: HTTP status code, response headers, captured response body bytes when body capture is enabled and bytes were captured
+For each audited upstream attempt that is materialized:
+- **Request**: HTTP method, full upstream URL, request-header snapshot, request body. Only the three configured auth-header values are replaced before the request-header snapshot is stored.
+- **Response**: HTTP status code and response-header snapshot; captured response body bytes when body capture is enabled and bytes were captured. Response headers are stored as captured. For a multi-attempt request, response body capture is associated with the final attempt rather than every failed attempt.
 - **Metadata**: model ID, api family, connection identity (connection ID, endpoint base URL, description), duration, stream flag, timestamp, link to corresponding `request_log` entry
 
 #### 4.10.3 Sensitive Data Redaction
-All sensitive information is redacted before storage:
-- `Authorization` keeps the scheme and stores `Bearer [REDACTED]`; `x-api-key` and `x-goog-api-key` are stored as `[REDACTED]`
-- Any header containing `key`, `secret`, `token`, or `auth` in its name → value replaced with `[REDACTED]`
-- Redaction happens at write time — sensitive data never reaches the database
+Audit redaction is intentionally limited:
+- Upstream request-header values for `Authorization`, `X-API-Key`, and `X-Goog-Api-Key` are stored as `[REDACTED]`.
+- Other upstream request headers, all upstream response headers, and captured request or response bodies are stored as captured and can contain sensitive information.
+- Redaction happens at write time only for those three request-header names; audit access must therefore be restricted accordingly.
 
-#### 4.10.4 Non-Interference
-Audit logging must never affect proxy behavior:
-- Recording uses durable runtime telemetry handoff and background side-effect processing after runtime acceptance
-- Persistence and side-effect failures are isolated from the proxied response path after the accepted runtime boundary
+#### 4.10.4 Routing And Delivery Boundaries
+Audit policy does not change model selection, Terminal Target selection, or client-facing response translation:
+- A successful provider-forwarded `2xx` response requires the applicable durable telemetry handoff before Prism commits or first flushes the response. If that handoff fails before client-visible output, Prism returns a runtime observability error instead of the successful response.
+- After handoff, background materialization and non-required side-effect failures are isolated from the proxied response path.
+- Unsupported or wrong-method runtime registry rejections do not enter telemetry or audit handling.
 
 #### 4.10.5 Audit Inspection (Frontend)
 - Audit detail is opened from the request investigation flow on `/observe/requests/:requestId/audit` rather than a standalone `/audit` page
-- Request-focused inspection surfaces the linked audit payload when available
-- The request-log side drawer stays overview-only; full payload context lives on the dedicated audit page
+- Every successfully loaded request detail sheet provides an entry point to the dedicated audit page; the sheet itself remains overview-only and does not fetch audit payloads
+- The dedicated page first loads the request detail, then shows request-time audit state as disabled, metadata-only, or full capture and resolves audit rows with `request_log_id`
 
 #### 4.10.6 Body Size Limits
-- When body capture is enabled for an attempt, Prism stores captured request and response body strings
+- When body capture is enabled, Prism can store captured request bodies for audited attempts and the captured response body for the final attempt only
 - Current storage has no documented truncation marker
 
 ### 4.11 Batch Data Deletion
 Provide flexible bulk deletion of historical logs and statistics data to manage database growth.
 - Supported Data Types: `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`
-- Deletion Modes: Preset time ranges, custom day count, or delete all
-- Deleting `request_logs` does NOT delete linked `audit_logs`; audit rows retain weak request-log metadata, and audit reads expose `request_log_missing` when the retained request log no longer exists
+- The Settings UI offers only `1`, `7`, `30`, `90` days, or all data. The management API accepts an explicit cutoff timestamp for callers that need a custom range.
+- Deletion requests create durable management jobs; list/get/cancel job endpoints remain API-only in the current UI.
+- Deleting `request_logs` does NOT delete linked `audit_logs`; audit rows retain weak request-log metadata, and audit reads expose `request_log_missing=true` only when both `request_log_id` and `request_log_created_at` are present but their profile-scoped tuple no longer resolves
 
 ### 4.12 Custom HTTP Headers per Terminal Target
 Allow users to configure custom HTTP headers on individual Terminal Targets. These headers are appended to upstream proxy requests.
