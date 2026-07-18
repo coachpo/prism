@@ -1,5 +1,7 @@
 # Prism
 
+English | [简体中文](README_CN.md)
+
 Prism is a self-hosted gateway that sits between your tools and LLM providers, giving you one endpoint, one place to manage API keys, and a web dashboard to see what every request cost. It is built for developers and power users who juggle several providers and want failover, routing, and usage tracking without running heavy infrastructure.
 
 A single Go binary, a React dashboard, and PostgreSQL are all it needs.
