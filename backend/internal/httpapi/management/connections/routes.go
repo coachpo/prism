@@ -190,6 +190,10 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			return connectionResponse{}, err
 		}
+		customRequestParameters, err := resolveCustomRequestParametersCreate(requestBody.CustomRequestParameters)
+		if err != nil {
+			return connectionResponse{}, err
+		}
 		endpoint, err := s.resolveCreateEndpoint(r.Context(), tx, profile.ID, requestBody.EndpointID, requestBody.EndpointCreate)
 		if err != nil {
 			return connectionResponse{}, err
@@ -200,21 +204,22 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		}
 		now := s.nowUTC()
 		item := connectionResponse{
-			ProfileID:            profile.ID,
-			APIFamily:            owner.APIFamily,
-			EndpointID:           endpoint.ID,
-			IsActive:             resolvedBool(requestBody.IsActive, true),
-			Priority:             position,
-			Name:                 normalizeOptionalString(requestBody.Name),
-			AuthType:             authType,
-			CustomHeaders:        normalizeHeaders(requestBody.CustomHeaders),
-			OpenAITextCapability: openAITextCapability,
-			PricingTemplateID:    pricingTemplateID,
-			QPSLimit:             requestBody.QPSLimit,
-			MaxInFlightNonStream: requestBody.MaxInFlightNonStream,
-			MaxInFlightStream:    requestBody.MaxInFlightStream,
-			CreatedAt:            now,
-			UpdatedAt:            now,
+			ProfileID:                profile.ID,
+			APIFamily:                owner.APIFamily,
+			EndpointID:               endpoint.ID,
+			IsActive:                 resolvedBool(requestBody.IsActive, true),
+			Priority:                 position,
+			Name:                     normalizeOptionalString(requestBody.Name),
+			AuthType:                 authType,
+			CustomHeaders:            normalizeHeaders(requestBody.CustomHeaders),
+			CustomRequestParameters:  customRequestParameters,
+			OpenAITextCapability:     openAITextCapability,
+			PricingTemplateID:        pricingTemplateID,
+			QPSLimit:                 requestBody.QPSLimit,
+			MaxInFlightNonStream:     requestBody.MaxInFlightNonStream,
+			MaxInFlightStream:        requestBody.MaxInFlightStream,
+			CreatedAt:                now,
+			UpdatedAt:                now,
 		}
 		connectionID, err := insertTerminalTarget(r.Context(), tx, terminalTargetRecordFromConnectionResponse(item))
 		if err != nil {
@@ -377,6 +382,13 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 	}
 	if requestBody.CustomHeaders.Set {
 		next.CustomHeaders = normalizeHeaders(requestBody.CustomHeaders.Value)
+	}
+	if requestBody.CustomRequestParameters.Set {
+		customRequestParameters, err := resolveCustomRequestParametersUpdate(current.CustomRequestParameters, requestBody.CustomRequestParameters)
+		if err != nil {
+			return connectionResponse{}, err
+		}
+		next.CustomRequestParameters = customRequestParameters
 	}
 	if requestBody.PricingTemplateID.Set {
 		pricingTemplateID, err := validatePricingTemplateID(ctx, tx, profileID, requestBody.PricingTemplateID.Value)
@@ -764,6 +776,10 @@ func decodeJSONBody(request *http.Request, target any) error {
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	var connectionErr *domainError
 	if errors.As(err, &connectionErr) {
+		if len(connectionErr.Fields) > 0 {
+			responseutil.WriteErrorFields(w, r, corsSnapshot, connectionErr.StatusCode, connectionErr.Detail, connectionErr.Fields)
+			return
+		}
 		responseutil.WriteError(w, r, corsSnapshot, connectionErr.StatusCode, connectionErr.Detail)
 		return
 	}

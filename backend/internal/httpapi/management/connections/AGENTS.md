@@ -8,6 +8,7 @@
 connections/
 ├── service.go              # Service construction and route mounting
 ├── routes.go               # Public connection reads, rejection surfaces, and owner-scoped mutations
+├── custom_request_parameters.go  # Presence-aware field parsing and 422 field-error envelope
 ├── pricing_templates.go    # Pricing-template CRUD and validation
 ├── pricing_lookup.go       # Pricing-template connection usage lookup
 ├── store.go                # Profile-scoped connection, endpoint, model, rule, and pricing SQL
@@ -18,6 +19,7 @@ connections/
 - Route list and mount contract: `service.go`
 - Public connection list/get/reference flows plus rejection surfaces for direct mutations: `routes.go`
 - Owner-scoped create/update/delete, priority, pricing-template assignment, and inline endpoint creation helpers: `routes.go`, `store.go`
+- `custom_request_parameters` create/update semantics (missing/`null`/`{}` normalize, whole-value PATCH replace, 422 `field`/`path`/`reason`/`limit` envelope): `custom_request_parameters.go`, `routes.go`
 - Pricing-template CRUD, JSON import, connection assignment, and usage lookup: `pricing_templates.go`, `pricing_lookup.go`
 - Model target CRUD and ordering live in the separate model leaf: `../models/AGENTS.md`, `../models/service.go`
 
@@ -34,6 +36,7 @@ connections/
 - Keep pricing templates here, not in a separate management package.
 - Keep all reads and writes pinned to Default profile id `1`. `X-Profile-Id` compatibility headers may be accepted, but they are ignored and the store still keeps `profile_id` columns for persistence and lookup.
 - Keep public `/api/connections` mutation routes mounted only as owner-scoped rejection surfaces; real connection writes go through `/api/models/{model_config_id}/connections`.
+- Keep `custom_request_parameters` validation delegated to the shared `domain/terminaltarget` value; the 422 envelope must carry `field`, `path`, `reason`, and `limit` (when applicable) and must never echo configuration values. Validation failures must not update `updated_at` or trigger successful planning invalidation.
 - Keep model target CRUD and ordering on `/api/models/{model_config_id}/targets` in `management/models/`, not here.
 - Keep endpoint secrets encrypted at rest through the shared endpoint-domain helpers.
 

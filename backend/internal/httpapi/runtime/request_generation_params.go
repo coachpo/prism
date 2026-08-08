@@ -189,6 +189,16 @@ func (snapshot requestGenerationParamsSnapshot) clone() requestGenerationParamsS
 	return cloned
 }
 
+// clonePointer returns an independent copy suitable for storing on an
+// executionAttempt, or nil for an unset/empty snapshot.
+func (snapshot requestGenerationParamsSnapshot) clonePointer() *requestGenerationParamsSnapshot {
+	if snapshot.Params == nil && snapshot.Status == "" {
+		return nil
+	}
+	cloned := snapshot.clone()
+	return &cloned
+}
+
 type geminiGenerationParamsStreamingObserver struct {
 	mu       sync.Mutex
 	parser   geminiGenerationParamsStreamingParser

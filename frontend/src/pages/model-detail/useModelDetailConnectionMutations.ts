@@ -14,11 +14,13 @@ import type {
   ModelConfigListItem,
   PricingTemplate,
 } from "@/lib/types";
+import { ApiError } from "@/lib/api/core";
 import {
   getTerminalTargetId,
   isTerminalTargetAccessTargetType,
 } from "@/lib/types";
 import type { ConnectionDialogForm, HeaderRow } from "./useModelDetailDialogState";
+import { parseCustomRequestParametersDraft, type CustomRequestParametersParseError } from "./customRequestParameters";
 import {
   buildConnectionDraftPayload,
   connectionBelongsToModel,
@@ -47,6 +49,8 @@ interface UseModelDetailConnectionMutationsInput {
   newEndpointForm: EndpointCreate;
   connectionForm: ConnectionDialogForm;
   headerRows: HeaderRow[];
+  customRequestParametersDraft: string;
+  setCustomRequestParametersError: (error: CustomRequestParametersParseError | null) => void;
   editingConnection: Connection | null;
   pricingTemplates: PricingTemplate[];
   endpointSourceDefaultName: string | null;
@@ -59,6 +63,25 @@ interface UseModelDetailConnectionMutationsInput {
   setGlobalEndpoints: React.Dispatch<React.SetStateAction<Endpoint[]>>;
 }
 
+function isCustomRequestParametersValidationError(error: unknown): error is ApiError {
+  if (!(error instanceof ApiError) || error.status !== 422) {
+    return false;
+  }
+  if (!error.detail || typeof error.detail !== "object") {
+    return false;
+  }
+  return (error.detail as { detail?: unknown }).detail === "Invalid custom request parameters";
+}
+
+function customRequestParametersErrorFromServerBody(
+  body: Record<string, unknown>,
+): CustomRequestParametersParseError {
+  const reason = typeof body.reason === "string" ? (body.reason as CustomRequestParametersParseError["reason"]) : "not_object";
+  const path = typeof body.path === "string" ? body.path : "custom_request_parameters";
+  const limit = typeof body.limit === "number" ? body.limit : undefined;
+  return { reason, path, limit };
+}
+
 export function useModelDetailConnectionMutations({
   id,
   revision,
@@ -69,6 +92,8 @@ export function useModelDetailConnectionMutations({
   newEndpointForm,
   connectionForm,
   headerRows,
+  customRequestParametersDraft,
+  setCustomRequestParametersError,
   editingConnection,
   pricingTemplates,
   endpointSourceDefaultName,
@@ -118,6 +143,13 @@ export function useModelDetailConnectionMutations({
       event.preventDefault();
       if (!id || !Number.isFinite(modelConfigId)) return;
 
+      const parsedCustomRequestParameters = parseCustomRequestParametersDraft(customRequestParametersDraft);
+      if (parsedCustomRequestParameters.error) {
+        setCustomRequestParametersError(parsedCustomRequestParameters.error);
+        return;
+      }
+      setCustomRequestParametersError(null);
+
       const { errorMessage, payload } = buildConnectionDraftPayload({
         apiFamily: modelApiFamily,
         createMode,
@@ -127,6 +159,7 @@ export function useModelDetailConnectionMutations({
         headerRows,
         editingConnection,
         endpointSourceDefaultName,
+        customRequestParametersValue: parsedCustomRequestParameters.value,
       });
 
       if (!payload) {
@@ -153,6 +186,10 @@ export function useModelDetailConnectionMutations({
         clearSharedReferenceData(undefined, revision);
         setIsConnectionDialogOpen(false);
       } catch (error) {
+        if (isCustomRequestParametersValidationError(error)) {
+          setCustomRequestParametersError(customRequestParametersErrorFromServerBody(error.detail as Record<string, unknown>));
+          return;
+        }
         toast.error(error instanceof Error ? error.message : getStaticMessages().modelDetailData.saveConnectionFailed);
       }
     },
@@ -165,6 +202,8 @@ export function useModelDetailConnectionMutations({
       newEndpointForm,
       connectionForm,
       headerRows,
+      customRequestParametersDraft,
+      setCustomRequestParametersError,
       editingConnection,
       endpointSourceDefaultName,
       model,

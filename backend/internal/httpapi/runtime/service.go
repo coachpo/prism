@@ -279,6 +279,7 @@ func (s *Service) handleProxy(w http.ResponseWriter, r *http.Request) {
 const (
 	runtimeOperationNotFoundDetail         = "Runtime operation not found"
 	runtimeOperationMethodNotAllowedDetail = "Method not allowed for runtime operation"
+	runtimeContentEncodingUnsupportedDetail = "Content-Encoding is not supported when custom request parameters are configured"
 )
 
 func resolveRuntimeOperationAtIngress(method string, requestPath string) (*RuntimeOperationMatch, []string) {
@@ -328,10 +329,17 @@ func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
 	runtimeConfig := s.runtimeProxyConfigSnapshot()
 	planningStartedAt := s.nowUTC()
 	if canBuildStreamingRequestPlan(operationMatch.Operation) {
-		plan, err := s.buildProxyRequestPlan(r, nil, runtimeConfig, *operationMatch)
+		plan, err := s.buildProxyProbeRequestPlan(r, runtimeConfig, *operationMatch)
 		if err != nil {
 			s.recordRuntimePlanningFailure(r, planningStartedAt, err)
 			writeDomainError(w, err)
+			return
+		}
+		if plan.requiresCustomRequestParametersOverlay() && !requestContentEncodingIsSupported(r) {
+			// Gemini path-bound operations resolve candidates before the body
+			// is read; a non-identity Content-Encoding cannot be re-encoded
+			// after overlay, so reject before buffering.
+			writeError(w, http.StatusUnsupportedMediaType, "", runtimeContentEncodingUnsupportedDetail, nil)
 			return
 		}
 		if canStreamIncomingRequestBody(plan, operationMatch.Operation) {
@@ -389,6 +397,26 @@ func limitRuntimeRequestBody(w http.ResponseWriter, r *http.Request, limitBytes 
 
 func (s *Service) buildProxyRequestPlan(r *http.Request, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot, operationMatch RuntimeOperationMatch) (requestPlan, error) {
 	return s.buildRequestPlan(r.Context(), r, rawBody, runtimeConfig, operationMatch)
+}
+
+// buildProxyProbeRequestPlan builds the rawBody == nil Gemini path-bound
+// probe plan that only resolves operation, profile, path-bound model, routing
+// candidates, and Connection metadata. It never requires the base body to be
+// an object and never performs custom-request-parameter overlay.
+func (s *Service) buildProxyProbeRequestPlan(r *http.Request, runtimeConfig RuntimeProxyConfigSnapshot, operationMatch RuntimeOperationMatch) (requestPlan, error) {
+	if s.cache == nil {
+		return requestPlan{}, runtimeSnapshotDomainError(ErrPublishedRuntimeSnapshotUnavailable)
+	}
+	defaultProfile, snapshot, err := s.cache.LoadFreshDefaultRuntimePlan(r.Context())
+	if err != nil {
+		return requestPlan{}, runtimeSnapshotDomainError(err)
+	}
+	return s.buildProbeRequestPlanFromSnapshot(r.WithContext(r.Context()), runtimeConfig, operationMatch, defaultProfile.ID, snapshot)
+}
+
+func requestContentEncodingIsSupported(request *http.Request) bool {
+	encoding := strings.TrimSpace(request.Header.Get("Content-Encoding"))
+	return encoding == "" || strings.EqualFold(encoding, "identity")
 }
 
 func canBuildStreamingRequestPlan(operation RuntimeOperation) bool {

@@ -1050,7 +1050,7 @@ func runtimeTelemetryAttempts(plan requestPlan, result executionResult, request 
 		return result.Attempts
 	}
 	selectedAttempt := firstTerminalAttempt(plan)
-	return []executionAttempt{{
+	attempt := executionAttempt{
 		Connection:                  result.Connection,
 		ResolvedTargetModelID:       dereferenceString(result.ResolvedTargetModelID),
 		RequestURL:                  request.URL.String(),
@@ -1064,7 +1064,9 @@ func runtimeTelemetryAttempts(plan requestPlan, result executionResult, request 
 		UpstreamOperationName:       runtimeUpstreamOperationName(plan.RuntimeOperation, selectedAttempt.TranslationMode),
 		UpstreamRequestPath:         dereferenceString(runtimeUpstreamRequestPath(plan.RuntimeOperation, selectedAttempt.TranslationMode, plan.EffectiveRequestPath)),
 		OperationTranslationMode:    normalizedRuntimeTranslationMode(selectedAttempt.TranslationMode),
-	}}
+		RequestGenerationParams:     selectedAttempt.RequestGenerationParams.clonePointer(),
+	}
+	return []executionAttempt{attempt}
 }
 
 func firstTerminalAttempt(plan requestPlan) runtimeTerminalAttempt {
@@ -1119,6 +1121,13 @@ func buildRuntimeRequestLogRows(plan requestPlan, request *http.Request, telemet
 
 func buildRuntimeRequestLogRow(plan requestPlan, request *http.Request, telemetry runtimeTelemetryEnvelopeContext, attempt runtimeTelemetryAttemptContext) requestLogInsert {
 	generationSnapshot := telemetry.requestGenerationSnapshot.clone()
+	// A materialized attempt carries its own snapshot extracted from its final
+	// effective upstream body. The only exception is the no-configuration
+	// streaming request-body observer path, where the plan-level snapshot is
+	// the source of truth because the probe attempt never materialized a body.
+	if attempt.attempt.RequestGenerationParams != nil && plan.RequestGenerationSnapshot == nil {
+		generationSnapshot = attempt.attempt.RequestGenerationParams.clone()
+	}
 	requestLog := requestLogInsert{
 		ProfileID:                     plan.ProfileID,
 		ModelID:                       plan.RequestedModelID,

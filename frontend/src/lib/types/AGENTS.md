@@ -20,6 +20,7 @@ types/
 - Public barrel: `../types.ts`
 - Auth/session surfaces: `auth.ts`
 - Terminal Target, routing, vendor, and model stats contracts: `target-compatibility.ts`, `routing.ts`, `vendor.ts`, `model-stats.ts`
+- `JsonValue`/`JsonObject` and the `custom_request_parameters` field on `Connection`, `ConnectionCreate`, `ConnectionUpdate`, and their aliases: `routing.ts`
 - Usage, analytics, and proxy-key stats payloads: `usage-statistics.ts`
 - Ban Policy and load-balance payloads: `loadbalance.ts`
 - Audit settings contract: `config-audit-settings.ts`

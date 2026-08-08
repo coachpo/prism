@@ -39,6 +39,14 @@ import {
   type ConnectionDialogForm,
   type HeaderRow,
 } from "./useModelDetailDialogState";
+import {
+  ConnectionCustomRequestParametersEditor,
+} from "./ConnectionCustomRequestParametersEditor";
+import {
+  customRequestParametersTopLevelCount,
+  parseCustomRequestParametersDraft,
+  type CustomRequestParametersParseError,
+} from "./customRequestParameters";
 
 interface ConnectionDialogProps {
   isOpen: boolean;
@@ -56,6 +64,10 @@ interface ConnectionDialogProps {
   globalEndpoints: Endpoint[];
   headerRows: HeaderRow[];
   setHeaderRows: (rows: HeaderRow[]) => void;
+  customRequestParametersDraft: string;
+  setCustomRequestParametersDraft: (draft: string) => void;
+  customRequestParametersError: CustomRequestParametersParseError | null;
+  setCustomRequestParametersError: (error: CustomRequestParametersParseError | null) => void;
   handleConnectionSubmit: (e: FormEvent<HTMLFormElement>) => Promise<void>;
   endpointSourceDefaultName: string | null;
   pricingTemplates: PricingTemplate[];
@@ -139,6 +151,10 @@ export function ConnectionDialog({
   globalEndpoints,
   headerRows,
   setHeaderRows,
+  customRequestParametersDraft,
+  setCustomRequestParametersDraft,
+  customRequestParametersError,
+  setCustomRequestParametersError,
   handleConnectionSubmit,
   endpointSourceDefaultName,
   pricingTemplates,
@@ -218,6 +234,14 @@ export function ConnectionDialog({
     : copy.unpricedNoCostTracking;
   const normalizedHeaders = normalizeConnectionHeaders(headerRows);
   const customHeaderCount = normalizedHeaders ? Object.keys(normalizedHeaders).length : 0;
+  const parsedCustomRequestParameters = parseCustomRequestParametersDraft(customRequestParametersDraft);
+  const parsedCustomRequestParametersValue = parsedCustomRequestParameters.value;
+  const handleCustomRequestParametersDraftChange = (nextDraft: string) => {
+    setCustomRequestParametersDraft(nextDraft);
+    if (parseCustomRequestParametersDraft(nextDraft).error === null) {
+      setCustomRequestParametersError(null);
+    }
+  };
   const updateConnectionForm = (nextForm: ConnectionDialogForm) => {
     setConnectionForm(nextForm);
   };
@@ -622,6 +646,12 @@ export function ConnectionDialog({
                           </div>
                         </section>
                       </div>
+
+                      <ConnectionCustomRequestParametersEditor
+                        draft={customRequestParametersDraft}
+                        onDraftChange={handleCustomRequestParametersDraftChange}
+                        error={customRequestParametersError}
+                      />
                     </ConnectionDialogSection>
                   </div>
 
@@ -673,6 +703,14 @@ export function ConnectionDialog({
                           {customHeaderCount > 0
                             ? copy.customHeadersConfigured(String(customHeaderCount))
                             : copy.noCustomHeadersConfigured}
+                        </p>
+                      </ConnectionSummaryItem>
+
+                      <ConnectionSummaryItem label={copy.customRequestParametersSummaryLabel}>
+                        <p className="text-sm text-foreground" data-testid="connection-dialog-custom-request-parameters-summary">
+                          {customRequestParametersTopLevelCount(parsedCustomRequestParametersValue) > 0
+                            ? copy.customRequestParametersSummary(String(customRequestParametersTopLevelCount(parsedCustomRequestParametersValue)))
+                            : copy.customRequestParametersNotConfigured}
                         </p>
                       </ConnectionSummaryItem>
                     </ConnectionDialogSection>
