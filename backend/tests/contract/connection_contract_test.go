@@ -233,6 +233,18 @@ func TestTargetRouteCRUD(t *testing.T) {
 		{TargetType: "connection", ConnectionID: connectionID, Position: 3, IsEnabled: false},
 	})
 
+	// Connection metadata updates must not mirror the mixed access-target
+	// position back into the legacy connections.priority column.
+	updateMovedConnection := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", sourceModelID, connectionID), map[string]any{"name": "Owner Route Connection Rechecked"}, modelHeader(defaultProfileID))
+	assertStatus(t, updateMovedConnection, http.StatusOK)
+	var legacyPriority int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT priority FROM connections WHERE id = $1`, connectionID).Scan(&legacyPriority); err != nil {
+		t.Fatalf("query legacy connection priority: %v", err)
+	}
+	if legacyPriority != 0 {
+		t.Fatalf("expected legacy connection priority to remain detached from mixed position, got %d", legacyPriority)
+	}
+
 	// Cross-type delete compact: removing terminal 1 compacts positions across
 	// both types (model rows shift down).
 	deleteFirstTerminal := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d/targets/%d", sourceModelID, secondConnectionTargetID), nil, modelHeader(defaultProfileID))

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -579,19 +578,6 @@ func (s *Service) createInlineEndpoint(ctx context.Context, tx pgx.Tx, profileID
 		return endpointRecord{}, err
 	}
 	return insertEndpoint(ctx, tx, endpointRecord{ProfileID: profileID, Name: endpointName, BaseURL: normalizedURL, APIKey: encryptedAPIKey, Position: position, CreatedAt: s.nowUTC(), UpdatedAt: s.nowUTC()})
-}
-
-func normalizeConnectionPriorities(items []connectionResponse, currentTime time.Time) bool {
-	changed := false
-	for index := range items {
-		if items[index].Priority == index {
-			continue
-		}
-		items[index].Priority = index
-		items[index].UpdatedAt = currentTime
-		changed = true
-	}
-	return changed
 }
 
 func validateLimiter(fieldName string, value *int) error {

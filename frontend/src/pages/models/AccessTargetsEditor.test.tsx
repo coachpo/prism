@@ -161,7 +161,8 @@ describe("AccessTargetsEditor mixed ordering", () => {
   });
 
   it("disables first-row move up and last-row move down, and keeps read-only terminal rows movable", async () => {
-    renderEditor({ isConnectionTargetMutable: (connectionId) => connectionId !== 901 });
+    const user = userEvent.setup();
+    const { handlers } = renderEditor({ isConnectionTargetMutable: (connectionId) => connectionId !== 901 });
     const firstRow = screen.getByTestId("access-target-502");
     const lastRow = screen.getByTestId("access-target-501");
     expect(within(firstRow).getByRole("button", { name: /将目标 1 上移/ })).toBeDisabled();
@@ -172,6 +173,8 @@ describe("AccessTargetsEditor mixed ordering", () => {
     expect(within(firstRow).queryByRole("button", { name: /编辑/ })).toBeNull();
     expect(within(firstRow).queryByRole("button", { name: /移除目标 1/ })).toBeNull();
     expect(within(firstRow).getByRole("button", { name: /将目标 1 下移/ })).toBeEnabled();
+    await user.click(within(firstRow).getByRole("button", { name: /将目标 1 下移/ }));
+    expect(handlers.onMoveTarget).toHaveBeenCalledExactlyOnceWith(502, 1);
     // The second terminal row stays fully editable.
     const secondRow = screen.getByTestId("access-target-503");
     expect(within(secondRow).getByRole("switch")).toBeEnabled();

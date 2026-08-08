@@ -413,7 +413,7 @@ func listConnectionsByModelIDs(ctx context.Context, exec queryExecutor, profileI
 
 func insertTerminalTarget(ctx context.Context, exec queryExecutor, item terminaltarget.Record) (int, error) {
 	var terminalTargetID int
-	err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'unknown', $14, $15) RETURNING id`, item.ProfileID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAITextCapability), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.CreatedAt, item.UpdatedAt).Scan(&terminalTargetID)
+	err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, $10, $11, $12, 'unknown', $13, $14) RETURNING id`, item.ProfileID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAITextCapability), item.IsActive, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.CreatedAt, item.UpdatedAt).Scan(&terminalTargetID)
 	if err != nil {
 		return 0, fmt.Errorf("insert terminal target: %w", err)
 	}
@@ -428,7 +428,7 @@ func insertOwnerTerminalTargetAccess(ctx context.Context, exec queryExecutor, pr
 }
 
 func updateTerminalTarget(ctx context.Context, exec queryExecutor, item terminaltarget.Record) error {
-	if _, err := exec.Exec(ctx, `UPDATE connections SET api_family = $2, endpoint_id = $3, pricing_template_id = $4, qps_limit = $5, max_in_flight_non_stream = $6, max_in_flight_stream = $7, openai_text_capability = $8, is_active = $9, priority = $10, name = $11, auth_type = $12, custom_headers = $13, updated_at = $14 WHERE id = $1`, item.ID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAITextCapability), item.IsActive, item.Priority, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.UpdatedAt); err != nil {
+	if _, err := exec.Exec(ctx, `UPDATE connections SET api_family = $2, endpoint_id = $3, pricing_template_id = $4, qps_limit = $5, max_in_flight_non_stream = $6, max_in_flight_stream = $7, openai_text_capability = $8, is_active = $9, name = $10, auth_type = $11, custom_headers = $12, updated_at = $13 WHERE id = $1`, item.ID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAITextCapability), item.IsActive, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.UpdatedAt); err != nil {
 		return fmt.Errorf("update terminal target %d: %w", item.ID, err)
 	}
 	return nil
@@ -486,18 +486,6 @@ func listPricingTemplateConnectionUsageRows(ctx context.Context, exec queryExecu
 		return nil, fmt.Errorf("iterate pricing template %d connection usage for profile %d: %w", templateID, profileID, err)
 	}
 	return items, nil
-}
-
-func persistConnectionPriorities(ctx context.Context, exec queryExecutor, items []connectionResponse) error {
-	for _, item := range items {
-		if item.ModelConfigID == nil {
-			continue
-		}
-		if _, err := exec.Exec(ctx, `UPDATE model_access_targets SET position = $3, updated_at = $4 WHERE source_model_config_id = $1 AND target_connection_id = $2`, *item.ModelConfigID, item.ID, item.Priority, item.UpdatedAt); err != nil {
-			return fmt.Errorf("persist connection %d target priority: %w", item.ID, err)
-		}
-	}
-	return nil
 }
 
 const connectionSelectQuery = `SELECT connections.id, connections.profile_id, model_access_targets.source_model_config_id, connections.api_family, connections.endpoint_id, endpoints.id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, model_access_targets.position, connections.name, connections.auth_type, connections.custom_headers, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id`
