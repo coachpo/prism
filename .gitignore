@@ -37,6 +37,7 @@ frontend/node_modules/
 */test-results/
 .claude/
 .superpowers
+.pi/
 
 # Binary
 backend/prism-backend
