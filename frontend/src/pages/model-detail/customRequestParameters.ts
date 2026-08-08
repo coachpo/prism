@@ -89,7 +89,8 @@ export function parseCustomRequestParametersDraft(
   }
 
   const compact = JSON.stringify(parsed);
-  if (compact.length > CUSTOM_REQUEST_PARAMETERS_MAX_COMPACT_BYTES) {
+  const compactByteLength = new TextEncoder().encode(compact).byteLength;
+  if (compactByteLength > CUSTOM_REQUEST_PARAMETERS_MAX_COMPACT_BYTES) {
     return {
       value: null,
       error: {
@@ -201,9 +202,6 @@ class CustomRequestParametersScanner {
   }
 
   private scanValue(depth: number, path: string): CustomRequestParametersParseError | null {
-    if (depth > CUSTOM_REQUEST_PARAMETERS_MAX_DEPTH) {
-      return { reason: "too_deep", path, limit: CUSTOM_REQUEST_PARAMETERS_MAX_DEPTH };
-    }
     this.skipWhitespace();
     const character = this.peek();
     if (character === "{") {
@@ -261,6 +259,7 @@ class CustomRequestParametersScanner {
   }
 
   private scanString(): string {
+    const start = this.index;
     this.expect('"');
     let result = "";
     for (;;) {
@@ -270,7 +269,13 @@ class CustomRequestParametersScanner {
       }
       this.index += 1;
       if (character === '"') {
-        return result;
+        const encoded = this.text.slice(start, this.index);
+        try {
+          const decoded = JSON.parse(encoded);
+          return typeof decoded === "string" ? decoded : result;
+        } catch {
+          return result;
+        }
       }
       if (character === "\\") {
         result += this.text[this.index] ?? "";

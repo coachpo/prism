@@ -41,6 +41,13 @@ func TestParseCustomRequestParametersCanonicalization(t *testing.T) {
 			wantCount:   6,
 			wantEncoded: `{"arr":["x",{"k":1}],"b":false,"f":1.5,"i":42,"n":null,"s":"text"}`,
 		},
+		{
+			name:        "unicode and html characters stay compact",
+			raw:         `{"text":"é <>&"}`,
+			wantEmpty:   false,
+			wantCount:   1,
+			wantEncoded: `{"text":"é <>&"}`,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -137,6 +144,12 @@ func TestParseCustomRequestParametersLimits(t *testing.T) {
 		}
 		if validationErr.Limit != CustomRequestParametersMaxCompactBytes {
 			t.Fatalf("limit = %d, want %d", validationErr.Limit, CustomRequestParametersMaxCompactBytes)
+		}
+	})
+	t.Run("invalid UTF-8 is rejected", func(t *testing.T) {
+		_, validationErr := ParseCustomRequestParametersJSON([]byte{'{', '"', 'x', '"', ':', '"', 0xff, '"', '}'})
+		if validationErr == nil || validationErr.Reason != CustomRequestParametersReasonNotObject {
+			t.Fatalf("expected invalid UTF-8 to be rejected as not_object, got %v", validationErr)
 		}
 	})
 	t.Run("size boundary accepted", func(t *testing.T) {

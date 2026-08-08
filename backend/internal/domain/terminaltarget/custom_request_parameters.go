@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Custom request parameters are an optional static top-level JSON object
@@ -216,7 +217,7 @@ func (value *CustomRequestParameters) OverlayRequestBody(baseBody []byte) ([]byt
 	for _, key := range keys {
 		base[key] = append(json.RawMessage(nil), value.members[key]...)
 	}
-	return json.Marshal(base)
+	return marshalCustomRequestParametersJSON(base)
 }
 
 // OverlayRequestBodyFromRaw parses a raw JSON object string and applies it as
@@ -231,6 +232,9 @@ func OverlayRequestBodyFromRaw(baseBody []byte, rawObject []byte) ([]byte, error
 }
 
 func validateAndCanonicalize(raw []byte) ([]byte, *CustomRequestParametersValidationError) {
+	if !utf8.Valid(raw) {
+		return nil, &CustomRequestParametersValidationError{Reason: CustomRequestParametersReasonNotObject, Path: "custom_request_parameters"}
+	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 
@@ -268,7 +272,7 @@ func validateAndCanonicalize(raw []byte) ([]byte, *CustomRequestParametersValida
 	if err := canonicalDecoder.Decode(&payload); err != nil {
 		return nil, &CustomRequestParametersValidationError{Reason: CustomRequestParametersReasonNotObject, Path: "custom_request_parameters"}
 	}
-	encoded, err := json.Marshal(payload)
+	encoded, err := marshalCustomRequestParametersJSON(payload)
 	if err != nil {
 		return nil, &CustomRequestParametersValidationError{Reason: CustomRequestParametersReasonNotObject, Path: "custom_request_parameters"}
 	}
@@ -276,6 +280,20 @@ func validateAndCanonicalize(raw []byte) ([]byte, *CustomRequestParametersValida
 		return nil, &CustomRequestParametersValidationError{Reason: CustomRequestParametersReasonTooLarge, Path: "custom_request_parameters", Limit: CustomRequestParametersMaxCompactBytes}
 	}
 	return encoded, nil
+}
+
+// marshalCustomRequestParametersJSON keeps compact-size accounting aligned
+// with JSON.stringify and preserves literal Unicode/HTML characters instead
+// of applying encoding/json's default JavaScript-safe HTML escaping.
+func marshalCustomRequestParametersJSON(value any) ([]byte, error) {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return nil, err
+	}
+	encoded := bytes.TrimSuffix(buffer.Bytes(), []byte{'\n'})
+	return append([]byte(nil), encoded...), nil
 }
 
 func protectedKeySet() map[string]struct{} {

@@ -99,6 +99,21 @@ describe("parseCustomRequestParametersDraft", () => {
     expect(parseCustomRequestParametersDraft('{"n":1.5}').error).toBeNull()
   })
 
+  it("uses UTF-8 bytes for the compact-size limit", () => {
+    const result = parseCustomRequestParametersDraft(`{"k":"${"é".repeat(32768)}"}`)
+    expect(result.error?.reason).toBe("too_large")
+  })
+
+  it("decodes escaped keys before duplicate and protected-key checks", () => {
+    const duplicate = parseCustomRequestParametersDraft('{"a":1,"\\u0061":2}')
+    expect(duplicate.error?.reason).toBe("duplicate_key")
+    expect(duplicate.error?.path).toBe("custom_request_parameters.a")
+
+    const protectedKey = parseCustomRequestParametersDraft('{"\\u0073tream":true}')
+    expect(protectedKey.error?.reason).toBe("protected_field")
+    expect(protectedKey.error?.path).toBe("custom_request_parameters.stream")
+  })
+
   it("rejects oversized compact encoding", () => {
     const result = parseCustomRequestParametersDraft(
       `{"k":"${"x".repeat(CUSTOM_REQUEST_PARAMETERS_MAX_COMPACT_BYTES)}"}`,
@@ -111,6 +126,11 @@ describe("parseCustomRequestParametersDraft", () => {
     const deep = `{"a":${'{"b":'.repeat(16)}1${"}".repeat(16)}}`
     const result = parseCustomRequestParametersDraft(deep)
     expect(result.error?.reason).toBe("too_deep")
+  })
+
+  it("allows a scalar at the maximum container depth", () => {
+    const boundary = `{"a":${'{"b":'.repeat(15)}1${"}".repeat(15)}}`
+    expect(parseCustomRequestParametersDraft(boundary).error).toBeNull()
   })
 
   it("rejects excessive member counts", () => {

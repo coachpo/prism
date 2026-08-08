@@ -238,9 +238,10 @@ export function ConnectionDialog({
   const parsedCustomRequestParametersValue = parsedCustomRequestParameters.value;
   const handleCustomRequestParametersDraftChange = (nextDraft: string) => {
     setCustomRequestParametersDraft(nextDraft);
-    if (parseCustomRequestParametersDraft(nextDraft).error === null) {
-      setCustomRequestParametersError(null);
-    }
+    // Keep the inline error synchronized with the raw draft. This clears a
+    // server-side 422 after a valid edit and replaces stale server detail
+    // immediately when the operator types a different invalid value.
+    setCustomRequestParametersError(parseCustomRequestParametersDraft(nextDraft).error);
   };
   const updateConnectionForm = (nextForm: ConnectionDialogForm) => {
     setConnectionForm(nextForm);
