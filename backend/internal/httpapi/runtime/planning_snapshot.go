@@ -198,7 +198,7 @@ type runtimeResolvedAccessCandidateEvaluation struct {
 	compatibilityError error
 }
 
-type runtimeModelPeerSelection struct {
+type runtimeMixedPeerSelection struct {
 	eligibleCandidates []runtimeResolvedAccessCandidate
 	compatibilityError error
 }
@@ -247,18 +247,7 @@ func (s *Service) resolveRequestedModelExecutionTargetFromRoutingPlan(profileID 
 	return s.resolveModelAccessFromRoutingPlan(profileID, routingPlan, requestedModel, ctx)
 }
 
-func (s *Service) selectModelPeerCandidateFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, model runtimeModelRecord, strategy loadbalance.RuntimeStrategy, ctx runtimeAccessResolutionContext) (runtimeModelPeerSelection, error) {
-	selection := runtimeModelPeerSelection{}
-	targets := routingPlan.orderedModelTargetsForStrategy(profileID, model, strategy, s.runtimeState)
-	eligibleCandidates, err := s.evaluateModelPeerTargetsFromRoutingPlan(profileID, routingPlan, model, strategy, targets, ctx, &selection)
-	if err != nil {
-		return runtimeModelPeerSelection{}, err
-	}
-	selection.eligibleCandidates = append(selection.eligibleCandidates, eligibleCandidates...)
-	return selection, nil
-}
-
-func (s *Service) evaluateModelPeerTargetsFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, model runtimeModelRecord, strategy loadbalance.RuntimeStrategy, targets []runtimeAccessTargetRecord, ctx runtimeAccessResolutionContext, selection *runtimeModelPeerSelection) ([]runtimeResolvedAccessCandidate, error) {
+func (s *Service) evaluateMixedPeerTargetsFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, model runtimeModelRecord, strategy loadbalance.RuntimeStrategy, targets []runtimeAccessTargetRecord, ctx runtimeAccessResolutionContext, selection *runtimeMixedPeerSelection) ([]runtimeResolvedAccessCandidate, error) {
 	eligibleCandidates := make([]runtimeResolvedAccessCandidate, 0, len(targets))
 	var firstCompatibilityError error
 	for _, target := range targets {
@@ -304,52 +293,28 @@ func (s *Service) resolveModelAccessFromRoutingPlan(profileID int, routingPlan *
 	childContext.VisitedModelIDs = visited
 	childContext.Depth++
 
-	peerSelection, err := s.selectModelPeerCandidateFromRoutingPlan(profileID, routingPlan, model, strategy, childContext)
+	compiled, ok := routingPlan.ModelsByConfigID[model.ID]
+	if !ok {
+		return runtimeResolvedAccessPlan{}, fmt.Errorf("model %q is missing from the compiled routing plan", model.ModelID)
+	}
+	effectivePeers := orderRuntimeAccessTargets(profileID, model.ID, strategy, compiled.OrderedEnabledTargets, s.runtimeState)
+
+	selection := runtimeMixedPeerSelection{}
+	eligibleCandidates, err := s.evaluateMixedPeerTargetsFromRoutingPlan(profileID, routingPlan, model, strategy, effectivePeers, childContext, &selection)
 	if err != nil {
 		return runtimeResolvedAccessPlan{}, err
 	}
-	if len(peerSelection.eligibleCandidates) > 0 {
+	if len(eligibleCandidates) > 0 {
 		resolved := runtimeResolvedAccessPlan{RuntimeStates: map[int]loadbalance.RuntimeConnectionState{}, Strategy: strategy}
-		for _, candidate := range peerSelection.eligibleCandidates {
+		for _, candidate := range eligibleCandidates {
 			appendRuntimeResolvedAccessPlan(&resolved, candidate.resolved)
 		}
 		if len(resolved.TerminalAttempts) > 0 && len(resolved.Connections) > 0 {
 			return resolved, nil
 		}
 	}
-
-	orderedTerminalTargets := routingPlan.orderedTerminalTargetsForStrategy(profileID, model, strategy, s.runtimeState)
-	if len(orderedTerminalTargets) > 0 {
-		resolved := runtimeResolvedAccessPlan{RuntimeStates: map[int]loadbalance.RuntimeConnectionState{}, Strategy: strategy}
-		var firstCompatibilityError error
-		for _, target := range orderedTerminalTargets {
-			candidate, eligible, err := s.resolveAccessTargetFromRoutingPlan(profileID, routingPlan, model, strategy, target, childContext)
-			if err != nil {
-				return runtimeResolvedAccessPlan{}, err
-			}
-			if firstCompatibilityError == nil && candidate.CompatibilityError != nil {
-				firstCompatibilityError = candidate.CompatibilityError
-			}
-			if !eligible {
-				continue
-			}
-			appendRuntimeResolvedAccessPlan(&resolved, candidate)
-		}
-		if len(resolved.TerminalAttempts) > 0 && len(resolved.Connections) > 0 {
-			compatibleResolved, compatible, err := s.applyIngressOperationCompatibility(resolved, childContext)
-			if err != nil {
-				return runtimeResolvedAccessPlan{}, err
-			}
-			if compatible {
-				return compatibleResolved, nil
-			}
-		}
-		if firstCompatibilityError != nil {
-			return runtimeResolvedAccessPlan{}, firstCompatibilityError
-		}
-	}
-	if peerSelection.compatibilityError != nil {
-		return runtimeResolvedAccessPlan{}, peerSelection.compatibilityError
+	if selection.compatibilityError != nil {
+		return runtimeResolvedAccessPlan{}, selection.compatibilityError
 	}
 	return runtimeResolvedAccessPlan{}, &noEligibleTargetsError{requestedModelID: ctx.RequestedModelID}
 }

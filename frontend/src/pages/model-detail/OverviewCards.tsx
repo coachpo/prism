@@ -38,18 +38,12 @@ export function OverviewCards({
     ? getLoadbalanceStrategyDetailLabel(model.loadbalance_strategy, strategyCopy)
     : null;
   const hasEnabledAccessTarget = (accessTargetSummary?.enabledTargetCount ?? 0) > 0;
-  const accessTargetSegments = hasEnabledAccessTarget && accessTargetSummary
-    ? [
-        accessTargetSummary.enabledModelFallbackTargetCount > 0
-          ? `${modelsUiCopy.modelFallbackTargets}: ${formatNumber(accessTargetSummary.enabledModelFallbackTargetCount)}${accessTargetSummary.firstEnabledModelFallbackTargetLabel ? ` · ${accessTargetSummary.firstEnabledModelFallbackTargetLabel}` : ""}`
-          : null,
-        accessTargetSummary.enabledTerminalTargetCount > 0
-          ? `${modelsUiCopy.terminalTargets}: ${formatNumber(accessTargetSummary.enabledTerminalTargetCount)}${accessTargetSummary.firstEnabledTerminalTargetLabel ? ` · ${accessTargetSummary.firstEnabledTerminalTargetLabel}` : ""}`
-          : null,
-      ].filter((segment): segment is string => segment !== null)
-    : [];
-  const accessTargetLabel = accessTargetSegments.length > 0
-    ? accessTargetSegments.join(" · ")
+  // Only the position-smallest enabled mixed row may be presented as the first
+  // target; per-type counts are plain statistics and never imply a priority tier.
+  const accessTargetLabel = hasEnabledAccessTarget && accessTargetSummary
+    ? accessTargetSummary.firstEnabledTargetLabel
+      ? modelsUiCopy.targetsFirst(formatNumber(accessTargetSummary.enabledTargetCount), accessTargetSummary.firstEnabledTargetLabel)
+      : modelsUiCopy.accessTargets + ": " + formatNumber(accessTargetSummary.enabledTargetCount)
     : modelsUiCopy.needsTarget;
   const spendingTokenDetail = spending
     ? [

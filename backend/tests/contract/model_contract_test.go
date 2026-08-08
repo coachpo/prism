@@ -754,6 +754,15 @@ func modelLoadConnectionTargetID(t *testing.T, harness *contractHarness, sourceM
 	return targetID
 }
 
+func modelLoadModelTargetID(t *testing.T, harness *contractHarness, sourceModelConfigID int, targetModelConfigID int) int {
+	t.Helper()
+	var targetID int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM model_access_targets WHERE source_model_config_id = $1 AND target_model_config_id = $2 LIMIT 1`, sourceModelConfigID, targetModelConfigID).Scan(&targetID); err != nil {
+		t.Fatalf("load model target %d for model %d: %v", targetModelConfigID, sourceModelConfigID, err)
+	}
+	return targetID
+}
+
 func assertCountQuery(t *testing.T, harness *contractHarness, query string, arg int, want int) {
 	t.Helper()
 	var count int

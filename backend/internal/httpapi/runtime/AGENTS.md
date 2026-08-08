@@ -58,7 +58,8 @@ runtime/
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep `operations.go` as the single source of truth for supported runtime method/path pairs, hook collection ids, streaming flags, and model-binding sources.
 - Keep management scope out of proxy traffic. Runtime request planning uses the current runtime snapshot, not `X-Profile-Id` management headers.
-- Keep requested-model resolution exact. Runtime planning starts from `planningSnapshot.ModelsByID` using the client-supplied model ID exactly, then follows ordinary access-target ordering; do not add regex matching or capability-metadata expansion in this package.
+- Keep requested-model resolution exact. Runtime planning starts from `planningSnapshot.ModelsByID` using the client-supplied model ID exactly, then follows the mixed `(position, id)` access-target order across both target types; do not add regex matching, capability-metadata expansion, or model-first/direct-terminal fallback tiers in this package.
+- Keep the three strategies (`single`, `fill-first`, `round-robin`) acting once on the same enabled mixed peer rows (`orderRuntimeAccessTargets`); a Model Target row recursively resolves through the child model's own strategy and stays one contiguous block. Reordering, add, remove, or enable-set changes must change the round-robin target-set hash.
 - Keep unsupported or wrong-method requests rejecting before body reads, runtime admission, provider transport, telemetry, audit, feedback, or runtime side effects.
 - Keep the shared execution core in `service.go` and `runtime.go`; provider-native differences belong in request, response, or stream hooks instead of forked executors.
 - Keep retired exact-facade and context-fit preflight behavior out of runtime planning; preserve requested/resolved model observability through the ordinary target plan.
@@ -77,7 +78,7 @@ runtime/
 - Do not describe mounted `/v1` and `/v1beta` prefixes as broad passthrough support.
 - Do not add generic OpenAI or vendor fallback behavior outside the allowlist in `operations.go`.
 - Do not inject management-only `X-Profile-Id` logic or auth-session state into runtime proxy handlers.
-- Do not reintroduce exact facades, context-window preflight filtering, or facade-level response-body model rewriting.
+- Do not reintroduce exact facades, context-window preflight filtering, facade-level response-body model rewriting, or two-phase model-aggregate-first/direct-terminal-fallback resolution.
 - Do not reuse text-generation hooks for token-count operations.
 - Do not reintroduce OpenAI Chat/Responses sibling translation, provider fallbacks, or best-effort request rewrites.
 - Do not bypass the telemetry outbox, feedback pipeline, or runtime side-effect manager with inline writes or sends.

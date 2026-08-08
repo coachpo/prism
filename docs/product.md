@@ -27,15 +27,15 @@ Single operator (developer/power user) running the application locally or on a l
 
 ### 4.2 Model Configuration
 - Map each model to a fixed runtime `api_family`
-- Models expose one ordered `access_targets` list whose public entries point to same-family models
+- Models expose one ordered `access_targets` list whose rows point to same-family models (Model Targets) or model-private Terminal Targets; both types share one global `position` and are type-neutral peers of the same mixed order
 - Terminal Targets carry endpoint, costing, health, admission-limit, and auth metadata as model-private endpoint bindings owned by one model
 - Select which access targets are enabled for each model; enabled models require at least one enabled target
 - CRUD operations for all configurations are available via REST API
 
 ### 4.3 Unified Model Access Routing
-- Ordered same-family model targets are evaluated as an aggregate; direct Terminal Targets are the fallback when no model-target candidate is eligible
+- Model Target rows and Terminal Target rows are type-neutral peers of the same authored mixed order; `single`, `fill-first`, and `round-robin` run once over the enabled mixed rows, and no target type holds a hidden priority tier
 - Model-target entries must stay within the same `api_family`, cannot target themselves, and cannot introduce cycles
-- Internal connection-target entries are terminal ownership and routing edges for Terminal Targets; model-target entries can compose chains while preserving deterministic order
+- A Model Target row is an atomic parent peer: entering it recursively resolves the child model with the child's own strategy, and the child's attempts stay one contiguous block in the parent result
 - Each model owns its reusable load-balance strategy, so nested model targets evaluate strategy and Ban Policy at their own graph level
 - Model IDs are unique within a profile; the same model ID can exist in different profiles without collision
 - Gateway resolves the access graph before Terminal Target planning: incoming request for a public model -> final target model and Terminal Target -> upstream request
@@ -47,6 +47,7 @@ Single operator (developer/power user) running the application locally or on a l
 - For models with multiple reachable Terminal Targets:
   - **Automatic failover** when an attempt returns a failover-triggering status (`403`, `422`, `429`, `500`, `502`, `503`, `504`, `529` by default) or raises connection/timeout errors
   - Models attach one reusable explicit Ban Policy strategy using `single`, `fill-first`, or `round-robin` routing
+  - The three strategies act on the same enabled mixed access-target rows: `single` takes only the first enabled mixed peer, `fill-first` walks the authored mixed order, and `round-robin` rotates the direct mixed rows once per request while each child model keeps its own cursor
   - Upstream request timing uses shared backend timeout settings, while Ban Policy owns retry windows, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, `temporary` or `until_reset` bans, and failover status codes
   - Ban Policy thresholds are inclusive: retry-cycle exhaustion uses `cycle_retry_attempts >= cycle_retry_attempt_limit`, and bans use `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`
 - Failover-worthy HTTP responses are governed by the attached strategy's configured failure status codes and retry-window settings
@@ -77,6 +78,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Add/edit/delete model configurations with ordered access targets
 - Add/edit/delete profile-scoped endpoints
 - Add/edit/delete Terminal Targets from model detail
+- Model detail renders one mixed access-target list ordered by the shared `position`; Model and Terminal rows share a continuous "位置 N" numbering, adjacent rows of either type can be moved up/down with the same controls, and reloads never restore type grouping
 - Toggle enabled/disabled access targets per model
 - Select an explicit load-balance strategy with Ban Policy settings per model
 - Dedicated model-detail route (`/models/:id`) for ordered access-target and Terminal Target configuration; current loadbalance state and loadbalance event history live under Ban Policies
@@ -559,7 +561,7 @@ Validated again against current repo surfaces on 2026-07-10:
 
 1. Operators list, search, create, edit, and delete model configs.
 2. Model create and edit dialogs manage model metadata, OpenAI accepted format, loadbalance strategy, and enabled state.
-3. Model detail owns ordered same-family access-target authoring and Terminal Target management for the model's private endpoint bindings.
+3. Model detail owns access-target authoring as one mixed list: Model Targets and Terminal Targets share the global `position` order, cross-type adjacent moves use the same controls, and Terminal Target management covers the model's private endpoint bindings.
 4. Request logs preserve the requested model while final-target fields show the terminal model reached through the access graph.
 
 **UI-driven backend touchpoints**
@@ -722,7 +724,7 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 
 1. Global CORS runs first. The runtime branch then applies HTTP proxy admission, runtime proxy-key authentication, and the exact operation registry in that order. Once inside the registry, unsupported routes and wrong methods reject before body reads, provider transport, telemetry, audit, feedback, or runtime side effects.
 2. Provider adapters parse provider-specific payloads, build upstream requests, adapt responses, classify streams, extract usage, and own pure OpenAI Chat/Responses conversion.
-3. Planning evaluates all ordered same-family model targets into an eligible Terminal Target aggregate; direct private Terminal Targets are used only when no model-target candidate is eligible.
+3. Planning evaluates the model's enabled mixed access-target rows in authored `position` order once: `single` keeps only the first enabled row, `fill-first` walks the mixed order, and `round-robin` rotates the direct mixed rows. A Model Target row resolves recursively through the child model's own strategy and contributes one contiguous block; candidate-local misses (zero-leaf child, operation incompatibility, unavailable connection) skip to the next peer in effective order, while cycle/depth and missing-strategy errors fail closed.
 4. Connection planning applies the attached explicit Ban Policy strategy and per-connection limits.
 5. The shared runtime/gateway owns operation registration, admission, routing, SSE lifecycle, accounting, pricing, request-log metadata, and durable handoff. Telemetry/audit rows are materialized by background workers from the runtime outbox; non-accepted side effects use their own in-memory or worker queues.
 6. After the first downstream byte or event on a stream, no retry, redirect, or hedge replay can start.

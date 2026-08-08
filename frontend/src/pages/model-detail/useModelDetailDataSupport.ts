@@ -17,7 +17,7 @@ import {
   isTerminalTargetAccessTargetType,
 } from "@/lib/types/target-compatibility";
 import { getStaticMessages } from "@/i18n/staticMessages";
-import { getModelConnections, toModelListItem } from "../models/modelFormState";
+import { getModelConnections, sortAccessTargetsByPositionThenId, toModelListItem } from "../models/modelFormState";
 
 export const createDefaultEndpointForm = (): EndpointCreate => ({
   name: "",
@@ -150,32 +150,6 @@ export function resequenceConnections(connections: Connection[]): Connection[] {
       priority: index,
     };
   });
-}
-
-export function moveConnectionInList(
-  connections: Connection[],
-  fromIndex: number,
-  toIndex: number
-): Connection[] {
-  if (
-    fromIndex < 0 ||
-    toIndex < 0 ||
-    fromIndex >= connections.length ||
-    toIndex >= connections.length ||
-    fromIndex === toIndex
-  ) {
-    return connections;
-  }
-
-  const nextConnections = [...connections];
-  const [movedConnection] = nextConnections.splice(fromIndex, 1);
-
-  if (!movedConnection) {
-    return connections;
-  }
-
-  nextConnections.splice(toIndex, 0, movedConnection);
-  return resequenceConnections(nextConnections);
 }
 
 export function getSelectedEndpoint(
@@ -346,8 +320,9 @@ export interface AccessTargetSummary {
   enabledTargetCount: number;
   enabledModelFallbackTargetCount: number;
   enabledTerminalTargetCount: number;
-  firstEnabledModelFallbackTargetLabel: string | null;
-  firstEnabledTerminalTargetLabel: string | null;
+  // The enabled authored-order first row across both target types; only the
+  // position-smallest enabled mixed row may be called the first target.
+  firstEnabledTargetLabel: string | null;
   routePolicyLabel: string;
 }
 
@@ -370,18 +345,15 @@ function getAccessTargetLabel(target: ModelAccessTarget | null | undefined): str
 }
 
 export function buildAccessTargetSummary(model: ModelConfig | null): AccessTargetSummary {
-  const targets = model?.access_targets ?? [];
+  const targets = sortAccessTargetsByPositionThenId(model?.access_targets);
   const enabledTargets = targets.filter((target) => target.is_enabled);
-  const enabledModelFallbackTargets = enabledTargets.filter((target) => target.target_type === "model");
-  const enabledTerminalTargets = enabledTargets.filter((target) => isTerminalTargetAccessTargetType(target.target_type));
 
   return {
     totalTargetCount: targets.length,
     enabledTargetCount: enabledTargets.length,
-    enabledModelFallbackTargetCount: enabledModelFallbackTargets.length,
-    enabledTerminalTargetCount: enabledTerminalTargets.length,
-    firstEnabledModelFallbackTargetLabel: getAccessTargetLabel(enabledModelFallbackTargets[0]),
-    firstEnabledTerminalTargetLabel: getAccessTargetLabel(enabledTerminalTargets[0]),
+    enabledModelFallbackTargetCount: enabledTargets.filter((target) => target.target_type === "model").length,
+    enabledTerminalTargetCount: enabledTargets.filter((target) => isTerminalTargetAccessTargetType(target.target_type)).length,
+    firstEnabledTargetLabel: getAccessTargetLabel(enabledTargets[0]),
     routePolicyLabel: getStaticMessages().modelDetail.orderedPriorityRouting,
   };
 }

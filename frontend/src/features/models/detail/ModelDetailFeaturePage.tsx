@@ -3,7 +3,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useLocale } from "@/i18n/useLocale"
 import { AccessTargetsEditor } from "@/pages/models/AccessTargetsEditor"
 import { ModelDialog } from "@/pages/models/ModelDialog"
-import { accessTargetToMutation } from "@/pages/models/modelFormState"
 import { ConnectionDialog } from "@/pages/model-detail/ConnectionDialog"
 import { ModelDetailHeader } from "@/pages/model-detail/ModelDetailHeader"
 import { OverviewCards } from "@/pages/model-detail/OverviewCards"
@@ -124,9 +123,7 @@ export function ModelDetailFeaturePage({
 
       <AccessTargetsEditor
         apiFamilyLabel={model.api_family}
-        accessTargets={model.access_targets
-          .map(accessTargetToMutation)
-          .filter((target): target is NonNullable<typeof target> => target !== null)}
+        accessTargets={model.access_targets}
         modelOptions={data.targetModelsForApiFamily}
         connectionOptions={data.targetConnectionsForApiFamily}
         error={data.targetEditorError}
@@ -137,7 +134,6 @@ export function ModelDetailFeaturePage({
         onEditConnection={data.openConnectionDialog}
         onMoveTarget={data.handleMoveAccessTarget}
         onToggleTarget={data.handleToggleAccessTarget}
-        onChange={() => undefined}
       />
 
       <ConnectionDialog
