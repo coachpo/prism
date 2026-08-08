@@ -76,15 +76,15 @@ prism/
 - Local scratch plans and retained execution evidence: `artifacts/plans/`, `artifacts/evidence/`
 - Backend/frontend version surfaces: `backend/VERSION`, `frontend/VERSION`, `frontend/package.json`
 - Backend container contract: `backend/Dockerfile`, `backend/tests/integration/dockerfile_contract_test.go`
-- Runtime operation registry, hook residency, rejection semantics, and `operation_name` persistence: `backend/internal/httpapi/runtime/`, `backend/tests/runtime/`, `docs/API_SPEC.md`, `docs/ARCHITECTURE.md`
+- Runtime operation registry, hook residency, rejection semantics, and `operation_name` persistence: `backend/internal/httpapi/runtime/`, `backend/tests/runtime/`, `docs/architecture.md` (§14 API Reference, §15 Data Model Reference)
 - Startup bootstrap loading/parsing contract: `backend/internal/platform/config/`
 - Partitioned log retention: `backend/internal/platform/logretention/`, `backend/internal/httpapi/runtime/log_partitions.go`, `backend/migrations/000001_initial_schema.sql`
 - Runtime proxy planning, telemetry, request-log detail, final-target attribution, and partition ensuring: `backend/internal/httpapi/runtime/`, `backend/tests/runtime/`, `frontend/src/pages/request-logs/`
 - Model access-target authoring and removed exact-facade guards: `backend/internal/httpapi/management/models/`, `frontend/src/pages/models/`
-- Management settings and retention jobs: `backend/internal/httpapi/management/settings/`, `frontend/src/pages/settings/`, `docs/WORKFLOWS.md`
+- Management settings and retention jobs: `backend/internal/httpapi/management/settings/`, `frontend/src/pages/settings/`, `docs/product.md` (§9 Workflows Reference)
 - Frontend toolchain and shadcn registry config: `frontend/package.json`, `frontend/components.json`, `frontend/src/index.css`, `frontend/src/main.tsx`.
-- Normative architecture and contract docs: `docs/ARCHITECTURE.md`, `docs/API_SPEC.md`, `docs/DATA_MODEL.md`
-- Supporting doc surfaces: `docs/PRD.md`, `docs/REQUESTS_PAGE.md`, `docs/WORKFLOWS.md`
+- Normative architecture and contract docs: `docs/architecture.md` (§14 API Reference, §15 Data Model Reference)
+- Product, requests-page, and workflow surfaces: `docs/product.md` (§8 Requests Page Specification, §9 Workflows Reference)
 - Backend ownership tree: `backend/AGENTS.md`, `backend/internal/AGENTS.md`, `backend/internal/platform/AGENTS.md`, `backend/internal/platform/startup/AGENTS.md`, `backend/internal/domain/AGENTS.md`, `backend/internal/domain/loadbalance/AGENTS.md`, `backend/internal/domain/stats/AGENTS.md`, `backend/internal/gateway/AGENTS.md`, `backend/internal/gateway/core/AGENTS.md`, `backend/internal/gateway/provider/AGENTS.md`, `backend/internal/gateway/provider/openai/AGENTS.md`, `backend/internal/httpapi/AGENTS.md`, `backend/internal/httpapi/management/AGENTS.md`, `backend/internal/httpapi/runtime/AGENTS.md`, `backend/internal/httpapi/management/*/AGENTS.md`, `backend/tests/AGENTS.md`, `backend/tests/{contract,integration,runtime}/AGENTS.md`
 - Frontend ownership tree: `frontend/AGENTS.md`, `frontend/src/AGENTS.md`, `frontend/src/app/AGENTS.md`, `frontend/src/features/AGENTS.md`, `frontend/src/pages/AGENTS.md`, `frontend/src/components/AGENTS.md`, `frontend/src/context/AGENTS.md`, `frontend/src/hooks/AGENTS.md`, `frontend/src/i18n/AGENTS.md`, `frontend/src/shared/AGENTS.md`, `frontend/src/shared/design-system/AGENTS.md`, `frontend/src/lib/AGENTS.md`, `frontend/src/lib/types/AGENTS.md`, `frontend/tests/AGENTS.md`, `frontend/tests/e2e/AGENTS.md`, `frontend/tests/lib/AGENTS.md`
 - Docs provenance, scratch-plan handoff, and live evidence routing: `docs/AGENTS.md`, `artifacts/plans/`, `artifacts/evidence/`
@@ -135,3 +135,25 @@ cd frontend && pnpm run test:e2e
 - Do not bypass partitioned log-retention ownership with direct cleanup or partition creation outside `backend/internal/platform/logretention/` and runtime partition ensuring.
 - Do not change backend container execution or bootstrap-path ownership contracts without updating Dockerfile contract tests and docs.
 - Do not strand upgrade guidance in transient run notes or compatibility layers when the live docs or owning AGENTS tree can state the target contract directly.
+
+<!-- write-project-docs:document-navigation:start -->
+## Project Documentation Navigation
+
+Before starting related work, read the authoritative documents that cover the scope of the task:
+
+- [Project Status](STATUS.md)
+- [Documentation Index](docs/README.md)
+- [Product Overview](docs/product.md)
+- [Architecture Overview](docs/architecture.md)
+- [Development Rules](docs/development-rules.md)
+- [Source Code Size and Responsibility Rules](docs/source-code-size-and-responsibility-rules.md)
+- [Contributing Guide](CONTRIBUTING.md)
+
+## Project Documentation Content Boundaries
+
+This project does not add process or administrative management for the sake of documentation completeness.
+
+- Unless the user explicitly asks and provides verifiable evidence, do not add approvals, reporting, meetings, scheduling, personnel governance, release governance, commit management, business KPIs/SLOs, or similar content.
+- Do not create documents, sections, placeholders, or "to be confirmed" items for those topics.
+- Existing and verified development, test, build, and deployment commands remain recorded in their own authoritative documents; this block does not change product, architecture, or engineering facts.
+<!-- write-project-docs:document-navigation:end -->

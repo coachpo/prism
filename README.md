@@ -1,6 +1,6 @@
 # Prism
 
-English | [简体中文](README_CN.md)
+> **Status**: active development at v1.0.5 — self-hosted, no external users, PostgreSQL-backed. See [STATUS.md](STATUS.md) for the authoritative lifecycle, deployment, and compatibility facts.
 
 Prism is a self-hosted gateway that sits between your tools and LLM providers, giving you one endpoint, one place to manage API keys, and a web dashboard to see what every request cost. It is built for developers and power users who juggle several providers and want failover, routing, and usage tracking without running heavy infrastructure.
 
@@ -86,12 +86,13 @@ Releases go through `./release.sh` (e.g. `./release.sh patch --dry-run`), which 
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [API Specification](docs/API_SPEC.md)
-- [Data Model](docs/DATA_MODEL.md)
-- [Workflows](docs/WORKFLOWS.md)
-- [Requests Page Notes](docs/REQUESTS_PAGE.md)
-- [PRD](docs/PRD.md)
+Start at the [Documentation Index](docs/README.md):
+
+- [Status](STATUS.md) — lifecycle, deployment, users, data, and compatibility policy
+- [Product Specification](docs/product.md) — product, scope, flows, and requirements
+- [Architecture Overview](docs/architecture.md) — architecture, API reference, and data model reference
+- [Development Rules](docs/development-rules.md) — project-specific implementation rules
+- [Contributing Guide](CONTRIBUTING.md) — development workflow and shared principles
 
 ## Security
 
