@@ -19,8 +19,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
+	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 	gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
 	gatewayrouting "github.com/coachpo/prism/backend/internal/gateway/routing"
+	"github.com/coachpo/prism/backend/internal/platform/bodylimits"
 )
 
 const runtimeAdmissionExhaustedErrorCode = "admission_exhausted"
@@ -103,25 +105,26 @@ type runtimeConnectionUpstreamAuthSnapshot struct {
 }
 
 type runtimeConnection struct {
-	ID                      int
-	ProfileID               int
-	APIFamily               string
-	ModelConfigID           int
-	EndpointID              int
-	Priority                int
-	QPSLimit                *int
-	MaxInFlightNonStream    *int
-	MaxInFlightStream       *int
-	Name                    *string
-	AuthType                *string
-	EncryptedEndpointAPIKey string
-	CustomHeaders           map[string]any
-	PricingTemplateID       *int
-	PricingTemplateSnapshot *runtimePricingTemplateSnapshot
-	OpenAITextCapability    *string
-	EndpointFXSnapshot      *runtimeEndpointFXSnapshot
-	UpstreamAuth            *runtimeConnectionUpstreamAuthSnapshot
-	Endpoint                runtimeEndpoint
+	ID                       int
+	ProfileID                int
+	APIFamily                string
+	ModelConfigID            int
+	EndpointID               int
+	Priority                 int
+	QPSLimit                 *int
+	MaxInFlightNonStream     *int
+	MaxInFlightStream        *int
+	Name                     *string
+	AuthType                 *string
+	EncryptedEndpointAPIKey  string
+	CustomHeaders            map[string]any
+	CustomRequestParameters  *terminaltarget.CustomRequestParameters
+	PricingTemplateID        *int
+	PricingTemplateSnapshot  *runtimePricingTemplateSnapshot
+	OpenAITextCapability     *string
+	EndpointFXSnapshot       *runtimeEndpointFXSnapshot
+	UpstreamAuth             *runtimeConnectionUpstreamAuthSnapshot
+	Endpoint                 runtimeEndpoint
 }
 
 func cloneRuntimeIntPointer(source *int) *int {
@@ -217,7 +220,29 @@ type requestPlan struct {
 }
 
 func (plan requestPlan) requiresReplayableRequestBody() bool {
-	return len(plan.orderedTerminalAttempts()) > 1
+	attempts := plan.orderedTerminalAttempts()
+	if len(attempts) > 1 {
+		return true
+	}
+	for _, attempt := range attempts {
+		if attempt.Connection.CustomRequestParameters != nil && !attempt.Connection.CustomRequestParameters.IsEmpty() {
+			return true
+		}
+	}
+	return false
+}
+
+// requiresCustomRequestParametersOverlay reports whether any planned terminal
+// target candidate carries a non-empty custom request parameters
+// configuration. When true, the incoming body must be buffered, verified as a
+// JSON object, and re-materialized per attempt before provider transport.
+func (plan requestPlan) requiresCustomRequestParametersOverlay() bool {
+	for _, attempt := range plan.orderedTerminalAttempts() {
+		if attempt.Connection.CustomRequestParameters != nil && !attempt.Connection.CustomRequestParameters.IsEmpty() {
+			return true
+		}
+	}
+	return false
 }
 
 func (plan requestPlan) selectedTerminalTargetID() *int {
@@ -265,6 +290,10 @@ type requestPlanningInput struct {
 	ActiveProfileID int
 	Snapshot        *planningSnapshot
 	RoutingPlan     *runtimeRoutingPlan
+	// ProbePlanning marks the rawBody == nil Gemini path-bound probe phase:
+	// the plan only decides whether the incoming body must be buffered, so
+	// custom-request-parameter overlay and object validation must be skipped.
+	ProbePlanning bool
 }
 
 func (input requestPlanningInput) compiledRoutingPlan() (*runtimeRoutingPlan, error) {
@@ -326,6 +355,7 @@ type runtimeTerminalAttempt struct {
 	TranslationMode           TranslationMode
 	EffectiveRequestPath      string
 	UpstreamBody              []byte
+	RequestGenerationParams   requestGenerationParamsSnapshot
 	AuditEnabledAtRequest     bool
 	AuditCaptureBodiesRequest bool
 }
@@ -397,6 +427,7 @@ type executionAttempt struct {
 	UpstreamOperationName       string
 	UpstreamRequestPath         string
 	OperationTranslationMode    TranslationMode
+	RequestGenerationParams     *requestGenerationParamsSnapshot
 }
 
 type executionResult struct {
@@ -490,6 +521,10 @@ func (s *Service) buildRequestPlanFromSnapshot(request *http.Request, rawBody []
 		return requestPlan{}, err
 	}
 	return plan, nil
+}
+
+func (s *Service) buildProbeRequestPlanFromSnapshot(request *http.Request, runtimeConfig RuntimeProxyConfigSnapshot, operationMatch RuntimeOperationMatch, activeProfileID int, snapshot *planningSnapshot) (requestPlan, error) {
+	return s.buildRequestPlanFromSnapshotCoreWithProbe(request, nil, runtimeConfig, operationMatch, activeProfileID, snapshot, true)
 }
 
 func resolveRequestOperation(input requestPlanningInput) (resolvedRequestOperation, error) {
@@ -695,9 +730,14 @@ func buildPlannedTerminalAttempts(input requestPlanningInput, operation resolved
 		if err != nil {
 			return nil, plannedUpstreamRequest{}, err
 		}
+		upstreamRequest, err = applyCustomRequestParametersOverlay(input, operation, upstreamRequest, attempt)
+		if err != nil {
+			return nil, plannedUpstreamRequest{}, err
+		}
 		planned := attempt
 		planned.EffectiveRequestPath = upstreamRequest.EffectiveRequestPath
 		planned.UpstreamBody = upstreamRequest.UpstreamBody
+		planned.RequestGenerationParams = upstreamRequest.RequestGenerationParams
 		planned.AuditEnabledAtRequest = attempt.TargetModel.AuditEnabled
 		planned.AuditCaptureBodiesRequest = attempt.TargetModel.AuditEnabled && attempt.TargetModel.AuditCaptureBodies
 		plannedAttempts = append(plannedAttempts, planned)
@@ -706,6 +746,56 @@ func buildPlannedTerminalAttempts(input requestPlanningInput, operation resolved
 		}
 	}
 	return plannedAttempts, firstUpstream, nil
+}
+
+// applyCustomRequestParametersOverlay applies the attempt Connection's custom
+// request parameters as a top-level shallow overlay on the provider-native
+// upstream body (after model/path rewrite). It is a no-op for unconfigured
+// Connections and for the rawBody == nil Gemini probe phase. When a
+// configuration exists, the ingress body must be a valid JSON object, the
+// merged body must stay within the runtime JSON body limit, and the
+// generation-parameter snapshot is re-extracted from the final effective
+// body. All failures happen before admission, Ban Policy attempt counting,
+// and provider transport.
+func applyCustomRequestParametersOverlay(input requestPlanningInput, operation resolvedRequestOperation, upstreamRequest plannedUpstreamRequest, attempt runtimeTerminalAttempt) (plannedUpstreamRequest, error) {
+	config := attempt.Connection.CustomRequestParameters
+	if config == nil || config.IsEmpty() {
+		return upstreamRequest, nil
+	}
+	if input.ProbePlanning {
+		return upstreamRequest, nil
+	}
+	if !isJSONObjectBody(input.RawBody) {
+		return plannedUpstreamRequest{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "Request body must be a JSON object when custom request parameters are configured"}
+	}
+	merged, err := config.OverlayRequestBody(upstreamRequest.UpstreamBody)
+	if err != nil {
+		return plannedUpstreamRequest{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "Request body must be a JSON object when custom request parameters are configured"}
+	}
+	if int64(len(merged)) > bodylimits.RuntimeJSONRequestBodyLimitBytes {
+		return plannedUpstreamRequest{}, &domainError{
+			StatusCode: http.StatusRequestEntityTooLarge,
+			ErrorCode:  "request_body_too_large",
+			Detail:     "Request body is too large after applying custom request parameters",
+			Fields:     map[string]any{"limit_bytes": bodylimits.RuntimeJSONRequestBodyLimitBytes},
+		}
+	}
+	upstreamRequest.UpstreamBody = merged
+	upstreamRequest.RequestGenerationParams = extractBufferedRequestGenerationParams(operation.Match.Operation, merged)
+	return upstreamRequest, nil
+}
+
+func isJSONObjectBody(raw []byte) bool {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	token, err := decoder.Token()
+	if err != nil {
+		return false
+	}
+	delim, ok := token.(json.Delim)
+	return ok && delim == '{'
 }
 
 func connectionsFromTerminalAttempts(attempts []runtimeTerminalAttempt) []runtimeConnection {
@@ -1132,7 +1222,8 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 
 func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan requestPlan, requestQuery string, terminalAttempt runtimeTerminalAttempt, bodySource *runtimeRequestBodySource) executionOutcome {
 	connection := terminalAttempt.Connection
-	headers, err := s.buildUpstreamHeaders(connection, plan.APIFamily, plan.ClientHeaders, plan.BlocklistRules)
+	stripBodyDependentHeaders := connection.CustomRequestParameters != nil && !connection.CustomRequestParameters.IsEmpty()
+	headers, err := s.buildUpstreamHeaders(connection, plan.APIFamily, plan.ClientHeaders, plan.BlocklistRules, stripBodyDependentHeaders)
 	if err != nil {
 		return executionOutcome{TerminalAttempt: terminalAttempt, Connection: connection, FatalError: err}
 	}
@@ -1184,6 +1275,7 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 			UpstreamOperationName:       runtimeUpstreamOperationName(plan.RuntimeOperation, terminalAttempt.TranslationMode),
 			UpstreamRequestPath:         dereferenceString(runtimeUpstreamRequestPath(plan.RuntimeOperation, terminalAttempt.TranslationMode, terminalAttempt.EffectiveRequestPath)),
 			OperationTranslationMode:    normalizedRuntimeTranslationMode(terminalAttempt.TranslationMode),
+			RequestGenerationParams:     terminalAttempt.RequestGenerationParams.clonePointer(),
 		}
 		if response != nil {
 			outcome.Attempt.StatusCode = response.StatusCode
@@ -1303,7 +1395,7 @@ func (s *Service) doUpstreamRequest(ctx context.Context, client *http.Client, me
 	return response, true, err
 }
 
-func (s *Service) buildUpstreamHeaders(connection runtimeConnection, apiFamily string, clientHeaders map[string]string, rules []headerBlocklistRule) (map[string]string, error) {
+func (s *Service) buildUpstreamHeaders(connection runtimeConnection, apiFamily string, clientHeaders map[string]string, rules []headerBlocklistRule, stripBodyDependentHeaders bool) (map[string]string, error) {
 	_ = apiFamily
 	compiledAuth := connection.UpstreamAuth
 	if compiledAuth == nil {
@@ -1353,7 +1445,31 @@ func (s *Service) buildUpstreamHeaders(connection runtimeConnection, apiFamily s
 			sanitized[key] = value
 		}
 	}
+	if stripBodyDependentHeaders {
+		// The merged body is re-encoded uncompressed JSON with a freshly
+		// computed Content-Length; stale body-dependent headers from the
+		// client, provider auth extras, or Connection custom_headers must not
+		// reach the captured upstream.
+		for key := range sanitized {
+			keyLower := strings.ToLower(strings.TrimSpace(key))
+			if _, bodyDependent := bodyDependentHeaders[keyLower]; bodyDependent {
+				delete(sanitized, key)
+			}
+		}
+	}
 	return sanitized, nil
+}
+
+// bodyDependentHeaders are invalidated whenever Prism re-encodes an upstream
+// request body for custom request parameters: Content-Length is recomputed
+// from the new body and the rest describe digests or encodings of the old
+// bytes.
+var bodyDependentHeaders = map[string]struct{}{
+	"content-length":  {},
+	"content-encoding": {},
+	"content-md5":      {},
+	"digest":           {},
+	"content-digest":   {},
 }
 
 func buildUpstreamURL(baseURL string, requestPath string, requestQuery string) (string, error) {

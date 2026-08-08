@@ -20,6 +20,7 @@ const updateMigrationSchemaGoldenEnv = "PRISM_UPDATE_MIGRATION_SCHEMA_GOLDEN"
 
 var expectedPrismMigrationVersions = []string{
 	migrate.DefaultBaselineVersion,
+	"000002_connection_custom_request_parameters",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
@@ -873,4 +874,74 @@ func sortedMapKeys(values map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func TestConnectionCustomRequestParametersUpgradePath(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openEmptyDatabase(t, testContext, "connection_custom_request_parameters_upgrade")
+	defer func() { _ = conn.Close(testContext) }()
+
+	firstResult, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run full migration set: %v", err)
+	}
+	if firstResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected first run to apply migrations, got %q", firstResult.Outcome)
+	}
+
+	// Simulate a pre-upgrade database stamped with 000001 only: existing
+	// connection rows and no custom_request_parameters surface.
+	if _, err := conn.Exec(testContext, `DELETE FROM prism_schema_migrations WHERE version = '000002_connection_custom_request_parameters'`); err != nil {
+		t.Fatalf("un-stamp 000002: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `ALTER TABLE connections DROP CONSTRAINT connections_custom_request_parameters_object`); err != nil {
+		t.Fatalf("drop 000002 check constraint: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `ALTER TABLE connections DROP COLUMN custom_request_parameters`); err != nil {
+		t.Fatalf("drop 000002 column: %v", err)
+	}
+
+	now := time.Now().UTC()
+	var profileID int
+	if err := conn.QueryRow(testContext, `INSERT INTO profiles (name, description, is_active, is_default, is_editable, version, deleted_at, created_at, updated_at) VALUES ('custom-params-upgrade', NULL, FALSE, FALSE, TRUE, 1, NULL, $1, $1) RETURNING id`, now).Scan(&profileID); err != nil {
+		t.Fatalf("seed upgrade profile: %v", err)
+	}
+	var endpointID int
+	if err := conn.QueryRow(testContext, `INSERT INTO endpoints (profile_id, name, base_url, api_key, position, created_at, updated_at) VALUES ($1, 'Upgrade Endpoint', 'https://upgrade.invalid', 'plain-api-key', 0, $2, $2) RETURNING id`, profileID, now).Scan(&endpointID); err != nil {
+		t.Fatalf("seed upgrade endpoint: %v", err)
+	}
+	var connectionID int
+	if err := conn.QueryRow(testContext, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, 'openai', $2, NULL, NULL, NULL, NULL, 'dual_native', TRUE, 0, 'Upgrade Connection', NULL, NULL, 'healthy', NULL, NULL, $3, $3) RETURNING id`, profileID, endpointID, now).Scan(&connectionID); err != nil {
+		t.Fatalf("seed upgrade connection: %v", err)
+	}
+
+	upgradeResult, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("apply 000002 upgrade: %v", err)
+	}
+	if upgradeResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected upgrade run to apply 000002, got %q", upgradeResult.Outcome)
+	}
+
+	var storedCustomRequestParameters sql.NullString
+	if err := conn.QueryRow(testContext, `SELECT custom_request_parameters FROM connections WHERE id = $1`, connectionID).Scan(&storedCustomRequestParameters); err != nil {
+		t.Fatalf("load upgraded connection column: %v", err)
+	}
+	if storedCustomRequestParameters.Valid {
+		t.Fatalf("expected existing connection row to upgrade to NULL, got %q", storedCustomRequestParameters.String)
+	}
+
+	// The new CHECK constraint rejects non-object roots at the database layer.
+	if _, err := conn.Exec(testContext, `UPDATE connections SET custom_request_parameters = '[1,2]'::jsonb WHERE id = $1`, connectionID); err == nil {
+		t.Fatalf("expected database CHECK to reject a non-object custom_request_parameters root")
+	}
+	if _, err := conn.Exec(testContext, `UPDATE connections SET custom_request_parameters = '{"provider":{"only":["deepinfra/turbo"]}}'::jsonb WHERE id = $1`, connectionID); err != nil {
+		t.Fatalf("expected database CHECK to accept an object custom_request_parameters root: %v", err)
+	}
+
+	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 }

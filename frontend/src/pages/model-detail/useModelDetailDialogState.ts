@@ -12,6 +12,10 @@ import {
   getSelectedEndpoint,
   normalizeOpenAITextCapability,
 } from "./useModelDetailDataSupport";
+import {
+  customRequestParametersDraftFromValue,
+  type CustomRequestParametersParseError,
+} from "./customRequestParameters";
 
 export interface HeaderRow {
   id: string;
@@ -104,6 +108,9 @@ export function useModelDetailDialogState({
     ...createDefaultConnectionForm(apiFamily, openAIMode),
   }));
   const [headerRows, setHeaderRows] = useState<HeaderRow[]>([]);
+  const [customRequestParametersDraft, setCustomRequestParametersDraft] = useState("");
+  const [customRequestParametersError, setCustomRequestParametersError] =
+    useState<CustomRequestParametersParseError | null>(null);
 
   const selectedEndpoint = useMemo(
     () => getSelectedEndpoint(globalEndpoints, selectedEndpointId),
@@ -134,16 +141,21 @@ export function useModelDetailDialogState({
         ? Object.entries(connection.custom_headers).map(([key, value]) => createHeaderRow({ key, value }))
         : [];
       setHeaderRows(headers);
+      setCustomRequestParametersDraft(customRequestParametersDraftFromValue(connection.custom_request_parameters));
+      setCustomRequestParametersError(null);
       setConnectionFormState(
         createEditConnectionForm(connection, {
           apiFamily: apiFamily ?? connection.api_family,
         }),
-      );      setNewEndpointForm({ ...createDefaultEndpointForm() });
+      );
+      setNewEndpointForm({ ...createDefaultEndpointForm() });
       setCreateMode("select");
       setSelectedEndpointId(String(connection.endpoint_id));
     } else {
       setEditingConnection(null);
       setHeaderRows([]);
+      setCustomRequestParametersDraft("");
+      setCustomRequestParametersError(null);
       setConnectionFormState({ ...createDefaultConnectionForm(apiFamily, openAIMode) });
       setNewEndpointForm({ ...createDefaultEndpointForm() });
       setCreateMode("select");
@@ -171,6 +183,10 @@ export function useModelDetailDialogState({
     setConnectionForm,
     headerRows,
     setHeaderRows,
+    customRequestParametersDraft,
+    setCustomRequestParametersDraft,
+    customRequestParametersError,
+    setCustomRequestParametersError,
     selectedEndpoint,
     endpointSourceDefaultName,
     openConnectionDialog,

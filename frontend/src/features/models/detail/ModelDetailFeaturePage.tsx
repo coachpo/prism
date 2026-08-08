@@ -157,6 +157,10 @@ export function ModelDetailFeaturePage({
         globalEndpoints={data.globalEndpoints}
         headerRows={data.headerRows}
         setHeaderRows={data.setHeaderRows}
+        customRequestParametersDraft={data.customRequestParametersDraft}
+        setCustomRequestParametersDraft={data.setCustomRequestParametersDraft}
+        customRequestParametersError={data.customRequestParametersError}
+        setCustomRequestParametersError={data.setCustomRequestParametersError}
         handleConnectionSubmit={data.handleConnectionSubmit}
         endpointSourceDefaultName={data.endpointSourceDefaultName}
         pricingTemplates={data.pricingTemplates}

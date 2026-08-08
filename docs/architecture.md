@@ -251,7 +251,34 @@ build_upstream_headers():
 
 Custom headers are a power-user feature. They can override ordinary forwarded headers, but they cannot override Prism-controlled authentication or provider-version headers and cannot re-add headers blocked by the Header Blocklist. This is enforced by skipping proxy-controlled custom header names and applying the blocklist last in the header construction pipeline.
 
-### 3.7 Dashboard And Analytics REST Polling
+### 3.7 Custom Request Parameter Overlay
+
+Terminal Targets can carry an optional static top-level JSON object (`connections.custom_request_parameters`). When any planned candidate for a request has a non-empty configuration, Prism must buffer the ingress body, verify it is a JSON object, and materialize a per-attempt upstream body before provider transport:
+
+```
+build_planned_terminal_attempts():
+  1. For each candidate attempt, build the provider-native upstream request (adapter model/path rewrite)
+  2. If the Connection has no custom_request_parameters: use the existing body unchanged
+  3. Otherwise overlay O onto the native body B:
+       R = deep_copy(B)
+       for k in sorted(top_level_keys(O)): R[k] = deep_copy(O[k])
+       re-encode R and enforce the 20 MiB effective-body limit
+  4. Re-extract the attempt's generation-parameter snapshot from its own final body
+  5. Mark the plan as requiring a replayable body (streaming request-body fast path disabled)
+```
+
+Overlay rules: non-conflicting client top-level fields are preserved verbatim; matching top-level keys are replaced wholesale (nested objects are never recursively merged); configured `null` is sent as literal JSON null; there is no delete-member syntax. `model`, `models`, `stream`, `messages`, `input`, `contents`, `instructions`, `system`, and `systemInstruction` are protected and can never appear in the configuration.
+
+Body-dependent headers (`Content-Encoding`, `Content-MD5`, `Digest`, `Content-Digest`) are stripped from client headers, provider auth extras, and Connection `custom_headers` whenever an overlay re-encodes the body; `Content-Length` is recomputed from the merged body. Non-identity `Content-Encoding` cannot be re-encoded: Gemini path-bound operations with a configured candidate reject it with `415`, while body-bound OpenAI/Anthropic operations keep the existing `400` malformed-body path.
+
+Buffering decisions:
+- If any candidate has non-empty parameters, `requiresReplayableRequestBody` becomes true and `canStreamIncomingRequestBody` returns false; Gemini `streamGenerateContent` then uses the two-phase planning boundary (probe with `rawBody == nil` only decides the replayable requirement, never overlays or 400s; the second full plan reads the body and materializes the merged body).
+- With no configured parameters anywhere, the existing request-body streaming fast path is preserved unchanged.
+- Each attempt owns an immutable merged body; failover, retry, or hedge candidates never share mutable maps, slices, or buffers.
+
+Fail-closed boundaries: non-object ingress fails with `400` before admission/transport; planning-snapshot compilation fails on invalid persisted data (cold start fails, hot refresh keeps the last-good snapshot); validation errors and logs never echo configuration values. Audit body capture stores each attempt's final merged body; request-log generation parameters are extracted per attempt from its final body.
+
+### 3.8 Dashboard And Analytics REST Polling
 
 ```
 Dashboard overview page
@@ -824,6 +851,12 @@ Request (using existing endpoint):
   "custom_headers": {
     "X-Custom-Org": "org-123"
   },
+  "custom_request_parameters": {
+    "provider": {
+      "only": ["deepinfra/turbo"],
+      "allow_fallbacks": false
+    }
+  },
   "openai_text_capability": "responses_only",
   "pricing_template_id": 2,
   "qps_limit": 3,
@@ -856,12 +889,15 @@ Create semantics:
 - `priority` is rejected with `422`; Terminal Target ordering for a model is owned by `/api/models/{model_config_id}/targets` positions.
 - Limiter fields are optional. `null` means unlimited. Positive integers apply per-connection request admission limits.
 - `openai_text_capability` is the OpenAI text runtime capability source of truth for OpenAI-family Terminal Targets. It accepts `responses_only`, `chat_completions_only`, or `dual_native`, is required for OpenAI rows, and must equal the owner model's `openai_accepted_format` (strict mode equality). Non-OpenAI rows must omit it or persist `null`. Cross-mode authoring is rejected with `422`; changing a capability that would break an existing relation is rejected with `409`.
+- `custom_request_parameters` is an optional static top-level JSON object (`object | null`). Missing, `null`, and `{}` all persist as unconfigured (`NULL`); a non-empty object is validated (protected keys, 64 KiB compact limit, depth ≤ 16, members ≤ 256, safe integers) and canonicalized before write. Invalid values return `422` with `{"detail":"Invalid custom request parameters","field":"custom_request_parameters","path":...,"reason":...,"limit":...}`; malformed request JSON or unknown fields keep the generic `400`.
 
 ##### Update Terminal Target
 ```
 PATCH /api/models/{model_config_id}/connections/{connection_id}
 ```
-Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `openai_text_capability`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
+Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `custom_request_parameters`, `openai_text_capability`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
+
+`custom_request_parameters` is a presence-aware whole-value replace: omitting the field keeps the current value, `null`/`{}` clears it to `NULL`, and a non-empty valid object replaces it wholesale; any violation fails the whole PATCH atomically.
 
 `endpoint_create` is supported on update and is mutually exclusive with `endpoint_id`. `priority` is rejected with `422`. The owner model and connection `api_family` are immutable.
 
@@ -1319,6 +1355,8 @@ Unsupported runtime routes return a Prism JSON `404` response before Prism reads
 Wrong methods on supported runtime paths return a Prism JSON `405` response before the same downstream seams run. The response includes the supported method in `Allow`, and the current error detail is `Method not allowed for runtime operation`.
 
 Supported runtime operation request bodies are capped at `20 MiB`. Oversized requests return JSON `413` with `error: "request_body_too_large"` and `limit_bytes` before runtime planning or provider transport.
+
+When any planned Terminal Target candidate has custom request parameters configured, the ingress body must be a valid JSON object (otherwise `400` with `Request body must be a JSON object when custom request parameters are configured`), the per-attempt merged body is re-validated against the same `20 MiB` limit (`413 request_body_too_large` before transport), and Gemini path-bound operations reject non-identity `Content-Encoding` with `415` (`Content-Encoding is not supported when custom request parameters are configured`) before buffering. These failures never reach admission, Ban Policy attempt counting, provider transport, or audit body capture.
 
 #### 2.2A Routing Failures
 
@@ -3172,6 +3210,7 @@ Terminal Targets are represented as `connections` / `connection_id` in the compa
 | name | TEXT | NULLABLE | Optional Terminal Target label |
 | auth_type | VARCHAR(50) | NULLABLE | Optional auth behavior metadata |
 | custom_headers | TEXT | NULLABLE | JSON headers applied before blocklist filtering |
+| custom_request_parameters | JSONB | NULLABLE | Optional static top-level JSON object overlaid onto every upstream attempt body; `NULL`/`{}`/`null` all mean unconfigured; CHECK constraint `connections_custom_request_parameters_object` requires `NULL` or a JSON object root |
 | health_status | VARCHAR(20) | NOT NULL | `unknown`, `healthy`, `unhealthy`; application-managed compatibility value |
 | health_detail | TEXT | NULLABLE | Retained compatibility health detail |
 | last_health_check | TIMESTAMPTZ | NULLABLE | Retained compatibility health timestamp |
