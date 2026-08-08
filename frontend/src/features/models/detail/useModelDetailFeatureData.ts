@@ -91,6 +91,7 @@ export function useModelDetailFeatureData({
     openConnectionDialog,
   } = useModelDetailDialogState({
     apiFamily: model?.api_family ?? null,
+    openAIMode: model?.openai_accepted_format ?? null,
     globalEndpoints,
   })
 
@@ -180,9 +181,10 @@ export function useModelDetailFeatureData({
   })
 
   const effectiveTargetApiFamily = model?.api_family ?? formData.api_family
+  const effectiveTargetOpenAIMode = model?.openai_accepted_format ?? (formData.openai_accepted_format || null)
   const targetModelsForApiFamily = useMemo(
-    () => getAccessTargetModelsForApiFamily(allModels, effectiveTargetApiFamily, model?.model_id),
-    [allModels, effectiveTargetApiFamily, model?.model_id],
+    () => getAccessTargetModelsForApiFamily(allModels, effectiveTargetApiFamily, model?.model_id, effectiveTargetOpenAIMode),
+    [allModels, effectiveTargetApiFamily, model?.model_id, effectiveTargetOpenAIMode],
   )
   const targetConnectionsForApiFamily = useMemo(
     () => getSameFamilyConnections(allConnections, effectiveTargetApiFamily, modelConfigId),

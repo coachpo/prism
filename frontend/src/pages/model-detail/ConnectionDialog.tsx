@@ -30,6 +30,7 @@ import type {
   Connection,
   Endpoint,
   EndpointCreate,
+  OpenAIAcceptedFormat,
   OpenAITextCapability,
   PricingTemplate,
 } from "@/lib/types";
@@ -44,6 +45,7 @@ interface ConnectionDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   apiFamily: ApiFamily | null;
+  ownerOpenAIMode: OpenAIAcceptedFormat | null;
   editingConnection: Connection | null;
   connectionForm: ConnectionDialogForm;
   setConnectionForm: (form: ConnectionDialogForm) => void;
@@ -127,6 +129,7 @@ export function ConnectionDialog({
   isOpen,
   onOpenChange,
   apiFamily,
+  ownerOpenAIMode,
   editingConnection,
   connectionForm,
   setConnectionForm,
@@ -147,9 +150,6 @@ export function ConnectionDialog({
   const copy = messages.modelDetail;
   const isOpenAI = apiFamily === "openai";
   const selectedEndpoint = globalEndpoints.find((endpoint) => String(endpoint.id) === selectedEndpointId) ?? null;
-  const resolvedTextCapability = isOpenAI
-    ? connectionForm.openai_text_capability ?? "responses_only"
-    : null;
   const textCapabilityOptions: Array<{
     description: string;
     label: string;
@@ -171,9 +171,17 @@ export function ConnectionDialog({
       description: copy.openaiTextCapabilityDualNativeHint,
     },
   ];
-  const selectedTextCapability = textCapabilityOptions.find(
+  // Strict mode equality locks the capability to the owner model's mode.
+  const capabilityLockedToOwner = isOpenAI && ownerOpenAIMode !== null;
+  const availableTextCapabilities = capabilityLockedToOwner
+    ? textCapabilityOptions.filter((option) => option.value === ownerOpenAIMode)
+    : textCapabilityOptions;
+  const resolvedTextCapability = isOpenAI
+    ? (connectionForm.openai_text_capability ?? ownerOpenAIMode ?? "responses_only")
+    : null;
+  const selectedTextCapability = availableTextCapabilities.find(
     (option) => option.value === resolvedTextCapability,
-  ) ?? textCapabilityOptions[0];
+  ) ?? availableTextCapabilities[0];
   const limiterFields: Array<{
     field: "qps_limit" | "max_in_flight_non_stream" | "max_in_flight_stream";
     id: string;
@@ -472,18 +480,23 @@ export function ConnectionDialog({
                           <ConnectionDialogField
                             id="conn-openai-text-capability"
                             label={copy.openaiTextCapabilitySelector}
-                            description={selectedTextCapability.description}
+                            description={
+                              capabilityLockedToOwner
+                                ? copy.openaiTextCapabilityLockedToOwner
+                                : selectedTextCapability.description
+                            }
                           >
                             <Select
                               value={resolvedTextCapability ?? "responses_only"}
                               onValueChange={handleTextCapabilityChange}
+                              disabled={capabilityLockedToOwner}
                             >
                               <SelectTrigger id="conn-openai-text-capability">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectGroup>
-                                  {textCapabilityOptions.map((option) => (
+                                  {availableTextCapabilities.map((option) => (
                                     <SelectItem key={option.value} value={option.value}>
                                       {option.label}
                                     </SelectItem>

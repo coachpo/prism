@@ -2,23 +2,50 @@ package providerauth
 
 import "testing"
 
-func TestOpenAITextWireCompatibilityNativeOrReject(t *testing.T) {
+func TestOpenAITextModesStrictEquality(t *testing.T) {
 	tests := []struct {
-		name                string
-		ingressOperation    string
-		modelAcceptedFormat string
-		targetCapability    string
-		want                string
+		name  string
+		left  string
+		right string
+		want  bool
 	}{
-		{name: "responses native", ingressOperation: OpenAIUpstreamOperationResponses, modelAcceptedFormat: OpenAITextCapabilityDualNative, targetCapability: OpenAITextCapabilityResponsesOnly, want: OpenAIWireCompatibilityNative},
-		{name: "model rejects caller wire", ingressOperation: OpenAIUpstreamOperationResponses, modelAcceptedFormat: OpenAITextCapabilityChatCompletionsOnly, targetCapability: OpenAITextCapabilityResponsesOnly, want: OpenAIWireCompatibilityReject},
-		{name: "target rejects caller wire", ingressOperation: OpenAIUpstreamOperationResponses, modelAcceptedFormat: OpenAITextCapabilityDualNative, targetCapability: OpenAITextCapabilityChatCompletionsOnly, want: OpenAIWireCompatibilityReject},
-		{name: "responses adjunct rejects chat target", ingressOperation: OpenAIUpstreamOperationResponsesInputTokens, modelAcceptedFormat: OpenAITextCapabilityDualNative, targetCapability: OpenAITextCapabilityChatCompletionsOnly, want: OpenAIWireCompatibilityReject},
+		{name: "dual native equals itself", left: OpenAITextCapabilityDualNative, right: OpenAITextCapabilityDualNative, want: true},
+		{name: "chat only equals itself", left: OpenAITextCapabilityChatCompletionsOnly, right: OpenAITextCapabilityChatCompletionsOnly, want: true},
+		{name: "responses only equals itself", left: OpenAITextCapabilityResponsesOnly, right: OpenAITextCapabilityResponsesOnly, want: true},
+		{name: "dual native never equals chat only", left: OpenAITextCapabilityDualNative, right: OpenAITextCapabilityChatCompletionsOnly, want: false},
+		{name: "dual native never equals responses only", left: OpenAITextCapabilityDualNative, right: OpenAITextCapabilityResponsesOnly, want: false},
+		{name: "chat only never equals responses only", left: OpenAITextCapabilityChatCompletionsOnly, right: OpenAITextCapabilityResponsesOnly, want: false},
+		{name: "unknown mode never equals", left: "legacy", right: "legacy", want: false},
+		{name: "empty never equals", left: "", right: OpenAITextCapabilityDualNative, want: false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := OpenAITextWireCompatibility(test.ingressOperation, test.modelAcceptedFormat, test.targetCapability); got != test.want {
-				t.Fatalf("expected compatibility %q, got %q", test.want, got)
+			if got := OpenAITextModesEqual(test.left, test.right); got != test.want {
+				t.Fatalf("expected OpenAITextModesEqual(%q, %q) = %v, got %v", test.left, test.right, test.want, got)
+			}
+		})
+	}
+}
+
+func TestOpenAITextModesMatchPointers(t *testing.T) {
+	dual := OpenAITextCapabilityDualNative
+	responses := OpenAITextCapabilityResponsesOnly
+	tests := []struct {
+		name  string
+		left  *string
+		right *string
+		want  bool
+	}{
+		{name: "both nil match", left: nil, right: nil, want: true},
+		{name: "one-sided nil never matches", left: &dual, right: nil, want: false},
+		{name: "one-sided nil never matches reversed", left: nil, right: &dual, want: false},
+		{name: "equal values match", left: &dual, right: &dual, want: true},
+		{name: "different modes never match", left: &dual, right: &responses, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := OpenAITextModesMatch(test.left, test.right); got != test.want {
+				t.Fatalf("expected OpenAITextModesMatch = %v, got %v", test.want, got)
 			}
 		})
 	}

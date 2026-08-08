@@ -27,8 +27,9 @@ Single operator (developer/power user) running the application locally or on a l
 
 ### 4.2 Model Configuration
 - Map each model to a fixed runtime `api_family`
-- Models expose one ordered `access_targets` list whose public entries point to same-family models
-- Terminal Targets carry endpoint, costing, health, admission-limit, and auth metadata as model-private endpoint bindings owned by one model
+- OpenAI models also carry an `openai_accepted_format` of `responses_only`, `chat_completions_only`, or `dual_native`; strict mode equality requires every access target (model or Terminal Target) to use the identical mode
+- Models expose one ordered `access_targets` list whose public entries point to same-family, same-mode models
+- Terminal Targets carry endpoint, costing, health, admission-limit, and auth metadata as model-private endpoint bindings owned by one model; OpenAI Terminal Target capability must equal the owner model's `openai_accepted_format`
 - Select which access targets are enabled for each model; enabled models require at least one enabled target
 - CRUD operations for all configurations are available via REST API
 
@@ -675,7 +676,7 @@ For the page-specific query contract and UI behavior, see section 8 (Requests Pa
 
 Mail bootstrap fields remain parse-compatible for existing `config.json` files, but Prism no longer sends mail. Fresh bootstrap seeds use backend `8000`, frontend `5173`, and PostgreSQL `15432`, but `./start.sh` follows the existing bootstrap file's configured `server.port` when one already exists. `runtime.transport.requestTimeout` is seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout` is seeded as `"10s"`. Direct external `config.json` edits are not watched automatically, and existing valid files are not rewritten by the launcher. To reset startup defaults, stop Prism, remove or relocate the bootstrap file, and restart.
 
-OpenAI text routing is native-only. Operators set runtime support on each Terminal Target through `openai_text_capability`, using `responses_only`, `chat_completions_only`, or `dual_native`; incompatible Chat Completions/Responses attempts are skipped rather than translated.
+OpenAI text routing is native-only and mode-strict. Operators set runtime support on each Terminal Target through `openai_text_capability`, using `responses_only`, `chat_completions_only`, or `dual_native`; each mode may connect only to the identical mode (3×3 equality matrix, diagonal only). The management UI filters target-model candidates and locks connection capabilities to the owner model's mode, and the backend rejects cross-mode authoring with `422 target_openai_mode_mismatch` and mode changes that break existing relations with `409`. Mode-incompatible Chat Completions/Responses attempts are skipped rather than translated, and startup fails fast on persisted violations; a read-only preflight (`PRISM_OPENAI_MODE_PREFLIGHT=1`) reports violations with deterministic exit codes before upgrade.
 
 **Backend touchpoints**
 

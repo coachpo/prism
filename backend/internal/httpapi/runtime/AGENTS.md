@@ -22,7 +22,7 @@ runtime/
 ├── operation_request_hooks.go   # Request hook registry and streaming-intent selection
 ├── operation_response_hooks.go  # Non-stream response parsing by operation
 ├── operation_stream_hooks.go    # SSE terminal and usage parsing by operation
-├── operation_translation.go     # OpenAI native wire-compatibility and rejection boundary
+├── operation_translation.go     # OpenAI strict mode-equality and rejection boundary
 ├── openai_models.go             # Local OpenAI model-list filtering and request branching
 ├── codex_models.go              # Mutable Codex catalog synthesis plus ETag/304 handling
 ├── codex_models_updater.go      # Startup/24h upstream refresh with embedded fallback
@@ -44,7 +44,7 @@ runtime/
 - Automatic generation-param extraction and operation-directed request hooks: `request_generation_params.go`, `operation_request_hooks.go`
 - Non-stream response parsing for text generation and token count operations: `operation_response_hooks.go`
 - SSE terminal classification and usage merging for OpenAI, Anthropic, and Gemini stream operations: `operation_stream_hooks.go`
-- OpenAI native wire compatibility, mismatched-target skipping, and unsupported-wire rejection behavior: `operation_translation.go`, `planning_snapshot.go`, `runtime_test.go`
+- OpenAI strict mode equality, mismatched-target skipping, unsupported-wire rejection behavior, and the read-only mode check: `operation_translation.go`, `planning_snapshot.go`, `../../../openaimodecheck/`, `runtime_test.go`
 - Local OpenAI and refreshable Codex client model-list responses: `openai_models.go`, `codex_models.go`, `codex_models_updater.go`, `codex_client_models.json`, `codex_models_test.go`
 - Request-log and usage-event shaping plus `operation_name` persistence: `observability.go`, `../../../migrations/000001_initial_schema.sql`
 - Telemetry, feedback, and runtime side-effect ownership: `telemetry_outbox.go`, `feedback_pipeline.go`, `runtime_side_effects.go`

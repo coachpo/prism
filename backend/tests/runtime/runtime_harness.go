@@ -74,6 +74,7 @@ type runtimeRouteSeed struct {
 	EndpointAPIKey       string
 	CustomHeaders        map[string]any
 	OpenAITextCapability *string
+	OpenAIAcceptedFormat *string
 }
 
 type runtimeStateSeed struct {
@@ -682,6 +683,11 @@ func (h *runtimeHarness) seedProxyRoute(tb testing.TB, seed runtimeRouteSeed) se
 	strategyID := h.seedLegacyStrategy(tb, seed.ProfileID, "runtime-strategy-"+randomSuffix(), "round-robin")
 	targetModelConfigID := h.seedModel(tb, seed.ProfileID, seed.APIFamily, seed.TargetModelID, "native", &strategyID)
 	publicModelConfigID := h.seedModel(tb, seed.ProfileID, seed.APIFamily, seed.PublicModelID, "proxy", &strategyID)
+	if seed.OpenAIAcceptedFormat != nil {
+		h.setModelOpenAIAcceptedFormat(tb, seed.ProfileID, seed.PublicModelID, *seed.OpenAIAcceptedFormat)
+	} else if seed.APIFamily == "openai" && seed.OpenAITextCapability != nil {
+		h.setModelOpenAIAcceptedFormat(tb, seed.ProfileID, seed.PublicModelID, *seed.OpenAITextCapability)
+	}
 	h.seedProxyTarget(tb, publicModelConfigID, targetModelConfigID)
 	endpointID := h.seedEndpoint(tb, seed.ProfileID, "endpoint-"+randomSuffix(), seed.EndpointBaseURL, seed.EndpointAPIKey, 0)
 	connectionID := h.seedConnectionWithOpenAITextCapability(tb, seed.ProfileID, targetModelConfigID, endpointID, "connection-"+randomSuffix(), nil, seed.CustomHeaders, 0, seed.OpenAITextCapability)
@@ -736,6 +742,13 @@ func (h *runtimeHarness) seedAdaptiveStrategyWithRoutingPolicy(t *testing.T, pro
 		t.Skip("adaptive routing was removed; Task 12 verifies unified access-target planning instead")
 	}
 	return h.seedLegacyStrategy(t, profileID, name, "round-robin")
+}
+
+func (h *runtimeHarness) setModelOpenAIAcceptedFormat(tb testing.TB, profileID int, modelID string, mode string) {
+	tb.Helper()
+	if _, err := h.conn.Exec(context.Background(), `UPDATE model_configs SET openai_accepted_format = $1, updated_at = NOW() WHERE profile_id = $2 AND model_id = $3`, mode, profileID, modelID); err != nil {
+		tb.Fatalf("set model %q openai_accepted_format %q: %v", modelID, mode, err)
+	}
 }
 
 func (h *runtimeHarness) seedModel(tb testing.TB, profileID int, apiFamily string, modelID string, modelType string, strategyID *int) int {

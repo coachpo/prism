@@ -9,7 +9,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/coachpo/prism/backend/internal/openaimodecheck"
 	"github.com/coachpo/prism/backend/internal/platform/migrate"
+	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
 const (
@@ -28,6 +30,7 @@ const (
 	StepAppAuthSettingsSeed         Step = "app_auth_settings_seed"
 	StepEndpointSecretNormalization Step = "endpoint_secret_normalization"
 	StepHeaderBlocklistRuleSeed     Step = "header_blocklist_rule_seed"
+	StepOpenAITextModeCheck         Step = "openai_text_mode_check"
 )
 
 type Result struct {
@@ -122,6 +125,7 @@ func (s Service) RunWithConn(ctx context.Context, conn *pgx.Conn) (Result, error
 		{name: StepAppAuthSettingsSeed, run: s.seedAppAuthSettings},
 		{name: StepEndpointSecretNormalization, run: s.normalizeEndpointSecrets},
 		{name: StepHeaderBlocklistRuleSeed, run: s.seedHeaderBlocklistRules},
+		{name: StepOpenAITextModeCheck, run: s.checkOpenAITextModeEquality},
 	} {
 		if err := s.runStep(ctx, &result, step.name, func() error {
 			return step.run(ctx, conn)
@@ -140,6 +144,17 @@ func (s Service) runStep(ctx context.Context, result *Result, step Step, run fun
 		s.stepObserver(step)
 	}
 	return run()
+}
+
+func (s Service) checkOpenAITextModeEquality(ctx context.Context, conn *pgx.Conn) error {
+	report, err := openaimodecheck.Check(ctx, conn, profiledomain.DefaultProfileID)
+	if err != nil {
+		return fmt.Errorf("openai text mode equality check: %w", err)
+	}
+	if len(report.Violations) > 0 {
+		return fmt.Errorf("openai text mode equality check failed: %s", report.Summary())
+	}
+	return nil
 }
 
 func (s Service) timestamp() time.Time {

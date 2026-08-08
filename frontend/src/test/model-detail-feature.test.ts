@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { moveConnectionInList } from "@/pages/model-detail/useModelDetailDataSupport"
+import { createDefaultConnectionForm } from "@/pages/model-detail/useModelDetailDialogState"
 import { modelDetailQueryKeys } from "@/features/models/detail/queryKeys"
 import { modelDetailSearchSchema, normalizeModelDetailTab } from "@/features/models/detail/modelDetailSchemas"
 import type { Connection } from "@/lib/types"
@@ -54,6 +55,14 @@ describe("model detail feature contracts", () => {
     expect(modelDetailSearchSchema.parse({ tab: "events" })).toEqual({ tab: "events" })
     expect(modelDetailSearchSchema.parse({ tab: "stale" })).toEqual({ tab: "connections" })
     expect(normalizeModelDetailTab(undefined)).toBe("connections")
+  })
+
+  it("connection dialog form inherits the owner OpenAI mode", () => {
+    expect(createDefaultConnectionForm("openai", "chat_completions_only").openai_text_capability).toBe("chat_completions_only")
+    expect(createDefaultConnectionForm("openai", "responses_only").openai_text_capability).toBe("responses_only")
+    expect(createDefaultConnectionForm("openai", "dual_native").openai_text_capability).toBe("dual_native")
+    expect(createDefaultConnectionForm("openai").openai_text_capability).toBe("responses_only")
+    expect(createDefaultConnectionForm("anthropic", "dual_native").openai_text_capability).toBeNull()
   })
 
   it("optimistic reorder helper resequences priorities and preserves rollback input", () => {

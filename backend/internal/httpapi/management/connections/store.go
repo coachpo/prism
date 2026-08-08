@@ -22,11 +22,12 @@ type queryExecutor interface {
 }
 
 type modelRecord struct {
-	ID        int
-	ProfileID int
-	ModelID   string
-	APIFamily string
-	IsEnabled bool
+	ID                   int
+	ProfileID            int
+	ModelID              string
+	APIFamily            string
+	IsEnabled            bool
+	OpenAIAcceptedFormat *string
 }
 
 type endpointRecord struct {
@@ -47,6 +48,11 @@ type connectionReferenceRecord struct {
 	APIFamily     string
 	Position      int
 	IsEnabled     bool
+}
+
+type connectionReferenceModeRecord struct {
+	ModelID              string
+	OpenAIAcceptedFormat *string
 }
 
 type headerBlocklistRuleRecord struct {
@@ -83,7 +89,7 @@ type pricingTemplateResponse struct {
 const pricingTemplateSelectQuery = `SELECT id, profile_id, name, description, pricing_unit, pricing_currency_code, COALESCE(input_price, '0'), COALESCE(output_price, '0'), COALESCE(cached_input_price, '0'), COALESCE(cache_creation_price, '0'), COALESCE(reasoning_price, '0'), version, created_at, updated_at FROM pricing_templates`
 
 func loadModelRecord(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, forUpdate bool) (modelRecord, bool, error) {
-	query := `SELECT id, profile_id, model_id, api_family, is_enabled FROM model_configs WHERE profile_id = $1 AND id = $2`
+	query := `SELECT id, profile_id, model_id, api_family, is_enabled, openai_accepted_format FROM model_configs WHERE profile_id = $1 AND id = $2`
 	if forUpdate {
 		query += ` FOR UPDATE`
 	}
@@ -468,6 +474,28 @@ func listConnectionReferenceRows(ctx context.Context, exec queryExecutor, profil
 	return items, nil
 }
 
+func listConnectionReferenceModeRows(ctx context.Context, exec queryExecutor, profileID int, connectionID int) ([]connectionReferenceModeRecord, error) {
+	rows, err := exec.Query(ctx, `SELECT model_configs.model_id, model_configs.openai_accepted_format FROM model_access_targets JOIN model_configs ON model_configs.id = model_access_targets.source_model_config_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.target_connection_id = $2 ORDER BY model_configs.model_id ASC`, profileID, connectionID)
+	if err != nil {
+		return nil, fmt.Errorf("query connection %d reference modes for profile %d: %w", connectionID, profileID, err)
+	}
+	defer rows.Close()
+	items := make([]connectionReferenceModeRecord, 0)
+	for rows.Next() {
+		var item connectionReferenceModeRecord
+		var mode sql.NullString
+		if err := rows.Scan(&item.ModelID, &mode); err != nil {
+			return nil, fmt.Errorf("scan connection %d reference mode: %w", connectionID, err)
+		}
+		item.OpenAIAcceptedFormat = nullableStringValue(mode)
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate connection %d reference modes: %w", connectionID, err)
+	}
+	return items, nil
+}
+
 func listPricingTemplateConnectionUsageRows(ctx context.Context, exec queryExecutor, profileID int, templateID int) ([]pricingTemplateConnectionUsageRecord, error) {
 	rows, err := exec.Query(ctx, `SELECT connections.id, connections.name, model_access_targets.source_model_config_id, model_configs.model_id, connections.endpoint_id, endpoints.name FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id LEFT JOIN model_configs ON model_configs.id = model_access_targets.source_model_config_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id WHERE model_access_targets.profile_id = $1 AND connections.pricing_template_id = $2 ORDER BY connections.id ASC`, profileID, templateID)
 	if err != nil {
@@ -519,9 +547,11 @@ func scanConnectionRows(rows pgx.Rows, iterateContext string) ([]connectionRespo
 
 func scanModelRecord(scanner interface{ Scan(...any) error }) (modelRecord, error) {
 	record := modelRecord{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &record.ModelID, &record.APIFamily, &record.IsEnabled); err != nil {
+	var openAIAcceptedFormat sql.NullString
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &record.ModelID, &record.APIFamily, &record.IsEnabled, &openAIAcceptedFormat); err != nil {
 		return modelRecord{}, err
 	}
+	record.OpenAIAcceptedFormat = nullableStringValue(openAIAcceptedFormat)
 	return record, nil
 }
 

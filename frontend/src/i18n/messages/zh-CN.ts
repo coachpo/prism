@@ -646,6 +646,7 @@ export const zhCNMessages = {
     openaiTextCapabilityChatCompletionsOnly: "仅 Chat Completions",
     openaiTextCapabilityChatCompletionsOnlyHint: "此终端目标的 OpenAI 文本流量仅路由到 Chat Completions 操作。",
     openaiTextCapabilityDescription: "选择此终端目标支持的 OpenAI 文本运行时操作。",
+    openaiTextCapabilityLockedToOwner: "严格模式匹配：文本能力锁定为与所属模型相同的模式。",
     openaiTextCapabilityDualNative: "双原生",
     openaiTextCapabilityDualNativeHint: "OpenAI 文本流量可原生路由到 Responses 与 Chat Completions 两种操作。",
     openaiTextCapabilityResponsesOnly: "仅 Responses",

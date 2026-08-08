@@ -186,6 +186,9 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			return connectionResponse{}, err
 		}
+		if err := ensureOpenAITextCapabilityMatchesOwner(owner, openAITextCapability); err != nil {
+			return connectionResponse{}, err
+		}
 		pricingTemplateID, err := validatePricingTemplateID(r.Context(), tx, profile.ID, requestBody.PricingTemplateID)
 		if err != nil {
 			return connectionResponse{}, err
@@ -344,6 +347,14 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 		return connectionResponse{}, err
 	}
 	next.OpenAITextCapability = openAITextCapability
+	if !providerauth.OpenAITextModesMatch(current.OpenAITextCapability, openAITextCapability) {
+		if err := ensureOpenAITextCapabilityMatchesOwner(owner, openAITextCapability); err != nil {
+			return connectionResponse{}, err
+		}
+		if err := ensureConnectionModeChangeAllowed(ctx, tx, profileID, current.ID, openAITextCapability); err != nil {
+			return connectionResponse{}, err
+		}
+	}
 
 	if requestBody.EndpointCreate.Set && requestBody.EndpointCreate.Value != nil {
 		endpoint, err := s.createInlineEndpoint(ctx, tx, profileID, *requestBody.EndpointCreate.Value)
@@ -622,6 +633,33 @@ func validateOwnerScopedAPIFamily(value string, ownerAPIFamily string) error {
 	}
 	if apiFamily != "" && !providerauth.SameAPIFamily(apiFamily, ownerAPIFamily) {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: "api_family must match owner model api_family"}
+	}
+	return nil
+}
+
+func ensureOpenAITextCapabilityMatchesOwner(owner modelRecord, capability *string) error {
+	if !providerauth.IsOpenAI(owner.APIFamily) {
+		return nil
+	}
+	if !providerauth.OpenAITextModesMatch(owner.OpenAIAcceptedFormat, capability) {
+		return &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability must equal the owner model openai_accepted_format"}
+	}
+	return nil
+}
+
+func ensureConnectionModeChangeAllowed(ctx context.Context, exec queryExecutor, profileID int, connectionID int, capability *string) error {
+	references, err := listConnectionReferenceModeRows(ctx, exec, profileID, connectionID)
+	if err != nil {
+		return err
+	}
+	conflicting := make([]string, 0, len(references))
+	for _, reference := range references {
+		if !providerauth.OpenAITextModesMatch(capability, reference.OpenAIAcceptedFormat) {
+			conflicting = append(conflicting, reference.ModelID)
+		}
+	}
+	if len(conflicting) > 0 {
+		return &domainError{StatusCode: http.StatusConflict, Detail: fmt.Sprintf("Cannot change openai_text_capability: models [%s] target this connection", strings.Join(conflicting, ", "))}
 	}
 	return nil
 }

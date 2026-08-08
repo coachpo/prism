@@ -17,7 +17,7 @@ openai/
 - Runtime native-compatibility planning and hook coverage: `../../../httpapi/runtime/operation_translation.go`, `../../../httpapi/runtime/operation_response_hooks_test.go`, `../../../httpapi/runtime/operation_stream_hooks_test.go`
 
 ## CONVENTIONS
-- Planning order and native wire compatibility are owned by runtime access-target resolution; this adapter must not reorder attempts or convert sibling OpenAI operations.
+- Planning order and strict mode equality are owned by runtime access-target resolution; this adapter must not reorder attempts or convert sibling OpenAI operations.
 - Keep Responses adjunct operations native-only. `openai.responses.input_tokens` and `openai.responses.compact` require responses-capable targets.
 - Preserve canonical usage from native upstream response bodies; stream usage and terminal events remain runtime-hook responsibilities.
 

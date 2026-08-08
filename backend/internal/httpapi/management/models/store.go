@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
+	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
 type queryExecutor interface {
@@ -417,7 +419,7 @@ func loadConnectionAccessTargetsForModels(ctx context.Context, exec queryExecuto
 	return items, nil
 }
 
-func resolveAccessTargets(ctx context.Context, exec queryExecutor, profileID int, sourceModelConfigID *int, sourceModelID string, apiFamily string, accessTargets []modelAccessTargetRequest) ([]resolvedAccessTarget, error) {
+func resolveAccessTargets(ctx context.Context, exec queryExecutor, profileID int, sourceModelConfigID *int, sourceModelID string, apiFamily string, openAIAcceptedFormat *string, accessTargets []modelAccessTargetRequest) ([]resolvedAccessTarget, error) {
 	authoredTargets := modelrouting.SortAuthoredAccessTargets(modelRoutingTargetsFromRequests(accessTargets))
 	modelIDs := make([]string, 0)
 	connectionIDs := make([]int, 0)
@@ -439,7 +441,7 @@ func resolveAccessTargets(ctx context.Context, exec queryExecutor, profileID int
 	}
 
 	resolvedGraphTargets, issues := modelrouting.ResolveAuthoredAccessTargets(authoredTargets, modelrouting.ResolveOptions{
-		Source:              modelRoutingSourceNode(sourceModelConfigID, sourceModelID, profileID, apiFamily),
+		Source:              modelRoutingSourceNode(sourceModelConfigID, sourceModelID, profileID, apiFamily, openAIAcceptedFormat),
 		ModelsByID:          modelRoutingNodesByModelID(modelsByID),
 		TerminalTargetsByID: modelRoutingTerminalNodesByConnectionID(connectionsByID),
 		IssuePath:           modelRoutingResolveIssuePath,
@@ -451,18 +453,18 @@ func resolveAccessTargets(ctx context.Context, exec queryExecutor, profileID int
 	return resolvedAccessTargetsFromModelRouting(resolvedGraphTargets, modelsByID, connectionsByID), nil
 }
 
-func modelRoutingSourceNode(sourceModelConfigID *int, sourceModelID string, profileID int, apiFamily string) modelrouting.ModelNode {
+func modelRoutingSourceNode(sourceModelConfigID *int, sourceModelID string, profileID int, apiFamily string, openAIAcceptedFormat *string) modelrouting.ModelNode {
 	configID := 0
 	if sourceModelConfigID != nil {
 		configID = *sourceModelConfigID
 	}
-	return modelrouting.ModelNode{ConfigID: configID, ProfileID: profileID, ModelID: strings.TrimSpace(sourceModelID), APIFamily: apiFamily, IsEnabled: true}
+	return modelrouting.ModelNode{ConfigID: configID, ProfileID: profileID, ModelID: strings.TrimSpace(sourceModelID), APIFamily: apiFamily, IsEnabled: true, OpenAIAcceptedFormat: openAIAcceptedFormat}
 }
 
 func modelRoutingNodesByModelID(modelsByID map[string]modelRecord) map[string]modelrouting.ModelNode {
 	items := make(map[string]modelrouting.ModelNode, len(modelsByID))
 	for modelID, record := range modelsByID {
-		items[strings.TrimSpace(modelID)] = modelrouting.ModelNode{ConfigID: record.ID, ProfileID: record.ProfileID, ModelID: record.ModelID, APIFamily: record.APIFamily, IsEnabled: record.IsEnabled}
+		items[strings.TrimSpace(modelID)] = modelrouting.ModelNode{ConfigID: record.ID, ProfileID: record.ProfileID, ModelID: record.ModelID, APIFamily: record.APIFamily, IsEnabled: record.IsEnabled, OpenAIAcceptedFormat: record.OpenAIAcceptedFormat}
 	}
 	return items
 }
@@ -470,7 +472,7 @@ func modelRoutingNodesByModelID(modelsByID map[string]modelRecord) map[string]mo
 func modelRoutingTerminalNodesByConnectionID(connectionsByID map[int]connectionTargetSummary) map[int]modelrouting.TerminalTargetNode {
 	items := make(map[int]modelrouting.TerminalTargetNode, len(connectionsByID))
 	for connectionID, connection := range connectionsByID {
-		items[connectionID] = modelrouting.TerminalTargetNode{ID: connection.ID, ProfileID: connection.ProfileID, APIFamily: connection.APIFamily}
+		items[connectionID] = modelrouting.TerminalTargetNode{ID: connection.ID, ProfileID: connection.ProfileID, APIFamily: connection.APIFamily, OpenAITextCapability: connection.OpenAITextCapability}
 	}
 	return items
 }
@@ -667,6 +669,35 @@ func listAccessTargetReferrers(ctx context.Context, exec queryExecutor, profileI
 		return nil, fmt.Errorf("iterate access target referrers for model %d: %w", targetModelConfigID, err)
 	}
 	return items, nil
+}
+
+func ensureOpenAIAcceptedFormatChangeAllowed(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, accessTargets []accessTargetRecord, nextMode *string) error {
+	for _, target := range accessTargets {
+		if modelrouting.IsTerminalTargetType(target.TargetType) && target.Connection != nil {
+			if !providerauth.OpenAITextModesMatch(nextMode, target.Connection.OpenAITextCapability) {
+				return &domainError{StatusCode: http.StatusConflict, Detail: "Cannot change openai_accepted_format while connection access targets exist with a different openai_text_capability"}
+			}
+		}
+		if modelrouting.IsModelTargetType(target.TargetType) && target.TargetModel != nil {
+			if !providerauth.OpenAITextModesMatch(nextMode, target.TargetModel.OpenAIAcceptedFormat) {
+				return &domainError{StatusCode: http.StatusConflict, Detail: "Cannot change openai_accepted_format while model access targets exist with a different openai_accepted_format"}
+			}
+		}
+	}
+	referrers, err := listAccessTargetReferrers(ctx, exec, profileID, modelConfigID, nil)
+	if err != nil {
+		return err
+	}
+	conflicting := make([]string, 0, len(referrers))
+	for _, referrer := range referrers {
+		if !providerauth.OpenAITextModesMatch(nextMode, referrer.OpenAIAcceptedFormat) {
+			conflicting = append(conflicting, referrer.ModelID)
+		}
+	}
+	if len(conflicting) > 0 {
+		return &domainError{StatusCode: http.StatusConflict, Detail: fmt.Sprintf("Cannot change openai_accepted_format: models [%s] target this model", strings.Join(conflicting, ", "))}
+	}
+	return nil
 }
 
 func deleteSourceAccessTargets(ctx context.Context, tx pgx.Tx, sourceModelConfigID int) error {

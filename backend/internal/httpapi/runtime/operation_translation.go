@@ -21,7 +21,11 @@ func resolveTranslationMode(operation RuntimeOperation, openAIAcceptedFormat *st
 	if openAIAcceptedFormat == nil || openAITextCapability == nil {
 		return TranslationModeNone, false
 	}
-	return TranslationModeNone, providerauth.OpenAITextWireCompatibility(operation.Name, *openAIAcceptedFormat, *openAITextCapability) == providerauth.OpenAIWireCompatibilityNative
+	// Strict mode equality: dual_native, chat_completions_only, and responses_only
+	// may connect only to the identical mode. Wire-compatible but mode-different
+	// targets (for example dual_native source with a single-mode connection) are
+	// no longer eligible, so Chat Completions/Responses conversion is impossible.
+	return TranslationModeNone, providerauth.OpenAITextModesEqual(*openAIAcceptedFormat, *openAITextCapability)
 }
 
 func validateOpenAIModelAcceptedFormat(operation RuntimeOperation, requestedModel runtimeModelRecord) error {

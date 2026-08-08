@@ -746,6 +746,7 @@ func assertObservedStepOrder(t *testing.T, steps []startup.Step) {
 		startup.StepAppAuthSettingsSeed,
 		startup.StepEndpointSecretNormalization,
 		startup.StepHeaderBlocklistRuleSeed,
+		startup.StepOpenAITextModeCheck,
 	}
 	if len(steps) != len(want) {
 		t.Fatalf("expected startup steps %v, got %v", want, steps)

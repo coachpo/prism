@@ -5,6 +5,7 @@ import type {
   ConnectionCreate,
   Endpoint,
   EndpointCreate,
+  OpenAIAcceptedFormat,
 } from "@/lib/types";
 import {
   createDefaultEndpointForm,
@@ -34,6 +35,7 @@ export function createHeaderRow(overrides?: Partial<Pick<HeaderRow, "key" | "val
 
 export function createDefaultConnectionForm(
   apiFamily: ApiFamily | null = null,
+  openAIMode: OpenAIAcceptedFormat | null = null,
 ): ConnectionDialogForm {
   const resolvedApiFamily = apiFamily ?? "openai";
 
@@ -43,7 +45,7 @@ export function createDefaultConnectionForm(
     is_active: true,
     custom_headers: null,
     openai_text_capability:
-      resolvedApiFamily === "openai" ? normalizeOpenAITextCapability(undefined) : null,
+      resolvedApiFamily === "openai" ? normalizeOpenAITextCapability(openAIMode) : null,
     pricing_template_id: null,
     qps_limit: null,
     max_in_flight_non_stream: null,
@@ -78,11 +80,13 @@ export function createEditConnectionForm(
 
 interface UseModelDetailDialogStateInput {
   apiFamily: ApiFamily | null;
+  openAIMode?: OpenAIAcceptedFormat | null;
   globalEndpoints: Endpoint[];
 }
 
 export function useModelDetailDialogState({
   apiFamily,
+  openAIMode = null,
   globalEndpoints,
 }: UseModelDetailDialogStateInput) {
   const [isEditModelDialogOpen, setIsEditModelDialogOpen] = useState(false);
@@ -97,7 +101,7 @@ export function useModelDetailDialogState({
     ...createDefaultEndpointForm(),
   }));
   const [connectionFormState, setConnectionFormState] = useState<ConnectionDialogForm>(() => ({
-    ...createDefaultConnectionForm(apiFamily),
+    ...createDefaultConnectionForm(apiFamily, openAIMode),
   }));
   const [headerRows, setHeaderRows] = useState<HeaderRow[]>([]);
 
@@ -134,14 +138,13 @@ export function useModelDetailDialogState({
         createEditConnectionForm(connection, {
           apiFamily: apiFamily ?? connection.api_family,
         }),
-      );
-      setNewEndpointForm({ ...createDefaultEndpointForm() });
+      );      setNewEndpointForm({ ...createDefaultEndpointForm() });
       setCreateMode("select");
       setSelectedEndpointId(String(connection.endpoint_id));
     } else {
       setEditingConnection(null);
       setHeaderRows([]);
-      setConnectionFormState({ ...createDefaultConnectionForm(apiFamily) });
+      setConnectionFormState({ ...createDefaultConnectionForm(apiFamily, openAIMode) });
       setNewEndpointForm({ ...createDefaultEndpointForm() });
       setCreateMode("select");
       setSelectedEndpointId("");

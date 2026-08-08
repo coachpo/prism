@@ -20,6 +20,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
+	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
 type endpointModelsBatchRequest struct {
@@ -204,6 +205,11 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		if requestBody.APIFamily.Set && next.APIFamily != current.APIFamily && hasConnectionAccessTargetRecords(currentAccessTargetsByModel[current.ID]) {
 			return modelConfigResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: "Cannot change api_family while private connections exist"}
 		}
+		if requestBody.OpenAIAcceptedFormat.Set && providerauth.IsOpenAI(next.APIFamily) && !providerauth.OpenAITextModesMatch(next.OpenAIAcceptedFormat, current.OpenAIAcceptedFormat) {
+			if err := ensureOpenAIAcceptedFormatChangeAllowed(r.Context(), tx, profile.ID, current.ID, currentAccessTargetsByModel[current.ID], next.OpenAIAcceptedFormat); err != nil {
+				return modelConfigResponse{}, err
+			}
+		}
 		if requestBody.ModelID.Set && next.ModelID != current.ModelID {
 			if err := ensureModelIDAvailable(r.Context(), tx, profile.ID, next.ModelID, &current.ID); err != nil {
 				return modelConfigResponse{}, err
@@ -224,7 +230,7 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		if err := validateAccessTargetsForSourceModel(next.ModelID, targetInputs); err != nil {
 			return modelConfigResponse{}, err
 		}
-		resolvedTargets, err := resolveAccessTargets(r.Context(), tx, profile.ID, &current.ID, next.ModelID, next.APIFamily, targetInputs)
+		resolvedTargets, err := resolveAccessTargets(r.Context(), tx, profile.ID, &current.ID, next.ModelID, next.APIFamily, next.OpenAIAcceptedFormat, targetInputs)
 		if err != nil {
 			return modelConfigResponse{}, err
 		}
@@ -549,7 +555,7 @@ func (s *Service) replaceModelTargetsFromMutationItems(ctx context.Context, tx p
 	if err := validateAccessTargetsForSourceModel(model.ModelID, modelRequests); err != nil {
 		return nil, err
 	}
-	resolvedTargets, err := resolveAccessTargets(ctx, tx, profileID, &model.ID, model.ModelID, model.APIFamily, modelRequests)
+	resolvedTargets, err := resolveAccessTargets(ctx, tx, profileID, &model.ID, model.ModelID, model.APIFamily, model.OpenAIAcceptedFormat, modelRequests)
 	if err != nil {
 		return nil, err
 	}
@@ -1302,7 +1308,14 @@ func modelRoutingIssuesError(issues []modelrouting.ValidationIssue) error {
 	if len(issues) == 0 {
 		return nil
 	}
-	return routingPlanValidationError(http.StatusBadRequest, issues[0].Message, modelRoutingValidationIssues(issues))
+	statusCode := http.StatusBadRequest
+	for _, issue := range issues {
+		if issue.Code == modelrouting.OpenAITextModeMismatchIssueCode {
+			statusCode = http.StatusUnprocessableEntity
+			break
+		}
+	}
+	return routingPlanValidationError(statusCode, issues[0].Message, modelRoutingValidationIssues(issues))
 }
 
 func modelRoutingValidationIssues(issues []modelrouting.ValidationIssue) []routingPlanValidationIssue {

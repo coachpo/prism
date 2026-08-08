@@ -11,9 +11,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/coachpo/prism/backend/internal/openaimodecheck"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	"github.com/coachpo/prism/backend/internal/platform/lifecycle"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
+	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
+	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -42,6 +45,13 @@ func main() {
 	defer stop()
 
 	if err := run(ctx); err != nil {
+		var preflightErr *preflightExitError
+		if errors.As(err, &preflightErr) {
+			if preflightErr.err != nil {
+				slog.Error("openai mode preflight failed", "error", preflightErr.err)
+			}
+			os.Exit(preflightErr.code)
+		}
 		if fatal, ok := err.(runError); ok {
 			slog.Error(fatal.message, "error", fatal.err)
 		} else {
@@ -80,6 +90,16 @@ func run(ctx context.Context) error {
 	if shouldPrintEffectiveStartupSettings() {
 		if err := printEffectiveStartupSettings(bootstrapConfig.ConfigPath, settings); err != nil {
 			return newRunError("failed to print effective startup settings", err)
+		}
+		return nil
+	}
+	if shouldRunOpenAIModePreflight() {
+		exitCode, err := runOpenAIModePreflight(ctx, settings)
+		if err != nil {
+			return &preflightExitError{code: 2, err: err}
+		}
+		if exitCode != 0 {
+			return &preflightExitError{code: exitCode}
 		}
 		return nil
 	}
@@ -182,6 +202,52 @@ func reseedBootstrapConfig(manager config.BootstrapConfigManager, bootstrapConfi
 
 func shouldPrintEffectiveStartupSettings() bool {
 	return os.Getenv("PRISM_PRINT_EFFECTIVE_STARTUP_SETTINGS") == "1"
+}
+
+func shouldRunOpenAIModePreflight() bool {
+	return os.Getenv("PRISM_OPENAI_MODE_PREFLIGHT") == "1"
+}
+
+type preflightExitError struct {
+	code int
+	err  error
+}
+
+func (e *preflightExitError) Error() string {
+	if e.err != nil {
+		return fmt.Sprintf("openai mode preflight failed with exit code %d: %v", e.code, e.err)
+	}
+	return fmt.Sprintf("openai mode preflight failed with exit code %d", e.code)
+}
+
+func (e *preflightExitError) Unwrap() error {
+	return e.err
+}
+
+// newOpenAIModePreflightCheck is the injectable preflight database seam.
+// The real implementation connects read-only to the bootstrap database and
+// performs the deterministic openai-mode equality scan.
+var newOpenAIModePreflightCheck = func(ctx context.Context, databaseURL string) (openaimodecheck.Report, error) {
+	conn, err := pgx.Connect(ctx, databaseURL)
+	if err != nil {
+		return openaimodecheck.Report{}, err
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	return openaimodecheck.Check(ctx, conn, profiledomain.DefaultProfileID)
+}
+
+func runOpenAIModePreflight(ctx context.Context, settings config.Settings) (int, error) {
+	report, err := newOpenAIModePreflightCheck(ctx, settings.DatabaseURL)
+	if err != nil {
+		return 2, fmt.Errorf("run openai mode preflight check: %w", err)
+	}
+	if _, err := fmt.Fprintln(os.Stdout, report.String()); err != nil {
+		return 2, fmt.Errorf("write openai mode preflight report: %w", err)
+	}
+	if len(report.Violations) > 0 {
+		return 1, nil
+	}
+	return 0, nil
 }
 
 func printEffectiveStartupSettings(bootstrapConfigPath string, settings config.Settings) error {

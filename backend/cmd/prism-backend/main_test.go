@@ -15,10 +15,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coachpo/prism/backend/internal/openaimodecheck"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	"github.com/coachpo/prism/backend/internal/platform/lifecycle"
 	"github.com/coachpo/prism/backend/internal/platform/migrate"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
+	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
 func TestLoadBootstrapSettingsDefaultsToLocalConfigJSON(t *testing.T) {
@@ -154,6 +156,95 @@ func TestLoadBootstrapConfigDocumentWithRepair(t *testing.T) {
 		}
 		assertBootstrapConfigFileStatePreserved(t, configPath, before)
 	})
+}
+
+func TestRunOpenAIModePreflightCompliantExitsBeforeStartupAndServerWork(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "preflight-ok-bootstrap.json")
+	databaseURL := "postgres://preflight@db.invalid:5432/prism?sslmode=disable"
+	t.Setenv(config.BootstrapConfigPathEnv, configPath)
+	t.Setenv("DATABASE_URL", databaseURL)
+	t.Setenv("PRISM_OPENAI_MODE_PREFLIGHT", "1")
+
+	original := newOpenAIModePreflightCheck
+	newOpenAIModePreflightCheck = func(context.Context, string) (openaimodecheck.Report, error) {
+		return openaimodecheck.Report{ProfileID: profiledomain.DefaultProfileID}, nil
+	}
+	defer func() { newOpenAIModePreflightCheck = original }()
+
+	var runErr error
+	outputText := captureStdout(t, func() {
+		runErr = run(context.Background())
+	})
+	if runErr != nil {
+		t.Fatalf("run openai mode preflight: %v", runErr)
+	}
+	if !strings.Contains(outputText, "openai_mode_preflight profile=1 violations=0") {
+		t.Fatalf("expected compliant preflight report, got %q", outputText)
+	}
+	assertNoStartupOrServerWorkLogged(t, outputText)
+}
+
+func TestRunOpenAIModePreflightViolationsReturnExitCodeOne(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "preflight-violation-bootstrap.json")
+	databaseURL := "postgres://preflight@db.invalid:5432/prism?sslmode=disable"
+	t.Setenv(config.BootstrapConfigPathEnv, configPath)
+	t.Setenv("DATABASE_URL", databaseURL)
+	t.Setenv("PRISM_OPENAI_MODE_PREFLIGHT", "1")
+
+	original := newOpenAIModePreflightCheck
+	newOpenAIModePreflightCheck = func(context.Context, string) (openaimodecheck.Report, error) {
+		return openaimodecheck.Report{ProfileID: profiledomain.DefaultProfileID, Violations: []openaimodecheck.Violation{
+			{SourceModelID: "source-a", RelationKind: openaimodecheck.RelationKindModelTarget, TargetID: "target-b", SourceMode: "dual_native", TargetMode: "responses_only"},
+		}}, nil
+	}
+	defer func() { newOpenAIModePreflightCheck = original }()
+
+	var runErr error
+	outputText := captureStdout(t, func() {
+		runErr = run(context.Background())
+	})
+	var preflightErr *preflightExitError
+	if !errors.As(runErr, &preflightErr) {
+		t.Fatalf("expected preflight exit error, got %v", runErr)
+	}
+	if preflightErr.code != 1 {
+		t.Fatalf("expected preflight exit code 1 for violations, got %d", preflightErr.code)
+	}
+	for _, expected := range []string{
+		"openai_mode_preflight profile=1 violations=1",
+		"model_target source=source-a target=target-b source_mode=dual_native target_mode=responses_only",
+	} {
+		if !strings.Contains(outputText, expected) {
+			t.Fatalf("expected preflight report to contain %q, got %q", expected, outputText)
+		}
+	}
+	assertNoStartupOrServerWorkLogged(t, outputText)
+}
+
+func TestRunOpenAIModePreflightCheckFailureReturnsExitCodeTwo(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "preflight-error-bootstrap.json")
+	databaseURL := "postgres://preflight@db.invalid:5432/prism?sslmode=disable"
+	t.Setenv(config.BootstrapConfigPathEnv, configPath)
+	t.Setenv("DATABASE_URL", databaseURL)
+	t.Setenv("PRISM_OPENAI_MODE_PREFLIGHT", "1")
+
+	original := newOpenAIModePreflightCheck
+	newOpenAIModePreflightCheck = func(context.Context, string) (openaimodecheck.Report, error) {
+		return openaimodecheck.Report{}, errors.New("preflight database unavailable")
+	}
+	defer func() { newOpenAIModePreflightCheck = original }()
+
+	runErr := run(context.Background())
+	var preflightErr *preflightExitError
+	if !errors.As(runErr, &preflightErr) {
+		t.Fatalf("expected preflight exit error, got %v", runErr)
+	}
+	if preflightErr.code != 2 {
+		t.Fatalf("expected preflight exit code 2 for check failure, got %d", preflightErr.code)
+	}
+	if preflightErr.err == nil || !strings.Contains(preflightErr.err.Error(), "preflight database unavailable") {
+		t.Fatalf("expected preflight check error to propagate, got %v", preflightErr.err)
+	}
 }
 
 func TestRunPrintEffectiveStartupSettingsReturnsBeforeStartupAndServerWork(t *testing.T) {

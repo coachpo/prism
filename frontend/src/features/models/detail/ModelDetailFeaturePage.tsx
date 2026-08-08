@@ -144,6 +144,7 @@ export function ModelDetailFeaturePage({
         isOpen={data.isConnectionDialogOpen}
         onOpenChange={data.setIsConnectionDialogOpen}
         apiFamily={model.api_family}
+        ownerOpenAIMode={model.openai_accepted_format ?? null}
         editingConnection={data.editingConnection}
         connectionForm={data.connectionForm}
         setConnectionForm={data.setConnectionForm}
