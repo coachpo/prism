@@ -1,4 +1,4 @@
-<!-- Generated: 2026-07-09 | branch: main | commit: 76f4ab62 -->
+<!-- Generated: 2026-08-08 | branch: docs/write-agents | commit: a4708acb -->
 # PRISM REPO KNOWLEDGE BASE
 
 ## OVERVIEW
@@ -27,7 +27,7 @@ prism/
 - `backend/internal/httpapi/management/AGENTS.md`: `/api/*` management fanout and shared management conventions; leaf docs live below it.
 - `backend/internal/httpapi/runtime/AGENTS.md`: operation-registered proxy surfaces.
 - `frontend/AGENTS.md`: React/Vite dashboard root, route shell, providers, shadcn config, and frontend tests.
-- `frontend/src/AGENTS.md`: frontend source router for app, features, pages, components, context, hooks, i18n, shared, lib, shell, and tests.
+- `frontend/src/AGENTS.md`: frontend source router for app, features, pages, components, context, hooks, i18n, shared, lib, and test.
 - `frontend/src/{app,features,pages,components,context,hooks,i18n,shared,lib}/AGENTS.md`: frontend route, shell, page, provider, hook, locale, API, and shared UI seams; `shared/design-system/AGENTS.md` and `lib/types/AGENTS.md` own high-centrality leaves.
 - `backend/tests/AGENTS.md`: Go regression root; `tests/contract/AGENTS.md`, `tests/integration/AGENTS.md`, and `tests/runtime/AGENTS.md` own the large suite boundaries.
 - `frontend/tests/AGENTS.md`: Playwright browser flows plus frontend seam/server/lib contract boundaries; `tests/e2e/AGENTS.md` and `tests/lib/AGENTS.md` own the large runner-specific leaves.

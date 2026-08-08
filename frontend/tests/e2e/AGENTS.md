@@ -11,7 +11,8 @@ e2e/
 ├── models-access-target-authoring.spec.ts
 ├── request-log-dedicated-audit-page.spec.ts
 ├── shared-chart-statistics.spec.ts
-└── dashboard-aggregate-fixtures.ts
+├── dashboard-aggregate-fixtures.ts
+└── request-log-dedicated-audit-fixtures.ts
 ```
 
 ## WHERE TO LOOK
@@ -20,7 +21,7 @@ e2e/
 - Auth journey: `auth-session-lifecycle.spec.ts`
 - Load-balance recovery journey: `loadbalance-strategies-recovery.spec.ts`
 - Model access-target authoring journey: `models-access-target-authoring.spec.ts`
-- Request-log + audit journey: `request-log-dedicated-audit-page.spec.ts`
+- Request-log + audit journey: `request-log-dedicated-audit-page.spec.ts`; shared request-log/audit fixture builders: `request-log-dedicated-audit-fixtures.ts`
 - Shared statistics/chart journey: `shared-chart-statistics.spec.ts`
 
 ## CONVENTIONS
