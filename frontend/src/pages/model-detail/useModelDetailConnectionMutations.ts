@@ -233,17 +233,15 @@ export function useModelDetailConnectionMutations({
   );
 
   const handleMoveAccessTarget = useCallback(
-    async (index: number, toIndex: number) => {
+    async (targetRowId: number, toIndex: number) => {
       if (!Number.isFinite(modelConfigId)) return;
-      const target = model?.access_targets[index] ?? null;
+      const target = model?.access_targets.find((candidate) => candidate.id === targetRowId) ?? null;
       if (!target) return;
-      if (isTerminalTargetAccessTargetType(target.target_type)
-        && !getOwnedConnectionTarget(model, modelConfigId, getTerminalTargetId(target) ?? -1)) {
-        toast.error(TERMINAL_TARGET_OWNER_MISMATCH);
-        return;
-      }
+      // Position belongs to the mixed access-target row, not to the referenced
+      // connection. A read-only/foreign terminal target can still participate
+      // in ordering even though its detail mutations remain ownership-guarded.
       try {
-        const targets = await api.models.targets.movePosition(modelConfigId, target.id, toIndex);
+        const targets = await api.models.targets.movePosition(modelConfigId, targetRowId, toIndex);
         applyTargets(targets);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Failed to reorder access target");
@@ -254,9 +252,9 @@ export function useModelDetailConnectionMutations({
   );
 
   const handleToggleAccessTarget = useCallback(
-    async (index: number, enabled: boolean) => {
+    async (targetRowId: number, enabled: boolean) => {
       if (!Number.isFinite(modelConfigId)) return;
-      const target = model?.access_targets[index] ?? null;
+      const target = model?.access_targets.find((candidate) => candidate.id === targetRowId) ?? null;
       if (!target) return;
       if (isTerminalTargetAccessTargetType(target.target_type)
         && !getOwnedConnectionTarget(model, modelConfigId, getTerminalTargetId(target) ?? -1)) {
@@ -264,7 +262,7 @@ export function useModelDetailConnectionMutations({
         return;
       }
       try {
-        const targets = await api.models.targets.update(modelConfigId, target.id, { is_enabled: enabled });
+        const targets = await api.models.targets.update(modelConfigId, targetRowId, { is_enabled: enabled });
         applyTargets(targets);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Failed to update access target");
@@ -275,9 +273,9 @@ export function useModelDetailConnectionMutations({
   );
 
   const handleDeleteAccessTarget = useCallback(
-    async (index: number) => {
+    async (targetRowId: number) => {
       if (!Number.isFinite(modelConfigId)) return;
-      const target = model?.access_targets[index] ?? null;
+      const target = model?.access_targets.find((candidate) => candidate.id === targetRowId) ?? null;
       if (!target) return;
       if (isTerminalTargetAccessTargetType(target.target_type)
         && !getOwnedConnectionTarget(model, modelConfigId, getTerminalTargetId(target) ?? -1)) {
@@ -285,7 +283,7 @@ export function useModelDetailConnectionMutations({
         return;
       }
       try {
-        const targets = await api.models.targets.delete(modelConfigId, target.id);
+        const targets = await api.models.targets.delete(modelConfigId, targetRowId);
         applyTargets(targets);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Failed to remove access target");

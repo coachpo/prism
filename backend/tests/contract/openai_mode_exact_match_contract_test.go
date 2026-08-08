@@ -42,7 +42,7 @@ func modelInsertOpenAIConnectionTarget(t *testing.T, harness *contractHarness, p
 	}
 }
 
-func modelLoadModelTargetID(t *testing.T, harness *contractHarness, sourceModelConfigID int, targetModelID string) int {
+func modelLoadModelTargetIDByModelID(t *testing.T, harness *contractHarness, sourceModelConfigID int, targetModelID string) int {
 	t.Helper()
 	var targetID int
 	if err := harness.conn.QueryRow(context.Background(), `SELECT mat.id FROM model_access_targets mat JOIN model_configs tgt ON tgt.id = mat.target_model_config_id WHERE mat.source_model_config_id = $1 AND tgt.model_id = $2`, sourceModelConfigID, targetModelID).Scan(&targetID); err != nil {
@@ -110,7 +110,7 @@ func TestOpenAIModeExactMatchModelTargetAuthoring(t *testing.T) {
 	assertCountQuery(t, harness, `SELECT COUNT(*) FROM model_access_targets WHERE source_model_config_id = $1`, responsesModelID, 1)
 
 	// Retargeting an existing same-mode target to a cross-mode model is rejected.
-	sameModeTargetID := modelLoadModelTargetID(t, harness, responsesModelID, "mode-responses-target")
+	sameModeTargetID := modelLoadModelTargetIDByModelID(t, harness, responsesModelID, "mode-responses-target")
 	response := modelResponse(t, harness, profileID, http.MethodPatch, modelTargetItemPath(responsesModelID, sameModeTargetID), map[string]any{"target_type": "model", "target_model_id": "mode-chat-target", "is_enabled": true})
 	assertModeMismatchRejection(t, response, http.StatusUnprocessableEntity)
 

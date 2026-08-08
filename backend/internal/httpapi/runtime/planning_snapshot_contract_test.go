@@ -98,8 +98,11 @@ func TestBuildPlanningSnapshotFreezesRoutingAssemblyContract(t *testing.T) {
 	}
 
 	compiledModel := routingPlan.ModelsByID["router-openai"]
-	if !compiledModel.HasStrategy || compiledModel.Strategy.ID != 303 || len(compiledModel.OrderedTerminalTargets) != 1 {
-		t.Fatalf("expected routing plan to carry strategy and terminal target, got %+v", compiledModel)
+	if !compiledModel.HasStrategy || compiledModel.Strategy.ID != 303 || len(compiledModel.OrderedEnabledTargets) != 1 {
+		t.Fatalf("expected routing plan to carry strategy and ordered mixed targets, got %+v", compiledModel)
+	}
+	if compiledModel.OrderedEnabledTargets[0].TargetType != runtimeAccessTargetTypeConnection || compiledModel.OrderedEnabledTargets[0].Position != 2 {
+		t.Fatalf("expected ordered mixed targets to keep the terminal row, got %+v", compiledModel.OrderedEnabledTargets)
 	}
 	if terminal := routingPlan.TerminalTargetsByID[901]; terminal.Endpoint.ID != 801 || terminal.UpstreamAuth == nil {
 		t.Fatalf("expected compiled routing plan to index terminal targets by connection id, got %+v", terminal)

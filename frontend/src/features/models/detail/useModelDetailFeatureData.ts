@@ -16,7 +16,6 @@ import {
 } from "@/pages/model-detail/useModelDetailDataSupport"
 import { useConnectionFocus } from "@/pages/model-detail/useConnectionFocus"
 import { useModelDetailBootstrap } from "@/pages/model-detail/useModelDetailBootstrap"
-import { useModelDetailConnectionFlows } from "@/pages/model-detail/useModelDetailConnectionFlows"
 import { useModelDetailConnectionMutations } from "@/pages/model-detail/useModelDetailConnectionMutations"
 import { useModelDetailDialogState } from "@/pages/model-detail/useModelDetailDialogState"
 import { useModelDetailModelForm } from "@/pages/model-detail/useModelDetailModelForm"
@@ -126,16 +125,6 @@ export function useModelDetailFeatureData({
     modelConfigId,
     revision,
     enabled: Boolean(model),
-  })
-
-  const {
-    reorderInFlight,
-    handleReorderConnections,
-  } = useModelDetailConnectionFlows({
-    model,
-    modelConfigId,
-    connections,
-    setConnections,
   })
 
   const {
@@ -266,8 +255,6 @@ export function useModelDetailFeatureData({
     handleDeleteAccessTarget,
     handleEditModelSubmit,
     pricingTemplates,
-    reorderInFlight,
-    handleReorderConnections,
     handleResetCooldown: resetCooldown,
   }
 }

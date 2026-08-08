@@ -33,25 +33,6 @@ func requireConnectionDomainError(t *testing.T, err error, status int, detail st
 	}
 }
 
-func TestNormalizeConnectionPriorities(t *testing.T) {
-	now := time.Date(2026, time.April, 19, 12, 0, 0, 0, time.UTC)
-	items := []connectionResponse{{Priority: 5}, {Priority: 1}}
-	if changed := normalizeConnectionPriorities(items, now); !changed {
-		t.Fatal("expected mismatched priorities to be normalized")
-	}
-	if items[0].Priority != 0 || items[1].Priority != 1 {
-		t.Fatalf("expected normalized priorities [0 1], got [%d %d]", items[0].Priority, items[1].Priority)
-	}
-	if !items[0].UpdatedAt.Equal(now) {
-		t.Fatalf("expected normalized item updated_at to be set, got %v", items[0].UpdatedAt)
-	}
-
-	stable := []connectionResponse{{Priority: 0}, {Priority: 1}}
-	if changed := normalizeConnectionPriorities(stable, now); changed {
-		t.Fatal("expected already-normalized priorities not to report a change")
-	}
-}
-
 func TestValidateLimiterAndAuthType(t *testing.T) {
 	if err := validateLimiter("qps_limit", nil); err != nil {
 		t.Fatalf("expected nil limiter to pass, got %v", err)

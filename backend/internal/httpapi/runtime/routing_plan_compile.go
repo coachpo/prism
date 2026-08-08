@@ -26,8 +26,6 @@ func compileRuntimeRoutingPlan(snapshot *planningSnapshot) (*runtimeRoutingPlan,
 			compiled.Strategy = strategy
 		}
 		compiled.OrderedEnabledTargets = sortedEnabledRuntimeAccessTargets(snapshot.AccessTargetsBySourceModelID[model.ID])
-		compiled.OrderedFallbackTargets = cloneRuntimeAccessTargetRecords(compiled.OrderedEnabledTargets)
-		compiled.OrderedTerminalTargets = compileRuntimeRoutingPlanTerminalTargets(compiled.OrderedEnabledTargets)
 		plan.ModelsByID[modelID] = compiled
 		plan.ModelsByConfigID[model.ID] = compiled
 	}
@@ -41,17 +39,4 @@ func compileRuntimeRoutingPlan(snapshot *planningSnapshot) (*runtimeRoutingPlan,
 		plan.TerminalTargetsByID[connectionID] = snapshot.TerminalTargetsByID[connectionID]
 	}
 	return plan, nil
-}
-
-func compileRuntimeRoutingPlanTerminalTargets(targets []runtimeAccessTargetRecord) []runtimeAccessTargetRecord {
-	if len(targets) == 0 {
-		return nil
-	}
-	terminalTargets := make([]runtimeAccessTargetRecord, 0, len(targets))
-	for _, target := range targets {
-		if target.TargetType == runtimeAccessTargetTypeConnection {
-			terminalTargets = append(terminalTargets, target)
-		}
-	}
-	return terminalTargets
 }

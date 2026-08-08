@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -207,22 +206,22 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		}
 		now := s.nowUTC()
 		item := connectionResponse{
-			ProfileID:                profile.ID,
-			APIFamily:                owner.APIFamily,
-			EndpointID:               endpoint.ID,
-			IsActive:                 resolvedBool(requestBody.IsActive, true),
-			Priority:                 position,
-			Name:                     normalizeOptionalString(requestBody.Name),
-			AuthType:                 authType,
-			CustomHeaders:            normalizeHeaders(requestBody.CustomHeaders),
-			CustomRequestParameters:  customRequestParameters,
-			OpenAITextCapability:     openAITextCapability,
-			PricingTemplateID:        pricingTemplateID,
-			QPSLimit:                 requestBody.QPSLimit,
-			MaxInFlightNonStream:     requestBody.MaxInFlightNonStream,
-			MaxInFlightStream:        requestBody.MaxInFlightStream,
-			CreatedAt:                now,
-			UpdatedAt:                now,
+			ProfileID:               profile.ID,
+			APIFamily:               owner.APIFamily,
+			EndpointID:              endpoint.ID,
+			IsActive:                resolvedBool(requestBody.IsActive, true),
+			Priority:                position,
+			Name:                    normalizeOptionalString(requestBody.Name),
+			AuthType:                authType,
+			CustomHeaders:           normalizeHeaders(requestBody.CustomHeaders),
+			CustomRequestParameters: customRequestParameters,
+			OpenAITextCapability:    openAITextCapability,
+			PricingTemplateID:       pricingTemplateID,
+			QPSLimit:                requestBody.QPSLimit,
+			MaxInFlightNonStream:    requestBody.MaxInFlightNonStream,
+			MaxInFlightStream:       requestBody.MaxInFlightStream,
+			CreatedAt:               now,
+			UpdatedAt:               now,
 		}
 		connectionID, err := insertTerminalTarget(r.Context(), tx, terminalTargetRecordFromConnectionResponse(item))
 		if err != nil {
@@ -602,19 +601,6 @@ func (s *Service) createInlineEndpoint(ctx context.Context, tx pgx.Tx, profileID
 		return endpointRecord{}, err
 	}
 	return insertEndpoint(ctx, tx, endpointRecord{ProfileID: profileID, Name: endpointName, BaseURL: normalizedURL, APIKey: encryptedAPIKey, Position: position, CreatedAt: s.nowUTC(), UpdatedAt: s.nowUTC()})
-}
-
-func normalizeConnectionPriorities(items []connectionResponse, currentTime time.Time) bool {
-	changed := false
-	for index := range items {
-		if items[index].Priority == index {
-			continue
-		}
-		items[index].Priority = index
-		items[index].UpdatedAt = currentTime
-		changed = true
-	}
-	return changed
 }
 
 func validateLimiter(fieldName string, value *int) error {

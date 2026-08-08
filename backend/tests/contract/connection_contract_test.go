@@ -1,11 +1,17 @@
 package contracttest
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
+
+	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
 func TestConnectionStandaloneMutationRejections(t *testing.T) {
@@ -142,6 +148,214 @@ func TestTargetRouteCRUD(t *testing.T) {
 	decodeJSONResponse(t, toggleConnectionTarget, &targets)
 	assertTargetRouteOrder(t, targets, []expectedAccessTarget{{TargetType: "model", TargetModelID: "s9-target-route-model", Position: 0, IsEnabled: true}, {TargetType: "connection", ConnectionID: connectionID, Position: 1, IsEnabled: false}})
 	_ = targetModelID
+
+	// SPEC §14.1: a second terminal target and a second model target must join
+	// the same global mixed list; creates append to the global tail.
+	secondTargetModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-target-route-model-2", nil, "native", &strategyID, true)
+	createSecondConnection := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", sourceModelID), map[string]any{"endpoint_id": endpointBID, "openai_text_capability": "dual_native", "is_active": true, "name": "Owner Route Connection Two"}, modelHeader(defaultProfileID))
+	assertStatus(t, createSecondConnection, http.StatusCreated)
+	var secondConnectionPayload map[string]any
+	decodeJSONResponse(t, createSecondConnection, &secondConnectionPayload)
+	secondConnectionID := jsonInt(t, secondConnectionPayload["id"])
+	secondConnectionTargetID := modelLoadConnectionTargetID(t, harness, sourceModelID, secondConnectionID)
+
+	createSecondModelTarget := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/targets", sourceModelID), map[string]any{"target_type": "model", "target_model_id": "s9-target-route-model-2", "position": 2, "is_enabled": true}, modelHeader(defaultProfileID))
+	assertStatus(t, createSecondModelTarget, http.StatusCreated)
+	decodeJSONResponse(t, createSecondModelTarget, &targets)
+	assertTargetRouteOrder(t, targets, []expectedAccessTarget{
+		{TargetType: "model", TargetModelID: "s9-target-route-model", Position: 0, IsEnabled: true},
+		{TargetType: "connection", ConnectionID: connectionID, Position: 1, IsEnabled: false},
+		{TargetType: "model", TargetModelID: "s9-target-route-model-2", Position: 2, IsEnabled: true},
+		{TargetType: "connection", ConnectionID: secondConnectionID, Position: 3, IsEnabled: true},
+	})
+	secondModelTargetID := jsonInt(t, targets[2]["id"])
+
+	// Cross-type move: terminal 1 to the global front, then the second model
+	// target between the two terminal rows (T1, M2, M1, T2).
+	moveTerminalFront := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/targets/%d/position", sourceModelID, secondConnectionTargetID), map[string]any{"to_index": 0}, modelHeader(defaultProfileID))
+	assertStatus(t, moveTerminalFront, http.StatusOK)
+	decodeJSONResponse(t, moveTerminalFront, &targets)
+	assertTargetRouteOrder(t, targets, []expectedAccessTarget{
+		{TargetType: "connection", ConnectionID: secondConnectionID, Position: 0, IsEnabled: true},
+		{TargetType: "model", TargetModelID: "s9-target-route-model", Position: 1, IsEnabled: true},
+		{TargetType: "connection", ConnectionID: connectionID, Position: 2, IsEnabled: false},
+		{TargetType: "model", TargetModelID: "s9-target-route-model-2", Position: 3, IsEnabled: true},
+	})
+	moveModelBetweenTerminals := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/targets/%d/position", sourceModelID, secondModelTargetID), map[string]any{"to_index": 1}, modelHeader(defaultProfileID))
+	assertStatus(t, moveModelBetweenTerminals, http.StatusOK)
+	decodeJSONResponse(t, moveModelBetweenTerminals, &targets)
+	assertTargetRouteOrder(t, targets, []expectedAccessTarget{
+		{TargetType: "connection", ConnectionID: secondConnectionID, Position: 0, IsEnabled: true},
+		{TargetType: "model", TargetModelID: "s9-target-route-model-2", Position: 1, IsEnabled: true},
+		{TargetType: "model", TargetModelID: "s9-target-route-model", Position: 2, IsEnabled: true},
+		{TargetType: "connection", ConnectionID: connectionID, Position: 3, IsEnabled: false},
+	})
+
+	// The move response must equal a subsequent read, and the model detail
+	// embed must expose the identical mixed list.
+	readBack := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/models/%d/targets", sourceModelID), nil, modelHeader(defaultProfileID))
+	assertStatus(t, readBack, http.StatusOK)
+	var readTargets []map[string]any
+	decodeJSONResponse(t, readBack, &readTargets)
+	assertTargetRouteOrder(t, readTargets, []expectedAccessTarget{
+		{TargetType: "connection", ConnectionID: secondConnectionID, Position: 0, IsEnabled: true},
+		{TargetType: "model", TargetModelID: "s9-target-route-model-2", Position: 1, IsEnabled: true},
+		{TargetType: "model", TargetModelID: "s9-target-route-model", Position: 2, IsEnabled: true},
+		{TargetType: "connection", ConnectionID: connectionID, Position: 3, IsEnabled: false},
+	})
+	detailRead := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/models/%d", sourceModelID), nil, modelHeader(defaultProfileID))
+	assertStatus(t, detailRead, http.StatusOK)
+	var detailPayload map[string]any
+	decodeJSONResponse(t, detailRead, &detailPayload)
+	rawDetailTargets, ok := detailPayload["access_targets"].([]any)
+	if !ok {
+		t.Fatalf("expected model detail to embed access_targets list, got %+v", detailPayload)
+	}
+	detailTargets := make([]map[string]any, 0, len(rawDetailTargets))
+	for _, rawTarget := range rawDetailTargets {
+		detailTargets = append(detailTargets, asMap(t, rawTarget))
+	}
+	assertTargetRouteOrder(t, detailTargets, []expectedAccessTarget{
+		{TargetType: "connection", ConnectionID: secondConnectionID, Position: 0, IsEnabled: true},
+		{TargetType: "model", TargetModelID: "s9-target-route-model-2", Position: 1, IsEnabled: true},
+		{TargetType: "model", TargetModelID: "s9-target-route-model", Position: 2, IsEnabled: true},
+		{TargetType: "connection", ConnectionID: connectionID, Position: 3, IsEnabled: false},
+	})
+
+	// Enable/disable keeps the authored mixed position.
+	toggleModelTarget := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/targets/%d", sourceModelID, secondModelTargetID), map[string]any{"is_enabled": false}, modelHeader(defaultProfileID))
+	assertStatus(t, toggleModelTarget, http.StatusOK)
+	decodeJSONResponse(t, toggleModelTarget, &targets)
+	assertTargetRouteOrder(t, targets, []expectedAccessTarget{
+		{TargetType: "connection", ConnectionID: secondConnectionID, Position: 0, IsEnabled: true},
+		{TargetType: "model", TargetModelID: "s9-target-route-model-2", Position: 1, IsEnabled: false},
+		{TargetType: "model", TargetModelID: "s9-target-route-model", Position: 2, IsEnabled: true},
+		{TargetType: "connection", ConnectionID: connectionID, Position: 3, IsEnabled: false},
+	})
+
+	// Connection metadata updates must not mirror the mixed access-target
+	// position back into the legacy connections.priority column.
+	updateMovedConnection := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", sourceModelID, connectionID), map[string]any{"name": "Owner Route Connection Rechecked"}, modelHeader(defaultProfileID))
+	assertStatus(t, updateMovedConnection, http.StatusOK)
+	var legacyPriority int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT priority FROM connections WHERE id = $1`, connectionID).Scan(&legacyPriority); err != nil {
+		t.Fatalf("query legacy connection priority: %v", err)
+	}
+	if legacyPriority != 0 {
+		t.Fatalf("expected legacy connection priority to remain detached from mixed position, got %d", legacyPriority)
+	}
+
+	// Cross-type delete compact: removing terminal 1 compacts positions across
+	// both types (model rows shift down).
+	deleteFirstTerminal := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d/targets/%d", sourceModelID, secondConnectionTargetID), nil, modelHeader(defaultProfileID))
+	assertStatus(t, deleteFirstTerminal, http.StatusOK)
+	decodeJSONResponse(t, deleteFirstTerminal, &targets)
+	assertTargetRouteOrder(t, targets, []expectedAccessTarget{
+		{TargetType: "model", TargetModelID: "s9-target-route-model-2", Position: 0, IsEnabled: false},
+		{TargetType: "model", TargetModelID: "s9-target-route-model", Position: 1, IsEnabled: true},
+		{TargetType: "connection", ConnectionID: connectionID, Position: 2, IsEnabled: false},
+	})
+	_ = secondTargetModelID
+}
+
+func TestTargetRouteConcurrentMutationsKeepMixedInvariant(t *testing.T) {
+	harness := newEndpointConnectionContractHarness(t)
+	defaultProfileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S9 Concurrent Target Strategy")
+	sourceModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-concurrent-target-source", nil, "native", &strategyID, true)
+	targetModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-concurrent-target-model", nil, "native", &strategyID, true)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Concurrent Target Endpoint", 0)
+	connectionID := modelInsertConnection(t, harness, defaultProfileID, sourceModelID, endpointID, 0, true, nil)
+	modelInsertConnection(t, harness, defaultProfileID, sourceModelID, endpointID, 1, true, nil)
+	modelInsertModelTarget(t, harness, defaultProfileID, sourceModelID, targetModelID, 2, true)
+	connectionTargetID := modelLoadConnectionTargetID(t, harness, sourceModelID, connectionID)
+	modelTargetID := modelLoadModelTargetID(t, harness, sourceModelID, targetModelID)
+
+	// Two concurrent cross-type moves on the same source model must serialize
+	// on the profile lock; neither may produce duplicate or non-contiguous
+	// positions and both must commit.
+	statuses := make([]int, 2)
+	requestErrors := make([]error, 2)
+	moves := []struct {
+		targetID int
+		toIndex  int
+	}{
+		{targetID: connectionTargetID, toIndex: 0},
+		{targetID: modelTargetID, toIndex: 2},
+	}
+	var waitGroup sync.WaitGroup
+	for index, move := range moves {
+		waitGroup.Add(1)
+		go func(index int, targetID int, toIndex int) {
+			defer waitGroup.Done()
+			rawBody, err := json.Marshal(map[string]any{"to_index": toIndex})
+			if err != nil {
+				requestErrors[index] = err
+				return
+			}
+			request, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/models/%d/targets/%d/position", harness.url, sourceModelID, targetID), bytes.NewReader(rawBody))
+			if err != nil {
+				requestErrors[index] = err
+				return
+			}
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set(profiledomain.ProfileIDHeader, fmt.Sprintf("%d", defaultProfileID))
+			response, err := harness.client.Do(request)
+			if err != nil {
+				requestErrors[index] = err
+				return
+			}
+			defer response.Body.Close()
+			_, _ = io.Copy(io.Discard, response.Body)
+			statuses[index] = response.StatusCode
+		}(index, move.targetID, move.toIndex)
+	}
+	waitGroup.Wait()
+	for index, status := range statuses {
+		if status != http.StatusOK {
+			t.Fatalf("concurrent move %d returned %d (err=%v), want 200", index, status, requestErrors[index])
+		}
+	}
+
+	var positions []int
+	rows, err := harness.conn.Query(context.Background(), `SELECT position FROM model_access_targets WHERE source_model_config_id = $1 ORDER BY position ASC`, sourceModelID)
+	if err != nil {
+		t.Fatalf("query mixed positions: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var position int
+		if err := rows.Scan(&position); err != nil {
+			t.Fatalf("scan mixed position: %v", err)
+		}
+		positions = append(positions, position)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate mixed positions: %v", err)
+	}
+	wantPositions := []int{0, 1, 2}
+	if len(positions) != len(wantPositions) {
+		t.Fatalf("expected three rows with contiguous positions, got %v", positions)
+	}
+	for index, want := range wantPositions {
+		if positions[index] != want {
+			t.Fatalf("expected contiguous global positions %v, got %v", wantPositions, positions)
+		}
+	}
+
+	readBack := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/models/%d/targets", sourceModelID), nil, modelHeader(defaultProfileID))
+	assertStatus(t, readBack, http.StatusOK)
+	var targets []map[string]any
+	decodeJSONResponse(t, readBack, &targets)
+	if len(targets) != 3 {
+		t.Fatalf("expected three mixed targets after concurrent moves, got %+v", targets)
+	}
+	for index, target := range targets {
+		if jsonInt(t, target["position"]) != index {
+			t.Fatalf("expected committed read to be contiguous and sorted, got %+v", targets)
+		}
+	}
 }
 
 func TestDeleteReferencedConnection(t *testing.T) {

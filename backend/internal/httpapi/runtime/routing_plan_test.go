@@ -256,7 +256,11 @@ func TestBuildRequestPlanFromSnapshotModelPeersExcludeIneligibleTargets(t *testi
 	}
 }
 
-func TestBuildRequestPlanFromSnapshotWeightedPeerFallsBackToTerminalOnlyWhenNoPeerSurvivesPreflight(t *testing.T) {
+func TestBuildRequestPlanFromSnapshotZeroLeafModelPeerKeepsFollowingTerminalPeerInMixedOrder(t *testing.T) {
+	// Router owns one terminal target (position 0) and one model target pointing at a
+	// zero-leaf child (position 1). Mixed fill-first order must resolve the terminal
+	// peer first by position; the zero-leaf model peer contributes nothing and the
+	// router terminal is not a separate fallback tier.
 	service := newEnforcedRequestPlanUnitService()
 	snapshot := newRequestPlanSnapshot(
 		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai"},
@@ -269,15 +273,38 @@ func TestBuildRequestPlanFromSnapshotWeightedPeerFallsBackToTerminalOnlyWhenNoPe
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
 	plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 	if err != nil {
-		t.Fatalf("build terminal fallback request plan: %v", err)
+		t.Fatalf("build mixed-order request plan: %v", err)
 	}
 	if len(plan.TerminalAttempts) != 1 {
-		t.Fatalf("expected only terminal fallback attempt, got %+v", plan.TerminalAttempts)
+		t.Fatalf("expected only the position-0 terminal peer attempt, got %+v", plan.TerminalAttempts)
 	}
 	if got := plan.TerminalAttempts[0].TargetModel.ModelID; got != "router-openai" {
-		t.Fatalf("expected terminal fallback to keep router model, got %q", got)
+		t.Fatalf("expected position-0 terminal peer to keep router model, got %q", got)
 	}
 	if got := plan.TerminalAttempts[0].Connection.ID; got != 1_001 {
 		t.Fatalf("expected router terminal connection 1001, got %d", got)
+	}
+
+	// Reverse authored order: zero-leaf model peer at position 0, terminal peer at
+	// position 1. Mixed order must still reach the terminal peer as the next row,
+	// not because of a terminal fallback tier.
+	reverse := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai"},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "empty-peer-openai"},
+	)
+	reverse.AccessTargetsBySourceModelID[1] = nil
+	reverse.AccessTargetsBySourceModelID[2] = nil
+	addRequestPlanConnectionTarget(reverse, reverse.ModelsByID["router-openai"], 1_001, 9_001, 1)
+	addRequestPlanModelTargetWithMetadata(reverse, "router-openai", "empty-peer-openai", 0)
+
+	plan, err = service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, reverse)
+	if err != nil {
+		t.Fatalf("build reversed mixed-order request plan: %v", err)
+	}
+	if len(plan.TerminalAttempts) != 1 {
+		t.Fatalf("expected reversed order to still resolve one terminal attempt, got %+v", plan.TerminalAttempts)
+	}
+	if got := plan.TerminalAttempts[0].Connection.ID; got != 1_001 {
+		t.Fatalf("expected reversed order terminal connection 1001, got %d", got)
 	}
 }

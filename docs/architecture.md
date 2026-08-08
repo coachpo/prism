@@ -171,12 +171,19 @@ Client -> POST /v1/chat/completions {model: "gpt-4o"}
 Client -> POST /v1/messages {model: "claude-sonnet-4-5"}
   -> Operation registry resolves `anthropic.messages` and its HookCollectionID
   -> Shared core resolves against frozen Default profile id `1`
-  -> Resolver evaluates ordered same-profile, same-api-family model targets and aggregates eligible candidates
-  -> Direct Terminal Targets are considered only when no model-target candidate is eligible
+  -> Resolver orders the model's enabled mixed access-target rows once by (position, id)
+  -> The attached strategy shapes the effective peer sequence: single keeps only the first row,
+     fill-first walks the mixed order, round-robin rotates the direct mixed rows
+  -> Each peer row resolves by type: a Terminal row yields one attempt; a Model row recursively
+     resolves through the child model's own strategy and contributes one contiguous block
+  -> Candidate-local misses (zero-leaf child, unavailable connection, operation incompatibility)
+     skip to the next effective peer; cycle/depth and missing-strategy errors fail closed
   -> Executor plans attempts against Terminal Targets
   -> Upstream responds; eventual request history keeps model_id as the requested model and resolved_target_model_id as the final target model for each materialized attempt
   -> Gateway returns response to client
 ```
+
+Model Target rows and Terminal Target rows are type-neutral peers: there is no model-aggregate-first tier and no direct-terminal fallback tier. If at least one effective peer produces compatible attempts, planning succeeds and candidate-local misses are bypassed; otherwise the first compatibility miss in effective order is returned, or the ordinary no-eligible `503` when no peer contributes.
 
 ### 3.3 Runtime Request (Streaming)
 
@@ -344,7 +351,8 @@ Models resolve through ordered access targets. Public target authoring points on
 - Model targets can chain, but cycles and self-targets are rejected.
 - Endpoints are reusable. Terminal Targets are created and managed from model detail through model-scoped connection routes while retaining `connections` and `connection_id` compatibility names.
 - Every access target carries explicit ordering metadata.
-- Access-target `position` orders flat peers and is not priority, tier, or weight.
+- Access-target `position` orders all rows of both types in one global mixed sequence and is not priority, tier, or weight; Model Target and Terminal Target rows are type-neutral peers and no target type holds a hidden priority.
+- `single`, `fill-first`, and `round-robin` run once over the enabled mixed rows. A Model Target row is an atomic parent peer whose child attempts stay one contiguous block; child models keep their own strategy and round-robin cursor.
 - Model IDs are unique within a profile.
 - The gateway may normalize provider request payloads before forwarding, for example rewriting the requested model ID to the final target model ID for upstream compatibility. Prism does not rewrite response-body model identity on the client-facing way back out.
 
@@ -355,20 +363,28 @@ Model contracts require `api_family`; runtime compatibility is checked against `
 ```
 resolve_access(profile_id, model_id):
   config = lookup(profile_id, model_id)
-  model_candidates = []
-  for target in ordered_model_targets(config):
-    candidate = resolve_access(profile_id, target.model_id)
-    if candidate is eligible:
-      append_all(model_candidates, candidate.terminal_attempts)
+  authored_peers = ordered_enabled_targets(config)   // mixed rows, sorted by (position, id)
+  effective_peers = order_for_strategy(strategy, authored_peers)
 
-  if model_candidates is not empty:
-    return aggregate(model_candidates)
+  first_compatibility_error = nil
+  for peer in effective_peers:
+    candidate = resolve_peer(peer)                  // Terminal row -> direct attempt
+                                                     // Model row -> recursive child resolution
+    if candidate is a compatibility miss:
+      remember first miss in effective order
+      continue
+    if candidate has no eligible terminal attempts:
+      continue
+    append candidate attempts as one contiguous block
 
-  direct_terminal_candidates = evaluate_all(ordered_terminal_targets(config))
-  return aggregate(direct_terminal_candidates) or no_eligible_target
+  if resolved has terminal attempts and connections:
+    return resolved
+  if first_compatibility_error exists:
+    return first_compatibility_error
+  return no_eligible_target
 ```
 
-Every ordered model target is evaluated and eligible candidates are aggregated into one plan. Direct Terminal Targets are a fallback only when no eligible model-target candidate plan exists; routing does not return the first access-target match. The executor consumes the resulting ordered terminal attempts sequentially or with the strategy's configured hedge behavior.
+The three strategies act on the same enabled mixed rows: `single` keeps only the first enabled row, `fill-first` walks the authored mixed order, and `round-robin` rotates the direct mixed rows once per request (each row occupies one cursor slot; a child model's expanded attempts do not enlarge the parent modulus, and the child claims its own cursor keyed by its own source model, strategy, and target-set hash). An enabled but currently unavailable or incompatible row still consumes its round-robin slot; eligibility is judged after rotation. Reordering, adding, removing, or toggling rows changes the target-set hash, and a new hash starts a fresh cursor while a reappearing identical hash may continue its existing cursor. Cursors are process-local.
 
 ### 5.4 Default profile and active runtime separation
 
@@ -660,7 +676,7 @@ Response `200`: Array of model objects.
 ```
 GET /api/models/{id}
 ```
-Response `200`: Full model object with required `api_family`, optional `loadbalance_strategy_id`, ordered `access_targets`, and attached Terminal Target summaries in the effective profile scope. Model create/update does not author access targets; use `/api/models/{id}/targets` for ordered same-family model targets and model-owned Terminal Target ownership edges.
+Response `200`: Full model object with required `api_family`, optional `loadbalance_strategy_id`, ordered `access_targets` (Model Target and Terminal Target rows share one global `position` order), and attached Terminal Target summaries in the effective profile scope. Model create/update does not author access targets; use `/api/models/{id}/targets` for mixed access-target authoring and model-owned Terminal Target ownership edges.
 
 ##### Get Models by Endpoints (Batch)
 ```
@@ -948,7 +964,7 @@ PATCH /api/models/{model_config_id}/targets/{target_id}/position
 DELETE /api/models/{model_config_id}/targets/{target_id}
 ```
 
-Model target rows define a model's ordered access graph. Public authoring creates same-family model targets only:
+Model target rows define a model's ordered access graph. Public authoring creates same-family model targets only; internal connection rows (Terminal Targets) share the same global mixed list and position space:
 ```json
 {
   "target_type": "model",
@@ -963,9 +979,9 @@ Target semantics:
 - Runtime routing consumes exact target-model IDs only. Target payloads do not accept regex matcher fields, capability-metadata expansion, weighted policy names, or hidden priority fields.
 - Public target authoring rejects submitted `target_type="connection"`, `connection_id`, or `target_connection_id` values. Private connections are created and managed through `/api/models/{model_config_id}/connections`.
 - `PUT` and `PATCH /api/models/{model_config_id}/targets/{target_id}` update target metadata within the owning model scope. For internal connection targets, `PATCH` accepts only `position` and `is_enabled`; pointer fields are immutable and obsolete weight fields must stay omitted.
-- `PATCH /api/models/{model_config_id}/targets/{target_id}/position` is the dedicated move route and accepts `to_index`.
+- `PATCH /api/models/{model_config_id}/targets/{target_id}/position` is the dedicated move route and accepts `to_index`. `to_index` is the zero-based index of the complete mixed list, so an adjacent cross-type move is identical to a same-type move; the response returns the full reordered list.
 - Existing internal `target_type="connection"` rows identify the source model that owns a private connection and provide the runtime terminal routing edge.
-- Target positions are contiguous starting at `0` and determine routing order for that source model. Position is an ordering key only, not a priority, tier, or weight replacement.
+- Target positions are contiguous starting at `0` across both target types and determine routing order for that source model. Position is an ordering key only, not a priority, tier, or weight replacement. Enable/disable never moves a row; delete compacts positions across both types; creates append to the global mixed tail unless an explicit position inserts at that global index.
 - Target validation is Default-profile scoped, same-family, enabled-target aware, and cycle-safe.
 
 ##### Base URL Validation
@@ -1360,7 +1376,7 @@ When any planned Terminal Target candidate has custom request parameters configu
 
 #### 2.2A Routing Failures
 
-Runtime planning evaluates ordered same-family model targets, aggregates their eligible Terminal Target attempts, and uses direct Terminal Targets only when no model-target candidate is eligible. The attached Ban Policy strategy then orders and filters the resulting attempts before provider transport. If no eligible Terminal Target is available inside the current retry window, Prism returns a routing-availability error before opening an upstream request. If all otherwise eligible attempts are blocked by admission counters, Prism returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. An OpenAI text request whose requested model does not accept the ingress operation rejects immediately with `400 openai_request_translation_unsupported`. Terminal Target connections whose mode differs from the requested model's `openai_accepted_format` are skipped so later equal-mode attempts remain eligible; if every otherwise eligible attempt is mode-incompatible, Prism returns the same typed `400` with `translation_mode: "none"` and `unsupported_reason: "operation_translation_unsupported"` before provider transport. Availability failures with no otherwise eligible attempt retain the ordinary `503` no-eligible-target response.
+Runtime planning orders the model's enabled mixed access-target rows once by `(position, id)` and lets the attached strategy shape the effective peer sequence: `single` keeps only the first enabled mixed row, `fill-first` walks the authored mixed order, and `round-robin` rotates the direct mixed rows once per request. A Model Target row recursively resolves through the child model's own strategy and contributes one contiguous block; a Terminal Target row contributes its own attempt. Candidate-local misses (zero-leaf child, unavailable connection, operation incompatibility) skip to the next effective peer, while cycle, depth, and missing-strategy errors fail closed. If no eligible Terminal Target is available inside the current retry window, Prism returns a routing-availability error before opening an upstream request. If all otherwise eligible attempts are blocked by admission counters, Prism returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. An OpenAI text request whose requested model does not accept the ingress operation rejects immediately with `400 openai_request_translation_unsupported`. Terminal Target connections that do not natively support the operation are skipped so later native attempts remain eligible; if every otherwise eligible attempt is wire-incompatible, Prism returns the same typed `400` with `translation_mode: "none"` and `unsupported_reason: "operation_translation_unsupported"` before provider transport. Availability failures with no otherwise eligible attempt retain the ordinary `503` no-eligible-target response.
 
 Request-log detail keeps flat final-target attribution fields such as `resolved_target_model_id`, `terminal_target_id`, `selected_terminal_target_id`, `endpoint_id`, and `operation_translation_mode`. Deleted model-owned routing metadata is not exposed on public detail responses.
 
@@ -3133,10 +3149,10 @@ Constraints:
 - `UNIQUE(source_model_config_id, position)` is the deferrable `uq_model_access_targets_source_position` constraint.
 - `target_type` is `model` or `connection`, and each row references exactly one matching target model or target connection.
 - Source and target rows must stay in the same profile and same `api_family`.
-- Positions are normalized and validated as contiguous `0..N-1` in management contracts.
+- Positions are normalized and validated as contiguous `0..N-1` across both target types in management contracts; creates append to the global mixed tail, delete compacts across types, enable/disable never moves a row, and `PATCH .../position` moves within the complete mixed list.
 - Position is an ordering key only, not priority, tier, or weight. Duplicate positions reject before write.
-- Obsolete public payload keys `weight` and `target_priority` reject in management model APIs. The fresh schema has no columns for those values.
-- Runtime routing evaluates enabled same-family model targets by flat `position` and stable IDs. Connection-owner targets remain terminal routing edges, not public model-target candidates.
+- Obsolete public payload keys `weight` and `target_priority` reject in management model APIs. The fresh schema has no columns for those values. `connections.priority` remains a legacy read-compatibility column and never participates in access-target ordering.
+- Runtime routing evaluates enabled mixed rows of both types by flat `position` and stable IDs: `single`, `fill-first`, and `round-robin` act on the same mixed peer set, Model Target rows recurse through the child model's own strategy, and direct Terminal rows contribute their own attempt.
 - Go management validation rejects self-reference, cross-profile targets, cross-api-family targets, and cycles; these relationship semantics are not enforced by database triggers.
 
 #### 2.4 `loadbalance_strategies` (profile-scoped reusable routing behavior)
