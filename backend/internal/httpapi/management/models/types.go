@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"time"
+
+	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 )
 
 type modelAccessTargetRequest struct {
@@ -159,25 +161,26 @@ type connectionPricingTemplateSummary struct {
 }
 
 type connectionTargetSummary struct {
-	ID                   int                               `json:"id"`
-	ModelConfigID        int                               `json:"-"`
-	ProfileID            int                               `json:"profile_id"`
-	APIFamily            string                            `json:"api_family"`
-	EndpointID           int                               `json:"endpoint_id"`
-	Endpoint             *endpointResponse                 `json:"endpoint"`
-	IsActive             bool                              `json:"is_active"`
-	Priority             int                               `json:"priority"`
-	Name                 *string                           `json:"name"`
-	AuthType             *string                           `json:"auth_type"`
-	CustomHeaders        map[string]string                 `json:"custom_headers"`
-	OpenAITextCapability *string                           `json:"openai_text_capability"`
-	PricingTemplateID    *int                              `json:"pricing_template_id"`
-	QPSLimit             *int                              `json:"qps_limit"`
-	MaxInFlightNonStream *int                              `json:"max_in_flight_non_stream"`
-	MaxInFlightStream    *int                              `json:"max_in_flight_stream"`
-	PricingTemplate      *connectionPricingTemplateSummary `json:"pricing_template"`
-	CreatedAt            time.Time                         `json:"created_at"`
-	UpdatedAt            time.Time                         `json:"updated_at"`
+	ID                       int                               `json:"id"`
+	ModelConfigID            int                               `json:"-"`
+	ProfileID                int                               `json:"profile_id"`
+	APIFamily                string                            `json:"api_family"`
+	EndpointID               int                               `json:"endpoint_id"`
+	Endpoint                 *endpointResponse                 `json:"endpoint"`
+	IsActive                 bool                              `json:"is_active"`
+	Priority                 int                               `json:"priority"`
+	Name                     *string                           `json:"name"`
+	AuthType                 *string                           `json:"auth_type"`
+	CustomHeaders            map[string]string                 `json:"custom_headers"`
+	CustomRequestParameters  *terminaltarget.CustomRequestParameters `json:"custom_request_parameters"`
+	OpenAITextCapability     *string                           `json:"openai_text_capability"`
+	PricingTemplateID        *int                              `json:"pricing_template_id"`
+	QPSLimit                 *int                              `json:"qps_limit"`
+	MaxInFlightNonStream     *int                              `json:"max_in_flight_non_stream"`
+	MaxInFlightStream        *int                              `json:"max_in_flight_stream"`
+	PricingTemplate          *connectionPricingTemplateSummary `json:"pricing_template"`
+	CreatedAt                time.Time                         `json:"created_at"`
+	UpdatedAt                time.Time                         `json:"updated_at"`
 }
 
 type terminalTargetSummary = connectionTargetSummary

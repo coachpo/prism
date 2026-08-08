@@ -185,7 +185,14 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			return connectionResponse{}, err
 		}
+		if err := ensureOpenAITextCapabilityMatchesOwner(owner, openAITextCapability); err != nil {
+			return connectionResponse{}, err
+		}
 		pricingTemplateID, err := validatePricingTemplateID(r.Context(), tx, profile.ID, requestBody.PricingTemplateID)
+		if err != nil {
+			return connectionResponse{}, err
+		}
+		customRequestParameters, err := resolveCustomRequestParametersCreate(requestBody.CustomRequestParameters)
 		if err != nil {
 			return connectionResponse{}, err
 		}
@@ -199,21 +206,22 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		}
 		now := s.nowUTC()
 		item := connectionResponse{
-			ProfileID:            profile.ID,
-			APIFamily:            owner.APIFamily,
-			EndpointID:           endpoint.ID,
-			IsActive:             resolvedBool(requestBody.IsActive, true),
-			Priority:             position,
-			Name:                 normalizeOptionalString(requestBody.Name),
-			AuthType:             authType,
-			CustomHeaders:        normalizeHeaders(requestBody.CustomHeaders),
-			OpenAITextCapability: openAITextCapability,
-			PricingTemplateID:    pricingTemplateID,
-			QPSLimit:             requestBody.QPSLimit,
-			MaxInFlightNonStream: requestBody.MaxInFlightNonStream,
-			MaxInFlightStream:    requestBody.MaxInFlightStream,
-			CreatedAt:            now,
-			UpdatedAt:            now,
+			ProfileID:               profile.ID,
+			APIFamily:               owner.APIFamily,
+			EndpointID:              endpoint.ID,
+			IsActive:                resolvedBool(requestBody.IsActive, true),
+			Priority:                position,
+			Name:                    normalizeOptionalString(requestBody.Name),
+			AuthType:                authType,
+			CustomHeaders:           normalizeHeaders(requestBody.CustomHeaders),
+			CustomRequestParameters: customRequestParameters,
+			OpenAITextCapability:    openAITextCapability,
+			PricingTemplateID:       pricingTemplateID,
+			QPSLimit:                requestBody.QPSLimit,
+			MaxInFlightNonStream:    requestBody.MaxInFlightNonStream,
+			MaxInFlightStream:       requestBody.MaxInFlightStream,
+			CreatedAt:               now,
+			UpdatedAt:               now,
 		}
 		connectionID, err := insertTerminalTarget(r.Context(), tx, terminalTargetRecordFromConnectionResponse(item))
 		if err != nil {
@@ -343,6 +351,14 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 		return connectionResponse{}, err
 	}
 	next.OpenAITextCapability = openAITextCapability
+	if !providerauth.OpenAITextModesMatch(current.OpenAITextCapability, openAITextCapability) {
+		if err := ensureOpenAITextCapabilityMatchesOwner(owner, openAITextCapability); err != nil {
+			return connectionResponse{}, err
+		}
+		if err := ensureConnectionModeChangeAllowed(ctx, tx, profileID, current.ID, openAITextCapability); err != nil {
+			return connectionResponse{}, err
+		}
+	}
 
 	if requestBody.EndpointCreate.Set && requestBody.EndpointCreate.Value != nil {
 		endpoint, err := s.createInlineEndpoint(ctx, tx, profileID, *requestBody.EndpointCreate.Value)
@@ -376,6 +392,13 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 	}
 	if requestBody.CustomHeaders.Set {
 		next.CustomHeaders = normalizeHeaders(requestBody.CustomHeaders.Value)
+	}
+	if requestBody.CustomRequestParameters.Set {
+		customRequestParameters, err := resolveCustomRequestParametersUpdate(current.CustomRequestParameters, requestBody.CustomRequestParameters)
+		if err != nil {
+			return connectionResponse{}, err
+		}
+		next.CustomRequestParameters = customRequestParameters
 	}
 	if requestBody.PricingTemplateID.Set {
 		pricingTemplateID, err := validatePricingTemplateID(ctx, tx, profileID, requestBody.PricingTemplateID.Value)
@@ -612,6 +635,33 @@ func validateOwnerScopedAPIFamily(value string, ownerAPIFamily string) error {
 	return nil
 }
 
+func ensureOpenAITextCapabilityMatchesOwner(owner modelRecord, capability *string) error {
+	if !providerauth.IsOpenAI(owner.APIFamily) {
+		return nil
+	}
+	if !providerauth.OpenAITextModesMatch(owner.OpenAIAcceptedFormat, capability) {
+		return &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability must equal the owner model openai_accepted_format"}
+	}
+	return nil
+}
+
+func ensureConnectionModeChangeAllowed(ctx context.Context, exec queryExecutor, profileID int, connectionID int, capability *string) error {
+	references, err := listConnectionReferenceModeRows(ctx, exec, profileID, connectionID)
+	if err != nil {
+		return err
+	}
+	conflicting := make([]string, 0, len(references))
+	for _, reference := range references {
+		if !providerauth.OpenAITextModesMatch(capability, reference.OpenAIAcceptedFormat) {
+			conflicting = append(conflicting, reference.ModelID)
+		}
+	}
+	if len(conflicting) > 0 {
+		return &domainError{StatusCode: http.StatusConflict, Detail: fmt.Sprintf("Cannot change openai_text_capability: models [%s] target this connection", strings.Join(conflicting, ", "))}
+	}
+	return nil
+}
+
 func ensureConnectionAPIFamilyUpdateAllowed(ctx context.Context, exec queryExecutor, profileID int, connectionID int, apiFamily string) error {
 	references, err := listConnectionReferenceRows(ctx, exec, profileID, connectionID)
 	if err != nil {
@@ -750,6 +800,10 @@ func decodeJSONBody(request *http.Request, target any) error {
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	var connectionErr *domainError
 	if errors.As(err, &connectionErr) {
+		if len(connectionErr.Fields) > 0 {
+			responseutil.WriteErrorFields(w, r, corsSnapshot, connectionErr.StatusCode, connectionErr.Detail, connectionErr.Fields)
+			return
+		}
 		responseutil.WriteError(w, r, corsSnapshot, connectionErr.StatusCode, connectionErr.Detail)
 		return
 	}

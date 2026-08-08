@@ -349,11 +349,21 @@ func (h *contractHarness) requestJSON(t *testing.T, client *http.Client, method 
 		}
 		requestBody = bytes.NewReader(raw)
 	}
+	return h.requestRaw(t, client, method, path, requestBody, body != nil, headers)
+}
+
+func (h *contractHarness) requestJSONRaw(t *testing.T, client *http.Client, method string, path string, rawBody string, headers map[string]string) *http.Response {
+	t.Helper()
+	return h.requestRaw(t, client, method, path, bytes.NewReader([]byte(rawBody)), true, headers)
+}
+
+func (h *contractHarness) requestRaw(t *testing.T, client *http.Client, method string, path string, requestBody *bytes.Reader, contentType bool, headers map[string]string) *http.Response {
+	t.Helper()
 	request, err := http.NewRequest(method, h.url+path, requestBody)
 	if err != nil {
 		t.Fatalf("build request %s %s: %v", method, path, err)
 	}
-	if body != nil {
+	if contentType {
 		request.Header.Set("Content-Type", "application/json")
 	}
 	for key, value := range headers {

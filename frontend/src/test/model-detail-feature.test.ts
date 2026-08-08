@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { buildAccessTargetSummary } from "@/pages/model-detail/useModelDetailDataSupport"
 import { modelDetailQueryKeys } from "@/features/models/detail/queryKeys"
 import { modelDetailSearchSchema, normalizeModelDetailTab } from "@/features/models/detail/modelDetailSchemas"
+import { createDefaultConnectionForm } from "@/pages/model-detail/useModelDetailDialogState"
+import { buildAccessTargetSummary } from "@/pages/model-detail/useModelDetailDataSupport"
 import type { ModelAccessTarget, ModelConfig } from "@/lib/types"
 
 function createTarget(overrides: Partial<ModelAccessTarget> & { id: number; position: number }): ModelAccessTarget {
@@ -65,6 +66,14 @@ describe("model detail feature contracts", () => {
     expect(normalizeModelDetailTab(undefined)).toBe("connections")
   })
 
+  it("connection dialog form inherits the owner OpenAI mode", () => {
+    expect(createDefaultConnectionForm("openai", "chat_completions_only").openai_text_capability).toBe("chat_completions_only")
+    expect(createDefaultConnectionForm("openai", "responses_only").openai_text_capability).toBe("responses_only")
+    expect(createDefaultConnectionForm("openai", "dual_native").openai_text_capability).toBe("dual_native")
+    expect(createDefaultConnectionForm("openai").openai_text_capability).toBe("responses_only")
+    expect(createDefaultConnectionForm("anthropic", "dual_native").openai_text_capability).toBeNull()
+  })
+
   it("reports only one enabled authored-order first target across both types", () => {
     const model = createModel([
       createTarget({
@@ -73,7 +82,6 @@ describe("model detail feature contracts", () => {
         connection_id: 901,
         terminal_target_id: 901,
         position: 0,
-        is_enabled: true,
         connection: {
           id: 901,
           profile_id: 1,
@@ -84,6 +92,7 @@ describe("model detail feature contracts", () => {
           name: "Terminal A",
           auth_type: null,
           custom_headers: null,
+          custom_request_parameters: null,
           openai_text_capability: "dual_native",
           pricing_template_id: null,
           qps_limit: null,
@@ -99,7 +108,6 @@ describe("model detail feature contracts", () => {
         target_type: "model",
         target_model_id: "child",
         position: 1,
-        is_enabled: true,
         target_model: { id: 7, profile_id: 1, api_family: "openai", model_id: "child", display_name: "Child", openai_accepted_format: "dual_native", loadbalance_strategy_id: 21, is_enabled: true },
       }),
       createTarget({
@@ -109,7 +117,6 @@ describe("model detail feature contracts", () => {
         terminal_target_id: 902,
         position: 2,
         is_enabled: false,
-        connection: null,
       }),
     ])
 

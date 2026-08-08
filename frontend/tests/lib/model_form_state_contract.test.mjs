@@ -172,6 +172,42 @@ test("access target filtering excludes obvious invalid local choices", () => {
   );
 });
 
+test("OpenAI access target candidates inherit the source mode only", () => {
+  const models = [
+    { id: 1, api_family: "openai", model_id: "current-model", is_enabled: true, openai_accepted_format: "dual_native" },
+    { id: 2, api_family: "openai", model_id: "dual-peer", is_enabled: true, openai_accepted_format: "dual_native" },
+    { id: 3, api_family: "openai", model_id: "chat-peer", is_enabled: true, openai_accepted_format: "chat_completions_only" },
+    { id: 4, api_family: "openai", model_id: "responses-peer", is_enabled: true, openai_accepted_format: "responses_only" },
+    { id: 5, api_family: "openai", model_id: "mode-less-peer", is_enabled: true, openai_accepted_format: null },
+  ];
+
+  assert.deepEqual(
+    getAccessTargetModelsForApiFamily(models, "openai", "current-model", "dual_native").map((model) => model.model_id),
+    ["dual-peer"],
+  );
+  assert.deepEqual(
+    getAccessTargetModelsForApiFamily(models, "openai", "current-model", "chat_completions_only").map((model) => model.model_id),
+    ["chat-peer"],
+  );
+  assert.deepEqual(
+    getAccessTargetModelsForApiFamily(models, "openai", "current-model", "responses_only").map((model) => model.model_id),
+    ["responses-peer"],
+  );
+});
+
+test("non-OpenAI access target candidates ignore the mode argument", () => {
+  const models = [
+    { id: 1, api_family: "anthropic", model_id: "current-model", is_enabled: true },
+    { id: 2, api_family: "anthropic", model_id: "claude-peer", is_enabled: true },
+    { id: 3, api_family: "openai", model_id: "openai-peer", is_enabled: true, openai_accepted_format: "dual_native" },
+  ];
+
+  assert.deepEqual(
+    getAccessTargetModelsForApiFamily(models, "anthropic", "current-model", "dual_native").map((model) => model.model_id),
+    ["claude-peer"],
+  );
+});
+
 test("payload shaping preserves model CRUD fields only", () => {
   const formData = { ...createNewModelFormData(17), model_id: "live-model", display_name: "  Live Model  ", is_enabled: true };
 

@@ -5,12 +5,17 @@ import type {
   ConnectionCreate,
   Endpoint,
   EndpointCreate,
+  OpenAIAcceptedFormat,
 } from "@/lib/types";
 import {
   createDefaultEndpointForm,
   getSelectedEndpoint,
   normalizeOpenAITextCapability,
 } from "./useModelDetailDataSupport";
+import {
+  customRequestParametersDraftFromValue,
+  type CustomRequestParametersParseError,
+} from "./customRequestParameters";
 
 export interface HeaderRow {
   id: string;
@@ -34,6 +39,7 @@ export function createHeaderRow(overrides?: Partial<Pick<HeaderRow, "key" | "val
 
 export function createDefaultConnectionForm(
   apiFamily: ApiFamily | null = null,
+  openAIMode: OpenAIAcceptedFormat | null = null,
 ): ConnectionDialogForm {
   const resolvedApiFamily = apiFamily ?? "openai";
 
@@ -43,7 +49,7 @@ export function createDefaultConnectionForm(
     is_active: true,
     custom_headers: null,
     openai_text_capability:
-      resolvedApiFamily === "openai" ? normalizeOpenAITextCapability(undefined) : null,
+      resolvedApiFamily === "openai" ? normalizeOpenAITextCapability(openAIMode) : null,
     pricing_template_id: null,
     qps_limit: null,
     max_in_flight_non_stream: null,
@@ -78,11 +84,13 @@ export function createEditConnectionForm(
 
 interface UseModelDetailDialogStateInput {
   apiFamily: ApiFamily | null;
+  openAIMode?: OpenAIAcceptedFormat | null;
   globalEndpoints: Endpoint[];
 }
 
 export function useModelDetailDialogState({
   apiFamily,
+  openAIMode = null,
   globalEndpoints,
 }: UseModelDetailDialogStateInput) {
   const [isEditModelDialogOpen, setIsEditModelDialogOpen] = useState(false);
@@ -97,9 +105,12 @@ export function useModelDetailDialogState({
     ...createDefaultEndpointForm(),
   }));
   const [connectionFormState, setConnectionFormState] = useState<ConnectionDialogForm>(() => ({
-    ...createDefaultConnectionForm(apiFamily),
+    ...createDefaultConnectionForm(apiFamily, openAIMode),
   }));
   const [headerRows, setHeaderRows] = useState<HeaderRow[]>([]);
+  const [customRequestParametersDraft, setCustomRequestParametersDraft] = useState("");
+  const [customRequestParametersError, setCustomRequestParametersError] =
+    useState<CustomRequestParametersParseError | null>(null);
 
   const selectedEndpoint = useMemo(
     () => getSelectedEndpoint(globalEndpoints, selectedEndpointId),
@@ -130,6 +141,8 @@ export function useModelDetailDialogState({
         ? Object.entries(connection.custom_headers).map(([key, value]) => createHeaderRow({ key, value }))
         : [];
       setHeaderRows(headers);
+      setCustomRequestParametersDraft(customRequestParametersDraftFromValue(connection.custom_request_parameters));
+      setCustomRequestParametersError(null);
       setConnectionFormState(
         createEditConnectionForm(connection, {
           apiFamily: apiFamily ?? connection.api_family,
@@ -141,7 +154,9 @@ export function useModelDetailDialogState({
     } else {
       setEditingConnection(null);
       setHeaderRows([]);
-      setConnectionFormState({ ...createDefaultConnectionForm(apiFamily) });
+      setCustomRequestParametersDraft("");
+      setCustomRequestParametersError(null);
+      setConnectionFormState({ ...createDefaultConnectionForm(apiFamily, openAIMode) });
       setNewEndpointForm({ ...createDefaultEndpointForm() });
       setCreateMode("select");
       setSelectedEndpointId("");
@@ -168,6 +183,10 @@ export function useModelDetailDialogState({
     setConnectionForm,
     headerRows,
     setHeaderRows,
+    customRequestParametersDraft,
+    setCustomRequestParametersDraft,
+    customRequestParametersError,
+    setCustomRequestParametersError,
     selectedEndpoint,
     endpointSourceDefaultName,
     openConnectionDialog,

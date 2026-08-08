@@ -107,7 +107,7 @@ func TestBuildRequestPlanClassifiesGeminiStreamingByOperation(t *testing.T) {
 
 func TestBuildRequestPlan_ContextEstimationUnavailablePassesThrough(t *testing.T) {
 	forEachRequestPlanService(t, "responses", func(t *testing.T, service *Service) {
-		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o"})
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o", OpenAIAcceptedFormat: stringPtr(providerauth.OpenAITextCapabilityResponsesOnly)})
 		model := snapshot.ModelsByID["gpt-4o"]
 		snapshot.AccessTargetsBySourceModelID[model.ID] = nil
 		addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_711, 9_711, 0, requestPlanConnectionTargetOptions{
@@ -126,7 +126,7 @@ func TestBuildRequestPlan_ContextEstimationUnavailablePassesThrough(t *testing.T
 func TestBuildRequestPlan_ContextEstimationUnavailableChatPassesThroughWithoutTransportCall(t *testing.T) {
 	forEachRequestPlanService(t, "chat", func(t *testing.T, service *Service) {
 		transport := &ingressRoundTripRecorder{}
-		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o"})
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o", OpenAIAcceptedFormat: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly)})
 		model := snapshot.ModelsByID["gpt-4o"]
 		snapshot.AccessTargetsBySourceModelID[model.ID] = nil
 		addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_712, 9_712, 0, requestPlanConnectionTargetOptions{
@@ -176,8 +176,8 @@ func TestBuildRequestPlan_ResponsesRejectsChatOnlyTarget(t *testing.T) {
 func TestBuildRequestPlan_SkipsNonNativeConnection(t *testing.T) {
 	service := newRequestPlanUnitService()
 	snapshot := newRequestPlanSnapshot(
-		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "responses-public"},
-		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "chat-child"},
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "responses-public", OpenAIAcceptedFormat: stringPtr(providerauth.OpenAITextCapabilityResponsesOnly)},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "chat-child", OpenAIAcceptedFormat: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly)},
 	)
 	model := snapshot.ModelsByID["responses-public"]
 	addRequestPlanProxyTarget(snapshot, "responses-public", "chat-child")
@@ -1503,7 +1503,9 @@ const (
 
 func TestConnectionPlanningPreservesOpenAITextCapability(t *testing.T) {
 	service := newRequestPlanUnitService()
-	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "capability-openai"})
+	// Strict mode equality requires the requested model format to equal the
+	// connection capability; both use chat_completions_only here.
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "capability-openai", OpenAIAcceptedFormat: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly)})
 	model := snapshot.ModelsByID["capability-openai"]
 	snapshot.AccessTargetsBySourceModelID[model.ID] = nil
 	addRequestPlanConnectionTargetWithOptions(snapshot, model, 2_401, 9_401, 0, requestPlanConnectionTargetOptions{openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly)})

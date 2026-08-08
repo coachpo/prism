@@ -66,14 +66,16 @@ type seededRuntimeRoute struct {
 }
 
 type runtimeRouteSeed struct {
-	ProfileID            int
-	APIFamily            string
-	PublicModelID        string
-	TargetModelID        string
-	EndpointBaseURL      string
-	EndpointAPIKey       string
-	CustomHeaders        map[string]any
-	OpenAITextCapability *string
+	ProfileID               int
+	APIFamily               string
+	PublicModelID           string
+	TargetModelID           string
+	EndpointBaseURL         string
+	EndpointAPIKey          string
+	CustomHeaders           map[string]any
+	CustomRequestParameters *string
+	OpenAITextCapability    *string
+	OpenAIAcceptedFormat    *string
 }
 
 type runtimeStateSeed struct {
@@ -682,9 +684,17 @@ func (h *runtimeHarness) seedProxyRoute(tb testing.TB, seed runtimeRouteSeed) se
 	strategyID := h.seedLegacyStrategy(tb, seed.ProfileID, "runtime-strategy-"+randomSuffix(), "round-robin")
 	targetModelConfigID := h.seedModel(tb, seed.ProfileID, seed.APIFamily, seed.TargetModelID, "native", &strategyID)
 	publicModelConfigID := h.seedModel(tb, seed.ProfileID, seed.APIFamily, seed.PublicModelID, "proxy", &strategyID)
+	if seed.OpenAIAcceptedFormat != nil {
+		h.setModelOpenAIAcceptedFormat(tb, seed.ProfileID, seed.PublicModelID, *seed.OpenAIAcceptedFormat)
+	} else if seed.APIFamily == "openai" && seed.OpenAITextCapability != nil {
+		h.setModelOpenAIAcceptedFormat(tb, seed.ProfileID, seed.PublicModelID, *seed.OpenAITextCapability)
+	}
 	h.seedProxyTarget(tb, publicModelConfigID, targetModelConfigID)
 	endpointID := h.seedEndpoint(tb, seed.ProfileID, "endpoint-"+randomSuffix(), seed.EndpointBaseURL, seed.EndpointAPIKey, 0)
 	connectionID := h.seedConnectionWithOpenAITextCapability(tb, seed.ProfileID, targetModelConfigID, endpointID, "connection-"+randomSuffix(), nil, seed.CustomHeaders, 0, seed.OpenAITextCapability)
+	if seed.CustomRequestParameters != nil {
+		h.updateConnectionCustomRequestParameters(tb, seed.ProfileID, connectionID, *seed.CustomRequestParameters)
+	}
 	releaseRefresh()
 	h.refreshRuntimeSnapshot(tb, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{seed.ProfileID}})
 	return seededRuntimeRoute{
@@ -736,6 +746,13 @@ func (h *runtimeHarness) seedAdaptiveStrategyWithRoutingPolicy(t *testing.T, pro
 		t.Skip("adaptive routing was removed; Task 12 verifies unified access-target planning instead")
 	}
 	return h.seedLegacyStrategy(t, profileID, name, "round-robin")
+}
+
+func (h *runtimeHarness) setModelOpenAIAcceptedFormat(tb testing.TB, profileID int, modelID string, mode string) {
+	tb.Helper()
+	if _, err := h.conn.Exec(context.Background(), `UPDATE model_configs SET openai_accepted_format = $1, updated_at = NOW() WHERE profile_id = $2 AND model_id = $3`, mode, profileID, modelID); err != nil {
+		tb.Fatalf("set model %q openai_accepted_format %q: %v", modelID, mode, err)
+	}
 }
 
 func (h *runtimeHarness) seedModel(tb testing.TB, profileID int, apiFamily string, modelID string, modelType string, strategyID *int) int {
@@ -889,6 +906,21 @@ func (h *runtimeHarness) seedConnectionWithOpenAITextCapability(tb testing.TB, p
 	}
 	h.refreshRuntimeSnapshot(tb, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	return connectionID
+}
+
+func (h *runtimeHarness) updateConnectionCustomRequestParameters(tb testing.TB, profileID int, connectionID int, raw string) {
+	tb.Helper()
+	now := time.Now().UTC()
+	if _, err := h.conn.Exec(
+		context.Background(),
+		`UPDATE connections SET custom_request_parameters = $3::jsonb, updated_at = $2 WHERE id = $1 AND profile_id = $4`,
+		connectionID,
+		now,
+		raw,
+		profileID,
+	); err != nil {
+		tb.Fatalf("update runtime connection custom request parameters: %v", err)
+	}
 }
 
 func (h *runtimeHarness) updateConnectionCustomHeaders(t *testing.T, connectionID int, customHeaders map[string]any) {

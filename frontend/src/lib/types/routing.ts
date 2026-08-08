@@ -132,6 +132,11 @@ export type OpenAIAcceptedFormat =
 
 export type OpenAITextCapability = OpenAIAcceptedFormat;
 
+// Recursive JSON value model shared by the custom request parameters editor
+// and the Connection payload contract.
+export type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
+export type JsonObject = { [key: string]: JsonValue };
+
 export interface Connection {
   id: number;
   profile_id: number;
@@ -144,6 +149,7 @@ export interface Connection {
   name: string | null;
   auth_type: string | null;
   custom_headers: Record<string, string> | null;
+  custom_request_parameters: JsonObject | null;
   openai_text_capability: OpenAITextCapability | null;
   pricing_template_id: number | null;
   qps_limit: number | null;
@@ -164,6 +170,7 @@ export interface ConnectionCreate {
   name?: string | null;
   auth_type?: string | null;
   custom_headers?: Record<string, string> | null;
+  custom_request_parameters?: JsonObject | null;
   openai_text_capability?: OpenAITextCapability | null;
   pricing_template_id?: number | null;
   qps_limit?: number | null;
@@ -179,6 +186,7 @@ export interface ConnectionUpdate {
   name?: string | null;
   auth_type?: string | null;
   custom_headers?: Record<string, string> | null;
+  custom_request_parameters?: JsonObject | null;
   openai_text_capability?: OpenAITextCapability | null;
   pricing_template_id?: number | null;
   qps_limit?: number | null;

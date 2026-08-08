@@ -30,6 +30,7 @@ import type {
   Connection,
   Endpoint,
   EndpointCreate,
+  OpenAIAcceptedFormat,
   OpenAITextCapability,
   PricingTemplate,
 } from "@/lib/types";
@@ -39,11 +40,20 @@ import {
   type ConnectionDialogForm,
   type HeaderRow,
 } from "./useModelDetailDialogState";
+import {
+  ConnectionCustomRequestParametersEditor,
+} from "./ConnectionCustomRequestParametersEditor";
+import {
+  customRequestParametersTopLevelCount,
+  parseCustomRequestParametersDraft,
+  type CustomRequestParametersParseError,
+} from "./customRequestParameters";
 
 interface ConnectionDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   apiFamily: ApiFamily | null;
+  ownerOpenAIMode: OpenAIAcceptedFormat | null;
   editingConnection: Connection | null;
   connectionForm: ConnectionDialogForm;
   setConnectionForm: (form: ConnectionDialogForm) => void;
@@ -56,6 +66,10 @@ interface ConnectionDialogProps {
   globalEndpoints: Endpoint[];
   headerRows: HeaderRow[];
   setHeaderRows: (rows: HeaderRow[]) => void;
+  customRequestParametersDraft: string;
+  setCustomRequestParametersDraft: (draft: string) => void;
+  customRequestParametersError: CustomRequestParametersParseError | null;
+  setCustomRequestParametersError: (error: CustomRequestParametersParseError | null) => void;
   handleConnectionSubmit: (e: FormEvent<HTMLFormElement>) => Promise<void>;
   endpointSourceDefaultName: string | null;
   pricingTemplates: PricingTemplate[];
@@ -127,6 +141,7 @@ export function ConnectionDialog({
   isOpen,
   onOpenChange,
   apiFamily,
+  ownerOpenAIMode,
   editingConnection,
   connectionForm,
   setConnectionForm,
@@ -139,6 +154,10 @@ export function ConnectionDialog({
   globalEndpoints,
   headerRows,
   setHeaderRows,
+  customRequestParametersDraft,
+  setCustomRequestParametersDraft,
+  customRequestParametersError,
+  setCustomRequestParametersError,
   handleConnectionSubmit,
   endpointSourceDefaultName,
   pricingTemplates,
@@ -147,9 +166,6 @@ export function ConnectionDialog({
   const copy = messages.modelDetail;
   const isOpenAI = apiFamily === "openai";
   const selectedEndpoint = globalEndpoints.find((endpoint) => String(endpoint.id) === selectedEndpointId) ?? null;
-  const resolvedTextCapability = isOpenAI
-    ? connectionForm.openai_text_capability ?? "responses_only"
-    : null;
   const textCapabilityOptions: Array<{
     description: string;
     label: string;
@@ -171,9 +187,17 @@ export function ConnectionDialog({
       description: copy.openaiTextCapabilityDualNativeHint,
     },
   ];
-  const selectedTextCapability = textCapabilityOptions.find(
+  // Strict mode equality locks the capability to the owner model's mode.
+  const capabilityLockedToOwner = isOpenAI && ownerOpenAIMode !== null;
+  const availableTextCapabilities = capabilityLockedToOwner
+    ? textCapabilityOptions.filter((option) => option.value === ownerOpenAIMode)
+    : textCapabilityOptions;
+  const resolvedTextCapability = isOpenAI
+    ? (connectionForm.openai_text_capability ?? ownerOpenAIMode ?? "responses_only")
+    : null;
+  const selectedTextCapability = availableTextCapabilities.find(
     (option) => option.value === resolvedTextCapability,
-  ) ?? textCapabilityOptions[0];
+  ) ?? availableTextCapabilities[0];
   const limiterFields: Array<{
     field: "qps_limit" | "max_in_flight_non_stream" | "max_in_flight_stream";
     id: string;
@@ -218,6 +242,15 @@ export function ConnectionDialog({
     : copy.unpricedNoCostTracking;
   const normalizedHeaders = normalizeConnectionHeaders(headerRows);
   const customHeaderCount = normalizedHeaders ? Object.keys(normalizedHeaders).length : 0;
+  const parsedCustomRequestParameters = parseCustomRequestParametersDraft(customRequestParametersDraft);
+  const parsedCustomRequestParametersValue = parsedCustomRequestParameters.value;
+  const handleCustomRequestParametersDraftChange = (nextDraft: string) => {
+    setCustomRequestParametersDraft(nextDraft);
+    // Keep the inline error synchronized with the raw draft. This clears a
+    // server-side 422 after a valid edit and replaces stale server detail
+    // immediately when the operator types a different invalid value.
+    setCustomRequestParametersError(parseCustomRequestParametersDraft(nextDraft).error);
+  };
   const updateConnectionForm = (nextForm: ConnectionDialogForm) => {
     setConnectionForm(nextForm);
   };
@@ -472,18 +505,23 @@ export function ConnectionDialog({
                           <ConnectionDialogField
                             id="conn-openai-text-capability"
                             label={copy.openaiTextCapabilitySelector}
-                            description={selectedTextCapability.description}
+                            description={
+                              capabilityLockedToOwner
+                                ? copy.openaiTextCapabilityLockedToOwner
+                                : selectedTextCapability.description
+                            }
                           >
                             <Select
                               value={resolvedTextCapability ?? "responses_only"}
                               onValueChange={handleTextCapabilityChange}
+                              disabled={capabilityLockedToOwner}
                             >
                               <SelectTrigger id="conn-openai-text-capability">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectGroup>
-                                  {textCapabilityOptions.map((option) => (
+                                  {availableTextCapabilities.map((option) => (
                                     <SelectItem key={option.value} value={option.value}>
                                       {option.label}
                                     </SelectItem>
@@ -622,6 +660,12 @@ export function ConnectionDialog({
                           </div>
                         </section>
                       </div>
+
+                      <ConnectionCustomRequestParametersEditor
+                        draft={customRequestParametersDraft}
+                        onDraftChange={handleCustomRequestParametersDraftChange}
+                        error={customRequestParametersError}
+                      />
                     </ConnectionDialogSection>
                   </div>
 
@@ -673,6 +717,14 @@ export function ConnectionDialog({
                           {customHeaderCount > 0
                             ? copy.customHeadersConfigured(String(customHeaderCount))
                             : copy.noCustomHeadersConfigured}
+                        </p>
+                      </ConnectionSummaryItem>
+
+                      <ConnectionSummaryItem label={copy.customRequestParametersSummaryLabel}>
+                        <p className="text-sm text-foreground" data-testid="connection-dialog-custom-request-parameters-summary">
+                          {customRequestParametersTopLevelCount(parsedCustomRequestParametersValue) > 0
+                            ? copy.customRequestParametersSummary(String(customRequestParametersTopLevelCount(parsedCustomRequestParametersValue)))
+                            : copy.customRequestParametersNotConfigured}
                         </p>
                       </ConnectionSummaryItem>
                     </ConnectionDialogSection>

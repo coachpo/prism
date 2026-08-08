@@ -20,6 +20,7 @@ Routing page for the Prism documentation set, maintained in English.
 - `development-rules.md` is the authority for project- and technology-specific implementation rules.
 - `source-code-size-and-responsibility-rules.md` is the standalone size and responsibility policy; it is linked, not copied.
 - The architecture document carries the merged API reference (section 14) and data model reference (section 15); the product document carries the merged requests-page specification (section 8) and workflows reference (section 9).
+- OpenAI text mode contract (strict equality, management 422/409, runtime 400/503, read-only preflight `PRISM_OPENAI_MODE_PREFLIGHT=1`, startup `openai_text_mode_check` fail-fast) lives in `architecture.md` §2.2B/§15 and `product.md` §4.2/§9; upgrade and backup-before-fix runbooks are kept as local execution records under `../artifacts/plans/` and `../artifacts/evidence/`.
 
 ## Instruction Files
 

@@ -22,11 +22,12 @@ type queryExecutor interface {
 }
 
 type modelRecord struct {
-	ID        int
-	ProfileID int
-	ModelID   string
-	APIFamily string
-	IsEnabled bool
+	ID                   int
+	ProfileID            int
+	ModelID              string
+	APIFamily            string
+	IsEnabled            bool
+	OpenAIAcceptedFormat *string
 }
 
 type endpointRecord struct {
@@ -47,6 +48,11 @@ type connectionReferenceRecord struct {
 	APIFamily     string
 	Position      int
 	IsEnabled     bool
+}
+
+type connectionReferenceModeRecord struct {
+	ModelID              string
+	OpenAIAcceptedFormat *string
 }
 
 type headerBlocklistRuleRecord struct {
@@ -83,7 +89,7 @@ type pricingTemplateResponse struct {
 const pricingTemplateSelectQuery = `SELECT id, profile_id, name, description, pricing_unit, pricing_currency_code, COALESCE(input_price, '0'), COALESCE(output_price, '0'), COALESCE(cached_input_price, '0'), COALESCE(cache_creation_price, '0'), COALESCE(reasoning_price, '0'), version, created_at, updated_at FROM pricing_templates`
 
 func loadModelRecord(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, forUpdate bool) (modelRecord, bool, error) {
-	query := `SELECT id, profile_id, model_id, api_family, is_enabled FROM model_configs WHERE profile_id = $1 AND id = $2`
+	query := `SELECT id, profile_id, model_id, api_family, is_enabled, openai_accepted_format FROM model_configs WHERE profile_id = $1 AND id = $2`
 	if forUpdate {
 		query += ` FOR UPDATE`
 	}
@@ -413,7 +419,7 @@ func listConnectionsByModelIDs(ctx context.Context, exec queryExecutor, profileI
 
 func insertTerminalTarget(ctx context.Context, exec queryExecutor, item terminaltarget.Record) (int, error) {
 	var terminalTargetID int
-	err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, $10, $11, $12, 'unknown', $13, $14) RETURNING id`, item.ProfileID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAITextCapability), item.IsActive, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.CreatedAt, item.UpdatedAt).Scan(&terminalTargetID)
+	err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_text_capability, is_active, priority, name, auth_type, custom_headers, custom_request_parameters, health_status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, $10, $11, $12, $13, 'unknown', $14, $15) RETURNING id`, item.ProfileID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAITextCapability), item.IsActive, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), nullableCustomRequestParametersArg(item.CustomRequestParameters), item.CreatedAt, item.UpdatedAt).Scan(&terminalTargetID)
 	if err != nil {
 		return 0, fmt.Errorf("insert terminal target: %w", err)
 	}
@@ -428,7 +434,7 @@ func insertOwnerTerminalTargetAccess(ctx context.Context, exec queryExecutor, pr
 }
 
 func updateTerminalTarget(ctx context.Context, exec queryExecutor, item terminaltarget.Record) error {
-	if _, err := exec.Exec(ctx, `UPDATE connections SET api_family = $2, endpoint_id = $3, pricing_template_id = $4, qps_limit = $5, max_in_flight_non_stream = $6, max_in_flight_stream = $7, openai_text_capability = $8, is_active = $9, name = $10, auth_type = $11, custom_headers = $12, updated_at = $13 WHERE id = $1`, item.ID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAITextCapability), item.IsActive, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), item.UpdatedAt); err != nil {
+	if _, err := exec.Exec(ctx, `UPDATE connections SET api_family = $2, endpoint_id = $3, pricing_template_id = $4, qps_limit = $5, max_in_flight_non_stream = $6, max_in_flight_stream = $7, openai_text_capability = $8, is_active = $9, name = $10, auth_type = $11, custom_headers = $12, custom_request_parameters = $13, updated_at = $14 WHERE id = $1`, item.ID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAITextCapability), item.IsActive, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), nullableCustomRequestParametersArg(item.CustomRequestParameters), item.UpdatedAt); err != nil {
 		return fmt.Errorf("update terminal target %d: %w", item.ID, err)
 	}
 	return nil
@@ -468,6 +474,28 @@ func listConnectionReferenceRows(ctx context.Context, exec queryExecutor, profil
 	return items, nil
 }
 
+func listConnectionReferenceModeRows(ctx context.Context, exec queryExecutor, profileID int, connectionID int) ([]connectionReferenceModeRecord, error) {
+	rows, err := exec.Query(ctx, `SELECT model_configs.model_id, model_configs.openai_accepted_format FROM model_access_targets JOIN model_configs ON model_configs.id = model_access_targets.source_model_config_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.target_connection_id = $2 ORDER BY model_configs.model_id ASC`, profileID, connectionID)
+	if err != nil {
+		return nil, fmt.Errorf("query connection %d reference modes for profile %d: %w", connectionID, profileID, err)
+	}
+	defer rows.Close()
+	items := make([]connectionReferenceModeRecord, 0)
+	for rows.Next() {
+		var item connectionReferenceModeRecord
+		var mode sql.NullString
+		if err := rows.Scan(&item.ModelID, &mode); err != nil {
+			return nil, fmt.Errorf("scan connection %d reference mode: %w", connectionID, err)
+		}
+		item.OpenAIAcceptedFormat = nullableStringValue(mode)
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate connection %d reference modes: %w", connectionID, err)
+	}
+	return items, nil
+}
+
 func listPricingTemplateConnectionUsageRows(ctx context.Context, exec queryExecutor, profileID int, templateID int) ([]pricingTemplateConnectionUsageRecord, error) {
 	rows, err := exec.Query(ctx, `SELECT connections.id, connections.name, model_access_targets.source_model_config_id, model_configs.model_id, connections.endpoint_id, endpoints.name FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id LEFT JOIN model_configs ON model_configs.id = model_access_targets.source_model_config_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id WHERE model_access_targets.profile_id = $1 AND connections.pricing_template_id = $2 ORDER BY connections.id ASC`, profileID, templateID)
 	if err != nil {
@@ -488,7 +516,7 @@ func listPricingTemplateConnectionUsageRows(ctx context.Context, exec queryExecu
 	return items, nil
 }
 
-const connectionSelectQuery = `SELECT connections.id, connections.profile_id, model_access_targets.source_model_config_id, connections.api_family, connections.endpoint_id, endpoints.id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, model_access_targets.position, connections.name, connections.auth_type, connections.custom_headers, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id`
+const connectionSelectQuery = `SELECT connections.id, connections.profile_id, model_access_targets.source_model_config_id, connections.api_family, connections.endpoint_id, endpoints.id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, model_access_targets.position, connections.name, connections.auth_type, connections.custom_headers, connections.custom_request_parameters, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id`
 
 func scanConnectionRows(rows pgx.Rows, iterateContext string) ([]connectionResponse, error) {
 	items := make([]connectionResponse, 0)
@@ -507,9 +535,11 @@ func scanConnectionRows(rows pgx.Rows, iterateContext string) ([]connectionRespo
 
 func scanModelRecord(scanner interface{ Scan(...any) error }) (modelRecord, error) {
 	record := modelRecord{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &record.ModelID, &record.APIFamily, &record.IsEnabled); err != nil {
+	var openAIAcceptedFormat sql.NullString
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &record.ModelID, &record.APIFamily, &record.IsEnabled, &openAIAcceptedFormat); err != nil {
 		return modelRecord{}, err
 	}
+	record.OpenAIAcceptedFormat = nullableStringValue(openAIAcceptedFormat)
 	return record, nil
 }
 
@@ -542,6 +572,7 @@ func scanTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminal
 	var connectionName sql.NullString
 	var authType sql.NullString
 	var customHeaders sql.NullString
+	var customRequestParameters sql.NullString
 	var openAITextCapability sql.NullString
 	var pricingTemplateID sql.NullInt32
 	var qpsLimit sql.NullInt32
@@ -553,13 +584,14 @@ func scanTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminal
 	var templatePricingCurrencyCode sql.NullString
 	var templateVersion sql.NullInt32
 	record := terminaltarget.Record{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &modelConfigID, &record.APIFamily, &record.EndpointID, &joinedEndpointID, &endpointProfileID, &endpointName, &endpointBaseURL, &endpointAPIKey, &endpointPosition, &endpointCreatedAt, &endpointUpdatedAt, &record.IsActive, &record.Priority, &connectionName, &authType, &customHeaders, &openAITextCapability, &pricingTemplateID, &qpsLimit, &maxInFlightNonStream, &maxInFlightStream, &templateID, &templateName, &templatePricingUnit, &templatePricingCurrencyCode, &templateVersion, &record.CreatedAt, &record.UpdatedAt); err != nil {
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &modelConfigID, &record.APIFamily, &record.EndpointID, &joinedEndpointID, &endpointProfileID, &endpointName, &endpointBaseURL, &endpointAPIKey, &endpointPosition, &endpointCreatedAt, &endpointUpdatedAt, &record.IsActive, &record.Priority, &connectionName, &authType, &customHeaders, &customRequestParameters, &openAITextCapability, &pricingTemplateID, &qpsLimit, &maxInFlightNonStream, &maxInFlightStream, &templateID, &templateName, &templatePricingUnit, &templatePricingCurrencyCode, &templateVersion, &record.CreatedAt, &record.UpdatedAt); err != nil {
 		return terminaltarget.Record{}, err
 	}
 	record.OwnerModelConfigID = nullableInt32(modelConfigID)
 	record.Name = nullableStringValue(connectionName)
 	record.AuthType = nullableStringValue(authType)
 	record.CustomHeaders = parseCustomHeaders(customHeaders)
+	record.CustomRequestParameters = parseCustomRequestParameters(customRequestParameters)
 	record.OpenAITextCapability = nullableStringValue(openAITextCapability)
 	record.PricingTemplateID = nullableInt32(pricingTemplateID)
 	record.QPSLimit = nullableInt32(qpsLimit)
@@ -576,23 +608,24 @@ func scanTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminal
 
 func terminalTargetRecordFromConnectionResponse(item connectionResponse) terminaltarget.Record {
 	record := terminaltarget.Record{
-		ID:                   item.ID,
-		ProfileID:            item.ProfileID,
-		OwnerModelConfigID:   item.ModelConfigID,
-		APIFamily:            item.APIFamily,
-		EndpointID:           item.EndpointID,
-		IsActive:             item.IsActive,
-		Priority:             item.Priority,
-		Name:                 item.Name,
-		AuthType:             item.AuthType,
-		CustomHeaders:        item.CustomHeaders,
-		OpenAITextCapability: item.OpenAITextCapability,
-		PricingTemplateID:    item.PricingTemplateID,
-		QPSLimit:             item.QPSLimit,
-		MaxInFlightNonStream: item.MaxInFlightNonStream,
-		MaxInFlightStream:    item.MaxInFlightStream,
-		CreatedAt:            item.CreatedAt,
-		UpdatedAt:            item.UpdatedAt,
+		ID:                      item.ID,
+		ProfileID:               item.ProfileID,
+		OwnerModelConfigID:      item.ModelConfigID,
+		APIFamily:               item.APIFamily,
+		EndpointID:              item.EndpointID,
+		IsActive:                item.IsActive,
+		Priority:                item.Priority,
+		Name:                    item.Name,
+		AuthType:                item.AuthType,
+		CustomHeaders:           item.CustomHeaders,
+		CustomRequestParameters: item.CustomRequestParameters,
+		OpenAITextCapability:    item.OpenAITextCapability,
+		PricingTemplateID:       item.PricingTemplateID,
+		QPSLimit:                item.QPSLimit,
+		MaxInFlightNonStream:    item.MaxInFlightNonStream,
+		MaxInFlightStream:       item.MaxInFlightStream,
+		CreatedAt:               item.CreatedAt,
+		UpdatedAt:               item.UpdatedAt,
 	}
 	if item.Endpoint != nil {
 		record.Endpoint = &terminaltarget.Endpoint{ID: item.Endpoint.ID, ProfileID: item.Endpoint.ProfileID, Name: item.Endpoint.Name, BaseURL: item.Endpoint.BaseURL, Position: item.Endpoint.Position, CreatedAt: item.Endpoint.CreatedAt, UpdatedAt: item.Endpoint.UpdatedAt}
@@ -605,23 +638,24 @@ func terminalTargetRecordFromConnectionResponse(item connectionResponse) termina
 
 func connectionResponseFromTerminalTargetRecord(record terminaltarget.Record) connectionResponse {
 	item := connectionResponse{
-		ID:                   record.ID,
-		ProfileID:            record.ProfileID,
-		ModelConfigID:        record.OwnerModelConfigID,
-		APIFamily:            record.APIFamily,
-		EndpointID:           record.EndpointID,
-		IsActive:             record.IsActive,
-		Priority:             record.Priority,
-		Name:                 record.Name,
-		AuthType:             record.AuthType,
-		CustomHeaders:        record.CustomHeaders,
-		OpenAITextCapability: record.OpenAITextCapability,
-		PricingTemplateID:    record.PricingTemplateID,
-		QPSLimit:             record.QPSLimit,
-		MaxInFlightNonStream: record.MaxInFlightNonStream,
-		MaxInFlightStream:    record.MaxInFlightStream,
-		CreatedAt:            record.CreatedAt,
-		UpdatedAt:            record.UpdatedAt,
+		ID:                      record.ID,
+		ProfileID:               record.ProfileID,
+		ModelConfigID:           record.OwnerModelConfigID,
+		APIFamily:               record.APIFamily,
+		EndpointID:              record.EndpointID,
+		IsActive:                record.IsActive,
+		Priority:                record.Priority,
+		Name:                    record.Name,
+		AuthType:                record.AuthType,
+		CustomHeaders:           record.CustomHeaders,
+		CustomRequestParameters: record.CustomRequestParameters,
+		OpenAITextCapability:    record.OpenAITextCapability,
+		PricingTemplateID:       record.PricingTemplateID,
+		QPSLimit:                record.QPSLimit,
+		MaxInFlightNonStream:    record.MaxInFlightNonStream,
+		MaxInFlightStream:       record.MaxInFlightStream,
+		CreatedAt:               record.CreatedAt,
+		UpdatedAt:               record.UpdatedAt,
 	}
 	if record.Endpoint != nil {
 		item.Endpoint = &endpointResponse{ID: record.Endpoint.ID, ProfileID: record.Endpoint.ProfileID, Name: record.Endpoint.Name, BaseURL: record.Endpoint.BaseURL, HasAPIKey: endpointdomain.HasAPIKey(record.Endpoint.APIKey), MaskedAPIKey: endpointdomain.MaskedAPIKey(record.Endpoint.APIKey), Position: record.Endpoint.Position, CreatedAt: record.Endpoint.CreatedAt, UpdatedAt: record.Endpoint.UpdatedAt}
@@ -691,6 +725,13 @@ func nullableJSONString(value map[string]string) any {
 	return string(raw)
 }
 
+func nullableCustomRequestParametersArg(value *terminaltarget.CustomRequestParameters) any {
+	if value == nil || value.IsEmpty() {
+		return nil
+	}
+	return string(value.RawObject())
+}
+
 func nullableInt32(value sql.NullInt32) *int {
 	if !value.Valid {
 		return nil
@@ -713,6 +754,21 @@ func parseCustomHeaders(value sql.NullString) map[string]string {
 	}
 	parsed := map[string]string{}
 	if err := json.Unmarshal([]byte(value.String), &parsed); err != nil {
+		return nil
+	}
+	return parsed
+}
+
+// parseCustomRequestParameters parses the JSONB column text into the shared
+// validated value. Management reads normalize invalid persisted data to
+// unconfigured; the runtime planning snapshot independently fails closed on
+// invalid persisted data before publishing.
+func parseCustomRequestParameters(value sql.NullString) *terminaltarget.CustomRequestParameters {
+	if !value.Valid || strings.TrimSpace(value.String) == "" {
+		return nil
+	}
+	parsed, validationErr := terminaltarget.ParseCustomRequestParametersJSON([]byte(value.String))
+	if validationErr != nil || parsed.IsEmpty() {
 		return nil
 	}
 	return parsed

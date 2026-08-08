@@ -272,19 +272,28 @@ type ApiFamilyModelOption = {
   api_family: ApiFamily;
   model_id: string;
   is_enabled?: boolean;
+  openai_accepted_format?: OpenAIAcceptedFormat | null;
 };
 
+/**
+ * Returns target-model options for a source model. OpenAI sources are filtered
+ * to same-mode candidates only (strict mode equality): dual_native,
+ * chat_completions_only, and responses_only may target only the identical mode.
+ * Non-OpenAI sources keep the api_family-only behavior.
+ */
 export function getAccessTargetModelsForApiFamily<T extends ApiFamilyModelOption>(
   models: T[],
   apiFamily: ApiFamily,
   excludedModelId?: string,
+  openAIMode?: OpenAIAcceptedFormat | null,
 ): T[] {
   const normalizedExcludedModelId = excludedModelId?.trim() ?? "";
   return models.filter(
     (model) =>
       model.api_family === apiFamily
       && (normalizedExcludedModelId === "" || model.model_id !== normalizedExcludedModelId)
-      && model.is_enabled !== false,
+      && model.is_enabled !== false
+      && (apiFamily !== "openai" || !openAIMode || model.openai_accepted_format === openAIMode),
   );
 }
 

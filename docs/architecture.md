@@ -144,11 +144,11 @@ Global CORS handling runs before the runtime branch. The runtime branch then app
 
 `GET /v1/models` is the exception: `openai.models` branches to the local models-list handler before provider request-body handling, planning, or provider execution core. Every other registered proxy operation enters the shared runtime and gateway path: it resolves against frozen Default profile id `1`, resolves ordered access targets, applies the attached Ban Policy strategy, claims local attempt state, builds an upstream request, and hands activity to telemetry seams. The provider adapter is selected during planned-upstream request construction, not registry resolution. Request, non-stream response, and stream hooks are looked up by `HookCollectionID`, allowing related operations such as token counting or compact Responses to use hook collections different from their canonical operation names. Those hooks own generation extraction and stream intent, non-stream parsing and token usage, and stream terminal classification and usage merge respectively.
 
-OpenAI Chat Completions and Responses are operation-native. Planning requires the model's `openai_accepted_format` and the selected connection's `openai_text_capability` (`responses_only`, `chat_completions_only`, or `dual_native`) to support the ingress operation. Incompatible terminal attempts are skipped in authored order so the next target can be tried; if every otherwise eligible attempt is incompatible, Prism returns the typed `400 openai_request_translation_unsupported` response before provider transport. Current native attempts record `operation_translation_mode = "none"`; the columns and stats reads remain for historical rows. Responses adjunct operations require responses-capable targets.
+OpenAI Chat Completions and Responses are operation-native and mode-strict. Planning requires the model's `openai_accepted_format` and the selected connection's `openai_text_capability` (`responses_only`, `chat_completions_only`, or `dual_native`) to be exactly equal: `dual_native`, `chat_completions_only`, and `responses_only` may connect only to the identical mode (3×3 equality matrix, diagonal only). Incompatible terminal attempts are skipped in authored order so the next target can be tried; if every otherwise eligible attempt is mode-incompatible, Prism returns the typed `400 openai_request_translation_unsupported` response before provider transport. Current native attempts record `operation_translation_mode = "none"`; the columns and stats reads remain readable for historical rows. Responses adjunct operations (`openai.responses.input_tokens`, `openai.responses.compact`) require responses-capable targets, which mode equality guarantees for `responses_only` and `dual_native`. Management write paths enforce the same equality: authoring a cross-mode relation returns `422 target_openai_mode_mismatch` (including disabled/inactive relations), and changing a persisted model mode or connection capability that would break an existing relation returns `409`. A read-only preflight entrypoint (`PRISM_OPENAI_MODE_PREFLIGHT=1`) reports persisted violations with deterministic exit codes, and startup runs the same read-only check immediately after migrations and before any writable seed or normalization step, failing fast on violations.
 
 Runtime observability stores canonical disjoint token components. Base input, cache-read input, cache-creation input, base output, and reasoning output are separate dimensions, while provider totals remain authoritative when supplied. Pricing uses five concrete pricing strings from the attached template snapshot, and explicit `"0"` component prices mean configured free pricing instead of a missing-price condition.
 
-Terminal Target `openai_text_capability` remains connection-owned metadata used by native OpenAI wire-compatibility checks. Model-owned capability authoring, context-window preflight filtering, overflow-promotion routing, and sibling-operation translation have been removed; ordinary strategy selection now uses explicit Ban Policy routing families.
+Terminal Target `openai_text_capability` remains connection-owned metadata used by strict OpenAI text mode-equality checks. Model-owned capability authoring, context-window preflight filtering, overflow-promotion routing, and sibling-operation translation have been removed; ordinary strategy selection now uses explicit Ban Policy routing families.
 
 ### 3.1 Runtime Request With Private Connection Target
 
@@ -258,7 +258,34 @@ build_upstream_headers():
 
 Custom headers are a power-user feature. They can override ordinary forwarded headers, but they cannot override Prism-controlled authentication or provider-version headers and cannot re-add headers blocked by the Header Blocklist. This is enforced by skipping proxy-controlled custom header names and applying the blocklist last in the header construction pipeline.
 
-### 3.7 Dashboard And Analytics REST Polling
+### 3.7 Custom Request Parameter Overlay
+
+Terminal Targets can carry an optional static top-level JSON object (`connections.custom_request_parameters`). When any planned candidate for a request has a non-empty configuration, Prism must buffer the ingress body, verify it is a JSON object, and materialize a per-attempt upstream body before provider transport:
+
+```
+build_planned_terminal_attempts():
+  1. For each candidate attempt, build the provider-native upstream request (adapter model/path rewrite)
+  2. If the Connection has no custom_request_parameters: use the existing body unchanged
+  3. Otherwise overlay O onto the native body B:
+       R = deep_copy(B)
+       for k in sorted(top_level_keys(O)): R[k] = deep_copy(O[k])
+       re-encode R and enforce the 20 MiB effective-body limit
+  4. Re-extract the attempt's generation-parameter snapshot from its own final body
+  5. Mark the plan as requiring a replayable body (streaming request-body fast path disabled)
+```
+
+Overlay rules: non-conflicting client top-level fields are preserved verbatim; matching top-level keys are replaced wholesale (nested objects are never recursively merged); configured `null` is sent as literal JSON null; there is no delete-member syntax. `model`, `models`, `stream`, `messages`, `input`, `contents`, `instructions`, `system`, and `systemInstruction` are protected and can never appear in the configuration.
+
+Body-dependent headers (`Content-Encoding`, `Content-MD5`, `Digest`, `Content-Digest`) are stripped from client headers, provider auth extras, and Connection `custom_headers` whenever an overlay re-encodes the body; `Content-Length` is recomputed from the merged body. Non-identity `Content-Encoding` cannot be re-encoded: Gemini path-bound operations with a configured candidate reject it with `415`, while body-bound OpenAI/Anthropic operations keep the existing `400` malformed-body path.
+
+Buffering decisions:
+- If any candidate has non-empty parameters, `requiresReplayableRequestBody` becomes true and `canStreamIncomingRequestBody` returns false; Gemini `streamGenerateContent` then uses the two-phase planning boundary (probe with `rawBody == nil` only decides the replayable requirement, never overlays or 400s; the second full plan reads the body and materializes the merged body).
+- With no configured parameters anywhere, the existing request-body streaming fast path is preserved unchanged.
+- Each attempt owns an immutable merged body; failover, retry, or hedge candidates never share mutable maps, slices, or buffers.
+
+Fail-closed boundaries: non-object ingress fails with `400` before admission/transport; planning-snapshot compilation fails on invalid persisted data (cold start fails, hot refresh keeps the last-good snapshot); validation errors and logs never echo configuration values. Audit body capture stores each attempt's final merged body; request-log generation parameters are extracted per attempt from its final body.
+
+### 3.8 Dashboard And Analytics REST Polling
 
 ```
 Dashboard overview page
@@ -691,7 +718,7 @@ Validation rules:
 - `api_family` is required on every model contract and remains the authoritative runtime compatibility field.
 - `is_enabled` defaults to `false` when omitted. Enabling a model still requires at least one enabled access target in the stored graph.
 - Create and update payloads reject `access_targets`, exact-facade fields, and retired model-owned context capability fields.
-- Ordered same-profile, same-`api_family` model targets are managed through `/api/models/{id}/targets`.
+- Ordered same-profile, same-`api_family`, same-`openai_accepted_format` model targets are managed through `/api/models/{id}/targets`. Cross-mode target authoring is rejected with `422 target_openai_mode_mismatch` (disabled targets included).
 - Model target self-reference and target cycles are rejected by the target management routes.
 - Deleting a model referenced by another model target returns `409` until the target rows are removed or updated. Deleting an owner model deletes its Terminal Targets with the owning target rows.
 
@@ -709,7 +736,7 @@ Request (all fields optional):
   "is_enabled": true
 }
 ```
-Update payloads use the same field contract as create and do not mutate access targets. Existing access targets and private Terminal Targets are preserved and remain managed by model-scoped target and connection routes. Response `200`: Updated model object. Returns `409` if `model_id` conflicts within the effective profile.
+Update payloads use the same field contract as create and do not mutate access targets. Existing access targets and private Terminal Targets are preserved and remain managed by model-scoped target and connection routes. Response `200`: Updated model object. Returns `409` if `model_id` conflicts within the effective profile. Changing `openai_accepted_format` that would break an existing mode-equal relation (own connection targets, outbound model targets, or inbound referrers) also returns `409`.
 
 ##### Delete Model
 ```
@@ -840,6 +867,12 @@ Request (using existing endpoint):
   "custom_headers": {
     "X-Custom-Org": "org-123"
   },
+  "custom_request_parameters": {
+    "provider": {
+      "only": ["deepinfra/turbo"],
+      "allow_fallbacks": false
+    }
+  },
   "openai_text_capability": "responses_only",
   "pricing_template_id": 2,
   "qps_limit": 3,
@@ -871,13 +904,16 @@ Create semantics:
 - The connection `api_family` is derived from the owner model. A conflicting request value is rejected.
 - `priority` is rejected with `422`; Terminal Target ordering for a model is owned by `/api/models/{model_config_id}/targets` positions.
 - Limiter fields are optional. `null` means unlimited. Positive integers apply per-connection request admission limits.
-- `openai_text_capability` is the OpenAI text runtime capability source of truth for OpenAI-family Terminal Targets. It accepts `responses_only`, `chat_completions_only`, or `dual_native`, and is required for OpenAI rows. Non-OpenAI rows must omit it or persist `null`.
+- `openai_text_capability` is the OpenAI text runtime capability source of truth for OpenAI-family Terminal Targets. It accepts `responses_only`, `chat_completions_only`, or `dual_native`, is required for OpenAI rows, and must equal the owner model's `openai_accepted_format` (strict mode equality). Non-OpenAI rows must omit it or persist `null`. Cross-mode authoring is rejected with `422`; changing a capability that would break an existing relation is rejected with `409`.
+- `custom_request_parameters` is an optional static top-level JSON object (`object | null`). Missing, `null`, and `{}` all persist as unconfigured (`NULL`); a non-empty object is validated (protected keys, 64 KiB compact limit, depth ≤ 16, members ≤ 256, safe integers) and canonicalized before write. Invalid values return `422` with `{"detail":"Invalid custom request parameters","field":"custom_request_parameters","path":...,"reason":...,"limit":...}`; malformed request JSON or unknown fields keep the generic `400`.
 
 ##### Update Terminal Target
 ```
 PATCH /api/models/{model_config_id}/connections/{connection_id}
 ```
-Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `openai_text_capability`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
+Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `custom_request_parameters`, `openai_text_capability`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
+
+`custom_request_parameters` is a presence-aware whole-value replace: omitting the field keeps the current value, `null`/`{}` clears it to `NULL`, and a non-empty valid object replaces it wholesale; any violation fails the whole PATCH atomically.
 
 `endpoint_create` is supported on update and is mutually exclusive with `endpoint_id`. `priority` is rejected with `422`. The owner model and connection `api_family` are immutable.
 
@@ -1336,15 +1372,23 @@ Wrong methods on supported runtime paths return a Prism JSON `405` response befo
 
 Supported runtime operation request bodies are capped at `20 MiB`. Oversized requests return JSON `413` with `error: "request_body_too_large"` and `limit_bytes` before runtime planning or provider transport.
 
+When any planned Terminal Target candidate has custom request parameters configured, the ingress body must be a valid JSON object (otherwise `400` with `Request body must be a JSON object when custom request parameters are configured`), the per-attempt merged body is re-validated against the same `20 MiB` limit (`413 request_body_too_large` before transport), and Gemini path-bound operations reject non-identity `Content-Encoding` with `415` (`Content-Encoding is not supported when custom request parameters are configured`) before buffering. These failures never reach admission, Ban Policy attempt counting, provider transport, or audit body capture.
+
 #### 2.2A Routing Failures
 
 Runtime planning orders the model's enabled mixed access-target rows once by `(position, id)` and lets the attached strategy shape the effective peer sequence: `single` keeps only the first enabled mixed row, `fill-first` walks the authored mixed order, and `round-robin` rotates the direct mixed rows once per request. A Model Target row recursively resolves through the child model's own strategy and contributes one contiguous block; a Terminal Target row contributes its own attempt. Candidate-local misses (zero-leaf child, unavailable connection, operation incompatibility) skip to the next effective peer, while cycle, depth, and missing-strategy errors fail closed. If no eligible Terminal Target is available inside the current retry window, Prism returns a routing-availability error before opening an upstream request. If all otherwise eligible attempts are blocked by admission counters, Prism returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. An OpenAI text request whose requested model does not accept the ingress operation rejects immediately with `400 openai_request_translation_unsupported`. Terminal Target connections that do not natively support the operation are skipped so later native attempts remain eligible; if every otherwise eligible attempt is wire-incompatible, Prism returns the same typed `400` with `translation_mode: "none"` and `unsupported_reason: "operation_translation_unsupported"` before provider transport. Availability failures with no otherwise eligible attempt retain the ordinary `503` no-eligible-target response.
 
 Request-log detail keeps flat final-target attribution fields such as `resolved_target_model_id`, `terminal_target_id`, `selected_terminal_target_id`, `endpoint_id`, and `operation_translation_mode`. Deleted model-owned routing metadata is not exposed on public detail responses.
 
-#### 2.2B OpenAI native wire compatibility
+#### 2.2B OpenAI native mode equality (strict)
 
-OpenAI text routing is native-only. The requested model's `openai_accepted_format` and each Terminal Target connection's `openai_text_capability` use `responses_only`, `chat_completions_only`, or `dual_native`; both must support the ingress operation. A requested-model format mismatch returns `400 openai_request_translation_unsupported` before target resolution. A mismatched connection is skipped so load balancing can try the next authored target; when every otherwise eligible connection is incompatible, Prism returns the same typed `400` before provider transport. The response detail is `Prism cannot translate this OpenAI request shape for the selected target.`, with `translation_mode: "none"` and `unsupported_reason: "operation_translation_unsupported"`. Responses adjunct operations, `openai.responses.input_tokens` and `openai.responses.compact`, also require a responses-capable target.
+OpenAI text routing is native-only and mode-strict. The requested model's `openai_accepted_format` and each Terminal Target connection's `openai_text_capability` use `responses_only`, `chat_completions_only`, or `dual_native`; both must be **exactly equal** (only the diagonal of the 3×3 mode matrix is legal). A requested-model format that does not support the ingress operation returns `400 openai_request_translation_unsupported` before target resolution. A connection whose mode differs from the requested model is skipped so load balancing can try the next authored target; when every otherwise eligible connection is mode-incompatible, Prism returns the same typed `400` before provider transport. The response detail is `Prism cannot translate this OpenAI request shape for the selected target.`, with `translation_mode: "none"` and `unsupported_reason: "operation_translation_unsupported"`. Responses adjunct operations, `openai.responses.input_tokens` and `openai.responses.compact`, require a responses-capable target, which equality guarantees for `responses_only` and `dual_native`.
+
+Management enforcement mirrors the runtime contract. Authoring any OpenAI relation (model to model, model to Terminal Target, including references to shared connections) whose source mode differs from the target mode is rejected with `422 Unprocessable` and issue code `target_openai_mode_mismatch` inside `routing_plan_issues`; disabled or inactive relations are not exempt. Changing a persisted model `openai_accepted_format` or connection `openai_text_capability` that would break an existing relation returns `409 Conflict`. Non-OpenAI families keep the existing api-family validation channels unchanged.
+
+Upgrade and startup guards are read-only and deterministic:
+- `PRISM_OPENAI_MODE_PREFLIGHT=1` runs the same persisted-relation scan before startup/migrations: exit `0` = compliant, `1` = violations found, `2` = connection/check failure; the stdout report lists each violation (`model_target`/`connection_target`, source, target, both modes) in stable order. It writes no management state and never contacts an upstream provider.
+- Startup runs the scan as `openai_text_mode_check` immediately after migrations and before any writable seed or normalization step; any violation fails startup with `openai text mode equality check failed` and a violation summary.
 
 Prism does not convert requests, non-stream responses, or streams between Chat Completions and Responses. Native attempts use the ingress operation's upstream path and preserve `operation_translation_mode = "none"`. The `operation_translation_mode` columns and request-log fields remain readable for historical rows that recorded the retired translation values.
 
@@ -1355,7 +1399,7 @@ The following application-spec example assumes these OpenAI text capabilities an
 - `gpt-5.4`: `dual_native`
 - `deepseek-v4-flash`: `chat_completions_only`
 
-Native request behavior:
+Native request behavior (strict mode equality: each target shown is authored with the same mode as the requested model):
 
 | Requested model | Ingress path | Target capability | Upstream path | `operation_translation_mode` | Client-visible shape |
 |---|---|---|---|---|---|
@@ -1366,13 +1410,15 @@ Native request behavior:
 | `deepseek-v4-flash` | `/v1/responses` | `chat_completions_only` | No upstream request | N/A | Rejected |
 | `deepseek-v4-flash` | `/v1/chat/completions` | `chat_completions_only` | `/v1/chat/completions` | `none` | Chat Completions |
 
+Cross-mode targets are authoring-rejected before they can be persisted, so a requested `chat_completions_only` model can never reach a `dual_native` connection and a requested `responses_only` model can never reach a `dual_native` connection; such combinations would return the same typed `400` before provider transport with zero upstream calls if they existed in legacy data.
+
 #### 2.2C Retired Exact OpenAI Facade Routing
 
 Exact OpenAI facade routing and its model fields are retired. Runtime planning uses the requested model's ordinary access-target graph, native Terminal Target capability checks, and the attached Ban Policy strategy. Prism no longer performs context-window preflight filtering or returns context-window-exceeded planning errors.
 
 #### 2.2D Retired Overflow Replay
 
-Model-scoped overflow replay and its authoring fields are retired. Runtime planning now uses the ordinary operation registry, access-target graph, native wire-compatibility checks, and the attached Ban Policy strategy. Public request-log and usage surfaces keep flat requested model, final target, Terminal Target, endpoint, and operation fields without nested retired routing metadata.
+Model-scoped overflow replay and its authoring fields are retired. Runtime planning now uses the ordinary operation registry, access-target graph, strict mode-equality checks, and the attached Ban Policy strategy. Public request-log and usage surfaces keep flat requested model, final target, Terminal Target, endpoint, and operation fields without nested retired routing metadata.
 
 #### 2.3 OpenAI Operations
 
@@ -3077,6 +3123,7 @@ Maps a model ID to fixed api family and routing behavior within one profile.
 Constraints:
 - `UNIQUE(profile_id, model_id)`.
 - OpenAI models require `openai_accepted_format` in `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI models must keep it `NULL`.
+- Strict mode equality: every persisted OpenAI relation (model to model, model to Terminal Target) must connect identical modes only; the management API rejects cross-mode authoring with `422 target_openai_mode_mismatch` and blocks mode changes that would break existing relations with `409`. The read-only preflight (`PRISM_OPENAI_MODE_PREFLIGHT=1`) and the startup `openai_text_mode_check` step enforce the same invariant over persisted rows, including disabled/inactive relations.
 - Public model authoring uses ordered rows in `model_access_targets` to reach same-family model targets. Internal connection target rows own and route to Terminal Targets, Prism's product-facing model-private endpoint bindings.
 - Runtime compatibility is checked against `api_family`.
 - Exact facade routing, model-owned context capability, and overflow-promotion authoring fields are retired.
@@ -3179,6 +3226,7 @@ Terminal Targets are represented as `connections` / `connection_id` in the compa
 | name | TEXT | NULLABLE | Optional Terminal Target label |
 | auth_type | VARCHAR(50) | NULLABLE | Optional auth behavior metadata |
 | custom_headers | TEXT | NULLABLE | JSON headers applied before blocklist filtering |
+| custom_request_parameters | JSONB | NULLABLE | Optional static top-level JSON object overlaid onto every upstream attempt body; `NULL`/`{}`/`null` all mean unconfigured; CHECK constraint `connections_custom_request_parameters_object` requires `NULL` or a JSON object root |
 | health_status | VARCHAR(20) | NOT NULL | `unknown`, `healthy`, `unhealthy`; application-managed compatibility value |
 | health_detail | TEXT | NULLABLE | Retained compatibility health detail |
 | last_health_check | TIMESTAMPTZ | NULLABLE | Retained compatibility health timestamp |
@@ -3199,7 +3247,7 @@ Connection invariants:
 - Deleting a Terminal Target removes its owning `model_access_targets.target_connection_id` row in the same operation.
 - Connection create/update contracts do not allow client-written `priority`; model-specific ordering changes flow through `/api/models/{model_config_id}/targets/{target_id}/position`.
 - OpenAI Terminal Targets require `openai_text_capability` in `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI Terminal Targets must keep it `NULL`.
-- `openai_text_capability` is the connection-owned OpenAI text runtime capability source of truth for planning. `responses_only` supports native Responses generation and Responses adjunct operations, `chat_completions_only` supports native Chat Completions, and `dual_native` supports both native text generation shapes. The requested model's `openai_accepted_format` gates the ingress operation with `400 openai_request_translation_unsupported`; incompatible Terminal Target connections are skipped in authored order so later native attempts remain eligible, and an otherwise eligible set exhausted only by wire incompatibility returns the same typed `400` before provider transport. Ordinary availability exhaustion without such an attempt remains `503`.
+- `openai_text_capability` is the connection-owned OpenAI text runtime capability source of truth for planning. `responses_only` supports native Responses generation and Responses adjunct operations, `chat_completions_only` supports native Chat Completions, and `dual_native` supports both native text generation shapes. Strict mode equality requires the requested model's `openai_accepted_format` and the connection's `openai_text_capability` to be exactly equal; authoring any unequal relation is rejected by management (`422 target_openai_mode_mismatch`), mode changes that would break existing relations return `409`, and runtime skips mode-different connections in authored order so later equal-mode attempts remain eligible. An otherwise eligible set exhausted only by mode incompatibility returns the typed `400 openai_request_translation_unsupported` before provider transport; ordinary availability exhaustion without such an attempt remains `503`.
 - `openai_probe_endpoint_variant` is retained for existing rows; live Terminal Target authoring uses `openai_text_capability` for OpenAI runtime planning.
 
 #### 2.7 `pricing_templates` (profile-scoped reusable token pricing)

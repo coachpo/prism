@@ -765,7 +765,7 @@ func listActiveConnectionsForProfile(ctx context.Context, tx pgx.Tx, profileID i
 		ctx,
 		`SELECT connections.id, connections.profile_id, connections.api_family, connections.endpoint_id,
 			connections.priority, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream,
-			connections.name, connections.auth_type, connections.custom_headers, connections.pricing_template_id,
+			connections.name, connections.auth_type, connections.custom_headers, connections.custom_request_parameters, connections.pricing_template_id,
 			connections.openai_text_capability,
 			pricing_templates.id, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code,
 			pricing_templates.input_price::text, pricing_templates.output_price::text,
@@ -806,6 +806,7 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 	var name sql.NullString
 	var authType sql.NullString
 	var customHeaders sql.NullString
+	var customRequestParameters sql.NullString
 	var pricingTemplateID sql.NullInt32
 	var openAITextCapability sql.NullString
 	var templateID sql.NullInt32
@@ -831,6 +832,7 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 		&name,
 		&authType,
 		&customHeaders,
+		&customRequestParameters,
 		&pricingTemplateID,
 		&openAITextCapability,
 		&templateID,
@@ -855,6 +857,11 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 	record.Name = nullableString(name)
 	record.AuthType = nullableString(authType)
 	record.CustomHeaders = parseCustomHeaders(customHeaders)
+	customRequestParametersValue, parseErr := parseRuntimeCustomRequestParameters(customRequestParameters)
+	if parseErr != nil {
+		return terminaltarget.RuntimeRecord{}, fmt.Errorf("invalid custom request parameters for connection %d: %w", record.ID, parseErr)
+	}
+	record.CustomRequestParameters = customRequestParametersValue
 	record.PricingTemplateID = nullableInt32(pricingTemplateID)
 	record.OpenAITextCapability = nullableString(openAITextCapability)
 	record.Endpoint.Name = nullableString(endpointName)
@@ -874,22 +881,43 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 	return record, nil
 }
 
+// parseRuntimeCustomRequestParameters parses the JSONB column text with the
+// shared validator and fails closed: invalid persisted configuration rejects
+// the whole snapshot generation (cold start fails, hot refresh keeps the
+// last-good snapshot) instead of silently forwarding requests without the
+// configured overlay. The error carries only the connection ID and the
+// validation reason/path, never the configuration value.
+func parseRuntimeCustomRequestParameters(value sql.NullString) (*terminaltarget.CustomRequestParameters, error) {
+	if !value.Valid || strings.TrimSpace(value.String) == "" {
+		return nil, nil
+	}
+	parsed, validationErr := terminaltarget.ParseCustomRequestParametersJSON([]byte(value.String))
+	if validationErr != nil {
+		return nil, validationErr
+	}
+	if parsed.IsEmpty() {
+		return nil, nil
+	}
+	return parsed, nil
+}
+
 func runtimeConnectionFromTerminalTargetRecord(record terminaltarget.RuntimeRecord) runtimeConnection {
 	item := runtimeConnection{
-		ID:                      record.ID,
-		ProfileID:               record.ProfileID,
-		APIFamily:               record.APIFamily,
-		EndpointID:              record.EndpointID,
-		Priority:                record.Priority,
-		QPSLimit:                record.QPSLimit,
-		MaxInFlightNonStream:    record.MaxInFlightNonStream,
-		MaxInFlightStream:       record.MaxInFlightStream,
-		Name:                    record.Name,
-		AuthType:                record.AuthType,
-		EncryptedEndpointAPIKey: record.Endpoint.EncryptedAPIKey,
-		CustomHeaders:           record.CustomHeaders,
-		PricingTemplateID:       record.PricingTemplateID,
-		OpenAITextCapability:    record.OpenAITextCapability,
+		ID:                       record.ID,
+		ProfileID:                record.ProfileID,
+		APIFamily:                record.APIFamily,
+		EndpointID:               record.EndpointID,
+		Priority:                 record.Priority,
+		QPSLimit:                 record.QPSLimit,
+		MaxInFlightNonStream:     record.MaxInFlightNonStream,
+		MaxInFlightStream:        record.MaxInFlightStream,
+		Name:                     record.Name,
+		AuthType:                 record.AuthType,
+		EncryptedEndpointAPIKey:  record.Endpoint.EncryptedAPIKey,
+		CustomHeaders:            record.CustomHeaders,
+		CustomRequestParameters:  record.CustomRequestParameters,
+		PricingTemplateID:        record.PricingTemplateID,
+		OpenAITextCapability:     record.OpenAITextCapability,
 		Endpoint: runtimeEndpoint{
 			ID:      record.Endpoint.ID,
 			Name:    record.Endpoint.Name,

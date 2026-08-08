@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -13,6 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
+	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
+	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
 type queryExecutor interface {
@@ -396,7 +399,7 @@ func loadModelAccessTargetsForModels(ctx context.Context, exec queryExecutor, pr
 
 func loadConnectionAccessTargetsForModels(ctx context.Context, exec queryExecutor, profileID int, modelIDs []int) (map[int][]accessTargetRecord, error) {
 	args := []any{profileID, int32ArrayArg(modelIDs)}
-	query := `SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_connection_id, model_access_targets.position, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id = ANY($2) AND model_access_targets.target_connection_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`
+	query := `SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_connection_id, model_access_targets.position, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.custom_request_parameters, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id = ANY($2) AND model_access_targets.target_connection_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query connection access targets for profile %d: %w", profileID, err)
@@ -417,7 +420,7 @@ func loadConnectionAccessTargetsForModels(ctx context.Context, exec queryExecuto
 	return items, nil
 }
 
-func resolveAccessTargets(ctx context.Context, exec queryExecutor, profileID int, sourceModelConfigID *int, sourceModelID string, apiFamily string, accessTargets []modelAccessTargetRequest) ([]resolvedAccessTarget, error) {
+func resolveAccessTargets(ctx context.Context, exec queryExecutor, profileID int, sourceModelConfigID *int, sourceModelID string, apiFamily string, openAIAcceptedFormat *string, accessTargets []modelAccessTargetRequest) ([]resolvedAccessTarget, error) {
 	authoredTargets := modelrouting.SortAuthoredAccessTargets(modelRoutingTargetsFromRequests(accessTargets))
 	modelIDs := make([]string, 0)
 	connectionIDs := make([]int, 0)
@@ -439,7 +442,7 @@ func resolveAccessTargets(ctx context.Context, exec queryExecutor, profileID int
 	}
 
 	resolvedGraphTargets, issues := modelrouting.ResolveAuthoredAccessTargets(authoredTargets, modelrouting.ResolveOptions{
-		Source:              modelRoutingSourceNode(sourceModelConfigID, sourceModelID, profileID, apiFamily),
+		Source:              modelRoutingSourceNode(sourceModelConfigID, sourceModelID, profileID, apiFamily, openAIAcceptedFormat),
 		ModelsByID:          modelRoutingNodesByModelID(modelsByID),
 		TerminalTargetsByID: modelRoutingTerminalNodesByConnectionID(connectionsByID),
 		IssuePath:           modelRoutingResolveIssuePath,
@@ -451,18 +454,18 @@ func resolveAccessTargets(ctx context.Context, exec queryExecutor, profileID int
 	return resolvedAccessTargetsFromModelRouting(resolvedGraphTargets, modelsByID, connectionsByID), nil
 }
 
-func modelRoutingSourceNode(sourceModelConfigID *int, sourceModelID string, profileID int, apiFamily string) modelrouting.ModelNode {
+func modelRoutingSourceNode(sourceModelConfigID *int, sourceModelID string, profileID int, apiFamily string, openAIAcceptedFormat *string) modelrouting.ModelNode {
 	configID := 0
 	if sourceModelConfigID != nil {
 		configID = *sourceModelConfigID
 	}
-	return modelrouting.ModelNode{ConfigID: configID, ProfileID: profileID, ModelID: strings.TrimSpace(sourceModelID), APIFamily: apiFamily, IsEnabled: true}
+	return modelrouting.ModelNode{ConfigID: configID, ProfileID: profileID, ModelID: strings.TrimSpace(sourceModelID), APIFamily: apiFamily, IsEnabled: true, OpenAIAcceptedFormat: openAIAcceptedFormat}
 }
 
 func modelRoutingNodesByModelID(modelsByID map[string]modelRecord) map[string]modelrouting.ModelNode {
 	items := make(map[string]modelrouting.ModelNode, len(modelsByID))
 	for modelID, record := range modelsByID {
-		items[strings.TrimSpace(modelID)] = modelrouting.ModelNode{ConfigID: record.ID, ProfileID: record.ProfileID, ModelID: record.ModelID, APIFamily: record.APIFamily, IsEnabled: record.IsEnabled}
+		items[strings.TrimSpace(modelID)] = modelrouting.ModelNode{ConfigID: record.ID, ProfileID: record.ProfileID, ModelID: record.ModelID, APIFamily: record.APIFamily, IsEnabled: record.IsEnabled, OpenAIAcceptedFormat: record.OpenAIAcceptedFormat}
 	}
 	return items
 }
@@ -470,7 +473,7 @@ func modelRoutingNodesByModelID(modelsByID map[string]modelRecord) map[string]mo
 func modelRoutingTerminalNodesByConnectionID(connectionsByID map[int]connectionTargetSummary) map[int]modelrouting.TerminalTargetNode {
 	items := make(map[int]modelrouting.TerminalTargetNode, len(connectionsByID))
 	for connectionID, connection := range connectionsByID {
-		items[connectionID] = modelrouting.TerminalTargetNode{ID: connection.ID, ProfileID: connection.ProfileID, APIFamily: connection.APIFamily}
+		items[connectionID] = modelrouting.TerminalTargetNode{ID: connection.ID, ProfileID: connection.ProfileID, APIFamily: connection.APIFamily, OpenAITextCapability: connection.OpenAITextCapability}
 	}
 	return items
 }
@@ -546,7 +549,7 @@ func loadConnectionSummariesByIDs(ctx context.Context, exec queryExecutor, profi
 		return map[int]connectionTargetSummary{}, nil
 	}
 	args := []any{profileID, int32ArrayArg(connectionIDs)}
-	query := `SELECT connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.created_at, connections.updated_at FROM connections JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE connections.profile_id = $1 AND connections.id = ANY($2) ORDER BY connections.id ASC`
+	query := `SELECT connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.position, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.custom_request_parameters, connections.openai_text_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code, pricing_templates.version, connections.created_at, connections.updated_at FROM connections JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id WHERE connections.profile_id = $1 AND connections.id = ANY($2) ORDER BY connections.id ASC`
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query target connections for profile %d: %w", profileID, err)
@@ -667,6 +670,35 @@ func listAccessTargetReferrers(ctx context.Context, exec queryExecutor, profileI
 		return nil, fmt.Errorf("iterate access target referrers for model %d: %w", targetModelConfigID, err)
 	}
 	return items, nil
+}
+
+func ensureOpenAIAcceptedFormatChangeAllowed(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, accessTargets []accessTargetRecord, nextMode *string) error {
+	for _, target := range accessTargets {
+		if modelrouting.IsTerminalTargetType(target.TargetType) && target.Connection != nil {
+			if !providerauth.OpenAITextModesMatch(nextMode, target.Connection.OpenAITextCapability) {
+				return &domainError{StatusCode: http.StatusConflict, Detail: "Cannot change openai_accepted_format while connection access targets exist with a different openai_text_capability"}
+			}
+		}
+		if modelrouting.IsModelTargetType(target.TargetType) && target.TargetModel != nil {
+			if !providerauth.OpenAITextModesMatch(nextMode, target.TargetModel.OpenAIAcceptedFormat) {
+				return &domainError{StatusCode: http.StatusConflict, Detail: "Cannot change openai_accepted_format while model access targets exist with a different openai_accepted_format"}
+			}
+		}
+	}
+	referrers, err := listAccessTargetReferrers(ctx, exec, profileID, modelConfigID, nil)
+	if err != nil {
+		return err
+	}
+	conflicting := make([]string, 0, len(referrers))
+	for _, referrer := range referrers {
+		if !providerauth.OpenAITextModesMatch(nextMode, referrer.OpenAIAcceptedFormat) {
+			conflicting = append(conflicting, referrer.ModelID)
+		}
+	}
+	if len(conflicting) > 0 {
+		return &domainError{StatusCode: http.StatusConflict, Detail: fmt.Sprintf("Cannot change openai_accepted_format: models [%s] target this model", strings.Join(conflicting, ", "))}
+	}
+	return nil
 }
 
 func deleteSourceAccessTargets(ctx context.Context, tx pgx.Tx, sourceModelConfigID int) error {
@@ -866,6 +898,7 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 	var connectionName sql.NullString
 	var authType sql.NullString
 	var customHeaders sql.NullString
+	var customRequestParameters sql.NullString
 	var openAITextCapability sql.NullString
 	var pricingTemplateID sql.NullInt32
 	var qpsLimit sql.NullInt32
@@ -895,6 +928,7 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 		&connectionName,
 		&authType,
 		&customHeaders,
+		&customRequestParameters,
 		&openAITextCapability,
 		&pricingTemplateID,
 		&qpsLimit,
@@ -918,6 +952,7 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 	item.Name = nullableStringValue(connectionName)
 	item.AuthType = nullableStringValue(authType)
 	item.CustomHeaders = parseCustomHeaders(customHeaders)
+	item.CustomRequestParameters = parseCustomRequestParameters(customRequestParameters)
 	item.OpenAITextCapability = nullableStringValue(openAITextCapability)
 	item.PricingTemplateID = nullableInt32(pricingTemplateID)
 	item.QPSLimit = nullableInt32(qpsLimit)
@@ -1169,6 +1204,21 @@ func parseCustomHeaders(value sql.NullString) map[string]string {
 	}
 	parsed := map[string]string{}
 	if err := json.Unmarshal([]byte(value.String), &parsed); err != nil {
+		return nil
+	}
+	return parsed
+}
+
+// parseCustomRequestParameters parses the JSONB column text into the shared
+// validated value. Management reads normalize invalid persisted data to
+// unconfigured; the runtime planning snapshot independently fails closed on
+// invalid persisted data before publishing.
+func parseCustomRequestParameters(value sql.NullString) *terminaltarget.CustomRequestParameters {
+	if !value.Valid || strings.TrimSpace(value.String) == "" {
+		return nil
+	}
+	parsed, validationErr := terminaltarget.ParseCustomRequestParametersJSON([]byte(value.String))
+	if validationErr != nil || parsed.IsEmpty() {
 		return nil
 	}
 	return parsed

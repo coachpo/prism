@@ -27,8 +27,9 @@ Single operator (developer/power user) running the application locally or on a l
 
 ### 4.2 Model Configuration
 - Map each model to a fixed runtime `api_family`
-- Models expose one ordered `access_targets` list whose rows point to same-family models (Model Targets) or model-private Terminal Targets; both types share one global `position` and are type-neutral peers of the same mixed order
-- Terminal Targets carry endpoint, costing, health, admission-limit, and auth metadata as model-private endpoint bindings owned by one model
+- OpenAI models also carry an `openai_accepted_format` of `responses_only`, `chat_completions_only`, or `dual_native`; strict mode equality requires every access target (model or Terminal Target) to use the identical mode
+- Models expose one ordered `access_targets` list whose rows point to same-family, same-mode models (Model Targets) or model-private Terminal Targets; both types share one global `position` and are type-neutral peers of the same mixed order
+- Terminal Targets carry endpoint, costing, health, admission-limit, and auth metadata as model-private endpoint bindings owned by one model; OpenAI Terminal Target capability must equal the owner model's `openai_accepted_format`
 - Select which access targets are enabled for each model; enabled models require at least one enabled target
 - CRUD operations for all configurations are available via REST API
 
@@ -63,8 +64,8 @@ Single operator (developer/power user) running the application locally or on a l
 ### 4.5 Default-Profile Endpoints & Terminal Targets
 - **Endpoints** are profile-scoped credential objects containing a name, base URL, and API key.
 - **Models** carry fixed `api_family` metadata.
-- **Terminal Targets** are profile-scoped model routing, costing, and health configurations that reference endpoints in the same profile.
-- Endpoints can be reused across multiple models within the same profile.
+- **Terminal Targets** are profile-scoped model routing, costing, and health configurations that reference endpoints in the same profile. They can also carry per-target custom HTTP headers and an optional static JSON request-body parameter overlay (see §4.12 and §4.13).
+- Endpoints can be reused across multiple models within the same profile; each Terminal Target keeps its own header and request-parameter configuration.
 - Deleting an endpoint is blocked if any Terminal Targets in that profile still reference it.
 
 ### 4.6 Terminal Target Request Health
@@ -77,8 +78,8 @@ Single operator (developer/power user) running the application locally or on a l
 - View all configured models and their reachable Terminal Targets
 - Add/edit/delete model configurations with ordered access targets
 - Add/edit/delete profile-scoped endpoints
-- Add/edit/delete Terminal Targets from model detail
 - Model detail renders one mixed access-target list ordered by the shared `position`; Model and Terminal rows share a continuous "位置 N" numbering, adjacent rows of either type can be moved up/down with the same controls, and reloads never restore type grouping
+- Add/edit/delete Terminal Targets from model detail; the Terminal Target dialog includes an “高级请求设置” group with request limits, custom headers, and the custom request parameters JSON editor
 - Toggle enabled/disabled access targets per model
 - Select an explicit load-balance strategy with Ban Policy settings per model
 - Dedicated model-detail route (`/models/:id`) for ordered access-target and Terminal Target configuration; current loadbalance state and loadbalance event history live under Ban Policies
@@ -185,13 +186,27 @@ Allow users to configure custom HTTP headers on individual Terminal Targets. The
 - Headers are stored as a JSON object
 - Custom headers can override ordinary forwarded headers, but they cannot override Prism-controlled authentication or provider-version headers and cannot bypass the final Header Blocklist
 
-### 4.13 Supported API Families
+### 4.13 Custom Request Parameters per Terminal Target
+Allow operators to attach an optional static top-level JSON object (`custom_request_parameters`) to each Terminal Target. Prism applies the object as a top-level shallow overlay on the provider-native upstream request body of every actual attempt that selects that Connection, after the provider adapter completes model/path rewrite.
+- Configured during Terminal Target creation or editing under “高级请求设置 → 自定义请求参数（JSON）”, with a full-width JSON editor, format/clear actions, a top-level count summary, and field-level validation that mirrors the backend validator
+- Overlay rules: non-conflicting client top-level fields are preserved; matching top-level keys are replaced wholesale (nested objects are never recursively merged); configured `null` values are sent as literal JSON null; there is no delete-member syntax
+- The same Connection configuration applies to all nine provider-forwarded POST operations (OpenAI Chat Completions/Responses/input-tokens/compact, Anthropic Messages/count_tokens, Gemini generateContent/streamGenerateContent/countTokens); local `GET /v1/models` never applies it
+- `model`, `models`, `stream`, `messages`, `input`, `contents`, `instructions`, `system`, and `systemInstruction` are protected top-level fields and are rejected at save time; the management API returns 422 with a locatable `field`/`path`/`reason`/`limit` envelope
+- Constraints: root must be an object, compact encoding ≤ 64 KiB, nesting depth ≤ 16, total object members ≤ 256, integers within the ECMAScript safe-integer range, no non-finite numbers, no duplicate or blank keys
+- Unconfigured, explicit `null`, and `{}` all mean “no parameters” and keep the existing request bytes, fast paths, headers, auth, pricing, audit, and response behavior unchanged
+- When any planned candidate carries a configuration, Prism buffers and validates the ingress body as a JSON object, materializes a per-attempt merged body (also for Gemini path-streaming, which switches from the request-body streaming fast path to the buffered path), and re-extracts generation-parameter telemetry from each attempt's final body
+- Body-dependent headers (`Content-Encoding`, `Content-MD5`, `Digest`, `Content-Digest`) are stripped from client, auth-extra, and `custom_headers` sources whenever an overlay re-encodes the body; `Content-Length` is recomputed
+- Error boundaries: non-object ingress fails with 400 before provider transport; Gemini path-bound operations with a configured candidate reject non-identity `Content-Encoding` with 415; merged bodies over the 20 MiB runtime limit fail with 413; planning-snapshot compilation fails closed on invalid persisted data (cold start fails, hot refresh keeps the last-good snapshot)
+- This is plaintext, non-secret configuration: the management API echoes it, and enabling request-body audit capture stores the final merged upstream body (which includes the injected parameters); validation errors and logs never echo the configured values
+- Prism does not guess vendors, download provider catalogs, or verify provider slugs; whether an upstream accepts or honors a parameter is the operator's and upstream's responsibility (for example OpenRouter `provider.only` / `provider.order` / `allow_fallbacks`)
+
+### 4.14 Supported API Families
 - The application exclusively supports the shipped OpenAI, Anthropic, and Gemini `api_family` values
 
-### 4.14 Configurable Header Blocklist
+### 4.15 Configurable Header Blocklist
 Database-backed header blocklist with CRUD API. Supports exact and prefix match types. System defaults for Cloudflare tunnel metadata, tracing headers, and standard proxy headers. Applied by the Go runtime on every request.
 
-### 4.15 Frozen Profile Scope
+### 4.16 Frozen Profile Scope
 - Prism preserves the `profiles` table and all `profile_id` storage columns for historical attribution and a future unfreeze path.
 - Profile-scoped management APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
 - Global management routes stay outside profile scoping. Global routes include auth, auth-setting flows, `GET/PUT /api/settings/log-retention`, and `POST /api/maintenance/log-retention/jobs`.
@@ -561,8 +576,9 @@ Validated again against current repo surfaces on 2026-07-10:
 
 1. Operators list, search, create, edit, and delete model configs.
 2. Model create and edit dialogs manage model metadata, OpenAI accepted format, loadbalance strategy, and enabled state.
-3. Model detail owns access-target authoring as one mixed list: Model Targets and Terminal Targets share the global `position` order, cross-type adjacent moves use the same controls, and Terminal Target management covers the model's private endpoint bindings.
-4. Request logs preserve the requested model while final-target fields show the terminal model reached through the access graph.
+3. Model detail owns access-target authoring as one mixed list: same-family Model Targets and Terminal Targets share the global `position` order, cross-type adjacent moves use the same controls, and Terminal Target management covers the model's private endpoint bindings.
+4. The Terminal Target dialog's “高级请求设置” group lets operators configure request limits, custom request headers, and the optional custom request parameters JSON overlay (format/clear actions, top-level count summary, field-level validation, and server 422 mapping back to the editor).
+5. Request logs preserve the requested model while final-target fields show the terminal model reached through the access graph.
 
 **UI-driven backend touchpoints**
 
@@ -677,7 +693,7 @@ For the page-specific query contract and UI behavior, see section 8 (Requests Pa
 
 Mail bootstrap fields remain parse-compatible for existing `config.json` files, but Prism no longer sends mail. Fresh bootstrap seeds use backend `8000`, frontend `5173`, and PostgreSQL `15432`, but `./start.sh` follows the existing bootstrap file's configured `server.port` when one already exists. `runtime.transport.requestTimeout` is seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout` is seeded as `"10s"`. Direct external `config.json` edits are not watched automatically, and existing valid files are not rewritten by the launcher. To reset startup defaults, stop Prism, remove or relocate the bootstrap file, and restart.
 
-OpenAI text routing is native-only. Operators set runtime support on each Terminal Target through `openai_text_capability`, using `responses_only`, `chat_completions_only`, or `dual_native`; incompatible Chat Completions/Responses attempts are skipped rather than translated.
+OpenAI text routing is native-only and mode-strict. Operators set runtime support on each Terminal Target through `openai_text_capability`, using `responses_only`, `chat_completions_only`, or `dual_native`; each mode may connect only to the identical mode (3×3 equality matrix, diagonal only). The management UI filters target-model candidates and locks connection capabilities to the owner model's mode, and the backend rejects cross-mode authoring with `422 target_openai_mode_mismatch` and mode changes that break existing relations with `409`. Mode-incompatible Chat Completions/Responses attempts are skipped rather than translated, and startup fails fast on persisted violations; a read-only preflight (`PRISM_OPENAI_MODE_PREFLIGHT=1`) reports violations with deterministic exit codes before upgrade.
 
 **Backend touchpoints**
 
@@ -726,9 +742,10 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 2. Provider adapters parse provider-specific payloads, build upstream requests, adapt responses, classify streams, extract usage, and own pure OpenAI Chat/Responses conversion.
 3. Planning evaluates the model's enabled mixed access-target rows in authored `position` order once: `single` keeps only the first enabled row, `fill-first` walks the mixed order, and `round-robin` rotates the direct mixed rows. A Model Target row resolves recursively through the child model's own strategy and contributes one contiguous block; candidate-local misses (zero-leaf child, operation incompatibility, unavailable connection) skip to the next peer in effective order, while cycle/depth and missing-strategy errors fail closed.
 4. Connection planning applies the attached explicit Ban Policy strategy and per-connection limits.
-5. The shared runtime/gateway owns operation registration, admission, routing, SSE lifecycle, accounting, pricing, request-log metadata, and durable handoff. Telemetry/audit rows are materialized by background workers from the runtime outbox; non-accepted side effects use their own in-memory or worker queues.
-6. After the first downstream byte or event on a stream, no retry, redirect, or hedge replay can start.
-7. Missing pricing stays visibly degraded or unpriced, it never silently looks complete.
+5. When any planned candidate carries custom request parameters, Prism buffers and validates the ingress body as a JSON object, applies the per-Connection top-level shallow overlay after provider-native model/path rewrite, and materializes an immutable merged body per attempt (failover/hedge candidates never share mutable body storage). Gemini path-streaming switches from the request-body streaming fast path to the buffered path in this case.
+6. The shared runtime/gateway owns operation registration, admission, routing, SSE lifecycle, accounting, pricing, request-log metadata, and durable handoff. Telemetry/audit rows are materialized by background workers from the runtime outbox; non-accepted side effects use their own in-memory or worker queues.
+7. After the first downstream byte or event on a stream, no retry, redirect, or hedge replay can start.
+8. Missing pricing stays visibly degraded or unpriced, it never silently looks complete.
 
 **Backend touchpoints**
 

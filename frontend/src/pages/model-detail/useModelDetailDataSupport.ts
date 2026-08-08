@@ -5,6 +5,7 @@ import type {
   ConnectionPricingTemplateSummary,
   Endpoint,
   EndpointCreate,
+  JsonObject,
   ModelAccessTarget,
   ModelConfig,
   ModelConfigListItem,
@@ -50,6 +51,7 @@ interface BuildConnectionDraftPayloadInput {
   headerRows: HeaderRowLike[];
   editingConnection: Connection | null;
   endpointSourceDefaultName: string | null;
+  customRequestParametersValue: JsonObject | null;
 }
 
 export function normalizeConnectionHeaders(
@@ -71,6 +73,7 @@ export function buildConnectionDraftPayload({
   headerRows,
   editingConnection,
   endpointSourceDefaultName,
+  customRequestParametersValue,
 }: BuildConnectionDraftPayloadInput): {
   errorMessage: string | null;
   payload: ConnectionCreate | null;
@@ -92,6 +95,7 @@ export function buildConnectionDraftPayload({
     name: resolvedConnectionName,
     is_active: connectionForm.is_active,
     custom_headers: customHeaders,
+    custom_request_parameters: customRequestParametersValue,
     openai_text_capability:
       resolvedApiFamily === "openai"
         ? normalizeOpenAITextCapability(connectionForm.openai_text_capability)

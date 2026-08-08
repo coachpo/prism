@@ -746,7 +746,7 @@ func openAITextCapabilityForTask9APIFamily(apiFamily string) any {
 	if apiFamily != "openai" {
 		return nil
 	}
-	return "chat_completions_only"
+	return "dual_native"
 }
 
 func task9LoadActiveProfileID(t *testing.T, ctx context.Context, queryer task9QueryRower) int {

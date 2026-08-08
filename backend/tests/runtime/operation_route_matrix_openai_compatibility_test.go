@@ -19,6 +19,7 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 		requestBody           func(seededRuntimeRoute) map[string]any
 		upstreamResponse      string
 		textCapability        string
+		requestedModelMode    string
 		wantUpstreamPath      string
 		wantOperationName     string
 		wantUpstreamOperation string
@@ -99,6 +100,46 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 			wantTranslationMode:   "none",
 			wantStatus:            http.StatusOK,
 		},
+		{
+			name:        "dual-native target rejects chat-only requested format",
+			requestPath: "/v1/chat/completions",
+			requestBody: func(route seededRuntimeRoute) map[string]any {
+				return map[string]any{"model": route.PublicModelID, "messages": []map[string]any{{"role": "user", "content": "strict chat reject"}}, "max_completion_tokens": 64}
+			},
+			textCapability:     "dual_native",
+			requestedModelMode: "chat_completions_only",
+			wantStatus:         http.StatusBadRequest,
+		},
+		{
+			name:        "dual-native target rejects responses-only requested format",
+			requestPath: "/v1/responses",
+			requestBody: func(route seededRuntimeRoute) map[string]any {
+				return map[string]any{"model": route.PublicModelID, "input": "strict responses reject", "max_output_tokens": 64}
+			},
+			textCapability:     "dual_native",
+			requestedModelMode: "responses_only",
+			wantStatus:         http.StatusBadRequest,
+		},
+		{
+			name:        "dual-native target rejects chat-only requested format streaming",
+			requestPath: "/v1/chat/completions",
+			requestBody: func(route seededRuntimeRoute) map[string]any {
+				return map[string]any{"model": route.PublicModelID, "messages": []map[string]any{{"role": "user", "content": "strict chat stream reject"}}, "max_completion_tokens": 64, "stream": true}
+			},
+			textCapability:     "dual_native",
+			requestedModelMode: "chat_completions_only",
+			wantStatus:         http.StatusBadRequest,
+		},
+		{
+			name:        "dual-native target rejects responses-only requested format streaming",
+			requestPath: "/v1/responses",
+			requestBody: func(route seededRuntimeRoute) map[string]any {
+				return map[string]any{"model": route.PublicModelID, "input": "strict responses stream reject", "max_output_tokens": 64, "stream": true}
+			},
+			textCapability:     "dual_native",
+			requestedModelMode: "responses_only",
+			wantStatus:         http.StatusBadRequest,
+		},
 	}
 
 	for _, test := range tests {
@@ -107,7 +148,19 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 			profileID := harness.activeProfileID(t)
 			upstream := newCapabilityRouteMatrixUpstream(t, test.upstreamResponse, http.Header{"Content-Type": []string{"application/json"}})
 			endpointAPIKey := "route-matrix-capability-key-" + routeMatrixSlug(test.name)
-			route := seedOpenAIProxyRoute(t, harness, profileID, "route-matrix-capability-public", "route-matrix-capability-target", upstream.baseURL(""), endpointAPIKey, test.textCapability)
+			seed := runtimeRouteSeed{
+				ProfileID:            profileID,
+				APIFamily:            "openai",
+				PublicModelID:        "route-matrix-capability-public",
+				TargetModelID:        "route-matrix-capability-target",
+				EndpointBaseURL:      upstream.baseURL(""),
+				EndpointAPIKey:       endpointAPIKey,
+				OpenAITextCapability: runtimeStringPtr(test.textCapability),
+			}
+			if test.requestedModelMode != "" {
+				seed.OpenAIAcceptedFormat = runtimeStringPtr(test.requestedModelMode)
+			}
+			route := harness.seedProxyRoute(t, seed)
 
 			response := harness.requestJSON(t, http.MethodPost, test.requestPath, test.requestBody(route), nil)
 			if test.wantStatus != http.StatusOK {

@@ -140,6 +140,7 @@ export function ModelDetailFeaturePage({
         isOpen={data.isConnectionDialogOpen}
         onOpenChange={data.setIsConnectionDialogOpen}
         apiFamily={model.api_family}
+        ownerOpenAIMode={model.openai_accepted_format ?? null}
         editingConnection={data.editingConnection}
         connectionForm={data.connectionForm}
         setConnectionForm={data.setConnectionForm}
@@ -152,6 +153,10 @@ export function ModelDetailFeaturePage({
         globalEndpoints={data.globalEndpoints}
         headerRows={data.headerRows}
         setHeaderRows={data.setHeaderRows}
+        customRequestParametersDraft={data.customRequestParametersDraft}
+        setCustomRequestParametersDraft={data.setCustomRequestParametersDraft}
+        customRequestParametersError={data.customRequestParametersError}
+        setCustomRequestParametersError={data.setCustomRequestParametersError}
         handleConnectionSubmit={data.handleConnectionSubmit}
         endpointSourceDefaultName={data.endpointSourceDefaultName}
         pricingTemplates={data.pricingTemplates}

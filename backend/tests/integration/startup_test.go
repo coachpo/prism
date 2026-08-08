@@ -740,6 +740,7 @@ func assertObservedStepOrder(t *testing.T, steps []startup.Step) {
 	t.Helper()
 	want := []startup.Step{
 		startup.StepMigrations,
+		startup.StepOpenAITextModeCheck,
 		startup.StepProfileInvariantSeed,
 		startup.StepUserSettingsSeed,
 		startup.StepUserAgentClientRuleSeed,

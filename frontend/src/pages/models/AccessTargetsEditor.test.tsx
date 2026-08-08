@@ -66,6 +66,7 @@ function createConnection(id: number, name: string): Connection {
     priority: 0,
     auth_type: null,
     custom_headers: null,
+    custom_request_parameters: null,
     openai_text_capability: "dual_native",
     pricing_template_id: 3,
     qps_limit: null,
