@@ -164,6 +164,8 @@ func TestRunOpenAIModePreflightCompliantExitsBeforeStartupAndServerWork(t *testi
 	t.Setenv(config.BootstrapConfigPathEnv, configPath)
 	t.Setenv("DATABASE_URL", databaseURL)
 	t.Setenv("PRISM_OPENAI_MODE_PREFLIGHT", "1")
+	seedPreflightBootstrapConfig(t, configPath)
+	before := readBootstrapConfigFileState(t, configPath)
 
 	original := newOpenAIModePreflightCheck
 	newOpenAIModePreflightCheck = func(context.Context, string) (openaimodecheck.Report, error) {
@@ -182,6 +184,7 @@ func TestRunOpenAIModePreflightCompliantExitsBeforeStartupAndServerWork(t *testi
 		t.Fatalf("expected compliant preflight report, got %q", outputText)
 	}
 	assertNoStartupOrServerWorkLogged(t, outputText)
+	assertBootstrapConfigFileStatePreserved(t, configPath, before)
 }
 
 func TestRunOpenAIModePreflightViolationsReturnExitCodeOne(t *testing.T) {
@@ -190,6 +193,8 @@ func TestRunOpenAIModePreflightViolationsReturnExitCodeOne(t *testing.T) {
 	t.Setenv(config.BootstrapConfigPathEnv, configPath)
 	t.Setenv("DATABASE_URL", databaseURL)
 	t.Setenv("PRISM_OPENAI_MODE_PREFLIGHT", "1")
+	seedPreflightBootstrapConfig(t, configPath)
+	before := readBootstrapConfigFileState(t, configPath)
 
 	original := newOpenAIModePreflightCheck
 	newOpenAIModePreflightCheck = func(context.Context, string) (openaimodecheck.Report, error) {
@@ -219,6 +224,7 @@ func TestRunOpenAIModePreflightViolationsReturnExitCodeOne(t *testing.T) {
 		}
 	}
 	assertNoStartupOrServerWorkLogged(t, outputText)
+	assertBootstrapConfigFileStatePreserved(t, configPath, before)
 }
 
 func TestRunOpenAIModePreflightCheckFailureReturnsExitCodeTwo(t *testing.T) {
@@ -227,6 +233,8 @@ func TestRunOpenAIModePreflightCheckFailureReturnsExitCodeTwo(t *testing.T) {
 	t.Setenv(config.BootstrapConfigPathEnv, configPath)
 	t.Setenv("DATABASE_URL", databaseURL)
 	t.Setenv("PRISM_OPENAI_MODE_PREFLIGHT", "1")
+	seedPreflightBootstrapConfig(t, configPath)
+	before := readBootstrapConfigFileState(t, configPath)
 
 	original := newOpenAIModePreflightCheck
 	newOpenAIModePreflightCheck = func(context.Context, string) (openaimodecheck.Report, error) {
@@ -244,6 +252,57 @@ func TestRunOpenAIModePreflightCheckFailureReturnsExitCodeTwo(t *testing.T) {
 	}
 	if preflightErr.err == nil || !strings.Contains(preflightErr.err.Error(), "preflight database unavailable") {
 		t.Fatalf("expected preflight check error to propagate, got %v", preflightErr.err)
+	}
+	assertBootstrapConfigFileStatePreserved(t, configPath, before)
+}
+
+func TestRunOpenAIModePreflightDoesNotSeedOrRepairBootstrap(t *testing.T) {
+	t.Run("missing bootstrap remains missing", func(t *testing.T) {
+		configPath := filepath.Join(t.TempDir(), "missing-preflight-bootstrap.json")
+		t.Setenv(config.BootstrapConfigPathEnv, configPath)
+		t.Setenv("DATABASE_URL", "postgres://preflight@db.invalid:5432/prism?sslmode=disable")
+		t.Setenv("PRISM_OPENAI_MODE_PREFLIGHT", "1")
+
+		runErr := run(context.Background())
+		if runErr == nil {
+			t.Fatal("expected missing bootstrap to fail preflight without seeding")
+		}
+		if !errors.Is(runErr, os.ErrNotExist) {
+			t.Fatalf("expected missing bootstrap error, got %v", runErr)
+		}
+		if _, err := os.Stat(configPath); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("expected preflight not to create %q, stat error=%v", configPath, err)
+		}
+	})
+
+	t.Run("stale bootstrap remains unchanged", func(t *testing.T) {
+		configPath := filepath.Join(t.TempDir(), "stale-preflight-bootstrap.json")
+		databaseURL := "postgres://preflight@db.invalid:5432/prism?sslmode=disable"
+		t.Setenv(config.BootstrapConfigPathEnv, configPath)
+		t.Setenv("DATABASE_URL", databaseURL)
+		t.Setenv("PRISM_OPENAI_MODE_PREFLIGHT", "1")
+		seedPreflightBootstrapConfig(t, configPath)
+		mutateBootstrapConfigJSON(t, configPath, func(payload map[string]any) {
+			payload["docsEnabled"] = true
+		})
+		before := setBootstrapConfigFileModTime(t, configPath, time.Date(2026, 5, 25, 12, 20, 0, 0, time.UTC))
+
+		runErr := run(context.Background())
+		if runErr == nil {
+			t.Fatal("expected stale bootstrap to fail preflight without repair")
+		}
+		if !strings.Contains(runErr.Error(), `unknown field "docsEnabled"`) {
+			t.Fatalf("expected stale bootstrap parse error, got %v", runErr)
+		}
+		assertBootstrapConfigFileStatePreserved(t, configPath, before)
+	})
+}
+
+func seedPreflightBootstrapConfig(t *testing.T, configPath string) {
+	t.Helper()
+	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
+	if _, err := manager.LoadOrSeed(configPath); err != nil {
+		t.Fatalf("seed preflight bootstrap config: %v", err)
 	}
 }
 

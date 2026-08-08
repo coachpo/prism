@@ -114,6 +114,11 @@ func (s Service) RunWithConn(ctx context.Context, conn *pgx.Conn) (Result, error
 	}); err != nil {
 		return result, err
 	}
+	if err := s.runStep(ctx, &result, StepOpenAITextModeCheck, func() error {
+		return s.checkOpenAITextModeEquality(ctx, conn)
+	}); err != nil {
+		return result, err
+	}
 
 	for _, step := range []struct {
 		name Step
@@ -125,7 +130,6 @@ func (s Service) RunWithConn(ctx context.Context, conn *pgx.Conn) (Result, error
 		{name: StepAppAuthSettingsSeed, run: s.seedAppAuthSettings},
 		{name: StepEndpointSecretNormalization, run: s.normalizeEndpointSecrets},
 		{name: StepHeaderBlocklistRuleSeed, run: s.seedHeaderBlocklistRules},
-		{name: StepOpenAITextModeCheck, run: s.checkOpenAITextModeEquality},
 	} {
 		if err := s.runStep(ctx, &result, step.name, func() error {
 			return step.run(ctx, conn)

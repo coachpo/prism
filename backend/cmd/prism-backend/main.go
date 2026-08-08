@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/coachpo/prism/backend/internal/openaimodecheck"
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	"github.com/coachpo/prism/backend/internal/platform/lifecycle"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
@@ -82,7 +83,11 @@ func newRunError(message string, err error) error {
 }
 
 func run(ctx context.Context) error {
-	bootstrapConfig, err := loadBootstrapSettings()
+	loadSettings := loadBootstrapSettings
+	if shouldRunOpenAIModePreflight() {
+		loadSettings = loadBootstrapSettingsWithoutRepair
+	}
+	bootstrapConfig, err := loadSettings()
 	if err != nil {
 		return newRunError("failed to load bootstrap config", err)
 	}
@@ -149,11 +154,7 @@ func runStartupWithTimeout(ctx context.Context, service startupRunner, timeout t
 }
 
 func loadBootstrapSettings() (bootstrapStartupConfig, error) {
-	bootstrapConfigPath := strings.TrimSpace(os.Getenv(config.BootstrapConfigPathEnv))
-	if bootstrapConfigPath == "" {
-		bootstrapConfigPath = defaultBootstrapConfigPath
-	}
-
+	bootstrapConfigPath := resolveBootstrapConfigPath()
 	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
 	_, settings, err := loadBootstrapConfigDocumentWithRepair(manager, bootstrapConfigPath)
 	if err != nil {
@@ -163,6 +164,31 @@ func loadBootstrapSettings() (bootstrapStartupConfig, error) {
 		Settings:   settings,
 		ConfigPath: bootstrapConfigPath,
 	}, nil
+}
+
+// loadBootstrapSettingsWithoutRepair is used by the read-only OpenAI mode
+// preflight. A missing, stale, or invalid bootstrap file is an execution
+// error for preflight; it must never be seeded, removed, or rewritten while
+// auditing persisted database state.
+func loadBootstrapSettingsWithoutRepair() (bootstrapStartupConfig, error) {
+	bootstrapConfigPath := resolveBootstrapConfigPath()
+	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
+	_, settings, err := manager.LoadBootstrapConfigDocument(bootstrapConfigPath)
+	if err != nil {
+		return bootstrapStartupConfig{}, err
+	}
+	return bootstrapStartupConfig{
+		Settings:   settings,
+		ConfigPath: bootstrapConfigPath,
+	}, nil
+}
+
+func resolveBootstrapConfigPath() string {
+	bootstrapConfigPath := strings.TrimSpace(os.Getenv(config.BootstrapConfigPathEnv))
+	if bootstrapConfigPath == "" {
+		bootstrapConfigPath = defaultBootstrapConfigPath
+	}
+	return bootstrapConfigPath
 }
 
 func loadBootstrapConfigDocumentWithRepair(manager config.BootstrapConfigManager, bootstrapConfigPath string) (config.BootstrapConfigSnapshot, config.Settings, error) {
@@ -233,7 +259,9 @@ var newOpenAIModePreflightCheck = func(ctx context.Context, databaseURL string) 
 		return openaimodecheck.Report{}, err
 	}
 	defer func() { _ = conn.Close(ctx) }()
-	return openaimodecheck.Check(ctx, conn, profiledomain.DefaultProfileID)
+	return pgxutil.InReadOnlyTxValue(ctx, conn, "openai mode preflight", func(tx pgx.Tx) (openaimodecheck.Report, error) {
+		return openaimodecheck.Check(ctx, tx, profiledomain.DefaultProfileID)
+	})
 }
 
 func runOpenAIModePreflight(ctx context.Context, settings config.Settings) (int, error) {
