@@ -95,35 +95,77 @@ func (s *Service) runtimeMiddleware(next http.Handler) http.Handler {
 			responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
 			return
 		}
-		if !authSettings.AuthEnabled {
-			next.ServeHTTP(w, r)
-			return
-		}
+		authEnforced := authSettings.AuthEnabled
+
 		rawKey, _ := extractProxyAPIKey(r.Header)
-		if rawKey == "" {
+		if authEnforced && rawKey == "" {
 			responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Proxy API key required")
 			return
 		}
-		proxyKey, err := s.verifyProxyAPIKey(r.Context(), rawKey)
-		if err != nil {
-			if isPublishedSnapshotUnavailable(err) {
-				responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusServiceUnavailable, "Runtime authentication snapshot is unavailable. Retry later.")
+		if rawKey == "" {
+			// Permissive mode with no credential: continue as none.
+			attribution := requestcontext.RuntimeProxyKeyAttribution{
+				State:        requestcontext.RuntimeProxyKeyNone,
+				Snapshot:     nil,
+				AuthEnforced: false,
+			}
+			next.ServeHTTP(w, r.WithContext(requestcontext.WithRuntimeProxyKeyAttribution(r.Context(), attribution)))
+			return
+		}
+
+		proxyKey, verifyErr := s.verifyProxyAPIKey(r.Context(), rawKey)
+		if verifyErr != nil {
+			if authEnforced {
+				// Once enforcement is known, any verifier/cache/database
+				// failure must fail closed with one typed unavailable response.
+				// Do not expose whether a particular key lookup failed.
+				if isPublishedSnapshotUnavailable(verifyErr) {
+					responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusServiceUnavailable, "Runtime authentication snapshot is unavailable. Retry later.")
+				} else {
+					responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusServiceUnavailable, "Runtime authentication verifier is unavailable. Retry later.")
+				}
 				return
 			}
-			responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to verify proxy API key")
+			// Permissive optional verification failure: fail open for
+			// execution, fail closed for identity. The request continues
+			// as unknown; lookup details are never disclosed.
+			slog.Warn("proxy key optional verification unavailable; attribution unknown", "error", verifyErr)
+			attribution := requestcontext.RuntimeProxyKeyAttribution{
+				State:        requestcontext.RuntimeProxyKeyUnknown,
+				Snapshot:     nil,
+				AuthEnforced: false,
+			}
+			next.ServeHTTP(w, r.WithContext(requestcontext.WithRuntimeProxyKeyAttribution(r.Context(), attribution)))
 			return
 		}
 		if proxyKey == nil {
-			responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Invalid proxy API key")
+			if authEnforced {
+				responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Invalid proxy API key")
+				return
+			}
+			// Permissive mode with an unrecognized/inactive/expired key:
+			// continue as none; the caller is never told why.
+			attribution := requestcontext.RuntimeProxyKeyAttribution{
+				State:        requestcontext.RuntimeProxyKeyNone,
+				Snapshot:     nil,
+				AuthEnforced: false,
+			}
+			next.ServeHTTP(w, r.WithContext(requestcontext.WithRuntimeProxyKeyAttribution(r.Context(), attribution)))
 			return
 		}
+
 		proxyKeySnapshot := requestcontext.RuntimeProxyKeySnapshot{
 			ID:         proxyKey.ID,
 			Name:       proxyKey.Name,
 			LastUsedAt: s.nowUTC(),
 			LastUsedIP: requestIP(r),
 		}
-		contextWithProxyKey := requestcontext.WithRuntimeProxyKey(r.Context(), proxyKeySnapshot)
+		attribution := requestcontext.RuntimeProxyKeyAttribution{
+			State:        requestcontext.RuntimeProxyKeyIdentified,
+			Snapshot:     &proxyKeySnapshot,
+			AuthEnforced: authEnforced,
+		}
+		contextWithProxyKey := requestcontext.WithRuntimeProxyKeyAttribution(r.Context(), attribution)
 		if s.runtimeCache == nil {
 			if err := s.enqueueProxyAPIKeyUsage(proxyKey.ID, proxyKeySnapshot.LastUsedAt, proxyKeySnapshot.LastUsedIP); err != nil {
 				slog.Error("failed to enqueue proxy API key usage", "error", err, "key_id", proxyKey.ID)
@@ -375,9 +417,14 @@ func (s *Service) handleListProxyKeys(w http.ResponseWriter, r *http.Request) {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load proxy API keys")
 		return
 	}
-	response := make([]proxyAPIKeyResponse, 0, len(rows))
+	capacity, err := countProxyKeyCapacity(r.Context(), s.pool, s.nowUTC())
+	if err != nil {
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load proxy API key capacity")
+		return
+	}
+	response := proxyAPIKeyListResponse{Items: make([]proxyAPIKeyResponse, 0, len(rows)), Capacity: capacity}
 	for _, row := range rows {
-		response = append(response, s.serializeProxyAPIKey(row))
+		response.Items = append(response.Items, s.serializeProxyAPIKey(row))
 	}
 	responseutil.WriteJSON(w, http.StatusOK, response)
 }
@@ -395,16 +442,17 @@ func (s *Service) handleCreateProxyKey(w http.ResponseWriter, r *http.Request) {
 	}
 	notes := normalizeNotes(requestBody.Notes)
 	result, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (proxyAPIKeyMutationResponse, error) {
-		rawKey, row, createErr := s.createProxyAPIKey(r.Context(), tx, name, notes, requestBody.ExpiresAt, authSubjectIDFromRequest(r))
+		rawKey, row, capacity, createErr := s.createProxyAPIKey(r.Context(), tx, name, notes, requestBody.ExpiresAt, authSubjectIDFromRequest(r))
 		if createErr != nil {
 			return proxyAPIKeyMutationResponse{}, createErr
 		}
-		return proxyAPIKeyMutationResponse{Key: rawKey, Item: s.serializeProxyAPIKey(row)}, nil
+		return proxyAPIKeyMutationResponse{Key: rawKey, Item: s.serializeProxyAPIKey(row), Capacity: capacity}, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
+	setNoStoreHeaders(w)
 	responseutil.WriteJSON(w, http.StatusCreated, result)
 }
 
@@ -425,14 +473,22 @@ func (s *Service) handleUpdateProxyKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	notes := normalizeNotes(requestBody.Notes)
-	updatedRow, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (proxyAPIKeyRow, error) {
-		return s.updateProxyAPIKey(r.Context(), tx, keyID, name, notes, requestBody.IsActive, requestBody.ExpiresAt)
+	type updateResult struct {
+		row      proxyAPIKeyRow
+		capacity proxyKeyCapacitySnapshot
+	}
+	result, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (updateResult, error) {
+		row, capacity, updateErr := s.updateProxyAPIKey(r.Context(), tx, keyID, name, notes, requestBody.IsActive, requestBody.ExpiresAt)
+		if updateErr != nil {
+			return updateResult{}, updateErr
+		}
+		return updateResult{row: row, capacity: capacity}, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	responseutil.WriteJSON(w, http.StatusOK, s.serializeProxyAPIKey(updatedRow))
+	responseutil.WriteJSON(w, http.StatusOK, proxyAPIKeyUpdateResponse{Item: s.serializeProxyAPIKey(result.row), Capacity: result.capacity})
 }
 
 func (s *Service) handleRotateProxyKey(w http.ResponseWriter, r *http.Request) {
@@ -442,16 +498,17 @@ func (s *Service) handleRotateProxyKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (proxyAPIKeyMutationResponse, error) {
-		rawKey, row, rotateErr := s.rotateProxyAPIKey(r.Context(), tx, keyID)
+		rawKey, row, capacity, rotateErr := s.rotateProxyAPIKey(r.Context(), tx, keyID)
 		if rotateErr != nil {
 			return proxyAPIKeyMutationResponse{}, rotateErr
 		}
-		return proxyAPIKeyMutationResponse{Key: rawKey, Item: s.serializeProxyAPIKey(row)}, nil
+		return proxyAPIKeyMutationResponse{Key: rawKey, Item: s.serializeProxyAPIKey(row), Capacity: capacity}, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
+	setNoStoreHeaders(w)
 	responseutil.WriteJSON(w, http.StatusOK, result)
 }
 
@@ -461,13 +518,14 @@ func (s *Service) handleDeleteProxyKey(w http.ResponseWriter, r *http.Request) {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := pgxutil.InTx(r.Context(), s.pool, "auth", func(tx pgx.Tx) error {
+	capacity, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (proxyKeyCapacitySnapshot, error) {
 		return s.deleteProxyAPIKey(r.Context(), tx, keyID)
-	}); err != nil {
+	})
+	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	responseutil.WriteJSON(w, http.StatusOK, deletedResponse{Deleted: true})
+	responseutil.WriteJSON(w, http.StatusOK, deletedResponse{DeletedID: keyID, Capacity: capacity})
 }
 
 func (s *Service) handleRuntimeProbe(w http.ResponseWriter, r *http.Request) {
@@ -487,11 +545,29 @@ func decodeJSONBody(request *http.Request, target any) error {
 
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	if authErr, ok := errors.AsType[*domainError](err); ok {
-		responseutil.WriteError(w, r, corsSnapshot, authErr.StatusCode, authErr.Detail)
+		responseutil.WriteErrorFields(w, r, corsSnapshot, authErr.StatusCode, authErr.Detail, domainErrorFields(authErr))
 		return
 	}
 	slog.Error("auth handler internal error", "error", err)
 	responseutil.WriteError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
+}
+
+func domainErrorFields(err *domainError) map[string]any {
+	fields := make(map[string]any, len(err.Fields)+1)
+	if err.Code != "" {
+		fields["code"] = err.Code
+	}
+	for key, value := range err.Fields {
+		fields[key] = value
+	}
+	return fields
+}
+
+func setNoStoreHeaders(w http.ResponseWriter) {
+	// Create/rotate responses carry the one-time raw key: they must not be
+	// cached by a reverse proxy, service worker or browser.
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("Pragma", "no-cache")
 }
 
 func routeInt(request *http.Request, name string) (int, error) {

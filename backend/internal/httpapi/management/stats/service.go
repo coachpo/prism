@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -208,6 +209,7 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 		router.Get("/dashboard/recent-activity", s.handleDashboardRecentActivity)
 		router.Get("/requests", s.handleListRequestLogs)
 		router.Get("/requests/{request_id}", s.handleGetRequestLog)
+		router.Get("/request-filter-options/proxy-api-keys", s.handleProxyAPIKeyFilterOptions)
 		router.Get("/summary", s.handleStatsSummary)
 		router.Post("/models/metrics", s.handleModelMetrics)
 		router.Get("/connection-success-rates", s.handleConnectionSuccessRates)
@@ -259,14 +261,17 @@ func (s *Service) handleDashboardRecentActivity(w http.ResponseWriter, r *http.R
 }
 
 func (s *Service) handleListRequestLogs(w http.ResponseWriter, r *http.Request) {
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (statsdomain.RequestLogListResponse, error) {
+	chainResponse, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (any, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
-			return statsdomain.RequestLogListResponse{}, err
+			return nil, err
 		}
 		params, err := parseRequestLogListParams(r, profile.ID)
 		if err != nil {
-			return statsdomain.RequestLogListResponse{}, err
+			return nil, err
+		}
+		if params.View != nil && *params.View == "ingress_chains" {
+			return statsdomain.ListRequestLogChains(r.Context(), tx, params)
 		}
 		return statsdomain.ListRequestLogs(r.Context(), tx, params)
 	})
@@ -274,7 +279,60 @@ func (s *Service) handleListRequestLogs(w http.ResponseWriter, r *http.Request) 
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
+	responseutil.WriteJSON(w, http.StatusOK, chainResponse)
+}
+
+func (s *Service) handleProxyAPIKeyFilterOptions(w http.ResponseWriter, r *http.Request) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (statsdomain.ProxyAPIKeyFilterOptionsResponse, error) {
+		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
+		if err != nil {
+			return statsdomain.ProxyAPIKeyFilterOptionsResponse{}, err
+		}
+		params, err := parseProxyAPIKeyFilterOptionsParams(r, profile.ID)
+		if err != nil {
+			return statsdomain.ProxyAPIKeyFilterOptionsResponse{}, err
+		}
+		return statsdomain.ListProxyAPIKeyFilterOptions(r.Context(), tx, params)
+	})
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	responseutil.WriteJSON(w, http.StatusOK, response)
+}
+
+func parseProxyAPIKeyFilterOptionsParams(r *http.Request, profileID int) (statsdomain.ProxyAPIKeyFilterOptionsParams, error) {
+	params := statsdomain.ProxyAPIKeyFilterOptionsParams{ProfileID: profileID}
+	if raw := strings.TrimSpace(r.URL.Query().Get("q")); raw != "" {
+		params.Query = &raw
+	}
+	fromTime, err := parseOptionalTime(r, "from_time")
+	if err != nil {
+		return statsdomain.ProxyAPIKeyFilterOptionsParams{}, err
+	}
+	params.FromTime = fromTime
+	toTime, err := parseOptionalTime(r, "to_time")
+	if err != nil {
+		return statsdomain.ProxyAPIKeyFilterOptionsParams{}, err
+	}
+	params.ToTime = toTime
+	limit, err := parsePositiveIntWithDefault(r, "limit", 50)
+	if err != nil {
+		return statsdomain.ProxyAPIKeyFilterOptionsParams{}, err
+	}
+	params.Limit = limit
+	if cursor := strings.TrimSpace(r.URL.Query().Get("cursor")); cursor != "" {
+		params.Cursor = &cursor
+	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("selected_id")); raw != "" {
+		selectedID, parseErr := strconv.ParseInt(raw, 10, 64)
+		if parseErr != nil || selectedID <= 0 || selectedID > math.MaxInt32 {
+			return statsdomain.ProxyAPIKeyFilterOptionsParams{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "invalid_proxy_api_key_id", Detail: "invalid selected_id"}
+		}
+		resolved := int(selectedID)
+		params.SelectedID = &resolved
+	}
+	return params, nil
 }
 
 func (s *Service) handleGetRequestLog(w http.ResponseWriter, r *http.Request) {
@@ -553,6 +611,25 @@ func parseRequestLogListParams(r *http.Request, profileID int) (statsdomain.Requ
 	if clientRuleID != nil && *clientRuleID <= 0 {
 		return statsdomain.RequestLogListParams{}, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "invalid client_rule_id"}
 	}
+	proxyAPIKeyID, err := parseProxyAPIKeyIDFilter(r)
+	if err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
+	view, err := parseRequestLogView(r)
+	if err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
+	chainCursor, err := parseOptionalString(r, "chain_cursor")
+	if err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
+	chainLimit, err := parseOptionalInt(r, "chain_limit")
+	if err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
+	if chainLimit != nil && (*chainLimit < 1 || *chainLimit > 50) {
+		return statsdomain.RequestLogListParams{}, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "invalid chain_limit"}
+	}
 	limit, err := parsePositiveIntWithDefault(r, "limit", 50)
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
@@ -578,7 +655,56 @@ func parseRequestLogListParams(r *http.Request, profileID int) (statsdomain.Requ
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
 	}
-	return statsdomain.RequestLogListParams{ProfileID: profileID, IngressRequestID: normalizedQueryString(r, "ingress_request_id"), ModelID: normalizedQueryString(r, "model_id"), ResolvedTargetModelID: normalizedQueryString(r, "resolved_target_model_id"), StatusFamily: statusFamily, StatusCode: statusCode, ErrorText: normalizedQueryString(r, "error_text"), PricedFlag: pricedFlag, UnpricedReason: unpricedReason, FromTime: fromTime, ToTime: toTime, EndpointID: endpointID, ClientRuleID: clientRuleID, Limit: limit, Offset: offset}, nil
+	return statsdomain.RequestLogListParams{ProfileID: profileID, IngressRequestID: normalizedQueryString(r, "ingress_request_id"), ModelID: normalizedQueryString(r, "model_id"), ResolvedTargetModelID: normalizedQueryString(r, "resolved_target_model_id"), StatusFamily: statusFamily, StatusCode: statusCode, ErrorText: normalizedQueryString(r, "error_text"), PricedFlag: pricedFlag, UnpricedReason: unpricedReason, FromTime: fromTime, ToTime: toTime, EndpointID: endpointID, ClientRuleID: clientRuleID, ProxyAPIKeyID: proxyAPIKeyID, View: view, ChainCursor: chainCursor, ChainLimit: chainLimit, Limit: limit, Offset: offset}, nil
+}
+
+// parseProxyAPIKeyIDFilter parses the ordinary proxy_api_key_id filter. It is
+// a strict positive base-10 integer; empty, non-integer, zero, negative,
+// overflow or duplicate values return a typed 422 and never normalize to no
+// filter.
+func parseProxyAPIKeyIDFilter(r *http.Request) (*int, error) {
+	values, present := r.URL.Query()["proxy_api_key_id"]
+	if !present {
+		return nil, nil
+	}
+	if len(values) != 1 {
+		return nil, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "invalid_proxy_api_key_id", Detail: "invalid proxy_api_key_id"}
+	}
+	raw := strings.TrimSpace(values[0])
+	if raw == "" {
+		return nil, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "invalid_proxy_api_key_id", Detail: "invalid proxy_api_key_id"}
+	}
+	parsed, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || parsed <= 0 {
+		return nil, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "invalid_proxy_api_key_id", Detail: "invalid proxy_api_key_id"}
+	}
+	if parsed > math.MaxInt32 {
+		return nil, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "invalid_proxy_api_key_id", Detail: "invalid proxy_api_key_id"}
+	}
+	resolved := int(parsed)
+	return &resolved, nil
+}
+
+func parseRequestLogView(r *http.Request) (*string, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get("view"))
+	if raw == "" {
+		return nil, nil
+	}
+	switch raw {
+	case "attempts", "ingress_chains":
+		resolved := raw
+		return &resolved, nil
+	default:
+		return nil, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "invalid view"}
+	}
+}
+
+func parseOptionalString(r *http.Request, key string) (*string, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get(key))
+	if raw == "" {
+		return nil, nil
+	}
+	return &raw, nil
 }
 
 func parseOptionalBool(r *http.Request, key string) (*bool, error) {

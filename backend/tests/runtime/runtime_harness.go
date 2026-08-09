@@ -665,6 +665,47 @@ func (h *runtimeHarness) enableRuntimeProxyAPIKeyAuth(tb testing.TB) string {
 	return rawKey
 }
 
+// insertProxyAPIKey creates an active proxy key without enabling auth
+// enforcement and returns its record. Used to exercise permissive attribution.
+func (h *runtimeHarness) insertProxyAPIKey(tb testing.TB, name string) runtimeProxyAPIKeyRecord {	tb.Helper()
+	now := time.Now().UTC()
+	lookup := randomSuffix()
+	rawKey := "pm-" + lookup + randomSuffix()
+	keyHash := sha256.Sum256([]byte(rawKey))
+	keyName := "permissive-" + name + "-" + randomSuffix()
+	var keyID int
+	if err := h.conn.QueryRow(
+		context.Background(),
+		`INSERT INTO proxy_api_keys (name, key_prefix, key_hash, last_four, is_active, created_at, updated_at) VALUES ($1, $2, $3, $4, TRUE, $5, $5) RETURNING id`,
+		keyName,
+		"pm-"+lookup,
+		hex.EncodeToString(keyHash[:]),
+		rawKey[len(rawKey)-4:],
+		now,
+	).Scan(&keyID); err != nil {
+		tb.Fatalf("insert permissive proxy api key: %v", err)
+	}
+	h.refreshRuntimeSnapshot(tb, runtimeapi.RefreshRequest{Auth: true})
+	return runtimeProxyAPIKeyRecord{ID: keyID, Name: keyName, RawKey: rawKey}
+}
+
+// latestProxyAPIKey returns the most recently created key whose name starts
+// with the given prefix (used to recover the ID of a key created by
+// enableRuntimeProxyAPIKeyAuth).
+func (h *runtimeHarness) latestProxyAPIKey(tb testing.TB, namePrefix string) runtimeProxyAPIKeyRecord {
+	tb.Helper()
+	var keyID int
+	var keyName string
+	if err := h.conn.QueryRow(
+		context.Background(),
+		`SELECT id, name FROM proxy_api_keys WHERE name LIKE $1 ORDER BY id DESC LIMIT 1`,
+		namePrefix+"%",
+	).Scan(&keyID, &keyName); err != nil {
+		tb.Fatalf("load latest proxy api key with prefix %q: %v", namePrefix, err)
+	}
+	return runtimeProxyAPIKeyRecord{ID: keyID, Name: keyName}
+}
+
 func (h *runtimeHarness) forceActiveProfile(t *testing.T, targetProfileID int) {
 	t.Helper()
 	now := time.Now().UTC()

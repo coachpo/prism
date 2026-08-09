@@ -8,6 +8,7 @@ import {
   type RequestLogFilterClientOption,
   type RequestLogFilterResolvedTargetModelOption,
   type RequestLogListItem,
+  type RequestLogListResponse,
 } from "@/lib/types";
 import type { RequestLogPageState } from "./queryParams";
 import { timeRangeToFromTime } from "./queryParams";
@@ -75,6 +76,8 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
     const params = {
       ingress_request_id: state.ingress_request_id || undefined,
       model_id: state.model_id || undefined,
+      proxy_api_key_id: state.proxy_api_key_id ? parseInt(state.proxy_api_key_id, 10) : undefined,
+      view: state.view || undefined,
       client_rule_id: state.client_rule_id ? parseInt(state.client_rule_id, 10) : undefined,
       resolved_target_model_id: state.resolved_target_model_id || undefined,
       status_family: state.status_family === "all" ? undefined : state.status_family,
@@ -92,15 +95,39 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
       .requests(params)
       .then((res) => {
         if (id !== fetchIdRef.current) return;
-        setItems(res.items);
-        setTotal(res.total);
-        setFilterOptions((prev) => ({
-          ...prev,
-          models: res.filter_options.models,
-          endpoints: res.filter_options.endpoints,
-          clients: res.filter_options.clients,
-          resolved_target_models: res.filter_options.resolved_target_models,
-        }));
+        if ("view" in res && res.view === "ingress_chains") {
+          // Chain view: flatten bounded retained chains into display rows.
+          const chainResponse = res as unknown as {
+            items: Array<{ rows: RequestLogListItem[] }>;
+            retained_ingress_total: number;
+            filter_options: RequestLogListResponse["filter_options"];
+          };
+          const flattened: RequestLogListItem[] = [];
+          for (const chain of chainResponse.items) {
+            for (const row of chain.rows) {
+              flattened.push(row);
+            }
+          }
+          setItems(flattened);
+          setTotal(chainResponse.retained_ingress_total);
+          setFilterOptions((prev) => ({
+            ...prev,
+            models: chainResponse.filter_options.models,
+            endpoints: chainResponse.filter_options.endpoints,
+            clients: chainResponse.filter_options.clients,
+            resolved_target_models: chainResponse.filter_options.resolved_target_models,
+          }));
+        } else {
+          setItems(res.items);
+          setTotal(res.total);
+          setFilterOptions((prev) => ({
+            ...prev,
+            models: res.filter_options.models,
+            endpoints: res.filter_options.endpoints,
+            clients: res.filter_options.clients,
+            resolved_target_models: res.filter_options.resolved_target_models,
+          }));
+        }
 
         if (!endpointOptionsLoadedOnceRef.current) {
           endpointOptionsLoadedOnceRef.current = true;
@@ -118,6 +145,8 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
   }, [
     state.ingress_request_id,
     state.model_id,
+    state.proxy_api_key_id,
+    state.view,
     state.client_rule_id,
     state.resolved_target_model_id,
     state.status_family,

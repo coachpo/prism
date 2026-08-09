@@ -35,6 +35,24 @@ export function isKnownUnknownProxyApiKeyLabel(label: string | null) {
   );
 }
 
+/** none bucket: no accepted key (includes auth-off missing/invalid credentials). */
+export function isNoneProxyApiKeyLabel(label: string | null) {
+  const normalizedLabel = normalizeKnownLabel(label);
+  return (
+    normalizedLabel === normalizeKnownLabel("No proxy API key") ||
+    normalizedLabel === normalizeKnownLabel(getStaticMessages().statistics.noIdentifiedProxyApiKey)
+  );
+}
+
+/** unknown bucket: legacy/telemetry evidence insufficient; never merged with none. */
+export function isUnknownBucketProxyApiKeyLabel(label: string | null) {
+  const normalizedLabel = normalizeKnownLabel(label);
+  return (
+    normalizedLabel === normalizeKnownLabel("Proxy API key attribution unknown") ||
+    normalizedLabel === normalizeKnownLabel(getStaticMessages().statistics.unknownProxyApiKey)
+  );
+}
+
 export function isKnownUnknownVendorLabel(label: string | null | undefined) {
   const normalizedLabel = normalizeKnownLabel(label);
   return (

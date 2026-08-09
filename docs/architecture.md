@@ -1211,11 +1211,13 @@ DELETE /api/settings/auth/proxy-keys/{id}
 ```
 
 Proxy-key lifecycle contract:
-- List responses are arrays of proxy-key items with `id`, `name`, `key_prefix`, `key_preview`, `is_active`, `expires_at`, `last_used_at`, `last_used_ip`, `notes`, `rotated_from_id`, `created_at`, and `updated_at`.
-- Create accepts `name`, optional `notes`, and optional RFC3339 `expires_at`. Response `201` is `{ "key": "<one-time-secret>", "item": { ... } }`.
-- Update requires a non-empty `name` and accepts optional `notes`, `is_active`, and RFC3339 `expires_at`. Response `200` is the updated item. Omitted or JSON `null` `expires_at` preserves the current expiry; update does not expose a clear-expiry operation.
-- Rotate is lineage-creating, not in-place mutation: the historical row becomes inactive, a successor row is created with `rotated_from_id` pointing at the predecessor, and response `200` is `{ "key": "<one-time-secret>", "item": { ... } }`.
-- Delete returns `{ "deleted": true }`.
+- `GET` returns `{ "items": [ ... ], "capacity": { "limit": 100, "used": N, "remaining": M, "counted_at": "<RFC3339>" } }`. Items carry `id`, `name`, `key_prefix`, `key_preview`, `is_active`, `expires_at`, `last_used_at`, `last_used_ip`, `notes`, `rotated_from_id`, `created_at`, and `updated_at`. Capacity is the single authoritative quota source: `used` counts rows where `expires_at IS NULL OR expires_at > counted_at`; `is_active` is ignored. The UI never derives capacity from list length.
+- Create accepts `name`, optional `notes`, and optional RFC3339 `expires_at`. A non-future `expires_at` is rejected with typed `422 proxy_key_expiry_invalid` plus a `field` locator. Response `201` is `{ "key": "<one-time-secret>", "item": { ... }, "capacity": { ... } }` and carries `Cache-Control: private, no-store` plus `Pragma: no-cache`. The raw key exists only in this response and the operator's unacknowledged in-memory session.
+- Update requires a non-empty `name` and accepts optional `notes`, `is_active`, and a presence-aware `expires_at`: an omitted field preserves the current value, explicit JSON `null` clears expiry, and an RFC3339 string sets a new future instant (non-future values are rejected with `422 proxy_key_expiry_invalid`). Response `200` is `{ "item": { ... }, "capacity": { ... } }`.
+- Rotate is lineage-creating, not in-place mutation: only an active, unexpired predecessor is rotatable (`409 proxy_key_not_rotatable` otherwise); the historical row becomes inactive and expired, a successor row is created with `rotated_from_id` pointing at the predecessor, and response `200` is `{ "key": "<one-time-secret>", "item": { ... }, "capacity": { ... } }` with the same no-store headers.
+- Delete returns `{ "deleted_id": <id>, "capacity": { ... } }`. Deleting the management row never deletes request/usage/audit history and never rewrites retained snapshot identity.
+- Capacity mutations serialize on the singleton auth settings row (`SELECT ... FOR UPDATE`), so concurrent creates can never commit a final `used` above 100; rotation at full capacity is net-neutral.
+- Typed error codes: `proxy_key_capacity_exhausted` (409), `proxy_key_not_found` (404), `proxy_key_not_rotatable` (409), `proxy_key_expiry_invalid` (422). Error bodies never contain the raw key.
 
 ##### Get Costing Settings
 ```
@@ -1441,7 +1443,11 @@ Runtime proxy routes ignore management `X-Profile-Id` overrides and always resol
 
 After global CORS handling, the runtime branch applies HTTP proxy admission, then runtime proxy-key authentication, and only then the exact operation registry. HTTP admission and auth can therefore reject a `/v1` or `/v1beta` request before registry resolution. Registry rejections themselves do not read the request body or invoke planning, terminal-target admission, provider transport, telemetry, audit, feedback, or runtime side effects.
 
-When operator auth is enabled, runtime proxy routes require a valid active, unexpired proxy API key. Prism checks `Authorization: Bearer <key>` first, then `X-API-Key`, then `X-Goog-Api-Key`. Missing keys return `401` with `Proxy API key required`; invalid, inactive, expired, or unknown keys return `401` with `Invalid proxy API key`. When auth is disabled, supported runtime routes continue without proxy-key authentication.
+When operator auth is enabled, runtime proxy routes require a valid active, unexpired proxy API key. Prism checks `Authorization: Bearer <key>` first, then `X-API-Key`, then `X-Goog-Api-Key`. Missing keys return `401` with `Proxy API key required`; invalid, inactive, expired, or unknown keys return `401` with `Invalid proxy API key`. Once a credential is selected, verification failure does not fall through to a lower-priority header value; a malformed non-Bearer `Authorization` may fall through exactly as before.
+
+When auth is disabled, credential parsing is permissive: a valid active, unexpired key is still recognized and attributed (enforced=false), while missing or unrecognized credentials continue and are recorded as `none`. A failed optional lookup is recorded as `unknown` and the request still proceeds; the caller is never told whether a credential was supplied or why it failed. Enforcement and attribution are separate axes, and the auth mode used for the request is persisted as `proxy_api_key_auth_enforced_at_request`.
+
+Every runtime-branch response, including auth/registry/planning/provider errors, carries the server-generated ingress correlation header `X-Prism-Ingress-Request-Id`. The ID is generated from server entropy, ignores caller `X-Request-ID` and `X-Prism-*` values, is forced through a response-writer middleware so providers cannot overwrite it, and is the durable telemetry/request-log/usage correlation key (`ingress_request_id`). It is exposed to configured CORS origins via `Access-Control-Expose-Headers`.
 
 #### 2.1 Supported Runtime Operations
 
@@ -1844,13 +1850,23 @@ Query parameters:
 | `endpoint_id` | integer | — | Filter by endpoint ID |
 | `client_rule_id` | integer | none | Filter by caller client, matched against `caller_user_agent` only through enabled User-Agent Client Rules |
 | `resolved_target_model_id` | string | none | Filter by final target model selected for the attempt |
+| `proxy_api_key_id` | integer | none | Ordinary filter on the immutable `proxy_api_key_id_snapshot`; strict positive ID, applied in SQL before COUNT/sort/pagination, AND-composed with other filters. Empty, non-integer, zero, negative, overflow or duplicate values return typed `422 invalid_proxy_api_key_id` and never normalize to no filter. Deleted keys keep matching via their retained snapshot |
+| `view` | string | none | `attempts` (default row list) or `ingress_chains` (ingress-group outer pages with bounded retained chains; each nested row marks `matched_by_filter`). Invalid values are rejected |
+| `chain_cursor` | string | none | Opaque keyset cursor for `view=ingress_chains` |
+| `chain_limit` | integer | 20 | Ingress groups per chain page; `1..50` |
 | `limit` | integer | 50 | Result limit; must be positive |
 | `offset` | integer | 0 | Pagination offset |
+
+```
+GET /api/stats/request-filter-options/proxy-api-keys?q=&from_time=&to_time=&limit=&selected_id=
+```
+Searchable, bounded option source for the ordinary key filter. The source is the union of current configured keys and distinct immutable key snapshots retained in the resolved window; `q` matches a normalized name/preview substring or an exact decimal ID in SQL before the limit; `limit` defaults to 50 and is capped at 100; `selected_id` returns the resolved option separately (deleted IDs fall back to the latest in-window name snapshot with `configured=false`, or `#<id>` when no snapshot survives) and never drops a valid direct-link parameter.
 
 Frontend request-log route contract:
 - `/observe/requests` defaults to the last 24 hours by deriving `from_time` from `time_range=24h`; generated URLs omit `time_range=24h` because it is the page default.
 - The page's `status=success` URL alias maps to backend `status_family=2xx`; direct `status_family=2xx`, `4xx`, and `5xx` are also supported backend filters.
 - The page CSV export is client-only and exports only the rows already loaded on the current table page. There is no full-range server-side CSV export endpoint.
+- Ledger and key-detail "查看请求" links deep-link to `/observe/requests?proxy_api_key_id=<id>&time_range=7d`; the route parser preserves the explicit 7d. The deep link round-trips through back/forward/refresh, and the key filter resets pagination when changed. Deleted historical IDs keep resolving through immutable snapshots.
 
 Response `200`:
 ```json
@@ -1961,6 +1977,8 @@ Response `200`:
     "provider_correlation_id": "req_upstream_abc123",
     "proxy_api_key_id": null,
     "proxy_api_key_name_snapshot": null,
+    "proxy_api_key_attribution_state": "unknown",
+    "proxy_api_key_auth_enforced_at_request": null,
     "caller_user_agent": "codex/1.0",
     "upstream_user_agent": "OpenAI/Python 1.0",
     "caller_client_display": "Codex",
@@ -3455,8 +3473,10 @@ Telemetry rows have immutable profile attribution captured at request start. Cap
 | endpoint_id | INTEGER | NULLABLE | Endpoint snapshot |
 | connection_id | INTEGER | NULLABLE | Executed connection snapshot |
 | selected_terminal_target_id | INTEGER | NULLABLE | Planner-selected terminal target before execution or no-fit rejection |
-| proxy_api_key_id | INTEGER | NULLABLE | Proxy API key snapshot used for the request |
-| proxy_api_key_name_snapshot | VARCHAR(200) | NULLABLE | Display-name snapshot for the proxy key at request time |
+| proxy_api_key_id_snapshot | BIGINT | NULLABLE | Immutable proxy API key ID snapshot; no FK, survives key deletion |
+| proxy_api_key_name_snapshot | VARCHAR(200) | NULLABLE | Immutable request-time display-name snapshot; never rewritten by renames |
+| proxy_api_key_attribution_state | VARCHAR(24) | NOT NULL | `identified`, `none`, or `unknown`; `none` and `unknown` never merge |
+| proxy_api_key_auth_enforced_at_request | BOOLEAN | NULLABLE | Auth mode used at request time; NULL only for legacy provenance |
 | endpoint_base_url | VARCHAR(500) | NULLABLE | Endpoint base URL snapshot |
 | endpoint_description | TEXT | NULLABLE | Compatibility endpoint-name snapshot text |
 | status_code | INTEGER | NOT NULL | Upstream attempt status code, or Prism HTTP status code for a synthetic runtime failure row |
@@ -3544,8 +3564,10 @@ Usage-event rows are the finalized source for the unified statistics snapshot. T
 | endpoint_label_snapshot | TEXT | NOT NULL | Endpoint label captured at runtime for retained aggregate display |
 | connection_id | INTEGER | NULLABLE | Executed connection snapshot |
 | selected_terminal_target_id | INTEGER | NULLABLE | Planner-selected terminal target for the finalized request |
-| proxy_api_key_id | INTEGER | NULLABLE | Proxy API key snapshot |
-| proxy_api_key_name_snapshot | VARCHAR(200) | NULLABLE | Proxy key name at event time |
+| proxy_api_key_id_snapshot | BIGINT | NULLABLE | Immutable proxy API key ID snapshot; no FK, survives key deletion |
+| proxy_api_key_name_snapshot | VARCHAR(200) | NULLABLE | Immutable request-time display-name snapshot |
+| proxy_api_key_attribution_state | VARCHAR(24) | NOT NULL | `identified`, `none`, or `unknown` |
+| proxy_api_key_auth_enforced_at_request | BOOLEAN | NULLABLE | Auth mode used at request time; NULL only for legacy provenance |
 | attempt_count | INTEGER | NOT NULL, CHECK `attempt_count >= 1` | Number of upstream attempts that contributed to the finalized event |
 | status_code | INTEGER | NOT NULL | HTTP status code |
 | success_flag | BOOLEAN | NOT NULL | Success indicator |
@@ -3929,7 +3951,7 @@ Rotation and expiry semantics:
 - Creation is limited to 100 unexpired rows. Inactive but unexpired rows still count; expired rows do not.
 - Rotation creates a successor row and preserves the predecessor link, name, notes, creator, active state, and any future expiry. It immediately sets the predecessor inactive and expired. An already expired key cannot rotate.
 - Update can disable a key or set its expiry. Runtime publication includes only keys that are both active and unexpired.
-- Delete is a hard delete. `request_logs.proxy_api_key_id` and `usage_request_events.proxy_api_key_id` become `NULL` through `ON DELETE SET NULL`, while their name snapshots remain. A successor's `rotated_from_id` is also set to `NULL` if its predecessor is deleted.
+- Delete is a hard delete of the management row only. Retained `request_logs` and `usage_request_events` rows carry the immutable `proxy_api_key_id_snapshot` / `proxy_api_key_name_snapshot` columns with no FK, so deleting or renaming a key never rewrites request/usage history and never clears the retained identity; historical ID filters keep matching after deletion. A successor's `rotated_from_id` is also set to `NULL` if its predecessor is deleted.
 - Proxy-key use updates `last_used_at`, `last_used_ip`, and `updated_at` monotonically, so an older telemetry event cannot overwrite a newer usage observation.
 
 #### 2.24 Additional Live Platform Tables
@@ -3987,7 +4009,7 @@ CREATE INDEX ix_request_logs_connection_id ON ONLY request_logs(connection_id);
 CREATE INDEX ix_request_logs_endpoint_id ON ONLY request_logs(endpoint_id);
 CREATE INDEX ix_request_logs_id ON ONLY request_logs(id);
 CREATE INDEX ix_request_logs_model_id ON ONLY request_logs(model_id);
-CREATE INDEX ix_request_logs_proxy_api_key_id ON ONLY request_logs(proxy_api_key_id);
+CREATE INDEX ix_request_logs_proxy_api_key_snapshot ON request_logs(profile_id, proxy_api_key_id_snapshot, created_at DESC, id DESC);
 CREATE INDEX ix_request_logs_status_code ON ONLY request_logs(status_code);
 CREATE INDEX idx_usage_request_events_profile_created_at ON ONLY usage_request_events(profile_id, created_at);
 CREATE INDEX idx_usage_request_events_profile_ingress_request ON ONLY usage_request_events(profile_id, ingress_request_id);
@@ -3997,7 +4019,7 @@ CREATE INDEX ix_usage_request_events_connection_id ON ONLY usage_request_events(
 CREATE INDEX ix_usage_request_events_endpoint_id ON ONLY usage_request_events(endpoint_id);
 CREATE INDEX ix_usage_request_events_id ON ONLY usage_request_events(id);
 CREATE INDEX ix_usage_request_events_model_id ON ONLY usage_request_events(model_id);
-CREATE INDEX ix_usage_request_events_proxy_api_key_id ON ONLY usage_request_events(proxy_api_key_id);
+CREATE INDEX ix_usage_request_events_proxy_api_key_snapshot ON usage_request_events(profile_id, proxy_api_key_id_snapshot, created_at DESC);
 CREATE INDEX idx_audit_logs_profile_created_at ON ONLY audit_logs(profile_id, created_at);
 CREATE INDEX idx_loadbalance_events_profile_created ON ONLY loadbalance_events(profile_id, created_at);
 CREATE INDEX idx_loadbalance_events_connection ON ONLY loadbalance_events(connection_id, created_at);
@@ -4028,7 +4050,7 @@ Selected foreign-key deletion boundaries:
 | `model_access_targets(source_model_config_id, profile_id)` | `model_configs(id, profile_id)` | `CASCADE` |
 | `model_access_targets(target_model_config_id, profile_id)` | `model_configs(id, profile_id)` | `RESTRICT` |
 | `model_access_targets(target_connection_id, profile_id)` | `connections(id, profile_id)` | `RESTRICT` |
-| `request_logs.proxy_api_key_id`, `usage_request_events.proxy_api_key_id` | `proxy_api_keys(id)` | `SET NULL` |
+| `request_logs.proxy_api_key_id_snapshot`, `usage_request_events.proxy_api_key_id_snapshot` | none (no FK) | Retained rows keep immutable identity after key deletion; the legacy `proxy_api_key_id` FK (`SET NULL`) was removed by migration 000004 |
 | `proxy_api_keys.created_by_auth_subject_id`, `proxy_api_keys.rotated_from_id` | auth subject or predecessor key | `SET NULL` |
 | `refresh_tokens.auth_subject_id` | `app_auth_settings(id)` | `CASCADE` |
 | `refresh_tokens.rotated_from_id` | `refresh_tokens(id)` | `SET NULL` |

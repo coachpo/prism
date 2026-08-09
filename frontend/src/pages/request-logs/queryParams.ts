@@ -49,6 +49,8 @@ export interface RequestLogPageState {
   model_id: string;
   endpoint_id: string;
   client_rule_id: string;
+  proxy_api_key_id: string;
+  view: "attempts" | "ingress_chains" | "";
   resolved_target_model_id: string;
   status_code: string;
   error_text: string;
@@ -114,6 +116,8 @@ export function parsePageSearch(search: Record<string, unknown>): RequestLogPage
     model_id: normalizeSearchString(search.model || search.model_id),
     endpoint_id: normalizeSearchString(search.endpoint || search.endpoint_id),
     client_rule_id: normalizeSearchString(search.client_rule_id),
+    proxy_api_key_id: normalizeSearchString(search.proxy_api_key_id),
+    view: parseEnum(search.view, ["attempts", "ingress_chains"], "") as "" | "attempts" | "ingress_chains",
     resolved_target_model_id: normalizeSearchString(search.resolved_target_model_id),
     status_code: normalizeSearchString(search.status_code),
     error_text: normalizeSearchString(search.error_text),
@@ -137,6 +141,8 @@ export function parsePageState(params: URLSearchParams): RequestLogPageState {
 export function stateToSearch(state: RequestLogPageState): Record<string, string | number> {
   const search: Record<string, string | number> = {};
   if (state.ingress_request_id) search.ingress_request_id = state.ingress_request_id;
+  if (state.proxy_api_key_id) search.proxy_api_key_id = state.proxy_api_key_id;
+  if (state.view) search.view = state.view;
   if (state.model_id) search.model = state.model_id;
   if (state.endpoint_id) search.endpoint = state.endpoint_id;
   if (state.client_rule_id) search.client_rule_id = state.client_rule_id;

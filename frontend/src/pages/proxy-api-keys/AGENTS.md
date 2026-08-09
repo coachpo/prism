@@ -9,9 +9,10 @@ proxy-api-keys/
 ├── ProxyApiKeysPageSkeleton.tsx  # Key Vault Console loading structure
 ├── ProxyKeyDeleteAlertDialog.tsx # Destructive delete confirmation and delete-impact warnings
 ├── ProxyKeyDetailSheet.tsx       # Sheet-based metadata, notes, expiry, and active-state edit flow
-├── ProxyKeyEnforcementPanel.tsx  # Auth enforcement state and proxy-key quota rail
-├── ProxyKeyIssuePanel.tsx        # Field-based credential issuance form
-├── ProxyKeyLedgerCard.tsx        # Issued-key ledger, lifecycle labels, lineage, and row actions
+├── ProxyKeyEnforcementPanel.tsx  # Auth enforcement state, Settings CTA, and instance-scope disclosure
+├── ProxyKeyExpiryField.tsx       # Settings-timezone expiry field with DST gap/overlap handling and preserve/set/clear tri-state
+├── ProxyKeyIssuePanel.tsx        # Credential issuance form with the single server capacity snapshot
+├── ProxyKeyLedgerCard.tsx        # Issued-key ledger, lifecycle labels, lineage, row actions, lifecycle comparison, and 7d Requests deep links
 └── proxyKeyFormatting.ts         # Auth-status tone, lifecycle, date, and quota helpers
 ```
 
@@ -25,5 +26,7 @@ proxy-api-keys/
 - Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 - Treat proxy API key management as a global auth-settings workflow, not a Default-profile feature.
 - Bootstrap auth settings and existing keys in parallel with `Promise.allSettled()` in the feature data hook.
-- Patch the local key list after create, edit, rotate, and delete flows instead of reloading the whole page.
+- Patch the local key list after create, edit, rotate, and delete flows instead of reloading the whole page; reconcile capacity from the server snapshot returned by each mutation.
+- The one-time secret session lives in `src/features/proxy-keys/generatedSecretSession.ts` and is mutation-owned: list/auth/model/stats refetches never close it; Escape/mask/close/navigation/refresh are blocked until the operator acknowledges the key is saved; after finish/abandon all raw-key references are released.
+- Expiry is edited in the Settings timezone and submitted as RFC3339; DST gap times are blocked and overlaps resolve to the earlier occurrence with a notice.
 - Do not scope proxy-key UX to Default-profile management state; runtime keys are global instance credentials.

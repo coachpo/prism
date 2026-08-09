@@ -2,7 +2,6 @@ import type { ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Field,
-  FieldDescription,
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
@@ -18,7 +17,9 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { useLocale } from "@/i18n/useLocale";
+import { useTimezone } from "@/hooks/useTimezone";
 import { OperatorSwitchField } from "@/shared/design-system";
+import { ProxyKeyExpiryField, type ResolvedExpiryInput } from "./ProxyKeyExpiryField";
 
 type FormSubmitHandler = NonNullable<ComponentProps<"form">["onSubmit"]>;
 
@@ -26,6 +27,7 @@ interface ProxyKeyDetailSheetProps {
   open: boolean;
   proxyKeyActive: boolean;
   proxyKeyExpiresAt: string;
+  proxyKeyExpiresResolved: ResolvedExpiryInput | null;
   proxyKeyName: string;
   proxyKeyNotes: string;
   saving: boolean;
@@ -33,6 +35,7 @@ interface ProxyKeyDetailSheetProps {
   onSubmit: FormSubmitHandler;
   setProxyKeyActive: (value: boolean) => void;
   setProxyKeyExpiresAt: (value: string) => void;
+  setProxyKeyExpiresResolved: (value: ResolvedExpiryInput | null) => void;
   setProxyKeyName: (value: string) => void;
   setProxyKeyNotes: (value: string) => void;
 }
@@ -41,6 +44,7 @@ export function ProxyKeyDetailSheet({
   open,
   proxyKeyActive,
   proxyKeyExpiresAt,
+  proxyKeyExpiresResolved,
   proxyKeyName,
   proxyKeyNotes,
   saving,
@@ -48,10 +52,12 @@ export function ProxyKeyDetailSheet({
   onSubmit,
   setProxyKeyActive,
   setProxyKeyExpiresAt,
+  setProxyKeyExpiresResolved,
   setProxyKeyName,
   setProxyKeyNotes,
 }: ProxyKeyDetailSheetProps) {
   const { messages } = useLocale();
+  const timezone = useTimezone();
   const copy = messages.proxyApiKeys;
 
   return (
@@ -91,30 +97,20 @@ export function ProxyKeyDetailSheet({
             </Field>
 
             <Field data-disabled={saving || undefined}>
-              <div className="flex items-center justify-between gap-2">
-                <FieldLabel htmlFor="proxy-key-edit-expires-at">{copy.expiresAt}</FieldLabel>
-                {proxyKeyExpiresAt ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="xs"
-                    className="h-auto px-0 text-muted-foreground"
-                    onClick={() => setProxyKeyExpiresAt("")}
-                    disabled={saving}
-                  >
-                    {copy.clearExpiry}
-                  </Button>
-                ) : null}
-              </div>
-              <Input
-                id="proxy-key-edit-expires-at"
-                name="proxy-key-edit-expires-at"
-                type="datetime-local"
-                value={proxyKeyExpiresAt}
-                onChange={(event) => setProxyKeyExpiresAt(event.target.value)}
+              <FieldLabel>{copy.expiresAt}</FieldLabel>
+              <ProxyKeyExpiryField
+                mode="edit"
+                timezone={timezone.timezone}
+                timezoneLoading={timezone.loading}
+                currentInstant={proxyKeyExpiresResolved?.instant ?? (proxyKeyExpiresAt || null)}
                 disabled={saving}
+                onChange={(value) => {
+                  setProxyKeyExpiresResolved(value)
+                  if (!value.preserved) {
+                    setProxyKeyExpiresAt(value.instant ?? "")
+                  }
+                }}
               />
-              <FieldDescription>{copy.expiresAtDescription}</FieldDescription>
             </Field>
           </FieldGroup>
 

@@ -230,6 +230,10 @@ export interface RequestLogListItem {
   priced_flag: boolean | null;
   unpriced_reason: string | null;
   report_currency_symbol: string | null;
+  proxy_api_key_id: number | null;
+  proxy_api_key_name_snapshot: string | null;
+  proxy_api_key_attribution_state: string;
+  proxy_api_key_auth_enforced_at_request: boolean | null;
 }
 
 export interface RequestLogDetailSummary {
@@ -275,6 +279,8 @@ export interface RequestLogDetailRequest {
   provider_correlation_id: string | null;
   proxy_api_key_id: number | null;
   proxy_api_key_name_snapshot: string | null;
+  proxy_api_key_attribution_state: string;
+  proxy_api_key_auth_enforced_at_request: boolean | null;
   caller_user_agent: string | null;
   upstream_user_agent: string | null;
   caller_client_display: string | null;
@@ -364,6 +370,45 @@ export interface RequestLogListResponse {
   };
 }
 
+export interface RequestLogChainRow extends RequestLogListItem {
+  matched_by_filter: boolean;
+}
+
+export interface RequestLogChainItem {
+  ingress_request_id: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  retained_row_count: number;
+  matched_row_count: number;
+  rows: RequestLogChainRow[];
+  rows_loaded_count: number;
+  rows_page_complete: boolean;
+}
+
+export interface RequestLogChainResponse {
+  view: "ingress_chains";
+  items: RequestLogChainItem[];
+  has_more_chains: boolean;
+  next_chain_cursor: string | null;
+  retained_ingress_total: number;
+  filter_options: RequestLogListResponse["filter_options"];
+}
+
+export interface ProxyApiKeyFilterOption {
+  proxy_api_key_id: number;
+  proxy_api_key_name: string;
+  key_preview: string | null;
+  configured: boolean;
+}
+
+export interface ProxyApiKeyFilterOptionsResponse {
+  items: ProxyApiKeyFilterOption[];
+  selected: ProxyApiKeyFilterOption | null;
+  next_cursor: string | null;
+  resolved_from_time: string;
+  resolved_to_time: string;
+}
+
 export interface StatGroup {
   key: string;
   total_requests: number;
@@ -394,6 +439,10 @@ export const STATS_TO_TIME_PARAM = "to_time" as const;
 export interface StatsRequestParams {
   ingress_request_id?: string;
   model_id?: string;
+  proxy_api_key_id?: number;
+  view?: "attempts" | "ingress_chains";
+  chain_cursor?: string;
+  chain_limit?: number;
   client_rule_id?: number;
   resolved_target_model_id?: string;
   status_family?: RequestStatusFamily;

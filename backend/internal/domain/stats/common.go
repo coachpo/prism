@@ -59,6 +59,8 @@ type usageEventRecord struct {
 	ConnectionID                   *int
 	ProxyAPIKeyID                  *int
 	ProxyAPIKeyNameSnapshot        *string
+	ProxyKeyAttributionState       string
+	ProxyKeyAuthEnforcedAtRequest  *bool
 	StatusCode                     int
 	SuccessFlag                    bool
 	BillableFlag                   bool
@@ -104,6 +106,7 @@ type snapshotEvent struct {
 	ProxyAPIKeyID            *int
 	ProxyAPIKeyLabel         *string
 	ProxyAPIKeyStatsLabel    string
+	ProxyKeyAttributionState string
 	ProxyAPIKeyPrefix        *string
 	ReasoningTokens          int
 	RequestPath              string

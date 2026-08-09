@@ -15,6 +15,7 @@ runtime/
 ├── planning_snapshot_legacy.go  # Legacy snapshot compatibility helpers
 ├── proxy_selector_helpers.go    # Access-target ordering helpers used by request planning
 ├── cache.go                     # Shared runtime cache reads and snapshots
+├── ingress_request_id.go        # Server-generated ingress correlation ID middleware + response-writer guard
 ├── request_generation_params.go # Internal generation-param extraction orchestration
 ├── *_adapter_bridge.go          # Runtime-to-gateway provider adapter bridge files
 ├── gateway_*_bridge.go          # Gateway core and typed-hook bridge files

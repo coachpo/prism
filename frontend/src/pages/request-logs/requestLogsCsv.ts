@@ -20,7 +20,7 @@ function csvValue(value: string | number | null | undefined): string {
   return csvEscape(String(value));
 }
 
-function rowValue(row: RequestLogListItem, key: string): string {
+export function rowValue(row: RequestLogListItem, key: string): string {
   const messages = getStaticMessages();
   switch (key) {
     case "created_at":
@@ -43,6 +43,16 @@ function rowValue(row: RequestLogListItem, key: string): string {
       return row.user_agent_overridden
         ? `${row.caller_client_display ?? ""} -> ${row.upstream_client_display ?? ""}`.trim()
         : row.caller_client_display ?? row.upstream_client_display ?? "";
+    case "proxy_api_key": {
+      const attribution = row.proxy_api_key_attribution_state;
+      if (attribution === "identified") {
+        return row.proxy_api_key_name_snapshot ?? `#${row.proxy_api_key_id ?? ""}`;
+      }
+      if (attribution === "unknown") {
+        return messages.requestLogs.proxyKeyAttributionUnknown;
+      }
+      return messages.requestLogs.noIdentifiedProxyKey;
+    }
     case "reasoning_effort":
       return row.reasoning_effort ?? "";
     case "api_family":

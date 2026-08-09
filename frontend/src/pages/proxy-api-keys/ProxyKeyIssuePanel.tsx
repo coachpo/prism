@@ -3,7 +3,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Field,
-  FieldDescription,
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
@@ -12,46 +11,66 @@ import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { useLocale } from "@/i18n/useLocale";
+import { useTimezone } from "@/hooks/useTimezone";
 import { OperatorInsetPanel, OperatorSectionCard } from "@/shared/design-system";
 import { getProxyKeyUsagePercent } from "./proxyKeyFormatting";
+import { ProxyKeyExpiryField, type ResolvedExpiryInput } from "./ProxyKeyExpiryField";
 
 type FormSubmitHandler = NonNullable<ComponentProps<"form">["onSubmit"]>;
 
 interface ProxyKeyIssuePanelProps {
   authAvailable: boolean;
+  capacity: { limit: number; used: number; remaining: number; counted_at: string } | null;
   createDisabled: boolean;
   creatingProxyKey: boolean;
   handleCreateSubmit: FormSubmitHandler;
   proxyKeyExpiresAt: string;
+  proxyKeyExpiresResolved: ResolvedExpiryInput | null;
   proxyKeyLimit: number;
   proxyKeyName: string;
   proxyKeyNotes: string;
-  proxyKeysUsed: number;
   remainingKeys: number;
   setProxyKeyExpiresAt: (value: string) => void;
+  setProxyKeyExpiresResolved: (value: ResolvedExpiryInput | null) => void;
   setProxyKeyName: (value: string) => void;
   setProxyKeyNotes: (value: string) => void;
 }
 
 export function ProxyKeyIssuePanel({
   authAvailable,
+  capacity,
   createDisabled,
   creatingProxyKey,
   handleCreateSubmit,
   proxyKeyExpiresAt,
+  proxyKeyExpiresResolved,
   proxyKeyLimit,
   proxyKeyName,
   proxyKeyNotes,
-  proxyKeysUsed,
   remainingKeys,
   setProxyKeyExpiresAt,
+  setProxyKeyExpiresResolved,
   setProxyKeyName,
   setProxyKeyNotes,
 }: ProxyKeyIssuePanelProps) {
   const { formatNumber, messages } = useLocale();
   const copy = messages.proxyApiKeys;
-  const quotaPercent = getProxyKeyUsagePercent(proxyKeysUsed, proxyKeyLimit);
-  const fieldsDisabled = creatingProxyKey || !authAvailable;
+  const timezone = useTimezone();
+  const used = capacity?.used ?? 0;
+  const quotaPercent = capacity ? getProxyKeyUsagePercent(used, proxyKeyLimit) : 0;
+  const fieldsDisabled = creatingProxyKey || !authAvailable || !capacity;
+  const handleExpiryChange = (value: ResolvedExpiryInput) => {
+    setProxyKeyExpiresResolved(value)
+    if (value.preserved) {
+      setProxyKeyExpiresAt("")
+      return
+    }
+    if (value.instant === null) {
+      setProxyKeyExpiresAt("")
+      return
+    }
+    setProxyKeyExpiresAt(value.instant)
+  }
 
   return (
     <form onSubmit={handleCreateSubmit}>
@@ -60,8 +79,8 @@ export function ProxyKeyIssuePanel({
         title={copy.createProxyKey}
         description={copy.createDescription}
         actions={(
-            <Badge variant={remainingKeys === 0 ? "destructive" : "secondary"}>
-              {remainingKeys === 0 ? copy.keyLimitReached : copy.slotsRemaining(formatNumber(remainingKeys))}
+            <Badge variant={!capacity ? "secondary" : remainingKeys === 0 ? "destructive" : "secondary"}>
+              {!capacity ? copy.capacityUnavailable : remainingKeys === 0 ? copy.keyLimitReached : copy.slotsRemaining(formatNumber(remainingKeys))}
             </Badge>
         )}
         contentClassName="flex flex-col gap-5"
@@ -95,40 +114,42 @@ export function ProxyKeyIssuePanel({
 
             <Field data-disabled={fieldsDisabled || undefined}>
               <div className="flex items-center justify-between gap-2">
-                <FieldLabel htmlFor="proxy-key-expires-at">{copy.expiresAt}</FieldLabel>
+                <FieldLabel>{copy.expiresAt}</FieldLabel>
                 {proxyKeyExpiresAt ? (
                   <Button
                     type="button"
                     variant="ghost"
                     size="xs"
                     className="h-auto px-0 text-muted-foreground"
-                    onClick={() => setProxyKeyExpiresAt("")}
+                    onClick={() => {
+                      setProxyKeyExpiresAt("")
+                      setProxyKeyExpiresResolved({ instant: null, preserved: false, gapError: false, overlapNotice: false })
+                    }}
                     disabled={fieldsDisabled}
                   >
                     {copy.clearExpiry}
                   </Button>
                 ) : null}
               </div>
-              <Input
-                id="proxy-key-expires-at"
-                name="proxy-key-expires-at"
-                type="datetime-local"
-                value={proxyKeyExpiresAt}
-                onChange={(event) => setProxyKeyExpiresAt(event.target.value)}
+              <ProxyKeyExpiryField
+                mode="create"
+                timezone={timezone.timezone}
+                timezoneLoading={timezone.loading}
+                currentInstant={proxyKeyExpiresResolved?.instant ?? null}
                 disabled={fieldsDisabled}
+                onChange={handleExpiryChange}
               />
-              <FieldDescription>{copy.expiresAtDescription}</FieldDescription>
             </Field>
           </FieldGroup>
 
           <OperatorInsetPanel className="bg-surface">
             <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
-              <span>{copy.keysUsed(formatNumber(proxyKeysUsed), formatNumber(proxyKeyLimit))}</span>
-              <span>{copy.slotsRemaining(formatNumber(remainingKeys))}</span>
+              <span>{capacity ? copy.keysUsed(formatNumber(used), formatNumber(proxyKeyLimit)) : copy.capacityUnavailable}</span>
+              <span>{capacity ? copy.slotsRemaining(formatNumber(remainingKeys)) : copy.capacityUnavailable}</span>
             </div>
             <Progress
               value={quotaPercent}
-              aria-label={copy.keysUsed(formatNumber(proxyKeysUsed), formatNumber(proxyKeyLimit))}
+              aria-label={capacity ? copy.keysUsed(formatNumber(used), formatNumber(proxyKeyLimit)) : copy.capacityUnavailable}
             />
           </OperatorInsetPanel>
 
@@ -136,7 +157,9 @@ export function ProxyKeyIssuePanel({
             {creatingProxyKey ? <Spinner aria-hidden="true" data-icon="inline-start" /> : null}
             {creatingProxyKey
               ? copy.creating
-              : remainingKeys === 0
+              : !capacity
+                ? copy.capacityUnavailable
+                : remainingKeys === 0
                 ? copy.keyLimitReached
               : copy.createKey}
           </Button>

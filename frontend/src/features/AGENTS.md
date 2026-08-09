@@ -12,7 +12,8 @@ features/
 ├── models/           # `/models` list feature and `/models/$modelId` detail adapter
 ├── observe/          # `/observe` dashboard adapter
 ├── pricing/          # `/route/pricing` feature page and pricing-template flows
-├── proxy-keys/       # `/control/proxy-keys` global proxy-key surface
+├── proxy-keys/       # `/control/proxy-keys` global proxy-key surface: ledger, mutations, generated-secret session, access panel
+├── runtime-self-test/ # Shared four-layer runtime self-test: effective origin, curl builder, direct runner, dialog
 ├── request-logs/     # `/observe/requests` list and audit detail adapters
 ├── settings/         # `/system/settings` feature adapter
 ```

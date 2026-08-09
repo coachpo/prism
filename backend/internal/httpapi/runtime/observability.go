@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5"
 
 	gatewayaccounting "github.com/coachpo/prism/backend/internal/gateway/accounting"
@@ -400,6 +399,8 @@ type requestLogInsert struct {
 	SelectedTerminalTargetID          *int
 	ProxyAPIKeyID                     *int
 	ProxyAPIKeyNameSnapshot           *string
+	ProxyKeyAttributionState          string
+	ProxyKeyAuthEnforcedAtRequest     *bool
 	IngressRequestID                  string
 	AttemptNumber                     int
 	ProviderCorrelationID             *string
@@ -469,6 +470,8 @@ type usageEventInsert struct {
 	SelectedTerminalTargetID          *int
 	ProxyAPIKeyID                     *int
 	ProxyAPIKeyNameSnapshot           *string
+	ProxyKeyAttributionState          string
+	ProxyKeyAuthEnforcedAtRequest     *bool
 	StatusCode                        int
 	SuccessFlag                       bool
 	BillableFlag                      *bool
@@ -759,7 +762,7 @@ type runtimeTelemetryPricingTimingContext struct {
 type runtimeTelemetryEnvelopeContext struct {
 	runtimeTelemetryPricingTimingContext
 	ingressRequestID          string
-	proxyKey                  *requestcontext.RuntimeProxyKeySnapshot
+	attribution               requestcontext.RuntimeProxyKeyAttribution
 	callerUserAgent           *string
 	requestGenerationSnapshot requestGenerationParamsSnapshot
 	attempts                  []executionAttempt
@@ -791,7 +794,7 @@ func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executi
 		UsageEvent:         usageEvent,
 		AccountingEvent:    buildRuntimeAccountingFinalEvent(usageEvent, requestLogs, telemetry.routeReason, telemetry.usageSource),
 		AccountingAttempts: buildRuntimeAccountingAttemptEvents(requestLogs, telemetry.routeReason, telemetry.usageSource),
-		ProxyKeyUsage:      runtimeProxyKeyUsageSignalFromSnapshot(telemetry.proxyKey),
+		ProxyKeyUsage:      runtimeProxyKeyUsageSignalFromAttribution(telemetry.attribution),
 	}
 }
 
@@ -799,11 +802,8 @@ func (s *Service) buildRuntimePlanningFailureTelemetryEnvelope(failure runtimePl
 	requestCompletedAt := s.nowUTC()
 	responseTimeMS := durationMilliseconds(requestCompletedAt.Sub(startedAt))
 	billableFlag, pricedFlag, unpricedReason := billingState(false)
-	proxyKey, _ := requestcontext.RuntimeProxyKeyFromContext(request.Context())
-	ingressRequestID := strings.TrimSpace(middleware.GetReqID(request.Context()))
-	if ingressRequestID == "" {
-		ingressRequestID = fmt.Sprintf("runtime-%d", requestCompletedAt.UnixNano())
-	}
+	attribution, _ := requestcontext.RuntimeProxyKeyAttributionFromContext(request.Context())
+	ingressRequestID := runtimeIngressRequestIDFromContext(request.Context(), requestCompletedAt)
 	reportCurrencyCode := runtimeOptionalTrimmedString(failure.ReportCurrencySnapshot.Code)
 	reportCurrencySymbol := runtimeOptionalTrimmedString(failure.ReportCurrencySnapshot.Symbol)
 	requestGenerationSnapshot := failure.RequestGenerationParams.clone()
@@ -821,8 +821,10 @@ func (s *Service) buildRuntimePlanningFailureTelemetryEnvelope(failure runtimePl
 		EndpointID:                    nil,
 		ConnectionID:                  nil,
 		SelectedTerminalTargetID:      selectedTerminalTargetID,
-		ProxyAPIKeyID:                 proxyKeyIDPointer(proxyKey),
-		ProxyAPIKeyNameSnapshot:       proxyKeyNamePointer(proxyKey),
+		ProxyAPIKeyID:                 proxyKeyIDPointer(attribution),
+		ProxyAPIKeyNameSnapshot:       proxyKeyNamePointer(attribution),
+		ProxyKeyAttributionState:      proxyKeyAttributionState(attribution),
+		ProxyKeyAuthEnforcedAtRequest: proxyKeyAuthEnforcedPointer(attribution),
 		IngressRequestID:              ingressRequestID,
 		AttemptNumber:                 1,
 		ProviderCorrelationID:         nil,
@@ -864,8 +866,10 @@ func (s *Service) buildRuntimePlanningFailureTelemetryEnvelope(failure runtimePl
 		EndpointLabelSnapshot:    "Unknown Endpoint",
 		ConnectionID:             nil,
 		SelectedTerminalTargetID: selectedTerminalTargetID,
-		ProxyAPIKeyID:            proxyKeyIDPointer(proxyKey),
-		ProxyAPIKeyNameSnapshot:  proxyKeyNamePointer(proxyKey),
+		ProxyAPIKeyID:            proxyKeyIDPointer(attribution),
+		ProxyAPIKeyNameSnapshot:  proxyKeyNamePointer(attribution),
+		ProxyKeyAttributionState: proxyKeyAttributionState(attribution),
+		ProxyKeyAuthEnforcedAtRequest: proxyKeyAuthEnforcedPointer(attribution),
 		StatusCode:               runtimeErr.StatusCode,
 		SuccessFlag:              false,
 		BillableFlag:             billableFlag,
@@ -890,7 +894,7 @@ func (s *Service) buildRuntimePlanningFailureTelemetryEnvelope(failure runtimePl
 		UsageEvent:         usageEvent,
 		AccountingEvent:    buildRuntimeAccountingFinalEvent(usageEvent, requestLogs, routeReason, gatewaycore.UsageSourceMissing),
 		AccountingAttempts: buildRuntimeAccountingAttemptEvents(requestLogs, routeReason, gatewaycore.UsageSourceMissing),
-		ProxyKeyUsage:      runtimeProxyKeyUsageSignalFromSnapshot(proxyKey),
+		ProxyKeyUsage:      runtimeProxyKeyUsageSignalFromAttribution(attribution),
 	}
 }
 
@@ -898,11 +902,8 @@ func (s *Service) buildRuntimeExecutionFailureTelemetryEnvelope(plan requestPlan
 	requestCompletedAt := s.nowUTC()
 	responseTimeMS := durationMilliseconds(requestCompletedAt.Sub(startedAt))
 	billableFlag, pricedFlag, unpricedReason := billingState(false)
-	proxyKey, _ := requestcontext.RuntimeProxyKeyFromContext(request.Context())
-	ingressRequestID := strings.TrimSpace(middleware.GetReqID(request.Context()))
-	if ingressRequestID == "" {
-		ingressRequestID = fmt.Sprintf("runtime-%d", requestCompletedAt.UnixNano())
-	}
+	attribution, _ := requestcontext.RuntimeProxyKeyAttributionFromContext(request.Context())
+	ingressRequestID := runtimeIngressRequestIDFromContext(request.Context(), requestCompletedAt)
 	reportCurrencyCode := runtimeOptionalTrimmedString(plan.ReportCurrencySnapshot.Code)
 	reportCurrencySymbol := runtimeOptionalTrimmedString(plan.ReportCurrencySnapshot.Symbol)
 	requestGenerationSnapshot := plan.RequestGenerationParamsSnapshot()
@@ -928,8 +929,10 @@ func (s *Service) buildRuntimeExecutionFailureTelemetryEnvelope(plan requestPlan
 		EndpointID:                    nil,
 		ConnectionID:                  nil,
 		SelectedTerminalTargetID:      selectedTerminalTargetID,
-		ProxyAPIKeyID:                 proxyKeyIDPointer(proxyKey),
-		ProxyAPIKeyNameSnapshot:       proxyKeyNamePointer(proxyKey),
+		ProxyAPIKeyID:                 proxyKeyIDPointer(attribution),
+		ProxyAPIKeyNameSnapshot:       proxyKeyNamePointer(attribution),
+		ProxyKeyAttributionState:      proxyKeyAttributionState(attribution),
+		ProxyKeyAuthEnforcedAtRequest: proxyKeyAuthEnforcedPointer(attribution),
 		IngressRequestID:              ingressRequestID,
 		AttemptNumber:                 1,
 		StatusCode:                    runtimeErr.StatusCode,
@@ -962,8 +965,10 @@ func (s *Service) buildRuntimeExecutionFailureTelemetryEnvelope(plan requestPlan
 		EndpointLabelSnapshot:    "Unknown Endpoint",
 		ConnectionID:             nil,
 		SelectedTerminalTargetID: selectedTerminalTargetID,
-		ProxyAPIKeyID:            proxyKeyIDPointer(proxyKey),
-		ProxyAPIKeyNameSnapshot:  proxyKeyNamePointer(proxyKey),
+		ProxyAPIKeyID:            proxyKeyIDPointer(attribution),
+		ProxyAPIKeyNameSnapshot:  proxyKeyNamePointer(attribution),
+		ProxyKeyAttributionState: proxyKeyAttributionState(attribution),
+		ProxyKeyAuthEnforcedAtRequest: proxyKeyAuthEnforcedPointer(attribution),
 		StatusCode:               runtimeErr.StatusCode,
 		SuccessFlag:              false,
 		BillableFlag:             billableFlag,
@@ -984,21 +989,18 @@ func (s *Service) buildRuntimeExecutionFailureTelemetryEnvelope(plan requestPlan
 		UsageEvent:         usageEvent,
 		AccountingEvent:    buildRuntimeAccountingFinalEvent(usageEvent, requestLogs, routeReason, gatewaycore.UsageSourceMissing),
 		AccountingAttempts: buildRuntimeAccountingAttemptEvents(requestLogs, routeReason, gatewaycore.UsageSourceMissing),
-		ProxyKeyUsage:      runtimeProxyKeyUsageSignalFromSnapshot(proxyKey),
+		ProxyKeyUsage:      runtimeProxyKeyUsageSignalFromAttribution(attribution),
 	}
 }
 
 func (s *Service) buildRuntimeTelemetryEnvelopeContext(plan requestPlan, result executionResult, request *http.Request, startedAt time.Time, responseCapture runtimeResponseCapture) runtimeTelemetryEnvelopeContext {
 	pricingTiming := s.buildRuntimeTelemetryPricingTimingContext(plan, result, startedAt, responseCapture)
-	ingressRequestID := strings.TrimSpace(middleware.GetReqID(request.Context()))
-	if ingressRequestID == "" {
-		ingressRequestID = fmt.Sprintf("runtime-%d", pricingTiming.requestCompletedAt.UnixNano())
-	}
-	proxyKey, _ := requestcontext.RuntimeProxyKeyFromContext(request.Context())
+	ingressRequestID := runtimeIngressRequestIDFromContext(request.Context(), pricingTiming.requestCompletedAt)
+	attribution, _ := requestcontext.RuntimeProxyKeyAttributionFromContext(request.Context())
 	return runtimeTelemetryEnvelopeContext{
 		runtimeTelemetryPricingTimingContext: pricingTiming,
 		ingressRequestID:                     ingressRequestID,
-		proxyKey:                             proxyKey,
+		attribution:                          attribution,
 		callerUserAgent:                      trimmedStringPointer(request.UserAgent()),
 		requestGenerationSnapshot:            plan.RequestGenerationParamsSnapshot(),
 		attempts:                             runtimeTelemetryAttempts(plan, result, request, pricingTiming),
@@ -1139,8 +1141,10 @@ func buildRuntimeRequestLogRow(plan requestPlan, request *http.Request, telemetr
 		EndpointID:                    intPtr(attempt.attempt.Connection.Endpoint.ID),
 		ConnectionID:                  intPtr(attempt.attempt.Connection.ID),
 		SelectedTerminalTargetID:      selectedTerminalTargetIDForAttempt(plan, attempt),
-		ProxyAPIKeyID:                 proxyKeyIDPointer(telemetry.proxyKey),
-		ProxyAPIKeyNameSnapshot:       proxyKeyNamePointer(telemetry.proxyKey),
+		ProxyAPIKeyID:                 proxyKeyIDPointer(telemetry.attribution),
+		ProxyAPIKeyNameSnapshot:       proxyKeyNamePointer(telemetry.attribution),
+		ProxyKeyAttributionState:      proxyKeyAttributionState(telemetry.attribution),
+		ProxyKeyAuthEnforcedAtRequest: proxyKeyAuthEnforcedPointer(telemetry.attribution),
 		IngressRequestID:              telemetry.ingressRequestID,
 		AttemptNumber:                 attempt.attemptNumber,
 		ProviderCorrelationID:         headerValuePointer(attempt.attempt.ResponseHeaders, "x-request-id", "request-id"),
@@ -1323,8 +1327,10 @@ func buildRuntimeUsageEvent(plan requestPlan, result executionResult, request *h
 		EndpointLabelSnapshot:    runtimeEndpointLabelSnapshot(result.Connection.Endpoint),
 		ConnectionID:             intPtr(result.Connection.ID),
 		SelectedTerminalTargetID: selectedTerminalTargetIDForUsageEvent(plan),
-		ProxyAPIKeyID:            proxyKeyIDPointer(telemetry.proxyKey),
-		ProxyAPIKeyNameSnapshot:  proxyKeyNamePointer(telemetry.proxyKey),
+		ProxyAPIKeyID:            proxyKeyIDPointer(telemetry.attribution),
+		ProxyAPIKeyNameSnapshot:  proxyKeyNamePointer(telemetry.attribution),
+		ProxyKeyAttributionState: proxyKeyAttributionState(telemetry.attribution),
+		ProxyKeyAuthEnforcedAtRequest: proxyKeyAuthEnforcedPointer(telemetry.attribution),
 		StatusCode:               result.Response.StatusCode,
 		SuccessFlag:              telemetry.successFlag,
 		InputTokens:              telemetry.usage.InputTokens,
@@ -1626,7 +1632,7 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 	for _, requestLog := range requestLogs {
 		err := tx.QueryRow(
 			ctx,
-			`INSERT INTO request_logs (profile_id, model_id, resolved_target_model_id, api_family, operation_name, endpoint_id, connection_id, selected_terminal_target_id, proxy_api_key_id, proxy_api_key_name_snapshot, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used, request_path, error_detail, endpoint_description, created_at, caller_user_agent, upstream_user_agent, completion_duration_ms, ttft_ms, stream_outcome, stream_error_kind, stream_error_detail, audit_enabled_at_request, audit_capture_bodies_at_request, request_generation_params, request_generation_params_status, upstream_operation_name, operation_translation_mode, upstream_request_path) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64) RETURNING id`,
+			`INSERT INTO request_logs (profile_id, model_id, resolved_target_model_id, api_family, operation_name, endpoint_id, connection_id, selected_terminal_target_id, proxy_api_key_id_snapshot, proxy_api_key_name_snapshot, proxy_api_key_attribution_state, proxy_api_key_auth_enforced_at_request, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used, request_path, error_detail, endpoint_description, created_at, caller_user_agent, upstream_user_agent, completion_duration_ms, ttft_ms, stream_outcome, stream_error_kind, stream_error_detail, audit_enabled_at_request, audit_capture_bodies_at_request, request_generation_params, request_generation_params_status, upstream_operation_name, operation_translation_mode, upstream_request_path) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66) RETURNING id`,
 			requestLog.ProfileID,
 			requestLog.ModelID,
 			nullableStringArg(requestLog.ResolvedTargetModelID),
@@ -1637,6 +1643,8 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 			nullableIntArg(requestLog.SelectedTerminalTargetID),
 			nullableIntArg(requestLog.ProxyAPIKeyID),
 			nullableStringArg(requestLog.ProxyAPIKeyNameSnapshot),
+			requestLog.ProxyKeyAttributionState,
+			nullableBoolArg(requestLog.ProxyKeyAuthEnforcedAtRequest),
 			requestLog.IngressRequestID,
 			requestLog.AttemptNumber,
 			nullableStringArg(requestLog.ProviderCorrelationID),
@@ -1704,7 +1712,7 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 	}
 	if _, err := tx.Exec(
 		ctx,
-		`INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, resolved_target_model_id, api_family, operation_name, endpoint_id, connection_id, selected_terminal_target_id, proxy_api_key_id, proxy_api_key_name_snapshot, status_code, success_flag, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used, attempt_count, request_path, created_at, response_time_ms, completion_duration_ms, ttft_ms, stream_outcome, stream_error_kind, billable_flag, priced_flag, unpriced_reason, upstream_operation_name, operation_translation_mode, upstream_request_path, endpoint_label_snapshot) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53)`,
+		`INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, resolved_target_model_id, api_family, operation_name, endpoint_id, connection_id, selected_terminal_target_id, proxy_api_key_id_snapshot, proxy_api_key_name_snapshot, proxy_api_key_attribution_state, proxy_api_key_auth_enforced_at_request, status_code, success_flag, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used, attempt_count, request_path, created_at, response_time_ms, completion_duration_ms, ttft_ms, stream_outcome, stream_error_kind, billable_flag, priced_flag, unpriced_reason, upstream_operation_name, operation_translation_mode, upstream_request_path, endpoint_label_snapshot) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55)`,
 		usageEvent.ProfileID,
 		usageEvent.IngressRequestID,
 		usageEvent.ModelID,
@@ -1716,6 +1724,8 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 		nullableIntArg(usageEvent.SelectedTerminalTargetID),
 		nullableIntArg(usageEvent.ProxyAPIKeyID),
 		nullableStringArg(usageEvent.ProxyAPIKeyNameSnapshot),
+		usageEvent.ProxyKeyAttributionState,
+		nullableBoolArg(usageEvent.ProxyKeyAuthEnforcedAtRequest),
 		usageEvent.StatusCode,
 		usageEvent.SuccessFlag,
 		nullableIntArg(usageEvent.InputTokens),
@@ -1881,8 +1891,12 @@ func durationMilliseconds(duration time.Duration) int {
 	return milliseconds
 }
 
-func runtimeProxyKeyUsageSignalFromSnapshot(proxyKey *requestcontext.RuntimeProxyKeySnapshot) *runtimeProxyKeyUsageSignal {
-	if proxyKey == nil || proxyKey.ID <= 0 || proxyKey.LastUsedAt.IsZero() {
+func runtimeProxyKeyUsageSignalFromAttribution(attribution requestcontext.RuntimeProxyKeyAttribution) *runtimeProxyKeyUsageSignal {
+	if attribution.State != requestcontext.RuntimeProxyKeyIdentified || attribution.Snapshot == nil {
+		return nil
+	}
+	proxyKey := attribution.Snapshot
+	if proxyKey.ID <= 0 || proxyKey.LastUsedAt.IsZero() {
 		return nil
 	}
 	return &runtimeProxyKeyUsageSignal{
@@ -1921,18 +1935,34 @@ func headerMapValuePointer(header map[string]string, key string) *string {
 	return nil
 }
 
-func proxyKeyIDPointer(proxyKey *requestcontext.RuntimeProxyKeySnapshot) *int {
-	if proxyKey == nil {
+func proxyKeyIDPointer(attribution requestcontext.RuntimeProxyKeyAttribution) *int {
+	if attribution.State != requestcontext.RuntimeProxyKeyIdentified || attribution.Snapshot == nil {
 		return nil
 	}
-	return &proxyKey.ID
+	return &attribution.Snapshot.ID
 }
 
-func proxyKeyNamePointer(proxyKey *requestcontext.RuntimeProxyKeySnapshot) *string {
-	if proxyKey == nil {
+func proxyKeyNamePointer(attribution requestcontext.RuntimeProxyKeyAttribution) *string {
+	if attribution.State != requestcontext.RuntimeProxyKeyIdentified || attribution.Snapshot == nil {
 		return nil
 	}
-	return &proxyKey.Name
+	return &attribution.Snapshot.Name
+}
+
+func proxyKeyAttributionState(attribution requestcontext.RuntimeProxyKeyAttribution) string {
+	return string(attribution.State)
+}
+
+func proxyKeyAuthEnforcedPointer(attribution requestcontext.RuntimeProxyKeyAttribution) *bool {
+	enforced := attribution.AuthEnforced
+	return &enforced
+}
+
+func runtimeIngressRequestIDFromContext(ctx context.Context, fallbackCompletedAt time.Time) string {
+	if id, ok := requestcontext.RuntimeIngressRequestIDFromContext(ctx); ok && strings.TrimSpace(id) != "" {
+		return id
+	}
+	return fmt.Sprintf("runtime-%d", fallbackCompletedAt.UnixNano())
 }
 
 func firstValue(values map[string]any, keys ...string) any {

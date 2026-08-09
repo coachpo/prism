@@ -247,6 +247,34 @@ export function getColumns(): ColumnDef[] {
       render: (row) => <div className="min-w-0">{renderClientCell(row)}</div>,
     },
     {
+      key: "proxy_api_key",
+      label: messages.proxyKey,
+      width: 180,
+      grow: 2,
+      render: (row) => {
+        const attribution = row.proxy_api_key_attribution_state;
+        if (attribution === "identified") {
+          return (
+            <div className="min-w-0">
+              <span className="block truncate text-xs font-medium">{row.proxy_api_key_name_snapshot ?? `#${row.proxy_api_key_id ?? ""}`}</span>
+            </div>
+          );
+        }
+        if (attribution === "unknown") {
+          return (
+            <div className="min-w-0">
+              <span className="block truncate text-xs text-muted-foreground">{messages.proxyKeyAttributionUnknown}</span>
+            </div>
+          );
+        }
+        return (
+          <div className="min-w-0">
+            <span className="block truncate text-xs text-muted-foreground">{messages.noIdentifiedProxyKey}</span>
+          </div>
+        );
+      },
+    },
+    {
       key: "reasoning_effort",
       label: messages.reasoningEffort,
       width: 132,

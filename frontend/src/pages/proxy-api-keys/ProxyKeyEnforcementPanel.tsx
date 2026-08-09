@@ -1,29 +1,18 @@
 import { ShieldAlert, ShieldCheck } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
+import { Link } from "@tanstack/react-router";
+import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
 import type { AuthSettings } from "@/lib/types";
 import { OperatorCallout, OperatorInsetPanel, OperatorSectionCard } from "@/shared/design-system";
-import { getProxyKeyUsagePercent } from "./proxyKeyFormatting";
 
 interface ProxyKeyEnforcementPanelProps {
   authEnabled: boolean;
   authSettings: AuthSettings | null;
-  proxyKeyLimit: number;
-  proxyKeysUsed: number;
-  remainingKeys: number;
 }
 
-export function ProxyKeyEnforcementPanel({
-  authEnabled,
-  authSettings,
-  proxyKeyLimit,
-  proxyKeysUsed,
-  remainingKeys,
-}: ProxyKeyEnforcementPanelProps) {
-  const { formatNumber, messages } = useLocale();
+export function ProxyKeyEnforcementPanel({ authEnabled, authSettings }: ProxyKeyEnforcementPanelProps) {
+  const { messages } = useLocale();
   const copy = messages.proxyApiKeys;
-  const quotaPercent = getProxyKeyUsagePercent(proxyKeysUsed, proxyKeyLimit);
   const statusLabel = authSettings
     ? authEnabled
       ? copy.authenticationOn
@@ -54,21 +43,18 @@ export function ProxyKeyEnforcementPanel({
               : messages.settingsAuthentication.enableAuthenticationToEnforceKeys
             : statusDescription
         }
+        action={
+          <Button asChild variant="outline" size="sm">
+            <Link to="/system/settings?tab=global&section=authentication#authentication">
+              {messages.settingsAuthentication.goToAuthenticationSettings}
+            </Link>
+          </Button>
+        }
       />
 
       <OperatorInsetPanel className="bg-surface">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex flex-col gap-1">
-            <p className="text-sm font-medium">{copy.issuedKeys}</p>
-            <p className="text-sm text-muted-foreground">
-              {copy.keysUsed(formatNumber(proxyKeysUsed), formatNumber(proxyKeyLimit))}
-            </p>
-          </div>
-          <Badge variant={remainingKeys === 0 ? "destructive" : "outline"}>
-            {remainingKeys === 0 ? copy.keyLimitReached : copy.slotsRemaining(formatNumber(remainingKeys))}
-          </Badge>
-        </div>
-        <Progress value={quotaPercent} />
+        <p className="text-sm font-medium">{copy.scopeTitle}</p>
+        <p className="text-sm text-muted-foreground">{copy.scopeDescription}</p>
       </OperatorInsetPanel>
     </OperatorSectionCard>
   );

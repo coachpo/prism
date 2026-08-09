@@ -47,6 +47,7 @@ export const rewriteQueryKeys = {
     auth: () => [...globalRoot, "auth"] as const,
     settingsAuth: () => [...globalRoot, "settings", "auth"] as const,
     proxyApiKeys: () => [...globalRoot, "settings", "auth", "proxy-keys"] as const,
+    models: () => [...globalRoot, "models"] as const,
     logRetention: () => [...globalRoot, "settings", "log-retention"] as const,
   },
   runtimeBypass: {

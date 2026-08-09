@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"net/http"
 	"strings"
 	"time"
 
@@ -23,7 +24,9 @@ const loginThrottleLockoutDetail = "Too many login attempts. Please try again la
 
 type domainError struct {
 	StatusCode int
+	Code       string
 	Detail     string
+	Fields     map[string]any
 }
 
 func (err *domainError) Error() string {
@@ -764,20 +767,26 @@ func scanProxyAPIKey(scanner interface{ Scan(...any) error }) (proxyAPIKeyRow, e
 	return row, nil
 }
 
-func (s *Service) createProxyAPIKey(ctx context.Context, tx pgx.Tx, name string, notes *string, expiresAt *time.Time, authSubjectID *int) (string, proxyAPIKeyRow, error) {
+func (s *Service) createProxyAPIKey(ctx context.Context, tx pgx.Tx, name string, notes *string, expiresAt *time.Time, authSubjectID *int) (string, proxyAPIKeyRow, proxyKeyCapacitySnapshot, error) {
 	now := s.nowUTC()
-	resolvedExpiresAt := normalizeProxyKeyExpiry(expiresAt)
-	var count int
-	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM proxy_api_keys WHERE expires_at IS NULL OR expires_at > $1`, now).Scan(&count); err != nil {
-		return "", proxyAPIKeyRow{}, fmt.Errorf("count proxy api keys: %w", err)
+	resolvedExpiresAt, expiryErr := resolveProxyKeyCreateExpiry(expiresAt, now)
+	if expiryErr != nil {
+		return "", proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, expiryErr
 	}
-	if count >= proxyKeyLimit {
-		return "", proxyAPIKeyRow{}, &domainError{StatusCode: 409, Detail: fmt.Sprintf("Maximum %d proxy API keys reached", proxyKeyLimit)}
+	if err := lockProxyKeyCapacitySerialization(ctx, tx); err != nil {
+		return "", proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, err
+	}
+	capacity, err := countProxyKeyCapacity(ctx, tx, now)
+	if err != nil {
+		return "", proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, fmt.Errorf("count proxy api keys: %w", err)
+	}
+	if capacity.Used >= proxyKeyLimit {
+		return "", proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, &domainError{StatusCode: http.StatusConflict, Code: "proxy_key_capacity_exhausted", Detail: fmt.Sprintf("Maximum %d proxy API keys reached", proxyKeyLimit)}
 	}
 	for range 5 {
 		rawKey, keyPrefix, lastFour, keyHash, err := buildProxyAPIKey()
 		if err != nil {
-			return "", proxyAPIKeyRow{}, err
+			return "", proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, err
 		}
 		scanner := tx.QueryRow(
 			ctx,
@@ -814,13 +823,17 @@ func (s *Service) createProxyAPIKey(ctx context.Context, tx pgx.Tx, name string,
 		)
 		row, scanErr := scanProxyAPIKey(scanner)
 		if scanErr == nil {
-			return rawKey, row, nil
+			insertedCapacity, capacityErr := countProxyKeyCapacity(ctx, tx, s.nowUTC())
+			if capacityErr != nil {
+				return "", proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, fmt.Errorf("count proxy api keys after insert: %w", capacityErr)
+			}
+			return rawKey, row, insertedCapacity, nil
 		}
 		if !isUniqueConstraintError(scanErr, "uq_proxy_api_keys_prefix") {
-			return "", proxyAPIKeyRow{}, fmt.Errorf("insert proxy api key: %w", scanErr)
+			return "", proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, fmt.Errorf("insert proxy api key: %w", scanErr)
 		}
 	}
-	return "", proxyAPIKeyRow{}, &domainError{StatusCode: 500, Detail: "Failed to generate a unique proxy API key"}
+	return "", proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, &domainError{StatusCode: 500, Detail: "Failed to generate a unique proxy API key"}
 }
 
 func (s *Service) loadProxyAPIKeyByID(ctx context.Context, exec queryExecutor, keyID int) (proxyAPIKeyRow, error) {
@@ -834,23 +847,31 @@ func (s *Service) loadProxyAPIKeyByID(ctx context.Context, exec queryExecutor, k
 	return scanProxyAPIKey(scanner)
 }
 
-func (s *Service) updateProxyAPIKey(ctx context.Context, tx pgx.Tx, keyID int, name string, notes *string, isActive *bool, expiresAt *time.Time) (proxyAPIKeyRow, error) {
+func (s *Service) updateProxyAPIKey(ctx context.Context, tx pgx.Tx, keyID int, name string, notes *string, isActive *bool, expiry proxyKeyExpiryUpdate) (proxyAPIKeyRow, proxyKeyCapacitySnapshot, error) {
 	current, err := s.loadProxyAPIKeyByID(ctx, tx, keyID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return proxyAPIKeyRow{}, &domainError{StatusCode: 404, Detail: "Proxy API key not found"}
+			return proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, &domainError{StatusCode: 404, Code: "proxy_key_not_found", Detail: "Proxy API key not found"}
 		}
-		return proxyAPIKeyRow{}, fmt.Errorf("load proxy api key: %w", err)
+		return proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, fmt.Errorf("load proxy api key: %w", err)
 	}
+	now := s.nowUTC()
 	activeValue := current.IsActive
 	if isActive != nil {
 		activeValue = *isActive
 	}
-	resolvedExpiresAt := nullableTime(current.ExpiresAt)
-	if expiresAt != nil {
-		resolvedExpiresAt = normalizeProxyKeyExpiry(expiresAt)
+	resolvedExpiresAt := current.ExpiresAt
+	if expiry.present {
+		if expiry.clear {
+			resolvedExpiresAt = sql.NullTime{}
+		} else {
+			future, expiryErr := resolveProxyKeyFutureExpiry(expiry.value, now)
+			if expiryErr != nil {
+				return proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, expiryErr
+			}
+			resolvedExpiresAt = sql.NullTime{Time: *future, Valid: true}
+		}
 	}
-	now := s.nowUTC()
 	scanner := tx.QueryRow(
 		ctx,
 		`UPDATE proxy_api_keys
@@ -862,32 +883,45 @@ func (s *Service) updateProxyAPIKey(ctx context.Context, tx pgx.Tx, keyID int, n
 		name,
 		nullableTrimmedStringPtr(notes),
 		activeValue,
-		nullableTimePtr(resolvedExpiresAt),
+		nullableTimePtr(nullableTime(resolvedExpiresAt)),
 		now,
 	)
 	row, err := scanProxyAPIKey(scanner)
 	if err != nil {
-		return proxyAPIKeyRow{}, fmt.Errorf("update proxy api key: %w", err)
+		return proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, fmt.Errorf("update proxy api key: %w", err)
 	}
-	return row, nil
+	capacity, err := countProxyKeyCapacity(ctx, tx, s.nowUTC())
+	if err != nil {
+		return proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, fmt.Errorf("count proxy api keys after update: %w", err)
+	}
+	return row, capacity, nil
 }
 
-func (s *Service) rotateProxyAPIKey(ctx context.Context, tx pgx.Tx, keyID int) (string, proxyAPIKeyRow, error) {
+func (s *Service) rotateProxyAPIKey(ctx context.Context, tx pgx.Tx, keyID int) (string, proxyAPIKeyRow, proxyKeyCapacitySnapshot, error) {
 	current, err := s.loadProxyAPIKeyByID(ctx, tx, keyID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", proxyAPIKeyRow{}, &domainError{StatusCode: 404, Detail: "Proxy API key not found"}
+			return "", proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, &domainError{StatusCode: 404, Code: "proxy_key_not_found", Detail: "Proxy API key not found"}
 		}
-		return "", proxyAPIKeyRow{}, fmt.Errorf("load proxy api key: %w", err)
+		return "", proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, fmt.Errorf("load proxy api key: %w", err)
 	}
 	now := s.nowUTC()
+	if current.ExpiresAt.Valid && !current.ExpiresAt.Time.UTC().After(now) {
+		return "", proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, &domainError{StatusCode: http.StatusConflict, Code: "proxy_key_not_rotatable", Detail: "Expired proxy API keys cannot be rotated"}
+	}
+	if !current.IsActive {
+		return "", proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, &domainError{StatusCode: http.StatusConflict, Code: "proxy_key_not_rotatable", Detail: "Inactive proxy API keys cannot be rotated"}
+	}
 	var inheritedExpiry any
 	if current.ExpiresAt.Valid {
-		resolvedExpiry := current.ExpiresAt.Time.UTC()
-		if !resolvedExpiry.After(now) {
-			return "", proxyAPIKeyRow{}, &domainError{StatusCode: 409, Detail: "Expired proxy API keys cannot be rotated"}
-		}
-		inheritedExpiry = resolvedExpiry
+		inheritedExpiry = current.ExpiresAt.Time.UTC()
+	}
+	// Serialize capacity mutations and evaluate the final used state: the
+	// predecessor becomes non-counting in the same transaction as successor
+	// creation, so a full-capacity rotation is net-neutral and must never see
+	// a transient 101-row state.
+	if err := lockProxyKeyCapacitySerialization(ctx, tx); err != nil {
+		return "", proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, err
 	}
 	if _, err := tx.Exec(
 		ctx,
@@ -897,12 +931,12 @@ func (s *Service) rotateProxyAPIKey(ctx context.Context, tx pgx.Tx, keyID int) (
 		keyID,
 		now,
 	); err != nil {
-		return "", proxyAPIKeyRow{}, fmt.Errorf("expire rotated proxy api key: %w", err)
+		return "", proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, fmt.Errorf("expire rotated proxy api key: %w", err)
 	}
 	for range 5 {
 		rawKey, keyPrefix, lastFour, keyHash, err := buildProxyAPIKey()
 		if err != nil {
-			return "", proxyAPIKeyRow{}, err
+			return "", proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, err
 		}
 		scanner := tx.QueryRow(
 			ctx,
@@ -939,24 +973,32 @@ func (s *Service) rotateProxyAPIKey(ctx context.Context, tx pgx.Tx, keyID int) (
 		)
 		row, scanErr := scanProxyAPIKey(scanner)
 		if scanErr == nil {
-			return rawKey, row, nil
+			rotatedCapacity, capacityErr := countProxyKeyCapacity(ctx, tx, s.nowUTC())
+			if capacityErr != nil {
+				return "", proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, fmt.Errorf("count proxy api keys after rotate: %w", capacityErr)
+			}
+			return rawKey, row, rotatedCapacity, nil
 		}
 		if !isUniqueConstraintError(scanErr, "uq_proxy_api_keys_prefix") {
-			return "", proxyAPIKeyRow{}, fmt.Errorf("rotate proxy api key: %w", scanErr)
+			return "", proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, fmt.Errorf("rotate proxy api key: %w", scanErr)
 		}
 	}
-	return "", proxyAPIKeyRow{}, &domainError{StatusCode: 500, Detail: "Failed to rotate proxy API key"}
+	return "", proxyAPIKeyRow{}, proxyKeyCapacitySnapshot{}, &domainError{StatusCode: 500, Detail: "Failed to rotate proxy API key"}
 }
 
-func (s *Service) deleteProxyAPIKey(ctx context.Context, tx pgx.Tx, keyID int) error {
+func (s *Service) deleteProxyAPIKey(ctx context.Context, tx pgx.Tx, keyID int) (proxyKeyCapacitySnapshot, error) {
 	commandTag, err := tx.Exec(ctx, `DELETE FROM proxy_api_keys WHERE id = $1`, keyID)
 	if err != nil {
-		return fmt.Errorf("delete proxy api key: %w", err)
+		return proxyKeyCapacitySnapshot{}, fmt.Errorf("delete proxy api key: %w", err)
 	}
 	if commandTag.RowsAffected() == 0 {
-		return &domainError{StatusCode: 404, Detail: "Proxy API key not found"}
+		return proxyKeyCapacitySnapshot{}, &domainError{StatusCode: 404, Code: "proxy_key_not_found", Detail: "Proxy API key not found"}
 	}
-	return nil
+	capacity, err := countProxyKeyCapacity(ctx, tx, s.nowUTC())
+	if err != nil {
+		return proxyKeyCapacitySnapshot{}, fmt.Errorf("count proxy api keys after delete: %w", err)
+	}
+	return capacity, nil
 }
 
 func (s *Service) verifyProxyAPIKey(ctx context.Context, rawKey string) (*proxyAPIKeyRow, error) {
@@ -1017,6 +1059,64 @@ func (s *Service) serializeProxyAPIKey(row proxyAPIKeyRow) proxyAPIKeyResponse {
 		CreatedAt:     row.CreatedAt,
 		UpdatedAt:     row.UpdatedAt,
 	}
+}
+
+// countProxyKeyCapacity computes the authoritative capacity snapshot with the
+// same predicate and server clock the create limit uses: used counts rows
+// where expires_at IS NULL OR expires_at > counted_at; is_active is ignored.
+func countProxyKeyCapacity(ctx context.Context, exec queryExecutor, countedAt time.Time) (proxyKeyCapacitySnapshot, error) {
+	var used int
+	if err := exec.QueryRow(ctx, `SELECT COUNT(*) FROM proxy_api_keys WHERE expires_at IS NULL OR expires_at > $1`, countedAt.UTC()).Scan(&used); err != nil {
+		return proxyKeyCapacitySnapshot{}, fmt.Errorf("count proxy api keys: %w", err)
+	}
+	remaining := proxyKeyLimit - used
+	if remaining < 0 {
+		remaining = 0
+	}
+	return proxyKeyCapacitySnapshot{
+		Limit:     proxyKeyLimit,
+		Used:      used,
+		Remaining: remaining,
+		CountedAt: countedAt.UTC(),
+	}, nil
+}
+
+// lockProxyKeyCapacitySerialization serializes capacity mutations on the
+// singleton auth settings row so concurrent create/create and create/rotate
+// can never commit a final used greater than the limit. An unlocked COUNT
+// followed by INSERT is not acceptable.
+func lockProxyKeyCapacitySerialization(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, `SELECT id FROM app_auth_settings WHERE singleton_key = 'app' FOR UPDATE`); err != nil {
+		return fmt.Errorf("lock proxy api key capacity serialization: %w", err)
+	}
+	return nil
+}
+
+// resolveProxyKeyCreateExpiry validates a create expiry: omitted/null means
+// never expires; a value must be a strict future instant.
+func resolveProxyKeyCreateExpiry(expiresAt *time.Time, now time.Time) (*time.Time, error) {
+	if expiresAt == nil {
+		return nil, nil
+	}
+	return resolveProxyKeyFutureExpiry(expiresAt, now)
+}
+
+// resolveProxyKeyFutureExpiry rejects non-future instants with a locatable
+// field error.
+func resolveProxyKeyFutureExpiry(expiresAt *time.Time, now time.Time) (*time.Time, error) {
+	if expiresAt == nil {
+		return nil, nil
+	}
+	resolved := expiresAt.UTC()
+	if !resolved.After(now) {
+		return nil, &domainError{
+			StatusCode: http.StatusUnprocessableEntity,
+			Code:       "proxy_key_expiry_invalid",
+			Detail:     "Expiry must be a future time",
+			Fields:     map[string]any{"field": "expires_at"},
+		}
+	}
+	return &resolved, nil
 }
 
 func isUniqueConstraintError(err error, constraintName string) bool {
@@ -1107,14 +1207,6 @@ func nullableTime(value sql.NullTime) *time.Time {
 	}
 	result := value.Time.UTC()
 	return &result
-}
-
-func normalizeProxyKeyExpiry(value *time.Time) *time.Time {
-	if value == nil {
-		return nil
-	}
-	resolved := value.UTC()
-	return &resolved
 }
 
 func nullableTimePtr(value *time.Time) any {

@@ -257,7 +257,7 @@ async function loginToProxyKeys(page: Page) {
 
   await page.goto("/control/proxy-keys");
   await expect(page).toHaveURL(/\/control\/proxy-keys$/);
-  await expect(page.getByRole("heading", { name: "代理 API 密钥" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "代理密钥" })).toBeVisible();
 }
 
 test.describe("auth session lifecycle", () => {
@@ -283,7 +283,7 @@ test.describe("auth session lifecycle", () => {
 
     const controlPage = await context.newPage();
     await controlPage.goto("/control/proxy-keys");
-    await expect(controlPage.getByRole("heading", { name: "代理 API 密钥" })).toBeVisible();
+    await expect(controlPage.getByRole("heading", { name: "代理密钥" })).toBeVisible();
 
     await controlPage.evaluate(async () => {
       await fetch("/api/settings/auth", {
@@ -306,7 +306,7 @@ test.describe("auth session lifecycle", () => {
 
     const controlPage = await context.newPage();
     await controlPage.goto("/control/proxy-keys");
-    await expect(controlPage.getByRole("heading", { name: "代理 API 密钥" })).toBeVisible();
+    await expect(controlPage.getByRole("heading", { name: "代理密钥" })).toBeVisible();
 
     await controlPage.evaluate(async () => {
       await fetch("/api/settings/auth", {

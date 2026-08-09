@@ -535,8 +535,13 @@ func retireRuntimeProxyKey(t *testing.T, harness *runtimeHarness, keyID int, nam
 
 func expireRuntimeProxyKey(t *testing.T, harness *runtimeHarness, keyID int, name string, expiresAt time.Time) {
 	t.Helper()
-	response := harness.requestJSON(t, http.MethodPatch, fmt.Sprintf("/api/settings/auth/proxy-keys/%d", keyID), map[string]any{"name": name, "expires_at": expiresAt}, nil)
-	assertStatus(t, response, http.StatusOK)
+	// Direct SQL update: the management API rejects non-future expiry (typed
+	// proxy_key_expiry_invalid), while this helper intentionally expires a key
+	// to exercise runtime cache invalidation.
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE proxy_api_keys SET expires_at = $2, updated_at = $2 WHERE id = $1`, keyID, expiresAt.UTC()); err != nil {
+		t.Fatalf("expire runtime proxy key via SQL: %v", err)
+	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{Auth: true})
 }
 
 func createRuntimeHeaderBlocklistRule(t *testing.T, harness *runtimeHarness, profileID int, name string, matchType string, pattern string) {

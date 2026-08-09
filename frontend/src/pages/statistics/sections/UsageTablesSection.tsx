@@ -9,6 +9,8 @@ import { ModelStatisticsTable } from "../tables/ModelStatisticsTable";
 import { ProxyApiKeyStatisticsTable } from "../tables/ProxyApiKeyStatisticsTable";
 
 interface UsageTablesSectionProps {
+  authEnabled: boolean | null;
+  authModeLoaded: boolean;
   currency: UsageSnapshotCurrency;
   endpointModelStatisticsByEndpointId: Record<number, UsageModelStatistic[]>;
   endpointModelStatisticsErrors: Record<number, string>;
@@ -21,6 +23,8 @@ interface UsageTablesSectionProps {
 }
 
 export function UsageTablesSection({
+  authEnabled,
+  authModeLoaded,
   currency,
   endpointModelStatisticsByEndpointId,
   endpointModelStatisticsErrors,
@@ -46,7 +50,7 @@ export function UsageTablesSection({
         />
       </div>
 
-      <ProxyApiKeyStatisticsTable currency={currency} items={proxyApiKeyStatistics} />
+      <ProxyApiKeyStatisticsTable currency={currency} items={proxyApiKeyStatistics} authEnabled={authEnabled} authModeLoaded={authModeLoaded} />
     </>
   );
 }

@@ -76,7 +76,11 @@
    "report_currency_symbol": "$",
    "caller_client_display": "Codex",
    "upstream_client_display": "OpenAI SDK",
-   "user_agent_overridden": true
+   "user_agent_overridden": true,
+   "proxy_api_key_id": null,
+   "proxy_api_key_name_snapshot": null,
+   "proxy_api_key_attribution_state": "unknown",
+   "proxy_api_key_auth_enforced_at_request": null
   },
   {
    "id": 102,
@@ -106,7 +110,11 @@
    "report_currency_symbol": null,
    "caller_client_display": null,
    "upstream_client_display": null,
-   "user_agent_overridden": false
+   "user_agent_overridden": false,
+   "proxy_api_key_id": null,
+   "proxy_api_key_name_snapshot": null,
+   "proxy_api_key_attribution_state": "unknown",
+   "proxy_api_key_auth_enforced_at_request": null
   }
  ],
  "total": 2,
