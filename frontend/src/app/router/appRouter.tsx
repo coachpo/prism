@@ -136,6 +136,10 @@ function ProtectedModelDetailRoute() {
   const searchParams = new URLSearchParams()
   if (search.tab && search.tab !== "connections") searchParams.set("tab", search.tab)
   if (search.focus_connection_id) searchParams.set("focus_connection_id", search.focus_connection_id)
+  if (search.action === "create-terminal-target" && search.endpoint_id) {
+    searchParams.set("action", search.action)
+    searchParams.set("endpoint_id", search.endpoint_id)
+  }
 
   return (
     <ProtectedRoute>
@@ -152,6 +156,8 @@ function ProtectedModelDetailRoute() {
             search: {
               tab: nextSearchParams.get("tab") === "events" ? "events" : undefined,
               focus_connection_id: nextSearchParams.get("focus_connection_id") ?? undefined,
+              action: nextSearchParams.get("action") === "create-terminal-target" ? "create-terminal-target" : undefined,
+              endpoint_id: nextSearchParams.get("endpoint_id") ?? undefined,
             },
             replace: options?.replace,
           })}

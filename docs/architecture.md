@@ -752,7 +752,24 @@ Response `200`: `{ "deleted": true }`. Returns `409` if other models still refer
 ```
 GET /api/endpoints
 ```
-Response `200`: Array of endpoint objects in the effective profile scope, ordered by `position ASC, id ASC`.
+Response `200`: Array of endpoint objects in the effective profile scope, ordered by `lower(name) ASC, name ASC, id ASC`. Endpoint list order is display-only and never affects runtime routing.
+
+The Endpoint read DTO is:
+```json
+{
+  "id": 1,
+  "profile_id": 1,
+  "name": "Primary OpenAI",
+  "base_url": "https://api.openai.com",
+  "has_api_key": true,
+  "api_key_fingerprint": "fp_v1_ab12cd34ef56",
+  "api_key_updated_at": "2026-08-09T10:20:30Z",
+  "config_revision": 4,
+  "created_at": "2026-07-01T00:00:00Z",
+  "updated_at": "2026-08-09T10:20:30Z"
+}
+```
+`api_key_fingerprint` is an instance-local, domain-separated HMAC display token (`fp_v1_` + 12 hex) derived from the plaintext key; it is never a secret substitute, never derived from ciphertext, and never used for authorization. `api_key_updated_at` records only real key-identity changes; `config_revision` starts at 1 and bumps only when the normalized base URL or the key identity changes. Raw API keys never appear in read responses, errors, logs, audit rows, URLs or evidence.
 
 ##### List All Connections (Dropdown)
 ```
@@ -773,13 +790,13 @@ Request:
   "api_key": "sk-abc123..."
 }
 ```
-Response `201`: Created endpoint object.
+Response `201`: Created endpoint object. Blank keys store no secret (fingerprint/time null, revision 1); non-blank keys are encrypted at rest with a fingerprint and key time. Names are trimmed and limited to 128 Unicode code points; base URLs are normalized (trim, trailing-slash removal preserving origin form) and limited to 512 code points, requiring an http/https scheme and host and rejecting query/fragment. Field failures return `422` with a stable `fields` map (`name_too_long`, `base_url_invalid`, `base_url_too_long`).
 
 ##### Duplicate Endpoint
 ```
 POST /api/endpoints/{id}/duplicate
 ```
-Response `201`: Created endpoint copy with a generated duplicate-safe name.
+Response `201`: Created endpoint copy with a generated duplicate-safe name. The duplicate copies the key plaintext semantics and display fingerprint, re-encrypts for the new row, stamps the new Endpoint's creation time as its key time, and starts at revision 1.
 
 ##### Update Endpoint
 ```
@@ -793,32 +810,60 @@ Request:
   "api_key": "sk-new-key..."
 }
 ```
-Response `200`: Updated endpoint object.
-
-##### Move Endpoint Position
-```
-PATCH /api/endpoints/{id}/position
-```
-Request:
-```json
-{
-  "to_index": 0
-}
-```
-Response `200`: Ordered array of endpoint objects after the move.
-
-Behavior:
-- `to_index` must be in the range `0..(endpoint_count - 1)` or the API returns `422`.
-- A no-op move returns the current ordered list unchanged.
-- The backend rewrites endpoint positions to contiguous `0..N-1` values after every successful move.
+Response `200`: Updated endpoint object. Blank/omitted `api_key` preserves the existing key identity; submitting the same key identity preserves ciphertext, fingerprint, key time and revision; a different key rotates identity (new fingerprint, new key time, revision bump). Name-only changes update `updated_at` only; normalized base URL changes bump `config_revision`. A fully unchanged update is a no-op that preserves `updated_at`.
 
 ##### Delete Endpoint
 ```
 DELETE /api/endpoints/{id}
 ```
-Response `200`: `{ "deleted": true }`.
-Returns `409` if any connections still reference this endpoint.
-After a successful delete, later endpoints in the same profile are compacted so `position` remains contiguous.
+Response `200`: `{ "deleted": true }` only when the lock-time canonical reference query finds zero direct references. Any direct reference (including disabled/inactive/orphan connections) returns `409` with a typed detail:
+```json
+{
+  "detail": {
+    "code": "endpoint_in_use",
+    "message": "Endpoint is referenced by Terminal Targets",
+    "endpoint_id": 1,
+    "summary": {"direct_reference_count": 1, "referencing_model_count": 1, "enabled_reference_count": 0, "orphan_reference_count": 0},
+    "reference_page": {"items": [...], "total_count": 1, "next_cursor": null, "reference_snapshot_hash": "opaque"},
+    "references_url": "/api/endpoints/1/references"
+  }
+}
+```
+The 409 carries the same summary + bounded first page + snapshot hash as the single-detail route; clients paginate via `references_url` on the same snapshot. Duplicate-owner corruption returns typed `409 reference_integrity_error` and fails closed. Endpoint `position`/move contract is hard-deleted: no column, index, route, or reorder behavior remains.
+
+##### Batch Direct-Reference Summaries
+```
+POST /api/endpoints/references/batch
+{"endpoint_ids": [1, 2, 3]}
+```
+Response `200`: input-ordered items, one per requested existing Endpoint (explicit zero included):
+```json
+{"items": [{"endpoint_id": 1, "summary": {"direct_reference_count": 3, "referencing_model_count": 2, "enabled_reference_count": 1, "orphan_reference_count": 1}}]}
+```
+`endpoint_ids` must be 1..100 unique positive ints (`422` otherwise); missing/cross-profile IDs return typed `404` with `missing_endpoint_ids`. Pure read: no timestamps or cache generations are touched. This route is the only summary source for collapsed table rows; it never prefetches row details.
+
+##### Single Direct-Reference Detail
+```
+GET /api/endpoints/{id}/references?limit=&cursor=
+```
+Response `200`: `endpoint_id`, the canonical `summary`, and a bounded `reference_page` (`{items, total_count, next_cursor, reference_snapshot_hash}`). Page default/max is `50/100`; `limit<1` or `limit>100` is a field-level `422`. Items are `owned_terminal_target` or `orphan_connection` rows with owner model/access-target/connection flags, family/OpenAI text mode, pricing template identity, `enabled` and ordered `inactive_reasons`. The opaque cursor is HMAC-signed and carries schema/profile/Endpoint/limit/snapshot-hash/last-key; mismatched cursor -> `422 reference_cursor_mismatch`, invalid signature -> `422 reference_cursor_invalid`, snapshot change -> `409 reference_snapshot_stale` (client restarts from page one). Total/counts always reconcile with the full canonical set.
+
+##### One-Time Endpoint Verify
+```
+POST /api/endpoints/{id}/verify
+{"api_family": "openai", "expected_config_revision": 4}
+```
+Response `200` for completed probes (including negative outcomes):
+```json
+{"endpoint_id": 1, "api_family": "openai", "config_revision": 4, "api_key_fingerprint": "fp_v1_ab12cd34ef56", "is_current": true, "outcome": "verified", "probe_path": "/v1/models", "upstream_status": 200, "duration_ms": 182, "error_summary": null}
+```
+`api_family` must be exactly `openai|anthropic|gemini`; `expected_config_revision` must be a positive int from the latest Endpoint DTO. A revision mismatch before any outbound I/O returns typed `409 endpoint_config_changed` with the current DTO and sends no probe. Outcomes: `verified`, `authentication_failed`, `probe_unsupported`, `api_mismatch`, `upstream_rejected`, `upstream_unavailable`, `unreachable`, `timeout`. Probes are metadata-only (`/v1/models` with Bearer, `/v1/models?limit=1` with `x-api-key` + `anthropic-version`, `/v1beta/models?pageSize=1` with `x-goog-api-key` header), read at most 8 KiB, never follow cross-origin redirects or forward credentials across origins (same-origin redirects capped at 3), and have zero side effects: no request logs, usage, audit, loadbalance state, health fields, timestamps or revision changes. After the network call the server short re-reads the Endpoint; `is_current=true` only when the row still exists with equal revision and full key identity. No result is stored.
+
+##### Orphan Connection Cleanup
+```
+DELETE /api/endpoints/{id}/orphan-connections/{connection_id}
+```
+Response `200`: `{ "deleted": true, "connection_id": 19 }` when the Connection belongs to the Endpoint in the effective profile and has no owner Access Target (checked under locks). If an owner now exists, returns `409 connection_not_orphaned` with the current owned reference item. Owned Terminal Targets can never be deleted through this route; unknown/mismatched IDs return `404`. The route publishes one planning invalidation after commit.
 
 #### 1.5 Terminal Targets and Model Access Targets
 
@@ -2947,13 +2992,16 @@ profiles
 endpoints (profile-scoped)
   id PK
   profile_id FK -> profiles.id
-  name
-  base_url
-  api_key
-  position
+  name VARCHAR(128) (trimmed, 1..128 Unicode code points)
+  base_url VARCHAR(512) (canonical normalized)
+  api_key (at-rest encrypted secret; raw value never leaves write/verify boundaries)
+  api_key_fingerprint VARCHAR(18) NULLABLE (fp_v1_ + 12 hex; plaintext-derived)
+  api_key_updated_at TIMESTAMPTZ NULLABLE (real key-identity changes only)
+  config_revision BIGINT NOT NULL DEFAULT 1
   created_at, updated_at
   UNIQUE(profile_id, name)
-  INDEX(profile_id, position)
+  INDEX(profile_id, lower(name), name, id)
+  - display order is lower(name), name, id; no position column or index exists
 
 header_blocklist_rules
   id PK
@@ -3871,7 +3919,7 @@ CREATE INDEX idx_model_configs_profile_model_enabled ON model_configs(profile_id
 CREATE INDEX idx_model_access_targets_profile_source_position ON model_access_targets(profile_id, source_model_config_id, "position");
 CREATE INDEX idx_model_access_targets_target_model ON model_access_targets(target_model_config_id) WHERE target_model_config_id IS NOT NULL;
 CREATE INDEX idx_model_access_targets_connection ON model_access_targets(target_connection_id) WHERE target_connection_id IS NOT NULL;
-CREATE INDEX idx_endpoints_profile_position ON endpoints(profile_id, "position");
+CREATE INDEX idx_endpoints_profile_name_lower ON endpoints(profile_id, lower(name), name, id);
 CREATE INDEX idx_connections_profile_family_active_priority ON connections(profile_id, api_family, is_active, priority);
 CREATE INDEX idx_connections_endpoint_id ON connections(endpoint_id);
 CREATE INDEX idx_connections_pricing_template_id ON connections(pricing_template_id);

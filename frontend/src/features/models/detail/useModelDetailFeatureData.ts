@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
   Connection,
   Endpoint,
@@ -18,6 +18,7 @@ import { useConnectionFocus } from "@/pages/model-detail/useConnectionFocus"
 import { useModelDetailBootstrap } from "@/pages/model-detail/useModelDetailBootstrap"
 import { useModelDetailConnectionMutations } from "@/pages/model-detail/useModelDetailConnectionMutations"
 import { useModelDetailDialogState } from "@/pages/model-detail/useModelDetailDialogState"
+import { parseAttachTerminalTargetSearch } from "@/features/models/detail/modelDetailSchemas"
 import { useModelDetailModelForm } from "@/pages/model-detail/useModelDetailModelForm"
 import { useModelLoadbalanceCurrentState } from "@/pages/model-detail/useModelLoadbalanceCurrentState"
 
@@ -70,12 +71,18 @@ export function useModelDetailFeatureData({
   const [connectionCardRefs] = useState<Map<number, HTMLDivElement>>(new Map())
   const [globalEndpoints, setGlobalEndpoints] = useState<Endpoint[]>([])
 
+  const attachTarget = useMemo(() => parseAttachTerminalTargetSearch({
+    action: searchParams.get("action") ?? undefined,
+    endpoint_id: searchParams.get("endpoint_id") ?? undefined,
+  }), [searchParams])
+
   const {
     isEditModelDialogOpen,
     setIsEditModelDialogOpen: setIsEditModelDialogOpenState,
     isConnectionDialogOpen,
     setIsConnectionDialogOpen,
     editingConnection,
+    lockedEndpointId,
     createMode,
     setCreateMode,
     selectedEndpointId,
@@ -96,6 +103,7 @@ export function useModelDetailFeatureData({
     apiFamily: model?.api_family ?? null,
     openAIMode: model?.openai_accepted_format ?? null,
     globalEndpoints,
+    initialLockedEndpointId: attachTarget?.endpoint_id ?? null,
   })
 
   useModelDetailBootstrap({
@@ -201,6 +209,20 @@ export function useModelDetailFeatureData({
     setFocusedConnectionId,
   })
 
+  // One-shot attach-to-model: after the model and global Endpoints are
+  // available, open the Terminal Target create dialog with the Endpoint
+  // preselected/locked, then clear the URL so refresh does not reopen it.
+  useEffect(() => {
+    if (!attachTarget || loading || !model) return
+    const lockedEndpoint = globalEndpoints.find((endpoint) => endpoint.id === attachTarget.endpoint_id)
+    if (!lockedEndpoint) return
+    setIsConnectionDialogOpen(true)
+    setCreateMode("select")
+    setSelectedEndpointId(String(lockedEndpoint.id))
+    setSearchParams(new URLSearchParams(), { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attachTarget, loading, model, globalEndpoints])
+
   return {
     model,
     loading,
@@ -222,6 +244,7 @@ export function useModelDetailFeatureData({
     isConnectionDialogOpen,
     setIsConnectionDialogOpen,
     editingConnection,
+    lockedEndpointId,
     connectionSearch,
     setConnectionSearch,
     currentStateByConnectionId,

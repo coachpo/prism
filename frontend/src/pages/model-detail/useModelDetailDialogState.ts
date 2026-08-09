@@ -86,12 +86,14 @@ interface UseModelDetailDialogStateInput {
   apiFamily: ApiFamily | null;
   openAIMode?: OpenAIAcceptedFormat | null;
   globalEndpoints: Endpoint[];
+  initialLockedEndpointId?: number | null;
 }
 
 export function useModelDetailDialogState({
   apiFamily,
   openAIMode = null,
   globalEndpoints,
+  initialLockedEndpointId = null,
 }: UseModelDetailDialogStateInput) {
   const [isEditModelDialogOpen, setIsEditModelDialogOpen] = useState(false);
   const [editRedirectTo, setEditRedirectTo] = useState("");
@@ -100,7 +102,7 @@ export function useModelDetailDialogState({
   const [editingConnection, setEditingConnection] = useState<Connection | null>(null);
 
   const [createMode, setCreateMode] = useState<"select" | "new">("select");
-  const [selectedEndpointId, setSelectedEndpointId] = useState("");
+  const [selectedEndpointId, setSelectedEndpointId] = useState(initialLockedEndpointId != null ? String(initialLockedEndpointId) : "");
   const [newEndpointForm, setNewEndpointForm] = useState<EndpointCreate>(() => ({
     ...createDefaultEndpointForm(),
   }));
@@ -173,6 +175,7 @@ export function useModelDetailDialogState({
     isConnectionDialogOpen,
     setIsConnectionDialogOpen,
     editingConnection,
+    lockedEndpointId: initialLockedEndpointId,
     createMode,
     setCreateMode,
     selectedEndpointId,

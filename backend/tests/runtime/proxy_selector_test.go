@@ -18,7 +18,7 @@ type selectorEndpointSeed struct {
 	label    string
 	baseURL  string
 	apiKey   string
-	position int
+	priority int
 }
 
 type selectorRouteSeed struct {
@@ -70,8 +70,8 @@ func seedSelectorRoute(t *testing.T, harness *runtimeHarness, seed selectorRoute
 		if apiKey == "" {
 			apiKey = seed.prefix + "-" + endpoint.label + "-key"
 		}
-		endpointID := harness.seedEndpoint(t, seed.profileID, seed.prefix+"-"+endpoint.label+"-endpoint-"+seed.suffix, endpoint.baseURL, apiKey, endpoint.position)
-		connectionID := harness.seedConnection(t, seed.profileID, targetModelConfigID, endpointID, seed.prefix+"-"+endpoint.label+"-connection-"+seed.suffix, nil, nil, endpoint.position)
+		endpointID := harness.seedEndpoint(t, seed.profileID, seed.prefix+"-"+endpoint.label+"-endpoint-"+seed.suffix, endpoint.baseURL, apiKey)
+		connectionID := harness.seedConnection(t, seed.profileID, targetModelConfigID, endpointID, seed.prefix+"-"+endpoint.label+"-connection-"+seed.suffix, nil, nil, endpoint.priority)
 		route.endpointIDs = append(route.endpointIDs, endpointID)
 		route.connectionIDs = append(route.connectionIDs, connectionID)
 	}
@@ -275,8 +275,8 @@ func TestRuntimeLoadBalanceSkipsBlockedConnection(t *testing.T) {
 		profileID: activeProfileID,
 		prefix:    "loadbalance-blocked",
 		endpoints: []selectorEndpointSeed{
-			{label: "blocked", baseURL: harness.upstream.baseURL("/loadbalance/blocked"), apiKey: "blocked-upstream-key", position: 0},
-			{label: "eligible", baseURL: harness.upstream.baseURL("/loadbalance/eligible"), apiKey: eligibleEndpointKey, position: 1},
+			{label: "blocked", baseURL: harness.upstream.baseURL("/loadbalance/blocked"), apiKey: "blocked-upstream-key", priority: 0},
+			{label: "eligible", baseURL: harness.upstream.baseURL("/loadbalance/eligible"), apiKey: eligibleEndpointKey, priority: 1},
 		},
 	})
 	blockedUntilAt := time.Now().UTC().Add(10 * time.Minute)
@@ -316,8 +316,8 @@ func TestRuntimeLoadBalancePrefersProxyTargetWithEligibleConnection(t *testing.T
 	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
 	harness.seedProxyTargetAtPosition(t, publicModelConfigID, blockedTargetModelConfigID, 0)
 	harness.seedProxyTargetAtPosition(t, publicModelConfigID, eligibleTargetModelConfigID, 1)
-	blockedEndpointID := harness.seedEndpoint(t, activeProfileID, "blocked-target-endpoint-"+suffix, harness.upstream.baseURL("/loadbalance/target-blocked"), "blocked-target-key", 0)
-	eligibleEndpointID := harness.seedEndpoint(t, activeProfileID, "eligible-target-endpoint-"+suffix, harness.upstream.baseURL("/loadbalance/target-eligible"), "eligible-target-key", 1)
+	blockedEndpointID := harness.seedEndpoint(t, activeProfileID, "blocked-target-endpoint-"+suffix, harness.upstream.baseURL("/loadbalance/target-blocked"), "blocked-target-key")
+	eligibleEndpointID := harness.seedEndpoint(t, activeProfileID, "eligible-target-endpoint-"+suffix, harness.upstream.baseURL("/loadbalance/target-eligible"), "eligible-target-key")
 	blockedConnectionID := harness.seedConnection(t, activeProfileID, blockedTargetModelConfigID, blockedEndpointID, "blocked-target-connection-"+suffix, nil, nil, 0)
 	_ = harness.seedConnection(t, activeProfileID, eligibleTargetModelConfigID, eligibleEndpointID, "eligible-target-connection-"+suffix, nil, nil, 0)
 	bannedUntilAt := time.Now().UTC().Add(15 * time.Minute)
@@ -348,7 +348,7 @@ func TestRuntimeRoutesThroughOwnedPrivateConnection(t *testing.T) {
 	modelID := "direct-resolved-target-" + suffix
 	strategyID := harness.seedLegacyStrategy(t, profileID, "direct-resolved-target-strategy-"+suffix, "fill-first")
 	modelConfigID := harness.seedModel(t, profileID, "openai", modelID, "native", &strategyID)
-	endpointID := harness.seedEndpoint(t, profileID, "direct-resolved-target-endpoint-"+suffix, harness.upstream.baseURL("/direct-resolved-target"), "direct-resolved-target-key", 0)
+	endpointID := harness.seedEndpoint(t, profileID, "direct-resolved-target-endpoint-"+suffix, harness.upstream.baseURL("/direct-resolved-target"), "direct-resolved-target-key")
 	harness.seedConnection(t, profileID, modelConfigID, endpointID, "direct-resolved-target-connection-"+suffix, nil, nil, 0)
 
 	harness.upstream.clear()
@@ -375,8 +375,8 @@ func TestRuntimeAdmissionExhaustionDoesNotIncrementRetries(t *testing.T) {
 	secondConfigID := harness.seedModel(t, profileID, "openai", secondTargetID, "native", &strategyID)
 	harness.seedProxyTargetAtPosition(t, publicConfigID, firstConfigID, 0)
 	harness.seedProxyTargetAtPosition(t, publicConfigID, secondConfigID, 1)
-	firstEndpointID := harness.seedEndpoint(t, profileID, "admission-terminal-first-endpoint-"+suffix, harness.upstream.baseURL("/admission/terminal/first"), "admission-terminal-first-key", 0)
-	secondEndpointID := harness.seedEndpoint(t, profileID, "admission-terminal-second-endpoint-"+suffix, harness.upstream.baseURL("/admission/terminal/second"), "admission-terminal-second-key", 1)
+	firstEndpointID := harness.seedEndpoint(t, profileID, "admission-terminal-first-endpoint-"+suffix, harness.upstream.baseURL("/admission/terminal/first"), "admission-terminal-first-key")
+	secondEndpointID := harness.seedEndpoint(t, profileID, "admission-terminal-second-endpoint-"+suffix, harness.upstream.baseURL("/admission/terminal/second"), "admission-terminal-second-key")
 	firstConnectionID := harness.seedConnection(t, profileID, firstConfigID, firstEndpointID, "admission-terminal-first-connection-"+suffix, nil, nil, 0)
 	harness.seedConnection(t, profileID, secondConfigID, secondEndpointID, "admission-terminal-second-connection-"+suffix, nil, nil, 0)
 	maxInFlightNonStream := 1
@@ -422,8 +422,8 @@ func TestRuntimePrivateConnectionBanDoesNotAffectPeerPrivateConnection(t *testin
 	secondConfigID := harness.seedModel(t, profileID, "openai", secondModelID, "native", &offStrategyID)
 	primaryUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "private ban trigger"})
 	fallbackUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-private-ban-fallback"})
-	primaryEndpointID := harness.seedEndpoint(t, profileID, "private-ban-primary-endpoint-"+suffix, primaryUpstream.baseURL("/private-ban/primary"), "private-ban-primary-key", 0)
-	fallbackEndpointID := harness.seedEndpoint(t, profileID, "private-ban-fallback-endpoint-"+suffix, fallbackUpstream.baseURL("/private-ban/fallback"), "private-ban-fallback-key", 1)
+	primaryEndpointID := harness.seedEndpoint(t, profileID, "private-ban-primary-endpoint-"+suffix, primaryUpstream.baseURL("/private-ban/primary"), "private-ban-primary-key")
+	fallbackEndpointID := harness.seedEndpoint(t, profileID, "private-ban-fallback-endpoint-"+suffix, fallbackUpstream.baseURL("/private-ban/fallback"), "private-ban-fallback-key")
 	firstConnectionID := harness.seedConnection(t, profileID, firstConfigID, primaryEndpointID, "private-ban-first-primary-connection-"+suffix, nil, nil, 0)
 	harness.seedConnection(t, profileID, secondConfigID, primaryEndpointID, "private-ban-second-primary-connection-"+suffix, nil, nil, 0)
 	harness.seedConnection(t, profileID, secondConfigID, fallbackEndpointID, "private-ban-fallback-connection-"+suffix, nil, nil, 1)
@@ -460,8 +460,8 @@ func TestRuntimeAdmissionSkipsQPSExhaustedConnectionBeforeLaunch(t *testing.T) {
 		suffix:     suffix,
 		strategyID: strategyID,
 		endpoints: []selectorEndpointSeed{
-			{label: "rejected", baseURL: harness.upstream.baseURL("/loadbalance/admission/qps-rejected"), position: 0},
-			{label: "eligible", baseURL: harness.upstream.baseURL("/loadbalance/admission/qps-eligible"), position: 1},
+			{label: "rejected", baseURL: harness.upstream.baseURL("/loadbalance/admission/qps-rejected"), priority: 0},
+			{label: "eligible", baseURL: harness.upstream.baseURL("/loadbalance/admission/qps-eligible"), priority: 1},
 		},
 	})
 	qpsLimit := 1
@@ -503,8 +503,8 @@ func TestRuntimeAdmissionSkipsQPSExhaustedAnthropicConnectionBeforeLaunch(t *tes
 		suffix:     suffix,
 		strategyID: strategyID,
 		endpoints: []selectorEndpointSeed{
-			{label: "rejected", baseURL: harness.upstream.baseURL("/anthropic/admission/qps-rejected"), position: 0},
-			{label: "eligible", baseURL: harness.upstream.baseURL("/anthropic/admission/qps-eligible"), position: 1},
+			{label: "rejected", baseURL: harness.upstream.baseURL("/anthropic/admission/qps-rejected"), priority: 0},
+			{label: "eligible", baseURL: harness.upstream.baseURL("/anthropic/admission/qps-eligible"), priority: 1},
 		},
 	})
 	qpsLimit := 1
@@ -541,7 +541,7 @@ func TestRuntimeAdmissionRejectsAllConnectionsBeforeLaunch(t *testing.T) {
 		prefix:     "loadbalance-admission-all-rejected",
 		suffix:     suffix,
 		strategyID: strategyID,
-		endpoints:  []selectorEndpointSeed{{label: "only", baseURL: harness.upstream.baseURL("/loadbalance/admission/all-rejected"), position: 0}},
+		endpoints:  []selectorEndpointSeed{{label: "only", baseURL: harness.upstream.baseURL("/loadbalance/admission/all-rejected"), priority: 0}},
 	})
 	maxInFlightNonStream := 1
 	harness.updateConnectionAdmissionLimits(t, route.connectionIDs[0], nil, &maxInFlightNonStream, nil)
@@ -583,8 +583,8 @@ func TestRuntimeLoadBalanceSingleDoesNotFailOverAfterPrimaryFailure(t *testing.T
 		prefix:       "loadbalance-single",
 		strategyType: "single",
 		endpoints: []selectorEndpointSeed{
-			{label: "primary", baseURL: primaryUpstream.baseURL("/loadbalance/single/primary"), position: 0},
-			{label: "secondary", baseURL: secondaryUpstream.baseURL("/loadbalance/single/secondary"), position: 1},
+			{label: "primary", baseURL: primaryUpstream.baseURL("/loadbalance/single/primary"), priority: 0},
+			{label: "secondary", baseURL: secondaryUpstream.baseURL("/loadbalance/single/secondary"), priority: 1},
 		},
 	})
 
@@ -608,8 +608,8 @@ func TestRuntimeLoadBalanceFillFirstFailsOverToNextEligibleConnection(t *testing
 		prefix:       "loadbalance-fill-first",
 		strategyType: "fill-first",
 		endpoints: []selectorEndpointSeed{
-			{label: "primary", baseURL: primaryUpstream.baseURL("/loadbalance/fill-first/primary"), position: 0},
-			{label: "secondary", baseURL: secondaryUpstream.baseURL("/loadbalance/fill-first/secondary"), position: 1},
+			{label: "primary", baseURL: primaryUpstream.baseURL("/loadbalance/fill-first/primary"), priority: 0},
+			{label: "secondary", baseURL: secondaryUpstream.baseURL("/loadbalance/fill-first/secondary"), priority: 1},
 		},
 	})
 
@@ -665,8 +665,8 @@ func TestRuntimeBudgetUsesOneOverallDeadlineAcrossAttempts(t *testing.T) {
 		suffix:       suffix,
 		strategyType: "fill-first",
 		endpoints: []selectorEndpointSeed{
-			{label: "primary", baseURL: primaryUpstream.URL + "/loadbalance/budget/primary", position: 0},
-			{label: "secondary", baseURL: secondaryUpstream.URL + "/loadbalance/budget/secondary", position: 1},
+			{label: "primary", baseURL: primaryUpstream.URL + "/loadbalance/budget/primary", priority: 0},
+			{label: "secondary", baseURL: secondaryUpstream.URL + "/loadbalance/budget/secondary", priority: 1},
 		},
 	})
 
@@ -718,8 +718,8 @@ func TestRuntimeLoadBalanceConcurrentRoundRobinRequestsUseDistinctCursorClaims(t
 		profileID: activeProfileID,
 		prefix:    "loadbalance-concurrent-round-robin",
 		endpoints: []selectorEndpointSeed{
-			{label: "first", baseURL: firstUpstream.baseURL("/loadbalance/concurrent/round-robin/first"), position: 0},
-			{label: "second", baseURL: secondUpstream.baseURL("/loadbalance/concurrent/round-robin/second"), position: 1},
+			{label: "first", baseURL: firstUpstream.baseURL("/loadbalance/concurrent/round-robin/first"), priority: 0},
+			{label: "second", baseURL: secondUpstream.baseURL("/loadbalance/concurrent/round-robin/second"), priority: 1},
 		},
 	})
 
@@ -758,8 +758,8 @@ func TestRuntimeExpiredRetryWindowAllowsConcurrentAttempts(t *testing.T) {
 		prefix:       "retry-window",
 		strategyType: "fill-first",
 		endpoints: []selectorEndpointSeed{
-			{label: "primary", baseURL: primaryUpstream.baseURL("/loadbalance/retry-window/primary"), position: 0},
-			{label: "secondary", baseURL: secondaryUpstream.baseURL("/loadbalance/retry-window/secondary"), position: 1},
+			{label: "primary", baseURL: primaryUpstream.baseURL("/loadbalance/retry-window/primary"), priority: 0},
+			{label: "secondary", baseURL: secondaryUpstream.baseURL("/loadbalance/retry-window/secondary"), priority: 1},
 		},
 	})
 	retryAvailableAt := time.Now().UTC().Add(-1 * time.Minute)
@@ -823,8 +823,8 @@ func TestRuntimeLeaseNonStreamInFlightExclusivity(t *testing.T) {
 		suffix:     suffix,
 		strategyID: strategyID,
 		endpoints: []selectorEndpointSeed{
-			{label: "primary", baseURL: primaryUpstream.baseURL("/loadbalance/lease/non-stream/primary"), position: 0},
-			{label: "secondary", baseURL: secondaryUpstream.baseURL("/loadbalance/lease/non-stream/secondary"), position: 1},
+			{label: "primary", baseURL: primaryUpstream.baseURL("/loadbalance/lease/non-stream/primary"), priority: 0},
+			{label: "secondary", baseURL: secondaryUpstream.baseURL("/loadbalance/lease/non-stream/secondary"), priority: 1},
 		},
 	})
 	maxInFlightNonStream := 1
@@ -875,7 +875,7 @@ func TestRuntimeLoadBalanceWinningSuccessUpdatesRuntimeState(t *testing.T) {
 		profileID: activeProfileID,
 		prefix:    "loadbalance-feedback-success",
 		suffix:    suffix,
-		endpoints: []selectorEndpointSeed{{label: "only", baseURL: harness.upstream.baseURL("/loadbalance/feedback/success"), position: 0}},
+		endpoints: []selectorEndpointSeed{{label: "only", baseURL: harness.upstream.baseURL("/loadbalance/feedback/success"), priority: 0}},
 	})
 	expiredOpenUntil := time.Now().UTC().Add(-1 * time.Minute)
 	staleFailureAt := time.Now().UTC().Add(-2 * time.Minute)
@@ -920,7 +920,7 @@ func TestRuntimeLoadBalanceProbeSuccessClosesRuntimeState(t *testing.T) {
 		profileID: activeProfileID,
 		prefix:    "loadbalance-probe-success",
 		suffix:    suffix,
-		endpoints: []selectorEndpointSeed{{label: "only", baseURL: harness.upstream.baseURL("/loadbalance/probe/success"), position: 0}},
+		endpoints: []selectorEndpointSeed{{label: "only", baseURL: harness.upstream.baseURL("/loadbalance/probe/success"), priority: 0}},
 	})
 	pastProbeEligibleAt := time.Now().UTC().Add(-1 * time.Minute)
 	priorFailureKind := "transient_http"
@@ -978,7 +978,7 @@ func TestRuntimeStatePersistsRecoveredStateAcrossRestart(t *testing.T) {
 		profileID: activeProfileID,
 		prefix:    "loadbalance-restart-recovered",
 		suffix:    suffix,
-		endpoints: []selectorEndpointSeed{{label: "only", baseURL: upstream.baseURL("/loadbalance/restart/recovered"), position: 0}},
+		endpoints: []selectorEndpointSeed{{label: "only", baseURL: upstream.baseURL("/loadbalance/restart/recovered"), priority: 0}},
 	})
 	pastProbeEligibleAt := time.Now().UTC().Add(-1 * time.Minute)
 	priorFailureKind := "transient_http"
@@ -1029,7 +1029,7 @@ func TestRuntimeStatePersistsRecoveredStateAcrossRestart(t *testing.T) {
 }
 
 func startSharedPostgresHarness() (testPostgresHarness, error) {
-	containerName := "prism-s14-runtime-" + randomSuffix()
+	containerName := "prism-feature-endpoints-s14-runtime-" + randomSuffix()
 	if err := runDockerCommand(context.Background(), "run", "--rm", "-d", "--name", containerName, "-e", "POSTGRES_DB=postgres", "-e", "POSTGRES_USER=prism", "-e", "POSTGRES_PASSWORD=prism", "-P", "postgres:16-alpine"); err != nil {
 		return testPostgresHarness{}, err
 	}

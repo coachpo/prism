@@ -171,8 +171,8 @@ func seedMixedOrderMatrixRoute(t *testing.T, harness *runtimeHarness, seed mixed
 	strategyID := harness.seedLegacyStrategy(t, seed.profileID, "mixed-order-matrix-"+randomSuffix(), seed.strategyType)
 	publicModelConfigID := harness.seedModel(t, seed.profileID, seed.apiFamily, seed.publicModelID, "proxy", &strategyID)
 	childModelConfigID := harness.seedModel(t, seed.profileID, seed.apiFamily, seed.childModelID, "native", &strategyID)
-	terminalEndpointID := harness.seedEndpoint(t, seed.profileID, "mixed-order-terminal-endpoint-"+randomSuffix(), seed.terminalURL, seed.terminalKey, 0)
-	childEndpointID := harness.seedEndpoint(t, seed.profileID, "mixed-order-child-endpoint-"+randomSuffix(), seed.childURL, seed.childKey, 1)
+	terminalEndpointID := harness.seedEndpoint(t, seed.profileID, "mixed-order-terminal-endpoint-"+randomSuffix(), seed.terminalURL, seed.terminalKey)
+	childEndpointID := harness.seedEndpoint(t, seed.profileID, "mixed-order-child-endpoint-"+randomSuffix(), seed.childURL, seed.childKey)
 	if seed.terminalFirst {
 		terminalConnectionID = harness.seedConnection(t, seed.profileID, publicModelConfigID, terminalEndpointID, "mixed-order-router-terminal-"+randomSuffix(), nil, nil, 0)
 		harness.seedConnection(t, seed.profileID, childModelConfigID, childEndpointID, "mixed-order-child-terminal-"+randomSuffix(), nil, nil, 0)
@@ -284,8 +284,8 @@ func TestRuntimeMixedOrderPlanningRejectionHasNoUpstreamSideEffect(t *testing.T)
 	strategyID := harness.seedLegacyStrategy(t, profileID, "mixed-order-reject-"+suffix, "single")
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &strategyID)
 	childModelConfigID := harness.seedModel(t, profileID, "openai", childModelID, "native", &strategyID)
-	harness.seedEndpoint(t, profileID, "mixed-order-reject-terminal-endpoint-"+suffix, terminalUpstream.baseURL("/mixed-order/reject-terminal"), "reject-terminal-key", 0)
-	harness.seedEndpoint(t, profileID, "mixed-order-reject-child-endpoint-"+suffix, childUpstream.baseURL("/mixed-order/reject-child"), "reject-child-key", 1)
+	harness.seedEndpoint(t, profileID, "mixed-order-reject-terminal-endpoint-"+suffix, terminalUpstream.baseURL("/mixed-order/reject-terminal"), "reject-terminal-key")
+	harness.seedEndpoint(t, profileID, "mixed-order-reject-child-endpoint-"+suffix, childUpstream.baseURL("/mixed-order/reject-child"), "reject-child-key")
 	// Child model has no terminal leaves; the model peer at position 0 is the
 	// only row `single` may consider. The terminal peer at position 1 must NOT
 	// act as a fallback tier.

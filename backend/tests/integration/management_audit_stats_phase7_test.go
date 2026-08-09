@@ -691,7 +691,7 @@ func phase7InsertDashboardRoutingTarget(t *testing.T, ctx context.Context, exec 
 	}
 	endpointName := "Phase 7 " + suffix + " Endpoint"
 	var endpointID int
-	if err := exec.QueryRow(ctx, `INSERT INTO endpoints (profile_id, name, base_url, api_key, position, created_at, updated_at) VALUES ($1, $2, $3, 'phase7-key', 0, $4, $4) RETURNING id`, profileID, endpointName, "https://"+suffix+".invalid", now).Scan(&endpointID); err != nil {
+	if err := exec.QueryRow(ctx, `INSERT INTO endpoints (profile_id, name, base_url, api_key, config_revision, created_at, updated_at) VALUES ($1, $2, $3, 'phase7-key', 1, $4, $4) RETURNING id`, profileID, endpointName, "https://"+suffix+".invalid", now).Scan(&endpointID); err != nil {
 		t.Fatalf("insert dashboard routing endpoint: %v", err)
 	}
 	var connectionID int

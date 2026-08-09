@@ -142,6 +142,7 @@ export function ModelDetailFeaturePage({
         apiFamily={model.api_family}
         ownerOpenAIMode={model.openai_accepted_format ?? null}
         editingConnection={data.editingConnection}
+        lockedEndpointId={data.lockedEndpointId}
         connectionForm={data.connectionForm}
         setConnectionForm={data.setConnectionForm}
         newEndpointForm={data.newEndpointForm}

@@ -236,7 +236,8 @@ func isEndpointPlanningMutation(method string, segments []string) bool {
 	return (method == http.MethodPost && matchesSegments(segments, "endpoints")) ||
 		(method == http.MethodPut && matchesSegments(segments, "endpoints", "*")) ||
 		(method == http.MethodDelete && matchesSegments(segments, "endpoints", "*")) ||
-		(method == http.MethodPost && matchesSegments(segments, "endpoints", "*", "duplicate"))
+		(method == http.MethodPost && matchesSegments(segments, "endpoints", "*", "duplicate")) ||
+		(method == http.MethodDelete && matchesSegments(segments, "endpoints", "*", "orphan-connections", "*"))
 }
 
 func isConnectionPlanningMutation(method string, segments []string) bool {

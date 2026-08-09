@@ -44,7 +44,7 @@ func TestMain(m *testing.M) {
 func priorityPostgres(t testing.TB) priorityPostgresHarness {
 	t.Helper()
 	priorityTestPostgres.once.Do(func() {
-		containerName := "prism-priority-" + priorityRandomSuffix()
+		containerName := "prism-feature-endpoints-priority-" + priorityRandomSuffix()
 		if err := runPriorityDockerCommand(context.Background(), "run", "--rm", "-d", "--name", containerName, "-e", "POSTGRES_DB=postgres", "-e", "POSTGRES_USER=prism", "-e", "POSTGRES_PASSWORD=prism", "-P", "postgres:16-alpine"); err != nil {
 			priorityTestPostgres.err = err
 			return

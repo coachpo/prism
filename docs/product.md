@@ -66,7 +66,11 @@ Single operator (developer/power user) running the application locally or on a l
 - **Models** carry fixed `api_family` metadata.
 - **Terminal Targets** are profile-scoped model routing, costing, and health configurations that reference endpoints in the same profile. They can also carry per-target custom HTTP headers and an optional static JSON request-body parameter overlay (see §4.12 and §4.13).
 - Endpoints can be reused across multiple models within the same profile; each Terminal Target keeps its own header and request-parameter configuration.
-- Deleting an endpoint is blocked if any Terminal Targets in that profile still reference it.
+- **Direct references** are the single source of truth for endpoint filtering, counting and deletion: `direct_reference_count` counts every `connections` row whose `endpoint_id` equals the endpoint, regardless of model/access-target/connection enable state or orphan status. Disabled and orphan connections still block deletion. `enabled_reference_count` additionally requires the owner model, owner access target and connection to all be enabled with no configuration-integrity error; it is not a health or policy-hit signal. Unknown/loading/stale reference state is never shown as zero and never enables destructive actions (fail closed).
+- Endpoint list order is display-only (`lower(name)`, `name`, `id`) and never affects runtime routing; the authoritative target order remains `model_access_targets.position`.
+- API key identity is exposed as an instance-local display fingerprint (`fp_v1_` + 12 hex, plaintext-derived HMAC) plus an independent `api_key_updated_at`; raw keys and ciphertext hashes never appear in any response, error, log, audit row, URL or evidence. Same-key resubmission preserves identity/time/revision; a real rotation changes fingerprint, key time and `config_revision`.
+- One-time family-aware verification (`OpenAI/Anthropic/Gemini`) runs an explicit, read-only, non-persisted metadata probe bound to the committed `config_revision`; results are never stored as health state and never enter telemetry.
+- Deleting an endpoint is blocked with a typed `409 endpoint_in_use` (summary + bounded first blocker page + snapshot cursor) if any Terminal Targets in that profile still reference it; zero-reference preflight plus a lock-time recheck keeps the delete authoritative. Ownerless orphan connections can be cleaned individually through a separate destructive confirmation.
 
 ### 4.6 Terminal Target Request Health
 - Manual Terminal Target test actions are removed from the management API and UI.
@@ -78,6 +82,7 @@ Single operator (developer/power user) running the application locally or on a l
 - View all configured models and their reachable Terminal Targets
 - Add/edit/delete model configurations with ordered access targets
 - Add/edit/delete profile-scoped endpoints
+- Endpoints page renders a compact responsive table (desktop columns: name, base URL, API key identity, direct references, updated time, actions; narrow viewports use description-list row cards) with expandable direct-reference disclosures, reference-derived filters (`全部 / 有直接引用 / 无直接引用 / 仅非活动引用`), view-only sorting, API-key fingerprint and key-time identity, one-time family-aware verify, blocked-delete preflight with typed `409` race handling, orphan cleanup, and attach-to-model navigation that reuses the model-detail Terminal Target create flow with the Endpoint preselected and locked
 - Model detail renders one mixed access-target list ordered by the shared `position`; Model and Terminal rows share a continuous "位置 N" numbering, adjacent rows of either type can be moved up/down with the same controls, and reloads never restore type grouping
 - Add/edit/delete Terminal Targets from model detail; the Terminal Target dialog includes an “高级请求设置” group with request limits, custom headers, and the custom request parameters JSON editor
 - Toggle enabled/disabled access targets per model
@@ -587,7 +592,6 @@ Validated again against current repo surfaces on 2026-07-10:
 - `GET /api/models/{model_config_id}`
 - `PUT /api/models/{model_config_id}`
 - `DELETE /api/models/{model_config_id}`
-- `POST /api/models/by-endpoints`
 - `GET /api/models/{model_config_id}/targets`
 - `POST /api/models/{model_config_id}/targets`
 - `PATCH /api/models/{model_config_id}/targets/{target_id}`
@@ -598,7 +602,7 @@ Validated again against current repo surfaces on 2026-07-10:
 - `PATCH /api/models/{model_config_id}/connections/{connection_id}`
 - `DELETE /api/models/{model_config_id}/connections/{connection_id}`
 
-`POST /api/models/by-endpoints` is used by the Endpoints page to hydrate model references. `GET /api/models/by-endpoint/{endpoint_id}` and `POST /api/models/connections/batch` remain backend/API-client surfaces without a current production frontend caller.
+`POST /api/models/by-endpoints` retains its backend semantics for other API consumers but the Endpoints page no longer calls it: endpoint reference hydration uses `POST /api/endpoints/references/batch` and `GET /api/endpoints/{id}/references`. `GET /api/models/by-endpoint/{endpoint_id}` and `POST /api/models/connections/batch` remain backend/API-client surfaces without a current production frontend caller.
 
 ### 5. Endpoints, Loadbalance Strategies, And Pricing Templates
 
@@ -610,8 +614,10 @@ Validated again against current repo surfaces on 2026-07-10:
 
 **Frontend flow**
 
-1. Endpoints define reusable upstream credentials and base URLs that Terminal Targets can share.
-2. The Ban Policies page exposes only `Strategies`, `Current State`, and `Events`; it does not render incidents. The dashboard consumes `/api/loadbalance/incidents` for its incident banner and recent-event alerts.
+1. Endpoints define reusable upstream credentials and base URLs that Terminal Targets can share. The Endpoints page renders a compact table (name, base URL, API key identity, direct references, updated time, actions) that collapses to description-list row cards on narrow viewports; list order is display-only and view-sortable by name/updated time/direct-reference count, never persisted.
+2. Direct references are the deletion/filter truth: expandable disclosures lazy-load bounded pages of owned/orphan references along an opaque snapshot cursor, reference-derived filters (`全部 / 有直接引用 / 无直接引用 / 仅非活动引用`) and count sorting are disabled whenever any summary is unknown/stale, and delete always runs a fresh preflight with a lock-time recheck (`409 endpoint_in_use` keeps the dialog on the latest blocker page). Orphan connections have a separate destructive cleanup.
+3. API key identity shows the server-confirmed fingerprint and key time; rotation (different key identity) changes fingerprint/time/revision, same-key resubmission preserves them, and blank keys keep the stored value. Create/edit supports save-only and save-and-verify (two ordered phases, dual result inline, family chosen per action, never persisted).
+4. The Ban Policies page exposes only `Strategies`, `Current State`, and `Events`; it does not render incidents. The dashboard consumes `/api/loadbalance/incidents` for its incident banner and recent-event alerts.
 3. Pricing templates define reusable cost models attached to Terminal Targets with five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`.
 4. Pricing-template management saves explicit strings for every component. Missing/null/blank inputs normalize to `"0"`; explicit `"0"` is configured free pricing, not missing pricing data.
 5. Pricing supports JSON file or pasted-text import with `upsert_by_name` or `create_only`, a connection-usage lookup, and delete protection when Terminal Targets still depend on a template.
@@ -625,8 +631,11 @@ Validated again against current repo surfaces on 2026-07-10:
 - `POST /api/endpoints`
 - `PUT /api/endpoints/{endpoint_id}`
 - `DELETE /api/endpoints/{endpoint_id}`
-- `PATCH /api/endpoints/{endpoint_id}/position`
 - `POST /api/endpoints/{endpoint_id}/duplicate`
+- `POST /api/endpoints/references/batch`
+- `GET /api/endpoints/{endpoint_id}/references`
+- `POST /api/endpoints/{endpoint_id}/verify`
+- `DELETE /api/endpoints/{endpoint_id}/orphan-connections/{connection_id}`
 - `GET /api/loadbalance/strategies`
 - `POST /api/loadbalance/strategies/defaults`
 - `POST /api/loadbalance/strategies`

@@ -368,7 +368,7 @@ test("model detail exposes one mixed access-target list with cross-type reorder 
     model_config_id: 7,
     api_family: "openai",
     endpoint_id: 21,
-    endpoint: { id: 21, name: "endpoint-one", base_url: "https://one.example", has_api_key: true, masked_api_key: null, position: 0, created_at: timestamp, updated_at: timestamp },
+    endpoint: { id: 21, name: "endpoint-one", base_url: "https://one.example", has_api_key: true, api_key_fingerprint: "fp_v1_ab12cd34ef56", api_key_updated_at: timestamp, config_revision: 1, created_at: timestamp, updated_at: timestamp },
     is_active: true,
     priority: 0,
     name: "Terminal One",
@@ -606,4 +606,277 @@ test("model detail exposes one mixed access-target list with cross-type reorder 
   await expect(rowOrder().nth(0)).toHaveAttribute("data-testid", "access-target-511");
   await expect(rowOrder().nth(1)).toHaveAttribute("data-testid", "access-target-512");
   expect(deleteRequests).toEqual(["/api/models/7/targets/513"]);
+});
+
+test("endpoint journey: direct references, fail-closed 503, blocked delete, rotation, verify and no reorder", async ({ page }) => {
+  const timestamp = "2026-08-09T12:00:00Z";
+  const endpointOne = {
+    id: 21,
+    profile_id: 1,
+    name: "endpoint-one",
+    base_url: "https://one.example",
+    has_api_key: true,
+    api_key_fingerprint: "fp_v1_ab12cd34ef56",
+    api_key_updated_at: timestamp,
+    config_revision: 1,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+  const endpointTwo = {
+    id: 22,
+    profile_id: 1,
+    name: "endpoint-two",
+    base_url: "https://two.example",
+    has_api_key: false,
+    api_key_fingerprint: null,
+    api_key_updated_at: null,
+    config_revision: 1,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+  const referencedItem = {
+    kind: "owned_terminal_target",
+    connection_id: 91,
+    terminal_target_id: 91,
+    terminal_target_name: "Terminal One",
+    api_family: "openai",
+    connection_is_active: true,
+    access_target: { id: 512, position: 0, is_enabled: true },
+    owner_model: { id: 7, model_id: "gpt-4o", display_name: "Primary GPT", is_enabled: true, openai_accepted_format: "dual_native" },
+    openai_text_capability: "dual_native",
+    pricing_template: { id: 2, name: "Default", current_revision_id: null, current_version: 3 },
+    enabled: true,
+    inactive_reasons: [],
+  };
+  const orphanItem = {
+    kind: "orphan_connection",
+    connection_id: 99,
+    terminal_target_id: 99,
+    terminal_target_name: null,
+    api_family: "openai",
+    connection_is_active: false,
+    access_target: null,
+    owner_model: null,
+    openai_text_capability: "dual_native",
+    pricing_template: null,
+    enabled: false,
+    inactive_reasons: ["orphaned"],
+  };
+  const summary = (direct: number, enabled: number, orphan = 0) => ({
+    direct_reference_count: direct,
+    referencing_model_count: direct > 0 ? 1 : 0,
+    enabled_reference_count: enabled,
+    orphan_reference_count: orphan,
+  });
+  let referencesMode: "ready" | "error" = "ready";
+  let rotated = false;
+  const deleteAttempts: string[] = [];
+  const verifyRequests: Array<{ body: unknown }> = [];
+
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+    if (!pathname.startsWith("/api/")) {
+      return route.continue();
+    }
+    const fulfillJson = (body: unknown, status = 200) =>
+      route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+    if (pathname === "/api/auth/status") return fulfillJson({ auth_enabled: false });
+    if (pathname === "/api/settings/costing") return fulfillJson({ report_currency_code: "EUR", report_currency_symbol: "€", endpoint_fx_mappings: [], timezone_preference: null });
+    if (pathname === "/api/settings/timezone") return fulfillJson({ timezone_preference: "UTC" });
+    if (pathname === "/api/endpoints" && request.method() === "GET") {
+      const list = rotated ? [{ ...endpointOne, api_key_fingerprint: "fp_v1_9999aaaa0000", api_key_updated_at: "2026-08-09T13:00:00Z", config_revision: 2 }, endpointTwo] : [endpointOne, endpointTwo];
+      return fulfillJson(list);
+    }
+    if (pathname === "/api/endpoints/references/batch" && request.method() === "POST") {
+      if (referencesMode === "error") {
+        return fulfillJson({ detail: "upstream unavailable" }, 503);
+      }
+      return fulfillJson({
+        items: [
+          { endpoint_id: 21, summary: summary(1, 1) },
+          { endpoint_id: 22, summary: summary(0, 0) },
+        ],
+      });
+    }
+    if (pathname === "/api/endpoints/21/references" && request.method() === "GET") {
+      if (referencesMode === "error") {
+        return fulfillJson({ detail: "upstream unavailable" }, 503);
+      }
+      return fulfillJson({
+        endpoint_id: 21,
+        summary: summary(2, 1, 1),
+        reference_page: {
+          items: [referencedItem, orphanItem],
+          total_count: 2,
+          next_cursor: null,
+          reference_snapshot_hash: "opaque-hash-1",
+        },
+      });
+    }
+    if (pathname === "/api/endpoints/21" && request.method() === "DELETE") {
+      deleteAttempts.push(pathname);
+      return fulfillJson({
+        detail: {
+          code: "endpoint_in_use",
+          message: "Endpoint is referenced by Terminal Targets",
+          endpoint_id: 21,
+          summary: summary(2, 1, 1),
+          reference_page: {
+            items: [referencedItem, orphanItem],
+            total_count: 2,
+            next_cursor: null,
+            reference_snapshot_hash: "opaque-hash-1",
+          },
+          references_url: "/api/endpoints/21/references",
+        },
+      }, 409);
+    }
+    if (pathname === "/api/endpoints/21/orphan-connections/99" && request.method() === "DELETE") {
+      return fulfillJson({ deleted: true, connection_id: 99 });
+    }
+    if (pathname === "/api/endpoints/21/verify" && request.method() === "POST") {
+      const body = request.postDataJSON();
+      verifyRequests.push({ body });
+      return fulfillJson({
+        endpoint_id: 21,
+        api_family: body.api_family,
+        config_revision: 1,
+        api_key_fingerprint: "fp_v1_ab12cd34ef56",
+        is_current: true,
+        outcome: "verified",
+        probe_path: "/v1/models",
+        upstream_status: 200,
+        duration_ms: 120,
+        error_summary: null,
+      });
+    }
+    if (pathname === "/api/endpoints/21" && request.method() === "PUT") {
+      const body = request.postDataJSON();
+      const updated = { ...endpointOne, name: body.name ?? endpointOne.name, base_url: body.base_url ?? endpointOne.base_url, api_key_updated_at: endpointOne.api_key_updated_at };
+      return fulfillJson(updated);
+    }
+    if (pathname === "/api/endpoints/21/duplicate" && request.method() === "POST") {
+      return fulfillJson({ ...endpointOne, id: 23, name: "endpoint-one copy", api_key_updated_at: timestamp });
+    }
+    return route.continue();
+  });
+
+  await page.goto("/route/endpoints");
+  const table = page.getByTestId("endpoints-table-desktop");
+
+  // 1. Compact table with fingerprint identity and direct-reference counts.
+  await expect(table.getByText("endpoint-one")).toBeVisible();
+  await expect(table.getByText("fp_v1_ab12cd34ef56")).toBeVisible();
+  await expect(table.getByText(/1 个终端目标/)).toBeVisible();
+  await expect(table.getByText("无直接引用")).toBeVisible();
+  // 2. No reorder controls exist.
+  await expect(page.getByRole("button", { name: /上移端点/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /下移端点/ })).toHaveCount(0);
+
+  // 3. Fail-closed: batch 503 shows failure, never a fake zero.
+  referencesMode = "error";
+  await page.reload();
+  await expect(table.getByText("引用信息加载失败").first()).toBeVisible();
+  await expect(page.getByText("无直接引用")).toHaveCount(0);
+
+  // 4. Blocked delete: fresh preflight surfaces the typed blocker.
+  referencesMode = "ready";
+  await page.reload();
+  const row = page.getByTestId("endpoint-row-21");
+  await row.getByRole("button", { name: /确定要删除/ }).click();
+  await expect(page.getByTestId("delete-blocked-heading")).toBeVisible();
+  await expect(page.getByText(/共有 2 个终端目标直接引用此端点/)).toBeVisible();
+  await expect(page.getByTestId("delete-blocker-91")).toBeVisible();
+  await expect(page.getByTestId("delete-blocker-99")).toBeVisible();
+  await expect(page.getByTestId("delete-endpoint-confirm")).toHaveCount(0);
+  await page.getByRole("button", { name: /取消/ }).click();
+
+  // 5. Orphan cleanup runs its own destructive confirmation.
+  await row.getByRole("button", { name: /确定要删除/ }).click();
+  await page.getByTestId("delete-blocker-99").getByRole("button", { name: /清理孤立配置/ }).click();
+  await expect(page.getByTestId("orphan-cleanup-confirm")).toBeVisible();
+  await page.getByTestId("orphan-cleanup-confirm").click();
+  await expect(page.getByText("孤立终端配置已清理")).toBeVisible();
+
+  // 6. Key rotation evidence: rotated fingerprint/time/revision from server.
+  rotated = true;
+  await page.reload();
+  await expect(table.getByText("fp_v1_9999aaaa0000")).toBeVisible();
+
+  // 7. Save-and-verify: two ordered phases, dual result inline.
+  await row.getByRole("button", { name: /编辑端点/ }).click();
+  await page.getByRole("button", { name: /保存并验证/ }).click();
+  await expect(page.getByTestId("verify-section")).toBeVisible();
+  await page.getByTestId("verify-section").getByRole("combobox").click();
+  await page.getByRole("option", { name: "OpenAI" }).click();
+  await expect(page.getByTestId("endpoint-save-only")).toBeEnabled();
+  await page.getByTestId("endpoint-save-only").click();
+  await expect(page.getByTestId("verify-result")).toBeVisible();
+  await expect(page.getByText(/验证请求成功/)).toBeVisible();
+  expect(verifyRequests).toEqual([
+    { body: { api_family: "openai", expected_config_revision: 1 } },
+  ]);
+  await page.getByRole("button", { name: /取消/ }).click();
+
+  // 8. DELETE race: lock-time 409 replaces the dialog state with the latest
+  //    blocker page; no stale deletion path.
+  const endpointThree = {
+    id: 24,
+    profile_id: 1,
+    name: "endpoint-three",
+    base_url: "https://three.example",
+    has_api_key: false,
+    api_key_fingerprint: null,
+    api_key_updated_at: null,
+    config_revision: 1,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+  await page.route("**/api/endpoints", async (route) => {
+    if (route.request().method() === "GET") {
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ ...endpointOne, api_key_fingerprint: "fp_v1_ab12cd34ef56", config_revision: 1 }, endpointTwo, endpointThree]) });
+    }
+    return route.continue();
+  });
+  await page.route("**/api/endpoints/24/references", async (route) => {
+    if (route.request().method() === "GET") {
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+        endpoint_id: 24,
+        summary: summary(0, 0),
+        reference_page: { items: [], total_count: 0, next_cursor: null, reference_snapshot_hash: "opaque-hash-zero" },
+      }) });
+    }
+    return route.continue();
+  });
+  let raceReturned409 = false;
+  await page.route("**/api/endpoints/24", async (route) => {
+      if (route.request().method() === "DELETE") {
+      raceReturned409 = true;
+      return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({
+        detail: {
+          code: "endpoint_in_use",
+          message: "Endpoint is referenced by Terminal Targets",
+          endpoint_id: 24,
+          summary: summary(1, 1),
+          reference_page: {
+            items: [referencedItem],
+            total_count: 1,
+            next_cursor: null,
+            reference_snapshot_hash: "opaque-hash-race",
+          },
+          references_url: "/api/endpoints/24/references",
+        },
+      }) });
+    }
+    return route.continue();
+  });
+  await page.reload();
+  const threeRow = page.getByTestId("endpoint-row-24");
+  await threeRow.getByRole("button", { name: /确定要删除/ }).click();
+  await expect(page.getByTestId("delete-endpoint-confirm")).toBeVisible();
+  await page.getByTestId("delete-endpoint-confirm").click();
+  await expect(page.getByTestId("delete-blocked-heading")).toBeVisible();
+  await expect(page.getByText(/共有 1 个终端目标直接引用此端点/)).toBeVisible();
+  expect(raceReturned409).toBe(true);
 });

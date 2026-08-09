@@ -12,7 +12,7 @@ ALTER SEQUENCE public.connections_id_seq OWNED BY public.connections.id;
 CREATE TABLE public.endpoint_fx_rate_settings ( id integer NOT NULL, profile_id integer NOT NULL, model_id character varying(200) NOT NULL, endpoint_id integer NOT NULL, fx_rate character varying(20) NOT NULL, created_at timestamp with time zone NOT NULL, updated_at timestamp with time zone NOT NULL );
 CREATE SEQUENCE public.endpoint_fx_rate_settings_id_seq AS integer START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
 ALTER SEQUENCE public.endpoint_fx_rate_settings_id_seq OWNED BY public.endpoint_fx_rate_settings.id;
-CREATE TABLE public.endpoints ( id integer NOT NULL, profile_id integer NOT NULL, name character varying(200) NOT NULL, base_url character varying(500) NOT NULL, api_key character varying(500) NOT NULL, "position" integer NOT NULL, created_at timestamp with time zone NOT NULL, updated_at timestamp with time zone NOT NULL );
+CREATE TABLE public.endpoints ( id integer NOT NULL, profile_id integer NOT NULL, name character varying(128) NOT NULL, base_url character varying(512) NOT NULL, api_key character varying(500) NOT NULL, created_at timestamp with time zone NOT NULL, updated_at timestamp with time zone NOT NULL, api_key_fingerprint character varying(18), api_key_updated_at timestamp with time zone, config_revision bigint DEFAULT 1 NOT NULL );
 CREATE SEQUENCE public.endpoints_id_seq AS integer START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
 ALTER SEQUENCE public.endpoints_id_seq OWNED BY public.endpoints.id;
 CREATE TABLE public.header_blocklist_rules ( id integer NOT NULL, profile_id integer, name character varying(200) NOT NULL, match_type character varying(20) NOT NULL, pattern character varying(200) NOT NULL, enabled boolean NOT NULL, is_system boolean NOT NULL, created_at timestamp with time zone NOT NULL, updated_at timestamp with time zone NOT NULL, CONSTRAINT ck_hbr_profile_scope CHECK ((((is_system = true) AND (profile_id IS NULL)) OR ((is_system = false) AND (profile_id IS NOT NULL)))) );
@@ -170,7 +170,7 @@ CREATE INDEX idx_connections_pricing_template_id ON public.connections USING btr
 CREATE INDEX idx_connections_priority ON public.connections USING btree (priority);
 CREATE INDEX idx_connections_profile_family_active_priority ON public.connections USING btree (profile_id, api_family, is_active, priority);
 CREATE INDEX idx_connections_profile_id ON public.connections USING btree (profile_id);
-CREATE INDEX idx_endpoints_profile_position ON public.endpoints USING btree (profile_id, "position");
+CREATE INDEX idx_endpoints_profile_name_lower ON public.endpoints USING btree (profile_id, lower((name)::text), name, id);
 CREATE INDEX idx_fx_endpoint_id ON public.endpoint_fx_rate_settings USING btree (endpoint_id);
 CREATE INDEX idx_fx_profile_model_endpoint ON public.endpoint_fx_rate_settings USING btree (profile_id, model_id, endpoint_id);
 CREATE INDEX idx_hbr_enabled ON public.header_blocklist_rules USING btree (enabled);

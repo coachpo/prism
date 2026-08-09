@@ -678,15 +678,3 @@ export interface DashboardRecentActivityParams {
   limit?: number;
 }
 
-export interface EndpointModelsBatchParams {
-  endpoint_ids: number[];
-}
-
-export interface EndpointModelsBatchItem {
-  endpoint_id: number;
-  models: ModelConfigListItem[];
-}
-
-export interface EndpointModelsBatchResponse {
-  items: EndpointModelsBatchItem[];
-}

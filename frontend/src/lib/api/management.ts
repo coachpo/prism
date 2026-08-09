@@ -4,9 +4,12 @@ import type {
   ConnectionReferencesResponse,
   Endpoint,
   EndpointCreate,
-  EndpointModelsBatchParams,
-  EndpointModelsBatchResponse,
+  EndpointReferenceBatchResponse,
+  EndpointReferenceDetail,
   EndpointUpdate,
+  EndpointVerifyRequest,
+  EndpointVerifyResult,
+  OrphanCleanupResponse,
   LegacyLoadbalanceStrategyType,
   LoadbalanceBanMode,
   LoadbalanceBanPolicyFields,
@@ -81,13 +84,6 @@ type RawModelConfigListItem = Omit<ManagedModelConfigListItem, "loadbalance_stra
 type RawModelConfig = Omit<ManagedModelConfig, "loadbalance_strategy" | "access_targets"> & {
   loadbalance_strategy: RawLoadbalanceStrategySummary | null;
   access_targets: RawModelAccessTarget[];
-};
-
-type RawEndpointModelsBatchResponse = {
-  items: Array<{
-    endpoint_id: number;
-    models: RawModelConfigListItem[];
-  }>;
 };
 
 function unsupportedLoadbalanceStrategy(reason: string): never {
@@ -279,16 +275,6 @@ export const models = {
     request<RawModelConfigListItem[]>("/api/models").then((models) =>
       models.map(normalizeModelConfigListItem),
     ),
-  byEndpoints: (data: EndpointModelsBatchParams) =>
-    request<RawEndpointModelsBatchResponse>("/api/models/by-endpoints", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }).then((response) => ({
-      items: response.items.map((item) => ({
-        ...item,
-        models: item.models.map(normalizeModelConfigListItem),
-      })),
-    }) as EndpointModelsBatchResponse),
   byEndpoint: (endpointId: number) =>
     request<RawModelConfigListItem[]>(`/api/models/by-endpoint/${endpointId}`).then((models) =>
       models.map(normalizeModelConfigListItem),
@@ -395,14 +381,34 @@ export const endpoints = {
       method: "PUT",
       body: JSON.stringify(data),
     }),
-  movePosition: (id: number, toIndex: number) =>
-    request<Endpoint[]>(`/api/endpoints/${id}/position`, {
-      method: "PATCH",
-      body: JSON.stringify({ to_index: toIndex }),
+  referencesBatch: (endpointIds: number[]) =>
+    request<EndpointReferenceBatchResponse>("/api/endpoints/references/batch", {
+      method: "POST",
+      body: JSON.stringify({ endpoint_ids: endpointIds }),
+    }),
+  referencesDetail: (endpointId: number, params?: { limit?: number; cursor?: string }) => {
+    const query = new URLSearchParams()
+    if (params?.limit != null) {
+      query.set("limit", String(params.limit))
+    }
+    if (params?.cursor) {
+      query.set("cursor", params.cursor)
+    }
+    const suffix = query.size > 0 ? `?${query.toString()}` : ""
+    return request<EndpointReferenceDetail>(`/api/endpoints/${endpointId}/references${suffix}`)
+  },
+  verify: (endpointId: number, data: EndpointVerifyRequest) =>
+    request<EndpointVerifyResult>(`/api/endpoints/${endpointId}/verify`, {
+      method: "POST",
+      body: JSON.stringify(data),
     }),
   duplicate: (id: number) =>
     request<Endpoint>(`/api/endpoints/${id}/duplicate`, {
       method: "POST",
+    }),
+  orphanCleanup: (endpointId: number, connectionId: number) =>
+    request<OrphanCleanupResponse>(`/api/endpoints/${endpointId}/orphan-connections/${connectionId}`, {
+      method: "DELETE",
     }),
   delete: (id: number) => request<void>(`/api/endpoints/${id}`, { method: "DELETE" }),
 };

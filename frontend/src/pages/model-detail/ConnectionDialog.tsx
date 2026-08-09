@@ -55,6 +55,7 @@ interface ConnectionDialogProps {
   apiFamily: ApiFamily | null;
   ownerOpenAIMode: OpenAIAcceptedFormat | null;
   editingConnection: Connection | null;
+  lockedEndpointId?: number | null;
   connectionForm: ConnectionDialogForm;
   setConnectionForm: (form: ConnectionDialogForm) => void;
   newEndpointForm: EndpointCreate;
@@ -143,6 +144,7 @@ export function ConnectionDialog({
   apiFamily,
   ownerOpenAIMode,
   editingConnection,
+  lockedEndpointId,
   connectionForm,
   setConnectionForm,
   newEndpointForm,
@@ -165,6 +167,7 @@ export function ConnectionDialog({
   const { messages } = useLocale();
   const copy = messages.modelDetail;
   const isOpenAI = apiFamily === "openai";
+  const isEndpointLocked = lockedEndpointId != null;
   const selectedEndpoint = globalEndpoints.find((endpoint) => String(endpoint.id) === selectedEndpointId) ?? null;
   const textCapabilityOptions: Array<{
     description: string;
@@ -337,21 +340,22 @@ export function ConnectionDialog({
                         <Tabs
                           value={createMode}
                           onValueChange={(value) => {
+                            if (isEndpointLocked) return;
                             setCreateMode(value as "select" | "new");
                           }}
                           className="gap-3"
                         >
                           <TabsList className="grid w-full grid-cols-2 md:max-w-md">
-                            <TabsTrigger value="select">{copy.selectExisting}</TabsTrigger>
-                            <TabsTrigger value="new">{copy.createNew}</TabsTrigger>
+                            <TabsTrigger value="select" disabled={isEndpointLocked && createMode !== "select"}>{copy.selectExisting}</TabsTrigger>
+                            <TabsTrigger value="new" disabled={isEndpointLocked}>{copy.createNew}</TabsTrigger>
                           </TabsList>
 
                           <TabsContent value="select" className="flex flex-col gap-2">
                             <ConnectionDialogField id="conn-selected-endpoint" label={copy.selectEndpoint}>
-                              <Select value={selectedEndpointId} onValueChange={(value) => {
+                              <Select value={selectedEndpointId} disabled={isEndpointLocked} onValueChange={(value) => {
                                 setSelectedEndpointId(value);
                               }}>
-                                <SelectTrigger id="conn-selected-endpoint">
+                                <SelectTrigger id="conn-selected-endpoint" disabled={isEndpointLocked}>
                                   <SelectValue placeholder={copy.selectEndpointPlaceholder} />
                                 </SelectTrigger>
                                 <SelectContent>

@@ -19,18 +19,24 @@ type queryExecutor interface {
 }
 
 type endpointRecord struct {
-	ID        int
-	ProfileID int
-	Name      string
-	BaseURL   string
-	APIKey    string
-	Position  int
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID                 int
+	ProfileID          int
+	Name               string
+	BaseURL            string
+	APIKey             string
+	APIKeyFingerprint  *string
+	APIKeyUpdatedAt    *time.Time
+	ConfigRevision     int64
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
+const endpointSelectColumns = `id, profile_id, name, base_url, api_key, api_key_fingerprint, api_key_updated_at, config_revision, created_at, updated_at`
+
+// listOrderedEndpoints returns all profile endpoints in the deterministic
+// display order: lower(name), name, id.
 func listOrderedEndpoints(ctx context.Context, exec queryExecutor, profileID int) ([]endpointRecord, error) {
-	rows, err := exec.Query(ctx, `SELECT id, profile_id, name, base_url, api_key, position, created_at, updated_at FROM endpoints WHERE profile_id = $1 ORDER BY position ASC, id ASC`, profileID)
+	rows, err := exec.Query(ctx, `SELECT `+endpointSelectColumns+` FROM endpoints WHERE profile_id = $1 ORDER BY lower(name) ASC, name ASC, id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query endpoints for profile %d: %w", profileID, err)
 	}
@@ -51,7 +57,7 @@ func listOrderedEndpoints(ctx context.Context, exec queryExecutor, profileID int
 }
 
 func loadEndpointRecord(ctx context.Context, exec queryExecutor, profileID int, endpointID int, forUpdate bool) (endpointRecord, bool, error) {
-	query := `SELECT id, profile_id, name, base_url, api_key, position, created_at, updated_at FROM endpoints WHERE profile_id = $1 AND id = $2`
+	query := `SELECT ` + endpointSelectColumns + ` FROM endpoints WHERE profile_id = $1 AND id = $2`
 	if forUpdate {
 		query += ` FOR UPDATE`
 	}
@@ -92,19 +98,11 @@ func ensureUniqueEndpointName(ctx context.Context, exec queryExecutor, profileID
 	return fmt.Errorf("query endpoint name availability for %q: %w", endpointName, err)
 }
 
-func nextEndpointPosition(ctx context.Context, exec queryExecutor, profileID int) (int, error) {
-	var maxPosition sql.NullInt32
-	if err := exec.QueryRow(ctx, `SELECT MAX(position) FROM endpoints WHERE profile_id = $1`, profileID).Scan(&maxPosition); err != nil {
-		return 0, fmt.Errorf("query max endpoint position for profile %d: %w", profileID, err)
-	}
-	if !maxPosition.Valid {
-		return 0, nil
-	}
-	return int(maxPosition.Int32) + 1, nil
-}
-
 func insertEndpoint(ctx context.Context, exec queryExecutor, record endpointRecord) (endpointRecord, error) {
-	created, err := scanEndpointRecord(exec.QueryRow(ctx, `INSERT INTO endpoints (profile_id, name, base_url, api_key, position, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, profile_id, name, base_url, api_key, position, created_at, updated_at`, record.ProfileID, record.Name, record.BaseURL, record.APIKey, record.Position, record.CreatedAt, record.UpdatedAt))
+	created, err := scanEndpointRecord(exec.QueryRow(ctx, `INSERT INTO endpoints (profile_id, name, base_url, api_key, api_key_fingerprint, api_key_updated_at, config_revision, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING `+endpointSelectColumns,
+		record.ProfileID, record.Name, record.BaseURL, record.APIKey, record.APIKeyFingerprint, record.APIKeyUpdatedAt, record.ConfigRevision, record.CreatedAt, record.UpdatedAt))
 	if err != nil {
 		return endpointRecord{}, fmt.Errorf("insert endpoint %q: %w", record.Name, err)
 	}
@@ -112,7 +110,10 @@ func insertEndpoint(ctx context.Context, exec queryExecutor, record endpointReco
 }
 
 func updateEndpointRecord(ctx context.Context, exec queryExecutor, record endpointRecord) (endpointRecord, error) {
-	updated, err := scanEndpointRecord(exec.QueryRow(ctx, `UPDATE endpoints SET name = $2, base_url = $3, api_key = $4, position = $5, updated_at = $6 WHERE id = $1 RETURNING id, profile_id, name, base_url, api_key, position, created_at, updated_at`, record.ID, record.Name, record.BaseURL, record.APIKey, record.Position, record.UpdatedAt))
+	updated, err := scanEndpointRecord(exec.QueryRow(ctx, `UPDATE endpoints SET name = $2, base_url = $3, api_key = $4, api_key_fingerprint = $5, api_key_updated_at = $6, config_revision = $7, updated_at = $8
+		WHERE id = $1
+		RETURNING `+endpointSelectColumns,
+		record.ID, record.Name, record.BaseURL, record.APIKey, record.APIKeyFingerprint, record.APIKeyUpdatedAt, record.ConfigRevision, record.UpdatedAt))
 	if err != nil {
 		return endpointRecord{}, fmt.Errorf("update endpoint %d: %w", record.ID, err)
 	}
@@ -163,38 +164,6 @@ func listConnectionDropdownItems(ctx context.Context, exec queryExecutor, profil
 	return items, nil
 }
 
-func listEndpointUsageRows(ctx context.Context, exec queryExecutor, profileID int, endpointID int) ([]endpointUsageConnection, error) {
-	rows, err := exec.Query(ctx, `SELECT connections.id, model_access_targets.source_model_config_id, model_configs.model_id, connections.name
-		FROM connections
-		LEFT JOIN model_access_targets ON model_access_targets.profile_id = connections.profile_id AND model_access_targets.target_type = 'connection' AND model_access_targets.target_connection_id = connections.id
-		LEFT JOIN model_configs ON model_configs.id = model_access_targets.source_model_config_id AND model_configs.profile_id = connections.profile_id
-		WHERE connections.profile_id = $1 AND connections.endpoint_id = $2
-		ORDER BY connections.id ASC, model_access_targets.source_model_config_id ASC`, profileID, endpointID)
-	if err != nil {
-		return nil, fmt.Errorf("query endpoint usage rows for endpoint %d: %w", endpointID, err)
-	}
-	defer rows.Close()
-
-	items := make([]endpointUsageConnection, 0)
-	for rows.Next() {
-		var item endpointUsageConnection
-		var modelConfigID sql.NullInt32
-		var modelID sql.NullString
-		var name sql.NullString
-		if err := rows.Scan(&item.ConnectionID, &modelConfigID, &modelID, &name); err != nil {
-			return nil, fmt.Errorf("scan endpoint usage row: %w", err)
-		}
-		item.ModelConfigID = nullableInt32(modelConfigID)
-		item.ModelID = nullableStringValue(modelID)
-		item.Name = nullableStringValue(name)
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate endpoint usage rows: %w", err)
-	}
-	return items, nil
-}
-
 func deleteEndpoint(ctx context.Context, exec queryExecutor, endpointID int) error {
 	if _, err := exec.Exec(ctx, `DELETE FROM endpoints WHERE id = $1`, endpointID); err != nil {
 		return fmt.Errorf("delete endpoint %d: %w", endpointID, err)
@@ -202,36 +171,27 @@ func deleteEndpoint(ctx context.Context, exec queryExecutor, endpointID int) err
 	return nil
 }
 
-func persistEndpointPositions(ctx context.Context, exec queryExecutor, records []endpointRecord, currentTime time.Time) error {
-	for _, record := range records {
-		if _, err := exec.Exec(ctx, `UPDATE endpoints SET position = $2, updated_at = $3 WHERE id = $1`, record.ID, record.Position, record.UpdatedAt); err != nil {
-			return fmt.Errorf("persist endpoint %d position: %w", record.ID, err)
-		}
+func scanEndpointRecord(scanner interface{ Scan(...any) error }) (endpointRecord, error) {
+	record := endpointRecord{}
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &record.Name, &record.BaseURL, &record.APIKey, &record.APIKeyFingerprint, &record.APIKeyUpdatedAt, &record.ConfigRevision, &record.CreatedAt, &record.UpdatedAt); err != nil {
+		return endpointRecord{}, err
 	}
-	_ = currentTime
-	return nil
+	return record, nil
 }
 
 func responseFromRecord(record endpointRecord) endpointResponse {
 	return endpointResponse{
-		ID:           record.ID,
-		ProfileID:    record.ProfileID,
-		Name:         record.Name,
-		BaseURL:      record.BaseURL,
-		HasAPIKey:    endpointdomain.HasAPIKey(record.APIKey),
-		MaskedAPIKey: endpointdomain.MaskedAPIKey(record.APIKey),
-		Position:     record.Position,
-		CreatedAt:    record.CreatedAt,
-		UpdatedAt:    record.UpdatedAt,
+		ID:                record.ID,
+		ProfileID:         record.ProfileID,
+		Name:              record.Name,
+		BaseURL:           record.BaseURL,
+		HasAPIKey:         endpointdomain.HasAPIKey(record.APIKey),
+		APIKeyFingerprint: record.APIKeyFingerprint,
+		APIKeyUpdatedAt:   record.APIKeyUpdatedAt,
+		ConfigRevision:    record.ConfigRevision,
+		CreatedAt:         record.CreatedAt,
+		UpdatedAt:         record.UpdatedAt,
 	}
-}
-
-func scanEndpointRecord(scanner interface{ Scan(...any) error }) (endpointRecord, error) {
-	record := endpointRecord{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &record.Name, &record.BaseURL, &record.APIKey, &record.Position, &record.CreatedAt, &record.UpdatedAt); err != nil {
-		return endpointRecord{}, err
-	}
-	return record, nil
 }
 
 func nullableStringValue(value sql.NullString) *string {
@@ -239,18 +199,5 @@ func nullableStringValue(value sql.NullString) *string {
 		return nil
 	}
 	resolved := value.String
-	return &resolved
-}
-
-func nullableInt32(value sql.NullInt32) *int {
-	if !value.Valid {
-		return nil
-	}
-	resolved := int(value.Int32)
-	return &resolved
-}
-
-func intPtr(value int) *int {
-	resolved := value
 	return &resolved
 }

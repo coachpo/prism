@@ -138,7 +138,7 @@ func preflightInsertEndpoint(t *testing.T, ctx context.Context, conn *pgx.Conn, 
 	t.Helper()
 	now := time.Now().UTC()
 	var endpointID int
-	if err := conn.QueryRow(ctx, `INSERT INTO endpoints (profile_id, name, base_url, api_key, position, created_at, updated_at) VALUES ($1, $2, $3, 'key', 0, $4, $4) RETURNING id`, profileID, name, "https://"+strings.ToLower(name)+".invalid", now).Scan(&endpointID); err != nil {
+	if err := conn.QueryRow(ctx, `INSERT INTO endpoints (profile_id, name, base_url, api_key, config_revision, created_at, updated_at) VALUES ($1, $2, $3, 'key', 1, $4, $4) RETURNING id`, profileID, name, "https://"+strings.ToLower(name)+".invalid", now).Scan(&endpointID); err != nil {
 		t.Fatalf("insert preflight endpoint: %v", err)
 	}
 	return endpointID

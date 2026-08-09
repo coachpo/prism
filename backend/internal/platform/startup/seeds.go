@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/coachpo/prism/backend/internal/endpointdomain"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/jackc/pgx/v5"
 )
@@ -237,11 +238,23 @@ func (s Service) seedAppAuthSettings(ctx context.Context, conn *pgx.Conn) error 
 	})
 }
 
+// normalizeEndpointSecrets is the migration-era secret metadata backfill. It
+// runs before management/runtime open, must never lose data, and follows the
+// endpoint reference contract:
+//
+//   - empty keys: fingerprint/time stay null, revision stays 1;
+//   - pre-migration non-empty keys: verify/decrypt, derive the display
+//     fingerprint from the plaintext, and re-encrypt legacy plaintext values;
+//   - api_key_updated_at always stays null (no independent identity evidence
+//     exists for historical rows);
+//   - the original updated_at is preserved and config_revision is left at its
+//     default 1, so backfill never masquerades as an Endpoint mutation;
+//   - decrypt/auth failure fails fast instead of pretending completion.
 func (s Service) normalizeEndpointSecrets(ctx context.Context, conn *pgx.Conn) error {
 	return pgxutil.InTx(ctx, conn, "startup", func(tx pgx.Tx) error {
 		rows, err := tx.Query(
 			ctx,
-			`SELECT id, api_key FROM endpoints ORDER BY id ASC`,
+			`SELECT id, api_key, api_key_fingerprint FROM endpoints ORDER BY id ASC`,
 		)
 		if err != nil {
 			return fmt.Errorf("query endpoints for secret normalization: %w", err)
@@ -249,13 +262,14 @@ func (s Service) normalizeEndpointSecrets(ctx context.Context, conn *pgx.Conn) e
 		defer rows.Close()
 
 		type endpointRow struct {
-			ID     int
-			APIKey string
+			ID           int
+			APIKey       string
+			Fingerprint  *string
 		}
 		endpoints := []endpointRow{}
 		for rows.Next() {
 			var row endpointRow
-			if err := rows.Scan(&row.ID, &row.APIKey); err != nil {
+			if err := rows.Scan(&row.ID, &row.APIKey, &row.Fingerprint); err != nil {
 				return fmt.Errorf("scan endpoint for secret normalization: %w", err)
 			}
 			endpoints = append(endpoints, row)
@@ -264,21 +278,33 @@ func (s Service) normalizeEndpointSecrets(ctx context.Context, conn *pgx.Conn) e
 			return fmt.Errorf("iterate endpoints for secret normalization: %w", err)
 		}
 
-		now := s.timestamp()
 		for _, endpoint := range endpoints {
-			encrypted, err := encryptSecret(endpoint.APIKey, s.secretEncryptionKey, s.now)
+			plaintext, err := endpointdomain.DecryptSecret(endpoint.APIKey, s.secretEncryptionKey)
 			if err != nil {
 				return fmt.Errorf("normalize endpoint secret %d: %w", endpoint.ID, err)
 			}
-			if encrypted == endpoint.APIKey {
+			var fingerprint *string
+			if plaintext != "" {
+				derived := endpointdomain.APIKeyFingerprint(s.secretEncryptionKey, plaintext)
+				fingerprint = &derived
+			}
+			encrypted, err := endpointdomain.EncryptSecret(endpoint.APIKey, s.secretEncryptionKey, s.now)
+			if err != nil {
+				return fmt.Errorf("normalize endpoint secret %d: %w", endpoint.ID, err)
+			}
+			unchanged := encrypted == endpoint.APIKey
+			if fingerprint != nil && endpoint.Fingerprint != nil && *endpoint.Fingerprint == *fingerprint {
+				unchanged = unchanged && true
+			}
+			if unchanged {
 				continue
 			}
 			if _, err := tx.Exec(
 				ctx,
-				`UPDATE endpoints SET api_key = $2, updated_at = $3 WHERE id = $1`,
+				`UPDATE endpoints SET api_key = $2, api_key_fingerprint = COALESCE(api_key_fingerprint, $3) WHERE id = $1`,
 				endpoint.ID,
 				encrypted,
-				now,
+				fingerprint,
 			); err != nil {
 				return fmt.Errorf("update normalized endpoint secret %d: %w", endpoint.ID, err)
 			}

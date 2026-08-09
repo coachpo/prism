@@ -628,7 +628,7 @@ func task9InsertRuntimeProxyTarget(t *testing.T, ctx context.Context, exec task9
 func task9InsertRuntimeEndpoint(t *testing.T, ctx context.Context, exec task9QueryRower, profileID int, name string, baseURL string, apiKey string, now time.Time) int {
 	t.Helper()
 	var endpointID int
-	if err := exec.QueryRow(ctx, `INSERT INTO endpoints (profile_id, name, base_url, api_key, position, created_at, updated_at) VALUES ($1, $2, $3, $4, 0, $5, $5) RETURNING id`, profileID, name, baseURL, apiKey, now).Scan(&endpointID); err != nil {
+	if err := exec.QueryRow(ctx, `INSERT INTO endpoints (profile_id, name, base_url, api_key, config_revision, created_at, updated_at) VALUES ($1, $2, $3, $4, 1, $5, $5) RETURNING id`, profileID, name, baseURL, apiKey, now).Scan(&endpointID); err != nil {
 		t.Fatalf("insert task9 runtime endpoint: %v", err)
 	}
 	return endpointID

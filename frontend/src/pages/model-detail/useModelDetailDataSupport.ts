@@ -231,7 +231,7 @@ export function upsertEndpointInList(
     ? endpoints.map((current) => (current.id === endpoint.id ? endpoint : current))
     : [...endpoints, endpoint];
 
-  return [...nextEndpoints].sort((left, right) => left.position - right.position);
+  return [...nextEndpoints].sort((left, right) => left.name.localeCompare(right.name, "zh-CN") || left.id - right.id);
 }
 
 export function patchModelListConnectionCounts(

@@ -170,7 +170,7 @@ func randomSuffix(t *testing.T) string {
 }
 
 func startSharedPostgresHarness() (postgresHarness, error) {
-	containerName := "prism-integration-" + randomSuffixString()
+	containerName := "prism-feature-endpoints-integration-" + randomSuffixString()
 	if _, err := runDockerCommand(context.Background(), "run", "--rm", "-d", "--name", containerName, "-e", "POSTGRES_DB=postgres", "-e", "POSTGRES_USER=prism", "-e", "POSTGRES_PASSWORD=prism", "-P", "postgres:16-alpine"); err != nil {
 		return postgresHarness{}, err
 	}

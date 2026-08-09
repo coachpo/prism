@@ -130,7 +130,7 @@ func TestOpenAIModeExactMatchConnectionAuthoring(t *testing.T) {
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Mode Exact Match Connection Strategy")
 
 	responsesModelID := modelInsertOpenAIModelWithMode(t, harness, profileID, "mode-conn-responses-owner", "responses_only", strategyID, false)
-	endpointID := modelInsertEndpoint(t, harness, profileID, "Mode Connection Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, profileID, "Mode Connection Endpoint")
 
 	for _, inactive := range []bool{false, true} {
 		response := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", responsesModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "chat_completions_only", "is_active": inactive, "name": "Cross Mode Connection"}, modelHeader(profileID))
@@ -160,7 +160,7 @@ func TestOpenAIModeExactMatchModeChangeConflicts(t *testing.T) {
 
 	t.Run("model mode change breaks own connection", func(t *testing.T) {
 		ownerModelID := modelInsertOpenAIModelWithMode(t, harness, profileID, "mode-change-owner", "dual_native", strategyID, false)
-		endpointID := modelInsertEndpoint(t, harness, profileID, "Mode Change Owner Endpoint", 0)
+		endpointID := modelInsertEndpoint(t, harness, profileID, "Mode Change Owner Endpoint")
 		connectionID := modelInsertOpenAIConnectionWithCapability(t, harness, profileID, endpointID, "dual_native", true)
 		modelInsertOpenAIConnectionTarget(t, harness, profileID, ownerModelID, connectionID, 0, true)
 		response := modelResponse(t, harness, profileID, http.MethodPut, modelPath(ownerModelID), map[string]any{"openai_accepted_format": "chat_completions_only"})
@@ -188,7 +188,7 @@ func TestOpenAIModeExactMatchModeChangeConflicts(t *testing.T) {
 
 	t.Run("connection capability change breaking owner is rejected", func(t *testing.T) {
 		referencingModelID := modelInsertOpenAIModelWithMode(t, harness, profileID, "mode-change-conn-ref", "dual_native", strategyID, false)
-		endpointID := modelInsertEndpoint(t, harness, profileID, "Mode Change Conn Endpoint", 0)
+		endpointID := modelInsertEndpoint(t, harness, profileID, "Mode Change Conn Endpoint")
 		connectionID := modelInsertOpenAIConnectionWithCapability(t, harness, profileID, endpointID, "dual_native", true)
 		modelInsertOpenAIConnectionTarget(t, harness, profileID, referencingModelID, connectionID, 0, true)
 		updateResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", referencingModelID, connectionID), map[string]any{"openai_text_capability": "responses_only"}, modelHeader(profileID))
@@ -225,7 +225,7 @@ func TestOpenAIModeExactMatchNonOpenAIRegression(t *testing.T) {
 	assertStatus(t, modelResponse(t, harness, profileID, http.MethodPost, modelTargetListPath(anthropicSourceID), modelTargetBody("mode-anthropic-target", 1, true)), http.StatusCreated)
 
 	// Anthropic connection authoring is unaffected by mode checks.
-	endpointID := modelInsertEndpoint(t, harness, profileID, "Mode Anthropic Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, profileID, "Mode Anthropic Endpoint")
 	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", anthropicSourceID), map[string]any{"api_family": "anthropic", "endpoint_id": endpointID, "is_active": true, "name": "Anthropic Mode Connection"}, modelHeader(profileID))
 	assertStatus(t, createResponse, http.StatusCreated)
 }

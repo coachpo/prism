@@ -103,7 +103,7 @@ type proxyKeySnapshot struct {
 }
 
 func startSharedPostgresHarness() (testPostgresHarness, error) {
-	containerName := "prism-s5-" + randomSuffix()
+	containerName := "prism-feature-endpoints-s5-" + randomSuffix()
 	if err := runDockerCommand(context.Background(), "run", "--rm", "-d", "--name", containerName, "-e", "POSTGRES_DB=postgres", "-e", "POSTGRES_USER=prism", "-e", "POSTGRES_PASSWORD=prism", "-P", "postgres:16-alpine"); err != nil {
 		return testPostgresHarness{}, err
 	}

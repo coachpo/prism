@@ -38,20 +38,20 @@ type endpointUpdateRequest struct {
 	APIKey  optionalString `json:"api_key"`
 }
 
-type endpointPositionMoveRequest struct {
-	ToIndex int `json:"to_index"`
-}
-
+// endpointResponse is the shared Endpoint read contract. Raw secrets and the
+// legacy masked constant never appear here; key identity is exposed as a
+// deterministic display fingerprint plus an independent key-identity time.
 type endpointResponse struct {
-	ID           int       `json:"id"`
-	ProfileID    int       `json:"profile_id"`
-	Name         string    `json:"name"`
-	BaseURL      string    `json:"base_url"`
-	HasAPIKey    bool      `json:"has_api_key"`
-	MaskedAPIKey *string   `json:"masked_api_key"`
-	Position     int       `json:"position"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID                int        `json:"id"`
+	ProfileID         int        `json:"profile_id"`
+	Name              string     `json:"name"`
+	BaseURL           string     `json:"base_url"`
+	HasAPIKey         bool       `json:"has_api_key"`
+	APIKeyFingerprint *string    `json:"api_key_fingerprint"`
+	APIKeyUpdatedAt   *time.Time `json:"api_key_updated_at"`
+	ConfigRevision    int64      `json:"config_revision"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
 type connectionDropdownItem struct {
@@ -66,11 +66,4 @@ type connectionDropdownResponse struct {
 
 type deletedResponse struct {
 	Deleted bool `json:"deleted"`
-}
-
-type endpointUsageConnection struct {
-	ConnectionID  int
-	ModelConfigID *int
-	ModelID       *string
-	Name          *string
 }

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -19,6 +18,17 @@ import (
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
+
+type validationFailureDetail struct {
+	Code   string            `json:"code"`
+	Fields map[string]string `json:"fields"`
+}
+
+type nameConflictDetail struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Field   string `json:"field"`
+}
 
 func (s *Service) handleListEndpoints(w http.ResponseWriter, r *http.Request) {
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "endpoint", func(tx pgx.Tx) ([]endpointResponse, error) {
@@ -69,13 +79,9 @@ func (s *Service) handleCreateEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	endpointName := strings.TrimSpace(requestBody.Name)
-	if endpointName == "" {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, "name must not be empty")
-		return
-	}
 	normalizedURL := endpointdomain.NormalizeBaseURL(requestBody.BaseURL)
-	if warnings := endpointdomain.ValidateBaseURL(normalizedURL); len(warnings) > 0 {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, strings.Join(warnings, "; "))
+	if failures := validateEndpointFields(endpointName, normalizedURL); len(failures.Fields) > 0 {
+		writeValidationFailure(w, r, s.corsSnapshot(), failures)
 		return
 	}
 
@@ -90,15 +96,22 @@ func (s *Service) handleCreateEndpoint(w http.ResponseWriter, r *http.Request) {
 		if err := ensureUniqueEndpointName(r.Context(), tx, profile.ID, endpointName, nil); err != nil {
 			return endpointResponse{}, err
 		}
-		encryptedAPIKey, err := endpointdomain.EncryptSecret(requestBody.APIKey, s.secretEncryptionKey, s.now)
+		metadata, err := endpointdomain.BuildSecretMetadata(requestBody.APIKey, s.secretEncryptionKey, s.nowUTC)
 		if err != nil {
 			return endpointResponse{}, err
 		}
-		position, err := nextEndpointPosition(r.Context(), tx, profile.ID)
-		if err != nil {
-			return endpointResponse{}, err
-		}
-		record, err := insertEndpoint(r.Context(), tx, endpointRecord{ProfileID: profile.ID, Name: endpointName, BaseURL: normalizedURL, APIKey: encryptedAPIKey, Position: position, CreatedAt: s.nowUTC(), UpdatedAt: s.nowUTC()})
+		now := s.nowUTC()
+		record, err := insertEndpoint(r.Context(), tx, endpointRecord{
+			ProfileID:         profile.ID,
+			Name:              endpointName,
+			BaseURL:           normalizedURL,
+			APIKey:            metadata.EncryptedValue,
+			APIKeyFingerprint: metadata.Fingerprint,
+			APIKeyUpdatedAt:   metadata.KeyUpdatedAt,
+			ConfigRevision:    1,
+			CreatedAt:         now,
+			UpdatedAt:         now,
+		})
 		if err != nil {
 			return endpointResponse{}, err
 		}
@@ -136,102 +149,78 @@ func (s *Service) handleUpdateEndpoint(w http.ResponseWriter, r *http.Request) {
 			return endpointResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Endpoint not found"}
 		}
 
+		nameChanged := false
+		urlChanged := false
+		keyChanged := false
+		now := s.nowUTC()
+
 		if requestBody.Name.Set {
 			endpointName := strings.TrimSpace(stringValue(requestBody.Name.Value))
-			if endpointName == "" {
-				return endpointResponse{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "name must not be empty"}
+			if code := endpointdomain.ValidateEndpointName(endpointName); code != "" {
+				return endpointResponse{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: validationFailureDetail{Code: "validation_failed", Fields: map[string]string{"name": code}}}
 			}
-			if err := ensureUniqueEndpointName(r.Context(), tx, profile.ID, endpointName, intPtr(record.ID)); err != nil {
-				return endpointResponse{}, err
+			if endpointName != record.Name {
+				if err := ensureUniqueEndpointName(r.Context(), tx, profile.ID, endpointName, intPtr(record.ID)); err != nil {
+					return endpointResponse{}, err
+				}
+				record.Name = endpointName
+				nameChanged = true
 			}
-			record.Name = endpointName
 		}
 		if requestBody.BaseURL.Set {
 			normalizedURL := endpointdomain.NormalizeBaseURL(stringValue(requestBody.BaseURL.Value))
-			if warnings := endpointdomain.ValidateBaseURL(normalizedURL); len(warnings) > 0 {
-				return endpointResponse{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: strings.Join(warnings, "; ")}
+			if codes := endpointdomain.ValidateBaseURL(normalizedURL); len(codes) > 0 {
+				return endpointResponse{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: validationFailureDetail{Code: "validation_failed", Fields: map[string]string{"base_url": codes[0]}}}
 			}
-			record.BaseURL = normalizedURL
-		}
-		if requestBody.APIKey.Set && strings.TrimSpace(stringValue(requestBody.APIKey.Value)) != "" {
-			incomingAPIKey := stringValue(requestBody.APIKey.Value)
-			encryptedAPIKey, encryptErr := endpointdomain.EncryptSecret(incomingAPIKey, s.secretEncryptionKey, s.now)
-			if encryptErr != nil {
-				return endpointResponse{}, encryptErr
+			if normalizedURL != record.BaseURL {
+				record.BaseURL = normalizedURL
+				urlChanged = true
 			}
-			record.APIKey = encryptedAPIKey
 		}
-		record.UpdatedAt = s.nowUTC()
+		if requestBody.APIKey.Set {
+			incomingKey := strings.TrimSpace(stringValue(requestBody.APIKey.Value))
+			if incomingKey != "" {
+				if endpointdomain.HasAPIKey(record.APIKey) {
+					existingPlaintext, decryptErr := endpointdomain.DecryptSecret(record.APIKey, s.secretEncryptionKey)
+					if decryptErr != nil {
+						return endpointResponse{}, decryptErr
+					}
+					if !endpointdomain.APIKeyIdentityMatches(s.secretEncryptionKey, existingPlaintext, incomingKey) {
+						metadata, metadataErr := endpointdomain.BuildSecretMetadata(incomingKey, s.secretEncryptionKey, s.nowUTC)
+						if metadataErr != nil {
+							return endpointResponse{}, metadataErr
+						}
+						record.APIKey = metadata.EncryptedValue
+						record.APIKeyFingerprint = metadata.Fingerprint
+						record.APIKeyUpdatedAt = metadata.KeyUpdatedAt
+						keyChanged = true
+					}
+				} else {
+					metadata, metadataErr := endpointdomain.BuildSecretMetadata(incomingKey, s.secretEncryptionKey, s.nowUTC)
+					if metadataErr != nil {
+						return endpointResponse{}, metadataErr
+					}
+					record.APIKey = metadata.EncryptedValue
+					record.APIKeyFingerprint = metadata.Fingerprint
+					record.APIKeyUpdatedAt = metadata.KeyUpdatedAt
+					keyChanged = true
+				}
+			}
+		}
+
+		if !nameChanged && !urlChanged && !keyChanged {
+			// No-op update: preserve updated_at, key time, ciphertext and revision.
+			return responseFromRecord(record), nil
+		}
+		if urlChanged || keyChanged {
+			record.ConfigRevision++
+		}
+		record.UpdatedAt = now
 		updated, err := updateEndpointRecord(r.Context(), tx, record)
 		if err != nil {
 			return endpointResponse{}, err
 		}
 		return responseFromRecord(updated), nil
-	})
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	responseutil.WriteJSON(w, http.StatusOK, response)
-}
-
-func (s *Service) handleMoveEndpointPosition(w http.ResponseWriter, r *http.Request) {
-	endpointID, err := routeInt(r, "endpoint_id")
-	if err != nil {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
-		return
-	}
-	var requestBody endpointPositionMoveRequest
-	if err := decodeJSONBody(r, &requestBody); err != nil {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
-		return
-	}
-
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "endpoint", func(tx pgx.Tx) ([]endpointResponse, error) {
-		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
-		if err != nil {
-			return nil, err
-		}
-		if err := lockProfileRow(r.Context(), tx, profile.ID); err != nil {
-			return nil, err
-		}
-		records, err := listOrderedEndpoints(r.Context(), tx, profile.ID)
-		if err != nil {
-			return nil, err
-		}
-		currentIndex := -1
-		for index := range records {
-			if records[index].ID == endpointID {
-				currentIndex = index
-				break
-			}
-		}
-		if currentIndex == -1 {
-			return nil, &domainError{StatusCode: http.StatusNotFound, Detail: "Endpoint not found"}
-		}
-		if requestBody.ToIndex < 0 || requestBody.ToIndex >= len(records) {
-			return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("to_index must be between 0 and %d", len(records)-1)}
-		}
-		if requestBody.ToIndex == currentIndex {
-			items := make([]endpointResponse, 0, len(records))
-			for _, record := range records {
-				items = append(items, responseFromRecord(record))
-			}
-			return items, nil
-		}
-
-		moved := records[currentIndex]
-		records = append(records[:currentIndex], records[currentIndex+1:]...)
-		records = append(records[:requestBody.ToIndex], append([]endpointRecord{moved}, records[requestBody.ToIndex:]...)...)
-		normalizeEndpointPositions(records, s.nowUTC())
-		if err := persistEndpointPositions(r.Context(), tx, records, s.nowUTC()); err != nil {
-			return nil, err
-		}
-		items := make([]endpointResponse, 0, len(records))
-		for _, record := range records {
-			items = append(items, responseFromRecord(record))
-		}
-		return items, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -254,7 +243,7 @@ func (s *Service) handleDuplicateEndpoint(w http.ResponseWriter, r *http.Request
 		if err := lockProfileRow(r.Context(), tx, profile.ID); err != nil {
 			return endpointResponse{}, err
 		}
-		source, found, err := loadEndpointRecord(r.Context(), tx, profile.ID, endpointID, false)
+		source, found, err := loadEndpointRecord(r.Context(), tx, profile.ID, endpointID, true)
 		if err != nil {
 			return endpointResponse{}, err
 		}
@@ -265,11 +254,32 @@ func (s *Service) handleDuplicateEndpoint(w http.ResponseWriter, r *http.Request
 		if err != nil {
 			return endpointResponse{}, err
 		}
-		position, err := nextEndpointPosition(r.Context(), tx, profile.ID)
-		if err != nil {
-			return endpointResponse{}, err
+		now := s.nowUTC()
+		metadata := endpointdomain.SecretMetadata{EncryptedValue: source.APIKey}
+		if endpointdomain.HasAPIKey(source.APIKey) {
+			plaintext, decryptErr := endpointdomain.DecryptSecret(source.APIKey, s.secretEncryptionKey)
+			if decryptErr != nil {
+				return endpointResponse{}, decryptErr
+			}
+			// Duplicate copies the key plaintext semantics and display
+			// fingerprint, re-encrypts for the new row, and stamps the new
+			// Endpoint's creation time as its key time.
+			metadata, err = endpointdomain.BuildSecretMetadata(plaintext, s.secretEncryptionKey, s.nowUTC)
+			if err != nil {
+				return endpointResponse{}, err
+			}
 		}
-		duplicate, err := insertEndpoint(r.Context(), tx, endpointRecord{ProfileID: profile.ID, Name: endpointdomain.BuildDuplicateEndpointName(source.Name, existingNames), BaseURL: source.BaseURL, APIKey: source.APIKey, Position: position, CreatedAt: s.nowUTC(), UpdatedAt: s.nowUTC()})
+		duplicate, err := insertEndpoint(r.Context(), tx, endpointRecord{
+			ProfileID:         profile.ID,
+			Name:              endpointdomain.BuildDuplicateEndpointName(source.Name, existingNames),
+			BaseURL:           source.BaseURL,
+			APIKey:            metadata.EncryptedValue,
+			APIKeyFingerprint: metadata.Fingerprint,
+			APIKeyUpdatedAt:   metadata.KeyUpdatedAt,
+			ConfigRevision:    1,
+			CreatedAt:         now,
+			UpdatedAt:         now,
+		})
 		if err != nil {
 			return endpointResponse{}, err
 		}
@@ -282,75 +292,23 @@ func (s *Service) handleDuplicateEndpoint(w http.ResponseWriter, r *http.Request
 	responseutil.WriteJSON(w, http.StatusCreated, response)
 }
 
-func (s *Service) handleDeleteEndpoint(w http.ResponseWriter, r *http.Request) {
-	endpointID, err := routeInt(r, "endpoint_id")
-	if err != nil {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
-		return
+func validateEndpointFields(endpointName string, normalizedURL string) validationFailureDetail {
+	detail := validationFailureDetail{Code: "validation_failed", Fields: map[string]string{}}
+	if code := endpointdomain.ValidateEndpointName(endpointName); code != "" {
+		detail.Fields["name"] = code
 	}
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "endpoint", func(tx pgx.Tx) (deletedResponse, error) {
-		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
-		if err != nil {
-			return deletedResponse{}, err
-		}
-		if err := lockProfileRow(r.Context(), tx, profile.ID); err != nil {
-			return deletedResponse{}, err
-		}
-		record, found, err := loadEndpointRecord(r.Context(), tx, profile.ID, endpointID, true)
-		if err != nil {
-			return deletedResponse{}, err
-		}
-		if !found {
-			return deletedResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Endpoint not found"}
-		}
-		usageRows, err := listEndpointUsageRows(r.Context(), tx, profile.ID, endpointID)
-		if err != nil {
-			return deletedResponse{}, err
-		}
-		if len(usageRows) > 0 {
-			connections := make([]map[string]any, 0, len(usageRows))
-			for _, row := range usageRows {
-				connections = append(connections, map[string]any{"connection_id": row.ConnectionID, "model_config_id": row.ModelConfigID, "model_id": row.ModelID, "name": row.Name})
-			}
-			return deletedResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: map[string]any{"message": "Cannot delete endpoint that is referenced by connections", "connections": connections}}
-		}
-		if err := deleteEndpoint(r.Context(), tx, endpointID); err != nil {
-			return deletedResponse{}, err
-		}
-		remaining, err := listOrderedEndpoints(r.Context(), tx, profile.ID)
-		if err != nil {
-			return deletedResponse{}, err
-		}
-		if normalizeEndpointPositions(remaining, s.nowUTC()) {
-			if err := persistEndpointPositions(r.Context(), tx, remaining, s.nowUTC()); err != nil {
-				return deletedResponse{}, err
-			}
-		}
-		_ = record
-		return deletedResponse{Deleted: true}, nil
-	})
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
+	if codes := endpointdomain.ValidateBaseURL(normalizedURL); len(codes) > 0 {
+		detail.Fields["base_url"] = codes[0]
 	}
-	responseutil.WriteJSON(w, http.StatusOK, response)
+	return detail
+}
+
+func writeValidationFailure(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, detail validationFailureDetail) {
+	responseutil.WriteError(w, r, corsSnapshot, http.StatusUnprocessableEntity, detail)
 }
 
 func resolveEffectiveProfile(ctx context.Context, tx pgx.Tx, r *http.Request) (profiledomain.Profile, error) {
 	return profiledomain.ResolveEffectiveProfile(ctx, tx, r.Header.Get(profiledomain.ProfileIDHeader))
-}
-
-func normalizeEndpointPositions(records []endpointRecord, currentTime time.Time) bool {
-	changed := false
-	for index := range records {
-		if records[index].Position == index {
-			continue
-		}
-		records[index].Position = index
-		records[index].UpdatedAt = currentTime
-		changed = true
-	}
-	return changed
 }
 
 func decodeJSONBody(request *http.Request, target any) error {
@@ -385,3 +343,9 @@ func stringValue(value *string) string {
 	}
 	return *value
 }
+
+func intPtr(value int) *int {
+	resolved := value
+	return &resolved
+}
+

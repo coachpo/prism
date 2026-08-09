@@ -592,15 +592,22 @@ func (s *Service) createInlineEndpoint(ctx context.Context, tx pgx.Tx, profileID
 	if err := ensureUniqueEndpointName(ctx, tx, profileID, endpointName); err != nil {
 		return endpointRecord{}, err
 	}
-	encryptedAPIKey, err := endpointdomain.EncryptSecret(inline.APIKey, s.secretEncryptionKey, s.now)
+	metadata, err := endpointdomain.BuildSecretMetadata(inline.APIKey, s.secretEncryptionKey, s.nowUTC)
 	if err != nil {
 		return endpointRecord{}, err
 	}
-	position, err := nextEndpointPosition(ctx, tx, profileID)
-	if err != nil {
-		return endpointRecord{}, err
-	}
-	return insertEndpoint(ctx, tx, endpointRecord{ProfileID: profileID, Name: endpointName, BaseURL: normalizedURL, APIKey: encryptedAPIKey, Position: position, CreatedAt: s.nowUTC(), UpdatedAt: s.nowUTC()})
+	now := s.nowUTC()
+	return insertEndpoint(ctx, tx, endpointRecord{
+		ProfileID:         profileID,
+		Name:              endpointName,
+		BaseURL:           normalizedURL,
+		APIKey:            metadata.EncryptedValue,
+		APIKeyFingerprint: metadata.Fingerprint,
+		APIKeyUpdatedAt:   metadata.KeyUpdatedAt,
+		ConfigRevision:    1,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	})
 }
 
 func validateLimiter(fieldName string, value *int) error {

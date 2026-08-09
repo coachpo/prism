@@ -3,14 +3,16 @@ package terminaltarget
 import "time"
 
 type Endpoint struct {
-	ID        int
-	ProfileID int
-	Name      string
-	BaseURL   string
-	APIKey    string
-	Position  int
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID                 int
+	ProfileID          int
+	Name               string
+	BaseURL            string
+	APIKey             string
+	APIKeyFingerprint  *string
+	APIKeyUpdatedAt    *time.Time
+	ConfigRevision     int64
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 type PricingTemplateSummary struct {
