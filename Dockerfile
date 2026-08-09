@@ -21,7 +21,7 @@ ARG VITE_API_BASE=
 ARG VITE_GIT_RUN_NUMBER=local
 ARG VITE_GIT_REVISION=unknown
 
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY frontend/ ./
