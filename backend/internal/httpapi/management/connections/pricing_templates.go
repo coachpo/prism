@@ -72,7 +72,7 @@ func (s *Service) handleGetPricingTemplate(w http.ResponseWriter, r *http.Reques
 			return pricingTemplateResponse{}, err
 		}
 		if !found {
-			return pricingTemplateResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Pricing template not found"}
+			return pricingTemplateResponse{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "Pricing template not found"}
 		}
 		return item, nil
 	})
@@ -240,7 +240,7 @@ func (s *Service) handleUpdatePricingTemplate(w http.ResponseWriter, r *http.Req
 			return pricingTemplateResponse{}, err
 		}
 		if !found {
-			return pricingTemplateResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Pricing template not found"}
+			return pricingTemplateResponse{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "Pricing template not found"}
 		}
 		if err := validatePricingTemplateExpectedUpdatedAt(current.UpdatedAt, requestBody.ExpectedUpdatedAt); err != nil {
 			return pricingTemplateResponse{}, err
@@ -260,7 +260,7 @@ func (s *Service) handleUpdatePricingTemplate(w http.ResponseWriter, r *http.Req
 			return pricingTemplateResponse{}, err
 		}
 		if !found {
-			return pricingTemplateResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Pricing template not found"}
+			return pricingTemplateResponse{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "Pricing template not found"}
 		}
 		return updated, nil
 	})
@@ -290,7 +290,7 @@ func (s *Service) handleDeletePricingTemplate(w http.ResponseWriter, r *http.Req
 			return deletedResponse{}, err
 		}
 		if !found {
-			return deletedResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Pricing template not found"}
+			return deletedResponse{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "Pricing template not found"}
 		}
 		usageRows, err := listPricingTemplateConnectionUsageRows(r.Context(), tx, profile.ID, templateID)
 		if err != nil {
@@ -308,7 +308,7 @@ func (s *Service) handleDeletePricingTemplate(w http.ResponseWriter, r *http.Req
 					EndpointName:   derefString(row.EndpointName),
 				})
 			}
-			return deletedResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: map[string]any{"message": "Cannot delete pricing template that is referenced by connections", "connections": connections}}
+			return deletedResponse{}, &DomainError{StatusCode: http.StatusConflict, Detail: map[string]any{"message": "Cannot delete pricing template that is referenced by connections", "connections": connections}}
 		}
 		if err := deletePricingTemplate(r.Context(), tx, templateID); err != nil {
 			return deletedResponse{}, err
@@ -428,10 +428,10 @@ func validatePricingTemplateExpectedUpdatedAt(current time.Time, expected option
 	}
 	parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*expected.Value))
 	if err != nil {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: "expected_updated_at must be a valid RFC3339 timestamp"}
+		return &DomainError{StatusCode: http.StatusBadRequest, Detail: "expected_updated_at must be a valid RFC3339 timestamp"}
 	}
 	if !current.UTC().Equal(parsed.UTC()) {
-		return &domainError{StatusCode: http.StatusConflict, Detail: "Pricing template has changed. Please refresh and retry."}
+		return &DomainError{StatusCode: http.StatusConflict, Detail: "Pricing template has changed. Please refresh and retry."}
 	}
 	return nil
 }
@@ -442,11 +442,11 @@ func normalizePricingTemplateName(raw string) (string, error) {
 
 func normalizeOptionalRequiredName(fieldName string, raw *string) (string, error) {
 	if raw == nil {
-		return "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s is required", fieldName)}
+		return "", &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s is required", fieldName)}
 	}
 	trimmed := strings.TrimSpace(*raw)
 	if trimmed == "" {
-		return "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s must not be empty", fieldName)}
+		return "", &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s must not be empty", fieldName)}
 	}
 	return trimmed, nil
 }
@@ -460,11 +460,11 @@ func normalizePricingUnit(raw *string) (string, error) {
 
 func normalizeOptionalRequiredPricingUnit(raw *string) (string, error) {
 	if raw == nil {
-		return "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "pricing_unit is required"}
+		return "", &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "pricing_unit is required"}
 	}
 	trimmed := strings.TrimSpace(*raw)
 	if trimmed != pricingUnitPerMillion {
-		return "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "pricing_unit must be PER_1M"}
+		return "", &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "pricing_unit must be PER_1M"}
 	}
 	return trimmed, nil
 }
@@ -475,11 +475,11 @@ func normalizePricingCurrencyCode(raw string) (string, error) {
 
 func normalizeOptionalRequiredPricingCurrencyCode(raw *string) (string, error) {
 	if raw == nil {
-		return "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "pricing_currency_code is required"}
+		return "", &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "pricing_currency_code is required"}
 	}
 	trimmed := strings.ToUpper(strings.TrimSpace(*raw))
 	if len(trimmed) != 3 || strings.IndexFunc(trimmed, func(r rune) bool { return r < 'A' || r > 'Z' }) != -1 {
-		return "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "pricing_currency_code must be a three-letter currency code"}
+		return "", &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "pricing_currency_code must be a three-letter currency code"}
 	}
 	return trimmed, nil
 }
@@ -493,7 +493,7 @@ func normalizePricingDecimalString(fieldName string, raw *string) (string, error
 		return "0", nil
 	}
 	if !pricingTemplateDecimalPattern.MatchString(trimmed) {
-		return "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s must be a non-negative decimal string", fieldName)}
+		return "", &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s must be a non-negative decimal string", fieldName)}
 	}
 	return trimmed, nil
 }

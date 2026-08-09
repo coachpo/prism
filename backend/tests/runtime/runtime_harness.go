@@ -79,33 +79,33 @@ type runtimeRouteSeed struct {
 }
 
 type runtimeStateSeed struct {
-	ProfileID               int
-	ConnectionID            int
-	CycleRetryAttempts      int
-	CumulativeRetryAttempts int
-	NextRetryAt             *time.Time
-	LastRetryDelayMS        int
-	LastFailureKind         *string
-	BanMode                 string
-	BannedUntilAt           *time.Time
-	WindowStartedAt         *time.Time
-	WindowRequestCount      int
-	InFlightNonStream       int
-	InFlightStream          int
-	LiveP95LatencyMS        *int
-	LastSuccessAt           *time.Time
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
-	ConsecutiveFailures     int
-	LastCooldownSeconds     float64
-	MaxCooldownStrikes      int
-	BlockedUntilAt          *time.Time
-	ProbeAvailableAt        *time.Time
-	ProbeEligibleLogged     bool
-	CircuitState            string
-	LastLiveFailureKind     *string
-	LastLiveFailureAt       *time.Time
-	LastLiveSuccessAt       *time.Time
+	ProfileID                           int
+	ConnectionID                        int
+	CycleRetryAttempts                  int
+	CumulativeRetryAttempts             int
+	NextRetryAt                         *time.Time
+	LastRetryDelayMS                    int
+	LastFailureKind                     *string
+	BanMode                             string
+	BannedUntilAt                       *time.Time
+	WindowStartedAt                     *time.Time
+	WindowRequestCount                  int
+	InFlightNonStream                   int
+	InFlightStream                      int
+	LastSuccessResponseHeadersLatencyMS *int
+	LastSuccessAt                       *time.Time
+	CreatedAt                           time.Time
+	UpdatedAt                           time.Time
+	ConsecutiveFailures                 int
+	LastCooldownSeconds                 float64
+	MaxCooldownStrikes                  int
+	BlockedUntilAt                      *time.Time
+	ProbeAvailableAt                    *time.Time
+	ProbeEligibleLogged                 bool
+	CircuitState                        string
+	LastLiveFailureKind                 *string
+	LastLiveFailureAt                   *time.Time
+	LastLiveSuccessAt                   *time.Time
 }
 
 type upstreamRequestSnapshot struct {
@@ -292,7 +292,7 @@ func newRuntimeHarnessForDatabaseWithConfig(tb testing.TB, databaseName string, 
 		tb.Fatalf("build connections service: %v", err)
 	}
 	tb.Cleanup(connectionsService.Close)
-	modelsService, err := managementmodels.NewService(settings, managementmodels.Options{Pool: pool})
+	modelsService, err := managementmodels.NewService(settings, managementmodels.Options{Pool: pool, SecretEncryptionKey: settings.SecretEncryptionKey})
 	if err != nil {
 		tb.Fatalf("build models service: %v", err)
 	}
@@ -991,20 +991,20 @@ func (h *runtimeHarness) seedRuntimeState(t *testing.T, seed runtimeStateSeed) {
 	}
 	modelConfigID := h.modelConfigIDForConnection(t, seed.ConnectionID)
 	h.runtimeService.RuntimeState().SeedConnectionState(seed.ProfileID, modelConfigID, seed.ConnectionID, loadbalancedomain.RuntimeConnectionState{
-		ConnectionID:            seed.ConnectionID,
-		BanMode:                 banMode,
-		BannedUntilAt:           cloneTime(seed.BannedUntilAt),
-		WindowStartedAt:         cloneTime(seed.WindowStartedAt),
-		WindowRequestCount:      seed.WindowRequestCount,
-		InFlightNonStream:       seed.InFlightNonStream,
-		InFlightStream:          seed.InFlightStream,
-		CycleRetryAttempts:      cycleRetryAttempts,
-		CumulativeRetryAttempts: cumulativeRetryAttempts,
-		NextRetryAt:             nextRetryAt,
-		LastRetryDelayMS:        lastRetryDelayMS,
-		LastFailureKind:         cloneString(seed.LastFailureKind),
-		LastSuccessAt:           lastSuccessAt,
-		LiveP95LatencyMS:        cloneInt(seed.LiveP95LatencyMS),
+		ConnectionID:                        seed.ConnectionID,
+		BanMode:                             banMode,
+		BannedUntilAt:                       cloneTime(seed.BannedUntilAt),
+		WindowStartedAt:                     cloneTime(seed.WindowStartedAt),
+		WindowRequestCount:                  seed.WindowRequestCount,
+		InFlightNonStream:                   seed.InFlightNonStream,
+		InFlightStream:                      seed.InFlightStream,
+		CycleRetryAttempts:                  cycleRetryAttempts,
+		CumulativeRetryAttempts:             cumulativeRetryAttempts,
+		NextRetryAt:                         nextRetryAt,
+		LastRetryDelayMS:                    lastRetryDelayMS,
+		LastFailureKind:                     cloneString(seed.LastFailureKind),
+		LastSuccessAt:                       lastSuccessAt,
+		LastSuccessResponseHeadersLatencyMS: cloneInt(seed.LastSuccessResponseHeadersLatencyMS),
 	}, createdAt, updatedAt)
 }
 
@@ -1100,28 +1100,28 @@ type concurrentRuntimeRequestResult struct {
 }
 
 type persistedRuntimeState struct {
-	CycleRetryAttempts      int
-	CumulativeRetryAttempts int
-	NextRetryAt             sql.NullTime
-	LastRetryDelayMS        int
-	LastFailureKind         sql.NullString
-	BanMode                 string
-	BannedUntilAt           sql.NullTime
-	LastSuccessAt           sql.NullTime
-	WindowRequestCount      int
-	InFlightNonStream       int
-	InFlightStream          int
-	LiveP95LatencyMS        sql.NullInt32
-	ConsecutiveFailures     int
-	LastCooldownSeconds     float64
-	MaxCooldownStrikes      int
-	OpenUntilAt             sql.NullTime
-	ProbeEligibleLogged     bool
-	CircuitState            string
-	ProbeAvailableAt        sql.NullTime
-	LastLiveFailureKind     sql.NullString
-	LastLiveFailureAt       sql.NullTime
-	LastLiveSuccessAt       sql.NullTime
+	CycleRetryAttempts                  int
+	CumulativeRetryAttempts             int
+	NextRetryAt                         sql.NullTime
+	LastRetryDelayMS                    int
+	LastFailureKind                     sql.NullString
+	BanMode                             string
+	BannedUntilAt                       sql.NullTime
+	LastSuccessAt                       sql.NullTime
+	WindowRequestCount                  int
+	InFlightNonStream                   int
+	InFlightStream                      int
+	LastSuccessResponseHeadersLatencyMS sql.NullInt32
+	ConsecutiveFailures                 int
+	LastCooldownSeconds                 float64
+	MaxCooldownStrikes                  int
+	OpenUntilAt                         sql.NullTime
+	ProbeEligibleLogged                 bool
+	CircuitState                        string
+	ProbeAvailableAt                    sql.NullTime
+	LastLiveFailureKind                 sql.NullString
+	LastLiveFailureAt                   sql.NullTime
+	LastLiveSuccessAt                   sql.NullTime
 }
 
 type persistedLoadbalanceEvent struct {
@@ -1157,26 +1157,26 @@ func loadRuntimeState(t *testing.T, harness *runtimeHarness, profileID int, conn
 		circuitState = "open"
 	}
 	return persistedRuntimeState{
-		CycleRetryAttempts:      snapshot.CycleRetryAttempts,
-		CumulativeRetryAttempts: snapshot.CumulativeRetryAttempts,
-		NextRetryAt:             sqlNullTime(snapshot.NextRetryAt),
-		LastRetryDelayMS:        snapshot.LastRetryDelayMS,
-		LastFailureKind:         sqlNullString(snapshot.LastFailureKind),
-		BanMode:                 snapshot.BanMode,
-		BannedUntilAt:           sqlNullTime(snapshot.BannedUntilAt),
-		LastSuccessAt:           sqlNullTime(snapshot.LastSuccessAt),
-		WindowRequestCount:      snapshot.WindowRequestCount,
-		InFlightNonStream:       snapshot.InFlightNonStream,
-		InFlightStream:          snapshot.InFlightStream,
-		LiveP95LatencyMS:        sqlNullInt32(snapshot.LiveP95LatencyMS),
-		ConsecutiveFailures:     snapshot.CumulativeRetryAttempts,
-		LastCooldownSeconds:     float64(snapshot.LastRetryDelayMS) / 1000,
-		MaxCooldownStrikes:      snapshot.CycleRetryAttempts,
-		OpenUntilAt:             sqlNullTime(snapshot.NextRetryAt),
-		CircuitState:            circuitState,
-		ProbeAvailableAt:        sqlNullTime(snapshot.NextRetryAt),
-		LastLiveFailureKind:     sqlNullString(snapshot.LastFailureKind),
-		LastLiveSuccessAt:       sqlNullTime(snapshot.LastSuccessAt),
+		CycleRetryAttempts:                  snapshot.CycleRetryAttempts,
+		CumulativeRetryAttempts:             snapshot.CumulativeRetryAttempts,
+		NextRetryAt:                         sqlNullTime(snapshot.NextRetryAt),
+		LastRetryDelayMS:                    snapshot.LastRetryDelayMS,
+		LastFailureKind:                     sqlNullString(snapshot.LastFailureKind),
+		BanMode:                             snapshot.BanMode,
+		BannedUntilAt:                       sqlNullTime(snapshot.BannedUntilAt),
+		LastSuccessAt:                       sqlNullTime(snapshot.LastSuccessAt),
+		WindowRequestCount:                  snapshot.WindowRequestCount,
+		InFlightNonStream:                   snapshot.InFlightNonStream,
+		InFlightStream:                      snapshot.InFlightStream,
+		LastSuccessResponseHeadersLatencyMS: sqlNullInt32(snapshot.LastSuccessResponseHeadersLatencyMS),
+		ConsecutiveFailures:                 snapshot.CumulativeRetryAttempts,
+		LastCooldownSeconds:                 float64(snapshot.LastRetryDelayMS) / 1000,
+		MaxCooldownStrikes:                  snapshot.CycleRetryAttempts,
+		OpenUntilAt:                         sqlNullTime(snapshot.NextRetryAt),
+		CircuitState:                        circuitState,
+		ProbeAvailableAt:                    sqlNullTime(snapshot.NextRetryAt),
+		LastLiveFailureKind:                 sqlNullString(snapshot.LastFailureKind),
+		LastLiveSuccessAt:                   sqlNullTime(snapshot.LastSuccessAt),
 	}
 }
 

@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
@@ -78,7 +80,7 @@ func (s *Service) handleListModelConnections(w http.ResponseWriter, r *http.Requ
 			return nil, err
 		}
 		if !found {
-			return nil, &domainError{StatusCode: http.StatusNotFound, Detail: "Model configuration not found"}
+			return nil, &DomainError{StatusCode: http.StatusNotFound, Detail: "Model configuration not found"}
 		}
 		return listConnectionsForModel(r.Context(), tx, profile.ID, owner.ID)
 	})
@@ -120,7 +122,7 @@ func (s *Service) handleGetConnection(w http.ResponseWriter, r *http.Request) {
 			return connectionResponse{}, err
 		}
 		if !found {
-			return connectionResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Connection not found"}
+			return connectionResponse{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "Connection not found"}
 		}
 		return connection, nil
 	})
@@ -147,97 +149,51 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (connectionResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (connectionMutationEnvelope, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
-			return connectionResponse{}, err
+			return connectionMutationEnvelope{}, err
 		}
 		owner, found, err := loadModelRecord(r.Context(), tx, profile.ID, modelConfigID, true)
 		if err != nil {
-			return connectionResponse{}, err
+			return connectionMutationEnvelope{}, err
 		}
 		if !found {
-			return connectionResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Model configuration not found"}
+			return connectionMutationEnvelope{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "Model configuration not found"}
 		}
 		if err := validateOwnerScopedAPIFamily(requestBody.APIFamily, owner.APIFamily); err != nil {
-			return connectionResponse{}, err
+			return connectionMutationEnvelope{}, err
 		}
-		if requestBody.EndpointID != nil && requestBody.EndpointCreate != nil {
-			return connectionResponse{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "Exactly one of endpoint_id or endpoint_create is required"}
-		}
-		if requestBody.EndpointID == nil && requestBody.EndpointCreate == nil {
-			return connectionResponse{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "Exactly one of endpoint_id or endpoint_create is required"}
-		}
-		authType, err := validateAuthType(requestBody.AuthType)
-		if err != nil {
-			return connectionResponse{}, err
-		}
-		if err := validateLimiter("qps_limit", requestBody.QPSLimit); err != nil {
-			return connectionResponse{}, err
-		}
-		if err := validateLimiter("max_in_flight_non_stream", requestBody.MaxInFlightNonStream); err != nil {
-			return connectionResponse{}, err
-		}
-		if err := validateLimiter("max_in_flight_stream", requestBody.MaxInFlightStream); err != nil {
-			return connectionResponse{}, err
-		}
-		openAITextCapability, err := resolveOpenAITextCapabilityCreate(owner.APIFamily, requestBody.OpenAITextCapability)
-		if err != nil {
-			return connectionResponse{}, err
-		}
-		if err := ensureOpenAITextCapabilityMatchesOwner(owner, openAITextCapability); err != nil {
-			return connectionResponse{}, err
-		}
-		pricingTemplateID, err := validatePricingTemplateID(r.Context(), tx, profile.ID, requestBody.PricingTemplateID)
-		if err != nil {
-			return connectionResponse{}, err
+		var inlineEndpoint *InlineEndpointCreate
+		if requestBody.EndpointCreate != nil {
+			inlineEndpoint = &InlineEndpointCreate{Name: requestBody.EndpointCreate.Name, BaseURL: requestBody.EndpointCreate.BaseURL, APIKey: requestBody.EndpointCreate.APIKey}
 		}
 		customRequestParameters, err := resolveCustomRequestParametersCreate(requestBody.CustomRequestParameters)
 		if err != nil {
-			return connectionResponse{}, err
+			return connectionMutationEnvelope{}, err
 		}
-		endpoint, err := s.resolveCreateEndpoint(r.Context(), tx, profile.ID, requestBody.EndpointID, requestBody.EndpointCreate)
-		if err != nil {
-			return connectionResponse{}, err
-		}
-		position, err := nextModelAccessTargetPosition(r.Context(), tx, profile.ID, owner.ID)
-		if err != nil {
-			return connectionResponse{}, err
-		}
-		now := s.nowUTC()
-		item := connectionResponse{
-			ProfileID:               profile.ID,
-			APIFamily:               owner.APIFamily,
-			EndpointID:              endpoint.ID,
+		created, _, _, warnings, err := CreateOwnerConnection(r.Context(), tx, profile.ID, OwnerModel{ID: owner.ID, ProfileID: owner.ProfileID, ModelID: owner.ModelID, APIFamily: owner.APIFamily, OpenAIAcceptedFormat: owner.OpenAIAcceptedFormat}, s.secretEncryptionKey, s.now, OwnerConnectionCreateInput{
+			EndpointID:              requestBody.EndpointID,
+			EndpointCreate:          inlineEndpoint,
 			IsActive:                resolvedBool(requestBody.IsActive, true),
-			Priority:                position,
-			Name:                    normalizeOptionalString(requestBody.Name),
-			AuthType:                authType,
-			CustomHeaders:           normalizeHeaders(requestBody.CustomHeaders),
+			Name:                    requestBody.Name,
+			AuthType:                requestBody.AuthType,
+			CustomHeaders:           requestBody.CustomHeaders,
 			CustomRequestParameters: customRequestParameters,
-			OpenAITextCapability:    openAITextCapability,
-			PricingTemplateID:       pricingTemplateID,
+			OpenAITextCapability:    requestBody.OpenAITextCapability,
+			PricingTemplateID:       requestBody.PricingTemplateID,
 			QPSLimit:                requestBody.QPSLimit,
 			MaxInFlightNonStream:    requestBody.MaxInFlightNonStream,
 			MaxInFlightStream:       requestBody.MaxInFlightStream,
-			CreatedAt:               now,
-			UpdatedAt:               now,
-		}
-		connectionID, err := insertTerminalTarget(r.Context(), tx, terminalTargetRecordFromConnectionResponse(item))
+		})
 		if err != nil {
-			return connectionResponse{}, err
+			return connectionMutationEnvelope{}, err
 		}
-		if err := insertOwnerTerminalTargetAccess(r.Context(), tx, profile.ID, owner.ID, connectionID, position, now); err != nil {
-			return connectionResponse{}, err
-		}
-		created, found, err := loadModelConnectionRecord(r.Context(), tx, profile.ID, owner.ID, connectionID)
+		accessTargets, err := loadOwnerMutationAccessTargets(r.Context(), tx, profile.ID, owner.ID)
 		if err != nil {
-			return connectionResponse{}, err
+			return connectionMutationEnvelope{}, err
 		}
-		if !found {
-			return connectionResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Connection not found"}
-		}
-		return created, nil
+		return connectionMutationEnvelope{Connection: created, AccessTargets: accessTargets, ConfigurationWarnings: warnings}, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -275,48 +231,60 @@ func (s *Service) handleUpdateModelConnection(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (connectionResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (connectionMutationEnvelope, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
-			return connectionResponse{}, err
+			return connectionMutationEnvelope{}, err
 		}
 		owner, found, err := loadModelRecord(r.Context(), tx, profile.ID, modelConfigID, true)
 		if err != nil {
-			return connectionResponse{}, err
+			return connectionMutationEnvelope{}, err
 		}
 		if !found {
-			return connectionResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Model configuration not found"}
+			return connectionMutationEnvelope{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "Model configuration not found"}
 		}
 		if err := lockProfileAccessTargetRows(r.Context(), tx, profile.ID); err != nil {
-			return connectionResponse{}, err
+			return connectionMutationEnvelope{}, err
 		}
 		current, found, err := loadConnectionRecord(r.Context(), tx, profile.ID, connectionID, true)
 		if err != nil {
-			return connectionResponse{}, err
+			return connectionMutationEnvelope{}, err
 		}
 		if !found {
-			return connectionResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Connection not found"}
+			return connectionMutationEnvelope{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "Connection not found"}
 		}
 		if _, found, err := loadConnectionOwnerReference(r.Context(), tx, profile.ID, owner.ID, current.ID, true); err != nil {
-			return connectionResponse{}, err
+			return connectionMutationEnvelope{}, err
 		} else if !found {
-			return connectionResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Connection not found for owner model"}
+			return connectionMutationEnvelope{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "Connection not found for owner model"}
 		}
 		next, err := s.applyOwnerScopedConnectionUpdate(r.Context(), tx, profile.ID, owner, current, requestBody)
 		if err != nil {
-			return connectionResponse{}, err
+			return connectionMutationEnvelope{}, err
 		}
 		if err := updateTerminalTarget(r.Context(), tx, terminalTargetRecordFromConnectionResponse(next)); err != nil {
-			return connectionResponse{}, err
+			return connectionMutationEnvelope{}, err
 		}
 		updated, found, err := loadModelConnectionRecord(r.Context(), tx, profile.ID, owner.ID, current.ID)
 		if err != nil {
-			return connectionResponse{}, err
+			return connectionMutationEnvelope{}, err
 		}
 		if !found {
-			return connectionResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Connection not found"}
+			return connectionMutationEnvelope{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "Connection not found"}
 		}
-		return updated, nil
+		accessTargets, err := loadOwnerMutationAccessTargets(r.Context(), tx, profile.ID, owner.ID)
+		if err != nil {
+			return connectionMutationEnvelope{}, err
+		}
+		accessTargetID := 0
+		for _, target := range accessTargets {
+			if target.ConnectionID != nil && *target.ConnectionID == connectionID {
+				accessTargetID = target.ID
+				break
+			}
+		}
+		warnings := ownerScopedConnectionWarnings(OwnerModel{ID: owner.ID, ProfileID: owner.ProfileID, ModelID: owner.ModelID, APIFamily: owner.APIFamily, OpenAIAcceptedFormat: owner.OpenAIAcceptedFormat}, updated.OpenAITextCapability, accessTargetID, connectionID)
+		return connectionMutationEnvelope{Connection: updated, AccessTargets: accessTargets, ConfigurationWarnings: warnings}, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -327,38 +295,30 @@ func (s *Service) handleUpdateModelConnection(w http.ResponseWriter, r *http.Req
 
 func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.Tx, profileID int, owner modelRecord, current connectionResponse, requestBody connectionUpdateRequest) (connectionResponse, error) {
 	if requestBody.EndpointID.Set && requestBody.EndpointID.Value != nil && requestBody.EndpointCreate.Set && requestBody.EndpointCreate.Value != nil {
-		return connectionResponse{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "endpoint_id and endpoint_create are mutually exclusive"}
+		return connectionResponse{}, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "endpoint_id and endpoint_create are mutually exclusive"}
 	}
 	next := current
 	if requestBody.APIFamily.Set {
 		if requestBody.APIFamily.Value == nil {
-			return connectionResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "api_family is required"}
+			return connectionResponse{}, &DomainError{StatusCode: http.StatusBadRequest, Detail: "api_family is required"}
 		}
 		apiFamily, err := validateAPIFamily(*requestBody.APIFamily.Value, true)
 		if err != nil {
 			return connectionResponse{}, err
 		}
 		if !providerauth.SameAPIFamily(apiFamily, owner.APIFamily) {
-			return connectionResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "api_family must match owner model api_family"}
+			return connectionResponse{}, &DomainError{StatusCode: http.StatusBadRequest, Detail: "api_family must match owner model api_family"}
 		}
 		next.APIFamily = apiFamily
 	}
 	if !providerauth.SameAPIFamily(next.APIFamily, owner.APIFamily) {
-		return connectionResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: "Connection api_family must match owner model api_family"}
+		return connectionResponse{}, &DomainError{StatusCode: http.StatusConflict, Detail: "Connection api_family must match owner model api_family"}
 	}
 	openAITextCapability, err := resolveOpenAITextCapabilityUpdate(current.APIFamily, next.APIFamily, current.OpenAITextCapability, requestBody.OpenAITextCapability)
 	if err != nil {
 		return connectionResponse{}, err
 	}
 	next.OpenAITextCapability = openAITextCapability
-	if !providerauth.OpenAITextModesMatch(current.OpenAITextCapability, openAITextCapability) {
-		if err := ensureOpenAITextCapabilityMatchesOwner(owner, openAITextCapability); err != nil {
-			return connectionResponse{}, err
-		}
-		if err := ensureConnectionModeChangeAllowed(ctx, tx, profileID, current.ID, openAITextCapability); err != nil {
-			return connectionResponse{}, err
-		}
-	}
 
 	if requestBody.EndpointCreate.Set && requestBody.EndpointCreate.Value != nil {
 		endpoint, err := s.createInlineEndpoint(ctx, tx, profileID, *requestBody.EndpointCreate.Value)
@@ -373,7 +333,7 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 			return connectionResponse{}, err
 		}
 		if !found {
-			return connectionResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Endpoint not found"}
+			return connectionResponse{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "Endpoint not found"}
 		}
 		next.EndpointID = endpoint.ID
 	}
@@ -448,48 +408,52 @@ func (s *Service) handleDeleteModelConnection(w http.ResponseWriter, r *http.Req
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (deletedResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (deletedConnectionMutationEnvelope, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
-			return deletedResponse{}, err
+			return deletedConnectionMutationEnvelope{}, err
 		}
 		owner, found, err := loadModelRecord(r.Context(), tx, profile.ID, modelConfigID, true)
 		if err != nil {
-			return deletedResponse{}, err
+			return deletedConnectionMutationEnvelope{}, err
 		}
 		if !found {
-			return deletedResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Model configuration not found"}
+			return deletedConnectionMutationEnvelope{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "Model configuration not found"}
 		}
 		if err := lockProfileAccessTargetRows(r.Context(), tx, profile.ID); err != nil {
-			return deletedResponse{}, err
+			return deletedConnectionMutationEnvelope{}, err
 		}
 		current, found, err := loadConnectionRecord(r.Context(), tx, profile.ID, connectionID, true)
 		if err != nil {
-			return deletedResponse{}, err
+			return deletedConnectionMutationEnvelope{}, err
 		}
 		if !found {
-			return deletedResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Connection not found"}
+			return deletedConnectionMutationEnvelope{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "Connection not found"}
 		}
 		reference, found, err := loadConnectionOwnerReference(r.Context(), tx, profile.ID, owner.ID, current.ID, true)
 		if err != nil {
-			return deletedResponse{}, err
+			return deletedConnectionMutationEnvelope{}, err
 		}
 		if !found {
-			return deletedResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Connection not found for owner model"}
+			return deletedConnectionMutationEnvelope{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "Connection not found for owner model"}
 		}
 		if err := ensureOwnerConnectionDeleteAllowed(r.Context(), tx, profile.ID, owner, reference.TargetID); err != nil {
-			return deletedResponse{}, err
+			return deletedConnectionMutationEnvelope{}, err
 		}
 		if err := deleteModelAccessTargetRow(r.Context(), tx, reference.TargetID); err != nil {
-			return deletedResponse{}, err
+			return deletedConnectionMutationEnvelope{}, err
 		}
 		if err := deleteTerminalTarget(r.Context(), tx, current.ID); err != nil {
-			return deletedResponse{}, err
+			return deletedConnectionMutationEnvelope{}, err
 		}
 		if err := compactModelAccessTargetPositions(r.Context(), tx, profile.ID, owner.ID, s.nowUTC()); err != nil {
-			return deletedResponse{}, err
+			return deletedConnectionMutationEnvelope{}, err
 		}
-		return deletedResponse{Deleted: true}, nil
+		accessTargets, err := loadOwnerMutationAccessTargets(r.Context(), tx, profile.ID, owner.ID)
+		if err != nil {
+			return deletedConnectionMutationEnvelope{}, err
+		}
+		return deletedConnectionMutationEnvelope{Deleted: true, AccessTargets: accessTargets, ConfigurationWarnings: []modelrouting.ConfigurationWarning{}}, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -507,7 +471,7 @@ func ensureOwnerConnectionDeleteAllowed(ctx context.Context, exec queryExecutor,
 		return err
 	}
 	if enabledCount == 0 {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: "enabled models must include at least one enabled access target"}
+		return &DomainError{StatusCode: http.StatusBadRequest, Detail: "enabled models must include at least one enabled access target"}
 	}
 	return nil
 }
@@ -534,7 +498,7 @@ func (s *Service) handleListConnectionReferences(w http.ResponseWriter, r *http.
 		if _, found, err := loadConnectionRecord(r.Context(), tx, profile.ID, connectionID, false); err != nil {
 			return connectionReferencesResponse{}, err
 		} else if !found {
-			return connectionReferencesResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Connection not found"}
+			return connectionReferencesResponse{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "Connection not found"}
 		}
 		records, err := listConnectionReferenceRows(r.Context(), tx, profile.ID, connectionID)
 		if err != nil {
@@ -567,24 +531,24 @@ func (s *Service) resolveCreateEndpoint(ctx context.Context, tx pgx.Tx, profileI
 			return endpointRecord{}, err
 		}
 		if !found {
-			return endpointRecord{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Endpoint not found"}
+			return endpointRecord{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "Endpoint not found"}
 		}
 		return endpoint, nil
 	}
 	if inline != nil {
 		return s.createInlineEndpoint(ctx, tx, profileID, *inline)
 	}
-	return endpointRecord{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "Exactly one of endpoint_id or endpoint_create is required"}
+	return endpointRecord{}, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "Exactly one of endpoint_id or endpoint_create is required"}
 }
 
 func (s *Service) createInlineEndpoint(ctx context.Context, tx pgx.Tx, profileID int, inline endpointCreateRequest) (endpointRecord, error) {
 	endpointName := strings.TrimSpace(inline.Name)
 	if endpointName == "" {
-		return endpointRecord{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "endpoint_create.name must not be empty"}
+		return endpointRecord{}, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "endpoint_create.name must not be empty"}
 	}
 	normalizedURL := endpointdomain.NormalizeBaseURL(inline.BaseURL)
 	if warnings := endpointdomain.ValidateBaseURL(normalizedURL); len(warnings) > 0 {
-		return endpointRecord{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: strings.Join(warnings, "; ")}
+		return endpointRecord{}, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: strings.Join(warnings, "; ")}
 	}
 	if err := lockProfileRow(ctx, tx, profileID); err != nil {
 		return endpointRecord{}, err
@@ -603,9 +567,22 @@ func (s *Service) createInlineEndpoint(ctx context.Context, tx pgx.Tx, profileID
 	return insertEndpoint(ctx, tx, endpointRecord{ProfileID: profileID, Name: endpointName, BaseURL: normalizedURL, APIKey: encryptedAPIKey, Position: position, CreatedAt: s.nowUTC(), UpdatedAt: s.nowUTC()})
 }
 
+func normalizeConnectionPriorities(items []connectionResponse, currentTime time.Time) bool {
+	changed := false
+	for index := range items {
+		if items[index].Priority == index {
+			continue
+		}
+		items[index].Priority = index
+		items[index].UpdatedAt = currentTime
+		changed = true
+	}
+	return changed
+}
+
 func validateLimiter(fieldName string, value *int) error {
 	if value != nil && *value < 1 {
-		return &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s must be >= 1 when provided", fieldName)}
+		return &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s must be >= 1 when provided", fieldName)}
 	}
 	return nil
 }
@@ -614,12 +591,12 @@ func validateAPIFamily(value string, required bool) (string, error) {
 	normalized := providerauth.NormalizeAPIFamily(value)
 	if normalized == "" {
 		if required {
-			return "", &domainError{StatusCode: http.StatusBadRequest, Detail: "api_family is required"}
+			return "", &DomainError{StatusCode: http.StatusBadRequest, Detail: "api_family is required"}
 		}
 		return "", nil
 	}
 	if !providerauth.IsSupportedAPIFamily(normalized) {
-		return "", &domainError{StatusCode: http.StatusBadRequest, Detail: "api_family must be one of 'openai', 'anthropic', or 'gemini'"}
+		return "", &DomainError{StatusCode: http.StatusBadRequest, Detail: "api_family must be one of 'openai', 'anthropic', or 'gemini'"}
 	}
 	return normalized, nil
 }
@@ -630,34 +607,7 @@ func validateOwnerScopedAPIFamily(value string, ownerAPIFamily string) error {
 		return err
 	}
 	if apiFamily != "" && !providerauth.SameAPIFamily(apiFamily, ownerAPIFamily) {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: "api_family must match owner model api_family"}
-	}
-	return nil
-}
-
-func ensureOpenAITextCapabilityMatchesOwner(owner modelRecord, capability *string) error {
-	if !providerauth.IsOpenAI(owner.APIFamily) {
-		return nil
-	}
-	if !providerauth.OpenAITextModesMatch(owner.OpenAIAcceptedFormat, capability) {
-		return &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability must equal the owner model openai_accepted_format"}
-	}
-	return nil
-}
-
-func ensureConnectionModeChangeAllowed(ctx context.Context, exec queryExecutor, profileID int, connectionID int, capability *string) error {
-	references, err := listConnectionReferenceModeRows(ctx, exec, profileID, connectionID)
-	if err != nil {
-		return err
-	}
-	conflicting := make([]string, 0, len(references))
-	for _, reference := range references {
-		if !providerauth.OpenAITextModesMatch(capability, reference.OpenAIAcceptedFormat) {
-			conflicting = append(conflicting, reference.ModelID)
-		}
-	}
-	if len(conflicting) > 0 {
-		return &domainError{StatusCode: http.StatusConflict, Detail: fmt.Sprintf("Cannot change openai_text_capability: models [%s] target this connection", strings.Join(conflicting, ", "))}
+		return &DomainError{StatusCode: http.StatusBadRequest, Detail: "api_family must match owner model api_family"}
 	}
 	return nil
 }
@@ -669,7 +619,7 @@ func ensureConnectionAPIFamilyUpdateAllowed(ctx context.Context, exec queryExecu
 	}
 	for _, reference := range references {
 		if !providerauth.SameAPIFamily(reference.APIFamily, apiFamily) {
-			return &domainError{StatusCode: http.StatusConflict, Detail: fmt.Sprintf("Cannot change api_family: models [%s] target this connection", joinConnectionReferenceModelIDs(references))}
+			return &DomainError{StatusCode: http.StatusConflict, Detail: fmt.Sprintf("Cannot change api_family: models [%s] target this connection", joinConnectionReferenceModelIDs(references))}
 		}
 	}
 	return nil
@@ -702,7 +652,7 @@ func validateAuthType(value *string) (*string, error) {
 	}
 	normalized := providerauth.NormalizeAPIFamily(*value)
 	if normalized == "" || !providerauth.IsSupportedAuthType(normalized) {
-		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "auth_type must be one of 'openai', 'anthropic', or 'gemini'"}
+		return nil, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "auth_type must be one of 'openai', 'anthropic', or 'gemini'"}
 	}
 	return &normalized, nil
 }
@@ -720,7 +670,7 @@ func resolveOpenAITextCapabilityCreate(apiFamily string, value *string) (*string
 func resolveOpenAITextCapabilityUpdate(previousAPIFamily string, nextAPIFamily string, current *string, update optionalString) (*string, error) {
 	if !providerauth.IsOpenAI(nextAPIFamily) {
 		if update.Set && update.Value != nil && strings.TrimSpace(*update.Value) != "" {
-			return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is only supported for OpenAI-family connections"}
+			return nil, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is only supported for OpenAI-family connections"}
 		}
 		return nil, nil
 	}
@@ -730,19 +680,19 @@ func resolveOpenAITextCapabilityUpdate(previousAPIFamily string, nextAPIFamily s
 	if providerauth.IsOpenAI(previousAPIFamily) && current != nil && strings.TrimSpace(*current) != "" {
 		return normalizeOpenAITextCapability(nextAPIFamily, current, true)
 	}
-	return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is required for OpenAI-family connections"}
+	return nil, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is required for OpenAI-family connections"}
 }
 
 func normalizeOpenAITextCapability(apiFamily string, value *string, requiredForOpenAI bool) (*string, error) {
 	if !providerauth.IsOpenAI(apiFamily) {
 		if value != nil && strings.TrimSpace(*value) != "" {
-			return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is only supported for OpenAI-family connections"}
+			return nil, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is only supported for OpenAI-family connections"}
 		}
 		return nil, nil
 	}
 	if value == nil || strings.TrimSpace(*value) == "" {
 		if requiredForOpenAI {
-			return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is required for OpenAI-family connections"}
+			return nil, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is required for OpenAI-family connections"}
 		}
 		return nil, nil
 	}
@@ -751,7 +701,7 @@ func normalizeOpenAITextCapability(apiFamily string, value *string, requiredForO
 	case openAITextCapabilityResponsesOnly, openAITextCapabilityChatCompletionsOnly, openAITextCapabilityDualNative:
 		return &capability, nil
 	default:
-		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is invalid"}
+		return nil, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is invalid"}
 	}
 }
 
@@ -798,12 +748,8 @@ func decodeJSONBody(request *http.Request, target any) error {
 }
 
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
-	var connectionErr *domainError
+	var connectionErr *DomainError
 	if errors.As(err, &connectionErr) {
-		if len(connectionErr.Fields) > 0 {
-			responseutil.WriteErrorFields(w, r, corsSnapshot, connectionErr.StatusCode, connectionErr.Detail, connectionErr.Fields)
-			return
-		}
 		responseutil.WriteError(w, r, corsSnapshot, connectionErr.StatusCode, connectionErr.Detail)
 		return
 	}

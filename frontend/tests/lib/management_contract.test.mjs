@@ -59,12 +59,14 @@ const coreMock = {
 
     if (path === "/api/models/42/connections") {
       return options.method === "POST"
-        ? { id: 77, model_config_id: 42 }
+        ? { connection: { id: 77, model_config_id: 42 }, access_targets: [], configuration_warnings: [] }
         : [{ id: 77, model_config_id: 42 }];
     }
 
     if (path === "/api/models/42/connections/77") {
-      return options.method === "DELETE" ? undefined : { id: 77, model_config_id: 42 };
+      return options.method === "DELETE"
+        ? { deleted: true, access_targets: [], configuration_warnings: [] }
+        : { connection: { id: 77, model_config_id: 42 }, access_targets: [], configuration_warnings: [] };
     }
 
     if (path === "/api/connections/77/references") {
@@ -75,7 +77,7 @@ const coreMock = {
     }
 
     if (path === "/api/models/42/targets/12") {
-      return [];
+      return { access_targets: [], configuration_warnings: [] };
     }
 
     throw new Error(`Unexpected request path: ${path}`);

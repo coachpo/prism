@@ -19,7 +19,7 @@ models/
 
 - Feature route and table rendering: `../../features/models/`, `../../features/models/ModelsTable.tsx`
 - Shared model bootstrap and mutation patching: `useModelsPageData.ts`
-- Unified access-target form behavior, strategy attachment rules, mixed `(position, id)` ordering helpers, and payload transforms that carry fixed `api_family`: `modelFormState.ts`
+- Unified access-target form behavior, two-stage `(position, id)` ordering helpers, and payload transforms that carry fixed `api_family`: `modelFormState.ts`
 - Mixed access-target list editor with row-ID mutations: `AccessTargetsEditor.tsx`
 - Backend validation messages and create/edit payload handoff: `ModelDialog.tsx`
 - 24h metrics and spend overlays: `useModelMetrics24h.ts`
@@ -33,7 +33,7 @@ models/
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Bootstrap models from `@/lib/referenceData`, then patch the local list with `setSharedModels()` after mutations.
 - Keep access-target validation, strategy attachment rules, and `api_family` handling in `modelFormState.ts` instead of scattering them across dialog components.
-- `AccessTargetsEditor.tsx` consumes the persisted `ModelAccessTarget[]` directly and sorts defensively by `(position, id)`: Model and Terminal rows render in one mixed list with global "位置 N" numbering, adjacent cross-type moves use the same controls, and all row mutations pass the persistent target row ID.
+- `AccessTargetsEditor.tsx` consumes persisted access targets through mutation-shaped rows and renders explicit Model Target and Terminal Target stages with stage-local "位置 N" numbering. Moves stay within a stage while the backend retains the shared position storage key; row mutations use the current source index and connection actions use the connection ID.
 - Hydrate 24h metrics separately from the base model list so CRUD flows do not own observability queries.
 - Keep the grouped models table keyed by `api_family` while still rendering the per-row `api_family` metadata.
 

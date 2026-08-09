@@ -37,13 +37,17 @@ export function OverviewCards({
   const strategyAssignmentLabel = model.loadbalance_strategy
     ? getLoadbalanceStrategyDetailLabel(model.loadbalance_strategy, strategyCopy)
     : null;
-  const hasEnabledAccessTarget = (accessTargetSummary?.enabledTargetCount ?? 0) > 0;
-  // Only the position-smallest enabled mixed row may be presented as the first
-  // target; per-type counts are plain statistics and never imply a priority tier.
-  const accessTargetLabel = hasEnabledAccessTarget && accessTargetSummary
-    ? accessTargetSummary.firstEnabledTargetLabel
-      ? modelsUiCopy.targetsFirst(formatNumber(accessTargetSummary.enabledTargetCount), accessTargetSummary.firstEnabledTargetLabel)
-      : modelsUiCopy.accessTargets + ": " + formatNumber(accessTargetSummary.enabledTargetCount)
+  // Unified count vocabulary: N 启用 / M 总计 per stage, identical to the
+  // models list. No stage-first labels: with two-stage routing a "first
+  // target" label misleads.
+  const accessTargetSegments = accessTargetSummary
+    ? [
+        `${modelsUiCopy.modelFallbackTargets}: ${formatNumber(accessTargetSummary.enabledModelFallbackTargetCount)} 启用 / ${formatNumber(accessTargetSummary.totalModelTargetCount)} 总计`,
+        `${modelsUiCopy.terminalTargets}: ${formatNumber(accessTargetSummary.enabledTerminalTargetCount)} 启用 / ${formatNumber(accessTargetSummary.totalTerminalTargetCount)} 总计`,
+      ]
+    : [];
+  const accessTargetLabel = accessTargetSegments.length > 0
+    ? accessTargetSegments.join(" · ")
     : modelsUiCopy.needsTarget;
   const spendingTokenDetail = spending
     ? [

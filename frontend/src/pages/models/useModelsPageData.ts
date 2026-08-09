@@ -10,6 +10,7 @@ import {
   setSharedModels,
 } from "@/lib/referenceData";
 import type { LoadbalanceStrategy } from "@/lib/types";
+import type { ModelCreatePayloadWithTarget } from "./createModelDialogPayload";
 import { toast } from "sonner";
 import {
   createEditModelFormData,
@@ -238,16 +239,16 @@ export function useModelsPageData(revision: number) {
 
     try {
       if (editingModel) {
-        const updated = await api.models.update(editingModel.id, toModelUpdatePayload(formData));
+        const updatedResponse = await api.models.update(editingModel.id, toModelUpdatePayload(formData));
         commitModels((current) =>
           current.map((model) =>
-            model.id === editingModel.id ? toModelListItem(updated, model) : model
+            model.id === editingModel.id ? toModelListItem(updatedResponse.model, model) : model
           )
         );
         toast.success(messages.modelsData.updated);
       } else {
-        const created = await api.models.create(toModelCreatePayload(formData));
-        commitModels((current) => [...current, toModelListItem(created)]);
+        const createdResponse = await api.models.create(toModelCreatePayload(formData));
+        commitModels((current) => [...current, toModelListItem(createdResponse.model)]);
         toast.success(messages.modelsData.created);
       }
       handleSetIsDialogOpen(false);
@@ -256,6 +257,14 @@ export function useModelsPageData(revision: number) {
       setFormError(message);
       toast.error(message);
     }
+  };
+
+  const handleCreateModelSubmit = async (payload: ModelCreatePayloadWithTarget) => {
+    const messages = getStaticMessages();
+    const createdResponse = await api.models.create(payload);
+    commitModels((current) => [...current, toModelListItem(createdResponse.model)]);
+    toast.success(messages.modelsData.created);
+    return createdResponse;
   };
 
   const handleDelete = async () => {
@@ -323,6 +332,7 @@ export function useModelsPageData(revision: number) {
     handleCreateLoadbalanceStrategyDefaults,
     handleOpenDialog,
     handleSubmit,
+    handleCreateModelSubmit,
     isDialogOpen,
     loadbalanceStrategies,
     loadbalanceStrategyDefaultsCreating,

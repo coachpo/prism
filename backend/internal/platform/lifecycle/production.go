@@ -260,7 +260,7 @@ func (resources *productionResources) buildManagementServices(settings config.Se
 	runtimeState := planning.state
 	dashboardSnapshots := statsdomain.NewDashboardAggregateStore()
 	services := managementServices{dashboardSnapshots: dashboardSnapshots}
-	modelsService, err := managementmodels.NewService(settings, managementmodels.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool})
+	modelsService, err := managementmodels.NewService(settings, managementmodels.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool, SecretEncryptionKey: settings.SecretEncryptionKey})
 	if err != nil {
 		return services, err
 	}

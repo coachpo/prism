@@ -21,6 +21,7 @@ const updateMigrationSchemaGoldenEnv = "PRISM_UPDATE_MIGRATION_SCHEMA_GOLDEN"
 var expectedPrismMigrationVersions = []string{
 	migrate.DefaultBaselineVersion,
 	"000002_connection_custom_request_parameters",
+	"000003_runtime_latency_semantics",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
@@ -876,6 +877,72 @@ func sortedMapKeys(values map[string]string) []string {
 	return keys
 }
 
+func TestRuntimeLatencySemanticsMigrationPreservesValues(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openEmptyDatabase(t, testContext, "runtime_latency_semantics_preserve")
+	defer func() { _ = conn.Close(testContext) }()
+
+	firstResult, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run baseline before latency semantics migration: %v", err)
+	}
+	if firstResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected first run to apply baseline, got %q", firstResult.Outcome)
+	}
+
+	// Simulate a legacy database that predates the latency semantics migration:
+	// rename the column back to its historical name and un-stamp 000003 so the
+	// runner sees it as pending again.
+	if _, err := conn.Exec(testContext, `ALTER TABLE public.routing_connection_runtime_state RENAME COLUMN last_success_response_headers_latency_ms TO live_p95_latency_ms`); err != nil {
+		t.Fatalf("downgrade latency column to legacy name: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `DELETE FROM prism_schema_migrations WHERE version = '000003_runtime_latency_semantics'`); err != nil {
+		t.Fatalf("un-stamp 000003 history for legacy simulation: %v", err)
+	}
+
+	now := time.Now().UTC()
+	var profileID int
+	if err := conn.QueryRow(testContext, `INSERT INTO profiles (name, description, is_active, is_default, is_editable, version, deleted_at, created_at, updated_at) VALUES ('latency-semantics-preserve', NULL, FALSE, FALSE, TRUE, 1, NULL, $1, $1) RETURNING id`, now).Scan(&profileID); err != nil {
+		t.Fatalf("seed latency semantics profile: %v", err)
+	}
+	var endpointID int
+	if err := conn.QueryRow(testContext, `INSERT INTO endpoints (profile_id, name, base_url, api_key, position, created_at, updated_at) VALUES ($1, 'Latency Preserve Endpoint', 'https://latency-preserve.invalid', 'plain-api-key', 0, $2, $2) RETURNING id`, profileID, now).Scan(&endpointID); err != nil {
+		t.Fatalf("seed latency semantics endpoint: %v", err)
+	}
+	var connectionID int
+	if err := conn.QueryRow(testContext, `INSERT INTO connections (profile_id, api_family, endpoint_id, openai_text_capability, is_active, priority, name, health_status, created_at, updated_at) VALUES ($1, 'openai', $2, 'dual_native', TRUE, 0, 'latency-preserve', 'healthy', $3, $3) RETURNING id`, profileID, endpointID, now).Scan(&connectionID); err != nil {
+		t.Fatalf("seed latency semantics connection: %v", err)
+	}
+	latency := int32(540)
+	if _, err := conn.Exec(testContext, `INSERT INTO routing_connection_runtime_state (profile_id, connection_id, window_request_count, in_flight_non_stream, in_flight_stream, cycle_retry_attempts, cumulative_retry_attempts, last_retry_delay_ms, ban_mode, live_p95_latency_ms, created_at, updated_at) VALUES ($1, $2, 3, 1, 0, 2, 2, 500, 'off', $3, $4, $4)`, profileID, connectionID, latency, now); err != nil {
+		t.Fatalf("seed legacy live_p95_latency_ms row: %v", err)
+	}
+
+	upgradeResult, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run latency semantics migration on stamped database: %v", err)
+	}
+	if upgradeResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected latency semantics migration to apply, got %q", upgradeResult.Outcome)
+	}
+	assertMigrationVersions(t, "upgraded versions", upgradeResult.Versions, []string{"000003_runtime_latency_semantics"})
+
+	assertColumnPresence(t, testContext, conn, "routing_connection_runtime_state", "live_p95_latency_ms", false)
+	assertColumnPresence(t, testContext, conn, "routing_connection_runtime_state", "last_success_response_headers_latency_ms", true)
+
+	var preserved sql.NullInt32
+	if err := conn.QueryRow(testContext, `SELECT last_success_response_headers_latency_ms FROM routing_connection_runtime_state WHERE profile_id = $1 AND connection_id = $2`, profileID, connectionID).Scan(&preserved); err != nil {
+		t.Fatalf("load preserved latency value after rename: %v", err)
+	}
+	if !preserved.Valid || preserved.Int32 != 540 {
+		t.Fatalf("expected rename to preserve latency value 540, got %+v", preserved)
+	}
+}
+
 func TestConnectionCustomRequestParametersUpgradePath(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -896,13 +963,13 @@ func TestConnectionCustomRequestParametersUpgradePath(t *testing.T) {
 	// Simulate a pre-upgrade database stamped with 000001 only: existing
 	// connection rows and no custom_request_parameters surface.
 	if _, err := conn.Exec(testContext, `DELETE FROM prism_schema_migrations WHERE version = '000002_connection_custom_request_parameters'`); err != nil {
-		t.Fatalf("un-stamp 000002: %v", err)
+		t.Fatalf("un-stamp custom parameters migration: %v", err)
 	}
 	if _, err := conn.Exec(testContext, `ALTER TABLE connections DROP CONSTRAINT connections_custom_request_parameters_object`); err != nil {
-		t.Fatalf("drop 000002 check constraint: %v", err)
+		t.Fatalf("drop custom parameters check constraint: %v", err)
 	}
 	if _, err := conn.Exec(testContext, `ALTER TABLE connections DROP COLUMN custom_request_parameters`); err != nil {
-		t.Fatalf("drop 000002 column: %v", err)
+		t.Fatalf("drop custom parameters column: %v", err)
 	}
 
 	now := time.Now().UTC()
@@ -921,10 +988,10 @@ func TestConnectionCustomRequestParametersUpgradePath(t *testing.T) {
 
 	upgradeResult, err := runner.Run(testContext, conn)
 	if err != nil {
-		t.Fatalf("apply 000002 upgrade: %v", err)
+		t.Fatalf("apply custom parameters migration: %v", err)
 	}
 	if upgradeResult.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected upgrade run to apply 000002, got %q", upgradeResult.Outcome)
+		t.Fatalf("expected custom parameters migration to apply, got %q", upgradeResult.Outcome)
 	}
 
 	var storedCustomRequestParameters sql.NullString
@@ -934,8 +1001,6 @@ func TestConnectionCustomRequestParametersUpgradePath(t *testing.T) {
 	if storedCustomRequestParameters.Valid {
 		t.Fatalf("expected existing connection row to upgrade to NULL, got %q", storedCustomRequestParameters.String)
 	}
-
-	// The new CHECK constraint rejects non-object roots at the database layer.
 	if _, err := conn.Exec(testContext, `UPDATE connections SET custom_request_parameters = '[1,2]'::jsonb WHERE id = $1`, connectionID); err == nil {
 		t.Fatalf("expected database CHECK to reject a non-object custom_request_parameters root")
 	}

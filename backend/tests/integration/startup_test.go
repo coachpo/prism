@@ -378,13 +378,13 @@ func TestStartupPreservesRuntimeStatePersistenceAcrossRestart(t *testing.T) {
 		UpdatedAt:               now,
 	})
 	insertRuntimeState(t, testContext, conn, runtimeStateSeed{
-		ProfileID:        defaultProfile.ID,
-		ConnectionID:     closedConnectionID,
-		BanMode:          "off",
-		LiveP95LatencyMS: &latencyMS,
-		LastSuccessAt:    &successObservedAt,
-		CreatedAt:        now,
-		UpdatedAt:        now,
+		ProfileID:                           defaultProfile.ID,
+		ConnectionID:                        closedConnectionID,
+		BanMode:                             "off",
+		LastSuccessResponseHeadersLatencyMS: &latencyMS,
+		LastSuccessAt:                       &successObservedAt,
+		CreatedAt:                           now,
+		UpdatedAt:                           now,
 	})
 
 	beforeRestartSnapshot := snapshotRuntimeStateRows(t, testContext, conn)
@@ -400,19 +400,19 @@ func TestStartupPreservesRuntimeStatePersistenceAcrossRestart(t *testing.T) {
 }
 
 type runtimeStateSeed struct {
-	ProfileID               int
-	ConnectionID            int
-	CycleRetryAttempts      int
-	CumulativeRetryAttempts int
-	NextRetryAt             *time.Time
-	LastRetryDelayMS        int
-	BanMode                 string
-	BannedUntilAt           *time.Time
-	LastFailureKind         *string
-	LastSuccessAt           *time.Time
-	LiveP95LatencyMS        *int32
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
+	ProfileID                           int
+	ConnectionID                        int
+	CycleRetryAttempts                  int
+	CumulativeRetryAttempts             int
+	NextRetryAt                         *time.Time
+	LastRetryDelayMS                    int
+	BanMode                             string
+	BannedUntilAt                       *time.Time
+	LastFailureKind                     *string
+	LastSuccessAt                       *time.Time
+	LastSuccessResponseHeadersLatencyMS *int32
+	CreatedAt                           time.Time
+	UpdatedAt                           time.Time
 }
 
 type rowDumpQuery struct {
@@ -740,7 +740,6 @@ func assertObservedStepOrder(t *testing.T, steps []startup.Step) {
 	t.Helper()
 	want := []startup.Step{
 		startup.StepMigrations,
-		startup.StepOpenAITextModeCheck,
 		startup.StepProfileInvariantSeed,
 		startup.StepUserSettingsSeed,
 		startup.StepUserAgentClientRuleSeed,
@@ -992,7 +991,7 @@ func insertRuntimeState(t *testing.T, ctx context.Context, conn *pgx.Conn, seed 
 			banned_until_at,
 			last_failure_kind,
 			last_success_at,
-			live_p95_latency_ms,
+			last_success_response_headers_latency_ms,
 			created_at,
 			updated_at
 		) VALUES ($1, $2, NULL, 0, 0, 0, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
@@ -1006,7 +1005,7 @@ func insertRuntimeState(t *testing.T, ctx context.Context, conn *pgx.Conn, seed 
 		nullableSeedTime(seed.BannedUntilAt),
 		nullableSeedString(seed.LastFailureKind),
 		nullableSeedTime(seed.LastSuccessAt),
-		nullableSeedInt32(seed.LiveP95LatencyMS),
+		nullableSeedInt32(seed.LastSuccessResponseHeadersLatencyMS),
 		seed.CreatedAt,
 		seed.UpdatedAt,
 	); err != nil {
@@ -1074,7 +1073,7 @@ func snapshotRuntimeStateRows(t *testing.T, ctx context.Context, conn *pgx.Conn)
 	return dumpRows(t, ctx, conn, []rowDumpQuery{{
 		name: "routing_connection_runtime_state",
 		query: `SELECT profile_id, connection_id, cycle_retry_attempts, cumulative_retry_attempts, next_retry_at,
-			last_retry_delay_ms, ban_mode, banned_until_at, last_failure_kind, last_success_at, live_p95_latency_ms,
+			last_retry_delay_ms, ban_mode, banned_until_at, last_failure_kind, last_success_at, last_success_response_headers_latency_ms,
 			created_at, updated_at
 		FROM routing_connection_runtime_state
 		ORDER BY profile_id ASC, connection_id ASC`,

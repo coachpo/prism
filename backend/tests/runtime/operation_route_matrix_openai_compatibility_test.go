@@ -46,8 +46,9 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 			requestBody: func(route seededRuntimeRoute) map[string]any {
 				return map[string]any{"model": route.PublicModelID, "input": "rejected responses ingress", "max_output_tokens": 64}
 			},
-			textCapability: "chat_completions_only",
-			wantStatus:     http.StatusBadRequest,
+			textCapability:     "chat_completions_only",
+			requestedModelMode: "dual_native",
+			wantStatus:         http.StatusBadRequest,
 		},
 		{
 			name:        "chat ingress rejects responses-only target",
@@ -55,8 +56,9 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 			requestBody: func(route seededRuntimeRoute) map[string]any {
 				return map[string]any{"model": route.PublicModelID, "messages": []map[string]any{{"role": "user", "content": "rejected chat ingress"}}, "max_completion_tokens": 64}
 			},
-			textCapability: "responses_only",
-			wantStatus:     http.StatusBadRequest,
+			textCapability:     "responses_only",
+			requestedModelMode: "dual_native",
+			wantStatus:         http.StatusBadRequest,
 		},
 		{
 			name:        "responses ingress stays native on responses-only target",
@@ -99,46 +101,6 @@ func TestOperationRouteMatrixOpenAITextCapabilityMatrix(t *testing.T) {
 			wantUpstreamOperation: "openai.responses",
 			wantTranslationMode:   "none",
 			wantStatus:            http.StatusOK,
-		},
-		{
-			name:        "dual-native target rejects chat-only requested format",
-			requestPath: "/v1/chat/completions",
-			requestBody: func(route seededRuntimeRoute) map[string]any {
-				return map[string]any{"model": route.PublicModelID, "messages": []map[string]any{{"role": "user", "content": "strict chat reject"}}, "max_completion_tokens": 64}
-			},
-			textCapability:     "dual_native",
-			requestedModelMode: "chat_completions_only",
-			wantStatus:         http.StatusBadRequest,
-		},
-		{
-			name:        "dual-native target rejects responses-only requested format",
-			requestPath: "/v1/responses",
-			requestBody: func(route seededRuntimeRoute) map[string]any {
-				return map[string]any{"model": route.PublicModelID, "input": "strict responses reject", "max_output_tokens": 64}
-			},
-			textCapability:     "dual_native",
-			requestedModelMode: "responses_only",
-			wantStatus:         http.StatusBadRequest,
-		},
-		{
-			name:        "dual-native target rejects chat-only requested format streaming",
-			requestPath: "/v1/chat/completions",
-			requestBody: func(route seededRuntimeRoute) map[string]any {
-				return map[string]any{"model": route.PublicModelID, "messages": []map[string]any{{"role": "user", "content": "strict chat stream reject"}}, "max_completion_tokens": 64, "stream": true}
-			},
-			textCapability:     "dual_native",
-			requestedModelMode: "chat_completions_only",
-			wantStatus:         http.StatusBadRequest,
-		},
-		{
-			name:        "dual-native target rejects responses-only requested format streaming",
-			requestPath: "/v1/responses",
-			requestBody: func(route seededRuntimeRoute) map[string]any {
-				return map[string]any{"model": route.PublicModelID, "input": "strict responses stream reject", "max_output_tokens": 64, "stream": true}
-			},
-			textCapability:     "dual_native",
-			requestedModelMode: "responses_only",
-			wantStatus:         http.StatusBadRequest,
 		},
 	}
 
@@ -205,9 +167,25 @@ func TestOperationRouteMatrixResponsesRejectsChatOnlyRequestedModelFormat(t *tes
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": route.PublicModelID, "input": "reject model wire"}, nil)
-	assertRouteMatrixUnsupportedWire(t, response)
+	assertRouteMatrixOperationNotSupported(t, response)
 	if got := len(upstream.requestsSnapshot()); got != 0 {
 		t.Fatalf("expected requested-model wire mismatch to reject before provider transport, got %d calls", got)
+	}
+}
+
+func assertRouteMatrixOperationNotSupported(t *testing.T, response *http.Response) {
+	t.Helper()
+	assertStatus(t, response, http.StatusBadRequest)
+	payload := runtimeResponsePayload(t, response)
+	want := map[string]string{
+		"error":            "openai_operation_not_supported",
+		"detail":           "The requested model does not accept this OpenAI operation.",
+		"translation_mode": "none",
+	}
+	for key, value := range want {
+		if got, _ := payload[key].(string); got != value {
+			t.Fatalf("expected response %s=%q, got %+v", key, value, payload)
+		}
 	}
 }
 
@@ -283,6 +261,7 @@ func TestOperationRouteMatrixResponsesAdjunctCapabilityMatrix(t *testing.T) {
 				EndpointBaseURL:      upstream.baseURL(""),
 				EndpointAPIKey:       "route-matrix-adjunct-chat-only-key",
 				OpenAITextCapability: runtimeStringPtr("chat_completions_only"),
+				OpenAIAcceptedFormat: runtimeStringPtr("dual_native"),
 			})
 
 			response := harness.requestJSON(t, http.MethodPost, test.requestPath, test.requestBody(route), nil)
@@ -312,13 +291,11 @@ func assertCapabilityRouteMatrixUpstreamRequest(t *testing.T, request upstreamRe
 
 func assertRouteMatrixUnsupportedWire(t *testing.T, response *http.Response) {
 	t.Helper()
-	assertStatus(t, response, http.StatusBadRequest)
+	assertStatus(t, response, http.StatusServiceUnavailable)
 	payload := runtimeResponsePayload(t, response)
 	want := map[string]string{
-		"error":              "openai_request_translation_unsupported",
-		"detail":             "Prism cannot translate this OpenAI request shape for the selected target.",
-		"translation_mode":   "none",
-		"unsupported_reason": "operation_translation_unsupported",
+		"error":  "openai_no_compatible_terminal_target",
+		"detail": "No configured terminal target can natively serve this OpenAI operation for the requested model.",
 	}
 	for key, value := range want {
 		if got, _ := payload[key].(string); got != value {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 )
 
@@ -93,6 +94,19 @@ type optionalHeaders struct {
 	Value map[string]string
 }
 
+// optionalCustomRequestParameters preserves the raw JSON value so the shared
+// validator can return a field-specific 422 for non-object roots.
+type optionalCustomRequestParameters struct {
+	Set bool
+	Raw json.RawMessage
+}
+
+func (value *optionalCustomRequestParameters) UnmarshalJSON(data []byte) error {
+	value.Set = true
+	value.Raw = append(json.RawMessage(nil), data...)
+	return nil
+}
+
 func (value *optionalHeaders) UnmarshalJSON(data []byte) error {
 	value.Set = true
 	trimmed := bytes.TrimSpace(data)
@@ -105,22 +119,6 @@ func (value *optionalHeaders) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	value.Value = parsed
-	return nil
-}
-
-// optionalCustomRequestParameters captures the raw JSON of the
-// custom_request_parameters field without decoding it, so that array/scalar
-// roots reach the shared field validator (422) instead of degrading into a
-// generic 400, and JSON null reaches the clear semantics. Validation and
-// canonicalization happen in the handler before any SQL write.
-type optionalCustomRequestParameters struct {
-	Set bool
-	Raw json.RawMessage
-}
-
-func (value *optionalCustomRequestParameters) UnmarshalJSON(data []byte) error {
-	value.Set = true
-	value.Raw = append(json.RawMessage(nil), data...)
 	return nil
 }
 
@@ -151,37 +149,37 @@ func (value *optionalEndpointCreate) UnmarshalJSON(data []byte) error {
 }
 
 type connectionCreateRequest struct {
-	APIFamily                string                           `json:"api_family"`
-	EndpointID               *int                             `json:"endpoint_id"`
-	EndpointCreate           *endpointCreateRequest           `json:"endpoint_create"`
-	IsActive                 *bool                            `json:"is_active"`
-	Name                     *string                          `json:"name"`
-	AuthType                 *string                          `json:"auth_type"`
-	CustomHeaders            map[string]string                `json:"custom_headers"`
-	CustomRequestParameters  optionalCustomRequestParameters  `json:"custom_request_parameters"`
-	OpenAITextCapability     *string                          `json:"openai_text_capability"`
-	PricingTemplateID        *int                             `json:"pricing_template_id"`
-	QPSLimit                 *int                             `json:"qps_limit"`
-	MaxInFlightNonStream     *int                             `json:"max_in_flight_non_stream"`
-	MaxInFlightStream        *int                             `json:"max_in_flight_stream"`
-	Priority                 presenceMarker                   `json:"priority"`
+	APIFamily               string                          `json:"api_family"`
+	EndpointID              *int                            `json:"endpoint_id"`
+	EndpointCreate          *endpointCreateRequest          `json:"endpoint_create"`
+	IsActive                *bool                           `json:"is_active"`
+	Name                    *string                         `json:"name"`
+	AuthType                *string                         `json:"auth_type"`
+	CustomHeaders           map[string]string               `json:"custom_headers"`
+	CustomRequestParameters optionalCustomRequestParameters `json:"custom_request_parameters"`
+	OpenAITextCapability    *string                         `json:"openai_text_capability"`
+	PricingTemplateID       *int                            `json:"pricing_template_id"`
+	QPSLimit                *int                            `json:"qps_limit"`
+	MaxInFlightNonStream    *int                            `json:"max_in_flight_non_stream"`
+	MaxInFlightStream       *int                            `json:"max_in_flight_stream"`
+	Priority                presenceMarker                  `json:"priority"`
 }
 
 type connectionUpdateRequest struct {
-	APIFamily                optionalString                    `json:"api_family"`
-	EndpointID               optionalInt                       `json:"endpoint_id"`
-	EndpointCreate           optionalEndpointCreate            `json:"endpoint_create"`
-	IsActive                 optionalBool                      `json:"is_active"`
-	Name                     optionalString                    `json:"name"`
-	AuthType                 optionalString                    `json:"auth_type"`
-	CustomHeaders            optionalHeaders                   `json:"custom_headers"`
-	CustomRequestParameters  optionalCustomRequestParameters   `json:"custom_request_parameters"`
-	OpenAITextCapability     optionalString                    `json:"openai_text_capability"`
-	PricingTemplateID        optionalInt                       `json:"pricing_template_id"`
-	QPSLimit                 optionalInt                       `json:"qps_limit"`
-	MaxInFlightNonStream     optionalInt                       `json:"max_in_flight_non_stream"`
-	MaxInFlightStream        optionalInt                       `json:"max_in_flight_stream"`
-	Priority                 presenceMarker                    `json:"priority"`
+	APIFamily               optionalString                  `json:"api_family"`
+	EndpointID              optionalInt                     `json:"endpoint_id"`
+	EndpointCreate          optionalEndpointCreate          `json:"endpoint_create"`
+	IsActive                optionalBool                    `json:"is_active"`
+	Name                    optionalString                  `json:"name"`
+	AuthType                optionalString                  `json:"auth_type"`
+	CustomHeaders           optionalHeaders                 `json:"custom_headers"`
+	CustomRequestParameters optionalCustomRequestParameters `json:"custom_request_parameters"`
+	OpenAITextCapability    optionalString                  `json:"openai_text_capability"`
+	PricingTemplateID       optionalInt                     `json:"pricing_template_id"`
+	QPSLimit                optionalInt                     `json:"qps_limit"`
+	MaxInFlightNonStream    optionalInt                     `json:"max_in_flight_non_stream"`
+	MaxInFlightStream       optionalInt                     `json:"max_in_flight_stream"`
+	Priority                presenceMarker                  `json:"priority"`
 }
 
 type connectionPriorityMoveRequest struct {
@@ -217,26 +215,26 @@ type connectionPricingTemplateSummary struct {
 }
 
 type connectionResponse struct {
-	ID                       int                               `json:"id"`
-	ProfileID                int                               `json:"profile_id"`
-	ModelConfigID            *int                              `json:"model_config_id,omitempty"`
-	APIFamily                string                            `json:"api_family"`
-	EndpointID               int                               `json:"endpoint_id"`
-	Endpoint                 *endpointResponse                  `json:"endpoint"`
-	IsActive                 bool                              `json:"is_active"`
-	Priority                 int                               `json:"priority"`
-	Name                     *string                           `json:"name"`
-	AuthType                 *string                           `json:"auth_type"`
-	CustomHeaders            map[string]string                 `json:"custom_headers"`
-	CustomRequestParameters  *terminaltarget.CustomRequestParameters `json:"custom_request_parameters"`
-	OpenAITextCapability     *string                           `json:"openai_text_capability"`
-	PricingTemplateID        *int                              `json:"pricing_template_id"`
-	QPSLimit                 *int                              `json:"qps_limit"`
-	MaxInFlightNonStream     *int                              `json:"max_in_flight_non_stream"`
-	MaxInFlightStream        *int                              `json:"max_in_flight_stream"`
-	PricingTemplate          *connectionPricingTemplateSummary `json:"pricing_template"`
-	CreatedAt                time.Time                         `json:"created_at"`
-	UpdatedAt                time.Time                         `json:"updated_at"`
+	ID                      int                                     `json:"id"`
+	ProfileID               int                                     `json:"profile_id"`
+	ModelConfigID           *int                                    `json:"model_config_id,omitempty"`
+	APIFamily               string                                  `json:"api_family"`
+	EndpointID              int                                     `json:"endpoint_id"`
+	Endpoint                *endpointResponse                       `json:"endpoint"`
+	IsActive                bool                                    `json:"is_active"`
+	Priority                int                                     `json:"priority"`
+	Name                    *string                                 `json:"name"`
+	AuthType                *string                                 `json:"auth_type"`
+	CustomHeaders           map[string]string                       `json:"custom_headers"`
+	CustomRequestParameters *terminaltarget.CustomRequestParameters `json:"custom_request_parameters"`
+	OpenAITextCapability    *string                                 `json:"openai_text_capability"`
+	PricingTemplateID       *int                                    `json:"pricing_template_id"`
+	QPSLimit                *int                                    `json:"qps_limit"`
+	MaxInFlightNonStream    *int                                    `json:"max_in_flight_non_stream"`
+	MaxInFlightStream       *int                                    `json:"max_in_flight_stream"`
+	PricingTemplate         *connectionPricingTemplateSummary       `json:"pricing_template"`
+	CreatedAt               time.Time                               `json:"created_at"`
+	UpdatedAt               time.Time                               `json:"updated_at"`
 }
 
 type connectionReferenceResponse struct {
@@ -296,4 +294,32 @@ type modelConnectionsBatchResponse struct {
 
 type deletedResponse struct {
 	Deleted bool `json:"deleted"`
+}
+
+// connectionMutationAccessTarget is the reduced canonical access-target row
+// included in owner-scoped connection mutation envelopes. It carries the
+// canonical row id, target discriminator and connection id so callers can
+// navigate and join diagnostics; the full detail shape stays on the models
+// management surface.
+type connectionMutationAccessTarget struct {
+	ID               int    `json:"id"`
+	TargetType       string `json:"target_type"`
+	ConnectionID     *int   `json:"connection_id"`
+	TerminalTargetID *int   `json:"terminal_target_id"`
+	Position         int    `json:"position"`
+	IsEnabled        bool   `json:"is_enabled"`
+}
+
+// connectionMutationEnvelope is the fixed response envelope for owner-scoped
+// Connection create/update. Delete uses deletedConnectionMutationEnvelope.
+type connectionMutationEnvelope struct {
+	Connection            connectionResponse                  `json:"connection"`
+	AccessTargets         []connectionMutationAccessTarget    `json:"access_targets"`
+	ConfigurationWarnings []modelrouting.ConfigurationWarning `json:"configuration_warnings"`
+}
+
+type deletedConnectionMutationEnvelope struct {
+	Deleted               bool                                `json:"deleted"`
+	AccessTargets         []connectionMutationAccessTarget    `json:"access_targets"`
+	ConfigurationWarnings []modelrouting.ConfigurationWarning `json:"configuration_warnings"`
 }

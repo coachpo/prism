@@ -7,25 +7,43 @@ import { cn } from "@/lib/utils";
 import {
   ArrowDown,
   ArrowUp,
+  Cable,
   Copy,
   Globe2,
   KeyRound,
   Loader2,
+  Link2,
   Pencil,
   Trash2,
 } from "lucide-react";
+import { useState } from "react";
 import {
   getMaskedApiKey,
   getModelBadgeClass,
 } from "./endpointCardHelpers";
 
+export interface EndpointReferenceView {
+  connection_id: number;
+  terminal_target_name: string | null;
+  model_config_id: number;
+  model_id: string;
+  model_display_name: string | null;
+  api_family: string;
+  is_enabled: boolean;
+  is_active: boolean;
+  openai_text_capability: string | null;
+  pricing_template: { id: number; name: string } | null;
+}
+
 export interface EndpointCardViewProps {
   endpoint: Endpoint;
   formatTime: (isoString: string, options?: Intl.DateTimeFormatOptions) => string;
   models: ModelConfigListItem[];
+  directReferences?: EndpointReferenceView[];
   canMoveDown?: boolean;
   canMoveUp?: boolean;
   isDuplicating?: boolean;
+  onAttach?: (endpoint: Endpoint) => void | Promise<void>;
   onDelete?: (endpoint: Endpoint) => void | Promise<void>;
   onDuplicate?: (endpoint: Endpoint) => void | Promise<void>;
   onEdit?: (endpoint: Endpoint) => void | Promise<void>;
@@ -37,9 +55,11 @@ export function EndpointCardView({
   endpoint,
   formatTime,
   models,
+  directReferences = [],
   canMoveDown = false,
   canMoveUp = false,
   isDuplicating = false,
+  onAttach,
   onDelete,
   onDuplicate,
   onEdit,
@@ -49,6 +69,7 @@ export function EndpointCardView({
   const { messages } = useLocale();
   const copy = messages.endpointsUi;
   const reorderCopy = messages.endpoints;
+  const [referencesOpen, setReferencesOpen] = useState(false);
   const moveUpLabel = reorderCopy.moveUp(endpoint.name);
   const moveDownLabel = reorderCopy.moveDown(endpoint.name);
   const maskedKey = getMaskedApiKey(endpoint);
@@ -101,6 +122,16 @@ export function EndpointCardView({
               >
                 {models.length}
               </Badge>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 text-[10px] text-muted-foreground underline-offset-2 hover:underline"
+                aria-expanded={referencesOpen}
+                aria-controls={`endpoint-references-${endpoint.id}`}
+                onClick={() => setReferencesOpen((open) => !open)}
+              >
+                <Link2 className="size-3" />
+                {copy.directReferences(directReferences.length)}
+              </button>
             </div>
 
             <div className="flex min-w-0 flex-wrap gap-1">
@@ -124,11 +155,64 @@ export function EndpointCardView({
                 </span>
               )}
             </div>
+            {models.length > 0 ? (
+              <span className="text-[10px] italic text-muted-foreground">{copy.reachableModelsLabel}</span>
+            ) : null}
+
+            {referencesOpen ? (
+              <div
+                id={`endpoint-references-${endpoint.id}`}
+                className="flex flex-col gap-1 rounded-md border border-outline-variant bg-surface-container-low p-2"
+                data-testid={`endpoint-direct-references-${endpoint.id}`}
+              >
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {copy.directReferencesTitle}
+                </p>
+                {directReferences.length === 0 ? (
+                  <p className="text-[10px] italic text-muted-foreground">{copy.noDirectReferences}</p>
+                ) : (
+                  <ul className="flex flex-col gap-1">
+                    {directReferences.map((reference) => (
+                      <li key={reference.connection_id} className="flex flex-wrap items-center gap-1.5 text-[10px] text-foreground/90">
+                        <Cable className="size-3 shrink-0 text-muted-foreground" />
+                        <span className="font-medium">{reference.model_display_name || reference.model_id}</span>
+                        <span className="text-muted-foreground">→ {reference.terminal_target_name ?? `终端目标 ${reference.connection_id}`}</span>
+                        {reference.openai_text_capability ? (
+                          <Badge variant="outline" className="h-4 px-1 text-[9px]">
+                            {reference.openai_text_capability}
+                          </Badge>
+                        ) : null}
+                        {reference.pricing_template ? (
+                          <span className="text-muted-foreground">· {reference.pricing_template.name}</span>
+                        ) : null}
+                        <span className={reference.is_enabled && reference.is_active ? "text-success" : "text-warning"}>
+                          {reference.is_enabled ? "参与路由" : "不参与路由"}
+                          {!reference.is_active ? " · 未激活" : ""}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ) : null}
           </div>
         </div>
 
         <div className="flex shrink-0 items-center justify-end sm:ml-2">
           <IconActionGroup>
+            {onAttach ? (
+              <IconActionButton
+                type="button"
+                size="icon"
+                aria-label={copy.attachEndpoint(endpoint.name)}
+                title={copy.attachEndpoint(endpoint.name)}
+                onClick={() => {
+                  void onAttach(endpoint);
+                }}
+              >
+                <Cable />
+              </IconActionButton>
+            ) : null}
             <IconActionButton
               type="button"
               size="icon"

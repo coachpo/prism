@@ -26,8 +26,8 @@ models/
 - Keep model IDs unique inside Default profile id `1`.
 - Keep model load-balance strategy checks in this package, but strategy CRUD in `loadbalance/`.
 - Keep owner-scoped private connection routes in `connections/`, even when model detail responses include owned private connections.
-- Keep access targets ordered, same-profile, same-family, and acyclic. `position` is one global mixed sequence shared by model targets and connection-owner targets: creates append to the global tail (or insert at a global index), `PATCH .../position` moves within the complete mixed list, delete compacts across both types, and enable/disable never moves a row.
-- Keep public model targets requiring exact `target_model_id`, `position`, and `is_enabled`; obsolete `weight` and `target_priority` payload keys must reject, while internal connection-owner targets keep the same flat ordered shape. `connections.priority` is never written back from access-target order.
+- Keep access targets ordered, same-profile, same-family, and acyclic.
+- Keep public model targets requiring exact `target_model_id`, `position`, and `is_enabled`; obsolete `weight` and `target_priority` payload keys must reject, while internal connection-owner targets keep the same flat ordered shape.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
@@ -37,4 +37,10 @@ models/
 ## ANTI-PATTERNS
 - Do not move owner-scoped private connection route handling into model handlers.
 - Do not let access targets point at incompatible, missing, or cyclic target models.
-- Do not reintroduce exact-facade, regex matching, capability-metadata expansion, frontend-only target authoring, per-type position sequences, or a second ordering API from this package.
+- Do not reintroduce exact-facade, regex matching, capability-metadata expansion, or frontend-only target authoring from this package.
+
+## UX-UPGRADE SURFACES
+
+- `POST /api/models` supports composite create via `initial_terminal_target` (endpoint_id XOR inline endpoint_create; capability derives from the owner accepted format; enabled defaults; `model_initial_target_inactive` / `model_no_enabled_targets` hard errors; single transaction with full rollback). Responses are `{model, configuration_warnings}` envelopes.
+- `GET /api/models/{model_config_id}/routing-diagnostics` and `POST .../routing-diagnostics/preview` serve the `modelrouting` analyzer over the committed/overlaid graph; both are read-only and never invalidate planning. `GET /api/models` embeds a compact `routing_summary` per model computed in one bounded batch.
+- Routing-relevant mutations attach `configuration_warnings` from `modelMutationWarnings`; the frontend keys presentation off warning codes, never message text.

@@ -23,7 +23,7 @@ test("model target reorder client uses the explicit position route contract", as
     return {
       ok: true,
       status: 200,
-      text: async () => "[]",
+      text: async () => JSON.stringify({ access_targets: [], configuration_warnings: [] }),
     };
   };
 

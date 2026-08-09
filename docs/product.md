@@ -27,14 +27,18 @@ Single operator (developer/power user) running the application locally or on a l
 
 ### 4.2 Model Configuration
 - Map each model to a fixed runtime `api_family`
-- OpenAI models also carry an `openai_accepted_format` of `responses_only`, `chat_completions_only`, or `dual_native`; strict mode equality requires every access target (model or Terminal Target) to use the identical mode
-- Models expose one ordered `access_targets` list whose rows point to same-family, same-mode models (Model Targets) or model-private Terminal Targets; both types share one global `position` and are type-neutral peers of the same mixed order
-- Terminal Targets carry endpoint, costing, health, admission-limit, and auth metadata as model-private endpoint bindings owned by one model; OpenAI Terminal Target capability must equal the owner model's `openai_accepted_format`
+- OpenAI models carry an `openai_accepted_format` of `responses_only`, `chat_completions_only`, or `dual_native`; Terminal Target coverage is directional by native operation and Partial/None configurations are surfaced before runtime use
+- Models expose one ordered `access_targets` list whose public entries point to same-family models
+- Terminal Targets carry endpoint, costing, admission-limit, and auth metadata as model-private endpoint bindings owned by one model
 - Select which access targets are enabled for each model; enabled models require at least one enabled target
 - CRUD operations for all configurations are available via REST API
+- Composite create (`initial_terminal_target`) creates a model, an optional inline endpoint, the first Terminal Target and its owner edge in one atomic transaction: the normal path produces a working enabled model in a single submit, any failure rolls back completely, and "configure later" creates a disabled model without a target
+- New Terminal Target capability defaults follow the owner model accepted format; `None` coverage is not selectable in first-party UI, `Partial` coverage saves with a visible warning, and the create dialog shows capability coverage previews next to the picker
 
 ### 4.3 Unified Model Access Routing
-- Model Target rows and Terminal Target rows are type-neutral peers of the same authored mixed order; `single`, `fill-first`, and `round-robin` run once over the enabled mixed rows, and no target type holds a hidden priority tier
+- Ordered same-family model targets are evaluated as an aggregate; direct Terminal Targets are the fallback when no model-target candidate is eligible
+- The UI presents the two stages explicitly: "模型目标（先尝试）" and "终端目标（无模型候选时回落）", each with stage-local numbering; `single` truncation is shown per stage and per truncated row, and never mislabeled across stages
+- Routing diagnostics (per-operation capability coverage, static eligibility, resolved stage) come from a backend static analyzer; the frontend never re-derives coverage or eligibility, and operation coverage warnings (`完整覆盖 / 部分覆盖 / 不兼容`) are authoritative
 - Model-target entries must stay within the same `api_family`, cannot target themselves, and cannot introduce cycles
 - A Model Target row is an atomic parent peer: entering it recursively resolves the child model with the child's own strategy, and the child's attempts stay one contiguous block in the parent result
 - Each model owns its reusable load-balance strategy, so nested model targets evaluate strategy and Ban Policy at their own graph level
@@ -48,7 +52,7 @@ Single operator (developer/power user) running the application locally or on a l
 - For models with multiple reachable Terminal Targets:
   - **Automatic failover** when an attempt returns a failover-triggering status (`403`, `422`, `429`, `500`, `502`, `503`, `504`, `529` by default) or raises connection/timeout errors
   - Models attach one reusable explicit Ban Policy strategy using `single`, `fill-first`, or `round-robin` routing
-  - The three strategies act on the same enabled mixed access-target rows: `single` takes only the first enabled mixed peer, `fill-first` walks the authored mixed order, and `round-robin` rotates the direct mixed rows once per request while each child model keeps its own cursor
+  - The three strategies apply independently within each routing stage: `single` takes the first enabled peer in the Model Target stage and, only if that stage has no eligible candidate, the first enabled peer in the Terminal Target stage; `fill-first` walks each stage's authored order; and `round-robin` rotates the direct peers in the entered stage while each child model keeps its own cursor
   - Upstream request timing uses shared backend timeout settings, while Ban Policy owns retry windows, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, `temporary` or `until_reset` bans, and failover status codes
   - Ban Policy thresholds are inclusive: retry-cycle exhaustion uses `cycle_retry_attempts >= cycle_retry_attempt_limit`, and bans use `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`
 - Failover-worthy HTTP responses are governed by the attached strategy's configured failure status codes and retry-window settings
@@ -64,25 +68,30 @@ Single operator (developer/power user) running the application locally or on a l
 ### 4.5 Default-Profile Endpoints & Terminal Targets
 - **Endpoints** are profile-scoped credential objects containing a name, base URL, and API key.
 - **Models** carry fixed `api_family` metadata.
-- **Terminal Targets** are profile-scoped model routing, costing, and health configurations that reference endpoints in the same profile. They can also carry per-target custom HTTP headers and an optional static JSON request-body parameter overlay (see §4.12 and §4.13).
-- Endpoints can be reused across multiple models within the same profile; each Terminal Target keeps its own header and request-parameter configuration.
-- Deleting an endpoint is blocked if any Terminal Targets in that profile still reference it.
+- **Terminal Targets** are profile-scoped model routing, costing, and health configurations that reference endpoints in the same profile.
+- Endpoints can be reused across multiple models within the same profile.
+- Deleting an endpoint is blocked with a typed `409 endpoint_in_use` that lists the same direct Terminal Target references shown in the Endpoint page disclosure (`模型 → Terminal Target → capability → 价格模板 → 启停/激活状态`); recursive reachable models are labeled separately and never block deletion
+- Endpoint cards support "附加到模型": pick a destination model and create a new private Terminal Target with the endpoint preselected and locked
+- A Terminal Target can be copied to multiple same-family destination models in one transactional batch; copies are independent private connections, default to not participating in routing, and never carry runtime state or secrets
+- Terminal Targets can also carry per-target custom HTTP headers and, when the capability is present, a validated static JSON request-parameter overlay; cards and diagnostics show counts only and never values.
 
 ### 4.6 Terminal Target Request Health
 - Manual Terminal Target test actions are removed from the management API and UI.
 - Backend request-derived stats can expose Terminal Target success-rate and routing-health read models for real runtime traffic. These are API/read-model capabilities, not a current per-target health-badge workflow.
 - The Models page renders plain telemetry text for each model: 24-hour success rate, P95 latency, and 24-hour request count, plus a 30-day spend value. Missing success data is shown as `- Success`; there are no colored success-rate thresholds or health badges.
 - The current model-detail UI does not render Terminal Target success-rate indicators, and the dashboard does not render the backend `routing_health_map` response field.
+- Terminal Target cards render the process-local Ban Policy observation: `本进程尚未观测`, `当前无冷却限制`, retry-wait/banned with until-time and a narrow "重置冷却" action, last success time, `最近成功响应头延迟` and in-flight counts. `available` never implies upstream health; stale snapshots are labeled `状态可能已过期`
 
 ### 4.7 Web UI (Management Dashboard)
 - View all configured models and their reachable Terminal Targets
 - Add/edit/delete model configurations with ordered access targets
 - Add/edit/delete profile-scoped endpoints
-- Model detail renders one mixed access-target list ordered by the shared `position`; Model and Terminal rows share a continuous "位置 N" numbering, adjacent rows of either type can be moved up/down with the same controls, and reloads never restore type grouping
+- Model detail renders two explicit access-target stages: Model Targets are shown first with stage-local numbering, and Terminal Targets are shown as the fallback stage with independent stage-local numbering; controls never imply a cross-stage runtime order
 - Add/edit/delete Terminal Targets from model detail; the Terminal Target dialog includes an “高级请求设置” group with request limits, custom headers, and the custom request parameters JSON editor
 - Toggle enabled/disabled access targets per model
 - Select an explicit load-balance strategy with Ban Policy settings per model
-- Dedicated model-detail route (`/models/:id`) for ordered access-target and Terminal Target configuration; current loadbalance state and loadbalance event history live under Ban Policies
+- Dedicated model-detail route (`/models/:id`) for two-stage access-target and Terminal Target configuration, operation coverage summary and runtime state; dead `?tab=` state is normalized away, `action=create-terminal-target` (with optional `endpoint_id`) and `focus_connection_id` are one-shot URL parameters consumed exactly once; current loadbalance state and loadbalance event history live under Ban Policies
+- Model list and detail share the `N 启用 / M 总计` target count vocabulary; the API column shows family plus OpenAI accepted format; Partial/None/uncovered and `single` truncation warnings appear on list rows
 - Dedicated request-log browsing and investigation at `/observe/requests`, separate from dashboard analytics
 - Dedicated routes for pricing templates and proxy API key lifecycle management
 - Dashboard analytics lives under `/observe?tab=analytics` and replaces the old standalone statistics route
@@ -576,7 +585,7 @@ Validated again against current repo surfaces on 2026-07-10:
 
 1. Operators list, search, create, edit, and delete model configs.
 2. Model create and edit dialogs manage model metadata, OpenAI accepted format, loadbalance strategy, and enabled state.
-3. Model detail owns access-target authoring as one mixed list: same-family Model Targets and Terminal Targets share the global `position` order, cross-type adjacent moves use the same controls, and Terminal Target management covers the model's private endpoint bindings.
+3. Model detail owns access-target authoring as two explicit stages: same-family Model Targets are edited in the first stage, Terminal Targets in the fallback stage, and each stage's order maps to the existing two-stage runtime semantics; Terminal Target management covers the model's private endpoint bindings.
 4. The Terminal Target dialog's “高级请求设置” group lets operators configure request limits, custom request headers, and the optional custom request parameters JSON overlay (format/clear actions, top-level count summary, field-level validation, and server 422 mapping back to the editor).
 5. Request logs preserve the requested model while final-target fields show the terminal model reached through the access graph.
 
@@ -693,7 +702,7 @@ For the page-specific query contract and UI behavior, see section 8 (Requests Pa
 
 Mail bootstrap fields remain parse-compatible for existing `config.json` files, but Prism no longer sends mail. Fresh bootstrap seeds use backend `8000`, frontend `5173`, and PostgreSQL `15432`, but `./start.sh` follows the existing bootstrap file's configured `server.port` when one already exists. `runtime.transport.requestTimeout` is seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout` is seeded as `"10s"`. Direct external `config.json` edits are not watched automatically, and existing valid files are not rewritten by the launcher. To reset startup defaults, stop Prism, remove or relocate the bootstrap file, and restart.
 
-OpenAI text routing is native-only and mode-strict. Operators set runtime support on each Terminal Target through `openai_text_capability`, using `responses_only`, `chat_completions_only`, or `dual_native`; each mode may connect only to the identical mode (3×3 equality matrix, diagonal only). The management UI filters target-model candidates and locks connection capabilities to the owner model's mode, and the backend rejects cross-mode authoring with `422 target_openai_mode_mismatch` and mode changes that break existing relations with `409`. Mode-incompatible Chat Completions/Responses attempts are skipped rather than translated, and startup fails fast on persisted violations; a read-only preflight (`PRISM_OPENAI_MODE_PREFLIGHT=1`) reports violations with deterministic exit codes before upgrade.
+OpenAI text routing is native-only and operation-set based. Operators set runtime support on each Terminal Target through `openai_text_capability`, using `responses_only`, `chat_completions_only`, or `dual_native`; a target can cover all, some, or none of the owner's accepted operations. The management UI previews `完整覆盖 / 部分覆盖 / 不兼容`, disables zero-intersection choices in the first-party picker, and lets valid Partial configurations save with a structured warning. Mode-incompatible Chat Completions/Responses attempts are skipped rather than translated; invalid enum/nullability remains a hard `422`, while valid capability differences are diagnosed without exact-mode authoring rejection.
 
 **Backend touchpoints**
 
@@ -740,7 +749,7 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 
 1. Global CORS runs first. The runtime branch then applies HTTP proxy admission, runtime proxy-key authentication, and the exact operation registry in that order. Once inside the registry, unsupported routes and wrong methods reject before body reads, provider transport, telemetry, audit, feedback, or runtime side effects.
 2. Provider adapters parse provider-specific payloads, build upstream requests, adapt responses, classify streams, extract usage, and own pure OpenAI Chat/Responses conversion.
-3. Planning evaluates the model's enabled mixed access-target rows in authored `position` order once: `single` keeps only the first enabled row, `fill-first` walks the mixed order, and `round-robin` rotates the direct mixed rows. A Model Target row resolves recursively through the child model's own strategy and contributes one contiguous block; candidate-local misses (zero-leaf child, operation incompatibility, unavailable connection) skip to the next peer in effective order, while cycle/depth and missing-strategy errors fail closed.
+3. Planning evaluates the Model Target stage first and enters the Terminal Target stage only when the model stage has no eligible candidate for the operation. Each stage applies the attached strategy independently: `single` considers only that stage's first enabled peer, `fill-first` walks that stage's order, and `round-robin` rotates direct peers in the entered stage. A Model Target row resolves recursively through the child model's own strategy and contributes one contiguous block; candidate-local misses (zero-leaf child or operation incompatibility) permit the next stage, while cycle/depth and missing-strategy errors fail closed.
 4. Connection planning applies the attached explicit Ban Policy strategy and per-connection limits.
 5. When any planned candidate carries custom request parameters, Prism buffers and validates the ingress body as a JSON object, applies the per-Connection top-level shallow overlay after provider-native model/path rewrite, and materializes an immutable merged body per attempt (failover/hedge candidates never share mutable body storage). Gemini path-streaming switches from the request-body streaming fast path to the buffered path in this case.
 6. The shared runtime/gateway owns operation registration, admission, routing, SSE lifecycle, accounting, pricing, request-log metadata, and durable handoff. Telemetry/audit rows are materialized by background workers from the runtime outbox; non-accepted side effects use their own in-memory or worker queues.

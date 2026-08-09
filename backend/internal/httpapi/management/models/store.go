@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
-	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
 type queryExecutor interface {
@@ -672,35 +670,6 @@ func listAccessTargetReferrers(ctx context.Context, exec queryExecutor, profileI
 	return items, nil
 }
 
-func ensureOpenAIAcceptedFormatChangeAllowed(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, accessTargets []accessTargetRecord, nextMode *string) error {
-	for _, target := range accessTargets {
-		if modelrouting.IsTerminalTargetType(target.TargetType) && target.Connection != nil {
-			if !providerauth.OpenAITextModesMatch(nextMode, target.Connection.OpenAITextCapability) {
-				return &domainError{StatusCode: http.StatusConflict, Detail: "Cannot change openai_accepted_format while connection access targets exist with a different openai_text_capability"}
-			}
-		}
-		if modelrouting.IsModelTargetType(target.TargetType) && target.TargetModel != nil {
-			if !providerauth.OpenAITextModesMatch(nextMode, target.TargetModel.OpenAIAcceptedFormat) {
-				return &domainError{StatusCode: http.StatusConflict, Detail: "Cannot change openai_accepted_format while model access targets exist with a different openai_accepted_format"}
-			}
-		}
-	}
-	referrers, err := listAccessTargetReferrers(ctx, exec, profileID, modelConfigID, nil)
-	if err != nil {
-		return err
-	}
-	conflicting := make([]string, 0, len(referrers))
-	for _, referrer := range referrers {
-		if !providerauth.OpenAITextModesMatch(nextMode, referrer.OpenAIAcceptedFormat) {
-			conflicting = append(conflicting, referrer.ModelID)
-		}
-	}
-	if len(conflicting) > 0 {
-		return &domainError{StatusCode: http.StatusConflict, Detail: fmt.Sprintf("Cannot change openai_accepted_format: models [%s] target this model", strings.Join(conflicting, ", "))}
-	}
-	return nil
-}
-
 func deleteSourceAccessTargets(ctx context.Context, tx pgx.Tx, sourceModelConfigID int) error {
 	if _, err := tx.Exec(ctx, `DELETE FROM model_access_targets WHERE source_model_config_id = $1`, sourceModelConfigID); err != nil {
 		return fmt.Errorf("delete source access targets for model %d: %w", sourceModelConfigID, err)
@@ -1236,4 +1205,12 @@ func sortModelRecordsByID(records []modelRecord) {
 	sort.Slice(records, func(left int, right int) bool {
 		return records[left].ID < records[right].ID
 	})
+}
+
+func setModelEnabled(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, enabled bool, currentTime time.Time) error {
+	_, err := exec.Exec(ctx, `UPDATE model_configs SET is_enabled = $3, updated_at = $4 WHERE profile_id = $1 AND id = $2`, profileID, modelConfigID, enabled, currentTime)
+	if err != nil {
+		return fmt.Errorf("set model %d enabled=%t: %w", modelConfigID, enabled, err)
+	}
+	return nil
 }

@@ -70,15 +70,15 @@ export function useModelLoadbalanceCurrentState({
     });
 
     try {
-      await api.loadbalance.resetCurrentState(connectionId);
+      const response = await api.loadbalance.resetCurrentState(connectionId);
       requestIdRef.current += 1;
       setCurrentStateByConnectionId((current) => {
-        if (!current.has(connectionId)) {
-          return current;
-        }
-
         const next = new Map(current);
-        next.delete(connectionId);
+        if (response.state) {
+          next.set(connectionId, response.state);
+        } else {
+          next.delete(connectionId);
+        }
         return next;
       });
     } catch (error) {
@@ -93,6 +93,34 @@ export function useModelLoadbalanceCurrentState({
       });
     }
   }, []);
+
+  // Poll while the page is visible (30s interval), pause while hidden and
+  // refresh immediately when the tab regains focus.
+  useEffect(() => {
+    if (!enabled || typeof modelConfigId !== "number") {
+      return;
+    }
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void fetchCurrentState();
+      }
+    }, 30_000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void fetchCurrentState();
+      }
+    };
+    const onFocus = () => {
+      void fetchCurrentState();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [enabled, fetchCurrentState, modelConfigId]);
 
   useEffect(() => {
     if (resetKeyRef.current !== resetKey) {

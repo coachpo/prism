@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
+import { api } from "@/lib/api"
 import { getStaticMessages } from "@/i18n/staticMessages"
 import { useTimezone } from "@/hooks/useTimezone"
-import { api } from "@/lib/api"
 import type { Endpoint } from "@/lib/types"
+import type { EndpointReferenceView } from "@/pages/endpoints/EndpointCard"
+import type { OpenAITextCapability } from "@/lib/types"
 import { extractServerValidation } from "@/shared/forms/serverValidation"
 import { buildEndpointCreatePayload, buildEndpointUpdatePayload, hasEndpointReviewFilters, type EndpointFormValues } from "./endpointSchemas"
 import { useEndpointBootstrapData } from "@/pages/endpoints/useEndpointBootstrapData"
@@ -21,6 +23,8 @@ export function useEndpointsFeatureData() {
   const [deleteDialogTarget, setDeleteDialogTarget] = useState<Endpoint | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all")
+  const [directReferencesByEndpoint, setDirectReferencesByEndpoint] = useState<Record<number, EndpointReferenceView[]>>({})
+  const [attachTarget, setAttachTarget] = useState<Endpoint | null>(null)
   const revision = 0
   const { format: formatTime } = useTimezone()
   const { commitEndpoints, endpointModels, endpoints, isLoading, setEndpoints } = useEndpointBootstrapData(revision)
@@ -112,5 +116,52 @@ export function useEndpointsFeatureData() {
     }
   }
 
-  return { deleteTarget, deleteDialogTarget, duplicatingEndpointId, editingEndpoint, endpointDialogError, endpointModels, endpoints, filteredEndpoints, formatTime, hasActiveReviewFilters, handleCreate, handleDelete, handleDeleteDialogOpenChange: (open: boolean) => !open && !isDeletingEndpoint && setDeleteTarget(null), handleDuplicateEndpoint, handleUpdate, isCreateOpen, isDeletingEndpoint, isLoading, reviewFilter, searchQuery, setDeleteTarget, setEditingEndpoint, setIsCreateOpen: openCreateDialog, setReviewFilter, setSearchQuery, ...reorder }
+  const refreshDirectReferences = useCallback(async () => {
+    if (endpoints.length === 0) return
+    try {
+      const response = await api.endpoints.referencesBatch(endpoints.map((endpoint) => endpoint.id))
+      const byEndpoint: Record<number, EndpointReferenceView[]> = {}
+      for (const item of response.items) {
+        byEndpoint[item.endpoint_id] = item.references.map((reference) => ({
+          connection_id: reference.connection_id,
+          terminal_target_name: reference.terminal_target_name,
+          model_config_id: reference.model_config_id,
+          model_id: reference.model_id,
+          model_display_name: reference.model_display_name,
+          api_family: reference.api_family,
+          is_enabled: reference.is_enabled,
+          is_active: reference.is_active,
+          openai_text_capability: reference.openai_text_capability,
+          pricing_template: reference.pricing_template,
+        }))
+      }
+      setDirectReferencesByEndpoint(byEndpoint)
+    } catch (error) {
+      console.error("Failed to load endpoint direct references", error)
+    }
+  }, [endpoints])
+
+  useEffect(() => {
+    void refreshDirectReferences()
+  }, [refreshDirectReferences])
+
+  const handleAttachEndpoint = async (endpoint: Endpoint, destinationModelConfigId: number, capability: string | null, targetName: string) => {
+    try {
+      await api.models.connections.create(destinationModelConfigId, {
+        api_family: "openai",
+        endpoint_id: endpoint.id,
+        name: targetName.trim() || undefined,
+        is_active: true,
+        openai_text_capability: capability as OpenAITextCapability | undefined,
+      })
+      toast.success(getStaticMessages().modelDetailData.connectionCreated)
+      setAttachTarget(null)
+      void refreshDirectReferences()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to attach endpoint")
+      throw error
+    }
+  }
+
+  return { attachTarget, deleteTarget, deleteDialogTarget, directReferencesByEndpoint, duplicatingEndpointId, editingEndpoint, endpointDialogError, endpointModels, endpoints, filteredEndpoints, formatTime, hasActiveReviewFilters, handleAttachEndpoint, handleCreate, handleDelete, handleDeleteDialogOpenChange: (open: boolean) => !open && !isDeletingEndpoint && setDeleteTarget(null), handleDuplicateEndpoint, handleUpdate, isCreateOpen, isDeletingEndpoint, isLoading, reviewFilter, searchQuery, setAttachTarget, setDeleteTarget, setEditingEndpoint, setIsCreateOpen: openCreateDialog, setReviewFilter, setSearchQuery, ...reorder }
 }

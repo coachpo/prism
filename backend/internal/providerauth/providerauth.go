@@ -121,31 +121,6 @@ func IsSupportedOpenAITextCapability(value string) bool {
 	}
 }
 
-// OpenAITextModesEqual reports whether two OpenAI text modes are exactly equal.
-// The strict contract allows only same-mode relations: dual_native, chat_completions_only,
-// and responses_only may connect only to the identical mode. Unknown or empty values
-// are never equal, so disabled/inactive relations are not exempted.
-func OpenAITextModesEqual(left string, right string) bool {
-	normalizedLeft := strings.TrimSpace(left)
-	if normalizedLeft == "" || normalizedLeft != strings.TrimSpace(right) {
-		return false
-	}
-	return IsSupportedOpenAITextCapability(normalizedLeft)
-}
-
-// OpenAITextModesMatch reports whether two optional OpenAI text modes are equal.
-// Two nil modes match (non-OpenAI relations); a one-sided nil never matches because
-// equality cannot be proven.
-func OpenAITextModesMatch(left *string, right *string) bool {
-	if left == nil && right == nil {
-		return true
-	}
-	if left == nil || right == nil {
-		return false
-	}
-	return OpenAITextModesEqual(*left, *right)
-}
-
 func OpenAITextCapabilitySupportsNativeOperation(capability string, ingressOperation string) bool {
 	switch strings.TrimSpace(ingressOperation) {
 	case OpenAIUpstreamOperationChatCompletions:

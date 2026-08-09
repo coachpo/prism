@@ -65,6 +65,7 @@ func TestBuildPlanningSnapshotFreezesRoutingAssemblyContract(t *testing.T) {
 	if target.TargetConnectionProfileID != profileID || target.TargetConnectionAPIFamily != "openai" {
 		t.Fatalf("expected target connection provenance to stay profile/api-family scoped, got %+v", target)
 	}
+	assertRuntimeStringPtr(t, target.ConnectionOpenAITextCapability, providerauth.OpenAITextCapabilityChatCompletionsOnly, "connection openai text capability")
 	if target.ConnectionEndpointFX == nil || target.ConnectionEndpointFX.ModelID != "router-openai" || target.ConnectionEndpointFX.EndpointID != 801 || target.ConnectionEndpointFX.FXRate != "1.25" {
 		t.Fatalf("expected endpoint FX provenance on connection target, got %+v", target.ConnectionEndpointFX)
 	}
@@ -123,7 +124,7 @@ func (tx *runtimePlanningSnapshotFakeTx) Query(_ context.Context, query string, 
 	case strings.Contains(query, "FROM model_configs") && strings.Contains(query, "model_configs.loadbalance_strategy_id"):
 		return newRuntimePlanningRows([]any{11, 42, "openai", "router-openai", sql.NullInt32{Int32: 303, Valid: true}, sql.NullString{String: "dual_native", Valid: true}, time.Unix(2, 0).UTC(), true, false}), nil
 	case strings.Contains(query, "FROM model_access_targets"):
-		return newRuntimePlanningRows([]any{501, 42, 11, runtimeAccessTargetTypeConnection, sql.NullInt32{}, sql.NullString{}, sql.NullInt32{}, sql.NullString{}, sql.NullBool{}, sql.NullInt32{Int32: 901, Valid: true}, sql.NullInt32{Int32: 42, Valid: true}, sql.NullString{String: "openai", Valid: true}, 2, true, sql.NullString{String: "router-openai", Valid: true}, sql.NullInt32{Int32: 801, Valid: true}, sql.NullString{String: "1.25", Valid: true}}), nil
+		return newRuntimePlanningRows([]any{501, 42, 11, runtimeAccessTargetTypeConnection, sql.NullInt32{}, sql.NullString{}, sql.NullInt32{}, sql.NullString{}, sql.NullBool{}, sql.NullInt32{Int32: 901, Valid: true}, sql.NullInt32{Int32: 42, Valid: true}, sql.NullString{String: "openai", Valid: true}, sql.NullString{String: "chat_completions_only", Valid: true}, 2, true, sql.NullString{String: "router-openai", Valid: true}, sql.NullInt32{Int32: 801, Valid: true}, sql.NullString{String: "1.25", Valid: true}}), nil
 	case strings.Contains(query, "FROM loadbalance_strategies"):
 		return newRuntimePlanningRows([]any{303, "contract round robin", "round-robin", []int32{429, 500}, "temporary", 25, 2.0, 0.1, 1000, 3, 5, 60}), nil
 	case strings.Contains(query, "FROM connections") && strings.Contains(query, "JOIN endpoints"):

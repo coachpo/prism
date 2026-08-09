@@ -15,12 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coachpo/prism/backend/internal/openaimodecheck"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	"github.com/coachpo/prism/backend/internal/platform/lifecycle"
 	"github.com/coachpo/prism/backend/internal/platform/migrate"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
-	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
 func TestLoadBootstrapSettingsDefaultsToLocalConfigJSON(t *testing.T) {
@@ -156,154 +154,6 @@ func TestLoadBootstrapConfigDocumentWithRepair(t *testing.T) {
 		}
 		assertBootstrapConfigFileStatePreserved(t, configPath, before)
 	})
-}
-
-func TestRunOpenAIModePreflightCompliantExitsBeforeStartupAndServerWork(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "preflight-ok-bootstrap.json")
-	databaseURL := "postgres://preflight@db.invalid:5432/prism?sslmode=disable"
-	t.Setenv(config.BootstrapConfigPathEnv, configPath)
-	t.Setenv("DATABASE_URL", databaseURL)
-	t.Setenv("PRISM_OPENAI_MODE_PREFLIGHT", "1")
-	seedPreflightBootstrapConfig(t, configPath)
-	before := readBootstrapConfigFileState(t, configPath)
-
-	original := newOpenAIModePreflightCheck
-	newOpenAIModePreflightCheck = func(context.Context, string) (openaimodecheck.Report, error) {
-		return openaimodecheck.Report{ProfileID: profiledomain.DefaultProfileID}, nil
-	}
-	defer func() { newOpenAIModePreflightCheck = original }()
-
-	var runErr error
-	outputText := captureStdout(t, func() {
-		runErr = run(context.Background())
-	})
-	if runErr != nil {
-		t.Fatalf("run openai mode preflight: %v", runErr)
-	}
-	if !strings.Contains(outputText, "openai_mode_preflight profile=1 violations=0") {
-		t.Fatalf("expected compliant preflight report, got %q", outputText)
-	}
-	assertNoStartupOrServerWorkLogged(t, outputText)
-	assertBootstrapConfigFileStatePreserved(t, configPath, before)
-}
-
-func TestRunOpenAIModePreflightViolationsReturnExitCodeOne(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "preflight-violation-bootstrap.json")
-	databaseURL := "postgres://preflight@db.invalid:5432/prism?sslmode=disable"
-	t.Setenv(config.BootstrapConfigPathEnv, configPath)
-	t.Setenv("DATABASE_URL", databaseURL)
-	t.Setenv("PRISM_OPENAI_MODE_PREFLIGHT", "1")
-	seedPreflightBootstrapConfig(t, configPath)
-	before := readBootstrapConfigFileState(t, configPath)
-
-	original := newOpenAIModePreflightCheck
-	newOpenAIModePreflightCheck = func(context.Context, string) (openaimodecheck.Report, error) {
-		return openaimodecheck.Report{ProfileID: profiledomain.DefaultProfileID, Violations: []openaimodecheck.Violation{
-			{SourceModelID: "source-a", RelationKind: openaimodecheck.RelationKindModelTarget, TargetID: "target-b", SourceMode: "dual_native", TargetMode: "responses_only"},
-		}}, nil
-	}
-	defer func() { newOpenAIModePreflightCheck = original }()
-
-	var runErr error
-	outputText := captureStdout(t, func() {
-		runErr = run(context.Background())
-	})
-	var preflightErr *preflightExitError
-	if !errors.As(runErr, &preflightErr) {
-		t.Fatalf("expected preflight exit error, got %v", runErr)
-	}
-	if preflightErr.code != 1 {
-		t.Fatalf("expected preflight exit code 1 for violations, got %d", preflightErr.code)
-	}
-	for _, expected := range []string{
-		"openai_mode_preflight profile=1 violations=1",
-		"model_target source=source-a target=target-b source_mode=dual_native target_mode=responses_only",
-	} {
-		if !strings.Contains(outputText, expected) {
-			t.Fatalf("expected preflight report to contain %q, got %q", expected, outputText)
-		}
-	}
-	assertNoStartupOrServerWorkLogged(t, outputText)
-	assertBootstrapConfigFileStatePreserved(t, configPath, before)
-}
-
-func TestRunOpenAIModePreflightCheckFailureReturnsExitCodeTwo(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "preflight-error-bootstrap.json")
-	databaseURL := "postgres://preflight@db.invalid:5432/prism?sslmode=disable"
-	t.Setenv(config.BootstrapConfigPathEnv, configPath)
-	t.Setenv("DATABASE_URL", databaseURL)
-	t.Setenv("PRISM_OPENAI_MODE_PREFLIGHT", "1")
-	seedPreflightBootstrapConfig(t, configPath)
-	before := readBootstrapConfigFileState(t, configPath)
-
-	original := newOpenAIModePreflightCheck
-	newOpenAIModePreflightCheck = func(context.Context, string) (openaimodecheck.Report, error) {
-		return openaimodecheck.Report{}, errors.New("preflight database unavailable")
-	}
-	defer func() { newOpenAIModePreflightCheck = original }()
-
-	runErr := run(context.Background())
-	var preflightErr *preflightExitError
-	if !errors.As(runErr, &preflightErr) {
-		t.Fatalf("expected preflight exit error, got %v", runErr)
-	}
-	if preflightErr.code != 2 {
-		t.Fatalf("expected preflight exit code 2 for check failure, got %d", preflightErr.code)
-	}
-	if preflightErr.err == nil || !strings.Contains(preflightErr.err.Error(), "preflight database unavailable") {
-		t.Fatalf("expected preflight check error to propagate, got %v", preflightErr.err)
-	}
-	assertBootstrapConfigFileStatePreserved(t, configPath, before)
-}
-
-func TestRunOpenAIModePreflightDoesNotSeedOrRepairBootstrap(t *testing.T) {
-	t.Run("missing bootstrap remains missing", func(t *testing.T) {
-		configPath := filepath.Join(t.TempDir(), "missing-preflight-bootstrap.json")
-		t.Setenv(config.BootstrapConfigPathEnv, configPath)
-		t.Setenv("DATABASE_URL", "postgres://preflight@db.invalid:5432/prism?sslmode=disable")
-		t.Setenv("PRISM_OPENAI_MODE_PREFLIGHT", "1")
-
-		runErr := run(context.Background())
-		if runErr == nil {
-			t.Fatal("expected missing bootstrap to fail preflight without seeding")
-		}
-		if !errors.Is(runErr, os.ErrNotExist) {
-			t.Fatalf("expected missing bootstrap error, got %v", runErr)
-		}
-		if _, err := os.Stat(configPath); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("expected preflight not to create %q, stat error=%v", configPath, err)
-		}
-	})
-
-	t.Run("stale bootstrap remains unchanged", func(t *testing.T) {
-		configPath := filepath.Join(t.TempDir(), "stale-preflight-bootstrap.json")
-		databaseURL := "postgres://preflight@db.invalid:5432/prism?sslmode=disable"
-		t.Setenv(config.BootstrapConfigPathEnv, configPath)
-		t.Setenv("DATABASE_URL", databaseURL)
-		t.Setenv("PRISM_OPENAI_MODE_PREFLIGHT", "1")
-		seedPreflightBootstrapConfig(t, configPath)
-		mutateBootstrapConfigJSON(t, configPath, func(payload map[string]any) {
-			payload["docsEnabled"] = true
-		})
-		before := setBootstrapConfigFileModTime(t, configPath, time.Date(2026, 5, 25, 12, 20, 0, 0, time.UTC))
-
-		runErr := run(context.Background())
-		if runErr == nil {
-			t.Fatal("expected stale bootstrap to fail preflight without repair")
-		}
-		if !strings.Contains(runErr.Error(), `unknown field "docsEnabled"`) {
-			t.Fatalf("expected stale bootstrap parse error, got %v", runErr)
-		}
-		assertBootstrapConfigFileStatePreserved(t, configPath, before)
-	})
-}
-
-func seedPreflightBootstrapConfig(t *testing.T, configPath string) {
-	t.Helper()
-	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
-	if _, err := manager.LoadOrSeed(configPath); err != nil {
-		t.Fatalf("seed preflight bootstrap config: %v", err)
-	}
 }
 
 func TestRunPrintEffectiveStartupSettingsReturnsBeforeStartupAndServerWork(t *testing.T) {

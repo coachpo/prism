@@ -30,6 +30,9 @@ import type {
   PricingTemplateImportRequest,
   PricingTemplateImportResponse,
   PricingTemplateUpdate,
+  RoutingDiagnosticsPreviewRequest,
+  RoutingDiagnosticsResult,
+  ConfigurationWarning,
 } from "../types";
 import { normalizeFailureStatusCodes } from "../loadbalanceRoutingPolicy";
 import { request } from "./core";
@@ -77,6 +80,8 @@ type RawModelConfigListItem = Omit<ManagedModelConfigListItem, "loadbalance_stra
   loadbalance_strategy: RawLoadbalanceStrategySummary | null;
   access_targets: RawModelAccessTarget[];
 };
+
+type RawRoutingDiagnosticsResult = RoutingDiagnosticsResult;
 
 type RawModelConfig = Omit<ManagedModelConfig, "loadbalance_strategy" | "access_targets"> & {
   loadbalance_strategy: RawLoadbalanceStrategySummary | null;
@@ -139,6 +144,124 @@ function normalizeModelAccessTarget(target: RawModelAccessTarget): ModelAccessTa
     terminal_target: target.terminal_target,
     created_at: target.created_at,
     updated_at: target.updated_at,
+  };
+}
+
+type ModelMutationEnvelope = {
+  model: RawModelConfig;
+  configuration_warnings: ConfigurationWarning[];
+};
+
+type AccessTargetMutationEnvelope = {
+  access_targets: RawModelAccessTarget[];
+  configuration_warnings: ConfigurationWarning[];
+};
+
+export interface ConnectionMutationAccessTarget {
+  id: number;
+  target_type: string;
+  connection_id: number | null;
+  terminal_target_id: number | null;
+  position: number;
+  is_enabled: boolean;
+}
+
+type ConnectionMutationEnvelope = {
+  connection: Connection;
+  access_targets: ConnectionMutationAccessTarget[];
+  configuration_warnings: ConfigurationWarning[];
+};
+
+type DeletedConnectionMutationEnvelope = {
+  deleted: boolean;
+  access_targets: Array<{
+    id: number;
+    target_type: string;
+    connection_id: number | null;
+    terminal_target_id: number | null;
+    position: number;
+    is_enabled: boolean;
+  }>;
+  configuration_warnings: ConfigurationWarning[];
+};
+
+export interface EndpointReferenceItem {
+  endpoint_id: number;
+  references: Array<{
+    connection_id: number;
+    access_target_id: number | null;
+    terminal_target_name: string | null;
+    model_config_id: number;
+    model_id: string;
+    model_display_name: string | null;
+    api_family: string;
+    authored_stage_position: number;
+    is_enabled: boolean;
+    is_active: boolean;
+    openai_text_capability: string | null;
+    pricing_template: { id: number; name: string } | null;
+    custom_header_count: number;
+    custom_request_parameter_count: number;
+  }>;
+}
+
+export interface EndpointReferencesBatchResponse {
+  items: EndpointReferenceItem[];
+}
+
+export interface TerminalTargetCopyRequest {
+  destination_model_config_ids: number[];
+  enable_copies?: boolean;
+}
+
+export interface TerminalTargetCopyResponse {
+  source_connection_id: number;
+  items: Array<{
+    model_config_id: number;
+    connection_summary: {
+      id: number;
+      name: string | null;
+      endpoint_id: number;
+      is_active: boolean;
+      openai_text_capability: string | null;
+      pricing_template: { id: number; name: string } | null;
+      qps_limit: number | null;
+      max_in_flight_non_stream: number | null;
+      max_in_flight_stream: number | null;
+      custom_header_count: number;
+      custom_request_parameter_count: number;
+    };
+    access_target: {
+      id: number;
+      target_type: string;
+      connection_id: number | null;
+      terminal_target_id: number | null;
+      position: number;
+      is_enabled: boolean;
+    };
+  }>;
+  configuration_warnings: ConfigurationWarning[];
+}
+
+function normalizeTargetMutationEnvelope(envelope: AccessTargetMutationEnvelope): {
+  access_targets: ModelAccessTarget[];
+  configuration_warnings: ConfigurationWarning[];
+} {
+  return {
+    access_targets: envelope.access_targets.map(normalizeModelAccessTarget),
+    configuration_warnings: envelope.configuration_warnings ?? [],
+  };
+}
+
+function normalizeConnectionMutationEnvelope(envelope: ConnectionMutationEnvelope): {
+  connection: Connection;
+  access_targets: ConnectionMutationAccessTarget[];
+  configuration_warnings: ConfigurationWarning[];
+} {
+  return {
+    connection: envelope.connection,
+    access_targets: envelope.access_targets ?? [],
+    configuration_warnings: envelope.configuration_warnings ?? [],
   };
 }
 
@@ -252,6 +375,7 @@ function normalizeModelConfigListItem(model: RawModelConfigListItem): ManagedMod
     active_connection_count: model.active_connection_count,
     health_success_rate: model.health_success_rate,
     health_total_requests: model.health_total_requests,
+    routing_summary: model.routing_summary ?? null,
     created_at: model.created_at,
     updated_at: model.updated_at,
   };
@@ -296,15 +420,30 @@ export const models = {
   get: (id: number) =>
     request<RawModelConfig>(`/api/models/${id}`).then(normalizeModelConfig),
   create: (data: ManagedModelConfigCreate) =>
-    request<RawModelConfig>("/api/models", {
+    request<ModelMutationEnvelope>(`/api/models`, {
       method: "POST",
       body: JSON.stringify(data),
-    }).then(normalizeModelConfig),
+    }).then((response) => ({
+      model: normalizeModelConfig(response.model),
+      configuration_warnings: response.configuration_warnings ?? [],
+    })),
   update: (id: number, data: ManagedModelConfigUpdate) =>
-    request<RawModelConfig>(`/api/models/${id}`, {
+    request<ModelMutationEnvelope>(`/api/models/${id}`, {
       method: "PUT",
       body: JSON.stringify(data),
-    }).then(normalizeModelConfig),
+    }).then((response) => ({
+      model: normalizeModelConfig(response.model),
+      configuration_warnings: response.configuration_warnings ?? [],
+    })),
+  routingDiagnostics: {
+    get: (modelConfigId: number) =>
+      request<RawRoutingDiagnosticsResult>(`/api/models/${modelConfigId}/routing-diagnostics`),
+    preview: (modelConfigId: number, data: RoutingDiagnosticsPreviewRequest) =>
+      request<RawRoutingDiagnosticsResult>(`/api/models/${modelConfigId}/routing-diagnostics/preview`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+  },
   delete: (id: number) => request<void>(`/api/models/${id}`, { method: "DELETE" }),
   targets: {
     list: (modelConfigId: number) =>
@@ -312,39 +451,50 @@ export const models = {
         targets.map(normalizeModelAccessTarget),
       ),
     create: (modelConfigId: number, data: ModelAccessTargetCreate) =>
-      request<RawModelAccessTarget[]>(`/api/models/${modelConfigId}/targets`, {
+      request<AccessTargetMutationEnvelope>(`/api/models/${modelConfigId}/targets`, {
         method: "POST",
         body: JSON.stringify(data),
-      }).then((targets) => targets.map(normalizeModelAccessTarget)),
+      }).then(normalizeTargetMutationEnvelope),
     update: (modelConfigId: number, targetId: number, data: ModelAccessTargetUpdate) =>
-      request<RawModelAccessTarget[]>(`/api/models/${modelConfigId}/targets/${targetId}`, {
+      request<AccessTargetMutationEnvelope>(`/api/models/${modelConfigId}/targets/${targetId}`, {
         method: "PATCH",
         body: JSON.stringify(data),
-      }).then((targets) => targets.map(normalizeModelAccessTarget)),
+      }).then(normalizeTargetMutationEnvelope),
     movePosition: (modelConfigId: number, targetId: number, toIndex: number) =>
-      request<RawModelAccessTarget[]>(`/api/models/${modelConfigId}/targets/${targetId}/position`, {
+      request<AccessTargetMutationEnvelope>(`/api/models/${modelConfigId}/targets/${targetId}/position`, {
         method: "PATCH",
         body: JSON.stringify({ to_index: toIndex }),
-      }).then((targets) => targets.map(normalizeModelAccessTarget)),
+      }).then(normalizeTargetMutationEnvelope),
     delete: (modelConfigId: number, targetId: number) =>
-      request<RawModelAccessTarget[]>(`/api/models/${modelConfigId}/targets/${targetId}`, {
+      request<AccessTargetMutationEnvelope>(`/api/models/${modelConfigId}/targets/${targetId}`, {
         method: "DELETE",
-      }).then((targets) => targets.map(normalizeModelAccessTarget)),
+      }).then(normalizeTargetMutationEnvelope),
   },
   connections: {
     list: (modelConfigId: number) => request<Connection[]>(`/api/models/${modelConfigId}/connections`),
     create: (modelConfigId: number, data: ModelConnectionCreate) =>
-      request<Connection>(`/api/models/${modelConfigId}/connections`, {
+      request<ConnectionMutationEnvelope>(`/api/models/${modelConfigId}/connections`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }).then(normalizeConnectionMutationEnvelope),
+    update: (modelConfigId: number, connectionId: number, data: ModelConnectionUpdate) =>
+      request<ConnectionMutationEnvelope>(`/api/models/${modelConfigId}/connections/${connectionId}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }).then(normalizeConnectionMutationEnvelope),
+    delete: (modelConfigId: number, connectionId: number) =>
+      request<DeletedConnectionMutationEnvelope>(`/api/models/${modelConfigId}/connections/${connectionId}`, {
+        method: "DELETE",
+      }).then((response) => ({
+        deleted: response.deleted,
+        access_targets: response.access_targets ?? [],
+        configuration_warnings: response.configuration_warnings ?? [],
+      })),
+    copies: (modelConfigId: number, connectionId: number, data: TerminalTargetCopyRequest) =>
+      request<TerminalTargetCopyResponse>(`/api/models/${modelConfigId}/connections/${connectionId}/copies`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
-    update: (modelConfigId: number, connectionId: number, data: ModelConnectionUpdate) =>
-      request<Connection>(`/api/models/${modelConfigId}/connections/${connectionId}`, {
-        method: "PATCH",
-        body: JSON.stringify(data),
-      }),
-    delete: (modelConfigId: number, connectionId: number) =>
-      request<void>(`/api/models/${modelConfigId}/connections/${connectionId}`, { method: "DELETE" }),
   },
 };
 
@@ -405,6 +555,11 @@ export const endpoints = {
       method: "POST",
     }),
   delete: (id: number) => request<void>(`/api/endpoints/${id}`, { method: "DELETE" }),
+  referencesBatch: (endpointIds: number[]) =>
+    request<EndpointReferencesBatchResponse>("/api/endpoints/references/batch", {
+      method: "POST",
+      body: JSON.stringify({ endpoint_ids: endpointIds }),
+    }),
 };
 
 export const connections = {

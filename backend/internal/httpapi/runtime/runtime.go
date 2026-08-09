@@ -576,8 +576,8 @@ func attachRuntimePlanningFailureTelemetry(err error, input requestPlanningInput
 	if !errors.As(err, &runtimeErr) || runtimeErr == nil {
 		return err
 	}
-	_, unsupportedWire := isRequestTranslationUnsupportedError(runtimeErr)
-	if !unsupportedWire && runtimeErr.StatusCode != http.StatusServiceUnavailable {
+	_, planningRejection := isOpenAIPlanningRejectionError(runtimeErr)
+	if !planningRejection && runtimeErr.StatusCode != http.StatusServiceUnavailable {
 		return err
 	}
 	generationParams := extractBufferedRequestGenerationParams(operation.Match.Operation, input.RawBody)
@@ -585,7 +585,7 @@ func attachRuntimePlanningFailureTelemetry(err error, input requestPlanningInput
 	var upstreamOperationName *string
 	var upstreamRequestPath *string
 	var operationTranslationMode *string
-	if unsupportedWire {
+	if planningRejection && runtimeErr.StatusCode == http.StatusBadRequest {
 		upstreamOperationName = stringPtr(runtimeUpstreamOperationName(operation.Match.Operation, TranslationModeNone))
 		upstreamRequestPath = runtimeUpstreamRequestPath(operation.Match.Operation, TranslationModeNone, "")
 		operationTranslationMode = runtimeTranslationModePointer(TranslationModeNone)

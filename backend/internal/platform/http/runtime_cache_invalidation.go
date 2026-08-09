@@ -244,6 +244,7 @@ func isConnectionPlanningMutation(method string, segments []string) bool {
 		(method == http.MethodPatch && matchesSegments(segments, "models", "*", "connections", "*")) ||
 		(method == http.MethodDelete && matchesSegments(segments, "models", "*", "connections", "*")) ||
 		(method == http.MethodPatch && matchesSegments(segments, "models", "*", "connections", "*", "priority")) ||
+		(method == http.MethodPost && matchesSegments(segments, "models", "*", "connections", "*", "copies")) ||
 		(method == http.MethodPut && matchesSegments(segments, "connections", "*")) ||
 		(method == http.MethodPut && matchesSegments(segments, "connections", "*", "pricing-template")) ||
 		(method == http.MethodDelete && matchesSegments(segments, "connections", "*")) ||

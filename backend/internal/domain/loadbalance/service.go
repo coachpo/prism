@@ -27,23 +27,23 @@ type queryExecutor interface {
 }
 
 type CurrentStateItem struct {
-	ConnectionID            int        `json:"connection_id"`
-	WindowStartedAt         *time.Time `json:"window_started_at"`
-	WindowRequestCount      int        `json:"window_request_count"`
-	InFlightNonStream       int        `json:"in_flight_non_stream"`
-	InFlightStream          int        `json:"in_flight_stream"`
-	CycleRetryAttempts      int        `json:"cycle_retry_attempts"`
-	CumulativeRetryAttempts int        `json:"cumulative_retry_attempts"`
-	NextRetryAt             *time.Time `json:"next_retry_at"`
-	LastRetryDelayMS        int        `json:"last_retry_delay_ms"`
-	BanMode                 string     `json:"ban_mode"`
-	BannedUntilAt           *time.Time `json:"banned_until_at"`
-	LastFailureKind         *string    `json:"last_failure_kind"`
-	LastSuccessAt           *time.Time `json:"last_success_at"`
-	LiveP95LatencyMS        *int       `json:"live_p95_latency_ms"`
-	State                   string     `json:"state"`
-	CreatedAt               time.Time  `json:"created_at"`
-	UpdatedAt               time.Time  `json:"updated_at"`
+	ConnectionID                        int        `json:"connection_id"`
+	WindowStartedAt                     *time.Time `json:"window_started_at"`
+	WindowRequestCount                  int        `json:"window_request_count"`
+	InFlightNonStream                   int        `json:"in_flight_non_stream"`
+	InFlightStream                      int        `json:"in_flight_stream"`
+	CycleRetryAttempts                  int        `json:"cycle_retry_attempts"`
+	CumulativeRetryAttempts             int        `json:"cumulative_retry_attempts"`
+	NextRetryAt                         *time.Time `json:"next_retry_at"`
+	LastRetryDelayMS                    int        `json:"last_retry_delay_ms"`
+	BanMode                             string     `json:"ban_mode"`
+	BannedUntilAt                       *time.Time `json:"banned_until_at"`
+	LastFailureKind                     *string    `json:"last_failure_kind"`
+	LastSuccessAt                       *time.Time `json:"last_success_at"`
+	LastSuccessResponseHeadersLatencyMS *int       `json:"last_success_response_headers_latency_ms"`
+	State                               string     `json:"state"`
+	CreatedAt                           time.Time  `json:"created_at"`
+	UpdatedAt                           time.Time  `json:"updated_at"`
 }
 
 type CurrentStateListResponse struct {
@@ -51,8 +51,9 @@ type CurrentStateListResponse struct {
 }
 
 type CurrentStateResetResponse struct {
-	ConnectionID int  `json:"connection_id"`
-	Cleared      bool `json:"cleared"`
+	ConnectionID int               `json:"connection_id"`
+	Cleared      bool              `json:"cleared"`
+	State        *CurrentStateItem `json:"state"`
 }
 
 type EventSummary struct {
@@ -111,8 +112,11 @@ type DeleteParams struct {
 type RuntimeCurrentStateProvider interface {
 	SnapshotCurrentState(profileID int, modelConfigID int, orderedConnectionIDs []int, referenceNow time.Time) []CurrentStateItem
 	SnapshotActiveBans(profileID int, referenceNow time.Time) []CurrentStateItem
-	ResetConnection(profileID int, connectionID int) bool
-	ResetRoundRobinCursor(profileID int, modelConfigID int) bool
+	// ResetConnection clears retry/ban cooldown fields only, preserving QPS window,
+	// in-flight counts, last success observation, latency and round-robin cursors.
+	// It returns the post-reset snapshot (nil when no process state exists) and
+	// whether any cooldown field was actually cleared.
+	ResetConnection(profileID int, connectionID int) (*CurrentStateItem, bool)
 }
 
 func ListCurrentState(ctx context.Context, exec queryExecutor, provider RuntimeCurrentStateProvider, profileID int, modelConfigID int, referenceNow time.Time) (CurrentStateListResponse, error) {
@@ -135,19 +139,19 @@ func ListCurrentState(ctx context.Context, exec queryExecutor, provider RuntimeC
 }
 
 func ResetCurrentState(ctx context.Context, exec queryExecutor, provider RuntimeCurrentStateProvider, profileID int, connectionID int) (CurrentStateResetResponse, error) {
-	var modelConfigID sql.NullInt32
-	err := exec.QueryRow(ctx, `SELECT source_model_config_id FROM model_access_targets WHERE profile_id = $1 AND target_connection_id = $2 ORDER BY position ASC, id ASC LIMIT 1`, profileID, connectionID).Scan(&modelConfigID)
-	if err != nil && err != pgx.ErrNoRows {
+	var exists int
+	err := exec.QueryRow(ctx, `SELECT 1 FROM connections WHERE profile_id = $1 AND id = $2 LIMIT 1`, profileID, connectionID).Scan(&exists)
+	if err == pgx.ErrNoRows {
+		return CurrentStateResetResponse{}, &HTTPError{StatusCode: 404, Detail: "Connection not found"}
+	}
+	if err != nil {
 		return CurrentStateResetResponse{}, fmt.Errorf("load connection %d for profile %d: %w", connectionID, profileID, err)
 	}
-	cleared := false
-	if provider != nil {
-		cleared = provider.ResetConnection(profileID, connectionID) || cleared
-		if modelConfigID.Valid {
-			cleared = provider.ResetRoundRobinCursor(profileID, int(modelConfigID.Int32)) || cleared
-		}
+	if provider == nil {
+		return CurrentStateResetResponse{ConnectionID: connectionID, Cleared: false, State: nil}, nil
 	}
-	return CurrentStateResetResponse{ConnectionID: connectionID, Cleared: cleared}, nil
+	state, cleared := provider.ResetConnection(profileID, connectionID)
+	return CurrentStateResetResponse{ConnectionID: connectionID, Cleared: cleared, State: state}, nil
 }
 
 func listCurrentStateConnectionIDs(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int) ([]int, error) {

@@ -5,12 +5,12 @@ import type {
   ConnectionPricingTemplateSummary,
   Endpoint,
   EndpointCreate,
-  JsonObject,
   ModelAccessTarget,
   ModelConfig,
   ModelConfigListItem,
   OpenAITextCapability,
   PricingTemplate,
+  JsonObject,
 } from "@/lib/types";
 import {
   getTerminalTarget,
@@ -18,7 +18,7 @@ import {
   isTerminalTargetAccessTargetType,
 } from "@/lib/types/target-compatibility";
 import { getStaticMessages } from "@/i18n/staticMessages";
-import { getModelConnections, sortAccessTargetsByPositionThenId, toModelListItem } from "../models/modelFormState";
+import { getModelConnections, toModelListItem } from "../models/modelFormState";
 
 export const createDefaultEndpointForm = (): EndpointCreate => ({
   name: "",
@@ -49,9 +49,9 @@ interface BuildConnectionDraftPayloadInput {
   newEndpointForm: EndpointCreate;
   connectionForm: ConnectionDialogFormLike;
   headerRows: HeaderRowLike[];
+  customRequestParametersValue: JsonObject | null;
   editingConnection: Connection | null;
   endpointSourceDefaultName: string | null;
-  customRequestParametersValue: JsonObject | null;
 }
 
 export function normalizeConnectionHeaders(
@@ -71,9 +71,9 @@ export function buildConnectionDraftPayload({
   newEndpointForm,
   connectionForm,
   headerRows,
+  customRequestParametersValue,
   editingConnection,
   endpointSourceDefaultName,
-  customRequestParametersValue,
 }: BuildConnectionDraftPayloadInput): {
   errorMessage: string | null;
   payload: ConnectionCreate | null;
@@ -154,6 +154,32 @@ export function resequenceConnections(connections: Connection[]): Connection[] {
       priority: index,
     };
   });
+}
+
+export function moveConnectionInList(
+  connections: Connection[],
+  fromIndex: number,
+  toIndex: number
+): Connection[] {
+  if (
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= connections.length ||
+    toIndex >= connections.length ||
+    fromIndex === toIndex
+  ) {
+    return connections;
+  }
+
+  const nextConnections = [...connections];
+  const [movedConnection] = nextConnections.splice(fromIndex, 1);
+
+  if (!movedConnection) {
+    return connections;
+  }
+
+  nextConnections.splice(toIndex, 0, movedConnection);
+  return resequenceConnections(nextConnections);
 }
 
 export function getSelectedEndpoint(
@@ -322,43 +348,27 @@ export function getOwnedModelConnections(
 export interface AccessTargetSummary {
   totalTargetCount: number;
   enabledTargetCount: number;
+  totalModelTargetCount: number;
+  totalTerminalTargetCount: number;
   enabledModelFallbackTargetCount: number;
   enabledTerminalTargetCount: number;
-  // The enabled authored-order first row across both target types; only the
-  // position-smallest enabled mixed row may be called the first target.
-  firstEnabledTargetLabel: string | null;
-  routePolicyLabel: string;
-}
-
-function getAccessTargetLabel(target: ModelAccessTarget | null | undefined): string | null {
-  if (!target) {
-    return null;
-  }
-
-  if (target.target_type === "model") {
-    return target.target_model?.display_name || target.target_model_id;
-  }
-
-  const terminalTarget = getTerminalTarget(target);
-  const terminalTargetId = getTerminalTargetId(target);
-  return terminalTarget?.name
-    || terminalTarget?.endpoint?.name
-    || (terminalTargetId != null
-      ? getStaticMessages().modelDetail.connectionFallback(terminalTargetId)
-      : null);
 }
 
 export function buildAccessTargetSummary(model: ModelConfig | null): AccessTargetSummary {
-  const targets = sortAccessTargetsByPositionThenId(model?.access_targets);
+  const targets = model?.access_targets ?? [];
   const enabledTargets = targets.filter((target) => target.is_enabled);
+  const modelTargets = targets.filter((target) => target.target_type === "model");
+  const terminalTargets = targets.filter((target) => isTerminalTargetAccessTargetType(target.target_type));
+  const enabledModelFallbackTargets = enabledTargets.filter((target) => target.target_type === "model");
+  const enabledTerminalTargets = enabledTargets.filter((target) => isTerminalTargetAccessTargetType(target.target_type));
 
   return {
     totalTargetCount: targets.length,
     enabledTargetCount: enabledTargets.length,
-    enabledModelFallbackTargetCount: enabledTargets.filter((target) => target.target_type === "model").length,
-    enabledTerminalTargetCount: enabledTargets.filter((target) => isTerminalTargetAccessTargetType(target.target_type)).length,
-    firstEnabledTargetLabel: getAccessTargetLabel(enabledTargets[0]),
-    routePolicyLabel: getStaticMessages().modelDetail.orderedPriorityRouting,
+    totalModelTargetCount: modelTargets.length,
+    totalTerminalTargetCount: terminalTargets.length,
+    enabledModelFallbackTargetCount: enabledModelFallbackTargets.length,
+    enabledTerminalTargetCount: enabledTerminalTargets.length,
   };
 }
 

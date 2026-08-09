@@ -1,11 +1,13 @@
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { ApiError } from "@/lib/api/core";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { clearSharedReferenceData } from "@/lib/referenceData";
 import type {
   ApiFamily,
   Connection,
+  OpenAITextCapability,
   Endpoint,
   EndpointCreate,
   ModelAccessTarget,
@@ -14,7 +16,6 @@ import type {
   ModelConfigListItem,
   PricingTemplate,
 } from "@/lib/types";
-import { ApiError } from "@/lib/api/core";
 import {
   getTerminalTargetId,
   isTerminalTargetAccessTargetType,
@@ -55,6 +56,7 @@ interface UseModelDetailConnectionMutationsInput {
   pricingTemplates: PricingTemplate[];
   endpointSourceDefaultName: string | null;
   refreshCurrentState: () => void | Promise<void>;
+  refreshDiagnostics?: () => void | Promise<void>;
   setIsConnectionDialogOpen: (open: boolean) => void;
   setAllModels: React.Dispatch<React.SetStateAction<ModelConfigListItem[]>>;
   setConnections: React.Dispatch<React.SetStateAction<Connection[]>>;
@@ -64,22 +66,18 @@ interface UseModelDetailConnectionMutationsInput {
 }
 
 function isCustomRequestParametersValidationError(error: unknown): error is ApiError {
-  if (!(error instanceof ApiError) || error.status !== 422) {
-    return false;
-  }
-  if (!error.detail || typeof error.detail !== "object") {
-    return false;
-  }
-  return (error.detail as { detail?: unknown }).detail === "Invalid custom request parameters";
+  if (!(error instanceof ApiError) || error.status !== 422) return false;
+  const detail = error.detail;
+  return Boolean(detail && typeof detail === "object" && (detail as { detail?: unknown }).detail === "Invalid custom request parameters");
 }
 
-function customRequestParametersErrorFromServerBody(
-  body: Record<string, unknown>,
-): CustomRequestParametersParseError {
-  const reason = typeof body.reason === "string" ? (body.reason as CustomRequestParametersParseError["reason"]) : "not_object";
-  const path = typeof body.path === "string" ? body.path : "custom_request_parameters";
-  const limit = typeof body.limit === "number" ? body.limit : undefined;
-  return { reason, path, limit };
+function customRequestParametersErrorFromServerBody(body: Record<string, unknown>): CustomRequestParametersParseError {
+  const reason = typeof body.reason === "string" ? body.reason as CustomRequestParametersParseError["reason"] : "not_object";
+  return {
+    reason,
+    path: typeof body.path === "string" ? body.path : "custom_request_parameters",
+    limit: typeof body.limit === "number" ? body.limit : undefined,
+  };
 }
 
 export function useModelDetailConnectionMutations({
@@ -98,6 +96,7 @@ export function useModelDetailConnectionMutations({
   pricingTemplates,
   endpointSourceDefaultName,
   refreshCurrentState,
+  refreshDiagnostics,
   setIsConnectionDialogOpen,
   setAllModels,
   setConnections,
@@ -118,8 +117,9 @@ export function useModelDetailConnectionMutations({
       });
       clearSharedReferenceData(undefined, revision);
       void refreshCurrentState();
+      void refreshDiagnostics?.();
     },
-    [modelConfigId, refreshCurrentState, revision, setAllModels, setConnections, setModel],
+    [modelConfigId, refreshCurrentState, refreshDiagnostics, revision, setAllModels, setConnections, setModel],
   );
 
   const commitConnection = useCallback(
@@ -157,9 +157,9 @@ export function useModelDetailConnectionMutations({
         newEndpointForm,
         connectionForm,
         headerRows,
+        customRequestParametersValue: parsedCustomRequestParameters.value,
         editingConnection,
         endpointSourceDefaultName,
-        customRequestParametersValue: parsedCustomRequestParameters.value,
       });
 
       if (!payload) {
@@ -173,12 +173,12 @@ export function useModelDetailConnectionMutations({
             toast.error(TERMINAL_TARGET_OWNER_MISMATCH);
             return;
           }
-          const updatedConnection = await api.models.connections.update(modelConfigId, editingConnection.id, { ...payload });
-          if (!commitConnection(updatedConnection)) return;
+          const updatedResponse = await api.models.connections.update(modelConfigId, editingConnection.id, { ...payload });
+          if (!commitConnection(updatedResponse.connection)) return;
           toast.success(getStaticMessages().modelDetailData.connectionUpdated);
         } else {
-          const createdConnection = await api.models.connections.create(modelConfigId, payload);
-          if (!commitConnection(createdConnection)) return;
+          const createdResponse = await api.models.connections.create(modelConfigId, payload);
+          if (!commitConnection(createdResponse.connection)) return;
           const targets = await api.models.targets.list(modelConfigId);
           applyTargets(targets);
           toast.success(getStaticMessages().modelDetailData.connectionCreated);
@@ -222,8 +222,8 @@ export function useModelDetailConnectionMutations({
         return;
       }
       try {
-        const targets = await api.models.targets.create(modelConfigId, target);
-        applyTargets(targets);
+        const response = await api.models.targets.create(modelConfigId, target);
+        applyTargets(response.access_targets);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Failed to add access target");
         throw error;
@@ -233,16 +233,18 @@ export function useModelDetailConnectionMutations({
   );
 
   const handleMoveAccessTarget = useCallback(
-    async (targetRowId: number, toIndex: number) => {
+    async (index: number, toIndex: number) => {
       if (!Number.isFinite(modelConfigId)) return;
-      const target = model?.access_targets.find((candidate) => candidate.id === targetRowId) ?? null;
+      const target = model?.access_targets[index] ?? null;
       if (!target) return;
-      // Position belongs to the mixed access-target row, not to the referenced
-      // connection. A read-only/foreign terminal target can still participate
-      // in ordering even though its detail mutations remain ownership-guarded.
+      if (isTerminalTargetAccessTargetType(target.target_type)
+        && !getOwnedConnectionTarget(model, modelConfigId, getTerminalTargetId(target) ?? -1)) {
+        toast.error(TERMINAL_TARGET_OWNER_MISMATCH);
+        return;
+      }
       try {
-        const targets = await api.models.targets.movePosition(modelConfigId, targetRowId, toIndex);
-        applyTargets(targets);
+        const response = await api.models.targets.movePosition(modelConfigId, target.id, toIndex);
+        applyTargets(response.access_targets);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Failed to reorder access target");
         throw error;
@@ -252,9 +254,9 @@ export function useModelDetailConnectionMutations({
   );
 
   const handleToggleAccessTarget = useCallback(
-    async (targetRowId: number, enabled: boolean) => {
+    async (index: number, enabled: boolean) => {
       if (!Number.isFinite(modelConfigId)) return;
-      const target = model?.access_targets.find((candidate) => candidate.id === targetRowId) ?? null;
+      const target = model?.access_targets[index] ?? null;
       if (!target) return;
       if (isTerminalTargetAccessTargetType(target.target_type)
         && !getOwnedConnectionTarget(model, modelConfigId, getTerminalTargetId(target) ?? -1)) {
@@ -262,8 +264,8 @@ export function useModelDetailConnectionMutations({
         return;
       }
       try {
-        const targets = await api.models.targets.update(modelConfigId, targetRowId, { is_enabled: enabled });
-        applyTargets(targets);
+        const response = await api.models.targets.update(modelConfigId, target.id, { is_enabled: enabled });
+        applyTargets(response.access_targets);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Failed to update access target");
         throw error;
@@ -272,10 +274,44 @@ export function useModelDetailConnectionMutations({
     [applyTargets, model, modelConfigId],
   );
 
+  const handleQuickCapabilityChange = useCallback(
+    async (connection: Connection, capability: OpenAITextCapability) => {
+      if (!Number.isFinite(modelConfigId)) return
+      if (!isOwnedConnectionTarget(model, modelConfigId, connection.id)) return
+      try {
+        const response = await api.models.connections.update(modelConfigId, connection.id, { openai_text_capability: capability });
+        if (!commitConnection(response.connection)) return;
+        clearSharedReferenceData(undefined, revision);
+        void refreshCurrentState();
+        void refreshDiagnostics?.();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to update capability");
+      }
+    },
+    [commitConnection, model, modelConfigId, refreshCurrentState, refreshDiagnostics, revision],
+  );
+
+  const handleQuickPricingChange = useCallback(
+    async (connection: Connection, pricingTemplateId: number | null) => {
+      if (!Number.isFinite(modelConfigId)) return
+      if (!isOwnedConnectionTarget(model, modelConfigId, connection.id)) return
+      try {
+        const response = await api.models.connections.update(modelConfigId, connection.id, { pricing_template_id: pricingTemplateId });
+        if (!commitConnection(response.connection)) return;
+        clearSharedReferenceData(undefined, revision);
+        void refreshCurrentState();
+        void refreshDiagnostics?.();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to update pricing template");
+      }
+    },
+    [commitConnection, model, modelConfigId, refreshCurrentState, refreshDiagnostics, revision],
+  );
+
   const handleDeleteAccessTarget = useCallback(
-    async (targetRowId: number) => {
+    async (index: number) => {
       if (!Number.isFinite(modelConfigId)) return;
-      const target = model?.access_targets.find((candidate) => candidate.id === targetRowId) ?? null;
+      const target = model?.access_targets[index] ?? null;
       if (!target) return;
       if (isTerminalTargetAccessTargetType(target.target_type)
         && !getOwnedConnectionTarget(model, modelConfigId, getTerminalTargetId(target) ?? -1)) {
@@ -283,8 +319,8 @@ export function useModelDetailConnectionMutations({
         return;
       }
       try {
-        const targets = await api.models.targets.delete(modelConfigId, targetRowId);
-        applyTargets(targets);
+        const response = await api.models.targets.delete(modelConfigId, target.id);
+        applyTargets(response.access_targets);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Failed to remove access target");
         throw error;
@@ -308,12 +344,13 @@ export function useModelDetailConnectionMutations({
         const targets = await api.models.targets.list(modelConfigId);
         applyTargets(targets);
         void refreshCurrentState();
+        void refreshDiagnostics?.();
         toast.success(getStaticMessages().modelDetailData.connectionDeleted);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : getStaticMessages().modelDetailData.deleteConnectionFailed);
       }
     },
-    [applyTargets, model, modelConfigId, refreshCurrentState, revision, setAllConnections, setConnections],
+    [applyTargets, model, modelConfigId, refreshCurrentState, refreshDiagnostics, revision, setAllConnections, setConnections],
   );
 
   const handleToggleActive = useCallback(
@@ -324,15 +361,16 @@ export function useModelDetailConnectionMutations({
           toast.error(TERMINAL_TARGET_OWNER_MISMATCH);
           return;
         }
-        const updatedConnection = await api.models.connections.update(modelConfigId, connection.id, { is_active: !connection.is_active });
-        if (!commitConnection(updatedConnection)) return;
+        const updatedResponse = await api.models.connections.update(modelConfigId, connection.id, { is_active: !connection.is_active });
+        if (!commitConnection(updatedResponse.connection)) return;
         clearSharedReferenceData(undefined, revision);
         void refreshCurrentState();
+        void refreshDiagnostics?.();
       } catch {
         toast.error(getStaticMessages().modelDetailData.toggleConnectionFailed);
       }
     },
-    [commitConnection, model, modelConfigId, refreshCurrentState, revision],
+    [commitConnection, model, modelConfigId, refreshCurrentState, refreshDiagnostics, revision],
   );
 
   return {
@@ -343,5 +381,7 @@ export function useModelDetailConnectionMutations({
     handleMoveAccessTarget,
     handleToggleAccessTarget,
     handleDeleteAccessTarget,
+    handleQuickCapabilityChange,
+    handleQuickPricingChange,
   };
 }

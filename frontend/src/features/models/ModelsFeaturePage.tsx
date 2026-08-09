@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { OperatorPageHeader, OperatorPageShell } from "@/shared/design-system"
+import { CreateModelDialog } from "@/pages/models/CreateModelDialog"
 import { DeleteModelDialog } from "@/pages/models/DeleteModelDialog"
 import { ModelDialog } from "@/pages/models/ModelDialog"
 import { ModelsTable } from "./ModelsTable"
@@ -17,6 +18,7 @@ import { DEFAULT_MODELS_LIST_FILTERS, modelsQueryKeys, normalizeModelsListFilter
 export function ModelsFeaturePage() {
   const { formatNumber, messages } = useLocale()
   const data = useModelsPageData(0)
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const copy = messages.modelsPage
   const [apiFamilyFilter, setApiFamilyFilter] = useState(DEFAULT_MODELS_LIST_FILTERS.api_family)
   const [statusFilter, setStatusFilter] = useState(DEFAULT_MODELS_LIST_FILTERS.status)
@@ -52,7 +54,7 @@ export function ModelsFeaturePage() {
   return (
     <OperatorPageShell data-testid="models-feature-page" data-query-key={JSON.stringify(queryKey)}>
       <OperatorPageHeader title={copy.title} description={copy.countDescription(formatNumber(filtered.length))}>
-        <Button size="sm" onClick={() => data.handleOpenDialog()}>
+        <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
           <Plus data-icon="inline-start" />
           {copy.newModel}
         </Button>
@@ -62,15 +64,15 @@ export function ModelsFeaturePage() {
         <CardHeader className="border-b">
           <FieldGroup className="gap-4 md:flex-row md:items-end">
             <Field className="md:max-w-sm">
-              <FieldLabel>Search models</FieldLabel>
+              <FieldLabel>{messages.modelsPage.searchModels}</FieldLabel>
               <ModelsToolbar search={data.search} setSearch={data.setSearch} />
             </Field>
             <Field className="md:max-w-48">
-              <FieldLabel>API family</FieldLabel>
+              <FieldLabel>{messages.common.apiFamily}</FieldLabel>
               <Select value={apiFamilyFilter} onValueChange={setApiFamilyFilter}>
-                <SelectTrigger aria-label="Filter API family"><SelectValue /></SelectTrigger>
+                <SelectTrigger aria-label={messages.common.apiFamily}><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All families</SelectItem>
+                  <SelectItem value="all">{messages.modelsPage.allFamilies}</SelectItem>
                   <SelectItem value="openai">OpenAI</SelectItem>
                   <SelectItem value="anthropic">Anthropic</SelectItem>
                   <SelectItem value="gemini">Gemini</SelectItem>
@@ -78,13 +80,13 @@ export function ModelsFeaturePage() {
               </Select>
             </Field>
             <Field className="md:max-w-48">
-              <FieldLabel>Status</FieldLabel>
+              <FieldLabel>{messages.common.status}</FieldLabel>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger aria-label="Filter status"><SelectValue /></SelectTrigger>
+                <SelectTrigger aria-label={messages.common.status}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All statuses</SelectItem>
-                  <SelectItem value="enabled">Enabled</SelectItem>
-                  <SelectItem value="disabled">Disabled</SelectItem>
+                  <SelectItem value="enabled">{messages.modelDetail.enabled}</SelectItem>
+                  <SelectItem value="disabled">{messages.modelDetail.disabled}</SelectItem>
                 </SelectContent>
               </Select>
             </Field>
@@ -102,6 +104,20 @@ export function ModelsFeaturePage() {
           />
         </CardContent>
       </Card>
+
+      <CreateModelDialog
+        isOpen={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        revision={0}
+        loadbalanceStrategies={data.loadbalanceStrategies}
+        createLoadbalanceStrategyDefaultsPending={data.loadbalanceStrategyDefaultsCreating}
+        onCreateLoadbalanceStrategyDefaults={data.handleCreateLoadbalanceStrategyDefaults}
+        onSubmit={async (payload) => {
+          const response = await data.handleCreateModelSubmit(payload)
+          setCreateDialogOpen(false)
+          return response
+        }}
+      />
 
       <ModelDialog
         editingModel={data.editingModel}

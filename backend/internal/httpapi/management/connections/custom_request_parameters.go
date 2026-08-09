@@ -52,7 +52,7 @@ func customRequestParametersValidationDomainError(validationErr *terminaltarget.
 	if validationErr.Limit > 0 {
 		fields["limit"] = validationErr.Limit
 	}
-	return &domainError{
+	return &DomainError{
 		StatusCode: http.StatusUnprocessableEntity,
 		Detail:     "Invalid custom request parameters",
 		Fields:     fields,
