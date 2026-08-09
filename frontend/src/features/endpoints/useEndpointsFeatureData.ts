@@ -43,6 +43,8 @@ function referenceSummaryForState(summary: EndpointReferenceSummaryState | undef
 export function useEndpointsFeatureData() {
   const [endpoints, setEndpoints] = useState<Endpoint[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [endpointLoadError, setEndpointLoadError] = useState(false)
+  const [endpointLoadAttempt, setEndpointLoadAttempt] = useState(0)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [editingEndpoint, setEditingEndpointState] = useState<Endpoint | null>(null)
   const [endpointDialogError, setEndpointDialogError] = useState<string | null>(null)
@@ -65,13 +67,17 @@ export function useEndpointsFeatureData() {
   useEffect(() => {
     let cancelled = false
     setIsLoading(true)
+    setEndpointLoadError(false)
     void (async () => {
       try {
         const loaded = await getSharedEndpoints(revision, true)
         if (cancelled) return
         setEndpoints(loaded)
       } catch {
-        if (!cancelled) toast.error(getStaticMessages().endpointsData.loadFailed)
+        if (!cancelled) {
+          setEndpointLoadError(true)
+          toast.error(getStaticMessages().endpointsData.loadFailed)
+        }
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -79,7 +85,11 @@ export function useEndpointsFeatureData() {
     return () => {
       cancelled = true
     }
-  }, [revision])
+  }, [endpointLoadAttempt, revision])
+
+  const retryEndpointLoad = useCallback(() => {
+    setEndpointLoadAttempt((current) => current + 1)
+  }, [])
 
   const commitEndpoints = useCallback((updater: (current: Endpoint[]) => Endpoint[]) => {
     setEndpoints((current) => {
@@ -95,6 +105,11 @@ export function useEndpointsFeatureData() {
 
   // Reference filter normalizes to all when any item is not fresh-ready.
   const effectiveFilter: ReviewFilter = filterDisabled ? "all" : reviewFilter
+  // A reference-derived sort is subject to the same fail-closed rule as the
+  // filters. Keep the user's choice in state for when hydration recovers, but
+  // render a deterministic name order while any summary is unknown/stale.
+  const effectiveSortKey: EndpointSortKey =
+    filterDisabled && sortKey === "direct_reference_count" ? "name" : sortKey
 
   const filteredEndpoints = useMemo(() => {
     return endpoints.filter((endpoint) => {
@@ -121,13 +136,13 @@ export function useEndpointsFeatureData() {
     const direction = sortDescending ? -1 : 1
     items.sort((left, right) => {
       let comparison = 0
-      if (sortKey === "name") {
+      if (effectiveSortKey === "name") {
         comparison = left.name.localeCompare(right.name, "zh-CN")
         if (comparison === 0) comparison = left.id - right.id
-      } else if (sortKey === "updated_at") {
+      } else if (effectiveSortKey === "updated_at") {
         comparison = left.updated_at.localeCompare(right.updated_at)
         if (comparison === 0) comparison = left.id - right.id
-      } else if (sortKey === "direct_reference_count") {
+      } else if (effectiveSortKey === "direct_reference_count") {
         const leftSummary = referenceSummaryForState(references.summaries[left.id])
         const rightSummary = referenceSummaryForState(references.summaries[right.id])
         const leftCount = leftSummary?.direct_reference_count ?? 0
@@ -138,7 +153,7 @@ export function useEndpointsFeatureData() {
       return comparison * direction
     })
     return items
-  }, [filteredEndpoints, references.summaries, sortDescending, sortKey])
+  }, [effectiveSortKey, filteredEndpoints, references.summaries, sortDescending])
 
   const toggleSort = useCallback((key: EndpointSortKey) => {
     if (key === "direct_reference_count" && filterDisabled) return
@@ -251,10 +266,10 @@ export function useEndpointsFeatureData() {
     void (async () => {
       try {
         const detail = await api.endpoints.referencesDetail(endpoint.id)
+        references.adoptDetail(endpoint.id, detail)
         setDeleteDialog((current) => {
           if (current.phase !== "checking" || current.endpoint.id !== endpoint.id) return current
           if (detail.summary.direct_reference_count === 0) {
-            references.loadDetail(endpoint.id)
             return { phase: "eligible", endpoint, summary: detail.summary, generation }
           }
           return { phase: "blocked", endpoint, detail, generation }
@@ -297,6 +312,7 @@ export function useEndpointsFeatureData() {
           summary: race.summary,
           reference_page: race.reference_page,
         }
+        references.adoptDetail(endpoint.id, detail)
         setDeleteDialog((current) => {
           if (current.phase !== "deleting" || current.endpoint.id !== endpoint.id) return current
           return { phase: "blocked", endpoint, detail, generation: Date.now() }
@@ -388,6 +404,7 @@ export function useEndpointsFeatureData() {
     effectiveFilter,
     endpointDialogError,
     endpointFieldErrors,
+    endpointLoadError,
     endpoints,
     filterDisabled,
     filteredEndpoints: sortedEndpoints,
@@ -409,6 +426,7 @@ export function useEndpointsFeatureData() {
     orphanCleanupTarget,
     references,
     reviewFilter: effectiveFilter,
+    retryEndpointLoad,
     searchQuery,
     setAttachModelTarget,
     setDeleteDialog,

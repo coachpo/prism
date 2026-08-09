@@ -64,6 +64,7 @@ export function useEndpointReferences(endpointIds: number[]) {
   const [state, setState] = useState<ReferencesState>({ summaries: {}, details: {} })
   const generationByEndpoint = useRef<Record<number, number>>({})
   const [inFlight, setInFlight] = useState(false)
+  const [retryNonce, setRetryNonce] = useState(0)
   const lastRequested = useRef<number[]>([])
 
   const uniqueIds = useMemo(() => Array.from(new Set(endpointIds)), [endpointIds])
@@ -212,7 +213,7 @@ export function useEndpointReferences(endpointIds: number[]) {
     }
     startNext()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uniqueIds.join(","), issueGenerations, fetchChunk])
+  }, [uniqueIds.join(","), issueGenerations, fetchChunk, retryNonce])
 
   // Single-detail read: opening a disclosure or a delete preflight. On
   // success the detail commits atomically with its own summary replacing the
@@ -258,6 +259,27 @@ export function useEndpointReferences(endpointIds: number[]) {
     }
   }, [commitIfCurrent])
 
+  // Adopt a detail response that was already fetched by a delete preflight.
+  // Keeping this write in the same coordinator as batch/detail reads prevents
+  // the dialog's fresh counts and the table's cached counts from diverging.
+  const adoptDetail = useCallback((endpointId: number, detail: EndpointReferenceDetail) => {
+    const generation = nextGeneration(generationByEndpoint.current[endpointId] ?? 0)
+    generationByEndpoint.current[endpointId] = generation
+    const receivedAt = Date.now()
+    const snapshot = pageToSnapshot(detail)
+    setState((current) => ({
+      ...current,
+      summaries: {
+        ...current.summaries,
+        [endpointId]: { status: "ready", value: detail.summary, generation, receivedAt },
+      },
+      details: {
+        ...current.details,
+        [endpointId]: { status: "ready", value: snapshot, generation, receivedAt },
+      },
+    }))
+  }, [])
+
   // Load more along the same snapshot cursor. Any cursor mismatch, stale
   // snapshot or new generation discards accumulated pages and restarts.
   const loadMore = useCallback(async (endpointId: number) => {
@@ -274,19 +296,22 @@ export function useEndpointReferences(endpointIds: number[]) {
     }))
     try {
       const detail = await api.endpoints.referencesDetail(endpointId, snapshot.next_cursor ? { cursor: snapshot.next_cursor } : undefined)
+      if (detail.reference_page.reference_snapshot_hash !== snapshot.reference_snapshot_hash || detail.reference_page.total_count !== snapshot.total_count) {
+        // Snapshot changed under us: discard accumulated pages and restart
+        // from page one instead of leaving a permanent loading state.
+        commitIfCurrent(endpointId, generation, (prev) => ({
+          ...prev,
+          details: {
+            ...prev.details,
+            [endpointId]: { status: "loading", generation },
+          },
+        }))
+        void loadDetail(endpointId)
+        return
+      }
       commitIfCurrent(endpointId, generation, (prev) => {
         const loaded = prev.details[endpointId]
         const base = loaded && (loaded.status === "ready" || loaded.status === "stale") ? loaded.value : snapshot
-        if (base.reference_snapshot_hash !== detail.reference_page.reference_snapshot_hash || base.total_count !== detail.reference_page.total_count) {
-          // Snapshot changed under us: restart from page one.
-          return {
-            ...prev,
-            details: {
-              ...prev.details,
-              [endpointId]: { status: "loading", generation },
-            },
-          }
-        }
         const merged: EndpointReferencePagedSnapshot = {
           summary: detail.summary,
           loaded_items: [...base.loaded_items, ...detail.reference_page.items],
@@ -350,6 +375,17 @@ export function useEndpointReferences(endpointIds: number[]) {
     void loadDetail(endpointId)
   }, [loadDetail])
 
+  const retry = useCallback(() => {
+    setState((current) => {
+      const summaries = { ...current.summaries }
+      for (const id of uniqueIds) {
+        summaries[id] = { status: "loading", generation: generationByEndpoint.current[id] ?? 0 }
+      }
+      return { ...current, summaries }
+    })
+    setRetryNonce((current) => current + 1)
+  }, [uniqueIds])
+
   // A 409/integrity error on any item disables reference-derived filter/sort.
   const hasUnknownOrStale = useMemo(() => {
     return uniqueIds.some((id) => {
@@ -365,7 +401,15 @@ export function useEndpointReferences(endpointIds: number[]) {
     })
   }, [state.summaries, uniqueIds])
 
+  const hasReferenceError = useMemo(() => {
+    return uniqueIds.some((id) => {
+      const summary = state.summaries[id]
+      return summary?.status === "error" || summary?.status === "stale"
+    })
+  }, [state.summaries, uniqueIds])
+
   return {
+    adoptDetail,
     addEndpoint,
     details: state.details,
     hasIntegrityError,
@@ -375,7 +419,9 @@ export function useEndpointReferences(endpointIds: number[]) {
     loadDetail,
     loadMore,
     removeEndpoint,
+    retry,
     summaries: state.summaries,
+    hasReferenceError,
   }
 }
 

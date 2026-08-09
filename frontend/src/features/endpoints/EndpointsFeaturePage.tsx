@@ -3,7 +3,7 @@ import { Plug, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useLocale } from "@/i18n/useLocale"
-import { OperatorEmptyState, OperatorLoadingState, OperatorPageHeader, OperatorPageShell, OperatorSearchInput, OperatorToolbar } from "@/shared/design-system"
+import { OperatorEmptyState, OperatorErrorState, OperatorLoadingState, OperatorPageHeader, OperatorPageShell, OperatorSearchInput, OperatorToolbar, OperatorRetryButton } from "@/shared/design-system"
 import { AttachToModelDialog } from "@/pages/endpoints/AttachToModelDialog"
 import { DeleteEndpointDialog } from "@/pages/endpoints/DeleteEndpointDialog"
 import { EndpointDialog } from "./EndpointDialog"
@@ -33,6 +33,12 @@ export function EndpointsFeaturePage() {
 
       {data.isLoading ? (
         <OperatorLoadingState title={copy.title} />
+      ) : data.endpointLoadError ? (
+        <OperatorErrorState
+          title={messages.endpointsData.loadFailed}
+          description={messages.common.requestFailed}
+          action={<OperatorRetryButton onClick={data.retryEndpointLoad}>{messages.endpointsUi.deleteRetry}</OperatorRetryButton>}
+        />
       ) : data.endpoints.length === 0 ? (
         <OperatorEmptyState icon={<Plug className="h-6 w-6" />} title={copy.noEndpointsConfigured} description={copy.noEndpointsConfiguredDescription} action={<Button onClick={() => data.setIsCreateOpen(true)}><Plus data-icon="inline-start" />{copy.addEndpoint}</Button>} />
       ) : (
@@ -76,6 +82,7 @@ export function EndpointsFeaturePage() {
                 filterDisabled={data.filterDisabled}
                 formatTime={data.formatTime}
                 hasIntegrityError={data.references.hasIntegrityError}
+                hasReferenceError={data.references.hasReferenceError}
                 onAttach={data.handleAttachNavigate}
                 onDelete={data.handleDeleteRequest}
                 onDuplicate={data.handleDuplicateEndpoint}
@@ -83,6 +90,7 @@ export function EndpointsFeaturePage() {
                 onLoadMore={data.handleLoadMoreBlockers}
                 onOpenReferences={data.references.loadDetail}
                 onOrphanCleanup={(endpoint, item) => data.setOrphanCleanupTarget({ endpoint, item })}
+                onRetryReferences={data.references.retry}
                 onSort={data.toggleSort}
                 sort={{ column: data.sortKey, direction: data.sortDescending ? "desc" : "asc" }}
                 summaries={data.references.summaries}

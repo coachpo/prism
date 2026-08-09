@@ -134,6 +134,24 @@ func TestBuildSecretMetadata(t *testing.T) {
 	if plaintext != "sk-metadata" {
 		t.Fatalf("expected round-trip plaintext, got %q", plaintext)
 	}
+
+	// A legitimate operator key may begin with the storage prefix. Creation
+	// paths must still encrypt it; only migration normalization treats an
+	// already-enveloped value as ciphertext.
+	prefixed, err := BuildSecretMetadata("enc:operator-key", testEncryptionKey, nowFn)
+	if err != nil {
+		t.Fatalf("build prefixed metadata: %v", err)
+	}
+	if prefixed.EncryptedValue == "enc:operator-key" {
+		t.Fatal("expected a plaintext key with the envelope prefix to be encrypted")
+	}
+	prefixedPlaintext, err := DecryptSecret(prefixed.EncryptedValue, testEncryptionKey)
+	if err != nil {
+		t.Fatalf("decrypt prefixed key: %v", err)
+	}
+	if prefixedPlaintext != "enc:operator-key" {
+		t.Fatalf("expected prefixed key round-trip, got %q", prefixedPlaintext)
+	}
 }
 
 func TestNormalizeBaseURLOrder(t *testing.T) {

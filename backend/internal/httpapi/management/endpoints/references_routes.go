@@ -130,6 +130,9 @@ func (s *Service) handleEndpointReferencesDetail(w http.ResponseWriter, r *http.
 			if cursor.ProfileID != profile.ID || cursor.EndpointID != endpointID {
 				return endpointReferenceDetailResponse{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: map[string]any{"code": "reference_cursor_mismatch", "message": "The reference cursor does not match this Endpoint"}}
 			}
+			if cursor.Limit < 1 || cursor.Limit > referencePageMaxLimit || cursor.LastKey == "" {
+				return endpointReferenceDetailResponse{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: map[string]any{"code": "reference_cursor_invalid", "message": "The reference cursor is invalid or expired"}}
+			}
 			if rawLimit != "" && cursor.Limit != limit {
 				return endpointReferenceDetailResponse{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: map[string]any{"code": "reference_cursor_mismatch", "message": "The reference cursor limit differs from the request"}}
 			}
@@ -138,14 +141,16 @@ func (s *Service) handleEndpointReferencesDetail(w http.ResponseWriter, r *http.
 			}
 			effectiveLimit = cursor.Limit
 			startIndex = len(set.Items)
+			matchedCursorKey := false
 			for index, key := range set.OrderKeys {
 				if key.encode() == cursor.LastKey {
 					startIndex = index + 1
+					matchedCursorKey = true
 					break
 				}
 			}
-			if startIndex > len(set.Items) {
-				startIndex = len(set.Items)
+			if !matchedCursorKey {
+				return endpointReferenceDetailResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: map[string]any{"code": "reference_snapshot_stale", "message": "The direct references changed; restart pagination from page one"}}
 			}
 		}
 
@@ -372,9 +377,9 @@ type orphanConnectionRecord struct {
 }
 
 type orphanOwnerRecord struct {
-	MatID      int
+	MatID       int
 	MatPosition int
-	MatEnabled bool
+	MatEnabled  bool
 }
 
 func loadConnectionForCleanup(ctx context.Context, exec queryExecutor, profileID int, endpointID int, connectionID int) (orphanConnectionRecord, bool, error) {

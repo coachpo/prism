@@ -36,7 +36,6 @@ export interface ModelAccessTargetModelSummary {
   loadbalance_strategy_id: number | null;
   is_enabled: boolean;
 }
-
 export interface ModelAccessTarget {
   id: number;
   target_type: ModelAccessTargetType;
@@ -677,4 +676,3 @@ export interface DashboardRecentActivityResponse {
 export interface DashboardRecentActivityParams {
   limit?: number;
 }
-

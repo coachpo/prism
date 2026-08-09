@@ -23,7 +23,6 @@ type validationFailureDetail struct {
 	Code   string            `json:"code"`
 	Fields map[string]string `json:"fields"`
 }
-
 type nameConflictDetail struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
@@ -139,6 +138,12 @@ func (s *Service) handleUpdateEndpoint(w http.ResponseWriter, r *http.Request) {
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "endpoint", func(tx pgx.Tx) (endpointResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
+			return endpointResponse{}, err
+		}
+		// Serialize name uniqueness checks with creates, duplicates, and other
+		// endpoint updates in this profile. The row lock alone does not protect
+		// two different endpoints from concurrently choosing the same name.
+		if err := lockProfileRow(r.Context(), tx, profile.ID); err != nil {
 			return endpointResponse{}, err
 		}
 		record, found, err := loadEndpointRecord(r.Context(), tx, profile.ID, endpointID, true)
@@ -348,4 +353,3 @@ func intPtr(value int) *int {
 	resolved := value
 	return &resolved
 }
-

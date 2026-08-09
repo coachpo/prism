@@ -262,9 +262,9 @@ func (s Service) normalizeEndpointSecrets(ctx context.Context, conn *pgx.Conn) e
 		defer rows.Close()
 
 		type endpointRow struct {
-			ID           int
-			APIKey       string
-			Fingerprint  *string
+			ID          int
+			APIKey      string
+			Fingerprint *string
 		}
 		endpoints := []endpointRow{}
 		for rows.Next() {
@@ -292,16 +292,13 @@ func (s Service) normalizeEndpointSecrets(ctx context.Context, conn *pgx.Conn) e
 			if err != nil {
 				return fmt.Errorf("normalize endpoint secret %d: %w", endpoint.ID, err)
 			}
-			unchanged := encrypted == endpoint.APIKey
-			if fingerprint != nil && endpoint.Fingerprint != nil && *endpoint.Fingerprint == *fingerprint {
-				unchanged = unchanged && true
-			}
+			unchanged := encrypted == endpoint.APIKey && sameOptionalString(endpoint.Fingerprint, fingerprint)
 			if unchanged {
 				continue
 			}
 			if _, err := tx.Exec(
 				ctx,
-				`UPDATE endpoints SET api_key = $2, api_key_fingerprint = COALESCE(api_key_fingerprint, $3) WHERE id = $1`,
+				`UPDATE endpoints SET api_key = $2, api_key_fingerprint = $3 WHERE id = $1`,
 				endpoint.ID,
 				encrypted,
 				fingerprint,
@@ -312,6 +309,13 @@ func (s Service) normalizeEndpointSecrets(ctx context.Context, conn *pgx.Conn) e
 
 		return nil
 	})
+}
+
+func sameOptionalString(left *string, right *string) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func (s Service) seedHeaderBlocklistRules(ctx context.Context, conn *pgx.Conn) error {

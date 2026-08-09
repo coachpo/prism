@@ -23,21 +23,21 @@ const referenceCursorDomain = "prism:endpoint-reference-cursor:v1"
 // referenceRow is one scanned direct-reference projection row. Owner fields
 // are null for orphan connections (LEFT JOIN).
 type referenceRow struct {
-	ConnectionID       int
-	ConnectionName     *string
-	APIFamily          string
-	ConnectionIsActive bool
-	OpenAITextCapability *string
-	PricingTemplateID  *int
-	OwnerMatID         *int
-	OwnerMatPosition   *int
-	OwnerMatEnabled    *bool
-	OwnerModelConfigID *int
-	OwnerModelID       *string
-	OwnerDisplayName   *string
-	OwnerModelEnabled  *bool
+	ConnectionID              int
+	ConnectionName            *string
+	APIFamily                 string
+	ConnectionIsActive        bool
+	OpenAITextCapability      *string
+	PricingTemplateID         *int
+	OwnerMatID                *int
+	OwnerMatPosition          *int
+	OwnerMatEnabled           *bool
+	OwnerModelConfigID        *int
+	OwnerModelID              *string
+	OwnerDisplayName          *string
+	OwnerModelEnabled         *bool
 	OwnerOpenAIAcceptedFormat *string
-	PricingTemplate    *referencePricingRow
+	PricingTemplate           *referencePricingRow
 }
 
 type referencePricingRow struct {
@@ -66,7 +66,7 @@ type referenceOrderKey struct {
 }
 
 func (key referenceOrderKey) encode() string {
-	return fmt.Sprintf("%d|%s|%s|%d|%d|%d",
+	return fmt.Sprintf("%d|%s|%s|%s|%s|%d",
 		key.Rank,
 		nullableStringForCursor(key.LowerName),
 		nullableStringForCursor(key.ModelID),
@@ -304,9 +304,9 @@ func deriveCanonicalSet(endpointID int, rows []referenceRow) canonicalReferenceS
 
 		if row.PricingTemplate != nil {
 			item.PricingTemplate = &endpointReferencePricingTemplate{
-				ID:                row.PricingTemplate.ID,
-				Name:              row.PricingTemplate.Name,
-				CurrentVersion:    row.PricingTemplate.Version,
+				ID:             row.PricingTemplate.ID,
+				Name:           row.PricingTemplate.Name,
+				CurrentVersion: row.PricingTemplate.Version,
 			}
 		}
 		item.Enabled = item.Kind == referenceKindOwned && len(reasons) == 0
@@ -323,14 +323,29 @@ func deriveCanonicalSet(endpointID int, rows []referenceRow) canonicalReferenceS
 		})
 	}
 
-	sort.SliceStable(items, func(i, j int) bool { return orderKeyLess(keys[i], keys[j]) })
-	sort.SliceStable(keys, func(i, j int) bool { return orderKeyLess(keys[i], keys[j]) })
+	// Sort the projection and its cursor key as one pair. Sorting the two
+	// slices independently (or sorting items with a comparator that indexes an
+	// unswapped key slice) can leave page items and cursor boundaries out of
+	// sync, which would skip or duplicate blockers across pages.
+	type orderedReference struct {
+		item endpointReferenceItem
+		key  referenceOrderKey
+	}
+	ordered := make([]orderedReference, len(items))
+	for index := range items {
+		ordered[index] = orderedReference{item: items[index], key: keys[index]}
+	}
+	sort.SliceStable(ordered, func(i, j int) bool { return orderKeyLess(ordered[i].key, ordered[j].key) })
+	for index := range ordered {
+		items[index] = ordered[index].item
+		keys[index] = ordered[index].key
+	}
 
 	summary := endpointReferenceSummary{
-		DirectReferenceCount:     len(items),
-		ReferencingModelCount:    len(modelIDs),
-		EnabledReferenceCount:    enabledCount,
-		OrphanReferenceCount:     orphanCount,
+		DirectReferenceCount:  len(items),
+		ReferencingModelCount: len(modelIDs),
+		EnabledReferenceCount: enabledCount,
+		OrphanReferenceCount:  orphanCount,
 	}
 
 	hash := snapshotHash(endpointID, summary, items)

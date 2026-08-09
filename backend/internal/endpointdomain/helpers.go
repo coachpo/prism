@@ -33,10 +33,10 @@ const fingerprintDomain = "prism:endpoint-api-key-fingerprint:v1"
 // Stable field error codes returned by validation helpers. The management layer
 // maps them into typed 422 `fields` payloads; the frontend owns zh-CN copy.
 const (
-	FieldErrorNameRequired    = "name_required"
-	FieldErrorNameTooLong     = "name_too_long"
-	FieldErrorBaseURLInvalid  = "base_url_invalid"
-	FieldErrorBaseURLTooLong  = "base_url_too_long"
+	FieldErrorNameRequired   = "name_required"
+	FieldErrorNameTooLong    = "name_too_long"
+	FieldErrorBaseURLInvalid = "base_url_invalid"
+	FieldErrorBaseURLTooLong = "base_url_too_long"
 )
 
 // NormalizeBaseURL applies the §5.2 normalization order: trim surrounding
@@ -135,9 +135,9 @@ func apiKeyDigest(secretEncryptionKey string, plaintext string) [sha256.Size]byt
 // SecretMetadata is the write-time secret contract shared by every Endpoint
 // creation path (create, duplicate, model-scoped inline create).
 type SecretMetadata struct {
-	EncryptedValue   string
-	Fingerprint      *string
-	KeyUpdatedAt     *time.Time
+	EncryptedValue string
+	Fingerprint    *string
+	KeyUpdatedAt   *time.Time
 }
 
 // BuildSecretMetadata computes the at-rest encrypted value plus fingerprint and
@@ -150,7 +150,10 @@ func BuildSecretMetadata(rawKey string, secretEncryptionKey string, nowUTC func(
 		return metadata, nil
 	}
 	now := nowUTC()
-	encrypted, err := EncryptSecret(normalized, secretEncryptionKey, func() time.Time { return now })
+	// This is a caller-supplied plaintext, even when it happens to begin with
+	// the storage envelope prefix. Do not let the idempotent migration helper
+	// mistake a legitimate key such as "enc:..." for an existing ciphertext.
+	encrypted, err := encryptPlaintextSecret(normalized, secretEncryptionKey, func() time.Time { return now })
 	if err != nil {
 		return metadata, err
 	}
@@ -197,6 +200,10 @@ func EncryptSecret(value string, rawKey string, now func() time.Time) (string, e
 	if strings.HasPrefix(normalized, encryptedSecretPrefix) {
 		return normalized, nil
 	}
+	return encryptPlaintextSecret(normalized, rawKey, now)
+}
+
+func encryptPlaintextSecret(normalized string, rawKey string, now func() time.Time) (string, error) {
 	if strings.TrimSpace(rawKey) == "" {
 		return "", fmt.Errorf("secret encryption key is required")
 	}

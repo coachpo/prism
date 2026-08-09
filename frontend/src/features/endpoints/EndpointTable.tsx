@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { ChevronDown, ChevronRight, Copy, ExternalLink, Loader2, Pencil, Plus, Trash2 } from "lucide-react"
+import { ChevronDown, ChevronRight, Copy, ExternalLink, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react"
 
 import { IconActionButton, IconActionGroup } from "@/components/IconActionGroup"
 import { Badge } from "@/components/ui/badge"
@@ -20,6 +20,7 @@ type EndpointTableProps = {
   endpoints: Endpoint[]
   details: Record<number, EndpointReferenceDetailState>
   filterDisabled: boolean
+  hasReferenceError: boolean
   formatTime: (isoString: string, options?: Intl.DateTimeFormatOptions) => string
   hasIntegrityError: boolean
   onAttach: (endpoint: Endpoint) => void
@@ -29,11 +30,11 @@ type EndpointTableProps = {
   onLoadMore: (endpointId: number) => void
   onOpenReferences: (endpointId: number) => void
   onOrphanCleanup: (endpoint: Endpoint, item: EndpointReferenceItem) => void
+  onRetryReferences: () => void
   sort: OperationalSortState<EndpointSortColumn>
   summaries: Record<number, EndpointReferenceSummaryState>
   onSort: (column: EndpointSortColumn) => void
 }
-
 function summaryFor(summary: EndpointReferenceSummaryState | undefined): EndpointReferenceSummary | null {
   if (!summary) return null
   if (summary.status === "ready" || summary.status === "stale") return summary.value
@@ -79,6 +80,9 @@ function ReferenceCell({
         <span className="text-[11px] text-muted-foreground">
           {copy.refsEnabled(formatNumber(value.enabled_reference_count))}
         </span>
+        {summaryState.status === "stale" ? (
+          <span className="text-[11px] text-warning">{copy.referencesMayBeStale}</span>
+        ) : null}
       </span>
     )
   })()
@@ -92,7 +96,12 @@ function ReferenceCell({
         disabled={!canExpand}
         aria-expanded={expanded}
         aria-controls={`endpoint-references-${endpoint.id}`}
-        aria-label={messages.endpointsUi.openReferences(endpoint.name, String(summaryFor(summaryState)?.direct_reference_count ?? 0))}
+        aria-label={messages.endpointsUi.openReferences(
+          endpoint.name,
+          summaryFor(summaryState)?.direct_reference_count == null
+            ? messages.endpoints.referencesLoading
+            : String(summaryFor(summaryState)?.direct_reference_count),
+        )}
         className={cn(
           "flex min-w-0 items-center gap-1 text-left disabled:cursor-default",
           canExpand && "hover:text-foreground",
@@ -110,21 +119,15 @@ function KeyIdentityCell({ endpoint, formatTime }: { endpoint: Endpoint; formatT
   const { messages } = useLocale()
   const copy = messages.endpoints
   if (!endpoint.has_api_key) {
-    return (
-      <TableCell>
-        <span className="text-xs text-muted-foreground">{copy.noApiKey}</span>
-      </TableCell>
-    )
+    return <span className="text-xs text-muted-foreground">{copy.noApiKey}</span>
   }
   return (
-    <TableCell>
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="font-mono text-xs text-foreground">{endpoint.api_key_fingerprint ?? "—"}</span>
-        <span className="text-[11px] text-muted-foreground">
-          {endpoint.api_key_updated_at ? copy.keyUpdatedAt(formatTime(endpoint.api_key_updated_at, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })) : copy.keyUpdatedUnknown}
-        </span>
-      </div>
-    </TableCell>
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <span className="font-mono text-xs text-foreground">{endpoint.api_key_fingerprint ?? "—"}</span>
+      <span className="text-[11px] text-muted-foreground">
+        {endpoint.api_key_updated_at ? copy.keyUpdatedAt(formatTime(endpoint.api_key_updated_at, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })) : copy.keyUpdatedUnknown}
+      </span>
+    </div>
   )
 }
 
@@ -132,32 +135,30 @@ function BaseURLCell({ endpoint }: { endpoint: Endpoint }) {
   const { messages } = useLocale()
   const [copied, setCopied] = useState(false)
   return (
-    <TableCell>
-      <div className="flex min-w-0 items-center gap-1">
-        <code
-          tabIndex={0}
-          title={endpoint.base_url}
-          className="block min-w-0 flex-1 truncate rounded border border-transparent px-1 py-0.5 font-mono text-xs text-foreground/90 focus-visible:outline-2 focus-visible:outline-ring"
-          aria-label={`${messages.endpoints.baseUrl}: ${endpoint.base_url}`}
-        >
-          {endpoint.base_url}
-        </code>
-        <IconActionButton
-          type="button"
-          size="icon"
-          className="size-6"
-          aria-label={`${messages.endpoints.baseUrl}: ${endpoint.base_url} — 复制`}
-          title="复制"
-          onClick={() => {
-            void copyTextToClipboard(endpoint.base_url)
-            setCopied(true)
-            window.setTimeout(() => setCopied(false), 1200)
-          }}
-        >
-          {copied ? <Badge variant="outline" className="h-4 px-1 text-[10px]">✓</Badge> : <Copy />}
-        </IconActionButton>
-      </div>
-    </TableCell>
+    <div className="flex min-w-0 items-center gap-1">
+      <code
+        tabIndex={0}
+        title={endpoint.base_url}
+        className="block min-w-0 flex-1 truncate rounded border border-transparent px-1 py-0.5 font-mono text-xs text-foreground/90 focus-visible:outline-2 focus-visible:outline-ring"
+        aria-label={`${messages.endpoints.baseUrl}: ${endpoint.base_url}`}
+      >
+        {endpoint.base_url}
+      </code>
+      <IconActionButton
+        type="button"
+        size="icon"
+        className="size-6"
+        aria-label={`${messages.endpoints.baseUrl}: ${endpoint.base_url} — 复制`}
+        title="复制"
+        onClick={() => {
+          void copyTextToClipboard(endpoint.base_url)
+          setCopied(true)
+          window.setTimeout(() => setCopied(false), 1200)
+        }}
+      >
+        {copied ? <Badge variant="outline" className="h-4 px-1 text-[10px]">✓</Badge> : <Copy />}
+      </IconActionButton>
+    </div>
   )
 }
 
@@ -310,6 +311,7 @@ export function EndpointTable({
   endpoints,
   details,
   filterDisabled,
+  hasReferenceError,
   formatTime,
   hasIntegrityError,
   onAttach,
@@ -319,6 +321,7 @@ export function EndpointTable({
   onLoadMore,
   onOpenReferences,
   onOrphanCleanup,
+  onRetryReferences,
   onSort,
   sort,
   summaries,
@@ -350,6 +353,16 @@ export function EndpointTable({
           <OperatorCallout intent="danger" title={uiCopy.deleteIntegrityError} />
         </div>
       ) : null}
+      {filterDisabled && hasReferenceError && !hasIntegrityError ? (
+        <div className="border-b border-outline-variant px-4 py-3">
+          <OperatorCallout
+            intent="warning"
+            title={messages.endpoints.referencesLoadFailed}
+            description={messages.endpointsPage.referenceFilterDisabled}
+            action={<Button type="button" variant="outline" size="sm" onClick={onRetryReferences}><RefreshCw />{messages.endpointsUi.deleteRetry}</Button>}
+          />
+        </div>
+      ) : null}
       {/* Narrow viewport: semantic description-list row cards (no horizontal
           table scroll). The desktop table is hidden below sm. */}
       <div className="divide-y divide-outline-variant sm:hidden" data-testid="endpoints-mobile-cards">
@@ -364,6 +377,7 @@ export function EndpointTable({
             onDelete={onDelete}
             onDuplicate={onDuplicate}
             onEdit={onEdit}
+            onLoadMore={onLoadMore}
             onOpenReferences={() => toggleExpanded(endpoint.id)}
             onOrphanCleanup={onOrphanCleanup}
             summaryState={summaries[endpoint.id]}
@@ -502,6 +516,7 @@ function MobileEndpointCard({
   onDelete,
   onDuplicate,
   onEdit,
+  onLoadMore,
   onOpenReferences,
   onOrphanCleanup,
   summaryState,
@@ -514,6 +529,7 @@ function MobileEndpointCard({
   onDelete: (endpoint: Endpoint) => void
   onDuplicate: (endpoint: Endpoint) => void
   onEdit: (endpoint: Endpoint) => void
+  onLoadMore: (endpointId: number) => void
   onOpenReferences: () => void
   onOrphanCleanup: (endpoint: Endpoint, item: EndpointReferenceItem) => void
   summaryState: EndpointReferenceSummaryState | undefined
@@ -563,7 +579,14 @@ function MobileEndpointCard({
               disabled={!summary}
               aria-expanded={expanded}
               aria-controls={`endpoint-references-${endpoint.id}`}
-              aria-label={uiCopy.openReferences(endpoint.name, String(summary?.direct_reference_count ?? 0))}
+              aria-label={uiCopy.openReferences(
+                endpoint.name,
+                summary
+                  ? String(summary.direct_reference_count)
+                  : summaryState?.status === "error"
+                    ? copy.referencesLoadFailed
+                    : copy.referencesLoading,
+              )}
               className="flex min-w-0 items-center gap-1 text-left disabled:cursor-default"
               onClick={summary ? onOpenReferences : undefined}
             >
@@ -574,7 +597,10 @@ function MobileEndpointCard({
                 <span className="flex flex-col gap-0.5">
                   <span className="text-xs font-medium text-foreground">{copy.refsSummary(formatNumber(summary.direct_reference_count), formatNumber(summary.referencing_model_count))}</span>
                   <span className="text-[11px] text-muted-foreground">{copy.refsEnabled(formatNumber(summary.enabled_reference_count))}</span>
+                  {summaryState?.status === "stale" ? <span className="text-[11px] text-warning">{copy.referencesMayBeStale}</span> : null}
                 </span>
+              ) : summaryState?.status === "error" ? (
+                <span className="text-xs text-destructive">{copy.referencesLoadFailed}</span>
               ) : (
                 <span className="text-xs text-muted-foreground">{copy.referencesLoading}</span>
               )}
@@ -595,6 +621,7 @@ function MobileEndpointCard({
           <MobileReferenceDisclosure
             endpoint={endpoint}
             detailState={detailState}
+            onLoadMore={onLoadMore}
             onOrphanCleanup={onOrphanCleanup}
           />
         </div>
@@ -606,10 +633,12 @@ function MobileEndpointCard({
 function MobileReferenceDisclosure({
   endpoint,
   detailState,
+  onLoadMore,
   onOrphanCleanup,
 }: {
   endpoint: Endpoint
   detailState: EndpointReferenceDetailState | undefined
+  onLoadMore: (endpointId: number) => void
   onOrphanCleanup: (endpoint: Endpoint, item: EndpointReferenceItem) => void
 }) {
   const { messages } = useLocale()
@@ -662,7 +691,7 @@ function MobileReferenceDisclosure({
       ))}
       {detailState.value.next_cursor ? (
         <div className="px-3 py-2">
-          <Button type="button" size="sm" variant="outline" onClick={() => {}}>
+          <Button type="button" size="sm" variant="outline" onClick={() => onLoadMore(endpoint.id)}>
             {copy.loadMore}
           </Button>
         </div>
@@ -670,4 +699,3 @@ function MobileReferenceDisclosure({
     </div>
   )
 }
-
