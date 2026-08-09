@@ -193,19 +193,29 @@ func TestEndpointReferencesBatchContract(t *testing.T) {
 	secondModelID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "references-owner-b", nil, "native", &strategyID, true)
 	usedEndpointID := modelInsertEndpoint(t, harness, profileID, "References Used Endpoint", 0)
 	spareEndpointID := modelInsertEndpoint(t, harness, profileID, "References Spare Endpoint", 1)
+	emptyEndpointID := modelInsertEndpoint(t, harness, profileID, "References Empty Endpoint", 2)
 	firstConnectionID := modelInsertConnection(t, harness, profileID, firstModelID, usedEndpointID, 0, true, nil)
 	secondConnectionID := modelInsertConnection(t, harness, profileID, secondModelID, usedEndpointID, 0, true, nil)
-	_ = spareEndpointID
+	leadingConnectionID := modelInsertConnection(t, harness, profileID, firstModelID, spareEndpointID, 2, true, nil)
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_access_targets SET position = 3 WHERE source_model_config_id = $1 AND target_connection_id = $2`, firstModelID, firstConnectionID); err != nil {
+		t.Fatalf("move first terminal target to a temporary position: %v", err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_access_targets SET position = 0 WHERE source_model_config_id = $1 AND target_connection_id = $2`, firstModelID, leadingConnectionID); err != nil {
+		t.Fatalf("seed non-requested leading terminal target position: %v", err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_access_targets SET position = 1 WHERE source_model_config_id = $1 AND target_connection_id = $2`, firstModelID, firstConnectionID); err != nil {
+		t.Fatalf("restore requested terminal target position: %v", err)
+	}
 
 	t.Run("batch returns direct references in input order without secrets", func(t *testing.T) {
-		payload := s15JSON[map[string]any](t, harness, profileID, http.MethodPost, "/api/endpoints/references/batch", map[string]any{"endpoint_ids": []int{spareEndpointID, usedEndpointID}}, http.StatusOK)
+		payload := s15JSON[map[string]any](t, harness, profileID, http.MethodPost, "/api/endpoints/references/batch", map[string]any{"endpoint_ids": []int{emptyEndpointID, usedEndpointID}}, http.StatusOK)
 		items := payload["items"].([]any)
 		if len(items) != 2 {
 			t.Fatalf("expected two items in input order, got %+v", payload)
 		}
 		spare := asMap(t, items[0])
-		if jsonInt(t, spare["endpoint_id"]) != spareEndpointID || len(spare["references"].([]any)) != 0 {
-			t.Fatalf("expected spare endpoint with no references, got %+v", spare)
+		if jsonInt(t, spare["endpoint_id"]) != emptyEndpointID || len(spare["references"].([]any)) != 0 {
+			t.Fatalf("expected empty endpoint with no references, got %+v", spare)
 		}
 		used := asMap(t, items[1])
 		if jsonInt(t, used["endpoint_id"]) != usedEndpointID {
@@ -214,6 +224,19 @@ func TestEndpointReferencesBatchContract(t *testing.T) {
 		references := used["references"].([]any)
 		if len(references) != 2 {
 			t.Fatalf("expected two direct references, got %+v", used)
+		}
+		for _, raw := range references {
+			reference := asMap(t, raw)
+			switch jsonInt(t, reference["model_config_id"]) {
+			case firstModelID:
+				if jsonInt(t, reference["authored_stage_position"]) != 1 {
+					t.Fatalf("expected first model reference to retain its position among all terminal rows, got %+v", reference)
+				}
+			case secondModelID:
+				if jsonInt(t, reference["authored_stage_position"]) != 0 {
+					t.Fatalf("expected second model reference to start at stage position zero, got %+v", reference)
+				}
+			}
 		}
 		raw, err := json.Marshal(payload)
 		if err != nil {

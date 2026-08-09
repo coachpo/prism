@@ -242,24 +242,24 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (modelConfigResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (modelMutationEnvelope, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
-			return modelConfigResponse{}, err
+			return modelMutationEnvelope{}, err
 		}
 		current, found, err := loadModelRecord(r.Context(), tx, profile.ID, modelConfigID, true)
 		if err != nil {
-			return modelConfigResponse{}, err
+			return modelMutationEnvelope{}, err
 		}
 		if !found {
-			return modelConfigResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Model configuration not found"}
+			return modelMutationEnvelope{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Model configuration not found"}
 		}
 		if err := lockProfileAccessTargetRows(r.Context(), tx, profile.ID); err != nil {
-			return modelConfigResponse{}, err
+			return modelMutationEnvelope{}, err
 		}
 		currentAccessTargetsByModel, err := loadAccessTargetsForModels(r.Context(), tx, profile.ID, []int{current.ID})
 		if err != nil {
-			return modelConfigResponse{}, err
+			return modelMutationEnvelope{}, err
 		}
 		next := current
 		originalModelID := current.ModelID
@@ -284,53 +284,57 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 			next.LoadbalanceStrategyID = requestBody.LoadbalanceStrategyID.Value
 		}
 		if requestBody.APIFamily.Set && next.APIFamily != current.APIFamily && hasConnectionAccessTargetRecords(currentAccessTargetsByModel[current.ID]) {
-			return modelConfigResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: "Cannot change api_family while private connections exist"}
+			return modelMutationEnvelope{}, &domainError{StatusCode: http.StatusConflict, Detail: "Cannot change api_family while private connections exist"}
 		}
 		if requestBody.ModelID.Set && next.ModelID != current.ModelID {
 			if err := ensureModelIDAvailable(r.Context(), tx, profile.ID, next.ModelID, &current.ID); err != nil {
-				return modelConfigResponse{}, err
+				return modelMutationEnvelope{}, err
 			}
 		}
 		if next.LoadbalanceStrategyID == nil {
-			return modelConfigResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "loadbalance_strategy_id is required"}
+			return modelMutationEnvelope{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "loadbalance_strategy_id is required"}
 		}
 		if err := validateOpenAIAcceptedFormatForModel(next.APIFamily, next.OpenAIAcceptedFormat, requestBody.OpenAIAcceptedFormat.Set); err != nil {
-			return modelConfigResponse{}, err
+			return modelMutationEnvelope{}, err
 		}
 		if err := ensureLoadbalanceStrategyExists(r.Context(), tx, profile.ID, *next.LoadbalanceStrategyID); err != nil {
-			return modelConfigResponse{}, err
+			return modelMutationEnvelope{}, err
 		}
 		currentAccessTargets := currentAccessTargetsByModel[current.ID]
 		preservedConnectionTargets := preservedConnectionTargetsFromRecords(currentAccessTargets)
 		targetInputs := modelAccessTargetRequestsFromRecords(currentAccessTargets)
 		if err := validateAccessTargetsForSourceModel(next.ModelID, targetInputs); err != nil {
-			return modelConfigResponse{}, err
+			return modelMutationEnvelope{}, err
 		}
 		resolvedTargets, err := resolveAccessTargets(r.Context(), tx, profile.ID, &current.ID, next.ModelID, next.APIFamily, targetInputs)
 		if err != nil {
-			return modelConfigResponse{}, err
+			return modelMutationEnvelope{}, err
 		}
 		if next.IsEnabled && !hasEnabledResolvedOrPreservedAccessTarget(resolvedTargets, preservedConnectionTargets) {
-			return modelConfigResponse{}, routingPlanValidationIssueError("model_no_enabled_targets", "access_targets", "enabled models must include at least one enabled access target")
+			return modelMutationEnvelope{}, routingPlanValidationIssueError("model_no_enabled_targets", "access_targets", "enabled models must include at least one enabled access target")
 		}
 		if err := ensureAccessTargetGraphAcyclic(r.Context(), tx, profile.ID, current.ID, resolvedTargets); err != nil {
-			return modelConfigResponse{}, err
+			return modelMutationEnvelope{}, err
 		}
 		next.UpdatedAt = s.nowUTC()
 		updated, err := updateModel(r.Context(), tx, next)
 		if err != nil {
-			return modelConfigResponse{}, err
+			return modelMutationEnvelope{}, err
 		}
 		if updated.ModelID != originalModelID {
 			if err := syncRenamedModelReferences(r.Context(), tx, profile.ID, originalModelID, updated.ModelID); err != nil {
-				return modelConfigResponse{}, err
+				return modelMutationEnvelope{}, err
 			}
 		}
 		strategies, accessTargets, _, err := loadModelRelations(r.Context(), tx, profile.ID, []modelRecord{updated})
 		if err != nil {
-			return modelConfigResponse{}, err
+			return modelMutationEnvelope{}, err
 		}
-		return buildModelDetailResponse(updated, strategies, accessTargets), nil
+		warnings, err := modelMutationWarnings(r.Context(), tx, profile.ID, updated.ID)
+		if err != nil {
+			return modelMutationEnvelope{}, err
+		}
+		return modelMutationEnvelope{Model: buildModelDetailResponse(updated, strategies, accessTargets), ConfigurationWarnings: warnings}, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)

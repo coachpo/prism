@@ -147,8 +147,9 @@ func Analyze(graph *DiagnosticsGraph, rootModelConfigID int, acceptedOperations 
 	result.Strategy = DiagnosticsStrategyResult{ID: rootStrategy.ID, Type: rootStrategy.Subtype}
 	modelStage := buildStage(graph, root, StageModelTargets, 1, "always", TargetTypeModel)
 	terminalStage := buildStage(graph, root, StageTerminalTargets, 2, "model_targets_has_no_eligible_candidate", TargetTypeTerminal)
-	fillTerminalRowCoverage(graph, root, &modelStage, acceptedOperations)
-	fillTerminalRowCoverage(graph, root, &terminalStage, acceptedOperations)
+	coverageOperations := acceptedOperationsForTerminalCoverage(root, acceptedOperations)
+	fillTerminalRowCoverage(graph, root, &modelStage, coverageOperations)
+	fillTerminalRowCoverage(graph, root, &terminalStage, coverageOperations)
 
 	for _, operation := range acceptedOperations {
 		trimmed := strings.TrimSpace(operation)
@@ -172,21 +173,34 @@ func Analyze(graph *DiagnosticsGraph, rootModelConfigID int, acceptedOperations 
 			continue
 		}
 		terminalCandidate, terminalRows, terminalCompatibleRows := stageCandidateForOperation(graph, root, &terminalStage, rootStrategy, trimmed)
-		coverage.CapabilityCovered = terminalCandidate || graphHasCompatibleLeafForOperation(graph, root, trimmed)
-		coverage.CompatibleAccessTargetIDs = sortedUniqueInts(terminalCompatibleRows)
+		coverage.CapabilityCovered = terminalCandidate || len(modelCompatibleRows) > 0 || len(terminalCompatibleRows) > 0 || graphHasCompatibleLeafForOperation(graph, root, trimmed)
+		coverage.CompatibleAccessTargetIDs = sortedUniqueInts(append(append([]int(nil), modelCompatibleRows...), terminalCompatibleRows...))
 		if terminalCandidate {
 			coverage.StaticallyRoutable = true
 			resolvedStage := StageTerminalTargets
 			coverage.ResolvedStage = &resolvedStage
-			coverage.AccessTargetIDs = sortedUniqueInts(append(append([]int(nil), terminalCompatibleRows...), terminalRows...))
+			coverage.AccessTargetIDs = sortedUniqueInts(append(append(append(append([]int(nil), modelCompatibleRows...), modelLeaves...), terminalCompatibleRows...), terminalRows...))
 		} else {
-			coverage.AccessTargetIDs = sortedUniqueInts(append([]int(nil), terminalCompatibleRows...))
+			coverage.AccessTargetIDs = sortedUniqueInts(append(append([]int(nil), modelCompatibleRows...), terminalCompatibleRows...))
 		}
 		result.OperationCoverage = append(result.OperationCoverage, coverage)
 	}
 	result.Stages = append(result.Stages, modelStage, terminalStage)
 	result.ConfigurationWarnings = GenerateConfigurationWarnings(graph, root, result, acceptedOperations)
 	return result
+}
+
+// acceptedOperationsForTerminalCoverage returns the root model's actual
+// accepted operation set for the directional target coverage badge. The
+// diagnostics operation list intentionally includes all registered OpenAI
+// model-bound operations so callers can see root-unaccepted rows; those rows
+// must not make a target look Partial/None when they are outside the model's
+// accepted format.
+func acceptedOperationsForTerminalCoverage(root DiagnosticsModel, operationList []string) []string {
+	if !IsOpenAIFamily(root.APIFamily) || root.OpenAIAcceptedFormat == nil {
+		return operationList
+	}
+	return OpenAIAcceptedOperationSet(*root.OpenAIAcceptedFormat)
 }
 
 func buildStage(graph *DiagnosticsGraph, root DiagnosticsModel, stage string, order int, enteredWhen string, targetType string) DiagnosticsStage {
@@ -267,13 +281,20 @@ func stageCandidateForOperation(graph *DiagnosticsGraph, root DiagnosticsModel, 
 			candidate = true
 			compatibleRows = append(compatibleRows, row.AccessTargetID)
 		}
-		row.OperationResults = []DiagnosticsOperationResult{{OperationName: operation, Disposition: disposition, TerminalConnectionIDs: rowLeaves}}
+		row.OperationResults = append(row.OperationResults, DiagnosticsOperationResult{OperationName: operation, Disposition: disposition, TerminalConnectionIDs: rowLeaves})
 	}
 	// Compatible rows include capability-compatible leaves even when statically
 	// ineligible (disabled/inactive/truncated).
 	for index := range stage.Targets {
 		row := &stage.Targets[index]
-		if len(row.OperationResults) == 0 || row.OperationResults[0].Disposition != DispositionCandidate {
+		candidateForOperation := false
+		for _, result := range row.OperationResults {
+			if result.OperationName == operation {
+				candidateForOperation = result.Disposition == DispositionCandidate
+				break
+			}
+		}
+		if !candidateForOperation {
 			if rowIsCapabilityCompatibleForOperation(graph, root, stage.Stage, *row, operation) {
 				compatibleRows = append(compatibleRows, row.AccessTargetID)
 			}

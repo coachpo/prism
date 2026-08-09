@@ -59,15 +59,25 @@ func listEndpointDirectReferences(ctx context.Context, tx pgx.Tx, profileID int,
 	if len(endpointIDs) == 0 {
 		return map[int][]EndpointDirectReference{}, nil
 	}
-	rows, err := tx.Query(ctx, `SELECT connections.endpoint_id, connections.id, model_access_targets.id, connections.name, model_configs.id, model_configs.model_id, model_configs.display_name, model_configs.api_family,
-			model_access_targets.position, model_access_targets.is_enabled, connections.is_active, connections.openai_text_capability,
-			pricing_templates.id, pricing_templates.name, connections.custom_headers
+	rows, err := tx.Query(ctx, `WITH ranked AS (
+		SELECT connections.endpoint_id, connections.id AS connection_id, model_access_targets.id AS access_target_id, connections.name,
+			model_configs.id AS model_config_id, model_configs.model_id, model_configs.display_name, model_configs.api_family,
+			model_access_targets.position,
+			(ROW_NUMBER() OVER (PARTITION BY model_access_targets.source_model_config_id ORDER BY model_access_targets.position ASC, model_access_targets.id ASC) - 1)::integer AS authored_stage_position,
+			model_access_targets.is_enabled, connections.is_active, connections.openai_text_capability,
+			pricing_templates.id AS pricing_template_id, pricing_templates.name AS pricing_name, connections.custom_headers
 		FROM connections
 		JOIN model_access_targets ON model_access_targets.profile_id = connections.profile_id AND model_access_targets.target_type = 'connection' AND model_access_targets.target_connection_id = connections.id
 		JOIN model_configs ON model_configs.id = model_access_targets.source_model_config_id AND model_configs.profile_id = connections.profile_id
 		LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id
-		WHERE connections.profile_id = $1 AND connections.endpoint_id = ANY($2)
-		ORDER BY connections.id ASC, model_access_targets.position ASC, model_access_targets.id ASC`,
+		WHERE connections.profile_id = $1
+	)
+	SELECT endpoint_id, connection_id, access_target_id, name, model_config_id, model_id, display_name, api_family,
+		authored_stage_position, is_enabled, is_active, openai_text_capability,
+		pricing_template_id, pricing_name, custom_headers
+	FROM ranked
+	WHERE endpoint_id = ANY($2)
+	ORDER BY model_config_id ASC, position ASC, access_target_id ASC`,
 		profileID, int32ArrayForEndpoints(endpointIDs))
 	if err != nil {
 		return nil, fmt.Errorf("query endpoint direct references for profile %d: %w", profileID, err)
@@ -75,7 +85,6 @@ func listEndpointDirectReferences(ctx context.Context, tx pgx.Tx, profileID int,
 	defer rows.Close()
 
 	items := map[int][]EndpointDirectReference{}
-	stageIndexByModel := map[int]int{}
 	for rows.Next() {
 		var reference EndpointDirectReference
 		var connectionID int
@@ -96,11 +105,6 @@ func listEndpointDirectReferences(ctx context.Context, tx pgx.Tx, profileID int,
 			reference.PricingTemplate = &referencePricingTemplate{ID: int(pricingTemplateID.Int32), Name: strings.TrimSpace(pricingName.String)}
 		}
 		reference.CustomHeaderCount = customHeaderCount(customHeadersRaw)
-		// Authored stage position is zero-based among the owner model's
-		// terminal-type rows in (position, id) order. The query orders by
-		// position/id, so a running per-model counter gives the index.
-		reference.AuthoredStagePosition = stageIndexByModel[reference.ModelConfigID]
-		stageIndexByModel[reference.ModelConfigID]++
 		items[endpointID] = append(items[endpointID], reference)
 	}
 	if err := rows.Err(); err != nil {

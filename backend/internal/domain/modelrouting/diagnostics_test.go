@@ -107,6 +107,17 @@ func resultForOperation(t *testing.T, result DiagnosticsResult, operation string
 	return DiagnosticsOperationCoverage{}
 }
 
+func targetResultForOperation(t *testing.T, target DiagnosticsTarget, operation string) DiagnosticsOperationResult {
+	t.Helper()
+	for _, result := range target.OperationResults {
+		if result.OperationName == operation {
+			return result
+		}
+	}
+	t.Fatalf("missing target disposition for %q in %+v", operation, target.OperationResults)
+	return DiagnosticsOperationResult{}
+}
+
 func TestOpenAICoverageDirectionalMatrix(t *testing.T) {
 	cases := []struct {
 		name             string
@@ -142,6 +153,66 @@ func TestOpenAICoverageDirectionalMatrix(t *testing.T) {
 				t.Fatalf("expected partial coverage to have both supported and unsupported accepted operations, got %v/%v", supportedAccepted, unsupported)
 			}
 		})
+	}
+}
+
+func TestDiagnosticsTargetCoverageUsesRootAcceptedFormat(t *testing.T) {
+	graph := testGraph()
+	graph.addStrategy(1, "fill-first")
+	graph.addModel(10, "chat-root", "openai", "chat_completions_only", true, intRef(1))
+	graph.addConnection(100, "openai", "chat_completions_only", true)
+	graph.addTerminalRow(10, 1000, 100, 0, true)
+
+	// The management diagnostics operation list intentionally includes all
+	// registered OpenAI model-bound operations. Coverage badges must still be
+	// directional against the root model's accepted format, not those
+	// root-unaccepted Responses operations.
+	result := Analyze(graph, 10, dualOperations())
+	terminal := result.Stages[1].Targets[0]
+	if terminal.Coverage != string(CoverageFull) || len(terminal.UnsupportedAcceptedOperations) != 0 {
+		t.Fatalf("expected chat root + chat target to be full coverage, got %+v", terminal)
+	}
+	chat := resultForOperation(t, result, providerauth.OpenAIUpstreamOperationChatCompletions)
+	if !chat.Accepted || !chat.StaticallyRoutable {
+		t.Fatalf("expected chat operation to remain routable, got %+v", chat)
+	}
+	responses := resultForOperation(t, result, providerauth.OpenAIUpstreamOperationResponses)
+	if responses.Accepted {
+		t.Fatalf("expected Responses operation to remain root-unaccepted, got %+v", responses)
+	}
+	for _, warning := range result.ConfigurationWarnings {
+		if warning.Code == WarningCodeOpenAITargetPartialCoverage || warning.Code == WarningCodeOpenAITargetIncompatible {
+			t.Fatalf("root-unaccepted operations must not create target coverage warnings, got %+v", result.ConfigurationWarnings)
+		}
+	}
+}
+
+func TestDiagnosticsCompatibleRowsAreTrackedPerOperation(t *testing.T) {
+	graph := testGraph()
+	graph.addStrategy(1, "fill-first")
+	graph.addModel(10, "dual-root", "openai", "dual_native", true, intRef(1))
+	graph.addModel(20, "partial-child", "openai", "dual_native", true, intRef(1))
+	graph.addConnection(100, "openai", "chat_completions_only", true)
+	graph.addConnection(200, "openai", "responses_only", false)
+	graph.addModelRow(10, 1000, 20, 0, true)
+	graph.addTerminalRow(20, 2000, 100, 0, true)
+	graph.addTerminalRow(20, 2001, 200, 1, true)
+
+	result := Analyze(graph, 10, dualOperations())
+	chat := resultForOperation(t, result, providerauth.OpenAIUpstreamOperationChatCompletions)
+	if !chat.StaticallyRoutable || chat.ResolvedStage == nil || *chat.ResolvedStage != StageModelTargets {
+		t.Fatalf("expected chat to resolve through the model target stage, got %+v", chat)
+	}
+	responses := resultForOperation(t, result, providerauth.OpenAIUpstreamOperationResponses)
+	if responses.StaticallyRoutable || !responses.CapabilityCovered || len(responses.CompatibleAccessTargetIDs) != 1 || responses.CompatibleAccessTargetIDs[0] != 1000 {
+		t.Fatalf("expected responses to retain the capability-compatible but inactive model row, got %+v", responses)
+	}
+	modelRow := result.Stages[0].Targets[0]
+	if targetResultForOperation(t, modelRow, providerauth.OpenAIUpstreamOperationChatCompletions).Disposition != DispositionCandidate {
+		t.Fatalf("expected chat model row to be a candidate, got %+v", modelRow.OperationResults)
+	}
+	if targetResultForOperation(t, modelRow, providerauth.OpenAIUpstreamOperationResponses).Disposition != DispositionNoEligibleLeaf {
+		t.Fatalf("expected responses model row to have no eligible leaf, got %+v", modelRow.OperationResults)
 	}
 }
 
@@ -189,11 +260,21 @@ func TestDiagnosticsTwoStageDirectTerminalCoverage(t *testing.T) {
 	if len(responses.CompatibleAccessTargetIDs) != 1 || responses.CompatibleAccessTargetIDs[0] != 1000 {
 		t.Fatalf("expected compatible access target 1000, got %v", responses.CompatibleAccessTargetIDs)
 	}
+	if len(terminalRow.OperationResults) != len(dualOperations()) {
+		t.Fatalf("expected one terminal disposition per canonical operation, got %+v", terminalRow.OperationResults)
+	}
 	for _, operation := range responsesOperations() {
-		rowResult := terminalRow.OperationResults[0]
-		_ = operation
-		if rowResult.Disposition != DispositionCandidate || len(rowResult.TerminalConnectionIDs) != 1 || rowResult.TerminalConnectionIDs[0] != 100 {
-			t.Fatalf("expected terminal row candidate for responses family, got %+v", rowResult)
+		var rowResult DiagnosticsOperationResult
+		found := false
+		for _, candidate := range terminalRow.OperationResults {
+			if candidate.OperationName == operation {
+				rowResult = candidate
+				found = true
+				break
+			}
+		}
+		if !found || rowResult.Disposition != DispositionCandidate || len(rowResult.TerminalConnectionIDs) != 1 || rowResult.TerminalConnectionIDs[0] != 100 {
+			t.Fatalf("expected terminal row candidate for responses family, got %+v", terminalRow.OperationResults)
 		}
 	}
 
@@ -232,11 +313,12 @@ func TestDiagnosticsModelStageWinsOverTerminalFallback(t *testing.T) {
 		t.Fatalf("expected model stage to resolve before terminal fallback, got %+v", chat)
 	}
 	modelRow := result.Stages[0].Targets[0]
-	if len(modelRow.OperationResults) != 1 || modelRow.OperationResults[0].Disposition != DispositionCandidate {
+	modelRowResult := targetResultForOperation(t, modelRow, providerauth.OpenAIUpstreamOperationChatCompletions)
+	if modelRowResult.Disposition != DispositionCandidate {
 		t.Fatalf("expected model row candidate with leaf, got %+v", modelRow.OperationResults)
 	}
-	if len(modelRow.OperationResults[0].TerminalConnectionIDs) != 1 || modelRow.OperationResults[0].TerminalConnectionIDs[0] != 100 {
-		t.Fatalf("expected model row to resolve child terminal 100, got %+v", modelRow.OperationResults[0])
+	if len(modelRowResult.TerminalConnectionIDs) != 1 || modelRowResult.TerminalConnectionIDs[0] != 100 {
+		t.Fatalf("expected model row to resolve child terminal 100, got %+v", modelRowResult)
 	}
 	terminalRow := result.Stages[1].Targets[0]
 	if len(terminalRow.OperationResults) != 0 {
@@ -261,11 +343,11 @@ func TestDiagnosticsModelStageDeadFallsBackToTerminal(t *testing.T) {
 		t.Fatalf("expected dead model stage to fall back to terminal stage, got %+v", responses)
 	}
 	modelRow := result.Stages[0].Targets[0]
-	if modelRow.OperationResults[0].Disposition != DispositionNoEligibleLeaf {
+	if targetResultForOperation(t, modelRow, providerauth.OpenAIUpstreamOperationResponses).Disposition != DispositionNoEligibleLeaf {
 		t.Fatalf("expected dead model row to report no eligible leaf, got %+v", modelRow.OperationResults)
 	}
 	terminalRow := result.Stages[1].Targets[0]
-	if terminalRow.OperationResults[0].Disposition != DispositionCandidate {
+	if targetResultForOperation(t, terminalRow, providerauth.OpenAIUpstreamOperationResponses).Disposition != DispositionCandidate {
 		t.Fatalf("expected fallback terminal row to be candidate, got %+v", terminalRow.OperationResults)
 	}
 }
@@ -287,10 +369,10 @@ func TestDiagnosticsSingleTruncatesPerStageAndUncoveredWithCompatibleTruncatedRo
 	stage := result.Stages[1]
 	first := stage.Targets[0]
 	second := stage.Targets[1]
-	if first.OperationResults[0].Disposition != DispositionIncompatible {
+	if targetResultForOperation(t, first, providerauth.OpenAIUpstreamOperationResponses).Disposition != DispositionIncompatible {
 		t.Fatalf("expected first single row to be incompatible for responses, got %+v", first.OperationResults)
 	}
-	if second.OperationResults[0].Disposition != DispositionTruncatedBySingle {
+	if targetResultForOperation(t, second, providerauth.OpenAIUpstreamOperationResponses).Disposition != DispositionTruncatedBySingle {
 		t.Fatalf("expected second single row to be truncated, got %+v", second.OperationResults)
 	}
 	hasSingleWarning := false
@@ -324,7 +406,7 @@ func TestDiagnosticsDisabledFirstRowThenEnabledSelectsNext(t *testing.T) {
 	stage := result.Stages[1]
 	disabled := stage.Targets[0]
 	enabled := stage.Targets[1]
-	if disabled.EnabledStrategyIndex != nil || disabled.OperationResults[0].Disposition != DispositionDisabled {
+	if disabled.EnabledStrategyIndex != nil || targetResultForOperation(t, disabled, providerauth.OpenAIUpstreamOperationResponses).Disposition != DispositionDisabled {
 		t.Fatalf("expected disabled row without strategy index, got %+v", disabled)
 	}
 	if enabled.EnabledStrategyIndex == nil || *enabled.EnabledStrategyIndex != 0 {
@@ -345,7 +427,7 @@ func TestDiagnosticsInactiveConnectionIsNotCapabilityIncompatible(t *testing.T) 
 
 	result := Analyze(graph, 10, dualOperations())
 	row := result.Stages[1].Targets[0]
-	if row.OperationResults[0].Disposition != DispositionInactive {
+	if targetResultForOperation(t, row, providerauth.OpenAIUpstreamOperationChatCompletions).Disposition != DispositionInactive {
 		t.Fatalf("expected inactive connection disposition, got %+v", row.OperationResults)
 	}
 	chat := resultForOperation(t, result, providerauth.OpenAIUpstreamOperationChatCompletions)
@@ -374,10 +456,10 @@ func TestDiagnosticsStructuralErrorsAndCrossFamily(t *testing.T) {
 	if len(stage.Targets) != 2 {
 		t.Fatalf("expected two terminal rows, got %+v", stage.Targets)
 	}
-	if stage.Targets[0].OperationResults[0].Disposition != DispositionStructuralError {
+	if targetResultForOperation(t, stage.Targets[0], providerauth.OpenAIUpstreamOperationChatCompletions).Disposition != DispositionStructuralError {
 		t.Fatalf("expected cross-family connection to be structural error, got %+v", stage.Targets[0].OperationResults)
 	}
-	if stage.Targets[1].OperationResults[0].Disposition != DispositionStructuralError {
+	if targetResultForOperation(t, stage.Targets[1], providerauth.OpenAIUpstreamOperationChatCompletions).Disposition != DispositionStructuralError {
 		t.Fatalf("expected missing connection to be structural error, got %+v", stage.Targets[1].OperationResults)
 	}
 	chat := resultForOperation(t, result, providerauth.OpenAIUpstreamOperationChatCompletions)
@@ -405,7 +487,7 @@ func TestDiagnosticsRootAcceptedSetPervadesRecursion(t *testing.T) {
 		t.Fatalf("expected root accepted set to resolve responses through chat-only intermediate, got %+v", responses)
 	}
 	modelRow := result.Stages[0].Targets[0]
-	if modelRow.OperationResults[0].Disposition != DispositionCandidate {
+	if targetResultForOperation(t, modelRow, providerauth.OpenAIUpstreamOperationResponses).Disposition != DispositionCandidate {
 		t.Fatalf("expected model row candidate under root accepted set, got %+v", modelRow.OperationResults)
 	}
 }
@@ -428,7 +510,7 @@ func TestDiagnosticsRoundRobinReturnsPotentialUnionWithoutCursor(t *testing.T) {
 		t.Fatalf("expected both rows compatible under round-robin union, got %v", chat.CompatibleAccessTargetIDs)
 	}
 	for _, row := range result.Stages[1].Targets {
-		if row.OperationResults[0].Disposition != DispositionCandidate {
+		if targetResultForOperation(t, row, providerauth.OpenAIUpstreamOperationChatCompletions).Disposition != DispositionCandidate {
 			t.Fatalf("expected round-robin row to be candidate, got %+v", row.OperationResults)
 		}
 	}
@@ -450,7 +532,7 @@ func TestDiagnosticsNonOpenAIFamilyCoverageNotApplicable(t *testing.T) {
 	if !coverage.Accepted || !coverage.StaticallyRoutable {
 		t.Fatalf("expected non-OpenAI operation to resolve with structural eligibility, got %+v", coverage)
 	}
-	if row.OperationResults[0].Disposition != DispositionCandidate {
+	if targetResultForOperation(t, row, "anthropic.messages").Disposition != DispositionCandidate {
 		t.Fatalf("expected non-OpenAI terminal row to be structurally eligible, got %+v", row.OperationResults)
 	}
 	if len(result.ConfigurationWarnings) != 0 {

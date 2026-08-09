@@ -130,6 +130,12 @@ func TestModelCRUD(t *testing.T) {
 	}
 
 	updated := modelJSON[map[string]any](t, harness, profileID, http.MethodPut, modelPath(sourceModelID), map[string]any{"display_name": nil}, http.StatusOK)
+	if _, ok := updated["model"].(map[string]any); !ok {
+		t.Fatalf("expected model update envelope to contain model, got %+v", updated)
+	}
+	if _, ok := updated["configuration_warnings"].([]any); !ok {
+		t.Fatalf("expected model update envelope to contain configuration_warnings, got %+v", updated)
+	}
 	assertOpenAIModelPayload(t, updated, strategyID, "S8 Access Strategy", "s8-access-model", true, wantTargets)
 	assertStoredModelTargetFlat(t, harness, sourceModelID, targetModelID, 0, true)
 
@@ -191,7 +197,12 @@ func TestModelCRUD(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) { tc.check(tc.run()) })
 	}
 
-	renamed := modelJSON[map[string]any](t, harness, profileID, http.MethodPut, modelPath(sourceModelID), map[string]any{"model_id": "s8-access-model-renamed", "display_name": nil}, http.StatusOK)
+	renameEnvelope := modelJSON[map[string]any](t, harness, profileID, http.MethodPut, modelPath(sourceModelID), map[string]any{"model_id": "s8-access-model-renamed", "display_name": nil}, http.StatusOK)
+	renameModel, ok := renameEnvelope["model"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected model rename envelope to contain model, got %+v", renameEnvelope)
+	}
+	renamed := renameModel
 	if renamed["model_id"] != "s8-access-model-renamed" || renamed["display_name"] != "s8-access-model-renamed" {
 		t.Fatalf("expected rename payload to resync display_name, got %+v", renamed)
 	}

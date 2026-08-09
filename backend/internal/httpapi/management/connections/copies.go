@@ -106,7 +106,7 @@ func (s *Service) handleCreateConnectionCopies(w http.ResponseWriter, r *http.Re
 		if err != nil {
 			return terminalTargetCopyResponse{}, err
 		}
-		sourceOwner, found, err := loadModelRecord(r.Context(), tx, profile.ID, modelConfigID, true)
+		sourceOwner, found, err := loadModelRecord(r.Context(), tx, profile.ID, modelConfigID, false)
 		if err != nil {
 			return terminalTargetCopyResponse{}, err
 		}
@@ -117,6 +117,14 @@ func (s *Service) handleCreateConnectionCopies(w http.ResponseWriter, r *http.Re
 			if destinationID == modelConfigID {
 				return terminalTargetCopyResponse{}, &DomainError{StatusCode: http.StatusBadRequest, Detail: "invalid_terminal_target_copy_destinations: source owner cannot be a destination"}
 			}
+		}
+		allModels, err := loadAndLockCopyModels(r.Context(), tx, profile.ID, sourceOwner.ID, destinations)
+		if err != nil {
+			return terminalTargetCopyResponse{}, err
+		}
+		sourceOwner = allModels[sourceOwner.ID]
+		if err := lockCopyAccessTargetRows(r.Context(), tx, profile.ID, append([]int{sourceOwner.ID}, destinations...)); err != nil {
+			return terminalTargetCopyResponse{}, err
 		}
 		source, found, err := loadConnectionRecord(r.Context(), tx, profile.ID, connectionID, true)
 		if err != nil {
@@ -130,13 +138,9 @@ func (s *Service) handleCreateConnectionCopies(w http.ResponseWriter, r *http.Re
 		} else if !found {
 			return terminalTargetCopyResponse{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "terminal_target_not_found"}
 		}
-
-		destinationModels, err := loadCopyDestinationModels(r.Context(), tx, profile.ID, destinations, sourceOwner)
-		if err != nil {
-			return terminalTargetCopyResponse{}, err
-		}
-		if err := lockCopyDestinationAccessTargets(r.Context(), tx, profile.ID, destinations); err != nil {
-			return terminalTargetCopyResponse{}, err
+		destinationModels := make(map[int]modelRecord, len(destinations))
+		for _, destinationID := range destinations {
+			destinationModels[destinationID] = allModels[destinationID]
 		}
 
 		now := s.nowUTC()
@@ -251,35 +255,41 @@ func dedupeCopyDestinationIDs(values []int) []int {
 	return unique
 }
 
-// loadCopyDestinationModels loads and locks destination model rows (sorted by
-// id) and rejects missing/cross-profile destinations and api family conflicts.
-func loadCopyDestinationModels(ctx context.Context, tx pgx.Tx, profileID int, destinations []int, sourceOwner modelRecord) (map[int]modelRecord, error) {
-	sortedDestinations := append([]int(nil), destinations...)
-	sort.Ints(sortedDestinations)
+// loadAndLockCopyModels locks the source owner and destination model rows in
+// one deterministic id order, preventing reversed copy batches from deadlocking
+// while still validating profile and API-family ownership under the lock.
+func loadAndLockCopyModels(ctx context.Context, tx pgx.Tx, profileID int, sourceModelConfigID int, destinations []int) (map[int]modelRecord, error) {
+	modelIDs := append([]int{sourceModelConfigID}, destinations...)
+	sort.Ints(modelIDs)
 	models := map[int]modelRecord{}
-	for _, destinationID := range sortedDestinations {
-		record, found, err := loadModelRecord(ctx, tx, profileID, destinationID, true)
+	for _, modelConfigID := range modelIDs {
+		record, found, err := loadModelRecord(ctx, tx, profileID, modelConfigID, true)
 		if err != nil {
 			return nil, err
 		}
 		if !found {
 			return nil, &DomainError{StatusCode: http.StatusNotFound, Detail: "terminal_target_copy_destination_not_found"}
 		}
-		if !modelrouting.SameAPIFamily(record.APIFamily, sourceOwner.APIFamily) {
+		models[modelConfigID] = record
+	}
+	sourceOwner := models[sourceModelConfigID]
+	for _, destinationID := range destinations {
+		if !modelrouting.SameAPIFamily(models[destinationID].APIFamily, sourceOwner.APIFamily) {
 			return nil, &DomainError{StatusCode: http.StatusConflict, Detail: "terminal_target_copy_api_family_conflict"}
 		}
-		models[destinationID] = record
 	}
 	return models, nil
 }
 
-// lockCopyDestinationAccessTargets locks destination access-target rows in
-// (model id, position, id) order so concurrent reorder/connection-create
-// cannot interleave with the copy's tail-position allocation.
-func lockCopyDestinationAccessTargets(ctx context.Context, tx pgx.Tx, profileID int, destinations []int) error {
-	for _, destinationID := range destinations {
-		if err := lockModelAccessTargetRows(ctx, tx, profileID, destinationID); err != nil {
-			return fmt.Errorf("lock copy destination access targets for model %d: %w", destinationID, err)
+// lockCopyAccessTargetRows locks source and destination access-target rows in
+// model id order so concurrent reorder/connection-create cannot interleave with
+// the copy's tail-position allocation.
+func lockCopyAccessTargetRows(ctx context.Context, tx pgx.Tx, profileID int, modelConfigIDs []int) error {
+	sortedModelConfigIDs := append([]int(nil), modelConfigIDs...)
+	sort.Ints(sortedModelConfigIDs)
+	for _, modelConfigID := range sortedModelConfigIDs {
+		if err := lockModelAccessTargetRows(ctx, tx, profileID, modelConfigID); err != nil {
+			return fmt.Errorf("lock copy access targets for model %d: %w", modelConfigID, err)
 		}
 	}
 	return nil
