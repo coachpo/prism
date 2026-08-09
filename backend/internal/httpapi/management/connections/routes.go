@@ -750,7 +750,7 @@ func decodeJSONBody(request *http.Request, target any) error {
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	var connectionErr *DomainError
 	if errors.As(err, &connectionErr) {
-		responseutil.WriteError(w, r, corsSnapshot, connectionErr.StatusCode, connectionErr.Detail)
+		responseutil.WriteErrorFields(w, r, corsSnapshot, connectionErr.StatusCode, connectionErr.Detail, connectionErr.Fields)
 		return
 	}
 	var profileErr *profiledomain.HTTPError

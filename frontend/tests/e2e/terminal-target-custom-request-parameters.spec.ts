@@ -161,6 +161,16 @@ async function mockModelDetailRoutes(
     if (pathname === "/api/models/5" && request.method() === "GET") {
       return fulfillJson(createModelDetail(updatedConnection));
     }
+    if (pathname === "/api/models/5/routing-diagnostics") {
+      return fulfillJson({
+        model_config_id: 5,
+        strategy: { id: 11, type: "fill-first" },
+        accepted_operations: [],
+        stages: [],
+        operation_coverage: [],
+        configuration_warnings: [],
+      });
+    }
     if (pathname === "/api/models/5/connections" && request.method() === "GET") {
       return fulfillJson([updatedConnection]);
     }
@@ -175,7 +185,11 @@ async function mockModelDetailRoutes(
         });
       }
       updatedConnection = { ...updatedConnection, ...payload };
-      return fulfillJson(updatedConnection);
+      return fulfillJson({
+        connection: updatedConnection,
+        access_targets: [],
+        configuration_warnings: [],
+      });
     }
     if (pathname === "/api/models/5/targets" && request.method() === "GET") {
       return fulfillJson(createModelDetail(updatedConnection).access_targets);

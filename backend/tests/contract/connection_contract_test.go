@@ -167,12 +167,15 @@ func TestTargetRouteCRUD(t *testing.T) {
 	assertStatus(t, createSecondConnection, http.StatusCreated)
 	var secondConnectionPayload map[string]any
 	decodeJSONResponse(t, createSecondConnection, &secondConnectionPayload)
+	secondConnectionPayload = asMap(t, secondConnectionPayload["connection"])
 	secondConnectionID := jsonInt(t, secondConnectionPayload["id"])
 	secondConnectionTargetID := modelLoadConnectionTargetID(t, harness, sourceModelID, secondConnectionID)
 
 	createSecondModelTarget := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/targets", sourceModelID), map[string]any{"target_type": "model", "target_model_id": "s9-target-route-model-2", "position": 2, "is_enabled": true}, modelHeader(defaultProfileID))
 	assertStatus(t, createSecondModelTarget, http.StatusCreated)
-	decodeJSONResponse(t, createSecondModelTarget, &targets)
+	var secondModelTargetPayload map[string]any
+	decodeJSONResponse(t, createSecondModelTarget, &secondModelTargetPayload)
+	targets = decodeTargetEnvelopeList(t, secondModelTargetPayload)
 	assertTargetRouteOrder(t, targets, []expectedAccessTarget{
 		{TargetType: "model", TargetModelID: "s9-target-route-model", Position: 0, IsEnabled: true},
 		{TargetType: "connection", ConnectionID: connectionID, Position: 1, IsEnabled: false},
@@ -185,7 +188,7 @@ func TestTargetRouteCRUD(t *testing.T) {
 	// target between the two terminal rows (T1, M2, M1, T2).
 	moveTerminalFront := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/targets/%d/position", sourceModelID, secondConnectionTargetID), map[string]any{"to_index": 0}, modelHeader(defaultProfileID))
 	assertStatus(t, moveTerminalFront, http.StatusOK)
-	decodeJSONResponse(t, moveTerminalFront, &targets)
+	targets = decodeTargetMutationResponse(t, moveTerminalFront)
 	assertTargetRouteOrder(t, targets, []expectedAccessTarget{
 		{TargetType: "connection", ConnectionID: secondConnectionID, Position: 0, IsEnabled: true},
 		{TargetType: "model", TargetModelID: "s9-target-route-model", Position: 1, IsEnabled: true},
@@ -194,7 +197,7 @@ func TestTargetRouteCRUD(t *testing.T) {
 	})
 	moveModelBetweenTerminals := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/targets/%d/position", sourceModelID, secondModelTargetID), map[string]any{"to_index": 1}, modelHeader(defaultProfileID))
 	assertStatus(t, moveModelBetweenTerminals, http.StatusOK)
-	decodeJSONResponse(t, moveModelBetweenTerminals, &targets)
+	targets = decodeTargetMutationResponse(t, moveModelBetweenTerminals)
 	assertTargetRouteOrder(t, targets, []expectedAccessTarget{
 		{TargetType: "connection", ConnectionID: secondConnectionID, Position: 0, IsEnabled: true},
 		{TargetType: "model", TargetModelID: "s9-target-route-model-2", Position: 1, IsEnabled: true},
@@ -236,7 +239,7 @@ func TestTargetRouteCRUD(t *testing.T) {
 	// Enable/disable keeps the authored mixed position.
 	toggleModelTarget := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/targets/%d", sourceModelID, secondModelTargetID), map[string]any{"is_enabled": false}, modelHeader(defaultProfileID))
 	assertStatus(t, toggleModelTarget, http.StatusOK)
-	decodeJSONResponse(t, toggleModelTarget, &targets)
+	targets = decodeTargetMutationResponse(t, toggleModelTarget)
 	assertTargetRouteOrder(t, targets, []expectedAccessTarget{
 		{TargetType: "connection", ConnectionID: secondConnectionID, Position: 0, IsEnabled: true},
 		{TargetType: "model", TargetModelID: "s9-target-route-model-2", Position: 1, IsEnabled: false},
@@ -260,7 +263,7 @@ func TestTargetRouteCRUD(t *testing.T) {
 	// both types (model rows shift down).
 	deleteFirstTerminal := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d/targets/%d", sourceModelID, secondConnectionTargetID), nil, modelHeader(defaultProfileID))
 	assertStatus(t, deleteFirstTerminal, http.StatusOK)
-	decodeJSONResponse(t, deleteFirstTerminal, &targets)
+	targets = decodeTargetMutationResponse(t, deleteFirstTerminal)
 	assertTargetRouteOrder(t, targets, []expectedAccessTarget{
 		{TargetType: "model", TargetModelID: "s9-target-route-model-2", Position: 0, IsEnabled: false},
 		{TargetType: "model", TargetModelID: "s9-target-route-model", Position: 1, IsEnabled: true},
@@ -894,4 +897,11 @@ func decodeTargetEnvelopeList(t *testing.T, payload map[string]any) []map[string
 		items = append(items, asMap(t, item))
 	}
 	return items
+}
+
+func decodeTargetMutationResponse(t *testing.T, response *http.Response) []map[string]any {
+	t.Helper()
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	return decodeTargetEnvelopeList(t, payload)
 }

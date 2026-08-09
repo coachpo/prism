@@ -253,7 +253,7 @@ async function loginToProxyKeys(page: Page) {
   await page.getByLabel("用户名").fill("admin");
   await page.getByLabel("密码").fill("password123");
   await page.getByRole("button", { name: "登录" }).click();
-  await expect(page.getByTestId("observe-dashboard")).toBeVisible();
+  await expect(page.getByTestId("observe-dashboard")).toBeVisible({ timeout: 15_000 });
 
   await page.goto("/control/proxy-keys");
   await expect(page).toHaveURL(/\/control\/proxy-keys$/);

@@ -865,6 +865,16 @@ test("model detail exposes separate model and terminal stages with stage-local r
     if (pathname === "/api/settings/costing") return fulfillJson({ report_currency_code: "EUR", report_currency_symbol: "€", endpoint_fx_mappings: [], timezone_preference: null });
     if (pathname === "/api/settings/timezone") return fulfillJson({ timezone_preference: "UTC" });
     if (pathname === "/api/loadbalance/strategies") return fulfillJson([createStrategy()]);
+    if (pathname === "/api/models/7/routing-diagnostics") {
+      return fulfillJson({
+        model_config_id: 7,
+        strategy: { id: 11, type: "fill-first" },
+        accepted_operations: [],
+        stages: [],
+        operation_coverage: [],
+        configuration_warnings: [],
+      });
+    }
     if (pathname === "/api/models" && request.method() === "GET") {
       return fulfillJson([
         {
@@ -939,7 +949,7 @@ test("model detail exposes separate model and terminal stages with stage-local r
       const rest = current.filter((item) => item.id !== targetId);
       rest.splice(toIndex, 0, moved);
       targets = rest.map((item, index) => ({ ...item, position: index }));
-      return fulfillJson(targets);
+      return fulfillJson({ access_targets: targets, configuration_warnings: [] });
     }
     const targetMatch = pathname.match(/^\/api\/models\/7\/targets\/(\d+)$/);
     if (targetMatch && request.method() === "PATCH") {
@@ -949,7 +959,7 @@ test("model detail exposes separate model and terminal stages with stage-local r
       targets = (targets as Array<Record<string, unknown>>).map((item) =>
         item.id === targetId ? { ...item, is_enabled: body.is_enabled ?? item.is_enabled } : item,
       );
-      return fulfillJson(targets);
+      return fulfillJson({ access_targets: targets, configuration_warnings: [] });
     }
     if (targetMatch && request.method() === "DELETE") {
       deleteRequests.push(pathname);
@@ -957,7 +967,7 @@ test("model detail exposes separate model and terminal stages with stage-local r
       targets = (targets as Array<{ id: number }>)
         .filter((item) => item.id !== targetId)
         .map((item, index) => ({ ...item, position: index }));
-      return fulfillJson(targets);
+      return fulfillJson({ access_targets: targets, configuration_warnings: [] });
     }
     if (pathname === "/api/endpoints") return fulfillJson([]);
     if (pathname === "/api/endpoints/connections") return fulfillJson({ items: [] });

@@ -55,6 +55,7 @@ func TestConnectionCustomRequestParametersCreateSemantics(t *testing.T) {
 			}
 			var payload map[string]any
 			decodeJSONResponse(t, response, &payload)
+			payload = asMap(t, payload["connection"])
 			connectionID := jsonInt(t, payload["id"])
 			if testCase.wantNull {
 				if value, present := payload["custom_request_parameters"]; !present || value != nil {
@@ -158,6 +159,7 @@ func TestConnectionCustomRequestParametersPatchSemantics(t *testing.T) {
 	assertStatus(t, createResponse, http.StatusCreated)
 	var created map[string]any
 	decodeJSONResponse(t, createResponse, &created)
+	created = asMap(t, created["connection"])
 	connectionID := jsonInt(t, created["id"])
 	patchPath := fmt.Sprintf("/api/models/%d/connections/%d", ownerModelID, connectionID)
 	readPath := fmt.Sprintf("/api/connections/%d", connectionID)
