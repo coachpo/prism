@@ -79,7 +79,7 @@ test("models dialog shows accepted-format controls only for OpenAI models", () =
     "accepted-format control should update through modelFormState helpers",
   );
   assert.equal(zhCNMessages.modelsUi.openaiAcceptedFormat, "OpenAI 接受格式");
-  assert.equal(zhCNMessages.modelsUi.openaiAcceptedFormatDualNative, "双原生");
+  assert.equal(zhCNMessages.modelsUi.openaiAcceptedFormatDualNative, "Responses + Chat Completions");
   assert.equal(zhCNMessages.modelsUi.openaiAcceptedFormatResponsesOnly, "仅 Responses");
   assert.equal(zhCNMessages.modelsUi.openaiAcceptedFormatChatCompletionsOnly, "仅 Chat Completions");
 });
