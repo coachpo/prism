@@ -308,11 +308,28 @@ func (s *Service) handleDeleteEndpoint(w http.ResponseWriter, r *http.Request) {
 			return deletedResponse{}, err
 		}
 		if len(usageRows) > 0 {
-			connections := make([]map[string]any, 0, len(usageRows))
-			for _, row := range usageRows {
-				connections = append(connections, map[string]any{"connection_id": row.ConnectionID, "model_config_id": row.ModelConfigID, "model_id": row.ModelID, "name": row.Name})
+			references, err := listEndpointDirectReferences(r.Context(), tx, profile.ID, []int{endpointID})
+			if err != nil {
+				return deletedResponse{}, err
 			}
-			return deletedResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: map[string]any{"message": "Cannot delete endpoint that is referenced by connections", "connections": connections}}
+			referenceItems := references[endpointID]
+			if len(referenceItems) == 0 {
+				// Orphaned connection without an owner access-target row: keep the
+				// guard and expose the minimal blocker derived from usage rows.
+				for _, row := range usageRows {
+					referenceItems = append(referenceItems, EndpointDirectReference{
+						ConnectionID:       row.ConnectionID,
+						ModelConfigID:      dereferenceInt(row.ModelConfigID),
+						ModelID:            dereferenceString(row.ModelID),
+						TerminalTargetName: row.Name,
+					})
+				}
+			}
+			return deletedResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: "Endpoint 仍被 Terminal Target 引用。", Fields: map[string]any{
+				"code":        "endpoint_in_use",
+				"endpoint_id": endpointID,
+				"references":  referenceItems,
+			}}
 		}
 		if err := deleteEndpoint(r.Context(), tx, endpointID); err != nil {
 			return deletedResponse{}, err
@@ -360,7 +377,7 @@ func decodeJSONBody(request *http.Request, target any) error {
 
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	if endpointErr, ok := errors.AsType[*domainError](err); ok {
-		responseutil.WriteError(w, r, corsSnapshot, endpointErr.StatusCode, endpointErr.Detail)
+		responseutil.WriteErrorFields(w, r, corsSnapshot, endpointErr.StatusCode, endpointErr.Detail, endpointErr.Fields)
 		return
 	}
 	if profileErr, ok := errors.AsType[*profiledomain.HTTPError](err); ok {

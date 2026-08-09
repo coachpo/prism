@@ -25,6 +25,7 @@ func TestConnectionPricingTemplates(t *testing.T) {
 	assertStatus(t, assignResponse, http.StatusOK)
 	var assignedPayload map[string]any
 	decodeJSONResponse(t, assignResponse, &assignedPayload)
+	assignedPayload = asMap(t, assignedPayload["connection"])
 	if jsonInt(t, assignedPayload["pricing_template_id"]) != pricingTemplateID || jsonInt(t, asMap(t, assignedPayload["pricing_template"])["id"]) != pricingTemplateID {
 		t.Fatalf("expected pricing template assignment payload, got %+v", assignedPayload)
 	}
@@ -33,6 +34,7 @@ func TestConnectionPricingTemplates(t *testing.T) {
 	assertStatus(t, clearResponse, http.StatusOK)
 	var clearedPayload map[string]any
 	decodeJSONResponse(t, clearResponse, &clearedPayload)
+	clearedPayload = asMap(t, clearedPayload["connection"])
 	if clearedPayload["pricing_template_id"] != nil || clearedPayload["pricing_template"] != nil {
 		t.Fatalf("expected clear pricing template assignment payload, got %+v", clearedPayload)
 	}

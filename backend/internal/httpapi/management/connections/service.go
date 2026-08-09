@@ -25,12 +25,15 @@ type Service struct {
 	secretEncryptionKey string
 }
 
-type domainError struct {
+// DomainError is the HTTP-neutral management error type used across the
+// connections package. Callers in other packages can errors.As into it to
+// preserve status/detail without depending on this package's routes.
+type DomainError struct {
 	StatusCode int
 	Detail     any
 }
 
-func (err *domainError) Error() string {
+func (err *DomainError) Error() string {
 	if message, ok := err.Detail.(string); ok {
 		return message
 	}
@@ -85,6 +88,7 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Get("/models/{model_config_id}/connections", s.handleListModelConnections)
 	api.Post("/models/{model_config_id}/connections", s.handleCreateModelConnection)
 	api.Patch("/models/{model_config_id}/connections/{connection_id}", s.handleUpdateModelConnection)
+	api.Post("/models/{model_config_id}/connections/{connection_id}/copies", s.handleCreateConnectionCopies)
 	api.Put("/models/{model_config_id}/connections/{connection_id}", s.handleRejectModelConnectionLegacyMutation)
 	api.Delete("/models/{model_config_id}/connections/{connection_id}", s.handleDeleteModelConnection)
 	api.Put("/models/{model_config_id}/connections/{connection_id}/pricing-template", s.handleRejectModelConnectionLegacyMutation)

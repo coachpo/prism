@@ -881,13 +881,13 @@ func TestRuntimeLoadBalanceWinningSuccessUpdatesRuntimeState(t *testing.T) {
 	staleFailureAt := time.Now().UTC().Add(-2 * time.Minute)
 	staleLatency := 999
 	harness.seedRuntimeState(t, runtimeStateSeed{
-		ProfileID:         activeProfileID,
-		ConnectionID:      route.connectionIDs[0],
-		BanMode:           "off",
-		BlockedUntilAt:    &expiredOpenUntil,
-		CircuitState:      "open",
-		LiveP95LatencyMS:  &staleLatency,
-		LastLiveFailureAt: &staleFailureAt,
+		ProfileID:                           activeProfileID,
+		ConnectionID:                        route.connectionIDs[0],
+		BanMode:                             "off",
+		BlockedUntilAt:                      &expiredOpenUntil,
+		CircuitState:                        "open",
+		LastSuccessResponseHeadersLatencyMS: &staleLatency,
+		LastLiveFailureAt:                   &staleFailureAt,
 	})
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", chatCompletionsBody(route.publicModelID, "feedback success mutation"), nil)
@@ -899,7 +899,7 @@ func TestRuntimeLoadBalanceWinningSuccessUpdatesRuntimeState(t *testing.T) {
 	if successState.OpenUntilAt.Valid || successState.ProbeAvailableAt.Valid {
 		t.Fatalf("expected success to clear open/probe timers, got %+v", successState)
 	}
-	if !successState.LastLiveSuccessAt.Valid || !successState.LiveP95LatencyMS.Valid || successState.LiveP95LatencyMS.Int32 < 1 {
+	if !successState.LastLiveSuccessAt.Valid || !successState.LastSuccessResponseHeadersLatencyMS.Valid || successState.LastSuccessResponseHeadersLatencyMS.Int32 < 1 {
 		t.Fatalf("expected success observation to persist latency and timestamp, got %+v", successState)
 	}
 	events := loadLoadbalanceEvents(t, harness.conn, activeProfileID, route.connectionIDs[0])
@@ -926,19 +926,19 @@ func TestRuntimeLoadBalanceProbeSuccessClosesRuntimeState(t *testing.T) {
 	priorFailureKind := "transient_http"
 	staleLatency := 999
 	harness.seedRuntimeState(t, runtimeStateSeed{
-		ProfileID:           activeProfileID,
-		ConnectionID:        route.connectionIDs[0],
-		ConsecutiveFailures: 1,
-		LastFailureKind:     &priorFailureKind,
-		LastCooldownSeconds: 60,
-		MaxCooldownStrikes:  1,
-		BanMode:             "off",
-		BlockedUntilAt:      &pastProbeEligibleAt,
-		ProbeAvailableAt:    &pastProbeEligibleAt,
-		CircuitState:        "open",
-		LiveP95LatencyMS:    &staleLatency,
-		LastLiveFailureKind: &priorFailureKind,
-		LastLiveFailureAt:   &pastProbeEligibleAt,
+		ProfileID:                           activeProfileID,
+		ConnectionID:                        route.connectionIDs[0],
+		ConsecutiveFailures:                 1,
+		LastFailureKind:                     &priorFailureKind,
+		LastCooldownSeconds:                 60,
+		MaxCooldownStrikes:                  1,
+		BanMode:                             "off",
+		BlockedUntilAt:                      &pastProbeEligibleAt,
+		ProbeAvailableAt:                    &pastProbeEligibleAt,
+		CircuitState:                        "open",
+		LastSuccessResponseHeadersLatencyMS: &staleLatency,
+		LastLiveFailureKind:                 &priorFailureKind,
+		LastLiveFailureAt:                   &pastProbeEligibleAt,
 	})
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", chatCompletionsBody(route.publicModelID, "probe success mutation"), nil)
@@ -953,7 +953,7 @@ func TestRuntimeLoadBalanceProbeSuccessClosesRuntimeState(t *testing.T) {
 	if successState.LastFailureKind.Valid || successState.LastLiveFailureKind.Valid {
 		t.Fatalf("expected probe success to clear failure markers, got %+v", successState)
 	}
-	if !successState.LastLiveSuccessAt.Valid || !successState.LiveP95LatencyMS.Valid || successState.LiveP95LatencyMS.Int32 < 1 {
+	if !successState.LastLiveSuccessAt.Valid || !successState.LastSuccessResponseHeadersLatencyMS.Valid || successState.LastSuccessResponseHeadersLatencyMS.Int32 < 1 {
 		t.Fatalf("expected probe success to persist latency and success timestamp, got %+v", successState)
 	}
 	events := loadLoadbalanceEvents(t, harness.conn, activeProfileID, route.connectionIDs[0])
@@ -984,19 +984,19 @@ func TestRuntimeStatePersistsRecoveredStateAcrossRestart(t *testing.T) {
 	priorFailureKind := "transient_http"
 	staleLatency := 999
 	harness.seedRuntimeState(t, runtimeStateSeed{
-		ProfileID:           activeProfileID,
-		ConnectionID:        route.connectionIDs[0],
-		ConsecutiveFailures: 1,
-		LastFailureKind:     &priorFailureKind,
-		LastCooldownSeconds: 60,
-		MaxCooldownStrikes:  1,
-		BanMode:             "off",
-		BlockedUntilAt:      &pastProbeEligibleAt,
-		ProbeAvailableAt:    &pastProbeEligibleAt,
-		CircuitState:        "open",
-		LiveP95LatencyMS:    &staleLatency,
-		LastLiveFailureKind: &priorFailureKind,
-		LastLiveFailureAt:   &pastProbeEligibleAt,
+		ProfileID:                           activeProfileID,
+		ConnectionID:                        route.connectionIDs[0],
+		ConsecutiveFailures:                 1,
+		LastFailureKind:                     &priorFailureKind,
+		LastCooldownSeconds:                 60,
+		MaxCooldownStrikes:                  1,
+		BanMode:                             "off",
+		BlockedUntilAt:                      &pastProbeEligibleAt,
+		ProbeAvailableAt:                    &pastProbeEligibleAt,
+		CircuitState:                        "open",
+		LastSuccessResponseHeadersLatencyMS: &staleLatency,
+		LastLiveFailureKind:                 &priorFailureKind,
+		LastLiveFailureAt:                   &pastProbeEligibleAt,
 	})
 
 	initialResponse := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", chatCompletionsBody(route.publicModelID, "restart recovered persistence initial mutation"), nil)
@@ -1012,7 +1012,7 @@ func TestRuntimeStatePersistsRecoveredStateAcrossRestart(t *testing.T) {
 	if recoveredStateBeforeRestart.OpenUntilAt.Valid || recoveredStateBeforeRestart.ProbeAvailableAt.Valid {
 		t.Fatalf("expected successful recovery to clear open/probe timers before restart, got %+v", recoveredStateBeforeRestart)
 	}
-	if !recoveredStateBeforeRestart.LastLiveSuccessAt.Valid || !recoveredStateBeforeRestart.LiveP95LatencyMS.Valid {
+	if !recoveredStateBeforeRestart.LastLiveSuccessAt.Valid || !recoveredStateBeforeRestart.LastSuccessResponseHeadersLatencyMS.Valid {
 		t.Fatalf("expected successful recovery to persist latency and success timestamp before restart, got %+v", recoveredStateBeforeRestart)
 	}
 

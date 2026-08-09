@@ -15,20 +15,20 @@ const (
 )
 
 type RuntimeConnectionState struct {
-	ConnectionID            int
-	WindowStartedAt         *time.Time
-	WindowRequestCount      int
-	InFlightNonStream       int
-	InFlightStream          int
-	CycleRetryAttempts      int
-	CumulativeRetryAttempts int
-	NextRetryAt             *time.Time
-	LastRetryDelayMS        int
-	BanMode                 string
-	BannedUntilAt           *time.Time
-	LastFailureKind         *string
-	LastSuccessAt           *time.Time
-	LiveP95LatencyMS        *int
+	ConnectionID                        int
+	WindowStartedAt                     *time.Time
+	WindowRequestCount                  int
+	InFlightNonStream                   int
+	InFlightStream                      int
+	CycleRetryAttempts                  int
+	CumulativeRetryAttempts             int
+	NextRetryAt                         *time.Time
+	LastRetryDelayMS                    int
+	BanMode                             string
+	BannedUntilAt                       *time.Time
+	LastFailureKind                     *string
+	LastSuccessAt                       *time.Time
+	LastSuccessResponseHeadersLatencyMS *int
 }
 
 type RuntimeConnectionAdmission struct {

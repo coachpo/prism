@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type {
   Connection,
   Endpoint,
@@ -21,6 +21,7 @@ import { useModelDetailConnectionMutations } from "@/pages/model-detail/useModel
 import { useModelDetailDialogState } from "@/pages/model-detail/useModelDetailDialogState"
 import { useModelDetailModelForm } from "@/pages/model-detail/useModelDetailModelForm"
 import { useModelLoadbalanceCurrentState } from "@/pages/model-detail/useModelLoadbalanceCurrentState"
+import { useModelRoutingDiagnostics } from "@/pages/model-detail/useModelRoutingDiagnostics"
 
 type URLSearchParamsInit = ConstructorParameters<typeof URLSearchParams>[0]
 type SetURLSearchParams = (
@@ -43,6 +44,8 @@ interface UseModelDetailFeatureDataInput {
   searchParams: URLSearchParams
   setSearchParams: SetURLSearchParams
   navigateTo: (to: string) => void
+  oneShotAction?: { endpointId: string | null } | null
+  onOneShotActionConsumed?: () => void
 }
 
 export function useModelDetailFeatureData({
@@ -50,6 +53,8 @@ export function useModelDetailFeatureData({
   searchParams,
   setSearchParams,
   navigateTo,
+  oneShotAction = null,
+  onOneShotActionConsumed,
 }: UseModelDetailFeatureDataInput) {
   const revision = 0
   const modelConfigId = modelId ? Number.parseInt(modelId, 10) : undefined
@@ -124,6 +129,17 @@ export function useModelDetailFeatureData({
   })
 
   const {
+    diagnostics,
+    diagnosticsLoading,
+    diagnosticsError,
+    refreshDiagnostics,
+  } = useModelRoutingDiagnostics({
+    modelConfigId,
+    revision,
+    enabled: Boolean(model),
+  })
+
+  const {
     reorderInFlight,
     handleReorderConnections,
   } = useModelDetailConnectionFlows({
@@ -141,6 +157,8 @@ export function useModelDetailFeatureData({
     handleMoveAccessTarget,
     handleToggleAccessTarget,
     handleDeleteAccessTarget,
+    handleQuickCapabilityChange,
+    handleQuickPricingChange,
   } = useModelDetailConnectionMutations({
     id: modelId,
     revision,
@@ -155,6 +173,7 @@ export function useModelDetailFeatureData({
     pricingTemplates,
     endpointSourceDefaultName,
     refreshCurrentState,
+    refreshDiagnostics,
     setIsConnectionDialogOpen,
     setAllModels,
     setConnections,
@@ -178,6 +197,22 @@ export function useModelDetailFeatureData({
     setAllModels,
     setModel,
   })
+
+  // One-shot query-driven create: open the Terminal Target dialog with an
+  // optional preselected endpoint. The action parameters are cleared after the
+  // dialog has opened (next tick) so a refresh never reopens it and the URL
+  // replace does not race the dialog mount. The ref guard makes the whole
+  // consumption fire exactly once per navigation.
+  const oneShotConsumedRef = useRef(false)
+  useEffect(() => {
+    if (!oneShotAction || !model || oneShotConsumedRef.current) return
+    oneShotConsumedRef.current = true
+    openConnectionDialog()
+    if (oneShotAction.endpointId) {
+      setSelectedEndpointId(oneShotAction.endpointId)
+    }
+    onOneShotActionConsumed?.()
+  }, [model, oneShotAction, onOneShotActionConsumed, openConnectionDialog, setSelectedEndpointId])
 
   const effectiveTargetApiFamily = model?.api_family ?? formData.api_family
   const targetModelsForApiFamily = useMemo(
@@ -207,6 +242,7 @@ export function useModelDetailFeatureData({
   return {
     model,
     loading,
+    allModels,
     loadbalanceStrategies,
     isEditModelDialogOpen,
     setIsEditModelDialogOpen,
@@ -229,6 +265,11 @@ export function useModelDetailFeatureData({
     setConnectionSearch,
     currentStateByConnectionId,
     resettingConnectionIds,
+    diagnostics,
+    diagnosticsLoading,
+    diagnosticsError,
+    refreshDiagnostics,
+    refreshCurrentState,
     focusedConnectionId,
     connectionCardRefs,
     globalEndpoints,
@@ -252,6 +293,8 @@ export function useModelDetailFeatureData({
     handleMoveAccessTarget,
     handleToggleAccessTarget,
     handleDeleteAccessTarget,
+    handleQuickCapabilityChange,
+    handleQuickPricingChange,
     handleEditModelSubmit,
     pricingTemplates,
     reorderInFlight,

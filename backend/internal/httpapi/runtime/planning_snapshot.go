@@ -49,21 +49,22 @@ func (snapshot *planningSnapshot) compiledRoutingPlan() (*runtimeRoutingPlan, er
 }
 
 type runtimeAccessTargetRecord struct {
-	ID                        int
-	ProfileID                 int
-	SourceModelConfigID       int
-	TargetType                string
-	TargetModelConfigID       *int
-	TargetModelID             string
-	TargetModelProfileID      int
-	TargetModelAPIFamily      string
-	TargetModelEnabled        bool
-	TargetConnectionID        *int
-	TargetConnectionProfileID int
-	TargetConnectionAPIFamily string
-	Position                  int
-	IsEnabled                 bool
-	ConnectionEndpointFX      *runtimeEndpointFXSnapshot
+	ID                             int
+	ProfileID                      int
+	SourceModelConfigID            int
+	TargetType                     string
+	TargetModelConfigID            *int
+	TargetModelID                  string
+	TargetModelProfileID           int
+	TargetModelAPIFamily           string
+	TargetModelEnabled             bool
+	TargetConnectionID             *int
+	TargetConnectionProfileID      int
+	TargetConnectionAPIFamily      string
+	ConnectionOpenAITextCapability *string
+	Position                       int
+	IsEnabled                      bool
+	ConnectionEndpointFX           *runtimeEndpointFXSnapshot
 }
 
 func (record runtimeAccessTargetRecord) terminalTargetConnectionID() *int {
@@ -166,6 +167,15 @@ func listPublishedPlanningProfileIDs(ctx context.Context, tx pgx.Tx) ([]int, err
 
 const runtimeAccessResolverMaxDepth = 32
 
+// runtimePlanningObservation accumulates facts discovered while resolving one
+// request so the final static rejection can be classified.
+type runtimePlanningObservation struct {
+	// CompatibleStaticRouteSeen is set when an enabled access-target row with an
+	// active, capability-compatible connection was considered by the strategy
+	// but could not form a runtime candidate (dynamic unavailability).
+	CompatibleStaticRouteSeen bool
+}
+
 type runtimeAccessResolutionContext struct {
 	RequestedModelID              string
 	RequestedAPIFamily            string
@@ -175,6 +185,7 @@ type runtimeAccessResolutionContext struct {
 	ConsideredModelPath           []string
 	Depth                         int
 	ReferenceNow                  time.Time
+	Observation                   *runtimePlanningObservation
 }
 
 type runtimeResolvedAccessPlan struct {
@@ -208,7 +219,7 @@ type noEligibleTargetsError struct {
 }
 
 func (err *noEligibleTargetsError) Error() string {
-	return fmt.Sprintf("No eligible targets available for model '%s'.", err.requestedModelID)
+	return noEligibleTargetsErrorDetail(err.requestedModelID)
 }
 
 func (s *Service) resolveExecutionTargetFromSnapshot(profileID int, snapshot *planningSnapshot, requestedModel runtimeModelRecord, requestOperation RuntimeOperation, referenceNow time.Time) (runtimeResolvedAccessPlan, error) {
@@ -231,12 +242,25 @@ func (s *Service) resolveExecutionTargetFromRoutingPlanWithOptions(profileID int
 		VisitedModelIDs:               map[int]struct{}{},
 		ConsideredModelPath:           appendRuntimeModelPath(nil, requestedModel.ModelID),
 		ReferenceNow:                  referenceNow,
+		Observation:                   &runtimePlanningObservation{},
 	}
 	resolved, err := s.resolveRequestedModelExecutionTargetFromRoutingPlan(profileID, routingPlan, requestedModel, ctx)
 	if err != nil {
 		var noEligible *noEligibleTargetsError
 		if errors.As(err, &noEligible) {
-			return runtimeResolvedAccessPlan{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: noEligible.Error()}
+			if !openai.IsTextOperation(providerOperationFromRuntime(requestOperation)) {
+				return runtimeResolvedAccessPlan{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: noEligible.Error()}
+			}
+			return runtimeResolvedAccessPlan{}, s.classifyOpenAIPlanningRejection(profileID, routingPlan, requestedModel, requestOperation, ctx.Observation)
+		}
+		var planningRejection *domainError
+		if errors.As(err, &planningRejection) && planningRejection != nil {
+			if _, ok := isOpenAIPlanningRejectionError(planningRejection); ok {
+				if !openai.IsTextOperation(providerOperationFromRuntime(requestOperation)) {
+					return runtimeResolvedAccessPlan{}, err
+				}
+				return runtimeResolvedAccessPlan{}, s.classifyOpenAIPlanningRejection(profileID, routingPlan, requestedModel, requestOperation, ctx.Observation)
+			}
 		}
 		return runtimeResolvedAccessPlan{}, err
 	}
@@ -378,7 +402,7 @@ func (s *Service) evaluateAccessTargetCandidateFromRoutingPlan(profileID int, ro
 
 	compatibleCandidate, compatible, err := s.applyIngressOperationCompatibility(candidate, ctx)
 	if err != nil {
-		if domainErr, ok := isRequestTranslationUnsupportedError(err); ok {
+		if domainErr, ok := isOpenAIPlanningRejectionError(err); ok {
 			evaluation.compatibilityError = domainErr
 			return evaluation, nil
 		}
@@ -452,7 +476,7 @@ func (s *Service) applyIngressOperationCompatibility(candidate runtimeResolvedAc
 	if len(compatibleAttempts) > 0 {
 		return candidateWithCompatibleOpenAITextAttempts(candidate, compatibleAttempts), true, nil
 	}
-	return runtimeResolvedAccessPlan{}, false, openAIRequestTranslationUnsupportedDomainError()
+	return runtimeResolvedAccessPlan{}, false, openAINoCompatibleTerminalTargetDomainError()
 }
 
 func candidateWithCompatibleOpenAITextAttempts(candidate runtimeResolvedAccessPlan, attempts []runtimeTerminalAttempt) runtimeResolvedAccessPlan {
@@ -491,6 +515,9 @@ func (s *Service) resolveTerminalTargetFromRoutingPlan(profileID int, routingPla
 	connection, ok := routingPlan.terminalConnectionForAccessTarget(sourceModel, target)
 	if !ok {
 		return runtimeResolvedAccessPlan{}, false, nil
+	}
+	if ctx.Observation != nil && connection.OpenAITextCapability != nil && openai.IsTextOperation(providerOperationFromRuntime(ctx.RequestOperation)) && providerauth.OpenAITextCapabilitySupportsNativeOperation(*connection.OpenAITextCapability, ctx.RequestOperation.Name) {
+		ctx.Observation.CompatibleStaticRouteSeen = true
 	}
 
 	resolvedConnection := connection
@@ -561,7 +588,7 @@ func (s *Service) resolveModelAccessTargetFromRoutingPlan(profileID int, routing
 	childContext.ConsideredModelPath = appendRuntimeModelPath(ctx.ConsideredModelPath, childModel.ModelID)
 	resolved, err := s.resolveModelAccessFromRoutingPlan(profileID, routingPlan, childModel, childContext)
 	if err != nil {
-		if domainErr, ok := isRequestTranslationUnsupportedError(err); ok {
+		if domainErr, ok := isOpenAIPlanningRejectionError(err); ok {
 			return runtimeResolvedAccessPlan{CompatibilityError: domainErr}, false, nil
 		}
 		var noEligible *noEligibleTargetsError
@@ -656,6 +683,7 @@ func listAccessTargetsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 			model_access_targets.target_type, model_access_targets.target_model_config_id, target_models.model_id,
 			target_models.profile_id, target_models.api_family, COALESCE(target_models.is_enabled, FALSE),
 			model_access_targets.target_connection_id, connections.profile_id, connections.api_family,
+			connections.openai_text_capability,
 			model_access_targets.position, model_access_targets.is_enabled,
 			source_models.model_id, connections.endpoint_id, endpoint_fx_rate_settings.fx_rate::text
 		FROM model_access_targets
@@ -684,6 +712,7 @@ func listAccessTargetsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 		var targetConnectionID sql.NullInt32
 		var targetConnectionProfileID sql.NullInt32
 		var targetConnectionAPIFamily sql.NullString
+		var connectionOpenAITextCapability sql.NullString
 		var sourceModelID sql.NullString
 		var connectionEndpointID sql.NullInt32
 		var endpointFXRate sql.NullString
@@ -701,6 +730,7 @@ func listAccessTargetsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 			&targetConnectionID,
 			&targetConnectionProfileID,
 			&targetConnectionAPIFamily,
+			&connectionOpenAITextCapability,
 			&item.Position,
 			&item.IsEnabled,
 			&sourceModelID,
@@ -725,6 +755,7 @@ func listAccessTargetsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 		if targetConnectionAPIFamily.Valid {
 			item.TargetConnectionAPIFamily = strings.TrimSpace(targetConnectionAPIFamily.String)
 		}
+		item.ConnectionOpenAITextCapability = nullableString(connectionOpenAITextCapability)
 		if endpointFXRate.Valid && connectionEndpointID.Valid && sourceModelID.Valid {
 			item.ConnectionEndpointFX = &runtimeEndpointFXSnapshot{
 				ModelID:    strings.TrimSpace(sourceModelID.String),

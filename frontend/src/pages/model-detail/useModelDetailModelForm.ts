@@ -85,8 +85,8 @@ export function useModelDetailModelForm({
       }
 
       try {
-        const updatedModel = await api.models.update(model.id, toModelUpdatePayload(formData));
-        applyUpdatedModel(updatedModel);
+        const updatedResponse = await api.models.update(model.id, toModelUpdatePayload(formData));
+        applyUpdatedModel(updatedResponse.model);
         toast.success(messages.modelDetailData.modelUpdated);
         setIsEditModelDialogOpen(false);
       } catch (error) {

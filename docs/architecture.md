@@ -144,7 +144,7 @@ Global CORS handling runs before the runtime branch. The runtime branch then app
 
 `GET /v1/models` is the exception: `openai.models` branches to the local models-list handler before provider request-body handling, planning, or provider execution core. Every other registered proxy operation enters the shared runtime and gateway path: it resolves against frozen Default profile id `1`, resolves ordered access targets, applies the attached Ban Policy strategy, claims local attempt state, builds an upstream request, and hands activity to telemetry seams. The provider adapter is selected during planned-upstream request construction, not registry resolution. Request, non-stream response, and stream hooks are looked up by `HookCollectionID`, allowing related operations such as token counting or compact Responses to use hook collections different from their canonical operation names. Those hooks own generation extraction and stream intent, non-stream parsing and token usage, and stream terminal classification and usage merge respectively.
 
-OpenAI Chat Completions and Responses are operation-native. Planning requires the model's `openai_accepted_format` and the selected connection's `openai_text_capability` (`responses_only`, `chat_completions_only`, or `dual_native`) to support the ingress operation. Incompatible terminal attempts are skipped in authored order so the next target can be tried; if every otherwise eligible attempt is incompatible, Prism returns the typed `400 openai_request_translation_unsupported` response before provider transport. Current native attempts record `operation_translation_mode = "none"`; the columns and stats reads remain for historical rows. Responses adjunct operations require responses-capable targets.
+OpenAI Chat Completions and Responses are operation-native. Planning requires the model's `openai_accepted_format` and the selected connection's `openai_text_capability` (`responses_only`, `chat_completions_only`, or `dual_native`) to support the ingress operation. Incompatible terminal attempts are skipped in authored order so the next target can be tried; planning rejection uses three stable, mutually distinguishable codes before provider transport: `400 openai_operation_not_supported` (root model does not accept the operation), `503 openai_no_compatible_terminal_target` (no capability-compatible Terminal leaf in the authored graph), and `503 openai_no_eligible_terminal_target` (compatible leaves exist but none is statically eligible). A statically eligible route that is dynamically unavailable keeps the ordinary `503` family. Current native attempts record `operation_translation_mode = "none"`; the columns and stats reads remain for historical rows. Responses adjunct operations require responses-capable targets.
 
 Runtime observability stores canonical disjoint token components. Base input, cache-read input, cache-creation input, base output, and reasoning output are separate dimensions, while provider totals remain authoritative when supplied. Pricing uses five concrete pricing strings from the attached template snapshot, and explicit `"0"` component prices mean configured free pricing instead of a missing-price condition.
 
@@ -665,10 +665,26 @@ Request:
   "display_name": "GPT-4o Public",
   "loadbalance_strategy_id": 7,
   "openai_accepted_format": "dual_native",
-  "is_enabled": false
+  "is_enabled": false,
+  "initial_terminal_target": {
+    "endpoint_id": 1,
+    "name": "Primary",
+    "is_active": true,
+    "openai_text_capability": "dual_native",
+    "pricing_template_id": 2,
+    "qps_limit": 10,
+    "custom_headers": {}
+  }
 }
 ```
-Response `201`: Created model object.
+Response `201`:
+```json
+{
+  "model": { "...": "created model object" },
+  "configuration_warnings": []
+}
+```
+Create supports an optional `initial_terminal_target` (composite create): `endpoint_id` XOR inline `endpoint_create` (`name`, `base_url`, `api_key`), plus name, active, auth type, capability, pricing, limits and custom headers. The nested target never receives `api_family`, owner/profile, priority/position or IDs. Composite create runs in one transaction (model + optional inline endpoint with encrypted key + private Connection + enabled owner Access Target); any failure rolls back completely. `openai_text_capability` defaults to the owner `openai_accepted_format`; `is_active` defaults to `true`; with a target and no explicit `is_enabled`, the model defaults to enabled. An enabled model with an inactive nested target is rejected `422 model_initial_target_inactive`; an enabled model without any target stays `400 model_no_enabled_targets`. Legal Partial/None coverage succeeds with structured `configuration_warnings`; warnings are non-persisted and never echo secrets.
 
 Validation rules:
 - `model_id` must be unique within the effective profile scope.
@@ -678,6 +694,20 @@ Validation rules:
 - Ordered same-profile, same-`api_family` model targets are managed through `/api/models/{id}/targets`.
 - Model target self-reference and target cycles are rejected by the target management routes.
 - Deleting a model referenced by another model target returns `409` until the target rows are removed or updated. Deleting an owner model deletes its Terminal Targets with the owning target rows.
+- Model create/update responses are envelopes: `{ "model": ModelDetail, "configuration_warnings": [] }`.
+
+##### Routing Diagnostics
+```
+GET /api/models/{model_config_id}/routing-diagnostics
+```
+Read-only, profile-scoped, `invalidates_planning=false`. Returns the authoritative two-stage static routing diagnostics for the model: `strategy`, `accepted_operations`, `stages` (`model_targets` first, `terminal_targets` fallback with `entered_when` semantics), per-target rows (authored stage position, enabled strategy index, coverage, per-operation dispositions `candidate | disabled | inactive | incompatible | no_eligible_leaf | truncated_by_single | structural_error`), `operation_coverage` (accepted, capability_covered, statically_routable, resolved_stage, compatible/access target ids) and `configuration_warnings`. OpenAI responses always carry the four registered model-bound operations; root-unaccepted operations have `accepted=false`. The analyzer is pure and static: it never reads or changes Ban/retry state, QPS/in-flight counters, current-state, round-robin cursors or endpoint secrets, and never sends provider requests. Diagnostics never echo endpoint keys or header/parameter values.
+
+```
+POST /api/models/{model_config_id}/routing-diagnostics/preview
+```
+Read-only overlay preview for the Model Edit dialog: body accepts optional `openai_accepted_format`, `loadbalance_strategy_id`, `is_enabled` (at least one required, unknown fields hard-rejected), overlays them on the committed graph and returns the same diagnostics DTO without writing anything.
+
+`GET /api/models` embeds a compact `routing_summary` per model (`enabled_access_target_count`, `total_access_target_count`, `coverage`, `operation_groups`, `single_truncated_stages`, `warning_codes`) computed in one bounded batch; the frontend never re-derives coverage or eligibility.
 
 ##### Update Model
 ```
@@ -774,8 +804,12 @@ Behavior:
 DELETE /api/endpoints/{id}
 ```
 Response `200`: `{ "deleted": true }`.
-Returns `409` if any connections still reference this endpoint.
-After a successful delete, later endpoints in the same profile are compacted so `position` remains contiguous.
+When connections still reference this endpoint, delete returns a typed `409 endpoint_in_use` with `endpoint_id` and a `references` array of direct Terminal Target ownership rows (connection id, access target id, terminal target name, model id/display name, api family, authored stage position, enable/active state, capability, pricing template, custom header count). The same reference DTO is served by the batch read:
+```
+POST /api/endpoints/references/batch
+{"endpoint_ids": [1, 2]}
+```
+which returns `items` in input order (1..100 unique ids); missing or cross-profile ids produce a typed `404` with the missing ids. If the locked recheck finds no references, delete proceeds. After a successful delete, later endpoints in the same profile are compacted so `position` remains contiguous. References never include endpoint API keys or header/parameter values.
 
 #### 1.5 Terminal Targets and Model Access Targets
 
@@ -848,7 +882,15 @@ Request (inline endpoint creation):
   "max_in_flight_stream": null
 }
 ```
-Response `201`: Created Terminal Target object, represented as a compatibility connection, plus its owner routing edge for the model.
+Response `201`:
+```json
+{
+  "connection": { "...": "created connection" },
+  "access_targets": [ { "id": 42, "target_type": "connection", "connection_id": 15, "terminal_target_id": 15, "position": 0, "is_enabled": true } ],
+  "configuration_warnings": []
+}
+```
+Owner-scoped Connection create/update/delete responses are fixed envelopes carrying the canonical access-target rows (row id, target discriminator, connection id) and `configuration_warnings` computed on the proposed state. Warnings use stable codes (`openai_target_incompatible`, `openai_target_partial_coverage`, `openai_operation_uncovered`, `single_strategy_truncates_targets`) with severity and operation lists; they are non-persisted and never echo endpoint keys or header/parameter values.
 
 Create semantics:
 - Exactly one of `endpoint_id` or `endpoint_create` is required.
@@ -896,7 +938,34 @@ Pricing templates are assigned through the Terminal Target update route by setti
 ```
 DELETE /api/models/{model_config_id}/connections/{connection_id}
 ```
-Response `200`: `{ "deleted": true }`.
+Response `200`: `{ "deleted": true, "access_targets": [], "configuration_warnings": [] }`.
+
+##### Copy Terminal Target to Multiple Models
+```
+POST /api/models/{source_model_config_id}/connections/{connection_id}/copies
+```
+Request:
+```json
+{
+  "destination_model_config_ids": [8, 9],
+  "enable_copies": false
+}
+```
+Response `201`:
+```json
+{
+  "source_connection_id": 15,
+  "items": [
+    {
+      "model_config_id": 8,
+      "connection_summary": { "id": 25, "name": "Primary", "endpoint_id": 1, "is_active": true, "openai_text_capability": "dual_native", "pricing_template": null, "qps_limit": null, "max_in_flight_non_stream": null, "max_in_flight_stream": null, "custom_header_count": 0 },
+      "access_target": { "id": 52, "target_type": "connection", "connection_id": 25, "terminal_target_id": 25, "position": 0, "is_enabled": false }
+    }
+  ],
+  "configuration_warnings": []
+}
+```
+Batch copy is one transaction (all-or-nothing): destinations must be 1..100 unique positive ids, same profile and API family; the source connection must belong to the path owner. Copied fields are endpoint reference, name, active, auth type, capability, pricing reference, the three limits and a validated deep copy of custom headers. IDs, positions, timestamps and all runtime state (Ban/retry/QPS window/in-flight/last success/latency/round-robin cursor) are never copied. New Access Targets append to the destination's global tail and default to `is_enabled = enable_copies` (`false` when omitted); the destination model's own enable state is never changed. `connection_summary` is redacted (counts only). Stable errors: `400 invalid_terminal_target_copy_destinations`, `422` over 100 destinations, `404 terminal_target_not_found` / `terminal_target_copy_destination_not_found`, `409 terminal_target_copy_api_family_conflict`.
 
 Deletes the Terminal Target and its internal owner access-target row together, subject to enabled-model target validation. Public `DELETE /api/connections/{connection_id}` rejects mutation requests.
 
@@ -1322,13 +1391,13 @@ Supported runtime operation request bodies are capped at `20 MiB`. Oversized req
 
 #### 2.2A Routing Failures
 
-Runtime planning evaluates ordered same-family model targets, aggregates their eligible Terminal Target attempts, and uses direct Terminal Targets only when no model-target candidate is eligible. The attached Ban Policy strategy then orders and filters the resulting attempts before provider transport. If no eligible Terminal Target is available inside the current retry window, Prism returns a routing-availability error before opening an upstream request. If all otherwise eligible attempts are blocked by admission counters, Prism returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. An OpenAI text request whose requested model does not accept the ingress operation rejects immediately with `400 openai_request_translation_unsupported`. Terminal Target connections that do not natively support the operation are skipped so later native attempts remain eligible; if every otherwise eligible attempt is wire-incompatible, Prism returns the same typed `400` with `translation_mode: "none"` and `unsupported_reason: "operation_translation_unsupported"` before provider transport. Availability failures with no otherwise eligible attempt retain the ordinary `503` no-eligible-target response.
+Runtime planning evaluates ordered same-family model targets, aggregates their eligible Terminal Target attempts, and uses direct Terminal Targets only when no model-target candidate is eligible. The attached Ban Policy strategy then orders and filters the resulting attempts before provider transport. If no eligible Terminal Target is available inside the current retry window, Prism returns a routing-availability error before opening an upstream request. If all otherwise eligible attempts are blocked by admission counters, Prism returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. An OpenAI text request whose requested model does not accept the ingress operation rejects immediately with `400 openai_operation_not_supported`. Terminal Target connections that do not natively support the operation are skipped so later native attempts remain eligible; when no capability-compatible Terminal leaf exists anywhere in the authored graph, Prism returns `503 openai_no_compatible_terminal_target`; when compatible leaves exist but none is statically eligible (disabled row, inactive connection, strategy truncation), Prism returns `503 openai_no_eligible_terminal_target`. A statically eligible compatible route that is dynamically unavailable (Ban/retry/admission) keeps the ordinary `503` no-eligible-target response family. All three planning codes are emitted before provider transport, provider attempt, reservation, loadbalance event, usage/billing and audit body capture, and never leak Access Target, Connection or Endpoint IDs.
 
 Request-log detail keeps flat final-target attribution fields such as `resolved_target_model_id`, `terminal_target_id`, `selected_terminal_target_id`, `endpoint_id`, and `operation_translation_mode`. Deleted model-owned routing metadata is not exposed on public detail responses.
 
 #### 2.2B OpenAI native wire compatibility
 
-OpenAI text routing is native-only. The requested model's `openai_accepted_format` and each Terminal Target connection's `openai_text_capability` use `responses_only`, `chat_completions_only`, or `dual_native`; both must support the ingress operation. A requested-model format mismatch returns `400 openai_request_translation_unsupported` before target resolution. A mismatched connection is skipped so load balancing can try the next authored target; when every otherwise eligible connection is incompatible, Prism returns the same typed `400` before provider transport. The response detail is `Prism cannot translate this OpenAI request shape for the selected target.`, with `translation_mode: "none"` and `unsupported_reason: "operation_translation_unsupported"`. Responses adjunct operations, `openai.responses.input_tokens` and `openai.responses.compact`, also require a responses-capable target.
+OpenAI text routing is native-only. The requested model's `openai_accepted_format` and each Terminal Target connection's `openai_text_capability` use `responses_only`, `chat_completions_only`, or `dual_native`; both must support the ingress operation. A requested-model format mismatch returns `400 openai_operation_not_supported` before target resolution. A mismatched connection is skipped so load balancing can try the next authored target; the final rejection is classified with the static analyzer: `503 openai_no_compatible_terminal_target` when the authored graph has no capability-compatible Terminal leaf, and `503 openai_no_eligible_terminal_target` when compatible leaves exist but none is statically eligible. Responses adjunct operations, `openai.responses.input_tokens` and `openai.responses.compact`, also require a responses-capable target.
 
 Prism does not convert requests, non-stream responses, or streams between Chat Completions and Responses. Native attempts use the ingress operation's upstream path and preserve `operation_translation_mode = "none"`. The `operation_translation_mode` columns and request-log fields remain readable for historical rows that recorded the retired translation values.
 
@@ -2496,7 +2565,7 @@ Response `200`:
       "banned_until_at": "2026-03-30T08:30:00Z",
       "last_failure_kind": "transient_http",
       "last_success_at": null,
-      "live_p95_latency_ms": 540,
+      "last_success_response_headers_latency_ms": 540,
       "state": "banned",
       "created_at": "2026-03-30T08:00:00Z",
       "updated_at": "2026-03-30T08:01:00Z"
@@ -2517,12 +2586,16 @@ Response `200`:
 ```json
 {
   "connection_id": 12,
-  "cleared": true
+  "cleared": true,
+  "state": {
+    "connection_id": 12,
+    "state": "available",
+    "last_success_response_headers_latency_ms": 540
+  }
 }
 ```
 
-`cleared=false` is returned when no process-local state or related round-robin cursor existed for that connection.
-Reset clears process-local retry-window counters, next retry timing, ban state, admission counters, and the related round-robin cursor for an attached model when one exists. This state is intentionally ephemeral and is lost on backend restart; retained SQL runtime-state tables are compatibility schema, not the production hot path.
+Reset is a narrow cooldown reset: it clears `cycle_retry_attempts`, `cumulative_retry_attempts`, `next_retry_at`, `last_retry_delay_ms`, `ban_mode`, `banned_until_at` and `last_failure_kind`, and updates `updated_at`. It preserves the QPS window/count, both in-flight counters, `last_success_at`, `last_success_response_headers_latency_ms`, round-robin cursors and `created_at`. `cleared=false` with `state=null` is returned when the process has no local state; `cleared=false` with an unchanged snapshot is returned when there is nothing left to clear. Unknown or cross-profile connection ids return `404`. The route does not invalidate the runtime planning cache. This state is intentionally ephemeral and is lost on backend restart; retained SQL runtime-state tables are compatibility schema, not the production hot path.
 
 #### 6.9 List Loadbalance Events
 ```
@@ -2848,7 +2921,7 @@ routing_connection_runtime_state (retained compatibility schema, UNLOGGED)
   last_retry_delay_ms
   ban_mode, banned_until_at
   last_failure_kind, last_success_at
-  live_p95_latency_ms
+  last_success_response_headers_latency_ms
   created_at, updated_at
   UNIQUE(profile_id, connection_id)
 
@@ -3183,7 +3256,7 @@ Connection invariants:
 - Deleting a Terminal Target removes its owning `model_access_targets.target_connection_id` row in the same operation.
 - Connection create/update contracts do not allow client-written `priority`; model-specific ordering changes flow through `/api/models/{model_config_id}/targets/{target_id}/position`.
 - OpenAI Terminal Targets require `openai_text_capability` in `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI Terminal Targets must keep it `NULL`.
-- `openai_text_capability` is the connection-owned OpenAI text runtime capability source of truth for planning. `responses_only` supports native Responses generation and Responses adjunct operations, `chat_completions_only` supports native Chat Completions, and `dual_native` supports both native text generation shapes. The requested model's `openai_accepted_format` gates the ingress operation with `400 openai_request_translation_unsupported`; incompatible Terminal Target connections are skipped in authored order so later native attempts remain eligible, and an otherwise eligible set exhausted only by wire incompatibility returns the same typed `400` before provider transport. Ordinary availability exhaustion without such an attempt remains `503`.
+- `openai_text_capability` is the connection-owned OpenAI text runtime capability source of truth for planning. `responses_only` supports native Responses generation and Responses adjunct operations, `chat_completions_only` supports native Chat Completions, and `dual_native` supports both native text generation shapes. The requested model's `openai_accepted_format` gates the ingress operation with `400 openai_operation_not_supported`; incompatible Terminal Target connections are skipped in authored order so later native attempts remain eligible, and the final planning rejection is classified as `503 openai_no_compatible_terminal_target` (no compatible leaf in the authored graph) or `503 openai_no_eligible_terminal_target` (compatible leaves exist but none is statically eligible). Ordinary availability exhaustion remains `503`.
 - `openai_probe_endpoint_variant` is retained for existing rows; live Terminal Target authoring uses `openai_text_capability` for OpenAI runtime planning.
 
 #### 2.7 `pricing_templates` (profile-scoped reusable token pricing)
@@ -3342,7 +3415,7 @@ Telemetry rows have immutable profile attribution captured at request start. Cap
 
 Request-log semantics:
 - Each captured upstream attempt in a materialized execution envelope writes one row, not one row per incoming runtime request.
-- Target-resolution errors attach `PlanningFailure` for HTTP `503` or `openai_request_translation_unsupported`; those telemetry-eligible planning failures, plus execution failures that enter the runtime failure telemetry path (currently `admission_exhausted`), can write a synthetic row with no `endpoint_id` or `connection_id`.
+- Target-resolution errors attach `PlanningFailure` for HTTP `503` or the `openai_operation_not_supported` planning rejection; those telemetry-eligible planning failures, plus execution failures that enter the runtime failure telemetry path (currently `admission_exhausted`), can write a synthetic row with no `endpoint_id` or `connection_id`.
 - Earlier errors such as malformed request bodies, unknown models, and API-family mismatches do not carry `PlanningFailure` and do not write synthetic history.
 - When all launched transport attempts fail and execution returns its terminal `502`, the current executor drops its captured attempt list and does not materialize request or usage history for that failure.
 - Unsupported or wrong-method requests rejected by the operation registry write no request log, audit log, usage event, or telemetry-outbox row.
@@ -3667,7 +3740,7 @@ Retained compatibility schema for historical runtime-state rows. The production 
 | banned_until_at | TIMESTAMPTZ | NULLABLE | Temporary-ban expiry when relevant |
 | last_failure_kind | VARCHAR(20) | NULLABLE | Latest retryable failure kind: `transient_http`, `connect_error`, or `timeout` |
 | last_success_at | TIMESTAMPTZ | NULLABLE | Successful response time that cleared retry state when relevant |
-| live_p95_latency_ms | INTEGER | NULLABLE | Passive-request latency signal |
+| last_success_response_headers_latency_ms | INTEGER | NULLABLE | Last successful upstream attempt latency from request start to response-headers receipt (ms); not a percentile, TTFT or total time |
 | created_at | TIMESTAMPTZ | NOT NULL | Row creation timestamp; application-managed |
 | updated_at | TIMESTAMPTZ | NOT NULL | Last mutation timestamp; application-managed |
 

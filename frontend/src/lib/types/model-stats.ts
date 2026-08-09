@@ -5,6 +5,7 @@ import type {
 } from "./routing";
 import type { LoadbalanceStrategySummary } from "./loadbalance";
 import type { UsageSnapshotPreset } from "./usage-statistics";
+import type { RoutingSummary } from "./routing-diagnostics";
 import type {
   PersistedTerminalTargetType,
 } from "./target-compatibility";
@@ -109,6 +110,7 @@ export interface ModelConfigListItem {
   active_connection_count: number;
   health_success_rate: number | null;
   health_total_requests: number;
+  routing_summary: RoutingSummary | null;
   created_at: string;
   updated_at: string;
 }

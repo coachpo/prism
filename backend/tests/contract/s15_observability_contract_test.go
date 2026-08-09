@@ -835,7 +835,7 @@ func TestLoadbalanceCurrentState(t *testing.T) {
 	modelConfigID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "lb-model", stringPtr("Loadbalance Model"), "native", &strategyID, true)
 	endpointID := modelInsertEndpoint(t, harness, profileID, "LB Endpoint", 0)
 	connectionID := modelInsertConnection(t, harness, profileID, modelConfigID, endpointID, 0, true, nil)
-	insertRuntimeState(t, harness, runtimeStateSeed{ProfileID: profileID, ConnectionID: connectionID, ConsecutiveFailures: 2, LastFailureKind: stringPtr("transient_http"), LastCooldownSeconds: 60.0, BanMode: "off", BlockedUntilAt: timePtr(fixedS15Now.Add(30 * time.Minute)), LiveP95LatencyMS: intPtr(540), CreatedAt: fixedS15Now.Add(-1 * time.Hour), UpdatedAt: fixedS15Now})
+	insertRuntimeState(t, harness, runtimeStateSeed{ProfileID: profileID, ConnectionID: connectionID, ConsecutiveFailures: 2, LastFailureKind: stringPtr("transient_http"), LastCooldownSeconds: 60.0, BanMode: "off", BlockedUntilAt: timePtr(fixedS15Now.Add(30 * time.Minute)), LastSuccessResponseHeadersLatencyMS: intPtr(540), CreatedAt: fixedS15Now.Add(-1 * time.Hour), UpdatedAt: fixedS15Now})
 
 	payload := s15GET[map[string]any](t, harness, profileID, fmt.Sprintf("/api/loadbalance/current-state?model_config_id=%d", modelConfigID), http.StatusOK)
 	items := payload["items"].([]any)
@@ -843,7 +843,7 @@ func TestLoadbalanceCurrentState(t *testing.T) {
 		t.Fatalf("expected one current-state item, got %+v", payload)
 	}
 	item := asMap(t, items[0])
-	if jsonInt(t, item["connection_id"]) != connectionID || item["state"] != "retry_wait" || item["next_retry_at"] == nil || jsonInt(t, item["live_p95_latency_ms"]) != 540 {
+	if jsonInt(t, item["connection_id"]) != connectionID || item["state"] != "retry_wait" || item["next_retry_at"] == nil || jsonInt(t, item["last_success_response_headers_latency_ms"]) != 540 {
 		t.Fatalf("unexpected loadbalance current-state payload: %+v", item)
 	}
 	assertS15NoPolicyThresholdFields(t, item)
@@ -911,12 +911,25 @@ func TestLoadbalanceReset(t *testing.T) {
 	if jsonInt(t, payload["connection_id"]) != connectionID || payload["cleared"] != true {
 		t.Fatalf("unexpected loadbalance reset payload: %+v", payload)
 	}
-	if _, ok := harness.runtimeService.RuntimeState().SnapshotConnectionState(profileID, connectionID); ok {
-		t.Fatalf("expected loadbalance reset to clear local runtime state")
+	resetState := asMap(t, payload["state"])
+	if resetState["state"] != "available" || resetState["ban_mode"] != "off" || jsonInt(t, resetState["cycle_retry_attempts"]) != 0 || jsonInt(t, resetState["cumulative_retry_attempts"]) != 0 || resetState["banned_until_at"] != nil || resetState["next_retry_at"] != nil {
+		t.Fatalf("expected reset payload to return post-reset cooldown-cleared state, got %+v", payload)
 	}
-	if cursor := harness.runtimeService.RuntimeState().PeekRoundRobinCursor(profileID, modelConfigID, 4); cursor != 0 {
-		t.Fatalf("expected loadbalance reset to clear local round-robin cursor, got %d", cursor)
+	if snapshot, ok := harness.runtimeService.RuntimeState().SnapshotConnectionState(profileID, connectionID); !ok || snapshot.BanMode != "off" || snapshot.CumulativeRetryAttempts != 0 {
+		t.Fatalf("expected loadbalance reset to keep observed state with cooldown cleared, got %+v ok=%t", snapshot, ok)
 	}
+	if cursor := harness.runtimeService.RuntimeState().PeekRoundRobinCursor(profileID, modelConfigID, 4); cursor != 3 {
+		t.Fatalf("expected loadbalance reset to preserve round-robin cursor, got %d", cursor)
+	}
+
+	// Second reset has no cooldown fields left to clear: cleared=false with snapshot.
+	secondPayload := s15JSON[map[string]any](t, harness, profileID, http.MethodPost, fmt.Sprintf("/api/loadbalance/current-state/%d/reset", connectionID), nil, http.StatusOK)
+	if jsonInt(t, secondPayload["connection_id"]) != connectionID || secondPayload["cleared"] != false || secondPayload["state"] == nil {
+		t.Fatalf("expected no-op reset payload with cleared=false and state snapshot, got %+v", secondPayload)
+	}
+
+	// Unknown or cross-profile connection id returns 404.
+	s15JSON[map[string]any](t, harness, profileID, http.MethodPost, "/api/loadbalance/current-state/999999/reset", nil, http.StatusNotFound)
 }
 
 func TestLoadbalanceEvents(t *testing.T) {
@@ -1163,7 +1176,7 @@ type runtimeStateSeed struct {
 	LastCooldownSeconds                          float64
 	BanMode                                      string
 	BlockedUntilAt                               *time.Time
-	LiveP95LatencyMS                             *int
+	LastSuccessResponseHeadersLatencyMS          *int
 	CreatedAt, UpdatedAt                         time.Time
 }
 
@@ -1343,16 +1356,16 @@ func insertRuntimeState(t *testing.T, harness *contractHarness, seed runtimeStat
 		banMode = "off"
 	}
 	harness.runtimeService.RuntimeState().SeedConnectionState(seed.ProfileID, modelConfigID, seed.ConnectionID, loadbalancedomain.RuntimeConnectionState{
-		ConnectionID:            seed.ConnectionID,
-		BanMode:                 banMode,
-		NextRetryAt:             seed.BlockedUntilAt,
-		WindowRequestCount:      4,
-		InFlightNonStream:       1,
-		CycleRetryAttempts:      seed.ConsecutiveFailures,
-		CumulativeRetryAttempts: seed.ConsecutiveFailures,
-		LastRetryDelayMS:        int(seed.LastCooldownSeconds * 1000),
-		LastFailureKind:         seed.LastFailureKind,
-		LiveP95LatencyMS:        seed.LiveP95LatencyMS,
+		ConnectionID:                        seed.ConnectionID,
+		BanMode:                             banMode,
+		NextRetryAt:                         seed.BlockedUntilAt,
+		WindowRequestCount:                  4,
+		InFlightNonStream:                   1,
+		CycleRetryAttempts:                  seed.ConsecutiveFailures,
+		CumulativeRetryAttempts:             seed.ConsecutiveFailures,
+		LastRetryDelayMS:                    int(seed.LastCooldownSeconds * 1000),
+		LastFailureKind:                     seed.LastFailureKind,
+		LastSuccessResponseHeadersLatencyMS: seed.LastSuccessResponseHeadersLatencyMS,
 	}, seed.CreatedAt, seed.UpdatedAt)
 }
 

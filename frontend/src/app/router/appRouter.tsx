@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ReactElement, type ReactNode } from "react"
+import { lazy, Suspense, type ReactElement, type ReactNode, useEffect, useRef } from "react"
 import {
   Navigate,
   Outlet,
@@ -133,8 +133,36 @@ function ProtectedModelDetailRoute() {
   const { modelId } = useTanStackParams({ from: "/models/$modelId" })
   const search = useTanStackSearch({ from: "/models/$modelId" })
   const navigate = useTanStackNavigate()
+  // Canonicalize dead/unsupported search state (old ?tab=connections|events)
+  // with a replace so the URL settles on /models/:id. One-shot legal params
+  // (action/endpoint_id/focus_connection_id) are preserved. The ref guard
+  // makes the rewrite fire once per raw query even while the history commit
+  // is still in flight, avoiding a navigate/re-render loop.
+  const canonicalizedRawSearchRef = useRef<string | null>(null)
+  useEffect(() => {
+    const rawSearch = window.location.search
+    if (canonicalizedRawSearchRef.current === rawSearch) {
+      return
+    }
+    const raw = new URLSearchParams(rawSearch)
+    const supported = new Set(["action", "endpoint_id", "focus_connection_id"])
+    if (Array.from(raw.keys()).some((key) => !supported.has(key))) {
+      canonicalizedRawSearchRef.current = rawSearch
+      void navigate({
+        to: "/models/$modelId",
+        params: { modelId },
+        search: {
+          ...(search.action ? { action: search.action } : {}),
+          ...(search.endpoint_id ? { endpoint_id: search.endpoint_id } : {}),
+          ...(search.focus_connection_id ? { focus_connection_id: search.focus_connection_id } : {}),
+        },
+        replace: true,
+      })
+    }
+  }, [modelId, navigate, search.action, search.endpoint_id, search.focus_connection_id])
   const searchParams = new URLSearchParams()
-  if (search.tab && search.tab !== "connections") searchParams.set("tab", search.tab)
+  if (search.action) searchParams.set("action", search.action)
+  if (search.endpoint_id) searchParams.set("endpoint_id", search.endpoint_id)
   if (search.focus_connection_id) searchParams.set("focus_connection_id", search.focus_connection_id)
 
   return (
@@ -142,7 +170,6 @@ function ProtectedModelDetailRoute() {
       {withRouteSuspense(
         <ModelDetailFeaturePage
           modelId={modelId}
-          tab={search.tab}
           searchParams={searchParams}
           onBack={() => void navigate({ to: "/models" })}
           onNavigateTo={(to) => void navigate({ to })}
@@ -150,16 +177,11 @@ function ProtectedModelDetailRoute() {
             to: "/models/$modelId",
             params: { modelId },
             search: {
-              tab: nextSearchParams.get("tab") === "events" ? "events" : undefined,
+              action: nextSearchParams.get("action") === "create-terminal-target" ? "create-terminal-target" : undefined,
+              endpoint_id: nextSearchParams.get("endpoint_id") ?? undefined,
               focus_connection_id: nextSearchParams.get("focus_connection_id") ?? undefined,
             },
             replace: options?.replace,
-          })}
-          onTabChange={(tab) => void navigate({
-            to: "/models/$modelId",
-            params: { modelId },
-            search: { tab: tab === "events" ? tab : undefined },
-            replace: true,
           })}
         />,
       )}

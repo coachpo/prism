@@ -52,11 +52,32 @@ function modelTitle(model: ManagedModelConfigListItem) {
   return model.display_name || model.model_id
 }
 
-function targetSummary(model: ManagedModelConfigListItem, fallback: string) {
-  const firstTarget = [...model.access_targets].sort((left, right) => left.position - right.position)[0]
-  if (!firstTarget) return fallback
-  if (firstTarget.target_type === "model") return firstTarget.target_model?.display_name || firstTarget.target_model_id || fallback
-  return firstTarget.connection?.name || firstTarget.connection?.endpoint?.name || fallback
+// targetCounts renders the unified N 启用 / M 总计 count vocabulary shared
+// with the model detail page. It never derives a "first target" label: with
+// two-stage routing such a label misleads (RR has no static first target).
+function targetCounts(model: ManagedModelConfigListItem) {
+  const summary = model.routing_summary
+  if (summary) {
+    return `${summary.enabled_access_target_count} 启用 / ${summary.total_access_target_count} 总计`
+  }
+  const enabled = model.access_targets.filter((target) => target.is_enabled).length
+  return `${enabled} 启用 / ${model.access_targets.length} 总计`
+}
+
+function warningLabels(model: ManagedModelConfigListItem): string[] {
+  const summary = model.routing_summary
+  if (!summary) return []
+  const labels: string[] = []
+  for (const code of summary.warning_codes) {
+    if (code === "openai_target_partial_coverage" || code === "openai_target_incompatible") {
+      labels.push("能力覆盖不完整")
+    } else if (code === "openai_operation_uncovered") {
+      labels.push("存在无路由操作")
+    } else if (code === "single_strategy_truncates_targets") {
+      labels.push("single 截断")
+    }
+  }
+  return labels
 }
 
 function getSortValue(
@@ -180,12 +201,30 @@ export function ModelsTable({
               return (
                 <TableRow key={model.id} data-testid={`models-table-row-${model.id}`}>
                   <TableCell><ModelIdentityCell model={model} /></TableCell>
-                  <TableCell><OperatorTypeBadge label={formatApiFamily(model.api_family ?? "")} intent="info" preserveLabel /></TableCell>
+                  <TableCell>
+                    <div className="flex flex-col items-start gap-0.5">
+                      <OperatorTypeBadge label={formatApiFamily(model.api_family ?? "")} intent="info" preserveLabel />
+                      {model.api_family === "openai" ? (
+                        <span className="text-xs text-muted-foreground">
+                          {model.openai_accepted_format === "chat_completions_only"
+                            ? "仅 Chat"
+                            : model.openai_accepted_format === "responses_only"
+                              ? "仅 Responses"
+                              : "双模式"}
+                        </span>
+                      ) : null}
+                    </div>
+                  </TableCell>
                   <TableCell><OperatorStatusBadge label={model.is_enabled ? messages.modelDetail.enabled : messages.modelDetail.disabled} intent={model.is_enabled ? "success" : "danger"} /></TableCell>
                   <TableCell>
                     <div className="flex min-w-44 flex-col gap-1 text-xs text-muted-foreground">
-                      <span className="font-medium text-foreground">{messages.modelDetail.targets(formatNumber(model.access_targets.length))}</span>
-                      <span className="truncate">{targetSummary(model, messages.modelsUi.needsTarget)}</span>
+                      <span className="font-medium text-foreground">{targetCounts(model)}</span>
+                      {model.access_targets.length === 0 ? (
+                        <span className="truncate text-warning">{messages.modelsUi.needsTarget}</span>
+                      ) : null}
+                      {warningLabels(model).map((label) => (
+                        <span key={label} className="truncate text-warning">{label}</span>
+                      ))}
                     </div>
                   </TableCell>
                   <TableCell><ModelTelemetryCell metrics={metrics} loading={metricsLoading} /></TableCell>

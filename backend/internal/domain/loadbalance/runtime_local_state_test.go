@@ -152,7 +152,7 @@ func TestRuntimeLocalRetryCycleAndBanTransitions(t *testing.T) {
 	if !third.RecoveryEventEligible || third.CurrentState.CycleRetryAttempts != 0 || third.CurrentState.CumulativeRetryAttempts != 0 || third.CurrentState.BanMode != "off" || third.CurrentState.NextRetryAt != nil {
 		t.Fatalf("expected success to clear retry and ban state, got %+v", third)
 	}
-	if third.CurrentState.LiveP95LatencyMS == nil || *third.CurrentState.LiveP95LatencyMS != 321 || third.CurrentState.LastSuccessAt == nil {
+	if third.CurrentState.LastSuccessResponseHeadersLatencyMS == nil || *third.CurrentState.LastSuccessResponseHeadersLatencyMS != 321 || third.CurrentState.LastSuccessAt == nil {
 		t.Fatalf("expected success to retain latency and timestamp, got %+v", third.CurrentState)
 	}
 
@@ -172,11 +172,15 @@ func TestRuntimeLocalRetryCycleAndBanTransitions(t *testing.T) {
 	if !futureDecision.Skipped {
 		t.Fatalf("expected until_reset ban to remain ineligible without reset, got %+v", futureDecision)
 	}
-	if !untilResetStore.ResetConnection(1, 201) {
-		t.Fatal("expected reset to clear until_reset connection state")
+	resetItem, cleared := untilResetStore.ResetConnection(1, 201)
+	if !cleared || resetItem == nil {
+		t.Fatal("expected reset to clear until_reset connection cooldown")
 	}
-	if resetState, ok := untilResetStore.SnapshotConnectionState(1, 201); ok {
-		t.Fatalf("expected reset to remove retry and ban counters, got %+v", resetState)
+	if resetItem.State != "available" || resetItem.BanMode != "off" || resetItem.CycleRetryAttempts != 0 || resetItem.CumulativeRetryAttempts != 0 || resetItem.NextRetryAt != nil || resetItem.LastFailureKind != nil {
+		t.Fatalf("expected reset to clear retry and ban cooldown fields, got %+v", resetItem)
+	}
+	if snapshot, ok := untilResetStore.SnapshotConnectionState(1, 201); !ok || snapshot.BanMode != "off" || snapshot.CumulativeRetryAttempts != 0 {
+		t.Fatalf("expected post-reset connection state to remain observed with cooldown cleared, got %+v ok=%t", snapshot, ok)
 	}
 }
 
@@ -364,5 +368,65 @@ func TestRuntimeRestartResetsEphemeralRuntimeStateSafely(t *testing.T) {
 	fresh := afterRestart.TryBeginConnectionAttempt(RuntimeConnectionAttemptInput{ProfileID: 1, ModelConfigID: 50, ConnectionID: 501, Admission: RuntimeConnectionAdmission{MaxInFlightNonStream: &maxInFlight}, Policy: runtimeAdmissionPolicy{RespectQPSLimit: true, RespectInFlightLimits: true}, ObservedAt: nowAt.Add(2 * time.Second)})
 	if fresh.AdmissionReason != "" || fresh.Skipped {
 		t.Fatalf("expected restart to begin from a safe empty baseline, got %+v", fresh)
+	}
+}
+
+func TestRuntimeNarrowCooldownResetPreservesNonCooldownObservation(t *testing.T) {
+	store := NewLocalRuntimeStateStore()
+	nowAt := time.Date(2026, time.April, 25, 12, 0, 0, 0, time.UTC)
+
+	store.SeedConnectionState(1, 60, 600, RuntimeConnectionState{
+		ConnectionID:                        600,
+		WindowStartedAt:                     timePointer(nowAt.Add(-30 * time.Second)),
+		WindowRequestCount:                  7,
+		InFlightNonStream:                   2,
+		InFlightStream:                      1,
+		CycleRetryAttempts:                  3,
+		CumulativeRetryAttempts:             4,
+		NextRetryAt:                         timePointer(nowAt.Add(5 * time.Second)),
+		LastRetryDelayMS:                    1500,
+		BanMode:                             "until_reset",
+		BannedUntilAt:                       nil,
+		LastFailureKind:                     stringPointer(runtimeFailureKindTransientHTTP),
+		LastSuccessAt:                       timePointer(nowAt.Add(-2 * time.Minute)),
+		LastSuccessResponseHeadersLatencyMS: intPointer(412),
+	}, nowAt.Add(-1*time.Hour), nowAt.Add(-1*time.Minute))
+
+	// Advance the round-robin cursor so preservation is observable.
+	store.ClaimRoundRobinCursor(1, 60, 3)
+	store.ClaimRoundRobinTargetCursor(1, 60, 9, "target-set-hash", 3)
+	if cursor := store.PeekRoundRobinCursor(1, 60, 3); cursor != 1 {
+		t.Fatalf("expected round-robin cursor to advance before reset, got %d", cursor)
+	}
+
+	item, cleared := store.ResetConnection(1, 600)
+	if !cleared || item == nil {
+		t.Fatalf("expected cooldown reset to clear fields, got cleared=%t item=%+v", cleared, item)
+	}
+	if item.State != "available" || item.BanMode != "off" || item.BannedUntilAt != nil || item.NextRetryAt != nil || item.LastFailureKind != nil {
+		t.Fatalf("expected reset to clear retry/ban cooldown fields, got %+v", item)
+	}
+	if item.CycleRetryAttempts != 0 || item.CumulativeRetryAttempts != 0 || item.LastRetryDelayMS != 0 {
+		t.Fatalf("expected reset to zero retry counters, got %+v", item)
+	}
+	if item.WindowRequestCount != 7 || item.WindowStartedAt == nil || item.InFlightNonStream != 2 || item.InFlightStream != 1 {
+		t.Fatalf("expected reset to preserve QPS window and in-flight counts, got %+v", item)
+	}
+	if item.LastSuccessAt == nil || item.LastSuccessResponseHeadersLatencyMS == nil || *item.LastSuccessResponseHeadersLatencyMS != 412 {
+		t.Fatalf("expected reset to preserve last success observation and latency, got %+v", item)
+	}
+	if cursor := store.PeekRoundRobinCursor(1, 60, 3); cursor != 1 {
+		t.Fatalf("expected reset to preserve round-robin cursor, got %d", cursor)
+	}
+
+	// A second reset has nothing left to clear but still returns the snapshot.
+	secondItem, secondCleared := store.ResetConnection(1, 600)
+	if secondCleared || secondItem == nil {
+		t.Fatalf("expected second reset to report cleared=false with snapshot, got cleared=%t item=%+v", secondCleared, secondItem)
+	}
+
+	// No process state for an unknown connection: nil snapshot, not cleared.
+	if item, cleared := store.ResetConnection(1, 999); item != nil || cleared {
+		t.Fatalf("expected unknown connection reset to return nil snapshot and cleared=false, got %+v %t", item, cleared)
 	}
 }

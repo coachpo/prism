@@ -1187,3 +1187,11 @@ func sortModelRecordsByID(records []modelRecord) {
 		return records[left].ID < records[right].ID
 	})
 }
+
+func setModelEnabled(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, enabled bool, currentTime time.Time) error {
+	_, err := exec.Exec(ctx, `UPDATE model_configs SET is_enabled = $3, updated_at = $4 WHERE profile_id = $1 AND id = $2`, profileID, modelConfigID, enabled, currentTime)
+	if err != nil {
+		return fmt.Errorf("set model %d enabled=%t: %w", modelConfigID, enabled, err)
+	}
+	return nil
+}

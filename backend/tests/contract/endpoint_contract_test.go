@@ -79,14 +79,17 @@ func TestEndpointCRUD(t *testing.T) {
 	assertStatus(t, blockedDelete, http.StatusConflict)
 	var blockedPayload map[string]any
 	decodeJSONResponse(t, blockedDelete, &blockedPayload)
-	detail := asMap(t, blockedPayload["detail"])
-	if detail["message"] != "Cannot delete endpoint that is referenced by connections" {
-		t.Fatalf("expected structured endpoint delete conflict, got %+v", blockedPayload)
+	if blockedPayload["code"] != "endpoint_in_use" || blockedPayload["detail"] != "Endpoint 仍被 Terminal Target 引用。" {
+		t.Fatalf("expected typed endpoint_in_use delete conflict, got %+v", blockedPayload)
 	}
-	connections := detail["connections"].([]any)
-	if len(connections) != 1 || jsonInt(t, asMap(t, connections[0])["connection_id"]) != dependentConnectionID {
-		t.Fatalf("expected delete conflict to expose dependent connection rows, got %+v", blockedPayload)
+	if jsonInt(t, blockedPayload["endpoint_id"]) != dependentID {
+		t.Fatalf("expected delete conflict to carry the endpoint id, got %+v", blockedPayload)
 	}
+	references := blockedPayload["references"].([]any)
+	if len(references) != 1 || jsonInt(t, asMap(t, references[0])["connection_id"]) != dependentConnectionID {
+		t.Fatalf("expected delete conflict to expose direct reference rows, got %+v", blockedPayload)
+	}
+	assertEndpointDirectReference(t, asMap(t, references[0]), dependentConnectionID, modelConfigID, "s9-endpoint-crud-model", true)
 
 	disableDependentModel := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/models/%d", modelConfigID), map[string]any{"is_enabled": false}, modelHeader(defaultProfileID))
 	assertStatus(t, disableDependentModel, http.StatusOK)
@@ -132,9 +135,12 @@ func TestEndpointDeletePreservesReusableEndpointSemantics(t *testing.T) {
 	assertStatus(t, blockedDelete, http.StatusConflict)
 	var blockedPayload map[string]any
 	decodeJSONResponse(t, blockedDelete, &blockedPayload)
-	blockedConnections := asMap(t, blockedPayload["detail"])["connections"].([]any)
-	assertEndpointDeleteConflictConnection(t, blockedConnections, firstConnectionID, firstOwnerID, "task5-endpoint-owner-a")
-	assertEndpointDeleteConflictConnection(t, blockedConnections, secondConnectionID, secondOwnerID, "task5-endpoint-owner-b")
+	if blockedPayload["code"] != "endpoint_in_use" {
+		t.Fatalf("expected typed endpoint_in_use delete conflict, got %+v", blockedPayload)
+	}
+	blockedReferences := blockedPayload["references"].([]any)
+	assertEndpointDirectReference(t, asMap(t, blockedReferences[0]), firstConnectionID, firstOwnerID, "task5-endpoint-owner-a", true)
+	assertEndpointDirectReference(t, asMap(t, blockedReferences[1]), secondConnectionID, secondOwnerID, "task5-endpoint-owner-b", true)
 
 	deleteFirstOwner := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d", firstOwnerID), nil, modelHeader(profileID))
 	assertStatus(t, deleteFirstOwner, http.StatusOK)
@@ -142,11 +148,11 @@ func TestEndpointDeletePreservesReusableEndpointSemantics(t *testing.T) {
 	stillBlocked := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/endpoints/%d", endpointID), nil, modelHeader(profileID))
 	assertStatus(t, stillBlocked, http.StatusConflict)
 	decodeJSONResponse(t, stillBlocked, &blockedPayload)
-	remainingConnections := asMap(t, blockedPayload["detail"])["connections"].([]any)
-	if len(remainingConnections) != 1 {
+	remainingReferences := blockedPayload["references"].([]any)
+	if len(remainingReferences) != 1 {
 		t.Fatalf("expected one remaining endpoint usage row, got %+v", blockedPayload)
 	}
-	assertEndpointDeleteConflictConnection(t, remainingConnections, secondConnectionID, secondOwnerID, "task5-endpoint-owner-b")
+	assertEndpointDirectReference(t, asMap(t, remainingReferences[0]), secondConnectionID, secondOwnerID, "task5-endpoint-owner-b", true)
 
 	deleteSecondOwner := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d", secondOwnerID), nil, modelHeader(profileID))
 	assertStatus(t, deleteSecondOwner, http.StatusOK)
@@ -236,19 +242,23 @@ func TestEndpointConnections(t *testing.T) {
 	}
 }
 
-func assertEndpointDeleteConflictConnection(t *testing.T, connections []any, connectionID int, modelConfigID int, modelID string) {
+func assertEndpointDirectReference(t *testing.T, item map[string]any, connectionID int, modelConfigID int, modelID string, isEnabled bool) {
 	t.Helper()
-	for _, raw := range connections {
-		item := asMap(t, raw)
-		if jsonInt(t, item["connection_id"]) != connectionID {
-			continue
-		}
-		if jsonInt(t, item["model_config_id"]) != modelConfigID || item["model_id"] != modelID {
-			t.Fatalf("unexpected endpoint delete usage for connection %d: %+v", connectionID, item)
-		}
-		return
+	if jsonInt(t, item["connection_id"]) != connectionID {
+		t.Fatalf("expected direct reference connection %d, got %+v", connectionID, item)
 	}
-	t.Fatalf("expected endpoint delete conflict to include connection %d, got %+v", connectionID, connections)
+	if jsonInt(t, item["model_config_id"]) != modelConfigID || item["model_id"] != modelID {
+		t.Fatalf("unexpected endpoint direct reference for connection %d: %+v", connectionID, item)
+	}
+	if item["access_target_id"] == nil || jsonInt(t, item["access_target_id"]) <= 0 {
+		t.Fatalf("expected direct reference to carry the owner access target id, got %+v", item)
+	}
+	if item["terminal_target_name"] == nil || item["is_active"] == nil || item["api_family"] == nil {
+		t.Fatalf("expected direct reference to carry name/active/api family fields, got %+v", item)
+	}
+	if item["is_enabled"] != isEnabled {
+		t.Fatalf("expected direct reference is_enabled=%v, got %+v", isEnabled, item)
+	}
 }
 
 type endpointConnectionBoundaryState struct {
@@ -311,7 +321,7 @@ func newEndpointConnectionContractHarness(t *testing.T) *contractHarness {
 				t.Fatalf("build connections service: %v", err)
 			}
 			t.Cleanup(connectionsService.Close)
-			modelsService, err := managementmodels.NewService(settings, managementmodels.Options{Pool: pool})
+			modelsService, err := managementmodels.NewService(settings, managementmodels.Options{Pool: pool, SecretEncryptionKey: settings.SecretEncryptionKey})
 			if err != nil {
 				t.Fatalf("build models service: %v", err)
 			}

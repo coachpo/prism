@@ -15,16 +15,18 @@ import (
 )
 
 type Options struct {
-	CORSOriginProvider platformcors.OriginProvider
-	Pool               *pgxpool.Pool
-	Now                func() time.Time
+	CORSOriginProvider  platformcors.OriginProvider
+	Pool                *pgxpool.Pool
+	Now                 func() time.Time
+	SecretEncryptionKey string
 }
 
 type Service struct {
-	pool               *pgxpool.Pool
-	ownsPool           bool
-	now                func() time.Time
-	corsOriginProvider platformcors.OriginProvider
+	pool                *pgxpool.Pool
+	ownsPool            bool
+	now                 func() time.Time
+	corsOriginProvider  platformcors.OriginProvider
+	secretEncryptionKey string
 }
 
 type domainError struct {
@@ -54,7 +56,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		corsOriginProvider = platformcors.NewStaticOriginProvider(settings.CORSAllowedOriginsList())
 	}
 
-	return &Service{pool: pool, ownsPool: ownsPool, now: now, corsOriginProvider: corsOriginProvider}, nil
+	return &Service{pool: pool, ownsPool: ownsPool, now: now, corsOriginProvider: corsOriginProvider, secretEncryptionKey: settings.SecretEncryptionKey}, nil
 }
 
 func (s *Service) Close() {
@@ -77,6 +79,8 @@ func (s *Service) corsSnapshot() platformcors.Snapshot {
 func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Post("/models/by-endpoints", s.handleModelsByEndpoints)
 	api.Get("/models/{model_config_id}/targets", s.handleListModelTargets)
+	api.Get("/models/{model_config_id}/routing-diagnostics", s.handleGetRoutingDiagnostics)
+	api.Post("/models/{model_config_id}/routing-diagnostics/preview", s.handlePreviewRoutingDiagnostics)
 	api.Post("/models/{model_config_id}/targets", s.handleCreateModelTarget)
 	api.Put("/models/{model_config_id}/targets/{target_id}", s.handleUpdateModelTarget)
 	api.Patch("/models/{model_config_id}/targets/{target_id}", s.handleUpdateModelTarget)

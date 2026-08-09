@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { moveConnectionInList } from "@/pages/model-detail/useModelDetailDataSupport"
 import { modelDetailQueryKeys } from "@/features/models/detail/queryKeys"
-import { modelDetailSearchSchema, normalizeModelDetailTab } from "@/features/models/detail/modelDetailSchemas"
+import { modelDetailSearchSchema, normalizeModelDetailSearch } from "@/features/models/detail/modelDetailSchemas"
 import type { Connection } from "@/lib/types"
 
 function createConnection(id: number, priority: number, name: string): Connection {
@@ -38,22 +38,22 @@ describe("model detail feature contracts", () => {
       "detail",
       "42",
     ])
-    expect(modelDetailQueryKeys.tab(null, "42", "events")).toEqual([
-      "rewrite",
-      "selected-profile",
-      "none",
-      "models",
-      "detail",
-      "42",
-      "tab",
-      "events",
-    ])
   })
 
-  it("normalizes bookmarkable tab search without accepting stale values", () => {
-    expect(modelDetailSearchSchema.parse({ tab: "events" })).toEqual({ tab: "events" })
-    expect(modelDetailSearchSchema.parse({ tab: "stale" })).toEqual({ tab: "connections" })
-    expect(normalizeModelDetailTab(undefined)).toBe("connections")
+  it("normalizes dead tab search away and keeps one-shot parameters only", () => {
+    // Old ?tab=connections|events URLs are stripped to the canonical route.
+    expect(modelDetailSearchSchema.parse({ tab: "events" })).toEqual({})
+    expect(modelDetailSearchSchema.parse({ tab: "connections" })).toEqual({})
+    expect(modelDetailSearchSchema.parse({ tab: "stale" })).toEqual({})
+    expect(normalizeModelDetailSearch({ tab: "events" })).toEqual({})
+    // Supported one-shot parameters survive; endpoint_id is only legal with
+    // the create-terminal-target action.
+    expect(modelDetailSearchSchema.parse({ action: "create-terminal-target", endpoint_id: "3", focus_connection_id: "15" })).toEqual({
+      action: "create-terminal-target",
+      endpoint_id: "3",
+      focus_connection_id: "15",
+    })
+    expect(modelDetailSearchSchema.parse({ focus_connection_id: "15" })).toEqual({ focus_connection_id: "15" })
   })
 
   it("optimistic reorder helper resequences priorities and preserves rollback input", () => {

@@ -37,16 +37,14 @@ export function OverviewCards({
   const strategyAssignmentLabel = model.loadbalance_strategy
     ? getLoadbalanceStrategyDetailLabel(model.loadbalance_strategy, strategyCopy)
     : null;
-  const hasEnabledAccessTarget = (accessTargetSummary?.enabledTargetCount ?? 0) > 0;
-  const accessTargetSegments = hasEnabledAccessTarget && accessTargetSummary
+  // Unified count vocabulary: N 启用 / M 总计 per stage, identical to the
+  // models list. No stage-first labels: with two-stage routing a "first
+  // target" label misleads.
+  const accessTargetSegments = accessTargetSummary
     ? [
-        accessTargetSummary.enabledModelFallbackTargetCount > 0
-          ? `${modelsUiCopy.modelFallbackTargets}: ${formatNumber(accessTargetSummary.enabledModelFallbackTargetCount)}${accessTargetSummary.firstEnabledModelFallbackTargetLabel ? ` · ${accessTargetSummary.firstEnabledModelFallbackTargetLabel}` : ""}`
-          : null,
-        accessTargetSummary.enabledTerminalTargetCount > 0
-          ? `${modelsUiCopy.terminalTargets}: ${formatNumber(accessTargetSummary.enabledTerminalTargetCount)}${accessTargetSummary.firstEnabledTerminalTargetLabel ? ` · ${accessTargetSummary.firstEnabledTerminalTargetLabel}` : ""}`
-          : null,
-      ].filter((segment): segment is string => segment !== null)
+        `${modelsUiCopy.modelFallbackTargets}: ${formatNumber(accessTargetSummary.enabledModelFallbackTargetCount)} 启用 / ${formatNumber(accessTargetSummary.totalModelTargetCount)} 总计`,
+        `${modelsUiCopy.terminalTargets}: ${formatNumber(accessTargetSummary.enabledTerminalTargetCount)} 启用 / ${formatNumber(accessTargetSummary.totalTerminalTargetCount)} 总计`,
+      ]
     : [];
   const accessTargetLabel = accessTargetSegments.length > 0
     ? accessTargetSegments.join(" · ")

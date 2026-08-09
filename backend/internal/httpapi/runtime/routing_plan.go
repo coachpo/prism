@@ -8,9 +8,10 @@ import (
 )
 
 type runtimeRoutingPlan struct {
-	ModelsByID          map[string]runtimeRoutingPlanModel
-	ModelsByConfigID    map[int]runtimeRoutingPlanModel
-	TerminalTargetsByID map[int]runtimeConnection
+	ModelsByID                     map[string]runtimeRoutingPlanModel
+	ModelsByConfigID               map[int]runtimeRoutingPlanModel
+	TerminalTargetsByID            map[int]runtimeConnection
+	AuthoredTargetsBySourceModelID map[int][]runtimeAccessTargetRecord
 }
 
 type runtimeRoutingPlanModel struct {
@@ -20,6 +21,13 @@ type runtimeRoutingPlanModel struct {
 	OrderedEnabledTargets  []runtimeAccessTargetRecord
 	OrderedFallbackTargets []runtimeAccessTargetRecord
 	OrderedTerminalTargets []runtimeAccessTargetRecord
+}
+
+func (plan *runtimeRoutingPlan) authoredTargetsForModel(modelConfigID int) []runtimeAccessTargetRecord {
+	if plan == nil {
+		return nil
+	}
+	return plan.AuthoredTargetsBySourceModelID[modelConfigID]
 }
 
 func (plan *runtimeRoutingPlan) requestedModelByID(modelID string) (runtimeModelRecord, bool) {

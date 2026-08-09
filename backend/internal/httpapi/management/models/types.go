@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"time"
+
+	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 )
 
 type modelAccessTargetRequest struct {
@@ -36,12 +38,35 @@ type modelAccessTargetMoveRequest struct {
 }
 
 type modelCreateRequest struct {
-	APIFamily             string         `json:"api_family"`
-	ModelID               string         `json:"model_id"`
-	DisplayName           *string        `json:"display_name"`
-	LoadbalanceStrategyID *int           `json:"loadbalance_strategy_id"`
-	OpenAIAcceptedFormat  optionalString `json:"openai_accepted_format"`
-	IsEnabled             *bool          `json:"is_enabled"`
+	APIFamily             string                       `json:"api_family"`
+	ModelID               string                       `json:"model_id"`
+	DisplayName           *string                      `json:"display_name"`
+	LoadbalanceStrategyID *int                         `json:"loadbalance_strategy_id"`
+	OpenAIAcceptedFormat  optionalString               `json:"openai_accepted_format"`
+	IsEnabled             *bool                        `json:"is_enabled"`
+	InitialTerminalTarget *initialTerminalTargetCreate `json:"initial_terminal_target"`
+}
+
+// initialTerminalTargetCreate is the composite-create nested Terminal Target.
+// It never receives api_family, owner/profile, priority/position or IDs.
+type initialTerminalTargetCreate struct {
+	EndpointID           *int                   `json:"endpoint_id"`
+	EndpointCreate       *initialEndpointCreate `json:"endpoint_create"`
+	Name                 *string                `json:"name"`
+	IsActive             *bool                  `json:"is_active"`
+	AuthType             *string                `json:"auth_type"`
+	PricingTemplateID    *int                   `json:"pricing_template_id"`
+	OpenAITextCapability *string                `json:"openai_text_capability"`
+	QPSLimit             *int                   `json:"qps_limit"`
+	MaxInFlightNonStream *int                   `json:"max_in_flight_non_stream"`
+	MaxInFlightStream    *int                   `json:"max_in_flight_stream"`
+	CustomHeaders        map[string]string      `json:"custom_headers"`
+}
+
+type initialEndpointCreate struct {
+	Name    string `json:"name"`
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key"`
 }
 
 type optionalString struct {
@@ -209,22 +234,41 @@ type modelAccessTargetResponse struct {
 }
 
 type modelConfigListResponse struct {
-	ID                    int                         `json:"id"`
-	ProfileID             int                         `json:"profile_id"`
-	APIFamily             string                      `json:"api_family"`
-	ModelID               string                      `json:"model_id"`
-	DisplayName           *string                     `json:"display_name"`
-	LoadbalanceStrategyID *int                        `json:"loadbalance_strategy_id"`
-	LoadbalanceStrategy   *loadbalanceStrategySummary `json:"loadbalance_strategy"`
-	OpenAIAcceptedFormat  *string                     `json:"openai_accepted_format"`
-	AccessTargets         []modelAccessTargetResponse `json:"access_targets"`
-	IsEnabled             bool                        `json:"is_enabled"`
-	ConnectionCount       int                         `json:"connection_count"`
-	ActiveConnectionCount int                         `json:"active_connection_count"`
-	HealthSuccessRate     *float64                    `json:"health_success_rate"`
-	HealthTotalRequests   int                         `json:"health_total_requests"`
-	CreatedAt             time.Time                   `json:"created_at"`
-	UpdatedAt             time.Time                   `json:"updated_at"`
+	ID                    int                          `json:"id"`
+	ProfileID             int                          `json:"profile_id"`
+	APIFamily             string                       `json:"api_family"`
+	ModelID               string                       `json:"model_id"`
+	DisplayName           *string                      `json:"display_name"`
+	LoadbalanceStrategyID *int                         `json:"loadbalance_strategy_id"`
+	LoadbalanceStrategy   *loadbalanceStrategySummary  `json:"loadbalance_strategy"`
+	OpenAIAcceptedFormat  *string                      `json:"openai_accepted_format"`
+	AccessTargets         []modelAccessTargetResponse  `json:"access_targets"`
+	IsEnabled             bool                         `json:"is_enabled"`
+	ConnectionCount       int                          `json:"connection_count"`
+	ActiveConnectionCount int                          `json:"active_connection_count"`
+	HealthSuccessRate     *float64                     `json:"health_success_rate"`
+	HealthTotalRequests   int                          `json:"health_total_requests"`
+	RoutingSummary        *modelrouting.RoutingSummary `json:"routing_summary"`
+	CreatedAt             time.Time                    `json:"created_at"`
+	UpdatedAt             time.Time                    `json:"updated_at"`
+}
+
+// accessTargetMutationEnvelope is the fixed response envelope for Access
+// Target mutations (create/update/move/delete/enable/order).
+type accessTargetMutationEnvelope struct {
+	AccessTargets         []modelAccessTargetResponse         `json:"access_targets"`
+	ConfigurationWarnings []modelrouting.ConfigurationWarning `json:"configuration_warnings"`
+}
+
+// modelCreateResponse is the fixed composite-create envelope.
+type modelCreateResponse struct {
+	Model                 modelConfigResponse                 `json:"model"`
+	ConfigurationWarnings []modelrouting.ConfigurationWarning `json:"configuration_warnings"`
+}
+
+type modelMutationEnvelope struct {
+	Model                 modelConfigResponse                 `json:"model"`
+	ConfigurationWarnings []modelrouting.ConfigurationWarning `json:"configuration_warnings"`
 }
 
 type modelConfigResponse struct {

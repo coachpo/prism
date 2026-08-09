@@ -43,3 +43,9 @@ connections/
 - Do not move pricing-template CRUD or lookup into a separate management package.
 - Do not accept both `endpoint_id` and `endpoint_create` on one connection write.
 - Do not reintroduce retired owner-lookup helpers, legacy auxiliary mutation routes, or connection-level ordering moves.
+
+## UX-UPGRADE SURFACES
+
+- Owner-scoped Connection create/update/delete and Access Target mutations return fixed envelopes: `{connection, access_targets, configuration_warnings}` / `{access_targets, configuration_warnings}` / `{deleted, access_targets, configuration_warnings}`. Warnings come from the `modelrouting` analyzer, are computed on the proposed final state in-transaction, are non-persisted and never echo secrets.
+- `POST /api/models/{model_config_id}/connections/{connection_id}/copies` is the transactional batch copy: all-or-nothing, sorted locks, `enable_copies` default false, redacted `connection_summary` (counts only), per-destination warnings. Runtime state is never copied.
+- The shared writer in `writer.go` (`CreateOwnerConnection`) is the single HTTP-neutral owner-scoped connection create used by both this package and the models composite create; keep validators/inserts there, not in handlers.

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"time"
+
+	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 )
 
 type presenceMarker struct {
@@ -275,4 +277,32 @@ type modelConnectionsBatchResponse struct {
 
 type deletedResponse struct {
 	Deleted bool `json:"deleted"`
+}
+
+// connectionMutationAccessTarget is the reduced canonical access-target row
+// included in owner-scoped connection mutation envelopes. It carries the
+// canonical row id, target discriminator and connection id so callers can
+// navigate and join diagnostics; the full detail shape stays on the models
+// management surface.
+type connectionMutationAccessTarget struct {
+	ID               int    `json:"id"`
+	TargetType       string `json:"target_type"`
+	ConnectionID     *int   `json:"connection_id"`
+	TerminalTargetID *int   `json:"terminal_target_id"`
+	Position         int    `json:"position"`
+	IsEnabled        bool   `json:"is_enabled"`
+}
+
+// connectionMutationEnvelope is the fixed response envelope for owner-scoped
+// Connection create/update. Delete uses deletedConnectionMutationEnvelope.
+type connectionMutationEnvelope struct {
+	Connection            connectionResponse                  `json:"connection"`
+	AccessTargets         []connectionMutationAccessTarget    `json:"access_targets"`
+	ConfigurationWarnings []modelrouting.ConfigurationWarning `json:"configuration_warnings"`
+}
+
+type deletedConnectionMutationEnvelope struct {
+	Deleted               bool                                `json:"deleted"`
+	AccessTargets         []connectionMutationAccessTarget    `json:"access_targets"`
+	ConfigurationWarnings []modelrouting.ConfigurationWarning `json:"configuration_warnings"`
 }

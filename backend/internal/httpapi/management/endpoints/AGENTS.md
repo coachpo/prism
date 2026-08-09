@@ -35,3 +35,7 @@ endpoints/
 - Do not bypass endpoint position normalization after move, duplicate, or delete flows.
 - Do not delete endpoints while connection usage rows still reference them.
 - Do not move inline endpoint creation for connection forms out of `connections/`.
+
+## UX-UPGRADE SURFACES
+
+- `POST /api/endpoints/references/batch` returns direct Terminal Target ownership rows (same DTO as the typed `409 endpoint_in_use` delete blocker). `endpoint_in_use` carries `endpoint_id` + `references`; if the locked recheck finds no references, delete proceeds. References never include endpoint API keys or header/parameter values.

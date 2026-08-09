@@ -22,11 +22,12 @@ type queryExecutor interface {
 }
 
 type modelRecord struct {
-	ID        int
-	ProfileID int
-	ModelID   string
-	APIFamily string
-	IsEnabled bool
+	ID                   int
+	ProfileID            int
+	ModelID              string
+	APIFamily            string
+	IsEnabled            bool
+	OpenAIAcceptedFormat *string
 }
 
 type endpointRecord struct {
@@ -83,7 +84,7 @@ type pricingTemplateResponse struct {
 const pricingTemplateSelectQuery = `SELECT id, profile_id, name, description, pricing_unit, pricing_currency_code, COALESCE(input_price, '0'), COALESCE(output_price, '0'), COALESCE(cached_input_price, '0'), COALESCE(cache_creation_price, '0'), COALESCE(reasoning_price, '0'), version, created_at, updated_at FROM pricing_templates`
 
 func loadModelRecord(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, forUpdate bool) (modelRecord, bool, error) {
-	query := `SELECT id, profile_id, model_id, api_family, is_enabled FROM model_configs WHERE profile_id = $1 AND id = $2`
+	query := `SELECT id, profile_id, model_id, api_family, is_enabled, openai_accepted_format FROM model_configs WHERE profile_id = $1 AND id = $2`
 	if forUpdate {
 		query += ` FOR UPDATE`
 	}
@@ -100,7 +101,7 @@ func loadModelRecord(ctx context.Context, exec queryExecutor, profileID int, mod
 
 func ensureModelConfigIDsExist(ctx context.Context, exec queryExecutor, profileID int, modelConfigIDs []int) error {
 	if len(modelConfigIDs) == 0 {
-		return &domainError{StatusCode: 400, Detail: "model_config_ids must contain at least one model config id"}
+		return &DomainError{StatusCode: 400, Detail: "model_config_ids must contain at least one model config id"}
 	}
 	args := []any{profileID, int32ArrayArg(modelConfigIDs)}
 	query := `SELECT id FROM model_configs WHERE profile_id = $1 AND id = ANY($2) ORDER BY id ASC`
@@ -123,7 +124,7 @@ func ensureModelConfigIDsExist(ctx context.Context, exec queryExecutor, profileI
 	}
 	for _, modelConfigID := range modelConfigIDs {
 		if _, ok := existing[modelConfigID]; !ok {
-			return &domainError{StatusCode: 404, Detail: "Model configuration not found"}
+			return &DomainError{StatusCode: 404, Detail: "Model configuration not found"}
 		}
 	}
 	return nil
@@ -144,7 +145,7 @@ func ensureUniqueEndpointName(ctx context.Context, exec queryExecutor, profileID
 	var existingID int
 	err := exec.QueryRow(ctx, `SELECT id FROM endpoints WHERE profile_id = $1 AND name = $2 LIMIT 1`, profileID, endpointName).Scan(&existingID)
 	if err == nil {
-		return &domainError{StatusCode: 409, Detail: fmt.Sprintf("Endpoint name '%s' already exists", endpointName)}
+		return &DomainError{StatusCode: 409, Detail: fmt.Sprintf("Endpoint name '%s' already exists", endpointName)}
 	}
 	if err == pgx.ErrNoRows {
 		return nil
@@ -159,7 +160,7 @@ func ensureUniquePricingTemplateName(ctx context.Context, exec queryExecutor, pr
 		if excludeID != nil && existingID == *excludeID {
 			return nil
 		}
-		return &domainError{StatusCode: 409, Detail: fmt.Sprintf("Pricing template name '%s' already exists", templateName)}
+		return &DomainError{StatusCode: 409, Detail: fmt.Sprintf("Pricing template name '%s' already exists", templateName)}
 	}
 	if err == pgx.ErrNoRows {
 		return nil
@@ -226,7 +227,7 @@ func validatePricingTemplateID(ctx context.Context, exec queryExecutor, profileI
 	var existingID int
 	err := exec.QueryRow(ctx, `SELECT id FROM pricing_templates WHERE profile_id = $1 AND id = $2 LIMIT 1`, profileID, *pricingTemplateID).Scan(&existingID)
 	if err == pgx.ErrNoRows {
-		return nil, &domainError{StatusCode: 404, Detail: "Pricing template not found"}
+		return nil, &DomainError{StatusCode: 404, Detail: "Pricing template not found"}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("load pricing template %d for profile %d: %w", *pricingTemplateID, profileID, err)
@@ -519,9 +520,11 @@ func scanConnectionRows(rows pgx.Rows, iterateContext string) ([]connectionRespo
 
 func scanModelRecord(scanner interface{ Scan(...any) error }) (modelRecord, error) {
 	record := modelRecord{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &record.ModelID, &record.APIFamily, &record.IsEnabled); err != nil {
+	var openAIAcceptedFormat sql.NullString
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &record.ModelID, &record.APIFamily, &record.IsEnabled, &openAIAcceptedFormat); err != nil {
 		return modelRecord{}, err
 	}
+	record.OpenAIAcceptedFormat = nullableStringValue(openAIAcceptedFormat)
 	return record, nil
 }
 
@@ -736,4 +739,50 @@ func int32ArrayArg(values []int) []int32 {
 		items = append(items, int32(value))
 	}
 	return items
+}
+
+func insertOwnerTerminalTargetAccessReturningID(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, terminalTargetID int, position int, currentTime time.Time) (int, error) {
+	return insertOwnerTerminalTargetAccessWithEnabledReturningID(ctx, exec, profileID, modelConfigID, terminalTargetID, position, true, currentTime)
+}
+
+func insertOwnerTerminalTargetAccessWithEnabledReturningID(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, terminalTargetID int, position int, enabled bool, currentTime time.Time) (int, error) {
+	var accessTargetID int
+	if err := exec.QueryRow(ctx, `INSERT INTO model_access_targets (profile_id, source_model_config_id, target_type, target_connection_id, position, is_enabled, created_at, updated_at) VALUES ($1, $2, 'connection', $3, $4, $5, $6, $6) RETURNING id`, profileID, modelConfigID, terminalTargetID, position, enabled, currentTime).Scan(&accessTargetID); err != nil {
+		return 0, fmt.Errorf("insert owner terminal target access for model %d terminal target %d: %w", modelConfigID, terminalTargetID, err)
+	}
+	return accessTargetID, nil
+}
+
+func loadOwnerMutationAccessTargets(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int) ([]connectionMutationAccessTarget, error) {
+	rows, err := exec.Query(ctx, `SELECT id, target_type, target_connection_id, position, is_enabled FROM model_access_targets WHERE profile_id = $1 AND source_model_config_id = $2 ORDER BY position ASC, id ASC`, profileID, modelConfigID)
+	if err != nil {
+		return nil, fmt.Errorf("query owner mutation access targets for model %d: %w", modelConfigID, err)
+	}
+	defer rows.Close()
+	items := make([]connectionMutationAccessTarget, 0)
+	for rows.Next() {
+		var item connectionMutationAccessTarget
+		var terminalTargetID sql.NullInt32
+		if err := rows.Scan(&item.ID, &item.TargetType, &terminalTargetID, &item.Position, &item.IsEnabled); err != nil {
+			return nil, fmt.Errorf("scan owner mutation access target for model %d: %w", modelConfigID, err)
+		}
+		if terminalTargetID.Valid {
+			resolved := int(terminalTargetID.Int32)
+			item.ConnectionID = &resolved
+			item.TerminalTargetID = &resolved
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate owner mutation access targets for model %d: %w", modelConfigID, err)
+	}
+	return items, nil
+}
+
+func lockModelAccessTargetRows(ctx context.Context, tx pgx.Tx, profileID int, modelConfigID int) error {
+	_, err := tx.Exec(ctx, `SELECT id FROM model_access_targets WHERE profile_id = $1 AND source_model_config_id = $2 ORDER BY position ASC, id ASC FOR UPDATE`, profileID, modelConfigID)
+	if err != nil {
+		return fmt.Errorf("lock access target rows for model %d: %w", modelConfigID, err)
+	}
+	return nil
 }

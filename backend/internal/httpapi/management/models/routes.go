@@ -16,10 +16,12 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
+	"github.com/coachpo/prism/backend/internal/httpapi/management/connections"
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
+	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
 type endpointModelsBatchRequest struct {
@@ -56,9 +58,18 @@ func (s *Service) handleListModels(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
+		summaries := map[int]modelrouting.RoutingSummary{}
+		if err := attachRoutingSummaries(records, accessTargets, strategies, summaries); err != nil {
+			return nil, err
+		}
 		response := make([]modelConfigListResponse, 0, len(records))
 		for _, record := range records {
-			response = append(response, buildModelListResponse(record, strategies, accessTargets, counts, health))
+			item := buildModelListResponse(record, strategies, accessTargets, counts, health)
+			if summary, ok := summaries[record.ID]; ok {
+				summary := summary
+				item.RoutingSummary = &summary
+			}
+			response = append(response, item)
 		}
 		return response, nil
 	})
@@ -111,31 +122,102 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (modelConfigResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (modelCreateResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
-			return modelConfigResponse{}, err
+			return modelCreateResponse{}, err
 		}
 		if err := ensureModelIDAvailable(r.Context(), tx, profile.ID, requestBody.ModelID, nil); err != nil {
-			return modelConfigResponse{}, err
+			return modelCreateResponse{}, err
 		}
 		if err := ensureLoadbalanceStrategyExists(r.Context(), tx, profile.ID, *requestBody.LoadbalanceStrategyID); err != nil {
-			return modelConfigResponse{}, err
+			return modelCreateResponse{}, err
 		}
 		now := s.nowUTC()
-		record := modelRecord{ProfileID: profile.ID, APIFamily: requestBody.APIFamily, ModelID: requestBody.ModelID, DisplayName: resolvePersistedDisplayName(requestBody.ModelID, requestBody.DisplayName), LoadbalanceStrategyID: requestBody.LoadbalanceStrategyID, OpenAIAcceptedFormat: requestBody.OpenAIAcceptedFormat.Value, IsEnabled: resolveIsEnabled(requestBody.IsEnabled), CreatedAt: now, UpdatedAt: now}
-		if record.IsEnabled {
-			return modelConfigResponse{}, routingPlanValidationIssueError("model_no_enabled_targets", "access_targets", "enabled models must include at least one enabled access target")
+		acceptedFormat := requestBody.OpenAIAcceptedFormat.Value
+		if providerauth.IsOpenAI(requestBody.APIFamily) && (acceptedFormat == nil || strings.TrimSpace(*acceptedFormat) == "") {
+			acceptedFormat = stringPtr(providerauth.OpenAITextCapabilityDualNative)
 		}
-		created, err := insertModel(r.Context(), tx, record)
-		if err != nil {
-			return modelConfigResponse{}, err
+		hasInitialTarget := requestBody.InitialTerminalTarget != nil
+		finalEnabled := resolveIsEnabled(requestBody.IsEnabled)
+		if hasInitialTarget && requestBody.IsEnabled == nil {
+			finalEnabled = true
+		}
+		if !hasInitialTarget && finalEnabled {
+			return modelCreateResponse{}, routingPlanValidationIssueError("model_no_enabled_targets", "access_targets", "enabled models must include at least one enabled access target")
+		}
+
+		ownerRecord := modelRecord{ProfileID: profile.ID, APIFamily: requestBody.APIFamily, ModelID: requestBody.ModelID, DisplayName: resolvePersistedDisplayName(requestBody.ModelID, requestBody.DisplayName), LoadbalanceStrategyID: requestBody.LoadbalanceStrategyID, OpenAIAcceptedFormat: acceptedFormat, IsEnabled: finalEnabled, CreatedAt: now, UpdatedAt: now}
+
+		var warnings []modelrouting.ConfigurationWarning
+		var created modelRecord
+		if hasInitialTarget {
+			target := requestBody.InitialTerminalTarget
+			if (target.EndpointID == nil) == (target.EndpointCreate == nil) {
+				return modelCreateResponse{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "initial_terminal_target requires exactly one of endpoint_id or endpoint_create"}
+			}
+			targetIsActive := true
+			if target.IsActive != nil {
+				targetIsActive = *target.IsActive
+			}
+			if finalEnabled && !targetIsActive {
+				return modelCreateResponse{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "model_initial_target_inactive: the initial terminal target must be active when the model is enabled"}
+			}
+			targetCapability := target.OpenAITextCapability
+			if targetCapability == nil && providerauth.IsOpenAI(requestBody.APIFamily) {
+				// Capability defaults follow the owner accepted format.
+				targetCapability = acceptedFormat
+			}
+			// Insert the model disabled first, then the private Connection and
+			// owner edge, then enable; everything is one transaction so no
+			// observer sees an intermediate disabled entity.
+			draftRecord := ownerRecord
+			draftRecord.IsEnabled = false
+			inserted, err := insertModel(r.Context(), tx, draftRecord)
+			if err != nil {
+				return modelCreateResponse{}, err
+			}
+			var inlineEndpoint *connections.InlineEndpointCreate
+			if target.EndpointCreate != nil {
+				inlineEndpoint = &connections.InlineEndpointCreate{Name: target.EndpointCreate.Name, BaseURL: target.EndpointCreate.BaseURL, APIKey: target.EndpointCreate.APIKey}
+			}
+			_, _, accessTargetID, ownerWarnings, err := connections.CreateOwnerConnection(r.Context(), tx, profile.ID, connections.OwnerModel{ID: inserted.ID, ProfileID: profile.ID, ModelID: inserted.ModelID, APIFamily: inserted.APIFamily, OpenAIAcceptedFormat: acceptedFormat}, s.secretEncryptionKeyForComposite(), s.now, connections.OwnerConnectionCreateInput{
+				EndpointID:           target.EndpointID,
+				EndpointCreate:       inlineEndpoint,
+				IsActive:             targetIsActive,
+				Name:                 target.Name,
+				AuthType:             target.AuthType,
+				CustomHeaders:        target.CustomHeaders,
+				OpenAITextCapability: targetCapability,
+				PricingTemplateID:    target.PricingTemplateID,
+				QPSLimit:             target.QPSLimit,
+				MaxInFlightNonStream: target.MaxInFlightNonStream,
+				MaxInFlightStream:    target.MaxInFlightStream,
+			})
+			if err != nil {
+				return modelCreateResponse{}, translateConnectionWriterError(err)
+			}
+			if finalEnabled {
+				if err := setModelEnabled(r.Context(), tx, profile.ID, inserted.ID, true, now); err != nil {
+					return modelCreateResponse{}, err
+				}
+				inserted.IsEnabled = true
+			}
+			warnings = compositeCreateWarnings(requestBody.APIFamily, acceptedFormat, targetCapability, inserted.ID, accessTargetID)
+			warnings = append(warnings, ownerWarnings...)
+			created = inserted
+		} else {
+			inserted, err := insertModel(r.Context(), tx, ownerRecord)
+			if err != nil {
+				return modelCreateResponse{}, err
+			}
+			created = inserted
 		}
 		strategies, accessTargets, _, err := loadModelRelations(r.Context(), tx, profile.ID, []modelRecord{created})
 		if err != nil {
-			return modelConfigResponse{}, err
+			return modelCreateResponse{}, err
 		}
-		return buildModelDetailResponse(created, strategies, accessTargets), nil
+		return modelCreateResponse{Model: buildModelDetailResponse(created, strategies, accessTargets), ConfigurationWarnings: warnings}, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -343,20 +425,28 @@ func (s *Service) handleCreateModelTarget(w http.ResponseWriter, r *http.Request
 		writeDecodeError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) ([]modelAccessTargetResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (accessTargetMutationEnvelope, error) {
 		profile, model, items, err := s.loadModelTargetMutationState(r.Context(), tx, r, modelConfigID)
 		if err != nil {
-			return nil, err
+			return accessTargetMutationEnvelope{}, err
 		}
 		request, err := accessTargetRequestFromCreate(requestBody, len(items))
 		if err != nil {
-			return nil, err
+			return accessTargetMutationEnvelope{}, err
 		}
 		items, err = insertAccessTargetMutationItem(items, request)
 		if err != nil {
-			return nil, err
+			return accessTargetMutationEnvelope{}, err
 		}
-		return s.replaceModelTargetsFromMutationItems(r.Context(), tx, profile.ID, model, items)
+		targets, err := s.replaceModelTargetsFromMutationItems(r.Context(), tx, profile.ID, model, items)
+		if err != nil {
+			return accessTargetMutationEnvelope{}, err
+		}
+		warnings, err := modelMutationWarnings(r.Context(), tx, profile.ID, modelConfigID)
+		if err != nil {
+			return accessTargetMutationEnvelope{}, err
+		}
+		return accessTargetMutationEnvelope{AccessTargets: targets, ConfigurationWarnings: warnings}, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -381,19 +471,29 @@ func (s *Service) handleUpdateModelTarget(w http.ResponseWriter, r *http.Request
 		writeDecodeError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) ([]modelAccessTargetResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (accessTargetMutationEnvelope, error) {
 		profile, model, items, err := s.loadModelTargetMutationState(r.Context(), tx, r, modelConfigID)
 		if err != nil {
-			return nil, err
+			return accessTargetMutationEnvelope{}, err
 		}
 		items, err = updateAccessTargetMutationItem(items, targetID, requestBody)
 		if err != nil {
-			return nil, err
+			return accessTargetMutationEnvelope{}, err
 		}
+		var targets []modelAccessTargetResponse
 		if isAccessTargetMetadataOnlyUpdate(requestBody) {
-			return s.updateModelTargetMetadataFromMutationItems(r.Context(), tx, profile.ID, model, items)
+			targets, err = s.updateModelTargetMetadataFromMutationItems(r.Context(), tx, profile.ID, model, items)
+		} else {
+			targets, err = s.replaceModelTargetsFromMutationItems(r.Context(), tx, profile.ID, model, items)
 		}
-		return s.replaceModelTargetsFromMutationItems(r.Context(), tx, profile.ID, model, items)
+		if err != nil {
+			return accessTargetMutationEnvelope{}, err
+		}
+		warnings, err := modelMutationWarnings(r.Context(), tx, profile.ID, modelConfigID)
+		if err != nil {
+			return accessTargetMutationEnvelope{}, err
+		}
+		return accessTargetMutationEnvelope{AccessTargets: targets, ConfigurationWarnings: warnings}, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -418,16 +518,24 @@ func (s *Service) handleMoveModelTargetPosition(w http.ResponseWriter, r *http.R
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) ([]modelAccessTargetResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (accessTargetMutationEnvelope, error) {
 		profile, model, items, err := s.loadModelTargetMutationState(r.Context(), tx, r, modelConfigID)
 		if err != nil {
-			return nil, err
+			return accessTargetMutationEnvelope{}, err
 		}
 		items, err = moveAccessTargetMutationItem(items, targetID, requestBody.ToIndex)
 		if err != nil {
-			return nil, err
+			return accessTargetMutationEnvelope{}, err
 		}
-		return s.updateModelTargetMetadataFromMutationItems(r.Context(), tx, profile.ID, model, items)
+		targets, err := s.updateModelTargetMetadataFromMutationItems(r.Context(), tx, profile.ID, model, items)
+		if err != nil {
+			return accessTargetMutationEnvelope{}, err
+		}
+		warnings, err := modelMutationWarnings(r.Context(), tx, profile.ID, modelConfigID)
+		if err != nil {
+			return accessTargetMutationEnvelope{}, err
+		}
+		return accessTargetMutationEnvelope{AccessTargets: targets, ConfigurationWarnings: warnings}, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -447,23 +555,36 @@ func (s *Service) handleDeleteModelTarget(w http.ResponseWriter, r *http.Request
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) ([]modelAccessTargetResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (accessTargetMutationEnvelope, error) {
 		profile, model, items, err := s.loadModelTargetMutationState(r.Context(), tx, r, modelConfigID)
 		if err != nil {
-			return nil, err
+			return accessTargetMutationEnvelope{}, err
 		}
 		deletedPrivateConnection, err := s.deletePrivateConnectionTargetFromMutationItems(r.Context(), tx, profile.ID, model, targetID, items)
 		if err != nil {
-			return nil, err
+			return accessTargetMutationEnvelope{}, err
 		}
+		var targets []modelAccessTargetResponse
 		if deletedPrivateConnection {
-			return loadModelTargetResponses(r.Context(), tx, profile.ID, model.ID)
+			targets, err = loadModelTargetResponses(r.Context(), tx, profile.ID, model.ID)
+			if err != nil {
+				return accessTargetMutationEnvelope{}, err
+			}
+		} else {
+			items, err = deleteAccessTargetMutationItem(items, targetID)
+			if err != nil {
+				return accessTargetMutationEnvelope{}, err
+			}
+			targets, err = s.replaceModelTargetsFromMutationItems(r.Context(), tx, profile.ID, model, items)
+			if err != nil {
+				return accessTargetMutationEnvelope{}, err
+			}
 		}
-		items, err = deleteAccessTargetMutationItem(items, targetID)
+		warnings, err := modelMutationWarnings(r.Context(), tx, profile.ID, modelConfigID)
 		if err != nil {
-			return nil, err
+			return accessTargetMutationEnvelope{}, err
 		}
-		return s.replaceModelTargetsFromMutationItems(r.Context(), tx, profile.ID, model, items)
+		return accessTargetMutationEnvelope{AccessTargets: targets, ConfigurationWarnings: warnings}, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -918,9 +1039,18 @@ func (s *Service) handleModelsByEndpoint(w http.ResponseWriter, r *http.Request)
 		if err != nil {
 			return nil, err
 		}
+		summaries := map[int]modelrouting.RoutingSummary{}
+		if err := attachRoutingSummaries(records, accessTargets, strategies, summaries); err != nil {
+			return nil, err
+		}
 		response := make([]modelConfigListResponse, 0, len(records))
 		for _, record := range records {
-			response = append(response, buildModelListResponse(record, strategies, accessTargets, counts, health))
+			item := buildModelListResponse(record, strategies, accessTargets, counts, health)
+			if summary, ok := summaries[record.ID]; ok {
+				summary := summary
+				item.RoutingSummary = &summary
+			}
+			response = append(response, item)
 		}
 		return response, nil
 	})
@@ -1468,4 +1598,8 @@ func routeInt(request *http.Request, name string) (int, error) {
 func stringPtr(value string) *string {
 	resolved := value
 	return &resolved
+}
+
+func (s *Service) secretEncryptionKeyForComposite() string {
+	return s.secretEncryptionKey
 }

@@ -24,6 +24,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocale } from "@/i18n/useLocale";
 import { cn } from "@/lib/utils";
+import { classifyOpenAICoverage } from "./classifyOpenAICoverage";
 import { OperatorStatusBadge, OperatorSwitchField, OperatorTypeBadge } from "@/shared/design-system";
 import type {
   ApiFamily,
@@ -33,7 +34,6 @@ import type {
   OpenAITextCapability,
   PricingTemplate,
 } from "@/lib/types";
-import { normalizeConnectionHeaders } from "./useModelDetailDataSupport";
 import {
   createHeaderRow,
   type ConnectionDialogForm,
@@ -44,6 +44,7 @@ interface ConnectionDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   apiFamily: ApiFamily | null;
+  ownerOpenAIAcceptedFormat?: OpenAITextCapability | null;
   editingConnection: Connection | null;
   connectionForm: ConnectionDialogForm;
   setConnectionForm: (form: ConnectionDialogForm) => void;
@@ -59,6 +60,8 @@ interface ConnectionDialogProps {
   handleConnectionSubmit: (e: FormEvent<HTMLFormElement>) => Promise<void>;
   endpointSourceDefaultName: string | null;
   pricingTemplates: PricingTemplate[];
+  prefillConnections?: Connection[];
+  onPrefill?: (connection: Connection) => void;
 }
 
 interface ConnectionDialogSectionProps {
@@ -114,19 +117,11 @@ function ConnectionDialogField({
   );
 }
 
-function ConnectionSummaryItem({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{label}</p>
-      {children}
-    </div>
-  );
-}
-
 export function ConnectionDialog({
   isOpen,
   onOpenChange,
   apiFamily,
+  ownerOpenAIAcceptedFormat,
   editingConnection,
   connectionForm,
   setConnectionForm,
@@ -142,11 +137,13 @@ export function ConnectionDialog({
   handleConnectionSubmit,
   endpointSourceDefaultName,
   pricingTemplates,
+  prefillConnections = [],
+  onPrefill,
 }: ConnectionDialogProps) {
   const { messages } = useLocale();
+  const routingCopy = messages.routing;
   const copy = messages.modelDetail;
   const isOpenAI = apiFamily === "openai";
-  const selectedEndpoint = globalEndpoints.find((endpoint) => String(endpoint.id) === selectedEndpointId) ?? null;
   const resolvedTextCapability = isOpenAI
     ? connectionForm.openai_text_capability ?? "responses_only"
     : null;
@@ -200,27 +197,39 @@ export function ConnectionDialog({
     },
   ];
 
-  const summaryEndpointName =
-    createMode === "select"
-      ? selectedEndpoint?.name ?? copy.unknownEndpoint
-      : newEndpointForm.name.trim() || copy.unknownEndpoint;
-  const summaryEndpointUrl =
-    createMode === "select"
-      ? selectedEndpoint?.base_url ?? null
-      : newEndpointForm.base_url.trim() || null;
-  const resolvedConnectionName =
-    (connectionForm.name ?? "").trim() || endpointSourceDefaultName || copy.unassigned;
-  const selectedPricingTemplate = pricingTemplates.find(
-    (template) => template.id === connectionForm.pricing_template_id,
-  );
-  const pricingSummary = selectedPricingTemplate
-    ? `${selectedPricingTemplate.name} v${selectedPricingTemplate.version}`
-    : copy.unpricedNoCostTracking;
-  const normalizedHeaders = normalizeConnectionHeaders(headerRows);
-  const customHeaderCount = normalizedHeaders ? Object.keys(normalizedHeaders).length : 0;
   const updateConnectionForm = (nextForm: ConnectionDialogForm) => {
     setConnectionForm(nextForm);
   };
+
+  // Prefill from an existing same-family Terminal Target: this only fills the
+  // draft (endpoint reference, name, active, auth type, capability, pricing,
+  // limits, headers). No IDs, positions, runtime state or endpoint keys are
+  // copied; saving always creates an independent private Connection.
+  const handlePrefill = (source: Connection) => {
+    if (source.endpoint) {
+      setSelectedEndpointId(String(source.endpoint.id));
+    }
+    updateConnectionForm({
+      ...connectionForm,
+      name: source.name ?? null,
+      is_active: source.is_active,
+      auth_type: source.auth_type ?? null,
+      openai_text_capability: source.openai_text_capability ?? null,
+      pricing_template_id: source.pricing_template_id ?? null,
+      qps_limit: source.qps_limit ?? null,
+      max_in_flight_non_stream: source.max_in_flight_non_stream ?? null,
+      max_in_flight_stream: source.max_in_flight_stream ?? null,
+    });
+    setHeaderRows(
+      Object.entries(source.custom_headers ?? {}).map(([key, value]) => ({
+        id: `prefill-header-${key}`,
+        key,
+        value: String(value),
+      })),
+    );
+  };
+
+  const handlePrefillConnection = onPrefill ?? handlePrefill;
 
   const updateNewEndpointForm = (nextForm: EndpointCreate) => {
     setNewEndpointForm(nextForm);
@@ -273,17 +282,38 @@ export function ConnectionDialog({
           <DialogBody className="min-h-0 flex-1 p-0">
             <ScrollArea className="min-h-0 flex-1">
               <div className="px-5 py-4 sm:px-6" data-testid="connection-dialog-scroll-body">
-                <div
-                  className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(18rem,0.95fr)]"
-                  data-layout="compact-flat"
-                  data-testid="connection-dialog-main-grid"
-                >
+                <div className="flex min-h-0 flex-col gap-4" data-testid="connection-dialog-main-grid">
                   <div className="flex min-h-0 flex-col gap-4" data-testid="connection-dialog-left-column">
                     <ConnectionDialogSection
                       title={copy.setup}
                       description={copy.setupDescription}
                       dataTestId="connection-dialog-setup-section"
                     >
+                      {!editingConnection && prefillConnections.length > 0 ? (
+                        <div className="flex flex-col gap-2" data-testid="connection-dialog-prefill">
+                          <Label htmlFor="conn-prefill-source">{copy.prefillFromExisting}</Label>
+                          <Select
+                            value=""
+                            onValueChange={(value) => {
+                              const source = prefillConnections.find((candidate) => String(candidate.id) === value)
+                              if (source) handlePrefillConnection(source)
+                            }}
+                          >
+                            <SelectTrigger id="conn-prefill-source" className="w-full">
+                              <SelectValue placeholder={copy.prefillFromExistingPlaceholder} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                {prefillConnections.map((candidate) => (
+                                  <SelectItem key={candidate.id} value={String(candidate.id)}>
+                                    {candidate.name || candidate.endpoint?.name || `终端目标 ${candidate.id}`}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : null}
                       <div
                         className="flex flex-col gap-3 border-b pb-3"
                         data-testid="connection-dialog-endpoint-source-section"
@@ -493,12 +523,25 @@ export function ConnectionDialog({
                             </Select>
                           </ConnectionDialogField>
 
-                          <div className="flex flex-col gap-1.5 border-l pl-3">
-                            <p className="text-xs font-medium text-muted-foreground">
-                              {copy.openaiTextCapabilitySummaryLabel}
-                            </p>
-                            <p className="text-sm font-medium text-foreground">{selectedTextCapability.label}</p>
-                            <p className="text-xs text-muted-foreground">{copy.openaiTextCapabilityRuntimeHint}</p>
+                          <div className="flex flex-col gap-1.5 border-l pl-3" data-testid="connection-dialog-capability-preview">
+                            <p className="text-xs font-medium text-muted-foreground">{routingCopy.capabilityCoverageLabel}</p>
+                            {(() => {
+                              const preview = classifyOpenAICoverage(ownerOpenAIAcceptedFormat, resolvedTextCapability ?? null)
+                              const badgeLabel = preview.coverage === "full"
+                                ? routingCopy.coverageFull
+                                : preview.coverage === "partial"
+                                  ? routingCopy.coveragePartial
+                                  : routingCopy.coverageNone
+                              const badgeIntent = preview.coverage === "full" ? "success" : preview.coverage === "partial" ? "warning" : "danger"
+                              return (
+                                <div className="flex flex-col gap-1">
+                                  <OperatorStatusBadge intent={badgeIntent} label={badgeLabel} preserveLabel />
+                                  {preview.unsupportedAcceptedOperations.length > 0 ? (
+                                    <p className="text-xs text-muted-foreground">{routingCopy.missingOperations(preview.unsupportedAcceptedOperations.join("、"))}</p>
+                                  ) : null}
+                                </div>
+                              )
+                            })()}
                           </div>
                         </div>
                       </ConnectionDialogSection>
@@ -625,59 +668,6 @@ export function ConnectionDialog({
                     </ConnectionDialogSection>
                   </div>
 
-                  <div className="flex min-h-0 flex-col gap-3" data-testid="connection-dialog-right-column">
-                    <ConnectionDialogSection
-                      title={copy.summaryAndTest}
-                      description={copy.summaryAndTestDescription}
-                      dataTestId="connection-dialog-summary-panel"
-                    >
-                      <div className="flex flex-wrap gap-2">
-                        <OperatorStatusBadge
-                          label={(connectionForm.is_active ?? true) ? copy.enabled : copy.disabled}
-                          intent={(connectionForm.is_active ?? true) ? "success" : "muted"}
-                        />
-                        <OperatorStatusBadge
-                          label={selectedPricingTemplate ? copy.pricingOn : copy.pricingOff}
-                          intent={selectedPricingTemplate ? "blue" : "muted"}
-                        />
-                        <OperatorTypeBadge label={createMode === "select" ? copy.selectExisting : copy.createNew} preserveLabel />
-                      </div>
-
-                      <ConnectionSummaryItem label={copy.endpointSummaryLabel}>
-                        <div className="flex flex-col gap-1">
-                          <p className="text-sm font-medium text-foreground">{summaryEndpointName}</p>
-                          {summaryEndpointUrl ? (
-                            <p className="text-xs text-muted-foreground break-all">{summaryEndpointUrl}</p>
-                          ) : null}
-                        </div>
-                      </ConnectionSummaryItem>
-
-                      <ConnectionSummaryItem label={copy.connectionNameSummaryLabel}>
-                        <p className="text-sm text-foreground">{resolvedConnectionName}</p>
-                      </ConnectionSummaryItem>
-
-                      <ConnectionSummaryItem label={copy.pricingSummaryLabel}>
-                        <p className="text-sm text-foreground">{pricingSummary}</p>
-                      </ConnectionSummaryItem>
-
-                      {isOpenAI && selectedTextCapability ? (
-                        <ConnectionSummaryItem label={copy.openaiTextCapabilitySummaryLabel}>
-                          <div className="flex flex-col gap-2">
-                            <p className="text-sm text-foreground">{selectedTextCapability.label}</p>
-                          </div>
-                        </ConnectionSummaryItem>
-                      ) : null}
-
-                      <ConnectionSummaryItem label={copy.customHeaders}>
-                        <p className="text-sm text-foreground">
-                          {customHeaderCount > 0
-                            ? copy.customHeadersConfigured(String(customHeaderCount))
-                            : copy.noCustomHeadersConfigured}
-                        </p>
-                      </ConnectionSummaryItem>
-                    </ConnectionDialogSection>
-
-                  </div>
                 </div>
               </div>
             </ScrollArea>

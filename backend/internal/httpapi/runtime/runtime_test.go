@@ -156,16 +156,13 @@ func TestBuildRequestPlan_ResponsesRejectsChatOnlyTarget(t *testing.T) {
 			openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly),
 		})
 		err := buildRequestPlanErrorForTest(t, service, snapshot, "/v1/responses", []byte(`{"model":"responses-public","input":"hello"}`), RuntimeProxyConfigSnapshot{HTTPClient: &http.Client{Transport: transport}})
-		assertPlanDomainError(t, err, http.StatusBadRequest, openAIRequestTranslationUnsupportedDetail)
-		domainErr, ok := isRequestTranslationUnsupportedError(err)
+		assertPlanDomainError(t, err, http.StatusServiceUnavailable, openAINoCompatibleTerminalTargetDetail)
+		domainErr, ok := isOpenAIPlanningRejectionError(err)
 		if !ok {
-			t.Fatalf("expected typed unsupported-wire error, got %v", err)
+			t.Fatalf("expected typed openai planning rejection error, got %v", err)
 		}
-		if got := stringValue(domainErr.Fields["translation_mode"]); got != "none" {
-			t.Fatalf("expected translation mode none, got %q", got)
-		}
-		if got := stringValue(domainErr.Fields["unsupported_reason"]); got != openAIRequestTranslationUnsupportedReason {
-			t.Fatalf("expected unsupported reason %q, got %q", openAIRequestTranslationUnsupportedReason, got)
+		if domainErr.ErrorCode != openAINoCompatibleTerminalTargetErrorCode {
+			t.Fatalf("expected no-compatible-terminal-target planning code, got %q", domainErr.ErrorCode)
 		}
 		if got := transport.calls.Load(); got != 0 {
 			t.Fatalf("expected planner to reject incompatible graph before transport, got %d calls", got)
@@ -410,7 +407,10 @@ func TestRuntimePlanningCycleAndNoEligibleTargetsFailDeterministically(t *testin
 	addRequestPlanProxyTarget(noTargets, "public-openai", "empty-child-openai")
 	noTargets.AccessTargetsBySourceModelID[2] = nil
 	err := buildRequestPlanErrorForTest(t, service, noTargets, "/v1/chat/completions", []byte(`{"model":"public-openai","messages":[]}`), RuntimeProxyConfigSnapshot{})
-	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "No eligible targets available for model 'public-openai'.")
+	assertPlanDomainError(t, err, http.StatusServiceUnavailable, openAINoCompatibleTerminalTargetDetail)
+	if domainErr, ok := isOpenAIPlanningRejectionError(err); !ok || domainErr.ErrorCode != openAINoCompatibleTerminalTargetErrorCode {
+		t.Fatalf("expected empty graph to classify as no-compatible-terminal-target, got %v", err)
+	}
 
 	cycle := newRequestPlanSnapshot(
 		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "cycle-a"},
@@ -486,9 +486,9 @@ func TestAttachRuntimePlanningFailureTelemetry_PreservesResolvedTargetModelWhenS
 	selectedTerminalTargetID := 2841
 	runtimeErr := &domainError{
 		StatusCode:               http.StatusBadRequest,
-		ErrorCode:                openAIRequestTranslationUnsupportedErrorCode,
-		Detail:                   openAIRequestTranslationUnsupportedDetail,
-		Fields:                   map[string]any{"translation_mode": "none", "unsupported_reason": openAIRequestTranslationUnsupportedReason},
+		ErrorCode:                openAIOperationNotSupportedErrorCode,
+		Detail:                   openAIOperationNotSupportedDetail,
+		Fields:                   map[string]any{"translation_mode": "none"},
 		ResolvedTargetModelID:    &resolvedTargetModelID,
 		SelectedTerminalTargetID: &selectedTerminalTargetID,
 	}
@@ -1609,15 +1609,16 @@ func newRequestPlanSnapshot(models ...runtimeModelRecord) *planningSnapshot {
 			Endpoint:             runtimeEndpoint{ID: 1, BaseURL: "https://upstream.example"},
 		}
 		snapshot.AccessTargetsBySourceModelID[model.ID] = []runtimeAccessTargetRecord{{
-			ID:                        connectionID,
-			ProfileID:                 model.ProfileID,
-			SourceModelConfigID:       model.ID,
-			TargetType:                runtimeAccessTargetTypeConnection,
-			TargetConnectionID:        intPtr(connectionID),
-			TargetConnectionProfileID: model.ProfileID,
-			TargetConnectionAPIFamily: model.APIFamily,
-			Position:                  0,
-			IsEnabled:                 true,
+			ID:                             connectionID,
+			ProfileID:                      model.ProfileID,
+			SourceModelConfigID:            model.ID,
+			TargetType:                     runtimeAccessTargetTypeConnection,
+			TargetConnectionID:             intPtr(connectionID),
+			TargetConnectionProfileID:      model.ProfileID,
+			TargetConnectionAPIFamily:      model.APIFamily,
+			ConnectionOpenAITextCapability: openAITextCapability,
+			Position:                       0,
+			IsEnabled:                      true,
 		}}
 	}
 	return snapshot
@@ -1677,15 +1678,16 @@ func addRequestPlanConnectionTargetWithOptions(snapshot *planningSnapshot, model
 		Endpoint:                runtimeEndpoint{ID: 1, BaseURL: "https://upstream.example"},
 	}
 	snapshot.AccessTargetsBySourceModelID[model.ID] = append(snapshot.AccessTargetsBySourceModelID[model.ID], runtimeAccessTargetRecord{
-		ID:                        targetID,
-		ProfileID:                 model.ProfileID,
-		SourceModelConfigID:       model.ID,
-		TargetType:                runtimeAccessTargetTypeConnection,
-		TargetConnectionID:        intPtr(connectionID),
-		TargetConnectionProfileID: model.ProfileID,
-		TargetConnectionAPIFamily: model.APIFamily,
-		Position:                  position,
-		IsEnabled:                 true,
+		ID:                             targetID,
+		ProfileID:                      model.ProfileID,
+		SourceModelConfigID:            model.ID,
+		TargetType:                     runtimeAccessTargetTypeConnection,
+		TargetConnectionID:             intPtr(connectionID),
+		TargetConnectionProfileID:      model.ProfileID,
+		TargetConnectionAPIFamily:      model.APIFamily,
+		ConnectionOpenAITextCapability: openAITextCapability,
+		Position:                       position,
+		IsEnabled:                      true,
 	})
 }
 
@@ -1803,4 +1805,101 @@ func TestGeminiProxyEventStreamClassifiesReadFailureAfterPartialChunk(t *testing
 	if capture.Usage.hasValues() || capture.CompletedAt != nil {
 		t.Fatalf("expected no completed usage after partial read failure, got %+v", capture)
 	}
+}
+
+func TestBuildRequestPlan_OpenAIPlanningRejectionTaxonomy(t *testing.T) {
+	const profileID = requestPlanTestProfileID
+
+	t.Run("root does not accept operation -> openai_operation_not_supported", func(t *testing.T) {
+		service := newRequestPlanUnitService()
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "chat-only-public", OpenAIAcceptedFormat: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly)})
+		model := snapshot.ModelsByID["chat-only-public"]
+		snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+		addRequestPlanConnectionTargetWithOptions(snapshot, model, 4_001, 9_001, 0, requestPlanConnectionTargetOptions{openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly)})
+		err := buildRequestPlanErrorForTest(t, service, snapshot, "/v1/responses", []byte(`{"model":"chat-only-public","input":"hello"}`), RuntimeProxyConfigSnapshot{})
+		assertPlanDomainError(t, err, http.StatusBadRequest, openAIOperationNotSupportedDetail)
+		domainErr, ok := isOpenAIPlanningRejectionError(err)
+		if !ok || domainErr.ErrorCode != openAIOperationNotSupportedErrorCode {
+			t.Fatalf("expected openai_operation_not_supported planning code, got %v", err)
+		}
+		if got := stringValue(domainErr.Fields["translation_mode"]); got != "none" {
+			t.Fatalf("expected translation mode none, got %q", got)
+		}
+	})
+
+	t.Run("no compatible leaf in graph -> openai_no_compatible_terminal_target", func(t *testing.T) {
+		service := newRequestPlanUnitService()
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "dual-public"})
+		model := snapshot.ModelsByID["dual-public"]
+		snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+		addRequestPlanConnectionTargetWithOptions(snapshot, model, 4_002, 9_002, 0, requestPlanConnectionTargetOptions{openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly)})
+		err := buildRequestPlanErrorForTest(t, service, snapshot, "/v1/responses", []byte(`{"model":"dual-public","input":"hello"}`), RuntimeProxyConfigSnapshot{})
+		assertPlanDomainError(t, err, http.StatusServiceUnavailable, openAINoCompatibleTerminalTargetDetail)
+		domainErr, ok := isOpenAIPlanningRejectionError(err)
+		if !ok || domainErr.ErrorCode != openAINoCompatibleTerminalTargetErrorCode {
+			t.Fatalf("expected openai_no_compatible_terminal_target planning code, got %v", err)
+		}
+	})
+
+	t.Run("compatible leaf only on disabled row -> openai_no_eligible_terminal_target", func(t *testing.T) {
+		service := newRequestPlanUnitService()
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "dual-with-disabled"})
+		model := snapshot.ModelsByID["dual-with-disabled"]
+		snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+		addRequestPlanConnectionTargetWithOptions(snapshot, model, 4_003, 9_003, 0, requestPlanConnectionTargetOptions{openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly)})
+		snapshot.AccessTargetsBySourceModelID[model.ID] = append(snapshot.AccessTargetsBySourceModelID[model.ID], runtimeAccessTargetRecord{
+			ID:                             9_004,
+			ProfileID:                      profileID,
+			SourceModelConfigID:            model.ID,
+			TargetType:                     runtimeAccessTargetTypeConnection,
+			TargetConnectionID:             intPtr(4_004),
+			TargetConnectionProfileID:      profileID,
+			TargetConnectionAPIFamily:      "openai",
+			ConnectionOpenAITextCapability: stringPtr(providerauth.OpenAITextCapabilityDualNative),
+			Position:                       1,
+			IsEnabled:                      false,
+		})
+		err := buildRequestPlanErrorForTest(t, service, snapshot, "/v1/responses", []byte(`{"model":"dual-with-disabled","input":"hello"}`), RuntimeProxyConfigSnapshot{})
+		assertPlanDomainError(t, err, http.StatusServiceUnavailable, openAINoEligibleTerminalTargetDetail)
+		domainErr, ok := isOpenAIPlanningRejectionError(err)
+		if !ok || domainErr.ErrorCode != openAINoEligibleTerminalTargetErrorCode {
+			t.Fatalf("expected openai_no_eligible_terminal_target planning code, got %v", err)
+		}
+	})
+
+	t.Run("single truncates compatible second row -> openai_no_eligible_terminal_target", func(t *testing.T) {
+		service := newRequestPlanUnitService()
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "single-truncated"})
+		model := snapshot.ModelsByID["single-truncated"]
+		snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+		singleStrategy := snapshot.StrategiesByModelID[model.ID]
+		single := "single"
+		singleStrategy.LegacyStrategyType = &single
+		snapshot.StrategiesByModelID[model.ID] = singleStrategy
+		addRequestPlanConnectionTargetWithOptions(snapshot, model, 4_005, 9_005, 0, requestPlanConnectionTargetOptions{openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityChatCompletionsOnly)})
+		addRequestPlanConnectionTargetWithOptions(snapshot, model, 4_006, 9_006, 1, requestPlanConnectionTargetOptions{openAITextCapability: stringPtr(providerauth.OpenAITextCapabilityDualNative)})
+		err := buildRequestPlanErrorForTest(t, service, snapshot, "/v1/responses", []byte(`{"model":"single-truncated","input":"hello"}`), RuntimeProxyConfigSnapshot{})
+		assertPlanDomainError(t, err, http.StatusServiceUnavailable, openAINoEligibleTerminalTargetDetail)
+		domainErr, ok := isOpenAIPlanningRejectionError(err)
+		if !ok || domainErr.ErrorCode != openAINoEligibleTerminalTargetErrorCode {
+			t.Fatalf("expected openai_no_eligible_terminal_target planning code, got %v", err)
+		}
+	})
+
+	t.Run("static compatible route dynamically banned -> ordinary service unavailable", func(t *testing.T) {
+		service := newRequestPlanUnitService()
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "dynamically-banned"})
+		model := snapshot.ModelsByID["dynamically-banned"]
+		snapshot.AccessTargetsBySourceModelID[model.ID] = nil
+		addRequestPlanConnectionTarget(snapshot, model, 4_007, 9_007, 0)
+		service.runtimeState.SeedConnectionState(profileID, model.ID, 4_007, loadbalance.RuntimeConnectionState{
+			ConnectionID: 4_007,
+			BanMode:      "until_reset",
+		}, time.Unix(1_700_000_000, 0).UTC(), time.Unix(1_700_000_000, 0).UTC())
+		err := buildRequestPlanErrorForTest(t, service, snapshot, "/v1/chat/completions", []byte(`{"model":"dynamically-banned","messages":[]}`), RuntimeProxyConfigSnapshot{})
+		assertPlanDomainError(t, err, http.StatusServiceUnavailable, "No eligible targets available for model 'dynamically-banned'.")
+		if _, ok := isOpenAIPlanningRejectionError(err); ok {
+			t.Fatalf("expected dynamic unavailability to keep ordinary 503 without planning code, got %v", err)
+		}
+	})
 }

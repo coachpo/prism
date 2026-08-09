@@ -77,8 +77,12 @@ function BanPolicyCurrentStatePanel({ revision }: { revision: number }) {
   const resetState = async (connectionId: number) => {
     setResettingConnectionId(connectionId)
     try {
-      await api.loadbalance.resetCurrentState(connectionId)
-      setStates((current) => current.filter((item) => item.connection_id !== connectionId))
+      const response = await api.loadbalance.resetCurrentState(connectionId)
+      setStates((current) =>
+        current.map((item) =>
+          item.connection_id === connectionId && response.state ? response.state : item,
+        ),
+      )
     } finally {
       setResettingConnectionId(null)
     }

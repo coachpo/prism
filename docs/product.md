@@ -28,12 +28,16 @@ Single operator (developer/power user) running the application locally or on a l
 ### 4.2 Model Configuration
 - Map each model to a fixed runtime `api_family`
 - Models expose one ordered `access_targets` list whose public entries point to same-family models
-- Terminal Targets carry endpoint, costing, health, admission-limit, and auth metadata as model-private endpoint bindings owned by one model
+- Terminal Targets carry endpoint, costing, admission-limit, and auth metadata as model-private endpoint bindings owned by one model
 - Select which access targets are enabled for each model; enabled models require at least one enabled target
 - CRUD operations for all configurations are available via REST API
+- Composite create (`initial_terminal_target`) creates a model, an optional inline endpoint, the first Terminal Target and its owner edge in one atomic transaction: the normal path produces a working enabled model in a single submit, any failure rolls back completely, and "configure later" creates a disabled model without a target
+- New Terminal Target capability defaults follow the owner model accepted format; `None` coverage is not selectable in first-party UI, `Partial` coverage saves with a visible warning, and the create dialog shows capability coverage previews next to the picker
 
 ### 4.3 Unified Model Access Routing
 - Ordered same-family model targets are evaluated as an aggregate; direct Terminal Targets are the fallback when no model-target candidate is eligible
+- The UI presents the two stages explicitly: "模型目标（先尝试）" and "终端目标（无模型候选时回落）", each with stage-local numbering; `single` truncation is shown per stage and per truncated row, and never mislabeled across stages
+- Routing diagnostics (per-operation capability coverage, static eligibility, resolved stage) come from a backend static analyzer; the frontend never re-derives coverage or eligibility, and operation coverage warnings (`完整覆盖 / 部分覆盖 / 不兼容`) are authoritative
 - Model-target entries must stay within the same `api_family`, cannot target themselves, and cannot introduce cycles
 - Internal connection-target entries are terminal ownership and routing edges for Terminal Targets; model-target entries can compose chains while preserving deterministic order
 - Each model owns its reusable load-balance strategy, so nested model targets evaluate strategy and Ban Policy at their own graph level
@@ -64,13 +68,16 @@ Single operator (developer/power user) running the application locally or on a l
 - **Models** carry fixed `api_family` metadata.
 - **Terminal Targets** are profile-scoped model routing, costing, and health configurations that reference endpoints in the same profile.
 - Endpoints can be reused across multiple models within the same profile.
-- Deleting an endpoint is blocked if any Terminal Targets in that profile still reference it.
+- Deleting an endpoint is blocked with a typed `409 endpoint_in_use` that lists the same direct Terminal Target references shown in the Endpoint page disclosure (`模型 → Terminal Target → capability → 价格模板 → 启停/激活状态`); recursive reachable models are labeled separately and never block deletion
+- Endpoint cards support "附加到模型": pick a destination model and create a new private Terminal Target with the endpoint preselected and locked
+- A Terminal Target can be copied to multiple same-family destination models in one transactional batch; copies are independent private connections, default to not participating in routing, and never carry runtime state or secrets
 
 ### 4.6 Terminal Target Request Health
 - Manual Terminal Target test actions are removed from the management API and UI.
 - Backend request-derived stats can expose Terminal Target success-rate and routing-health read models for real runtime traffic. These are API/read-model capabilities, not a current per-target health-badge workflow.
 - The Models page renders plain telemetry text for each model: 24-hour success rate, P95 latency, and 24-hour request count, plus a 30-day spend value. Missing success data is shown as `- Success`; there are no colored success-rate thresholds or health badges.
 - The current model-detail UI does not render Terminal Target success-rate indicators, and the dashboard does not render the backend `routing_health_map` response field.
+- Terminal Target cards render the process-local Ban Policy observation: `本进程尚未观测`, `当前无冷却限制`, retry-wait/banned with until-time and a narrow "重置冷却" action, last success time, `最近成功响应头延迟` and in-flight counts. `available` never implies upstream health; stale snapshots are labeled `状态可能已过期`
 
 ### 4.7 Web UI (Management Dashboard)
 - View all configured models and their reachable Terminal Targets
@@ -79,7 +86,8 @@ Single operator (developer/power user) running the application locally or on a l
 - Add/edit/delete Terminal Targets from model detail
 - Toggle enabled/disabled access targets per model
 - Select an explicit load-balance strategy with Ban Policy settings per model
-- Dedicated model-detail route (`/models/:id`) for ordered access-target and Terminal Target configuration; current loadbalance state and loadbalance event history live under Ban Policies
+- Dedicated model-detail route (`/models/:id`) for two-stage access-target and Terminal Target configuration, operation coverage summary and runtime state; dead `?tab=` state is normalized away, `action=create-terminal-target` (with optional `endpoint_id`) and `focus_connection_id` are one-shot URL parameters consumed exactly once; current loadbalance state and loadbalance event history live under Ban Policies
+- Model list and detail share the `N 启用 / M 总计` target count vocabulary; the API column shows family plus OpenAI accepted format; Partial/None/uncovered and `single` truncation warnings appear on list rows
 - Dedicated request-log browsing and investigation at `/observe/requests`, separate from dashboard analytics
 - Dedicated routes for pricing templates and proxy API key lifecycle management
 - Dashboard analytics lives under `/observe?tab=analytics` and replaces the old standalone statistics route

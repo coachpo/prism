@@ -28,6 +28,7 @@ type Service struct {
 type domainError struct {
 	StatusCode int
 	Detail     any
+	Fields     map[string]any
 }
 
 func (err *domainError) Error() string {
@@ -82,6 +83,7 @@ func (s *Service) corsSnapshot() platformcors.Snapshot {
 
 func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Get("/endpoints/connections", s.handleListEndpointConnections)
+	api.Post("/endpoints/references/batch", s.handleEndpointReferencesBatch)
 	api.Get("/endpoints", s.handleListEndpoints)
 	api.Post("/endpoints", s.handleCreateEndpoint)
 	api.Put("/endpoints/{endpoint_id}", s.handleUpdateEndpoint)

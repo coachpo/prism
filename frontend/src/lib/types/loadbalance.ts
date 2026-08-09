@@ -71,7 +71,7 @@ export interface LoadbalanceCurrentStateItem {
   banned_until_at: string | null;
   last_failure_kind: LoadbalanceFailureKind | null;
   last_success_at: string | null;
-  live_p95_latency_ms: number | null;
+  last_success_response_headers_latency_ms: number | null;
   state: LoadbalanceCurrentStateValue;
   created_at: string;
   updated_at: string;
@@ -84,6 +84,7 @@ export interface LoadbalanceCurrentStateListResponse {
 export interface LoadbalanceCurrentStateResetResponse {
   connection_id: number;
   cleared: boolean;
+  state: LoadbalanceCurrentStateItem | null;
 }
 
 export interface LoadbalanceEventSummary {

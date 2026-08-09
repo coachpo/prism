@@ -106,13 +106,19 @@ func TestTargetRouteCRUD(t *testing.T) {
 	assertStatus(t, createConnection, http.StatusCreated)
 	var connectionPayload map[string]any
 	decodeJSONResponse(t, createConnection, &connectionPayload)
+	connectionPayload = asMap(t, connectionPayload["connection"])
+	if connectionPayload["configuration_warnings"] != nil {
+		t.Fatalf("create envelope must not leak configuration_warnings into the connection object")
+	}
 	connectionID := jsonInt(t, connectionPayload["id"])
+	assertMutationEnvelopeWarnings(t, connectionPayload)
 	connectionTargetID := modelLoadConnectionTargetID(t, harness, sourceModelID, connectionID)
 
 	createModelTarget := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/targets", sourceModelID), map[string]any{"target_type": "model", "target_model_id": "s9-target-route-model", "position": 1, "is_enabled": false}, modelHeader(defaultProfileID))
 	assertStatus(t, createModelTarget, http.StatusCreated)
-	var targets []map[string]any
-	decodeJSONResponse(t, createModelTarget, &targets)
+	var targetsPayload map[string]any
+	decodeJSONResponse(t, createModelTarget, &targetsPayload)
+	targets := decodeTargetEnvelopeList(t, targetsPayload)
 	assertTargetRouteOrder(t, targets, []expectedAccessTarget{{TargetType: "connection", ConnectionID: connectionID, Position: 0, IsEnabled: true}, {TargetType: "model", TargetModelID: "s9-target-route-model", Position: 1, IsEnabled: false}})
 	modelTargetID := jsonInt(t, targets[1]["id"])
 
@@ -120,6 +126,7 @@ func TestTargetRouteCRUD(t *testing.T) {
 	assertStatus(t, updateConnection, http.StatusOK)
 	var updatedConnection map[string]any
 	decodeJSONResponse(t, updateConnection, &updatedConnection)
+	updatedConnection = asMap(t, updatedConnection["connection"])
 	if jsonInt(t, updatedConnection["id"]) != connectionID || jsonInt(t, updatedConnection["model_config_id"]) != sourceModelID || jsonInt(t, updatedConnection["endpoint_id"]) != endpointBID || updatedConnection["is_active"] != false || asMap(t, updatedConnection["custom_headers"])["x-owner"] != "2" {
 		t.Fatalf("expected owner-scoped update to preserve owner target and update connection fields, got %+v", updatedConnection)
 	}
@@ -133,13 +140,17 @@ func TestTargetRouteCRUD(t *testing.T) {
 	assertStatus(t, enableModelTarget, http.StatusOK)
 	reorderResponse := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/targets/%d/position", sourceModelID, modelTargetID), map[string]any{"to_index": 0}, modelHeader(defaultProfileID))
 	assertStatus(t, reorderResponse, http.StatusOK)
-	decodeJSONResponse(t, reorderResponse, &targets)
+	var reorderPayload map[string]any
+	decodeJSONResponse(t, reorderResponse, &reorderPayload)
+	targets = decodeTargetEnvelopeList(t, reorderPayload)
 	assertTargetRouteOrder(t, targets, []expectedAccessTarget{{TargetType: "model", TargetModelID: "s9-target-route-model", Position: 0, IsEnabled: true}, {TargetType: "connection", ConnectionID: connectionID, Position: 1, IsEnabled: true}})
 	connectionTargetID = jsonInt(t, targets[1]["id"])
 
 	toggleConnectionTarget := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/targets/%d", sourceModelID, connectionTargetID), map[string]any{"is_enabled": false}, modelHeader(defaultProfileID))
 	assertStatus(t, toggleConnectionTarget, http.StatusOK)
-	decodeJSONResponse(t, toggleConnectionTarget, &targets)
+	var togglePayload map[string]any
+	decodeJSONResponse(t, toggleConnectionTarget, &togglePayload)
+	targets = decodeTargetEnvelopeList(t, togglePayload)
 	assertTargetRouteOrder(t, targets, []expectedAccessTarget{{TargetType: "model", TargetModelID: "s9-target-route-model", Position: 0, IsEnabled: true}, {TargetType: "connection", ConnectionID: connectionID, Position: 1, IsEnabled: false}})
 	_ = targetModelID
 }
@@ -156,6 +167,7 @@ func TestDeleteReferencedConnection(t *testing.T) {
 	assertStatus(t, createResponse, http.StatusCreated)
 	var created map[string]any
 	decodeJSONResponse(t, createResponse, &created)
+	created = asMap(t, created["connection"])
 	connectionID := jsonInt(t, created["id"])
 
 	referencesResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/connections/%d/references", connectionID), nil, modelHeader(defaultProfileID))
@@ -233,6 +245,7 @@ func TestTargetDeleteOwnedConnectionDeletesConnectionNoOrphan(t *testing.T) {
 	assertStatus(t, createConnection, http.StatusCreated)
 	var created map[string]any
 	decodeJSONResponse(t, createConnection, &created)
+	created = asMap(t, created["connection"])
 	connectionID := jsonInt(t, created["id"])
 	connectionTargetID := modelLoadConnectionTargetID(t, harness, ownerModelID, connectionID)
 
@@ -241,8 +254,9 @@ func TestTargetDeleteOwnedConnectionDeletesConnectionNoOrphan(t *testing.T) {
 
 	deleteConnectionTarget := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/models/%d/targets/%d", ownerModelID, connectionTargetID), nil, modelHeader(defaultProfileID))
 	assertStatus(t, deleteConnectionTarget, http.StatusOK)
-	var targets []map[string]any
-	decodeJSONResponse(t, deleteConnectionTarget, &targets)
+	var targetsPayload map[string]any
+	decodeJSONResponse(t, deleteConnectionTarget, &targetsPayload)
+	targets := decodeTargetEnvelopeList(t, targetsPayload)
 	assertTargetRouteOrder(t, targets, []expectedAccessTarget{{TargetType: "model", TargetModelID: "task4-target-delete-model", Position: 0, IsEnabled: true}})
 	assertStoredConnectionCount(t, harness, connectionID, 0)
 	assertModelConnectionTargetCount(t, harness, ownerModelID, 0)
@@ -280,6 +294,7 @@ func TestModelScopedConnectionCreateCreatesOwnerTarget(t *testing.T) {
 	assertStatus(t, createResponse, http.StatusCreated)
 	var created map[string]any
 	decodeJSONResponse(t, createResponse, &created)
+	created = asMap(t, created["connection"])
 	connectionID := jsonInt(t, created["id"])
 	if jsonInt(t, created["model_config_id"]) != ownerModelID || created["api_family"] != "openai" || jsonInt(t, created["endpoint_id"]) != ownerEndpointID || jsonInt(t, created["priority"]) != 0 {
 		t.Fatalf("expected owner-scoped created connection payload, got %+v", created)
@@ -295,6 +310,7 @@ func TestModelScopedConnectionCreateCreatesOwnerTarget(t *testing.T) {
 	assertStatus(t, otherCreateResponse, http.StatusCreated)
 	var otherCreated map[string]any
 	decodeJSONResponse(t, otherCreateResponse, &otherCreated)
+	otherCreated = asMap(t, otherCreated["connection"])
 	otherConnectionID := jsonInt(t, otherCreated["id"])
 
 	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/models/%d/connections", ownerModelID), nil, modelHeader(defaultProfileID))
@@ -352,6 +368,7 @@ func TestLegacyModelConnectionAuxiliaryRoutesRejectWithOwnerGuidance(t *testing.
 	assertStatus(t, createConnection, http.StatusCreated)
 	var created map[string]any
 	decodeJSONResponse(t, createConnection, &created)
+	created = asMap(t, created["connection"])
 	connectionID := jsonInt(t, created["id"])
 
 	for _, testCase := range []struct {
@@ -561,6 +578,7 @@ func TestConnectionCapabilitySnapshotsExposeOpenAITextCapability(t *testing.T) {
 	assertStatus(t, createResponse, http.StatusCreated)
 	var created map[string]any
 	decodeJSONResponse(t, createResponse, &created)
+	created = asMap(t, created["connection"])
 	connectionID := jsonInt(t, created["id"])
 	if created["openai_text_capability"] != "responses_only" {
 		t.Fatalf("expected created connection to expose explicit OpenAI text capability, got %+v", created)
@@ -579,6 +597,7 @@ func TestConnectionCapabilitySnapshotsExposeOpenAITextCapability(t *testing.T) {
 	assertStatus(t, updateResponse, http.StatusOK)
 	var updated map[string]any
 	decodeJSONResponse(t, updateResponse, &updated)
+	updated = asMap(t, updated["connection"])
 	if updated["openai_text_capability"] != "chat_completions_only" {
 		t.Fatalf("expected updated connection to expose text capability, got %+v", updated)
 	}
@@ -630,4 +649,26 @@ func TestConnectionProbeEndpointVariantIsRemovedFromWrites(t *testing.T) {
 
 	response := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "responses_only", "openai_probe_endpoint_variant": "responses_minimal"}, modelHeader(defaultProfileID))
 	assertErrorResponse(t, response, http.StatusBadRequest, "Invalid request body")
+}
+
+func assertMutationEnvelopeWarnings(t *testing.T, connection map[string]any) {
+	t.Helper()
+	// The envelope carries configuration_warnings next to connection; the
+	// unwrapped connection object itself must stay warning-free.
+	if warnings, ok := connection["configuration_warnings"]; ok && warnings != nil {
+		t.Fatalf("connection object must not carry configuration_warnings, got %+v", connection)
+	}
+}
+
+func decodeTargetEnvelopeList(t *testing.T, payload map[string]any) []map[string]any {
+	t.Helper()
+	raw, ok := payload["access_targets"].([]any)
+	if !ok {
+		t.Fatalf("expected access-target mutation envelope with access_targets, got %+v", payload)
+	}
+	items := make([]map[string]any, 0, len(raw))
+	for _, item := range raw {
+		items = append(items, asMap(t, item))
+	}
+	return items
 }

@@ -6,6 +6,7 @@ import { useLocale } from "@/i18n/useLocale"
 import { OperatorEmptyState, OperatorPageHeader, OperatorPageShell, OperatorSearchInput, OperatorToolbar } from "@/shared/design-system"
 import { DeleteEndpointDialog } from "@/pages/endpoints/DeleteEndpointDialog"
 import { EndpointCardView } from "@/pages/endpoints/EndpointCard"
+import { AttachEndpointDialog } from "@/pages/endpoints/AttachEndpointDialog"
 import { EndpointDialog } from "./EndpointDialog"
 import { useEndpointsFeatureData } from "./useEndpointsFeatureData"
 
@@ -45,12 +46,17 @@ export function EndpointsFeaturePage() {
         <div className="flex flex-col gap-3">
           {data.hasActiveReviewFilters ? <p className="text-xs text-muted-foreground">{copy.reorderDisabledWhileFilters}</p> : null}
           {data.filteredEndpoints.map((endpoint, index) => (
-            <EndpointCardView key={endpoint.id} endpoint={endpoint} formatTime={data.formatTime} models={data.endpointModels[endpoint.id] ?? []} isDuplicating={data.duplicatingEndpointId === endpoint.id} canMoveUp={data.canReorder && index > 0} canMoveDown={data.canReorder && index < data.filteredEndpoints.length - 1} onMoveUp={(target) => data.moveUp(target.id)} onMoveDown={(target) => data.moveDown(target.id)} onDuplicate={data.handleDuplicateEndpoint} onEdit={data.setEditingEndpoint} onDelete={data.setDeleteTarget} />
+            <EndpointCardView key={endpoint.id} endpoint={endpoint} formatTime={data.formatTime} models={data.endpointModels[endpoint.id] ?? []} directReferences={data.directReferencesByEndpoint[endpoint.id] ?? []} isDuplicating={data.duplicatingEndpointId === endpoint.id} canMoveUp={data.canReorder && index > 0} canMoveDown={data.canReorder && index < data.filteredEndpoints.length - 1} onMoveUp={(target) => data.moveUp(target.id)} onMoveDown={(target) => data.moveDown(target.id)} onDuplicate={data.handleDuplicateEndpoint} onEdit={data.setEditingEndpoint} onDelete={data.setDeleteTarget} onAttach={data.setAttachTarget} />
           ))}
         </div>
       )}
       <EndpointDialog open={data.isCreateOpen} onOpenChange={data.setIsCreateOpen} onSubmit={data.handleCreate} description={copy.description} serverError={data.isCreateOpen ? data.endpointDialogError : null} title={copy.addEndpoint} submitLabel={copy.addEndpoint} />
       <EndpointDialog open={!!data.editingEndpoint} onOpenChange={(open) => !open && data.setEditingEndpoint(null)} onSubmit={data.handleUpdate} description={copy.description} serverError={data.editingEndpoint ? data.endpointDialogError : null} initialValues={data.editingEndpoint || undefined} title={copy.editEndpoint} submitLabel={copy.saveChanges} />
+      <AttachEndpointDialog
+        endpoint={data.attachTarget}
+        onOpenChange={(open) => { if (!open) data.setAttachTarget(null) }}
+        onSubmit={data.handleAttachEndpoint}
+      />
       <DeleteEndpointDialog deleteTarget={data.deleteTarget} displayTarget={data.deleteDialogTarget ?? data.deleteTarget} isDeletingEndpoint={data.isDeletingEndpoint} onOpenChange={data.handleDeleteDialogOpenChange} onConfirm={data.handleDelete} />
     </OperatorPageShell>
   )

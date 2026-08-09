@@ -394,7 +394,7 @@ func runtimePlanningCacheInvalidationAfterOwnerScopedConnectionRoutes(t *testing
 	harness.waitForRuntimeSnapshotGeneration(t, generation)
 	var createPayload map[string]any
 	decodeJSONResponse(t, createResponse, &createPayload)
-	createdConnectionID := jsonInt(t, createPayload["id"])
+	createdConnectionID := jsonInt(t, createPayload["connection"].(map[string]any)["id"])
 	assertRuntimeRequestRoutesToScriptedUpstream(t, harness, publicModelID, ownerModelID, createUpstream, "/cache-invalidation/owner-connection-create/v1/chat/completions")
 
 	updateUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-owner-connection-update"})

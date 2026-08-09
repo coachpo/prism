@@ -462,6 +462,7 @@ export function toModelListItem(
     active_connection_count: connections.filter((connection) => connection.is_active).length,
     health_success_rate: existing?.health_success_rate ?? null,
     health_total_requests: existing?.health_total_requests ?? 0,
+    routing_summary: existing?.routing_summary ?? null,
     created_at: model.created_at,
     updated_at: model.updated_at,
   };

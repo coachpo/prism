@@ -1,15 +1,21 @@
-import { useCallback, useMemo } from "react"
+import { useCallback, useMemo, useState } from "react"
+import { toast } from "sonner"
+import { api } from "@/lib/api"
+import { getStaticMessages } from "@/i18n/staticMessages"
+import type { Connection } from "@/lib/types"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useLocale } from "@/i18n/useLocale"
 import { AccessTargetsEditor } from "@/pages/models/AccessTargetsEditor"
 import { ModelDialog } from "@/pages/models/ModelDialog"
 import { accessTargetToMutation } from "@/pages/models/modelFormState"
 import { ConnectionDialog } from "@/pages/model-detail/ConnectionDialog"
+import { CopyTerminalTargetDialog } from "@/pages/model-detail/CopyTerminalTargetDialog"
 import { ModelDetailHeader } from "@/pages/model-detail/ModelDetailHeader"
+import { OpenAICoverageSummary } from "@/pages/model-detail/OpenAICoverageSummary"
 import { OverviewCards } from "@/pages/model-detail/OverviewCards"
 import { isOwnedConnectionTarget } from "@/pages/model-detail/useModelDetailDataSupport"
 import { useModelDetailFeatureData } from "./useModelDetailFeatureData"
-import { type ModelDetailTab } from "./modelDetailSchemas"
+import { MODEL_DETAIL_ACTION_CREATE_TERMINAL_TARGET } from "./modelDetailSchemas"
 
 type URLSearchParamsInit = ConstructorParameters<typeof URLSearchParams>[0]
 type SetURLSearchParams = (
@@ -19,12 +25,10 @@ type SetURLSearchParams = (
 
 interface ModelDetailFeaturePageProps {
   modelId: string | undefined
-  tab?: ModelDetailTab
   searchParams?: URLSearchParams
   onBack?: () => void
   onNavigateTo?: (to: string) => void
   onSearchParamsChange?: (searchParams: URLSearchParams, options?: { replace?: boolean }) => void
-  onTabChange?: (tab: ModelDetailTab) => void
 }
 
 function resolveSearchParamsInit(
@@ -55,10 +59,19 @@ export function ModelDetailFeaturePage({
   onSearchParamsChange,
 }: ModelDetailFeaturePageProps) {
   const { messages } = useLocale()
+  const [copyTarget, setCopyTarget] = useState<Connection | null>(null)
   const resolvedSearchParams = useMemo(
     () => new URLSearchParams(searchParams ?? new URLSearchParams(window.location.search)),
     [searchParams],
   )
+  // One-shot query-driven create action: open the Terminal Target dialog and
+  // clear the action parameters (replace) so a refresh never reopens it.
+  const oneShotAction = useMemo(() => {
+    const action = resolvedSearchParams.get("action")
+    if (action !== MODEL_DETAIL_ACTION_CREATE_TERMINAL_TARGET) return null
+    const endpointId = resolvedSearchParams.get("endpoint_id")
+    return { endpointId: endpointId && /^\d+$/.test(endpointId) ? endpointId : null }
+  }, [resolvedSearchParams])
   const setSearchParams = useCallback<SetURLSearchParams>(
     (nextInit, options) => {
       const nextSearchParams = resolveSearchParamsInit(nextInit, new URLSearchParams(resolvedSearchParams))
@@ -76,12 +89,27 @@ export function ModelDetailFeaturePage({
     }
     window.location.assign(to)
   }, [onNavigateTo])
+  const consumeOneShotAction = useCallback(() => {
+    const next = new URLSearchParams(resolvedSearchParams)
+    next.delete("action")
+    next.delete("endpoint_id")
+    setSearchParams(next, { replace: true })
+  }, [resolvedSearchParams, setSearchParams])
   const data = useModelDetailFeatureData({
     modelId,
     searchParams: resolvedSearchParams,
     setSearchParams,
     navigateTo,
+    oneShotAction,
+    onOneShotActionConsumed: consumeOneShotAction,
   })
+  const modelConfigIDByModelID = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const candidate of data.allModels) {
+      map.set(candidate.model_id, candidate.id)
+    }
+    return map
+  }, [data.allModels])
   if (data.loading) {
     return (
       <div className="flex flex-col gap-[var(--density-page-gap)]" data-testid="model-detail-feature-loading">
@@ -101,6 +129,7 @@ export function ModelDetailFeaturePage({
   const parsedModelConfigId = modelId ? Number.parseInt(modelId, 10) : undefined
   const isConnectionTargetMutable = (connectionId: number) =>
     isOwnedConnectionTarget(model, parsedModelConfigId, connectionId)
+  const ownerOpenAIAcceptedFormat = model.openai_accepted_format ?? null
 
   return (
     <main
@@ -122,6 +151,13 @@ export function ModelDetailFeaturePage({
         accessTargetSummary={data.accessTargetSummary}
       />
 
+      <OpenAICoverageSummary
+        diagnostics={data.diagnostics}
+        loading={data.diagnosticsLoading}
+        error={data.diagnosticsError}
+        onRetry={() => void data.refreshDiagnostics()}
+      />
+
       <AccessTargetsEditor
         apiFamilyLabel={model.api_family}
         accessTargets={model.access_targets
@@ -131,19 +167,48 @@ export function ModelDetailFeaturePage({
         connectionOptions={data.targetConnectionsForApiFamily}
         error={data.targetEditorError}
         isConnectionTargetMutable={isConnectionTargetMutable}
+        diagnostics={data.diagnostics}
+        modelConfigIDByModelID={modelConfigIDByModelID}
+        ownerOpenAIAcceptedFormat={ownerOpenAIAcceptedFormat}
+        currentStateByConnectionId={data.currentStateByConnectionId}
+        resettingConnectionIds={data.resettingConnectionIds}
+        onResetCooldown={(connectionId) => void data.handleResetCooldown(connectionId)}
+        onRefreshRuntimeState={() => void data.refreshCurrentState()}
+        pricingTemplates={data.pricingTemplates}
         onAddTarget={data.handleAddAccessTarget}
         onCreateConnection={() => data.openConnectionDialog()}
         onDeleteTarget={data.handleDeleteAccessTarget}
         onEditConnection={data.openConnectionDialog}
+        onCopyConnection={setCopyTarget}
+        onQuickCapabilityChange={data.handleQuickCapabilityChange}
+        onQuickPricingChange={data.handleQuickPricingChange}
         onMoveTarget={data.handleMoveAccessTarget}
         onToggleTarget={data.handleToggleAccessTarget}
-        onChange={() => undefined}
+      />
+
+      <CopyTerminalTargetDialog
+        isOpen={copyTarget != null}
+        onOpenChange={(open) => { if (!open) setCopyTarget(null) }}
+        sourceModelConfigId={parsedModelConfigId ?? 0}
+        sourceCapability={copyTarget?.openai_text_capability ?? null}
+        destinationModels={data.allModels}
+        onCopy={async (destinationModelConfigIds, enableCopies) => {
+          if (!copyTarget || parsedModelConfigId == null) return
+          await api.models.connections.copies(parsedModelConfigId, copyTarget.id, {
+            destination_model_config_ids: destinationModelConfigIds,
+            enable_copies: enableCopies,
+          })
+          toast.success(getStaticMessages().modelDetailData.connectionCopied)
+          void data.refreshDiagnostics()
+          void data.refreshCurrentState()
+        }}
       />
 
       <ConnectionDialog
         isOpen={data.isConnectionDialogOpen}
         onOpenChange={data.setIsConnectionDialogOpen}
         apiFamily={model.api_family}
+        ownerOpenAIAcceptedFormat={ownerOpenAIAcceptedFormat}
         editingConnection={data.editingConnection}
         connectionForm={data.connectionForm}
         setConnectionForm={data.setConnectionForm}
@@ -159,6 +224,7 @@ export function ModelDetailFeaturePage({
         handleConnectionSubmit={data.handleConnectionSubmit}
         endpointSourceDefaultName={data.endpointSourceDefaultName}
         pricingTemplates={data.pricingTemplates}
+        prefillConnections={data.targetConnectionsForApiFamily}
       />
 
       <ModelDialog

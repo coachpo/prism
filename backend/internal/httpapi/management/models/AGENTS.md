@@ -38,3 +38,9 @@ models/
 - Do not move owner-scoped private connection route handling into model handlers.
 - Do not let access targets point at incompatible, missing, or cyclic target models.
 - Do not reintroduce exact-facade, regex matching, capability-metadata expansion, or frontend-only target authoring from this package.
+
+## UX-UPGRADE SURFACES
+
+- `POST /api/models` supports composite create via `initial_terminal_target` (endpoint_id XOR inline endpoint_create; capability derives from the owner accepted format; enabled defaults; `model_initial_target_inactive` / `model_no_enabled_targets` hard errors; single transaction with full rollback). Responses are `{model, configuration_warnings}` envelopes.
+- `GET /api/models/{model_config_id}/routing-diagnostics` and `POST .../routing-diagnostics/preview` serve the `modelrouting` analyzer over the committed/overlaid graph; both are read-only and never invalidate planning. `GET /api/models` embeds a compact `routing_summary` per model computed in one bounded batch.
+- Routing-relevant mutations attach `configuration_warnings` from `modelMutationWarnings`; the frontend keys presentation off warning codes, never message text.

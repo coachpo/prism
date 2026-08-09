@@ -275,7 +275,7 @@ func (s *LocalRuntimeStateStore) RecordRuntimeSuccess(profileID int, modelConfig
 	state.state.BannedUntilAt = nil
 	state.state.LastFailureKind = nil
 	state.state.LastSuccessAt = timePointer(nowAt)
-	state.state.LiveP95LatencyMS = intPointer(latencyMS)
+	state.state.LastSuccessResponseHeadersLatencyMS = intPointer(latencyMS)
 	state.updatedAt = nowAt
 	return RuntimeStateTransition{
 		PreviousState:         previousState,
@@ -340,38 +340,69 @@ func (s *LocalRuntimeStateStore) PeekRoundRobinCursor(profileID int, modelConfig
 	return int(cursor.next.Load() % uint64(connectionCount))
 }
 
-func (s *LocalRuntimeStateStore) ResetConnection(profileID int, connectionID int) bool {
+// ResetConnection clears only retry/ban cooldown fields on the connection's local
+// runtime state: cycle_retry_attempts, cumulative_retry_attempts, next_retry_at,
+// last_retry_delay_ms, ban_mode, banned_until_at and last_failure_kind.
+// QPS window/count, in-flight counts, last success observation, response-headers
+// latency and round-robin cursors are preserved. It returns the post-reset
+// snapshot (nil when the process has no state for the connection) and whether
+// any cooldown field was actually cleared.
+func (s *LocalRuntimeStateStore) ResetConnection(profileID int, connectionID int) (*CurrentStateItem, bool) {
 	if s == nil || profileID <= 0 || connectionID <= 0 {
-		return false
+		return nil, false
 	}
 	profile, ok := s.lookupProfile(profileID)
 	if !ok {
-		return false
+		return nil, false
 	}
-	profile.mu.Lock()
-	defer profile.mu.Unlock()
-	if profile.connections[connectionID] == nil {
-		return false
+	profile.mu.RLock()
+	state := profile.connections[connectionID]
+	profile.mu.RUnlock()
+	if state == nil {
+		return nil, false
 	}
-	delete(profile.connections, connectionID)
-	return true
+	nowAt := time.Now().UTC()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	cleared := state.clearCooldownLocked()
+	if cleared {
+		state.updatedAt = nowAt
+	}
+	item := currentStateItemFromLocalStateLocked(state, nowAt)
+	return &item, cleared
 }
 
-func (s *LocalRuntimeStateStore) ResetRoundRobinCursor(profileID int, modelConfigID int) bool {
-	if s == nil || profileID <= 0 || modelConfigID <= 0 {
-		return false
+func (state *localRuntimeConnectionState) clearCooldownLocked() bool {
+	cleared := false
+	if state.state.CycleRetryAttempts != 0 {
+		state.state.CycleRetryAttempts = 0
+		cleared = true
 	}
-	profile, ok := s.lookupProfile(profileID)
-	if !ok {
-		return false
+	if state.state.CumulativeRetryAttempts != 0 {
+		state.state.CumulativeRetryAttempts = 0
+		cleared = true
 	}
-	profile.mu.Lock()
-	defer profile.mu.Unlock()
-	if profile.roundRobin[modelConfigID] == nil {
-		return false
+	if state.state.NextRetryAt != nil {
+		state.state.NextRetryAt = nil
+		cleared = true
 	}
-	delete(profile.roundRobin, modelConfigID)
-	return true
+	if state.state.LastRetryDelayMS != 0 {
+		state.state.LastRetryDelayMS = 0
+		cleared = true
+	}
+	if !strings.EqualFold(strings.TrimSpace(state.state.BanMode), "off") {
+		state.state.BanMode = "off"
+		cleared = true
+	}
+	if state.state.BannedUntilAt != nil {
+		state.state.BannedUntilAt = nil
+		cleared = true
+	}
+	if state.state.LastFailureKind != nil {
+		state.state.LastFailureKind = nil
+		cleared = true
+	}
+	return cleared
 }
 
 func (s *LocalRuntimeStateStore) ResetProfile(profileID int) {
@@ -536,23 +567,23 @@ func (state *localRuntimeConnectionState) snapshotLocked() RuntimeConnectionStat
 func currentStateItemFromLocalStateLocked(state *localRuntimeConnectionState, nowAt time.Time) CurrentStateItem {
 	snapshot := state.snapshotLocked()
 	return CurrentStateItem{
-		ConnectionID:            snapshot.ConnectionID,
-		WindowStartedAt:         cloneTimePointer(snapshot.WindowStartedAt),
-		WindowRequestCount:      snapshot.WindowRequestCount,
-		InFlightNonStream:       snapshot.InFlightNonStream,
-		InFlightStream:          snapshot.InFlightStream,
-		CycleRetryAttempts:      snapshot.CycleRetryAttempts,
-		CumulativeRetryAttempts: snapshot.CumulativeRetryAttempts,
-		NextRetryAt:             cloneTimePointer(snapshot.NextRetryAt),
-		LastRetryDelayMS:        snapshot.LastRetryDelayMS,
-		BanMode:                 snapshot.BanMode,
-		BannedUntilAt:           cloneTimePointer(snapshot.BannedUntilAt),
-		LastFailureKind:         cloneStringPointer(snapshot.LastFailureKind),
-		LastSuccessAt:           cloneTimePointer(snapshot.LastSuccessAt),
-		LiveP95LatencyMS:        cloneIntPointer(snapshot.LiveP95LatencyMS),
-		State:                   deriveCurrentState(snapshot.BanMode, snapshot.BannedUntilAt, snapshot.NextRetryAt, nowAt),
-		CreatedAt:               state.createdAt.UTC(),
-		UpdatedAt:               state.updatedAt.UTC(),
+		ConnectionID:                        snapshot.ConnectionID,
+		WindowStartedAt:                     cloneTimePointer(snapshot.WindowStartedAt),
+		WindowRequestCount:                  snapshot.WindowRequestCount,
+		InFlightNonStream:                   snapshot.InFlightNonStream,
+		InFlightStream:                      snapshot.InFlightStream,
+		CycleRetryAttempts:                  snapshot.CycleRetryAttempts,
+		CumulativeRetryAttempts:             snapshot.CumulativeRetryAttempts,
+		NextRetryAt:                         cloneTimePointer(snapshot.NextRetryAt),
+		LastRetryDelayMS:                    snapshot.LastRetryDelayMS,
+		BanMode:                             snapshot.BanMode,
+		BannedUntilAt:                       cloneTimePointer(snapshot.BannedUntilAt),
+		LastFailureKind:                     cloneStringPointer(snapshot.LastFailureKind),
+		LastSuccessAt:                       cloneTimePointer(snapshot.LastSuccessAt),
+		LastSuccessResponseHeadersLatencyMS: cloneIntPointer(snapshot.LastSuccessResponseHeadersLatencyMS),
+		State:                               deriveCurrentState(snapshot.BanMode, snapshot.BannedUntilAt, snapshot.NextRetryAt, nowAt),
+		CreatedAt:                           state.createdAt.UTC(),
+		UpdatedAt:                           state.updatedAt.UTC(),
 	}
 }
 
@@ -661,7 +692,7 @@ func cloneRuntimeConnectionState(source RuntimeConnectionState) RuntimeConnectio
 	cloned.BannedUntilAt = cloneTimePointer(source.BannedUntilAt)
 	cloned.LastFailureKind = cloneStringPointer(source.LastFailureKind)
 	cloned.LastSuccessAt = cloneTimePointer(source.LastSuccessAt)
-	cloned.LiveP95LatencyMS = cloneIntPointer(source.LiveP95LatencyMS)
+	cloned.LastSuccessResponseHeadersLatencyMS = cloneIntPointer(source.LastSuccessResponseHeadersLatencyMS)
 	return cloned
 }
 

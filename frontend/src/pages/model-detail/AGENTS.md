@@ -1,7 +1,14 @@
 # FRONTEND MODEL DETAIL COMPATIBILITY CLUSTER
 
 ## OVERVIEW
-`pages/model-detail/` keeps model-detail helpers still imported by `src/features/models/detail/`. The feature route owns page composition, ordered access-target editing, Terminal Target dialogs, and summary rendering.
+`pages/model-detail/` keeps model-detail helpers still imported by `src/features/models/detail/`. The feature route owns page composition, two-stage access-target editing, Terminal Target dialogs, operation coverage summary, and runtime-state rendering.
+
+## UX-UPGRADE SURFACES
+- `AccessTargetsEditor.tsx` renders two explicit stages (`AccessTargetStageSection`, `ModelTargetRow`, `TerminalTargetCard`) with stage-local numbering and per-stage `single` truncation callouts; `TerminalTargetRuntimeSummary` renders the process-local Ban Policy observation (never probe health), and `OpenAICoverageSummary` presents backend diagnostics only.
+- `classifyOpenAICoverage.ts` is the pure 3x3 picker preview; backend diagnostics stay authoritative.
+- `ConnectionDialog.tsx` has no right-hand summary column; capability coverage preview sits next to the picker, and "从已有终端目标填充" prefills a draft that always saves as an independent private Connection.
+- `CopyTerminalTargetDialog.tsx` copies a Terminal Target to multiple same-family models through the transactional copies API (default not participating in routing).
+- Dead `?tab=` state is normalized away at the router; `action=create-terminal-target` (+ `endpoint_id`) and `focus_connection_id` are one-shot parameters consumed exactly once.
 
 ## STRUCTURE
 ```text

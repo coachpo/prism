@@ -17,6 +17,16 @@ import (
 
 const modelConnectionTargetsManagedDetail = "terminal targets are managed through model-scoped connection routes"
 
+func targetMutationList(t *testing.T, harness *contractHarness, profileID int, method string, path string, body any, wantStatus int) []any {
+	t.Helper()
+	envelope := modelJSON[map[string]any](t, harness, profileID, method, path, body, wantStatus)
+	items, ok := envelope["access_targets"].([]any)
+	if !ok {
+		t.Fatalf("expected access-target mutation envelope with access_targets, got %+v", envelope)
+	}
+	return items
+}
+
 func modelJSON[T any](t *testing.T, harness *contractHarness, profileID int, method string, path string, body any, wantStatus int) T {
 	t.Helper()
 	return requestJSONStatus[T](t, harness, method, path, body, modelHeader(profileID), wantStatus)
@@ -49,6 +59,9 @@ func modelTargetBody(modelID string, position int, isEnabled bool) map[string]an
 
 func assertOpenAIModelPayload(t *testing.T, payload map[string]any, strategyID int, strategyName string, wantDisplayName string, wantEnabled bool, wantTargets []expectedAccessTarget) {
 	t.Helper()
+	if nested, ok := payload["model"].(map[string]any); ok {
+		payload = nested
+	}
 	assertNoLegacyModelFields(t, payload)
 	assertAccessTargets(t, payload, wantTargets)
 	if payload["openai_accepted_format"] != "dual_native" || payload["display_name"] != wantDisplayName || payload["is_enabled"] != wantEnabled {
@@ -90,11 +103,13 @@ func TestModelCRUD(t *testing.T) {
 	assertOpenAIModelPayload(t, draft, strategyID, "S8 Access Strategy", "S8 Access Draft", false, nil)
 
 	source := modelJSON[map[string]any](t, harness, profileID, http.MethodPost, "/api/models", openAIModelBody(strategyID, "s8-access-model", map[string]any{"display_name": "S8 Access Model"}), http.StatusCreated)
+	source = asMap(t, source["model"])
 	sourceModelID := jsonInt(t, source["id"])
 	assertOpenAIModelPayload(t, source, strategyID, "S8 Access Strategy", "S8 Access Model", false, nil)
 
 	wantTargets := []expectedAccessTarget{{TargetType: "model", TargetModelID: "s8-target-model", Position: 0, IsEnabled: true}}
-	createdTargets := modelJSON[[]any](t, harness, profileID, http.MethodPost, modelTargetListPath(sourceModelID), modelTargetBody("s8-target-model", 0, true), http.StatusCreated)
+	createdTargetsEnvelope := modelJSON[map[string]any](t, harness, profileID, http.MethodPost, modelTargetListPath(sourceModelID), modelTargetBody("s8-target-model", 0, true), http.StatusCreated)
+	createdTargets := createdTargetsEnvelope["access_targets"].([]any)
 	assertAccessTargets(t, map[string]any{"access_targets": createdTargets}, wantTargets)
 	createdTargetID := jsonInt(t, asMap(t, createdTargets[0])["id"])
 	assertStoredModelTargetFlat(t, harness, sourceModelID, targetModelID, 0, true)
@@ -202,11 +217,11 @@ func TestModelTargetMetadataAndObsoleteFields(t *testing.T) {
 	}
 
 	wantTargets := []expectedAccessTarget{{TargetType: "model", TargetModelID: "metadata-target", Position: 0, IsEnabled: true}}
-	createdTargets := modelJSON[[]any](t, harness, profileID, http.MethodPost, modelTargetListPath(sourceModelID), modelTargetBody("metadata-target", 0, true), http.StatusCreated)
+	createdTargets := targetMutationList(t, harness, profileID, http.MethodPost, modelTargetListPath(sourceModelID), modelTargetBody("metadata-target", 0, true), http.StatusCreated)
 	assertAccessTargets(t, map[string]any{"access_targets": createdTargets}, wantTargets)
 	createdTargetID := jsonInt(t, asMap(t, createdTargets[0])["id"])
 	assertStoredModelTargetFlat(t, harness, sourceModelID, terminalTargetID, 0, true)
-	assertAccessTargets(t, map[string]any{"access_targets": modelJSON[[]any](t, harness, profileID, http.MethodPatch, modelTargetItemPath(sourceModelID, createdTargetID), map[string]any{"position": 0, "is_enabled": true}, http.StatusOK)}, wantTargets)
+	assertAccessTargets(t, map[string]any{"access_targets": targetMutationList(t, harness, profileID, http.MethodPatch, modelTargetItemPath(sourceModelID, createdTargetID), map[string]any{"position": 0, "is_enabled": true}, http.StatusOK)}, wantTargets)
 	assertAccessTargets(t, map[string]any{"access_targets": modelJSON[[]any](t, harness, profileID, http.MethodGet, modelTargetListPath(sourceModelID), nil, http.StatusOK)}, wantTargets)
 
 	endpointID := modelInsertEndpoint(t, harness, profileID, "Target Metadata Connection Endpoint", 0)
@@ -393,7 +408,7 @@ func TestModelConnectionTargetContracts(t *testing.T) {
 		assertErrorResponse(t, modelResponse(t, harness, profileID, http.MethodPatch, modelTargetItemPath(sourceModelID, targetID), map[string]any{"target_type": "connection", "target_connection_id": connectionBID, "position": 0, "is_enabled": false}), http.StatusBadRequest, modelConnectionTargetsManagedDetail)
 		assertConnectionTargetState(t, harness, sourceModelID, targetID, connectionAID, 1, true)
 		assertCountQuery(t, harness, `SELECT COUNT(*) FROM model_access_targets WHERE target_connection_id = $1`, connectionBID, 0)
-		assertAccessTargets(t, map[string]any{"access_targets": modelJSON[[]any](t, harness, profileID, http.MethodPatch, modelTargetItemPath(sourceModelID, targetID), map[string]any{"position": 1, "is_enabled": false}, http.StatusOK)}, []expectedAccessTarget{
+		assertAccessTargets(t, map[string]any{"access_targets": targetMutationList(t, harness, profileID, http.MethodPatch, modelTargetItemPath(sourceModelID, targetID), map[string]any{"position": 1, "is_enabled": false}, http.StatusOK)}, []expectedAccessTarget{
 			{TargetType: "model", TargetModelID: "reject-retarget-model-target", Position: 0, IsEnabled: true},
 			{TargetType: "connection", ConnectionID: connectionAID, Position: 1, IsEnabled: false},
 		})
@@ -405,7 +420,7 @@ func TestModelConnectionTargetContracts(t *testing.T) {
 		endpointID := modelInsertEndpoint(t, harness, profileID, "Preserve Private Connection Endpoint", 0)
 		connectionID := modelInsertConnection(t, harness, profileID, sourceModelID, endpointID, 0, true, nil)
 		connectionTargetID := modelLoadConnectionTargetID(t, harness, sourceModelID, connectionID)
-		assertAccessTargets(t, map[string]any{"access_targets": modelJSON[[]any](t, harness, profileID, http.MethodPost, modelTargetListPath(sourceModelID), modelTargetBody("preserve-model-target", 1, true), http.StatusCreated)}, []expectedAccessTarget{
+		assertAccessTargets(t, map[string]any{"access_targets": targetMutationList(t, harness, profileID, http.MethodPost, modelTargetListPath(sourceModelID), modelTargetBody("preserve-model-target", 1, true), http.StatusCreated)}, []expectedAccessTarget{
 			{TargetType: "connection", ConnectionID: connectionID, Position: 0, IsEnabled: true},
 			{TargetType: "model", TargetModelID: "preserve-model-target", Position: 1, IsEnabled: true},
 		})

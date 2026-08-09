@@ -7,9 +7,14 @@ func compileRuntimeRoutingPlan(snapshot *planningSnapshot) (*runtimeRoutingPlan,
 		return nil, invalidRuntimeRoutingPlanError("planning snapshot is nil")
 	}
 	plan := &runtimeRoutingPlan{
-		ModelsByID:          make(map[string]runtimeRoutingPlanModel, len(snapshot.ModelsByID)),
-		ModelsByConfigID:    make(map[int]runtimeRoutingPlanModel, len(snapshot.ModelsByID)),
-		TerminalTargetsByID: make(map[int]runtimeConnection, len(snapshot.TerminalTargetsByID)),
+		ModelsByID:                     make(map[string]runtimeRoutingPlanModel, len(snapshot.ModelsByID)),
+		ModelsByConfigID:               make(map[int]runtimeRoutingPlanModel, len(snapshot.ModelsByID)),
+		TerminalTargetsByID:            make(map[int]runtimeConnection, len(snapshot.TerminalTargetsByID)),
+		AuthoredTargetsBySourceModelID: make(map[int][]runtimeAccessTargetRecord, len(snapshot.AccessTargetsBySourceModelID)),
+	}
+
+	for sourceModelID, targets := range snapshot.AccessTargetsBySourceModelID {
+		plan.AuthoredTargetsBySourceModelID[sourceModelID] = sortedAuthoredRuntimeAccessTargets(targets)
 	}
 
 	modelIDs := make([]string, 0, len(snapshot.ModelsByID))
@@ -54,4 +59,14 @@ func compileRuntimeRoutingPlanTerminalTargets(targets []runtimeAccessTargetRecor
 		}
 	}
 	return terminalTargets
+}
+
+func sortedAuthoredRuntimeAccessTargets(targets []runtimeAccessTargetRecord) []runtimeAccessTargetRecord {
+	if len(targets) == 0 {
+		return nil
+	}
+	ordered := make([]runtimeAccessTargetRecord, len(targets))
+	copy(ordered, targets)
+	sortRuntimeAccessTargets(ordered)
+	return ordered
 }

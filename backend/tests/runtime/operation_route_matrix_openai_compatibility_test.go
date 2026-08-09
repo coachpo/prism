@@ -152,9 +152,25 @@ func TestOperationRouteMatrixResponsesRejectsChatOnlyRequestedModelFormat(t *tes
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": route.PublicModelID, "input": "reject model wire"}, nil)
-	assertRouteMatrixUnsupportedWire(t, response)
+	assertRouteMatrixOperationNotSupported(t, response)
 	if got := len(upstream.requestsSnapshot()); got != 0 {
 		t.Fatalf("expected requested-model wire mismatch to reject before provider transport, got %d calls", got)
+	}
+}
+
+func assertRouteMatrixOperationNotSupported(t *testing.T, response *http.Response) {
+	t.Helper()
+	assertStatus(t, response, http.StatusBadRequest)
+	payload := runtimeResponsePayload(t, response)
+	want := map[string]string{
+		"error":            "openai_operation_not_supported",
+		"detail":           "The requested model does not accept this OpenAI operation.",
+		"translation_mode": "none",
+	}
+	for key, value := range want {
+		if got, _ := payload[key].(string); got != value {
+			t.Fatalf("expected response %s=%q, got %+v", key, value, payload)
+		}
 	}
 }
 
@@ -259,13 +275,11 @@ func assertCapabilityRouteMatrixUpstreamRequest(t *testing.T, request upstreamRe
 
 func assertRouteMatrixUnsupportedWire(t *testing.T, response *http.Response) {
 	t.Helper()
-	assertStatus(t, response, http.StatusBadRequest)
+	assertStatus(t, response, http.StatusServiceUnavailable)
 	payload := runtimeResponsePayload(t, response)
 	want := map[string]string{
-		"error":              "openai_request_translation_unsupported",
-		"detail":             "Prism cannot translate this OpenAI request shape for the selected target.",
-		"translation_mode":   "none",
-		"unsupported_reason": "operation_translation_unsupported",
+		"error":  "openai_no_compatible_terminal_target",
+		"detail": "No configured terminal target can natively serve this OpenAI operation for the requested model.",
 	}
 	for key, value := range want {
 		if got, _ := payload[key].(string); got != value {
