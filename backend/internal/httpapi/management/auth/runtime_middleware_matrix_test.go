@@ -147,6 +147,13 @@ func TestRuntimeMiddlewareDecisionMatrix(t *testing.T) {
 			wantVerified: []string{validKey},
 		},
 		{
+			name:        "enabled generic verifier failure fails closed 503",
+			authEnabled: true, verifyErr: context.DeadlineExceeded,
+			headers:    map[string]string{"Authorization": "Bearer " + validKey},
+			wantStatus: http.StatusServiceUnavailable, wantState: requestcontext.RuntimeProxyKeyNone,
+			wantVerified: []string{validKey},
+		},
+		{
 			name: "enabled auth snapshot unavailable 503", authEnabled: false, authErr: runtimeSnapshotUnavailableError(),
 			headers:    map[string]string{"Authorization": "Bearer " + validKey},
 			wantStatus: http.StatusServiceUnavailable, wantState: requestcontext.RuntimeProxyKeyNone,
@@ -184,6 +191,13 @@ func TestRuntimeMiddlewareDecisionMatrix(t *testing.T) {
 		{
 			name:       "disabled optional verifier unavailable continues unknown",
 			verifyErr:  runtimeSnapshotUnavailableError(),
+			headers:    map[string]string{"Authorization": "Bearer " + validKey},
+			wantStatus: http.StatusOK, wantState: requestcontext.RuntimeProxyKeyUnknown,
+			wantVerified: []string{validKey},
+		},
+		{
+			name:       "disabled generic verifier failure continues unknown",
+			verifyErr:  context.DeadlineExceeded,
 			headers:    map[string]string{"Authorization": "Bearer " + validKey},
 			wantStatus: http.StatusOK, wantState: requestcontext.RuntimeProxyKeyUnknown,
 			wantVerified: []string{validKey},

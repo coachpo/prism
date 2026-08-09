@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -18,13 +20,13 @@ func seedProxyKeyAttributedRequests(t *testing.T, harness *requestLogContractHar
 
 	base := `INSERT INTO request_logs (id, profile_id, model_id, api_family, status_code, response_time_ms, is_stream, success_flag, request_path, created_at, ingress_request_id, attempt_number, proxy_api_key_id_snapshot, proxy_api_key_name_snapshot, proxy_api_key_attribution_state, proxy_api_key_auth_enforced_at_request) VALUES ($1, $2, 'model-a', 'openai', 200, 10, FALSE, TRUE, '/v1/chat/completions', $3, $4, 1, $5, $6, $7, $8)`
 	rows := []struct {
-		id         int
-		createdAt  time.Time
-		ingress    string
-		keyID      any
-		keyName    any
-		state      string
-		enforced   any
+		id        int
+		createdAt time.Time
+		ingress   string
+		keyID     any
+		keyName   any
+		state     string
+		enforced  any
 	}{
 		{id: 300, createdAt: now.Add(-1 * time.Hour), ingress: "ingress-current-1", keyID: 201, keyName: "current-key", state: "identified", enforced: false},
 		{id: 301, createdAt: now.Add(-2 * time.Hour), ingress: "ingress-current-2", keyID: 201, keyName: "current-key", state: "identified", enforced: true},
@@ -135,18 +137,20 @@ func TestRequestLogsProxyAPIKeyIDFilterMatchesBeforePagination(t *testing.T) {
 func TestRequestLogsProxyAPIKeyFilterOptionsContract(t *testing.T) {
 	harness := newRequestLogContractHarness(t)
 	profileID := loadRuntimeDefaultProfileID(t, harness)
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO proxy_api_keys (id, name, key_prefix, key_hash, last_four, is_active, created_at, updated_at) VALUES (200, 'always-current', 'pm-current', $1, '0000', TRUE, $2, $2)`, strings.Repeat("c", 64), time.Now().UTC()); err != nil {
+		t.Fatalf("seed current proxy key with no request rows: %v", err)
+	}
 	seedProxyKeyAttributedRequests(t, harness, profileID)
 
 	// Current configured keys are part of the option source even without rows
-	// in the window (no proxy_api_keys rows were seeded in this harness, so
-	// only snapshot-derived options appear).
+	// in the window, alongside immutable snapshot-derived options.
 	response := harness.requestJSON(t, http.MethodGet, "/api/stats/request-filter-options/proxy-api-keys?limit=50", nil, runtimeModelHeader(profileID))
 	assertStatus(t, response, http.StatusOK)
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
 	items := payload["items"].([]any)
-	if len(items) != 2 {
-		t.Fatalf("expected two snapshot-derived options (201, 202), got %+v", payload)
+	if len(items) != 3 {
+		t.Fatalf("expected current plus two snapshot-derived options (200, 201, 202), got %+v", payload)
 	}
 	byID := map[float64]map[string]any{}
 	for _, rawItem := range items {
@@ -156,9 +160,35 @@ func TestRequestLogsProxyAPIKeyFilterOptionsContract(t *testing.T) {
 	if item := byID[202]; item["configured"] != false || item["proxy_api_key_name"] != "deleted-key" {
 		t.Fatalf("expected deleted option to use latest in-window snapshot with configured=false, got %+v", item)
 	}
+	if item := byID[200]; item["configured"] != true || item["proxy_api_key_name"] != "always-current" {
+		t.Fatalf("expected current option without request rows, got %+v", item)
+	}
 	if _, ok := payload["resolved_from_time"].(string); !ok {
 		t.Fatalf("expected resolved_from_time in options payload, got %+v", payload)
 	}
+
+	// Opaque cursor pagination must advance rather than repeat the first page
+	// and must retain the original query/window materialization contract.
+	firstPageResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/request-filter-options/proxy-api-keys?limit=1", nil, runtimeModelHeader(profileID))
+	assertStatus(t, firstPageResponse, http.StatusOK)
+	decodeJSONResponse(t, firstPageResponse, &payload)
+	firstPageItems := payload["items"].([]any)
+	if len(firstPageItems) != 1 {
+		t.Fatalf("expected one option in first cursor page, got %+v", payload)
+	}
+	nextCursor, ok := payload["next_cursor"].(string)
+	if !ok || nextCursor == "" {
+		t.Fatalf("expected opaque next_cursor for first page, got %+v", payload)
+	}
+	secondPageResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/request-filter-options/proxy-api-keys?limit=1&cursor="+url.QueryEscape(nextCursor), nil, runtimeModelHeader(profileID))
+	assertStatus(t, secondPageResponse, http.StatusOK)
+	decodeJSONResponse(t, secondPageResponse, &payload)
+	secondPageItems := payload["items"].([]any)
+	if len(secondPageItems) != 1 || secondPageItems[0].(map[string]any)["proxy_api_key_id"] == firstPageItems[0].(map[string]any)["proxy_api_key_id"] {
+		t.Fatalf("expected cursor to advance to a distinct option, first=%+v second=%+v", firstPageItems, secondPageItems)
+	}
+	badCursorResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/request-filter-options/proxy-api-keys?cursor=not-a-cursor", nil, runtimeModelHeader(profileID))
+	assertStatus(t, badCursorResponse, http.StatusBadRequest)
 
 	// q search: name substring match.
 	searchResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/request-filter-options/proxy-api-keys?q=deleted", nil, runtimeModelHeader(profileID))
@@ -273,6 +303,27 @@ func TestRequestLogsIngressChainViewEXISTSSemantics(t *testing.T) {
 	}
 	if matchedCount != 1 {
 		t.Fatalf("expected exactly one matched row in chain, got %+v", rows)
+	}
+
+	// Keyset chain pagination must apply the returned cursor in SQL rather
+	// than repeating the first ingress group.
+	pageOneResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?view=ingress_chains&proxy_api_key_id=201&chain_limit=1", nil, runtimeModelHeader(profileID))
+	assertStatus(t, pageOneResponse, http.StatusOK)
+	decodeJSONResponse(t, pageOneResponse, &payload)
+	pageOneItems := payload["items"].([]any)
+	if len(pageOneItems) != 1 {
+		t.Fatalf("expected one chain in first cursor page, got %+v", payload)
+	}
+	chainCursor, ok := payload["next_chain_cursor"].(string)
+	if !ok || chainCursor == "" {
+		t.Fatalf("expected next_chain_cursor for first page, got %+v", payload)
+	}
+	pageTwoResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?view=ingress_chains&proxy_api_key_id=201&chain_limit=1&chain_cursor="+url.QueryEscape(chainCursor), nil, runtimeModelHeader(profileID))
+	assertStatus(t, pageTwoResponse, http.StatusOK)
+	decodeJSONResponse(t, pageTwoResponse, &payload)
+	pageTwoItems := payload["items"].([]any)
+	if len(pageTwoItems) != 1 || pageTwoItems[0].(map[string]any)["ingress_request_id"] == pageOneItems[0].(map[string]any)["ingress_request_id"] {
+		t.Fatalf("expected chain cursor to advance, first=%+v second=%+v", pageOneItems, pageTwoItems)
 	}
 
 	// Invalid view values are rejected.

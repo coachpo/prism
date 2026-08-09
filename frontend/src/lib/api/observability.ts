@@ -65,7 +65,7 @@ export const stats = {
     return request<RequestLogListResponse>(`/api/stats/requests${query ? `?${query}` : ""}`);
   },
   requestDetail: (requestId: number) => request<RequestLogDetail>(`/api/stats/requests/${requestId}`),
-  proxyApiKeyFilterOptions: (params?: { q?: string; from_time?: string; to_time?: string; limit?: number; selected_id?: number }) => {
+  proxyApiKeyFilterOptions: (params?: { q?: string; from_time?: string; to_time?: string; limit?: number; cursor?: string; selected_id?: number }) => {
     const query = buildQuery(params as Record<string, string | number | undefined> | undefined);
     return request<ProxyApiKeyFilterOptionsResponse>(`/api/stats/request-filter-options/proxy-api-keys${query ? `?${query}` : ""}`);
   },

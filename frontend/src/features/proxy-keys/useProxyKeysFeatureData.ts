@@ -50,7 +50,10 @@ export function useProxyKeysFeatureData() {
   const proxyKeys = useMemo(() => proxyKeyList?.items ?? [], [proxyKeyList])
   const capacity = proxyKeyList?.capacity ?? null
   const proxyKeyLimit = capacity?.limit ?? authSettings?.proxy_key_limit ?? 100
-  const remainingKeys = capacity?.remaining ?? (authSettings ? Math.max(proxyKeyLimit - proxyKeys.length, 0) : 0)
+  // Never infer capacity from the currently loaded list: a stale/failed list
+  // query is not evidence that slots are available. Mutations remain disabled
+  // until the server has supplied an authoritative snapshot.
+  const remainingKeys = capacity?.remaining ?? 0
 
   const authStatusLabel = authSettings
     ? authSettings.auth_enabled
@@ -80,7 +83,7 @@ export function useProxyKeysFeatureData() {
   })
   const deleteMutation = useMutation({ mutationFn: (keyId: number) => api.settings.auth.proxyKeys.delete(keyId) })
 
-  const createDisabled = createMutation.isPending || !authSettings || remainingKeys === 0
+  const createDisabled = createMutation.isPending || !authSettings || !capacity || remainingKeys === 0
 
   const reconcileLedgerFromMutation = useCallback(
     (item: ProxyApiKey, nextCapacity: ProxyKeyCapacity) => {
@@ -374,4 +377,3 @@ function normalizeExpiresAtInput(value: string): string | null | undefined {
   }
   return trimmed
 }
-

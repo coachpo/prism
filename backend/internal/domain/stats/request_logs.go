@@ -282,22 +282,21 @@ func ListRequestLogChains(ctx context.Context, exec queryExecutor, params Reques
 		cursorIngress = &decoded.IngressRequestID
 	}
 	outerArgs := append([]any(nil), existsArgs...)
-	cursorClause := ""
+	cursorHaving := ""
 	if cursorLastSeen != nil && cursorIngress != nil {
 		outerArgs = append(outerArgs, cursorLastSeen.UTC(), *cursorIngress)
-		cursorClause = fmt.Sprintf("AND (EXISTS (SELECT 1 FROM request_logs g WHERE g.profile_id = request_logs.profile_id AND g.ingress_request_id = request_logs.ingress_request_id AND g.created_at < $%d) OR (NOT EXISTS (SELECT 1 FROM request_logs g2 WHERE g2.profile_id = request_logs.profile_id AND g2.ingress_request_id = request_logs.ingress_request_id AND g2.created_at < $%d) AND request_logs.ingress_request_id < $%d))", len(outerArgs)-1, len(outerArgs)-1, len(outerArgs))
+		cursorLastSeenArg := len(outerArgs) - 1
+		cursorIngressArg := len(outerArgs)
+		cursorHaving = fmt.Sprintf("HAVING (MAX(request_logs.created_at) < $%d OR (MAX(request_logs.created_at) = $%d AND request_logs.ingress_request_id < $%d))", cursorLastSeenArg, cursorLastSeenArg, cursorIngressArg)
 	}
-
-	_ = existsClause
-	_ = outerArgs
-	_ = cursorClause
 
 	rows, err := exec.Query(ctx, `SELECT ingress_request_id, MIN(created_at) AS first_seen, MAX(created_at) AS last_seen
 		 FROM request_logs
-		 WHERE `+whereClause+`
+		 WHERE request_logs.profile_id = $1 AND `+existsClause+`
 		 GROUP BY ingress_request_id
+		 `+cursorHaving+`
 		 ORDER BY last_seen DESC, ingress_request_id DESC
-		 LIMIT `+fmt.Sprintf("%d", chainLimit+1), args...)
+		 LIMIT `+fmt.Sprintf("%d", chainLimit+1), outerArgs...)
 	if err != nil {
 		return RequestLogChainResponse{}, fmt.Errorf("query request log chains for profile %d: %w", params.ProfileID, err)
 	}
@@ -1101,42 +1100,77 @@ func ListProxyAPIKeyFilterOptions(ctx context.Context, exec queryExecutor, param
 		toTime = time.Now().UTC().Add(24 * time.Hour)
 	}
 
+	materializedAt := time.Now().UTC()
+	var cursorName *string
+	var cursorID *int
+	if params.Cursor != nil && strings.TrimSpace(*params.Cursor) != "" {
+		cursor, cursorErr := decodeProxyAPIKeyOptionCursor(*params.Cursor)
+		if cursorErr != nil || cursor.ProfileID != params.ProfileID || cursor.Query != query {
+			return ProxyAPIKeyFilterOptionsResponse{}, &HTTPError{StatusCode: 400, Code: "invalid_proxy_api_key_cursor", Detail: "invalid proxy api key cursor"}
+		}
+		if cursor.FromTime.IsZero() || cursor.ToTime.IsZero() || cursor.MaterializedAt.IsZero() || cursor.LastID <= 0 {
+			return ProxyAPIKeyFilterOptionsResponse{}, &HTTPError{StatusCode: 400, Code: "invalid_proxy_api_key_cursor", Detail: "invalid proxy api key cursor"}
+		}
+		// Callers may omit the resolved window on subsequent pages; in that
+		// case the cursor is authoritative. Explicitly supplied windows still
+		// have to match the cursor and cannot silently change the result set.
+		if params.FromTime == nil {
+			fromTime = cursor.FromTime.UTC()
+		}
+		if params.ToTime == nil {
+			toTime = cursor.ToTime.UTC()
+		}
+		if !cursor.FromTime.Equal(fromTime) || !cursor.ToTime.Equal(toTime) {
+			return ProxyAPIKeyFilterOptionsResponse{}, &HTTPError{StatusCode: 400, Code: "invalid_proxy_api_key_cursor", Detail: "invalid proxy api key cursor"}
+		}
+		materializedAt = cursor.MaterializedAt.UTC()
+		cursorName = &cursor.LastName
+		cursorID = &cursor.LastID
+	}
+
+	queryArgs := []any{params.ProfileID, fromTime, toTime, materializedAt, query}
+	cursorClause := ""
+	if cursorName != nil && cursorID != nil {
+		queryArgs = append(queryArgs, *cursorName, *cursorID)
+		cursorNameExpr := "COALESCE(NULLIF(BTRIM(options.resolved_name), ''), '#' || options.option_key_id::text)"
+		cursorClause = fmt.Sprintf(" AND (%s > $%d OR (%s = $%d AND options.option_key_id > $%d))", cursorNameExpr, len(queryArgs)-1, cursorNameExpr, len(queryArgs)-1, len(queryArgs))
+	}
+
 	// Union: current configured keys plus distinct snapshots retained in the
-	// window. The latest in-window name snapshot resolves deleted identities;
-	// current rows join for name/preview.
-	rows, err := exec.Query(ctx, `SELECT option_key_id, resolved_name, configured, key_prefix FROM (
+	// window. The materialization cut makes a cursor stable while the caller
+	// pages; current rows created after that cut are deferred to a new query.
+	// The latest in-window name snapshot resolves deleted identities; current
+	// rows join for name/preview.
+	rows, err := exec.Query(ctx, `SELECT option_key_id, COALESCE(NULLIF(BTRIM(resolved_name), ''), '#' || option_key_id::text) AS resolved_name, configured, key_prefix, last_four FROM (
 			SELECT
-				distinct_snapshot.key_id AS option_key_id,
+				current.id AS option_key_id,
 				current.name AS resolved_name,
 				TRUE AS configured,
-				current.key_prefix AS key_prefix
+				current.key_prefix AS key_prefix,
+				current.last_four AS last_four
 			FROM proxy_api_keys current
-			JOIN (
-				SELECT DISTINCT proxy_api_key_id_snapshot AS key_id
-				FROM request_logs
-				WHERE profile_id = $1 AND proxy_api_key_id_snapshot IS NOT NULL
-					AND created_at >= $2 AND created_at <= $3
-			) distinct_snapshot ON distinct_snapshot.key_id = current.id
+			WHERE current.created_at <= $4
 			UNION
 			SELECT
 				snapshot.key_id AS option_key_id,
-				snapshot.name_snapshot AS resolved_name,
+				 snapshot.name_snapshot AS resolved_name,
 				FALSE AS configured,
-				NULL AS key_prefix
+				NULL::text AS key_prefix,
+				NULL::text AS last_four
 			FROM (
 				SELECT DISTINCT ON (proxy_api_key_id_snapshot)
 					proxy_api_key_id_snapshot AS key_id, proxy_api_key_name_snapshot AS name_snapshot
 				FROM request_logs
 				WHERE profile_id = $1 AND proxy_api_key_id_snapshot IS NOT NULL
 					AND proxy_api_key_name_snapshot IS NOT NULL
-					AND created_at >= $2 AND created_at <= $3
+					AND created_at >= $2 AND created_at <= $3 AND created_at <= $4
 				ORDER BY proxy_api_key_id_snapshot, created_at DESC, id DESC
 			) snapshot
-			WHERE NOT EXISTS (SELECT 1 FROM proxy_api_keys current2 WHERE current2.id = snapshot.key_id)
+			WHERE NOT EXISTS (SELECT 1 FROM proxy_api_keys current2 WHERE current2.id = snapshot.key_id AND current2.created_at <= $4)
 		) options
-		WHERE $4 = '' OR options.resolved_name ILIKE '%' || $4 || '%' OR options.option_key_id::text = $4
-		ORDER BY resolved_name ASC, option_key_id ASC
-		LIMIT `+fmt.Sprintf("%d", limit+1), params.ProfileID, fromTime, toTime, query)
+		WHERE ($5 = '' OR COALESCE(NULLIF(BTRIM(options.resolved_name), ''), '#' || options.option_key_id::text) ILIKE '%' || $5 || '%' OR options.key_prefix ILIKE '%' || $5 || '%' OR options.option_key_id::text = $5)`+cursorClause+`
+		ORDER BY COALESCE(NULLIF(BTRIM(options.resolved_name), ''), '#' || options.option_key_id::text) ASC, options.option_key_id ASC
+		LIMIT `+fmt.Sprintf("%d", limit+1), queryArgs...)
 	if err != nil {
 		return ProxyAPIKeyFilterOptionsResponse{}, fmt.Errorf("query proxy api key filter options: %w", err)
 	}
@@ -1149,7 +1183,8 @@ func ListProxyAPIKeyFilterOptions(ctx context.Context, exec queryExecutor, param
 		var name sql.NullString
 		var configured bool
 		var keyPrefix sql.NullString
-		if err := rows.Scan(&keyID, &name, &configured, &keyPrefix); err != nil {
+		var lastFour sql.NullString
+		if err := rows.Scan(&keyID, &name, &configured, &keyPrefix, &lastFour); err != nil {
 			return ProxyAPIKeyFilterOptionsResponse{}, fmt.Errorf("scan proxy api key filter option: %w", err)
 		}
 		if _, ok := seen[keyID]; ok {
@@ -1166,7 +1201,7 @@ func ListProxyAPIKeyFilterOptions(ctx context.Context, exec queryExecutor, param
 			Configured:    configured,
 		}
 		if configured && keyPrefix.Valid {
-			preview := strings.TrimSpace(keyPrefix.String)
+			preview := proxyAPIKeyPreview(keyPrefix.String, lastFour.String)
 			item.KeyPreview = &preview
 		}
 		items = append(items, item)
@@ -1187,7 +1222,15 @@ func ListProxyAPIKeyFilterOptions(ctx context.Context, exec queryExecutor, param
 	}
 	if hasMore {
 		last := items[len(items)-1]
-		cursor := encodeProxyAPIKeyOptionCursor(last.Name, last.ProxyAPIKeyID)
+		cursor := encodeProxyAPIKeyOptionCursorValue(proxyAPIKeyOptionCursor{
+			ProfileID:      params.ProfileID,
+			FromTime:       fromTime,
+			ToTime:         toTime,
+			Query:          query,
+			MaterializedAt: materializedAt,
+			LastName:       last.Name,
+			LastID:         last.ProxyAPIKeyID,
+		})
 		response.NextCursor = &cursor
 	}
 
@@ -1201,12 +1244,49 @@ func ListProxyAPIKeyFilterOptions(ctx context.Context, exec queryExecutor, param
 	return response, nil
 }
 
-func encodeProxyAPIKeyOptionCursor(name string, keyID int) string {
-	raw, err := json.Marshal([]any{name, keyID})
+func proxyAPIKeyPreview(keyPrefix string, lastFour string) string {
+	prefix := strings.TrimSpace(keyPrefix)
+	last := strings.TrimSpace(lastFour)
+	const generatedPrefix = "pm-"
+	const visibleLookupCharacters = 4
+	visiblePrefixLength := len(generatedPrefix) + visibleLookupCharacters
+	if strings.HasPrefix(prefix, generatedPrefix) && len(prefix) > visiblePrefixLength {
+		prefix = prefix[:visiblePrefixLength]
+	}
+	if last == "" {
+		return prefix
+	}
+	return prefix + "••••••••" + last
+}
+
+type proxyAPIKeyOptionCursor struct {
+	ProfileID      int       `json:"profile_id"`
+	FromTime       time.Time `json:"from_time"`
+	ToTime         time.Time `json:"to_time"`
+	Query          string    `json:"query"`
+	MaterializedAt time.Time `json:"materialized_at"`
+	LastName       string    `json:"last_name"`
+	LastID         int       `json:"last_id"`
+}
+
+func encodeProxyAPIKeyOptionCursorValue(cursor proxyAPIKeyOptionCursor) string {
+	raw, err := json.Marshal(cursor)
 	if err != nil {
 		return ""
 	}
 	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+func decodeProxyAPIKeyOptionCursor(value string) (proxyAPIKeyOptionCursor, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return proxyAPIKeyOptionCursor{}, err
+	}
+	var cursor proxyAPIKeyOptionCursor
+	if err := json.Unmarshal(raw, &cursor); err != nil {
+		return proxyAPIKeyOptionCursor{}, err
+	}
+	return cursor, nil
 }
 
 // loadProxyAPIKeyFilterOption resolves a selected ID even when it falls
@@ -1217,14 +1297,15 @@ func loadProxyAPIKeyFilterOption(ctx context.Context, exec queryExecutor, profil
 	var option ProxyAPIKeyFilterOption
 	var currentName sql.NullString
 	var currentPrefix sql.NullString
-	if err := exec.QueryRow(ctx, `SELECT name, key_prefix FROM proxy_api_keys WHERE id = $1`, keyID).Scan(&currentName, &currentPrefix); err == nil {
+	var currentLastFour sql.NullString
+	if err := exec.QueryRow(ctx, `SELECT name, key_prefix, last_four FROM proxy_api_keys WHERE id = $1`, keyID).Scan(&currentName, &currentPrefix, &currentLastFour); err == nil {
 		option = ProxyAPIKeyFilterOption{
 			ProxyAPIKeyID: keyID,
 			Name:          strings.TrimSpace(stringValue(nullableString(currentName))),
 			Configured:    true,
 		}
 		if currentPrefix.Valid {
-			preview := strings.TrimSpace(currentPrefix.String)
+			preview := proxyAPIKeyPreview(currentPrefix.String, currentLastFour.String)
 			option.KeyPreview = &preview
 		}
 		return &option, nil

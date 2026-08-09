@@ -115,24 +115,27 @@ func (s *Service) runtimeMiddleware(next http.Handler) http.Handler {
 
 		proxyKey, verifyErr := s.verifyProxyAPIKey(r.Context(), rawKey)
 		if verifyErr != nil {
-			if isPublishedSnapshotUnavailable(verifyErr) {
-				if authEnforced {
+			if authEnforced {
+				// Once enforcement is known, any verifier/cache/database
+				// failure must fail closed with one typed unavailable response.
+				// Do not expose whether a particular key lookup failed.
+				if isPublishedSnapshotUnavailable(verifyErr) {
 					responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusServiceUnavailable, "Runtime authentication snapshot is unavailable. Retry later.")
-					return
+				} else {
+					responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusServiceUnavailable, "Runtime authentication verifier is unavailable. Retry later.")
 				}
-				// Permissive optional verification failure: fail open for
-				// execution, fail closed for identity. The request continues
-				// as unknown; lookup details are never disclosed.
-				slog.Warn("proxy key optional verification unavailable; attribution unknown", "key_id", 0)
-				attribution := requestcontext.RuntimeProxyKeyAttribution{
-					State:        requestcontext.RuntimeProxyKeyUnknown,
-					Snapshot:     nil,
-					AuthEnforced: false,
-				}
-				next.ServeHTTP(w, r.WithContext(requestcontext.WithRuntimeProxyKeyAttribution(r.Context(), attribution)))
 				return
 			}
-			responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to verify proxy API key")
+			// Permissive optional verification failure: fail open for
+			// execution, fail closed for identity. The request continues
+			// as unknown; lookup details are never disclosed.
+			slog.Warn("proxy key optional verification unavailable; attribution unknown", "error", verifyErr)
+			attribution := requestcontext.RuntimeProxyKeyAttribution{
+				State:        requestcontext.RuntimeProxyKeyUnknown,
+				Snapshot:     nil,
+				AuthEnforced: false,
+			}
+			next.ServeHTTP(w, r.WithContext(requestcontext.WithRuntimeProxyKeyAttribution(r.Context(), attribution)))
 			return
 		}
 		if proxyKey == nil {

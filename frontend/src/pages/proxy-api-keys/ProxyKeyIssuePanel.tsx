@@ -56,9 +56,9 @@ export function ProxyKeyIssuePanel({
   const { formatNumber, messages } = useLocale();
   const copy = messages.proxyApiKeys;
   const timezone = useTimezone();
-  const used = capacity?.used ?? proxyKeyLimit - remainingKeys;
-  const quotaPercent = getProxyKeyUsagePercent(used, proxyKeyLimit);
-  const fieldsDisabled = creatingProxyKey || !authAvailable;
+  const used = capacity?.used ?? 0;
+  const quotaPercent = capacity ? getProxyKeyUsagePercent(used, proxyKeyLimit) : 0;
+  const fieldsDisabled = creatingProxyKey || !authAvailable || !capacity;
   const handleExpiryChange = (value: ResolvedExpiryInput) => {
     setProxyKeyExpiresResolved(value)
     if (value.preserved) {
@@ -79,8 +79,8 @@ export function ProxyKeyIssuePanel({
         title={copy.createProxyKey}
         description={copy.createDescription}
         actions={(
-            <Badge variant={remainingKeys === 0 ? "destructive" : "secondary"}>
-              {remainingKeys === 0 ? copy.keyLimitReached : copy.slotsRemaining(formatNumber(remainingKeys))}
+            <Badge variant={!capacity ? "secondary" : remainingKeys === 0 ? "destructive" : "secondary"}>
+              {!capacity ? copy.capacityUnavailable : remainingKeys === 0 ? copy.keyLimitReached : copy.slotsRemaining(formatNumber(remainingKeys))}
             </Badge>
         )}
         contentClassName="flex flex-col gap-5"
@@ -144,12 +144,12 @@ export function ProxyKeyIssuePanel({
 
           <OperatorInsetPanel className="bg-surface">
             <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
-              <span>{copy.keysUsed(formatNumber(used), formatNumber(proxyKeyLimit))}</span>
-              <span>{copy.slotsRemaining(formatNumber(remainingKeys))}</span>
+              <span>{capacity ? copy.keysUsed(formatNumber(used), formatNumber(proxyKeyLimit)) : copy.capacityUnavailable}</span>
+              <span>{capacity ? copy.slotsRemaining(formatNumber(remainingKeys)) : copy.capacityUnavailable}</span>
             </div>
             <Progress
               value={quotaPercent}
-              aria-label={copy.keysUsed(formatNumber(used), formatNumber(proxyKeyLimit))}
+              aria-label={capacity ? copy.keysUsed(formatNumber(used), formatNumber(proxyKeyLimit)) : copy.capacityUnavailable}
             />
           </OperatorInsetPanel>
 
@@ -157,7 +157,9 @@ export function ProxyKeyIssuePanel({
             {creatingProxyKey ? <Spinner aria-hidden="true" data-icon="inline-start" /> : null}
             {creatingProxyKey
               ? copy.creating
-              : remainingKeys === 0
+              : !capacity
+                ? copy.capacityUnavailable
+                : remainingKeys === 0
                 ? copy.keyLimitReached
               : copy.createKey}
           </Button>

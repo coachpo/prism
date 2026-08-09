@@ -916,6 +916,7 @@ export const zhCNMessages = {
     authenticationOff: "身份验证关闭",
     authenticationOn: "身份验证开启",
     authenticationUnavailable: "身份验证不可用",
+    capacityUnavailable: "容量信息不可用",
     copyKey: "复制密钥",
     createDescription: "添加名称和可选备注，然后创建一个新的客户端凭证。",
     createKey: "创建密钥",

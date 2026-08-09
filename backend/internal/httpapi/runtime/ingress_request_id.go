@@ -1,9 +1,11 @@
 package runtime
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -76,7 +78,19 @@ func (w *runtimeIngressResponseWriter) Flush() {
 	}
 }
 
+// Hijack preserves the optional HTTP/1 connection interface while retaining
+// the server-owned correlation header. Runtime operations do not normally
+// hijack connections, but middleware must not silently remove an interface
+// exposed by the underlying writer.
+func (w *runtimeIngressResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	w.ensureHeader()
+	hijacker, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, http.ErrNotSupported
+	}
+	return hijacker.Hijack()
+}
+
 func (w *runtimeIngressResponseWriter) Unwrap() http.ResponseWriter {
 	return w.ResponseWriter
 }
-
