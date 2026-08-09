@@ -29,7 +29,7 @@ docker compose up -d --build
 
 Open http://localhost:8080. Compose builds the app image, runs PostgreSQL 16 next to it, and keeps both the database and the config file in named volumes. `docker compose down` preserves your data; `docker compose down -v` deletes it.
 
-Useful `.env` overrides include `PRISM_PUBLIC_PORT`, `POSTGRES_PASSWORD`, and `BUILD_FRONTEND=false` (backend-only image). Change the default database password for anything beyond local use.
+Useful `.env` overrides include `PRISM_PUBLIC_PORT`, `PRISM_DATABASE_PORT`, and `POSTGRES_PASSWORD`. Change the default database password for anything beyond local use.
 
 ### Single image
 
@@ -44,7 +44,7 @@ docker run -p 8080:8080 \
   prism
 ```
 
-The canonical prebuilt app image is `ghcr.io/coachpo/prism`. Separate `ghcr.io/coachpo/prism-backend` and `ghcr.io/coachpo/prism-frontend` images remain published during the deployment migration window for compatibility and rollback.
+The canonical and only prebuilt app image is `ghcr.io/coachpo/prism`. It contains the Go backend, React dashboard, and Nginx; PostgreSQL remains a separate service.
 
 ### Local development
 
@@ -55,7 +55,7 @@ Requires Go 1.26.5, Node.js 24+, pnpm, and Docker. Backend and frontend live in 
 ./start.sh headless  # backend + PostgreSQL only
 ```
 
-The launcher serves the frontend on port `5173`, runs PostgreSQL on `15432`, and defaults the backend to `8000`. See [`backend/README.md`](backend/README.md) and [`frontend/README.md`](frontend/README.md) for subproject workflows.
+The launcher serves the frontend on port `5173`, runs PostgreSQL on `15432`, and defaults the backend to `8000`. See [`backend/README.md`](backend/README.md) and [`frontend/README.md`](frontend/README.md) for source-tree workflows.
 
 ## Configuration
 

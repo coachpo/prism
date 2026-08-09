@@ -17,38 +17,20 @@ RUN apk add --no-cache libc6-compat \
     && corepack enable \
     && corepack prepare pnpm@10.30.1 --activate
 
-ARG BUILD_FRONTEND=true
 ARG VITE_API_BASE=
 ARG VITE_GIT_RUN_NUMBER=local
 ARG VITE_GIT_REVISION=unknown
 
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
-RUN case "$BUILD_FRONTEND" in \
-        true|false) ;; \
-        *) echo "BUILD_FRONTEND must be true or false"; exit 1 ;; \
-    esac \
-    && if [ "$BUILD_FRONTEND" = "true" ]; then pnpm install --frozen-lockfile; fi
+RUN pnpm install --frozen-lockfile
 
 COPY frontend/ ./
-RUN if [ "$BUILD_FRONTEND" = "true" ]; then \
-        if [ -n "$VITE_API_BASE" ]; then export VITE_API_BASE; fi; \
-        export VITE_GIT_RUN_NUMBER="$VITE_GIT_RUN_NUMBER"; \
-        export VITE_GIT_REVISION="$VITE_GIT_REVISION"; \
-        pnpm run build; \
-        mkdir -p /out/html; \
-        cp -R dist/. /out/html/; \
-    else \
-        mkdir -p /out/html; \
-        printf '%s\n' \
-          '<!doctype html>' \
-          '<html lang="en">' \
-          '<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' \
-          '<title>Prism</title></head>' \
-          '<body><main><h1>Prism backend is running</h1>' \
-          '<p>This image was built with BUILD_FRONTEND=false, so the React dashboard was not included.</p>' \
-          '</main></body></html>' \
-          > /out/html/index.html; \
-    fi
+RUN if [ -n "$VITE_API_BASE" ]; then export VITE_API_BASE; fi; \
+    export VITE_GIT_RUN_NUMBER="$VITE_GIT_RUN_NUMBER"; \
+    export VITE_GIT_REVISION="$VITE_GIT_REVISION"; \
+    pnpm run build; \
+    mkdir -p /out/html; \
+    cp -R dist/. /out/html/
 
 FROM debian:bookworm-slim AS runtime
 

@@ -234,7 +234,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 | Concurrent requests | Support 10+ simultaneous proxy requests |
 | Database | PostgreSQL (Go-managed startup migrations) |
 | API standard | Markdown API contract maintained in `docs/architecture.md` (section 14, API Reference) |
-| CORS | Local launcher traffic stays same-origin through the Vite proxy in `full` mode; standalone frontend workflows can still target an explicit backend base URL |
+| CORS | Local launcher traffic stays same-origin through the Vite proxy in `full` mode; production single-image traffic is served from the same origin |
 
 ## 6. Tech Stack
 

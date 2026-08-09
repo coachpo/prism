@@ -13,7 +13,6 @@ backend/
 ├── migrations/                 # Fresh-install SQL baseline
 ├── testdata/                   # Regression fixtures
 ├── tests/AGENTS.md             # Go regression ownership
-├── Dockerfile                  # Backend container contract
 └── VERSION
 ```
 
@@ -37,7 +36,7 @@ backend/
 - `internal/httpapi/runtime/` owns operation-registered ingress, model binding, hooks, telemetry outbox enqueue, request logging, `operation_name`, flat final-target attribution, and partition ensuring.
 - Stats and request-log ownership includes endpoint label snapshots, caller-only `client_rule_id` filtering, and final-target `resolved_target_model_id` filtering.
 - `internal/gateway/` owns provider-agnostic gateway contracts used by runtime execution: hook phases, envelopes, operation records, adapters, route planning, and reservations.
-- `Dockerfile` builds from the monorepo root, copies migrations, runs as `prism:prism` (`1000:1000`), and defaults `PRISM_CONFIG_PATH` to `/app/config/config.json`; root `.dockerignore` controls backend image build contents.
+- The root `../Dockerfile` builds the backend and React dashboard into one app image, copies migrations, runs as `prism:prism` (`1000:1000`), and defaults `PRISM_CONFIG_PATH` to `/app/config/config.json`; the root `.dockerignore` controls the image build contents.
 - Bootstrap config v1 is plaintext and file-backed with backend-owned fresh defaults; valid existing files are preserved until manual reset. Mail bootstrap fields parse for old `config.json` compatibility only; delivery behavior is removed.
 
 ## WHERE TO LOOK
@@ -45,7 +44,7 @@ backend/
 - Gateway and runtime contracts: `internal/gateway/AGENTS.md`, `internal/httpapi/runtime/AGENTS.md`, `internal/httpapi/runtime/operations.go`
 - HTTP mounting, management fanout, and request context: `internal/httpapi/AGENTS.md`, `internal/httpapi/management/AGENTS.md`, `internal/httpapi/management/*/AGENTS.md`
 - Stats, audit, loadbalance, transactions, partitions, and schema: `internal/domain/`, `internal/pgxutil/tx.go`, `migrations/`, `internal/platform/logretention/`
-- Container and regression boundaries: `Dockerfile`, `tests/integration/dockerfile_contract_test.go`, `tests/AGENTS.md`, `tests/`
+- Container and regression boundaries: `../Dockerfile`, `tests/integration/dockerfile_contract_test.go`, `tests/AGENTS.md`, `tests/`
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
@@ -59,7 +58,7 @@ backend/
 - Keep request-path side effects on durable outboxes, scheduler-owned workers, or after-commit wakeups; do not put provider sends, cache invalidations, or dashboard materialization inline.
 - Keep database pool lane ownership explicit. Background, telemetry, feedback, management, cache refresh, and runtime execution lanes are separate capacity budgets.
 - Keep partitioned log tables under `internal/platform/logretention/` and runtime partition ensuring; managed tables are `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
-- Keep backend container execution non-root with writable config ownership under `/app/config`; update `tests/integration/dockerfile_contract_test.go` when changing that contract.
+- Keep the single-image container execution non-root with writable config ownership under `/app/config`; update `tests/integration/dockerfile_contract_test.go` when changing that contract.
 - Keep implementation detail in the Go ownership tree instead of inventing alternate runtime surfaces.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.

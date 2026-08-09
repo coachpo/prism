@@ -1,7 +1,7 @@
 # FRONTEND KNOWLEDGE BASE
 
 ## OVERVIEW
-`frontend/` is Prism's monorepo-owned React 19/Vite management dashboard. It owns the browser-side management contract, mounted route surface, protected-shell provider handoff, checked-in shadcn/ui registry config, the overview/analytics dashboard, and the production `dist/` server while keeping this doc as the router for the frontend directory.
+`frontend/` is Prism's monorepo-owned React 19/Vite management dashboard. It owns the browser-side management contract, mounted route surface, protected-shell provider handoff, checked-in shadcn/ui registry config, and the overview/analytics dashboard. The root single-image Dockerfile packages the built assets with the Go backend and Nginx.
 
 ## STRUCTURE
 ```text
@@ -11,7 +11,6 @@ frontend/
 ├── tests/AGENTS.md
 ├── components.json
 ├── package.json
-├── server.mjs
 └── vite.config.ts
 ```
 
@@ -41,8 +40,8 @@ frontend/
 - Shared vendor cache and profile-revision keyed reference-data invalidation: `src/lib/referenceData.ts`
 - Frontend zh-CN locale state, shared formatting, and static non-hook labels: `src/i18n/LocaleProvider.tsx`, `src/i18n/format.ts`, `src/i18n/staticMessages.ts`
 - Vite version injection, optional same-origin proxying for `/api`, `/health`, `/v1`, and `/v1beta`, dev or preview `/health`, launcher proxy env path, launcher port `5173` to the selected bootstrap file's backend port, and build metadata: `vite.config.ts`, `package.json`
-- Production `dist/` static server, SPA fallback, `PORT` default `3000`, and `/health`: `server.mjs`
-- Test split and browser config: `tests/AGENTS.md`, `tests/e2e/`, `tests/lib/`, `tests/server/`, `playwright.config.ts`
+- Production `dist/` packaging, SPA fallback, and `/health` proxying: `../Dockerfile`, `../docker/nginx.conf.template`, `../docker/entrypoint.sh`
+- Test split and browser config: `tests/AGENTS.md`, `tests/e2e/`, `tests/lib/`, `playwright.config.ts`
 - Cross-route rewrite helpers for query keys, invalidation, server validation, table rows, and design-system barrels: `src/shared/AGENTS.md`
 
 ## CONVENTIONS
@@ -51,7 +50,7 @@ frontend/
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve old shapes only when explicitly requested.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
-- Node is `>=24`, package management is `pnpm@10.30.1`, and frontend scripts are `dev`, `build`, `lint`, `preview`, `test`, `test:lib`, `test:server`, and `test:e2e`.
+- Node is `>=24`, package management is `pnpm@10.30.1`, and frontend scripts are `dev`, `build`, `lint`, `preview`, `test`, `test:lib`, and `test:e2e`.
 - Treat `src/app/router/appRouter.tsx` and `src/app/router/rewriteRoutes.ts` as the source of truth for mounted routes, search schemas, and route scopes; `src/App.tsx` stays the thin wrapper.
 - Keep `src/components/` focused on shared shell chrome, shared widgets, and design-system wrappers, and keep the leaf ownership documented below it.
 - Keep model CRUD, access-target authoring, accepted-format controls, and typed/import validation in their owning leaves without reintroducing deleted model-owned context routing fields.

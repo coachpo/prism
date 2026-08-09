@@ -7,45 +7,30 @@ import (
 	"testing"
 )
 
-func TestDockerfileNonRootContract(t *testing.T) {
+func TestDockerfileSingleImageContract(t *testing.T) {
 	t.Parallel()
 
-	contents, err := os.ReadFile(filepath.Join("..", "..", "Dockerfile"))
+	contents, err := os.ReadFile(filepath.Join("..", "..", "..", "Dockerfile"))
 	if err != nil {
-		t.Fatalf("read Dockerfile: %v", err)
+		t.Fatalf("read root Dockerfile: %v", err)
 	}
 
 	dockerfile := string(contents)
-
 	for _, token := range []string{
-		"groupadd --gid 1000 prism",
-		"useradd --uid 1000 --gid 1000",
-		"mkdir -p /app/config",
-		"RUN chown -R prism:prism /app/config /app/backend",
+		"FROM golang:",
+		"FROM node:",
+		"COPY --from=backend-builder /out/prism-backend /usr/local/bin/prism-backend",
+		"COPY backend/migrations ./migrations",
+		"COPY --from=frontend-builder /out/html/ /usr/share/nginx/html/",
+		"COPY docker/nginx.conf.template /etc/prism/nginx.conf.template",
+		"COPY docker/entrypoint.sh /usr/local/bin/prism-entrypoint",
 		"ENV PRISM_CONFIG_PATH=/app/config/config.json",
+		"EXPOSE 8080",
 		"USER prism:prism",
-		"CMD [\"prism-backend\"]",
+		"ENTRYPOINT [\"prism-entrypoint\"]",
 	} {
 		if !strings.Contains(dockerfile, token) {
-			t.Fatalf("Dockerfile missing required token %q", token)
+			t.Fatalf("root Dockerfile missing required single-image token %q", token)
 		}
-	}
-
-	for _, token := range []string{"COPY docs/", "/app/docs/"} {
-		if strings.Contains(dockerfile, token) {
-			t.Fatalf("Dockerfile must not copy docs artifacts %q", token)
-		}
-	}
-
-	userIndex := strings.Index(dockerfile, "USER prism:prism")
-	cmdIndex := strings.Index(dockerfile, "CMD [\"prism-backend\"]")
-	if userIndex > cmdIndex {
-		t.Fatalf("USER prism:prism must appear before CMD [\"prism-backend\"]")
-	}
-
-	groupIndex := strings.Index(dockerfile, "groupadd --gid 1000 prism")
-	useraddIndex := strings.Index(dockerfile, "useradd --uid 1000 --gid 1000")
-	if groupIndex > useraddIndex {
-		t.Fatalf("groupadd --gid 1000 prism must appear before useradd --uid 1000 --gid 1000")
 	}
 }

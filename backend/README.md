@@ -16,8 +16,6 @@ backend/
 ├── migrations/                     # fresh-install SQL baseline applied by the Go runtime
 ├── testdata/                       # request and bootstrap fixtures
 ├── tests/                          # Go contract, integration, and runtime regressions
-├── docker-compose.yml              # local PostgreSQL provisioning
-├── Dockerfile                      # Go backend image build
 └── VERSION                         # backend version surface
 ```
 
@@ -77,8 +75,8 @@ go build ./cmd/prism-backend
 - `../start.sh` reads the root `../.env`, provisions local PostgreSQL, defaults `PRISM_CONFIG_PATH` to `../config.json`, and seeds that plaintext bootstrap file only when it is missing so local runs keep frontend `5173` and the local PostgreSQL DSN on host port `15432`; fresh seeds default backend port to `8000`.
 - Before booting, `../start.sh` verifies that the selected bootstrap file keeps the local launcher host and database contract, then uses that file's configured backend port. If an existing valid file still carries old-but-valid values, reset manually by stopping Prism, removing or relocating the bootstrap file, and restarting.
 - Direct Go runs should prefer an absolute `PRISM_CONFIG_PATH`.
-- The backend container image runs as `prism:prism`, UID/GID `1000:1000`. If `PRISM_CONFIG_PATH` points inside `/app/config`, bind mount the containing host directory, such as `/absolute/secure/path/prism-config:/app/config:rw`, and make that directory writable by UID/GID `1000:1000`.
-- Prepare new host config directories with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`. Use the same one-time remediation for existing root-owned bind mounts before starting the non-root backend image.
+- The root single-image container runs as `prism:prism`, UID/GID `1000:1000`. If `PRISM_CONFIG_PATH` points inside `/app/config`, bind mount the containing host directory, such as `/absolute/secure/path/prism-config:/app/config:rw`, and make that directory writable by UID/GID `1000:1000`.
+- Prepare new host config directories with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`. Use the same one-time remediation for existing root-owned bind mounts before starting the single-image container.
 - Bootstrap edits are file-durable and restart-applied after R2. Edit the selected `config.json`, then restart Prism.
 - Runtime buffering is internal and not exposed through bootstrap config.
 - Startup fields include listener host and port, CORS origins, auth TTL and cookie metadata, runtime transport settings, M2/M3 management admission limits, database URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, auth JWT signing key, and parse-compatible telemetry fields. Legacy `mail` fields remain parse-compatible only.
@@ -92,11 +90,11 @@ go build ./cmd/prism-backend
 - Fresh-install schema setup is Go-managed and applied from the single checked-in baseline under `migrations/` at startup.
 - Prism supports empty PostgreSQL databases and databases already stamped with the current `prism_schema_migrations` baseline. Databases with application tables but missing current baseline history fail fast; reset incompatible local databases instead of expecting startup to rewrite historical schemas.
 - Pricing, token, and Ban Policy contract changes use the same clean cut local-data stance: reset and recreate incompatible local data, with no backfill path for old pricing, token, or Ban Policy semantics.
-- For local-only manual testing where a PostgreSQL reset is simpler than remediating a hand-edited database, stop Prism and run `docker compose down -v` from `backend/`, then `docker compose up -d prism-postgres` or `../start.sh headless` to recreate the local database. This deletes local PostgreSQL data.
+- For local-only manual testing where a PostgreSQL reset is simpler than remediating a hand-edited database, stop Prism and run `docker compose -p prism-local -f ../docker-compose.yml down -v`, then `../start.sh headless` to recreate the local database. This deletes local PostgreSQL data.
 - Request telemetry, usage attribution, audit rows, and load-balance history live in PostgreSQL partitioned log tables.
 - Normal log retention is global across all profiles. Configure it through `/api/settings/log-retention` and run it through durable `log_retention` jobs from `POST /api/maintenance/log-retention/jobs`.
 - Retention drops whole daily child partitions whose upper bound is `<= cutoff`. Only the cutoff-overlapping boundary child receives bounded cleanup plus `VACUUM (ANALYZE, PROCESS_TOAST TRUE)`.
 - Audit rows keep weak request references through `request_log_id`, `request_log_created_at`, and `ingress_request_id`; request-log retention does not clear those fields, and audit reads report `request_log_missing=true` only when both request-log link fields are present but the `(profile_id, request_log_id, request_log_created_at)` tuple no longer resolves.
 - `VACUUM FULL`, `CLUSTER`, and `pg_repack` are manual or emergency shrink tools only, not automatic retention steps. The default local `postgres:16-alpine` database does not include `pg_repack`.
 
-For local PostgreSQL provisioning without the root launcher, run `docker compose up -d prism-postgres` from `backend/`.
+The root `docker-compose.yml` owns local PostgreSQL provisioning; use `../start.sh headless` or `docker compose -p prism-local -f ../docker-compose.yml up -d postgres` from the repository root.

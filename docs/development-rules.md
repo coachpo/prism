@@ -20,7 +20,7 @@ Follow the shared design and implementation principles and the Definition of Don
 - Request-path side effects stay on durable outboxes, scheduler-owned workers, or after-commit wakeups; do not put provider sends, cache invalidations, or dashboard materialization inline.
 - Partitioned log retention is owned by `backend/internal/platform/logretention/` plus runtime partition ensuring; the managed tables are `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
 - Bootstrap config is plaintext and file-backed: steady-state settings prefer the startup JSON over new environment-variable knobs; `PRISM_CONFIG_PATH` and `DATABASE_URL` remain bootstrap-only env exceptions.
-- The backend container contract (non-root `prism:prism` UID/GID `1000:1000`, writable `/app/config` ownership, default `/app/config/config.json`) is regression-backed by `backend/tests/integration/dockerfile_contract_test.go`.
+- The root single-image container contract (non-root `prism:prism` UID/GID `1000:1000`, writable `/app/config` ownership, default `/app/config/config.json`) is regression-backed by `backend/tests/integration/dockerfile_contract_test.go`.
 - Regression layers live under `backend/tests/`: contract, integration, runtime (operation matrix, rejected routes, hook residency), and priority (DB lanes and admission) suites.
 
 ## Frontend Rules (TypeScript/React)
@@ -31,7 +31,7 @@ Follow the shared design and implementation principles and the Definition of Don
 - Keep backend access on the typed `src/lib/api.ts` boundary; management scope stays pinned to Default profile id `1` (no profile-selection UI).
 - Keep the single zh-CN locale state, shared formatting, and static non-hook labels in `src/i18n/`.
 - Keep shadcn/ui additions aligned with `components.json`; primitives live under `src/components/ui/`.
-- Tests: Vitest/lib suites, server seam tests, and Playwright e2e flows (capped near five journey specs).
+- Tests: Vitest/lib suites and Playwright e2e flows (capped near five journey specs).
 
 ## Cross-Cutting Rules
 

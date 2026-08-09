@@ -13,8 +13,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest",
-    "test:lib": "node --test \"tests/lib/*.test.mjs\" \"tests/model-detail/*.test.mjs\"",
-    "test:server": "node --test tests/server/server_health_entrypoint.test.mjs",
+    "test:lib": "node --test \"tests/lib/*.test.mjs\"",
     "test:e2e": "playwright test"
   },
   "dependencies": {

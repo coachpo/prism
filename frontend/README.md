@@ -14,7 +14,7 @@ pnpm run lint
 
 Prism targets Node.js 24+ and uses the `pnpm@10.30.1` toolchain declared in `package.json`.
 
-Use `frontend/.env.example` as the standalone frontend env sample when you want to point the frontend at a non-launcher backend.
+Use `frontend/.env.example` for Vite development-only transport overrides. Production Prism deployments always use the root single-image bundle.
 
 When started through the root launcher, Prism serves the frontend at `http://localhost:5173` and proxies same-origin backend traffic to the selected bootstrap file's listener port. The repo-local default `../config.json` is ignored by Git; a newly seeded bootstrap config listens on `http://localhost:8000`. For full-stack local setup, launcher behavior, and shared repository context, start at `../README.md` and `./AGENTS.md`.
 
@@ -22,8 +22,8 @@ When started through the root launcher, Prism serves the frontend at `http://loc
 
 - `VITE_API_BASE` is optional. If it is unset, the frontend uses same-origin requests to `/api`, `/v1`, and `/v1beta`.
 - `../start.sh full` enables a launcher-only Vite proxy so browser traffic stays same-origin while `/api`, `/v1`, and `/v1beta` reach the selected bootstrap file's configured backend port.
-- Standalone frontend development can still use explicit `VITE_API_BASE` when you want the dev server to talk to a remote backend.
-- The production container serves the built `dist/` output through `server.mjs`, which also exposes `/health`.
+- Vite development can use explicit `VITE_API_BASE` when the dev server must talk to a remote backend.
+- The root `Dockerfile` builds the dashboard into the single Prism image; Nginx serves `dist/` and proxies `/health`, `/api`, `/v1`, and `/v1beta` to the Go process in that same image.
 
 ## Route and ownership map
 

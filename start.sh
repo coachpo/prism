@@ -9,7 +9,7 @@ DATABASE_PORT=15432
 DEFAULT_BACKEND_PORT=8000
 BACKEND_PORT="$DEFAULT_BACKEND_PORT"
 FRONTEND_PORT=5173
-PRISM_DATABASE_COMPOSE_PROJECT="${PRISM_DATABASE_COMPOSE_PROJECT:-prism}"
+PRISM_DATABASE_COMPOSE_PROJECT="${PRISM_DATABASE_COMPOSE_PROJECT:-prism-local}"
 DATABASE_URL="postgres://prism:prism@localhost:${DATABASE_PORT}/prism?sslmode=disable"
 ORIGINAL_PATH="$PATH"
 
@@ -104,7 +104,7 @@ require_cmd() {
 }
 
 postgres_compose() {
-    (cd "$BACKEND_DIR" && docker compose --project-name "$PRISM_DATABASE_COMPOSE_PROJECT" "$@")
+    (cd "$ROOT_DIR" && docker compose --project-name "$PRISM_DATABASE_COMPOSE_PROJECT" -f "$ROOT_DIR/docker-compose.yml" "$@")
 }
 
 port_pids() {
@@ -232,13 +232,13 @@ wait_for_postgres() {
     local health_status=""
 
     while (( attempts > 0 )); do
-        container_id="$(postgres_compose ps -q prism-postgres 2>/dev/null || true)"
+        container_id="$(postgres_compose ps -q postgres 2>/dev/null || true)"
         if [[ -n "$container_id" ]]; then
             health_status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || true)"
             if [[ "$health_status" == "healthy" ]]; then
                 return
             fi
-            if [[ "$health_status" == "running" ]] && postgres_compose exec -T prism-postgres pg_isready -U prism -d prism >/dev/null 2>&1; then
+            if [[ "$health_status" == "running" ]] && postgres_compose exec -T postgres pg_isready -U prism -d prism >/dev/null 2>&1; then
                 return
             fi
         fi
@@ -345,7 +345,7 @@ reclaim_backend_port
 reclaim_frontend_port
 ensure_database_port_available
 
-postgres_compose up -d prism-postgres
+postgres_compose up -d postgres
 wait_for_postgres
 
 (cd "$BACKEND_DIR" && "$BACKEND_BINARY") &

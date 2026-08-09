@@ -27,7 +27,7 @@ docs/
 - Project status and policy: `../STATUS.md`
 - Launcher and release facts: `../README.md`, `../start.sh`, `../release.sh`, `../frontend/.env.example`
 - Backend/frontend version surfaces: `../VERSION`, `../backend/VERSION`, `../frontend/VERSION`, `../frontend/package.json`
-- Backend container contract: `../backend/Dockerfile`, `../backend/tests/integration/dockerfile_contract_test.go`
+- Container contract: `../Dockerfile`, `../backend/tests/integration/dockerfile_contract_test.go`
 - Runtime operation contract, hook residency, rejected-route isolation, and `operation_name` persistence: `architecture.md` (§14 API Reference, §15 Data Model Reference), `../backend/internal/httpapi/runtime/AGENTS.md`, `../backend/internal/httpapi/runtime/operations.go`
 - Codex client catalog implementation, refresh worker, embedded fallback, and regression coverage: `../backend/internal/httpapi/runtime/AGENTS.md`, `../backend/internal/httpapi/runtime/codex_models.go`, `../backend/internal/httpapi/runtime/codex_models_updater.go`, `../backend/internal/httpapi/runtime/codex_client_models.json`, `../backend/internal/httpapi/runtime/codex_models_test.go`
 - OpenAI native operation-set coverage, runtime rejection contract, and historical translation-mode reads: `../backend/internal/httpapi/runtime/operation_translation.go`, `../backend/internal/providerauth/providerauth.go`, `../backend/internal/domain/stats/request_logs.go`
@@ -52,7 +52,7 @@ docs/
 - Keep hard-delete docs aligned: model-owned context routing, overflow-promotion authoring, exact facade routing, context-window preflight filtering, and OpenAI sibling-operation translation are retired, while native Terminal Target capability checks, Ban Policy strategies, flat final-target request-log fields, and historical translation-mode reads remain live.
 - Keep bootstrap docs aligned with backend ownership: plaintext file-backed v1, required `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout`, restart-required external edits after R2, unsupported encrypted legacy files, and parse-only legacy mail fields.
 - Keep release facts aligned with `../release.sh` and the version surfaces it updates.
-- Keep backend container docs aligned with non-root `../backend/Dockerfile` execution, `/app/config` ownership, and `../backend/tests/integration/dockerfile_contract_test.go`.
+- Keep container docs aligned with non-root `../Dockerfile` execution, `/app/config` ownership, and `../backend/tests/integration/dockerfile_contract_test.go`.
 - Keep log-retention docs aligned with the four managed partitioned tables, management settings/job endpoints, runtime partition ensuring, and platform maintenance worker.
 - State CI facts accurately: `../.github/workflows/docker-images.yml` publishes monorepo images for `linux/arm64` on `v*` tags and `workflow_dispatch` only, gated on green CI for the tagged commit, and `../.github/workflows/cleanup.yml` handles cleanup only.
 - Keep active plans and execution evidence out of `docs/`. Use `../artifacts/plans/` plus `../artifacts/evidence/` while work is in flight.

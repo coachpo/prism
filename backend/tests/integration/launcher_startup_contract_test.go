@@ -264,7 +264,7 @@ func (r *startShLauncherRun) composeDown(t *testing.T) {
 	defer cancel()
 
 	command := exec.CommandContext(ctx, "docker", "compose", "--project-name", r.composeProject, "down", "--remove-orphans", "--volumes")
-	command.Dir = filepath.Join(r.repoRoot, "backend")
+	command.Dir = r.repoRoot
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Logf("docker compose cleanup for project %s failed: %v\n%s", r.composeProject, err, strings.TrimSpace(string(output)))

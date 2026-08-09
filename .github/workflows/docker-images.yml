@@ -1,38 +1,21 @@
-name: Docker Images
+name: Docker Image
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
-    inputs:
-      service:
-        description: Select service to build
-        type: choice
-        required: true
-        default: all
-        options:
-          - all
-          - backend
-          - frontend
-          - single
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # Never cancel a release publish mid-push; tag refs are unique per release anyway.
   cancel-in-progress: false
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME_BACKEND: ${{ github.event.repository.name }}-backend
-  IMAGE_NAME_FRONTEND: ${{ github.event.repository.name }}-frontend
-  IMAGE_NAME_SINGLE: ${{ github.event.repository.name }}
+  IMAGE_NAME: ${{ github.event.repository.name }}
   BUILD_PLATFORM: linux/arm64
 
 jobs:
   verify-ci:
-    # release.sh pushes the release commit and the tag together, so CI for that
-    # commit may still be running when this workflow starts. Publishing waits for
-    # a green CI conclusion on the tagged commit and refuses to ship otherwise.
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -61,7 +44,7 @@ jobs:
                 sleep 30
                 ;;
               *)
-                echo "CI concluded '$conclusion' for $GITHUB_SHA — refusing to publish images"
+                echo "CI concluded '$conclusion' for $GITHUB_SHA — refusing to publish the single image"
                 exit 1
                 ;;
             esac
@@ -77,12 +60,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-
-    strategy:
-      fail-fast: false
-      matrix:
-        service: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.service != 'all' && format('["{0}"]', inputs.service) || '["backend","frontend","single"]') }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -106,7 +83,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.service == 'backend' && env.IMAGE_NAME_BACKEND || matrix.service == 'frontend' && env.IMAGE_NAME_FRONTEND || env.IMAGE_NAME_SINGLE }}
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=tag
             type=semver,pattern={{version}}
@@ -114,34 +91,27 @@ jobs:
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=sha,prefix=manual-,enable=${{ github.event_name == 'workflow_dispatch' }}
 
-      - name: Resolve frontend build metadata from monorepo commit
+      - name: Resolve frontend build metadata
         id: frontend_build_metadata
-        if: matrix.service == 'frontend' || matrix.service == 'single'
         run: |
           echo "git_revision=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           echo "git_run_number=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push Docker image (linux/arm64)
+      - name: Build and push single Prism image
         uses: docker/build-push-action@v7
         with:
           builder: ${{ steps.buildx.outputs.name }}
-          context: ${{ matrix.service == 'frontend' && './frontend' || '.' }}
-          file: ${{ matrix.service == 'backend' && './backend/Dockerfile' || matrix.service == 'frontend' && './frontend/Dockerfile' || './Dockerfile' }}
+          context: .
+          file: ./Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            ${{ matrix.service == 'single' && 'BUILD_FRONTEND=true' || '' }}
-            ${{ matrix.service == 'single' && 'VITE_API_BASE=' || '' }}
-            ${{ (matrix.service == 'frontend' || matrix.service == 'single') && format('VITE_GIT_RUN_NUMBER={0}', steps.frontend_build_metadata.outputs.git_run_number) || '' }}
-            ${{ (matrix.service == 'frontend' || matrix.service == 'single') && format('VITE_GIT_REVISION={0}', steps.frontend_build_metadata.outputs.git_revision) || '' }}
-          cache-from: |
-            type=gha,scope=${{ matrix.service }}
-          cache-to: |
-            type=gha,scope=${{ matrix.service }},mode=max
+            VITE_API_BASE=
+            VITE_GIT_RUN_NUMBER=${{ steps.frontend_build_metadata.outputs.git_run_number }}
+            VITE_GIT_REVISION=${{ steps.frontend_build_metadata.outputs.git_revision }}
+          cache-from: type=gha,scope=single
+          cache-to: type=gha,scope=single,mode=max
           platforms: ${{ env.BUILD_PLATFORM }}
-          # Kept off on purpose: single-manifest images keep cleanup.yml's
-          # delete-only-untagged pruning safe. Enabling provenance/sbom creates
-          # untagged child manifests that the nightly cleanup would destroy.
           provenance: false
           sbom: false

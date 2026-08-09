@@ -10,7 +10,7 @@ prism/
 ├── README.md, VERSION
 ├── start.sh, release.sh
 ├── Dockerfile, docker-compose.yml, docker/
-├── backend/       # Go backend, migrations, backend image, Go tests
+├── backend/       # Go backend, migrations, Go tests
 ├── frontend/      # React/Vite dashboard, shadcn config, frontend tests
 ├── docs/          # Durable reference docs only
 ├── artifacts/     # Ignored local run evidence and scratch plans
@@ -18,7 +18,7 @@ prism/
 ```
 
 ## HIERARCHY
-- `backend/AGENTS.md`: Go runtime root, Dockerfile, migrations, and regression boundaries.
+- `backend/AGENTS.md`: Go runtime root, migrations, and regression boundaries.
 - `backend/internal/AGENTS.md`: backend source router for platform, domain, gateway, HTTP API, and small compatibility packages.
 - `backend/internal/platform/AGENTS.md`: process lifecycle, HTTP assembly, hot bootstrap runtime, DB lanes, scheduler, retention, side effects; `platform/startup/AGENTS.md` owns startup sequencing and seeds.
 - `backend/internal/domain/AGENTS.md`: HTTP-neutral audit, loadbalance, model-routing, stats, and terminal-target helpers; `domain/loadbalance/AGENTS.md` owns Ban Policy runtime state, and `domain/stats/AGENTS.md` owns stats read models.
@@ -30,7 +30,7 @@ prism/
 - `frontend/src/AGENTS.md`: frontend source router for app, features, pages, components, context, hooks, i18n, shared, lib, and test.
 - `frontend/src/{app,features,pages,components,context,hooks,i18n,shared,lib}/AGENTS.md`: frontend route, shell, page, provider, hook, locale, API, and shared UI seams; `shared/design-system/AGENTS.md` and `lib/types/AGENTS.md` own high-centrality leaves.
 - `backend/tests/AGENTS.md`: Go regression root; `tests/contract/AGENTS.md`, `tests/integration/AGENTS.md`, and `tests/runtime/AGENTS.md` own the large suite boundaries.
-- `frontend/tests/AGENTS.md`: Playwright browser flows plus frontend seam/server/lib contract boundaries; `tests/e2e/AGENTS.md` and `tests/lib/AGENTS.md` own the large runner-specific leaves.
+- `frontend/tests/AGENTS.md`: Playwright browser flows plus frontend seam/lib contract boundaries; `tests/e2e/AGENTS.md` and `tests/lib/AGENTS.md` own the large runner-specific leaves.
 - `docs/AGENTS.md`: durable docs ownership and local artifact handoff rules.
 
 ## CODE MAP
@@ -51,8 +51,8 @@ prism/
 - `start.sh` reads the root `.env`, supports `headless` and `full`, defaults `PRISM_CONFIG_PATH` to repo-local `config.json`, keeps frontend `5173` and PostgreSQL `15432`, and follows the selected bootstrap file's backend port; fresh seeds default that port to `8000`.
 - `start.sh` keeps a local launcher contract by using plaintext bootstrap ownership and the local PostgreSQL DSN, and in `full` mode keeping browser traffic same-origin by unsetting `VITE_API_BASE` and starting Vite with `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET` pointed at the effective backend port from the selected bootstrap file.
 - Local scratch plans and execution artifacts live under ignored `artifacts/`; run evidence uses `artifacts/evidence/`.
-- The root `docker-compose.yml` is the default local/self-hosted bundle. It builds the root single-image app, runs PostgreSQL separately, publishes only the public Prism HTTP port, and persists `prism_postgres_data` plus `prism_config` volumes.
-- The root `Dockerfile` builds a single app image with the Go backend, backend migrations/version, optional React static assets, Nginx, and `docker/entrypoint.sh`; `BUILD_FRONTEND=false` keeps backend proxy paths and serves a fallback page.
+- The root `docker-compose.yml` is the only local/self-hosted bundle. It builds the single-image app, runs PostgreSQL as a separate service, publishes the public Prism HTTP port plus the launcher database port, and persists `prism_postgres_data` plus `prism_config` volumes.
+- The root `Dockerfile` always builds the single app image with the Go backend, backend migrations/version, React static assets, Nginx, and `docker/entrypoint.sh`.
 - The root Nginx template proxies `/health`, `/api`, `/v1`, and `/v1beta` to the private backend upstream and serves SPA assets from `/usr/share/nginx/html`.
 - The runtime contract is operation-registered. Supported routes are allowlisted in `backend/internal/httpapi/runtime/operations.go`, and unsupported or wrong-method requests reject before provider transport, telemetry, audit, feedback, or durable runtime side effects.
 - Runtime request extraction, non-stream parsing, stream terminal classification, and token-count behavior are split across `operation_request_hooks.go`, `operation_response_hooks.go`, and `operation_stream_hooks.go` beside the shared runtime executor.
@@ -64,18 +64,17 @@ prism/
 - Mail config fields are parsed for live `config.json` compatibility only. Mail delivery and transport behavior are removed.
 - Backend database capacity is split into named lanes for runtime execution, telemetry, feedback, management, cache refresh, and background jobs. Background or management work must not borrow protected proxy capacity.
 - Partitioned log retention covers `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`; runtime writers ensure daily partitions, and the low-priority platform worker maintains a 15-day horizon.
-- `backend/Dockerfile` runs the backend as `prism:prism` (`1000:1000`), owns `/app/config`, and defaults the container bootstrap path to `/app/config/config.json`.
-- Backend image builds use the repo root as Docker context (`docker build -f backend/Dockerfile .`), so root `.dockerignore` controls CI/backend image contents.
-- `.github/workflows/ci.yml` runs backend regression/build, frontend seam/server/build/lint, blocking Go/frontend dependency scanners, and non-blocking local-image Trivy evidence uploads.
-- `.github/workflows/docker-images.yml` publishes the canonical combined app image plus backend/frontend compatibility images for `linux/arm64` on `v*` tags and `workflow_dispatch` only, requires a green CI conclusion for tag pushes, builds on native arm64 runners without QEMU, moves `latest` only on release tags, and can build one service on manual dispatch.
+- The root single app image runs as `prism:prism` (`1000:1000`), owns `/app/config`, and defaults the container bootstrap path to `/app/config/config.json`; the root `.dockerignore` controls its build context.
+- `.github/workflows/ci.yml` runs backend regression/build, frontend seam/build/lint, blocking Go/frontend dependency scanners, and non-blocking single-image Trivy evidence uploads.
+- `.github/workflows/docker-images.yml` publishes only `ghcr.io/<owner>/<repo>` for `linux/arm64` on `v*` tags and `workflow_dispatch`, requires a green CI conclusion for tag pushes, builds on native arm64 runners without QEMU, and moves `latest` only on release tags.
 - `release.sh` keeps `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` aligned, verifies backend version metadata plus the frontend build, then commits, tags, and pushes one root release.
-- `.github/workflows/cleanup.yml` handles cleanup only, pruning untagged combined-app, backend, and frontend container versions.
+- `.github/workflows/cleanup.yml` handles cleanup only, pruning untagged single-image container versions.
 
 ## WHERE TO LOOK
 - Operator-facing launcher, release, and local bundle helpers: `README.md`, `start.sh`, `release.sh`, `docker-compose.yml`, `Dockerfile`, `docker/`, `frontend/.env.example`
 - Local scratch plans and retained execution evidence: `artifacts/plans/`, `artifacts/evidence/`
 - Backend/frontend version surfaces: `backend/VERSION`, `frontend/VERSION`, `frontend/package.json`
-- Backend container contract: `backend/Dockerfile`, `backend/tests/integration/dockerfile_contract_test.go`
+- Container contract: `Dockerfile`, `backend/tests/integration/dockerfile_contract_test.go`
 - Runtime operation registry, hook residency, rejection semantics, and `operation_name` persistence: `backend/internal/httpapi/runtime/`, `backend/tests/runtime/`, `docs/architecture.md` (§14 API Reference, §15 Data Model Reference)
 - Startup bootstrap loading/parsing contract: `backend/internal/platform/config/`
 - Partitioned log retention: `backend/internal/platform/logretention/`, `backend/internal/httpapi/runtime/log_partitions.go`, `backend/migrations/000001_initial_schema.sql`
@@ -99,7 +98,6 @@ cd backend && go test ./internal/... ./cmd/...
 cd backend && go build ./cmd/prism-backend
 cd frontend && pnpm exec vitest run
 cd frontend && pnpm run test:lib
-cd frontend && pnpm run test:server
 cd frontend && pnpm run build
 cd frontend && pnpm run lint
 cd frontend && pnpm run test:e2e
@@ -116,7 +114,7 @@ cd frontend && pnpm run test:e2e
 - Keep runtime docs aligned with the explicit operation registry, operation hook collections, rejected-route isolation, and `operation_name` persistence instead of broad `/v1` or `/v1beta` path-family wording.
 - Keep bootstrap docs aligned with the file-backed v1 contract: `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` required, `runtime.secretEncryptionKey` preserve-only in v1, metadata-only secret snapshots, restart-required external edits, and parse-only mail config compatibility.
 - Keep repo-level version docs aligned with `release.sh` and the four version surfaces it updates.
-- Keep backend container docs aligned with `backend/Dockerfile`, especially non-root `prism:prism` ownership and `/app/config/config.json` defaults.
+- Keep container docs aligned with the root `Dockerfile`, especially non-root `prism:prism` ownership and `/app/config/config.json` defaults.
 - Keep partitioned log-retention docs aligned with the four managed tables, runtime partition ensuring, management retention jobs, and the low-priority platform worker.
 - Keep `README.md` aligned with the same launcher and release facts.
 - Keep active implementation plans and live execution artifacts out of `docs/`; store local scratch plans under `artifacts/plans/` and run evidence under `artifacts/evidence/`.

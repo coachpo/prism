@@ -4,7 +4,7 @@
 
 Client (5173) → Prism (Management APIs + Proxy Engine → PostgreSQL) → Providers (OpenAI / Anthropic / Gemini)
 
-*Local `./start.sh` keeps frontend `5173` and PostgreSQL `15432` fixed, and follows the selected bootstrap file's backend port. Freshly seeded repo-local bootstrap files use backend port `8000`. Standalone frontend containers commonly expose `3000`.*
+*Local `./start.sh` keeps frontend `5173` and PostgreSQL `15432` fixed, and follows the selected bootstrap file's backend port. Freshly seeded repo-local bootstrap files use backend port `8000`. Production uses the root single-image bundle.*
 
 ## 2. Component Architecture
 
@@ -42,8 +42,6 @@ backend/
 ├── migrations/                 # Fresh-install SQL baseline applied at startup
 ├── testdata/                   # request and bootstrap fixtures
 ├── tests/                      # Go contract, integration, and runtime regressions
-├── Dockerfile                  # live Go backend image build
-├── docker-compose.yml          # local PostgreSQL helper on host port 15432
 └── VERSION                     # backend version surface
 ```
 
@@ -590,7 +588,7 @@ See section 14 (API Reference) for the complete API documentation.
 - **Proxy API Keys**: Optional API key enforcement for supported runtime operations mounted under `/v1` and `/v1beta`. Keys are issued and managed through the dashboard.
 - **Auth Bifurcation**: Management auth (session cookies) and runtime auth (proxy API keys) are separate enforcement paths.
 - **Data at Rest**: API keys and secrets are stored in PostgreSQL. Endpoint secrets are encrypted at rest.
-- **CORS**: Local browser traffic stays same-origin through the launcher-local Vite proxy in `full` mode; standalone frontend workflows can still target an explicit backend base URL.
+- **CORS**: Local browser traffic stays same-origin through the launcher-local Vite proxy in `full` mode; production single-image traffic is served from the same origin.
 - **Network**: Prism does not terminate TLS and does not enforce a LAN-only boundary. Deployment exposure is the operator's responsibility: use firewall rules, reverse-proxy access controls, container or host network policy, and TLS termination appropriate to the environment.
 
 ## 13. Supported Runtime API Families

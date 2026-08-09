@@ -12,7 +12,7 @@ lib/
 
 ## WHERE TO LOOK
 - TypeScript module loader and `@/` alias support: `../helpers/loadTsModule.mjs`
-- Scripted `test:lib` glob coverage: `../../package.json` runs `tests/lib/*.test.mjs`; it still includes one unmatched historical model-detail glob, but that root is absent.
+- Scripted `test:lib` glob coverage: `../../package.json` runs `tests/lib/*.test.mjs`; historical model-detail node tests are absent.
 - Management and profile-scope contracts: `management_*.test.mjs`, `profile_*_contract.test.mjs`
 - Observability/request-log contracts: `observability_api_contract.test.mjs`, `request_log_*_contract.test.mjs`
 - Dashboard/statistics contracts: `dashboard_*.test.mjs`

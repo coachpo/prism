@@ -1,7 +1,7 @@
 # BACKEND INTEGRATION TEST KNOWLEDGE BASE
 
 ## OVERVIEW
-`backend/tests/integration/` owns startup, migration, launcher, Dockerfile, partitioned-retention, runtime route-matrix, alerting outbox, and cross-service integration checks. These tests verify process and persistence contracts that are broader than one handler or package.
+`backend/tests/integration/` owns startup, migration, launcher, root single-image Dockerfile, partitioned-retention, runtime route-matrix, alerting outbox, and cross-service integration checks. These tests verify process and persistence contracts that are broader than one handler or package.
 
 ## STRUCTURE
 ```text
@@ -10,7 +10,7 @@ integration/
 ├── startup_test.go                         # Startup config, seeding, bootstrap preservation
 ├── launcher_startup_contract_test.go       # Root launcher and local bootstrap contract
 ├── migrations_test.go                      # Fresh-install baseline and schema-history guards
-├── dockerfile_contract_test.go             # Backend image ownership/path contract
+├── dockerfile_contract_test.go             # Single-image ownership/path contract
 ├── partitioned_log_retention_test.go       # Partitioned runtime/audit/usage/loadbalance retention
 ├── alerting_outbox_test.go                 # Webhook outbox persistence contract
 ├── runtime_route_matrix_test.go            # Integration route matrix smoke
@@ -28,7 +28,7 @@ integration/
 
 ## CONVENTIONS
 - Use these tests for cross-cutting process and persistence contracts that unit or contract suites cannot cover cleanly.
-- Keep Dockerfile tests aligned with non-root `prism:prism` UID/GID `1000:1000` and `/app/config/config.json` defaults.
+- Keep Dockerfile tests aligned with the single-image non-root `prism:prism` UID/GID `1000:1000` and `/app/config/config.json` defaults.
 - Keep startup tests aligned with plaintext bootstrap v1, CPU-derived pool defaults, parse-only mail/telemetry compatibility, and restart-required external edits.
 - Keep partitioned-retention tests scoped to `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
 

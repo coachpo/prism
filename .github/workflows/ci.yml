@@ -64,10 +64,6 @@ jobs:
         working-directory: frontend
         run: pnpm run test:lib
 
-      - name: Run frontend server health tests
-        working-directory: frontend
-        run: pnpm run test:server
-
       - name: Build frontend
         working-directory: frontend
         run: pnpm run build
@@ -142,29 +138,6 @@ jobs:
         id: rev
         run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
-      - name: Build backend container image for scan
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ./backend/Dockerfile
-          tags: prism-backend:ci
-          load: true
-          cache-from: type=gha,scope=ci-backend
-          cache-to: type=gha,scope=ci-backend,mode=max
-
-      - name: Build frontend container image for scan
-        uses: docker/build-push-action@v7
-        with:
-          context: ./frontend
-          file: ./frontend/Dockerfile
-          tags: prism-frontend:ci
-          load: true
-          build-args: |
-            VITE_GIT_RUN_NUMBER=${{ github.run_number }}
-            VITE_GIT_REVISION=${{ steps.rev.outputs.short }}
-          cache-from: type=gha,scope=ci-frontend
-          cache-to: type=gha,scope=ci-frontend,mode=max
-
       - name: Build single-image bundle for scan
         uses: docker/build-push-action@v7
         with:
@@ -173,7 +146,6 @@ jobs:
           tags: prism-single:ci
           load: true
           build-args: |
-            BUILD_FRONTEND=true
             VITE_API_BASE=
             VITE_GIT_RUN_NUMBER=${{ github.run_number }}
             VITE_GIT_REVISION=${{ steps.rev.outputs.short }}
@@ -221,28 +193,20 @@ jobs:
         shell: bash
         run: |
           mkdir -p trivy-reports
-          backend_status=0
-          frontend_status=0
           single_status=0
 
-          trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 --format sarif --output trivy-reports/prism-backend.sarif prism-backend:ci || backend_status=$?
-          trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 --format table --output trivy-reports/prism-backend.txt prism-backend:ci || backend_status=$?
-          trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 --format sarif --output trivy-reports/prism-frontend.sarif prism-frontend:ci || frontend_status=$?
-          trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 --format table --output trivy-reports/prism-frontend.txt prism-frontend:ci || frontend_status=$?
           trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 --format sarif --output trivy-reports/prism-single.sarif prism-single:ci || single_status=$?
           trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 --format table --output trivy-reports/prism-single.txt prism-single:ci || single_status=$?
 
           {
             echo "Prism container scanner policy"
             echo "Generated at: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-            echo "Scanned local images only: prism-backend:ci, prism-frontend:ci, prism-single:ci"
+            echo "Scanned local image only: prism-single:ci"
             echo "Severity: HIGH,CRITICAL"
             echo "Ignore unfixed: true"
             echo "Exit code mode: 0 for vulnerability findings"
             echo "Blocking: false"
             echo "Rationale: Trivy advisory DB and network drift can make image-vulnerability gating unstable in this wave."
-            echo "Backend Trivy command status: ${backend_status}"
-            echo "Frontend Trivy command status: ${frontend_status}"
             echo "Single-image Trivy command status: ${single_status}"
           } > trivy-reports/status.txt
 
@@ -251,8 +215,6 @@ jobs:
             echo ""
             echo "Trivy scans are non-blocking in this wave. Reports are uploaded as artifacts and statuses are recorded below."
             echo ""
-            echo "- Backend image: \`prism-backend:ci\`, status \`${backend_status}\`"
-            echo "- Frontend image: \`prism-frontend:ci\`, status \`${frontend_status}\`"
             echo "- Single image: \`prism-single:ci\`, status \`${single_status}\`"
             echo "- Rationale: advisory DB and network drift can make container scanner gating unstable."
           } >> "$GITHUB_STEP_SUMMARY"
