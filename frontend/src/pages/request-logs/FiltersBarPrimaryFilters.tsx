@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useLocale } from "@/i18n/useLocale";
+import { api } from "@/lib/api";
 import {
   Select,
   SelectContent,
@@ -22,6 +24,8 @@ interface FiltersBarPrimaryFiltersProps {
     | "setEndpointId"
     | "setModelId"
     | "setClientRuleId"
+    | "setProxyApiKeyId"
+    | "setView"
     | "setResolvedTargetModelId"
     | "setStatusFamily"
     | "setStatusCode"
@@ -38,6 +42,8 @@ interface FiltersBarPrimaryFiltersProps {
     | "endpoint_id"
     | "model_id"
     | "client_rule_id"
+    | "proxy_api_key_id"
+    | "view"
     | "resolved_target_model_id"
     | "status_family"
     | "status_code"
@@ -64,6 +70,23 @@ export function FiltersBarPrimaryFilters({
 }: FiltersBarPrimaryFiltersProps) {
   const { messages } = useLocale();
   const [requestLookupValue, setRequestLookupValue] = useState("");
+  const [proxyKeySearch, setProxyKeySearch] = useState("");
+  const proxyKeyOptionsQuery = useQuery({
+    queryKey: ["request-logs", "proxy-api-key-options", proxyKeySearch, state.proxy_api_key_id],
+    queryFn: () =>
+      api.stats.proxyApiKeyFilterOptions({
+        q: proxyKeySearch || undefined,
+        selected_id: state.proxy_api_key_id ? parseInt(state.proxy_api_key_id, 10) : undefined,
+      }),
+  });
+  const proxyKeyOptions = useMemo(() => {
+    const items = proxyKeyOptionsQuery.data?.items ?? [];
+    const selected = proxyKeyOptionsQuery.data?.selected ?? null;
+    if (selected && !items.some((item) => item.proxy_api_key_id === selected.proxy_api_key_id)) {
+      return [selected, ...items];
+    }
+    return items;
+  }, [proxyKeyOptionsQuery.data]);
 
   const commitRequestLookup = () => {
     const normalized = requestLookupValue.trim();
@@ -153,6 +176,41 @@ export function FiltersBarPrimaryFilters({
           </SelectContent>
         </Select>
       </div>
+      <div className="min-w-0 xl:col-span-2">
+        <ToolbarLabel>{messages.requestLogs.proxyKey}</ToolbarLabel>
+        <div className="flex items-center gap-1">
+          <Input
+            name="proxy_api_key_search"
+            autoComplete="off"
+            className="h-9 w-28 rounded-lg border-outline-variant bg-surface text-xs"
+            placeholder={messages.requestLogs.proxyKeySearch}
+            value={proxyKeySearch}
+            onChange={(event) => setProxyKeySearch(event.target.value)}
+          />
+          <Select
+            value={state.proxy_api_key_id || "__all__"}
+            onValueChange={(value) => actions.setProxyApiKeyId(value === "__all__" ? "" : value)}
+          >
+            <SelectTrigger
+              aria-label={messages.requestLogs.proxyKey}
+              className="h-9 w-full min-w-0 max-w-full rounded-lg border-outline-variant bg-surface text-xs"
+            >
+              <SelectValue className="min-w-0" placeholder={messages.requestLogs.allProxyKeys} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">{messages.requestLogs.allProxyKeys}</SelectItem>
+              {proxyKeyOptions.map((option) => (
+                <SelectItem key={option.proxy_api_key_id} value={String(option.proxy_api_key_id)}>
+                  {option.proxy_api_key_name}
+                  {option.key_preview ? ` · ${option.key_preview}` : ""}
+                  {!option.configured ? ` · ${messages.requestLogs.proxyKeyDeleted}` : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
 
       <div className="min-w-0">
         <ToolbarLabel>{messages.requestLogs.finalTargetModel}</ToolbarLabel>

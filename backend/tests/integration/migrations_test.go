@@ -21,6 +21,8 @@ const updateMigrationSchemaGoldenEnv = "PRISM_UPDATE_MIGRATION_SCHEMA_GOLDEN"
 var expectedPrismMigrationVersions = []string{
 	migrate.DefaultBaselineVersion,
 	"000002_connection_custom_request_parameters",
+	"000003_proxy_api_key_immutable_attribution",
+	"000004_proxy_api_key_immutable_attribution_finalize",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
@@ -941,6 +943,158 @@ func TestConnectionCustomRequestParametersUpgradePath(t *testing.T) {
 	}
 	if _, err := conn.Exec(testContext, `UPDATE connections SET custom_request_parameters = '{"provider":{"only":["deepinfra/turbo"]}}'::jsonb WHERE id = $1`, connectionID); err != nil {
 		t.Fatalf("expected database CHECK to accept an object custom_request_parameters root: %v", err)
+	}
+
+	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
+}
+
+func TestProxyKeyImmutableAttributionUpgradePath(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openEmptyDatabase(t, testContext, "proxy_key_attribution_upgrade")
+	defer func() { _ = conn.Close(testContext) }()
+
+	firstResult, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run full migration set: %v", err)
+	}
+	if firstResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected first run to apply migrations, got %q", firstResult.Outcome)
+	}
+
+	// Simulate a pre-000003 database: roll back 000003/000004 schema surface
+	// and re-stamp history at 000002 so the upgrade path re-applies them.
+	for _, version := range []string{"000004_proxy_api_key_immutable_attribution_finalize", "000003_proxy_api_key_immutable_attribution"} {
+		if _, err := conn.Exec(testContext, `DELETE FROM prism_schema_migrations WHERE version = $1`, version); err != nil {
+			t.Fatalf("un-stamp %s: %v", version, err)
+		}
+	}
+	rollbackStatements := []string{
+		`ALTER TABLE public.request_logs DROP CONSTRAINT IF EXISTS ck_request_logs_proxy_key_snapshot_consistent`,
+		`ALTER TABLE public.request_logs DROP CONSTRAINT IF EXISTS ck_request_logs_proxy_key_attribution_state`,
+		`ALTER TABLE public.usage_request_events DROP CONSTRAINT IF EXISTS ck_usage_request_events_proxy_key_snapshot_consistent`,
+		`ALTER TABLE public.usage_request_events DROP CONSTRAINT IF EXISTS ck_usage_request_events_proxy_key_attribution_state`,
+		`DROP INDEX IF EXISTS ix_request_logs_proxy_api_key_snapshot`,
+		`DROP INDEX IF EXISTS ix_usage_request_events_proxy_api_key_snapshot`,
+		`ALTER TABLE public.request_logs DROP COLUMN IF EXISTS proxy_api_key_id_snapshot`,
+		`ALTER TABLE public.request_logs DROP COLUMN IF EXISTS proxy_api_key_attribution_state`,
+		`ALTER TABLE public.request_logs DROP COLUMN IF EXISTS proxy_api_key_auth_enforced_at_request`,
+		`ALTER TABLE public.usage_request_events DROP COLUMN IF EXISTS proxy_api_key_id_snapshot`,
+		`ALTER TABLE public.usage_request_events DROP COLUMN IF EXISTS proxy_api_key_attribution_state`,
+		`ALTER TABLE public.usage_request_events DROP COLUMN IF EXISTS proxy_api_key_auth_enforced_at_request`,
+		`ALTER TABLE public.request_logs ADD COLUMN proxy_api_key_id integer`,
+		`ALTER TABLE public.usage_request_events ADD COLUMN proxy_api_key_id integer`,
+	}
+	for _, statement := range rollbackStatements {
+		if _, err := conn.Exec(testContext, statement); err != nil {
+			t.Fatalf("rollback 000003/000004 schema (%q): %v", statement, err)
+		}
+	}
+	if _, err := conn.Exec(testContext, `CREATE INDEX ix_request_logs_proxy_api_key_id ON ONLY public.request_logs USING btree (proxy_api_key_id)`); err != nil {
+		t.Fatalf("restore legacy request_logs index: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `CREATE INDEX ix_usage_request_events_proxy_api_key_id ON ONLY public.usage_request_events USING btree (proxy_api_key_id)`); err != nil {
+		t.Fatalf("restore legacy usage index: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `ALTER TABLE public.request_logs ADD CONSTRAINT request_logs_proxy_api_key_id_fkey FOREIGN KEY (proxy_api_key_id) REFERENCES public.proxy_api_keys(id) ON DELETE SET NULL`); err != nil {
+		t.Fatalf("restore legacy request_logs FK: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `ALTER TABLE public.usage_request_events ADD CONSTRAINT usage_request_events_proxy_api_key_id_fkey FOREIGN KEY (proxy_api_key_id) REFERENCES public.proxy_api_keys(id) ON DELETE SET NULL`); err != nil {
+		t.Fatalf("restore legacy usage FK: %v", err)
+	}
+
+	// Seed a legacy proxy key and retained rows: one identified (key ID + name
+	// snapshot), one with NULL key ID that must become unknown.
+	now := time.Now().UTC()
+	if _, err := conn.Exec(testContext, `INSERT INTO profiles (id, name, description, is_active, is_default, is_editable, version, deleted_at, created_at, updated_at) VALUES (1, 'upgrade-profile', NULL, FALSE, FALSE, TRUE, 1, NULL, $1, $1)`, now); err != nil {
+		t.Fatalf("seed upgrade profile: %v", err)
+	}
+	var keyID int
+	if err := conn.QueryRow(testContext, `INSERT INTO proxy_api_keys (name, key_prefix, key_hash, last_four, is_active, expires_at, created_at, updated_at) VALUES ('legacy-key', 'pm-legacy', 'hash', '1234', TRUE, NULL, $1, $1) RETURNING id`, now).Scan(&keyID); err != nil {
+		t.Fatalf("seed legacy proxy key: %v", err)
+	}
+	ensureDailyLogPartition(t, testContext, conn, "request_logs", now, "pk_upgrade")
+	ensureDailyLogPartition(t, testContext, conn, "usage_request_events", now, "pk_upgrade")
+	if _, err := conn.Exec(testContext, `INSERT INTO request_logs (id, profile_id, model_id, api_family, status_code, response_time_ms, is_stream, success_flag, request_path, created_at, proxy_api_key_id, proxy_api_key_name_snapshot, ingress_request_id, attempt_number) VALUES (1, 1, 'model-a', 'openai', 200, 10, FALSE, TRUE, '/v1/chat/completions', $1, $2, 'legacy-key-name', 'ingress-1', 1), (2, 1, 'model-a', 'openai', 200, 10, FALSE, TRUE, '/v1/chat/completions', $1, NULL, NULL, 'ingress-2', 1)`, now, keyID); err != nil {
+		t.Fatalf("seed legacy request_logs rows: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, api_family, status_code, success_flag, attempt_count, request_path, created_at, endpoint_label_snapshot, proxy_api_key_id, proxy_api_key_name_snapshot) VALUES (1, 1, 'ingress-1', 'model-a', 'openai', 200, TRUE, 1, '/v1/chat/completions', $1, 'ep', $2, 'legacy-key-name'), (2, 1, 'ingress-2', 'model-a', 'openai', 200, TRUE, 1, '/v1/chat/completions', $1, 'ep', NULL, NULL)`, now, keyID); err != nil {
+		t.Fatalf("seed legacy usage rows: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, api_family, status_code, success_flag, attempt_count, request_path, created_at, endpoint_label_snapshot, proxy_api_key_id, proxy_api_key_name_snapshot) VALUES (3, 1, 'ingress-3', 'model-a', 'openai', 200, TRUE, 1, '/v1/chat/completions', $1, 'ep', NULL, 'orphaned-legacy-name')`, now); err != nil {
+		t.Fatalf("seed legacy usage orphan-name row: %v", err)
+	}
+
+	upgradeResult, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("apply 000003/000004 upgrade: %v", err)
+	}
+	if upgradeResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected upgrade run to apply 000003/000004, got %q", upgradeResult.Outcome)
+	}
+
+	// Legacy columns and FKs are gone; snapshot surface is authoritative.
+	var legacyColumnCount int
+	if err := conn.QueryRow(testContext, `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name IN ('request_logs', 'usage_request_events') AND column_name = 'proxy_api_key_id'`).Scan(&legacyColumnCount); err != nil {
+		t.Fatalf("count legacy columns: %v", err)
+	}
+	if legacyColumnCount != 0 {
+		t.Fatalf("expected legacy proxy_api_key_id columns to be dropped, found %d", legacyColumnCount)
+	}
+	var legacyFKCount int
+	if err := conn.QueryRow(testContext, `SELECT COUNT(*) FROM pg_constraint WHERE conname IN ('request_logs_proxy_api_key_id_fkey', 'usage_request_events_proxy_api_key_id_fkey')`).Scan(&legacyFKCount); err != nil {
+		t.Fatalf("count legacy FKs: %v", err)
+	}
+	if legacyFKCount != 0 {
+		t.Fatalf("expected legacy proxy key FKs to be dropped, found %d", legacyFKCount)
+	}
+
+	// Identified backfill: snapshot ID, state, retained name.
+	var snapshotID sql.NullInt64
+	var attributionState sql.NullString
+	var retainedName sql.NullString
+	var authEnforced sql.NullBool
+	if err := conn.QueryRow(testContext, `SELECT proxy_api_key_id_snapshot, proxy_api_key_attribution_state, proxy_api_key_name_snapshot, proxy_api_key_auth_enforced_at_request FROM request_logs WHERE id = 1`).Scan(&snapshotID, &attributionState, &retainedName, &authEnforced); err != nil {
+		t.Fatalf("load backfilled request_log row: %v", err)
+	}
+	if !snapshotID.Valid || snapshotID.Int64 != int64(keyID) || attributionState.String != "identified" || !retainedName.Valid || retainedName.String != "legacy-key-name" || authEnforced.Valid {
+		t.Fatalf("unexpected request_logs identified backfill: id=%v state=%q name=%v enforced=%v", snapshotID, attributionState.String, retainedName, authEnforced)
+	}
+
+	// NULL legacy ID becomes unknown; orphaned legacy name is preserved.
+	if err := conn.QueryRow(testContext, `SELECT proxy_api_key_id_snapshot, proxy_api_key_attribution_state, proxy_api_key_name_snapshot FROM request_logs WHERE id = 2`).Scan(&snapshotID, &attributionState, &retainedName); err != nil {
+		t.Fatalf("load backfilled unknown request_log row: %v", err)
+	}
+	if snapshotID.Valid || attributionState.String != "unknown" || retainedName.Valid {
+		t.Fatalf("unexpected request_logs unknown backfill: id=%v state=%q name=%v", snapshotID, attributionState.String, retainedName)
+	}
+	if err := conn.QueryRow(testContext, `SELECT proxy_api_key_id_snapshot, proxy_api_key_attribution_state, proxy_api_key_name_snapshot FROM usage_request_events WHERE id = 3`).Scan(&snapshotID, &attributionState, &retainedName); err != nil {
+		t.Fatalf("load backfilled orphan-name usage row: %v", err)
+	}
+	if snapshotID.Valid || attributionState.String != "unknown" || !retainedName.Valid || retainedName.String != "orphaned-legacy-name" {
+		t.Fatalf("unexpected usage orphan-name backfill: id=%v state=%q name=%v", snapshotID, attributionState.String, retainedName)
+	}
+
+	// Identified usage row backfill.
+	if err := conn.QueryRow(testContext, `SELECT proxy_api_key_id_snapshot, proxy_api_key_attribution_state FROM usage_request_events WHERE id = 1`).Scan(&snapshotID, &attributionState); err != nil {
+		t.Fatalf("load backfilled identified usage row: %v", err)
+	}
+	if !snapshotID.Valid || snapshotID.Int64 != int64(keyID) || attributionState.String != "identified" {
+		t.Fatalf("unexpected usage identified backfill: id=%v state=%q", snapshotID, attributionState.String)
+	}
+
+	// CHECK constraints reject inconsistent new rows.
+	if _, err := conn.Exec(testContext, `INSERT INTO request_logs (id, profile_id, model_id, api_family, status_code, response_time_ms, is_stream, success_flag, request_path, created_at, proxy_api_key_id_snapshot, proxy_api_key_attribution_state, proxy_api_key_name_snapshot, ingress_request_id, attempt_number) VALUES (3, 1, 'model-a', 'openai', 200, 10, FALSE, TRUE, '/v1/chat/completions', $1, 99, 'none', NULL, 'ingress-x', 1)`, now); err == nil {
+		t.Fatalf("expected CHECK to reject identified state with NULL snapshot name")
+	}
+	if _, err := conn.Exec(testContext, `INSERT INTO request_logs (id, profile_id, model_id, api_family, status_code, response_time_ms, is_stream, success_flag, request_path, created_at, proxy_api_key_id_snapshot, proxy_api_key_attribution_state, proxy_api_key_name_snapshot, ingress_request_id, attempt_number) VALUES (3, 1, 'model-a', 'openai', 200, 10, FALSE, TRUE, '/v1/chat/completions', $1, NULL, 'identified', 'name', 'ingress-x', 1)`, now); err == nil {
+		t.Fatalf("expected CHECK to reject identified state without snapshot ID")
+	}
+	if _, err := conn.Exec(testContext, `INSERT INTO request_logs (id, profile_id, model_id, api_family, status_code, response_time_ms, is_stream, success_flag, request_path, created_at, proxy_api_key_id_snapshot, proxy_api_key_attribution_state, proxy_api_key_name_snapshot, ingress_request_id, attempt_number) VALUES (3, 1, 'model-a', 'openai', 200, 10, FALSE, TRUE, '/v1/chat/completions', $1, 99, 'identified', 'name', 'ingress-x', 1)`, now); err != nil {
+		t.Fatalf("expected CHECK to accept consistent identified row: %v", err)
 	}
 
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))

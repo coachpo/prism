@@ -95,6 +95,8 @@ export function UsageStatisticsContent({ data, state }: UsageStatisticsContentPr
           />
 
           <UsageTablesSection
+            authEnabled={data.authEnabled}
+            authModeLoaded={data.authModeLoaded}
             currency={snapshot.currency}
             endpointModelStatisticsByEndpointId={data.endpointModelStatisticsByEndpointId}
             endpointModelStatisticsErrors={data.endpointModelStatisticsErrors}

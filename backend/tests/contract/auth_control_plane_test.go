@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -420,11 +421,15 @@ func TestProxyKeyCRUD(t *testing.T) {
 
 	initialList := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/auth/proxy-keys", nil, nil)
 	assertStatus(t, initialList, http.StatusOK)
-	var emptyList []map[string]any
-	decodeJSONResponse(t, initialList, &emptyList)
-	if len(emptyList) != 0 {
-		t.Fatalf("expected no proxy API keys at test start, got %+v", emptyList)
+	var initialListPayload struct {
+		Items    []map[string]any        `json:"items"`
+		Capacity proxyKeyCapacityPayload `json:"capacity"`
 	}
+	decodeJSONResponse(t, initialList, &initialListPayload)
+	if len(initialListPayload.Items) != 0 {
+		t.Fatalf("expected no proxy API keys at test start, got %+v", initialListPayload.Items)
+	}
+	assertProxyKeyCapacityPayload(t, initialListPayload.Capacity, 0, 100)
 
 	createResponse := harness.requestJSON(
 		t,
@@ -442,6 +447,10 @@ func TestProxyKeyCRUD(t *testing.T) {
 	if createdPayload["key"] == "" || item["name"] != "Primary runtime key" || item["notes"] != "created in contract test" || item["is_active"] != true {
 		t.Fatalf("expected created proxy key payload, got %+v", createdPayload)
 	}
+	assertProxyKeyCapacityPayload(t, decodeCapacityField(t, createResponse, "capacity"), 1, 100)
+	if createResponse.Header.Get("Cache-Control") != "private, no-store" || createResponse.Header.Get("Pragma") != "no-cache" {
+		t.Fatalf("expected create response to carry private, no-store headers, got Cache-Control=%q Pragma=%q", createResponse.Header.Get("Cache-Control"), createResponse.Header.Get("Pragma"))
+	}
 
 	updatedResponse := harness.requestJSON(
 		t,
@@ -454,25 +463,32 @@ func TestProxyKeyCRUD(t *testing.T) {
 	assertStatus(t, updatedResponse, http.StatusOK)
 	var updatedPayload map[string]any
 	decodeJSONResponse(t, updatedResponse, &updatedPayload)
-	if updatedPayload["name"] != "Primary runtime key v2" || updatedPayload["notes"] != "rotatable" || updatedPayload["is_active"] != false {
+	updatedItem := updatedPayload["item"].(map[string]any)
+	if updatedItem["name"] != "Primary runtime key v2" || updatedItem["notes"] != "rotatable" || updatedItem["is_active"] != false {
 		t.Fatalf("expected updated proxy key payload, got %+v", updatedPayload)
 	}
+	assertProxyKeyCapacityPayload(t, decodeCapacityField(t, updatedResponse, "capacity"), 1, 100)
 
 	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/auth/proxy-keys", nil, nil)
 	assertStatus(t, listResponse, http.StatusOK)
-	var listed []map[string]any
-	decodeJSONResponse(t, listResponse, &listed)
-	if len(listed) != 1 || listed[0]["name"] != "Primary runtime key v2" {
-		t.Fatalf("expected updated proxy key in list response, got %+v", listed)
+	var listedPayload struct {
+		Items    []map[string]any        `json:"items"`
+		Capacity proxyKeyCapacityPayload `json:"capacity"`
 	}
+	decodeJSONResponse(t, listResponse, &listedPayload)
+	if len(listedPayload.Items) != 1 || listedPayload.Items[0]["name"] != "Primary runtime key v2" {
+		t.Fatalf("expected updated proxy key in list response, got %+v", listedPayload.Items)
+	}
+	assertProxyKeyCapacityPayload(t, listedPayload.Capacity, 1, 100)
 
 	deleteResponse := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/settings/auth/proxy-keys/%d", createdID), nil, nil)
 	assertStatus(t, deleteResponse, http.StatusOK)
 	var deletedPayload map[string]any
 	decodeJSONResponse(t, deleteResponse, &deletedPayload)
-	if deletedPayload["deleted"] != true {
-		t.Fatalf("expected delete confirmation payload, got %+v", deletedPayload)
+	if deletedPayload["deleted_id"] != float64(createdID) {
+		t.Fatalf("expected delete confirmation payload with deleted_id, got %+v", deletedPayload)
 	}
+	assertProxyKeyCapacityPayload(t, decodeCapacityField(t, deleteResponse, "capacity"), 0, 100)
 }
 
 func TestProxyKeyExpiryMutation(t *testing.T) {
@@ -497,19 +513,70 @@ func TestProxyKeyExpiryMutation(t *testing.T) {
 		t.Fatalf("expected proxy key create payload to persist expires_at %s, got %+v", futureExpiry.Format(time.RFC3339Nano), createdSnapshot)
 	}
 
-	expiredAt := time.Now().UTC().Add(-1 * time.Minute).Truncate(time.Microsecond)
-	updateResponse := harness.requestJSON(
+	// Non-future expiry is rejected with a typed locatable error.
+	pastExpiry := time.Now().UTC().Add(-1 * time.Minute).Truncate(time.Microsecond)
+	pastUpdateResponse := harness.requestJSON(
 		t,
 		harness.client,
 		http.MethodPatch,
 		fmt.Sprintf("/api/settings/auth/proxy-keys/%d", createdSnapshot.ID),
-		map[string]any{"name": "Expiring key", "expires_at": expiredAt},
+		map[string]any{"name": "Expiring key", "expires_at": pastExpiry},
 		nil,
 	)
-	assertStatus(t, updateResponse, http.StatusOK)
-	updatedSnapshot := loadProxyKeyByPrefix(t, harness, createdItem["key_prefix"].(string))
-	if updatedSnapshot.ExpiresAt == nil || !updatedSnapshot.ExpiresAt.Equal(expiredAt) {
-		t.Fatalf("expected proxy key update payload to persist expires_at %s, got %+v", expiredAt.Format(time.RFC3339Nano), updatedSnapshot)
+	assertErrorResponseCode(t, pastUpdateResponse, http.StatusUnprocessableEntity, "proxy_key_expiry_invalid", "Expiry must be a future time")
+	unchangedSnapshot := loadProxyKeyByPrefix(t, harness, createdItem["key_prefix"].(string))
+	if unchangedSnapshot.ExpiresAt == nil || !unchangedSnapshot.ExpiresAt.Equal(futureExpiry) {
+		t.Fatalf("expected rejected non-future expiry to preserve the previous instant, got %+v", unchangedSnapshot)
+	}
+
+	// Presence-aware update: explicit null clears the expiry.
+	clearResponse := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPatch,
+		fmt.Sprintf("/api/settings/auth/proxy-keys/%d", createdSnapshot.ID),
+		map[string]any{"name": "Expiring key", "expires_at": nil},
+		nil,
+	)
+	assertStatus(t, clearResponse, http.StatusOK)
+	clearedSnapshot := loadProxyKeyByPrefix(t, harness, createdItem["key_prefix"].(string))
+	if clearedSnapshot.ExpiresAt != nil {
+		t.Fatalf("expected explicit null expiry update to clear expires_at, got %+v", clearedSnapshot)
+	}
+	assertProxyKeyCapacityPayload(t, decodeCapacityField(t, clearResponse, "capacity"), 1, 100)
+
+	// Presence-aware update: setting a new future instant applies it.
+	newExpiry := time.Now().UTC().Add(3 * time.Hour).Truncate(time.Microsecond)
+	setResponse := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPatch,
+		fmt.Sprintf("/api/settings/auth/proxy-keys/%d", createdSnapshot.ID),
+		map[string]any{"name": "Expiring key", "expires_at": newExpiry},
+		nil,
+	)
+	assertStatus(t, setResponse, http.StatusOK)
+	setSnapshot := loadProxyKeyByPrefix(t, harness, createdItem["key_prefix"].(string))
+	if setSnapshot.ExpiresAt == nil || !setSnapshot.ExpiresAt.Equal(newExpiry) {
+		t.Fatalf("expected proxy key update payload to persist expires_at %s, got %+v", newExpiry.Format(time.RFC3339Nano), setSnapshot)
+	}
+
+	// Presence-aware update: omitted field preserves the current instant.
+	preserveResponse := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPatch,
+		fmt.Sprintf("/api/settings/auth/proxy-keys/%d", createdSnapshot.ID),
+		map[string]any{"name": "Expiring key renamed"},
+		nil,
+	)
+	assertStatus(t, preserveResponse, http.StatusOK)
+	preservedSnapshot := loadProxyKeyByPrefix(t, harness, createdItem["key_prefix"].(string))
+	if preservedSnapshot.ExpiresAt == nil || !preservedSnapshot.ExpiresAt.Equal(newExpiry) {
+		t.Fatalf("expected omitted expiry update to preserve the current instant, got %+v", preservedSnapshot)
+	}
+	if preservedSnapshot.Name != "Expiring key renamed" {
+		t.Fatalf("expected rename to apply alongside preserved expiry, got %+v", preservedSnapshot)
 	}
 }
 
@@ -566,10 +633,12 @@ func TestProxyKeyRotate(t *testing.T) {
 
 	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/auth/proxy-keys", nil, nil)
 	assertStatus(t, listResponse, http.StatusOK)
-	var listed []map[string]any
-	decodeJSONResponse(t, listResponse, &listed)
-	if len(listed) != 2 {
-		t.Fatalf("expected proxy key rotation to preserve history in list responses, got %+v", listed)
+	var listedPayload struct {
+		Items []map[string]any `json:"items"`
+	}
+	decodeJSONResponse(t, listResponse, &listedPayload)
+	if len(listedPayload.Items) != 2 {
+		t.Fatalf("expected proxy key rotation to preserve history in list responses, got %+v", listedPayload.Items)
 	}
 
 	snapshots := loadProxyKeys(t, harness)
@@ -667,5 +736,41 @@ func TestProxyKeyRuntimeSeparation(t *testing.T) {
 	proxyKey := loadProxyKeyByPrefix(t, harness, createdPayload["item"].(map[string]any)["key_prefix"].(string))
 	if proxyKey.LastUsedAt != nil {
 		t.Fatal("expected runtime probe path to avoid last_used_at materialization without a real runtime request")
+	}
+}
+
+type proxyKeyCapacityPayload struct {
+	Limit     int    `json:"limit"`
+	Used      int    `json:"used"`
+	Remaining int    `json:"remaining"`
+	CountedAt string `json:"counted_at"`
+}
+
+func decodeCapacityField(t *testing.T, response *http.Response, field string) proxyKeyCapacityPayload {
+	t.Helper()
+	var payload struct {
+		Capacity proxyKeyCapacityPayload `json:"capacity"`
+	}
+	decodeJSONResponse(t, response, &payload)
+	return payload.Capacity
+}
+
+func assertProxyKeyCapacityPayload(t *testing.T, payload proxyKeyCapacityPayload, used int, limit int) {
+	t.Helper()
+	if payload.Limit != limit {
+		t.Fatalf("capacity limit = %d, want %d", payload.Limit, limit)
+	}
+	if payload.Used != used {
+		t.Fatalf("capacity used = %d, want %d", payload.Used, used)
+	}
+	expectedRemaining := limit - used
+	if expectedRemaining < 0 {
+		expectedRemaining = 0
+	}
+	if payload.Remaining != expectedRemaining {
+		t.Fatalf("capacity remaining = %d, want %d", payload.Remaining, expectedRemaining)
+	}
+	if strings.TrimSpace(payload.CountedAt) == "" {
+		t.Fatal("capacity counted_at must be an RFC3339 string")
 	}
 }

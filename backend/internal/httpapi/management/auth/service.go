@@ -35,11 +35,20 @@ type Service struct {
 	authRuntimeConfigProvider RuntimeAuthConfigProvider
 	corsOriginProvider        platformcors.OriginProvider
 	proxyKeyPreviewSize       int
-	runtimeCache              *RuntimeCache
+	runtimeCache              runtimeAuthCache
 	proxyKeyUsagePool         *pgxpool.Pool
 	proxyKeyUsageWriter       *proxyAPIKeyUsageWriter
 	authSettingsSnapshotMu    sync.RWMutex
 	authSettingsSnapshot      *AppAuthSettingsSnapshot
+}
+
+// runtimeAuthCache is the runtime-branch surface the auth service needs for
+// permissive/enforced proxy key attribution. *RuntimeCache implements it; tests
+// substitute a fake to cover the decision matrix without a database.
+type runtimeAuthCache interface {
+	LoadFreshRuntimeAuthSettings(ctx context.Context) (RuntimeAuthSettingsSnapshot, error)
+	LoadFreshRuntimeProxyKeyDecision(ctx context.Context, now time.Time, rawKey string) (RuntimeProxyKeyDecision, error)
+	Invalidate()
 }
 
 type authSubject struct {

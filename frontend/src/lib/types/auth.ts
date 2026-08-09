@@ -51,19 +51,48 @@ export interface ProxyApiKeyCreate {
   expires_at?: string | null;
 }
 
-export interface ProxyApiKeyUpdate {
-  name: string;
-  notes: string | null;
-  is_active: boolean;
-  expires_at: string | null;
+export interface ProxyKeyCapacity {
+  limit: number;
+  used: number;
+  remaining: number;
+  counted_at: string;
+}
+
+export interface ProxyApiKeyListResponse {
+  items: ProxyApiKey[];
+  capacity: ProxyKeyCapacity;
 }
 
 export interface ProxyApiKeyCreateResponse {
   key: string;
   item: ProxyApiKey;
+  capacity: ProxyKeyCapacity;
 }
 
 export interface ProxyApiKeyRotateResponse {
   key: string;
   item: ProxyApiKey;
+  capacity: ProxyKeyCapacity;
+}
+
+export interface ProxyApiKeyUpdateResponse {
+  item: ProxyApiKey;
+  capacity: ProxyKeyCapacity;
+}
+
+export interface ProxyApiKeyDeleteResponse {
+  deleted_id: number;
+  capacity: ProxyKeyCapacity;
+}
+
+/**
+ * Presence-aware expiry update: omitted preserves the current value, explicit
+ * null clears it, and an RFC3339 string sets a new future instant. The UI
+ * never relies on undefined/null serialization accidents.
+ */
+export interface ProxyApiKeyUpdate {
+  name: string;
+  notes: string | null;
+  is_active: boolean;
+  expires_at?: string | null;
 }

@@ -919,11 +919,11 @@ func loadUsageEventRecords(ctx context.Context, exec queryExecutor, profileID in
 		args = append(args, *connectionID)
 		clauses = append(clauses, fmt.Sprintf("usage_request_events.connection_id = $%d", len(args)))
 	}
-	rows, err := exec.Query(ctx, `SELECT usage_request_events.id, usage_request_events.created_at, usage_request_events.profile_id, usage_request_events.ingress_request_id, usage_request_events.model_id, usage_request_events.resolved_target_model_id, usage_request_events.api_family, usage_request_events.endpoint_id, usage_request_events.endpoint_label_snapshot, usage_request_events.connection_id, usage_request_events.proxy_api_key_id, usage_request_events.proxy_api_key_name_snapshot, usage_request_events.status_code, usage_request_events.success_flag, usage_request_events.billable_flag, usage_request_events.priced_flag, usage_request_events.unpriced_reason, usage_request_events.input_tokens, usage_request_events.output_tokens, usage_request_events.total_tokens, usage_request_events.cache_read_input_tokens, usage_request_events.cache_creation_input_tokens, usage_request_events.reasoning_tokens, usage_request_events.total_cost_user_currency_micros, usage_request_events.attempt_count, usage_request_events.request_path, usage_request_events.response_time_ms, usage_request_events.ttft_ms, usage_request_events.completion_duration_ms, model_configs.display_name, endpoints.name, endpoints.base_url, proxy_api_keys.name, proxy_api_keys.key_prefix
+	rows, err := exec.Query(ctx, `SELECT usage_request_events.id, usage_request_events.created_at, usage_request_events.profile_id, usage_request_events.ingress_request_id, usage_request_events.model_id, usage_request_events.resolved_target_model_id, usage_request_events.api_family, usage_request_events.endpoint_id, usage_request_events.endpoint_label_snapshot, usage_request_events.connection_id, usage_request_events.proxy_api_key_id_snapshot, usage_request_events.proxy_api_key_name_snapshot, usage_request_events.proxy_api_key_attribution_state, usage_request_events.proxy_api_key_auth_enforced_at_request, usage_request_events.status_code, usage_request_events.success_flag, usage_request_events.billable_flag, usage_request_events.priced_flag, usage_request_events.unpriced_reason, usage_request_events.input_tokens, usage_request_events.output_tokens, usage_request_events.total_tokens, usage_request_events.cache_read_input_tokens, usage_request_events.cache_creation_input_tokens, usage_request_events.reasoning_tokens, usage_request_events.total_cost_user_currency_micros, usage_request_events.attempt_count, usage_request_events.request_path, usage_request_events.response_time_ms, usage_request_events.ttft_ms, usage_request_events.completion_duration_ms, model_configs.display_name, endpoints.name, endpoints.base_url, proxy_api_keys.name, proxy_api_keys.key_prefix
 		 FROM usage_request_events
 		 LEFT JOIN model_configs ON model_configs.profile_id = usage_request_events.profile_id AND model_configs.model_id = usage_request_events.model_id
 		 LEFT JOIN endpoints ON endpoints.profile_id = usage_request_events.profile_id AND endpoints.id = usage_request_events.endpoint_id
-		 LEFT JOIN proxy_api_keys ON proxy_api_keys.id = usage_request_events.proxy_api_key_id
+		 LEFT JOIN proxy_api_keys ON proxy_api_keys.id = usage_request_events.proxy_api_key_id_snapshot
 		 WHERE `+strings.Join(clauses, " AND ")+`
 		 ORDER BY usage_request_events.created_at DESC, usage_request_events.id DESC`, args...)
 	if err != nil {
@@ -985,6 +985,8 @@ func scanUsageEventRecord(scanner interface{ Scan(...any) error }) (usageEventRe
 	var connectionID sql.NullInt32
 	var proxyAPIKeyID sql.NullInt32
 	var proxyAPIKeyNameSnapshot sql.NullString
+	var proxyKeyAttributionState sql.NullString
+	var proxyKeyAuthEnforcedAtRequest sql.NullBool
 	var billableFlag sql.NullBool
 	var pricedFlag sql.NullBool
 	var unpricedReason sql.NullString
@@ -1004,7 +1006,7 @@ func scanUsageEventRecord(scanner interface{ Scan(...any) error }) (usageEventRe
 	var currentProxyAPIKeyName sql.NullString
 	var currentProxyAPIKeyPrefix sql.NullString
 	item := usageEventRecord{}
-	if err := scanner.Scan(&item.ID, &item.CreatedAt, &item.ProfileID, &item.IngressRequestID, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &endpointID, &endpointLabelSnapshot, &connectionID, &proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &item.StatusCode, &item.SuccessFlag, &billableFlag, &pricedFlag, &unpricedReason, &inputTokens, &outputTokens, &totalTokens, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &totalCostUserCurrencyMicros, &item.AttemptCount, &item.RequestPath, &responseTimeMS, &ttftMS, &completionDurationMS, &currentModelLabel, &currentEndpointName, &currentEndpointBaseURL, &currentProxyAPIKeyName, &currentProxyAPIKeyPrefix); err != nil {
+	if err := scanner.Scan(&item.ID, &item.CreatedAt, &item.ProfileID, &item.IngressRequestID, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &endpointID, &endpointLabelSnapshot, &connectionID, &proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &proxyKeyAttributionState, &proxyKeyAuthEnforcedAtRequest, &item.StatusCode, &item.SuccessFlag, &billableFlag, &pricedFlag, &unpricedReason, &inputTokens, &outputTokens, &totalTokens, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &totalCostUserCurrencyMicros, &item.AttemptCount, &item.RequestPath, &responseTimeMS, &ttftMS, &completionDurationMS, &currentModelLabel, &currentEndpointName, &currentEndpointBaseURL, &currentProxyAPIKeyName, &currentProxyAPIKeyPrefix); err != nil {
 		return usageEventRecord{}, fmt.Errorf("scan usage event: %w", err)
 	}
 	item.CreatedAt = item.CreatedAt.UTC()
@@ -1014,6 +1016,11 @@ func scanUsageEventRecord(scanner interface{ Scan(...any) error }) (usageEventRe
 	item.ConnectionID = nullableInt32(connectionID)
 	item.ProxyAPIKeyID = nullableInt32(proxyAPIKeyID)
 	item.ProxyAPIKeyNameSnapshot = nullableString(proxyAPIKeyNameSnapshot)
+	item.ProxyKeyAttributionState = stringValue(nullableString(proxyKeyAttributionState))
+	if proxyKeyAuthEnforcedAtRequest.Valid {
+		enforced := proxyKeyAuthEnforcedAtRequest.Bool
+		item.ProxyKeyAuthEnforcedAtRequest = &enforced
+	}
 	item.BillableFlag = boolValue(nullableBool(billableFlag))
 	item.PricedFlag = boolValue(nullableBool(pricedFlag))
 	item.UnpricedReason = nullableString(unpricedReason)

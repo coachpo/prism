@@ -20,6 +20,10 @@ type RequestLogListParams struct {
 	EndpointID            *int
 	ClientRuleID          *int
 	ClientRulePattern     *string
+	ProxyAPIKeyID         *int
+	View                  *string
+	ChainCursor           *string
+	ChainLimit            *int
 	Limit                 int
 	Offset                int
 }
@@ -80,6 +84,10 @@ type RequestLogListItem struct {
 	CallerClientDisplay         *string   `json:"caller_client_display"`
 	UpstreamClientDisplay       *string   `json:"upstream_client_display"`
 	UserAgentOverridden         bool      `json:"user_agent_overridden"`
+	ProxyAPIKeyID               *int      `json:"proxy_api_key_id"`
+	ProxyAPIKeyNameSnapshot     *string   `json:"proxy_api_key_name_snapshot"`
+	ProxyKeyAttributionState    string    `json:"proxy_api_key_attribution_state"`
+	ProxyKeyAuthEnforcedAtReq   *bool     `json:"proxy_api_key_auth_enforced_at_request"`
 }
 
 type RequestLogListResponse struct {
@@ -88,6 +96,62 @@ type RequestLogListResponse struct {
 	Total         int                         `json:"total"`
 	Limit         int                         `json:"limit"`
 	Offset        int                         `json:"offset"`
+}
+
+// RequestLogChainItem is one ingress group in the ingress-chains view. The
+// outer selection uses a parameterized EXISTS matching at least one retained
+// row snapshot; rows carries the bounded full retained chain for that ingress.
+type RequestLogChainItem struct {
+	IngressRequestID string               `json:"ingress_request_id"`
+	FirstSeenAt      time.Time            `json:"first_seen_at"`
+	LastSeenAt       time.Time            `json:"last_seen_at"`
+	RetainedRowCount int                  `json:"retained_row_count"`
+	MatchedRowCount  int                  `json:"matched_row_count"`
+	Rows             []RequestLogChainRow `json:"rows"`
+	RowsLoadedCount  int                  `json:"rows_loaded_count"`
+	RowsPageComplete bool                 `json:"rows_page_complete"`
+}
+
+type RequestLogChainRow struct {
+	RequestLogListItem
+	MatchedByFilter bool `json:"matched_by_filter"`
+}
+
+type RequestLogChainResponse struct {
+	View                  string                     `json:"view"`
+	Items                 []RequestLogChainItem      `json:"items"`
+	HasMoreChains         bool                       `json:"has_more_chains"`
+	NextChainCursor       *string                    `json:"next_chain_cursor"`
+	RetainedIngressTotal  int                        `json:"retained_ingress_total"`
+	FilterOptions         RequestLogListFilterOptions `json:"filter_options"`
+}
+
+// ProxyAPIKeyFilterOption is one selectable proxy key in the ordinary Requests
+// filter. configured=false marks a deleted historical identity that survives
+// only through immutable snapshots.
+type ProxyAPIKeyFilterOption struct {
+	ProxyAPIKeyID int     `json:"proxy_api_key_id"`
+	Name          string  `json:"proxy_api_key_name"`
+	KeyPreview    *string `json:"key_preview"`
+	Configured    bool    `json:"configured"`
+}
+
+type ProxyAPIKeyFilterOptionsResponse struct {
+	Items            []ProxyAPIKeyFilterOption `json:"items"`
+	Selected         *ProxyAPIKeyFilterOption  `json:"selected"`
+	NextCursor       *string                   `json:"next_cursor"`
+	ResolvedFromTime *time.Time                `json:"resolved_from_time"`
+	ResolvedToTime   *time.Time                `json:"resolved_to_time"`
+}
+
+type ProxyAPIKeyFilterOptionsParams struct {
+	ProfileID  int
+	Query      *string
+	FromTime   *time.Time
+	ToTime     *time.Time
+	Limit      int
+	Cursor     *string
+	SelectedID *int
 }
 
 type DashboardRecentActivityItem struct {
@@ -152,6 +216,8 @@ type RequestLogDetailRequest struct {
 	ProviderCorrelationID         *string          `json:"provider_correlation_id"`
 	ProxyAPIKeyID                 *int             `json:"proxy_api_key_id"`
 	ProxyAPIKeyNameSnapshot       *string          `json:"proxy_api_key_name_snapshot"`
+	ProxyKeyAttributionState      string           `json:"proxy_api_key_attribution_state"`
+	ProxyKeyAuthEnforcedAtRequest *bool            `json:"proxy_api_key_auth_enforced_at_request"`
 	CallerUserAgent               *string          `json:"caller_user_agent"`
 	UpstreamUserAgent             *string          `json:"upstream_user_agent"`
 	CallerClientDisplay           *string          `json:"caller_client_display"`

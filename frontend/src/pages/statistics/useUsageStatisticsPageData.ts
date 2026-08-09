@@ -255,6 +255,26 @@ export function useUsageStatisticsPageData({
   state,
 }: UseUsageStatisticsPageDataParams) {
   const { messages } = useLocale();
+  // Auth mode loads in parallel with the usage snapshot; a failure to load the
+  // current mode never blocks historical analytics.
+  const [authEnabled, setAuthEnabled] = useState<boolean | null>(null);
+  const [authModeLoaded, setAuthModeLoaded] = useState(false);
+  const authModeRef = useRef(false);
+  useEffect(() => {
+    if (authModeRef.current) {
+      return;
+    }
+    authModeRef.current = true;
+    api.settings.auth
+      .get()
+      .then((settings) => {
+        setAuthEnabled(settings.auth_enabled);
+        setAuthModeLoaded(true);
+      })
+      .catch(() => {
+        setAuthModeLoaded(false);
+      });
+  }, []);
   const [snapshotState, setSnapshotState] = useState<{
     scopeKey: string;
     snapshot: UsageSnapshotResponse;
@@ -646,6 +666,8 @@ export function useUsageStatisticsPageData({
   }, [localizedSnapshot, state.chartGranularity.costOverview]);
 
   return {
+    authEnabled,
+    authModeLoaded,
     availableModelLineIds,
     costSummary,
     costOverviewSeries,

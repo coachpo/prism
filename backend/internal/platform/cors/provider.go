@@ -5,6 +5,10 @@ import (
 	"strings"
 )
 
+// IngressRequestIDHeader is exposed to configured CORS origins so standalone
+// frontends can read the runtime ingress correlation ID from responses.
+const IngressRequestIDHeader = "X-Prism-Ingress-Request-Id"
+
 type OriginProvider interface {
 	CORSSnapshot() Snapshot
 }
@@ -64,6 +68,7 @@ func ApplyAllowOriginHeaders(w http.ResponseWriter, r *http.Request, snapshot Sn
 	}
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	w.Header().Set("Access-Control-Expose-Headers", IngressRequestIDHeader)
 	w.Header().Set("Vary", "Origin")
 	return true
 }

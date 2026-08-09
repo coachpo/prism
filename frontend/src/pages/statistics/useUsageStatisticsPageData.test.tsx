@@ -8,6 +8,7 @@ import type {
 import { useUsageStatisticsPageData } from "./useUsageStatisticsPageData"
 
 const mocks = vi.hoisted(() => ({
+  authSettingsGet: vi.fn(),
   endpointModelStatistics: vi.fn(),
   getSharedModels: vi.fn(),
   usageSnapshot: vi.fn(),
@@ -15,6 +16,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/api", () => ({
   api: {
+    settings: {
+      auth: {
+        get: mocks.authSettingsGet,
+      },
+    },
     stats: {
       endpointModelStatistics: mocks.endpointModelStatistics,
       usageSnapshot: mocks.usageSnapshot,
@@ -56,10 +62,12 @@ const pageState: UsageStatisticsPageState = {
 
 describe("useUsageStatisticsPageData", () => {
   beforeEach(() => {
+    mocks.authSettingsGet.mockReset()
     mocks.endpointModelStatistics.mockReset()
     mocks.getSharedModels.mockReset()
     mocks.usageSnapshot.mockReset()
     mocks.getSharedModels.mockResolvedValue([])
+    mocks.authSettingsGet.mockResolvedValue({ auth_enabled: true })
   })
 
   afterEach(() => {

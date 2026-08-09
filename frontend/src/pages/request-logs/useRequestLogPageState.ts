@@ -42,6 +42,8 @@ export function useRequestLogPageState() {
   const setModelId = useCallback((v: string) => update({ model_id: v }), [update]);
   const setEndpointId = useCallback((v: string) => update({ endpoint_id: v }), [update]);
   const setClientRuleId = useCallback((v: string) => update({ client_rule_id: v }), [update]);
+  const setProxyApiKeyId = useCallback((v: string) => update({ proxy_api_key_id: v }), [update]);
+  const setView = useCallback((v: "" | "attempts" | "ingress_chains") => update({ view: v }), [update]);
   const setResolvedTargetModelId = useCallback((v: string) => update({ resolved_target_model_id: v }), [update]);
   const setStatusCode = useCallback((v: string) => update({ status_code: v }), [update]);
   const setErrorText = useCallback((v: string) => update({ error_text: v }), [update]);
@@ -119,6 +121,8 @@ export function useRequestLogPageState() {
     setModelId,
     setEndpointId,
     setClientRuleId,
+    setProxyApiKeyId,
+    setView,
     setResolvedTargetModelId,
     setStatusCode,
     setErrorText,

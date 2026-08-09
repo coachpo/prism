@@ -1,4 +1,5 @@
-import { KeyRound, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { ExternalLink, KeyRound, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { IconActionButton, IconActionGroup } from "@/components/IconActionGroup";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -51,6 +52,7 @@ type LedgerRowProps = {
 };
 
 type ProxyKeyActionsProps = Pick<LedgerRowProps, "deleting" | "onDelete" | "onEdit" | "onRotate" | "rotating"> & {
+  item: ProxyApiKey;
   itemName: string;
 };
 
@@ -77,12 +79,17 @@ function MobileField({
   );
 }
 
-function ProxyKeyActions({ deleting, itemName, onDelete, onEdit, onRotate, rotating }: ProxyKeyActionsProps) {
+function ProxyKeyActions({ deleting, item, itemName, onDelete, onEdit, onRotate, rotating }: ProxyKeyActionsProps) {
   const { messages } = useLocale();
   const copy = messages.proxyApiKeys;
 
   return (
     <IconActionGroup>
+      <IconActionButton type="button" size="icon-sm" asChild aria-label={copy.viewRequestsAria(itemName)} disabled={rotating || deleting}>
+        <Link to="/observe/requests" search={{ proxy_api_key_id: String(item.id), time_range: "7d" }}>
+          <ExternalLink />
+        </Link>
+      </IconActionButton>
       <IconActionButton
         type="button"
         size="icon-sm"
@@ -188,6 +195,7 @@ function ProxyKeyLedgerRow({
         <div className="flex items-center justify-between gap-3 md:justify-end">
           <MobileOnlyLabel>{copy.operation}</MobileOnlyLabel>
           <ProxyKeyActions
+            item={item}
             itemName={item.name}
             rotating={rotating}
             deleting={deleting}
@@ -223,6 +231,44 @@ export function ProxyKeyLedgerCard({
           <Badge variant="outline">{copy.keyCount(formatNumber(displayedProxyKeys.length))}</Badge>
       )}
     >
+        <details className="rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2">
+          <summary className="cursor-pointer text-sm font-medium text-foreground select-none">
+            {copy.lifecycleComparisonTitle}
+          </summary>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full min-w-[36rem] text-left text-xs">
+              <thead>
+                <tr className="border-b border-outline-variant text-muted-foreground">
+                  <th className="py-1.5 pr-3 font-medium">{copy.lifecycleAction}</th>
+                  <th className="py-1.5 pr-3 font-medium">{copy.lifecycleOldCredential}</th>
+                  <th className="py-1.5 pr-3 font-medium">{copy.lifecycleHistory}</th>
+                  <th className="py-1.5 font-medium">{copy.lifecycleWhen}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-outline-variant/60">
+                  <td className="py-1.5 pr-3 font-medium">{copy.retireDescription}</td>
+                  <td className="py-1.5 pr-3 text-muted-foreground">{copy.lifecycleRetireCredential}</td>
+                  <td className="py-1.5 pr-3 text-muted-foreground">{copy.lifecycleHistoryKept}</td>
+                  <td className="py-1.5 text-muted-foreground">{copy.lifecycleRetireWhen}</td>
+                </tr>
+                <tr className="border-b border-outline-variant/60">
+                  <td className="py-1.5 pr-3 font-medium">{copy.rotated}</td>
+                  <td className="py-1.5 pr-3 text-muted-foreground">{copy.lifecycleRotateCredential}</td>
+                  <td className="py-1.5 pr-3 text-muted-foreground">{copy.lifecycleHistoryKept}</td>
+                  <td className="py-1.5 text-muted-foreground">{copy.lifecycleRotateWhen}</td>
+                </tr>
+                <tr>
+                  <td className="py-1.5 pr-3 font-medium">{copy.deleteKey}</td>
+                  <td className="py-1.5 pr-3 text-muted-foreground">{copy.lifecycleDeleteCredential}</td>
+                  <td className="py-1.5 pr-3 text-muted-foreground">{copy.lifecycleDeleteHistory}</td>
+                  <td className="py-1.5 text-muted-foreground">{copy.lifecycleDeleteWhen}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+
         {displayedProxyKeys.length === 0 ? (
           <Empty className="border border-outline-variant bg-surface-container-low">
             <EmptyHeader>

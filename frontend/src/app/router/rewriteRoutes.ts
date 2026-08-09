@@ -31,6 +31,8 @@ export const authLoginSearchSchema = z.object({
 
 export const requestLogSearchSchema = z.object({
   client_rule_id: searchStringSchema.catch(""),
+  proxy_api_key_id: searchStringSchema.catch(""),
+  view: z.enum(["attempts", "ingress_chains"]).optional().catch(undefined),
   cursor: z.coerce.number().int().min(0).catch(0),
   endpoint: searchStringSchema.catch(""),
   endpoint_id: searchStringSchema.catch(""),

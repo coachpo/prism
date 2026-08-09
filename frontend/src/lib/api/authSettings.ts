@@ -3,11 +3,12 @@ import type {
   AuthSettingsUpdate,
   AuthStatus,
   LoginRequest,
-  ProxyApiKey,
-  ProxyApiKeyCreate,
   ProxyApiKeyCreateResponse,
+  ProxyApiKeyDeleteResponse,
+  ProxyApiKeyListResponse,
   ProxyApiKeyRotateResponse,
   ProxyApiKeyUpdate,
+  ProxyApiKeyUpdateResponse,
   SessionResponse,
 } from "../types";
 import { request } from "./core";
@@ -34,23 +35,27 @@ export const settings = {
         body: JSON.stringify(data),
       }),
     proxyKeys: {
-      list: () => request<ProxyApiKey[]>("/api/settings/auth/proxy-keys"),
-      create: (data: ProxyApiKeyCreate) =>
+      list: () => request<ProxyApiKeyListResponse>("/api/settings/auth/proxy-keys"),
+      create: (data: { name: string; notes?: string | null; expires_at?: string | null }) =>
+        // no-store: the create response carries the one-time raw key and must
+        // never be cached by a reverse proxy, service worker or browser.
         request<ProxyApiKeyCreateResponse>("/api/settings/auth/proxy-keys", {
           method: "POST",
           body: JSON.stringify(data),
+          cache: "no-store",
         }),
       update: (id: number, data: ProxyApiKeyUpdate) =>
-        request<ProxyApiKey>(`/api/settings/auth/proxy-keys/${id}`, {
+        request<ProxyApiKeyUpdateResponse>(`/api/settings/auth/proxy-keys/${id}`, {
           method: "PATCH",
           body: JSON.stringify(data),
         }),
       rotate: (id: number) =>
         request<ProxyApiKeyRotateResponse>(`/api/settings/auth/proxy-keys/${id}/rotate`, {
           method: "POST",
+          cache: "no-store",
         }),
       delete: (id: number) =>
-        request<{ deleted: boolean }>(`/api/settings/auth/proxy-keys/${id}`, {
+        request<ProxyApiKeyDeleteResponse>(`/api/settings/auth/proxy-keys/${id}`, {
           method: "DELETE",
         }),
     },

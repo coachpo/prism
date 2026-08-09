@@ -18,6 +18,9 @@
 - Keep raw secrets and tokens write-only; response payloads expose metadata or one-time generated values only.
 - Publish runtime-auth changes through the auth runtime-cache seam instead of making runtime handlers query management state.
 - Keep proxy-key usage persistence shared through `proxykeyusage/`.
+- Proxy-key lifecycle owns the typed capacity snapshot (`{limit, used, remaining, counted_at}` from one server clock), atomic capacity serialization on the singleton auth settings row, presence-aware expiry (omitted=preserve, null=clear, RFC3339=future set with `proxy_key_expiry_invalid`), typed errors (`proxy_key_capacity_exhausted`, `proxy_key_not_found`, `proxy_key_not_rotatable`), and `private, no-store` create/rotate responses.
+- Runtime auth middleware owns permissive attribution: auth-off still extracts and optionally verifies credentials, writing `identified`/`none`/`unknown` with `AuthEnforced` frozen per request; optional lookup failure is fail-open for execution and fail-closed for identity.
+- Do not return raw stored secrets, reset codes, verification tokens, or proxy-key hashes.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 

@@ -1186,9 +1186,13 @@ func insertUsageEvent(t *testing.T, harness *contractHarness, seed usageEventSee
 	t.Helper()
 	seed = coherentUsageEventSeed(seed)
 	ensureContractTestLogPartitions(t, harness, contractTestLogPartitionFor("usage_request_events", seed.CreatedAt))
+	attributionState := "unknown"
+	if seed.ProxyAPIKeyID != nil {
+		attributionState = "identified"
+	}
 	if _, err := harness.conn.Exec(
 		context.Background(),
-		`INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, api_family, endpoint_id, endpoint_label_snapshot, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, status_code, success_flag, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, total_cost_user_currency_micros, attempt_count, request_path, created_at, response_time_ms, completion_duration_ms, ttft_ms, billable_flag, priced_flag, unpriced_reason) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)`,
+		`INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, api_family, endpoint_id, endpoint_label_snapshot, connection_id, proxy_api_key_id_snapshot, proxy_api_key_name_snapshot, proxy_api_key_attribution_state, proxy_api_key_auth_enforced_at_request, status_code, success_flag, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, total_cost_user_currency_micros, attempt_count, request_path, created_at, response_time_ms, completion_duration_ms, ttft_ms, billable_flag, priced_flag, unpriced_reason) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)`,
 		seed.ID,
 		seed.ProfileID,
 		seed.IngressRequestID,
@@ -1199,6 +1203,8 @@ func insertUsageEvent(t *testing.T, harness *contractHarness, seed usageEventSee
 		nullableTestInt(seed.ConnectionID),
 		nullableTestInt(seed.ProxyAPIKeyID),
 		nullableTestString(seed.ProxyAPIKeyNameSnapshot),
+		attributionState,
+		nil,
 		seed.StatusCode,
 		seed.SuccessFlag,
 		nullableTestInt(seed.InputTokens),
