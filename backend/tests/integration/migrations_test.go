@@ -1071,7 +1071,7 @@ func TestRuntimeLatencySemanticsMigrationPreservesValues(t *testing.T) {
 		t.Fatalf("seed latency semantics profile: %v", err)
 	}
 	var endpointID int
-	if err := conn.QueryRow(testContext, `INSERT INTO endpoints (profile_id, name, base_url, api_key, position, created_at, updated_at) VALUES ($1, 'Latency Preserve Endpoint', 'https://latency-preserve.invalid', 'plain-api-key', 0, $2, $2) RETURNING id`, profileID, now).Scan(&endpointID); err != nil {
+	if err := conn.QueryRow(testContext, `INSERT INTO endpoints (profile_id, name, base_url, api_key, created_at, updated_at) VALUES ($1, 'Latency Preserve Endpoint', 'https://latency-preserve.invalid', 'plain-api-key', $2, $2) RETURNING id`, profileID, now).Scan(&endpointID); err != nil {
 		t.Fatalf("seed latency semantics endpoint: %v", err)
 	}
 	var connectionID int
