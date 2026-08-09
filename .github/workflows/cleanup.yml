@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [backend, frontend]
+        service: [backend, frontend, single]
     steps:
       # Safe only while docker-images.yml publishes single-manifest images
       # (provenance/sbom disabled, single platform). Multi-platform or
@@ -27,7 +27,7 @@ jobs:
         with:
           owner: ${{ github.repository_owner }}
           package-type: container
-          package-name: ${{ format('{0}-{1}', github.event.repository.name, matrix.service) }}
+          package-name: ${{ matrix.service == 'single' && github.event.repository.name || format('{0}-{1}', github.event.repository.name, matrix.service) }}
           delete-only-untagged-versions: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

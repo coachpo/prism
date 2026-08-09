@@ -44,7 +44,7 @@ docker run -p 8080:8080 \
   prism
 ```
 
-Prebuilt separate images are also published: `ghcr.io/coachpo/prism-backend` and `ghcr.io/coachpo/prism-frontend`.
+The canonical prebuilt app image is `ghcr.io/coachpo/prism`. Separate `ghcr.io/coachpo/prism-backend` and `ghcr.io/coachpo/prism-frontend` images remain published during the deployment migration window for compatibility and rollback.
 
 ### Local development
 

@@ -20,6 +20,12 @@ services:
       - "${PRISM_PUBLIC_PORT:-8080}:${PRISM_NGINX_PORT:-8080}"
     volumes:
       - prism_config:/app/config
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${PRISM_NGINX_PORT}/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     depends_on:
       postgres:
         condition: service_healthy

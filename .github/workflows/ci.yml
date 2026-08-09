@@ -173,10 +173,43 @@ jobs:
           tags: prism-single:ci
           load: true
           build-args: |
+            BUILD_FRONTEND=true
+            VITE_API_BASE=
             VITE_GIT_RUN_NUMBER=${{ github.run_number }}
             VITE_GIT_REVISION=${{ steps.rev.outputs.short }}
           cache-from: type=gha,scope=ci-single
           cache-to: type=gha,scope=ci-single,mode=max
+
+      - name: Smoke test single-image bundle
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export PRISM_IMAGE=prism-single:ci
+          export PRISM_PUBLIC_PORT=18080
+          compose=(docker compose -p prism-single-ci -f docker-compose.yml)
+          cleanup() {
+            "${compose[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          "${compose[@]}" up -d --no-build
+          ready=0
+          for attempt in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:${PRISM_PUBLIC_PORT}/health" >/tmp/prism-single-health.json; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            "${compose[@]}" ps
+            "${compose[@]}" logs prism
+            exit 1
+          fi
+
+          grep -q '"status":"ok"' /tmp/prism-single-health.json
+          curl -fsS "http://127.0.0.1:${PRISM_PUBLIC_PORT}/" | tee /tmp/prism-single-index.html | grep -qi '<!doctype html>'
+          grep -Eq '(/assets/|/src/)' /tmp/prism-single-index.html
 
       - name: Install pinned Trivy
         uses: aquasecurity/setup-trivy@e07451d2e059ed86c2870430ea286b3a9e0bf241

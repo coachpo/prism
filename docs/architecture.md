@@ -108,7 +108,7 @@ frontend/
 - The backend does not mount a local `/metrics` scrape endpoint.
 - Request-history APIs and settings-page state flows remain PostgreSQL-backed product state instead of bootstrap telemetry ownership.
 - Disaster recovery is handled outside the dashboard with `pg_dump` plus a copy of the plaintext startup config.
-- `.github/workflows/docker-images.yml` builds the separate backend and frontend GHCR images for `linux/arm64` on `v*` tags and `workflow_dispatch`; tag pushes require a green CI conclusion on the tagged commit, while manual dispatch can build one service or both directly. `.github/workflows/cleanup.yml` only prunes untagged backend/frontend GHCR package versions.
+- `.github/workflows/docker-images.yml` builds the canonical combined app image plus separate backend/frontend compatibility images for `linux/arm64` on `v*` tags and `workflow_dispatch`; tag pushes require a green CI conclusion on the tagged commit, while manual dispatch can build one service directly. `.github/workflows/cleanup.yml` prunes untagged combined-app, backend, and frontend GHCR package versions.
 
 ### 2.4 Process Lifecycle
 
