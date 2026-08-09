@@ -8,8 +8,9 @@ export interface Endpoint {
   name: string;
   base_url: string;
   has_api_key: boolean;
-  masked_api_key: string | null;
-  position: number;
+  api_key_fingerprint: string | null;
+  api_key_updated_at: string | null;
+  config_revision: number;
   created_at: string;
   updated_at: string;
 }
@@ -24,6 +25,110 @@ export interface EndpointUpdate {
   name?: string;
   base_url?: string;
   api_key?: string | null;
+}
+
+export interface EndpointReferenceSummary {
+  direct_reference_count: number;
+  referencing_model_count: number;
+  enabled_reference_count: number;
+  orphan_reference_count: number;
+}
+
+export interface EndpointReferencePricingTemplate {
+  id: number;
+  name: string;
+  current_revision_id: string | null;
+  current_version: number;
+}
+
+export interface EndpointReferenceOwnerModel {
+  id: number;
+  model_id: string;
+  display_name: string | null;
+  is_enabled: boolean;
+  openai_accepted_format: OpenAIAcceptedFormat | null;
+}
+
+export interface EndpointReferenceAccessTarget {
+  id: number;
+  position: number;
+  is_enabled: boolean;
+}
+
+export interface EndpointReferenceItem {
+  kind: "owned_terminal_target" | "orphan_connection";
+  connection_id: number;
+  terminal_target_id: number;
+  terminal_target_name: string | null;
+  api_family: ApiFamily;
+  connection_is_active: boolean;
+  access_target: EndpointReferenceAccessTarget | null;
+  owner_model: EndpointReferenceOwnerModel | null;
+  openai_text_capability: OpenAITextCapability | null;
+  pricing_template: EndpointReferencePricingTemplate | null;
+  enabled: boolean;
+  inactive_reasons: Array<
+    | "model_disabled"
+    | "access_target_disabled"
+    | "connection_inactive"
+    | "orphaned"
+    | "configuration_integrity_error"
+  >;
+}
+
+export interface EndpointReferencePage {
+  items: EndpointReferenceItem[];
+  total_count: number;
+  next_cursor: string | null;
+  reference_snapshot_hash: string;
+}
+
+export interface EndpointReferenceDetail {
+  endpoint_id: number;
+  summary: EndpointReferenceSummary;
+  reference_page: EndpointReferencePage;
+}
+
+export interface EndpointReferenceBatchItem {
+  endpoint_id: number;
+  summary: EndpointReferenceSummary;
+}
+
+export interface EndpointReferenceBatchResponse {
+  items: EndpointReferenceBatchItem[];
+}
+
+export type EndpointVerifyOutcome =
+  | "verified"
+  | "authentication_failed"
+  | "probe_unsupported"
+  | "api_mismatch"
+  | "upstream_rejected"
+  | "upstream_unavailable"
+  | "unreachable"
+  | "timeout";
+
+export interface EndpointVerifyResult {
+  endpoint_id: number;
+  api_family: ApiFamily;
+  config_revision: number;
+  api_key_fingerprint: string | null;
+  is_current: boolean;
+  outcome: EndpointVerifyOutcome;
+  probe_path: string;
+  upstream_status: number | null;
+  duration_ms: number;
+  error_summary: string | null;
+}
+
+export interface EndpointVerifyRequest {
+  api_family: ApiFamily;
+  expected_config_revision: number;
+}
+
+export interface OrphanCleanupResponse {
+  deleted: boolean;
+  connection_id: number;
 }
 
 export interface PricingTemplateListItem {

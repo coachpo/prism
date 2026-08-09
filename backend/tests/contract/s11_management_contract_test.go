@@ -36,7 +36,7 @@ func TestCostingSettings(t *testing.T) {
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S11 Costing Strategy")
 	modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s11-costing-model", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "S11 Costing Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "S11 Costing Endpoint")
 	modelInsertConnection(t, harness, defaultProfileID, modelLoadModelConfigID(t, harness, defaultProfileID, "s11-costing-model"), endpointID, 0, true, nil)
 
 	invalidMapping := harness.requestJSON(t, harness.client, http.MethodPut, "/api/settings/costing", map[string]any{

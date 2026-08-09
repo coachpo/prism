@@ -15,7 +15,7 @@ func TestConnectionPricingTemplates(t *testing.T) {
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S10 Pricing Strategy")
 	modelConfigID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s10-pricing-model", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Pricing Assignment Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Pricing Assignment Endpoint")
 	connectionID := insertContractConnectionWithState(t, harness, defaultProfileID, modelConfigID, endpointID, nil, 0, true, nil, nil, "unknown", nil, nil)
 
 	pricingTemplateID := insertContractPricingTemplate(t, harness, defaultProfileID, "S10 Assigned Template")
@@ -137,7 +137,7 @@ func TestPricingTemplateDeleteConflict(t *testing.T) {
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S10 Pricing Delete Conflict Strategy")
 	modelConfigID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s10-pricing-delete-model", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Pricing Delete Conflict Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Pricing Delete Conflict Endpoint")
 	templateID := insertContractPricingTemplate(t, harness, defaultProfileID, "S10 Delete Conflict Template")
 	_ = insertContractConnectionWithState(t, harness, defaultProfileID, modelConfigID, endpointID, &templateID, 0, true, nil, stringPtr("Conflict Connection"), "healthy", nil, nil)
 
@@ -163,8 +163,8 @@ func TestPricingTemplateConnections(t *testing.T) {
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S10 Usage Strategy")
 	modelAID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s10-usage-model-a", nil, "native", &strategyID, true)
 	modelBID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s10-usage-model-b", nil, "native", &strategyID, true)
-	endpointAID := modelInsertEndpoint(t, harness, defaultProfileID, "Usage Endpoint A", 0)
-	endpointBID := modelInsertEndpoint(t, harness, defaultProfileID, "Usage Endpoint B", 1)
+	endpointAID := modelInsertEndpoint(t, harness, defaultProfileID, "Usage Endpoint A")
+	endpointBID := modelInsertEndpoint(t, harness, defaultProfileID, "Usage Endpoint B")
 	templateID := insertContractPricingTemplate(t, harness, defaultProfileID, "S10 Usage Template")
 	connectionAID := insertContractConnectionWithState(t, harness, defaultProfileID, modelAID, endpointAID, &templateID, 0, true, nil, stringPtr("Template Connection A"), "healthy", nil, nil)
 	connectionBID := insertContractConnectionWithState(t, harness, defaultProfileID, modelBID, endpointBID, &templateID, 1, true, nil, stringPtr("Template Connection B"), "healthy", nil, nil)

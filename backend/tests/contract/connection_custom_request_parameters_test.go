@@ -12,7 +12,7 @@ func TestConnectionCustomRequestParametersCreateSemantics(t *testing.T) {
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "Custom Request Parameters Create Strategy")
 	ownerModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "custom-request-params-create-owner", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Custom Request Parameters Create Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Custom Request Parameters Create Endpoint")
 
 	for _, testCase := range []struct {
 		name         string
@@ -96,7 +96,7 @@ func TestConnectionCustomRequestParametersValidationErrors(t *testing.T) {
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "Custom Request Parameters Validation Strategy")
 	ownerModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "custom-request-params-validation-owner", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Custom Request Parameters Validation Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Custom Request Parameters Validation Endpoint")
 
 	createBase := func(fieldValue any) map[string]any {
 		return map[string]any{"endpoint_id": endpointID, "openai_text_capability": "dual_native", "custom_request_parameters": fieldValue}
@@ -153,7 +153,7 @@ func TestConnectionCustomRequestParametersPatchSemantics(t *testing.T) {
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "Custom Request Parameters Patch Strategy")
 	ownerModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "custom-request-params-patch-owner", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Custom Request Parameters Patch Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Custom Request Parameters Patch Endpoint")
 
 	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "dual_native", "custom_request_parameters": map[string]any{"provider": map[string]any{"only": []string{"deepinfra/turbo"}}, "temperature": 0.5}}, modelHeader(defaultProfileID))
 	assertStatus(t, createResponse, http.StatusCreated)
@@ -231,7 +231,7 @@ func TestConnectionCustomRequestParametersNestedTargetSummary(t *testing.T) {
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "Custom Request Parameters Nested Strategy")
 	ownerModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "custom-request-params-nested-owner", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Custom Request Parameters Nested Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Custom Request Parameters Nested Endpoint")
 
 	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "dual_native", "custom_request_parameters": map[string]any{"provider": map[string]any{"only": []string{"google-vertex/us-east5"}}}}, modelHeader(defaultProfileID))
 	assertStatus(t, createResponse, http.StatusCreated)
@@ -268,7 +268,7 @@ func TestModelConnectionsBatchExposesCustomRequestParameters(t *testing.T) {
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "Custom Request Parameters Batch Strategy")
 	ownerModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "custom-request-params-batch-owner", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Custom Request Parameters Batch Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Custom Request Parameters Batch Endpoint")
 
 	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "dual_native", "custom_request_parameters": map[string]any{"provider": map[string]any{"only": []string{"deepinfra/turbo"}}}}, modelHeader(defaultProfileID))
 	assertStatus(t, createResponse, http.StatusCreated)

@@ -3,28 +3,46 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 import { zhCNMessages } from "@/i18n/messages";
-import type { Connection, ModelAccessTargetMutation, ModelConfigListItem } from "@/lib/types";
+import type { Connection, ModelAccessTarget, ModelConfigListItem } from "@/lib/types";
 import { AccessTargetsEditor } from "./AccessTargetsEditor";
 
+// ID domains must stay distinct: target row IDs (50x), connection IDs (90x)
+// and target model IDs (string model ids) never overlap.
 const targetModelId = "child-model";
-const modelTarget: ModelAccessTargetMutation = {
+const modelTarget: ModelAccessTarget = {
+  id: 501,
   target_type: "model",
   target_model_id: targetModelId,
-  position: 0,
+  connection_id: null,
+  terminal_target_id: null,
+  position: 2,
   is_enabled: true,
+  target_model: null,
+  connection: null,
+  terminal_target: null,
+  created_at: "2026-08-08T00:00:00Z",
+  updated_at: "2026-08-08T00:00:00Z",
 };
 
-function createTerminalTarget(connectionId: number, position: number, enabled = true): ModelAccessTargetMutation {
+function createTerminalTarget(rowId: number, connectionId: number, position: number, enabled = true): ModelAccessTarget {
   return {
+    id: rowId,
     target_type: "connection",
+    target_model_id: null,
     connection_id: connectionId,
+    terminal_target_id: connectionId,
     position,
     is_enabled: enabled,
+    target_model: null,
+    connection: null,
+    terminal_target: null,
+    created_at: "2026-08-08T00:00:00Z",
+    updated_at: "2026-08-08T00:00:00Z",
   };
 }
 
-const terminalA = createTerminalTarget(901, 1);
-const terminalB = createTerminalTarget(902, 2);
+const terminalA = createTerminalTarget(502, 901, 0);
+const terminalB = createTerminalTarget(503, 902, 1);
 
 function createConnection(id: number, name: string): Connection {
   return {
@@ -38,8 +56,9 @@ function createConnection(id: number, name: string): Connection {
       name: `endpoint-${id}`,
       base_url: `https://upstream-${id}.example`,
       has_api_key: true,
-      masked_api_key: null,
-      position: 0,
+      api_key_fingerprint: "fp_v1_ab12cd34ef56",
+      api_key_updated_at: "2026-08-08T00:00:00Z",
+      config_revision: 1,
       created_at: "2026-08-08T00:00:00Z",
       updated_at: "2026-08-08T00:00:00Z",
     },
@@ -76,7 +95,6 @@ const modelOptions: ModelConfigListItem[] = [
     active_connection_count: 0,
     health_success_rate: null,
     health_total_requests: 0,
-    routing_summary: null,
     created_at: "2026-08-08T00:00:00Z",
     updated_at: "2026-08-08T00:00:00Z",
   },
@@ -95,7 +113,7 @@ function renderEditor(props: Partial<Parameters<typeof AccessTargetsEditor>[0]> 
     <LocaleProvider>
       <AccessTargetsEditor
         apiFamilyLabel="openai"
-        accessTargets={[modelTarget, terminalA, terminalB]}
+        accessTargets={[terminalA, modelTarget, terminalB]}
         modelOptions={modelOptions}
         connectionOptions={[createConnection(901, "Terminal A"), createConnection(902, "Terminal B")]}
         {...handlers}
@@ -106,63 +124,84 @@ function renderEditor(props: Partial<Parameters<typeof AccessTargetsEditor>[0]> 
   return { ...utils, handlers };
 }
 
-describe("AccessTargetsEditor two-stage routing", () => {
-  it("renders model-first and terminal-fallback stages with stage-local numbering", () => {
+describe("AccessTargetsEditor mixed ordering", () => {
+  it("renders one mixed list sorted by (position, id) with global 1..N numbering", () => {
     renderEditor();
-
-    const modelStage = screen.getByTestId("access-target-stage-model_targets");
-    const terminalStage = screen.getByTestId("access-target-stage-terminal_targets");
-    expect(within(modelStage).getByText("模型目标（先尝试）")).toBeInTheDocument();
-    expect(within(modelStage).getByText(/位置 1/)).toBeInTheDocument();
-    expect(within(terminalStage).getByText("终端目标（无模型候选时回落）")).toBeInTheDocument();
-    expect(within(terminalStage).getByText(/位置 1/)).toBeInTheDocument();
-    expect(within(terminalStage).getByText(/位置 2/)).toBeInTheDocument();
-    expect(screen.getByTestId("model-target-row-child-model")).toBeInTheDocument();
-    expect(screen.getByTestId("terminal-target-card-901")).toBeInTheDocument();
-    expect(screen.getByTestId("terminal-target-card-902")).toBeInTheDocument();
+    const rows = screen.getAllByTestId(/^access-target-\d+$/);
+    expect(rows.map((row) => row.getAttribute("data-testid"))).toEqual([
+      "access-target-502",
+      "access-target-503",
+      "access-target-501",
+    ]);
+    expect(within(rows[0]).getByText(/终端目标/)).toBeTruthy();
+    expect(within(rows[0]).getByText(/位置 1/)).toBeTruthy();
+    expect(within(rows[1]).getByText(/位置 2/)).toBeTruthy();
+    expect(within(rows[2]).getByText(/模型目标/)).toBeTruthy();
+    expect(within(rows[2]).getByText(/位置 3/)).toBeTruthy();
   });
 
-  it("moves rows only within their runtime stage", async () => {
+  it("moves rows across adjacent rows using the target row id and a global to_index", async () => {
     const user = userEvent.setup();
     const { handlers } = renderEditor();
-
-    await user.click(within(screen.getByTestId("terminal-target-card-902")).getByRole("button", { name: /上移目标 Terminal B/ }));
-    expect(handlers.onMoveTarget).toHaveBeenCalledExactlyOnceWith(2, 1);
-    expect(handlers.onMoveTarget).not.toHaveBeenCalledWith(2, 0);
+    // Model row at global position 3 moves up across the terminal row above it.
+    await user.click(within(screen.getByTestId("access-target-501")).getByRole("button", { name: /将目标 3 上移/ }));
+    expect(handlers.onMoveTarget).toHaveBeenCalledExactlyOnceWith(501, 1);
+    // Terminal row at global position 2 moves down across the model row below it.
+    await user.click(within(screen.getByTestId("access-target-503")).getByRole("button", { name: /将目标 2 下移/ }));
+    expect(handlers.onMoveTarget).toHaveBeenLastCalledWith(503, 2);
   });
 
-  it("toggles and deletes by the mutation source index while editing by connection id", async () => {
+  it("toggles and deletes by target row id while connection edit passes the connection id", async () => {
     const user = userEvent.setup();
     const { handlers } = renderEditor();
-    const terminal = screen.getByTestId("terminal-target-card-901");
-
-    await user.click(within(terminal).getByRole("switch"));
-    expect(handlers.onToggleTarget).toHaveBeenCalledExactlyOnceWith(1, false);
-    await user.click(within(terminal).getByRole("button", { name: /删除目标 Terminal A/ }));
-    expect(handlers.onDeleteTarget).toHaveBeenCalledExactlyOnceWith(1);
-    await user.click(within(terminal).getByRole("button", { name: /编辑 Terminal A/ }));
+    await user.click(within(screen.getByTestId("access-target-502")).getByRole("switch"));
+    expect(handlers.onToggleTarget).toHaveBeenCalledExactlyOnceWith(502, false);
+    await user.click(within(screen.getByTestId("access-target-503")).getByRole("button", { name: /移除目标 2/ }));
+    expect(handlers.onDeleteTarget).toHaveBeenCalledExactlyOnceWith(503);
+    await user.click(within(screen.getByTestId("access-target-502")).getByRole("button", { name: /编辑 Terminal A/ }));
     expect(handlers.onEditConnection).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: 901 }));
   });
 
-  it("keeps read-only terminal rows movable but removes connection actions", async () => {
+  it("disables first-row move up and last-row move down, and keeps read-only terminal rows movable", async () => {
     const user = userEvent.setup();
     const { handlers } = renderEditor({ isConnectionTargetMutable: (connectionId) => connectionId !== 901 });
-    const firstTerminal = screen.getByTestId("terminal-target-card-901");
-
-    expect(within(firstTerminal).queryByRole("switch")).toBeNull();
-    expect(within(firstTerminal).queryByRole("button", { name: /编辑/ })).toBeNull();
-    expect(within(firstTerminal).queryByRole("button", { name: /删除目标/ })).toBeNull();
-    expect(within(firstTerminal).getByRole("button", { name: /下移目标 Terminal A/ })).toBeEnabled();
-    await user.click(within(firstTerminal).getByRole("button", { name: /下移目标 Terminal A/ }));
-    expect(handlers.onMoveTarget).toHaveBeenCalledExactlyOnceWith(1, 2);
+    const firstRow = screen.getByTestId("access-target-502");
+    const lastRow = screen.getByTestId("access-target-501");
+    expect(within(firstRow).getByRole("button", { name: /将目标 1 上移/ })).toBeDisabled();
+    expect(within(lastRow).getByRole("button", { name: /将目标 3 下移/ })).toBeDisabled();
+    // A read-only terminal row keeps its position controls but loses
+    // connection-scoped actions (toggle, edit, delete).
+    expect(within(firstRow).queryByRole("switch")).toBeNull();
+    expect(within(firstRow).queryByRole("button", { name: /编辑/ })).toBeNull();
+    expect(within(firstRow).queryByRole("button", { name: /移除目标 1/ })).toBeNull();
+    expect(within(firstRow).getByRole("button", { name: /将目标 1 下移/ })).toBeEnabled();
+    await user.click(within(firstRow).getByRole("button", { name: /将目标 1 下移/ }));
+    expect(handlers.onMoveTarget).toHaveBeenCalledExactlyOnceWith(502, 1);
+    // The second terminal row stays fully editable.
+    const secondRow = screen.getByTestId("access-target-503");
+    expect(within(secondRow).getByRole("switch")).toBeEnabled();
   });
 
-  it("keeps disabled rows in authored stage position and uses two-stage copy", () => {
-    renderEditor({ accessTargets: [modelTarget, createTerminalTarget(901, 1, false), terminalB] });
-    const terminalStage = screen.getByTestId("access-target-stage-terminal_targets");
-    expect(within(terminalStage).getByText(/位置 1/)).toBeInTheDocument();
-    expect(within(screen.getByTestId("terminal-target-card-901")).getByText("已禁用")).toBeInTheDocument();
-    expect(zhCNMessages.modelsUi.accessTargetsDescription).toMatch(/模型目标阶段先执行/);
-    expect(zhCNMessages.modelsUi.accessTargetsDescription).toMatch(/终端目标阶段在其后回落/);
+  it("keeps disabled rows in their authored position with status copy", () => {
+    renderEditor({
+      accessTargets: [
+        createTerminalTarget(502, 901, 0, false),
+        modelTarget,
+        terminalB,
+      ],
+    });
+    const rows = screen.getAllByTestId(/^access-target-\d+$/);
+    expect(rows.map((row) => row.getAttribute("data-testid"))).toEqual([
+      "access-target-502",
+      "access-target-503",
+      "access-target-501",
+    ]);
+    expect(within(rows[0]).getByText(/已禁用/)).toBeTruthy();
+  });
+
+  it("never presents per-type first labels or partition copy", () => {
+    const modelsUi = zhCNMessages.modelsUi;
+    expect(modelsUi.accessTargetsDescription).not.toMatch(/模型目标阶段|终端目标阶段/);
+    expect(modelsUi.accessTargetsDescription).toMatch(/混合列表/);
   });
 });

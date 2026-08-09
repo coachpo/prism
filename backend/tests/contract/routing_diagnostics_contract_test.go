@@ -214,29 +214,22 @@ func TestEndpointReferencesBatchContract(t *testing.T) {
 			t.Fatalf("expected two items in input order, got %+v", payload)
 		}
 		spare := asMap(t, items[0])
-		if jsonInt(t, spare["endpoint_id"]) != emptyEndpointID || len(spare["references"].([]any)) != 0 {
-			t.Fatalf("expected empty endpoint with no references, got %+v", spare)
+		if jsonInt(t, spare["endpoint_id"]) != emptyEndpointID {
+			t.Fatalf("expected empty endpoint first, got %+v", spare)
+		}
+		spareSummary := asMap(t, spare["summary"])
+		if jsonInt(t, spareSummary["direct_reference_count"]) != 0 {
+			t.Fatalf("expected empty endpoint with no direct references, got %+v", spare)
 		}
 		used := asMap(t, items[1])
 		if jsonInt(t, used["endpoint_id"]) != usedEndpointID {
 			t.Fatalf("expected used endpoint item second, got %+v", used)
 		}
-		references := used["references"].([]any)
-		if len(references) != 2 {
-			t.Fatalf("expected two direct references, got %+v", used)
-		}
-		for _, raw := range references {
-			reference := asMap(t, raw)
-			switch jsonInt(t, reference["model_config_id"]) {
-			case firstModelID:
-				if jsonInt(t, reference["authored_stage_position"]) != 1 {
-					t.Fatalf("expected first model reference to retain its position among all terminal rows, got %+v", reference)
-				}
-			case secondModelID:
-				if jsonInt(t, reference["authored_stage_position"]) != 0 {
-					t.Fatalf("expected second model reference to start at stage position zero, got %+v", reference)
-				}
-			}
+		usedSummary := asMap(t, used["summary"])
+		if jsonInt(t, usedSummary["direct_reference_count"]) != 2 ||
+			jsonInt(t, usedSummary["referencing_model_count"]) != 2 ||
+			jsonInt(t, usedSummary["enabled_reference_count"]) != 2 {
+			t.Fatalf("expected two direct/enabled references owned by two models, got %+v", used)
 		}
 		raw, err := json.Marshal(payload)
 		if err != nil {
@@ -252,24 +245,25 @@ func TestEndpointReferencesBatchContract(t *testing.T) {
 	t.Run("missing ids return typed 404", func(t *testing.T) {
 		payload := s15JSON[map[string]any](t, harness, profileID, http.MethodPost, "/api/endpoints/references/batch", map[string]any{"endpoint_ids": []int{usedEndpointID, 999_999}}, http.StatusNotFound)
 		missing := asMap(t, payload["detail"])
-		missingIDs := missing["endpoint_id"].([]any)
+		missingIDs := missing["missing_endpoint_ids"].([]any)
 		if len(missingIDs) != 1 || jsonInt(t, missingIDs[0]) != 999_999 {
 			t.Fatalf("expected typed 404 with missing endpoint ids, got %+v", payload)
 		}
 	})
 
 	t.Run("invalid requests are rejected", func(t *testing.T) {
-		s15JSON[map[string]any](t, harness, profileID, http.MethodPost, "/api/endpoints/references/batch", map[string]any{"endpoint_ids": []int{}}, http.StatusBadRequest)
-		s15JSON[map[string]any](t, harness, profileID, http.MethodPost, "/api/endpoints/references/batch", map[string]any{"endpoint_ids": []int{1, 1}}, http.StatusBadRequest)
-		s15JSON[map[string]any](t, harness, profileID, http.MethodPost, "/api/endpoints/references/batch", map[string]any{"endpoint_ids": []int{usedEndpointID}, "extra": true}, http.StatusBadRequest)
+		s15JSON[map[string]any](t, harness, profileID, http.MethodPost, "/api/endpoints/references/batch", map[string]any{"endpoint_ids": []int{}}, http.StatusUnprocessableEntity)
+		s15JSON[map[string]any](t, harness, profileID, http.MethodPost, "/api/endpoints/references/batch", map[string]any{"endpoint_ids": []int{1, 1}}, http.StatusUnprocessableEntity)
 	})
 
 	t.Run("delete conflict lists the same blockers", func(t *testing.T) {
 		blocked := s15JSON[map[string]any](t, harness, profileID, http.MethodDelete, fmt.Sprintf("/api/endpoints/%d", usedEndpointID), nil, http.StatusConflict)
-		if blocked["code"] != "endpoint_in_use" {
+		detail := asMap(t, blocked["detail"])
+		if detail["code"] != "endpoint_in_use" {
 			t.Fatalf("expected typed endpoint_in_use, got %+v", blocked)
 		}
-		references := blocked["references"].([]any)
+		referencePage := asMap(t, detail["reference_page"])
+		references := referencePage["items"].([]any)
 		if len(references) != 2 {
 			t.Fatalf("expected delete conflict to list both direct references, got %+v", blocked)
 		}

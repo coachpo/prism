@@ -27,7 +27,7 @@ func TestRuntimeOpenAIPlanningRejectionCodesE2E(t *testing.T) {
 		strategyID := harness.seedLegacyStrategy(t, profileID, "planning-code-"+suffix, "fill-first")
 		publicModelID := "planning-public-" + suffix
 		modelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &strategyID)
-		endpointID := harness.seedEndpoint(t, profileID, "planning-endpoint-"+suffix, "https://planning-code.invalid", "planning-key", 0)
+		endpointID := harness.seedEndpoint(t, profileID, "planning-endpoint-"+suffix, "https://planning-code.invalid", "planning-key")
 		connectionID := harness.seedConnectionWithOpenAITextCapability(t, profileID, modelConfigID, endpointID, "planning-connection-"+suffix, nil, nil, 0, runtimeStringPtr("dual_native"))
 
 		if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET is_active = FALSE, updated_at = $1 WHERE id = $2`, time.Now().UTC(), connectionID); err != nil {
@@ -50,7 +50,7 @@ func TestRuntimeOpenAIPlanningRejectionCodesE2E(t *testing.T) {
 		strategyID := harness.seedLegacyStrategy(t, profileID, "planning-disabled-"+suffix, "fill-first")
 		publicModelID := "planning-disabled-public-" + suffix
 		modelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &strategyID)
-		endpointID := harness.seedEndpoint(t, profileID, "planning-disabled-endpoint-"+suffix, "https://planning-disabled.invalid", "planning-disabled-key", 0)
+		endpointID := harness.seedEndpoint(t, profileID, "planning-disabled-endpoint-"+suffix, "https://planning-disabled.invalid", "planning-disabled-key")
 		harness.seedConnectionWithOpenAITextCapability(t, profileID, modelConfigID, endpointID, "planning-disabled-connection-"+suffix, nil, nil, 0, runtimeStringPtr("chat_completions_only"))
 		compatibleConnectionID := harness.seedConnectionWithOpenAITextCapability(t, profileID, modelConfigID, endpointID, "planning-disabled-compatible-"+suffix, nil, nil, 1, runtimeStringPtr("dual_native"))
 
@@ -76,7 +76,7 @@ func TestRuntimeOpenAIPlanningRejectionCodesE2E(t *testing.T) {
 		strategyID := harness.seedLegacyStrategy(t, profileID, "planning-banned-"+suffix, "fill-first")
 		publicModelID := "planning-banned-public-" + suffix
 		modelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &strategyID)
-		endpointID := harness.seedEndpoint(t, profileID, "planning-banned-endpoint-"+suffix, "https://planning-banned.invalid", "planning-banned-key", 0)
+		endpointID := harness.seedEndpoint(t, profileID, "planning-banned-endpoint-"+suffix, "https://planning-banned.invalid", "planning-banned-key")
 		connectionID := harness.seedConnectionWithOpenAITextCapability(t, profileID, modelConfigID, endpointID, "planning-banned-connection-"+suffix, nil, nil, 0, runtimeStringPtr("dual_native"))
 
 		bannedUntil := time.Now().UTC().Add(10 * time.Minute)

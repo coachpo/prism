@@ -287,6 +287,11 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		if requestBody.APIFamily.Set && next.APIFamily != current.APIFamily && hasConnectionAccessTargetRecords(currentAccessTargetsByModel[current.ID]) {
 			return modelMutationEnvelope{}, &domainError{StatusCode: http.StatusConflict, Detail: "Cannot change api_family while private connections exist"}
 		}
+		if requestBody.OpenAIAcceptedFormat.Set && providerauth.IsOpenAI(next.APIFamily) && !providerauth.OpenAITextModesMatch(next.OpenAIAcceptedFormat, current.OpenAIAcceptedFormat) {
+			if err := ensureOpenAIAcceptedFormatChangeAllowed(r.Context(), tx, profile.ID, current.ID, currentAccessTargetsByModel[current.ID], next.OpenAIAcceptedFormat); err != nil {
+				return modelMutationEnvelope{}, err
+			}
+		}
 		if requestBody.ModelID.Set && next.ModelID != current.ModelID {
 			if err := ensureModelIDAvailable(r.Context(), tx, profile.ID, next.ModelID, &current.ID); err != nil {
 				return modelMutationEnvelope{}, err
@@ -1438,6 +1443,12 @@ func modelRoutingIssuesError(issues []modelrouting.ValidationIssue) error {
 		return nil
 	}
 	statusCode := http.StatusBadRequest
+	for _, issue := range issues {
+		if issue.Code == modelrouting.OpenAITextModeMismatchIssueCode {
+			statusCode = http.StatusUnprocessableEntity
+			break
+		}
+	}
 	return routingPlanValidationError(statusCode, issues[0].Message, modelRoutingValidationIssues(issues))
 }
 

@@ -16,12 +16,11 @@ import {
 } from "@/pages/model-detail/useModelDetailDataSupport"
 import { useConnectionFocus } from "@/pages/model-detail/useConnectionFocus"
 import { useModelDetailBootstrap } from "@/pages/model-detail/useModelDetailBootstrap"
-import { useModelDetailConnectionFlows } from "@/pages/model-detail/useModelDetailConnectionFlows"
 import { useModelDetailConnectionMutations } from "@/pages/model-detail/useModelDetailConnectionMutations"
 import { useModelDetailDialogState } from "@/pages/model-detail/useModelDetailDialogState"
+import { parseAttachTerminalTargetSearch } from "@/features/models/detail/modelDetailSchemas"
 import { useModelDetailModelForm } from "@/pages/model-detail/useModelDetailModelForm"
 import { useModelLoadbalanceCurrentState } from "@/pages/model-detail/useModelLoadbalanceCurrentState"
-import { useModelRoutingDiagnostics } from "@/pages/model-detail/useModelRoutingDiagnostics"
 
 type URLSearchParamsInit = ConstructorParameters<typeof URLSearchParams>[0]
 type SetURLSearchParams = (
@@ -76,12 +75,18 @@ export function useModelDetailFeatureData({
   const [connectionCardRefs] = useState<Map<number, HTMLDivElement>>(new Map())
   const [globalEndpoints, setGlobalEndpoints] = useState<Endpoint[]>([])
 
+  const attachTarget = useMemo(() => parseAttachTerminalTargetSearch({
+    action: searchParams.get("action") ?? undefined,
+    endpoint_id: searchParams.get("endpoint_id") ?? undefined,
+  }), [searchParams])
+
   const {
     isEditModelDialogOpen,
     setIsEditModelDialogOpen: setIsEditModelDialogOpenState,
     isConnectionDialogOpen,
     setIsConnectionDialogOpen,
     editingConnection,
+    lockedEndpointId,
     createMode,
     setCreateMode,
     selectedEndpointId,
@@ -100,7 +105,9 @@ export function useModelDetailFeatureData({
     openConnectionDialog,
   } = useModelDetailDialogState({
     apiFamily: model?.api_family ?? null,
+    openAIMode: model?.openai_accepted_format ?? null,
     globalEndpoints,
+    initialLockedEndpointId: attachTarget?.endpoint_id ?? null,
   })
 
   useModelDetailBootstrap({
@@ -133,27 +140,6 @@ export function useModelDetailFeatureData({
   })
 
   const {
-    diagnostics,
-    diagnosticsLoading,
-    diagnosticsError,
-    refreshDiagnostics,
-  } = useModelRoutingDiagnostics({
-    modelConfigId,
-    revision,
-    enabled: Boolean(model),
-  })
-
-  const {
-    reorderInFlight,
-    handleReorderConnections,
-  } = useModelDetailConnectionFlows({
-    model,
-    modelConfigId,
-    connections,
-    setConnections,
-  })
-
-  const {
     handleConnectionSubmit,
     handleDeleteConnection,
     handleToggleActive,
@@ -179,7 +165,6 @@ export function useModelDetailFeatureData({
     pricingTemplates,
     endpointSourceDefaultName,
     refreshCurrentState,
-    refreshDiagnostics,
     setIsConnectionDialogOpen,
     setAllModels,
     setConnections,
@@ -245,6 +230,20 @@ export function useModelDetailFeatureData({
     setFocusedConnectionId,
   })
 
+  // One-shot attach-to-model: after the model and global Endpoints are
+  // available, open the Terminal Target create dialog with the Endpoint
+  // preselected/locked, then clear the URL so refresh does not reopen it.
+  useEffect(() => {
+    if (!attachTarget || loading || !model) return
+    const lockedEndpoint = globalEndpoints.find((endpoint) => endpoint.id === attachTarget.endpoint_id)
+    if (!lockedEndpoint) return
+    setIsConnectionDialogOpen(true)
+    setCreateMode("select")
+    setSelectedEndpointId(String(lockedEndpoint.id))
+    setSearchParams(new URLSearchParams(), { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attachTarget, loading, model, globalEndpoints])
+
   return {
     model,
     loading,
@@ -267,14 +266,11 @@ export function useModelDetailFeatureData({
     isConnectionDialogOpen,
     setIsConnectionDialogOpen,
     editingConnection,
+    lockedEndpointId,
     connectionSearch,
     setConnectionSearch,
     currentStateByConnectionId,
     resettingConnectionIds,
-    diagnostics,
-    diagnosticsLoading,
-    diagnosticsError,
-    refreshDiagnostics,
     refreshCurrentState,
     focusedConnectionId,
     connectionCardRefs,
@@ -307,8 +303,6 @@ export function useModelDetailFeatureData({
     handleQuickPricingChange,
     handleEditModelSubmit,
     pricingTemplates,
-    reorderInFlight,
-    handleReorderConnections,
     handleResetCooldown: resetCooldown,
   }
 }

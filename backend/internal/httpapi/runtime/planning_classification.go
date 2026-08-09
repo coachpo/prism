@@ -71,7 +71,7 @@ func staticGraphHasCompatibleTerminalLeaf(profileID int, routingPlan *runtimeRou
 			if strings.TrimSpace(target.TargetConnectionAPIFamily) != "" && !modelrouting.SameAPIFamily(target.TargetConnectionAPIFamily, model.APIFamily) {
 				continue
 			}
-			if target.ConnectionOpenAITextCapability != nil && providerauth.OpenAITextCapabilitySupportsNativeOperation(*target.ConnectionOpenAITextCapability, operation.Name) {
+			if target.ConnectionOpenAITextCapability != nil && providerauth.OpenAITextModesMatch(model.OpenAIAcceptedFormat, target.ConnectionOpenAITextCapability) && providerauth.OpenAITextCapabilitySupportsNativeOperation(*target.ConnectionOpenAITextCapability, operation.Name) {
 				return true
 			}
 		}

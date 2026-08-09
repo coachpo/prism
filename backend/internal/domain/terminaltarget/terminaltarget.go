@@ -3,14 +3,16 @@ package terminaltarget
 import "time"
 
 type Endpoint struct {
-	ID        int
-	ProfileID int
-	Name      string
-	BaseURL   string
-	APIKey    string
-	Position  int
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID                int
+	ProfileID         int
+	Name              string
+	BaseURL           string
+	APIKey            string
+	APIKeyFingerprint *string
+	APIKeyUpdatedAt   *time.Time
+	ConfigRevision    int64
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 type PricingTemplateSummary struct {
@@ -34,26 +36,26 @@ type RuntimePricingTemplateSnapshot struct {
 }
 
 type Record struct {
-	ID                       int
-	ProfileID                int
-	OwnerModelConfigID       *int
-	APIFamily                string
-	EndpointID               int
-	Endpoint                 *Endpoint
-	IsActive                 bool
-	Priority                 int
-	Name                     *string
-	AuthType                 *string
-	CustomHeaders            map[string]string
+	ID                      int
+	ProfileID               int
+	OwnerModelConfigID      *int
+	APIFamily               string
+	EndpointID              int
+	Endpoint                *Endpoint
+	IsActive                bool
+	Priority                int
+	Name                    *string
+	AuthType                *string
+	CustomHeaders           map[string]string
 	CustomRequestParameters *CustomRequestParameters
-	OpenAITextCapability     *string
-	PricingTemplateID        *int
-	QPSLimit                 *int
-	MaxInFlightNonStream     *int
-	MaxInFlightStream        *int
-	PricingTemplate          *PricingTemplateSummary
-	CreatedAt                time.Time
-	UpdatedAt                time.Time
+	OpenAITextCapability    *string
+	PricingTemplateID       *int
+	QPSLimit                *int
+	MaxInFlightNonStream    *int
+	MaxInFlightStream       *int
+	PricingTemplate         *PricingTemplateSummary
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 }
 
 type RuntimeEndpoint struct {
@@ -64,20 +66,20 @@ type RuntimeEndpoint struct {
 }
 
 type RuntimeRecord struct {
-	ID                       int
-	ProfileID                int
-	APIFamily                string
-	EndpointID               int
-	Priority                 int
-	QPSLimit                 *int
-	MaxInFlightNonStream     *int
-	MaxInFlightStream        *int
-	Name                     *string
-	AuthType                 *string
-	CustomHeaders            map[string]any
+	ID                      int
+	ProfileID               int
+	APIFamily               string
+	EndpointID              int
+	Priority                int
+	QPSLimit                *int
+	MaxInFlightNonStream    *int
+	MaxInFlightStream       *int
+	Name                    *string
+	AuthType                *string
+	CustomHeaders           map[string]any
 	CustomRequestParameters *CustomRequestParameters
-	PricingTemplateID        *int
-	PricingTemplate          *RuntimePricingTemplateSnapshot
-	OpenAITextCapability     *string
-	Endpoint                 RuntimeEndpoint
+	PricingTemplateID       *int
+	PricingTemplate         *RuntimePricingTemplateSnapshot
+	OpenAITextCapability    *string
+	Endpoint                RuntimeEndpoint
 }

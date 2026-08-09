@@ -69,6 +69,21 @@ func (plan *runtimeRoutingPlan) orderedModelTargetsForStrategy(profileID int, mo
 	return orderRuntimeRoutingPlanTargetsForStrategy(profileID, model.ID, strategy, ordered, cursor)
 }
 
+// orderedMixedTargetsForStrategy returns the single authored peer sequence for
+// a model. Model Targets and Terminal Targets share model_access_targets.position
+// and therefore participate in the same strategy order; there is no hidden
+// model-first/terminal-fallback tier in runtime routing.
+func (plan *runtimeRoutingPlan) orderedMixedTargetsForStrategy(profileID int, model runtimeModelRecord, strategy loadbalance.RuntimeStrategy, cursor runtimeRoundRobinTargetCursor) []runtimeAccessTargetRecord {
+	if plan == nil {
+		return nil
+	}
+	compiled, ok := plan.ModelsByConfigID[model.ID]
+	if !ok {
+		return nil
+	}
+	return orderRuntimeRoutingPlanTargetsForStrategy(profileID, model.ID, strategy, compiled.OrderedEnabledTargets, cursor)
+}
+
 func (plan *runtimeRoutingPlan) orderedTerminalTargetsForModel(model runtimeModelRecord) []runtimeAccessTargetRecord {
 	if plan == nil {
 		return nil

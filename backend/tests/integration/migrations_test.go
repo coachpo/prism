@@ -22,6 +22,7 @@ var expectedPrismMigrationVersions = []string{
 	migrate.DefaultBaselineVersion,
 	"000002_connection_custom_request_parameters",
 	"000003_runtime_latency_semantics",
+	"000004_endpoint_reference_metadata",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
@@ -47,6 +48,164 @@ func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
 	assertHistoryVersions(t, testContext, conn, expectedVersions)
 	assertMigratedSchemaGolden(t, testContext, harness, databaseName)
 	assertFreshBaselineSeedRows(t, testContext, conn)
+}
+
+func revertEndpointReferenceMetadataMigration(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	if _, err := conn.Exec(ctx, `DELETE FROM prism_schema_migrations WHERE version = '000004_endpoint_reference_metadata'`); err != nil {
+		t.Fatalf("un-stamp 000004: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `ALTER TABLE endpoints DROP COLUMN api_key_fingerprint, DROP COLUMN api_key_updated_at, DROP COLUMN config_revision`); err != nil {
+		t.Fatalf("revert 000004 metadata columns: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `ALTER TABLE endpoints ADD COLUMN "position" integer NOT NULL DEFAULT 0`); err != nil {
+		t.Fatalf("re-add endpoint position column: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `CREATE INDEX idx_endpoints_profile_position ON endpoints USING btree (profile_id, "position")`); err != nil {
+		t.Fatalf("re-add endpoint position index: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `DROP INDEX IF EXISTS idx_endpoints_profile_name_lower`); err != nil {
+		t.Fatalf("drop endpoint name index: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `ALTER TABLE endpoints ALTER COLUMN name TYPE character varying(200)`); err != nil {
+		t.Fatalf("revert endpoint name width: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `ALTER TABLE endpoints ALTER COLUMN base_url TYPE character varying(500)`); err != nil {
+		t.Fatalf("revert endpoint base_url width: %v", err)
+	}
+}
+
+func TestEndpointReferenceMetadataUpgradePath(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openEmptyDatabase(t, testContext, "endpoint_reference_metadata_upgrade")
+	defer func() { _ = conn.Close(testContext) }()
+
+	firstResult, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run full migration set: %v", err)
+	}
+	if firstResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected first run to apply migrations, got %q", firstResult.Outcome)
+	}
+
+	// Simulate a pre-upgrade database stamped with 000002 only: existing
+	// endpoint rows with position and legacy plaintext keys, no metadata surface.
+	revertEndpointReferenceMetadataMigration(t, testContext, conn)
+
+	now := time.Now().UTC()
+	var profileID int
+	if err := conn.QueryRow(testContext, `INSERT INTO profiles (name, description, is_active, is_default, is_editable, version, deleted_at, created_at, updated_at) VALUES ('endpoint-metadata-upgrade', NULL, FALSE, FALSE, TRUE, 1, NULL, $1, $1) RETURNING id`, now).Scan(&profileID); err != nil {
+		t.Fatalf("seed upgrade profile: %v", err)
+	}
+	var firstEndpointID int
+	if err := conn.QueryRow(testContext, `INSERT INTO endpoints (profile_id, name, base_url, api_key, position, created_at, updated_at) VALUES ($1, 'Upgrade Endpoint A', 'https://upgrade-a.invalid', 'plain-api-key-a', 1, $2, $2) RETURNING id`, profileID, now).Scan(&firstEndpointID); err != nil {
+		t.Fatalf("seed upgrade endpoint A: %v", err)
+	}
+	var secondEndpointID int
+	if err := conn.QueryRow(testContext, `INSERT INTO endpoints (profile_id, name, base_url, api_key, position, created_at, updated_at) VALUES ($1, 'Upgrade Endpoint B', 'https://upgrade-b.invalid', '', 0, $2, $2) RETURNING id`, profileID, now).Scan(&secondEndpointID); err != nil {
+		t.Fatalf("seed upgrade endpoint B: %v", err)
+	}
+
+	upgradeResult, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("apply 000004 upgrade: %v", err)
+	}
+	if upgradeResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected upgrade run to apply 000004, got %q", upgradeResult.Outcome)
+	}
+
+	// The display-only position contract is hard-deleted, not deprecated.
+	var columnCount int
+	if err := conn.QueryRow(testContext, `SELECT count(*) FROM information_schema.columns WHERE table_name = 'endpoints' AND column_name = 'position'`).Scan(&columnCount); err != nil {
+		t.Fatalf("query endpoint position column presence: %v", err)
+	}
+	if columnCount != 0 {
+		t.Fatalf("expected endpoint position column to be removed, still present")
+	}
+	var indexCount int
+	if err := conn.QueryRow(testContext, `SELECT count(*) FROM pg_indexes WHERE tablename = 'endpoints' AND indexname = 'idx_endpoints_profile_position'`).Scan(&indexCount); err != nil {
+		t.Fatalf("query endpoint position index presence: %v", err)
+	}
+	if indexCount != 0 {
+		t.Fatalf("expected endpoint position index to be removed, still present")
+	}
+
+	var firstKeyFingerprint, secondKeyFingerprint sql.NullString
+	var firstKeyUpdatedAt, secondKeyUpdatedAt sql.NullTime
+	var firstRevision, secondRevision int64
+	var firstUpdatedAt, secondUpdatedAt time.Time
+	var nameMaxLength int
+	if err := conn.QueryRow(testContext, `SELECT character_maximum_length FROM information_schema.columns WHERE table_name = 'endpoints' AND column_name = 'name'`).Scan(&nameMaxLength); err != nil {
+		t.Fatalf("query endpoint name width: %v", err)
+	}
+	if nameMaxLength != 128 {
+		t.Fatalf("expected endpoint name width 128, got %d", nameMaxLength)
+	}
+	if err := conn.QueryRow(testContext, `SELECT api_key_fingerprint, api_key_updated_at, config_revision, updated_at FROM endpoints WHERE id = $1`, firstEndpointID).Scan(&firstKeyFingerprint, &firstKeyUpdatedAt, &firstRevision, &firstUpdatedAt); err != nil {
+		t.Fatalf("load upgraded endpoint A metadata: %v", err)
+	}
+	if err := conn.QueryRow(testContext, `SELECT api_key_fingerprint, api_key_updated_at, config_revision, updated_at FROM endpoints WHERE id = $1`, secondEndpointID).Scan(&secondKeyFingerprint, &secondKeyUpdatedAt, &secondRevision, &secondUpdatedAt); err != nil {
+		t.Fatalf("load upgraded endpoint B metadata: %v", err)
+	}
+
+	// Backfill of fingerprints and key times belongs to startup normalization;
+	// the migration itself must leave them null and preserve updated_at and
+	// revision defaults so upgrades never masquerade as Endpoint mutations.
+	if firstKeyFingerprint.Valid || firstKeyUpdatedAt.Valid || secondKeyFingerprint.Valid || secondKeyUpdatedAt.Valid {
+		t.Fatalf("expected migration to leave key metadata null for backfill")
+	}
+	if firstRevision != 1 || secondRevision != 1 {
+		t.Fatalf("expected migration to initialize config_revision 1, got %d/%d", firstRevision, secondRevision)
+	}
+	if !firstUpdatedAt.Equal(now) || !secondUpdatedAt.Equal(now) {
+		t.Fatalf("expected migration to preserve updated_at")
+	}
+
+	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
+}
+
+func TestEndpointNameNarrowingPreflightRejectsOverlongNames(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openEmptyDatabase(t, testContext, "endpoint_name_narrowing_preflight")
+	defer func() { _ = conn.Close(testContext) }()
+
+	firstResult, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run full migration set: %v", err)
+	}
+	if firstResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected first run to apply migrations, got %q", firstResult.Outcome)
+	}
+
+	revertEndpointReferenceMetadataMigration(t, testContext, conn)
+
+	now := time.Now().UTC()
+	var profileID int
+	if err := conn.QueryRow(testContext, `INSERT INTO profiles (name, description, is_active, is_default, is_editable, version, deleted_at, created_at, updated_at) VALUES ('endpoint-name-preflight', NULL, FALSE, FALSE, TRUE, 1, NULL, $1, $1) RETURNING id`, now).Scan(&profileID); err != nil {
+		t.Fatalf("seed preflight profile: %v", err)
+	}
+	overlongName := strings.Repeat("界", 129)
+	if _, err := conn.Exec(testContext, `INSERT INTO endpoints (profile_id, name, base_url, api_key, position, created_at, updated_at) VALUES ($1, $2, 'https://overlong.invalid', 'key', 0, $3, $3)`, profileID, overlongName, now); err != nil {
+		t.Fatalf("seed overlong endpoint name: %v", err)
+	}
+
+	// The 000004 preflight must fail the upgrade and report the violation
+	// instead of silently truncating existing data.
+	upgradeResult, err := runner.Run(testContext, conn)
+	if err == nil {
+		t.Fatalf("expected name-narrowing preflight to fail, got outcome %q", upgradeResult.Outcome)
+	}
+	if !strings.Contains(err.Error(), "endpoint name narrowing to 128") {
+		t.Fatalf("expected preflight failure to report narrowing violation, got %v", err)
+	}
 }
 
 func TestProfileAPIFamilyAuditSettingsFreshConstraints(t *testing.T) {
@@ -647,7 +806,7 @@ func seedModelOwnershipConnection(t *testing.T, ctx context.Context, conn *pgx.C
 	}
 
 	var endpointID int
-	if err := conn.QueryRow(ctx, `INSERT INTO endpoints (profile_id, name, base_url, api_key, position, created_at, updated_at) VALUES ($1, $2, $3, 'plain-api-key', 0, $4, $4) RETURNING id`, profileID, "Ownership Guard Endpoint "+label, "https://ownership-guard-"+label+".invalid", now).Scan(&endpointID); err != nil {
+	if err := conn.QueryRow(ctx, `INSERT INTO endpoints (profile_id, name, base_url, api_key, config_revision, created_at, updated_at) VALUES ($1, $2, $3, 'plain-api-key', 1, $4, $4) RETURNING id`, profileID, "Ownership Guard Endpoint "+label, "https://ownership-guard-"+label+".invalid", now).Scan(&endpointID); err != nil {
 		t.Fatalf("seed ownership endpoint %q: %v", label, err)
 	}
 
@@ -808,7 +967,7 @@ func seedEndpointLabelSnapshotEndpoint(t *testing.T, ctx context.Context, conn *
 	t.Helper()
 	now := time.Now().UTC()
 	var endpointID int
-	if err := conn.QueryRow(ctx, `INSERT INTO endpoints (profile_id, name, base_url, api_key, position, created_at, updated_at) VALUES ($1, $2, $3, 'plain-api-key', 0, $4, $4) RETURNING id`, profileID, name, baseURL, now).Scan(&endpointID); err != nil {
+	if err := conn.QueryRow(ctx, `INSERT INTO endpoints (profile_id, name, base_url, api_key, config_revision, created_at, updated_at) VALUES ($1, $2, $3, 'plain-api-key', 1, $4, $4) RETURNING id`, profileID, name, baseURL, now).Scan(&endpointID); err != nil {
 		t.Fatalf("seed endpoint snapshot endpoint %q: %v", name, err)
 	}
 	return endpointID
@@ -978,7 +1137,7 @@ func TestConnectionCustomRequestParametersUpgradePath(t *testing.T) {
 		t.Fatalf("seed upgrade profile: %v", err)
 	}
 	var endpointID int
-	if err := conn.QueryRow(testContext, `INSERT INTO endpoints (profile_id, name, base_url, api_key, position, created_at, updated_at) VALUES ($1, 'Upgrade Endpoint', 'https://upgrade.invalid', 'plain-api-key', 0, $2, $2) RETURNING id`, profileID, now).Scan(&endpointID); err != nil {
+	if err := conn.QueryRow(testContext, `INSERT INTO endpoints (profile_id, name, base_url, api_key, config_revision, created_at, updated_at) VALUES ($1, 'Upgrade Endpoint', 'https://upgrade.invalid', 'plain-api-key', 1, $2, $2) RETURNING id`, profileID, now).Scan(&endpointID); err != nil {
 		t.Fatalf("seed upgrade endpoint: %v", err)
 	}
 	var connectionID int

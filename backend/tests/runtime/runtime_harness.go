@@ -525,8 +525,8 @@ func seedRetryPolicyNativeRoute(t *testing.T, harness *runtimeHarness, profileID
 	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
 	strategyID := harness.seedLegacyStrategy(t, profileID, "retry-policy-"+randomSuffix(), "fill-first")
 	modelConfigID := harness.seedModel(t, profileID, "openai", modelID, "native", &strategyID)
-	primaryEndpointID := harness.seedEndpoint(t, profileID, "retry-policy-primary-"+randomSuffix(), primaryBaseURL, "retry-policy-primary-key", 0)
-	secondaryEndpointID := harness.seedEndpoint(t, profileID, "retry-policy-secondary-"+randomSuffix(), secondaryBaseURL, "retry-policy-secondary-key", 1)
+	primaryEndpointID := harness.seedEndpoint(t, profileID, "retry-policy-primary-"+randomSuffix(), primaryBaseURL, "retry-policy-primary-key")
+	secondaryEndpointID := harness.seedEndpoint(t, profileID, "retry-policy-secondary-"+randomSuffix(), secondaryBaseURL, "retry-policy-secondary-key")
 	harness.seedConnection(t, profileID, modelConfigID, primaryEndpointID, "retry-policy-primary-connection-"+randomSuffix(), nil, nil, 0)
 	harness.seedConnection(t, profileID, modelConfigID, secondaryEndpointID, "retry-policy-secondary-connection-"+randomSuffix(), nil, nil, 1)
 	releaseRefresh()
@@ -690,7 +690,7 @@ func (h *runtimeHarness) seedProxyRoute(tb testing.TB, seed runtimeRouteSeed) se
 		h.setModelOpenAIAcceptedFormat(tb, seed.ProfileID, seed.PublicModelID, *seed.OpenAITextCapability)
 	}
 	h.seedProxyTarget(tb, publicModelConfigID, targetModelConfigID)
-	endpointID := h.seedEndpoint(tb, seed.ProfileID, "endpoint-"+randomSuffix(), seed.EndpointBaseURL, seed.EndpointAPIKey, 0)
+	endpointID := h.seedEndpoint(tb, seed.ProfileID, "endpoint-"+randomSuffix(), seed.EndpointBaseURL, seed.EndpointAPIKey)
 	connectionID := h.seedConnectionWithOpenAITextCapability(tb, seed.ProfileID, targetModelConfigID, endpointID, "connection-"+randomSuffix(), nil, seed.CustomHeaders, 0, seed.OpenAITextCapability)
 	if seed.CustomRequestParameters != nil {
 		h.updateConnectionCustomRequestParameters(tb, seed.ProfileID, connectionID, *seed.CustomRequestParameters)
@@ -819,20 +819,19 @@ func (h *runtimeHarness) seedProxyTargetAtPosition(tb testing.TB, sourceModelCon
 	}
 }
 
-func (h *runtimeHarness) seedEndpoint(tb testing.TB, profileID int, name string, baseURL string, apiKey string, position int) int {
+func (h *runtimeHarness) seedEndpoint(tb testing.TB, profileID int, name string, baseURL string, apiKey string) int {
 	tb.Helper()
 	now := time.Now().UTC()
 	var endpointID int
 	if err := h.conn.QueryRow(
 		context.Background(),
-		`INSERT INTO endpoints (profile_id, name, base_url, api_key, position, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $6)
+		`INSERT INTO endpoints (profile_id, name, base_url, api_key, config_revision, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, 1, $5, $5)
 		 RETURNING id`,
 		profileID,
 		name,
 		baseURL,
 		apiKey,
-		position,
 		now,
 	).Scan(&endpointID); err != nil {
 		tb.Fatalf("insert runtime endpoint %q: %v", name, err)

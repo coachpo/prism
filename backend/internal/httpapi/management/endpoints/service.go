@@ -23,6 +23,21 @@ type Service struct {
 	now                 func() time.Time
 	corsOriginProvider  platformcors.OriginProvider
 	secretEncryptionKey string
+	attemptTimeout      time.Duration
+	verifySlots         chan struct{}
+}
+
+func (s *Service) acquireVerifySlot() bool {
+	select {
+	case s.verifySlots <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Service) releaseVerifySlot() {
+	<-s.verifySlots
 }
 
 type domainError struct {
@@ -55,12 +70,18 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		corsOriginProvider = platformcors.NewStaticOriginProvider(settings.CORSAllowedOriginsList())
 	}
 
+	attemptTimeout := settings.RuntimeSideEffects().AttemptTimeout
+	if attemptTimeout <= 0 {
+		attemptTimeout = 10 * time.Second
+	}
 	return &Service{
 		pool:                pool,
 		ownsPool:            ownsPool,
 		now:                 now,
 		corsOriginProvider:  corsOriginProvider,
 		secretEncryptionKey: settings.SecretEncryptionKey,
+		attemptTimeout:      attemptTimeout,
+		verifySlots:         make(chan struct{}, verifyConcurrencyLimit),
 	}, nil
 }
 
@@ -83,11 +104,13 @@ func (s *Service) corsSnapshot() platformcors.Snapshot {
 
 func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Get("/endpoints/connections", s.handleListEndpointConnections)
-	api.Post("/endpoints/references/batch", s.handleEndpointReferencesBatch)
 	api.Get("/endpoints", s.handleListEndpoints)
 	api.Post("/endpoints", s.handleCreateEndpoint)
+	api.Post("/endpoints/references/batch", s.handleEndpointReferencesBatch)
+	api.Get("/endpoints/{endpoint_id}/references", s.handleEndpointReferencesDetail)
 	api.Put("/endpoints/{endpoint_id}", s.handleUpdateEndpoint)
-	api.Patch("/endpoints/{endpoint_id}/position", s.handleMoveEndpointPosition)
 	api.Post("/endpoints/{endpoint_id}/duplicate", s.handleDuplicateEndpoint)
+	api.Post("/endpoints/{endpoint_id}/verify", s.handleEndpointVerify)
+	api.Delete("/endpoints/{endpoint_id}/orphan-connections/{connection_id}", s.handleOrphanConnectionCleanup)
 	api.Delete("/endpoints/{endpoint_id}", s.handleDeleteEndpoint)
 }

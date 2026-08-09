@@ -16,6 +16,9 @@ const (
 	ConnectionObjectFieldName      = "connection"
 	TerminalTargetObjectFieldName  = "terminal_target"
 	OwnerScopedConnectionRoutePath = "/api/models/{model_config_id}/connections"
+	// OpenAITextModeMismatchIssueCode is the strict mode-equality violation code
+	// emitted when an OpenAI relation would connect different text modes.
+	OpenAITextModeMismatchIssueCode = "target_openai_mode_mismatch"
 )
 
 type ModelNode struct {
@@ -244,6 +247,9 @@ func ResolveAuthoredAccessTargets(targets []AuthoredAccessTarget, options Resolv
 			if !ModelTargetCompatible(options.Source, model) {
 				return nil, appendResolveIssue(issues, options, "target_api_family_mismatch", "target_model_id", target)
 			}
+			if openAITextModeMismatch(options.Source.OpenAIAcceptedFormat, model.OpenAIAcceptedFormat) {
+				return nil, appendResolveIssue(issues, options, OpenAITextModeMismatchIssueCode, "target_model_id", target)
+			}
 			modelID := model.ModelID
 			configID := model.ConfigID
 			resolved = append(resolved, ResolvedAccessTarget{
@@ -262,6 +268,9 @@ func ResolveAuthoredAccessTargets(targets []AuthoredAccessTarget, options Resolv
 			if !TerminalTargetCompatible(options.Source, terminal, terminal.ProfileID, terminal.APIFamily) {
 				return nil, appendResolveIssue(issues, options, "target_api_family_mismatch", terminalTargetFieldFromResolve(options), target)
 			}
+			if openAITextModeMismatch(options.Source.OpenAIAcceptedFormat, terminal.OpenAITextCapability) {
+				return nil, appendResolveIssue(issues, options, OpenAITextModeMismatchIssueCode, terminalTargetFieldFromResolve(options), target)
+			}
 			terminalID := terminal.ID
 			terminalRef := terminal.Ref
 			resolved = append(resolved, ResolvedAccessTarget{
@@ -278,6 +287,15 @@ func ResolveAuthoredAccessTargets(targets []AuthoredAccessTarget, options Resolv
 
 func ModelTargetCompatible(source ModelNode, target ModelNode) bool {
 	return target.ProfileID == source.ProfileID && SameAPIFamily(target.APIFamily, source.APIFamily)
+}
+
+// openAITextModeMismatch reports whether a strict mode-equality violation exists
+// between a source and a target. Only same-mode OpenAI relations are allowed
+// (dual_native, chat_completions_only, responses_only each connect only to the
+// identical mode). Disabled or inactive relations are not exempted. One-sided
+// mode presence fails closed because equality cannot be proven.
+func openAITextModeMismatch(sourceMode *string, targetMode *string) bool {
+	return !providerauth.OpenAITextModesMatch(sourceMode, targetMode)
 }
 
 func TerminalTargetCompatible(source ModelNode, terminal TerminalTargetNode, targetProfileID int, targetAPIFamily string) bool {
@@ -482,6 +500,11 @@ func defaultIssueDetail(code string, field string, target AuthoredAccessTarget) 
 			return "Model access targets must use the same api_family as the source model"
 		}
 		return "Connection access targets must use the same api_family as the source model"
+	case "target_openai_mode_mismatch":
+		if field == "target_model_id" {
+			return "Model access targets must use the same OpenAI text mode as the source model"
+		}
+		return "Connection access targets must use the same OpenAI text mode as the owner model"
 	default:
 		return strings.TrimSpace(code)
 	}

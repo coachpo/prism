@@ -121,6 +121,28 @@ func IsSupportedOpenAITextCapability(value string) bool {
 	}
 }
 
+// OpenAITextModesEqual reports whether two authored OpenAI text modes are the
+// same supported mode. Strict management/runtime relations use equality rather
+// than operation-set overlap.
+func OpenAITextModesEqual(left string, right string) bool {
+	normalizedLeft := strings.TrimSpace(left)
+	normalizedRight := strings.TrimSpace(right)
+	return IsSupportedOpenAITextCapability(normalizedLeft) && normalizedLeft == normalizedRight
+}
+
+// OpenAITextModesMatch reports whether two optional mode values prove strict
+// equality. A missing mode fails closed; this is used for persisted relations
+// as well as new authoring.
+func OpenAITextModesMatch(left *string, right *string) bool {
+	if left == nil && right == nil {
+		return true
+	}
+	if left == nil || right == nil {
+		return false
+	}
+	return OpenAITextModesEqual(*left, *right)
+}
+
 func OpenAITextCapabilitySupportsNativeOperation(capability string, ingressOperation string) bool {
 	switch strings.TrimSpace(ingressOperation) {
 	case OpenAIUpstreamOperationChatCompletions:

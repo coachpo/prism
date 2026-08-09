@@ -56,6 +56,14 @@ export function resolveModelApiFamily(
   return model.api_family;
 }
 
+export function sortAccessTargetsByPositionThenId(
+  targets: readonly ModelAccessTarget[] | null | undefined,
+): ModelAccessTarget[] {
+  return [...(targets ?? [])].sort(
+    (left, right) => left.position - right.position || left.id - right.id,
+  )
+}
+
 function isOpenAIAcceptedFormat(value: unknown): value is OpenAIAcceptedFormat {
   return value === "responses_only" || value === "chat_completions_only" || value === "dual_native";
 }
@@ -462,7 +470,6 @@ export function toModelListItem(
     active_connection_count: connections.filter((connection) => connection.is_active).length,
     health_success_rate: existing?.health_success_rate ?? null,
     health_total_requests: existing?.health_total_requests ?? 0,
-    routing_summary: existing?.routing_summary ?? null,
     created_at: model.created_at,
     updated_at: model.updated_at,
   };

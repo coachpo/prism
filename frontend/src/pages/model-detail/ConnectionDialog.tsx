@@ -52,6 +52,7 @@ interface ConnectionDialogProps {
   apiFamily: ApiFamily | null;
   ownerOpenAIAcceptedFormat?: OpenAITextCapability | null;
   editingConnection: Connection | null;
+  lockedEndpointId?: number | null;
   connectionForm: ConnectionDialogForm;
   setConnectionForm: (form: ConnectionDialogForm) => void;
   newEndpointForm: EndpointCreate;
@@ -133,6 +134,7 @@ export function ConnectionDialog({
   apiFamily,
   ownerOpenAIAcceptedFormat,
   editingConnection,
+  lockedEndpointId,
   connectionForm,
   setConnectionForm,
   newEndpointForm,
@@ -158,9 +160,11 @@ export function ConnectionDialog({
   const routingCopy = messages.routing;
   const copy = messages.modelDetail;
   const isOpenAI = apiFamily === "openai";
+  const capabilityLockedToOwner = isOpenAI && ownerOpenAIAcceptedFormat != null;
   const resolvedTextCapability = isOpenAI
     ? connectionForm.openai_text_capability ?? "responses_only"
     : null;
+  const isEndpointLocked = lockedEndpointId != null;
   const textCapabilityOptions: Array<{
     description: string;
     label: string;
@@ -185,6 +189,9 @@ export function ConnectionDialog({
   const selectedTextCapability = textCapabilityOptions.find(
     (option) => option.value === resolvedTextCapability,
   ) ?? textCapabilityOptions[0];
+  const visibleTextCapabilityOptions = capabilityLockedToOwner
+    ? textCapabilityOptions.filter((option) => option.value === ownerOpenAIAcceptedFormat)
+    : textCapabilityOptions;
   const limiterFields: Array<{
     field: "qps_limit" | "max_in_flight_non_stream" | "max_in_flight_stream";
     id: string;
@@ -272,6 +279,7 @@ export function ConnectionDialog({
   };
 
   const handleTextCapabilityChange = (value: string) => {
+    if (capabilityLockedToOwner && value !== ownerOpenAIAcceptedFormat) return;
     updateConnectionForm({
       ...connectionForm,
       openai_text_capability: value as OpenAITextCapability,
@@ -355,21 +363,22 @@ export function ConnectionDialog({
                         <Tabs
                           value={createMode}
                           onValueChange={(value) => {
+                            if (isEndpointLocked) return;
                             setCreateMode(value as "select" | "new");
                           }}
                           className="gap-3"
                         >
                           <TabsList className="grid w-full grid-cols-2 md:max-w-md">
-                            <TabsTrigger value="select">{copy.selectExisting}</TabsTrigger>
-                            <TabsTrigger value="new">{copy.createNew}</TabsTrigger>
+                            <TabsTrigger value="select" disabled={isEndpointLocked && createMode !== "select"}>{copy.selectExisting}</TabsTrigger>
+                            <TabsTrigger value="new" disabled={isEndpointLocked}>{copy.createNew}</TabsTrigger>
                           </TabsList>
 
                           <TabsContent value="select" className="flex flex-col gap-2">
                             <ConnectionDialogField id="conn-selected-endpoint" label={copy.selectEndpoint}>
-                              <Select value={selectedEndpointId} onValueChange={(value) => {
+                              <Select value={selectedEndpointId} disabled={isEndpointLocked} onValueChange={(value) => {
                                 setSelectedEndpointId(value);
                               }}>
-                                <SelectTrigger id="conn-selected-endpoint">
+                                <SelectTrigger id="conn-selected-endpoint" disabled={isEndpointLocked}>
                                   <SelectValue placeholder={copy.selectEndpointPlaceholder} />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -528,13 +537,14 @@ export function ConnectionDialog({
                             <Select
                               value={resolvedTextCapability ?? "responses_only"}
                               onValueChange={handleTextCapabilityChange}
+                              disabled={capabilityLockedToOwner}
                             >
                               <SelectTrigger id="conn-openai-text-capability">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectGroup>
-                                  {textCapabilityOptions.map((option) => (
+                                  {visibleTextCapabilityOptions.map((option) => (
                                     <SelectItem key={option.value} value={option.value}>
                                       {option.label}
                                     </SelectItem>

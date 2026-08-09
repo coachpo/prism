@@ -52,32 +52,9 @@ function modelTitle(model: ManagedModelConfigListItem) {
   return model.display_name || model.model_id
 }
 
-// targetCounts renders the unified N 启用 / M 总计 count vocabulary shared
-// with the model detail page. It never derives a "first target" label: with
-// two-stage routing such a label misleads (RR has no static first target).
 function targetCounts(model: ManagedModelConfigListItem) {
-  const summary = model.routing_summary
-  if (summary) {
-    return `${summary.enabled_access_target_count} 启用 / ${summary.total_access_target_count} 总计`
-  }
   const enabled = model.access_targets.filter((target) => target.is_enabled).length
   return `${enabled} 启用 / ${model.access_targets.length} 总计`
-}
-
-function warningLabels(model: ManagedModelConfigListItem): string[] {
-  const summary = model.routing_summary
-  if (!summary) return []
-  const labels: string[] = []
-  for (const code of summary.warning_codes) {
-    if (code === "openai_target_partial_coverage" || code === "openai_target_incompatible") {
-      labels.push("能力覆盖不完整")
-    } else if (code === "openai_operation_uncovered") {
-      labels.push("存在无路由操作")
-    } else if (code === "single_strategy_truncates_targets") {
-      labels.push("single 截断")
-    }
-  }
-  return labels
 }
 
 function getSortValue(
@@ -222,9 +199,6 @@ export function ModelsTable({
                       {model.access_targets.length === 0 ? (
                         <span className="truncate text-warning">{messages.modelsUi.needsTarget}</span>
                       ) : null}
-                      {warningLabels(model).map((label) => (
-                        <span key={label} className="truncate text-warning">{label}</span>
-                      ))}
                     </div>
                   </TableCell>
                   <TableCell><ModelTelemetryCell metrics={metrics} loading={metricsLoading} /></TableCell>

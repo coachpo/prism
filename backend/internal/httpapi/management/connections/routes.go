@@ -318,6 +318,9 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 	if err != nil {
 		return connectionResponse{}, err
 	}
+	if err := ensureOpenAITextCapabilityMatchesOwnerModes(owner.APIFamily, owner.OpenAIAcceptedFormat, openAITextCapability); err != nil {
+		return connectionResponse{}, err
+	}
 	next.OpenAITextCapability = openAITextCapability
 
 	if requestBody.EndpointCreate.Set && requestBody.EndpointCreate.Value != nil {
@@ -556,15 +559,22 @@ func (s *Service) createInlineEndpoint(ctx context.Context, tx pgx.Tx, profileID
 	if err := ensureUniqueEndpointName(ctx, tx, profileID, endpointName); err != nil {
 		return endpointRecord{}, err
 	}
-	encryptedAPIKey, err := endpointdomain.EncryptSecret(inline.APIKey, s.secretEncryptionKey, s.now)
+	metadata, err := endpointdomain.BuildSecretMetadata(inline.APIKey, s.secretEncryptionKey, s.nowUTC)
 	if err != nil {
 		return endpointRecord{}, err
 	}
-	position, err := nextEndpointPosition(ctx, tx, profileID)
-	if err != nil {
-		return endpointRecord{}, err
-	}
-	return insertEndpoint(ctx, tx, endpointRecord{ProfileID: profileID, Name: endpointName, BaseURL: normalizedURL, APIKey: encryptedAPIKey, Position: position, CreatedAt: s.nowUTC(), UpdatedAt: s.nowUTC()})
+	now := s.nowUTC()
+	return insertEndpoint(ctx, tx, endpointRecord{
+		ProfileID:         profileID,
+		Name:              endpointName,
+		BaseURL:           normalizedURL,
+		APIKey:            metadata.EncryptedValue,
+		APIKeyFingerprint: metadata.Fingerprint,
+		APIKeyUpdatedAt:   metadata.KeyUpdatedAt,
+		ConfigRevision:    1,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	})
 }
 
 func normalizeConnectionPriorities(items []connectionResponse, currentTime time.Time) bool {
@@ -608,6 +618,16 @@ func validateOwnerScopedAPIFamily(value string, ownerAPIFamily string) error {
 	}
 	if apiFamily != "" && !providerauth.SameAPIFamily(apiFamily, ownerAPIFamily) {
 		return &DomainError{StatusCode: http.StatusBadRequest, Detail: "api_family must match owner model api_family"}
+	}
+	return nil
+}
+
+func ensureOpenAITextCapabilityMatchesOwnerModes(ownerAPIFamily string, ownerMode *string, capability *string) error {
+	if !providerauth.IsOpenAI(ownerAPIFamily) {
+		return nil
+	}
+	if !providerauth.OpenAITextModesMatch(ownerMode, capability) {
+		return &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability must equal the owner model openai_accepted_format"}
 	}
 	return nil
 }

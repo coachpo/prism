@@ -4,9 +4,12 @@ import type {
   ConnectionReferencesResponse,
   Endpoint,
   EndpointCreate,
-  EndpointModelsBatchParams,
-  EndpointModelsBatchResponse,
+  EndpointReferenceBatchResponse,
+  EndpointReferenceDetail,
   EndpointUpdate,
+  EndpointVerifyRequest,
+  EndpointVerifyResult,
+  OrphanCleanupResponse,
   LegacyLoadbalanceStrategyType,
   LoadbalanceBanMode,
   LoadbalanceBanPolicyFields,
@@ -86,13 +89,6 @@ type RawRoutingDiagnosticsResult = RoutingDiagnosticsResult;
 type RawModelConfig = Omit<ManagedModelConfig, "loadbalance_strategy" | "access_targets"> & {
   loadbalance_strategy: RawLoadbalanceStrategySummary | null;
   access_targets: RawModelAccessTarget[];
-};
-
-type RawEndpointModelsBatchResponse = {
-  items: Array<{
-    endpoint_id: number;
-    models: RawModelConfigListItem[];
-  }>;
 };
 
 function unsupportedLoadbalanceStrategy(reason: string): never {
@@ -184,30 +180,6 @@ type DeletedConnectionMutationEnvelope = {
   }>;
   configuration_warnings: ConfigurationWarning[];
 };
-
-export interface EndpointReferenceItem {
-  endpoint_id: number;
-  references: Array<{
-    connection_id: number;
-    access_target_id: number | null;
-    terminal_target_name: string | null;
-    model_config_id: number;
-    model_id: string;
-    model_display_name: string | null;
-    api_family: string;
-    authored_stage_position: number;
-    is_enabled: boolean;
-    is_active: boolean;
-    openai_text_capability: string | null;
-    pricing_template: { id: number; name: string } | null;
-    custom_header_count: number;
-    custom_request_parameter_count: number;
-  }>;
-}
-
-export interface EndpointReferencesBatchResponse {
-  items: EndpointReferenceItem[];
-}
 
 export interface TerminalTargetCopyRequest {
   destination_model_config_ids: number[];
@@ -375,7 +347,6 @@ function normalizeModelConfigListItem(model: RawModelConfigListItem): ManagedMod
     active_connection_count: model.active_connection_count,
     health_success_rate: model.health_success_rate,
     health_total_requests: model.health_total_requests,
-    routing_summary: model.routing_summary ?? null,
     created_at: model.created_at,
     updated_at: model.updated_at,
   };
@@ -403,16 +374,6 @@ export const models = {
     request<RawModelConfigListItem[]>("/api/models").then((models) =>
       models.map(normalizeModelConfigListItem),
     ),
-  byEndpoints: (data: EndpointModelsBatchParams) =>
-    request<RawEndpointModelsBatchResponse>("/api/models/by-endpoints", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }).then((response) => ({
-      items: response.items.map((item) => ({
-        ...item,
-        models: item.models.map(normalizeModelConfigListItem),
-      })),
-    }) as EndpointModelsBatchResponse),
   byEndpoint: (endpointId: number) =>
     request<RawModelConfigListItem[]>(`/api/models/by-endpoint/${endpointId}`).then((models) =>
       models.map(normalizeModelConfigListItem),
@@ -545,21 +506,36 @@ export const endpoints = {
       method: "PUT",
       body: JSON.stringify(data),
     }),
-  movePosition: (id: number, toIndex: number) =>
-    request<Endpoint[]>(`/api/endpoints/${id}/position`, {
-      method: "PATCH",
-      body: JSON.stringify({ to_index: toIndex }),
+  referencesBatch: (endpointIds: number[]) =>
+    request<EndpointReferenceBatchResponse>("/api/endpoints/references/batch", {
+      method: "POST",
+      body: JSON.stringify({ endpoint_ids: endpointIds }),
+    }),
+  referencesDetail: (endpointId: number, params?: { limit?: number; cursor?: string }) => {
+    const query = new URLSearchParams()
+    if (params?.limit != null) {
+      query.set("limit", String(params.limit))
+    }
+    if (params?.cursor) {
+      query.set("cursor", params.cursor)
+    }
+    const suffix = query.size > 0 ? `?${query.toString()}` : ""
+    return request<EndpointReferenceDetail>(`/api/endpoints/${endpointId}/references${suffix}`)
+  },
+  verify: (endpointId: number, data: EndpointVerifyRequest) =>
+    request<EndpointVerifyResult>(`/api/endpoints/${endpointId}/verify`, {
+      method: "POST",
+      body: JSON.stringify(data),
     }),
   duplicate: (id: number) =>
     request<Endpoint>(`/api/endpoints/${id}/duplicate`, {
       method: "POST",
     }),
-  delete: (id: number) => request<void>(`/api/endpoints/${id}`, { method: "DELETE" }),
-  referencesBatch: (endpointIds: number[]) =>
-    request<EndpointReferencesBatchResponse>("/api/endpoints/references/batch", {
-      method: "POST",
-      body: JSON.stringify({ endpoint_ids: endpointIds }),
+  orphanCleanup: (endpointId: number, connectionId: number) =>
+    request<OrphanCleanupResponse>(`/api/endpoints/${endpointId}/orphan-connections/${connectionId}`, {
+      method: "DELETE",
     }),
+  delete: (id: number) => request<void>(`/api/endpoints/${id}`, { method: "DELETE" }),
 };
 
 export const connections = {

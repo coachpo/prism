@@ -606,8 +606,8 @@ func TestRuntimeRequestLogsSkipCrossFamilyProxyTargets(t *testing.T) {
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", nil)
 	harness.seedProxyTargetAtPosition(t, publicModelConfigID, anthropicTargetConfigID, 0)
 	harness.seedProxyTargetAtPosition(t, publicModelConfigID, openAITargetConfigID, 1)
-	anthropicEndpointID := harness.seedEndpoint(t, profileID, "request-logs-cross-family-anthropic-endpoint-"+suffix, anthropicUpstream.baseURL("/request-logs/cross-family/anthropic"), "runtime-cross-family-anthropic-key", 0)
-	openAIEndpointID := harness.seedEndpoint(t, profileID, "request-logs-cross-family-openai-endpoint-"+suffix, openAIUpstream.baseURL("/request-logs/cross-family/openai"), "runtime-cross-family-openai-key", 1)
+	anthropicEndpointID := harness.seedEndpoint(t, profileID, "request-logs-cross-family-anthropic-endpoint-"+suffix, anthropicUpstream.baseURL("/request-logs/cross-family/anthropic"), "runtime-cross-family-anthropic-key")
+	openAIEndpointID := harness.seedEndpoint(t, profileID, "request-logs-cross-family-openai-endpoint-"+suffix, openAIUpstream.baseURL("/request-logs/cross-family/openai"), "runtime-cross-family-openai-key")
 	harness.seedConnection(t, profileID, anthropicTargetConfigID, anthropicEndpointID, "request-logs-cross-family-anthropic-connection-"+suffix, nil, nil, 0)
 	harness.seedConnection(t, profileID, openAITargetConfigID, openAIEndpointID, "request-logs-cross-family-openai-connection-"+suffix, nil, nil, 0)
 	releaseRefresh()
@@ -1097,7 +1097,7 @@ func TestRuntimeUsageEventEndpointLabelSnapshotUsesSelectedEndpointIdentity(t *t
 	targetModelConfigID := harness.seedModel(t, profileID, "openai", targetModelID, "native", &strategyID)
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &strategyID)
 	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
-	endpointID := harness.seedEndpoint(t, profileID, endpointName, upstream.baseURL("/request-logs/usage-label/snapshot"), "runtime-usage-label-key", 0)
+	endpointID := harness.seedEndpoint(t, profileID, endpointName, upstream.baseURL("/request-logs/usage-label/snapshot"), "runtime-usage-label-key")
 	connectionID := harness.seedConnection(t, profileID, targetModelConfigID, endpointID, "runtime-usage-label-connection-"+suffix, nil, nil, 0)
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
@@ -1129,7 +1129,7 @@ func TestRuntimeUsageEventEndpointLabelSnapshotFallsBackToBaseURL(t *testing.T) 
 	targetModelConfigID := harness.seedModel(t, profileID, "openai", targetModelID, "native", &strategyID)
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &strategyID)
 	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
-	endpointID := harness.seedEndpoint(t, profileID, "   ", endpointBaseURL, "runtime-usage-label-base-url-key", 0)
+	endpointID := harness.seedEndpoint(t, profileID, "   ", endpointBaseURL, "runtime-usage-label-base-url-key")
 	harness.seedConnection(t, profileID, targetModelConfigID, endpointID, "runtime-usage-label-base-url-connection-"+suffix, nil, nil, 0)
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
@@ -1151,8 +1151,8 @@ func TestRuntimeUsageEventEndpointLabelSnapshotForSelectedEndpoint(t *testing.T)
 	publicModelID := "gpt-4o-runtime-usage-label-unknown-public-" + suffix
 	strategyID := harness.seedLegacyStrategy(t, profileID, "runtime-usage-label-unknown-strategy-"+suffix, "fill-first")
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "native", &strategyID)
-	smallEndpointID := harness.seedEndpoint(t, profileID, "runtime-usage-label-unknown-small-"+suffix, harness.upstream.baseURL("/request-logs/usage-label/unknown/small"), "runtime-usage-label-unknown-small-key", 0)
-	largeEndpointID := harness.seedEndpoint(t, profileID, "runtime-usage-label-unknown-large-"+suffix, harness.upstream.baseURL("/request-logs/usage-label/unknown/large"), "runtime-usage-label-unknown-large-key", 1)
+	smallEndpointID := harness.seedEndpoint(t, profileID, "runtime-usage-label-unknown-small-"+suffix, harness.upstream.baseURL("/request-logs/usage-label/unknown/small"), "runtime-usage-label-unknown-small-key")
+	largeEndpointID := harness.seedEndpoint(t, profileID, "runtime-usage-label-unknown-large-"+suffix, harness.upstream.baseURL("/request-logs/usage-label/unknown/large"), "runtime-usage-label-unknown-large-key")
 	smallConnectionID := harness.seedConnection(t, profileID, publicModelConfigID, smallEndpointID, "runtime-usage-label-unknown-small-connection-"+suffix, nil, nil, 0)
 	largeConnectionID := harness.seedConnection(t, profileID, publicModelConfigID, largeEndpointID, "runtime-usage-label-unknown-large-connection-"+suffix, nil, nil, 1)
 	_ = largeConnectionID
@@ -1186,8 +1186,8 @@ func TestRuntimeRequestLogPersistsFailoverAttemptRowsAndSingleUsageEvent(t *test
 	targetModelConfigID := harness.seedModel(t, profileID, "openai", targetModelID, "native", &strategyID)
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", nil)
 	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
-	primaryEndpointID := harness.seedEndpoint(t, profileID, "runtime-request-log-primary-endpoint-"+suffix, primaryUpstream.baseURL("/request-logs/fill-first/primary"), "runtime-request-log-primary-key", 0)
-	secondaryEndpointID := harness.seedEndpoint(t, profileID, "runtime-request-log-secondary-endpoint-"+suffix, secondaryUpstream.baseURL("/request-logs/fill-first/secondary"), "runtime-request-log-secondary-key", 1)
+	primaryEndpointID := harness.seedEndpoint(t, profileID, "runtime-request-log-primary-endpoint-"+suffix, primaryUpstream.baseURL("/request-logs/fill-first/primary"), "runtime-request-log-primary-key")
+	secondaryEndpointID := harness.seedEndpoint(t, profileID, "runtime-request-log-secondary-endpoint-"+suffix, secondaryUpstream.baseURL("/request-logs/fill-first/secondary"), "runtime-request-log-secondary-key")
 	primaryConnectionID := harness.seedConnection(t, profileID, targetModelConfigID, primaryEndpointID, "runtime-request-log-primary-connection-"+suffix, nil, nil, 0)
 	secondaryConnectionID := harness.seedConnection(t, profileID, targetModelConfigID, secondaryEndpointID, "runtime-request-log-secondary-connection-"+suffix, nil, nil, 1)
 
@@ -2350,7 +2350,7 @@ func assertRuntimeAuditLogSnapshot(t *testing.T, harness *runtimeHarness, profil
 func seedRequestLogEndpoints(t *testing.T, harness *requestLogContractHarness, profileID int) {
 	t.Helper()
 	now := time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC)
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO endpoints (id, profile_id, name, base_url, api_key, position, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $7), ($8, $2, $9, $10, $11, $12, $7, $7)`, 12, profileID, "Primary OpenAI", "https://api.openai.com", "fixture-key", 0, now, 13, "Primary Anthropic", "https://api.anthropic.com", "fixture-key", 1); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO endpoints (id, profile_id, name, base_url, api_key, config_revision, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, 1, $6, $6), ($7, $2, $8, $9, $10, 1, $6, $6)`, 12, profileID, "Primary OpenAI", "https://api.openai.com", "fixture-key", now, 13, "Primary Anthropic", "https://api.anthropic.com", "fixture-key"); err != nil {
 		t.Fatalf("seed request-log endpoints: %v", err)
 	}
 }

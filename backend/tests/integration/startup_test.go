@@ -293,7 +293,7 @@ func TestStartupIdempotency(t *testing.T) {
 
 	now := time.Date(2026, 4, 18, 12, 30, 0, 0, time.UTC)
 	profileID := insertProfile(t, testContext, conn, "Idempotent Profile", "", true, false, false, 0, now)
-	insertEndpoint(t, testContext, conn, profileID, "Primary endpoint", "https://api.example.com", "plain-secret-token", 0, now)
+	insertEndpoint(t, testContext, conn, profileID, "Primary endpoint", "https://api.example.com", "plain-secret-token", now)
 
 	service := newStartupService(t, harness.connectionString("startup_idempotency"), nil)
 	firstResult, err := service.RunWithConn(testContext, conn)
@@ -356,8 +356,8 @@ func TestStartupPreservesRuntimeStatePersistenceAcrossRestart(t *testing.T) {
 	strategyID := insertLegacyLoadbalanceStrategy(t, testContext, conn, defaultProfile.ID, "Startup runtime persistence strategy", now)
 	openModelConfigID := insertModelConfig(t, testContext, conn, defaultProfile.ID, "startup-runtime-open-model", strategyID, now)
 	closedModelConfigID := insertModelConfig(t, testContext, conn, defaultProfile.ID, "startup-runtime-closed-model", strategyID, now)
-	openEndpointID := insertEndpoint(t, testContext, conn, defaultProfile.ID, "Runtime open endpoint", "https://runtime-open.example.com", "runtime-open-secret", 0, now)
-	closedEndpointID := insertEndpoint(t, testContext, conn, defaultProfile.ID, "Runtime closed endpoint", "https://runtime-closed.example.com", "runtime-closed-secret", 1, now)
+	openEndpointID := insertEndpoint(t, testContext, conn, defaultProfile.ID, "Runtime open endpoint", "https://runtime-open.example.com", "runtime-open-secret", now)
+	closedEndpointID := insertEndpoint(t, testContext, conn, defaultProfile.ID, "Runtime closed endpoint", "https://runtime-closed.example.com", "runtime-closed-secret", now)
 	openConnectionID := insertConnection(t, testContext, conn, defaultProfile.ID, openModelConfigID, openEndpointID, "Runtime open connection", 0, now)
 	closedConnectionID := insertConnection(t, testContext, conn, defaultProfile.ID, closedModelConfigID, closedEndpointID, "Runtime closed connection", 1, now)
 	failureKind := "transient_http"
@@ -900,7 +900,7 @@ func insertSystemHeaderBlocklistRule(t *testing.T, ctx context.Context, conn *pg
 	}
 }
 
-func insertEndpoint(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID int, name string, baseURL string, apiKey string, position int, now time.Time) int {
+func insertEndpoint(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID int, name string, baseURL string, apiKey string, now time.Time) int {
 	t.Helper()
 	var endpointID int
 	if err := conn.QueryRow(
@@ -910,16 +910,15 @@ func insertEndpoint(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID
 			name,
 			base_url,
 			api_key,
-			position,
+			config_revision,
 			created_at,
 			updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		) VALUES ($1, $2, $3, $4, 1, $5, $6)
 		RETURNING id`,
 		profileID,
 		name,
 		baseURL,
 		apiKey,
-		position,
 		now,
 		now,
 	).Scan(&endpointID); err != nil {
@@ -1042,7 +1041,7 @@ func snapshotStartupState(t *testing.T, ctx context.Context, conn *pgx.Conn) str
 		{"app_auth_settings", `SELECT singleton_key, auth_enabled, email_verification_attempt_count, must_change_password, token_version, created_at, updated_at FROM app_auth_settings ORDER BY id ASC`},
 		{"header_blocklist_rules", `SELECT name, match_type, pattern, enabled, created_at, updated_at FROM header_blocklist_rules WHERE is_system = TRUE ORDER BY id ASC`},
 		{"user_agent_client_rules", `SELECT name, pattern, enabled, created_at, updated_at FROM user_agent_client_rules WHERE is_system = TRUE ORDER BY id ASC`},
-		{"endpoints", `SELECT id, profile_id, name, base_url, api_key, position, created_at, updated_at FROM endpoints ORDER BY id ASC`},
+		{"endpoints", `SELECT id, profile_id, name, base_url, api_key, COALESCE(api_key_fingerprint, '') AS api_key_fingerprint, COALESCE(api_key_updated_at, 'epoch'::timestamptz) AS api_key_updated_at, config_revision, created_at, updated_at FROM endpoints ORDER BY id ASC`},
 		{"loadbalance_strategies", `SELECT COUNT(*) AS count FROM loadbalance_strategies`},
 	})
 }

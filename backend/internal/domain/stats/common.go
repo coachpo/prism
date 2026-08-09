@@ -34,10 +34,9 @@ type queryExecutor interface {
 }
 
 type endpointRecord struct {
-	ID       int
-	Name     *string
-	BaseURL  *string
-	Position int
+	ID      int
+	Name    *string
+	BaseURL *string
 }
 
 type compiledUserAgentRule struct {
@@ -231,7 +230,7 @@ func loadReportCurrencyPreferences(ctx context.Context, exec queryExecutor, prof
 }
 
 func loadCurrentEndpoints(ctx context.Context, exec queryExecutor, profileID int) ([]endpointRecord, map[int]endpointRecord, error) {
-	rows, err := exec.Query(ctx, `SELECT id, name, base_url, position FROM endpoints WHERE profile_id = $1 ORDER BY position ASC, id ASC`, profileID)
+	rows, err := exec.Query(ctx, `SELECT id, name, base_url FROM endpoints WHERE profile_id = $1 ORDER BY lower(name) ASC, name ASC, id ASC`, profileID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("query endpoints for profile %d: %w", profileID, err)
 	}
@@ -242,7 +241,7 @@ func loadCurrentEndpoints(ctx context.Context, exec queryExecutor, profileID int
 		var name sql.NullString
 		var baseURL sql.NullString
 		var item endpointRecord
-		if err := rows.Scan(&item.ID, &name, &baseURL, &item.Position); err != nil {
+		if err := rows.Scan(&item.ID, &name, &baseURL); err != nil {
 			return nil, nil, fmt.Errorf("scan endpoint record: %w", err)
 		}
 		item.Name = nullableString(name)

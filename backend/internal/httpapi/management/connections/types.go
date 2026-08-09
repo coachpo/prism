@@ -195,15 +195,16 @@ type modelConnectionsBatchRequest struct {
 }
 
 type endpointResponse struct {
-	ID           int       `json:"id"`
-	ProfileID    int       `json:"profile_id"`
-	Name         string    `json:"name"`
-	BaseURL      string    `json:"base_url"`
-	HasAPIKey    bool      `json:"has_api_key"`
-	MaskedAPIKey *string   `json:"masked_api_key"`
-	Position     int       `json:"position"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID                int        `json:"id"`
+	ProfileID         int        `json:"profile_id"`
+	Name              string     `json:"name"`
+	BaseURL           string     `json:"base_url"`
+	HasAPIKey         bool       `json:"has_api_key"`
+	APIKeyFingerprint *string    `json:"api_key_fingerprint"`
+	APIKeyUpdatedAt   *time.Time `json:"api_key_updated_at"`
+	ConfigRevision    int64      `json:"config_revision"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
 type connectionPricingTemplateSummary struct {

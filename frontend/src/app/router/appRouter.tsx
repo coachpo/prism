@@ -164,7 +164,6 @@ function ProtectedModelDetailRoute() {
   if (search.action) searchParams.set("action", search.action)
   if (search.endpoint_id) searchParams.set("endpoint_id", search.endpoint_id)
   if (search.focus_connection_id) searchParams.set("focus_connection_id", search.focus_connection_id)
-
   return (
     <ProtectedRoute>
       {withRouteSuspense(

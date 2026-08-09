@@ -80,6 +80,9 @@ func CreateOwnerConnection(ctx context.Context, tx pgx.Tx, profileID int, owner 
 	if err != nil {
 		return connectionResponse{}, 0, 0, nil, err
 	}
+	if err := ensureOpenAITextCapabilityMatchesOwnerModes(owner.APIFamily, owner.OpenAIAcceptedFormat, openAITextCapability); err != nil {
+		return connectionResponse{}, 0, 0, nil, err
+	}
 	pricingTemplateID, err := validatePricingTemplateID(ctx, tx, profileID, input.PricingTemplateID)
 	if err != nil {
 		return connectionResponse{}, 0, 0, nil, err
@@ -175,21 +178,20 @@ func insertWriterInlineEndpoint(ctx context.Context, tx pgx.Tx, profileID int, i
 	if err := ensureUniqueEndpointName(ctx, tx, profileID, endpointName); err != nil {
 		return endpointRecord{}, err
 	}
-	encryptedAPIKey, err := endpointdomain.EncryptSecret(inline.APIKey, secretEncryptionKey, now)
+	metadata, err := endpointdomain.BuildSecretMetadata(inline.APIKey, secretEncryptionKey, now)
 	if err != nil {
 		return endpointRecord{}, err
 	}
-	position, err := nextEndpointPosition(ctx, tx, profileID)
-	if err != nil {
-		return endpointRecord{}, err
-	}
+	nowUTC := now().UTC()
 	return insertEndpoint(ctx, tx, endpointRecord{
-		ProfileID: profileID,
-		Name:      endpointName,
-		BaseURL:   normalizedURL,
-		APIKey:    encryptedAPIKey,
-		Position:  position,
-		CreatedAt: now().UTC(),
-		UpdatedAt: now().UTC(),
+		ProfileID:         profileID,
+		Name:              endpointName,
+		BaseURL:           normalizedURL,
+		APIKey:            metadata.EncryptedValue,
+		APIKeyFingerprint: metadata.Fingerprint,
+		APIKeyUpdatedAt:   metadata.KeyUpdatedAt,
+		ConfigRevision:    1,
+		CreatedAt:         nowUTC,
+		UpdatedAt:         nowUTC,
 	})
 }

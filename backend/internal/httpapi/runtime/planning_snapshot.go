@@ -273,7 +273,9 @@ func (s *Service) resolveRequestedModelExecutionTargetFromRoutingPlan(profileID 
 
 func (s *Service) selectModelPeerCandidateFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, model runtimeModelRecord, strategy loadbalance.RuntimeStrategy, ctx runtimeAccessResolutionContext) (runtimeModelPeerSelection, error) {
 	selection := runtimeModelPeerSelection{}
-	targets := routingPlan.orderedModelTargetsForStrategy(profileID, model, strategy, s.runtimeState)
+	// Model and Terminal Targets are type-neutral peers. Keep the authored
+	// position order intact and apply the strategy once across the mixed list.
+	targets := routingPlan.orderedMixedTargetsForStrategy(profileID, model, strategy, s.runtimeState)
 	eligibleCandidates, err := s.evaluateModelPeerTargetsFromRoutingPlan(profileID, routingPlan, model, strategy, targets, ctx, &selection)
 	if err != nil {
 		return runtimeModelPeerSelection{}, err
@@ -342,36 +344,6 @@ func (s *Service) resolveModelAccessFromRoutingPlan(profileID int, routingPlan *
 		}
 	}
 
-	orderedTerminalTargets := routingPlan.orderedTerminalTargetsForStrategy(profileID, model, strategy, s.runtimeState)
-	if len(orderedTerminalTargets) > 0 {
-		resolved := runtimeResolvedAccessPlan{RuntimeStates: map[int]loadbalance.RuntimeConnectionState{}, Strategy: strategy}
-		var firstCompatibilityError error
-		for _, target := range orderedTerminalTargets {
-			candidate, eligible, err := s.resolveAccessTargetFromRoutingPlan(profileID, routingPlan, model, strategy, target, childContext)
-			if err != nil {
-				return runtimeResolvedAccessPlan{}, err
-			}
-			if firstCompatibilityError == nil && candidate.CompatibilityError != nil {
-				firstCompatibilityError = candidate.CompatibilityError
-			}
-			if !eligible {
-				continue
-			}
-			appendRuntimeResolvedAccessPlan(&resolved, candidate)
-		}
-		if len(resolved.TerminalAttempts) > 0 && len(resolved.Connections) > 0 {
-			compatibleResolved, compatible, err := s.applyIngressOperationCompatibility(resolved, childContext)
-			if err != nil {
-				return runtimeResolvedAccessPlan{}, err
-			}
-			if compatible {
-				return compatibleResolved, nil
-			}
-		}
-		if firstCompatibilityError != nil {
-			return runtimeResolvedAccessPlan{}, firstCompatibilityError
-		}
-	}
 	if peerSelection.compatibilityError != nil {
 		return runtimeResolvedAccessPlan{}, peerSelection.compatibilityError
 	}
@@ -516,7 +488,7 @@ func (s *Service) resolveTerminalTargetFromRoutingPlan(profileID int, routingPla
 	if !ok {
 		return runtimeResolvedAccessPlan{}, false, nil
 	}
-	if ctx.Observation != nil && connection.OpenAITextCapability != nil && openai.IsTextOperation(providerOperationFromRuntime(ctx.RequestOperation)) && providerauth.OpenAITextCapabilitySupportsNativeOperation(*connection.OpenAITextCapability, ctx.RequestOperation.Name) {
+	if ctx.Observation != nil && connection.OpenAITextCapability != nil && openai.IsTextOperation(providerOperationFromRuntime(ctx.RequestOperation)) && providerauth.OpenAITextModesMatch(ctx.RequestedOpenAIAcceptedFormat, connection.OpenAITextCapability) && providerauth.OpenAITextCapabilitySupportsNativeOperation(*connection.OpenAITextCapability, ctx.RequestOperation.Name) {
 		ctx.Observation.CompatibleStaticRouteSeen = true
 	}
 

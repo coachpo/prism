@@ -142,11 +142,11 @@ Global CORS handling runs before the runtime branch. The runtime branch then app
 
 `GET /v1/models` is the exception: `openai.models` branches to the local models-list handler before provider request-body handling, planning, or provider execution core. Every other registered proxy operation enters the shared runtime and gateway path: it resolves against frozen Default profile id `1`, resolves ordered access targets, applies the attached Ban Policy strategy, claims local attempt state, builds an upstream request, and hands activity to telemetry seams. The provider adapter is selected during planned-upstream request construction, not registry resolution. Request, non-stream response, and stream hooks are looked up by `HookCollectionID`, allowing related operations such as token counting or compact Responses to use hook collections different from their canonical operation names. Those hooks own generation extraction and stream intent, non-stream parsing and token usage, and stream terminal classification and usage merge respectively.
 
-OpenAI Chat Completions and Responses are operation-native. Planning requires the model's `openai_accepted_format` and the selected connection's `openai_text_capability` (`responses_only`, `chat_completions_only`, or `dual_native`) to support the ingress operation. Incompatible terminal attempts are skipped in authored order so the next target can be tried; planning rejection uses three stable, mutually distinguishable codes before provider transport: `400 openai_operation_not_supported` (root model does not accept the operation), `503 openai_no_compatible_terminal_target` (no capability-compatible Terminal leaf in the authored graph), and `503 openai_no_eligible_terminal_target` (compatible leaves exist but none is statically eligible). A statically eligible route that is dynamically unavailable keeps the ordinary `503` family. Current native attempts record `operation_translation_mode = "none"`; the columns and stats reads remain for historical rows. Responses adjunct operations require responses-capable targets.
+OpenAI Chat Completions and Responses are operation-native and mode-strict. Planning requires the model's `openai_accepted_format` and the selected connection's `openai_text_capability` (`responses_only`, `chat_completions_only`, or `dual_native`) to be exactly equal. Incompatible terminal attempts are skipped in authored order so the next target can be tried; when no compatible attempt remains Prism returns the typed native-compatibility error before provider transport. Management writes reject cross-mode relations with `422 target_openai_mode_mismatch`, mode changes that would break existing relations return `409`, and startup preflight fails fast on persisted violations. Current native attempts record `operation_translation_mode = "none"`; the columns and stats reads remain for historical rows.
 
 Runtime observability stores canonical disjoint token components. Base input, cache-read input, cache-creation input, base output, and reasoning output are separate dimensions, while provider totals remain authoritative when supplied. Pricing uses five concrete pricing strings from the attached template snapshot, and explicit `"0"` component prices mean configured free pricing instead of a missing-price condition.
 
-Terminal Target `openai_text_capability` remains connection-owned metadata used for native OpenAI operation-set coverage. Model-owned capability authoring, context-window preflight filtering, overflow-promotion routing, and sibling-operation translation have been removed; ordinary strategy selection now uses explicit Ban Policy routing families.
+Terminal Target `openai_text_capability` remains connection-owned metadata used for strict OpenAI text-mode equality. Model-owned capability authoring, context-window preflight filtering, overflow-promotion routing, and sibling-operation translation have been removed; ordinary strategy selection now uses explicit Ban Policy routing families.
 
 ### 3.1 Runtime Request With Private Connection Target
 
@@ -169,20 +169,18 @@ Client -> POST /v1/chat/completions {model: "gpt-4o"}
 Client -> POST /v1/messages {model: "claude-sonnet-4-5"}
   -> Operation registry resolves `anthropic.messages` and its HookCollectionID
   -> Shared core resolves against frozen Default profile id `1`
-  -> Resolver orders the model's enabled Model Target stage and Terminal Target stage by (position, id)
-  -> The attached strategy shapes the Model Target stage first: single keeps only its first row,
-     fill-first walks that stage, and round-robin rotates its direct peers
+  -> Resolver orders all enabled Model Target and Terminal Target rows together by (position, id)
+  -> The attached strategy shapes this one mixed peer sequence: single keeps only its first row,
+     fill-first walks it, and round-robin rotates its direct peers
   -> Each Model Target row recursively resolves through the child model's own strategy and
-     contributes one contiguous block; capability or leaf misses leave the stage without a candidate
-  -> Only when the Model Target stage has no eligible candidate does the resolver enter the
-     Terminal Target stage and apply the same strategy independently to its direct rows
+     contributes one contiguous block; capability or leaf misses advance to the next mixed peer
   -> Cycle/depth and missing-strategy errors fail closed
   -> Executor plans attempts against Terminal Targets
   -> Upstream responds; eventual request history keeps model_id as the requested model and resolved_target_model_id as the final target model for each materialized attempt
   -> Gateway returns response to client
 ```
 
-Model Target rows and Terminal Target rows are stored in one access-target relation but are not runtime peers. The Model Target stage is evaluated first; the Terminal Target stage is entered only when the first stage has no eligible candidate for the operation. Diagnostics and UI copy expose this stage boundary, and `single` truncation is reported separately for each stage.
+Model Target rows and Terminal Target rows are stored in one access-target relation and are runtime peers. The resolver evaluates the shared `(position, id)` order once; there is no model-first or terminal-fallback tier. `single` truncation applies to the one mixed sequence.
 
 ### 3.3 Runtime Request (Streaming)
 
@@ -350,8 +348,8 @@ Models resolve through ordered access targets. Public target authoring points on
 - Model targets can chain, but cycles and self-targets are rejected.
 - Endpoints are reusable. Terminal Targets are created and managed from model detail through model-scoped connection routes while retaining `connections` and `connection_id` compatibility names.
 - Every access target carries explicit ordering metadata.
-- Access-target `position` remains the shared storage order for all rows and is not priority, tier, or weight; runtime filters that order into a Model Target stage and a Terminal Target stage.
-- The Model Target stage is evaluated first. The Terminal Target stage is a fallback entered only when the model stage has no eligible candidate for the operation. `single`, `fill-first`, and `round-robin` apply independently within the entered stage; a Model Target row is an atomic parent peer whose child attempts stay one contiguous block and whose child keeps its own strategy and round-robin cursor.
+- Access-target `position` remains the shared storage order for all rows and is not priority, tier, or weight; runtime evaluates both target types as one mixed peer sequence.
+- `single`, `fill-first`, and `round-robin` apply once across the enabled mixed rows; a Model Target row is an atomic parent peer whose child attempts stay one contiguous block and whose child keeps its own strategy and round-robin cursor.
 - Model IDs are unique within a profile.
 - The gateway may normalize provider request payloads before forwarding, for example rewriting the requested model ID to the final target model ID for upstream compatibility. Prism does not rewrite response-body model identity on the client-facing way back out.
 
@@ -362,23 +360,16 @@ Model contracts require `api_family`; runtime compatibility is checked against `
 ```
 resolve_access(profile_id, model_id):
   config = lookup(profile_id, model_id)
-  model_targets = order_for_strategy(strategy, enabled_model_targets(config))
-  model_result = resolve_model_stage(model_targets)  // Model row -> recursive child resolution
-  if model_result has eligible terminal attempts:
-    return model_result
-
-  terminal_targets = order_for_strategy(strategy, enabled_terminal_targets(config))
-  terminal_result = resolve_terminal_stage(terminal_targets)
-  if terminal_result has eligible terminal attempts:
-    return terminal_result
-  if terminal_result has a compatibility error:
-    return terminal_result.compatibility_error
-  if model_result has a compatibility error:
-    return model_result.compatibility_error
+  peers = order_for_strategy(strategy, enabled_mixed_targets(config))
+  result = resolve_mixed_peers(peers)  // Model row -> recursive child resolution
+  if result has eligible terminal attempts:
+    return result
+  if result has a compatibility error:
+    return result.compatibility_error
   return no_eligible_target
 ```
 
-The three strategies act independently per entered stage: Model Targets are evaluated first, and Terminal Targets are evaluated only when the Model Target stage has no eligible candidate. Within a stage, `single` keeps only the first enabled row, `fill-first` walks that stage's authored order, and `round-robin` rotates direct peers once per request (each row occupies one cursor slot; a child model's expanded attempts do not enlarge the parent modulus, and the child claims its own cursor keyed by its own source model, strategy, and target-set hash). An enabled but currently unavailable or incompatible row still consumes its round-robin slot; eligibility is judged after rotation. Reordering, adding, removing, or toggling rows changes the target-set hash, and a new hash starts a fresh cursor while a reappearing identical hash may continue its existing cursor. Cursors are process-local.
+The three strategies act once on the mixed authored rows: `single` keeps only the first enabled row, `fill-first` walks the mixed order, and `round-robin` rotates direct peers once per request (each row occupies one cursor slot; a child model's expanded attempts do not enlarge the parent modulus, and the child claims its own cursor keyed by its own source model, strategy, and target-set hash). An enabled but currently unavailable or incompatible row still consumes its round-robin slot; eligibility is judged after rotation. Reordering, adding, removing, or toggling rows changes the target-set hash, and a new hash starts a fresh cursor while a reappearing identical hash may continue its existing cursor. Cursors are process-local.
 
 ### 5.4 Default profile and active runtime separation
 
@@ -670,7 +661,7 @@ Response `200`: Array of model objects.
 ```
 GET /api/models/{id}
 ```
-Response `200`: Full model object with required `api_family`, optional `loadbalance_strategy_id`, ordered `access_targets` (the storage rows retain a shared zero-based `position`, while runtime resolves Model Target and Terminal Target stages separately), and attached Terminal Target summaries in the effective profile scope. Model create/update does not author access targets; use `/api/models/{id}/targets` for Model Target authoring and model-owned Terminal Target ownership edges.
+Response `200`: Full model object with required `api_family`, optional `loadbalance_strategy_id`, ordered mixed `access_targets` (the storage rows retain a shared zero-based `position` used by runtime), and attached Terminal Target summaries in the effective profile scope. Model create/update does not author access targets; use `/api/models/{id}/targets` for Model Target authoring and model-owned Terminal Target ownership edges.
 
 ##### Get Models by Endpoints (Batch)
 ```
@@ -722,14 +713,14 @@ Response `201`:
   "configuration_warnings": []
 }
 ```
-Create supports an optional `initial_terminal_target` (composite create): `endpoint_id` XOR inline `endpoint_create` (`name`, `base_url`, `api_key`), plus name, active, auth type, capability, pricing, limits, custom headers and validated `custom_request_parameters`. The nested target never receives `api_family`, owner/profile, priority/position or IDs. Composite create runs in one transaction (model + optional inline endpoint with encrypted key + private Connection + enabled owner Access Target); any failure rolls back completely. `openai_text_capability` defaults to the owner `openai_accepted_format`; `is_active` defaults to `true`; with a target and no explicit `is_enabled`, the model defaults to enabled. An enabled model with an inactive nested target is rejected `422 model_initial_target_inactive`; an enabled model without any target stays `400 model_no_enabled_targets`. Legal Partial/None coverage succeeds with structured `configuration_warnings`; warnings are non-persisted and never echo secrets.
+Create supports an optional `initial_terminal_target` (composite create): `endpoint_id` XOR inline `endpoint_create` (`name`, `base_url`, `api_key`), plus name, active, auth type, capability, pricing, limits, custom headers and validated `custom_request_parameters`. The nested target never receives `api_family`, owner/profile, priority/position or IDs. Composite create runs in one transaction (model + optional inline endpoint with encrypted key + private Connection + enabled owner Access Target); any failure rolls back completely. `openai_text_capability` defaults to the owner `openai_accepted_format` and must equal it when supplied; `is_active` defaults to `true`; with a target and no explicit `is_enabled`, the model defaults to enabled. An enabled model with an inactive nested target is rejected `422 model_initial_target_inactive`; an enabled model without any target stays `400 model_no_enabled_targets`.
 
 Validation rules:
 - `model_id` must be unique within the effective profile scope.
 - `api_family` is required on every model contract and remains the authoritative runtime compatibility field.
 - `is_enabled` defaults to `false` when omitted. Enabling a model still requires at least one enabled access target in the stored graph.
 - Create and update payloads reject `access_targets`, exact-facade fields, and retired model-owned context capability fields.
-- Ordered same-profile, same-`api_family` model targets are managed through `/api/models/{id}/targets`. OpenAI capability coverage is operation-set based: valid Partial/None relations may be persisted with structured warnings, while invalid enum/nullability and family/profile/cycle violations remain hard errors. First-party UI disables zero-intersection choices but does not enforce exact mode equality for hand-written API requests.
+- Ordered same-profile, same-`api_family` model targets are managed through `/api/models/{id}/targets`. OpenAI model and Terminal Target relations require exact mode equality; cross-mode authoring returns `422 target_openai_mode_mismatch`, including disabled/inactive relations.
 - Model target self-reference and target cycles are rejected by the target management routes.
 - Deleting a model referenced by another model target returns `409` until the target rows are removed or updated. Deleting an owner model deletes its Terminal Targets with the owning target rows.
 - Model create/update responses are envelopes: `{ "model": ModelDetail, "configuration_warnings": [] }`.
@@ -738,7 +729,7 @@ Validation rules:
 ```
 GET /api/models/{model_config_id}/routing-diagnostics
 ```
-Read-only, profile-scoped, `invalidates_planning=false`. Returns the authoritative two-stage static routing diagnostics for the model: `strategy`, `accepted_operations`, `stages` (`model_targets` first, `terminal_targets` fallback with `entered_when` semantics), per-target rows (authored stage position, enabled strategy index, coverage, per-operation dispositions `candidate | disabled | inactive | incompatible | no_eligible_leaf | truncated_by_single | structural_error`), `operation_coverage` (accepted, capability_covered, statically_routable, resolved_stage, compatible/access target ids) and `configuration_warnings`. OpenAI responses always carry the four registered model-bound operations; root-unaccepted operations have `accepted=false`. The analyzer is pure and static: it never reads or changes Ban/retry state, QPS/in-flight counters, current-state, round-robin cursors or endpoint secrets, and never sends provider requests. Diagnostics never echo endpoint keys or header/parameter values.
+Read-only, profile-scoped, `invalidates_planning=false`. Returns the model's ordered mixed access-target diagnostics and strict OpenAI mode state. The analyzer is pure and static: it never reads or changes Ban/retry state, QPS/in-flight counters, current-state, round-robin cursors or endpoint secrets, and never sends provider requests. Diagnostics never echo endpoint keys or header/parameter values.
 
 ```
 POST /api/models/{model_config_id}/routing-diagnostics/preview
@@ -761,7 +752,7 @@ Request (all fields optional):
   "is_enabled": true
 }
 ```
-Update payloads use the same field contract as create and do not mutate access targets. Existing access targets and private Terminal Targets are preserved and remain managed by model-scoped target and connection routes. Response `200`: Updated model object. Returns `409` if `model_id` conflicts within the effective profile. A valid `openai_accepted_format` change is saved even when existing targets become Partial or None coverage; the response includes non-persisted `configuration_warnings` for the proposed state. Invalid enum/nullability and graph or profile violations remain hard errors.
+Update payloads use the same field contract as create and do not mutate access targets. Existing access targets and private Terminal Targets are preserved and remain managed by model-scoped target and connection routes. Response `200`: Updated model object. Returns `409` if `model_id` conflicts within the effective profile or a mode change would break an existing relation. Cross-mode access-target authoring returns `422 target_openai_mode_mismatch`; invalid enum/nullability and graph or profile violations remain hard errors.
 
 ##### Delete Model
 ```
@@ -777,7 +768,24 @@ Response `200`: `{ "deleted": true }`. Returns `409` if other models still refer
 ```
 GET /api/endpoints
 ```
-Response `200`: Array of endpoint objects in the effective profile scope, ordered by `position ASC, id ASC`.
+Response `200`: Array of endpoint objects in the effective profile scope, ordered by `lower(name) ASC, name ASC, id ASC`. Endpoint list order is display-only and never affects runtime routing.
+
+The Endpoint read DTO is:
+```json
+{
+  "id": 1,
+  "profile_id": 1,
+  "name": "Primary OpenAI",
+  "base_url": "https://api.openai.com",
+  "has_api_key": true,
+  "api_key_fingerprint": "fp_v1_ab12cd34ef56",
+  "api_key_updated_at": "2026-08-09T10:20:30Z",
+  "config_revision": 4,
+  "created_at": "2026-07-01T00:00:00Z",
+  "updated_at": "2026-08-09T10:20:30Z"
+}
+```
+`api_key_fingerprint` is an instance-local, domain-separated HMAC display token (`fp_v1_` + 12 hex) derived from the plaintext key; it is never a secret substitute, never derived from ciphertext, and never used for authorization. `api_key_updated_at` records only real key-identity changes; `config_revision` starts at 1 and bumps only when the normalized base URL or the key identity changes. Raw API keys never appear in read responses, errors, logs, audit rows, URLs or evidence.
 
 ##### List All Connections (Dropdown)
 ```
@@ -798,13 +806,13 @@ Request:
   "api_key": "sk-abc123..."
 }
 ```
-Response `201`: Created endpoint object.
+Response `201`: Created endpoint object. Blank keys store no secret (fingerprint/time null, revision 1); non-blank keys are encrypted at rest with a fingerprint and key time. Names are trimmed and limited to 128 Unicode code points; base URLs are normalized (trim, trailing-slash removal preserving origin form) and limited to 512 code points, requiring an http/https scheme and host and rejecting query/fragment. Field failures return `422` with a stable `fields` map (`name_too_long`, `base_url_invalid`, `base_url_too_long`).
 
 ##### Duplicate Endpoint
 ```
 POST /api/endpoints/{id}/duplicate
 ```
-Response `201`: Created endpoint copy with a generated duplicate-safe name.
+Response `201`: Created endpoint copy with a generated duplicate-safe name. The duplicate copies the key plaintext semantics and display fingerprint, re-encrypts for the new row, stamps the new Endpoint's creation time as its key time, and starts at revision 1.
 
 ##### Update Endpoint
 ```
@@ -818,36 +826,60 @@ Request:
   "api_key": "sk-new-key..."
 }
 ```
-Response `200`: Updated endpoint object.
-
-##### Move Endpoint Position
-```
-PATCH /api/endpoints/{id}/position
-```
-Request:
-```json
-{
-  "to_index": 0
-}
-```
-Response `200`: Ordered array of endpoint objects after the move.
-
-Behavior:
-- `to_index` must be in the range `0..(endpoint_count - 1)` or the API returns `422`.
-- A no-op move returns the current ordered list unchanged.
-- The backend rewrites endpoint positions to contiguous `0..N-1` values after every successful move.
+Response `200`: Updated endpoint object. Blank/omitted `api_key` preserves the existing key identity; submitting the same key identity preserves ciphertext, fingerprint, key time and revision; a different key rotates identity (new fingerprint, new key time, revision bump). Name-only changes update `updated_at` only; normalized base URL changes bump `config_revision`. A fully unchanged update is a no-op that preserves `updated_at`.
 
 ##### Delete Endpoint
 ```
 DELETE /api/endpoints/{id}
 ```
-Response `200`: `{ "deleted": true }`.
-When connections still reference this endpoint, delete returns a typed `409 endpoint_in_use` with `endpoint_id` and a `references` array of direct Terminal Target ownership rows (connection id, access target id, terminal target name, model id/display name, api family, authored stage position, enable/active state, capability, pricing template, custom header count, custom request-parameter count). The same reference DTO is served by the batch read:
+Response `200`: `{ "deleted": true }` only when the lock-time canonical reference query finds zero direct references. Any direct reference (including disabled/inactive/orphan connections) returns `409` with a typed detail:
+```json
+{
+  "detail": {
+    "code": "endpoint_in_use",
+    "message": "Endpoint is referenced by Terminal Targets",
+    "endpoint_id": 1,
+    "summary": {"direct_reference_count": 1, "referencing_model_count": 1, "enabled_reference_count": 0, "orphan_reference_count": 0},
+    "reference_page": {"items": [...], "total_count": 1, "next_cursor": null, "reference_snapshot_hash": "opaque"},
+    "references_url": "/api/endpoints/1/references"
+  }
+}
+```
+The 409 carries the same summary + bounded first page + snapshot hash as the single-detail route; clients paginate via `references_url` on the same snapshot. Duplicate-owner corruption returns typed `409 reference_integrity_error` and fails closed. Endpoint `position`/move contract is hard-deleted: no column, index, route, or reorder behavior remains.
+
+##### Batch Direct-Reference Summaries
 ```
 POST /api/endpoints/references/batch
-{"endpoint_ids": [1, 2]}
+{"endpoint_ids": [1, 2, 3]}
 ```
-which returns `items` in input order (1..100 unique ids); missing or cross-profile ids produce a typed `404` with the missing ids. If the locked recheck finds no references, delete proceeds. After a successful delete, later endpoints in the same profile are compacted so `position` remains contiguous. References never include endpoint API keys or header/parameter values.
+Response `200`: input-ordered items, one per requested existing Endpoint (explicit zero included):
+```json
+{"items": [{"endpoint_id": 1, "summary": {"direct_reference_count": 3, "referencing_model_count": 2, "enabled_reference_count": 1, "orphan_reference_count": 1}}]}
+```
+`endpoint_ids` must be 1..100 unique positive ints (`422` otherwise); missing/cross-profile IDs return typed `404` with `missing_endpoint_ids`. Pure read: no timestamps or cache generations are touched. This route is the only summary source for collapsed table rows; it never prefetches row details.
+
+##### Single Direct-Reference Detail
+```
+GET /api/endpoints/{id}/references?limit=&cursor=
+```
+Response `200`: `endpoint_id`, the canonical `summary`, and a bounded `reference_page` (`{items, total_count, next_cursor, reference_snapshot_hash}`). Page default/max is `50/100`; `limit<1` or `limit>100` is a field-level `422`. Items are `owned_terminal_target` or `orphan_connection` rows with owner model/access-target/connection flags, family/OpenAI text mode, pricing template identity, `enabled` and ordered `inactive_reasons`. The opaque cursor is HMAC-signed and carries schema/profile/Endpoint/limit/snapshot-hash/last-key; mismatched cursor -> `422 reference_cursor_mismatch`, invalid signature -> `422 reference_cursor_invalid`, snapshot change -> `409 reference_snapshot_stale` (client restarts from page one). Total/counts always reconcile with the full canonical set.
+
+##### One-Time Endpoint Verify
+```
+POST /api/endpoints/{id}/verify
+{"api_family": "openai", "expected_config_revision": 4}
+```
+Response `200` for completed probes (including negative outcomes):
+```json
+{"endpoint_id": 1, "api_family": "openai", "config_revision": 4, "api_key_fingerprint": "fp_v1_ab12cd34ef56", "is_current": true, "outcome": "verified", "probe_path": "/v1/models", "upstream_status": 200, "duration_ms": 182, "error_summary": null}
+```
+`api_family` must be exactly `openai|anthropic|gemini`; `expected_config_revision` must be a positive int from the latest Endpoint DTO. A revision mismatch before any outbound I/O returns typed `409 endpoint_config_changed` with the current DTO and sends no probe. Outcomes: `verified`, `authentication_failed`, `probe_unsupported`, `api_mismatch`, `upstream_rejected`, `upstream_unavailable`, `unreachable`, `timeout`. Probes are metadata-only (`/v1/models` with Bearer, `/v1/models?limit=1` with `x-api-key` + `anthropic-version`, `/v1beta/models?pageSize=1` with `x-goog-api-key` header), read at most 8 KiB, never follow cross-origin redirects or forward credentials across origins (same-origin redirects capped at 3), and have zero side effects: no request logs, usage, audit, loadbalance state, health fields, timestamps or revision changes. After the network call the server short re-reads the Endpoint; `is_current=true` only when the row still exists with equal revision and full key identity. No result is stored.
+
+##### Orphan Connection Cleanup
+```
+DELETE /api/endpoints/{id}/orphan-connections/{connection_id}
+```
+Response `200`: `{ "deleted": true, "connection_id": 19 }` when the Connection belongs to the Endpoint in the effective profile and has no owner Access Target (checked under locks). If an owner now exists, returns `409 connection_not_orphaned` with the current owned reference item. Owned Terminal Targets can never be deleted through this route; unknown/mismatched IDs return `404`. The route publishes one planning invalidation after commit.
 
 #### 1.5 Terminal Targets and Model Access Targets
 
@@ -934,14 +966,14 @@ Response `201`:
   "configuration_warnings": []
 }
 ```
-Owner-scoped Connection create/update/delete responses are fixed envelopes carrying the canonical access-target rows (row id, target discriminator, connection id) and `configuration_warnings` computed on the proposed state. Warnings use stable codes (`openai_target_incompatible`, `openai_target_partial_coverage`, `openai_operation_uncovered`, `single_strategy_truncates_targets`) with severity and operation lists; they are non-persisted and never echo endpoint keys or header/parameter values.
+Owner-scoped Connection create/update/delete responses are fixed envelopes carrying the canonical access-target rows (row id, target discriminator, connection id). OpenAI mode mismatches are rejected before mutation with a typed `422 target_openai_mode_mismatch`; responses never echo endpoint keys or header/parameter values.
 
 Create semantics:
 - Exactly one of `endpoint_id` or `endpoint_create` is required.
 - The connection `api_family` is derived from the owner model. A conflicting request value is rejected.
 - `priority` is rejected with `422`; Terminal Target ordering for a model is owned by `/api/models/{model_config_id}/targets` positions.
 - Limiter fields are optional. `null` means unlimited. Positive integers apply per-connection request admission limits.
-- `openai_text_capability` is the OpenAI text runtime capability source of truth for OpenAI-family Terminal Targets. It accepts `responses_only`, `chat_completions_only`, or `dual_native`, is required for OpenAI rows, and is compared with the owner model's accepted operation set. Non-OpenAI rows must omit it or persist `null`. Valid Partial/None coverage is accepted with non-persisted `configuration_warnings`; invalid enum/nullability remains a hard `422`.
+- `openai_text_capability` is the OpenAI text runtime capability source of truth for OpenAI-family Terminal Targets. It accepts `responses_only`, `chat_completions_only`, or `dual_native`, is required for OpenAI rows, and must equal the owner model's `openai_accepted_format`. Non-OpenAI rows must omit it or persist `null`; invalid enum/nullability and cross-mode authoring remain hard `422` errors.
 - `custom_request_parameters` is an optional static top-level JSON object (`object | null`). Missing, `null`, and `{}` all persist as unconfigured (`NULL`); a non-empty object is validated (protected keys, 64 KiB compact limit, depth ≤ 16, members ≤ 256, safe integers) and canonicalized before write. Invalid values return `422` with `{"detail":"Invalid custom request parameters","field":"custom_request_parameters","path":...,"reason":...,"limit":...}`; malformed request JSON or unknown fields keep the generic `400`.
 
 ##### Update Terminal Target
@@ -1028,7 +1060,7 @@ PATCH /api/models/{model_config_id}/targets/{target_id}/position
 DELETE /api/models/{model_config_id}/targets/{target_id}
 ```
 
-Model target rows define a model's ordered access graph. Public authoring creates same-family model targets only; internal connection rows (Terminal Targets) share the same storage list and position space, while runtime evaluates the two target types as separate stages:
+Model target rows define a model's ordered access graph. Public authoring creates same-family model targets only; internal connection rows (Terminal Targets) share the same storage list and position space, and runtime evaluates both target types as one mixed peer sequence:
 ```json
 {
   "target_type": "model",
@@ -1043,9 +1075,9 @@ Target semantics:
 - Runtime routing consumes exact target-model IDs only. Target payloads do not accept regex matcher fields, capability-metadata expansion, weighted policy names, or hidden priority fields.
 - Public target authoring rejects submitted `target_type="connection"`, `connection_id`, or `target_connection_id` values. Private connections are created and managed through `/api/models/{model_config_id}/connections`.
 - `PUT` and `PATCH /api/models/{model_config_id}/targets/{target_id}` update target metadata within the owning model scope. For internal connection targets, `PATCH` accepts only `position` and `is_enabled`; pointer fields are immutable and obsolete weight fields must stay omitted.
-- `PATCH /api/models/{model_config_id}/targets/{target_id}/position` is the dedicated move route and accepts `to_index`. `to_index` is the zero-based index of the complete stored list; the response returns the full reordered list. The UI exposes stage-local controls and does not imply that this storage order changes the Model-then-Terminal runtime boundary.
+- `PATCH /api/models/{model_config_id}/targets/{target_id}/position` is the dedicated move route and accepts `to_index`. `to_index` is the zero-based index of the complete mixed stored list; the response returns the full reordered list. The UI exposes one shared order, and this storage order is the runtime peer order.
 - Existing internal `target_type="connection"` rows identify the source model that owns a private connection and provide the runtime terminal routing edge.
-- Target positions are contiguous starting at `0` across both target types and provide the authored order within each runtime stage after type filtering. Position is an ordering key only, not a priority, tier, or weight replacement. Enable/disable never moves a row; delete compacts positions across both types; creates append to the shared storage tail unless an explicit position inserts at that global index.
+- Target positions are contiguous starting at `0` across both target types and provide the single authored runtime order. Position is an ordering key only, not a priority, tier, or weight replacement. Enable/disable never moves a row; delete compacts positions across both types; creates append to the shared storage tail unless an explicit position inserts at that global index.
 - Target validation is Default-profile scoped, same-family, enabled-target aware, and cycle-safe.
 
 ##### Base URL Validation
@@ -1440,13 +1472,13 @@ When any planned Terminal Target candidate has custom request parameters configu
 
 #### 2.2A Routing Failures
 
-Runtime planning evaluates the Model Target stage first and enters the direct Terminal Target stage only when the model stage has no eligible candidate. Each entered stage applies its own Ban Policy strategy to its ordered rows before provider transport. If no eligible Terminal Target is available inside the current retry window, Prism returns a routing-availability error before opening an upstream request. If all otherwise eligible attempts are blocked by admission counters, Prism returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. An OpenAI text request whose requested model does not accept the ingress operation rejects immediately with `400 openai_operation_not_supported`. Terminal Target connections that do not natively support the operation are skipped so later native attempts remain eligible; when no capability-compatible Terminal leaf exists anywhere in the authored graph, Prism returns `503 openai_no_compatible_terminal_target`; when compatible leaves exist but none is statically eligible (disabled row, inactive connection, strategy truncation), Prism returns `503 openai_no_eligible_terminal_target`. A statically eligible compatible route that is dynamically unavailable (Ban/retry/admission) keeps the ordinary `503` no-eligible-target response family. All three planning codes are emitted before provider transport, provider attempt, reservation, loadbalance event, usage/billing and audit body capture, and never leak Access Target, Connection or Endpoint IDs.
+Runtime planning evaluates the enabled mixed access-target rows once in authored `(position, id)` order and applies the attached Ban Policy strategy to that sequence before provider transport. If no eligible Terminal Target is available inside the current retry window, Prism returns a routing-availability error before opening an upstream request. If all otherwise eligible attempts are blocked by admission counters, Prism returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. OpenAI mode-incompatible attempts are rejected before provider transport; if no strictly compatible attempt remains Prism returns the typed native-compatibility error. These planning errors never leak Access Target, Connection or Endpoint IDs.
 
 Request-log detail keeps flat final-target attribution fields such as `resolved_target_model_id`, `terminal_target_id`, `selected_terminal_target_id`, `endpoint_id`, and `operation_translation_mode`. Deleted model-owned routing metadata is not exposed on public detail responses.
 
 #### 2.2B OpenAI native operation coverage
 
-OpenAI text routing is native-only. The requested model's `openai_accepted_format` and each Terminal Target connection's `openai_text_capability` use `responses_only`, `chat_completions_only`, or `dual_native`; a candidate is native-compatible when the two operation sets intersect. A requested-model format with no support for the ingress operation returns `400 openai_operation_not_supported` before target resolution. A candidate with no intersection is skipped so later native attempts remain eligible; the static analyzer classifies the final rejection as `503 openai_no_compatible_terminal_target` when no capability-compatible Terminal leaf exists, or `503 openai_no_eligible_terminal_target` when compatible leaves exist but none is statically eligible. Responses adjunct operations, `openai.responses.input_tokens` and `openai.responses.compact`, are part of the Responses operation set.
+OpenAI text routing is native-only and mode-strict. The requested model's `openai_accepted_format` and each Terminal Target connection's `openai_text_capability` use `responses_only`, `chat_completions_only`, or `dual_native`; a candidate is native-compatible only when the two authored modes are exactly equal. A requested-model format with no support for the ingress operation returns `400 openai_operation_not_supported` before target resolution. A mode-mismatched candidate is rejected and never selected; the static analyzer classifies the final rejection as `503 openai_no_compatible_terminal_target` when no strictly compatible Terminal leaf exists, or `503 openai_no_eligible_terminal_target` when compatible leaves exist but none is statically eligible. Responses adjunct operations, `openai.responses.input_tokens` and `openai.responses.compact`, are part of the Responses operation set.
 
 Prism does not convert requests, non-stream responses, or streams between Chat Completions and Responses. Native attempts use the ingress operation's upstream path and preserve `operation_translation_mode = "none"`. The `operation_translation_mode` columns and request-log fields remain readable for historical rows that recorded the retired translation values.
 
@@ -1457,21 +1489,21 @@ The following application-spec example assumes these OpenAI text capabilities an
 - `gpt-5.4`: `dual_native`
 - `deepseek-v4-flash`: `chat_completions_only`
 
-Native request behavior is determined by operation-set intersection; `FULL` means all accepted operations are covered, `PARTIAL` means only some are covered, and `NONE` means no accepted operation is covered:
+Native request behavior is determined by strict text-mode equality: `responses_only`, `chat_completions_only`, and `dual_native` connect only to the identical mode. The only valid matrix cells are the diagonal:
 
 | Model accepted format | Target capability | Coverage | Native operations |
 |---|---|---|---|
 | `responses_only` | `responses_only` | `FULL` | Responses and adjunct operations |
 | `responses_only` | `chat_completions_only` | `NONE` | No native operation |
-| `responses_only` | `dual_native` | `FULL` | Responses and adjunct operations |
+| `responses_only` | `dual_native` | `NONE` | No native operation |
 | `chat_completions_only` | `responses_only` | `NONE` | No native operation |
 | `chat_completions_only` | `chat_completions_only` | `FULL` | Chat Completions |
-| `chat_completions_only` | `dual_native` | `FULL` | Chat Completions |
-| `dual_native` | `responses_only` | `PARTIAL` | Responses and adjunct operations |
-| `dual_native` | `chat_completions_only` | `PARTIAL` | Chat Completions |
+| `chat_completions_only` | `dual_native` | `NONE` | No native operation |
+| `dual_native` | `responses_only` | `NONE` | No native operation |
+| `dual_native` | `chat_completions_only` | `NONE` | No native operation |
 | `dual_native` | `dual_native` | `FULL` | Chat Completions, Responses and adjunct operations |
 
-Valid Partial/None configurations are accepted by management writes and return non-persisted `configuration_warnings`; the first-party UI prevents selecting a `NONE` target and warns on `PARTIAL`. Unknown values, nullability violations and malformed payloads remain hard `4xx` errors. Prism never translates Chat Completions and Responses requests, response bodies, or streams; native attempts preserve `operation_translation_mode = "none"`.
+Cross-mode configurations are rejected by management writes with `422 target_openai_mode_mismatch`; mode changes that would break existing relations return `409`, and startup preflight fails fast on persisted violations. Unknown values, nullability violations and malformed payloads remain hard `4xx` errors. Prism never translates Chat Completions and Responses requests, response bodies, or streams; native attempts preserve `operation_translation_mode = "none"`.
 
 #### 2.2C Retired Exact OpenAI Facade Routing
 
@@ -1479,7 +1511,7 @@ Exact OpenAI facade routing and its model fields are retired. Runtime planning u
 
 #### 2.2D Retired Overflow Replay
 
-Model-scoped overflow replay and its authoring fields are retired. Runtime planning now uses the ordinary operation registry, access-target graph, native operation-set coverage, and the attached Ban Policy strategy. Public request-log and usage surfaces keep flat requested model, final target, Terminal Target, endpoint, and operation fields without nested retired routing metadata.
+Model-scoped overflow replay and its authoring fields are retired. Runtime planning now uses the ordinary operation registry, access-target graph, strict native mode equality, and the attached Ban Policy strategy. Public request-log and usage surfaces keep flat requested model, final target, Terminal Target, endpoint, and operation fields without nested retired routing metadata.
 
 #### 2.3 OpenAI Operations
 
@@ -3012,13 +3044,16 @@ profiles
 endpoints (profile-scoped)
   id PK
   profile_id FK -> profiles.id
-  name
-  base_url
-  api_key
-  position
+  name VARCHAR(128) (trimmed, 1..128 Unicode code points)
+  base_url VARCHAR(512) (canonical normalized)
+  api_key (at-rest encrypted secret; raw value never leaves write/verify boundaries)
+  api_key_fingerprint VARCHAR(18) NULLABLE (fp_v1_ + 12 hex; plaintext-derived)
+  api_key_updated_at TIMESTAMPTZ NULLABLE (real key-identity changes only)
+  config_revision BIGINT NOT NULL DEFAULT 1
   created_at, updated_at
   UNIQUE(profile_id, name)
-  INDEX(profile_id, position)
+  INDEX(profile_id, lower(name), name, id)
+  - display order is lower(name), name, id; no position column or index exists
 
 header_blocklist_rules
   id PK
@@ -3188,7 +3223,7 @@ Maps a model ID to fixed api family and routing behavior within one profile.
 Constraints:
 - `UNIQUE(profile_id, model_id)`.
 - OpenAI models require `openai_accepted_format` in `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI models must keep it `NULL`.
-- OpenAI relation coverage is operation-set based. Valid Partial/None capability relations may be persisted with non-persisted `configuration_warnings`; the first-party UI prevents selecting a zero-intersection target and warns on Partial. Invalid enum/nullability remains a hard management `422`; there is no exact-mode equality or startup preflight invariant.
+- OpenAI relations are strict mode-equality contracts: each model target and Terminal Target must use the identical supported mode. Cross-mode authoring returns `422 target_openai_mode_mismatch`, mode changes that break existing relations return `409`, and startup preflight fails fast on persisted violations.
 - Public model authoring uses ordered rows in `model_access_targets` to reach same-family model targets. Internal connection target rows own and route to Terminal Targets, Prism's product-facing model-private endpoint bindings.
 - Runtime compatibility is checked against `api_family`.
 - Exact facade routing, model-owned context capability, and overflow-promotion authoring fields are retired.
@@ -3214,10 +3249,10 @@ Constraints:
 - `UNIQUE(source_model_config_id, position)` is the deferrable `uq_model_access_targets_source_position` constraint.
 - `target_type` is `model` or `connection`, and each row references exactly one matching target model or target connection.
 - Source and target rows must stay in the same profile and same `api_family`.
-- Positions are normalized and validated as contiguous `0..N-1` across both target types in management contracts; creates append to the shared storage tail, delete compacts across types, enable/disable never moves a row, and `PATCH .../position` moves within that storage list. Runtime still filters the stored rows into separate Model Target and Terminal Target stages.
+- Positions are normalized and validated as contiguous `0..N-1` across both target types in management contracts; creates append to the shared storage tail, delete compacts across types, enable/disable never moves a row, and runtime evaluates the shared mixed order. Endpoint position/reorder is unrelated and is not a runtime priority.
 - Position is an ordering key only, not priority, tier, or weight. Duplicate positions reject before write.
 - Obsolete public payload keys `weight` and `target_priority` reject in management model APIs. The fresh schema has no columns for those values. `connections.priority` remains a legacy read-compatibility column and never participates in access-target ordering.
-- Runtime routing sorts enabled rows by flat `position` and stable IDs, then evaluates Model Target rows first and direct Terminal rows only as fallback. `single`, `fill-first`, and `round-robin` act independently within the entered stage; Model Target rows recurse through the child model's own strategy, and direct Terminal rows contribute their own attempt.
+- Runtime routing sorts enabled rows by flat `position` and stable IDs, then evaluates Model Target and Terminal Target rows as one mixed peer sequence. `single`, `fill-first`, and `round-robin` act once over that sequence; Model Target rows recurse through the child model's own strategy, and direct Terminal rows contribute their own attempt.
 - Go management validation rejects self-reference, cross-profile targets, cross-api-family targets, and cycles; these relationship semantics are not enforced by database triggers.
 
 #### 2.4 `loadbalance_strategies` (profile-scoped reusable routing behavior)
@@ -3261,16 +3296,18 @@ Reusable credential objects scoped to one profile.
 |---|---|---|---|
 | id | INTEGER | PK, sequence-backed | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
-| name | VARCHAR(200) | NOT NULL | Endpoint label |
-| base_url | VARCHAR(500) | NOT NULL | Upstream base URL |
+| name | VARCHAR(128) | NOT NULL | Trimmed Endpoint label (1–128 Unicode code points) |
+| base_url | VARCHAR(512) | NOT NULL | Canonical normalized upstream base URL |
 | api_key | VARCHAR(500) | NOT NULL | Prism-at-rest encrypted endpoint secret |
-| position | INTEGER | NOT NULL | Zero-based contiguous ordering index within profile |
+| api_key_fingerprint | VARCHAR(18) | NULLABLE | Instance-local plaintext-derived HMAC display fingerprint |
+| api_key_updated_at | TIMESTAMPTZ | NULLABLE | Time of a confirmed key-identity change; historical rows may be unknown |
+| config_revision | BIGINT | NOT NULL DEFAULT 1 | Revision of normalized base URL/key identity |
 | created_at | TIMESTAMPTZ | NOT NULL | Creation timestamp; application-managed |
 | updated_at | TIMESTAMPTZ | NOT NULL | Last update timestamp; application-managed |
 
 Constraints and indexes:
 - `UNIQUE(profile_id, name)`.
-- `INDEX(profile_id, position)` for ordered reads.
+- `INDEX(profile_id, lower(name), name, id)` for deterministic display order. Endpoint display order is not a routing priority.
 
 #### 2.6 `connections` (profile-scoped Terminal Target storage)
 
@@ -3936,7 +3973,7 @@ CREATE INDEX idx_model_configs_profile_model_enabled ON model_configs(profile_id
 CREATE INDEX idx_model_access_targets_profile_source_position ON model_access_targets(profile_id, source_model_config_id, "position");
 CREATE INDEX idx_model_access_targets_target_model ON model_access_targets(target_model_config_id) WHERE target_model_config_id IS NOT NULL;
 CREATE INDEX idx_model_access_targets_connection ON model_access_targets(target_connection_id) WHERE target_connection_id IS NOT NULL;
-CREATE INDEX idx_endpoints_profile_position ON endpoints(profile_id, "position");
+CREATE INDEX idx_endpoints_profile_name_lower ON endpoints(profile_id, lower(name), name, id);
 CREATE INDEX idx_connections_profile_family_active_priority ON connections(profile_id, api_family, is_active, priority);
 CREATE INDEX idx_connections_endpoint_id ON connections(endpoint_id);
 CREATE INDEX idx_connections_pricing_template_id ON connections(pricing_template_id);

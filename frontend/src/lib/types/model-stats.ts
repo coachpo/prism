@@ -5,7 +5,6 @@ import type {
 } from "./routing";
 import type { LoadbalanceStrategySummary } from "./loadbalance";
 import type { UsageSnapshotPreset } from "./usage-statistics";
-import type { RoutingSummary } from "./routing-diagnostics";
 import type {
   PersistedTerminalTargetType,
 } from "./target-compatibility";
@@ -37,7 +36,6 @@ export interface ModelAccessTargetModelSummary {
   loadbalance_strategy_id: number | null;
   is_enabled: boolean;
 }
-
 export interface ModelAccessTarget {
   id: number;
   target_type: ModelAccessTargetType;
@@ -110,7 +108,6 @@ export interface ModelConfigListItem {
   active_connection_count: number;
   health_success_rate: number | null;
   health_total_requests: number;
-  routing_summary: RoutingSummary | null;
   created_at: string;
   updated_at: string;
 }
@@ -678,17 +675,4 @@ export interface DashboardRecentActivityResponse {
 
 export interface DashboardRecentActivityParams {
   limit?: number;
-}
-
-export interface EndpointModelsBatchParams {
-  endpoint_ids: number[];
-}
-
-export interface EndpointModelsBatchItem {
-  endpoint_id: number;
-  models: ModelConfigListItem[];
-}
-
-export interface EndpointModelsBatchResponse {
-  items: EndpointModelsBatchItem[];
 }

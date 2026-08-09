@@ -20,7 +20,7 @@ func TestConnectionStandaloneMutationRejections(t *testing.T) {
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "Task 4 Public Connection Rejection Strategy")
 	ownerModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "task4-public-connection-owner", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Public Rejection Connection Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Public Rejection Connection Endpoint")
 	connectionID := modelInsertConnection(t, harness, defaultProfileID, ownerModelID, endpointID, 0, true, map[string]string{"x-test": "1"})
 	pricingTemplateID := insertContractPricingTemplate(t, harness, defaultProfileID, "Task 4 Public Connection Pricing")
 
@@ -50,7 +50,7 @@ func TestConnectionReadSurfacesHideOwnerlessConnections(t *testing.T) {
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "Task 4 Private Connection Read Strategy")
 	ownerModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "task4-private-read-owner", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Private Connection Read Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Private Connection Read Endpoint")
 	ownedConnectionID := modelInsertConnection(t, harness, defaultProfileID, ownerModelID, endpointID, 0, true, map[string]string{"x-owner": "1"})
 	ownerlessConnectionID := modelInsertStandaloneConnection(t, harness, defaultProfileID, "openai", endpointID, 1, true, map[string]string{"x-orphan": "1"})
 	ownerTargetID := modelLoadConnectionTargetID(t, harness, ownerModelID, ownedConnectionID)
@@ -105,8 +105,8 @@ func TestTargetRouteCRUD(t *testing.T) {
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S9 Target Route Strategy")
 	sourceModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-target-route-source", nil, "native", &strategyID, true)
 	targetModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-target-route-model", nil, "native", &strategyID, true)
-	endpointAID := modelInsertEndpoint(t, harness, defaultProfileID, "Target Route Endpoint A", 0)
-	endpointBID := modelInsertEndpoint(t, harness, defaultProfileID, "Target Route Endpoint B", 1)
+	endpointAID := modelInsertEndpoint(t, harness, defaultProfileID, "Target Route Endpoint A")
+	endpointBID := modelInsertEndpoint(t, harness, defaultProfileID, "Target Route Endpoint B")
 
 	createConnection := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", sourceModelID), map[string]any{"endpoint_id": endpointAID, "openai_text_capability": "dual_native", "is_active": true, "name": "Owner Route Connection"}, modelHeader(defaultProfileID))
 	assertStatus(t, createConnection, http.StatusCreated)
@@ -279,7 +279,7 @@ func TestTargetRouteConcurrentMutationsKeepMixedInvariant(t *testing.T) {
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S9 Concurrent Target Strategy")
 	sourceModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-concurrent-target-source", nil, "native", &strategyID, true)
 	targetModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-concurrent-target-model", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Concurrent Target Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Concurrent Target Endpoint")
 	connectionID := modelInsertConnection(t, harness, defaultProfileID, sourceModelID, endpointID, 0, true, nil)
 	modelInsertConnection(t, harness, defaultProfileID, sourceModelID, endpointID, 1, true, nil)
 	modelInsertModelTarget(t, harness, defaultProfileID, sourceModelID, targetModelID, 2, true)
@@ -378,7 +378,7 @@ func TestDeleteReferencedConnection(t *testing.T) {
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S9 Delete Referenced Connection Strategy")
 	modelConfigID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-delete-referenced-connection", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Delete Referenced Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Delete Referenced Endpoint")
 
 	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", modelConfigID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "dual_native", "is_active": true, "name": "Delete Referenced Private"}, modelHeader(defaultProfileID))
 	assertStatus(t, createResponse, http.StatusCreated)
@@ -421,7 +421,7 @@ func TestConnectionReferencesReportSingleOwner(t *testing.T) {
 	ownerID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "task5-reference-owner", nil, "native", &strategyID, true)
 	facadeID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "task5-reference-facade", nil, "native", &strategyID, true)
 	otherOwnerID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "task5-reference-other-owner", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, profileID, "Task 5 Reference Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, profileID, "Task 5 Reference Endpoint")
 	connectionID := modelInsertConnection(t, harness, profileID, ownerID, endpointID, 0, true, nil)
 	otherConnectionID := modelInsertConnection(t, harness, profileID, otherOwnerID, endpointID, 0, true, nil)
 	modelInsertModelTarget(t, harness, profileID, facadeID, ownerID, 0, true)
@@ -456,7 +456,7 @@ func TestTargetDeleteOwnedConnectionDeletesConnectionNoOrphan(t *testing.T) {
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "Task 4 Target Delete Strategy")
 	ownerModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "task4-target-delete-owner", nil, "native", &strategyID, true)
 	targetModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "task4-target-delete-model", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Task 4 Target Delete Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Task 4 Target Delete Endpoint")
 
 	createConnection := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "dual_native", "is_active": true, "name": "Target Delete Private"}, modelHeader(defaultProfileID))
 	assertStatus(t, createConnection, http.StatusCreated)
@@ -486,7 +486,7 @@ func TestModelAPIFamilyChangeRejectsPrivateConnections(t *testing.T) {
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "Task 4 Family Change Strategy")
 	modelConfigID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "task4-family-change-owner", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Task 4 Family Change Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Task 4 Family Change Endpoint")
 	createConnection := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", modelConfigID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "dual_native", "name": "Family Change Private"}, modelHeader(defaultProfileID))
 	assertStatus(t, createConnection, http.StatusCreated)
 
@@ -502,9 +502,9 @@ func TestModelScopedConnectionCreateCreatesOwnerTarget(t *testing.T) {
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S9 Model Scoped Create Strategy")
 	ownerModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-model-scoped-owner", nil, "native", &strategyID, true)
 	otherModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-model-scoped-other", nil, "native", &strategyID, true)
-	ownerEndpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Model Scoped Owner Endpoint", 0)
-	otherEndpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Model Scoped Other Endpoint", 1)
-	standaloneEndpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Model Scoped Standalone Endpoint", 2)
+	ownerEndpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Model Scoped Owner Endpoint")
+	otherEndpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Model Scoped Other Endpoint")
+	standaloneEndpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Model Scoped Standalone Endpoint")
 	standaloneConnectionID := modelInsertStandaloneConnection(t, harness, defaultProfileID, "openai", standaloneEndpointID, 0, true, nil)
 
 	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": ownerEndpointID, "openai_text_capability": "dual_native", "is_active": true, "name": "Owner Private Connection"}, modelHeader(defaultProfileID))
@@ -546,7 +546,7 @@ func TestModelScopedConnectionCreateRejectsConflictingAPIFamily(t *testing.T) {
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S9 Conflicting Family Strategy")
 	modelConfigID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-conflicting-family-model", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Conflicting Family Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Conflicting Family Endpoint")
 
 	response := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", modelConfigID), map[string]any{"api_family": "anthropic", "endpoint_id": endpointID, "name": "Conflicting Family Connection"}, modelHeader(defaultProfileID))
 	assertErrorResponse(t, response, http.StatusBadRequest, "api_family must match owner model api_family")
@@ -560,7 +560,7 @@ func TestModelScopedConnectionCreateRollsBackWhenOwnerTargetInsertFails(t *testi
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S9 Rollback Strategy")
 	modelConfigID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-rollback-target-model", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Rollback Target Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Rollback Target Endpoint")
 
 	if _, err := harness.conn.Exec(context.Background(), `CREATE OR REPLACE FUNCTION task3_fail_model_access_target_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'forced owner target insert failure'; END; $$`); err != nil {
 		t.Fatalf("install access target failure function: %v", err)
@@ -580,7 +580,7 @@ func TestLegacyModelConnectionAuxiliaryRoutesRejectWithOwnerGuidance(t *testing.
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S9 Legacy Route Strategy")
 	modelConfigID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-legacy-route-model", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Legacy Route Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Legacy Route Endpoint")
 	createConnection := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", modelConfigID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "dual_native", "name": "Legacy Route Private"}, modelHeader(defaultProfileID))
 	assertStatus(t, createConnection, http.StatusCreated)
 	var created map[string]any
@@ -610,8 +610,8 @@ func TestModelConnectionsBatch(t *testing.T) {
 	modelAID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-batch-a", nil, "native", &strategyID, true)
 	modelBID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-batch-b", nil, "native", &strategyID, true)
 	modelCID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s9-batch-c", nil, "native", &strategyID, true)
-	endpointAID := modelInsertEndpoint(t, harness, defaultProfileID, "Batch Endpoint A", 0)
-	endpointBID := modelInsertEndpoint(t, harness, defaultProfileID, "Batch Endpoint B", 1)
+	endpointAID := modelInsertEndpoint(t, harness, defaultProfileID, "Batch Endpoint A")
+	endpointBID := modelInsertEndpoint(t, harness, defaultProfileID, "Batch Endpoint B")
 	connectionBSlowID := modelInsertConnection(t, harness, defaultProfileID, modelBID, endpointAID, 2, true, map[string]string{"x-b": "1"})
 	connectionBFastID := modelInsertConnection(t, harness, defaultProfileID, modelBID, endpointBID, 0, false, nil)
 	connectionAID := modelInsertConnection(t, harness, defaultProfileID, modelAID, endpointAID, 1, true, nil)
@@ -784,11 +784,8 @@ func TestConnectionCapabilitySnapshotsExposeOpenAITextCapability(t *testing.T) {
 	harness := newEndpointConnectionContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "Connection Capability Snapshot Strategy")
-	ownerModelID := modelInsertModel(t, harness, defaultProfileID, "openai", "connection-capability-snapshot-owner", nil, &strategyID, true)
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET openai_accepted_format = 'chat_completions_only' WHERE id = $1`, ownerModelID); err != nil {
-		t.Fatalf("set owner OpenAI accepted format: %v", err)
-	}
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Connection Capability Snapshot Endpoint", 0)
+	ownerModelID := modelInsertOpenAIModelWithMode(t, harness, defaultProfileID, "connection-capability-snapshot-owner", "chat_completions_only", strategyID, true)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Connection Capability Snapshot Endpoint")
 
 	missingCapability := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "name": "Missing Capability Connection"}, modelHeader(defaultProfileID))
 	assertErrorResponse(t, missingCapability, http.StatusUnprocessableEntity, "openai_text_capability is required for OpenAI-family connections")
@@ -871,7 +868,7 @@ func TestConnectionProbeEndpointVariantIsRemovedFromWrites(t *testing.T) {
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "Connection Removed Probe Strategy")
 	ownerModelID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "connection-removed-probe-owner", nil, "native", &strategyID, true)
-	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Connection Removed Probe Endpoint", 0)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Connection Removed Probe Endpoint")
 
 	response := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/connections", ownerModelID), map[string]any{"endpoint_id": endpointID, "openai_text_capability": "dual_native", "openai_probe_endpoint_variant": "responses_minimal"}, modelHeader(defaultProfileID))
 	assertErrorResponse(t, response, http.StatusBadRequest, "Invalid request body")

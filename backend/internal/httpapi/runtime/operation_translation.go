@@ -32,9 +32,12 @@ func resolveTranslationMode(operation RuntimeOperation, openAIAcceptedFormat *st
 	if openAIAcceptedFormat == nil || openAITextCapability == nil {
 		return TranslationModeNone, false
 	}
-	// Native compatibility is directional at operation level. A dual-native
-	// model may use a single-operation target for the operation both sides
-	// support; Chat Completions and Responses are never translated.
+	// Management authoring requires strict text-mode equality. Keep the runtime
+	// guard equally strict so corrupted or legacy rows cannot reintroduce
+	// partial coverage by selecting a single-operation target for a dual model.
+	if !providerauth.OpenAITextModesEqual(*openAIAcceptedFormat, *openAITextCapability) {
+		return TranslationModeNone, false
+	}
 	accepted := providerauth.OpenAITextCapabilitySupportsNativeOperation(*openAIAcceptedFormat, operation.Name)
 	supported := providerauth.OpenAITextCapabilitySupportsNativeOperation(*openAITextCapability, operation.Name)
 	return TranslationModeNone, accepted && supported

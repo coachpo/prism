@@ -256,7 +256,9 @@ func TestBuildRequestPlanFromSnapshotModelPeersExcludeIneligibleTargets(t *testi
 	}
 }
 
-func TestBuildRequestPlanFromSnapshotModelStageFallsBackToTerminalWhenNoPeerSurvives(t *testing.T) {
+func TestBuildRequestPlanFromSnapshotZeroLeafModelPeerKeepsFollowingTerminalPeerInMixedOrder(t *testing.T) {
+	// Model and Terminal Targets are one authored peer sequence. The terminal
+	// peer at position 0 is selected before a zero-leaf model peer at position 1.
 	service := newEnforcedRequestPlanUnitService()
 	snapshot := newRequestPlanSnapshot(
 		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai"},
@@ -269,36 +271,55 @@ func TestBuildRequestPlanFromSnapshotModelStageFallsBackToTerminalWhenNoPeerSurv
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
 	plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 	if err != nil {
-		t.Fatalf("build terminal fallback request plan: %v", err)
+		t.Fatalf("build mixed-order request plan: %v", err)
 	}
 	if len(plan.TerminalAttempts) != 1 {
-		t.Fatalf("expected only terminal fallback attempt, got %+v", plan.TerminalAttempts)
+		t.Fatalf("expected only position-0 terminal peer attempt, got %+v", plan.TerminalAttempts)
 	}
 	if got := plan.TerminalAttempts[0].TargetModel.ModelID; got != "router-openai" {
-		t.Fatalf("expected terminal fallback to keep router model, got %q", got)
+		t.Fatalf("expected terminal peer to keep router model, got %q", got)
 	}
 	if got := plan.TerminalAttempts[0].Connection.ID; got != 1_001 {
 		t.Fatalf("expected router terminal connection 1001, got %d", got)
 	}
+
+	// Reverse authored order: the zero-leaf model is position 0 and the
+	// terminal peer is position 1. The next mixed peer is still considered.
+	reverse := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai"},
+		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "empty-peer-openai"},
+	)
+	reverse.AccessTargetsBySourceModelID[1] = nil
+	reverse.AccessTargetsBySourceModelID[2] = nil
+	addRequestPlanConnectionTarget(reverse, reverse.ModelsByID["router-openai"], 1_001, 9_001, 1)
+	addRequestPlanModelTargetWithMetadata(reverse, "router-openai", "empty-peer-openai", 0)
+
+	plan, err = service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, reverse)
+	if err != nil {
+		t.Fatalf("build reversed mixed-order request plan: %v", err)
+	}
+	if len(plan.TerminalAttempts) != 1 || plan.TerminalAttempts[0].Connection.ID != 1_001 {
+		t.Fatalf("expected reversed order to resolve terminal peer, got %+v", plan.TerminalAttempts)
+	}
 }
 
-func TestBuildRequestPlanFromSnapshotUsesModelStageBeforeTerminalStage(t *testing.T) {
+func TestBuildRequestPlanFromSnapshotUsesAuthoredMixedOrder(t *testing.T) {
 	service := newEnforcedRequestPlanUnitService()
 	snapshot := newRequestPlanSnapshot(
 		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai"},
 		runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "child-openai"},
 	)
 	snapshot.AccessTargetsBySourceModelID[1] = nil
-	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "child-openai", 2)
-	addRequestPlanConnectionTarget(snapshot, snapshot.ModelsByID["router-openai"], 2_001, 9_001, 0)
+	addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "child-openai", 0)
+	addRequestPlanConnectionTarget(snapshot, snapshot.ModelsByID["router-openai"], 2_001, 9_001, 1)
 
 	plan := mustBuildRequestPlanForTest(t, service, snapshot, "/v1/chat/completions", []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{})
-	if len(plan.TerminalAttempts) != 1 || plan.TerminalAttempts[0].Connection.ID != 1_002 {
-		t.Fatalf("expected model stage child connection before direct terminal fallback, got %+v", plan.TerminalAttempts)
+	if len(plan.TerminalAttempts) != 2 || plan.TerminalAttempts[0].Connection.ID != 1_002 || plan.TerminalAttempts[1].Connection.ID != 2_001 {
+		t.Fatalf("expected authored mixed order child then terminal, got %+v", plan.TerminalAttempts)
 	}
 }
 
-func TestBuildRequestPlanFromSnapshotSingleFallsBackAfterDeadModelStage(t *testing.T) {
+func TestBuildRequestPlanFromSnapshotSingleUsesFirstAuthoredMixedPeer(t *testing.T) {
 	service := newEnforcedRequestPlanUnitService()
 	snapshot := newRequestPlanSnapshot(
 		runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai"},
@@ -311,8 +332,8 @@ func TestBuildRequestPlanFromSnapshotSingleFallsBackAfterDeadModelStage(t *testi
 	strategyType := "single"
 	snapshot.StrategiesByModelID[1] = loadbalance.RuntimeStrategy{ID: requestPlanTestStrategyID, Name: "single", LegacyStrategyType: &strategyType}
 
-	plan := mustBuildRequestPlanForTest(t, service, snapshot, "/v1/chat/completions", []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{})
-	if len(plan.TerminalAttempts) != 1 || plan.TerminalAttempts[0].Connection.ID != 2_001 {
-		t.Fatalf("expected single to use terminal fallback after the model stage had no candidate, got %+v", plan.TerminalAttempts)
+	_, err := service.buildRequestPlanFromSnapshot(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil), []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions"), requestPlanTestProfileID, snapshot)
+	if err == nil {
+		t.Fatal("expected single to keep the first zero-leaf mixed peer and fail closed")
 	}
 }

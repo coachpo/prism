@@ -27,18 +27,18 @@ Single operator (developer/power user) running the application locally or on a l
 
 ### 4.2 Model Configuration
 - Map each model to a fixed runtime `api_family`
-- OpenAI models carry an `openai_accepted_format` of `responses_only`, `chat_completions_only`, or `dual_native`; Terminal Target coverage is directional by native operation and Partial/None configurations are surfaced before runtime use
+- OpenAI models carry an `openai_accepted_format` of `responses_only`, `chat_completions_only`, or `dual_native`; strict mode equality requires every access target (model or Terminal Target) to use the identical mode
 - Models expose one ordered `access_targets` list whose public entries point to same-family models
 - Terminal Targets carry endpoint, costing, admission-limit, and auth metadata as model-private endpoint bindings owned by one model
 - Select which access targets are enabled for each model; enabled models require at least one enabled target
 - CRUD operations for all configurations are available via REST API
 - Composite create (`initial_terminal_target`) creates a model, an optional inline endpoint, the first Terminal Target and its owner edge in one atomic transaction: the normal path produces a working enabled model in a single submit, any failure rolls back completely, and "configure later" creates a disabled model without a target
-- New Terminal Target capability defaults follow the owner model accepted format; `None` coverage is not selectable in first-party UI, `Partial` coverage saves with a visible warning, and the create dialog shows capability coverage previews next to the picker
+- Terminal Target capability is locked to the owner model's OpenAI mode; cross-mode authoring returns a structured `422` and persisted violations fail startup preflight
 
 ### 4.3 Unified Model Access Routing
-- Ordered same-family model targets are evaluated as an aggregate; direct Terminal Targets are the fallback when no model-target candidate is eligible
-- The UI presents the two stages explicitly: "模型目标（先尝试）" and "终端目标（无模型候选时回落）", each with stage-local numbering; `single` truncation is shown per stage and per truncated row, and never mislabeled across stages
-- Routing diagnostics (per-operation capability coverage, static eligibility, resolved stage) come from a backend static analyzer; the frontend never re-derives coverage or eligibility, and operation coverage warnings (`完整覆盖 / 部分覆盖 / 不兼容`) are authoritative
+- Model Target rows and Terminal Target rows are type-neutral peers in one authored mixed order; `single`, `fill-first`, and `round-robin` run once over the enabled rows and use `model_access_targets.position`
+- The UI presents one ordered access-target list with shared numbering; no target type receives a hidden priority tier or fallback stage
+- Incompatible OpenAI attempts are skipped in authored order; if no compatible attempt remains Prism returns the typed native-compatibility error before provider transport
 - Model-target entries must stay within the same `api_family`, cannot target themselves, and cannot introduce cycles
 - A Model Target row is an atomic parent peer: entering it recursively resolves the child model with the child's own strategy, and the child's attempts stay one contiguous block in the parent result
 - Each model owns its reusable load-balance strategy, so nested model targets evaluate strategy and Ban Policy at their own graph level
@@ -52,7 +52,7 @@ Single operator (developer/power user) running the application locally or on a l
 - For models with multiple reachable Terminal Targets:
   - **Automatic failover** when an attempt returns a failover-triggering status (`403`, `422`, `429`, `500`, `502`, `503`, `504`, `529` by default) or raises connection/timeout errors
   - Models attach one reusable explicit Ban Policy strategy using `single`, `fill-first`, or `round-robin` routing
-  - The three strategies apply independently within each routing stage: `single` takes the first enabled peer in the Model Target stage and, only if that stage has no eligible candidate, the first enabled peer in the Terminal Target stage; `fill-first` walks each stage's authored order; and `round-robin` rotates the direct peers in the entered stage while each child model keeps its own cursor
+  - The three strategies act once on the same enabled mixed access-target rows: `single` keeps the first row, `fill-first` walks authored order, and `round-robin` rotates direct rows while each child model keeps its own cursor
   - Upstream request timing uses shared backend timeout settings, while Ban Policy owns retry windows, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, `temporary` or `until_reset` bans, and failover status codes
   - Ban Policy thresholds are inclusive: retry-cycle exhaustion uses `cycle_retry_attempts >= cycle_retry_attempt_limit`, and bans use `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`
 - Failover-worthy HTTP responses are governed by the attached strategy's configured failure status codes and retry-window settings
@@ -70,7 +70,11 @@ Single operator (developer/power user) running the application locally or on a l
 - **Models** carry fixed `api_family` metadata.
 - **Terminal Targets** are profile-scoped model routing, costing, and health configurations that reference endpoints in the same profile.
 - Endpoints can be reused across multiple models within the same profile.
-- Deleting an endpoint is blocked with a typed `409 endpoint_in_use` that lists the same direct Terminal Target references shown in the Endpoint page disclosure (`模型 → Terminal Target → capability → 价格模板 → 启停/激活状态`); recursive reachable models are labeled separately and never block deletion
+- **Direct references** are the single source of truth for endpoint filtering, counting and deletion: `direct_reference_count` counts every `connections` row whose `endpoint_id` equals the endpoint, regardless of model/access-target/connection enable state or orphan status. Disabled and orphan connections still block deletion. `enabled_reference_count` additionally requires the owner model, owner access target and connection to all be enabled with no configuration-integrity error; it is not a health or policy-hit signal. Unknown/loading/stale reference state is never shown as zero and never enables destructive actions (fail closed).
+- Endpoint list order is display-only (`lower(name)`, `name`, `id`) and never affects runtime routing; the authoritative target order remains `model_access_targets.position`.
+- API key identity is exposed as an instance-local display fingerprint (`fp_v1_` + 12 hex, plaintext-derived HMAC) plus an independent `api_key_updated_at`; raw keys and ciphertext hashes never appear in any response, error, log, audit row, URL or evidence. Same-key resubmission preserves identity/time/revision; a real rotation changes fingerprint, key time and `config_revision`.
+- One-time family-aware verification (`OpenAI/Anthropic/Gemini`) runs an explicit, read-only, non-persisted metadata probe bound to the committed `config_revision`; results are never stored as health state and never enter telemetry.
+- Deleting an endpoint is blocked with a typed `409 endpoint_in_use` (summary + bounded first blocker page + snapshot cursor) if any Terminal Targets in that profile still reference it; zero-reference preflight plus a lock-time recheck keeps the delete authoritative. Ownerless orphan connections can be cleaned individually through a separate destructive confirmation.
 - Endpoint cards support "附加到模型": pick a destination model and create a new private Terminal Target with the endpoint preselected and locked
 - A Terminal Target can be copied to multiple same-family destination models in one transactional batch; copies are independent private connections, default to not participating in routing, and never carry runtime state or secrets
 - Terminal Targets can also carry per-target custom HTTP headers and, when the capability is present, a validated static JSON request-parameter overlay; cards and diagnostics show counts only and never values.
@@ -86,12 +90,13 @@ Single operator (developer/power user) running the application locally or on a l
 - View all configured models and their reachable Terminal Targets
 - Add/edit/delete model configurations with ordered access targets
 - Add/edit/delete profile-scoped endpoints
-- Model detail renders two explicit access-target stages: Model Targets are shown first with stage-local numbering, and Terminal Targets are shown as the fallback stage with independent stage-local numbering; controls never imply a cross-stage runtime order
+- Model detail renders one mixed access-target list ordered by shared `position`; Model and Terminal rows share continuous numbering and controls reflect the real runtime order
+- Endpoints page renders a compact responsive table (desktop columns: name, base URL, API key identity, direct references, updated time, actions; narrow viewports use description-list row cards) with expandable direct-reference disclosures, reference-derived filters (`全部 / 有直接引用 / 无直接引用 / 仅非活动引用`), view-only sorting, API-key fingerprint and key-time identity, one-time family-aware verify, blocked-delete preflight with typed `409` race handling, orphan cleanup, and attach-to-model navigation that reuses the model-detail Terminal Target create flow with the Endpoint preselected and locked
 - Add/edit/delete Terminal Targets from model detail; the Terminal Target dialog includes an “高级请求设置” group with request limits, custom headers, and the custom request parameters JSON editor
 - Toggle enabled/disabled access targets per model
 - Select an explicit load-balance strategy with Ban Policy settings per model
-- Dedicated model-detail route (`/models/:id`) for two-stage access-target and Terminal Target configuration, operation coverage summary and runtime state; dead `?tab=` state is normalized away, `action=create-terminal-target` (with optional `endpoint_id`) and `focus_connection_id` are one-shot URL parameters consumed exactly once; current loadbalance state and loadbalance event history live under Ban Policies
-- Model list and detail share the `N 启用 / M 总计` target count vocabulary; the API column shows family plus OpenAI accepted format; Partial/None/uncovered and `single` truncation warnings appear on list rows
+- Dedicated model-detail route (`/models/:id`) for one mixed access-target and Terminal Target configuration list plus runtime state; dead `?tab=` state is normalized away, `action=create-terminal-target` (with optional `endpoint_id`) and `focus_connection_id` are one-shot URL parameters consumed exactly once; current loadbalance state and loadbalance event history live under Ban Policies
+- Model list and detail share the `N 启用 / M 总计` target count vocabulary; the API column shows family plus OpenAI accepted format; strict mode mismatches are surfaced as blocking authoring errors
 - Dedicated request-log browsing and investigation at `/observe/requests`, separate from dashboard analytics
 - Dedicated routes for pricing templates and proxy API key lifecycle management
 - Dashboard analytics lives under `/observe?tab=analytics` and replaces the old standalone statistics route
@@ -585,7 +590,7 @@ Validated again against current repo surfaces on 2026-07-10:
 
 1. Operators list, search, create, edit, and delete model configs.
 2. Model create and edit dialogs manage model metadata, OpenAI accepted format, loadbalance strategy, and enabled state.
-3. Model detail owns access-target authoring as two explicit stages: same-family Model Targets are edited in the first stage, Terminal Targets in the fallback stage, and each stage's order maps to the existing two-stage runtime semantics; Terminal Target management covers the model's private endpoint bindings.
+3. Model detail owns one mixed access-target list: same-family Model Targets and private Terminal Targets share the stored `position` order and the runtime strategy; Terminal Target management covers the model's private endpoint bindings.
 4. The Terminal Target dialog's “高级请求设置” group lets operators configure request limits, custom request headers, and the optional custom request parameters JSON overlay (format/clear actions, top-level count summary, field-level validation, and server 422 mapping back to the editor).
 5. Request logs preserve the requested model while final-target fields show the terminal model reached through the access graph.
 
@@ -596,7 +601,6 @@ Validated again against current repo surfaces on 2026-07-10:
 - `GET /api/models/{model_config_id}`
 - `PUT /api/models/{model_config_id}`
 - `DELETE /api/models/{model_config_id}`
-- `POST /api/models/by-endpoints`
 - `GET /api/models/{model_config_id}/targets`
 - `POST /api/models/{model_config_id}/targets`
 - `PATCH /api/models/{model_config_id}/targets/{target_id}`
@@ -607,7 +611,7 @@ Validated again against current repo surfaces on 2026-07-10:
 - `PATCH /api/models/{model_config_id}/connections/{connection_id}`
 - `DELETE /api/models/{model_config_id}/connections/{connection_id}`
 
-`POST /api/models/by-endpoints` is used by the Endpoints page to hydrate model references. `GET /api/models/by-endpoint/{endpoint_id}` and `POST /api/models/connections/batch` remain backend/API-client surfaces without a current production frontend caller.
+`POST /api/models/by-endpoints` retains its backend semantics for other API consumers but the Endpoints page no longer calls it: endpoint reference hydration uses `POST /api/endpoints/references/batch` and `GET /api/endpoints/{id}/references`. `GET /api/models/by-endpoint/{endpoint_id}` and `POST /api/models/connections/batch` remain backend/API-client surfaces without a current production frontend caller.
 
 ### 5. Endpoints, Loadbalance Strategies, And Pricing Templates
 
@@ -619,8 +623,10 @@ Validated again against current repo surfaces on 2026-07-10:
 
 **Frontend flow**
 
-1. Endpoints define reusable upstream credentials and base URLs that Terminal Targets can share.
-2. The Ban Policies page exposes only `Strategies`, `Current State`, and `Events`; it does not render incidents. The dashboard consumes `/api/loadbalance/incidents` for its incident banner and recent-event alerts.
+1. Endpoints define reusable upstream credentials and base URLs that Terminal Targets can share. The Endpoints page renders a compact table (name, base URL, API key identity, direct references, updated time, actions) that collapses to description-list row cards on narrow viewports; list order is display-only and view-sortable by name/updated time/direct-reference count, never persisted.
+2. Direct references are the deletion/filter truth: expandable disclosures lazy-load bounded pages of owned/orphan references along an opaque snapshot cursor, reference-derived filters (`全部 / 有直接引用 / 无直接引用 / 仅非活动引用`) and count sorting are disabled whenever any summary is unknown/stale, and delete always runs a fresh preflight with a lock-time recheck (`409 endpoint_in_use` keeps the dialog on the latest blocker page). Orphan connections have a separate destructive cleanup.
+3. API key identity shows the server-confirmed fingerprint and key time; rotation (different key identity) changes fingerprint/time/revision, same-key resubmission preserves them, and blank keys keep the stored value. Create/edit supports save-only and save-and-verify (two ordered phases, dual result inline, family chosen per action, never persisted).
+4. The Ban Policies page exposes only `Strategies`, `Current State`, and `Events`; it does not render incidents. The dashboard consumes `/api/loadbalance/incidents` for its incident banner and recent-event alerts.
 3. Pricing templates define reusable cost models attached to Terminal Targets with five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`.
 4. Pricing-template management saves explicit strings for every component. Missing/null/blank inputs normalize to `"0"`; explicit `"0"` is configured free pricing, not missing pricing data.
 5. Pricing supports JSON file or pasted-text import with `upsert_by_name` or `create_only`, a connection-usage lookup, and delete protection when Terminal Targets still depend on a template.
@@ -634,8 +640,11 @@ Validated again against current repo surfaces on 2026-07-10:
 - `POST /api/endpoints`
 - `PUT /api/endpoints/{endpoint_id}`
 - `DELETE /api/endpoints/{endpoint_id}`
-- `PATCH /api/endpoints/{endpoint_id}/position`
 - `POST /api/endpoints/{endpoint_id}/duplicate`
+- `POST /api/endpoints/references/batch`
+- `GET /api/endpoints/{endpoint_id}/references`
+- `POST /api/endpoints/{endpoint_id}/verify`
+- `DELETE /api/endpoints/{endpoint_id}/orphan-connections/{connection_id}`
 - `GET /api/loadbalance/strategies`
 - `POST /api/loadbalance/strategies/defaults`
 - `POST /api/loadbalance/strategies`
@@ -702,7 +711,7 @@ For the page-specific query contract and UI behavior, see section 8 (Requests Pa
 
 Mail bootstrap fields remain parse-compatible for existing `config.json` files, but Prism no longer sends mail. Fresh bootstrap seeds use backend `8000`, frontend `5173`, and PostgreSQL `15432`, but `./start.sh` follows the existing bootstrap file's configured `server.port` when one already exists. `runtime.transport.requestTimeout` is seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout` is seeded as `"10s"`. Direct external `config.json` edits are not watched automatically, and existing valid files are not rewritten by the launcher. To reset startup defaults, stop Prism, remove or relocate the bootstrap file, and restart.
 
-OpenAI text routing is native-only and operation-set based. Operators set runtime support on each Terminal Target through `openai_text_capability`, using `responses_only`, `chat_completions_only`, or `dual_native`; a target can cover all, some, or none of the owner's accepted operations. The management UI previews `完整覆盖 / 部分覆盖 / 不兼容`, disables zero-intersection choices in the first-party picker, and lets valid Partial configurations save with a structured warning. Mode-incompatible Chat Completions/Responses attempts are skipped rather than translated; invalid enum/nullability remains a hard `422`, while valid capability differences are diagnosed without exact-mode authoring rejection.
+OpenAI text routing is native-only and mode-strict. Operators set runtime support on each Terminal Target through `openai_text_capability`, using `responses_only`, `chat_completions_only`, or `dual_native`; each relation must use the identical mode (3×3 equality matrix, diagonal only). Management writes reject cross-mode relations with `422 target_openai_mode_mismatch`, mode changes that would break existing relations return `409`, and startup preflight fails fast on persisted violations. Mode-incompatible attempts are skipped rather than translated; valid native attempts use `operation_translation_mode = "none"`.
 
 **Backend touchpoints**
 
@@ -749,7 +758,7 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 
 1. Global CORS runs first. The runtime branch then applies HTTP proxy admission, runtime proxy-key authentication, and the exact operation registry in that order. Once inside the registry, unsupported routes and wrong methods reject before body reads, provider transport, telemetry, audit, feedback, or runtime side effects.
 2. Provider adapters parse provider-specific payloads, build upstream requests, adapt responses, classify streams, extract usage, and own pure OpenAI Chat/Responses conversion.
-3. Planning evaluates the Model Target stage first and enters the Terminal Target stage only when the model stage has no eligible candidate for the operation. Each stage applies the attached strategy independently: `single` considers only that stage's first enabled peer, `fill-first` walks that stage's order, and `round-robin` rotates direct peers in the entered stage. A Model Target row resolves recursively through the child model's own strategy and contributes one contiguous block; candidate-local misses (zero-leaf child or operation incompatibility) permit the next stage, while cycle/depth and missing-strategy errors fail closed.
+3. Planning evaluates the enabled mixed access-target rows once in authored `position` order. `single` considers only the first row, `fill-first` walks the mixed order, and `round-robin` rotates direct rows. A Model Target row resolves recursively through the child model's own strategy and contributes one contiguous block; candidate-local misses permit the next mixed peer, while cycle/depth and missing-strategy errors fail closed.
 4. Connection planning applies the attached explicit Ban Policy strategy and per-connection limits.
 5. When any planned candidate carries custom request parameters, Prism buffers and validates the ingress body as a JSON object, applies the per-Connection top-level shallow overlay after provider-native model/path rewrite, and materializes an immutable merged body per attempt (failover/hedge candidates never share mutable body storage). Gemini path-streaming switches from the request-body streaming fast path to the buffered path in this case.
 6. The shared runtime/gateway owns operation registration, admission, routing, SSE lifecycle, accounting, pricing, request-log metadata, and durable handoff. Telemetry/audit rows are materialized by background workers from the runtime outbox; non-accepted side effects use their own in-memory or worker queues.

@@ -21,7 +21,7 @@ const connection: Connection = {
   profile_id: 7,
   api_family: "openai",
   endpoint_id: 1,
-  endpoint: { id: 1, profile_id: 7, name: "Primary Upstream", base_url: "https://api.example.invalid/v1", has_api_key: true, masked_api_key: null, position: 0, created_at: "", updated_at: "" },
+  endpoint: { id: 1, profile_id: 7, name: "Primary Upstream", base_url: "https://api.example.invalid/v1", has_api_key: true, api_key_fingerprint: "fp_v1_0123456789ab", api_key_updated_at: "", config_revision: 1, created_at: "", updated_at: "" },
   is_active: true,
   priority: 0,
   name: "Primary",

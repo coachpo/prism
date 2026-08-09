@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildEndpointCreatePayload, buildEndpointUpdatePayload, canReorderEndpoints, hasEndpointReviewFilters } from "@/features/endpoints/endpointSchemas"
+import { buildEndpointCreatePayload, buildEndpointUpdatePayload, canonicalBaseURLPreview, hasEndpointReviewFilters } from "@/features/endpoints/endpointSchemas"
 import { buildPricingTemplateCreatePayload, buildPricingTemplateUpdatePayload, isPricingTemplateDeleteBlocked, pricingTemplateFormSchema } from "@/features/pricing/pricingSchemas"
 import type { PricingTemplate } from "@/lib/types"
 
@@ -33,10 +33,16 @@ describe("Task 10 endpoint feature contracts", () => {
     })
   })
 
-  it("disables reorder while endpoint search or review filters are active", () => {
+  it("normalizes the base URL preview without mutating keystrokes", () => {
+    expect(canonicalBaseURLPreview(" https://api.openai.test/v1/ ")).toBe("https://api.openai.test/v1")
+    expect(canonicalBaseURLPreview("https://api.openai.test/")).toBe("https://api.openai.test")
+    expect(canonicalBaseURLPreview("https://")).toBe("https://")
+  })
+
+  it("tracks active review filters for reference-derived filtering", () => {
     expect(hasEndpointReviewFilters({ searchQuery: "openai", reviewFilter: "all" })).toBe(true)
-    expect(canReorderEndpoints({ endpointCount: 3, filtersActive: true })).toBe(false)
-    expect(canReorderEndpoints({ endpointCount: 3, filtersActive: false })).toBe(true)
+    expect(hasEndpointReviewFilters({ searchQuery: "", reviewFilter: "referenced" })).toBe(true)
+    expect(hasEndpointReviewFilters({ searchQuery: "", reviewFilter: "all" })).toBe(false)
   })
 })
 

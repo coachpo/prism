@@ -1,104 +1,376 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
-import { api } from "@/lib/api"
 import { getStaticMessages } from "@/i18n/staticMessages"
 import { useTimezone } from "@/hooks/useTimezone"
-import type { Endpoint } from "@/lib/types"
-import type { EndpointReferenceView } from "@/pages/endpoints/EndpointCard"
-import type { OpenAITextCapability } from "@/lib/types"
+import { api } from "@/lib/api"
+import { extractEndpointFieldErrors, innerDetail, isEndpointConfigChangedError, isEndpointInUseError, isReferenceIntegrityError } from "@/lib/api/endpointErrors"
+import { ApiError } from "@/lib/api/core"
+import type { Endpoint, EndpointReferenceDetail, EndpointReferenceItem, EndpointReferencePage, EndpointReferenceSummary, EndpointVerifyResult } from "@/lib/types"
+import { getSharedEndpoints, setSharedEndpoints } from "@/lib/referenceData"
 import { extractServerValidation } from "@/shared/forms/serverValidation"
-import { buildEndpointCreatePayload, buildEndpointUpdatePayload, hasEndpointReviewFilters, type EndpointFormValues } from "./endpointSchemas"
-import { useEndpointBootstrapData } from "@/pages/endpoints/useEndpointBootstrapData"
-import { useEndpointReorder } from "@/pages/endpoints/useEndpointReorder"
+import { buildEndpointCreatePayload, buildEndpointUpdatePayload, type EndpointFormValues } from "./endpointSchemas"
+import { useEndpointReferences, type EndpointReferenceSummaryState } from "./useEndpointReferences"
+import type { OrphanCleanupEndpoint } from "@/pages/endpoints/OrphanCleanupDialog"
 
-export type ReviewFilter = "all" | "in-use" | "unused"
+export type ReviewFilter = "all" | "referenced" | "unreferenced" | "inactive_only"
+
+export type EndpointSortKey = "name" | "updated_at" | "direct_reference_count"
+
+export type DeleteDialogState =
+  | { phase: "closed" }
+  | { phase: "checking"; endpoint: Endpoint; generation: number }
+  | { phase: "eligible"; endpoint: Endpoint; summary: EndpointReferenceSummary; generation: number }
+  | { phase: "blocked"; endpoint: Endpoint; detail: EndpointReferenceDetail; generation: number }
+  | { phase: "check_error"; endpoint: Endpoint; error: ApiError; generation: number }
+  | { phase: "integrity_error"; endpoint: Endpoint; error: ApiError; generation: number }
+  | { phase: "deleting"; endpoint: Endpoint; generation: number }
+
+export type VerifyDraftState =
+  | { phase: "idle" }
+  | { phase: "saving"; family?: string }
+  | { phase: "saved"; family?: string }
+  | { phase: "verifying"; family: string; revision: number }
+  | { phase: "saved_and_verified"; family: string; result: EndpointVerifyResult }
+  | { phase: "saved_and_verification_failed"; family: string; result: EndpointVerifyResult }
+  | { phase: "saved_and_stale_result"; family: string; result: EndpointVerifyResult }
+
+export type EndpointVerificationAttempt = {
+  result: EndpointVerifyResult | null
+  errorMessage?: string
+  currentEndpoint?: Endpoint
+}
+
+function referenceSummaryForState(summary: EndpointReferenceSummaryState | undefined): EndpointReferenceSummary | null {
+  if (!summary) return null
+  if (summary.status === "ready" || summary.status === "stale") return summary.value
+  return null
+}
 
 export function useEndpointsFeatureData() {
-  const [isDeletingEndpoint, setIsDeletingEndpoint] = useState(false)
+  const [endpoints, setEndpoints] = useState<Endpoint[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [endpointLoadError, setEndpointLoadError] = useState(false)
+  const [endpointLoadAttempt, setEndpointLoadAttempt] = useState(0)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [editingEndpoint, setEditingEndpointState] = useState<Endpoint | null>(null)
   const [endpointDialogError, setEndpointDialogError] = useState<string | null>(null)
+  const [endpointFieldErrors, setEndpointFieldErrors] = useState<Record<string, string> | null>(null)
   const [duplicatingEndpointId, setDuplicatingEndpointId] = useState<number | null>(null)
-  const [deleteTarget, setDeleteTargetState] = useState<Endpoint | null>(null)
-  const [deleteDialogTarget, setDeleteDialogTarget] = useState<Endpoint | null>(null)
+  const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>({ phase: "closed" })
+  const [orphanCleanupTarget, setOrphanCleanupTarget] = useState<{ endpoint: OrphanCleanupEndpoint; item: EndpointReferenceItem } | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all")
-  const [directReferencesByEndpoint, setDirectReferencesByEndpoint] = useState<Record<number, EndpointReferenceView[]>>({})
-  const [attachTarget, setAttachTarget] = useState<Endpoint | null>(null)
-  const revision = 0
+  const [sortKey, setSortKey] = useState<EndpointSortKey>("name")
+  const [sortDescending, setSortDescending] = useState(false)
+  const [attachModelTarget, setAttachModelTarget] = useState<Endpoint | null>(null)
   const { format: formatTime } = useTimezone()
-  const { commitEndpoints, endpointModels, endpoints, isLoading, setEndpoints } = useEndpointBootstrapData(revision)
+
+  const revision = 0
+
+  const references = useEndpointReferences(endpoints.map((endpoint) => endpoint.id))
+
+  // Initial load from the shared Endpoint cache owner.
+  useEffect(() => {
+    let cancelled = false
+    setIsLoading(true)
+    setEndpointLoadError(false)
+    void (async () => {
+      try {
+        const loaded = await getSharedEndpoints(revision, true)
+        if (cancelled) return
+        setEndpoints(loaded)
+      } catch {
+        if (!cancelled) {
+          setEndpointLoadError(true)
+          toast.error(getStaticMessages().endpointsData.loadFailed)
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [endpointLoadAttempt, revision])
+
+  const retryEndpointLoad = useCallback(() => {
+    setEndpointLoadAttempt((current) => current + 1)
+  }, [])
+
+  const commitEndpoints = useCallback((updater: (current: Endpoint[]) => Endpoint[]) => {
+    setEndpoints((current) => {
+      const next = updater(current)
+      setSharedEndpoints(revision, next)
+      return next
+    })
+  }, [revision])
+
   const normalizedSearch = searchQuery.trim().toLowerCase()
-  const hasActiveReviewFilters = hasEndpointReviewFilters({ searchQuery, reviewFilter })
 
-  const filteredEndpoints = useMemo(() => endpoints.filter((endpoint) => {
-    const models = endpointModels[endpoint.id] ?? []
-    const matchesSearch = normalizedSearch.length === 0 || endpoint.name.toLowerCase().includes(normalizedSearch) || endpoint.base_url.toLowerCase().includes(normalizedSearch)
-    const matchesUsage = reviewFilter === "all" || (reviewFilter === "in-use" ? models.length > 0 : models.length === 0)
-    return matchesSearch && matchesUsage
-  }), [endpointModels, endpoints, normalizedSearch, reviewFilter])
-  const reorder = useEndpointReorder({ endpoints, revision, setEndpoints, filtersActive: hasActiveReviewFilters })
+  const filterDisabled = references.hasUnknownOrStale
 
-  const setDeleteTarget = (target: Endpoint | null) => {
-    if (target) setDeleteDialogTarget(target)
-    setDeleteTargetState(target)
-  }
+  // Reference filter normalizes to all when any item is not fresh-ready.
+  const effectiveFilter: ReviewFilter = filterDisabled ? "all" : reviewFilter
+  // A reference-derived sort is subject to the same fail-closed rule as the
+  // filters. Keep the user's choice in state for when hydration recovers, but
+  // render a deterministic name order while any summary is unknown/stale.
+  const effectiveSortKey: EndpointSortKey =
+    filterDisabled && sortKey === "direct_reference_count" ? "name" : sortKey
+
+  const filteredEndpoints = useMemo(() => {
+    return endpoints.filter((endpoint) => {
+      const matchesSearch =
+        normalizedSearch.length === 0 ||
+        endpoint.name.toLowerCase().includes(normalizedSearch) ||
+        endpoint.base_url.toLowerCase().includes(normalizedSearch)
+      if (!matchesSearch) return false
+      if (effectiveFilter === "all") return true
+      const summary = references.summaries[endpoint.id]
+      const value = referenceSummaryForState(summary)
+      if (!value) return false
+      if (effectiveFilter === "referenced") return value.direct_reference_count > 0
+      if (effectiveFilter === "unreferenced") return value.direct_reference_count === 0
+      if (effectiveFilter === "inactive_only") {
+        return value.direct_reference_count > 0 && value.enabled_reference_count === 0
+      }
+      return true
+    })
+  }, [effectiveFilter, endpoints, normalizedSearch, references.summaries])
+
+  const sortedEndpoints = useMemo(() => {
+    const items = [...filteredEndpoints]
+    const direction = sortDescending ? -1 : 1
+    items.sort((left, right) => {
+      let comparison = 0
+      if (effectiveSortKey === "name") {
+        comparison = left.name.localeCompare(right.name, "zh-CN")
+        if (comparison === 0) comparison = left.id - right.id
+      } else if (effectiveSortKey === "updated_at") {
+        comparison = left.updated_at.localeCompare(right.updated_at)
+        if (comparison === 0) comparison = left.id - right.id
+      } else if (effectiveSortKey === "direct_reference_count") {
+        const leftSummary = referenceSummaryForState(references.summaries[left.id])
+        const rightSummary = referenceSummaryForState(references.summaries[right.id])
+        const leftCount = leftSummary?.direct_reference_count ?? 0
+        const rightCount = rightSummary?.direct_reference_count ?? 0
+        comparison = leftCount - rightCount
+        if (comparison === 0) comparison = left.name.localeCompare(right.name, "zh-CN")
+      }
+      return comparison * direction
+    })
+    return items
+  }, [effectiveSortKey, filteredEndpoints, references.summaries, sortDescending])
+
+  const toggleSort = useCallback((key: EndpointSortKey) => {
+    if (key === "direct_reference_count" && filterDisabled) return
+    if (sortKey === key) {
+      setSortDescending((current) => !current)
+    } else {
+      setSortKey(key)
+      setSortDescending(false)
+    }
+  }, [filterDisabled, sortKey])
 
   const openCreateDialog = (open: boolean) => {
-    if (open) setEndpointDialogError(null)
+    if (open) {
+      setEndpointDialogError(null)
+      setEndpointFieldErrors(null)
+    }
     setIsCreateOpen(open)
   }
 
   const setEditingEndpoint = (endpoint: Endpoint | null) => {
-    if (endpoint) setEndpointDialogError(null)
+    if (endpoint) {
+      setEndpointDialogError(null)
+      setEndpointFieldErrors(null)
+    }
     setEditingEndpointState(endpoint)
   }
 
-  const handleCreate = async (values: EndpointFormValues) => {
+  const handleCreate = async (values: EndpointFormValues, verifyFamily?: string) => {
     const messages = getStaticMessages()
     try {
       const created = await api.endpoints.create(buildEndpointCreatePayload(values))
       toast.success(messages.endpointsData.created)
-      setIsCreateOpen(false)
-      commitEndpoints((current) => [...current, created].sort((left, right) => left.position - right.position), (current) => ({ ...current, [created.id]: [] }))
+      if (!verifyFamily) {
+        setIsCreateOpen(false)
+      }
+      commitEndpoints((current) => [...current, created])
+      references.addEndpoint(created.id)
+      setAttachModelTarget(created)
+      if (verifyFamily) {
+        const verification = await handleVerify(created.id, verifyFamily, created.config_revision)
+        return { endpoint: created, verifyFamily, verifyResult: verification.result, verifyError: verification.errorMessage, currentEndpoint: verification.currentEndpoint }
+      }
+      return { endpoint: created, verifyFamily }
     } catch (error) {
+      const fieldErrors = extractEndpointFieldErrors(error)
+      if (fieldErrors) {
+        setEndpointFieldErrors(fieldErrors)
+      }
       const validation = extractServerValidation(error, messages.endpointsData.createFailed)
       setEndpointDialogError(validation.summary)
       toast.error(validation.summary)
+      return null
     }
   }
 
-  const handleUpdate = async (values: EndpointFormValues) => {
+  const handleUpdate = async (values: EndpointFormValues, verifyFamily?: string) => {
     const messages = getStaticMessages()
-    if (!editingEndpoint) return
+    if (!editingEndpoint) return null
     try {
       const updated = await api.endpoints.update(editingEndpoint.id, buildEndpointUpdatePayload(values))
-      toast.success(messages.endpointsData.updated)
-      setEditingEndpoint(null)
+      const keyRotated = updated.api_key_updated_at !== editingEndpoint.api_key_updated_at
+      toast.success(keyRotated && updated.api_key_fingerprint ? messages.endpointsData.keyRotated(updated.api_key_fingerprint) : messages.endpointsData.keyUnchanged)
+      if (!verifyFamily) {
+        setEditingEndpoint(null)
+      }
       commitEndpoints((current) => current.map((endpoint) => (endpoint.id === updated.id ? updated : endpoint)))
+      references.invalidateEndpoint(updated.id)
+      if (verifyFamily) {
+        const verification = await handleVerify(updated.id, verifyFamily, updated.config_revision)
+        return { endpoint: updated, verifyFamily, verifyResult: verification.result, verifyError: verification.errorMessage, currentEndpoint: verification.currentEndpoint }
+      }
+      return { endpoint: updated, verifyFamily }
     } catch (error) {
+      const fieldErrors = extractEndpointFieldErrors(error)
+      if (fieldErrors) {
+        setEndpointFieldErrors(fieldErrors)
+      }
       const validation = extractServerValidation(error, messages.endpointsData.updateFailed)
       setEndpointDialogError(validation.summary)
       toast.error(validation.summary)
+      return null
     }
   }
 
-  const handleDelete = async (id: number) => {
+  const handleVerify = async (endpointId: number, family: string, expectedRevision: number): Promise<EndpointVerificationAttempt> => {
     const messages = getStaticMessages()
-    setIsDeletingEndpoint(true)
     try {
-      await api.endpoints.delete(id)
-      toast.success(messages.endpointsData.deleted)
-      setDeleteTarget(null)
-      commitEndpoints((current) => current.filter((endpoint) => endpoint.id !== id), (current) => {
-        const next = { ...current }
-        delete next[id]
-        return next
-      })
+      const result = await api.endpoints.verify(endpointId, { api_family: family as never, expected_config_revision: expectedRevision })
+      return { result }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : messages.endpointsData.deleteFailed)
-    } finally {
-      setIsDeletingEndpoint(false)
+      if (isEndpointConfigChangedError(error)) {
+        const changed = innerDetail<{ endpoint: Endpoint }>(error)
+        if (changed?.endpoint) {
+          commitEndpoints((current) => current.map((endpoint) => (endpoint.id === endpointId ? changed.endpoint : endpoint)))
+        }
+        return { result: null, errorMessage: messages.endpointsUi.verifyResultConfigChanged, currentEndpoint: changed?.endpoint }
+      }
+      return { result: null, errorMessage: messages.endpointsData.verifyFailed }
+    }
+  }
+
+  const handleDeleteRequest = (endpoint: Endpoint) => {
+    // Every dialog open runs a fresh single-reference preflight.
+    const generation = Date.now()
+    setDeleteDialog({ phase: "checking", endpoint, generation })
+    void (async () => {
+      try {
+        const detail = await api.endpoints.referencesDetail(endpoint.id)
+        references.adoptDetail(endpoint.id, detail)
+        setDeleteDialog((current) => {
+          if (current.phase !== "checking" || current.endpoint.id !== endpoint.id) return current
+          if (detail.summary.direct_reference_count === 0) {
+            return { phase: "eligible", endpoint, summary: detail.summary, generation }
+          }
+          return { phase: "blocked", endpoint, detail, generation }
+        })
+      } catch (error) {
+        const apiError = error instanceof ApiError ? error : new ApiError(error instanceof Error ? error.message : "Failed to check references", 0, null)
+        setDeleteDialog((current) => {
+          if (current.phase !== "checking" || current.endpoint.id !== endpoint.id) return current
+          if (isReferenceIntegrityError(error)) {
+            return { phase: "integrity_error", endpoint, error: apiError, generation }
+          }
+          return { phase: "check_error", endpoint, error: apiError, generation }
+        })
+      }
+    })()
+  }
+
+  const handleDeleteConfirm = async (target: { id: number }) => {
+    const current = deleteDialog
+    const endpoint = current.phase !== "closed" && current.endpoint.id === target.id
+      ? current.endpoint
+      : endpoints.find((item) => item.id === target.id)
+    if (!endpoint) return
+    const messages = getStaticMessages()
+    setDeleteDialog((currentState) => ({ ...currentState, phase: "deleting" } as DeleteDialogState))
+    try {
+      await api.endpoints.delete(endpoint.id)
+      toast.success(messages.endpointsData.deleted)
+      setDeleteDialog({ phase: "closed" })
+      references.removeEndpoint(endpoint.id)
+      commitEndpoints((current) => current.filter((item) => item.id !== endpoint.id))
+    } catch (error) {
+      if (isEndpointInUseError(error)) {
+        // Race: a reference appeared after preflight. Replace the dialog with
+        // the response's latest summary + bounded first page.
+        const race = innerDetail<{ endpoint_id: number; summary: EndpointReferenceSummary; reference_page: EndpointReferencePage }>(error)
+        if (!race) return
+        const detail: EndpointReferenceDetail = {
+          endpoint_id: race.endpoint_id,
+          summary: race.summary,
+          reference_page: race.reference_page,
+        }
+        references.adoptDetail(endpoint.id, detail)
+        setDeleteDialog((current) => {
+          if (current.phase !== "deleting" || current.endpoint.id !== endpoint.id) return current
+          return { phase: "blocked", endpoint, detail, generation: Date.now() }
+        })
+        return
+      }
+      if (isReferenceIntegrityError(error)) {
+        setDeleteDialog((current) => {
+          if (current.phase !== "deleting" || current.endpoint.id !== endpoint.id) return current
+          return { phase: "integrity_error", endpoint, error: error instanceof ApiError ? error : new ApiError("Integrity error", 409, null), generation: Date.now() }
+        })
+        return
+      }
+      setDeleteDialog((current) => {
+        if (current.phase !== "deleting" || current.endpoint.id !== endpoint.id) return current
+        return { phase: "check_error", endpoint, error: error instanceof ApiError ? error : new ApiError(error instanceof Error ? error.message : messages.endpointsData.deleteFailed, 0, null), generation: Date.now() }
+      })
+    }
+  }
+
+  const handleDeleteDialogOpenChange = (open: boolean) => {
+    if (!open && deleteDialog.phase !== "deleting") {
+      setDeleteDialog({ phase: "closed" })
+    }
+  }
+
+  const handleDeleteRetry = () => {
+    if (deleteDialog.phase === "closed") return
+    const endpoint = deleteDialog.endpoint
+    setDeleteDialog({ phase: "closed" })
+    handleDeleteRequest(endpoint)
+  }
+
+  const handleLoadMoreBlockers = async (endpointId: number) => {
+    const detail = await references.loadMore(endpointId)
+    if (!detail) return
+    setDeleteDialog((current) => {
+      if (current.phase !== "blocked" || current.endpoint.id !== endpointId) return current
+      return { ...current, detail }
+    })
+  }
+
+  const handleOrphanCleanup = async (endpoint: OrphanCleanupEndpoint, item: EndpointReferenceItem) => {
+    const messages = getStaticMessages()
+    try {
+      await api.endpoints.orphanCleanup(endpoint.id, item.connection_id)
+      toast.success(messages.endpointsData.orphanCleaned)
+      setOrphanCleanupTarget(null)
+      references.invalidateEndpoint(endpoint.id)
+    } catch (error) {
+      if (isReferenceIntegrityError(error)) {
+        toast.error(messages.endpointsData.orphanCleanupFailed)
+        references.invalidateEndpoint(endpoint.id)
+        return
+      }
+      toast.error(error instanceof Error ? error.message : messages.endpointsData.orphanCleanupFailed)
     }
   }
 
@@ -108,7 +380,9 @@ export function useEndpointsFeatureData() {
     try {
       const duplicate = await api.endpoints.duplicate(endpoint.id)
       toast.success(messages.endpointsData.duplicatedAs(duplicate.name))
-      commitEndpoints((current) => [...current, duplicate].sort((left, right) => left.position - right.position), (current) => ({ ...current, [duplicate.id]: [] }))
+      commitEndpoints((current) => [...current, duplicate])
+      references.addEndpoint(duplicate.id)
+      setAttachModelTarget(duplicate)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : messages.endpointsData.duplicateFailed)
     } finally {
@@ -116,52 +390,62 @@ export function useEndpointsFeatureData() {
     }
   }
 
-  const refreshDirectReferences = useCallback(async () => {
-    if (endpoints.length === 0) return
-    try {
-      const response = await api.endpoints.referencesBatch(endpoints.map((endpoint) => endpoint.id))
-      const byEndpoint: Record<number, EndpointReferenceView[]> = {}
-      for (const item of response.items) {
-        byEndpoint[item.endpoint_id] = item.references.map((reference) => ({
-          connection_id: reference.connection_id,
-          terminal_target_name: reference.terminal_target_name,
-          model_config_id: reference.model_config_id,
-          model_id: reference.model_id,
-          model_display_name: reference.model_display_name,
-          api_family: reference.api_family,
-          is_enabled: reference.is_enabled,
-          is_active: reference.is_active,
-          openai_text_capability: reference.openai_text_capability,
-          pricing_template: reference.pricing_template,
-        }))
-      }
-      setDirectReferencesByEndpoint(byEndpoint)
-    } catch (error) {
-      console.error("Failed to load endpoint direct references", error)
-    }
-  }, [endpoints])
-
-  useEffect(() => {
-    void refreshDirectReferences()
-  }, [refreshDirectReferences])
-
-  const handleAttachEndpoint = async (endpoint: Endpoint, destinationModelConfigId: number, capability: string | null, targetName: string) => {
-    try {
-      await api.models.connections.create(destinationModelConfigId, {
-        api_family: "openai",
-        endpoint_id: endpoint.id,
-        name: targetName.trim() || undefined,
-        is_active: true,
-        openai_text_capability: capability as OpenAITextCapability | undefined,
-      })
-      toast.success(getStaticMessages().modelDetailData.connectionCreated)
-      setAttachTarget(null)
-      void refreshDirectReferences()
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to attach endpoint")
-      throw error
-    }
+  const handleAttachNavigate = (endpoint: Endpoint) => {
+    // One-shot attach: open the model picker; the selected model detail page
+    // consumes action=create-terminal-target + endpoint_id (never key material).
+    setAttachModelTarget(endpoint)
   }
 
-  return { attachTarget, deleteTarget, deleteDialogTarget, directReferencesByEndpoint, duplicatingEndpointId, editingEndpoint, endpointDialogError, endpointModels, endpoints, filteredEndpoints, formatTime, hasActiveReviewFilters, handleAttachEndpoint, handleCreate, handleDelete, handleDeleteDialogOpenChange: (open: boolean) => !open && !isDeletingEndpoint && setDeleteTarget(null), handleDuplicateEndpoint, handleUpdate, isCreateOpen, isDeletingEndpoint, isLoading, reviewFilter, searchQuery, setAttachTarget, setDeleteTarget, setEditingEndpoint, setIsCreateOpen: openCreateDialog, setReviewFilter, setSearchQuery, ...reorder }
+  const handleAttachModelSelected = (modelId: number) => {
+    if (!attachModelTarget) return
+    const endpoint = attachModelTarget
+    setAttachModelTarget(null)
+    window.location.assign(`/models/${modelId}?action=create-terminal-target&endpoint_id=${endpoint.id}`)
+  }
+
+  return {
+    attachModelTarget,
+    deleteDialog,
+    duplicatingEndpointId,
+    editingEndpoint,
+    effectiveFilter,
+    endpointDialogError,
+    endpointFieldErrors,
+    endpointLoadError,
+    endpoints,
+    filterDisabled,
+    filteredEndpoints: sortedEndpoints,
+    formatTime,
+    handleAttachModelSelected,
+    handleAttachNavigate,
+    handleCreate,
+    handleDeleteConfirm,
+    handleDeleteDialogOpenChange,
+    handleDeleteRequest,
+    handleDeleteRetry,
+    handleDuplicateEndpoint,
+    handleLoadMoreBlockers,
+    handleOrphanCleanup,
+    handleUpdate,
+    handleVerify,
+    isCreateOpen,
+    isLoading,
+    orphanCleanupTarget,
+    references,
+    reviewFilter: effectiveFilter,
+    retryEndpointLoad,
+    searchQuery,
+    setAttachModelTarget,
+    setDeleteDialog,
+    setEditingEndpoint,
+    setIsCreateOpen: openCreateDialog,
+    setOrphanCleanupTarget,
+    setReviewFilter,
+    setSearchQuery,
+    setSortDescending,
+    setSortKey,
+    sortDescending,
+    sortKey,
+    toggleSort,
+  }
 }

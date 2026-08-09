@@ -23,7 +23,7 @@ func TestRuntimeLatencyIsResponseHeadersLatencyNotBodyConsumption(t *testing.T) 
 		profileID: activeProfileID,
 		prefix:    "latency-headers-semantics",
 		suffix:    suffix,
-		endpoints: []selectorEndpointSeed{{label: "slow-body", baseURL: upstream.baseURL("/latency/headers"), position: 0}},
+		endpoints: []selectorEndpointSeed{{label: "slow-body", baseURL: upstream.baseURL("/latency/headers")}},
 	})
 
 	startedAt := time.Now()
