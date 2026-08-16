@@ -1638,6 +1638,7 @@ export const zhCNMessages = {
     bannedUntil: (time: MessageArg) => `冷却/封禁至 ${time}`,
     capabilityChatOnly: "仅 Chat Completions",
     capabilityDual: "双模式",
+    capabilityImageOnly: "纯图片",
     capabilityResponsesOnly: "仅 Responses",
     capabilityTitle: "文本能力",
     capabilityCoverageLabel: "能力覆盖",

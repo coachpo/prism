@@ -389,7 +389,11 @@ export function ModelsTable({
                             ? messages.routing.capabilityChatOnly
                             : model.openai_accepted_format === "responses_only"
                               ? messages.routing.capabilityResponsesOnly
-                              : messages.routing.capabilityDual}
+                              : model.openai_accepted_format === "dual_native"
+                                ? messages.routing.capabilityDual
+                                : model.openai_image_operations
+                                  ? messages.routing.capabilityImageOnly
+                                  : <OperatorMissingValue />}
                         </span>
                       ) : null}
                     </div>
