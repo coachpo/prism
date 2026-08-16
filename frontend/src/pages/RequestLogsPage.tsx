@@ -14,7 +14,15 @@ import { IngressChainsTable } from "./request-logs/IngressChainsTable";
 import { RequestLogDetailSheet } from "./request-logs/RequestLogDetailSheet";
 import { Download, SearchX } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { OperatorCallout, OperatorEmptyState, OperatorPageHeader, OperatorPageShell } from "@/shared/design-system";
+import {
+  OperatorCallout,
+  OperatorEmptyState,
+  OperatorErrorState,
+  OperatorPageHeader,
+  OperatorPageShell,
+  OperatorRetryButton,
+  OperatorStalenessBadge,
+} from "@/shared/design-system";
 import { ActiveFilterChips } from "./request-logs/ActiveFilterChips";
 import { ColumnToggleMenu } from "./request-logs/RequestLogsTable";
 import { RequestLogsViewToolbar } from "./request-logs/RequestLogsViewToolbar";
@@ -44,7 +52,7 @@ export function RequestLogsPage() {
     setColumnPreferences(defaults);
   }, []);
 
-  const { items, total, loading, error, filterOptions, filterOptionsLoaded, refresh, nextChainCursor, hasMoreChains, chains, chainPageCounts, coverage } =
+  const { items, total, loading, error, stale, lastLoadedAt, filterOptions, filterOptionsLoaded, refresh, nextChainCursor, hasMoreChains, chains, chainPageCounts, coverage } =
     useRequestLogsPageData({ revision: 0, state, enabled: !isExactMode });
 
   const selectedRequestId = useMemo(() => {
@@ -64,7 +72,11 @@ export function RequestLogsPage() {
     enabled: selectedRequestId !== null,
   });
 
-  const surfaceError = error ?? detailError;
+  // A failed list read owns the table area (Honesty Contract): it replaces the
+  // table instead of letting an empty list and a zero total speak for it. When
+  // the retained rows are still the ones this query asked for, the read keeps
+  // them and the staleness badge carries the failure instead.
+  const listReadFailed = error !== null && !stale;
   const showExactNotFound = isExactMode && !detailLoading && detailNotFound;
   const listVisibleRequestId = useMemo(
     () => {
@@ -159,8 +171,8 @@ export function RequestLogsPage() {
 
       <ActiveFilterChips actions={actions} />
 
-      {surfaceError && (
-        <OperatorCallout intent="danger" description={surfaceError} />
+      {detailError && (
+        <OperatorCallout intent="danger" description={detailError} />
       )}
 
       {coverage && coverage.complete === false ? (
@@ -191,13 +203,17 @@ export function RequestLogsPage() {
           view={state.view}
           onViewChange={actions.setView}
           summary={
-            state.view === "ingress_chains"
-              ? messages.requestLogs.chainCounts(
-                  String(chainPageCounts.ingress),
-                  String(chainPageCounts.attempts),
-                  String(chainPageCounts.rows),
-                )
-              : messages.requestLogs.totalRowsSummary(String(total))
+            // No successful read stands behind these counts, so the toolbar
+            // states nothing rather than reporting a fabricated zero.
+            listReadFailed
+              ? undefined
+              : state.view === "ingress_chains"
+                ? messages.requestLogs.chainCounts(
+                    String(chainPageCounts.ingress),
+                    String(chainPageCounts.attempts),
+                    String(chainPageCounts.rows),
+                  )
+                : messages.requestLogs.totalRowsSummary(String(total))
           }
         >
           <ColumnToggleMenu
@@ -206,7 +222,24 @@ export function RequestLogsPage() {
             onResetColumns={handleResetColumns}
           />
         </RequestLogsViewToolbar>
-        {state.view === "ingress_chains" ? (
+        {stale && lastLoadedAt ? (
+          <OperatorStalenessBadge
+            className="self-start"
+            data-testid="request-logs-stale-badge"
+            label={messages.honesty.lastSuccessful(format(lastLoadedAt))}
+            reason={error ?? undefined}
+          />
+        ) : null}
+        {listReadFailed ? (
+          <OperatorErrorState
+            testId="request-logs-load-error"
+            title={messages.requestLogs.loadFailed}
+            description={messages.honesty.readFailedDescription}
+            details={error}
+            detailsLabel={messages.honesty.viewDetails}
+            action={<OperatorRetryButton onClick={refresh}>{messages.common.retry}</OperatorRetryButton>}
+          />
+        ) : state.view === "ingress_chains" ? (
         <IngressChainsTable
           chains={chains}
           hasMoreChains={hasMoreChains}

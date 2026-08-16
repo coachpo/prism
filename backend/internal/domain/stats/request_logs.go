@@ -63,34 +63,6 @@ type requestLogModelRecord struct {
 	DisplayName *string
 }
 
-// requestLogSortColumns maps the attempt-view `sort_by` grammar onto sortable
-// SQL. The HTTP parser rejects anything outside this table, so an unknown key
-// never reaches the query as a silent created_at fallback.
-var requestLogSortColumns = map[string]string{
-	"created_at":                      "created_at",
-	"display_status":                  "(" + scopedRequestLogStatusSQL + ")",
-	"ttft_ms":                         "ttft_ms",
-	"total_tokens":                    "total_tokens",
-	"total_cost_user_currency_micros": "total_cost_user_currency_micros",
-}
-
-// requestLogOrderBy renders the attempt-view ORDER BY. Rows without a value for
-// the selected key sort last in both directions: a non-stream row has no TTFT
-// and an unpriced row has no cost, and neither should occupy the head of the
-// list just because the key is NULL. created_at/id break ties so offset paging
-// stays deterministic across pages.
-func requestLogOrderBy(sortBy string, sortOrder string) string {
-	direction := "DESC"
-	if strings.EqualFold(strings.TrimSpace(sortOrder), "asc") {
-		direction = "ASC"
-	}
-	column, ok := requestLogSortColumns[strings.ToLower(strings.TrimSpace(sortBy))]
-	if !ok || column == "created_at" {
-		return "ORDER BY created_at " + direction + ", id " + direction
-	}
-	return "ORDER BY " + column + " " + direction + " NULLS LAST, created_at DESC, id DESC"
-}
-
 func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogListParams) (RequestLogListResponse, error) {
 	limit := params.Limit
 	if limit <= 0 {
@@ -160,7 +132,7 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 		 request_generation_params #>> '{reasoning,effort}', report_currency_symbol, caller_user_agent, upstream_user_agent, endpoint_base_url
 		 FROM request_logs
 		 WHERE `+whereClause+`
-		 `+requestLogOrderBy(params.SortBy, params.SortOrder)+`
+		 ORDER BY created_at DESC, id DESC
 		 LIMIT $`+fmt.Sprintf("%d", len(args)+1)+` OFFSET $`+fmt.Sprintf("%d", len(args)+2),
 		append(append(args, limit), offset)...,
 	)

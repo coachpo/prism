@@ -107,12 +107,26 @@ interface UseRequestLogsPageDataParams {
   state: RequestLogPageState;
 }
 
+/**
+ * A failed list read. `stale` means the rows still on screen came from the last
+ * successful read of this same query, so the page may keep them behind a
+ * staleness badge; otherwise nothing on screen describes the current query and
+ * the page must replace the table with a failure surface. Either way the hook
+ * never leaves a zero total and an empty item list behind, because that reads
+ * as "no matching requests" instead of "this read failed".
+ */
+interface RequestLogsLoadFailure {
+  message: string;
+  stale: boolean;
+}
+
 export function useRequestLogsPageData({ revision, state, enabled = true }: UseRequestLogsPageDataParams) {
   const messages = getStaticMessages();
   const [items, setItems] = useState<RequestLogListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(enabled);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<RequestLogsLoadFailure | null>(null);
+  const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [filterOptions, setFilterOptions] = useState<FilterOptions>(EMPTY_FILTER_OPTIONS);
   const [endpointOptionsLoaded, setEndpointOptionsLoaded] = useState(false);
   const [nextChainCursor, setNextChainCursor] = useState<string | null>(null);
@@ -125,6 +139,7 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRevisionRef = useRef<number | null>(null);
   const endpointOptionsLoadedOnceRef = useRef(false);
+  const loadedSignatureRef = useRef<string | null>(null);
 
   useEffect(() => {
     const revisionChanged = lastRevisionRef.current !== revision;
@@ -144,7 +159,7 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
   const fetchData = useCallback(() => {
     const id = ++fetchIdRef.current;
     setLoading(true);
-    setError(null);
+    setFailure(null);
 
     const fromTime = state.from_time && state.to_time ? state.from_time : timeRangeToFromTime(state.time_range);
     const toTime = state.from_time && state.to_time ? state.to_time : undefined;
@@ -174,6 +189,21 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
       sort_by: state.sort_by,
       sort_order: state.sort_order,
     };
+
+    // Identifies which query the rows on screen describe, at the URL level
+    // rather than the wire level: a relative window resolves to a fresh
+    // `from_time` on every fetch, so the resolved bounds count only when the
+    // operator pinned them. The chain cursor is excluded on purpose — it only
+    // appends deeper pages of the same query, so a failed "load more" keeps the
+    // pages that did load. Any other change (filters, view, sort, page) makes
+    // the retained rows describe something else, and a failure has nothing to
+    // keep.
+    const signature = JSON.stringify({
+      ...params,
+      chain_cursor: undefined,
+      [STATS_FROM_TIME_PARAM]: state.from_time || undefined,
+      to_time: state.to_time || undefined,
+    });
 
     const load = state.view === "ingress_chains"
       ? api.stats.chains(params)
@@ -230,6 +260,9 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
           }));
         }
 
+        loadedSignatureRef.current = signature;
+        setLastLoadedAt(new Date().toISOString());
+
         if (!endpointOptionsLoadedOnceRef.current) {
           endpointOptionsLoadedOnceRef.current = true;
           setEndpointOptionsLoaded(true);
@@ -237,7 +270,25 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
       })
       .catch((err) => {
         if (id !== fetchIdRef.current) return;
-        setError(err instanceof Error ? err.message : messages.requestLogs.loadFailed);
+        const stale = loadedSignatureRef.current === signature;
+        if (!stale) {
+          // Drop everything the failed read would otherwise leave behind: an
+          // empty list plus a zero total is the rendering of a genuinely empty
+          // result, and the page must not say that about a read that failed.
+          setItems([]);
+          setTotal(0);
+          setChains([]);
+          setChainPageCounts({ ingress: 0, attempts: 0, rows: 0 });
+          setNextChainCursor(null);
+          setHasMoreChains(false);
+          setCoverage(null);
+          loadedSignatureRef.current = null;
+          setLastLoadedAt(null);
+        }
+        setFailure({
+          message: err instanceof Error ? err.message : messages.requestLogs.loadFailed,
+          stale,
+        });
       })
       .finally(() => {
         if (id !== fetchIdRef.current) return;
@@ -310,7 +361,10 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
     items: enabled ? items : [],
     total: enabled ? total : 0,
     loading: enabled ? loading : false,
-    error: enabled ? error : null,
+    error: enabled ? failure?.message ?? null : null,
+    /** The read failed but the rows on screen are the last successful ones. */
+    stale: enabled ? failure?.stale ?? false : false,
+    lastLoadedAt: enabled ? lastLoadedAt : null,
     filterOptions: enabled ? filterOptions : EMPTY_FILTER_OPTIONS,
     filterOptionsLoaded: enabled ? filterOptionsLoaded : false,
     nextChainCursor: enabled ? nextChainCursor : null,

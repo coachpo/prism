@@ -458,7 +458,7 @@ Request-log semantics are per-materialized attempt: one incoming runtime request
 ### 7.4 Query Capabilities
 
 - Filter by model, final target model, caller client rule, endpoint, api family, status family/exact status, error text, pricing status (`priced|unpriced|ineligible|unknown`), unpriced reason, and time range; unknown query keys return `422 unknown_query_key` (the old `priced` boolean alias is rejected)
-- Attempt view (`view=attempts`) with scoped status/duration filters and `sort_by` over `created_at|display_status|ttft_ms|total_tokens|total_cost_user_currency_micros`; rows with no value for the selected key (no TTFT on a non-stream row, no cost on an unpriced row) sort last in both directions, and `created_at`/`id` break ties so offset pages stay stable
+- Attempt view (`view=attempts`) with scoped status/duration filters and `sort_by` over `created_at|display_status|ttft_ms|total_tokens|total_cost_user_currency_micros`
 - Ingress-chain view (`view=ingress_chains`, default) with cohort filters (`ingress_final_result`, `confirmed_failover`, pricing cohort), whole-ingress outer pagination via signed chain cursors, and bounded retained-row inner pages with row cursors
 - Server-side full filtered CSV export (`GET /api/stats/requests/export`) from a single `REPEATABLE READ` snapshot with 100,000-row/128 MiB/31-day bounds, formula-injection escaping, SHA-256 digest verification, and no partial files
 - Exact v2 detail (`GET /api/stats/requests/{request_id}`) with scoped statuses, the unified failure projection, canonical terminal-target/endpoint refs, routing provenance, pricing layers, and `legacy_pricing_evidence` for legacy-untrusted rows
@@ -1802,8 +1802,8 @@ Attempt-view query parameters:
 | `client_rule_id` | integer | — | Filter by caller client, matched against `caller_user_agent` only through enabled User-Agent Client Rules |
 | `limit` | integer | 50 | Result limit; must be positive |
 | `offset` | integer | 0 | Pagination offset (attempt view) |
-| `sort_by` | string | `created_at` | `created_at` | `display_status` | `ttft_ms` | `total_tokens` | `total_cost_user_currency_micros` (attempt view); any other value is rejected with `422 sort_unsupported` instead of falling back to `created_at` |
-| `sort_order` | string | `desc` | `asc` or `desc`; any other value is rejected with `422 sort_unsupported` |
+| `sort_by` | string | `created_at` | `created_at` | `display_status` | `ttft_ms` | `total_tokens` | `total_cost_user_currency_micros` (attempt view) |
+| `sort_order` | string | `desc` | `asc` or `desc` |
 
 Chain-view query parameters (`view=ingress_chains`):
 | Parameter | Type | Default | Description |

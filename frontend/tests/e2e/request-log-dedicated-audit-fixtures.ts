@@ -175,7 +175,7 @@ function scenarioConfig(scenario: Scenario) {
   };
 }
 
-function createRequestLogListItem(scenario: Scenario = "full") {
+export function createRequestLogListItem(scenario: Scenario = "full") {
   const apiFamily = getScenarioApiFamily(scenario);
   const modelId = getScenarioModelId(scenario);
 

@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import {
   copiedText,
+  createRequestLogListItem,
   documentBodyCases,
   expectAuditWindow,
   expectNoRedundantPayloadShell,
@@ -486,6 +487,59 @@ test("request-log sheet navigates previous/next with named controls and ArrowUp/
   // ArrowUp navigates back.
   await page.keyboard.press("ArrowUp");
   await expect(sheet).toContainText("请求 #101");
+});
+
+// Honesty Contract: a failed list read owns the table area. The 422 case used
+// to render the failure callout and an empty result at the same time, so the
+// screen said "0 行 / 当前范围内没有匹配的请求日志" about a read that never
+// returned any rows to count.
+test("request-log list read failure replaces the table instead of reading as an empty result", async ({ page }) => {
+  await mockPrismRoutes(page, "metadata_only");
+  let listReadFails = true;
+  await page.route("**/api/stats/requests*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/stats/requests") return route.fallback();
+    if (listReadFails) {
+      return route.fulfill({
+        status: 422,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "view=attempts 与当前筛选不兼容" }),
+      });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [createRequestLogListItem("metadata_only")],
+        total: 1,
+        limit: 100,
+        offset: 0,
+        filter_options: { models: [], endpoints: [], clients: [], resolved_target_models: [] },
+      }),
+    });
+  });
+
+  await page.goto("/observe/requests?view=attempts");
+
+  const failure = page.getByTestId("request-logs-load-error");
+  await expect(failure).toBeVisible();
+  await expect(failure).toContainText("加载请求日志失败");
+
+  // None of the empty-result wording may appear for a read that failed.
+  await expect(page.getByTestId("request-logs-table")).toHaveCount(0);
+  await expect(page.getByText("当前范围内没有匹配的请求日志")).toHaveCount(0);
+  await expect(page.getByText("共 0 行")).toHaveCount(0);
+  await expect(page.getByText("0 条结果")).toHaveCount(0);
+
+  // The server's reason stays reachable behind the details disclosure.
+  await failure.getByText("查看详情").click();
+  await expect(failure.getByText("view=attempts 与当前筛选不兼容")).toBeVisible();
+
+  // The failure surface carries its own retry.
+  listReadFails = false;
+  await failure.getByRole("button", { name: "重试" }).click();
+  await expect(page.getByTestId("request-log-row-101")).toBeVisible();
+  await expect(page.getByTestId("request-logs-load-error")).toHaveCount(0);
 });
 
 test("ingress-chains view renders chains with nested rows and expands", async ({ page }) => {
