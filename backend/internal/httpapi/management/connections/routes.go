@@ -386,6 +386,9 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 				Fields:     map[string]any{"pricing_cas_required": []string{"expected_connection_updated_at", "expected_pricing_template_id"}},
 			}
 		}
+		if requestBody.ExpectedConnectionUpdatedAt.Value == nil {
+			return connectionResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: "Connection updated_at does not match expected_connection_updated_at"}
+		}
 		currentUpdatedAt, parseErr := time.Parse(time.RFC3339Nano, *requestBody.ExpectedConnectionUpdatedAt.Value)
 		if parseErr != nil || !currentUpdatedAt.Equal(current.UpdatedAt) {
 			return connectionResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: "Connection updated_at does not match expected_connection_updated_at"}

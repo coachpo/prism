@@ -24,6 +24,7 @@ import type { ConnectionDialogForm, HeaderRow } from "./useModelDetailDialogStat
 import { parseCustomRequestParametersDraft, type CustomRequestParametersParseError } from "./customRequestParameters";
 import {
   buildConnectionDraftPayload,
+  buildConnectionUpdatePayload,
   connectionBelongsToModel,
   getOwnedConnectionTarget,
   getOwnedModelConnections,
@@ -173,7 +174,11 @@ export function useModelDetailConnectionMutations({
             toast.error(TERMINAL_TARGET_OWNER_MISMATCH);
             return;
           }
-          const updatedResponse = await api.models.connections.update(modelConfigId, editingConnection.id, { ...payload });
+          const updatedResponse = await api.models.connections.update(
+            modelConfigId,
+            editingConnection.id,
+            buildConnectionUpdatePayload(payload, editingConnection),
+          );
           if (!commitConnection(updatedResponse.connection)) return;
           toast.success(getStaticMessages().modelDetailData.connectionUpdated);
         } else {
@@ -296,7 +301,11 @@ export function useModelDetailConnectionMutations({
       if (!Number.isFinite(modelConfigId)) return
       if (!isOwnedConnectionTarget(model, modelConfigId, connection.id)) return
       try {
-        const response = await api.models.connections.update(modelConfigId, connection.id, { pricing_template_id: pricingTemplateId });
+        const response = await api.models.connections.update(modelConfigId, connection.id, {
+          pricing_template_id: pricingTemplateId,
+          expected_connection_updated_at: connection.updated_at,
+          expected_pricing_template_id: connection.pricing_template_id,
+        });
         if (!commitConnection(response.connection)) return;
         clearSharedReferenceData(undefined, revision);
         void refreshCurrentState();
