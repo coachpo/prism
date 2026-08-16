@@ -225,7 +225,7 @@ test("routing health shows global current state and the events timeline with typ
 
   // Detail sheet: complete facts, safe object links and the Requests handoff.
   await page.getByTestId("event-row-1002").getByRole("button", { name: "查看详情" }).click();
-  await expect(page.getByText("事件详情")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "事件详情", exact: true })).toBeVisible();
   await expect(page.getByText("发生了什么", { exact: true })).toBeVisible();
   await expect(page.getByText("重试与封禁快照", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "调查附近请求" })).toBeVisible();
@@ -245,9 +245,9 @@ test("routing health shows global current state and the events timeline with typ
   await expect(page).toHaveURL(/\/observe\/routing-health/);
   await expect(page).toHaveURL(/event_id=1002/);
   await expect(page).toHaveURL(/preset=24h/);
-  await expect(page.getByText("事件详情")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "事件详情", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.getByText("事件详情")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "事件详情", exact: true })).toHaveCount(0);
 });
 
 test("routing health empty, stale and error states are distinguishable", async ({ page }) => {
