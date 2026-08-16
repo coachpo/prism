@@ -146,12 +146,30 @@ pid_command() {
     ps -o command= -p "$1" 2>/dev/null || true
 }
 
+# /proc is Linux-only. Without a fallback these read empty on macOS, every
+# ownership check below fails, and the launcher refuses to reclaim even the
+# leftovers it started itself. lsof reports the same two facts: the executable
+# is the first txt descriptor, the working directory is the cwd descriptor.
 pid_exe() {
-    readlink "/proc/$1/exe" 2>/dev/null || true
+    local value
+
+    value="$(readlink "/proc/$1/exe" 2>/dev/null || true)"
+    if [[ -z "$value" ]] && command -v lsof >/dev/null 2>&1; then
+        value="$(lsof -a -d txt -p "$1" -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1 || true)"
+    fi
+
+    printf '%s\n' "$value"
 }
 
 pid_cwd() {
-    readlink "/proc/$1/cwd" 2>/dev/null || true
+    local value
+
+    value="$(readlink "/proc/$1/cwd" 2>/dev/null || true)"
+    if [[ -z "$value" ]] && command -v lsof >/dev/null 2>&1; then
+        value="$(lsof -a -d cwd -p "$1" -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1 || true)"
+    fi
+
+    printf '%s\n' "$value"
 }
 
 kill_pid() {
@@ -198,7 +216,7 @@ reclaim_backend_port() {
             continue
         fi
 
-        echo "Error: port $BACKEND_PORT is already in use by a non-Prism process (pid $pid)." >&2
+        echo "Error: port $BACKEND_PORT is already in use by a non-Prism process (pid $pid: $(pid_command "$pid"))." >&2
         exit 1
     done
 }
@@ -212,7 +230,7 @@ reclaim_frontend_port() {
             continue
         fi
 
-        echo "Error: port $FRONTEND_PORT is already in use by a non-Prism process (pid $pid)." >&2
+        echo "Error: port $FRONTEND_PORT is already in use by a non-Prism process (pid $pid: $(pid_command "$pid"))." >&2
         exit 1
     done
 }
@@ -221,7 +239,7 @@ ensure_database_port_available() {
     local pid
 
     for pid in $(port_pids "$DATABASE_PORT"); do
-        echo "Error: port $DATABASE_PORT is already in use by a non-Prism process (pid $pid)." >&2
+        echo "Error: port $DATABASE_PORT is already in use by a non-Prism process (pid $pid: $(pid_command "$pid"))." >&2
         exit 1
     done
 }
@@ -357,7 +375,10 @@ ensure_local_launcher_contract
 
 postgres_compose down --remove-orphans >/dev/null 2>&1 || true
 reclaim_backend_port
-reclaim_frontend_port
+# headless never starts Vite, so the frontend port is none of its business.
+if [[ "$MODE" == "full" ]]; then
+    reclaim_frontend_port
+fi
 ensure_database_port_available
 
 postgres_compose up -d postgres

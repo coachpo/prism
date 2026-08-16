@@ -131,7 +131,13 @@ func preflightStartShLauncher(t *testing.T, fullMode bool) {
 	}
 	preflightDockerDaemon(t)
 	preflightDockerCompose(t)
-	for _, port := range []int{launcherBackendPort, launcherFrontendPort, launcherDatabasePort} {
+	// headless starts no Vite and must not touch the frontend port, so it does
+	// not require one to be free either.
+	ports := []int{launcherBackendPort, launcherDatabasePort}
+	if fullMode {
+		ports = append(ports, launcherFrontendPort)
+	}
+	for _, port := range ports {
 		preflightLauncherPort(t, port)
 	}
 }
