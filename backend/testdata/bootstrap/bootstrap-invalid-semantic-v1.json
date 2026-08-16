@@ -1,0 +1,84 @@
+{
+  "meta": {
+    "schemaVersion": 1,
+    "revision": 1,
+    "createdAt": "2026-04-26T14:00:00Z",
+    "updatedAt": "2026-04-26T14:00:00Z"
+  },
+  "server": {
+    "host": "0.0.0.0",
+    "port": 18000
+  },
+  "database": {
+    "url": "postgres://prism:prism@localhost:5432/prism?sslmode=disable",
+    "pools": {
+      "totalMaxConns": 42,
+      "management": {
+        "maxConns": 6,
+        "minIdleConns": 7
+      },
+      "runtimeExecution": {
+        "maxConns": 14,
+        "minIdleConns": 1
+      },
+      "runtimeTelemetry": {
+        "maxConns": 7,
+        "minIdleConns": 0
+      },
+      "runtimeFeedback": {
+        "maxConns": 3,
+        "minIdleConns": 0
+      },
+      "realtime": {
+        "maxConns": 4,
+        "minIdleConns": 0
+      },
+      "cacheRefresh": {
+        "maxConns": 4,
+        "minIdleConns": 0
+      },
+      "backgroundJobs": {
+        "maxConns": 4,
+        "minIdleConns": 0
+      }
+    },
+    "managementAdmission": {
+      "m2MaxConcurrent": 10,
+      "m3MaxConcurrent": 6
+    }
+  },
+  "runtime": {
+    "secretEncryptionKey": "prism-dev-runtime-secret-change-me",
+    "transport": {
+      "maxIdleConns": 100,
+      "maxIdleConnsPerHost": 8,
+      "maxConnsPerHost": 0,
+      "requestTimeout": "60s",
+      "idleConnTimeout": "1m30s",
+      "responseHeaderTimeout": "0s",
+      "tlsHandshakeTimeout": "10s",
+      "expectContinueTimeout": "1s"
+    },
+    "sideEffects": {
+      "attemptTimeout": "10s"
+    }
+  },
+  "http": {
+    "corsAllowedOrigins": [
+      "http://localhost:15173",
+      "http://127.0.0.1:15173"
+    ]
+  },
+  "auth": {
+    "jwtSigningKey": "prism-dev-jwt-secret-change-me",
+    "accessTokenTtlSeconds": 900,
+    "refreshTokenTtlSeconds": 604800,
+    "resetCodeTtlSeconds": 600,
+    "accessCookieName": "prism_access_token",
+    "refreshCookieName": "prism_refresh_token",
+    "cookieSecure": false
+  },
+  "stateTransfer": {
+    "bundleEncryptionKey": "prism-dev-runtime-secret-change-me"
+  }
+}

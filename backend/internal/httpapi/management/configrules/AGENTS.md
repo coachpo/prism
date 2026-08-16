@@ -1,0 +1,35 @@
+# BACKEND MANAGEMENT CONFIG RULES KNOWLEDGE BASE
+
+## OVERVIEW
+`management/configrules/` owns Default-profile configuration rules under `/api/config/*`. It manages header-blocklist rules and user-agent/client mapping rules used by management and runtime-adjacent helpers. `/api/profiles*` management CRUD is removed; profiles stay frozen on Default id `1`.
+
+## STRUCTURE
+```text
+configrules/
+├── service.go    # Service construction and `/config` route mounting
+├── routes.go     # Header-blocklist and user-agent/client rule handlers
+├── store.go      # Rule persistence and duplicate checks
+└── types.go      # Rule request and response shapes
+```
+
+## WHERE TO LOOK
+- Route list and mount contract: `service.go`.
+- Header-blocklist list/get/create/update/delete: `routes.go`.
+- User-agent/client rule list/get/create/update/delete: `routes.go`.
+- System-rule mutability and duplicate checks: `routes.go`, `store.go`.
+
+## CONVENTIONS
+- Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
+- Keep these routes under `/api/config/*`; startup bootstrap config is file-owned under `platform/config/`.
+- Keep rules pinned to Default profile id `1`, while allowing system rules to appear where the store includes them. `X-Profile-Id` compatibility headers are ignored.
+- Don't let system header-blocklist rules be deleted or reshaped; `/api/profiles*` CRUD is removed.
+
+- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
+
+## LLM UPSTREAM MATRIX
+- When rule behavior affects upstream request headers or client attribution, check operation behavior across OpenAI, Anthropic, and Gemini shapes.
+
+## ANTI-PATTERNS
+- Do not mix startup file state into this package.
+- Do not make user-agent/client rules global unless the store and routes explicitly support that boundary.
+- Do not allow removed `/api/profiles*` CRUD to delete or reshape system header-blocklist rules.

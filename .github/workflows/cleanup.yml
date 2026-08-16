@@ -1,0 +1,33 @@
+name: Cleanup
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  cleanup-untagged:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [single]
+    steps:
+      # Safe only while docker-images.yml publishes single-manifest images
+      # (provenance/sbom disabled, single platform). Multi-platform or
+      # provenance-enabled pushes create untagged child manifests that this
+      # pruning would delete, breaking the tagged images.
+      - name: Delete untagged single-image package versions
+        uses: actions/delete-package-versions@v5
+        with:
+          owner: ${{ github.repository_owner }}
+          package-type: container
+          package-name: ${{ github.event.repository.name }}
+          delete-only-untagged-versions: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

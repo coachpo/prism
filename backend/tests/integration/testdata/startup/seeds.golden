@@ -1,0 +1,45 @@
+[profiles]
+id=1	name="Default"	description="System default profile"	is_active=true	is_default=true	is_editable=true	version=1	deleted_at=null	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+
+[user_settings]
+profile_id=1	report_currency_code="USD"	report_currency_symbol="$"	timezone_preference=null	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+
+[app_auth_settings]
+singleton_key="app"	email_verification_attempt_count=0	must_change_password=false	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+
+[header_blocklist_rules]
+name="Cloudflare headers"	match_type="prefix"	pattern="cf-"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="Cloudflare extended headers"	match_type="prefix"	pattern="x-cf-"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="Cloudflare Access headers"	match_type="prefix"	pattern="cf-access-"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="B3 tracing headers"	match_type="prefix"	pattern="x-b3-"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="Datadog tracing headers"	match_type="prefix"	pattern="x-datadog-"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="CDN loop detection"	match_type="exact"	pattern="cdn-loop"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="Forwarded header"	match_type="exact"	pattern="forwarded"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="Via header"	match_type="exact"	pattern="via"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="X-Forwarded-For"	match_type="exact"	pattern="x-forwarded-for"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="X-Forwarded-Host"	match_type="exact"	pattern="x-forwarded-host"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="X-Forwarded-Port"	match_type="exact"	pattern="x-forwarded-port"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="X-Forwarded-Proto"	match_type="exact"	pattern="x-forwarded-proto"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="X-Real-IP"	match_type="exact"	pattern="x-real-ip"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="True-Client-IP"	match_type="exact"	pattern="true-client-ip"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="W3C Traceparent"	match_type="exact"	pattern="traceparent"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="W3C Tracestate"	match_type="exact"	pattern="tracestate"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="W3C Baggage"	match_type="exact"	pattern="baggage"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="X-Request-ID"	match_type="exact"	pattern="x-request-id"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="X-Correlation-ID"	match_type="exact"	pattern="x-correlation-id"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="AWS X-Ray trace"	match_type="exact"	pattern="x-amzn-trace-id"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="GCP Cloud Trace"	match_type="exact"	pattern="x-cloud-trace-context"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+
+[user_agent_client_rules]
+name="Opencode"	pattern="opencode"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="Codex"	pattern="codex"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="Claude Code"	pattern="claude(?:\\s|-)?(?:code|cli)"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="Gemini"	pattern="gemini"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="Python"	pattern="python"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+name="Curl"	pattern="curl"	enabled=true	created_at="2026-04-18T13:00:00Z"	updated_at="2026-04-18T13:00:00Z"
+
+[endpoints]
+<empty>
+
+[loadbalance_strategies]
+count=3

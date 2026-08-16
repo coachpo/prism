@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.db
+
+# Local environment
+.env
+config.json
+artifacts/
+
+# Virtual environments
+backend/.venv/
+backend/venv/
+
+# Tool caches
+.ruff_cache/
+.pytest_cache/
+
+# Node
+frontend/node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+.sisyphus/
+
+# AI Agents
+.opencode/
+.playwright-mcp
+*/test-results/
+.claude/
+.superpowers
+.pi/
+
+# Binary
+backend/prism-backend
+.codebase-memory/*
+docs/pending-design
+/backend/tests/integration/root_dockerfile_contract_test.go
+/models-list.png

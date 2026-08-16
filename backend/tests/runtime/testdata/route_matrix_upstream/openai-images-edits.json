@@ -1,0 +1,18 @@
+{
+  "content_type": "application/json",
+  "headers": {
+    "authorization": "Bearer <api_key>",
+    "x-route-matrix": "route-matrix-openai-images-edits"
+  },
+  "json_body": {
+    "images": [
+      {
+        "file_id": "file-route-matrix"
+      }
+    ],
+    "model": "<target_model>",
+    "prompt": "route matrix edit"
+  },
+  "method": "POST",
+  "path": "/route-matrix/openai-images-edits/v1/images/edits"
+}

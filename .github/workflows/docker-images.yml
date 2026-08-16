@@ -1,0 +1,117 @@
+name: Docker Image
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.event.repository.name }}
+  BUILD_PLATFORM: linux/arm64
+
+jobs:
+  verify-ci:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Require green CI on the tagged commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for attempt in $(seq 1 60); do
+            conclusion=$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow ci.yml \
+              --commit "$GITHUB_SHA" \
+              --json status,conclusion \
+              --jq 'first | if .status == "completed" then .conclusion else "pending" end' 2>/dev/null || echo "none")
+            case "$conclusion" in
+              success)
+                echo "CI is green for $GITHUB_SHA"
+                exit 0
+                ;;
+              pending|none)
+                echo "CI for $GITHUB_SHA not finished yet (state: $conclusion), attempt $attempt/60"
+                sleep 30
+                ;;
+              *)
+                echo "CI concluded '$conclusion' for $GITHUB_SHA — refusing to publish the single image"
+                exit 1
+                ;;
+            esac
+          done
+          echo "Timed out waiting for CI on $GITHUB_SHA"
+          exit 1
+
+  build-and-push:
+    needs: verify-ci
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.verify-ci.result == 'success') }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver: docker-container
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,prefix=manual-,enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Resolve frontend build metadata
+        id: frontend_build_metadata
+        run: |
+          echo "git_revision=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "git_run_number=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push single Prism image
+        uses: docker/build-push-action@v7
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VITE_API_BASE=
+            VITE_GIT_RUN_NUMBER=${{ steps.frontend_build_metadata.outputs.git_run_number }}
+            VITE_GIT_REVISION=${{ steps.frontend_build_metadata.outputs.git_revision }}
+          cache-from: type=gha,scope=single
+          cache-to: type=gha,scope=single,mode=max
+          platforms: ${{ env.BUILD_PLATFORM }}
+          provenance: false
+          sbom: false

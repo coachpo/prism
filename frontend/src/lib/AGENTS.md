@@ -1,0 +1,82 @@
+# FRONTEND LIB KNOWLEDGE BASE
+
+## OVERVIEW
+`src/lib/` is the frontend boundary to backend contracts and browser integrations. It owns the typed API seam, shared reference-data caches, explicit Ban Policy loadbalance mirror, pinned reporting-currency cache, timezone/cost helpers, app version, and clipboard helpers.
+
+## STRUCTURE
+```
+lib/
+├── api.ts                        # Public API facade re-exporting split modules
+├── api/AGENTS.md                 # Typed `/api/*` client module split and grouped ownership
+├── api/
+│   ├── core.ts                   # API base, X-Profile-Id injection, auth refresh, query builder
+│   ├── profileScope.ts           # Profile-scoped management route matcher
+│   ├── authSettings.ts           # Auth bootstrap, session flows, and proxy keys
+│   ├── management.ts             # Models, endpoints, connections, pricing templates
+│   └── observability.ts          # Usage snapshot, stats, audit, loadbalance, settings costing/timezone
+├── referenceData.ts              # Shared reference-data cache keyed by profile revision
+├── referenceDataRegistry.ts      # Registry of shared reference-data datasets
+├── loadbalanceRoutingPolicy.ts   # Dual-family defaults and policy normalization
+├── appVersion.ts                 # Browser-facing app version helper built from Vite-injected package metadata
+├── reportingCurrency.ts          # Pinned-profile keyed reporting-currency cache
+├── types.ts                      # Public type barrel
+├── types/AGENTS.md               # Backend-aligned payload and domain type rules
+├── types/                        # Backend-aligned payload and domain types
+├── costing.ts                    # Shared cost formatting and usage-label helpers
+├── timezone.ts                   # Timezone preference cache and formatting helpers used by hooks/pages
+├── clipboard.ts                  # Browser clipboard helpers and UX-safe copy flow
+└── utils.ts                      # Small generic browser/UI helpers
+```
+
+## WHERE TO LOOK
+
+- Public import boundary: `api.ts`
+- Typed `/api/*` client split, grouped surfaces, `api/core.ts` request rules, and profile-scope matcher: `api/AGENTS.md`
+- Shared lookup cache, request dedupe, and dataset registry: `referenceData.ts`, `referenceDataRegistry.ts`
+- Shared dual-family load-balance defaults and policy normalization: `loadbalanceRoutingPolicy.ts`
+- Browser app version label formatting and Vite-injected package metadata: `appVersion.ts`
+- Shared reporting-currency cache, normalization, active-currency sync, `prime()` and `refresh()` support, and fail-open default used by `ReportingCurrencyContext.tsx`: `reportingCurrency.ts`
+- Shared timezone preference lookup and formatting helpers consumed by `useTimezone()`: `timezone.ts`
+- Shared cost formatting and usage-label helpers layered over the active reporting currency: `costing.ts`
+- Browser clipboard helpers reused across route shells and detail views: `clipboard.ts`
+- Backend-aligned payload types: `types.ts`, `types/AGENTS.md`, `types/`
+
+## CHILD DOCS
+
+- `api/AGENTS.md`: `core.ts`, `profileScope.ts`, `authSettings.ts`, `management.ts`, and `observability.ts` ownership beneath the public `api.ts` barrel.
+- `types/AGENTS.md`: backend-aligned TypeScript contracts beneath the `types.ts` barrel.
+
+## CONVENTIONS
+- For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
+- Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
+
+- When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
+- Pages and hooks should import from `api.ts` or its exported `stats` helper, not call `fetch()` directly.
+- `api/core.ts` is the only place that injects the pinned `X-Profile-Id: 1` header into scoped `/api/*` requests.
+- `api/profileScope.ts` owns the route matcher for management calls that still receive the accepted-but-ignored `X-Profile-Id` header.
+- `request()` handles cookie credentials, `ApiError`, and one refresh retry for eligible `/api/*` paths.
+- Let `api/AGENTS.md` own the typed client split instead of expanding this parent with module-by-module endpoint detail.
+- `referenceData.ts` and `referenceDataRegistry.ts` own shared cache reuse, request dedupe, and revision-keyed lookup invalidation.
+- `loadbalanceRoutingPolicy.ts` owns explicit Ban Policy defaults, retry-window labels, and normalized failure-status or ban-policy handling.
+- `appVersion.ts` owns the browser-facing frontend version contract so shell chrome reads the synced `frontend/package.json` version through Vite instead of hard-coded literals.
+- `reportingCurrency.ts` owns pinned-profile keyed cache reuse, active-currency sync, `prime()` or `refresh()` support, fail-open defaults, and normalization of `report_currency_code` or `report_currency_symbol` used by `ReportingCurrencyContext.tsx`, settings, and costing.
+- `timezone.ts` owns shared timezone preference caching and helper access beneath `useTimezone()`.
+- `costing.ts` owns shared cost formatting and usage labels on top of the active reporting currency instead of duplicating cache or normalization logic.
+- Keep backend payload naming aligned with server schemas, including fixed `api_family` fields, the frozen profile id `1` contract, and stats or request-log identifiers like `ingress_request_id`.
+- Treat `types.ts` as a barrel. Backend-aligned contracts live in `types/` leaf files and should retain server field names.
+- Request-log clipboard fallback behavior is shared infrastructure through `clipboard.ts`; route sheets can supply scoped fallback roots, but copy helpers stay here.
+
+- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
+
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
+
+## ANTI-PATTERNS
+
+- Do not bypass `api/core.ts` or `api/profileScope.ts` for Prism backend requests or pinned profile-header rules.
+- Do not add a parallel reference-data cache when `referenceData.ts` already owns the shared lookup datasets.
+- Do not duplicate reporting-currency cache or normalization in settings, costing, or page code when `reportingCurrency.ts` already owns that seam.
+- Do not duplicate timezone or cost helper logic in page folders when `timezone.ts` and `costing.ts` already own those seams.
+- Do not camelCase backend response fields in the shared type layer.
+- Do not split one backend endpoint family across multiple client modules unless the backend boundary changes first.

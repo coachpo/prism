@@ -1,0 +1,14 @@
+{
+  "content_type": "application/json",
+  "headers": {
+    "authorization": "Bearer <api_key>",
+    "x-route-matrix": "route-matrix-openai-images-generations"
+  },
+  "json_body": {
+    "model": "<target_model>",
+    "prompt": "route matrix image",
+    "size": "1024x1024"
+  },
+  "method": "POST",
+  "path": "/route-matrix/openai-images-generations/v1/images/generations"
+}

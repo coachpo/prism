@@ -1,0 +1,14 @@
+{
+  "content_type": "application/json",
+  "headers": {
+    "authorization": "Bearer <api_key>",
+    "x-route-matrix": "route-matrix-openai-responses-compact"
+  },
+  "json_body": {
+    "input": "route matrix compact",
+    "model": "<target_model>",
+    "stream": true
+  },
+  "method": "POST",
+  "path": "/route-matrix/openai-responses-compact/v1/responses/compact"
+}

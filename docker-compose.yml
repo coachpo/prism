@@ -1,0 +1,52 @@
+services:
+  prism:
+    image: ${PRISM_IMAGE:-prism-single}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-}
+        VITE_GIT_RUN_NUMBER: ${VITE_GIT_RUN_NUMBER:-local}
+        VITE_GIT_REVISION: ${VITE_GIT_REVISION:-unknown}
+    restart: unless-stopped
+    environment:
+      PRISM_CONFIG_PATH: /app/config/config.json
+      DATABASE_URL: postgres://${POSTGRES_USER:-prism}:${POSTGRES_PASSWORD:-prism}@postgres:5432/${POSTGRES_DB:-prism}?sslmode=disable
+      PRISM_NGINX_PORT: ${PRISM_NGINX_PORT:-8080}
+      PRISM_BACKEND_UPSTREAM_HOST: ${PRISM_BACKEND_UPSTREAM_HOST:-127.0.0.1}
+      PRISM_BACKEND_UPSTREAM_PORT: ${PRISM_BACKEND_UPSTREAM_PORT:-8000}
+    ports:
+      - "${PRISM_PUBLIC_PORT:-8080}:${PRISM_NGINX_PORT:-8080}"
+    volumes:
+      - prism_config:/app/config
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${PRISM_NGINX_PORT}/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-prism}
+      POSTGRES_USER: ${POSTGRES_USER:-prism}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prism}
+    volumes:
+      - prism_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${PRISM_DATABASE_PORT:-15432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  prism_postgres_data:
+  prism_config:

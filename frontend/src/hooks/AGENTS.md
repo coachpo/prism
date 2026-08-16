@@ -1,0 +1,33 @@
+# FRONTEND HOOKS KNOWLEDGE BASE
+
+## OVERVIEW
+`src/hooks/` contains Prism's shared reactive helpers for display formatting.
+
+## STRUCTURE
+```
+hooks/
+└── useTimezone.ts       # Shared timestamp formatting hook over i18n helpers
+```
+
+## WHERE TO LOOK
+
+- Shared timestamp formatting through the locale layer: `useTimezone.ts`, `../i18n/format.ts`
+
+## CONVENTIONS
+- For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
+- Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
+
+- When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
+- Keep hook side effects small, and push complex shaping into `src/lib/` or local page helpers.
+- Route shared date and time display through `useTimezone.ts` or `src/i18n/format.ts`.
+
+- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
+
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
+
+## ANTI-PATTERNS
+
+- Do not create ad hoc `setInterval` loops in components.
+- Do not duplicate timezone formatting logic outside `useTimezone.ts` and `src/i18n/format.ts`.

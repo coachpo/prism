@@ -1,0 +1,35 @@
+# BACKEND MANAGEMENT AUDIT KNOWLEDGE BASE
+
+## OVERVIEW
+`management/audit/` owns Default-profile audit-log reads under `/api/audit/*` plus management job list/get/cancel routes under `/api/management/jobs*`. It serves audit-log browsing, audit-log detail lookup, and management-job status or cancellation without moving request execution or retention ownership into this package.
+
+## STRUCTURE
+```text
+audit/
+└── service.go    # Service construction, audit-log routes, management-job routes, filter parsing
+```
+
+## WHERE TO LOOK
+- Route list and mount contract: `service.go`.
+- Audit-log list/detail routes and supported filters: `service.go`, `../../../domain/audit/`.
+- Request-log audit-capture availability checks: `service.go`, `request_logs` lookup helpers.
+- Management job list/get/cancel flows: `service.go`, `../../../platform/managementjobs/`.
+
+## CONVENTIONS
+- Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
+- Keep audit-log reads pinned to Default profile id `1`. `X-Profile-Id` may still be accepted for compatibility, but it is ignored here and rows keep their `profile_id` storage columns.
+- Keep audit list windows bounded and explicit; unsupported filters and ascending sort stay rejected.
+- Resolve the audit list SQL window and its non-null `known|legacy_unknown` coverage through the shared `Requests/Audit.actual_coverage` owner projection in the same read snapshot. The retention floor is only a deletion boundary; it is not an actual lower-bound claim.
+- Keep management job status and cancellation here, while job creation and retention settings stay in `settings/` and platform workers.
+- Keep audit-log payload reads separate from runtime request execution and request-log retention ownership.
+
+- Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
+
+## LLM UPSTREAM MATRIX
+- When audit or observability behavior changes, evaluate request and response evidence across supported OpenAI, Anthropic, and Gemini operation shapes rather than assuming one provider family covers all audit rows.
+
+## ANTI-PATTERNS
+- Do not move audit-log reads into runtime handlers.
+- Do not treat management job creation or retention settings as owned here.
+- Do not allow unsupported audit filters, oversized windows, or ascending sort to slip through request parsing.
+- Do not bypass request-time audit-capture checks when resolving audit-log lookups tied to request logs.
