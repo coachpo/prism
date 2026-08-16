@@ -370,9 +370,13 @@ type v2MetadataRow struct {
 // is pending, skipping orphaned/provisional items.
 func loadNextV2MetadataRow(ctx context.Context, tx pgx.Tx) (v2MetadataRow, bool, error) {
 	var row v2MetadataRow
+	// core_next_attempt_at gates the retry backoff. Without it the loader
+	// re-selects a failing row immediately and forever, and because the claim
+	// is strictly FIFO that one row blocks every later row behind it.
 	err := tx.QueryRow(ctx, `SELECT id, profile_id, ingress_request_id, core_payload, created_at
 		FROM runtime_telemetry_outbox
 		WHERE schema_version = 2 AND lifecycle_state = 'finalized' AND core_state = 'pending'
+			AND (core_next_attempt_at IS NULL OR core_next_attempt_at <= now())
 		ORDER BY id ASC LIMIT 1 FOR UPDATE SKIP LOCKED`).
 		Scan(&row.ID, &row.ProfileID, &row.IngressID, &row.CorePayload, &row.CreatedAt)
 	if err == pgx.ErrNoRows {

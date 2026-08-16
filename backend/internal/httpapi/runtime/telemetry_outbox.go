@@ -206,13 +206,20 @@ func (o *runtimeTelemetryOutbox) handleScheduledTelemetry(ctx context.Context, _
 
 func (o *runtimeTelemetryOutbox) processNext(ctx context.Context) (bool, error) {
 	o.beginInflight()
+	// The claimed row has to escape the transaction as a Go value: when
+	// materialization aborts, any accounting written inside that transaction
+	// rolls back with it, and a row that is never accounted for is retried
+	// forever ahead of everything behind it.
+	var claimed *v2MetadataRow
 	result, err := pgxutil.InTxValue(ctx, o.telemetryPool, "runtime_telemetry", func(tx pgx.Tx) (runtimeTelemetryMaterializationResult, error) {
+		claimed = nil
 		// Prefer the v2 metadata item; fall back to the legacy v1 envelope.
 		v2Row, v2Found, v2Err := loadNextV2MetadataRow(ctx, tx)
 		if v2Err != nil {
 			return runtimeTelemetryMaterializationResult{}, v2Err
 		}
 		if v2Found {
+			claimed = &v2Row
 			return o.materializeV2MetadataRow(ctx, tx, v2Row)
 		}
 		row, found, err := loadNextRuntimeTelemetryOutboxRow(ctx, tx)
@@ -245,6 +252,20 @@ func (o *runtimeTelemetryOutbox) processNext(ctx context.Context) (bool, error) 
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return false, nil
+		}
+		if claimed != nil {
+			// context.WithoutCancel: during shutdown the attempt's context may
+			// already be cancelled, and skipping the accounting is exactly how
+			// a row becomes immortal.
+			if accountErr := o.recordMaterializationFailure(context.WithoutCancel(ctx), *claimed, err); accountErr != nil {
+				slog.Error("could not account for a telemetry materialization failure",
+					"row_id", claimed.ID, "error", accountErr)
+				return false, err
+			}
+			// The row is now either backed off or quarantined, so the queue can
+			// advance. Report progress rather than an error: aborting the drain
+			// here is what let one bad row block every later one.
+			return true, nil
 		}
 		return false, err
 	}

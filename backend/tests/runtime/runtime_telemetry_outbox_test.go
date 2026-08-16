@@ -69,7 +69,13 @@ func TestRuntimeTelemetryV2CurrencyAttributionCompatibility(t *testing.T) {
 			wantAttribution: "legacy_unknown",
 		},
 		{
-			name:       "invalid owner is not acknowledged",
+			// An invalid attribution violates a CHECK constraint, so the row can
+			// never be inserted. It used to be retried forever and left pending,
+			// which is precisely how one bad row stopped all recording for an
+			// instance. It is now retired into quarantine: still never
+			// acknowledged as materialized, still fully retained, but no longer
+			// blocking everything queued behind it.
+			name:       "invalid owner is quarantined, never materialized",
 			mutation:   `UPDATE runtime_telemetry_outbox SET core_payload = jsonb_set(core_payload, '{envelope,usage_event,CurrencyAttribution}', '"invalid"'::jsonb) WHERE profile_id = $1`,
 			failClosed: true,
 		},
@@ -92,14 +98,30 @@ func TestRuntimeTelemetryV2CurrencyAttributionCompatibility(t *testing.T) {
 				}},
 			}}})
 			if test.failClosed {
-				waitForRuntimeMaterializeAttempts(t, attempted, 2)
+				waitForRuntimeMaterializeAttempts(t, attempted, 1)
+				waitForQuarantinedRows(t, restarted.conn, profileID, 1, 10*time.Second)
+
+				// Never materialized: the invalid row must not have produced any
+				// request or usage record, and it must not still be queued.
 				counts := loadRuntimeTelemetryCounts(t, restarted.conn, profileID)
-				if counts != (runtimeTelemetryCounts{OutboxRows: 1}) {
-					t.Fatalf("expected invalid attribution to roll back materialization and keep pending outbox, got %+v", counts)
+				if counts != (runtimeTelemetryCounts{}) {
+					t.Fatalf("expected invalid attribution to be quarantined without materializing anything, got %+v", counts)
 				}
-				var coreState string
-				if err := restarted.conn.QueryRow(context.Background(), `SELECT core_state FROM runtime_telemetry_outbox WHERE profile_id = $1`, profileID).Scan(&coreState); err != nil || coreState != "pending" {
-					t.Fatalf("expected invalid attribution outbox to remain unacknowledged/pending, state=%q err=%v", coreState, err)
+
+				// Fully retained, with the reason attached, so the payload can be
+				// inspected and repaired rather than silently dropped.
+				var payloadPresent bool
+				var safeCode string
+				if err := restarted.conn.QueryRow(context.Background(), `
+					SELECT extension_payload IS NOT NULL, coalesce(schema_error_code, '')
+					FROM runtime_telemetry_quarantine WHERE profile_id = $1`, profileID).Scan(&payloadPresent, &safeCode); err != nil {
+					t.Fatalf("load quarantined telemetry: %v", err)
+				}
+				if !payloadPresent {
+					t.Fatalf("expected the quarantined row to retain its payload")
+				}
+				if !strings.HasPrefix(safeCode, "pg_23") {
+					t.Fatalf("expected a constraint-violation error code on the quarantined row, got %q", safeCode)
 				}
 				return
 			}

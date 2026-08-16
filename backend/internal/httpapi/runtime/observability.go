@@ -542,7 +542,6 @@ type usageEventInsert struct {
 	EndpointLabelSnapshot             string
 	ConnectionID                      *int
 	SelectedTerminalTargetID          *int
-	ProxyAPIKeyID                     *int
 	ProxyAPIKeyNameSnapshot           *string
 	ProxyAPIKeyAuthEnforcedAtRequest  *bool
 	StatusCode                        int
@@ -613,7 +612,6 @@ type usageEventInsert struct {
 	IngressStartedAt            *time.Time
 	IngressCompletedAt          *time.Time
 	ProxyAPIKeyIDSnapshot       *int
-	ProxyAPIKeyAttributionState string
 }
 
 func (requestLog *requestLogInsert) applyRuntimePricingResult(pricingResult runtimePricingResult) {
@@ -1043,9 +1041,8 @@ func (s *Service) buildRuntimeBudgetExhaustionTelemetryEnvelope(plan requestPlan
 		EndpointLabelSnapshot:       runtimeEndpointLabelSnapshot(result.Connection.Endpoint),
 		ConnectionID:                intPtr(result.Connection.ID),
 		SelectedTerminalTargetID:    selectedTerminalTargetID,
-		ProxyAPIKeyID:               proxyKeyIDPointer(proxyKey),
+		ProxyAPIKeyIDSnapshot:       proxyKeyIDPointer(proxyKey),
 		ProxyAPIKeyNameSnapshot:     proxyKeyNamePointer(proxyKey),
-		ProxyAPIKeyAttributionState: runtimeProxyKeyAttributionState(proxyKey),
 		StatusCode:                  runtimeErr.StatusCode,
 		SuccessFlag:                 false,
 		UnpricedReason:              nil,
@@ -1288,9 +1285,8 @@ func (s *Service) buildRuntimePlanningFailureTelemetryEnvelope(failure runtimePl
 		EndpointLabelSnapshot:       "Unknown Endpoint",
 		ConnectionID:                nil,
 		SelectedTerminalTargetID:    selectedTerminalTargetID,
-		ProxyAPIKeyID:               proxyKeyIDPointer(proxyKey),
+		ProxyAPIKeyIDSnapshot:       proxyKeyIDPointer(proxyKey),
 		ProxyAPIKeyNameSnapshot:     proxyKeyNamePointer(proxyKey),
-		ProxyAPIKeyAttributionState: runtimeProxyKeyAttributionState(proxyKey),
 		StatusCode:                  runtimeErr.StatusCode,
 		SuccessFlag:                 false,
 		UnpricedReason:              unpricedReason,
@@ -1394,9 +1390,8 @@ func (s *Service) buildRuntimeExecutionFailureTelemetryEnvelope(plan requestPlan
 		EndpointLabelSnapshot:       "Unknown Endpoint",
 		ConnectionID:                nil,
 		SelectedTerminalTargetID:    selectedTerminalTargetID,
-		ProxyAPIKeyID:               proxyKeyIDPointer(proxyKey),
+		ProxyAPIKeyIDSnapshot:       proxyKeyIDPointer(proxyKey),
 		ProxyAPIKeyNameSnapshot:     proxyKeyNamePointer(proxyKey),
-		ProxyAPIKeyAttributionState: runtimeProxyKeyAttributionState(proxyKey),
 		StatusCode:                  runtimeErr.StatusCode,
 		SuccessFlag:                 false,
 		UnpricedReason:              unpricedReason,
@@ -2077,7 +2072,7 @@ func buildRuntimeUsageEvent(plan requestPlan, result executionResult, request *h
 		EndpointLabelSnapshot:    runtimeEndpointLabelSnapshot(result.Connection.Endpoint),
 		ConnectionID:             intPtr(result.Connection.ID),
 		SelectedTerminalTargetID: selectedTerminalTargetIDForUsageEvent(plan),
-		ProxyAPIKeyID:            proxyKeyIDPointer(telemetry.proxyKey),
+		ProxyAPIKeyIDSnapshot:    proxyKeyIDPointer(telemetry.proxyKey),
 		ProxyAPIKeyNameSnapshot:  proxyKeyNamePointer(telemetry.proxyKey),
 		StatusCode:               result.Response.StatusCode,
 		SuccessFlag:              telemetry.successFlag,
@@ -2145,8 +2140,6 @@ func applyRuntimeUsageEventFinalizedFields(usageEvent *usageEventInsert, plan re
 		expectedRows = 1
 	}
 	usageEvent.ExpectedRequestLogRowCount = intPtr(expectedRows)
-	usageEvent.ProxyAPIKeyIDSnapshot = proxyKeyIDPointer(telemetry.proxyKey)
-	usageEvent.ProxyAPIKeyAttributionState = runtimeProxyKeyAttributionState(telemetry.proxyKey)
 
 	// Routing evidence from persisted triggers.
 	var winnerAttempt *executionAttempt
@@ -2730,7 +2723,7 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 			ingress_started_at, ingress_completed_at, proxy_api_key_id_snapshot, proxy_api_key_attribution_state,
 			upstream_operation_name, operation_translation_mode, upstream_request_path, endpoint_label_snapshot,
 			proxy_api_key_auth_enforced_at_request, currency_attribution, pricing_version_effective_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, $71, $72, $73, $74)`,
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, CASE WHEN $66::bigint IS NOT NULL AND $10::varchar IS NOT NULL THEN 'identified' WHEN $66::bigint IS NULL AND $10::varchar IS NULL THEN 'none' ELSE 'unknown' END, $67, $68, $69, $70, $71, $72, $73)`,
 		usageEvent.ProfileID,
 		usageEvent.IngressRequestID,
 		usageEvent.ModelID,
@@ -2796,8 +2789,10 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 		nullableStringArg(usageEvent.FinalErrorCode),
 		nullableTimeArg(usageEvent.IngressStartedAt),
 		nullableTimeArg(usageEvent.IngressCompletedAt),
+		// The attribution state is derived in SQL from the two identity values
+		// actually written, exactly as request_logs does it, so no builder can
+		// author a triple the check constraint rejects.
 		nullableIntArg(usageEvent.ProxyAPIKeyIDSnapshot),
-		usageEvent.ProxyAPIKeyAttributionState,
 		nullableStringArg(usageEvent.UpstreamOperationName),
 		nullableStringArg(usageEvent.OperationTranslationMode),
 		nullableStringArg(usageEvent.UpstreamRequestPath),
@@ -3060,16 +3055,6 @@ func proxyKeyIDPointer(proxyKey *requestcontext.RuntimeProxyKeySnapshot) *int {
 		return nil
 	}
 	return &proxyKey.ID
-}
-
-// runtimeProxyKeyAttributionState reports the immutable key attribution
-// state: identified when a key was used, none when the request had no key,
-// unknown for telemetry evidence gaps (Observe SPEC §3.5).
-func runtimeProxyKeyAttributionState(proxyKey *requestcontext.RuntimeProxyKeySnapshot) string {
-	if proxyKey == nil {
-		return "none"
-	}
-	return "identified"
 }
 
 func proxyKeyNamePointer(proxyKey *requestcontext.RuntimeProxyKeySnapshot) *string {
