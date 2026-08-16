@@ -81,8 +81,9 @@ func LoadFinalizedActivity(ctx context.Context, exec queryExecutor, profileID in
 	args := []any{profileID, bounds.UsageFrom, bounds.UsageTo}
 	if params.Before != nil {
 		args = append(args, *params.Before)
-		beforeCondition = fmt.Sprintf("AND id < $%d", len(args))
+		beforeCondition = fmt.Sprintf(" AND id < $%d", len(args))
 	}
+	queryLimit := params.Limit + 1
 	rows, err := exec.Query(ctx, `
 SELECT
 	id, ingress_request_id, created_at, model_id, resolved_target_model_id, endpoint_id, endpoint_label_snapshot, connection_id,
@@ -92,7 +93,7 @@ SELECT
 FROM usage_request_events
 WHERE profile_id = $1 AND created_at >= $2 AND created_at < $3`+beforeCondition+`
 ORDER BY id DESC
-LIMIT $`+fmt.Sprintf("%d", len(args)+1), append(args, params.Limit)...)
+	LIMIT $`+fmt.Sprintf("%d", len(args)+1), append(args, queryLimit)...)
 	if err != nil {
 		return result, fmt.Errorf("load finalized activity: %w", err)
 	}
@@ -145,6 +146,9 @@ LIMIT $`+fmt.Sprintf("%d", len(args)+1), append(args, params.Limit)...)
 	if err := rows.Err(); err != nil {
 		return result, err
 	}
-	result.HasMore = len(result.Items) == params.Limit
+	result.HasMore = len(result.Items) > params.Limit
+	if result.HasMore {
+		result.Items = result.Items[:params.Limit]
+	}
 	return result, nil
 }

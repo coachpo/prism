@@ -89,6 +89,7 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 }
 
 func (s *Service) handleListLogs(w http.ResponseWriter, r *http.Request) {
+	responseutil.SetPrivateNoStoreHeaders(w)
 	response, err := pgxutil.InRepeatableReadTxValue(r.Context(), s.pool, "audit", func(tx pgx.Tx) (auditdomain.AuditLogListResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
@@ -114,11 +115,11 @@ func (s *Service) handleListLogs(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	w.Header().Set("Cache-Control", "private, no-store")
 	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleGetLog(w http.ResponseWriter, r *http.Request) {
+	responseutil.SetPrivateNoStoreHeaders(w)
 	logID, err := routeInt(r, "log_id")
 	if err != nil {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
@@ -139,7 +140,6 @@ func (s *Service) handleGetLog(w http.ResponseWriter, r *http.Request) {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusNotFound, "Audit log not found")
 		return
 	}
-	w.Header().Set("Cache-Control", "private, no-store")
 	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
@@ -155,6 +155,7 @@ func (s *Service) handleRawResponseBody(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Service) handleRawAuditBody(w http.ResponseWriter, r *http.Request, direction auditdomain.RawBodyDirection) {
+	responseutil.SetPrivateNoStoreHeaders(w)
 	logID, err := routeInt(r, "log_id")
 	if err != nil {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
@@ -188,7 +189,6 @@ func (s *Service) handleRawAuditBody(w http.ResponseWriter, r *http.Request, dir
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"audit-%d-%s.bin\"", logID, string(direction)))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("Content-Security-Policy", "sandbox")
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(result.Body)))
 	if result.Truncated {

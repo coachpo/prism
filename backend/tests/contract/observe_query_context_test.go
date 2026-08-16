@@ -624,12 +624,12 @@ func TestObserveActivityFeed(t *testing.T) {
 	contextPayload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/query-context?preset=24h", nil, http.StatusOK)
 	token := contextPayload["query_context"].(string)
 
-	payload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/observe-activity?query_context="+token, nil, http.StatusOK)
-	items := payload["items"].([]any)
-	if len(items) != 2 {
-		t.Fatalf("expected two activity rows, got %+v", payload)
+	firstPage := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/observe-activity?query_context="+token+"&limit=1", nil, http.StatusOK)
+	firstItems := firstPage["items"].([]any)
+	if len(firstItems) != 1 || firstPage["has_more"] != true {
+		t.Fatalf("expected one newest row and another page, got %+v", firstPage)
 	}
-	first := asMap(t, items[0])
+	first := asMap(t, firstItems[0])
 	if first["model_id"] != "activity-b" || jsonInt(t, first["status_code"]) != 503 {
 		t.Fatalf("expected newest first (activity-b), got %+v", first)
 	}
@@ -639,7 +639,12 @@ func TestObserveActivityFeed(t *testing.T) {
 	if first["final_pricing_status"] != "ineligible" {
 		t.Fatalf("expected ineligible pricing status, got %+v", first)
 	}
-	second := asMap(t, items[1])
+	secondPage := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/observe-activity?query_context="+token+"&limit=1&before="+first["usage_event_id"].(string), nil, http.StatusOK)
+	secondItems := secondPage["items"].([]any)
+	if len(secondItems) != 1 || secondPage["has_more"] != false {
+		t.Fatalf("expected exact-full terminal page, got %+v", secondPage)
+	}
+	second := asMap(t, secondItems[0])
 	if second["model_id"] != "activity-a" || second["route_changed"] != true {
 		t.Fatalf("expected route_changed for activity-a, got %+v", second)
 	}
@@ -648,9 +653,6 @@ func TestObserveActivityFeed(t *testing.T) {
 	}
 	if second["known_cost_micros"] != "9300" || second["final_pricing_status"] != "priced" {
 		t.Fatalf("expected priced cost facts, got %+v", second)
-	}
-	if payload["has_more"] != false {
-		t.Fatalf("expected has_more false for 2 rows, got %+v", payload)
 	}
 }
 

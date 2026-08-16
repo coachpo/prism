@@ -38,9 +38,7 @@ func TestAuditRawBodyDownloadRoundTrip(t *testing.T) {
 	if reqResponse.Header.Get("X-Content-Type-Options") != "nosniff" {
 		t.Fatalf("expected nosniff, got %q", reqResponse.Header.Get("X-Content-Type-Options"))
 	}
-	if reqResponse.Header.Get("Cache-Control") != "private, no-store" {
-		t.Fatalf("expected private no-store, got %q", reqResponse.Header.Get("Cache-Control"))
-	}
+	assertPrivateObservabilityHeaders(t, reqResponse.Header)
 	if !strings.Contains(reqResponse.Header.Get("Content-Disposition"), "attachment; filename=") {
 		t.Fatalf("expected attachment disposition, got %q", reqResponse.Header.Get("Content-Disposition"))
 	}
@@ -60,6 +58,7 @@ func TestAuditRawBodyDownloadRoundTrip(t *testing.T) {
 	if respResponse.StatusCode != http.StatusOK {
 		t.Fatalf("expected response raw download 200, got %d", respResponse.StatusCode)
 	}
+	assertPrivateObservabilityHeaders(t, respResponse.Header)
 	rawResponseBody, err := ioReadAll(respResponse)
 	if err != nil {
 		t.Fatalf("read raw response body: %v", err)
@@ -70,7 +69,5 @@ func TestAuditRawBodyDownloadRoundTrip(t *testing.T) {
 
 	// Audit detail is also private no-store.
 	detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs/1", nil, modelHeader(profileID))
-	if detailResponse.Header.Get("Cache-Control") != "private, no-store" {
-		t.Fatalf("expected audit detail private no-store, got %q", detailResponse.Header.Get("Cache-Control"))
-	}
+	assertPrivateObservabilityHeaders(t, detailResponse.Header)
 }

@@ -69,6 +69,47 @@ func ApplyAllowOriginHeaders(w http.ResponseWriter, r *http.Request, snapshot Sn
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Set("Access-Control-Expose-Headers", IngressRequestIDHeader)
-	w.Header().Set("Vary", "Origin")
+	MergeVary(w.Header(), "Origin")
 	return true
+}
+
+// MergeVary appends field names to Vary without dropping fields installed by
+// earlier middleware or emitting case-insensitive duplicates.
+func MergeVary(header http.Header, fields ...string) {
+	values := make([]string, 0, len(fields)+1)
+	seen := make(map[string]struct{}, len(fields)+1)
+	for _, line := range header.Values("Vary") {
+		for token := range strings.SplitSeq(line, ",") {
+			appendVaryToken(&values, seen, token)
+		}
+	}
+	for _, field := range fields {
+		appendVaryToken(&values, seen, field)
+	}
+	header.Del("Vary")
+	if len(values) > 0 {
+		header.Set("Vary", strings.Join(values, ", "))
+	}
+}
+
+func appendVaryToken(values *[]string, seen map[string]struct{}, raw string) {
+	token := strings.TrimSpace(raw)
+	key := strings.ToLower(token)
+	if token == "" {
+		return
+	}
+	if key == "*" {
+		*values = []string{"*"}
+		clear(seen)
+		seen[key] = struct{}{}
+		return
+	}
+	if _, wildcard := seen["*"]; wildcard {
+		return
+	}
+	if _, exists := seen[key]; exists {
+		return
+	}
+	seen[key] = struct{}{}
+	*values = append(*values, token)
 }

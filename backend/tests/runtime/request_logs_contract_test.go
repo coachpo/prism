@@ -390,6 +390,29 @@ func TestRequestLogDetailContract(t *testing.T) {
 	}
 }
 
+func TestRequestLogDetailCurrentPricingEffectiveAtUsesUTC(t *testing.T) {
+	harness := newRequestLogContractHarness(t)
+	profileID := loadRuntimeDefaultProfileID(t, harness)
+	seedRequestLogEndpoints(t, harness, profileID)
+	seedFixtureRequestLog(t, harness, profileID)
+	location := time.FixedZone("FUN-009 offset", 3*60*60)
+	templateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "request-log-current-pricing-"+randomSuffix(), loadRuntimeReportCurrencyCode(t, harness.conn, profileID), "1", "2", "0", "0", "0")
+	attachRequestLogCurrentPricingTemplate(t, harness, profileID, 101, templateID, time.Date(2026, 4, 18, 15, 0, 0, 0, location))
+	previousLocal := time.Local
+	time.Local = location
+	defer func() { time.Local = previousLocal }()
+
+	response := harness.requestJSON(t, http.MethodGet, "/api/stats/requests/101", nil, runtimeModelHeader(profileID))
+	assertStatus(t, response, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	currentPricing := asMapRuntime(t, payload["current_pricing_template"])
+	effectiveAt, ok := currentPricing["current_effective_at"].(string)
+	if !ok || effectiveAt != "2026-04-18T12:00:00Z" {
+		t.Fatalf("expected current pricing effective_at to use canonical UTC JSON, got %v", currentPricing["current_effective_at"])
+	}
+}
+
 func TestRequestLogStreamErrorDetailContract(t *testing.T) {
 	harness := newRequestLogContractHarness(t)
 	profileID := loadRuntimeDefaultProfileID(t, harness)
@@ -2454,6 +2477,42 @@ func seedFixtureRequestLog(t *testing.T, harness *requestLogContractHarness, pro
 	}
 	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET operation_name = 'openai.chat_completions', upstream_operation_name = 'openai.responses', operation_translation_mode = 'openai_chat_completions_to_responses', upstream_request_path = '/v1/responses', request_generation_params = $1::jsonb, request_generation_params_status = 'complete', selected_terminal_target_id = 34 WHERE profile_id = $2 AND id = 101`, `{"provider":"openai","temperature":0.7,"top_p":0.9,"max_output_tokens":1024,"max_output_tokens_source":"max_completion_tokens","reasoning":{"effort":"low","source_field":"reasoning_effort"}}`, profileID); err != nil {
 		t.Fatalf("seed fixture request generation params: %v", err)
+	}
+}
+
+func attachRequestLogCurrentPricingTemplate(t *testing.T, harness *requestLogContractHarness, profileID int, requestLogID int, templateID int, effectiveAt time.Time) {
+	t.Helper()
+	result, err := harness.conn.Exec(context.Background(), `WITH current_revision AS (
+		SELECT revisions.* FROM pricing_templates AS templates
+		JOIN pricing_template_revisions AS revisions ON revisions.id = templates.current_revision_id
+		WHERE templates.profile_id = $1 AND templates.id = $3
+	), next_revision AS (
+		INSERT INTO pricing_template_revisions (
+			template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id,
+			reporting_currency_epoch, currency_attribution, input_price, output_price,
+			cached_input_price, cache_creation_price, reasoning_price, effective_at,
+			created_at, created_by_kind, created_by_operation_id
+		)
+		SELECT template_id, version + 1, pricing_unit, currency_code, reporting_currency_epoch_id,
+			reporting_currency_epoch, currency_attribution, input_price, output_price,
+			cached_input_price, cache_creation_price, reasoning_price, $4, $4, 'legacy_backfill', NULL
+		FROM current_revision RETURNING id, template_id
+	), current_template AS (
+		UPDATE pricing_templates AS templates
+		SET current_revision_id = revisions.id, updated_at = $4
+		FROM next_revision AS revisions WHERE templates.id = revisions.template_id
+		RETURNING templates.id, revisions.id AS revision_id
+	)
+	UPDATE request_logs AS logs
+	SET pricing_template_id_used = templates.id,
+		pricing_template_revision_id_used = templates.revision_id
+	FROM current_template AS templates
+	WHERE logs.profile_id = $1 AND logs.id = $2`, profileID, requestLogID, templateID, effectiveAt)
+	if err != nil {
+		t.Fatalf("attach current pricing template to request log %d: %v", requestLogID, err)
+	}
+	if result.RowsAffected() != 1 {
+		t.Fatalf("expected to attach one current pricing template to request log %d, got %d", requestLogID, result.RowsAffected())
 	}
 }
 

@@ -709,7 +709,10 @@ func buildDetailCurrentPricingTemplate(ctx context.Context, exec queryExecutor, 
 	if version != nil {
 		detail.CurrentVersion = *version
 	}
-	detail.CurrentEffectiveAt = effectiveAt
+	if effectiveAt != nil {
+		currentEffectiveAt := effectiveAt.UTC()
+		detail.CurrentEffectiveAt = &currentEffectiveAt
+	}
 	if row.PricingTemplateRevisionIDUsed != nil {
 		detail.MatchesRequestRevision = revisionID != nil && *row.PricingTemplateRevisionIDUsed == *revisionID
 	}

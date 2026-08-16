@@ -32,24 +32,24 @@ type TerminalTargetStatisticsParams struct {
 // four reasons, coverage, and recorded ban/admission events all use the same
 // definitions as the model/endpoint tables (OB-28..33).
 type TerminalTargetStatistic struct {
-	ConnectionID            int                 `json:"connection_id"`
-	ConnectionLabel         string              `json:"connection_label"`
-	RequestCount            int                 `json:"request_count"`
-	HTTPSuccessCount        int                 `json:"http_success_count"`
-	HTTPFailedCount         int                 `json:"http_failed_count"`
-	FinalFailedCount        int                 `json:"final_failed_count"`
-	ClientDisconnectedCount int                 `json:"client_disconnected_count"`
-	P50TTFTMS               *int                `json:"p50_ttft_ms"`
-	P95TTFTMS               *int                `json:"p95_ttft_ms"`
-	AvgOutputRateTPS        *float64            `json:"avg_output_rate_tps"`
-	TotalTokens             int                 `json:"total_tokens"`
-	TotalCostMicros         int64               `json:"total_cost_micros"`
-	PricingStatusCounts     PricingStatusCounts `json:"pricing_status_counts"`
-	UnpricedReasonCounts    map[string]int      `json:"unpriced_reason_counts"`
-	Coverage                QueryCoverage       `json:"coverage"`
-	BanEventCount           int                 `json:"ban_event_count"`
-	AdmissionRejectionCount int                 `json:"admission_rejection_count"`
-	EventCoverageComplete   bool                `json:"event_coverage_complete"`
+	ConnectionID            int                  `json:"connection_id"`
+	ConnectionLabel         string               `json:"connection_label"`
+	RequestCount            int                  `json:"request_count"`
+	HTTPSuccessCount        int                  `json:"http_success_count"`
+	HTTPFailedCount         int                  `json:"http_failed_count"`
+	FinalFailedCount        int                  `json:"final_failed_count"`
+	ClientDisconnectedCount int                  `json:"client_disconnected_count"`
+	P50TTFTMS               *int                 `json:"p50_ttft_ms"`
+	P95TTFTMS               *int                 `json:"p95_ttft_ms"`
+	AvgOutputRateTPS        *float64             `json:"avg_output_rate_tps"`
+	TotalTokens             int                  `json:"total_tokens"`
+	TotalCostMicros         int64                `json:"total_cost_micros"`
+	PricingStatusCounts     PricingStatusCounts  `json:"pricing_status_counts"`
+	UnpricedReasonCounts    UnpricedReasonCounts `json:"unpriced_reason_counts"`
+	Coverage                QueryCoverage        `json:"coverage"`
+	BanEventCount           int                  `json:"ban_event_count"`
+	AdmissionRejectionCount int                  `json:"admission_rejection_count"`
+	EventCoverageComplete   bool                 `json:"event_coverage_complete"`
 }
 
 type PricingStatusCounts struct {
@@ -186,7 +186,12 @@ func terminalTargetStatisticFromAggregate(aggregate *terminalTargetAggregate, co
 			Ineligible: aggregate.pricingStatus["ineligible"],
 			Unknown:    aggregate.pricingStatus["unknown"],
 		},
-		UnpricedReasonCounts:    aggregate.unpricedReasons,
+		UnpricedReasonCounts: UnpricedReasonCounts{
+			PRICING_DISABLED:         aggregate.unpricedReasons[UnpricedReasonPricingDisabled],
+			MISSING_TOKEN_USAGE:      aggregate.unpricedReasons[UnpricedReasonMissingTokenUsage],
+			STREAM_USAGE_UNAVAILABLE: aggregate.unpricedReasons[UnpricedReasonStreamUsageUnavailable],
+			MISSING_PRICE_DATA:       aggregate.unpricedReasons[UnpricedReasonMissingPriceData],
+		},
 		Coverage:                coverage,
 		BanEventCount:           aggregate.banEventCount,
 		AdmissionRejectionCount: aggregate.admissionRejectionCount,

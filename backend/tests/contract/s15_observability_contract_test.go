@@ -1970,8 +1970,19 @@ func TestEndpointTerminalTargetStatisticsDrillDown(t *testing.T) {
 		t.Fatalf("expected pricing counts 1/1/1 for conn 17, got %+v", pricing)
 	}
 	reasons := first["unpriced_reason_counts"].(map[string]any)
-	if reasons["MISSING_PRICE_DATA"] != float64(1) {
-		t.Fatalf("expected MISSING_PRICE_DATA reason count 1, got %+v", reasons)
+	wantReasons := map[string]int{
+		"PRICING_DISABLED":         0,
+		"MISSING_TOKEN_USAGE":      0,
+		"STREAM_USAGE_UNAVAILABLE": 0,
+		"MISSING_PRICE_DATA":       1,
+	}
+	if len(reasons) != len(wantReasons) {
+		t.Fatalf("expected exactly four canonical unpriced reasons, got %+v", reasons)
+	}
+	for reason, want := range wantReasons {
+		if jsonInt(t, reasons[reason]) != want {
+			t.Fatalf("expected %s reason count %d, got %+v", reason, want, reasons)
+		}
 	}
 	if jsonInt(t, first["p50_ttft_ms"]) != 120 {
 		t.Fatalf("expected p50 ttft 120 for conn 17, got %+v", first)
@@ -1985,6 +1996,15 @@ func TestEndpointTerminalTargetStatisticsDrillDown(t *testing.T) {
 	}
 	if jsonInt(t, second["final_failed_count"]) != 0 {
 		t.Fatalf("expected client disconnect not counted as final failed, got %+v", second)
+	}
+	secondReasons := asMap(t, second["unpriced_reason_counts"])
+	if len(secondReasons) != len(wantReasons) {
+		t.Fatalf("expected exactly four canonical zero-valued reasons, got %+v", secondReasons)
+	}
+	for reason := range wantReasons {
+		if jsonInt(t, secondReasons[reason]) != 0 {
+			t.Fatalf("expected %s reason count 0, got %+v", reason, secondReasons)
+		}
 	}
 	coverage := asMap(t, payload["coverage"])
 	if coverage["state"] != "known" || coverage["complete"] != true {

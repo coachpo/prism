@@ -275,6 +275,7 @@ func (s *Service) handleDashboardRecentActivity(w http.ResponseWriter, r *http.R
 }
 
 func (s *Service) handleListRequestLogs(w http.ResponseWriter, r *http.Request) {
+	responseutil.SetPrivateNoStoreHeaders(w)
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (any, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
@@ -405,6 +406,7 @@ func parseProxyAPIKeyFilterOptionsParams(r *http.Request, profileID int) (statsd
 }
 
 func (s *Service) handleGetRequestLog(w http.ResponseWriter, r *http.Request) {
+	responseutil.SetPrivateNoStoreHeaders(w)
 	rawRequestLogID := strings.TrimSpace(chi.URLParam(r, "request_id"))
 	if rawRequestLogID == "" || !regexp.MustCompile(`^[0-9]+$`).MatchString(rawRequestLogID) {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "request_id must be a positive decimal string")
@@ -462,6 +464,7 @@ func (s *Service) handleGetRequestLog(w http.ResponseWriter, r *http.Request) {
 // §6.8). The snapshot, preflight count, spool, and digest happen before any
 // response body bytes are sent; typed rejections never produce a partial file.
 func (s *Service) handleExportRequestLogs(w http.ResponseWriter, r *http.Request) {
+	responseutil.SetPrivateNoStoreHeaders(w)
 	// Reject pagination keys up front.
 	if strings.TrimSpace(r.URL.Query().Get("limit")) != "" || strings.TrimSpace(r.URL.Query().Get("offset")) != "" ||
 		strings.TrimSpace(r.URL.Query().Get("cursor")) != "" || strings.TrimSpace(r.URL.Query().Get("chain_cursor")) != "" ||
@@ -519,7 +522,6 @@ func (s *Service) handleExportRequestLogs(w http.ResponseWriter, r *http.Request
 	w.Header().Set("X-Prism-Export-View", result.View)
 	w.Header().Set("X-Prism-Export-Coverage", "retained")
 	w.Header().Set("Digest", "sha-256="+result.DigestSHA256)
-	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(result.Content)))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if _, err := w.Write(result.Content); err != nil {

@@ -19,6 +19,7 @@ import {
 } from "@/shared/design-system";
 import { operationalRowStripe } from "@/shared/table/operationalTable";
 import { RetryAfterCallout } from "@/features/observe/RetryAfterCallout";
+import { nextObserveActivityCursor } from "@/features/observe/observeActivityPagination";
 
 const ACTIVITY_PAGE_SIZE = 20;
 
@@ -104,10 +105,10 @@ export function ObserveActivityTable({ queryContext }: { queryContext: string | 
   }
 
   const items = fragment.data.items;
-  // The endpoint pages with a `before` timestamp and reports `has_more`; it
+  // The endpoint pages with a `before` usage-event cursor and reports `has_more`; it
   // returns no total, so the footer states the page range rather than
   // inventing a count.
-  const nextCursor = fragment.data.has_more ? (items.at(-1)?.created_at ?? null) : null;
+  const nextCursor = nextObserveActivityCursor(items, fragment.data.has_more);
 
   return (
     <div className="flex flex-col gap-2">

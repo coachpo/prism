@@ -48,9 +48,7 @@ func TestRequestLogCSVExportContract(t *testing.T) {
 	}
 	response.Body = ioNopCloser(bytes.NewReader(rawBody))
 	body := string(rawBody)
-	if response.Header.Get("Cache-Control") != "private, no-store" {
-		t.Fatalf("expected private no-store cache control, got %q", response.Header.Get("Cache-Control"))
-	}
+	assertPrivateObservabilityHeaders(t, response.Header)
 	if response.Header.Get("Content-Type") != "text/csv; charset=utf-8" {
 		t.Fatalf("expected text/csv content type, got %q", response.Header.Get("Content-Type"))
 	}
