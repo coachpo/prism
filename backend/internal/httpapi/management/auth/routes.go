@@ -844,7 +844,6 @@ func decodeStrictJSONBody(request *http.Request, target any) error {
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		return responseutil.SanitizeDecodeError(err)
-		return err
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {

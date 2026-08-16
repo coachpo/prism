@@ -3595,8 +3595,6 @@ Terminal Targets are represented as `connections` / `connection_id` in the compa
 | priority | INTEGER | NOT NULL | Legacy fallback ordering hint for family-level reads; model routing order comes from access-target `position` |
 | name | TEXT | NULLABLE | Optional Terminal Target label |
 | auth_type | VARCHAR(50) | NULLABLE | Optional auth behavior metadata |
-
-Management read APIs mask values whose header name matches the fixed `safediag` sensitive-name rules, returning the `__prism_redacted__` sentinel plus a `custom_headers_redacted` name list; writing the sentinel back preserves the stored value, and a sentinel for an unknown header name is rejected with 422.
 | custom_headers | TEXT | NULLABLE | JSON headers applied before blocklist filtering |
 | custom_request_parameters | JSONB | NULLABLE | Optional static top-level JSON object overlaid onto every upstream attempt body; `NULL`/`{}`/`null` all mean unconfigured; CHECK constraint `connections_custom_request_parameters_object` requires `NULL` or a JSON object root |
 | health_status | VARCHAR(20) | NOT NULL | `unknown`, `healthy`, `unhealthy`; application-managed compatibility value |
@@ -3609,6 +3607,8 @@ Management read APIs mask values whose header name matches the fixed `safediag` 
 | routing_schedule_timezone | VARCHAR(100) | NULLABLE | IANA timezone of this Terminal Target's own routing clock; `NULL` together with zero window rows means no time restriction. Unrelated to `user_settings.timezone_preference` |
 | created_at | TIMESTAMPTZ | NOT NULL | Creation timestamp; application-managed |
 | updated_at | TIMESTAMPTZ | NOT NULL | Last update timestamp; application-managed |
+
+Management read APIs mask values whose header name matches the fixed `safediag` sensitive-name rules, returning the `__prism_redacted__` sentinel plus a `custom_headers_redacted` name list; writing the sentinel back preserves the stored value, and a sentinel for an unknown header name is rejected with 422.
 
 Indexes include `idx_connections_profile_family_active_priority` for family-scoped active candidate reads, `idx_connections_endpoint_id` for endpoint dependency checks, and `idx_connections_pricing_template_id` for template dependency checks.
 

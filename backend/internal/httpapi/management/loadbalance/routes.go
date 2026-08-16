@@ -334,7 +334,6 @@ func (s *Service) handleSetStrategyDefault(w http.ResponseWriter, r *http.Reques
 	if err := decoder.Decode(&requestEnvelope); err != nil {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, responseutil.SanitizeDecodeError(err).Error())
 		return
-		return
 	}
 	// expected_default_strategy_id is a present-but-nullable CAS key: an absent
 	// key or a non-positive integer is a typed 400; null means the caller

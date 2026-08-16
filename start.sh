@@ -177,8 +177,21 @@ kill_pid() {
 
     kill "$pid" 2>/dev/null || true
     sleep 1
-    kill -0 "$pid" 2>/dev/null || return
+    kill -0 "$pid" 2>/dev/null || return 0
     kill -9 "$pid" 2>/dev/null || true
+}
+
+# The frontend is a real process tree (env -> pnpm -> node/vite -> esbuild
+# workers), so a single PID kill orphans the rest. Sweep descendants first,
+# deepest-first, then the root.
+kill_tree() {
+    local pid="$1"
+    local child
+
+    for child in $(pgrep -P "$pid" 2>/dev/null || true); do
+        kill_tree "$child"
+    done
+    kill_pid "$pid"
 }
 
 is_prism_backend_pid() {
@@ -249,8 +262,16 @@ cleanup() {
 
     trap - EXIT INT TERM
 
-    [[ -n "${BACKEND_PID:-}" ]] && kill "$BACKEND_PID" 2>/dev/null || true
-    [[ -n "${FRONTEND_PID:-}" ]] && kill "$FRONTEND_PID" 2>/dev/null || true
+    # Stop the parent-death watchdog first: while this launcher is alive it
+    # must never observe an EOF and fire early. Once it is gone its EOF at
+    # process exit finds an empty stack and is a no-op.
+    [[ -n "${WATCHDOG_PID:-}" ]] && kill "$WATCHDOG_PID" 2>/dev/null || true
+    [[ -n "${WATCHDOG_STATE:-}" ]] && rm -f "$WATCHDOG_STATE"
+
+    # The || true guards keep a failing kill_tree from tripping set -e: a
+    # process that died on TERM must not abort the rest of the teardown.
+    [[ -n "${BACKEND_PID:-}" ]] && kill_tree "$BACKEND_PID" || true
+    [[ -n "${FRONTEND_PID:-}" ]] && kill_tree "$FRONTEND_PID" || true
     wait 2>/dev/null || true
 
     postgres_compose down --remove-orphans >/dev/null 2>&1 || true
@@ -348,12 +369,14 @@ start_frontend() {
 
     (
         cd "$FRONTEND_DIR"
-        env -u VITE_API_BASE \
+        exec 8>&- || true
+        exec env -u VITE_API_BASE \
             PRISM_VITE_PROXY_ENABLED=1 \
             PRISM_VITE_PROXY_TARGET="http://localhost:${BACKEND_PORT}" \
             pnpm exec vite --host 0.0.0.0 --port "$FRONTEND_PORT"
     ) &
     FRONTEND_PID=$!
+    echo "$FRONTEND_PID" >> "$WATCHDOG_STATE"
 }
 
 require_cmd go
@@ -384,8 +407,26 @@ ensure_database_port_available
 postgres_compose up -d postgres
 wait_for_postgres
 
-(cd "$BACKEND_DIR" && "$BACKEND_BINARY") &
+# Parent-death watchdog: this launcher holds fd 8's write end for the whole
+# stack. If the launcher dies for any reason (even SIGKILL), the kernel
+# closes it, the watchdog's cat hits EOF, and the watchdog tears the stack
+# down by PID (from the state file) plus the compose project — so the dev
+# stack can never outlive its launcher as an untracked escape. Killing by
+# PID rather than process group keeps a backgrounded launcher (which shares
+# its parent's group) from signalling the parent shell. Each child closes
+# the inherited write end (exec 8>&-) so the EOF still arrives.
+WATCHDOG_STATE="/tmp/prism-start-sh-pids.$$"
+: > "$WATCHDOG_STATE"
+exec 8> >( cat >/dev/null; while read -r pid; do [[ -n "$pid" ]] && kill_tree "$pid"; done < "$WATCHDOG_STATE"; postgres_compose down --remove-orphans >/dev/null 2>&1 || true )
+WATCHDOG_PID=$!
+
+(
+    cd "$BACKEND_DIR"
+    exec 8>&- || true
+    exec "$BACKEND_BINARY"
+) &
 BACKEND_PID=$!
+echo "$BACKEND_PID" > "$WATCHDOG_STATE"
 
 if [[ "$MODE" == "full" ]]; then
     start_frontend

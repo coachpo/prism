@@ -141,7 +141,6 @@ func (s *Service) handleIssueEventsQueryContext(w http.ResponseWriter, r *http.R
 	if err := decoder.Decode(&requestBody); err != nil {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, responseutil.SanitizeDecodeError(err).Error())
 		return
-		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (eventsQueryContextResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
