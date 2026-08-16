@@ -124,18 +124,6 @@
     "notes": "Read-only static routing diagnostics."
   },
   {
-    "route_pattern": "/api/models/{model_config_id}/routing-diagnostics/preview",
-    "methods": [
-      "POST"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Read-only proposed model routing preview."
-  },
-  {
     "route_pattern": "/api/models/{model_config_id}/targets",
     "methods": [
       "GET",
@@ -1027,18 +1015,6 @@
     "invalidates_planning": false,
     "invalidates_all_planning": false,
     "notes": "Bounded Terminal Target drill-down per endpoint (lazy expansion)."
-  },
-  {
-    "route_pattern": "/api/models/{model_config_id}/routing-diagnostics/preview",
-    "methods": [
-      "POST"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Read-only proposed-model diagnostics preview; no writes or planning invalidation."
   },
   {
     "route_pattern": "/api/endpoints/references/batch",

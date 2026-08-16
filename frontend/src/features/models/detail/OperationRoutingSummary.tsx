@@ -8,6 +8,8 @@ import {
   type OperatorBadgeIntent,
 } from "@/shared/design-system";
 
+type ObserveCopy = ReturnType<typeof useLocale>["messages"]["observe"];
+
 /**
  * Static routing summary (MC-A2/A3/A4): authoritative backend analyzer output
  * for the accepted OpenAI operations plus configuration warnings. The backend
@@ -38,9 +40,9 @@ export function OperationRoutingSummary({ diagnostics }: { diagnostics: RoutingD
           ) : null}
         </div>
         <ul className="flex flex-col gap-1" data-testid="routing-operation-list">
-          {routes.map((route) => (
-            <li key={route.operation_name} data-testid={`routing-operation-${route.operation_name}`}>
-              <OperationRouteRow route={route} copy={copy} />
+          {buildOperationGroups(routes).map((group) => (
+            <li key={group.key} data-testid={`routing-operation-${group.key}`}>
+              <OperationGroupRow group={group} copy={copy} />
             </li>
           ))}
         </ul>
@@ -61,55 +63,117 @@ export function OperationRoutingSummary({ diagnostics }: { diagnostics: RoutingD
   );
 }
 
-function OperationRouteRow({
-  route,
-  copy,
-}: {
-  route: RoutingDiagnosticRoute;
-  copy: ReturnType<typeof useLocale>["messages"]["observe"];
-}) {
-  let intent: OperatorBadgeIntent = "idle";
-  let label: string;
-  if (!route.accepted) {
-    intent = "idle";
-    label = copy.routingNotAccepted;
-  } else if (route.statically_routable) {
-    intent = "healthy";
-    label = copy.routingRoutable;
-  } else if (route.configured_leaf_exists) {
-    intent = "degraded";
-    label = copy.routingConfiguredButIneligible;
-  } else {
-    intent = "failing";
-    label = copy.routingUncovered;
+/**
+ * Visible operation groups, mirroring the authoritative grouping in the backend
+ * `modelrouting` package: the three Responses-family operations are one group,
+ * and the two image operations are one group. Anything absent from this table
+ * (Anthropic, Gemini) keeps one row per registered operation name.
+ */
+const OPERATION_GROUP_KEYS: Record<string, string> = {
+  "openai.chat_completions": "chat_completions",
+  "openai.responses": "responses",
+  "openai.responses.input_tokens": "responses",
+  "openai.responses.compact": "responses",
+  "openai.images.generations": "images",
+  "openai.images.edits": "images",
+};
+
+interface OperationGroup {
+  key: string;
+  members: RoutingDiagnosticRoute[];
+}
+
+/**
+ * Buckets the backend routes by visible group, preserving the order the backend
+ * emitted: the group takes the position of its first member, so the operation
+ * order stays the analyzer's rather than a frontend-local one.
+ */
+function buildOperationGroups(routes: RoutingDiagnosticRoute[]): OperationGroup[] {
+  const groups: OperationGroup[] = [];
+  const byKey = new Map<string, OperationGroup>();
+  for (const route of routes) {
+    const key = OPERATION_GROUP_KEYS[route.operation_name] ?? route.operation_name;
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.members.push(route);
+      continue;
+    }
+    const group: OperationGroup = { key, members: [route] };
+    byKey.set(key, group);
+    groups.push(group);
   }
-  const displayName = groupName(route.operation_name, copy);
+  return groups;
+}
+
+interface RouteDisposition {
+  key: string;
+  intent: OperatorBadgeIntent;
+  label: string;
+}
+
+function routeDisposition(route: RoutingDiagnosticRoute, copy: ObserveCopy): RouteDisposition {
+  if (!route.accepted) {
+    return { key: "not_accepted", intent: "idle", label: copy.routingNotAccepted };
+  }
+  if (route.statically_routable) {
+    return { key: "routable", intent: "healthy", label: copy.routingRoutable };
+  }
+  if (route.configured_leaf_exists) {
+    return { key: "configured_but_ineligible", intent: "degraded", label: copy.routingConfiguredButIneligible };
+  }
+  return { key: "uncovered", intent: "failing", label: copy.routingUncovered };
+}
+
+function OperationGroupRow({ group, copy }: { group: OperationGroup; copy: ObserveCopy }) {
+  const members = group.members.map((route) => ({ route, disposition: routeDisposition(route, copy) }));
+  const uniform = members.every((member) => member.disposition.key === members[0].disposition.key);
   return (
     <div className="flex items-center justify-between gap-2 rounded-md px-1 py-0.5 text-sm">
-      <span className="font-mono text-xs">{displayName}</span>
-      <OperatorStatusBadge intent={intent} label={label} />
+      <span className="font-mono text-xs">{groupLabel(group.key, copy)}</span>
+      {uniform ? (
+        <OperatorStatusBadge intent={members[0].disposition.intent} label={members[0].disposition.label} />
+      ) : (
+        // Members of one group are authorized independently: a model may accept
+        // generations and not edits. One aggregated badge would report the
+        // whole group as routable when only one member is, so a split group
+        // stays split, one badge per member.
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {members.map(({ route, disposition }) => (
+            <OperatorStatusBadge
+              key={route.operation_name}
+              intent={disposition.intent}
+              label={copy.routingMemberState(memberLabel(route.operation_name, copy), disposition.label)}
+              preserveLabel
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function groupName(operationName: string, copy: ReturnType<typeof useLocale>["messages"]["observe"]): string {
-  if (operationName.startsWith("openai.responses")) return copy.routingResponsesLabel;
-  if (operationName === "openai.chat_completions") return copy.routingChatLabel;
-  // Image operations are their own groups, one per operation, because
-  // generations and edits are authorized independently.
-  if (operationName === "openai.images.generations") return copy.imagesGenerations ?? operationName;
-  if (operationName === "openai.images.edits") return copy.imagesEdits ?? operationName;
-  return operationName;
+function groupLabel(groupKey: string, copy: ObserveCopy): string {
+  if (groupKey === "chat_completions") return copy.routingChatLabel;
+  if (groupKey === "responses") return copy.routingResponsesLabel;
+  if (groupKey === "images") return copy.routingImagesLabel;
+  return groupKey;
 }
 
-function modeLabel(mode: string, copy: ReturnType<typeof useLocale>["messages"]["observe"]): string {
+/** Short name used only when a group's members disagree and must be told apart. */
+function memberLabel(operationName: string, copy: ObserveCopy): string {
+  if (operationName === "openai.images.generations") return copy.imagesGenerations;
+  if (operationName === "openai.images.edits") return copy.imagesEdits;
+  return operationName.replace(/^openai\./, "");
+}
+
+function modeLabel(mode: string, copy: ObserveCopy): string {
   if (mode === "dual_native") return copy.modeDual ?? "双模式";
   if (mode === "chat_completions_only") return copy.modeChat ?? "仅 Chat Completions";
   if (mode === "responses_only") return copy.modeResponses ?? "仅 Responses";
   return mode;
 }
 
-function strategyLabel(type: string, copy: ReturnType<typeof useLocale>["messages"]["observe"]): string {
+function strategyLabel(type: string, copy: ObserveCopy): string {
   if (type === "single") return copy.strategySingle ?? "单一";
   if (type === "fill-first") return copy.strategyFillFirst ?? "优先填满";
   if (type === "round-robin") return copy.strategyRoundRobin ?? "轮询";

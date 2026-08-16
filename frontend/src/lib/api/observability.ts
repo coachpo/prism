@@ -626,11 +626,6 @@ export type DashboardNowResponse = {
 
 export const modelRoutingDiagnostics = {
   get: (modelConfigId: number) => request<RoutingDiagnosticsResponse>(`/api/models/${modelConfigId}/routing-diagnostics`),
-  preview: (modelConfigId: number, body: { openai_accepted_format?: string; loadbalance_strategy_id?: number; is_enabled?: boolean }) =>
-    request<RoutingDiagnosticsResponse & { mode_change_guard?: { allowed: boolean; blocking_owner_connection_count: number; blocking_outbound_model_target_count: number; blocking_inbound_referrer_count: number; required_action: string | null } }>(
-      `/api/models/${modelConfigId}/routing-diagnostics/preview`,
-      { method: "POST", body: JSON.stringify(body) },
-    ),
 };
 
 export const observe = {

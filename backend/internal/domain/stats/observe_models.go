@@ -114,7 +114,7 @@ func LoadUsageSummary(ctx context.Context, exec queryExecutor, profileID int, bo
 			Precision:         &CoveragePrecision{TTFT: "exact", OutputRate: "exact"},
 		},
 	}
-	var p50, p95 *int
+	var p50, p95 *float64
 	var avgRate *float64
 	var knownCost *string
 	var priced, unpriced, ineligible, unknown int
@@ -225,8 +225,8 @@ SELECT
 		rate := float64(requestCount-httpErrorCount) * 100 / float64(requestCount)
 		result.HTTPSuccessRate = &rate
 	}
-	result.P50TTFTMS = p50
-	result.P95TTFTMS = p95
+	result.P50TTFTMS = roundIntPointer(p50)
+	result.P95TTFTMS = roundIntPointer(p95)
 	result.AvgOutputRateTPS = avgRate
 	if spanMinutes > 0 {
 		rpm := float64(requestCount) / spanMinutes

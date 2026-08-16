@@ -113,7 +113,13 @@ func TestObserveQueryContextAndUsageSummary(t *testing.T) {
 		rows = append(rows, map[string]any{"seq": 200 + i, "status_code": 200, "pricing_status": "unpriced", "unpriced_reason": "MISSING_TOKEN_USAGE"})
 	}
 	for i := 0; i < 18; i++ {
-		rows = append(rows, map[string]any{"seq": 300 + i, "status_code": 200, "pricing_status": "priced", "total_cost_user_currency_micros": int64(1200000)})
+		row := map[string]any{"seq": 300 + i, "status_code": 200, "pricing_status": "priced", "total_cost_user_currency_micros": int64(1200000)}
+		if i >= 8 && i < 17 {
+			row["ttft_ms"] = 201
+		} else if i == 17 {
+			row["ttft_ms"] = 300
+		}
+		rows = append(rows, row)
 	}
 	seedObserveUsageRows(t, harness, profileID, rows)
 
@@ -171,8 +177,11 @@ func TestObserveQueryContextAndUsageSummary(t *testing.T) {
 	if jsonInt(t, summary["ttft_sample_count"]) != 20 {
 		t.Fatalf("expected 20 TTFT samples (completed only), got %+v", summary)
 	}
-	if p50, ok := summary["p50_ttft_ms"].(float64); !ok || p50 != 100 {
-		t.Fatalf("expected p50 ttft 100, got %+v", summary["p50_ttft_ms"])
+	if p50, ok := summary["p50_ttft_ms"].(float64); !ok || p50 != 151 {
+		t.Fatalf("expected rounded p50 ttft 151, got %+v", summary["p50_ttft_ms"])
+	}
+	if p95, ok := summary["p95_ttft_ms"].(float64); !ok || p95 != 206 {
+		t.Fatalf("expected rounded p95 ttft 206, got %+v", summary["p95_ttft_ms"])
 	}
 }
 

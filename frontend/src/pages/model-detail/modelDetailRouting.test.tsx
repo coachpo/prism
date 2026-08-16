@@ -6,10 +6,8 @@ import type {
   DiagnosticsTarget,
   LoadbalanceCurrentStateItem,
   ModelAccessTargetConnectionMutation,
-  RoutingDiagnosticsResult,
 } from "@/lib/types"
 import { classifyOpenAICoverage, openaiAcceptedOperationSet, openaiTargetSupportedOperationSet } from "./classifyOpenAICoverage"
-import { OpenAICoverageSummary } from "./OpenAICoverageSummary"
 import { TerminalTargetCard } from "./TerminalTargetCard"
 
 function renderWithLocale(node: React.ReactNode) {
@@ -258,110 +256,5 @@ describe("TerminalTargetCard", () => {
     )
     expect(screen.queryByText("abc")).not.toBeInTheDocument()
     expect(screen.queryByText("t1")).not.toBeInTheDocument()
-  })
-})
-
-function diagnosticsFixture(overrides: Partial<RoutingDiagnosticsResult> = {}): RoutingDiagnosticsResult {
-  return {
-    model_config_id: 7,
-    strategy: { id: 3, type: "single" },
-    accepted_operations: ["openai.chat_completions", "openai.responses", "openai.responses.input_tokens", "openai.responses.compact"],
-    stages: [],
-    operation_coverage: [],
-    configuration_warnings: [],
-    ...overrides,
-  }
-}
-
-describe("OpenAICoverageSummary", () => {
-  it("renders group status and warning classification", () => {
-    const diagnostics = diagnosticsFixture({
-      operation_coverage: [
-        {
-          operation_name: "openai.chat_completions",
-          accepted: true,
-          capability_covered: true,
-          statically_routable: true,
-          resolved_stage: "terminal_targets",
-          compatible_access_target_ids: [42],
-          access_target_ids: [42],
-        },
-        {
-          operation_name: "openai.responses",
-          accepted: true,
-          capability_covered: true,
-          statically_routable: false,
-          resolved_stage: null,
-          compatible_access_target_ids: [43],
-          access_target_ids: [43],
-        },
-        {
-          operation_name: "openai.responses.input_tokens",
-          accepted: true,
-          capability_covered: true,
-          statically_routable: false,
-          resolved_stage: null,
-          compatible_access_target_ids: [43],
-          access_target_ids: [43],
-        },
-        {
-          operation_name: "openai.responses.compact",
-          accepted: true,
-          capability_covered: true,
-          statically_routable: false,
-          resolved_stage: null,
-          compatible_access_target_ids: [43],
-          access_target_ids: [43],
-        },
-      ],
-      configuration_warnings: [
-        {
-          code: "openai_operation_uncovered",
-          severity: "danger",
-          message: "",
-          path: "openai_accepted_format",
-          model_config_id: 7,
-          access_target_id: null,
-          connection_id: null,
-          operation_names: ["openai.responses", "openai.responses.input_tokens", "openai.responses.compact"],
-          details: { reason: "no_static_eligible_target" },
-        },
-        {
-          code: "openai_target_partial_coverage",
-          severity: "warning",
-          message: "",
-          path: "openai_text_capability",
-          model_config_id: 7,
-          access_target_id: 43,
-          connection_id: 16,
-          operation_names: ["openai.chat_completions"],
-          details: { stage: "terminal_targets" },
-        },
-        {
-          code: "single_strategy_truncates_targets",
-          severity: "warning",
-          message: "",
-          path: "loadbalance_strategy_id",
-          model_config_id: 7,
-          access_target_id: null,
-          connection_id: null,
-          operation_names: [],
-          details: { stage: "terminal_targets" },
-        },
-      ],
-    })
-    renderWithLocale(<OpenAICoverageSummary diagnostics={diagnostics} loading={false} error={null} />)
-    expect(screen.getByText("可路由")).toBeInTheDocument()
-    expect(screen.getByText("存在能力但当前不参与")).toBeInTheDocument()
-    expect(screen.getByText("由终端目标阶段形成候选")).toBeInTheDocument()
-    expect(screen.getByText("存在兼容目标，但以下操作当前没有可参与路由的目标：openai.responses、openai.responses.input_tokens、openai.responses.compact")).toBeInTheDocument()
-    expect(screen.getByText("该目标只承接部分入口能力。")).toBeInTheDocument()
-    expect(screen.getByText("终端目标阶段选择了 single 策略：只有第一个启用目标会参与路由，其余同行被截断。")).toBeInTheDocument()
-  })
-
-  it("shows an error state with retry and never a success tone", () => {
-    renderWithLocale(<OpenAICoverageSummary diagnostics={null} loading={false} error="无法验证配置" onRetry={() => undefined} />)
-    expect(screen.getByText("无法验证配置")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument()
   })
 })

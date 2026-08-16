@@ -109,7 +109,6 @@ func TestRoutingDiagnosticsContract(t *testing.T) {
 		}
 
 		s15GET[map[string]any](t, harness, profileID, fmt.Sprintf("/api/models/%d/routing-diagnostics", modelConfigID), http.StatusOK)
-		s15JSON[map[string]any](t, harness, profileID, http.MethodPost, fmt.Sprintf("/api/models/%d/routing-diagnostics/preview", modelConfigID), map[string]any{"openai_accepted_format": "chat_completions_only"}, http.StatusOK)
 
 		var logsAfter int
 		if err := harness.conn.QueryRow(context.Background(), `SELECT COUNT(*) FROM request_logs`).Scan(&logsAfter); err != nil {
@@ -125,37 +124,6 @@ func TestRoutingDiagnosticsContract(t *testing.T) {
 		if planningVersionAfter != planningVersionBefore {
 			t.Fatalf("diagnostics must not invalidate planning, before=%d after=%d", planningVersionBefore, planningVersionAfter)
 		}
-	})
-
-	t.Run("preview overlays proposed values without persisting", func(t *testing.T) {
-		payload := s15JSON[map[string]any](t, harness, profileID, http.MethodPost, fmt.Sprintf("/api/models/%d/routing-diagnostics/preview", modelConfigID), map[string]any{"openai_accepted_format": "chat_completions_only"}, http.StatusOK)
-		coverageByOperation := map[string]map[string]any{}
-		for _, raw := range payload["operation_coverage"].([]any) {
-			item := asMap(t, raw)
-			coverageByOperation[item["operation_name"].(string)] = item
-		}
-		chat := coverageByOperation["openai.chat_completions"]
-		if chat["accepted"] != true || chat["statically_routable"] != false {
-			t.Fatalf("expected chat-only preview to accept chat but keep responses-only target non-routable, got %+v", chat)
-		}
-		responses := coverageByOperation["openai.responses"]
-		if responses["accepted"] != false {
-			t.Fatalf("expected chat-only preview to not accept responses, got %+v", responses)
-		}
-
-		var persistedFormat string
-		if err := harness.conn.QueryRow(context.Background(), `SELECT openai_accepted_format FROM model_configs WHERE id = $1`, modelConfigID).Scan(&persistedFormat); err != nil {
-			t.Fatalf("load persisted format after preview: %v", err)
-		}
-		if persistedFormat != "dual_native" {
-			t.Fatalf("preview must not persist the proposed format, got %q", persistedFormat)
-		}
-
-		// At least one field is required; unknown fields and invalid refs are hard errors.
-		s15JSON[map[string]any](t, harness, profileID, http.MethodPost, fmt.Sprintf("/api/models/%d/routing-diagnostics/preview", modelConfigID), map[string]any{}, http.StatusBadRequest)
-		unknownResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/routing-diagnostics/preview", modelConfigID), map[string]any{"unexpected_field": 1}, modelHeader(profileID))
-		assertStatus(t, unknownResponse, http.StatusBadRequest)
-		s15JSON[map[string]any](t, harness, profileID, http.MethodPost, fmt.Sprintf("/api/models/%d/routing-diagnostics/preview", modelConfigID), map[string]any{"loadbalance_strategy_id": 999_999}, http.StatusBadRequest)
 	})
 
 	t.Run("model list embeds routing summary", func(t *testing.T) {

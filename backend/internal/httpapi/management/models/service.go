@@ -107,7 +107,6 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Delete("/models/{model_config_id}", s.handleDeleteModel)
 	api.Get("/models/by-endpoint/{endpoint_id}", s.handleModelsByEndpoint)
 	api.Get("/models/{model_config_id}/routing-diagnostics", s.handleGetRoutingDiagnostics)
-	api.Post("/models/{model_config_id}/routing-diagnostics/preview", s.handlePreviewRoutingDiagnostics)
 	api.Get("/models", s.handleListModels)
 	api.Get("/models/route-witnesses", s.handleGetRouteWitnesses)
 }

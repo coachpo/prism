@@ -399,19 +399,14 @@ export function ModelsTable({
                     </div>
                   </TableCell>
                   <TableCell className="align-top">
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        aria-label={copy.toggleModelAria(title)}
-                        checked={model.is_enabled}
-                        disabled={togglingModelIds.has(model.id)}
-                        onCheckedChange={(checked) => void onSetEnabled(model, checked)}
-                      />
-                      <OperatorStatusBadge
-                        label={model.is_enabled ? messages.modelDetail.enabled : messages.modelDetail.disabled}
-                        intent={model.is_enabled ? "healthy" : "idle"}
-                        preserveLabel
-                      />
-                    </div>
+                    {/* The switch is the state: a badge beside it restated the
+                        same bit in a second vocabulary. */}
+                    <Switch
+                      aria-label={copy.toggleModelAria(title)}
+                      checked={model.is_enabled}
+                      disabled={togglingModelIds.has(model.id)}
+                      onCheckedChange={(checked) => void onSetEnabled(model, checked)}
+                    />
                   </TableCell>
                   <TableCell className="align-top">
                     {/* The whole cell links to detail: counts alone never answer

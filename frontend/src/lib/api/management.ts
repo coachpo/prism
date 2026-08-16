@@ -43,8 +43,6 @@ import type {
   PricingTemplateImportRequest,
   PricingTemplateImportResponse,
   PricingTemplateUpdate,
-  RoutingDiagnosticsPreviewRequest,
-  RoutingDiagnosticsResult,
   ConfigurationWarning,
   ModelRouteReadinessEnvelope,
   ModelRouteReadinessSummary,
@@ -96,8 +94,6 @@ type RawModelConfigListItem = Omit<ManagedModelConfigListItem, "loadbalance_stra
 type RawModelConfigListReadinessItem = RawModelConfigListItem & {
   route_readiness?: ModelRouteReadinessSummary;
 };
-
-type RawRoutingDiagnosticsResult = RoutingDiagnosticsResult;
 
 type RawModelConfig = Omit<ManagedModelConfig, "loadbalance_strategy" | "access_targets"> & {
   loadbalance_strategy: RawLoadbalanceStrategySummary | null;
@@ -420,15 +416,6 @@ export const models = {
       model: normalizeModelConfig(response.model),
       configuration_warnings: response.configuration_warnings ?? [],
     })),
-  routingDiagnostics: {
-    get: (modelConfigId: number) =>
-      request<RawRoutingDiagnosticsResult>(`/api/models/${modelConfigId}/routing-diagnostics`),
-    preview: (modelConfigId: number, data: RoutingDiagnosticsPreviewRequest) =>
-      request<RawRoutingDiagnosticsResult>(`/api/models/${modelConfigId}/routing-diagnostics/preview`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-  },
   delete: (id: number) => request<void>(`/api/models/${id}`, { method: "DELETE" }),
   targets: {
     list: (modelConfigId: number) =>

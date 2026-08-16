@@ -2,7 +2,6 @@ package models
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -169,162 +168,6 @@ func (s *Service) handleGetRoutingDiagnostics(w http.ResponseWriter, r *http.Req
 	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
-type routingDiagnosticsPreviewRequest struct {
-	OpenAIAcceptedFormat  *string `json:"openai_accepted_format"`
-	OpenAIImageOperations *string `json:"openai_image_operations"`
-	LoadbalanceStrategyID *int    `json:"loadbalance_strategy_id"`
-	IsEnabled             *bool   `json:"is_enabled"`
-}
-
-// routingDiagnosticsPreviewResponse wraps the diagnostics result with the
-// mode-change guard computed for the proposed values. The embedded result
-// flattens into the same response shape as GET diagnostics.
-type routingDiagnosticsPreviewResponse struct {
-	modelrouting.DiagnosticsResult
-	ModeChangeGuard modeChangeGuard `json:"mode_change_guard"`
-}
-
-type modeChangeGuard struct {
-	Allowed                      bool   `json:"allowed"`
-	BlockingOwnerConnectionCount int    `json:"blocking_owner_connection_count"`
-	RequiredAction               string `json:"required_action"`
-}
-
-const modeChangeRequiredAction = "delete_relationships_then_change_mode_then_recreate"
-
-func (s *Service) handlePreviewRoutingDiagnostics(w http.ResponseWriter, r *http.Request) {
-	modelConfigID, err := routeInt(r, "model_config_id")
-	if err != nil {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
-		return
-	}
-	var requestBody routingDiagnosticsPreviewRequest
-	if err := decodeStrictJSONBody(r, &requestBody); err != nil {
-		writeDecodeError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	if requestBody.OpenAIAcceptedFormat == nil && requestBody.OpenAIImageOperations == nil && requestBody.LoadbalanceStrategyID == nil && requestBody.IsEnabled == nil {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "at least one of openai_accepted_format, openai_image_operations, loadbalance_strategy_id, or is_enabled is required")
-		return
-	}
-	// Preview validates only the dimensions the caller actually proposed; the
-	// joint "at least one dimension" rule belongs to the persisted mutation,
-	// because a preview may change one dimension while the other stays as
-	// authored on the record.
-	if requestBody.OpenAIAcceptedFormat != nil || requestBody.OpenAIImageOperations != nil {
-		if err := validateProposedOpenAIDimensions(requestBody.OpenAIAcceptedFormat, requestBody.OpenAIImageOperations); err != nil {
-			writeDomainError(w, r, s.corsSnapshot(), err)
-			return
-		}
-	}
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (previewDiagnosticsOutcome, error) {
-		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
-		if err != nil {
-			return previewDiagnosticsOutcome{}, err
-		}
-		records, err := listModelRecords(r.Context(), tx, profile.ID)
-		if err != nil {
-			return previewDiagnosticsOutcome{}, err
-		}
-		record, found := findModelRecordByID(records, modelConfigID)
-		if !found {
-			return previewDiagnosticsOutcome{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Model configuration not found"}
-		}
-		if requestBody.LoadbalanceStrategyID != nil {
-			if err := ensureLoadbalanceStrategyExists(r.Context(), tx, profile.ID, *requestBody.LoadbalanceStrategyID); err != nil {
-				return previewDiagnosticsOutcome{}, err
-			}
-		}
-		graph, err := loadRoutingDiagnosticsGraph(r.Context(), tx, profile.ID, records)
-		if err != nil {
-			return previewDiagnosticsOutcome{}, err
-		}
-		proposed := record
-		if requestBody.OpenAIAcceptedFormat != nil {
-			proposed.OpenAIAcceptedFormat = cloneStringPointer(requestBody.OpenAIAcceptedFormat)
-		}
-		if requestBody.OpenAIImageOperations != nil {
-			proposed.OpenAIImageOperations = cloneStringPointer(requestBody.OpenAIImageOperations)
-		}
-		if requestBody.LoadbalanceStrategyID != nil {
-			proposed.LoadbalanceStrategyID = cloneIntPointer(requestBody.LoadbalanceStrategyID)
-		}
-		if requestBody.IsEnabled != nil {
-			proposed.IsEnabled = *requestBody.IsEnabled
-		}
-		graph.ModelsByID[modelConfigID] = modelrouting.DiagnosticsModel{
-			ConfigID:              proposed.ID,
-			ProfileID:             proposed.ProfileID,
-			ModelID:               proposed.ModelID,
-			APIFamily:             proposed.APIFamily,
-			IsEnabled:             proposed.IsEnabled,
-			OpenAIAcceptedFormat:  cloneStringPointer(proposed.OpenAIAcceptedFormat),
-			OpenAIImageOperations: cloneStringPointer(proposed.OpenAIImageOperations),
-			LoadbalanceStrategyID: cloneIntPointer(proposed.LoadbalanceStrategyID),
-		}
-		result := modelrouting.Analyze(graph, modelConfigID, diagnosticsOperationListForModel(proposed))
-		return previewDiagnosticsOutcome{
-			Result: result,
-			Guard:  computeModeChangeGuard(graph, modelConfigID, proposed.OpenAIAcceptedFormat, record.OpenAIAcceptedFormat),
-		}, nil
-	})
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	responseutil.WriteJSON(w, http.StatusOK, routingDiagnosticsPreviewResponse{
-		DiagnosticsResult: response.Result,
-		ModeChangeGuard:   response.Guard,
-	})
-}
-
-type previewDiagnosticsOutcome struct {
-	Result modelrouting.DiagnosticsResult
-	Guard  modeChangeGuard
-}
-
-// computeModeChangeGuard reports whether a proposed openai_accepted_format
-// change would orphan owner connections whose capability cannot serve the
-// proposed mode. It is advisory and read-only: the preview never persists or
-// deletes anything, and the blocking count covers every connection attached
-// to the root model through its terminal access targets. currentFormat is the
-// committed model format before the proposal.
-func computeModeChangeGuard(graph *modelrouting.DiagnosticsGraph, modelConfigID int, proposedFormat *string, currentFormat *string) modeChangeGuard {
-	guard := modeChangeGuard{Allowed: true, RequiredAction: modeChangeRequiredAction}
-	if proposedFormat == nil {
-		return guard
-	}
-	if currentFormat != nil && *currentFormat == *proposedFormat {
-		return guard
-	}
-	if _, ok := graph.ModelsByID[modelConfigID]; !ok {
-		return guard
-	}
-	blocking := 0
-	for _, target := range graph.AccessTargetsBySourceModelID[modelConfigID] {
-		if target.TargetConnectionID == nil {
-			continue
-		}
-		connection, ok := graph.ConnectionsByID[*target.TargetConnectionID]
-		if !ok || connection.OpenAITextCapability == nil {
-			continue
-		}
-		if !strings.EqualFold(strings.TrimSpace(*connection.OpenAITextCapability), strings.TrimSpace(*proposedFormat)) {
-			blocking++
-		}
-	}
-	guard.BlockingOwnerConnectionCount = blocking
-	guard.Allowed = blocking == 0
-	return guard
-}
-
-func decodeStrictJSONBody(request *http.Request, target any) error {
-	defer func() { _ = request.Body.Close() }()
-	decoder := json.NewDecoder(request.Body)
-	decoder.DisallowUnknownFields()
-	return decoder.Decode(target)
-}
-
 func findModelRecordByID(records []modelRecord, modelConfigID int) (modelRecord, bool) {
 	for _, record := range records {
 		if record.ID == modelConfigID {
@@ -442,17 +285,4 @@ func translateConnectionWriterError(err error) error {
 		return &domainError{StatusCode: connectionErr.StatusCode, Detail: detail}
 	}
 	return err
-}
-
-// validateProposedOpenAIDimensions checks the individual values a diagnostics
-// preview proposes. Unlike the mutation validator it does not require at least
-// one dimension, because a preview only overlays the dimensions it names.
-func validateProposedOpenAIDimensions(acceptedFormat *string, imageOperations *string) error {
-	if acceptedFormat != nil && !isValidOpenAIAcceptedFormat(strings.TrimSpace(*acceptedFormat)) {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: "openai_accepted_format must be one of 'responses_only', 'chat_completions_only', or 'dual_native'"}
-	}
-	if imageOperations != nil && !providerauth.IsSupportedOpenAIImageCapability(*imageOperations) {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: "openai_image_operations must be one of 'generations', 'edits', or 'generations_and_edits'"}
-	}
-	return nil
 }
