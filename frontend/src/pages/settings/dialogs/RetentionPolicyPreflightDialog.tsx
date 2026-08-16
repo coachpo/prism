@@ -97,7 +97,11 @@ export function RetentionPolicyPreflightDialog({
               />
             </div>
           </div>
-        ) : null}
+        ) : (
+          // A discarded preflight leaves no keyword and no impact facts, so the
+          // dialog says the confirmation is void instead of rendering blank.
+          <OperatorCallout intent="danger" description={copy.preflightDiscarded} />
+        )}
         <AlertDialogFooter>
           <AlertDialogCancel disabled={submitting}>{dialogCopy.cancel}</AlertDialogCancel>
 		  <Button type="button" variant="destructive" disabled={!preflight || !preflightSemanticsComplete || !valid || submitting} onClick={() => void onSubmit()}>

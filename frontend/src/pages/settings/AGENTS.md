@@ -30,7 +30,7 @@ settings/
 - `SettingsPage.tsx` renders two scopes: `全局` (`scope=global`) and `实例` (`scope=instance`). The legacy `tab` query value is dropped during canonicalization.
 - The Global scope mounts billing and reporting currency, timezone, and audit and privacy.
 - The Instance scope mounts instance-wide authentication plus automatic retention policy with owner actual coverage, manual cleanup, and the retention job center.
-- `settingsPageHelpers.ts` is the source of truth for scope ids, section ids, section allowlists, default section per scope, delete keywords, and shared costing and auth validation helpers.
+- `settingsPageHelpers.ts` is the source of truth for scope ids, section ids, section allowlists, default section per scope, and shared costing and auth validation helpers. Destructive retention confirmation has no client-side keyword: the server issues `confirmation_keyword` with every preflight and compares it exactly.
 
 ## WHERE TO LOOK
 

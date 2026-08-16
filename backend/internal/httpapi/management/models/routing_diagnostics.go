@@ -352,7 +352,6 @@ func attachRoutingSummaries(records []modelRecord, accessTargets map[int][]acces
 			APIFamily:             record.APIFamily,
 			IsEnabled:             record.IsEnabled,
 			OpenAIAcceptedFormat:  cloneStringPointer(record.OpenAIAcceptedFormat),
-			OpenAIImageOperations: cloneStringPointer(record.OpenAIImageOperations),
 			LoadbalanceStrategyID: cloneIntPointer(record.LoadbalanceStrategyID),
 		}
 	}

@@ -28,7 +28,8 @@ dialogs/
 
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep dialog files focused on rendering, field composition, and confirm-copy framing.
-- Keep mutation state, delete keywords, and save orchestration in the parent settings hooks.
+- Keep mutation state, preflight state, and save orchestration in the parent settings hooks.
+- Destructive retention dialogs display and validate the `confirmation_keyword` carried by their preflight prop. Never confirm against localized copy or a local constant, and never render the typed-confirm field when no preflight backs it.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
