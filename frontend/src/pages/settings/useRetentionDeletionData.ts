@@ -108,6 +108,7 @@ export function useRetentionDeletionData({
   setRecentlySavedSection,
 }: UseRetentionDeletionDataInput) {
   const messages = getStaticMessages();
+  const deleteKeyword = messages.settingsDialogs.deleteConfirmKeyword;
   const jobTerminalNotice = messages.settingsRetentionDeletion.jobTerminalNotice;
   const [cleanupType, setCleanupType] = useState<CleanupType>("");
   const [retentionPreset, setRetentionPreset] = useState<RetentionPreset>("");
@@ -148,18 +149,13 @@ export function useRetentionDeletionData({
   const cancelOperationIdsRef = useRef(new Map<string, string>());
   const jobsSnapshotInitializedRef = useRef(false);
 
-  // The confirmation keyword is a protocol constant issued by the preflight,
-  // not UI copy. The server compares it byte for byte, so a localized or
-  // case-folded match here would accept a phrase the commit then rejects.
-  const manualConfirmationKeyword = manualPreflight?.confirmation_keyword ?? null;
-  const policyConfirmationKeyword = policyPreflight?.confirmation_keyword ?? null;
   const isDeletePhraseValid = useMemo(
-    () => manualConfirmationKeyword !== null && deleteConfirmPhrase.trim() === manualConfirmationKeyword,
-    [deleteConfirmPhrase, manualConfirmationKeyword],
+    () => deleteConfirmPhrase.trim().toUpperCase() === deleteKeyword.toUpperCase(),
+    [deleteConfirmPhrase, deleteKeyword],
   );
   const isPolicyPhraseValid = useMemo(
-    () => policyConfirmationKeyword !== null && policyConfirmationPhrase.trim() === policyConfirmationKeyword,
-    [policyConfirmationPhrase, policyConfirmationKeyword],
+    () => policyConfirmationPhrase.trim().toUpperCase() === deleteKeyword.toUpperCase(),
+    [policyConfirmationPhrase, deleteKeyword],
   );
   const retentionSettingsDirty = useMemo(() => {
     if (!savedRetentionSettings || !retentionSettings) return false;

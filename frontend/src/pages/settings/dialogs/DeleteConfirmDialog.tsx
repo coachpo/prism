@@ -8,7 +8,7 @@ import {
 } from "../settingsPageHelpers";
 import type { RetentionPreflightResponse } from "@/lib/types";
 import { useTimezone } from "@/hooks/useTimezone";
-import { OperatorCallout, OperatorDestructiveDialog } from "@/shared/design-system";
+import { OperatorDestructiveDialog } from "@/shared/design-system";
 
 interface DeleteConfirmDialogProps {
   deleteConfirm: {
@@ -113,29 +113,23 @@ export function DeleteConfirmDialog({
           {preflight && !preflightSemanticsComplete ? <p className="text-sm text-destructive" role="alert">{messages.settingsRetentionDeletion.semanticFactsUnavailable}</p> : null}
         </div>
 
-        {/* The keyword comes from the preflight, so without one there is
-            nothing the operator could type that the server would accept. */}
-        {preflight ? (
-          <div className="flex flex-col gap-3 rounded-md border border-border bg-inset p-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="delete-confirm-phrase">{copy.typeDeleteToProceed(preflight.confirmation_keyword)}</Label>
-              <code className="inline-flex w-fit items-center rounded-md border border-border bg-panel px-2.5 py-1.5 text-sm font-medium text-foreground">
-                {preflight.confirmation_keyword}
-              </code>
-            </div>
-
-            <Input
-              id="delete-confirm-phrase"
-              name="delete_confirm_phrase"
-              autoComplete="off"
-              value={deleteConfirmPhrase}
-              onChange={(event) => setDeleteConfirmPhrase(event.target.value)}
-              placeholder={preflight.confirmation_keyword}
-            />
+        <div className="flex flex-col gap-3 rounded-md border border-border bg-inset p-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="delete-confirm-phrase">{copy.typeDeleteToProceed(copy.deleteConfirmKeyword)}</Label>
+            <code className="inline-flex w-fit items-center rounded-md border border-border bg-panel px-2.5 py-1.5 text-sm font-medium text-foreground">
+              {copy.deleteConfirmKeyword}
+            </code>
           </div>
-        ) : (
-          <OperatorCallout intent="danger" description={messages.settingsRetentionDeletion.preflightDiscarded} />
-        )}
+
+          <Input
+            id="delete-confirm-phrase"
+            name="delete_confirm_phrase"
+            autoComplete="off"
+            value={deleteConfirmPhrase}
+            onChange={(event) => setDeleteConfirmPhrase(event.target.value)}
+            placeholder={copy.deleteConfirmKeyword}
+          />
+        </div>
       </div>
     </OperatorDestructiveDialog>
   );

@@ -57,8 +57,7 @@ export type CleanupType = "" | "requests" | "audits" | "loadbalance_events" | "s
 export type DeleteCleanupType = Exclude<CleanupType, "">;
 export type RetentionPreset = "" | "1" | "7" | "30" | "90" | "all";
 
-// Destructive retention confirmation has no client-side keyword: the server
-// issues `confirmation_keyword` with each preflight and compares it exactly.
+export const DELETE_CONFIRM_KEYWORD = getStaticMessages().settingsDialogs.deleteConfirmKeyword;
 export const AUTH_PASSWORD_MIN_LENGTH = 8;
 export const AUTH_PASSWORD_MAX_LENGTH = 512;
 
