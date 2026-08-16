@@ -252,7 +252,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 
 | Component | Technology |
 |---|---|
-| Backend | Go 1.26.5, chi, pgx |
+| Backend | Go 1.26.6, chi, pgx |
 | HTTP Client | Go `net/http` streaming transport |
 | Database | PostgreSQL via pgx |
 | Frontend | React 19, Vite 8, TypeScript, Tailwind CSS 4, shadcn/ui, TanStack Router |

@@ -2,7 +2,7 @@
 
 ## Development Environment
 
-- Backend: Go 1.26.5+.
+- Backend: Go 1.26.6+.
 - Frontend: Node.js 24+, pnpm 10.30.1 (package manager is pinned via `packageManager`).
 - Docker is required for the local PostgreSQL service and the Compose bundle.
 

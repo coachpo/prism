@@ -48,7 +48,7 @@ The canonical and only prebuilt app image is `ghcr.io/coachpo/prism`. It contain
 
 ### Local development
 
-Requires Go 1.26.5, Node.js 24+, pnpm, and Docker. Backend and frontend live in this monorepo under `backend/` and `frontend/`.
+Requires Go 1.26.6, Node.js 24+, pnpm, and Docker. Backend and frontend live in this monorepo under `backend/` and `frontend/`.
 
 ```bash
 ./start.sh full      # backend + frontend dev server + PostgreSQL
