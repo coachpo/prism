@@ -307,6 +307,13 @@ func TestRuntimeRequestCancellationStopsUpstream(t *testing.T) {
 	if result.Err == nil {
 		t.Fatalf("expected client-side cancellation to abort the runtime request, got status %d", result.StatusCode)
 	}
+	state := loadRuntimeState(t, harness, profileID, route.ConnectionID)
+	if state.CycleRetryAttempts != 0 || state.CumulativeRetryAttempts != 0 || state.NextRetryAt.Valid || state.InFlightStream != 0 {
+		t.Fatalf("expected caller cancellation to leave retry/Ban state clean and release its lease, got %+v", state)
+	}
+	if events := queryLoadbalanceEvents(t, harness.conn, profileID, route.ConnectionID); len(events) != 0 {
+		t.Fatalf("expected caller cancellation not to persist load-balance failure events, got %+v", events)
+	}
 }
 
 func TestRuntimeBufferedFallbacks(t *testing.T) {

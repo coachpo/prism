@@ -247,7 +247,7 @@ func selectedRouteReason(attempts []gatewaycore.RouteAttempt) gatewaycore.RouteR
 	redirectReason := gatewaycore.RouteReasonDirectMatch
 	for _, attempt := range attempts {
 		switch attempt.Reason {
-		case gatewaycore.RouteReasonQPSOverflow, gatewaycore.RouteReasonRPMOverflow, gatewaycore.RouteReasonTPMOverflow, gatewaycore.RouteReasonIPMOverflow, gatewaycore.RouteReasonConcurrencyOverflow, gatewaycore.RouteReasonRetry429, gatewaycore.RouteReasonRetry5xx, gatewaycore.RouteReasonRetryConnectTimeout:
+		case gatewaycore.RouteReasonQPSOverflow, gatewaycore.RouteReasonRPMOverflow, gatewaycore.RouteReasonTPMOverflow, gatewaycore.RouteReasonIPMOverflow, gatewaycore.RouteReasonConcurrencyOverflow, gatewaycore.RouteReasonRetry429, gatewaycore.RouteReasonRetry5xx, gatewaycore.RouteReasonRetryHTTP, gatewaycore.RouteReasonRetryConnectTimeout, gatewaycore.RouteReasonRetryTransport:
 			return attempt.Reason
 		case gatewaycore.RouteReasonModelRedirect, gatewaycore.RouteReasonUpstreamRedirect:
 			if redirectReason == gatewaycore.RouteReasonDirectMatch {
@@ -279,7 +279,7 @@ func canonicalReservationReason(reason gatewaycore.RouteReason) gatewaycore.Rout
 
 func canonicalRouteReason(reason gatewaycore.RouteReason) gatewaycore.RouteReason {
 	switch reason {
-	case gatewaycore.RouteReasonDirectMatch, gatewaycore.RouteReasonModelRedirect, gatewaycore.RouteReasonUpstreamRedirect, gatewaycore.RouteReasonQPSOverflow, gatewaycore.RouteReasonRPMOverflow, gatewaycore.RouteReasonTPMOverflow, gatewaycore.RouteReasonIPMOverflow, gatewaycore.RouteReasonConcurrencyOverflow, gatewaycore.RouteReasonRetry429, gatewaycore.RouteReasonRetry5xx, gatewaycore.RouteReasonRetryConnectTimeout, gatewaycore.RouteReasonCircuitOpenSkip, gatewaycore.RouteReasonNoHealthyUpstream, gatewaycore.RouteReasonPolicyReject:
+	case gatewaycore.RouteReasonDirectMatch, gatewaycore.RouteReasonModelRedirect, gatewaycore.RouteReasonUpstreamRedirect, gatewaycore.RouteReasonQPSOverflow, gatewaycore.RouteReasonRPMOverflow, gatewaycore.RouteReasonTPMOverflow, gatewaycore.RouteReasonIPMOverflow, gatewaycore.RouteReasonConcurrencyOverflow, gatewaycore.RouteReasonRetry429, gatewaycore.RouteReasonRetry5xx, gatewaycore.RouteReasonRetryHTTP, gatewaycore.RouteReasonRetryConnectTimeout, gatewaycore.RouteReasonRetryTransport, gatewaycore.RouteReasonCircuitOpenSkip, gatewaycore.RouteReasonNoHealthyUpstream, gatewaycore.RouteReasonPolicyReject:
 		return reason
 	default:
 		return gatewaycore.RouteReasonPolicyReject

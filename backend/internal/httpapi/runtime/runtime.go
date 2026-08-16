@@ -520,6 +520,34 @@ type executionOutcome struct {
 	FatalError                error
 }
 
+// runtimeAttemptLeaseBody keeps a connection's in-flight lease until the
+// upstream response body reaches a terminal read or is explicitly closed.
+// http.Client.Do returns after response headers, which is too early to release
+// a concurrency slot for either streaming or non-streaming responses.
+type runtimeAttemptLeaseBody struct {
+	io.ReadCloser
+	release     func()
+	releaseOnce sync.Once
+}
+
+func (body *runtimeAttemptLeaseBody) Read(payload []byte) (int, error) {
+	written, err := body.ReadCloser.Read(payload)
+	if err != nil {
+		body.releaseLease()
+	}
+	return written, err
+}
+
+func (body *runtimeAttemptLeaseBody) Close() error {
+	err := body.ReadCloser.Close()
+	body.releaseLease()
+	return err
+}
+
+func (body *runtimeAttemptLeaseBody) releaseLease() {
+	body.releaseOnce.Do(body.release)
+}
+
 type hedgedExecutionResult struct {
 	Winner              *executionOutcome
 	Attempts            []executionAttempt
@@ -1067,7 +1095,9 @@ func runtimeExecutionRouteReason(reason gatewaycore.RouteReason) gatewaycore.Rou
 		gatewaycore.RouteReasonConcurrencyOverflow,
 		gatewaycore.RouteReasonRetry429,
 		gatewaycore.RouteReasonRetry5xx,
+		gatewaycore.RouteReasonRetryHTTP,
 		gatewaycore.RouteReasonRetryConnectTimeout,
+		gatewaycore.RouteReasonRetryTransport,
 		gatewaycore.RouteReasonCircuitOpenSkip,
 		gatewaycore.RouteReasonNoHealthyUpstream,
 		gatewaycore.RouteReasonPolicyReject:
@@ -1475,13 +1505,26 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 	if decision.AdmissionReason != "" {
 		return executionOutcome{TerminalAttempt: terminalAttempt, Connection: connection, AdmissionReason: decision.AdmissionReason, AdmissionState: decision.AdmissionState, UnbannedRecord: decision.UnbannedRecord}
 	}
-	defer func() {
-		s.runtimeState.FinishConnectionAttempt(decision.Handle, s.nowUTC())
-	}()
+	var releaseOnce sync.Once
+	releaseAttempt := func() {
+		releaseOnce.Do(func() {
+			s.runtimeState.FinishConnectionAttempt(decision.Handle, s.nowUTC())
+		})
+	}
 
 	attemptStartedAt := s.nowUTC()
 	attemptBodySource := bodySourceForTerminalAttempt(bodySource, terminalAttempt)
 	response, headersLatencyMS, launched, requestErr := s.doUpstreamRequest(ctx, plan.HTTPClient, method, upstreamURL, headers, attemptBodySource)
+	if response != nil && response.Body != nil {
+		response.Body = &runtimeAttemptLeaseBody{ReadCloser: response.Body, release: releaseAttempt}
+	} else {
+		releaseAttempt()
+	}
+	if requestErr != nil && response != nil && response.Body != nil {
+		// An errored transport response is never passed through or sampled.
+		// Close it here so its lease and transport resources are released.
+		_ = response.Body.Close()
+	}
 	outcome := executionOutcome{TerminalAttempt: terminalAttempt, Connection: connection, RequestHeaders: cloneStringMap(headers), Response: response, Launched: launched, Err: requestErr, UnbannedRecord: decision.UnbannedRecord}
 	if launched {
 		attemptCompletedAt := s.nowUTC()
@@ -1518,10 +1561,18 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 		}
 	}
 	if requestErr != nil {
-		outcome.RetryDecision = gatewayrouting.RetryPolicy{FailoverStatusCodes: terminalAttempt.Strategy.FailoverStatusCodes()}.ClassifyTransportError(requestErr)
+		requestContextErr := ctx.Err()
+		outcome.RetryDecision = gatewayrouting.RetryPolicy{FailoverStatusCodes: terminalAttempt.Strategy.FailoverStatusCodes()}.ClassifyTransportError(requestContextErr, requestErr)
 		outcome.FailoverEligible = outcome.RetryDecision.Retryable
 		outcome.Definitive = !outcome.FailoverEligible
-		if launched && outcome.Attempt.AttemptResult == "" && !outcome.SuppressTransportFeedback {
+		if requestContextErr != nil {
+			outcome.SuppressTransportFeedback = true
+			if launched && outcome.Attempt.AttemptResult == "" {
+				outcome.Attempt.StatusCode = hedgeCanceledAttemptStatusCode
+				outcome.Attempt.AttemptResult = attemptResultCancelled
+			}
+		}
+		if launched && outcome.Attempt.AttemptResult == "" {
 			// Bounded, safe transport diagnostic formed at the failure site.
 			diagnostic := safeTransportDiagnostic(requestErr)
 			outcome.Attempt.Diagnostics = &diagnostic
@@ -1549,13 +1600,21 @@ func (s *Service) startFailedResponseSampler(ctx context.Context, plan requestPl
 	if outcome == nil || outcome.Response == nil || outcome.Attempt.Sampler != nil {
 		return
 	}
+	ingressID := runtimeIngressRequestIDFromContext(ctx)
+	s.failedResponseSamplerOnce.Do(func() {
+		s.failedResponseSamplers = &failedResponseSamplerLimiter{}
+	})
+	if !s.failedResponseSamplers.acquire(ingressID) {
+		return
+	}
 	contentType := strings.ToLower(strings.TrimSpace(outcome.Response.Header.Get("Content-Type")))
 	sampler := newFailedResponseSampler(
-		runtimeIngressRequestIDFromContext(ctx),
+		ingressID,
 		outcome.Response,
 		contentType,
 		planBlocklistSensitiveRules(plan),
 	)
+	sampler.release = func() { s.failedResponseSamplers.release(ingressID) }
 	outcome.Attempt.Sampler = sampler
 	go sampler.run()
 }

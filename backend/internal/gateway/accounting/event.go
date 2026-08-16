@@ -110,7 +110,9 @@ func NormalizeRouteReason(reason gatewaycore.RouteReason) gatewaycore.RouteReaso
 		gatewaycore.RouteReasonConcurrencyOverflow,
 		gatewaycore.RouteReasonRetry429,
 		gatewaycore.RouteReasonRetry5xx,
+		gatewaycore.RouteReasonRetryHTTP,
 		gatewaycore.RouteReasonRetryConnectTimeout,
+		gatewaycore.RouteReasonRetryTransport,
 		gatewaycore.RouteReasonCircuitOpenSkip,
 		gatewaycore.RouteReasonNoHealthyUpstream,
 		gatewaycore.RouteReasonPolicyReject:

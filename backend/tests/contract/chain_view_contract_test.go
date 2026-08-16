@@ -3,6 +3,7 @@ package contracttest
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -86,6 +87,98 @@ func TestChainViewServerSideCohortAndPagination(t *testing.T) {
 
 	// chain view rejects non-created_at sorts.
 	s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&sort_by=ttft_ms", http.StatusUnprocessableEntity)
+}
+
+func TestChainViewNormalizesFinalizedTimestampsToUTC(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	location := time.FixedZone("FUN-009 offset", 3*60*60)
+	startedAt := fixedS15Now.Add(-3 * time.Minute).In(location)
+	completedAt := startedAt.Add(12 * time.Second)
+	pricingEffectiveAt := startedAt.Add(-7 * 24 * time.Hour)
+	seedChainTimestampFixture(t, harness, profileID, startedAt, completedAt, pricingEffectiveAt)
+	previousLocal := time.Local
+	time.Local = location
+	defer func() { time.Local = previousLocal }()
+
+	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&ingress_request_id=chain-utc", http.StatusOK)
+	items := payload["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected one UTC chain item, got %+v", payload)
+	}
+	item := asMap(t, items[0])
+	summary := asMap(t, item["finalized_summary"])
+	row := asMap(t, item["retained_rows"].([]any)[0])
+	for name, value := range map[string]any{
+		"started_at":                   item["started_at"],
+		"completed_at":                 item["completed_at"],
+		"pricing_version_effective_at": summary["pricing_version_effective_at"],
+		"retained_row_created_at":      row["created_at"],
+	} {
+		encoded, ok := value.(string)
+		if !ok || !strings.HasSuffix(encoded, "Z") {
+			t.Errorf("expected %s to use canonical UTC JSON, got %v", name, value)
+		}
+	}
+}
+
+func TestChainViewPreservesBigIntRequestLogIDsAsDecimalStrings(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	seedChainBigIntIDFixture(t, harness, profileID, fixedS15Now.Add(-4*time.Minute))
+
+	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&ingress_request_id=chain-bigint-ids", http.StatusOK)
+	item := asMap(t, payload["items"].([]any)[0])
+	summary := asMap(t, item["finalized_summary"])
+	if got, ok := summary["request_log_id"].(string); !ok || got != "9007199254740997" {
+		t.Fatalf("expected finalized request_log_id to preserve the final row BIGINT as a decimal string, got %T(%v)", summary["request_log_id"], summary["request_log_id"])
+	}
+	if summary["request_log_id"] == "9007199254740993" {
+		t.Fatal("finalized request_log_id must not expose the usage-event id")
+	}
+	rows := item["retained_rows"].([]any)
+	for index, want := range []string{"9007199254740995", "9007199254740997"} {
+		row := asMap(t, rows[index])
+		if got, ok := row["request_log_id"].(string); !ok || got != want {
+			t.Fatalf("expected retained row %d request_log_id %q as a decimal string, got %T(%v)", index, want, row["request_log_id"], row["request_log_id"])
+		}
+	}
+}
+
+func seedChainTimestampFixture(t *testing.T, harness *contractHarness, profileID int, startedAt, completedAt, pricingEffectiveAt time.Time) {
+	t.Helper()
+	ensureContractTestLogPartitions(t, harness,
+		contractTestLogPartitionFor("request_logs", startedAt),
+		contractTestLogPartitionFor("usage_request_events", startedAt),
+	)
+	seedChainIngress(t, harness, profileID, "chain-utc", startedAt, 200, 1, false, "not_streaming")
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE usage_request_events
+		SET ingress_completed_at = $1, pricing_version_effective_at = $2
+		WHERE profile_id = $3 AND ingress_request_id = 'chain-utc'`, completedAt, pricingEffectiveAt, profileID); err != nil {
+		t.Fatalf("seed chain UTC finalized timestamps: %v", err)
+	}
+}
+
+func seedChainBigIntIDFixture(t *testing.T, harness *contractHarness, profileID int, createdAt time.Time) {
+	t.Helper()
+	ensureContractTestLogPartitions(t, harness,
+		contractTestLogPartitionFor("request_logs", createdAt),
+		contractTestLogPartitionFor("usage_request_events", createdAt),
+	)
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO usage_request_events
+		(id, profile_id, ingress_request_id, model_id, api_family, endpoint_label_snapshot, status_code, success_flag, attempt_count, final_attempt_number, request_path, pricing_status, pricing_evidence_trust, stream_outcome, created_at, ingress_started_at, ingress_completed_at, proxy_api_key_attribution_state)
+		VALUES (9007199254740993, $1, 'chain-bigint-ids', 'chain-model', 'openai', 'Chain Endpoint', 200, TRUE, 2, 2, '/v1/chat/completions', 'ineligible', 'trusted', 'not_streaming', $2, $2, $2, 'none')`, profileID, createdAt); err != nil {
+		t.Fatalf("seed BIGINT chain usage event: %v", err)
+	}
+	for index, id := range []int64{9007199254740995, 9007199254740997} {
+		attempt := index + 1
+		if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs
+			(id, profile_id, model_id, api_family, ingress_request_id, attempt_number, row_kind, url_scrub_provenance, upstream_status_code, attempt_duration_ms, is_stream, success_flag, pricing_status, pricing_evidence_trust, attempt_trigger, attempt_result, is_winner, request_path, created_at)
+			VALUES ($1, $2, 'chain-model', 'openai', 'chain-bigint-ids', $3, 'upstream', 'runtime_scrubbed', 200, 100, FALSE, TRUE, 'ineligible', 'trusted', 'initial', 'completed', $4, '/v1/chat/completions', $5)`,
+			id, profileID, attempt, attempt == 2, createdAt.Add(time.Duration(attempt)*time.Second)); err != nil {
+			t.Fatalf("seed BIGINT chain request log %d: %v", attempt, err)
+		}
+	}
 }
 
 func seedChainIngress(t *testing.T, harness *contractHarness, profileID int, ingressID string, createdAt time.Time, statusCode int, attemptCount int, failover bool, streamOutcome string) {

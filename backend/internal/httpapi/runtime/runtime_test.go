@@ -1110,6 +1110,27 @@ func TestRuntimeDiagnosticFailureFieldsAlwaysWriteSafeReadableDetail(t *testing.
 	}
 }
 
+func TestSyntheticFailureMetadataScrubPreservesCallerRequestID(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	request = request.WithContext(withRuntimeIngressContext(request.Context(), runtimeIngressContext{
+		ingressRequestID: newRuntimeUUIDv4(),
+		callerRequestID:  "syntheticcalleralpha",
+	}))
+	requestLog := requestLogInsert{
+		OperationName:   mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation.Name,
+		CallerUserAgent: stringPtr("matrix-test-agent"),
+	}
+
+	applyRuntimePlanningFailureMetadataScrub(&requestLog, request)
+
+	if requestLog.CallerRequestID == nil || *requestLog.CallerRequestID != "syntheticcalleralpha" {
+		t.Fatalf("expected synthetic failure caller correlation, got %+v", requestLog.CallerRequestID)
+	}
+	if requestLog.RequestPath != "/v1/chat/completions" {
+		t.Fatalf("expected scrubbed request path, got %q", requestLog.RequestPath)
+	}
+}
+
 func TestBuildRuntimePricingResultUsesStreamUsageUnavailableOnlyForInterruptedStreams(t *testing.T) {
 	pricingTemplateSnapshot := runtimePricingTemplateForTest(nil)
 	reportCurrencySnapshot := runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}

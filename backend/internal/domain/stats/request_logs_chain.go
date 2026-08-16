@@ -101,7 +101,7 @@ type ChainIngressItem struct {
 // FinalizedSummary is the authoritative finalized-ingress projection from
 // usage_request_events.
 type FinalizedSummary struct {
-	RequestLogID                      *int64       `json:"request_log_id,omitempty"`
+	RequestLogID                      *string      `json:"request_log_id,omitempty"`
 	FinalStatusCode                   int          `json:"final_status_code"`
 	FinalResult                       string       `json:"final_result"`
 	FinalErrorCode                    *string      `json:"final_error_code"`
@@ -171,7 +171,7 @@ type EndpointRef struct {
 
 // ChainRowItem is one retained request-log row within a chain item.
 type ChainRowItem struct {
-	RequestLogID                      int64     `json:"request_log_id"`
+	RequestLogID                      string    `json:"request_log_id"`
 	MatchedByFilter                   bool      `json:"matched_by_filter,omitempty"`
 	RowKind                           string    `json:"row_kind"`
 	IngressRequestID                  string    `json:"ingress_request_id"`
@@ -946,9 +946,9 @@ func loadFinalizedSummary(ctx context.Context, exec queryExecutor, profileID int
 	var trust string
 	var unpricedReason, resolutionKind *string
 	var missingComponents []string
-	var requestLogID *int64
+	var requestLogID sql.NullInt64
 	err := exec.QueryRow(ctx, `SELECT
-			usage_request_events.id,
+			final_request_log.id,
 			usage_request_events.model_id,
 			usage_request_events.resolved_target_model_id,
 			usage_request_events.status_code,
@@ -996,6 +996,19 @@ func loadFinalizedSummary(ctx context.Context, exec queryExecutor, profileID int
 			usage_request_events.pricing_snapshot_cache_creation_input,
 			usage_request_events.pricing_snapshot_reasoning
 		FROM usage_request_events
+		LEFT JOIN LATERAL (
+			SELECT request_logs.id
+			FROM request_logs
+			WHERE request_logs.profile_id = usage_request_events.profile_id
+			  AND request_logs.ingress_request_id = usage_request_events.ingress_request_id
+			ORDER BY
+				(usage_request_events.final_attempt_number IS NOT NULL
+					AND request_logs.attempt_number = usage_request_events.final_attempt_number) DESC,
+				(request_logs.is_winner IS TRUE) DESC,
+				request_logs.created_at DESC,
+				request_logs.id DESC
+			LIMIT 1
+		) AS final_request_log ON TRUE
 		LEFT JOIN connections ON connections.id = usage_request_events.connection_id
 		LEFT JOIN LATERAL (
 			SELECT model_configs.model_id
@@ -1063,6 +1076,9 @@ func loadFinalizedSummary(ctx context.Context, exec queryExecutor, profileID int
 	if err != nil {
 		return nil, false, fmt.Errorf("load finalized summary for ingress %s: %w", ingressRequestID, err)
 	}
+	if requestLogID.Valid {
+		summary.RequestLogID = stringPointer(strconv.FormatInt(requestLogID.Int64, 10))
+	}
 	summary.RequestedModel = &ModelRef{ID: summary.RequestedModelID, Label: summary.RequestedModelID}
 	if resolvedModelID != nil {
 		summary.ResolvedModel = &ModelRef{ID: *resolvedModelID, Label: *resolvedModelID}
@@ -1087,9 +1103,9 @@ func loadFinalizedSummary(ctx context.Context, exec queryExecutor, profileID int
 	summary.FinalPricingResolutionKind = resolutionKind
 	summary.MissingPriceComponents = missingComponents
 	summary.FinalPricingEvidenceTrust = trust
-	summary.IngressStartedAt = ingressStartedAt
-	summary.IngressCompletedAt = ingressCompletedAt
-	summary.PricingVersionEffectiveAt = effectiveAt
+	summary.IngressStartedAt = utcTimePointer(ingressStartedAt)
+	summary.IngressCompletedAt = utcTimePointer(ingressCompletedAt)
+	summary.PricingVersionEffectiveAt = utcTimePointer(effectiveAt)
 	if summary.OutputTokens != nil && summary.TTFTMS != nil && summary.CompletionDurationMS != nil && *summary.CompletionDurationMS-*summary.TTFTMS > 0 {
 		rate := float64(*summary.OutputTokens) * 1000 / float64(*summary.CompletionDurationMS-*summary.TTFTMS)
 		summary.OutputRateTPS = &rate
@@ -1145,12 +1161,13 @@ func loadRetainedRows(ctx context.Context, exec queryExecutor, params ChainQuery
 	items := make([]ChainRowItem, 0)
 	for rows.Next() {
 		var item ChainRowItem
+		var requestLogID int64
 		var errorDetail, streamErrorDetail *string
 		var errorDetailRedacted, errorDetailTruncated, streamErrorDetailRedacted, streamErrorDetailTruncated bool
 		var endpointBaseURL, endpointDescription *string
 		var proxyAPIKeyID sql.NullInt32
 		if err := rows.Scan(
-			&item.RequestLogID, &item.RowKind, &item.IngressRequestID, &item.AttemptNumber, &item.AttemptTrigger, &item.AttemptResult, &item.IsWinner,
+			&requestLogID, &item.RowKind, &item.IngressRequestID, &item.AttemptNumber, &item.AttemptTrigger, &item.AttemptResult, &item.IsWinner,
 			&item.AttemptDurationMS, &item.LegacyDurationMS, &item.UpstreamStatusCode, &item.GatewayStatusCode, &item.LegacyStatusCode,
 			&item.ErrorSource, &item.ErrorCode, &item.FailureStage, &errorDetail, &errorDetailRedacted, &errorDetailTruncated,
 			&streamErrorDetail, &streamErrorDetailRedacted, &streamErrorDetailTruncated,
@@ -1161,6 +1178,7 @@ func loadRetainedRows(ctx context.Context, exec queryExecutor, params ChainQuery
 		); err != nil {
 			return nil, fmt.Errorf("scan retained row: %w", err)
 		}
+		item.RequestLogID = strconv.FormatInt(requestLogID, 10)
 		item.CreatedAt = item.CreatedAt.UTC()
 		if params.ProxyAPIKeyID != nil && proxyAPIKeyID.Valid {
 			item.MatchedByFilter = proxyAPIKeyID.Int32 == int32(*params.ProxyAPIKeyID)
@@ -1448,6 +1466,14 @@ func formatChainTime(value *time.Time) any {
 		return nil
 	}
 	return value.UTC().Format(time.RFC3339)
+}
+
+func utcTimePointer(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	normalized := value.UTC()
+	return &normalized
 }
 
 func boolPtr(value bool) *bool { return &value }

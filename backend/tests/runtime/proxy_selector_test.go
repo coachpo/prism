@@ -555,7 +555,8 @@ func TestRuntimeAdmissionRejectsAllConnectionsBeforeLaunch(t *testing.T) {
 	})
 
 	harness.upstream.clear()
-	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", chatCompletionsBody(route.publicModelID, "all admission rejected"), nil)
+	callerRequestID := "admissioncaller"
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", chatCompletionsBody(route.publicModelID, "all admission rejected"), map[string]string{"X-Request-ID": callerRequestID})
 	assertStatus(t, response, http.StatusServiceUnavailable)
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
@@ -573,6 +574,24 @@ func TestRuntimeAdmissionRejectsAllConnectionsBeforeLaunch(t *testing.T) {
 		t.Fatalf("expected no upstream attempts when all connections are admission-rejected, got %d", got)
 	}
 	waitForRuntimeTelemetryCounts(t, harness.conn, activeProfileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	var retainedCallerRequestID *string
+	var rowKind string
+	var errorCode *string
+	if err := harness.conn.QueryRow(
+		context.Background(),
+		`SELECT caller_request_id, row_kind, error_code
+		   FROM request_logs
+		  WHERE profile_id = $1`,
+		activeProfileID,
+	).Scan(&retainedCallerRequestID, &rowKind, &errorCode); err != nil {
+		t.Fatalf("load admission telemetry correlation: %v", err)
+	}
+	if retainedCallerRequestID == nil || *retainedCallerRequestID != callerRequestID {
+		t.Fatalf("expected admission telemetry caller_request_id %q, got %+v", callerRequestID, retainedCallerRequestID)
+	}
+	if rowKind != "admission" || errorCode == nil || *errorCode != "admission_exhausted" {
+		t.Fatalf("expected typed admission telemetry, got row_kind=%q error_code=%+v", rowKind, errorCode)
+	}
 }
 
 func TestRuntimeLoadBalanceSingleDoesNotFailOverAfterPrimaryFailure(t *testing.T) {
@@ -627,6 +646,141 @@ func TestRuntimeLoadBalanceFillFirstFailsOverToNextEligibleConnection(t *testing
 	}
 	if requestModelID(t, secondaryRequests[0].Body) != route.targetModelID {
 		t.Fatalf("expected fill-first failover body model %q, got %q", route.targetModelID, requestModelID(t, secondaryRequests[0].Body))
+	}
+	assertLatestRuntimeAttemptCounts(t, harness.conn, activeProfileID, 2, 2)
+}
+
+func TestRuntimeLoadBalanceFillFirstHonorsConfiguredNon5xxFailureStatus(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	primaryUpstream := newScriptedUpstream(t, http.StatusRequestTimeout, map[string]any{"error": "configured timeout"})
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-configured-http-secondary"})
+	strategyID := harness.seedLegacyStrategy(t, activeProfileID, "runtime-configured-http-"+randomSuffix(), "fill-first")
+	if _, err := harness.conn.Exec(
+		context.Background(),
+		`UPDATE loadbalance_strategies SET failure_status_codes = ARRAY[$1]::integer[], updated_at = $2 WHERE id = $3`,
+		http.StatusRequestTimeout,
+		time.Now().UTC(),
+		strategyID,
+	); err != nil {
+		t.Fatalf("configure non-5xx failover status: %v", err)
+	}
+	route := seedSelectorRoute(t, harness, selectorRouteSeed{
+		profileID:  activeProfileID,
+		prefix:     "configured-http-failover",
+		strategyID: strategyID,
+		endpoints: []selectorEndpointSeed{
+			{label: "primary", baseURL: primaryUpstream.baseURL("/loadbalance/configured-http/primary"), priority: 0},
+			{label: "secondary", baseURL: secondaryUpstream.baseURL("/loadbalance/configured-http/secondary"), priority: 1},
+		},
+	})
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{activeProfileID}})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", chatCompletionsBody(route.publicModelID, "configured 408 failover"), nil)
+	assertStatus(t, response, http.StatusOK)
+	assertResponseField(t, response, "id", "chatcmpl-configured-http-secondary")
+	if got := len(primaryUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected one configured 408 primary request, got %d", got)
+	}
+	if got := len(secondaryUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected one secondary request after configured 408, got %d", got)
+	}
+	assertLatestRuntimeAttemptCounts(t, harness.conn, activeProfileID, 2, 2)
+}
+
+func TestRuntimeLoadBalanceFillFirstDoesNotFailOverUnconfigured429(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	primaryUpstream := newScriptedUpstream(t, http.StatusTooManyRequests, map[string]any{"error": "not configured for failover"})
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-unconfigured-429-secondary"})
+	strategyID := harness.seedLegacyStrategy(t, activeProfileID, "runtime-unconfigured-429-"+randomSuffix(), "fill-first")
+	if _, err := harness.conn.Exec(
+		context.Background(),
+		`UPDATE loadbalance_strategies SET failure_status_codes = ARRAY[$1]::integer[], updated_at = $2 WHERE id = $3`,
+		http.StatusRequestTimeout,
+		time.Now().UTC(),
+		strategyID,
+	); err != nil {
+		t.Fatalf("configure 408-only failover status: %v", err)
+	}
+	route := seedSelectorRoute(t, harness, selectorRouteSeed{
+		profileID:  activeProfileID,
+		prefix:     "unconfigured-429",
+		strategyID: strategyID,
+		endpoints: []selectorEndpointSeed{
+			{label: "primary", baseURL: primaryUpstream.baseURL("/loadbalance/unconfigured-429/primary"), priority: 0},
+			{label: "secondary", baseURL: secondaryUpstream.baseURL("/loadbalance/unconfigured-429/secondary"), priority: 1},
+		},
+	})
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{activeProfileID}})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", chatCompletionsBody(route.publicModelID, "unconfigured 429 definitive"), nil)
+	assertStatus(t, response, http.StatusTooManyRequests)
+	if got := len(primaryUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected one primary 429 request, got %d", got)
+	}
+	if got := len(secondaryUpstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected unconfigured 429 to remain definitive, got %d secondary requests", got)
+	}
+}
+
+func TestRuntimeLoadBalanceFillFirstFailsOverOnPreHeaderTransportError(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	closedPrimary := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	primaryBaseURL := closedPrimary.URL
+	closedPrimary.Close()
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-transport-secondary"})
+	route := seedSelectorRoute(t, harness, selectorRouteSeed{
+		profileID:    activeProfileID,
+		prefix:       "transport-failover",
+		strategyType: "fill-first",
+		endpoints: []selectorEndpointSeed{
+			{label: "primary", baseURL: primaryBaseURL + "/loadbalance/transport/primary", priority: 0},
+			{label: "secondary", baseURL: secondaryUpstream.baseURL("/loadbalance/transport/secondary"), priority: 1},
+		},
+	})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", chatCompletionsBody(route.publicModelID, "transport failover"), nil)
+	assertStatus(t, response, http.StatusOK)
+	assertResponseField(t, response, "id", "chatcmpl-transport-secondary")
+	if got := len(secondaryUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected one secondary request after pre-header transport failure, got %d", got)
+	}
+	assertLatestRuntimeAttemptCounts(t, harness.conn, activeProfileID, 2, 2)
+}
+
+func TestRuntimeLoadBalanceFillFirstFailsOverOnResponseHeaderTimeout(t *testing.T) {
+	primaryUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(time.Second):
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	t.Cleanup(primaryUpstream.Close)
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-header-timeout-secondary"})
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = 50 * time.Millisecond
+	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{RuntimeOptions: runtimeapi.Options{
+		HTTPClient: &http.Client{Transport: transport, Timeout: 2 * time.Second},
+	}})
+	activeProfileID := harness.activeProfileID(t)
+	route := seedSelectorRoute(t, harness, selectorRouteSeed{
+		profileID:    activeProfileID,
+		prefix:       "header-timeout-failover",
+		strategyType: "fill-first",
+		endpoints: []selectorEndpointSeed{
+			{label: "primary", baseURL: primaryUpstream.URL + "/loadbalance/header-timeout/primary", priority: 0},
+			{label: "secondary", baseURL: secondaryUpstream.baseURL("/loadbalance/header-timeout/secondary"), priority: 1},
+		},
+	})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", chatCompletionsBody(route.publicModelID, "response header timeout failover"), nil)
+	assertStatus(t, response, http.StatusOK)
+	assertResponseField(t, response, "id", "chatcmpl-header-timeout-secondary")
+	if got := len(secondaryUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected one secondary request after response-header timeout, got %d", got)
 	}
 	assertLatestRuntimeAttemptCounts(t, harness.conn, activeProfileID, 2, 2)
 }
@@ -866,6 +1020,61 @@ func TestRuntimeLeaseNonStreamInFlightExclusivity(t *testing.T) {
 	releasedState := loadRuntimeState(t, harness, activeProfileID, route.connectionIDs[0])
 	if releasedState.InFlightNonStream != 0 {
 		t.Fatalf("expected non-stream in-flight ownership to release after request completion, got %+v", releasedState)
+	}
+}
+
+func TestRuntimeLeaseRemainsHeldUntilResponseBodyCompletion(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		streaming bool
+	}{
+		{name: "non-stream", streaming: false},
+		{name: "stream", streaming: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			harness := newRuntimeHarness(t)
+			profileID := harness.activeProfileID(t)
+			suffix := randomSuffix()
+			upstream := newHeaderFirstBlockingScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-header-first-lease"})
+			strategyID := harness.seedAdaptiveStrategy(t, profileID, "runtime-header-first-lease-"+suffix)
+			route := seedSelectorRoute(t, harness, selectorRouteSeed{
+				profileID:  profileID,
+				prefix:     "header-first-lease",
+				suffix:     suffix,
+				strategyID: strategyID,
+				endpoints:  []selectorEndpointSeed{{label: "only", baseURL: upstream.baseURL("/loadbalance/lease/header-first")}},
+			})
+			limit := 1
+			if test.streaming {
+				harness.updateConnectionAdmissionLimits(t, route.connectionIDs[0], nil, nil, &limit)
+			} else {
+				harness.updateConnectionAdmissionLimits(t, route.connectionIDs[0], nil, &limit, nil)
+			}
+			requestBody := chatCompletionsBody(route.publicModelID, "header-first response body lease")
+			requestBody["stream"] = test.streaming
+
+			firstResultCh := startAsyncPriorityRequest(t, harness.client, http.MethodPost, harness.url+"/v1/chat/completions", requestBody, nil)
+			upstream.waitUntilHeadersSent(t, 5*time.Second)
+
+			inflight := loadRuntimeState(t, harness, profileID, route.connectionIDs[0])
+			if (!test.streaming && inflight.InFlightNonStream != 1) || (test.streaming && inflight.InFlightStream != 1) {
+				t.Fatalf("expected the response-body lease to remain in flight after headers, got %+v", inflight)
+			}
+			second := performPriorityRequest(t, harness.client, time.Second, http.MethodPost, harness.url+"/v1/chat/completions", requestBody, nil)
+			secondBody := readResponseBody(t, second)
+			if second.StatusCode != http.StatusServiceUnavailable || !strings.Contains(secondBody, "admission_exhausted") {
+				t.Fatalf("expected overlapping request admission_exhausted 503, got status %d body %s", second.StatusCode, secondBody)
+			}
+			if got := len(upstream.requestsSnapshot()); got != 1 {
+				t.Fatalf("expected exactly one upstream request while the body lease is held, got %d", got)
+			}
+
+			upstream.releaseRequests()
+			first := awaitAsyncRequest(t, firstResultCh, 5*time.Second)
+			if first.Err != nil || first.StatusCode != http.StatusOK {
+				t.Fatalf("expected first response to complete after body release, got %+v", first)
+			}
+		})
 	}
 }
 

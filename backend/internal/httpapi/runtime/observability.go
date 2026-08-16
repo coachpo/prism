@@ -1158,10 +1158,16 @@ func scrubRuntimeDiagnosticDetail(runtimeErr *domainError, stage string, code st
 	return safediag.ScrubValue(detail, safediag.ScrubOptions{MaxBytes: safediag.MaxErrorDetailBytes})
 }
 
-// applyRuntimePlanningFailureMetadataScrub scrubs request-path metadata for
-// planning/admission diagnostic rows.
+// applyRuntimePlanningFailureMetadataScrub captures and scrubs caller/request
+// metadata for planning/admission diagnostic rows. These synthetic rows must
+// preserve the same caller correlation contract as upstream attempt rows.
 func applyRuntimePlanningFailureMetadataScrub(requestLog *requestLogInsert, request *http.Request) {
 	var provenance safediag.MetadataProvenance
+	if callerRequestID := strings.TrimSpace(runtimeCallerRequestIDFromContext(request.Context())); callerRequestID != "" {
+		scrubbed := safediag.ScrubMetadataValue(safediag.MetadataFieldCallerRequestID, callerRequestID, 255)
+		requestLog.CallerRequestID = optionalTrimmedStringPointer(scrubbed.Value)
+		provenance.Record(safediag.MetadataFieldCallerRequestID, scrubbed.Redacted, scrubbed.Truncated)
+	}
 	if requestLog.CallerUserAgent != nil {
 		scrubbed := safediag.ScrubMetadataValue(safediag.MetadataFieldCallerUserAgent, *requestLog.CallerUserAgent, 0)
 		requestLog.CallerUserAgent = optionalTrimmedStringPointer(scrubbed.Value)

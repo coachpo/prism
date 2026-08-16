@@ -407,7 +407,7 @@ func TestUpstreamRedirectNarrowsCandidatesWithoutChangingModel(t *testing.T) {
 }
 
 func TestRetryPolicyClassifiesOnlyPreCommitRetryCategories(t *testing.T) {
-	policy := RetryPolicy{FailoverStatusCodes: []int{500, 503}}
+	policy := RetryPolicy{FailoverStatusCodes: []int{408, 500, 503}}
 
 	cases := []struct {
 		name       string
@@ -415,8 +415,9 @@ func TestRetryPolicyClassifiesOnlyPreCommitRetryCategories(t *testing.T) {
 		retryable  bool
 		reason     gatewaycore.RouteReason
 	}{
-		{name: "provider 429", statusCode: http.StatusTooManyRequests, retryable: true, reason: gatewaycore.RouteReasonRetry429},
+		{name: "unconfigured 429", statusCode: http.StatusTooManyRequests, retryable: false},
 		{name: "configured 5xx", statusCode: http.StatusServiceUnavailable, retryable: true, reason: gatewaycore.RouteReasonRetry5xx},
+		{name: "configured non-5xx", statusCode: http.StatusRequestTimeout, retryable: true, reason: gatewaycore.RouteReasonRetryHTTP},
 		{name: "unconfigured 5xx", statusCode: http.StatusNotImplemented, retryable: false},
 		{name: "auth provider error", statusCode: http.StatusForbidden, retryable: false},
 		{name: "validation provider error", statusCode: http.StatusUnprocessableEntity, retryable: false},
@@ -433,16 +434,34 @@ func TestRetryPolicyClassifiesOnlyPreCommitRetryCategories(t *testing.T) {
 			}
 		})
 	}
+	if decision := (RetryPolicy{FailoverStatusCodes: []int{http.StatusTooManyRequests}}).ClassifyHTTPStatus(http.StatusTooManyRequests); !decision.Retryable || decision.Reason != gatewaycore.RouteReasonRetry429 {
+		t.Fatalf("expected configured 429 to remain retryable, got %+v", decision)
+	}
 }
 
 type testRetryTimeoutError struct{}
 
 func (testRetryTimeoutError) Error() string { return "connect timeout" }
 func (testRetryTimeoutError) Timeout() bool { return true }
+func (testRetryTimeoutError) Is(err error) bool {
+	return err == context.DeadlineExceeded
+}
 
 func TestRetryPolicyClassifiesConnectTimeoutTransportError(t *testing.T) {
-	decision := RetryPolicy{}.ClassifyTransportError(testRetryTimeoutError{})
+	decision := RetryPolicy{}.ClassifyTransportError(nil, testRetryTimeoutError{})
 	if !decision.Retryable || decision.Reason != gatewaycore.RouteReasonRetryConnectTimeout {
 		t.Fatalf("expected retry_connect_timeout decision, got %+v", decision)
+	}
+}
+
+func TestRetryPolicyClassifiesPreCommitTransportErrors(t *testing.T) {
+	decision := RetryPolicy{}.ClassifyTransportError(nil, errors.New("connection reset before response headers"))
+	if !decision.Retryable || decision.Reason != gatewaycore.RouteReasonRetryTransport {
+		t.Fatalf("expected retry_transport decision, got %+v", decision)
+	}
+	for _, contextErr := range []error{context.Canceled, context.DeadlineExceeded} {
+		if decision := (RetryPolicy{}).ClassifyTransportError(contextErr, testRetryTimeoutError{}); decision.Retryable {
+			t.Fatalf("expected request cancellation %v to remain definitive, got %+v", contextErr, decision)
+		}
 	}
 }

@@ -144,8 +144,11 @@ type blockingScriptedUpstream struct {
 	arrived      int
 	ready        chan struct{}
 	release      chan struct{}
+	headersSent  chan struct{}
+	headersFirst bool
 	readyOnce    sync.Once
 	releaseOnce  sync.Once
+	headersOnce  sync.Once
 }
 
 func (h testPostgresHarness) openDatabase(tb testing.TB, ctx context.Context, databaseName string) *pgx.Conn {
@@ -459,6 +462,14 @@ func newScriptedUpstream(t *testing.T, statusCode int, responseBody map[string]a
 }
 
 func newBlockingScriptedUpstream(t *testing.T, waitFor int, statusCode int, responseBody map[string]any) *blockingScriptedUpstream {
+	return newBlockingScriptedUpstreamMode(t, waitFor, statusCode, responseBody, false)
+}
+
+func newHeaderFirstBlockingScriptedUpstream(t *testing.T, statusCode int, responseBody map[string]any) *blockingScriptedUpstream {
+	return newBlockingScriptedUpstreamMode(t, 1, statusCode, responseBody, true)
+}
+
+func newBlockingScriptedUpstreamMode(t *testing.T, waitFor int, statusCode int, responseBody map[string]any, headersFirst bool) *blockingScriptedUpstream {
 	t.Helper()
 	if waitFor < 1 {
 		t.Fatalf("blocking upstream waitFor must be >= 1, got %d", waitFor)
@@ -469,6 +480,8 @@ func newBlockingScriptedUpstream(t *testing.T, waitFor int, statusCode int, resp
 		waitFor:      waitFor,
 		ready:        make(chan struct{}),
 		release:      make(chan struct{}),
+		headersSent:  make(chan struct{}),
+		headersFirst: headersFirst,
 	}
 	upstream.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
@@ -493,9 +506,18 @@ func newBlockingScriptedUpstream(t *testing.T, waitFor int, statusCode int, resp
 		}
 		release := upstream.release
 		upstream.mu.Unlock()
-		<-release
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(upstream.statusCode)
+		if upstream.headersFirst {
+			w.WriteHeader(upstream.statusCode)
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			upstream.headersOnce.Do(func() { close(upstream.headersSent) })
+		}
+		<-release
+		if !upstream.headersFirst {
+			w.WriteHeader(upstream.statusCode)
+		}
 		payload := upstream.responseBody
 		if payload == nil {
 			payload = map[string]any{"ok": upstream.statusCode < 400}
@@ -561,6 +583,15 @@ func (u *blockingScriptedUpstream) waitUntilReady(t *testing.T, timeout time.Dur
 	case <-u.ready:
 	case <-time.After(timeout):
 		t.Fatalf("timed out waiting for %d blocking upstream requests", u.waitFor)
+	}
+}
+
+func (u *blockingScriptedUpstream) waitUntilHeadersSent(t *testing.T, timeout time.Duration) {
+	t.Helper()
+	select {
+	case <-u.headersSent:
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for blocking upstream response headers")
 	}
 }
 

@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -124,6 +123,35 @@ type failedResponseSampler struct {
 	contentType string
 	extraRules  []safediag.SensitiveNameRule
 	result      *runtimeSampledFailure
+	release     func()
+}
+
+type failedResponseSamplerLimiter struct {
+	mu     sync.Mutex
+	counts map[string]int
+}
+
+func (limiter *failedResponseSamplerLimiter) acquire(ingressID string) bool {
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	if limiter.counts == nil {
+		limiter.counts = make(map[string]int)
+	}
+	if limiter.counts[ingressID] >= MaxFailedResponseSamplers {
+		return false
+	}
+	limiter.counts[ingressID]++
+	return true
+}
+
+func (limiter *failedResponseSamplerLimiter) release(ingressID string) {
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	if limiter.counts[ingressID] <= 1 {
+		delete(limiter.counts, ingressID)
+		return
+	}
+	limiter.counts[ingressID]--
 }
 
 func newFailedResponseSampler(ingressID string, response *http.Response, contentType string, extraRules []safediag.SensitiveNameRule) *failedResponseSampler {
@@ -138,16 +166,28 @@ func newFailedResponseSampler(ingressID string, response *http.Response, content
 
 // run executes the bounded sample and closes the response body exactly once.
 func (sampler *failedResponseSampler) run() {
-	defer func() {
-		if sampler.response != nil && sampler.response.Body != nil {
-			_ = sampler.response.Body.Close()
-		}
-	}()
-	if sampler == nil || sampler.response == nil || sampler.response.Body == nil {
+	if sampler == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), FailedResponseSampleDeadline)
-	defer cancel()
+	var closeOnce sync.Once
+	closeBody := func() {
+		closeOnce.Do(func() {
+			if sampler.response != nil && sampler.response.Body != nil {
+				_ = sampler.response.Body.Close()
+			}
+		})
+	}
+	defer func() {
+		closeBody()
+		if sampler.release != nil {
+			sampler.release()
+		}
+	}()
+	if sampler.response == nil || sampler.response.Body == nil {
+		return
+	}
+	deadline := time.AfterFunc(FailedResponseSampleDeadline, closeBody)
+	defer deadline.Stop()
 	limited := &io.LimitedReader{R: sampler.response.Body, N: FailedResponseSampleBytes}
 	raw, err := io.ReadAll(limited)
 	if err != nil {
@@ -176,7 +216,6 @@ func (sampler *failedResponseSampler) run() {
 		Redacted:  extraction.Redacted,
 		Truncated: extraction.Truncated,
 	})
-	_ = ctx
 }
 
 // safeTransportDiagnostic builds the bounded transport diagnostic from a

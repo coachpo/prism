@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -67,6 +68,8 @@ type Service struct {
 	feedbackPipeline             *runtimeFeedbackPipeline
 	runtimeSideEffects           *RuntimeSideEffectManager
 	ownedScheduler               *background.Scheduler
+	failedResponseSamplerOnce    sync.Once
+	failedResponseSamplers       *failedResponseSamplerLimiter
 }
 
 type domainError struct {

@@ -1,7 +1,6 @@
 package routing
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"slices"
@@ -15,7 +14,9 @@ const (
 	RetryFailureNone           RetryFailureClass = "none"
 	RetryFailureProvider429    RetryFailureClass = "provider_429"
 	RetryFailureProvider5xx    RetryFailureClass = "provider_5xx"
+	RetryFailureProviderHTTP   RetryFailureClass = "provider_http"
 	RetryFailureConnectTimeout RetryFailureClass = "connect_timeout"
+	RetryFailureTransport      RetryFailureClass = "transport"
 )
 
 type RetryPolicy struct {
@@ -29,20 +30,26 @@ type RetryDecision struct {
 }
 
 func (policy RetryPolicy) ClassifyHTTPStatus(statusCode int) RetryDecision {
+	if !slices.Contains(policy.FailoverStatusCodes, statusCode) {
+		return RetryDecision{Class: RetryFailureNone}
+	}
 	if statusCode == http.StatusTooManyRequests {
 		return retryDecision(RetryFailureProvider429, gatewaycore.RouteReasonRetry429)
 	}
-	if statusCode >= http.StatusInternalServerError && statusCode <= 599 && slices.Contains(policy.FailoverStatusCodes, statusCode) {
+	if statusCode >= http.StatusInternalServerError && statusCode <= 599 {
 		return retryDecision(RetryFailureProvider5xx, gatewaycore.RouteReasonRetry5xx)
 	}
-	return RetryDecision{Class: RetryFailureNone}
+	return retryDecision(RetryFailureProviderHTTP, gatewaycore.RouteReasonRetryHTTP)
 }
 
-func (policy RetryPolicy) ClassifyTransportError(err error) RetryDecision {
+func (policy RetryPolicy) ClassifyTransportError(requestContextErr error, err error) RetryDecision {
+	if err == nil || requestContextErr != nil {
+		return RetryDecision{Class: RetryFailureNone}
+	}
 	if isRetryableConnectTimeout(err) {
 		return retryDecision(RetryFailureConnectTimeout, gatewaycore.RouteReasonRetryConnectTimeout)
 	}
-	return RetryDecision{Class: RetryFailureNone}
+	return retryDecision(RetryFailureTransport, gatewaycore.RouteReasonRetryTransport)
 }
 
 func retryDecision(class RetryFailureClass, reason gatewaycore.RouteReason) RetryDecision {
@@ -54,7 +61,7 @@ type timeoutError interface {
 }
 
 func isRetryableConnectTimeout(err error) bool {
-	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if err == nil {
 		return false
 	}
 	var timeout timeoutError
