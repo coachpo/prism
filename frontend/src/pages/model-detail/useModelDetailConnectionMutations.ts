@@ -40,15 +40,6 @@ type ConnectionSubmitEvent = Pick<Event, "preventDefault">;
 
 const TERMINAL_TARGET_OWNER_MISMATCH = "Terminal Target owner does not match the current model";
 const TERMINAL_TARGETS_MANAGED_FROM_MODEL_DETAIL = "Manage Terminal Targets from the Model Detail Terminal Targets list.";
-const ACCESS_TARGET_ROW_NOT_FOUND = "Access target row is no longer present in this model; reload the page and retry.";
-
-// Access-target mutations address rows by their persisted row ID, never by a
-// position in `access_targets`. The editor renders a drag-reordered draft, so a
-// positional lookup can silently resolve to a different row than the operator
-// acted on. An unresolvable row ID is reported, not swallowed.
-function findAccessTargetByRowId(model: ModelConfig | null, targetRowId: number): ModelAccessTarget | null {
-  return model?.access_targets.find((target) => target.id === targetRowId) ?? null;
-}
 
 interface UseModelDetailConnectionMutationsInput {
   id: string | undefined;
@@ -247,13 +238,10 @@ export function useModelDetailConnectionMutations({
   );
 
   const handleMoveAccessTarget = useCallback(
-    async (targetRowId: number, toIndex: number) => {
+    async (index: number, toIndex: number) => {
       if (!Number.isFinite(modelConfigId)) return;
-      const target = findAccessTargetByRowId(model, targetRowId);
-      if (!target) {
-        toast.error(ACCESS_TARGET_ROW_NOT_FOUND);
-        return;
-      }
+      const target = model?.access_targets[index] ?? null;
+      if (!target) return;
       if (isTerminalTargetAccessTargetType(target.target_type)
         && !getOwnedConnectionTarget(model, modelConfigId, getTerminalTargetId(target) ?? -1)) {
         toast.error(TERMINAL_TARGET_OWNER_MISMATCH);
@@ -271,13 +259,10 @@ export function useModelDetailConnectionMutations({
   );
 
   const handleToggleAccessTarget = useCallback(
-    async (targetRowId: number, enabled: boolean) => {
+    async (index: number, enabled: boolean) => {
       if (!Number.isFinite(modelConfigId)) return;
-      const target = findAccessTargetByRowId(model, targetRowId);
-      if (!target) {
-        toast.error(ACCESS_TARGET_ROW_NOT_FOUND);
-        return;
-      }
+      const target = model?.access_targets[index] ?? null;
+      if (!target) return;
       if (isTerminalTargetAccessTargetType(target.target_type)
         && !getOwnedConnectionTarget(model, modelConfigId, getTerminalTargetId(target) ?? -1)) {
         toast.error(TERMINAL_TARGET_OWNER_MISMATCH);
@@ -333,13 +318,10 @@ export function useModelDetailConnectionMutations({
   );
 
   const handleDeleteAccessTarget = useCallback(
-    async (targetRowId: number) => {
+    async (index: number) => {
       if (!Number.isFinite(modelConfigId)) return;
-      const target = findAccessTargetByRowId(model, targetRowId);
-      if (!target) {
-        toast.error(ACCESS_TARGET_ROW_NOT_FOUND);
-        return;
-      }
+      const target = model?.access_targets[index] ?? null;
+      if (!target) return;
       if (isTerminalTargetAccessTargetType(target.target_type)
         && !getOwnedConnectionTarget(model, modelConfigId, getTerminalTargetId(target) ?? -1)) {
         toast.error(TERMINAL_TARGET_OWNER_MISMATCH);

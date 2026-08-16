@@ -11,11 +11,12 @@ const THEMES = { light: "", dark: ".dark" } as const
 
 const INITIAL_DIMENSION = { width: 320, height: 200 } as const
 
+/**
+ * Only the names nothing else declares. Grid, axis and cursor live in
+ * `index.css` because charts outside this container read them too, and a second
+ * value here would win inside the container and split one token in two.
+ */
 const CHART_SCOPED_TOKENS = {
-  "--chart-axis": "color-mix(in oklab, var(--muted-foreground) 92%, transparent)",
-  "--chart-grid": "color-mix(in oklab, var(--border) 70%, transparent)",
-  "--chart-cursor": "color-mix(in oklab, var(--border) 88%, transparent)",
-  "--chart-cursor-fill": "color-mix(in oklab, var(--muted) 72%, transparent)",
   "--chart-tooltip-border": "color-mix(in oklab, var(--border) 78%, transparent)",
   "--chart-tooltip-background": "color-mix(in oklab, var(--background) 92%, transparent)",
   "--chart-legend-border": "color-mix(in oklab, var(--border) 72%, transparent)",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseRetryAfter } from "./core";
+import { overloadRetryDelayMs, parseRetryAfter } from "./core";
 
 describe("parseRetryAfter", () => {
   it("parses delay-seconds", () => {
@@ -14,5 +14,31 @@ describe("parseRetryAfter", () => {
     expect(parseRetryAfter("not-a-date", now)).toBeNull();
     expect(parseRetryAfter(null, now)).toBeNull();
     expect(parseRetryAfter("", now)).toBeNull();
+  });
+});
+
+describe("overloadRetryDelayMs", () => {
+  it("waits as long as the server asked", () => {
+    expect(overloadRetryDelayMs(1000, 0, 0)).toBe(1000);
+  });
+
+  it("clamps an absurd Retry-After into the bounded window", () => {
+    expect(overloadRetryDelayMs(10, 0, 0)).toBe(250);
+    expect(overloadRetryDelayMs(600_000, 0, 0)).toBe(2000);
+  });
+
+  it("does not replay a 503 the server never marked transient", () => {
+    expect(overloadRetryDelayMs(null, 0, 0)).toBeNull();
+  });
+
+  it("spreads concurrent replays instead of firing them in one instant", () => {
+    expect(overloadRetryDelayMs(1000, 0, 1)).toBe(1500);
+    expect(overloadRetryDelayMs(1000, 0, 0.5)).toBe(1250);
+  });
+
+  it("stops replaying at the limit so an overloaded server is not hammered", () => {
+    expect(overloadRetryDelayMs(1000, 1, 0)).toBe(1000);
+    expect(overloadRetryDelayMs(1000, 2, 0)).toBeNull();
+    expect(overloadRetryDelayMs(1000, 9, 0)).toBeNull();
   });
 });

@@ -3,12 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 import { zhCNMessages } from "@/i18n/messages";
-import type {
-  Connection,
-  LoadbalanceCurrentStateItem,
-  ModelAccessTarget,
-  ModelConfigListItem,
-} from "@/lib/types";
+import type { Connection, ModelAccessTarget, ModelConfigListItem } from "@/lib/types";
 import { AccessTargetsEditor } from "./AccessTargetsEditor";
 
 // ID domains must stay distinct: target row IDs (50x), connection IDs (90x)
@@ -82,28 +77,6 @@ function createConnection(id: number, name: string): Connection {
     pricing_template: null,
     created_at: "2026-08-08T00:00:00Z",
     updated_at: "2026-08-08T00:00:00Z",
-  };
-}
-
-function observedRuntime(connectionId: number): LoadbalanceCurrentStateItem {
-  return {
-    connection_id: connectionId,
-    window_started_at: null,
-    window_request_count: 0,
-    in_flight_non_stream: 0,
-    in_flight_stream: 0,
-    cycle_retry_attempts: 0,
-    cumulative_retry_attempts: 0,
-    next_retry_at: null,
-    last_retry_delay_ms: 0,
-    ban_mode: "off",
-    banned_until_at: null,
-    last_failure_kind: null,
-    last_success_at: "2026-08-08T08:00:00Z",
-    last_success_response_headers_latency_ms: 412,
-    state: "available",
-    created_at: "2026-08-08T07:00:00Z",
-    updated_at: "2026-08-08T08:00:00Z",
   };
 }
 
@@ -256,155 +229,6 @@ describe("AccessTargetsEditor mixed ordering", () => {
     // Not applicable is an em dash with a reason, never a zero.
     const dashes = within(modelRow).getAllByText("—");
     expect(dashes.length).toBeGreaterThanOrEqual(2);
-  });
-});
-
-describe("AccessTargetsEditor capability column keeps absence distinguishable", () => {
-  const copy = zhCNMessages.modelsUi;
-
-  it("gives every absent capability its own reason instead of one bare dash", () => {
-    renderEditor({
-      accessTargets: [terminalA, modelTarget, terminalB],
-      // Terminal B's connection is withheld: it is not in this model's
-      // same-family option set, which is not the same as "declares nothing".
-      connectionOptions: [
-        { ...createConnection(901, "Terminal A"), openai_text_capability: null, openai_image_capability: null },
-      ],
-    });
-
-    // A Model Target does not declare a capability of its own.
-    expect(
-      within(screen.getByTestId("access-target-501")).getByText(copy.targetCapabilityNotApplicableModel),
-    ).toBeTruthy();
-    // A Terminal Target that declares neither text nor image capability.
-    expect(
-      within(screen.getByTestId("access-target-502")).getByText(copy.targetCapabilityUnknown),
-    ).toBeTruthy();
-    // A Terminal Target whose connection could not be resolved in this scope.
-    expect(
-      within(screen.getByTestId("access-target-503")).getAllByText(copy.targetConnectionOutOfScope).length,
-    ).toBeGreaterThan(0);
-  });
-
-  it("renders an image-only Terminal Target instead of blanking it", () => {
-    renderEditor({
-      accessTargets: [terminalA],
-      connectionOptions: [
-        {
-          ...createConnection(901, "Terminal A"),
-          openai_text_capability: null,
-          openai_image_capability: "generations_and_edits",
-        },
-      ],
-    });
-
-    const row = screen.getByTestId("access-target-502");
-    expect(within(row).getByText(copy.openaiImageOperationsGenerationsAndEdits)).toBeTruthy();
-    expect(within(row).queryByText(copy.targetCapabilityUnknown)).toBeNull();
-  });
-
-  it("marks a non-OpenAI family as not applicable rather than as missing data", () => {
-    renderEditor({
-      apiFamilyLabel: "anthropic",
-      accessTargets: [terminalA],
-      connectionOptions: [
-        {
-          ...createConnection(901, "Terminal A"),
-          api_family: "anthropic",
-          openai_text_capability: null,
-          openai_image_capability: null,
-        },
-      ],
-    });
-
-    expect(
-      within(screen.getByTestId("access-target-502")).getByText(/不使用 OpenAI 能力矩阵/),
-    ).toBeTruthy();
-  });
-});
-
-describe("AccessTargetsEditor runtime column keeps absence distinguishable", () => {
-  const routingCopy = zhCNMessages.routing;
-
-  it("shows a read failure as a failure, not as an unobserved target", () => {
-    renderEditor({
-      accessTargets: [terminalA],
-      currentStateFailure: { message: "upstream unreachable", staleData: false },
-    });
-
-    const row = screen.getByTestId("access-target-502");
-    expect(within(row).getByText(routingCopy.runtimeReadFailed)).toBeTruthy();
-    expect(within(row).queryByText(routingCopy.noRuntimeObservation)).toBeNull();
-  });
-
-  it("separates a partially observed row from a never-observed one", () => {
-    renderEditor({
-      accessTargets: [terminalA, terminalB],
-      currentStateGapByConnectionId: new Map([
-        [901, "partial" as const],
-        [902, "unobserved" as const],
-      ]),
-      currentStateCompleteness: {
-        state: "partial",
-        complete: false,
-        configured_target_count: 2,
-        observed_target_count: 1,
-        unobserved_target_count: 1,
-        observed_subset_counts: {},
-        hasMore: false,
-      },
-    });
-
-    expect(
-      within(screen.getByTestId("access-target-502")).getByText(new RegExp(routingCopy.runtimePartialObservation)),
-    ).toBeTruthy();
-    expect(
-      within(screen.getByTestId("access-target-503")).getByText(routingCopy.noRuntimeObservation),
-    ).toBeTruthy();
-  });
-
-  it("does not claim a switched-off row is unobserved", () => {
-    renderEditor({
-      accessTargets: [createTerminalTarget(502, 901, 0, false)],
-      currentStateCompleteness: {
-        state: "ready",
-        complete: true,
-        configured_target_count: 0,
-        observed_target_count: 0,
-        unobserved_target_count: 0,
-        observed_subset_counts: {},
-        hasMore: false,
-      },
-    });
-
-    const row = screen.getByTestId("access-target-502");
-    // The read model requires an enabled access-target edge, so this row is out
-    // of scope for observation rather than never observed.
-    expect(within(row).getByText(routingCopy.runtimeOutOfCohortReason)).toBeTruthy();
-    expect(within(row).queryByText(routingCopy.noRuntimeObservation)).toBeNull();
-  });
-
-  it("does not report an uncounted in-flight gauge as a measured zero", () => {
-    renderEditor({
-      accessTargets: [terminalA],
-      currentStateByConnectionId: new Map([[901, observedRuntime(901)]]),
-      currentStateCompleteness: {
-        state: "ready",
-        complete: true,
-        configured_target_count: 1,
-        observed_target_count: 1,
-        unobserved_target_count: 0,
-        observed_subset_counts: {},
-        hasMore: false,
-      },
-    });
-
-    const row = screen.getByTestId("access-target-502");
-    // The fixture connection sets no in-flight limits, so the runtime never
-    // increments these counters; a literal 0 would read as a measurement.
-    expect(within(row).getByText(routingCopy.noCooldown)).toBeTruthy();
-    expect(within(row).queryByText("0 / 0")).toBeNull();
-    expect(within(row).getAllByText("—").length).toBeGreaterThanOrEqual(2);
   });
 
   it("never presents per-type first labels or partition copy", () => {

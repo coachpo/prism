@@ -32,7 +32,7 @@ models/
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Bootstrap models from `@/lib/referenceData`, then patch the local list with `setSharedModels()` after mutations.
 - Keep access-target validation, strategy attachment rules, and `api_family` handling in `modelFormState.ts` instead of scattering them across dialog components.
-- `AccessTargetsEditor.tsx` consumes persisted access targets through mutation-shaped rows and renders one mixed Model Target/Terminal Target list with global "位置 N" numbering. Moves use the shared runtime order; row mutations address the persisted access-target row ID (never a position in `access_targets`, which the drag draft can reorder) and connection actions use the connection ID.
+- `AccessTargetsEditor.tsx` consumes persisted access targets through mutation-shaped rows and renders one mixed Model Target/Terminal Target list with global "位置 N" numbering. Moves use the shared runtime order; row mutations use the current source index and connection actions use the connection ID.
 - Hydrate 24h metrics separately from the base model list so CRUD flows do not own observability queries.
 - Keep the grouped models table keyed by `api_family` while still rendering the per-row `api_family` metadata.
 

@@ -28,20 +28,23 @@ export function useUsageSeriesFragment(
       })
       return () => { active = false }
     }
-    let cancelled = false;
+    // Aborting, not just ignoring: the chart is re-requested on every metric
+    // and grouping change, and each abandoned read would otherwise keep its
+    // server admission slot until it finished.
+    const controller = new AbortController();
     void observe
-      .usageSeries(queryContext, { metric, group_by: groupBy, interval })
+      .usageSeries(queryContext, { metric, group_by: groupBy, interval }, controller.signal)
       .then((series) => {
-        if (!cancelled) setFragment({ phase: "ready", data: series, stale: false, error: null, retryAfterMs: null });
+        if (!controller.signal.aborted) setFragment({ phase: "ready", data: series, stale: false, error: null, retryAfterMs: null });
       })
       .catch((err: unknown) => {
-        if (!cancelled) {
+        if (!controller.signal.aborted) {
           const mapped = fragmentErrorFrom(err);
           setFragment({ phase: "error", data: null, stale: false, error: mapped.error, retryAfterMs: mapped.retryAfterMs });
         }
       });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [queryContext, queryContextPhase, metric, groupBy, interval]);
   return fragment;

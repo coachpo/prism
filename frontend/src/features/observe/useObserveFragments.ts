@@ -40,43 +40,52 @@ export function useObserveFragments(preset: string) {
   const [summary, setSummary] = useState<FragmentState<UsageSummaryResponse>>(initialFragment);
   const [now, setNow] = useState<FragmentState<DashboardNowResponse>>(initialFragment);
   const generationRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   const refresh = useCallback(() => {
     const generation = ++generationRef.current;
+    // A superseded read is cancelled, not merely ignored: it holds a server
+    // admission slot for as long as it runs, and that slot is what a later
+    // read gets rejected for.
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const signal = controller.signal;
     void observe
-      .queryContext({ preset })
+      .queryContext({ preset }, signal)
       .then((context) => {
-        if (generationRef.current !== generation) return;
+        if (generationRef.current !== generation || signal.aborted) return;
         setQueryContext({ phase: "ready", data: context, stale: false, error: null, retryAfterMs: null });
         void observe
-          .usageSummary(context.query_context)
+          .usageSummary(context.query_context, signal)
           .then((summaryData) => {
-            if (generationRef.current !== generation) return;
+            if (generationRef.current !== generation || signal.aborted) return;
             setSummary({ phase: "ready", data: summaryData, stale: false, error: null, retryAfterMs: null });
           })
           .catch((error: unknown) => {
-            if (generationRef.current !== generation) return;
+            if (generationRef.current !== generation || signal.aborted) return;
             setSummary((previous) => ({ ...previous, phase: "error", stale: previous.data !== null, error: describeError(error), retryAfterMs: error instanceof ApiError ? error.retryAfterMs : null }));
           });
       })
       .catch((error: unknown) => {
-        if (generationRef.current !== generation) return;
+        if (generationRef.current !== generation || signal.aborted) return;
         setQueryContext((previous) => ({ ...previous, phase: "error", stale: previous.data !== null, error: describeError(error), retryAfterMs: error instanceof ApiError ? error.retryAfterMs : null }));
       });
     void observe
-      .dashboardNow()
+      .dashboardNow(signal)
       .then((nowData) => {
-        if (generationRef.current !== generation) return;
+        if (generationRef.current !== generation || signal.aborted) return;
         setNow({ phase: "ready", data: nowData, stale: false, error: null, retryAfterMs: null });
       })
       .catch((error: unknown) => {
-        if (generationRef.current !== generation) return;
+        if (generationRef.current !== generation || signal.aborted) return;
         setNow((previous) => ({ ...previous, phase: "error", stale: previous.data !== null, error: describeError(error), retryAfterMs: error instanceof ApiError ? error.retryAfterMs : null }));
       });
   }, [preset]);
 
   useEffect(() => {
     refresh();
+    return () => abortRef.current?.abort();
   }, [refresh]);
 
   return { queryContext, summary, now, refresh };
