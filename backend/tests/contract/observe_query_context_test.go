@@ -58,6 +58,20 @@ func seedObserveUsageRows(t *testing.T, harness *contractHarness, profileID int,
 		if value, ok := row["ttft_ms"].(int); ok {
 			ttft = value
 		}
+		operationName := any("openai.chat_completions")
+		if value, ok := row["operation_name"]; ok {
+			operationName = value
+		}
+		var inputTokens, cacheReadTokens, cacheCreationTokens any
+		if value, ok := row["input_tokens"].(int); ok {
+			inputTokens = value
+		}
+		if value, ok := row["cache_read_input_tokens"].(int); ok {
+			cacheReadTokens = value
+		}
+		if value, ok := row["cache_creation_input_tokens"].(int); ok {
+			cacheCreationTokens = value
+		}
 		totalTokens := 1000
 		if value, ok := row["total_tokens"].(int); ok {
 			totalTokens = value
@@ -89,12 +103,13 @@ func seedObserveUsageRows(t *testing.T, harness *contractHarness, profileID int,
 		}
 		if _, err := harness.conn.Exec(context.Background(), `
 			INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, api_family, operation_name, status_code, success_flag,
-				ttft_ms, completion_duration_ms, output_tokens, total_tokens, total_cost_user_currency_micros, report_currency_code, report_currency_symbol,
+				ttft_ms, completion_duration_ms, output_tokens, total_tokens, input_tokens, cache_read_input_tokens, cache_creation_input_tokens,
+				total_cost_user_currency_micros, report_currency_code, report_currency_symbol,
 				stream_outcome, stream_error_kind, pricing_status, unpriced_reason, pricing_evidence_trust, reporting_currency_epoch, pricing_resolution_kind,
 				input_cost_micros, output_cost_micros, reasoning_cost_micros,
 				cache_read_input_cost_micros, cache_creation_input_cost_micros, total_cost_original_micros,
 				attempt_count, request_path, endpoint_label_snapshot, created_at)
-			VALUES ($1, $2, $3, 'openai', 'openai.chat_completions', $4, $5, $6, $7, $8, $9, $15, $16, $17, $10, $11, $12, $13, $19, $18, $20,
+			VALUES ($1, $2, $3, 'openai', $21, $4, $5, $6, $7, $8, $9, $22, $23, $24, $15, $16, $17, $10, $11, $12, $13, $19, $18, $20,
 				$15, $15, $15, $15, $15, $15,
 				1, '/v1/chat/completions', 'Observe Endpoint', $14)`,
 			profileID,
@@ -117,6 +132,10 @@ func seedObserveUsageRows(t *testing.T, harness *contractHarness, profileID int,
 			reportingCurrencyEpoch,
 			pricingEvidenceTrust,
 			pricingResolutionKind,
+			operationName,
+			inputTokens,
+			cacheReadTokens,
+			cacheCreationTokens,
 		); err != nil {
 			t.Fatalf("seed usage row: %v", err)
 		}
@@ -292,6 +311,44 @@ func TestObserveUsageSummaryCanonicalCostSegments(t *testing.T) {
 	}
 	if sparkline := asMap(t, epoch10["sparkline"]); jsonInt(t, asMap(t, sparkline["points"].([]any)[0])["request_count"]) != 18 || asMap(t, sparkline["points"].([]any)[0])["known_cost_micros"] != "845" {
 		t.Fatalf("expected the existing full-window sparkline on the first segment, got %+v", sparkline)
+	}
+}
+
+func TestObserveUsageSummaryCacheBasisPredicate(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	rows := []map[string]any{
+		// Comparable: disjoint input/cache_read/cache_creation components.
+		{"seq": 1, "operation_name": "anthropic.messages", "input_tokens": 200, "cache_read_input_tokens": 18000, "cache_creation_input_tokens": 0, "total_tokens": 18200, "output_tokens": 500},
+		// count_tokens duplicates the total into cache_read: excluded.
+		{"seq": 2, "operation_name": "gemini.count_tokens", "input_tokens": 41, "cache_read_input_tokens": 41, "cache_creation_input_tokens": 3, "total_tokens": 41, "output_tokens": 41},
+		// Image generations never report cache components: excluded.
+		{"seq": 3, "operation_name": "openai.images.generations", "input_tokens": 100, "output_tokens": 100, "total_tokens": 200},
+		// Null operation_name is indeterminate: excluded, never a pass-through.
+		{"seq": 4, "operation_name": nil, "input_tokens": 100, "cache_read_input_tokens": 50, "total_tokens": 150},
+		// Missing input_tokens excludes even a measured cache_read.
+		{"seq": 5, "operation_name": "anthropic.messages", "cache_read_input_tokens": 50, "total_tokens": 50},
+		// Missing cache_read excludes even a measured input.
+		{"seq": 6, "operation_name": "anthropic.messages", "input_tokens": 100, "total_tokens": 100},
+	}
+	seedObserveUsageRows(t, harness, profileID, rows)
+
+	contextPayload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/query-context?preset=24h", nil, http.StatusOK)
+	summary := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/usage-summary?query_context="+contextPayload["query_context"].(string), nil, http.StatusOK)
+	if jsonInt(t, summary["request_count"]) != 6 {
+		t.Fatalf("expected 6 seeded requests, got %+v", summary)
+	}
+	// Only row 1 is cache-basis eligible; count_tokens, images, null
+	// operation_name, and missing-component rows never enter the denominator.
+	assertJSONIntFields(t, summary, map[string]int{"cache_basis_request_count": 1})
+	if jsonInt(t, summary["cache_basis_input_tokens"]) != 200 {
+		t.Fatalf("expected cache_basis_input_tokens 200, got %+v", summary["cache_basis_input_tokens"])
+	}
+	if jsonInt(t, summary["cache_basis_cache_read_tokens"]) != 18000 {
+		t.Fatalf("expected cache_basis_cache_read_tokens 18000, got %+v", summary["cache_basis_cache_read_tokens"])
+	}
+	if jsonInt(t, summary["cache_basis_cache_creation_tokens"]) != 0 {
+		t.Fatalf("expected cache_basis_cache_creation_tokens 0, got %+v", summary["cache_basis_cache_creation_tokens"])
 	}
 }
 

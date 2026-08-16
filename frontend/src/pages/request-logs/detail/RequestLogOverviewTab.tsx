@@ -14,7 +14,8 @@ import {
   formatTokens,
 } from "../columns";
 import { formatUnpricedReasonLabel } from "@/lib/costing";
-import { classifyTokenComponents, describeUnpricedCause } from "../pricingExplanation";
+import { cacheReadShare, classifyTokenComponents, describeUnpricedCause } from "../pricingExplanation";
+import type { CacheReadShare } from "../pricingExplanation";
 import {
   OperatorCallout,
   OperatorMissingValue,
@@ -122,6 +123,25 @@ function pricingStateLabel(pricing: PricingProjection, messages: ReturnType<type
   }
 }
 
+/** Each unavailable reason keeps its own sentence: a reader who sees the em
+ *  dash can tell an incomparable operation from an unreported component. */
+function renderCacheReadShare(
+  share: CacheReadShare,
+  messages: ReturnType<typeof useLocale>["messages"],
+) {
+  if (share.kind === "value") {
+    return <span className="font-mono tabular-nums">{`${(share.share * 100).toFixed(1)}%`}</span>;
+  }
+  const copy = messages.requestLogs;
+  const reason = {
+    incomparable_operation: copy.cacheReadShareIncomparable,
+    indeterminate_operation: copy.cacheReadShareIndeterminate,
+    components_missing: copy.cacheReadShareComponentsMissing,
+    no_prompt_tokens: copy.cacheReadShareNoPromptTokens,
+  }[share.kind];
+  return <OperatorMissingValue reason={reason} />;
+}
+
 function renderAuditCaptureState(
   routing: RequestLogDetailV2["routing"],
   messages: ReturnType<typeof useLocale>["messages"],
@@ -192,6 +212,12 @@ export function RequestLogOverviewTab({
     cacheRead: usage.cache_read_input_tokens,
     cacheCreation: usage.cache_creation_input_tokens,
     reasoning: usage.reasoning_tokens,
+  });
+  const cacheReadShareResult = cacheReadShare({
+    input: usage.input_tokens,
+    cacheRead: usage.cache_read_input_tokens,
+    cacheCreation: usage.cache_creation_input_tokens,
+    operationName: request.request.operation_name,
   });
   const streamOutcome = summary.stream_outcome as import("@/lib/types").StreamOutcome;
   const streamStatusLabel = getStreamOutcomeLabel(streamOutcome, messages.requestLogs);
@@ -506,13 +532,26 @@ export function RequestLogOverviewTab({
               </DetailRow>
               <DetailRow label={messages.requestLogs.total}><span className="font-mono">{totalTokensValue}</span></DetailRow>
               <DetailRow label={messages.requestLogs.cacheRead}>
-                <span className="font-mono">{formatTokens(usage.cache_read_input_tokens)}</span>
+                <span className="font-mono">
+                  {streamUsageUnavailable && usage.cache_read_input_tokens === null ? messages.requestLogs.streamUsageUnavailable : formatTokens(usage.cache_read_input_tokens)}
+                </span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.cacheCreation}>
-                <span className="font-mono">{formatTokens(usage.cache_creation_input_tokens)}</span>
+                <span className="font-mono">
+                  {streamUsageUnavailable && usage.cache_creation_input_tokens === null ? messages.requestLogs.streamUsageUnavailable : formatTokens(usage.cache_creation_input_tokens)}
+                </span>
+              </DetailRow>
+              <DetailRow label={messages.requestLogs.cacheReadShare}>
+                {streamUsageUnavailable && usage.cache_read_input_tokens === null ? (
+                  <span className="font-mono">{messages.requestLogs.streamUsageUnavailable}</span>
+                ) : (
+                  renderCacheReadShare(cacheReadShareResult, messages)
+                )}
               </DetailRow>
               <DetailRow label={messages.requestLogs.reasoning}>
-                <span className="font-mono">{formatTokens(usage.reasoning_tokens)}</span>
+                <span className="font-mono">
+                  {streamUsageUnavailable && usage.reasoning_tokens === null ? messages.requestLogs.streamUsageUnavailable : formatTokens(usage.reasoning_tokens)}
+                </span>
               </DetailRow>
               {tokenCoverage.kind === "residual" || tokenCoverage.kind === "total_only" ? (
                 <DetailRow label={messages.requestLogs.uncategorizedTokens}>

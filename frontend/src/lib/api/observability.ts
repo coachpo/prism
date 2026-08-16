@@ -562,6 +562,10 @@ export type UsageSummaryResponse = {
   output_rate_sample_count: number;
   avg_output_rate_tps: number | null;
   total_tokens: number | null;
+  cache_basis_request_count: number;
+  cache_basis_input_tokens: number | null;
+  cache_basis_cache_read_tokens: number | null;
+  cache_basis_cache_creation_tokens: number | null;
   pricing_reconciliation: {
     pricing_eligible_request_count: number;
     pricing_ineligible_request_count: number;

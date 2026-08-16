@@ -29,6 +29,7 @@ async function installObserveRoutes(page: import("@playwright/test").Page) {
     cost_segments: [], request_count: 0, http_success_count: 0, http_failed_count: 0, http_success_rate: null,
     completed_count: 0, stream_error_count: 0, client_disconnected_count: 0, failed_count: 0, ttft_sample_count: 0,
     p50_ttft_ms: null, p95_ttft_ms: null, output_rate_sample_count: 0, avg_output_rate_tps: null, total_tokens: null,
+    cache_basis_request_count: 0, cache_basis_input_tokens: null, cache_basis_cache_read_tokens: null, cache_basis_cache_creation_tokens: null,
     pricing_reconciliation: { pricing_eligible_request_count: 0, pricing_ineligible_request_count: 0, priced_request_count: 0, unpriced_request_count: 0, pricing_unknown_request_count: 0, unpriced_reason_counts: { PRICING_DISABLED: 0, MISSING_TOKEN_USAGE: 0, STREAM_USAGE_UNAVAILABLE: 0, MISSING_PRICE_DATA: 0 }, pricing_coverage_state: "no_eligible" },
     window_average_rpm: null, window_average_tpm: null,
   }));

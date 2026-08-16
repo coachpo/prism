@@ -1,6 +1,7 @@
 import { useLocale } from "@/i18n/useLocale";
 import type { UsageSummaryResponse } from "@/lib/api/observability";
 import type { FragmentState } from "@/features/observe/useObserveFragments";
+import { cacheBasisPartialCoverage, windowCacheReadShare } from "./cacheReadShare";
 import {
   OperatorCallout,
   OperatorClippedBadge,
@@ -33,9 +34,9 @@ export function WindowKpiGrid({
 
   if (fragment.phase === "loading" && fragment.data === null) {
     return (
-      <section aria-busy="true" aria-label={copy.windowLabel} className="grid grid-cols-6 gap-[var(--density-card-gap)]">
+      <section aria-busy="true" aria-label={copy.windowLabel} className="grid grid-cols-7 gap-[var(--density-card-gap)]">
         {Array.from({ length: 6 }, (_, index) => (
-          <Skeleton key={index} className="h-[5.25rem] rounded-lg" />
+          <Skeleton key={index} className={cn("h-[5.25rem] rounded-lg", index === 5 && "col-span-2")} />
         ))}
       </section>
     );
@@ -60,6 +61,28 @@ export function WindowKpiGrid({
   const pricing = data.pricing_reconciliation;
   const symbol = segment?.display_symbol ?? "$";
   const coverageClipped = !data.coverage.complete;
+  const cacheBasis = {
+    requestCount: data.request_count,
+    basisRequestCount: data.cache_basis_request_count,
+    basisInputTokens: data.cache_basis_input_tokens,
+    basisCacheReadTokens: data.cache_basis_cache_read_tokens,
+    basisCacheCreationTokens: data.cache_basis_cache_creation_tokens,
+  };
+  const cacheShare = windowCacheReadShare(cacheBasis);
+  const cacheBasisPartial = cacheBasisPartialCoverage(cacheBasis);
+  // A measured basis (at least one eligible row) guarantees non-null sums;
+  // the breakdown is never fabricated from zeros for a missing basis.
+  const basisComponents =
+    cacheBasis.basisRequestCount > 0 &&
+    cacheBasis.basisInputTokens !== null &&
+    cacheBasis.basisCacheReadTokens !== null &&
+    cacheBasis.basisCacheCreationTokens !== null
+      ? {
+          read: cacheBasis.basisCacheReadTokens,
+          creation: cacheBasis.basisCacheCreationTokens,
+          uncached: cacheBasis.basisInputTokens,
+        }
+      : null;
 
   return (
     <div className="flex flex-col gap-[var(--density-card-gap)]">
@@ -71,7 +94,7 @@ export function WindowKpiGrid({
       <section
         aria-label={copy.windowLabel}
         data-testid="window-kpi-grid"
-        className="grid grid-cols-6 gap-[var(--density-card-gap)]"
+        className="grid grid-cols-7 gap-[var(--density-card-gap)]"
       >
       <OperatorKpiCard
         label={copy.requests}
@@ -120,6 +143,35 @@ export function WindowKpiGrid({
         detail={`${copy.samples}：${formatNumber(data.output_rate_sample_count)}`}
       />
       <OperatorKpiCard
+        label={copy.cacheReadShare}
+        value={
+          cacheShare.kind === "value" ? (
+            `${(cacheShare.share * 100).toFixed(1)}%`
+          ) : cacheShare.kind === "empty_window" ? (
+            <OperatorMissingValue reason={copy.cacheReadShareEmptyWindow} />
+          ) : cacheShare.kind === "no_comparable_rows" ? (
+            <OperatorMissingValue reason={copy.cacheReadShareNoComparable(data.request_count)} />
+          ) : (
+            <OperatorMissingValue reason={copy.cacheReadShareNoDenominator} />
+          )
+        }
+        detail={copy.cacheReadShareDetail(data.cache_basis_request_count, data.request_count)}
+        badges={
+          <>
+            {basisComponents ? <CacheBasisBreakdown {...basisComponents} /> : null}
+            {cacheBasisPartial ? (
+              <OperatorClippedBadge label={copy.cacheReadSharePartial} reason={copy.cacheReadSharePartialReason} />
+            ) : null}
+            {coverageClipped ? (
+              <OperatorClippedBadge
+                label={messages.honesty.coverageIncomplete}
+                reason={messages.honesty.coverageIncompleteReason}
+              />
+            ) : null}
+          </>
+        }
+      />
+      <OperatorKpiCard
         className="col-span-2"
         label={copy.cost}
         value={<Money micros={segment?.known_cost_micros} symbol={symbol} />}
@@ -153,6 +205,56 @@ function Money({ micros, symbol }: { micros: string | null | undefined; symbol: 
       {symbol}
       {amount.toFixed(4)}
     </>
+  );
+}
+
+/**
+ * The three cache-basis components as one proportional bar plus a legend.
+ * Colors come from the `--chart-N` series tokens (DESIGN.md: data-encoding
+ * context), never from status colors. A component measured as zero still
+ * appears in the legend as a real `0`. With no rows at all the segments are
+ * empty and the legend reads the true zeros.
+ */
+function CacheBasisBreakdown({ read, creation, uncached }: { read: number; creation: number; uncached: number }) {
+  const { formatNumber, messages } = useLocale();
+  const copy = messages.observe;
+  const segments = [
+    { key: "read", value: read, label: copy.cacheReadShareRead, color: "var(--chart-1)" },
+    { key: "creation", value: creation, label: copy.cacheReadShareCreation, color: "var(--chart-2)" },
+    { key: "uncached", value: uncached, label: copy.cacheReadShareUncached, color: "var(--chart-3)" },
+  ] as const;
+  const total = read + creation + uncached;
+
+  return (
+    <div className="flex w-full min-w-0 flex-col gap-1" data-testid="cache-basis-breakdown">
+      <div
+        role="img"
+        aria-label={`${copy.cacheReadShare}：${segments.map((s) => `${s.label} ${formatNumber(s.value)}`).join("，")}`}
+        className="flex h-1.5 w-full overflow-hidden rounded-full bg-inset"
+      >
+        {total > 0
+          ? segments.map((segment) =>
+              segment.value > 0 ? (
+                <span
+                  key={segment.key}
+                  data-testid={`cache-basis-${segment.key}-segment`}
+                  className="h-full"
+                  style={{ width: `${(segment.value / total) * 100}%`, background: segment.color }}
+                />
+              ) : null,
+            )
+          : null}
+      </div>
+      <div className="flex flex-wrap gap-x-2.5 gap-y-0.5 text-[11px] text-muted-foreground">
+        {segments.map((segment) => (
+          <span key={segment.key} className="inline-flex items-center gap-1" data-testid={`cache-basis-${segment.key}`}>
+            <span aria-hidden="true" className="size-1.5 rounded-full" style={{ background: segment.color }} />
+            {segment.label}
+            <span className="font-mono tabular-nums text-foreground">{formatNumber(segment.value)}</span>
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 

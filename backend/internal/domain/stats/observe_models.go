@@ -51,6 +51,10 @@ type UsageSummaryResult struct {
 	CacheCreationInputTokens           *int64                `json:"cache_creation_input_tokens"`
 	ReasoningTokens                    *int64                `json:"reasoning_tokens"`
 	TotalTokens                        *int64                `json:"total_tokens"`
+	CacheBasisRequestCount             int                   `json:"cache_basis_request_count"`
+	CacheBasisInputTokens              *int64                `json:"cache_basis_input_tokens"`
+	CacheBasisCacheReadTokens          *int64                `json:"cache_basis_cache_read_tokens"`
+	CacheBasisCacheCreationTokens      *int64                `json:"cache_basis_cache_creation_tokens"`
 	PricingReconciliation              PricingReconciliation `json:"pricing_reconciliation"`
 	WindowAverageRPM                   *float64              `json:"window_average_rpm"`
 	WindowAverageTPM                   *float64              `json:"window_average_tpm"`
@@ -96,6 +100,23 @@ type CostSparklinePoint struct {
 	KnownCostMicros               *string        `json:"known_cost_micros"`
 }
 
+// cacheBasisEligibleSQL is the single shared eligibility predicate for the
+// cache-read share: both input and cache_read must be measured (null excludes
+// the row, unlike cache_creation which coalesces to zero), operation_name must
+// be known, and count_tokens / image operations are excluded because their
+// cache components are not comparable under the disjoint basis. Rows with a
+// null operation_name are indeterminate and excluded; this is a deliberate
+// tradeoff, not a pass-through.
+const cacheBasisEligibleSQL = `(
+	input_tokens IS NOT NULL
+	AND cache_read_input_tokens IS NOT NULL
+	AND operation_name IS NOT NULL
+	AND operation_name NOT IN (
+		'anthropic.count_tokens', 'gemini.count_tokens',
+		'openai.images.generations', 'openai.images.edits'
+	)
+)`
+
 // LoadUsageSummary executes the single-statement window aggregate including
 // the bounded cost sparkline.
 func LoadUsageSummary(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, coverage Coverage, referenceNow time.Time, reportCurrencyCode string, reportCurrencySymbol string) (UsageSummaryResult, error) {
@@ -122,6 +143,8 @@ WITH classified AS (
 		     THEN output_tokens * 1000.0 / (completion_duration_ms - ttft_ms) END AS output_rate_tps,
 		input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
 		reasoning_tokens, total_tokens,
+		operation_name,
+		`+cacheBasisEligibleSQL+` AS cache_basis_eligible,
 		id, created_at, reporting_currency_epoch, report_currency_code, report_currency_symbol,
 		total_cost_user_currency_micros,
 		`+canonicalCostSegmentKeySQL+` AS canonical_segment_key
@@ -164,6 +187,10 @@ SELECT
 	(SELECT SUM(cache_creation_input_tokens) FROM classified),
 	(SELECT SUM(reasoning_tokens) FROM classified),
 	(SELECT SUM(total_tokens) FROM classified),
+	(SELECT COUNT(*) FROM classified WHERE cache_basis_eligible)::int,
+	(SELECT SUM(input_tokens) FROM classified WHERE cache_basis_eligible),
+	(SELECT SUM(cache_read_input_tokens) FROM classified WHERE cache_basis_eligible),
+	(SELECT SUM(COALESCE(cache_creation_input_tokens, 0)) FROM classified WHERE cache_basis_eligible),
 	(SELECT value FROM segments),
 	(SELECT COALESCE(COUNT(DISTINCT bucket_start), 0) FROM bucketed)::int
 `, profileID, bounds.UsageFrom, bounds.UsageTo)
@@ -200,6 +227,10 @@ SELECT
 		&result.CacheCreationInputTokens,
 		&result.ReasoningTokens,
 		&result.TotalTokens,
+		&result.CacheBasisRequestCount,
+		&result.CacheBasisInputTokens,
+		&result.CacheBasisCacheReadTokens,
+		&result.CacheBasisCacheCreationTokens,
 		&segmentsJSON,
 		&bucketCount,
 	); err != nil {

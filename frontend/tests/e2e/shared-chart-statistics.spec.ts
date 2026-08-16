@@ -56,6 +56,12 @@ function summaryFixture() {
     output_rate_sample_count: 1288,
     avg_output_rate_tps: 83.0,
     total_tokens: 350,
+    // Partial cache-basis coverage: 1200 of the 1364 window requests are
+    // comparable, so the share renders with a clipped badge.
+    cache_basis_request_count: 1200,
+    cache_basis_input_tokens: 420000,
+    cache_basis_cache_read_tokens: 1280000,
+    cache_basis_cache_creation_tokens: 90000,
     pricing_reconciliation: {
       pricing_eligible_request_count: 1348,
       pricing_ineligible_request_count: 16,
