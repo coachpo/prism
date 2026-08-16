@@ -207,6 +207,8 @@ function ProtectedModelDetailRoute() {
           ...(search.focus_connection_id ? { focus_connection_id: search.focus_connection_id } : {}),
         },
         replace: true,
+        // A URL tidy-up on an already-rendered page, so it must not scroll.
+        resetScroll: false,
       })
     }
   }, [modelId, navigate, search.action, search.endpoint_id, search.focus_connection_id])
@@ -230,6 +232,11 @@ function ProtectedModelDetailRoute() {
               focus_connection_id: nextSearchParams.get("focus_connection_id") ?? undefined,
             },
             replace: options?.replace,
+            // The detail page consumes its one-shot params by writing them back
+            // out; `focus_connection_id` in particular is cleared while the page
+            // is smooth-scrolling to that card, and a scroll reset here would
+            // fight it.
+            resetScroll: false,
           })}
         />,
       )}

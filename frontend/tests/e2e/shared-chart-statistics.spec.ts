@@ -270,6 +270,29 @@ test.describe("observe page regression", () => {
     await expect(page).toHaveURL(/metric=ttft/);
     await page.getByRole("button", { name: "按模型" }).click();
     await expect(page).toHaveURL(/group_by=model/);
+
+    // These controls write to the URL, but they are in-page state changes, not
+    // navigations. The router's default scroll reset would throw the operator
+    // back to the top every time they touch a control below the fold. Bring
+    // each control into view first, so Playwright's own scroll-into-view is not
+    // what moves the page between the two readings.
+    const groupByEndpoint = page.getByRole("button", { name: "按端点" });
+    await groupByEndpoint.scrollIntoViewIfNeeded();
+    const offsetBeforeGroupChange = await page.evaluate(() => window.scrollY);
+    expect(offsetBeforeGroupChange).toBeGreaterThan(0);
+    await groupByEndpoint.click();
+    await expect(page).toHaveURL(/group_by=endpoint/);
+    expect(await page.evaluate(() => window.scrollY)).toBe(offsetBeforeGroupChange);
+
+    // Switching views swaps what renders below the switcher, so the page height
+    // moves with it; what has to hold is that the operator keeps their place.
+    const activityTab = page.getByRole("tab", { name: "活动" });
+    await activityTab.scrollIntoViewIfNeeded();
+    const offsetBeforeViewChange = await page.evaluate(() => window.scrollY);
+    expect(offsetBeforeViewChange).toBeGreaterThan(0);
+    await activityTab.click();
+    await expect(page.getByTestId("observe-activity-table")).toBeVisible();
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   });
 
   test("the legacy events tab redirects to the routing health page", async ({ page }) => {
