@@ -1676,6 +1676,19 @@ export const zhCNMessages = {
     noCooldown: "当前无冷却限制",
     noPricingTemplate: "无价格模板",
     noRuntimeObservation: "本进程尚未观测",
+    // 运行态的四态区分：未观测、观测不完整、不在观测范围、读取失败。
+    // 「未观测」只在本进程确实一次都没见过该目标时使用。
+    runtimePartialObservation: "本进程观测不完整",
+    runtimePartialObservationReason: "本进程见过该终端目标，但这次快照缺少部分字段，因此不展示可能误导的数值。",
+    runtimeOutOfCohort: "不在观测范围",
+    runtimeOutOfCohortReason: "该访问目标未参与路由，因此不进入本进程的运行态观测集合。",
+    runtimeReadFailed: "运行态读取失败",
+    runtimeReadFailedReason: (reason: MessageArg) => `未能读取运行态，因此这里既不是「无观测」也不是「正常」：${reason}`,
+    runtimeTruncated: "运行态已截断",
+    runtimeTruncatedReason: "运行态列表已被分页截断；未列出的目标不能据此判断为没有观测。",
+    runtimeNotReadYet: "运行态尚未读取成功，因此这里还不能断定该目标没有观测。",
+    inFlightNotMetered: "未计量",
+    inFlightNotMeteredReason: "该终端目标没有配置在途上限，运行时因此不对在途请求计数；这里的空缺表示未计量，而不是实测为零。",
     participatesInRouting: "参与路由",
     pricingTemplate: "价格模板",
     qpsLimit: (value: MessageArg) => `QPS ${value}`,
@@ -1775,8 +1788,15 @@ export const zhCNMessages = {
     targetColumnRuntime: "运行态",
     targetColumnEnabled: "参与路由",
     targetColumnActions: "操作",
-    targetLimitsNotApplicable: "模型目标不经过终端配置，因此没有限流。",
-    targetRuntimeNotApplicable: "模型目标不产生本进程运行态观测。",
+    // 这两句只描述「这一行自身有没有对应配置/观测键」，不对流量作断言：
+    // 准入判定发生在叶子终端目标上，运行态也按终端目标索引，所以经模型目标
+    // 下去的请求照样受限流与封禁影响。
+    targetLimitsNotApplicable: "这一行不直接持有终端配置；限流配置在它解析到的终端目标上，按各终端目标分别生效。",
+    targetRuntimeNotApplicable: "这一行自身没有运行态观测键；可观测的是它解析到的终端目标的状态。",
+    targetCapabilityNotApplicableModel: "这一行不直接声明能力；实际能力取决于它解析到的终端目标。",
+    targetCapabilityNotApplicableFamily: (apiFamily: MessageArg) => `${apiFamily} 家族不使用 OpenAI 能力矩阵，因此这一列不适用。`,
+    targetCapabilityUnknown: "该终端目标没有声明任何 OpenAI 文本或图像能力。",
+    targetConnectionOutOfScope: "该终端目标不在本模型的同族可选集合内，无法读取它的配置。",
     targetMoreActions: (name: MessageArg) => `目标 ${name} 的更多操作`,
     targetDragHandle: (name: MessageArg) => `拖动以调整目标 ${name} 的顺序`,
     targetOrderPending: (count: MessageArg) => `顺序已改动 ${count} 处，尚未保存`,

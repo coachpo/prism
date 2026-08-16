@@ -213,6 +213,9 @@ export function ModelDetailFeaturePage({
         isConnectionTargetMutable={isConnectionTargetMutable}
 		strategyType={model.loadbalance_strategy?.legacy_strategy_type}
 		currentStateByConnectionId={data.currentStateByConnectionId}
+		currentStateGapByConnectionId={data.currentStateGapByConnectionId}
+		currentStateFailure={data.currentStateFailure}
+		currentStateCompleteness={data.currentStateCompleteness}
 		resettingConnectionIds={data.resettingConnectionIds}
 		onResetCooldown={data.handleResetCooldown}
 		onRefreshRuntimeState={data.refreshCurrentState}

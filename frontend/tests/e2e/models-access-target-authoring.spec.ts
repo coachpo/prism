@@ -613,6 +613,7 @@ export async function mockModelDetailRoutes(page: Page) {
     updated_at: detailTimestamp,
   };
   const resetRequests: string[] = [];
+  const currentStateModelIdQueries: (string | null)[] = [];
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -630,49 +631,76 @@ export async function mockModelDetailRoutes(page: Page) {
       return fulfillJson(createDetailDiagnostics());
     }
     if (pathname === "/api/loadbalance/current-state") {
+      // Record the filter the page actually sends. The read model compares it
+      // against `model_configs.model_id`, so a numeric config id here returns an
+      // empty cohort that the table would render as "never observed".
+      currentStateModelIdQueries.push(new URL(request.url()).searchParams.get("model_id"));
+      // Mirror the shipped response shape: target identity lives in
+      // `terminal_target`, and completeness/has_more ride alongside the items.
+      const observedRow = (terminalTargetId: number, label: string, overrides: Record<string, unknown>) => ({
+        model: { model_config_id: 7, id: "detail-openai", label: "Detail OpenAI", configured: true },
+        endpoint: { id: 1, label: "OpenAI Primary", configured: true },
+        terminal_target: { id: terminalTargetId, label, configured: true },
+        observation_state: "observed",
+        available: true,
+        qps_window_started_at: null,
+        qps_window_request_count: 0,
+        in_flight_non_stream: 0,
+        in_flight_stream: 0,
+        cycle_retry_attempts: 0,
+        cumulative_retry_attempts: 0,
+        next_retry_at: null,
+        last_retry_delay_ms: 0,
+        ban_mode: "off",
+        banned_until_at: null,
+        last_failure_kind: null,
+        last_success_at: "2026-08-08T11:30:00Z",
+        last_success_response_headers_latency_ms: 412,
+        state: "available",
+        created_at: "2026-08-08T10:00:00Z",
+        updated_at: "2026-08-08T11:59:00Z",
+        ...overrides,
+      });
       return fulfillJson({
+        generated_at: "2026-08-08T12:00:00Z",
+        scope: "process",
+        instance_id: "e2e-instance",
+        configuration_revision: "1",
+        completeness: {
+          state: "ready",
+          complete: true,
+          configured_target_count: 2,
+          observed_target_count: 2,
+          unobserved_target_count: 0,
+          observed_subset_counts: {},
+        },
         items: [
-          {
-            connection_id: 15,
-            observation_state: "observed",
-            window_started_at: null,
-            window_request_count: 0,
+          observedRow(15, "Primary Chat", {
             in_flight_non_stream: 1,
-            in_flight_stream: 0,
             cycle_retry_attempts: 2,
             cumulative_retry_attempts: 2,
             next_retry_at: "2026-08-08T12:05:00Z",
             last_retry_delay_ms: 60000,
-            ban_mode: "off",
-            banned_until_at: null,
             last_failure_kind: "transient_http",
-            last_success_at: "2026-08-08T11:30:00Z",
-            last_success_response_headers_latency_ms: 412,
             state: "retry_wait",
-            created_at: "2026-08-08T10:00:00Z",
-            updated_at: "2026-08-08T11:59:00Z",
-          },
-          {
-            connection_id: 16,
-            observation_state: "observed",
-            window_started_at: null,
-            window_request_count: 0,
-            in_flight_non_stream: 0,
-            in_flight_stream: 0,
+            available: false,
+          }),
+          observedRow(16, "Fallback Dual", {
             cycle_retry_attempts: 4,
             cumulative_retry_attempts: 4,
-            next_retry_at: null,
             last_retry_delay_ms: 900000,
             ban_mode: "until_reset",
-            banned_until_at: null,
             last_failure_kind: "connect_error",
             last_success_at: "2026-08-08T08:00:00Z",
             last_success_response_headers_latency_ms: 980,
             state: "banned",
+            available: false,
             created_at: "2026-08-08T07:00:00Z",
             updated_at: "2026-08-08T08:30:00Z",
-          },
+          }),
         ],
+        has_more: false,
+        next_cursor: null,
       });
     }
     if (pathname === "/api/models/7" && request.method() === "GET") {
@@ -729,7 +757,10 @@ export async function mockModelDetailRoutes(page: Page) {
     return fulfillJson({});
   });
 
-  return { getResetRequests: () => resetRequests };
+  return {
+    getResetRequests: () => resetRequests,
+    getCurrentStateModelIdQueries: () => currentStateModelIdQueries,
+  };
 }
 
 test("model detail shows mixed order, single truncation and cooldown reset", async ({ page }) => {
@@ -746,6 +777,12 @@ test("model detail shows mixed order, single truncation and cooldown reset", asy
   await expect(rows.nth(1)).toHaveAttribute("data-testid", "access-target-92");
   await expect(rows.nth(0)).toContainText("Primary Responses");
   await expect(rows.nth(1)).toContainText("Fallback Dual");
+
+  // The runtime column is only trustworthy if the cohort filter addresses the
+  // model the way the read model indexes it: by public model id, not by the
+  // numeric config id in the route.
+  expect(routes.getCurrentStateModelIdQueries().length).toBeGreaterThan(0);
+  expect(new Set(routes.getCurrentStateModelIdQueries())).toEqual(new Set(["detail-openai"]));
 
   const bannedRow = page.getByTestId("access-target-92");
   await expect(bannedRow.getByText(/冷却\/封禁中/)).toBeVisible();

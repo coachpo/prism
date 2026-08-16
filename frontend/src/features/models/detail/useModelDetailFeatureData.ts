@@ -120,13 +120,19 @@ export function useModelDetailFeatureData({
     spendingPreset: spendingWindow,
   })
 
+  // The global current-state read model filters on the public model id string,
+  // not the numeric config id in the route. `model_configs` is unique on
+  // (profile_id, model_id), so this is the same cohort the route addresses.
   const {
     currentStateByConnectionId,
+    currentStateGapByConnectionId,
+    currentStateFailure,
+    currentStateCompleteness,
     resettingConnectionIds,
     refreshCurrentState,
     resetCooldown,
   } = useModelLoadbalanceCurrentState({
-	modelId,
+    modelId: model?.model_id,
     revision,
     enabled: Boolean(model),
   })
@@ -258,6 +264,9 @@ export function useModelDetailFeatureData({
     connectionSearch,
     setConnectionSearch,
     currentStateByConnectionId,
+    currentStateGapByConnectionId,
+    currentStateFailure,
+    currentStateCompleteness,
     resettingConnectionIds,
     focusedConnectionId,
     connectionCardRefs,
