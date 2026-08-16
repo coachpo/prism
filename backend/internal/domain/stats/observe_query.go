@@ -354,6 +354,45 @@ type QueryContextDomainSnapshot struct {
 	PurgeState          string         `json:"purge_state"`
 }
 
+// CoverageFromQueryBounds projects the coverage frozen into one signed
+// query-context domain snapshot. Exact latency precision is authorized only
+// by a complete, fresh raw owner snapshot with its signed identity intact;
+// incomplete or stale evidence must never be upgraded by a fragment loader.
+func CoverageFromQueryBounds(bounds QueryBounds, snapshot QueryContextDomainSnapshot) Coverage {
+	gaps := append(make([]CoverageGap, 0, len(bounds.Gaps)), bounds.Gaps...)
+	complete := bounds.Complete && snapshot.Complete && snapshot.Freshness == "fresh" && len(gaps) == 0
+	var precision *CoveragePrecision
+	if complete && bounds.Source == "raw" && queryContextCoverageOwnerReady(snapshot) {
+		precision = &CoveragePrecision{TTFT: "exact", OutputRate: "exact"}
+	}
+	return Coverage{
+		RequestedPreset:     bounds.RequestedPreset,
+		FromTime:            bounds.UsageFrom.UTC(),
+		ToTime:              bounds.UsageTo.UTC(),
+		RetentionFromTime:   retentionTime(bounds.UsageRetentionFrom),
+		Source:              bounds.Source,
+		Complete:            complete,
+		Gaps:                gaps,
+		Precision:           precision,
+		RetentionEpoch:      snapshot.RetentionEpoch,
+		RetentionGeneration: snapshot.RetentionGeneration,
+		PurgeState:          snapshot.PurgeState,
+		SourceRevision:      snapshot.SourceRevision,
+	}
+}
+
+func queryContextCoverageOwnerReady(snapshot QueryContextDomainSnapshot) bool {
+	return strings.TrimSpace(snapshot.Domain) != "" &&
+		strings.TrimSpace(snapshot.RetentionEpoch) != "" &&
+		strings.TrimSpace(snapshot.RetentionGeneration) != "" &&
+		strings.TrimSpace(snapshot.FenceGeneration) != "" &&
+		strings.TrimSpace(snapshot.SourceRevision) != "" &&
+		strings.TrimSpace(snapshot.CoverageRevision) != "" &&
+		strings.TrimSpace(snapshot.CoverageHash) != "" &&
+		snapshot.CoverageGeneratedAt != nil &&
+		strings.TrimSpace(snapshot.PurgeState) != ""
+}
+
 // QueryBoundsForDomain reconstructs the frozen bounds for one Observe
 // consumer. A fragment must use the domain snapshot rather than the usage
 // compatibility fields on QueryContextToken; request-log deep links in

@@ -90,6 +90,32 @@ func TestResolveQueryBoundsFromActualCoverageDoesNotShrinkDirtyOwnerRange(t *tes
 	}
 }
 
+func TestCoverageFromQueryBoundsRequiresFreshCompleteOwner(t *testing.T) {
+	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
+	bounds := QueryBounds{RequestedPreset: "24h", UsageFrom: now.Add(-24 * time.Hour), UsageTo: now, Source: "raw", Complete: true, Gaps: []CoverageGap{}}
+	snapshot := QueryContextDomainSnapshot{Domain: "usage_request_events", RetentionEpoch: "2", RetentionGeneration: "7", FenceGeneration: "11", SourceRevision: "source-7", CoverageRevision: "coverage-7", CoverageHash: "hash-7", CoverageGeneratedAt: &now, Complete: true, Freshness: "fresh", PurgeState: "idle"}
+
+	coverage := CoverageFromQueryBounds(bounds, snapshot)
+	if coverage.Precision == nil || coverage.Gaps == nil || coverage.RetentionEpoch != "2" || coverage.RetentionGeneration != "7" || coverage.PurgeState != "idle" || coverage.SourceRevision != "source-7" {
+		t.Fatalf("coverage = %#v; want exact precision with frozen owner metadata", coverage)
+	}
+	for name, mutate := range map[string]func(*QueryBounds, *QueryContextDomainSnapshot){
+		"incomplete": func(_ *QueryBounds, value *QueryContextDomainSnapshot) { value.Complete = false },
+		"stale":      func(_ *QueryBounds, value *QueryContextDomainSnapshot) { value.Freshness = "stale" },
+		"gapped": func(value *QueryBounds, _ *QueryContextDomainSnapshot) {
+			value.Gaps = []CoverageGap{{FromTime: value.UsageFrom, ToTime: value.UsageFrom.Add(time.Hour), Reason: "retention_deleted"}}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidateBounds, candidateSnapshot := bounds, snapshot
+			mutate(&candidateBounds, &candidateSnapshot)
+			if got := CoverageFromQueryBounds(candidateBounds, candidateSnapshot); got.Precision != nil || got.Complete || (name == "gapped" && len(got.Gaps) != 1) {
+				t.Fatalf("coverage = %#v; non-authoritative coverage must fail closed", got)
+			}
+		})
+	}
+}
+
 func TestNormalizeActualCoveragePresetPreservesSingleFromCompatibility(t *testing.T) {
 	referenceNow := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
 	from := referenceNow.Add(-2 * time.Hour)

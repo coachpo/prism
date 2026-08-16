@@ -769,7 +769,8 @@ func (s *Service) handleCostSegments(w http.ResponseWriter, r *http.Request) {
 			return statsdomain.CostSegmentPage{}, err
 		}
 		params := statsdomain.CostSegmentParams{ProfileID: profile.ID, Limit: limit, Cursor: normalizedQueryString(r, "cursor")}
-		return statsdomain.ListCostSegments(r.Context(), tx, params)
+		cursorSigningKey := statsdomain.DeriveCostSegmentCursorSigningKey(s.secretEncryptionKey)
+		return statsdomain.ListCostSegments(r.Context(), tx, params, cursorSigningKey)
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -779,7 +780,31 @@ func (s *Service) handleCostSegments(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleCostSegmentSymbols(w http.ResponseWriter, r *http.Request) {
-	responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusNotImplemented, "Symbol pages are served via the cost-segments catalogue.")
+	limit, err := parsePositiveIntWithDefault(r, "limit", 50)
+	if err != nil {
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		return
+	}
+	offset, err := parseNonNegativeIntWithDefault(r, "offset", 0)
+	if err != nil {
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		return
+	}
+	segmentKey := strings.TrimSpace(chi.URLParam(r, "segment_key"))
+	response, err := pgxutil.InReadOnlyTxValue(r.Context(), s.pool, "cost segment symbols", func(tx pgx.Tx) (statsdomain.CostSegmentSymbolsPage, error) {
+		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
+		if err != nil {
+			return statsdomain.CostSegmentSymbolsPage{}, err
+		}
+		return statsdomain.ListCostSegmentSymbols(r.Context(), tx, statsdomain.CostSegmentSymbolsParams{
+			ProfileID: profile.ID, SegmentKey: segmentKey, Limit: limit, Offset: offset,
+		})
+	})
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleEndpointModelStatistics(w http.ResponseWriter, r *http.Request) {

@@ -34,7 +34,6 @@ func (s *Service) handleQueryContext(w http.ResponseWriter, r *http.Request) {
 		domains := []string{"request_logs", "usage_request_events", "loadbalance_events"}
 		boundsByDomain := make(map[string]statsdomain.QueryBounds, len(domains))
 		sourcesByDomain := make(map[string]statsdomain.RetentionFloorEpochSource, len(domains))
-		coverageByDomain := make(map[string]statsdomain.ActualCoverageProjection, len(domains))
 		domainSnapshots := make(map[string]statsdomain.QueryContextDomainSnapshot, len(domains))
 		for _, domain := range domains {
 			source, sourceErr := statsdomain.LoadRetentionSourceProjection(r.Context(), tx, domain, referenceNow)
@@ -54,7 +53,6 @@ func (s *Service) handleQueryContext(w http.ResponseWriter, r *http.Request) {
 			}
 			boundsByDomain[domain] = bounds
 			sourcesByDomain[domain] = source
-			coverageByDomain[domain] = actual
 			domainSnapshots[domain] = statsdomain.QueryContextDomainSnapshot{
 				Domain:              domain,
 				FromTime:            bounds.UsageFrom.UTC(),
@@ -102,13 +100,11 @@ func (s *Service) handleQueryContext(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return statsdomain.QueryContextResponse{}, err
 		}
-		usageCoverage := coverageFromQueryBounds(usageBounds, usageSource, coverageByDomain["usage_request_events"])
+		usageCoverage := statsdomain.CoverageFromQueryBounds(usageBounds, domainSnapshots["usage_request_events"])
 		eventBounds := boundsByDomain["loadbalance_events"]
-		eventSource := sourcesByDomain["loadbalance_events"]
-		eventCoverage := coverageFromQueryBounds(eventBounds, eventSource, coverageByDomain["loadbalance_events"])
+		eventCoverage := statsdomain.CoverageFromQueryBounds(eventBounds, domainSnapshots["loadbalance_events"])
 		requestBounds := boundsByDomain["request_logs"]
-		requestSource := sourcesByDomain["request_logs"]
-		requestCoverage := coverageFromQueryBounds(requestBounds, requestSource, coverageByDomain["request_logs"])
+		requestCoverage := statsdomain.CoverageFromQueryBounds(requestBounds, domainSnapshots["request_logs"])
 		return statsdomain.QueryContextResponse{
 			QueryContext:    signed,
 			UsageBounds:     statsdomain.TimeBounds{FromTime: usageBounds.UsageFrom, ToTime: usageBounds.UsageTo},
@@ -126,27 +122,6 @@ func (s *Service) handleQueryContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	responseutil.WriteJSON(w, http.StatusOK, response)
-}
-
-func coverageFromQueryBounds(bounds statsdomain.QueryBounds, source statsdomain.RetentionFloorEpochSource, actual statsdomain.ActualCoverageProjection) statsdomain.Coverage {
-	var precision *statsdomain.CoveragePrecision
-	if bounds.Complete && actual.Complete && actual.Freshness == "fresh" {
-		precision = &statsdomain.CoveragePrecision{TTFT: "exact", OutputRate: "exact"}
-	}
-	return statsdomain.Coverage{
-		RequestedPreset:     bounds.RequestedPreset,
-		FromTime:            bounds.UsageFrom,
-		ToTime:              bounds.UsageTo,
-		RetentionFromTime:   bounds.UsageRetentionFrom,
-		Source:              bounds.Source,
-		Complete:            bounds.Complete,
-		Gaps:                bounds.Gaps,
-		Precision:           precision,
-		RetentionEpoch:      source.RetentionEpoch,
-		RetentionGeneration: source.RetentionGeneration,
-		PurgeState:          source.PurgeState,
-		SourceRevision:      source.SourceRevision,
-	}
 }
 
 func domainPurgeInProgressCode(domain string) string {
@@ -174,6 +149,7 @@ func (s *Service) handleUsageSummary(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
+	coverage := statsdomain.CoverageFromQueryBounds(bounds, token.Domains["usage_request_events"])
 	response, err := pgxutil.InReadOnlyTxValue(r.Context(), s.pool, "stats usage-summary", func(tx pgx.Tx) (statsdomain.UsageSummaryResult, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
@@ -186,7 +162,7 @@ func (s *Service) handleUsageSummary(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return statsdomain.UsageSummaryResult{}, err
 		}
-		return statsdomain.LoadUsageSummary(r.Context(), tx, profile.ID, bounds, s.nowUTC(), reportCurrencyCode, reportCurrencySymbol)
+		return statsdomain.LoadUsageSummary(r.Context(), tx, profile.ID, bounds, coverage, s.nowUTC(), reportCurrencyCode, reportCurrencySymbol)
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -324,6 +300,7 @@ func (s *Service) handleUsageSeries(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
+	coverage := statsdomain.CoverageFromQueryBounds(bounds, token.Domains["usage_request_events"])
 	metric := strings.TrimSpace(r.URL.Query().Get("metric"))
 	if metric == "" {
 		metric = "requests"
@@ -352,7 +329,7 @@ func (s *Service) handleUsageSeries(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return statsdomain.UsageSeriesResult{}, err
 		}
-		return statsdomain.LoadUsageSeries(r.Context(), tx, profile.ID, bounds, metric, groupBy, interval, seriesLimit, s.nowUTC(), reportCurrencyCode, reportCurrencySymbol)
+		return statsdomain.LoadUsageSeries(r.Context(), tx, profile.ID, bounds, coverage, metric, groupBy, interval, seriesLimit, s.nowUTC(), reportCurrencyCode, reportCurrencySymbol)
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -385,6 +362,7 @@ func (s *Service) handleUsageErrors(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
+	coverage := statsdomain.CoverageFromQueryBounds(bounds, token.Domains["usage_request_events"])
 	params := statsdomain.UsageErrorsParams{
 		GroupBy: strings.TrimSpace(r.URL.Query().Get("group_by")),
 		Limit:   parsePositiveQueryIntDefault(r, "limit", 20),
@@ -415,7 +393,7 @@ func (s *Service) handleUsageErrors(w http.ResponseWriter, r *http.Request) {
 		if profile.ID != token.ProfileID {
 			return statsdomain.UsageErrorsResult{}, &statsdomain.HTTPError{StatusCode: 422, Detail: "query_context scope mismatch"}
 		}
-		return statsdomain.LoadUsageErrors(r.Context(), tx, profile.ID, bounds, params, rawQueryContext, s.nowUTC())
+		return statsdomain.LoadUsageErrors(r.Context(), tx, profile.ID, bounds, coverage, params, rawQueryContext, s.nowUTC())
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)

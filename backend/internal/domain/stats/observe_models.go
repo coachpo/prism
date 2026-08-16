@@ -3,7 +3,6 @@ package stats
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -99,49 +98,41 @@ type CostSparklinePoint struct {
 
 // LoadUsageSummary executes the single-statement window aggregate including
 // the bounded cost sparkline.
-func LoadUsageSummary(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, referenceNow time.Time, reportCurrencyCode string, reportCurrencySymbol string) (UsageSummaryResult, error) {
+func LoadUsageSummary(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, coverage Coverage, referenceNow time.Time, reportCurrencyCode string, reportCurrencySymbol string) (UsageSummaryResult, error) {
 	spanMinutes := bounds.UsageTo.Sub(bounds.UsageFrom).Minutes()
 	result := UsageSummaryResult{
 		GeneratedAt: referenceNow.UTC(),
-		Coverage: Coverage{
-			RequestedPreset:   bounds.RequestedPreset,
-			FromTime:          bounds.UsageFrom,
-			ToTime:            bounds.UsageTo,
-			RetentionFromTime: bounds.UsageRetentionFrom,
-			Source:            bounds.Source,
-			Complete:          bounds.Complete,
-			Gaps:              bounds.Gaps,
-			Precision:         &CoveragePrecision{TTFT: "exact", OutputRate: "exact"},
-		},
+		Coverage:    coverage,
 	}
 	var p50, p95 *float64
 	var avgRate *float64
-	var knownCost *string
 	var priced, unpriced, ineligible, unknown int
 	var reasonDisabled, reasonMissingUsage, reasonStreamUsage, reasonMissingData int
-	var totalCost *int64
+	var segmentsJSON []byte
 	row := exec.QueryRow(ctx, `
 WITH classified AS (
 	SELECT
 		`+outcomeDetailSQL+` AS outcome_detail,
 		pricing_status,
 		unpriced_reason,
+		pricing_evidence_trust,
 		ttft_ms,
 		CASE WHEN output_tokens IS NOT NULL AND ttft_ms IS NOT NULL AND completion_duration_ms IS NOT NULL
 		          AND completion_duration_ms - ttft_ms > 0
 		     THEN output_tokens * 1000.0 / (completion_duration_ms - ttft_ms) END AS output_rate_tps,
 		input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
 		reasoning_tokens, total_tokens,
-		CASE WHEN pricing_status = 'priced' AND pricing_evidence_trust = 'trusted' THEN total_cost_user_currency_micros END AS trusted_cost
+		id, created_at, reporting_currency_epoch, report_currency_code, report_currency_symbol,
+		total_cost_user_currency_micros,
+		`+canonicalCostSegmentKeySQL+` AS canonical_segment_key
 	FROM usage_request_events
 	WHERE `+usageWindowPredicate+`
 ),
 bucketed AS (
 	SELECT date_bin(interval '1 hour', created_at, $2) AS bucket_start
-	FROM usage_request_events
-	WHERE `+usageWindowPredicate+`
+	FROM classified
 	GROUP BY 1
-)
+)`+observeUsageSummarySegmentsCTEs+`
 SELECT
 	(SELECT COUNT(*) FROM classified)::int AS request_count,
 	(SELECT COUNT(*) FROM classified WHERE outcome_detail = 'http_error')::int,
@@ -173,7 +164,7 @@ SELECT
 	(SELECT SUM(cache_creation_input_tokens) FROM classified),
 	(SELECT SUM(reasoning_tokens) FROM classified),
 	(SELECT SUM(total_tokens) FROM classified),
-	(SELECT SUM(trusted_cost) FROM classified),
+	(SELECT value FROM segments),
 	(SELECT COALESCE(COUNT(DISTINCT bucket_start), 0) FROM bucketed)::int
 `, profileID, bounds.UsageFrom, bounds.UsageTo)
 	var requestCount, httpErrorCount, streamErrorCount, clientDisconnectedCount, completedCount int
@@ -209,7 +200,7 @@ SELECT
 		&result.CacheCreationInputTokens,
 		&result.ReasoningTokens,
 		&result.TotalTokens,
-		&totalCost,
+		&segmentsJSON,
 		&bucketCount,
 	); err != nil {
 		return result, fmt.Errorf("load usage summary for profile %d: %w", profileID, err)
@@ -251,44 +242,18 @@ SELECT
 	FinalizePricingReconciliation(&reconciliation)
 	result.PricingReconciliation = reconciliation
 
-	epoch := 1
-	code := reportCurrencyCode
-	symbol := reportCurrencySymbol
-	if strings.TrimSpace(code) == "" {
-		code = "USD"
+	segments, err := decodeObserveCostSegments(profileID, segmentsJSON)
+	if err != nil {
+		return result, err
 	}
-	if strings.TrimSpace(symbol) == "" {
-		symbol = "$"
-	}
-	segment := ObserveCostSegment{
-		SegmentKey:                    "e.1",
-		ReportingCurrencyEpoch:        &epoch,
-		CurrencyAttribution:           "identified",
-		CurrencyCode:                  stringPointer(code),
-		DisplaySymbol:                 stringPointer(symbol),
-		ObservedSymbols:               []string{symbol},
-		ObservedSymbolCount:           1,
-		RequestCount:                  requestCount,
-		PricingEligibleRequestCount:   reconciliation.EligibleRequestCount,
-		PricingIneligibleRequestCount: ineligible,
-		PricedRequestCount:            priced,
-		UnpricedRequestCount:          unpriced,
-		PricingUnknownRequestCount:    unknown,
-		UnpricedReasonCounts:          reconciliation.UnpricedReasonCounts,
-		PricingCoverageState:          reconciliation.PricingCoverageState,
-	}
-	if totalCost != nil {
-		knownCost = stringPointer(fmt.Sprintf("%d", *totalCost))
-	}
-	segment.KnownCostMicros = knownCost
-	if bucketCount > 0 {
+	if bucketCount > 0 && len(segments) > 0 {
 		sparkline, err := loadCostSparkline(ctx, exec, profileID, bounds, reportCurrencyCode, reportCurrencySymbol)
 		if err != nil {
 			return result, err
 		}
-		segment.Sparkline = &sparkline
+		segments[0].Sparkline = &sparkline
 	}
-	result.CostSegments = []ObserveCostSegment{segment}
+	result.CostSegments = segments
 	return result, nil
 }
 

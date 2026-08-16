@@ -1223,7 +1223,7 @@ func newS15ContractHarness(t *testing.T) *contractHarness {
 				t.Fatalf("build loadbalance service: %v", err)
 			}
 			t.Cleanup(loadbalanceService.Close)
-			statsService, err := managementstats.NewService(settings, managementstats.Options{Pool: pool, Now: func() time.Time { return fixedS15Now }})
+			statsService, err := managementstats.NewService(settings, managementstats.Options{Pool: pool, Now: func() time.Time { return fixedS15Now }, SecretEncryptionKey: settings.SecretEncryptionKey})
 			if err != nil {
 				t.Fatalf("build stats service: %v", err)
 			}
@@ -1960,7 +1960,7 @@ func TestEndpointTerminalTargetStatisticsDrillDown(t *testing.T) {
 	if _, err := harness.conn.Exec(context.Background(), `UPDATE usage_request_events SET stream_outcome = 'upstream_read_error' WHERE id = 9603`); err != nil {
 		t.Fatalf("set stream outcome: %v", err)
 	}
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE usage_request_events SET stream_outcome = 'client_disconnected' WHERE id = 9604`); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE usage_request_events SET stream_outcome = CASE WHEN id = 9604 THEN 'client_disconnected' ELSE stream_outcome END, report_currency_code = 'USD', reporting_currency_epoch = CASE WHEN id = 9602 THEN NULL ELSE 1 END WHERE id BETWEEN 9601 AND 9604`); err != nil {
 		t.Fatalf("set client disconnect: %v", err)
 	}
 	// ban + admission-rejection loadbalance events for connection 17
@@ -1968,8 +1968,14 @@ func TestEndpointTerminalTargetStatisticsDrillDown(t *testing.T) {
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO loadbalance_events (profile_id, connection_id, endpoint_id, model_id, event_type, cycle_retry_attempts, cumulative_retry_attempts, last_retry_delay_ms, created_at) VALUES ($1, 17, 7, 'tt-model', 'banned', 0, 1, 0, $2), ($1, 17, 7, 'tt-model', 'banned', 0, 2, 0, $3), ($1, 17, 7, 'tt-model', 'admission_rejected', 0, 2, 0, $4)`, profileID, now, now.Add(time.Minute), now.Add(2*time.Minute)); err != nil {
 		t.Fatalf("insert loadbalance events: %v", err)
 	}
+	refreshS15ActualCoverage(t, harness, "usage_request_events", "loadbalance_events")
+	usageSource, err := statsdomain.LoadRetentionSourceProjection(context.Background(), harness.conn, "usage_request_events", fixedS15Now)
+	if err != nil {
+		t.Fatalf("load usage owner metadata: %v", err)
+	}
 
-	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/endpoints/7/terminal-targets?preset=24h&limit=50", http.StatusOK)
+	terminalTargetURL := "/api/stats/endpoints/7/terminal-targets?preset=custom&from_time=" + url.QueryEscape(now.Format(time.RFC3339)) + "&to_time=" + url.QueryEscape(fixedS15Now.Format(time.RFC3339)) + "&limit=50"
+	payload := s15GET[map[string]any](t, harness, profileID, terminalTargetURL, http.StatusOK)
 	items := payload["items"].([]any)
 	if len(items) != 2 {
 		t.Fatalf("expected 2 terminal targets, got %+v", payload)
@@ -2041,11 +2047,50 @@ func TestEndpointTerminalTargetStatisticsDrillDown(t *testing.T) {
 		}
 	}
 	coverage := asMap(t, payload["coverage"])
-	if coverage["state"] != "known" || coverage["complete"] != true {
-		t.Fatalf("expected known complete coverage, got %+v", coverage)
+	if coverage["state"] != "known" || coverage["complete"] != true || coverage["source_revision"] != usageSource.SourceRevision || coverage["retention_epoch"] != usageSource.RetentionEpoch || coverage["retention_generation"] != usageSource.RetentionGeneration || coverage["purge_state"] != usageSource.PurgeState {
+		t.Fatalf("expected exact usage owner coverage metadata, got %+v", coverage)
 	}
-	if jsonInt(t, payload["total"]) != 2 {
-		t.Fatalf("expected total 2, got %+v", payload)
+	if _, exists := coverage["precision"]; exists || fmt.Sprint(first["coverage"]) != fmt.Sprint(coverage) {
+		t.Fatalf("terminal-target coverage must match owner coverage without page precision: %+v", payload)
+	}
+	for _, item := range byConn {
+		if item["event_coverage_complete"] != true {
+			t.Fatalf("expected fresh event owner on every item, got %+v", item)
+		}
+	}
+	epochPayload, legacyPayload := s15GET[map[string]any](t, harness, profileID, terminalTargetURL+"&cost_segment_key=e.1", http.StatusOK), s15GET[map[string]any](t, harness, profileID, terminalTargetURL+"&cost_segment_key=l.USD", http.StatusOK)
+	epochItems, legacyItems := epochPayload["items"].([]any), legacyPayload["items"].([]any)
+	if jsonInt(t, payload["total"]) != 2 || len(epochItems) != 2 || jsonInt(t, epochPayload["total"]) != 2 || jsonInt(t, asMap(t, epochItems[0])["connection_id"]) != 17 || jsonInt(t, asMap(t, epochItems[0])["request_count"]) != 2 || jsonInt(t, asMap(t, epochItems[1])["connection_id"]) != 18 || jsonInt(t, asMap(t, epochItems[1])["request_count"]) != 1 || len(legacyItems) != 1 || jsonInt(t, legacyPayload["total"]) != 1 || jsonInt(t, asMap(t, legacyItems[0])["connection_id"]) != 17 || jsonInt(t, asMap(t, legacyItems[0])["request_count"]) != 1 || jsonInt(t, asMap(t, legacyItems[0])["ban_event_count"]) != 2 || jsonInt(t, asMap(t, legacyItems[0])["pricing_status_counts"].(map[string]any)["ineligible"]) != 1 {
+		t.Fatalf("expected exact epoch and legacy segment membership with independent events, got all=%+v epoch=%+v legacy=%+v", payload, epochPayload, legacyPayload)
+	}
+	for _, offset := range []int{2, 3} {
+		outOfRange := s15GET[map[string]any](t, harness, profileID, terminalTargetURL+"&offset="+strconv.Itoa(offset), http.StatusOK)
+		if len(outOfRange["items"].([]any)) != 0 || jsonInt(t, outOfRange["total"]) != 2 || jsonInt(t, outOfRange["limit"]) != 50 || jsonInt(t, outOfRange["offset"]) != offset || fmt.Sprint(outOfRange["coverage"]) != fmt.Sprint(payload["coverage"]) {
+			t.Fatalf("offset %d must return an empty page without changing metadata: %+v", offset, outOfRange)
+		}
+	}
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE retention_coverage_read_models SET dirty = TRUE, freshness = 'stale' WHERE dataset = 'loadbalance_events'`); err != nil {
+		t.Fatalf("stale event owner: %v", err)
+	}
+	stalePayload := s15GET[map[string]any](t, harness, profileID, terminalTargetURL, http.StatusOK)
+	if fmt.Sprint(stalePayload["coverage"]) != fmt.Sprint(payload["coverage"]) {
+		t.Fatalf("event owner staleness must not change usage coverage: %+v", stalePayload)
+	}
+	for _, raw := range stalePayload["items"].([]any) {
+		if item := asMap(t, raw); item["event_coverage_complete"] != false {
+			t.Fatalf("expected stale event owner to fail closed, got %+v", item)
+		}
+	}
+	oneSidedBounds := []struct{ query, wantFrom, wantTo string }{
+		{"from_time=" + url.QueryEscape(now.Format(time.RFC3339)), now.Format(time.RFC3339), fixedS15Now.Format(time.RFC3339)},
+		{"to_time=" + url.QueryEscape(fixedS15Now.Format(time.RFC3339)), fixedS15Now.Add(-time.Hour).Format(time.RFC3339), fixedS15Now.Format(time.RFC3339)},
+	}
+	for _, oneSided := range oneSidedBounds {
+		oneSidedPayload := s15GET[map[string]any](t, harness, profileID, "/api/stats/endpoints/7/terminal-targets?"+oneSided.query+"&limit=50", http.StatusOK)
+		oneSidedCoverage := asMap(t, oneSidedPayload["coverage"])
+		if oneSidedCoverage["requested_from_time"] != oneSided.wantFrom || oneSidedCoverage["requested_to_time"] != oneSided.wantTo {
+			t.Fatalf("one-sided bounds changed: %+v", oneSidedCoverage)
+		}
 	}
 }
 

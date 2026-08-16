@@ -67,6 +67,7 @@ func (s *Service) handleObserveActivity(w http.ResponseWriter, r *http.Request) 
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
+	coverage := statsdomain.CoverageFromQueryBounds(bounds, token.Domains["usage_request_events"])
 	params := statsdomain.ActivityParams{Limit: parsePositiveQueryIntDefault(r, "limit", 20)}
 	if raw := strings.TrimSpace(r.URL.Query().Get("before")); raw != "" {
 		if value, err := strconv.ParseInt(raw, 10, 64); err == nil {
@@ -81,7 +82,7 @@ func (s *Service) handleObserveActivity(w http.ResponseWriter, r *http.Request) 
 		if profile.ID != token.ProfileID {
 			return statsdomain.ActivityFeedResponse{}, &statsdomain.HTTPError{StatusCode: 422, Detail: "query_context scope mismatch"}
 		}
-		return statsdomain.LoadFinalizedActivity(r.Context(), tx, profile.ID, bounds, params, s.nowUTC())
+		return statsdomain.LoadFinalizedActivity(r.Context(), tx, profile.ID, bounds, coverage, params, s.nowUTC())
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)

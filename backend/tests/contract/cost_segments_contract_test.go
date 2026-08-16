@@ -2,9 +2,12 @@ package contracttest
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -18,19 +21,16 @@ func TestCostSegmentsCatalogue(t *testing.T) {
 	now := time.Now().UTC()
 	ensureContractTestLogPartitions(t, harness, contractTestLogPartitionFor("usage_request_events", now))
 
-	// Segment e.2 (identified epoch): 1 priced trusted cost, 1 unpriced.
-	for index := 0; index < 2; index++ {
+	// Segment e.2: 1 priced trusted cost, then 2 unpriced rows whose symbols
+	// are $, US$, $ so full-symbol ordering must deduplicate the later repeat.
+	for index, symbol := range []string{"$", "US$", "$"} {
 		status := "priced"
 		reason := "NULL"
 		cost := int64(2500)
-		if index == 1 {
+		if index > 0 {
 			status = "unpriced"
 			reason = "'PRICING_DISABLED'"
 			cost = 0
-		}
-		symbol := "$"
-		if index == 1 {
-			symbol = "US$"
 		}
 		var costArg any
 		if cost > 0 {
@@ -64,8 +64,8 @@ func TestCostSegmentsCatalogue(t *testing.T) {
 	if first["segment_key"] != "e.2" {
 		t.Fatalf("expected identified epoch segment first, got %v", first["segment_key"])
 	}
-	if first["priced_request_count"] != float64(1) || first["unpriced_request_count"] != float64(1) {
-		t.Fatalf("expected e.2 counts priced=1 unpriced=1, got %+v", first)
+	if first["priced_request_count"] != float64(1) || first["unpriced_request_count"] != float64(2) {
+		t.Fatalf("expected e.2 counts priced=1 unpriced=2, got %+v", first)
 	}
 	if first["pricing_coverage_state"] != "partial" {
 		t.Fatalf("expected partial coverage for e.2, got %v", first["pricing_coverage_state"])
@@ -73,7 +73,7 @@ func TestCostSegmentsCatalogue(t *testing.T) {
 	if first["known_cost_micros"] != "2500" {
 		t.Fatalf("expected trusted known cost 2500, got %v", first["known_cost_micros"])
 	}
-	if first["request_count"] != float64(2) || first["display_symbol"] != "US$" {
+	if first["request_count"] != float64(3) || first["display_symbol"] != "$" {
 		t.Fatalf("expected one aggregate e.2 segment with latest symbol, got %+v", first)
 	}
 	observedSymbols := first["observed_symbols"].([]any)
@@ -100,6 +100,37 @@ func TestCostSegmentsCatalogue(t *testing.T) {
 	if jsonInt(t, payload["cost_segments_total_count"]) != 3 || payload["cost_segments_next_cursor"] != nil {
 		t.Fatalf("expected complete page metadata, got %+v", payload)
 	}
+
+	for _, test := range []struct {
+		name, path, key      string
+		symbols              []string
+		total, limit, offset int
+	}{
+		{"first page", "/api/stats/cost-segments/e.2/symbols?limit=1", "e.2", []string{"$"}, 2, 1, 0},
+		{"second page", "/api/stats/cost-segments/e.2/symbols?limit=1&offset=1", "e.2", []string{"US$"}, 2, 1, 1},
+		{"out of range", "/api/stats/cost-segments/e.2/symbols?limit=1&offset=2", "e.2", []string{}, 2, 1, 2},
+		{"legacy", "/api/stats/cost-segments/l.EUR/symbols", "l.EUR", []string{"€"}, 1, 50, 0},
+		{"symbol-less", "/api/stats/cost-segments/l.__unknown__/symbols", "l.__unknown__", []string{}, 0, 50, 0},
+		{"limit cap", "/api/stats/cost-segments/e.2/symbols?limit=999", "e.2", []string{"$", "US$"}, 2, 100, 0},
+	} {
+		t.Run("symbols "+test.name, func(t *testing.T) {
+			page := s15GET[map[string]any](t, harness, profileID, test.path, http.StatusOK)
+			gotSymbols := page["symbols"].([]any)
+			if len(page) != 5 || page["segment_key"] != test.key || jsonInt(t, page["total"]) != test.total || jsonInt(t, page["limit"]) != test.limit || jsonInt(t, page["offset"]) != test.offset || len(gotSymbols) != len(test.symbols) {
+				t.Fatalf("unexpected symbol page: %+v", page)
+			}
+			for index, symbol := range test.symbols {
+				if gotSymbols[index] != symbol {
+					t.Fatalf("expected symbols %+v, got %+v", test.symbols, gotSymbols)
+				}
+			}
+		})
+	}
+	for _, path := range []string{"/api/stats/cost-segments/e.2/symbols?limit=0", "/api/stats/cost-segments/e.2/symbols?offset=-1"} {
+		_ = s15GET[map[string]any](t, harness, profileID, path, http.StatusBadRequest)
+	}
+	missing := s15GET[map[string]any](t, harness, profileID, "/api/stats/cost-segments/e.999/symbols", http.StatusNotFound)
+	assertErrorCode(t, missing, "cost_segment_not_found")
 
 	expectedKeys := []string{"e.2", "l.EUR", "l.__unknown__"}
 	cursor := ""
@@ -143,4 +174,14 @@ func TestCostSegmentsCatalogue(t *testing.T) {
 			t.Fatalf("expected final page to terminate pagination, got %+v", page)
 		}
 	}
+
+	parts := strings.Split(cursor, ".")
+	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		t.Fatalf("decode cursor payload: %v", err)
+	}
+	publicDigest := sha256.Sum256(raw)
+	forged := parts[0] + "." + base64.RawURLEncoding.EncodeToString(publicDigest[:])
+	rejected := s15GET[map[string]any](t, harness, profileID, "/api/stats/cost-segments?limit=1&cursor="+url.QueryEscape(forged), http.StatusBadRequest)
+	assertErrorCode(t, rejected, "cost_segment_cursor_invalid")
 }

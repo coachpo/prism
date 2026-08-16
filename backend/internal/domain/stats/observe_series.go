@@ -103,7 +103,7 @@ func ResolveSeriesInterval(interval string, from time.Time, to time.Time) (strin
 // LoadUsageSeries executes the two-statement main chart aggregate: statement 1
 // selects Top entity IDs; statement 2 builds buckets for those entities plus
 // the re-aggregated Other remainder.
-func LoadUsageSeries(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, metric string, groupBy string, interval string, seriesLimit int, referenceNow time.Time, reportCurrencyCode string, reportCurrencySymbol string) (UsageSeriesResult, error) {
+func LoadUsageSeries(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, coverage Coverage, metric string, groupBy string, interval string, seriesLimit int, referenceNow time.Time, reportCurrencyCode string, reportCurrencySymbol string) (UsageSeriesResult, error) {
 	intervalName, bucketSize, err := ResolveSeriesInterval(interval, bounds.UsageFrom, bounds.UsageTo)
 	if err != nil {
 		return UsageSeriesResult{}, err
@@ -112,17 +112,8 @@ func LoadUsageSeries(ctx context.Context, exec queryExecutor, profileID int, bou
 		seriesLimit = 6
 	}
 	result := UsageSeriesResult{
-		GeneratedAt: referenceNow.UTC(),
-		Coverage: Coverage{
-			RequestedPreset:   bounds.RequestedPreset,
-			FromTime:          bounds.UsageFrom,
-			ToTime:            bounds.UsageTo,
-			RetentionFromTime: bounds.UsageRetentionFrom,
-			Source:            bounds.Source,
-			Complete:          bounds.Complete,
-			Gaps:              bounds.Gaps,
-			Precision:         &CoveragePrecision{TTFT: "exact", OutputRate: "exact"},
-		},
+		GeneratedAt:    referenceNow.UTC(),
+		Coverage:       coverage,
 		Metric:         metric,
 		GroupBy:        groupBy,
 		SelectionBasis: "request_count",

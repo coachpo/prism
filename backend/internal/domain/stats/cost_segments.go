@@ -2,11 +2,8 @@ package stats
 
 import (
 	"context"
-	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -69,9 +66,25 @@ const (
 	maxCostSegmentLimit     = 100
 )
 
+const canonicalCostSegmentKeySQL = `CASE
+	WHEN reporting_currency_epoch > 0 THEN 'e.' || reporting_currency_epoch::text
+	WHEN report_currency_code ~ '^[A-Z]{3}$' THEN 'l.' || report_currency_code
+	ELSE 'l.__unknown__'
+END`
+
+const costSegmentClassifiedEventsCTE = `WITH classified AS (
+		SELECT *,
+			` + canonicalCostSegmentKeySQL + ` AS canonical_segment_key
+		FROM usage_request_events
+		WHERE profile_id = $1
+	)`
+
 // ListCostSegments returns one bounded page of canonical segments ordered by
 // identified epoch desc, then legacy code asc, unknown last.
-func ListCostSegments(ctx context.Context, exec queryExecutor, params CostSegmentParams) (CostSegmentPage, error) {
+func ListCostSegments(ctx context.Context, exec queryExecutor, params CostSegmentParams, cursorSigningKey []byte) (CostSegmentPage, error) {
+	if len(cursorSigningKey) == 0 {
+		return CostSegmentPage{}, fmt.Errorf("cost segment cursor signing key is unavailable")
+	}
 	if params.Limit <= 0 {
 		params.Limit = defaultCostSegmentLimit
 	}
@@ -79,16 +92,7 @@ func ListCostSegments(ctx context.Context, exec queryExecutor, params CostSegmen
 		params.Limit = maxCostSegmentLimit
 	}
 
-	rows, err := exec.Query(ctx, `WITH classified AS (
-		SELECT *,
-			CASE
-				WHEN reporting_currency_epoch > 0 THEN 'e.' || reporting_currency_epoch::text
-				WHEN report_currency_code ~ '^[A-Z]{3}$' THEN 'l.' || report_currency_code
-				ELSE 'l.__unknown__'
-			END AS canonical_segment_key
-		FROM usage_request_events
-		WHERE profile_id = $1
-	)
+	rows, err := exec.Query(ctx, costSegmentClassifiedEventsCTE+`
 		SELECT
 			CASE
 				WHEN canonical_segment_key LIKE 'e.%' THEN MAX(reporting_currency_epoch)
@@ -192,7 +196,7 @@ func ListCostSegments(ctx context.Context, exec queryExecutor, params CostSegmen
 	// Keyset cursor over the ordered segments (server-before-limit).
 	start := 0
 	if params.Cursor != nil && strings.TrimSpace(*params.Cursor) != "" {
-		decoded, err := decodeCostSegmentCursor(*params.Cursor)
+		decoded, err := decodeCostSegmentCursor(*params.Cursor, cursorSigningKey)
 		if err != nil {
 			return CostSegmentPage{}, &HTTPError{StatusCode: 400, Code: "cost_segment_cursor_invalid", Detail: "Cost segment cursor is invalid."}
 		}
@@ -215,7 +219,7 @@ func ListCostSegments(ctx context.Context, exec queryExecutor, params CostSegmen
 	page.CostSegmentsConsumedCount += len(page.CostSegments)
 	if end < totalCount {
 		lastKey := segments[end-1].SegmentKey
-		encoded, err := encodeCostSegmentCursor(costSegmentCursorPayload{Version: 1, ProfileID: params.ProfileID, LastSegmentKey: lastKey, Consumed: page.CostSegmentsConsumedCount})
+		encoded, err := encodeCostSegmentCursor(costSegmentCursorPayload{Version: 1, ProfileID: params.ProfileID, LastSegmentKey: lastKey, Consumed: page.CostSegmentsConsumedCount}, cursorSigningKey)
 		if err != nil {
 			return CostSegmentPage{}, err
 		}
@@ -290,54 +294,6 @@ func costSegmentRank(key string) int {
 	default:
 		return 2
 	}
-}
-
-type costSegmentCursorPayload struct {
-	Version        int    `json:"v"`
-	ProfileID      int    `json:"p"`
-	LastSegmentKey string `json:"k"`
-	Consumed       int    `json:"c"`
-}
-
-func encodeCostSegmentCursor(payload costSegmentCursorPayload) (string, error) {
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return "", err
-	}
-	signature := signCostSegmentCursor(raw)
-	return base64.RawURLEncoding.EncodeToString(raw) + "." + base64.RawURLEncoding.EncodeToString(signature), nil
-}
-
-func decodeCostSegmentCursor(encoded string) (costSegmentCursorPayload, error) {
-	parts := strings.Split(encoded, ".")
-	if len(parts) != 2 {
-		return costSegmentCursorPayload{}, fmt.Errorf("invalid cost segment cursor")
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil {
-		return costSegmentCursorPayload{}, err
-	}
-	signature, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return costSegmentCursorPayload{}, err
-	}
-	if !hmac.Equal(signature, signCostSegmentCursor(raw)) {
-		return costSegmentCursorPayload{}, fmt.Errorf("invalid cost segment cursor signature")
-	}
-	var payload costSegmentCursorPayload
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return costSegmentCursorPayload{}, err
-	}
-	if payload.Version != 1 {
-		return costSegmentCursorPayload{}, fmt.Errorf("unsupported cost segment cursor version")
-	}
-	return payload, nil
-}
-
-func signCostSegmentCursor(raw []byte) []byte {
-	hasher := sha256.New()
-	_, _ = hasher.Write(raw)
-	return hasher.Sum(nil)
 }
 
 func costSegmentSnapshotHash(segments []CurrencyCostSegment) string {

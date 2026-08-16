@@ -56,7 +56,7 @@ type ActivityParams struct {
 
 // LoadFinalizedActivity returns the newest finalized ingress rows for the
 // usage window, optionally continuing before a cursor.
-func LoadFinalizedActivity(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, params ActivityParams, referenceNow time.Time) (ActivityFeedResponse, error) {
+func LoadFinalizedActivity(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, coverage Coverage, params ActivityParams, referenceNow time.Time) (ActivityFeedResponse, error) {
 	if params.Limit <= 0 {
 		params.Limit = 20
 	}
@@ -65,17 +65,8 @@ func LoadFinalizedActivity(ctx context.Context, exec queryExecutor, profileID in
 	}
 	result := ActivityFeedResponse{
 		GeneratedAt: referenceNow.UTC(),
-		Coverage: Coverage{
-			RequestedPreset:   bounds.RequestedPreset,
-			FromTime:          bounds.UsageFrom,
-			ToTime:            bounds.UsageTo,
-			RetentionFromTime: bounds.UsageRetentionFrom,
-			Source:            bounds.Source,
-			Complete:          bounds.Complete,
-			Gaps:              bounds.Gaps,
-			Precision:         &CoveragePrecision{TTFT: "exact", OutputRate: "exact"},
-		},
-		Items: []ActivityItem{},
+		Coverage:    coverage,
+		Items:       []ActivityItem{},
 	}
 	beforeCondition := ""
 	args := []any{profileID, bounds.UsageFrom, bounds.UsageTo}

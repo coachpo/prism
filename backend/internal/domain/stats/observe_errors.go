@@ -195,7 +195,7 @@ func errorFilterWhere(params UsageErrorsParams) (string, []any) {
 // LoadUsageErrors runs the three-statement error aggregate. Statement 1:
 // filtered cohort summary + timeline. Statement 2: HTTP status ranking.
 // Statement 3: stream outcome ranking with kind Top 5 and entity groups.
-func LoadUsageErrors(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, params UsageErrorsParams, queryContext string, referenceNow time.Time) (UsageErrorsResult, error) {
+func LoadUsageErrors(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, coverage Coverage, params UsageErrorsParams, queryContext string, referenceNow time.Time) (UsageErrorsResult, error) {
 	if params.Limit <= 0 {
 		params.Limit = 20
 	}
@@ -207,16 +207,7 @@ func LoadUsageErrors(ctx context.Context, exec queryExecutor, profileID int, bou
 	}
 	result := UsageErrorsResult{
 		GeneratedAt: referenceNow.UTC(),
-		Coverage: Coverage{
-			RequestedPreset:   bounds.RequestedPreset,
-			FromTime:          bounds.UsageFrom,
-			ToTime:            bounds.UsageTo,
-			RetentionFromTime: bounds.UsageRetentionFrom,
-			Source:            bounds.Source,
-			Complete:          bounds.Complete,
-			Gaps:              bounds.Gaps,
-			Precision:         &CoveragePrecision{TTFT: "exact", OutputRate: "exact"},
-		},
+		Coverage:    coverage,
 		RequestsContext: ErrorsRequestsContext{
 			View:               "ingress_chains",
 			QueryContext:       queryContext,

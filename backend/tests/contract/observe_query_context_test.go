@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,10 @@ func seedObserveUsageRows(t *testing.T, harness *contractHarness, profileID int,
 	now := fixedS15Now.Add(-2 * time.Minute)
 	ensureContractTestLogPartitions(t, harness, contractTestLogPartitionFor("usage_request_events", fixedS15Now))
 	for _, row := range rows {
+		createdAt := now
+		if value, ok := row["created_at"].(time.Time); ok {
+			createdAt = value
+		}
 		modelID := "observe-model"
 		if value, ok := row["model_id"].(string); ok {
 			modelID = value
@@ -36,6 +41,14 @@ func seedObserveUsageRows(t *testing.T, harness *contractHarness, profileID int,
 		pricingStatus := "priced"
 		if value, ok := row["pricing_status"].(string); ok {
 			pricingStatus = value
+		}
+		pricingEvidenceTrust := "trusted"
+		if value, ok := row["pricing_evidence_trust"].(string); ok {
+			pricingEvidenceTrust = value
+		}
+		var pricingResolutionKind any
+		if value, ok := row["pricing_resolution_kind"]; ok {
+			pricingResolutionKind = value
 		}
 		var unpricedReason any
 		if value, ok := row["unpriced_reason"]; ok {
@@ -58,6 +71,16 @@ func seedObserveUsageRows(t *testing.T, harness *contractHarness, profileID int,
 		if value, ok := row["total_cost_user_currency_micros"].(int64); ok {
 			cost = value
 		}
+		reportCurrencyCode, reportCurrencySymbol, reportingCurrencyEpoch := any("USD"), any("$"), any(1)
+		if value, ok := row["report_currency_code"]; ok {
+			reportCurrencyCode = value
+		}
+		if value, ok := row["report_currency_symbol"]; ok {
+			reportCurrencySymbol = value
+		}
+		if value, ok := row["reporting_currency_epoch"]; ok {
+			reportingCurrencyEpoch = value
+		}
 		// pricing_costs_coherence_check requires all-or-none costs: only priced
 		// rows may carry cost micros; ineligible/unpriced rows keep NULLs.
 		var costValue any
@@ -67,11 +90,11 @@ func seedObserveUsageRows(t *testing.T, harness *contractHarness, profileID int,
 		if _, err := harness.conn.Exec(context.Background(), `
 			INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, api_family, operation_name, status_code, success_flag,
 				ttft_ms, completion_duration_ms, output_tokens, total_tokens, total_cost_user_currency_micros, report_currency_code, report_currency_symbol,
-				stream_outcome, stream_error_kind, pricing_status, unpriced_reason, pricing_evidence_trust, reporting_currency_epoch,
+				stream_outcome, stream_error_kind, pricing_status, unpriced_reason, pricing_evidence_trust, reporting_currency_epoch, pricing_resolution_kind,
 				input_cost_micros, output_cost_micros, reasoning_cost_micros,
 				cache_read_input_cost_micros, cache_creation_input_cost_micros, total_cost_original_micros,
 				attempt_count, request_path, endpoint_label_snapshot, created_at)
-			VALUES ($1, $2, $3, 'openai', 'openai.chat_completions', $4, $5, $6, $7, $8, $9, $15, 'USD', '$', $10, $11, $12, $13, 'trusted', 1,
+			VALUES ($1, $2, $3, 'openai', 'openai.chat_completions', $4, $5, $6, $7, $8, $9, $15, $16, $17, $10, $11, $12, $13, $19, $18, $20,
 				$15, $15, $15, $15, $15, $15,
 				1, '/v1/chat/completions', 'Observe Endpoint', $14)`,
 			profileID,
@@ -87,8 +110,13 @@ func seedObserveUsageRows(t *testing.T, harness *contractHarness, profileID int,
 			streamErrorKind,
 			pricingStatus,
 			unpricedReason,
-			now,
+			createdAt,
 			costValue,
+			reportCurrencyCode,
+			reportCurrencySymbol,
+			reportingCurrencyEpoch,
+			pricingEvidenceTrust,
+			pricingResolutionKind,
 		); err != nil {
 			t.Fatalf("seed usage row: %v", err)
 		}
@@ -182,6 +210,88 @@ func TestObserveQueryContextAndUsageSummary(t *testing.T) {
 	}
 	if p95, ok := summary["p95_ttft_ms"].(float64); !ok || p95 != 206 {
 		t.Fatalf("expected rounded p95 ttft 206, got %+v", summary["p95_ttft_ms"])
+	}
+}
+
+func observeUsageSummarySegmentRows() []map[string]any {
+	rows := make([]map[string]any, 0, 19)
+	for index, symbol := range []string{"$", "US$", "A$", "B$", "C$", "D$", "E$", "F$", "G$"} {
+		rows = append(rows, map[string]any{"seq": 900 + index, "pricing_status": "priced", "total_cost_user_currency_micros": int64(index + 1), "reporting_currency_epoch": 10, "report_currency_code": "USD", "report_currency_symbol": symbol})
+	}
+	return append(rows,
+		map[string]any{"seq": 920, "pricing_status": "priced", "total_cost_user_currency_micros": int64(100), "reporting_currency_epoch": 2, "report_currency_code": "EUR", "report_currency_symbol": "€"},
+		map[string]any{"seq": 921, "pricing_status": "priced", "total_cost_user_currency_micros": int64(200), "reporting_currency_epoch": 1, "report_currency_code": "JPY", "report_currency_symbol": "¥"},
+		map[string]any{"seq": 922, "pricing_status": "unpriced", "unpriced_reason": "PRICING_DISABLED", "reporting_currency_epoch": nil, "report_currency_code": "GBP", "report_currency_symbol": "£"},
+		map[string]any{"seq": 926, "pricing_status": "unpriced", "unpriced_reason": "MISSING_TOKEN_USAGE", "reporting_currency_epoch": nil, "report_currency_code": "GBP", "report_currency_symbol": "£"},
+		map[string]any{"seq": 927, "pricing_status": "unpriced", "unpriced_reason": "STREAM_USAGE_UNAVAILABLE", "reporting_currency_epoch": nil, "report_currency_code": "GBP", "report_currency_symbol": "£"},
+		map[string]any{"seq": 928, "pricing_status": "unpriced", "unpriced_reason": "MISSING_PRICE_DATA", "pricing_resolution_kind": "unsupported_unit", "reporting_currency_epoch": nil, "report_currency_code": "GBP", "report_currency_symbol": "£"},
+		map[string]any{"seq": 929, "status_code": 503, "pricing_status": "ineligible", "reporting_currency_epoch": nil, "report_currency_code": "GBP", "report_currency_symbol": "£"},
+		map[string]any{"seq": 923, "pricing_status": "priced", "total_cost_user_currency_micros": int64(500), "reporting_currency_epoch": nil, "report_currency_code": "US", "report_currency_symbol": nil},
+		map[string]any{"seq": 924, "pricing_status": "unknown", "pricing_evidence_trust": "legacy_untrusted", "reporting_currency_epoch": nil, "report_currency_code": nil, "report_currency_symbol": nil},
+		map[string]any{"seq": 925, "pricing_status": "priced", "total_cost_user_currency_micros": int64(900), "reporting_currency_epoch": 99, "created_at": fixedS15Now.Add(time.Minute)},
+	)
+}
+
+func TestObserveUsageSummaryCanonicalCostSegments(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	seedObserveUsageRows(t, harness, profileID, observeUsageSummarySegmentRows())
+
+	contextPayload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/query-context?preset=24h", nil, http.StatusOK)
+	summary := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/usage-summary?query_context="+contextPayload["query_context"].(string), nil, http.StatusOK)
+	segments := summary["cost_segments"].([]any)
+	wantKeys := []string{"e.10", "e.2", "e.1", "l.GBP", "l.__unknown__"}
+	wantStates := []string{"complete", "complete", "complete", "no_trusted_cost", "partial"}
+	wantCosts := []any{"45", "100", "200", nil, nil}
+	wantCounts := [][6]int{{9, 9, 0, 9, 0, 0}, {1, 1, 0, 1, 0, 0}, {1, 1, 0, 1, 0, 0}, {5, 4, 1, 0, 4, 0}, {2, 2, 0, 1, 0, 1}}
+	wantReasons := [][4]int{{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {1, 1, 1, 1}, {0, 0, 0, 0}}
+	if len(segments) != len(wantKeys) || jsonInt(t, summary["request_count"]) != 18 {
+		t.Fatalf("expected five window-scoped segments over 18 rows, got %+v", summary)
+	}
+	for index, key := range wantKeys {
+		segment := asMap(t, segments[index])
+		if segment["segment_key"] != key || segment["pricing_coverage_state"] != wantStates[index] || segment["known_cost_micros"] != wantCosts[index] {
+			t.Fatalf("unexpected cost segment %d: %+v", index, segment)
+		}
+		assertJSONIntFields(t, segment, map[string]int{
+			"request_count": wantCounts[index][0], "pricing_eligible_request_count": wantCounts[index][1],
+			"pricing_ineligible_request_count": wantCounts[index][2], "priced_request_count": wantCounts[index][3],
+			"unpriced_request_count": wantCounts[index][4], "pricing_unknown_request_count": wantCounts[index][5],
+		})
+		reasons := asMap(t, segment["unpriced_reason_counts"])
+		if len(reasons) != 4 || jsonInt(t, reasons["PRICING_DISABLED"]) != wantReasons[index][0] || jsonInt(t, reasons["MISSING_TOKEN_USAGE"]) != wantReasons[index][1] || jsonInt(t, reasons["STREAM_USAGE_UNAVAILABLE"]) != wantReasons[index][2] || jsonInt(t, reasons["MISSING_PRICE_DATA"]) != wantReasons[index][3] {
+			t.Fatalf("expected fixed four-reason counts for %s, got %+v", key, reasons)
+		}
+		if index > 0 {
+			if _, exists := segment["sparkline"]; exists {
+				t.Fatalf("expected only the first segment to own the full-window sparkline, got %+v", segments)
+			}
+		}
+	}
+	wantMetadata := [][4]any{{float64(10), "identified", "USD", "G$"}, {float64(2), "identified", "EUR", "€"}, {float64(1), "identified", "JPY", "¥"}, {nil, "legacy_unknown", "GBP", "£"}, {nil, "legacy_unknown", nil, nil}}
+	for index, expected := range wantMetadata {
+		segment := asMap(t, segments[index])
+		if segment["reporting_currency_epoch"] != expected[0] || segment["currency_attribution"] != expected[1] || segment["currency_code"] != expected[2] || segment["display_symbol"] != expected[3] {
+			t.Fatalf("unexpected currency metadata for %s: %+v", wantKeys[index], segment)
+		}
+	}
+	epoch10 := asMap(t, segments[0])
+	observed := epoch10["observed_symbols"].([]any)
+	wantObserved := []string{"$", "US$", "A$", "B$", "C$", "D$", "E$", "F$"}
+	if len(observed) != len(wantObserved) || jsonInt(t, epoch10["observed_symbol_count"]) != 9 || epoch10["observed_symbols_truncated"] != true {
+		t.Fatalf("expected truncated first-seen symbol metadata, got %+v", epoch10)
+	}
+	for index, symbol := range wantObserved {
+		if observed[index] != symbol {
+			t.Fatalf("expected observed symbols %+v, got %+v", wantObserved, observed)
+		}
+	}
+	unknownSegment := asMap(t, segments[4])
+	if len(unknownSegment["observed_symbols"].([]any)) != 0 || jsonInt(t, unknownSegment["observed_symbol_count"]) != 0 || unknownSegment["observed_symbols_truncated"] != false {
+		t.Fatalf("expected unknown segment to keep null currency/symbol facts, got %+v", unknownSegment)
+	}
+	if sparkline := asMap(t, epoch10["sparkline"]); jsonInt(t, asMap(t, sparkline["points"].([]any)[0])["request_count"]) != 18 || asMap(t, sparkline["points"].([]any)[0])["known_cost_micros"] != "845" {
+		t.Fatalf("expected the existing full-window sparkline on the first segment, got %+v", sparkline)
 	}
 }
 
@@ -654,6 +764,9 @@ func TestObserveActivityFeed(t *testing.T) {
 	if second["known_cost_micros"] != "9300" || second["final_pricing_status"] != "priced" {
 		t.Fatalf("expected priced cost facts, got %+v", second)
 	}
+	if expected := contextPayload["usage_coverage"]; !reflect.DeepEqual(firstPage["coverage"], expected) || !reflect.DeepEqual(secondPage["coverage"], expected) {
+		t.Fatalf("expected every activity page to preserve frozen usage coverage, got first=%+v second=%+v want=%+v", firstPage["coverage"], secondPage["coverage"], expected)
+	}
 }
 
 // TestObserveEmptyDatasetFragments pins the empty-domain contract: `all` over a
@@ -669,6 +782,10 @@ func TestObserveEmptyDatasetFragments(t *testing.T) {
 	usageBounds := asMap(t, contextPayload["usage_bounds"])
 	if usageBounds["from_time"] != usageBounds["to_time"] {
 		t.Fatalf("expected an empty half-open interval for an empty domain, got %+v", usageBounds)
+	}
+	summary := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/usage-summary?query_context="+token, nil, http.StatusOK)
+	if segments, ok := summary["cost_segments"].([]any); !ok || len(segments) != 0 {
+		t.Fatalf("expected an empty cost segment list, got %#v", summary["cost_segments"])
 	}
 
 	series := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/usage-series?query_context="+token+"&metric=ttft&group_by=none&interval=auto", nil, http.StatusOK)
@@ -691,6 +808,18 @@ func TestObserveEmptyDatasetFragments(t *testing.T) {
 		t.Fatalf("expected fragment coverage gaps to be a JSON array, got %#v", asMap(t, errorsPayload["coverage"])["gaps"])
 	} else if len(gaps) != 0 {
 		t.Fatalf("expected no coverage gaps for an empty domain, got %+v", gaps)
+	}
+	activity := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/observe-activity?query_context="+token, nil, http.StatusOK)
+	expectedCoverage := contextPayload["usage_coverage"]
+	for _, field := range []string{"retention_epoch", "retention_generation", "purge_state", "source_revision"} {
+		if value, ok := asMap(t, expectedCoverage)[field].(string); !ok || value == "" {
+			t.Fatalf("expected nonempty usage coverage owner field %q, got %+v", field, expectedCoverage)
+		}
+	}
+	for name, fragment := range map[string]map[string]any{"summary": summary, "series": series, "errors": errorsPayload, "activity": activity} {
+		if !reflect.DeepEqual(fragment["coverage"], expectedCoverage) {
+			t.Fatalf("expected %s coverage to equal the signed usage projection, got %+v want %+v", name, fragment["coverage"], expectedCoverage)
+		}
 	}
 }
 

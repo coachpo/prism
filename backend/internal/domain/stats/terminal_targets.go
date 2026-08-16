@@ -89,9 +89,15 @@ type terminalTargetAggregate struct {
 	admissionRejectionCount int
 }
 
+type terminalTargetCoverageWindow struct {
+	bounds   QueryBounds
+	coverage QueryCoverage
+}
+
 // GetEndpointTerminalTargetStatistics loads the bounded Terminal Target
 // drill-down for one endpoint in a single read snapshot: the usage-event
-// aggregation and the loadbalance event counts share the same query window.
+// aggregation and loadbalance event counts use their respective retained
+// windows from that snapshot.
 func GetEndpointTerminalTargetStatistics(ctx context.Context, exec queryExecutor, params TerminalTargetStatisticsParams) (TerminalTargetStatisticsResponse, error) {
 	endpointExists, historicalExists, err := endpointOrHistoricalUsageExists(ctx, exec, params.ProfileID, params.EndpointID)
 	if err != nil {
@@ -100,18 +106,18 @@ func GetEndpointTerminalTargetStatistics(ctx context.Context, exec queryExecutor
 	if !endpointExists && !historicalExists {
 		return TerminalTargetStatisticsResponse{}, &HTTPError{StatusCode: 404, Detail: "Endpoint not found"}
 	}
-	preset := params.Preset
-	if params.FromTime != nil || params.ToTime != nil {
-		preset = "custom"
+	referenceNow := params.ReferenceNow.UTC()
+	preset, fromTime, toTime, err := normalizeTerminalTargetCoverageRequest(params, referenceNow)
+	if err != nil {
+		return TerminalTargetStatisticsResponse{}, err
 	}
-	startAt, endAt := resolveTimePreset(preset, params.FromTime, params.ToTime, params.ReferenceNow.UTC())
-	if endAt == nil {
-		resolvedEnd := params.ReferenceNow.UTC()
-		endAt = &resolvedEnd
+	usageWindow, err := resolveTerminalTargetCoverageWindow(ctx, exec, "usage_request_events", preset, fromTime, toTime, referenceNow)
+	if err != nil {
+		return TerminalTargetStatisticsResponse{}, err
 	}
-	if startAt == nil {
-		resolvedStart := endAt.Add(-time.Hour)
-		startAt = &resolvedStart
+	eventWindow, err := resolveTerminalTargetCoverageWindow(ctx, exec, "loadbalance_events", preset, fromTime, toTime, referenceNow)
+	if err != nil {
+		return TerminalTargetStatisticsResponse{}, err
 	}
 	limit := params.Limit
 	if limit <= 0 {
@@ -125,7 +131,10 @@ func GetEndpointTerminalTargetStatistics(ctx context.Context, exec queryExecutor
 		offset = 0
 	}
 
-	aggregates, err := loadTerminalTargetAggregates(ctx, exec, params.ProfileID, params.EndpointID, startAt, endAt, params.CostSegmentKey)
+	aggregates, err := loadTerminalTargetAggregates(ctx, exec, params.ProfileID, params.EndpointID,
+		usageWindow.bounds.UsageFrom, usageWindow.bounds.UsageTo,
+		eventWindow.bounds.UsageFrom, eventWindow.bounds.UsageTo,
+		params.CostSegmentKey)
 	if err != nil {
 		return TerminalTargetStatisticsResponse{}, err
 	}
@@ -140,27 +149,66 @@ func GetEndpointTerminalTargetStatistics(ctx context.Context, exec queryExecutor
 	page := aggregates
 	if offset < len(page) {
 		page = page[offset:]
+	} else {
+		page = nil
 	}
 	if len(page) > limit {
 		page = page[:limit]
 	}
-	now := params.ReferenceNow.UTC()
-	coverage := KnownCoverage(*startAt, *endAt, *startAt, *endAt, nil, len(page), "terminal-targets-v1:"+now.Format("20060102T150405"))
+	eventCoverageComplete := eventWindow.coverage.State == "known" && eventWindow.coverage.Complete && len(eventWindow.coverage.Gaps) == 0
 	for _, aggregate := range page {
-		items = append(items, terminalTargetStatisticFromAggregate(aggregate, coverage))
+		items = append(items, terminalTargetStatisticFromAggregate(aggregate, usageWindow.coverage, eventCoverageComplete))
 	}
-	coverage.Precision = &QueryCoveragePrecision{RowCount: len(page)}
 	return TerminalTargetStatisticsResponse{
 		Items:       items,
 		Total:       total,
 		Limit:       limit,
 		Offset:      offset,
-		Coverage:    coverage,
-		GeneratedAt: now,
+		Coverage:    usageWindow.coverage,
+		GeneratedAt: referenceNow,
 	}, nil
 }
 
-func terminalTargetStatisticFromAggregate(aggregate *terminalTargetAggregate, coverage QueryCoverage) TerminalTargetStatistic {
+func normalizeTerminalTargetCoverageRequest(params TerminalTargetStatisticsParams, referenceNow time.Time) (string, *time.Time, *time.Time, error) {
+	preset := strings.TrimSpace(params.Preset)
+	fromTime := params.FromTime
+	toTime := params.ToTime
+	if fromTime != nil || toTime != nil {
+		preset = ""
+		if fromTime == nil {
+			resolved := toTime.UTC().Add(-time.Hour)
+			fromTime = &resolved
+		}
+	}
+	return normalizeActualCoveragePreset(preset, fromTime, toTime, referenceNow)
+}
+
+func resolveTerminalTargetCoverageWindow(ctx context.Context, exec queryExecutor, domain string, preset string, fromTime *time.Time, toTime *time.Time, referenceNow time.Time) (terminalTargetCoverageWindow, error) {
+	source, err := LoadRetentionSourceProjection(ctx, exec, domain, referenceNow)
+	if err != nil {
+		return terminalTargetCoverageWindow{}, err
+	}
+	if source.PurgeState == "running" || source.PurgeState == "recovery_required" {
+		code := "usage_purge_in_progress"
+		detail := "usage data is temporarily unavailable while retention cleanup is publishing"
+		if domain == "loadbalance_events" {
+			code = "loadbalance_purge_in_progress"
+			detail = "load-balance events are temporarily unavailable while retention cleanup is publishing"
+		}
+		return terminalTargetCoverageWindow{}, &HTTPError{StatusCode: 503, Code: code, Detail: detail}
+	}
+	actual, err := LoadActualCoverageProjection(ctx, exec, source)
+	if err != nil {
+		return terminalTargetCoverageWindow{}, err
+	}
+	bounds, err := ResolveQueryBoundsFromActualCoverage(preset, fromTime, toTime, referenceNow, source, actual)
+	if err != nil {
+		return terminalTargetCoverageWindow{}, err
+	}
+	return terminalTargetCoverageWindow{bounds: bounds, coverage: QueryCoverageFromActualBounds(bounds, source, actual)}, nil
+}
+
+func terminalTargetStatisticFromAggregate(aggregate *terminalTargetAggregate, coverage QueryCoverage, eventCoverageComplete bool) TerminalTargetStatistic {
 	p50, p95 := percentileTTFT(aggregate.ttftValues)
 	var avgOutputRate *float64
 	if aggregate.eligibleRates > 0 {
@@ -195,11 +243,15 @@ func terminalTargetStatisticFromAggregate(aggregate *terminalTargetAggregate, co
 		Coverage:                coverage,
 		BanEventCount:           aggregate.banEventCount,
 		AdmissionRejectionCount: aggregate.admissionRejectionCount,
+		EventCoverageComplete:   eventCoverageComplete,
 	}
 }
 
-func loadTerminalTargetAggregates(ctx context.Context, exec queryExecutor, profileID int, endpointID int, startAt *time.Time, endAt *time.Time, costSegmentKey string) ([]*terminalTargetAggregate, error) {
-	rows, err := exec.Query(ctx, `SELECT
+func loadTerminalTargetAggregates(ctx context.Context, exec queryExecutor, profileID int, endpointID int, usageFrom time.Time, usageTo time.Time, eventFrom time.Time, eventTo time.Time, costSegmentKey string) ([]*terminalTargetAggregate, error) {
+	costSegmentKey = strings.TrimSpace(costSegmentKey)
+	// Reuse the catalogue classifier so epoch precedence and legacy fallback
+	// cannot drift between aggregate and drill-down surfaces.
+	rows, err := exec.Query(ctx, costSegmentClassifiedEventsCTE+`SELECT
 		COALESCE(usage_request_events.connection_id, 0),
 		COALESCE(NULLIF(connections.name, ''), endpoints.name, usage_request_events.endpoint_label_snapshot, 'Terminal Target'),
 		usage_request_events.status_code,
@@ -214,11 +266,12 @@ func loadTerminalTargetAggregates(ctx context.Context, exec queryExecutor, profi
 		usage_request_events.completion_duration_ms,
 		usage_request_events.created_at,
 		usage_request_events.endpoint_id
-		FROM usage_request_events
+		FROM classified AS usage_request_events
 		LEFT JOIN connections ON connections.id = usage_request_events.connection_id AND connections.profile_id = usage_request_events.profile_id
 		LEFT JOIN endpoints ON endpoints.id = usage_request_events.endpoint_id AND endpoints.profile_id = usage_request_events.profile_id
-		WHERE usage_request_events.profile_id = $1 AND usage_request_events.endpoint_id = $2 AND usage_request_events.created_at >= $3 AND usage_request_events.created_at < $4`,
-		profileID, endpointID, startAt, endAt)
+		WHERE usage_request_events.profile_id = $1 AND usage_request_events.endpoint_id = $2 AND usage_request_events.created_at >= $3 AND usage_request_events.created_at < $4
+		AND ($5 = '' OR usage_request_events.canonical_segment_key = $5)`,
+		profileID, endpointID, usageFrom, usageTo, costSegmentKey)
 	if err != nil {
 		return nil, fmt.Errorf("query terminal-target usage events: %w", err)
 	}
@@ -293,15 +346,16 @@ func loadTerminalTargetAggregates(ctx context.Context, exec queryExecutor, profi
 	for _, id := range order {
 		resolved = append(resolved, aggregates[id])
 	}
-	// Loadbalance ban/admission events per connection in the same window.
-	if err := attachTerminalTargetEventCounts(ctx, exec, profileID, endpointID, startAt, endAt, aggregates); err != nil {
+	// Loadbalance ban/admission events use the independently retained event
+	// window from the same read snapshot as the usage aggregates.
+	if err := attachTerminalTargetEventCounts(ctx, exec, profileID, endpointID, eventFrom, eventTo, aggregates); err != nil {
 		return nil, err
 	}
 	return resolved, nil
 }
 
-func attachTerminalTargetEventCounts(ctx context.Context, exec queryExecutor, profileID int, endpointID int, startAt *time.Time, endAt *time.Time, aggregates map[int]*terminalTargetAggregate) error {
-	rows, err := exec.Query(ctx, `SELECT connection_id, event_type, COUNT(*) FROM loadbalance_events WHERE profile_id = $1 AND endpoint_id = $2 AND created_at >= $3 AND created_at < $4 GROUP BY connection_id, event_type`, profileID, endpointID, startAt, endAt)
+func attachTerminalTargetEventCounts(ctx context.Context, exec queryExecutor, profileID int, endpointID int, eventFrom time.Time, eventTo time.Time, aggregates map[int]*terminalTargetAggregate) error {
+	rows, err := exec.Query(ctx, `SELECT connection_id, event_type, COUNT(*) FROM loadbalance_events WHERE profile_id = $1 AND endpoint_id = $2 AND created_at >= $3 AND created_at < $4 GROUP BY connection_id, event_type`, profileID, endpointID, eventFrom, eventTo)
 	if err != nil {
 		return fmt.Errorf("query terminal-target loadbalance events: %w", err)
 	}
