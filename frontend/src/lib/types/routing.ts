@@ -393,13 +393,6 @@ export interface ConnectionUpdate {
   openai_text_capability?: OpenAITextCapability | null;
   openai_image_capability?: OpenAIImageCapability | null;
   pricing_template_id?: number | null;
-  /**
-   * Required by the backend whenever `pricing_template_id` is sent: both CAS
-   * fields guard concurrent overwrites of the Terminal Target pricing
-   * reference. Omit all three fields to leave pricing untouched.
-   */
-  expected_connection_updated_at?: string;
-  expected_pricing_template_id?: number | null;
   qps_limit?: number | null;
   max_in_flight_non_stream?: number | null;
   max_in_flight_stream?: number | null;

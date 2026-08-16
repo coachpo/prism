@@ -8,7 +8,6 @@ import type {
   ModelAccessTarget,
   ModelConfig,
   ModelConfigListItem,
-  ModelConnectionUpdate,
   OpenAITextCapability,
   PricingTemplate,
   JsonObject,
@@ -134,30 +133,6 @@ export function buildConnectionDraftPayload({
   payload.endpoint_create = newEndpointForm;
   delete payload.endpoint_id;
   return { errorMessage: null, payload };
-}
-
-/**
- * Shapes the PATCH body for an existing Terminal Target. `pricing_template_id`
- * is only sent when the draft actually moves the pricing reference, and the
- * backend then requires both CAS fields alongside it.
- */
-export function buildConnectionUpdatePayload(
-  draftPayload: ConnectionCreate,
-  editingConnection: Connection,
-): ModelConnectionUpdate {
-  const payload: ModelConnectionUpdate = { ...draftPayload };
-  const nextPricingTemplateId = draftPayload.pricing_template_id ?? null;
-  const currentPricingTemplateId = editingConnection.pricing_template_id ?? null;
-
-  if (nextPricingTemplateId === currentPricingTemplateId) {
-    delete payload.pricing_template_id;
-    return payload;
-  }
-
-  payload.pricing_template_id = nextPricingTemplateId;
-  payload.expected_connection_updated_at = editingConnection.updated_at;
-  payload.expected_pricing_template_id = currentPricingTemplateId;
-  return payload;
 }
 
 function normalizeLimiterField(value: number | null | undefined): number | null {

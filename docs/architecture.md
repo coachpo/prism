@@ -952,8 +952,6 @@ Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_cre
 
 `custom_request_parameters` is a presence-aware whole-value replace: omitting the field keeps the current value, `null`/`{}` clears it to `NULL`, and a non-empty valid object replaces it wholesale; any violation fails the whole PATCH atomically.
 
-`pricing_template_id` is CAS-guarded: sending it requires both `expected_connection_updated_at` (the connection `updated_at` the client last read) and `expected_pricing_template_id` (its current template reference, `null` when unpriced). Missing either field returns `422` with `{"pricing_cas_required": ["expected_connection_updated_at", "expected_pricing_template_id"]}`; a drifted timestamp or template reference returns `409`. Clients that do not move the pricing reference must omit all three fields.
-
 `endpoint_create` is supported on update and is mutually exclusive with `endpoint_id`. `priority` is rejected with `422`. The owner model and connection `api_family` are immutable.
 
 Response `200`: Updated Terminal Target object, represented as a compatibility connection. Public `PUT` or `PATCH /api/connections/{connection_id}` rejects mutation requests.
@@ -981,7 +979,7 @@ Response `200`: Owner references for the Terminal Target, wrapped with the reque
 
 ##### Update Terminal Target Pricing Template
 
-Pricing templates are assigned through the Terminal Target update route by setting `pricing_template_id` together with its two CAS fields. Public connection-level pricing-template mutation routes reject writes.
+Pricing templates are assigned through the Terminal Target update route by setting `pricing_template_id`. Public connection-level pricing-template mutation routes reject writes.
 
 ##### Delete Terminal Target
 ```

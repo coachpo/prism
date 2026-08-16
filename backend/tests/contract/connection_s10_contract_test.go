@@ -50,9 +50,6 @@ func TestConnectionPricingTemplates(t *testing.T) {
 	// Missing CAS fields must be a field-level 422.
 	missingCAS := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", modelConfigID, connectionID), map[string]any{"pricing_template_id": pricingTemplateID}, modelHeader(defaultProfileID))
 	assertStatus(t, missingCAS, http.StatusUnprocessableEntity)
-	// A present-but-null expected_connection_updated_at carries no usable expectation and must conflict.
-	nullExpectedUpdatedAt := harness.requestJSON(t, harness.client, http.MethodPatch, fmt.Sprintf("/api/models/%d/connections/%d", modelConfigID, connectionID), map[string]any{"pricing_template_id": pricingTemplateID, "expected_connection_updated_at": nil, "expected_pricing_template_id": nil}, modelHeader(defaultProfileID))
-	assertStatus(t, nullExpectedUpdatedAt, http.StatusConflict)
 }
 
 func TestConnectionS10PricingTemplateCRUD(t *testing.T) {
