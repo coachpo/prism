@@ -50,7 +50,7 @@ export function IngressChainsTable({
   chainPageCounts: { ingress: number; attempts: number; rows: number };
   onLoadMoreChains: () => void;
   onLoadMoreRows: (ingressRequestId: string, rowCursor: string) => void;
-  onSelectRow: (requestLogId: number) => void;
+  onSelectRow: (requestLogId: string) => void;
   loading: boolean;
 }) {
   const { formatNumber, messages } = useLocale();
@@ -120,10 +120,10 @@ export function IngressChainsTable({
                             <ChainRowButton
                               key={row.request_log_id}
                               row={row}
-                              onSelect={() => onSelectRow(Number(row.request_log_id))}
+                              onSelect={() => onSelectRow(row.request_log_id)}
                             />
                           ))}
-                          {chain.retained_rows_page_complete && chain.next_row_cursor ? (
+                          {!chain.retained_rows_page_complete && chain.next_row_cursor ? (
                             <Button
                               variant="ghost"
                               size="sm"

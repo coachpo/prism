@@ -21,30 +21,31 @@ import (
 
 // CurrencyCostSegment is one canonical segment.
 type CurrencyCostSegment struct {
-	SegmentKey                   string            `json:"segment_key"`
-	ReportingCurrencyEpoch       *int              `json:"reporting_currency_epoch"`
-	CurrencyAttribution          string            `json:"currency_attribution"`
-	CurrencyCode                 *string           `json:"currency_code"`
-	DisplaySymbol                *string           `json:"display_symbol"`
-	ObservedSymbols              []string          `json:"observed_symbols"`
-	ObservedSymbolCount          int               `json:"observed_symbol_count"`
-	ObservedSymbolsTruncated     bool              `json:"observed_symbols_truncated"`
-	RequestCount                 int               `json:"request_count"`
-	PricingEligibleRequestCount  int               `json:"pricing_eligible_request_count"`
-	PricingIneligibleRequestCount int              `json:"pricing_ineligible_request_count"`
-	PricedRequestCount           int               `json:"priced_request_count"`
-	UnpricedRequestCount         int               `json:"unpriced_request_count"`
-	PricingUnknownRequestCount   int               `json:"pricing_unknown_request_count"`
-	PricingCoverageState         string            `json:"pricing_coverage_state"`
-	UnpricedReasonCounts         UnpricedReasonCounts `json:"unpriced_reason_counts"`
-	KnownCostMicros              *string           `json:"known_cost_micros"`
+	SegmentKey                    string               `json:"segment_key"`
+	ReportingCurrencyEpoch        *int                 `json:"reporting_currency_epoch"`
+	CurrencyAttribution           string               `json:"currency_attribution"`
+	CurrencyCode                  *string              `json:"currency_code"`
+	DisplaySymbol                 *string              `json:"display_symbol"`
+	ObservedSymbols               []string             `json:"observed_symbols"`
+	ObservedSymbolCount           int                  `json:"observed_symbol_count"`
+	ObservedSymbolsTruncated      bool                 `json:"observed_symbols_truncated"`
+	RequestCount                  int                  `json:"request_count"`
+	PricingEligibleRequestCount   int                  `json:"pricing_eligible_request_count"`
+	PricingIneligibleRequestCount int                  `json:"pricing_ineligible_request_count"`
+	PricedRequestCount            int                  `json:"priced_request_count"`
+	UnpricedRequestCount          int                  `json:"unpriced_request_count"`
+	PricingUnknownRequestCount    int                  `json:"pricing_unknown_request_count"`
+	PricingCoverageState          string               `json:"pricing_coverage_state"`
+	UnpricedReasonCounts          UnpricedReasonCounts `json:"unpriced_reason_counts"`
+	KnownCostMicros               *string              `json:"known_cost_micros"`
 }
+
 // UnpricedReasonCounts is the fixed four-reason breakdown.
 type UnpricedReasonCounts struct {
-	PRICING_DISABLED          int `json:"PRICING_DISABLED"`
-	MISSING_TOKEN_USAGE       int `json:"MISSING_TOKEN_USAGE"`
-	STREAM_USAGE_UNAVAILABLE  int `json:"STREAM_USAGE_UNAVAILABLE"`
-	MISSING_PRICE_DATA        int `json:"MISSING_PRICE_DATA"`
+	PRICING_DISABLED         int `json:"PRICING_DISABLED"`
+	MISSING_TOKEN_USAGE      int `json:"MISSING_TOKEN_USAGE"`
+	STREAM_USAGE_UNAVAILABLE int `json:"STREAM_USAGE_UNAVAILABLE"`
+	MISSING_PRICE_DATA       int `json:"MISSING_PRICE_DATA"`
 }
 
 // CostSegmentPage is the bounded catalogue page.
@@ -78,10 +79,31 @@ func ListCostSegments(ctx context.Context, exec queryExecutor, params CostSegmen
 		params.Limit = maxCostSegmentLimit
 	}
 
-	rows, err := exec.Query(ctx, `SELECT
-			reporting_currency_epoch,
-			report_currency_code,
-			report_currency_symbol,
+	rows, err := exec.Query(ctx, `WITH classified AS (
+		SELECT *,
+			CASE
+				WHEN reporting_currency_epoch > 0 THEN 'e.' || reporting_currency_epoch::text
+				WHEN report_currency_code ~ '^[A-Z]{3}$' THEN 'l.' || report_currency_code
+				ELSE 'l.__unknown__'
+			END AS canonical_segment_key
+		FROM usage_request_events
+		WHERE profile_id = $1
+	)
+		SELECT
+			CASE
+				WHEN canonical_segment_key LIKE 'e.%' THEN MAX(reporting_currency_epoch)
+			END AS reporting_currency_epoch,
+			CASE
+				WHEN canonical_segment_key LIKE 'e.%' THEN
+					(ARRAY_AGG(report_currency_code ORDER BY created_at DESC, id DESC)
+						FILTER (WHERE report_currency_code IS NOT NULL))[1]
+				WHEN canonical_segment_key <> 'l.__unknown__' THEN SUBSTRING(canonical_segment_key FROM 3)
+			END AS report_currency_code,
+			CASE
+				WHEN canonical_segment_key <> 'l.__unknown__' THEN
+					(ARRAY_AGG(report_currency_symbol ORDER BY created_at DESC, id DESC)
+						FILTER (WHERE report_currency_symbol IS NOT NULL AND report_currency_symbol <> ''))[1]
+			END AS display_symbol,
 			COUNT(*) AS request_count,
 			COUNT(*) FILTER (WHERE pricing_status IN ('priced','unpriced','unknown')) AS eligible_count,
 			COUNT(*) FILTER (WHERE pricing_status = 'ineligible') AS ineligible_count,
@@ -94,17 +116,16 @@ func ListCostSegments(ctx context.Context, exec queryExecutor, params CostSegmen
 			COUNT(*) FILTER (WHERE pricing_status = 'unpriced' AND unpriced_reason = 'MISSING_PRICE_DATA') AS missing_price_data,
 			COALESCE(SUM(total_cost_user_currency_micros) FILTER (WHERE pricing_status = 'priced' AND pricing_evidence_trust = 'trusted'), 0) AS trusted_cost_micros,
 			COUNT(total_cost_user_currency_micros) FILTER (WHERE pricing_status = 'priced' AND pricing_evidence_trust = 'trusted') AS trusted_cost_samples,
-			ARRAY_AGG(report_currency_symbol) FILTER (WHERE report_currency_symbol IS NOT NULL) AS observed_symbols
-		FROM usage_request_events
-		WHERE profile_id = $1
-		GROUP BY reporting_currency_epoch, report_currency_code, report_currency_symbol`, params.ProfileID)
+			ARRAY_AGG(report_currency_symbol ORDER BY created_at, id)
+				FILTER (WHERE report_currency_symbol IS NOT NULL AND report_currency_symbol <> '') AS observed_symbols
+		FROM classified
+		GROUP BY canonical_segment_key`, params.ProfileID)
 	if err != nil {
 		return CostSegmentPage{}, fmt.Errorf("query cost segments for profile %d: %w", params.ProfileID, err)
 	}
 	defer rows.Close()
 
 	segments := make([]CurrencyCostSegment, 0)
-	var symbolsOrder []string
 	for rows.Next() {
 		var segment CurrencyCostSegment
 		var trustedCost int64
@@ -133,7 +154,7 @@ func ListCostSegments(ctx context.Context, exec queryExecutor, params CostSegmen
 		}
 		segment.DisplaySymbol = displaySymbol
 		// Deduplicate observed symbols preserving first-seen order (max 8).
-		segment.ObservedSymbols = dedupeSymbols(observedSymbols, &symbolsOrder)
+		segment.ObservedSymbols = dedupeSymbols(observedSymbols)
 		segment.ObservedSymbolCount = len(segment.ObservedSymbols)
 		segment.ObservedSymbolsTruncated = false
 		if segment.ObservedSymbolCount > 8 {
@@ -204,7 +225,7 @@ func ListCostSegments(ctx context.Context, exec queryExecutor, params CostSegmen
 	return page, nil
 }
 
-func dedupeSymbols(symbols []string, order *[]string) []string {
+func dedupeSymbols(symbols []string) []string {
 	seen := map[string]struct{}{}
 	result := make([]string, 0, len(symbols))
 	for _, symbol := range symbols {
@@ -217,7 +238,6 @@ func dedupeSymbols(symbols []string, order *[]string) []string {
 		seen[symbol] = struct{}{}
 		result = append(result, symbol)
 	}
-	_ = order
 	return result
 }
 
@@ -273,10 +293,10 @@ func costSegmentRank(key string) int {
 }
 
 type costSegmentCursorPayload struct {
-	Version       int    `json:"v"`
-	ProfileID     int    `json:"p"`
+	Version        int    `json:"v"`
+	ProfileID      int    `json:"p"`
 	LastSegmentKey string `json:"k"`
-	Consumed      int    `json:"c"`
+	Consumed       int    `json:"c"`
 }
 
 func encodeCostSegmentCursor(payload costSegmentCursorPayload) (string, error) {

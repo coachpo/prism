@@ -21,6 +21,11 @@ import { operationalRowStripe } from "@/shared/table/operationalTable";
 import { cn } from "@/lib/utils";
 import { AuditCaptureLedger } from "./AuditCaptureLedger";
 import { RequestLogAuditWindowBar } from "./RequestLogAuditWindowBar";
+import {
+  getAuditPagePath,
+  getSelectedAuditPath,
+  parseRequestLogIdParam,
+} from "./requestLogAuditRoute";
 import { resolveRequestAuditCaptureMode, type RequestAuditCaptureMode } from "./requestLogAuditState";
 import { RequestLogPayloadBlock } from "./detail/RequestLogPayloadBlock";
 import { getStatusIntent } from "./detail/requestLogDetailUtils";
@@ -29,7 +34,7 @@ import {
   type DedicatedRequestLogAuditStatus,
 } from "./useDedicatedRequestLogAudit";
 
-function parsePositiveInteger(value: string | null | undefined): number | null {
+function parsePositiveAuditId(value: string | null | undefined): number | null {
   if (!value) return null;
   const trimmed = value.trim().replace(/^#/, "");
   if (!/^\d+$/.test(trimmed)) return null;
@@ -51,18 +56,6 @@ function getCaptureLabel(
   if (mode === "metadata_only") return messages.requestLogs.auditMetadataOnly;
   if (mode === "full") return messages.requestLogs.auditFullCapture;
   return messages.requestLogs.auditDisabledAtRequest;
-}
-
-function getSelectedAuditPath(requestId: number, auditId: number, cursor: string | null): string {
-  const params = new URLSearchParams({ audit_id: String(auditId) });
-  if (cursor) params.set("cursor", cursor);
-  return `/observe/requests/${requestId}/audit?${params.toString()}`;
-}
-
-function getAuditPagePath(requestId: number, cursor: string | null): string {
-  if (!cursor) return `/observe/requests/${requestId}/audit`;
-  const params = new URLSearchParams({ cursor });
-  return `/observe/requests/${requestId}/audit?${params.toString()}`;
 }
 
 function StatusPanel({
@@ -130,7 +123,7 @@ function AuditRecordsTable({
   cursor: string | null;
   hasMore: boolean;
   nextCursor: string | null;
-  requestId: number;
+  requestId: string;
   selectedAuditId: number | null;
 }) {
   const { formatNumber, messages } = useLocale();
@@ -434,10 +427,10 @@ export function RequestLogAuditPage({
   requestIdParam,
   searchParams = new URLSearchParams(window.location.search),
 }: RequestLogAuditPageProps = {}) {
-  const requestId = parsePositiveInteger(requestIdParam);
+  const requestId = parseRequestLogIdParam(requestIdParam);
   const auditIdParam = searchParams.get("audit_id");
   const auditCursor = searchParams.get("cursor")?.trim() || null;
-  const selectedAuditId = parsePositiveInteger(auditIdParam);
+  const selectedAuditId = parsePositiveAuditId(auditIdParam);
   const { format } = useTimezone();
   const { messages } = useLocale();
   const requestIdLabel = requestIdParam?.trim() || "";

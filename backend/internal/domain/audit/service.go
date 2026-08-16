@@ -82,7 +82,7 @@ type DeleteParams struct {
 
 type AuditLogListItem struct {
 	ID                                  int        `json:"id"`
-	RequestLogID                        *int       `json:"request_log_id"`
+	RequestLogID                        *string    `json:"request_log_id"`
 	RequestLogCreatedAt                 *time.Time `json:"request_log_created_at"`
 	IngressRequestID                    *string    `json:"ingress_request_id"`
 	RequestLogMissing                   bool       `json:"request_log_missing"`
@@ -124,7 +124,7 @@ type AuditLogListItem struct {
 
 type AuditLogDetail struct {
 	ID                            int        `json:"id"`
-	RequestLogID                  *int       `json:"request_log_id"`
+	RequestLogID                  *string    `json:"request_log_id"`
 	RequestLogCreatedAt           *time.Time `json:"request_log_created_at"`
 	IngressRequestID              *string    `json:"ingress_request_id"`
 	RequestLogMissing             bool       `json:"request_log_missing"`
@@ -284,7 +284,7 @@ func ListLogs(ctx context.Context, exec queryExecutor, params ListParams) (Audit
 		args = append(args, decodedCursor.LastCreatedAt.UTC(), decodedCursor.LastID)
 		visibleWhereClause += fmt.Sprintf(" AND (created_at, id) < ($%d, $%d)", len(args)-1, len(args))
 	}
-	rows, err := exec.Query(ctx, `SELECT id, request_log_id, request_log_created_at, ingress_request_id, request_log_id IS NOT NULL AND request_log_created_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM request_logs WHERE request_logs.profile_id = audit_logs.profile_id AND request_logs.id = audit_logs.request_log_id AND request_logs.created_at = audit_logs.request_log_created_at) AS request_log_missing, profile_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_bytes_observed, request_body_bytes_stored, request_body_encoding, request_body_capture_status, request_body_capture_provenance, request_body_capture_end_state, request_body_truncated, response_body IS NOT NULL AS response_body_stored, row_kind, attempt_number, attempt_duration_ms, legacy_duration_ms, upstream_status_code, gateway_status_code, legacy_status_code, request_url_truncated, endpoint_base_url_truncated, is_stream, audit_enabled_at_request, audit_capture_bodies_at_request, created_at FROM audit_logs WHERE `+visibleWhereClause+` ORDER BY created_at DESC, id DESC LIMIT $`+fmt.Sprintf("%d", len(args)+1), append(args, limit+1)...)
+	rows, err := exec.Query(ctx, `SELECT id, request_log_id::text, request_log_created_at, ingress_request_id, request_log_id IS NOT NULL AND request_log_created_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM request_logs WHERE request_logs.profile_id = audit_logs.profile_id AND request_logs.id = audit_logs.request_log_id AND request_logs.created_at = audit_logs.request_log_created_at) AS request_log_missing, profile_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_bytes_observed, request_body_bytes_stored, request_body_encoding, request_body_capture_status, request_body_capture_provenance, request_body_capture_end_state, request_body_truncated, response_body IS NOT NULL AS response_body_stored, row_kind, attempt_number, attempt_duration_ms, legacy_duration_ms, upstream_status_code, gateway_status_code, legacy_status_code, request_url_truncated, endpoint_base_url_truncated, is_stream, audit_enabled_at_request, audit_capture_bodies_at_request, created_at FROM audit_logs WHERE `+visibleWhereClause+` ORDER BY created_at DESC, id DESC LIMIT $`+fmt.Sprintf("%d", len(args)+1), append(args, limit+1)...)
 	if err != nil {
 		return AuditLogListResponse{}, fmt.Errorf("query audit logs for profile %d: %w", params.ProfileID, err)
 	}
@@ -420,7 +420,7 @@ func loadAnchorItem(ctx context.Context, exec queryExecutor, profileID int, anch
 	// Keep the anchor projection byte-for-byte aligned with the paged list
 	// projection. The old shortcut selected the legacy body/status columns and
 	// shifted scan positions, turning a valid anchor into a generic 500.
-	row := exec.QueryRow(ctx, `SELECT id, request_log_id, request_log_created_at, ingress_request_id, request_log_id IS NOT NULL AND request_log_created_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM request_logs WHERE request_logs.profile_id = audit_logs.profile_id AND request_logs.id = audit_logs.request_log_id AND request_logs.created_at = audit_logs.request_log_created_at) AS request_log_missing, profile_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_bytes_observed, request_body_bytes_stored, request_body_encoding, request_body_capture_status, request_body_capture_provenance, request_body_capture_end_state, request_body_truncated, response_body IS NOT NULL AS response_body_stored, row_kind, attempt_number, attempt_duration_ms, legacy_duration_ms, upstream_status_code, gateway_status_code, legacy_status_code, request_url_truncated, endpoint_base_url_truncated, is_stream, audit_enabled_at_request, audit_capture_bodies_at_request, created_at FROM audit_logs WHERE `+visibleWhereClause+` AND id = $`+fmt.Sprintf("%d", len(anchorArgs))+` ORDER BY created_at DESC LIMIT 1`, anchorArgs...)
+	row := exec.QueryRow(ctx, `SELECT id, request_log_id::text, request_log_created_at, ingress_request_id, request_log_id IS NOT NULL AND request_log_created_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM request_logs WHERE request_logs.profile_id = audit_logs.profile_id AND request_logs.id = audit_logs.request_log_id AND request_logs.created_at = audit_logs.request_log_created_at) AS request_log_missing, profile_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_bytes_observed, request_body_bytes_stored, request_body_encoding, request_body_capture_status, request_body_capture_provenance, request_body_capture_end_state, request_body_truncated, response_body IS NOT NULL AS response_body_stored, row_kind, attempt_number, attempt_duration_ms, legacy_duration_ms, upstream_status_code, gateway_status_code, legacy_status_code, request_url_truncated, endpoint_base_url_truncated, is_stream, audit_enabled_at_request, audit_capture_bodies_at_request, created_at FROM audit_logs WHERE `+visibleWhereClause+` AND id = $`+fmt.Sprintf("%d", len(anchorArgs))+` ORDER BY created_at DESC LIMIT 1`, anchorArgs...)
 	item, err := scanListItem(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -456,7 +456,7 @@ func GetLog(ctx context.Context, exec queryExecutor, profileID int, logID int) (
 	if retentionFloor != nil && createdAt.Before(*retentionFloor) {
 		return nil, &HTTPError{StatusCode: 410, Code: "audit_evidence_revoked", Detail: "Audit evidence is no longer available."}
 	}
-	row := exec.QueryRow(ctx, `SELECT id, request_log_id, request_log_created_at, ingress_request_id, request_log_id IS NOT NULL AND request_log_created_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM request_logs WHERE request_logs.profile_id = audit_logs.profile_id AND request_logs.id = audit_logs.request_log_id AND request_logs.created_at = audit_logs.request_log_created_at) AS request_log_missing, profile_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_bytes_observed, request_body_bytes_stored, request_body_encoding, request_body_capture_status, request_body_capture_provenance, request_body_capture_end_state, request_body_truncated, response_headers, response_body, response_body_bytes_observed, response_body_bytes_stored, response_body_encoding, response_body_capture_status, response_body_capture_provenance, response_body_capture_end_state, response_body_truncated, row_kind, attempt_number, attempt_duration_ms, legacy_duration_ms, upstream_status_code, gateway_status_code, legacy_status_code, request_url_truncated, endpoint_base_url_truncated, is_stream, audit_enabled_at_request, audit_capture_bodies_at_request, created_at FROM audit_logs WHERE profile_id = $1 AND id = $2 AND created_at >= COALESCE($3::timestamptz, '-infinity'::timestamptz) ORDER BY created_at DESC LIMIT 1`, profileID, logID, retentionFloor)
+	row := exec.QueryRow(ctx, `SELECT id, request_log_id::text, request_log_created_at, ingress_request_id, request_log_id IS NOT NULL AND request_log_created_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM request_logs WHERE request_logs.profile_id = audit_logs.profile_id AND request_logs.id = audit_logs.request_log_id AND request_logs.created_at = audit_logs.request_log_created_at) AS request_log_missing, profile_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_bytes_observed, request_body_bytes_stored, request_body_encoding, request_body_capture_status, request_body_capture_provenance, request_body_capture_end_state, request_body_truncated, response_headers, response_body, response_body_bytes_observed, response_body_bytes_stored, response_body_encoding, response_body_capture_status, response_body_capture_provenance, response_body_capture_end_state, response_body_truncated, row_kind, attempt_number, attempt_duration_ms, legacy_duration_ms, upstream_status_code, gateway_status_code, legacy_status_code, request_url_truncated, endpoint_base_url_truncated, is_stream, audit_enabled_at_request, audit_capture_bodies_at_request, created_at FROM audit_logs WHERE profile_id = $1 AND id = $2 AND created_at >= COALESCE($3::timestamptz, '-infinity'::timestamptz) ORDER BY created_at DESC LIMIT 1`, profileID, logID, retentionFloor)
 	item, err := scanDetail(row)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -568,7 +568,7 @@ func auditLogReadVisibilityClause(tableName string) string {
 }
 
 type auditLogReadState struct {
-	RequestLogID          *int
+	RequestLogID          *string
 	AuditEnabledAtRequest bool
 }
 
@@ -642,19 +642,19 @@ func isVisibleASCII(value string) bool {
 }
 
 func loadAuditLogReadState(ctx context.Context, exec queryExecutor, profileID int, logID int) (auditLogReadState, bool, error) {
-	var requestLogID sql.NullInt32
+	var requestLogID sql.NullString
 	var auditEnabledAtRequest bool
-	if err := exec.QueryRow(ctx, `SELECT request_log_id, audit_enabled_at_request FROM audit_logs WHERE profile_id = $1 AND id = $2 ORDER BY created_at DESC LIMIT 1`, profileID, logID).Scan(&requestLogID, &auditEnabledAtRequest); err != nil {
+	if err := exec.QueryRow(ctx, `SELECT request_log_id::text, audit_enabled_at_request FROM audit_logs WHERE profile_id = $1 AND id = $2 ORDER BY created_at DESC LIMIT 1`, profileID, logID).Scan(&requestLogID, &auditEnabledAtRequest); err != nil {
 		if err == pgx.ErrNoRows {
 			return auditLogReadState{}, false, nil
 		}
 		return auditLogReadState{}, false, fmt.Errorf("load audit log %d read state for profile %d: %w", logID, profileID, err)
 	}
-	return auditLogReadState{RequestLogID: nullableInt32(requestLogID), AuditEnabledAtRequest: auditEnabledAtRequest}, true, nil
+	return auditLogReadState{RequestLogID: nullableString(requestLogID), AuditEnabledAtRequest: auditEnabledAtRequest}, true, nil
 }
 
 func scanListItem(scanner interface{ Scan(...any) error }) (AuditLogListItem, error) {
-	var requestLogID sql.NullInt32
+	var requestLogID sql.NullString
 	var requestLogCreatedAt sql.NullTime
 	var ingressRequestID sql.NullString
 	var endpointID sql.NullInt32
@@ -679,7 +679,7 @@ func scanListItem(scanner interface{ Scan(...any) error }) (AuditLogListItem, er
 	if err := scanner.Scan(&item.ID, &requestLogID, &requestLogCreatedAt, &ingressRequestID, &item.RequestLogMissing, &item.ProfileID, &item.ModelID, &endpointID, &connectionID, &endpointBaseURL, &endpointDescription, &item.RequestMethod, &item.RequestURL, &requestHeaders, &requestBody, &requestBodyBytesObserved, &requestBodyBytesStored, &requestBodyEncoding, &requestBodyCaptureStatus, &requestBodyCaptureProvenance, &requestBodyCaptureEndState, &item.RequestBodyTruncated, &item.ResponseBodyStored, &item.RowKind, &attemptNumber, &attemptDurationMS, &legacyDurationMS, &upstreamStatusCode, &gatewayStatusCode, &legacyStatusCode, &item.RequestURLTruncated, &item.EndpointBaseURLTruncated, &item.IsStream, &item.AuditEnabledAtRequest, &item.AuditCaptureBodiesAtRequest, &item.CreatedAt); err != nil {
 		return AuditLogListItem{}, fmt.Errorf("scan audit-log list row: %w", err)
 	}
-	item.RequestLogID = nullableInt32(requestLogID)
+	item.RequestLogID = nullableString(requestLogID)
 	item.RequestLogCreatedAt = nullableTime(requestLogCreatedAt)
 	item.IngressRequestID = nullableString(ingressRequestID)
 	item.EndpointID = nullableInt32(endpointID)
@@ -706,7 +706,7 @@ func scanListItem(scanner interface{ Scan(...any) error }) (AuditLogListItem, er
 }
 
 func scanDetail(scanner interface{ Scan(...any) error }) (AuditLogDetail, error) {
-	var requestLogID sql.NullInt32
+	var requestLogID sql.NullString
 	var requestLogCreatedAt sql.NullTime
 	var ingressRequestID sql.NullString
 	var endpointID sql.NullInt32
@@ -739,7 +739,7 @@ func scanDetail(scanner interface{ Scan(...any) error }) (AuditLogDetail, error)
 	if err := scanner.Scan(&item.ID, &requestLogID, &requestLogCreatedAt, &ingressRequestID, &item.RequestLogMissing, &item.ProfileID, &item.ModelID, &endpointID, &connectionID, &endpointBaseURL, &endpointDescription, &item.RequestMethod, &item.RequestURL, &requestHeaders, &requestBody, &requestBodyBytesObserved, &requestBodyBytesStored, &requestBodyEncoding, &requestBodyCaptureStatus, &requestBodyCaptureProvenance, &requestBodyCaptureEndState, &item.RequestBodyTruncated, &responseHeaders, &responseBody, &responseBodyBytesObserved, &responseBodyBytesStored, &responseBodyEncoding, &responseBodyCaptureStatus, &responseBodyCaptureProvenance, &responseBodyCaptureEndState, &item.ResponseBodyTruncated, &item.RowKind, &attemptNumber, &attemptDurationMS, &legacyDurationMS, &upstreamStatusCode, &gatewayStatusCode, &legacyStatusCode, &item.RequestURLTruncated, &item.EndpointBaseURLTruncated, &item.IsStream, &item.AuditEnabledAtRequest, &item.AuditCaptureBodiesAtRequest, &item.CreatedAt); err != nil {
 		return AuditLogDetail{}, err
 	}
-	item.RequestLogID = nullableInt32(requestLogID)
+	item.RequestLogID = nullableString(requestLogID)
 	item.RequestLogCreatedAt = nullableTime(requestLogCreatedAt)
 	item.IngressRequestID = nullableString(ingressRequestID)
 	item.EndpointID = nullableInt32(endpointID)

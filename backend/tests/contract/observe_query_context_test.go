@@ -612,12 +612,12 @@ func TestObserveActivityFeed(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
 	rows := []map[string]any{
-		{"seq": 950, "status_code": 200, "pricing_status": "priced", "model_id": "activity-a", "total_cost_user_currency_micros": int64(9300)},
-		{"seq": 951, "status_code": 503, "pricing_status": "ineligible", "model_id": "activity-b"},
+		{"seq": 950, "status_code": 200, "pricing_status": "priced", "model_id": "activity-a", "total_cost_user_currency_micros": int64(9300), "stream_outcome": ""},
+		{"seq": 951, "status_code": 503, "pricing_status": "ineligible", "model_id": "activity-b", "stream_outcome": "completed"},
 	}
 	seedObserveUsageRows(t, harness, profileID, rows)
 	// Give activity-a a resolved model different from requested to assert route_changed.
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE usage_request_events SET resolved_target_model_id = 'activity-actual' WHERE profile_id = $1 AND model_id = 'activity-a'`, profileID); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE usage_request_events SET resolved_target_model_id = CASE WHEN model_id = 'activity-a' THEN 'activity-actual' ELSE resolved_target_model_id END, routing_evidence_complete = CASE WHEN model_id = 'activity-a' THEN true ELSE routing_evidence_complete END WHERE profile_id = $1 AND model_id IN ('activity-a', 'activity-b')`, profileID); err != nil {
 		t.Fatalf("set resolved model: %v", err)
 	}
 
@@ -645,7 +645,7 @@ func TestObserveActivityFeed(t *testing.T) {
 		t.Fatalf("expected exact-full terminal page, got %+v", secondPage)
 	}
 	second := asMap(t, secondItems[0])
-	if second["model_id"] != "activity-a" || second["route_changed"] != true {
+	if second["model_id"] != "activity-a" || second["route_changed"] != true || first["is_stream"] != true || first["routing_evidence_complete"] != false || second["is_stream"] != false || second["routing_evidence_complete"] != true {
 		t.Fatalf("expected route_changed for activity-a, got %+v", second)
 	}
 	if second["resolved_target_model_id"] != "activity-actual" {

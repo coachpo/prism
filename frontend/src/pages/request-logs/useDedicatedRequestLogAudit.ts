@@ -26,7 +26,7 @@ export type DedicatedRequestLogAuditStatus =
   | "ready";
 interface UseDedicatedRequestLogAuditParams {
   cursor?: string;
-  requestId: number | null;
+  requestId: string | null;
   selectedAuditId: number | null;
   selectedAuditParamPresent: boolean;
   selectedAuditParamLabel: string | null;
@@ -84,7 +84,7 @@ function resolveSelectedAuditItem(
 }
 
 function buildAuditLoadKey(
-  requestId: number | null,
+  requestId: string | null,
   selectedAuditParamPresent: boolean,
   selectedAuditParamLabel: string | null,
   cursor?: string,

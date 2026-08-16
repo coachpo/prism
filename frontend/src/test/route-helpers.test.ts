@@ -25,7 +25,9 @@ describe("rewrite route helpers", () => {
     expect(prismPathById["models"]).toBe("/route/models")
     expect(rewriteRoutePaths).toContain("/observe/routing-health")
     expect(buildModelDetailPath("model/slash")).toBe("/route/models/model%2Fslash")
-    expect(buildRequestAuditPath(123)).toBe("/observe/requests/123/audit")
+    expect(buildRequestAuditPath("9007199254740997")).toBe(
+      "/observe/requests/9007199254740997/audit",
+    )
   })
 
   it("validates and normalizes target route search params", () => {

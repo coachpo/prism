@@ -138,6 +138,7 @@ type FinalizedSummary struct {
 	PricingSnapshotCacheCreationInput *string      `json:"pricing_snapshot_cache_creation_input"`
 	PricingSnapshotReasoning          *string      `json:"pricing_snapshot_reasoning"`
 	AttemptCount                      int          `json:"attempt_count"`
+	ExpectedRequestLogRowCount        *int         `json:"-"`
 	FinalAttemptNumber                *int         `json:"final_attempt_number"`
 	FinalAttemptTrigger               *string      `json:"final_attempt_trigger"`
 	FinalTargetEntryTrigger           *string      `json:"final_target_entry_trigger"`
@@ -253,6 +254,17 @@ type chainCursorPayload struct {
 	RetentionGeneration int64  `json:"g"`
 }
 
+type rowCursorPayload struct {
+	Version             int    `json:"v"`
+	ProfileID           int    `json:"p"`
+	IngressID           string `json:"i"`
+	OrderAt             string `json:"o"`
+	RequestLogID        string `json:"id"`
+	Limit               int    `json:"l"`
+	RetentionEpoch      int64  `json:"r"`
+	RetentionGeneration int64  `json:"g"`
+}
+
 // encodeChainCursor signs and encodes an outer chain cursor.
 func encodeChainCursor(payload chainCursorPayload) (string, error) {
 	raw, err := json.Marshal(payload)
@@ -295,6 +307,57 @@ func signChainCursor(raw []byte) []byte {
 	return mac.Sum(nil)
 }
 
+func encodeRowCursor(payload rowCursorPayload) (string, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	signature := signRowCursor(raw)
+	return base64.RawURLEncoding.EncodeToString(raw) + "." + base64.RawURLEncoding.EncodeToString(signature), nil
+}
+
+func decodeRowCursor(encoded string) (rowCursorPayload, error) {
+	parts := strings.Split(encoded, ".")
+	if len(parts) != 2 {
+		return rowCursorPayload{}, fmt.Errorf("invalid row cursor")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return rowCursorPayload{}, err
+	}
+	signature, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return rowCursorPayload{}, err
+	}
+	if !hmac.Equal(signature, signRowCursor(raw)) {
+		return rowCursorPayload{}, fmt.Errorf("invalid row cursor signature")
+	}
+	var payload rowCursorPayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return rowCursorPayload{}, err
+	}
+	if payload.Version != 1 {
+		return rowCursorPayload{}, fmt.Errorf("unsupported row cursor version")
+	}
+	if strings.TrimSpace(payload.IngressID) == "" || payload.ProfileID <= 0 || payload.Limit <= 0 {
+		return rowCursorPayload{}, fmt.Errorf("invalid row cursor scope")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, payload.OrderAt); err != nil {
+		return rowCursorPayload{}, fmt.Errorf("invalid row cursor timestamp: %w", err)
+	}
+	requestLogID, err := strconv.ParseInt(payload.RequestLogID, 10, 64)
+	if err != nil || requestLogID <= 0 {
+		return rowCursorPayload{}, fmt.Errorf("invalid row cursor request log id")
+	}
+	return payload, nil
+}
+
+func signRowCursor(raw []byte) []byte {
+	mac := hmac.New(sha256.New, []byte("prism-row-cursor-v1"))
+	_, _ = mac.Write(raw)
+	return mac.Sum(nil)
+}
+
 // ListIngressChains returns one outer page of ingresses with bounded retained
 // rows per ingress. Row-scoped filters select the ingress set first; the
 // outer keyset cursor never splits an ingress across pages.
@@ -327,6 +390,31 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 	}
 	if params.ChainRowLimit > maxChainRowLimit {
 		params.ChainRowLimit = maxChainRowLimit
+	}
+	if params.RowCursor != nil && strings.TrimSpace(*params.RowCursor) != "" &&
+		params.ChainCursor != nil && strings.TrimSpace(*params.ChainCursor) != "" {
+		return ChainResponse{}, &HTTPError{StatusCode: 422, Code: "chain_row_cursor_conflict", Detail: "chain_cursor and row_cursor cannot be used together."}
+	}
+	var rowCursor *rowCursorPayload
+	if params.RowCursor != nil && strings.TrimSpace(*params.RowCursor) != "" {
+		decoded, err := decodeRowCursor(strings.TrimSpace(*params.RowCursor))
+		if err != nil {
+			return ChainResponse{}, &HTTPError{StatusCode: 400, Code: "row_cursor_invalid", Detail: "Retained-row cursor is invalid."}
+		}
+		exactIngress := ""
+		if params.IngressRequestID != nil {
+			exactIngress = strings.TrimSpace(*params.IngressRequestID)
+		}
+		if exactIngress == "" || decoded.ProfileID != params.ProfileID || decoded.IngressID != exactIngress || decoded.Limit != params.ChainRowLimit {
+			return ChainResponse{}, &HTTPError{StatusCode: 422, Code: "row_cursor_scope_mismatch", Detail: "Retained-row cursor does not match the exact ingress query scope."}
+		}
+		if decoded.RetentionEpoch != requestEpoch {
+			return ChainResponse{}, &HTTPError{StatusCode: 410, Code: "request_snapshot_revoked", Detail: "The retained-row snapshot was revoked; reload the first page."}
+		}
+		if decoded.RetentionGeneration != requestGeneration {
+			return ChainResponse{}, &HTTPError{StatusCode: 410, Code: "request_snapshot_stale", Detail: "The retained-row snapshot is stale; reload the first page."}
+		}
+		rowCursor = &decoded
 	}
 	sortOrder := strings.ToLower(strings.TrimSpace(params.SortOrder))
 	if sortOrder == "" {
@@ -371,7 +459,7 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 	pageUpstreamAttempts := 0
 	pageRequestLogRows := 0
 	for _, ingress := range ingresses {
-		item, err := loadChainIngressItem(ctx, exec, params, ingress, params.ChainRowLimit)
+		item, err := loadChainIngressItem(ctx, exec, params, ingress, params.ChainRowLimit, rowCursor, requestEpoch, requestGeneration)
 		if err != nil {
 			return ChainResponse{}, err
 		}
@@ -753,49 +841,53 @@ func appendChainRowCohortExists(query string, args *[]any, params ChainQueryPara
 		"match_rows.profile_id = " + outerAlias + ".profile_id",
 		"match_rows.ingress_request_id = " + outerAlias + ".ingress_request_id",
 	}
+	clauses = append(clauses, buildChainRowMatchClauses(args, params, "match_rows")...)
+	return query + " AND EXISTS (SELECT 1 FROM request_logs match_rows WHERE " + strings.Join(clauses, " AND ") + ")"
+}
+
+func buildChainRowMatchClauses(args *[]any, params ChainQueryParams, alias string) []string {
+	clauses := make([]string, 0)
 	add := func(value any, clause string) {
 		*args = append(*args, value)
 		clauses = append(clauses, fmt.Sprintf(clause, len(*args)))
 	}
 	if params.FromTime != nil {
-		add(params.FromTime.UTC(), "match_rows.created_at >= $%d")
+		add(params.FromTime.UTC(), alias+".created_at >= $%d")
 	}
 	if params.ToTime != nil {
-		add(params.ToTime.UTC(), "match_rows.created_at < $%d")
+		add(params.ToTime.UTC(), alias+".created_at < $%d")
 	}
 	if params.ModelID != nil && strings.TrimSpace(*params.ModelID) != "" {
-		add(strings.TrimSpace(*params.ModelID), "match_rows.model_id = $%d")
+		add(strings.TrimSpace(*params.ModelID), alias+".model_id = $%d")
 	}
 	if params.ResolvedTargetModelID != nil && strings.TrimSpace(*params.ResolvedTargetModelID) != "" {
-		add(strings.TrimSpace(*params.ResolvedTargetModelID), "match_rows.resolved_target_model_id = $%d")
+		add(strings.TrimSpace(*params.ResolvedTargetModelID), alias+".resolved_target_model_id = $%d")
 	}
 	if params.EndpointID != nil {
-		add(*params.EndpointID, "match_rows.endpoint_id = $%d")
+		add(*params.EndpointID, alias+".endpoint_id = $%d")
 	}
 	if params.TerminalTargetID != nil {
-		add(*params.TerminalTargetID, "match_rows.connection_id = $%d")
+		add(*params.TerminalTargetID, alias+".connection_id = $%d")
 	}
+	statusExpr := scopedChainRowStatusSQL(alias)
 	if params.StatusFamily != nil {
 		switch strings.ToLower(strings.TrimSpace(*params.StatusFamily)) {
 		case "2xx":
-			clauses = append(clauses, "("+scopedRequestLogStatusSQL+") BETWEEN 200 AND 299")
+			clauses = append(clauses, "("+statusExpr+") BETWEEN 200 AND 299")
 		case "4xx":
-			clauses = append(clauses, "("+scopedRequestLogStatusSQL+") BETWEEN 400 AND 499")
+			clauses = append(clauses, "("+statusExpr+") BETWEEN 400 AND 499")
 		case "5xx":
-			clauses = append(clauses, "("+scopedRequestLogStatusSQL+") BETWEEN 500 AND 599")
+			clauses = append(clauses, "("+statusExpr+") BETWEEN 500 AND 599")
 		}
 	}
 	if params.StatusCode != nil {
-		add(*params.StatusCode, "("+scopedRequestLogStatusSQL+") = $%d")
+		add(*params.StatusCode, "("+statusExpr+") = $%d")
 	}
 	if params.ErrorText != nil && strings.TrimSpace(*params.ErrorText) != "" {
 		value := "%" + strings.TrimSpace(*params.ErrorText) + "%"
 		*args = append(*args, value)
 		index := len(*args)
-		clauses = append(clauses, fmt.Sprintf("(match_rows.error_detail ILIKE $%d OR match_rows.error_code ILIKE $%d OR match_rows.stream_error_detail ILIKE $%d OR match_rows.stream_error_kind ILIKE $%d)", index, index, index, index))
-	}
-	if params.PricingStatus != nil && strings.TrimSpace(*params.PricingStatus) != "" {
-		add(strings.TrimSpace(*params.PricingStatus), "match_rows.pricing_status = $%d")
+		clauses = append(clauses, fmt.Sprintf("(%s.error_detail ILIKE $%d OR %s.error_code ILIKE $%d OR %s.stream_error_detail ILIKE $%d OR %s.stream_error_kind ILIKE $%d)", alias, index, alias, index, alias, index, alias, index))
 	}
 	appendValues := func(values []string, column string) {
 		if len(values) == 0 {
@@ -808,16 +900,15 @@ func appendChainRowCohortExists(query string, args *[]any, params ChainQueryPara
 		}
 		clauses = append(clauses, column+" IN ("+strings.Join(placeholders, ",")+")")
 	}
-	appendValues(params.UnpricedReasons, "match_rows.unpriced_reason")
-	appendValues(params.StreamOutcomes, "match_rows.stream_outcome")
-	appendValues(params.StreamErrorKinds, "match_rows.stream_error_kind")
+	appendValues(params.StreamOutcomes, alias+".stream_outcome")
+	appendValues(params.StreamErrorKinds, alias+".stream_error_kind")
 	if len(params.UpstreamStatusCodes) > 0 {
 		values := make([]string, 0, len(params.UpstreamStatusCodes))
 		for _, value := range params.UpstreamStatusCodes {
 			*args = append(*args, value)
 			values = append(values, fmt.Sprintf("$%d", len(*args)))
 		}
-		clauses = append(clauses, "match_rows.upstream_status_code IN ("+strings.Join(values, ",")+")")
+		clauses = append(clauses, alias+".upstream_status_code IN ("+strings.Join(values, ",")+")")
 	}
 	if len(params.GatewayStatusCodes) > 0 {
 		values := make([]string, 0, len(params.GatewayStatusCodes))
@@ -825,7 +916,7 @@ func appendChainRowCohortExists(query string, args *[]any, params ChainQueryPara
 			*args = append(*args, value)
 			values = append(values, fmt.Sprintf("$%d", len(*args)))
 		}
-		clauses = append(clauses, "match_rows.gateway_status_code IN ("+strings.Join(values, ",")+")")
+		clauses = append(clauses, alias+".gateway_status_code IN ("+strings.Join(values, ",")+")")
 	}
 	if len(params.LegacyStatusCodes) > 0 {
 		values := make([]string, 0, len(params.LegacyStatusCodes))
@@ -833,20 +924,44 @@ func appendChainRowCohortExists(query string, args *[]any, params ChainQueryPara
 			*args = append(*args, value)
 			values = append(values, fmt.Sprintf("$%d", len(*args)))
 		}
-		clauses = append(clauses, "match_rows.legacy_status_code IN ("+strings.Join(values, ",")+")")
+		clauses = append(clauses, alias+".legacy_status_code IN ("+strings.Join(values, ",")+")")
 	}
 	if params.RowResult != nil {
 		switch strings.TrimSpace(*params.RowResult) {
 		case "failed":
-			clauses = append(clauses, "("+scopedRequestLogStatusSQL+") IS NOT NULL AND NOT (("+scopedRequestLogStatusSQL+") BETWEEN 200 AND 299)")
+			clauses = append(clauses, "("+statusExpr+") IS NOT NULL AND NOT (("+statusExpr+") BETWEEN 200 AND 299)")
 		case "client_disconnected", "cancelled":
-			add(strings.TrimSpace(*params.RowResult), "match_rows.attempt_result = $%d")
+			add(strings.TrimSpace(*params.RowResult), alias+".attempt_result = $%d")
 		}
 	}
 	if params.ClientRulePattern != nil && strings.TrimSpace(*params.ClientRulePattern) != "" {
-		add(strings.TrimSpace(*params.ClientRulePattern), "match_rows.caller_user_agent IS NOT NULL AND btrim(match_rows.caller_user_agent) <> '' AND match_rows.caller_user_agent ~* $%d")
+		add(strings.TrimSpace(*params.ClientRulePattern), alias+".caller_user_agent IS NOT NULL AND btrim("+alias+".caller_user_agent) <> '' AND "+alias+".caller_user_agent ~* $%d")
 	}
-	return query + " AND EXISTS (SELECT 1 FROM request_logs match_rows WHERE " + strings.Join(clauses, " AND ") + ")"
+	return clauses
+}
+
+func buildChainRowMatchPredicate(args *[]any, params ChainQueryParams, alias string) string {
+	if !hasChainRowFilter(params) && params.ProxyAPIKeyID == nil {
+		return "FALSE"
+	}
+	clauses := buildChainRowMatchClauses(args, params, alias)
+	if params.ProxyAPIKeyID != nil {
+		*args = append(*args, *params.ProxyAPIKeyID)
+		clauses = append(clauses, fmt.Sprintf("%s.proxy_api_key_id_snapshot = $%d", alias, len(*args)))
+	}
+	if len(clauses) == 0 {
+		return "FALSE"
+	}
+	return strings.Join(clauses, " AND ")
+}
+
+func scopedChainRowStatusSQL(alias string) string {
+	return fmt.Sprintf(`CASE %s.row_kind
+	WHEN 'upstream' THEN %s.upstream_status_code
+	WHEN 'planning' THEN %s.gateway_status_code
+	WHEN 'admission' THEN %s.gateway_status_code
+	ELSE %s.legacy_status_code
+END`, alias, alias, alias, alias, alias)
 }
 
 // buildRowResultExists returns a parameterized EXISTS clause that selects
@@ -867,8 +982,30 @@ func buildRowResultExists(rowResult string, profileID int, startArg int) string 
 	return inner
 }
 
-// loadChainIngressItem loads one chain item: finalized summary + retained rows.
-func loadChainIngressItem(ctx context.Context, exec queryExecutor, params ChainQueryParams, ingress chainIngressRef, rowLimit int) (ChainIngressItem, error) {
+type retainedRowCounts struct {
+	Upstream int
+	Total    int
+	Legacy   int
+	Matched  int
+}
+
+type retainedRowsPage struct {
+	Rows    []ChainRowItem
+	HasMore bool
+}
+
+// loadChainIngressItem loads one chain item: finalized summary, full-ingress
+// retained counts, and one bounded retained-row page.
+func loadChainIngressItem(
+	ctx context.Context,
+	exec queryExecutor,
+	params ChainQueryParams,
+	ingress chainIngressRef,
+	rowLimit int,
+	rowCursor *rowCursorPayload,
+	retentionEpoch int64,
+	retentionGeneration int64,
+) (ChainIngressItem, error) {
 	item := ChainIngressItem{
 		IngressRequestID:       ingress.IngressRequestID,
 		ElapsedEvidenceState:   "authoritative",
@@ -894,36 +1031,48 @@ func loadChainIngressItem(ctx context.Context, exec queryExecutor, params ChainQ
 		item.OrderEvidenceState = "retained_row_fallback"
 	}
 
-	rows, err := loadRetainedRows(ctx, exec, params, ingress.IngressRequestID, rowLimit)
+	counts, err := loadRetainedRowCounts(ctx, exec, params, ingress.IngressRequestID)
 	if err != nil {
 		return ChainIngressItem{}, err
 	}
-	item.RetainedRows = rows
-	item.RetainedRowsLoadedCount = len(rows)
-	item.RetainedRowsPageComplete = len(rows) < rowLimit
-	item.RetainedRowCount = len(rows)
-	for _, row := range rows {
-		if row.MatchedByFilter {
-			item.MatchedRowCount++
-		}
+	page, err := loadRetainedRows(ctx, exec, params, ingress.IngressRequestID, rowLimit, rowCursor)
+	if err != nil {
+		return ChainIngressItem{}, err
 	}
-	upstreamCount := 0
-	legacyCount := 0
-	for _, row := range rows {
-		if row.RowKind == "upstream" {
-			upstreamCount++
+	item.RetainedRows = page.Rows
+	item.RetainedRowsLoadedCount = len(page.Rows)
+	item.RetainedRowsPageComplete = !page.HasMore
+	item.RetainedRowCount = counts.Total
+	item.RetainedUpstreamAttemptCount = counts.Upstream
+	item.RetainedRequestLogRowCount = counts.Total
+	item.LegacyUnknownRowCount = counts.Legacy
+	item.MatchedRowCount = counts.Matched
+	if page.HasMore && len(page.Rows) > 0 {
+		last := page.Rows[len(page.Rows)-1]
+		encoded, err := encodeRowCursor(rowCursorPayload{
+			Version:             1,
+			ProfileID:           params.ProfileID,
+			IngressID:           ingress.IngressRequestID,
+			OrderAt:             last.CreatedAt.UTC().Format(time.RFC3339Nano),
+			RequestLogID:        last.RequestLogID,
+			Limit:               rowLimit,
+			RetentionEpoch:      retentionEpoch,
+			RetentionGeneration: retentionGeneration,
+		})
+		if err != nil {
+			return ChainIngressItem{}, err
 		}
-		if row.RowKind == "legacy_unknown" {
-			legacyCount++
-		}
+		item.NextRowCursor = &encoded
 	}
-	item.RetainedUpstreamAttemptCount = upstreamCount
-	item.RetainedRequestLogRowCount = len(rows)
-	item.LegacyUnknownRowCount = legacyCount
 	if summary != nil {
 		expectedAttempts := summary.AttemptCount
 		item.ExpectedAttemptCount = &expectedAttempts
-		item.ChainComplete = boolPtr(expectedAttempts == upstreamCount)
+		item.ExpectedRequestLogRowCount = summary.ExpectedRequestLogRowCount
+		complete := expectedAttempts == counts.Upstream
+		if summary.ExpectedRequestLogRowCount != nil {
+			complete = complete && *summary.ExpectedRequestLogRowCount == counts.Total
+		}
+		item.ChainComplete = boolPtr(complete)
 		item.SameTargetRetryOccurred = summary.SameTargetRetryOccurred
 		item.HedgeOccurred = summary.HedgeOccurred
 		item.FailoverOccurred = summary.FailoverOccurred
@@ -968,6 +1117,7 @@ func loadFinalizedSummary(ctx context.Context, exec queryExecutor, profileID int
 			usage_request_events.report_currency_code,
 			usage_request_events.report_currency_symbol,
 			usage_request_events.reporting_currency_epoch,
+			usage_request_events.currency_attribution,
 			usage_request_events.pricing_status,
 			usage_request_events.unpriced_reason,
 			usage_request_events.pricing_resolution_kind,
@@ -982,6 +1132,7 @@ func loadFinalizedSummary(ctx context.Context, exec queryExecutor, profileID int
 			usage_request_events.failover_occurred,
 			usage_request_events.routing_evidence_complete,
 			usage_request_events.attempt_count,
+			usage_request_events.expected_request_log_row_count,
 			usage_request_events.ingress_started_at,
 			usage_request_events.ingress_completed_at,
 			usage_request_events.pricing_template_id_used,
@@ -1042,6 +1193,7 @@ func loadFinalizedSummary(ctx context.Context, exec queryExecutor, profileID int
 		&summary.ReportCurrencyCode,
 		&summary.ReportCurrencySymbol,
 		&summary.ReportingCurrencyEpoch,
+		&summary.CurrencyAttribution,
 		&pricingStatus,
 		&unpricedReason,
 		&resolutionKind,
@@ -1056,6 +1208,7 @@ func loadFinalizedSummary(ctx context.Context, exec queryExecutor, profileID int
 		&summary.FailoverOccurred,
 		&summary.RoutingEvidenceComplete,
 		&summary.AttemptCount,
+		&summary.ExpectedRequestLogRowCount,
 		&ingressStartedAt,
 		&ingressCompletedAt,
 		&summary.PricingTemplateIDUsed,
@@ -1110,8 +1263,7 @@ func loadFinalizedSummary(ctx context.Context, exec queryExecutor, profileID int
 		rate := float64(*summary.OutputTokens) * 1000 / float64(*summary.CompletionDurationMS-*summary.TTFTMS)
 		summary.OutputRateTPS = &rate
 	}
-	summary.CurrencyAttribution = "identified"
-	if summary.ReportingCurrencyEpoch != nil {
+	if summary.ReportingCurrencyEpoch != nil && *summary.ReportingCurrencyEpoch > 0 {
 		key := fmt.Sprintf("e.%d", *summary.ReportingCurrencyEpoch)
 		summary.CostSegmentKey = &key
 	} else if summary.ReportCurrencyCode != nil {
@@ -1138,51 +1290,87 @@ func deriveFinalResult(statusCode int, successFlag bool, streamOutcome string) s
 	}
 }
 
-// loadRetainedRows loads the bounded retained-row page for one ingress.
-func loadRetainedRows(ctx context.Context, exec queryExecutor, params ChainQueryParams, ingressRequestID string, rowLimit int) ([]ChainRowItem, error) {
+func loadRetainedRowCounts(ctx context.Context, exec queryExecutor, params ChainQueryParams, ingressRequestID string) (retainedRowCounts, error) {
+	var counts retainedRowCounts
+	queryArgs := []any{params.ProfileID, ingressRequestID}
+	matchPredicate := buildChainRowMatchPredicate(&queryArgs, params, "request_logs")
+	err := exec.QueryRow(ctx, `SELECT
+			COUNT(*) FILTER (WHERE row_kind = 'upstream'),
+			COUNT(*),
+			COUNT(*) FILTER (WHERE row_kind = 'legacy_unknown'),
+			COUNT(*) FILTER (WHERE `+matchPredicate+`)
+		FROM request_logs
+		WHERE profile_id = $1 AND ingress_request_id = $2`, queryArgs...).Scan(
+		&counts.Upstream,
+		&counts.Total,
+		&counts.Legacy,
+		&counts.Matched,
+	)
+	if err != nil {
+		return retainedRowCounts{}, fmt.Errorf("query retained row counts for ingress %s: %w", ingressRequestID, err)
+	}
+	return counts, nil
+}
+
+// loadRetainedRows loads one bounded retained-row page for one ingress. The
+// limit+1 sentinel determines page completeness without deriving full-chain
+// counts from the bounded page.
+func loadRetainedRows(ctx context.Context, exec queryExecutor, params ChainQueryParams, ingressRequestID string, rowLimit int, cursor *rowCursorPayload) (retainedRowsPage, error) {
 	profileID := params.ProfileID
-	rows, err := exec.Query(ctx, `SELECT
+	queryArgs := []any{profileID, ingressRequestID}
+	matchPredicate := buildChainRowMatchPredicate(&queryArgs, params, "request_logs")
+	query := `SELECT
 			id, row_kind, ingress_request_id, attempt_number, attempt_trigger, attempt_result, is_winner,
 			attempt_duration_ms, legacy_duration_ms, upstream_status_code, gateway_status_code, legacy_status_code,
 			error_source, error_code, failure_stage, error_detail, error_detail_redacted, error_detail_truncated,
 			stream_error_detail, stream_error_detail_redacted, stream_error_detail_truncated,
 			stream_outcome, stream_error_kind, model_id, resolved_target_model_id, endpoint_id, connection_id,
-			proxy_api_key_id_snapshot,
 			total_tokens, total_cost_user_currency_micros, pricing_status, unpriced_reason, pricing_evidence_trust, created_at,
-			endpoint_base_url, endpoint_description
+			endpoint_base_url, endpoint_description,
+			(` + matchPredicate + `) AS matched_by_filter
 		FROM request_logs
-		WHERE profile_id = $1 AND ingress_request_id = $2
-		ORDER BY created_at ASC, id ASC
-		LIMIT $3`, profileID, ingressRequestID, rowLimit)
+		WHERE profile_id = $1 AND ingress_request_id = $2`
+	if cursor != nil {
+		orderAt, err := time.Parse(time.RFC3339Nano, cursor.OrderAt)
+		if err != nil {
+			return retainedRowsPage{}, fmt.Errorf("parse retained-row cursor timestamp: %w", err)
+		}
+		requestLogID, err := strconv.ParseInt(cursor.RequestLogID, 10, 64)
+		if err != nil {
+			return retainedRowsPage{}, fmt.Errorf("parse retained-row cursor request log id: %w", err)
+		}
+		orderAtArg := len(queryArgs) + 1
+		requestLogIDArg := len(queryArgs) + 2
+		query += fmt.Sprintf(" AND (created_at, id) > ($%d, $%d)", orderAtArg, requestLogIDArg)
+		queryArgs = append(queryArgs, orderAt.UTC(), requestLogID)
+	}
+	queryArgs = append(queryArgs, rowLimit+1)
+	query += fmt.Sprintf(" ORDER BY created_at ASC, id ASC LIMIT $%d", len(queryArgs))
+	rows, err := exec.Query(ctx, query, queryArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("query retained rows for ingress %s: %w", ingressRequestID, err)
+		return retainedRowsPage{}, fmt.Errorf("query retained rows for ingress %s: %w", ingressRequestID, err)
 	}
 	defer rows.Close()
-	items := make([]ChainRowItem, 0)
+	items := make([]ChainRowItem, 0, rowLimit+1)
 	for rows.Next() {
 		var item ChainRowItem
 		var requestLogID int64
 		var errorDetail, streamErrorDetail *string
 		var errorDetailRedacted, errorDetailTruncated, streamErrorDetailRedacted, streamErrorDetailTruncated bool
 		var endpointBaseURL, endpointDescription *string
-		var proxyAPIKeyID sql.NullInt32
 		if err := rows.Scan(
 			&requestLogID, &item.RowKind, &item.IngressRequestID, &item.AttemptNumber, &item.AttemptTrigger, &item.AttemptResult, &item.IsWinner,
 			&item.AttemptDurationMS, &item.LegacyDurationMS, &item.UpstreamStatusCode, &item.GatewayStatusCode, &item.LegacyStatusCode,
 			&item.ErrorSource, &item.ErrorCode, &item.FailureStage, &errorDetail, &errorDetailRedacted, &errorDetailTruncated,
 			&streamErrorDetail, &streamErrorDetailRedacted, &streamErrorDetailTruncated,
 			&item.StreamOutcome, &item.StreamErrorKind, &item.ModelID, &item.ResolvedTargetModelID, &item.EndpointID, &item.TerminalTargetID,
-			&proxyAPIKeyID,
 			&item.TotalTokens, &item.TotalCostUserCurrencyMicros, &item.PricingStatus, &item.UnpricedReason, &item.PricingEvidenceTrust, &item.CreatedAt,
-			&endpointBaseURL, &endpointDescription,
+			&endpointBaseURL, &endpointDescription, &item.MatchedByFilter,
 		); err != nil {
-			return nil, fmt.Errorf("scan retained row: %w", err)
+			return retainedRowsPage{}, fmt.Errorf("scan retained row: %w", err)
 		}
 		item.RequestLogID = strconv.FormatInt(requestLogID, 10)
 		item.CreatedAt = item.CreatedAt.UTC()
-		if params.ProxyAPIKeyID != nil && proxyAPIKeyID.Valid {
-			item.MatchedByFilter = proxyAPIKeyID.Int32 == int32(*params.ProxyAPIKeyID)
-		}
 		// Unified failure projection: error_detail wins; stream detail is
 		// used for 2xx abnormal streams and client disconnects.
 		detail := errorDetail
@@ -1216,9 +1404,13 @@ func loadRetainedRows(ctx context.Context, exec queryExecutor, params ChainQuery
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate retained rows: %w", err)
+		return retainedRowsPage{}, fmt.Errorf("iterate retained rows: %w", err)
 	}
-	return items, nil
+	hasMore := len(items) > rowLimit
+	if hasMore {
+		items = items[:rowLimit]
+	}
+	return retainedRowsPage{Rows: items, HasMore: hasMore}, nil
 }
 
 func truncateCodePoints(value string, limit int) (string, bool) {

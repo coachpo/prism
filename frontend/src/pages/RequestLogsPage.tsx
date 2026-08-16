@@ -52,7 +52,7 @@ export function RequestLogsPage() {
     setColumnPreferences(defaults);
   }, []);
 
-  const { items, total, loading, error, stale, lastLoadedAt, filterOptions, filterOptionsLoaded, refresh, nextChainCursor, hasMoreChains, chains, chainPageCounts, coverage } =
+  const { items, total, loading, error, stale, lastLoadedAt, filterOptions, filterOptionsLoaded, refresh, loadMoreChainRows, nextChainCursor, hasMoreChains, chains, chainPageCounts, coverage } =
     useRequestLogsPageData({ revision: 0, state, enabled: !isExactMode });
 
   const selectedRequestId = useMemo(() => {
@@ -248,8 +248,8 @@ export function RequestLogsPage() {
           onLoadMoreChains={() => {
             if (nextChainCursor) actions.setChainCursor(nextChainCursor);
           }}
-          onLoadMoreRows={() => undefined}
-          onSelectRow={(requestId) => handleSelectRequest(String(requestId))}
+          onLoadMoreRows={loadMoreChainRows}
+          onSelectRow={handleSelectRequest}
           loading={loading}
         />
         ) : (

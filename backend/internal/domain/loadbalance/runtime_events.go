@@ -94,11 +94,10 @@ func insertRuntimeLoadbalanceEvent(ctx context.Context, exec queryExecutor, part
 	if err != nil {
 		return RuntimeIncidentEvent{}, fmt.Errorf("insert loadbalance event for connection %d in profile %d: %w", connectionID, profileID, err)
 	}
-	// The load-balance writer is pool-backed rather than part of the runtime
-	// telemetry transaction. Keep its owner hand-off best effort: the trigger
-	// has already made the projection explicitly stale, and a failed refresh
-	// must not report an inserted incident as failed (which would invite a
-	// duplicate retry). The retention worker will repair a dirty projection.
+	// Feedback persistence normally supplies the transaction that owns both the
+	// event and coverage handoff. Keep the handoff best effort for defensive
+	// non-transactional callers: the trigger leaves the projection dirty for the
+	// retention owner instead of turning an inserted incident into a retry.
 	if err := statsdomain.RecordActualCoverageAppend(ctx, exec, "loadbalance_events", []time.Time{observedAt}, observedAt); err != nil {
 		slog.Warn("loadbalance actual coverage owner refresh deferred", "domain", "loadbalance_events", "error", err)
 	}

@@ -2,6 +2,7 @@ package contracttest
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -89,6 +90,40 @@ func TestChainViewServerSideCohortAndPagination(t *testing.T) {
 	s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&sort_by=ttft_ms", http.StatusUnprocessableEntity)
 }
 
+func TestChainViewUsesPersistedCurrencyAttribution(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	createdAt := fixedS15Now.Add(-5 * time.Minute)
+	ensureContractTestLogPartitions(t, harness, contractTestLogPartitionFor("request_logs", createdAt), contractTestLogPartitionFor("usage_request_events", createdAt))
+	epoch := 7
+	tests := []struct {
+		name        string
+		ingressID   string
+		epoch       *int
+		attribution string
+		wantKey     string
+	}{
+		{name: "active identified", ingressID: "chain-currency-identified", epoch: &epoch, attribution: "identified", wantKey: "e.7"},
+		{name: "identified without epoch", ingressID: "chain-currency-identified-code", epoch: nil, attribution: "identified", wantKey: "l.USD"},
+		{name: "legacy unknown", ingressID: "chain-currency-legacy", epoch: &epoch, attribution: "legacy_unknown", wantKey: "e.7"},
+	}
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			seedChainIngress(t, harness, profileID, test.ingressID, createdAt.Add(time.Duration(index)*time.Second), 200, 1, false, "not_streaming")
+			if _, err := harness.conn.Exec(context.Background(), `UPDATE usage_request_events
+				SET reporting_currency_epoch = $1, report_currency_code = 'USD', report_currency_symbol = '$', currency_attribution = $2
+				WHERE profile_id = $3 AND ingress_request_id = $4`, test.epoch, test.attribution, profileID, test.ingressID); err != nil {
+				t.Fatalf("set finalized currency attribution: %v", err)
+			}
+			payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&ingress_request_id="+test.ingressID, http.StatusOK)
+			summary := asMap(t, asMap(t, payload["items"].([]any)[0])["finalized_summary"])
+			if summary["currency_attribution"] != test.attribution || summary["cost_segment_key"] != test.wantKey {
+				t.Fatalf("expected persisted attribution %q with segment %q, got %+v", test.attribution, test.wantKey, summary)
+			}
+		})
+	}
+}
+
 func TestChainViewNormalizesFinalizedTimestampsToUTC(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
@@ -145,6 +180,92 @@ func TestChainViewPreservesBigIntRequestLogIDsAsDecimalStrings(t *testing.T) {
 	}
 }
 
+func TestChainRowCursorPaginatesFullIngressCountsAndRejectsScopeChanges(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	ingressID := "chain-row-cursor"
+	wantIDs := seedChainRowCursorFixture(t, harness, profileID, ingressID, fixedS15Now.Add(-4*time.Minute))
+	// Finalized pricing selectors choose the ingress cohort. They must not be
+	// folded into the retained-row status predicate: the finalized ingress is
+	// unpriced while every retained row is independently ineligible.
+	basePath := "/api/stats/requests?view=ingress_chains&ingress_request_id=" + ingressID + "&pricing_status=unpriced&unpriced_reason=MISSING_TOKEN_USAGE&status_code=503&chain_limit=1&chain_row_limit=1"
+
+	var firstCursor string
+	cursor := ""
+	for pageIndex, wantID := range wantIDs {
+		path := basePath
+		if cursor != "" {
+			path += "&row_cursor=" + cursor
+		}
+		payload := s15GET[map[string]any](t, harness, profileID, path, http.StatusOK)
+		items := payload["items"].([]any)
+		if len(items) != 1 {
+			t.Fatalf("page %d: expected one exact-ingress item, got %+v", pageIndex+1, payload)
+		}
+		item := asMap(t, items[0])
+		for field, want := range map[string]int{
+			"expected_attempt_count":          2,
+			"expected_request_log_row_count":  3,
+			"retained_upstream_attempt_count": 2,
+			"retained_request_log_row_count":  3,
+			"retained_row_count":              3,
+			"retained_rows_loaded_count":      1,
+			"matched_row_count":               2,
+		} {
+			if got := jsonInt(t, item[field]); got != want {
+				t.Fatalf("page %d: expected stable %s=%d, got %d in %+v", pageIndex+1, field, want, got, item)
+			}
+		}
+		if item["chain_complete"] != true {
+			t.Fatalf("page %d: expected complete full-ingress evidence, got %+v", pageIndex+1, item)
+		}
+		rows := item["retained_rows"].([]any)
+		if len(rows) != 1 {
+			t.Fatalf("page %d: expected one retained row, got %+v", pageIndex+1, item)
+		}
+		row := asMap(t, rows[0])
+		if got, ok := row["request_log_id"].(string); !ok || got != wantID {
+			t.Fatalf("page %d: expected decimal-string request_log_id %q, got %T(%v)", pageIndex+1, wantID, row["request_log_id"], row["request_log_id"])
+		}
+		if wantMatched := pageIndex < 2; (row["matched_by_filter"] == true) != wantMatched {
+			t.Fatalf("page %d: expected matched_by_filter=%t, got %+v", pageIndex+1, wantMatched, row["matched_by_filter"])
+		}
+
+		lastPage := pageIndex == len(wantIDs)-1
+		if item["retained_rows_page_complete"] != lastPage {
+			t.Fatalf("page %d: expected page_complete=%t, got %+v", pageIndex+1, lastPage, item)
+		}
+		if lastPage {
+			if item["next_row_cursor"] != nil {
+				t.Fatalf("page %d: expected terminal null cursor, got %+v", pageIndex+1, item["next_row_cursor"])
+			}
+			continue
+		}
+		var ok bool
+		cursor, ok = item["next_row_cursor"].(string)
+		if !ok || cursor == "" {
+			t.Fatalf("page %d: expected signed continuation cursor, got %+v", pageIndex+1, item["next_row_cursor"])
+		}
+		if pageIndex == 0 {
+			firstCursor = cursor
+		}
+	}
+
+	cursorParts := strings.Split(firstCursor, ".")
+	if len(cursorParts) != 2 || cursorParts[1] == "" {
+		t.Fatalf("expected signed cursor envelope, got %q", firstCursor)
+	}
+	firstSignatureByte := byte('A')
+	if cursorParts[1][0] == firstSignatureByte {
+		firstSignatureByte = 'B'
+	}
+	tampered := cursorParts[0] + "." + string(firstSignatureByte) + cursorParts[1][1:]
+	s15GET[map[string]any](t, harness, profileID, basePath+"&row_cursor="+tampered, http.StatusBadRequest)
+	s15GET[map[string]any](t, harness, profileID, strings.Replace(basePath, ingressID, "chain-row-cursor-other", 1)+"&row_cursor="+firstCursor, http.StatusUnprocessableEntity)
+	s15GET[map[string]any](t, harness, profileID, strings.Replace(basePath, "chain_row_limit=1", "chain_row_limit=2", 1)+"&row_cursor="+firstCursor, http.StatusUnprocessableEntity)
+	s15GET[map[string]any](t, harness, profileID, basePath+"&chain_cursor=outer&row_cursor="+firstCursor, http.StatusUnprocessableEntity)
+}
+
 func seedChainTimestampFixture(t *testing.T, harness *contractHarness, profileID int, startedAt, completedAt, pricingEffectiveAt time.Time) {
 	t.Helper()
 	ensureContractTestLogPartitions(t, harness,
@@ -179,6 +300,59 @@ func seedChainBigIntIDFixture(t *testing.T, harness *contractHarness, profileID 
 			t.Fatalf("seed BIGINT chain request log %d: %v", attempt, err)
 		}
 	}
+}
+
+func seedChainRowCursorFixture(t *testing.T, harness *contractHarness, profileID int, ingressID string, createdAt time.Time) []string {
+	t.Helper()
+	ensureContractTestLogPartitions(t, harness,
+		contractTestLogPartitionFor("request_logs", createdAt),
+		contractTestLogPartitionFor("usage_request_events", createdAt),
+	)
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO usage_request_events
+		(id, profile_id, ingress_request_id, model_id, api_family, endpoint_label_snapshot, status_code, success_flag,
+		 attempt_count, expected_request_log_row_count, final_attempt_number, request_path, pricing_status,
+		 pricing_evidence_trust, unpriced_reason, stream_outcome, created_at, ingress_started_at, ingress_completed_at,
+		 proxy_api_key_attribution_state, routing_evidence_complete)
+		VALUES (9007199254741101, $1, $2, 'chain-model', 'openai', 'Chain Endpoint', 200, TRUE,
+		 2, 3, 2, '/v1/chat/completions', 'unpriced', 'trusted', 'MISSING_TOKEN_USAGE', 'not_streaming', $3, $3, $3, 'none', TRUE)`,
+		profileID, ingressID, createdAt); err != nil {
+		t.Fatalf("seed row-cursor usage event: %v", err)
+	}
+	ids := []int64{9007199254741103, 9007199254741105, 9007199254741107}
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs
+		(id, profile_id, model_id, api_family, ingress_request_id, row_kind, url_scrub_provenance,
+		 gateway_status_code, is_stream, success_flag, pricing_status, pricing_evidence_trust, request_path, created_at)
+		VALUES ($1, $2, 'chain-model', 'openai', $3, 'planning', 'runtime_scrubbed',
+		 503, FALSE, FALSE, 'ineligible', 'trusted', '/v1/chat/completions', $4)`,
+		ids[0], profileID, ingressID, createdAt.Add(time.Second)); err != nil {
+		t.Fatalf("seed row-cursor planning row: %v", err)
+	}
+	for index, id := range ids[1:] {
+		attempt := index + 1
+		status := 503
+		result := "http_error"
+		winner := false
+		if attempt == 2 {
+			status = 200
+			result = "completed"
+			winner = true
+		}
+		if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs
+			(id, profile_id, model_id, api_family, ingress_request_id, attempt_number, row_kind, url_scrub_provenance,
+			 upstream_status_code, attempt_duration_ms, is_stream, success_flag, pricing_status, pricing_evidence_trust,
+			 attempt_trigger, attempt_result, is_winner, request_path, created_at)
+			VALUES ($1, $2, 'chain-model', 'openai', $3, $4, 'upstream', 'runtime_scrubbed',
+			 $5, 100, FALSE, $6, 'ineligible', 'trusted', 'initial', $7, $8,
+			 '/v1/chat/completions', $9)`,
+			id, profileID, ingressID, attempt, status, status == 200, result, winner, createdAt.Add(time.Duration(attempt+1)*time.Second)); err != nil {
+			t.Fatalf("seed row-cursor upstream request log %d: %v", attempt, err)
+		}
+	}
+	result := make([]string, 0, len(ids))
+	for _, id := range ids {
+		result = append(result, fmt.Sprintf("%d", id))
+	}
+	return result
 }
 
 func seedChainIngress(t *testing.T, harness *contractHarness, profileID int, ingressID string, createdAt time.Time, statusCode int, attemptCount int, failover bool, streamOutcome string) {

@@ -150,6 +150,8 @@ export interface ChainIngressItem {
   routing_evidence_complete: boolean | null;
   retained_rows_loaded_count: number;
   retained_rows_page_complete: boolean;
+  retained_row_count: number;
+  matched_row_count: number;
   next_row_cursor: string | null;
   retained_rows: RequestLogRowV2[];
   order_evidence_state?: string;

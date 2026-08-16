@@ -36,6 +36,7 @@ var expectedPrismMigrationVersions = []string{
 	"000015_settings_safety_additive",
 	"000016_proxy_api_key_in_place_rotation",
 	"000017_openai_image_operations",
+	"000018_retention_coverage_append_handoff",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {

@@ -1157,6 +1157,9 @@ func TestRuntimeUsageEventEndpointLabelSnapshotUsesSelectedEndpointIdentity(t *t
 	if !row.EndpointID.Valid || int(row.EndpointID.Int64) != endpointID || !row.ConnectionID.Valid || int(row.ConnectionID.Int64) != connectionID || row.EndpointLabelSnapshot != strings.TrimSpace(endpointName) {
 		t.Fatalf("expected usage-event label snapshot from request-time selected endpoint identity, got %+v", row)
 	}
+	if row.CurrencyAttribution != "identified" {
+		t.Fatalf("expected live usage writer to persist identified currency ownership, got %+v", row)
+	}
 }
 
 func TestRuntimeUsageEventEndpointLabelSnapshotFallsBackToBaseURL(t *testing.T) {
@@ -1595,6 +1598,7 @@ type runtimeUsageEndpointLabelSnapshotRow struct {
 	EndpointID            sql.NullInt64
 	ConnectionID          sql.NullInt64
 	EndpointLabelSnapshot string
+	CurrencyAttribution   string
 }
 
 func loadLatestRuntimeUsageEndpointLabelSnapshot(t *testing.T, conn *pgx.Conn, profileID int) runtimeUsageEndpointLabelSnapshotRow {
@@ -1602,9 +1606,9 @@ func loadLatestRuntimeUsageEndpointLabelSnapshot(t *testing.T, conn *pgx.Conn, p
 	var row runtimeUsageEndpointLabelSnapshotRow
 	if err := conn.QueryRow(
 		context.Background(),
-		`SELECT endpoint_id, connection_id, endpoint_label_snapshot FROM usage_request_events WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`,
+		`SELECT endpoint_id, connection_id, endpoint_label_snapshot, currency_attribution FROM usage_request_events WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`,
 		profileID,
-	).Scan(&row.EndpointID, &row.ConnectionID, &row.EndpointLabelSnapshot); err != nil {
+	).Scan(&row.EndpointID, &row.ConnectionID, &row.EndpointLabelSnapshot, &row.CurrencyAttribution); err != nil {
 		t.Fatalf("load latest runtime usage endpoint label snapshot: %v", err)
 	}
 	return row

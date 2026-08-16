@@ -26,11 +26,10 @@ const (
 	exportMaxRangeDays  = 31
 )
 
-// ExportParams mirrors ChainQueryParams plus an explicit resolved range.
+// ExportParams mirrors the attempt-view browse query without pagination.
 type ExportParams struct {
-	ChainQueryParams
-	FromTimeResolved *time.Time
-	ToTimeResolved   *time.Time
+	RequestLogListParams
+	View string
 }
 
 // ExportResult is the verified spooled export content.
@@ -45,31 +44,39 @@ type ExportResult struct {
 // ExportCSV exports the full filtered result set. The rows are scanned from
 // the provided transaction snapshot (caller must hold one REPEATABLE READ tx).
 func ExportCSV(ctx context.Context, tx pgx.Tx, params ExportParams) (ExportResult, error) {
-	if params.ChainLimit <= 0 {
-		params.ChainLimit = defaultChainLimit
-	}
-	if params.ChainLimit > maxChainLimit {
-		params.ChainLimit = maxChainLimit
-	}
 	view := strings.TrimSpace(params.View)
 	if view == "" {
 		view = "ingress_chains"
 	}
 
-	// Resolve the effective time range and enforce the 31-day bound unless an
-	// exact-ID selector exempts it.
-	effectiveFrom, effectiveTo, err := resolveExportRange(ctx, tx, params)
+	// Resolve the same owner-backed interval as the JSON attempt list and keep
+	// the CSV predicates on that exact interval inside this snapshot. Exact
+	// ingress selectors waive the 31-day cap, but keep the owner/default bound.
+	exactIngress := params.IngressRequestID != nil && strings.TrimSpace(*params.IngressRequestID) != ""
+	coverage, err := resolveOrdinaryRequestLogCoverage(ctx, tx, params.RequestLogListParams)
 	if err != nil {
 		return ExportResult{}, err
 	}
-	if effectiveFrom != nil && effectiveTo != nil {
-		if effectiveTo.Sub(*effectiveFrom) > exportMaxRangeDays*24*time.Hour {
-			return ExportResult{}, &HTTPError{StatusCode: 422, Code: "export_range_exceeded", Detail: "Export range must not exceed 31 days."}
+	effectiveFrom := coverage.EffectiveFromTime.UTC()
+	effectiveTo := coverage.EffectiveToTime.UTC()
+	if !exactIngress && effectiveTo.Sub(effectiveFrom) > exportMaxRangeDays*24*time.Hour {
+		return ExportResult{}, &HTTPError{StatusCode: 422, Code: "export_range_exceeded", Detail: "Export range must not exceed 31 days."}
+	}
+	params.FromTime = &effectiveFrom
+	params.ToTime = &effectiveTo
+	if params.ClientRuleID != nil {
+		rule, found, ruleErr := loadCompiledUserAgentRuleByID(ctx, tx, params.ProfileID, *params.ClientRuleID)
+		if ruleErr != nil {
+			return ExportResult{}, ruleErr
 		}
+		if !found {
+			return ExportResult{}, &HTTPError{StatusCode: 400, Detail: "invalid client_rule_id"}
+		}
+		params.ClientRulePattern = &rule.RawPattern
 	}
 
 	// Preflight count in the same snapshot.
-	countQuery, countArgs := buildExportCountQuery(params, effectiveFrom, effectiveTo)
+	countQuery, countArgs := buildExportCountQuery(params)
 	var matched int
 	if err := tx.QueryRow(ctx, countQuery, countArgs...).Scan(&matched); err != nil {
 		return ExportResult{}, fmt.Errorf("count export rows: %w", err)
@@ -92,7 +99,7 @@ func ExportCSV(ctx context.Context, tx pgx.Tx, params ExportParams) (ExportResul
 		return ExportResult{}, fmt.Errorf("chmod export spool: %w", err)
 	}
 
-	rowQuery, rowArgs := buildExportRowQuery(params, effectiveFrom, effectiveTo)
+	rowQuery, rowArgs := buildExportRowQuery(params)
 	rows, err := tx.Query(ctx, rowQuery, rowArgs...)
 	if err != nil {
 		return ExportResult{}, fmt.Errorf("query export rows: %w", err)
@@ -124,47 +131,15 @@ func ExportCSV(ctx context.Context, tx pgx.Tx, params ExportParams) (ExportResul
 	return ExportResult{RowCount: matched, ByteCount: byteCount, DigestSHA256: digest, View: view, Content: content}, nil
 }
 
-func resolveExportRange(ctx context.Context, tx pgx.Tx, params ExportParams) (*time.Time, *time.Time, error) {
-	// Exact-ID selectors exempt the 31-day range requirement.
-	exactID := params.IngressRequestID != nil && strings.TrimSpace(*params.IngressRequestID) != ""
-	if exactID {
-		return params.FromTimeResolved, params.ToTimeResolved, nil
-	}
-	if params.FromTimeResolved == nil || params.ToTimeResolved == nil {
-		return nil, nil, &HTTPError{StatusCode: 422, Code: "export_range_required", Detail: "Export requires an explicit time range."}
-	}
-	from := params.FromTimeResolved.UTC()
-	to := params.ToTimeResolved.UTC()
-	if !to.After(from) {
-		return nil, nil, &HTTPError{StatusCode: 422, Code: "export_range_invalid", Detail: "Export range must be non-empty."}
-	}
-	if to.Sub(from) > exportMaxRangeDays*24*time.Hour {
-		return nil, nil, &HTTPError{StatusCode: 422, Code: "export_range_exceeded", Detail: "Export range must not exceed 31 days."}
-	}
-	return &from, &to, nil
+func buildExportCountQuery(params ExportParams) (string, []any) {
+	whereClause, args := buildRequestLogBrowseWhere(params.RequestLogListParams)
+	return `SELECT COUNT(*) FROM request_logs WHERE ` + whereClause, args
 }
 
-func buildExportCountQuery(params ExportParams, from *time.Time, to *time.Time) (string, []any) {
-	query := `SELECT COUNT(*) FROM request_logs WHERE profile_id = $1`
-	args := []any{params.ProfileID}
-	if from != nil {
-		args = append(args, from.UTC())
-		query += fmt.Sprintf(" AND created_at >= $%d", len(args))
-	}
-	if to != nil {
-		args = append(args, to.UTC())
-		query += fmt.Sprintf(" AND created_at < $%d", len(args))
-	}
-	if params.IngressRequestID != nil && strings.TrimSpace(*params.IngressRequestID) != "" {
-		args = append(args, strings.TrimSpace(*params.IngressRequestID))
-		query += fmt.Sprintf(" AND ingress_request_id = $%d", len(args))
-	}
-	return query, args
-}
-
-func buildExportRowQuery(params ExportParams, from *time.Time, to *time.Time) (string, []any) {
+func buildExportRowQuery(params ExportParams) (string, []any) {
+	whereClause, args := buildRequestLogBrowseWhere(params.RequestLogListParams)
 	query := `SELECT id, row_kind, ingress_request_id, model_id, resolved_target_model_id, api_family, operation_name,
-		attempt_number, attempt_trigger, attempt_result, is_winner, attempt_duration_ms, legacy_duration_ms,
+		attempt_number, attempt_trigger, attempt_result, is_winner, attempt_duration_ms, legacy_duration_ms, ttft_ms, completion_duration_ms,
 		upstream_status_code, gateway_status_code, legacy_status_code,
 		error_source, error_code, failure_stage, error_detail, stream_error_detail,
 		stream_outcome, stream_error_kind, endpoint_id, connection_id,
@@ -174,23 +149,7 @@ func buildExportRowQuery(params ExportParams, from *time.Time, to *time.Time) (s
 		pricing_evidence_trust, pricing_template_id_used, pricing_template_name_snapshot, pricing_template_revision_id_used,
 		pricing_config_version_used, pricing_version_effective_at, reporting_currency_epoch,
 		metadata_redacted_fields, metadata_truncated_fields, created_at
-		FROM request_logs WHERE profile_id = $1`
-	args := []any{params.ProfileID}
-	if from != nil {
-		args = append(args, from.UTC())
-		query += fmt.Sprintf(" AND created_at >= $%d", len(args))
-	}
-	if to != nil {
-		args = append(args, to.UTC())
-		query += fmt.Sprintf(" AND created_at < $%d", len(args))
-	}
-	if params.IngressRequestID != nil && strings.TrimSpace(*params.IngressRequestID) != "" {
-		args = append(args, strings.TrimSpace(*params.IngressRequestID))
-		query += fmt.Sprintf(" AND ingress_request_id = $%d", len(args))
-	}
-	if strings.TrimSpace(params.SortBy) == "" || params.SortBy == "created_at" {
-		query += " ORDER BY created_at ASC, id ASC"
-	}
+		FROM request_logs WHERE ` + whereClause + ` ` + requestLogOrderBy(params.SortBy, params.SortOrder)
 	return query, args
 }
 
@@ -236,12 +195,12 @@ func writeExportRows(ctx context.Context, writer *csv.Writer, rows interface {
 		var resolvedTargetModelID, operationName, errorSource, errorCode, failureStage, errorDetail, streamErrorDetail, streamErrorKind, unpricedReason, resolutionKind, currencyCodeOriginal, reportCurrencyCode, reportCurrencySymbol, fxRateUsed, fxRateSource, templateNameSnapshot *string
 		if err := rows.Scan(
 			&record.ID, &record.RowKind, &record.IngressRequestID, &record.ModelID, &resolvedTargetModelID, &record.APIFamily, &operationName,
-			&record.AttemptNumber, &record.AttemptTrigger, &record.AttemptResult, &record.IsWinner, &record.AttemptDurationMS, &record.LegacyDurationMS,
+			&record.AttemptNumber, &record.AttemptTrigger, &record.AttemptResult, &record.IsWinner, &record.AttemptDurationMS, &record.LegacyDurationMS, &record.TTFTMS, &record.CompletionDurationMS,
 			&record.UpstreamStatusCode, &record.GatewayStatusCode, &record.LegacyStatusCode,
 			&errorSource, &errorCode, &failureStage, &errorDetail, &streamErrorDetail,
 			&record.StreamOutcome, &streamErrorKind, &record.EndpointID, &record.ConnectionID,
 			&record.InputTokens, &record.OutputTokens, &record.TotalTokens, &record.CacheReadInputTokens, &record.CacheCreationInputTokens, &record.ReasoningTokens,
-			&record.TotalCostUserCurrencyMicros, &record.CurrencyCodeOriginal, &record.ReportCurrencyCode, &record.ReportCurrencySymbol,
+			&record.TotalCostUserCurrencyMicros, &currencyCodeOriginal, &reportCurrencyCode, &reportCurrencySymbol,
 			&fxRateUsed, &fxRateSource, &record.PricingStatus, &unpricedReason, &resolutionKind, &record.MissingPriceComponents,
 			&record.PricingEvidenceTrust, &record.PricingTemplateIDUsed, &templateNameSnapshot, &record.PricingTemplateRevisionIDUsed,
 			&record.PricingConfigVersionUsed, &record.PricingVersionEffectiveAt, &record.ReportingCurrencyEpoch,
@@ -315,6 +274,8 @@ type exportRowRecord struct {
 	IsWinner                      *bool
 	AttemptDurationMS             *int
 	LegacyDurationMS              *int
+	TTFTMS                        *int
+	CompletionDurationMS          *int
 	UpstreamStatusCode            *int
 	GatewayStatusCode             *int
 	LegacyStatusCode              *int
@@ -402,8 +363,8 @@ func (record exportRowRecord) csvCells() []string {
 		optionalString(record.StreamErrorKind),
 		optionalIntString(record.AttemptDurationMS),
 		optionalIntString(record.LegacyDurationMS),
-		"", // ttft_ms (not in this projection; kept for column parity)
-		"", // total_duration_ms
+		optionalIntString(record.TTFTMS),
+		optionalIntString(record.CompletionDurationMS),
 		optionalIntString(record.InputTokens),
 		optionalIntString(record.OutputTokens),
 		optionalIntString(record.TotalTokens),

@@ -1999,6 +1999,7 @@ Chain semantics:
 - `retained_upstream_attempt_count` counts `row_kind=upstream` only; `retained_request_log_row_count` counts all retained row kinds; legacy rows are counted separately in `legacy_unknown_row_count`.
 - `chain_complete` expresses retention/evidence reconciliation (expected vs retained), not the current API row page.
 - `finalized_summary` fields come only from the finalized `usage_request_events` row; attempt rows never carry `final_*` facts.
+- `finalized_summary.currency_attribution` comes from persisted usage-event provenance; `cost_segment_key` remains independently canonicalized as epoch first, then legacy code, then unknown.
 - `attempt_budget_exhausted` etc. gateway terminal codes appear in `final_error_code`.
 - All Requests list/detail/chain/export responses send `Cache-Control: private, no-store` and preserve auth/profile-sensitive `Vary`.
 
@@ -2488,7 +2489,7 @@ GET /api/audit/logs
 Query parameters:
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `request_log_id` | integer | none | Filter audit rows linked to one request log |
+| `request_log_id` | decimal string | none | Filter audit rows linked to one request log |
 | `model_id` | string | none | Filter by model ID |
 | `status_code` | integer | none | Filter by response status code |
 | `endpoint_id` | integer | none | Filter by endpoint ID |
@@ -2509,7 +2510,7 @@ Response `200`:
     {
       "id": 1,
       "profile_id": 1,
-      "request_log_id": 42,
+      "request_log_id": "42",
       "request_log_created_at": "2025-01-15T10:30:00Z",
       "ingress_request_id": "ingress_req_42",
       "request_log_missing": false,
@@ -2555,7 +2556,7 @@ Response `200`:
 }
 ```
 
-Every successful audit list response carries a non-null `coverage` projection. Binary captured bodies list a `[binary body]` preview and are not text-previewed.
+Every successful audit list response carries a non-null `coverage` projection. `request_log_id` is a decimal JSON string so PostgreSQL `BIGINT` values remain exact in browsers; the audit row `id` remains numeric. Binary captured bodies list a `[binary body]` preview and are not text-previewed.
 The list API returns `request_body_preview` instead of the full body. It keeps at most the first 200 Unicode code points and does not append an ellipsis or another truncation marker. Use the detail API for full content.
 If body capture was off at request time, `request_body_preview` is `null` even though the audit metadata still exists. `response_body_stored` means captured response bytes were stored, independent of `is_stream`; rows with `response_body_stored=false` have no stored response body. Audit rows preserve `request_log_id`, `request_log_created_at`, and `ingress_request_id` after request-log retention. `request_log_missing=true` means both request-log link fields are present but the `(profile_id, request_log_id, request_log_created_at)` tuple no longer resolves. If either link field is null, `request_log_missing` is false.
 Rows are ordered by `(created_at DESC, id DESC)`. Pagination is keyset-based: when `has_more=true`, pass the returned `next_cursor` with the same window, sort, and filters. The audit list response does not include `total` or `offset`.
@@ -2569,7 +2570,7 @@ Response `200`:
 {
   "id": 1,
   "profile_id": 1,
-  "request_log_id": 42,
+  "request_log_id": "42",
   "request_log_created_at": "2025-01-15T10:30:00Z",
   "ingress_request_id": "ingress_req_42",
   "request_log_missing": false,
@@ -3789,6 +3790,7 @@ Usage-event rows are the finalized source for the unified statistics snapshot. T
 | pricing_config_version_used | INTEGER | NULLABLE | Pricing config version |
 | pricing_version_effective_at | TIMESTAMPTZ | NULLABLE | Template effective-at snapshot |
 | reporting_currency_epoch | INTEGER | NULLABLE | Reporting-currency epoch |
+| currency_attribution | VARCHAR(24) | NOT NULL, DEFAULT `legacy_unknown` | Capture-time currency provenance: `identified` for live runtime writers; conservatively `legacy_unknown` for history predating explicit attribution |
 | unpriced_reason | VARCHAR(50) | NULLABLE | Missing price or token-usage reason |
 | input_tokens | INTEGER | NULLABLE | Base input tokens |
 | output_tokens | INTEGER | NULLABLE | Base output tokens |
@@ -3833,6 +3835,7 @@ Usage-event semantics:
 - Request-log list/detail display does not use this usage snapshot. It prefers the current endpoint name, current endpoint base URL, the request log's historical base URL, `Endpoint N`, then `Unknown Endpoint`.
 - Usage events keep the final stream outcome and error kind for aggregate explanation, but not `stream_error_detail`.
 - Usage events copy canonical disjoint token totals, runtime pricing results, selected-terminal-target metadata, and additive ingress/upstream operation attribution. Aggregate `cached_tokens` is derived from cache-read plus cache-creation input tokens rather than stored as its own runtime component.
+- Live runtime telemetry writes `currency_attribution=identified` explicitly. Queued payloads and retained rows predating the field stay `legacy_unknown`; the finalized chain projection reads that provenance instead of re-inferring it from epoch or currency code.
 - Explicit `"0"` pricing contributes zero-cost component micros on priced events. Rows with absent or invalid pricing snapshots, or missing FX data, remain unpriced with `MISSING_PRICE_DATA`.
 
 Telemetry materialization:

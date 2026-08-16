@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -27,13 +28,17 @@ func TestCostSegmentsCatalogue(t *testing.T) {
 			reason = "'PRICING_DISABLED'"
 			cost = 0
 		}
+		symbol := "$"
+		if index == 1 {
+			symbol = "US$"
+		}
 		var costArg any
 		if cost > 0 {
 			costArg = cost
 		}
 		query := fmt.Sprintf(`INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, api_family, endpoint_label_snapshot, status_code, success_flag, attempt_count, request_path, pricing_status, pricing_evidence_trust, unpriced_reason, report_currency_code, report_currency_symbol, reporting_currency_epoch, input_cost_micros, output_cost_micros, reasoning_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, created_at, proxy_api_key_attribution_state)
-			VALUES ($1, 'seg-e2-%d', 'seg-model', 'openai', 'Seg', 200, TRUE, 1, '/v1/chat/completions', '%s', 'trusted', %s, 'USD', '$', 2, $4, $4, $4, $4, $4, $2, $2, $3, 'none')`, index, status, reason)
-		if _, err := harness.conn.Exec(context.Background(), query, profileID, costArg, now.Add(time.Duration(index)*time.Minute), costArg); err != nil {
+			VALUES ($1, 'seg-e2-%d', 'seg-model', 'openai', 'Seg', 200, TRUE, 1, '/v1/chat/completions', '%s', 'trusted', %s, 'USD', $5, 2, $4, $4, $4, $4, $4, $2, $2, $3, 'none')`, index, status, reason)
+		if _, err := harness.conn.Exec(context.Background(), query, profileID, costArg, now.Add(time.Duration(index)*time.Minute), costArg, symbol); err != nil {
 			t.Fatalf("seed e.2 segment row %d: %v", index, err)
 		}
 	}
@@ -68,6 +73,16 @@ func TestCostSegmentsCatalogue(t *testing.T) {
 	if first["known_cost_micros"] != "2500" {
 		t.Fatalf("expected trusted known cost 2500, got %v", first["known_cost_micros"])
 	}
+	if first["request_count"] != float64(2) || first["display_symbol"] != "US$" {
+		t.Fatalf("expected one aggregate e.2 segment with latest symbol, got %+v", first)
+	}
+	observedSymbols := first["observed_symbols"].([]any)
+	if len(observedSymbols) != 2 || observedSymbols[0] != "$" || observedSymbols[1] != "US$" {
+		t.Fatalf("expected deterministic observed symbols [$ US$], got %+v", observedSymbols)
+	}
+	if first["observed_symbol_count"] != float64(2) || first["observed_symbols_truncated"] != false {
+		t.Fatalf("expected complete observed-symbol metadata, got %+v", first)
+	}
 	second := asMap(t, segments[1])
 	if second["segment_key"] != "l.EUR" {
 		t.Fatalf("expected legacy EUR segment second, got %v", second["segment_key"])
@@ -84,5 +99,48 @@ func TestCostSegmentsCatalogue(t *testing.T) {
 	}
 	if jsonInt(t, payload["cost_segments_total_count"]) != 3 || payload["cost_segments_next_cursor"] != nil {
 		t.Fatalf("expected complete page metadata, got %+v", payload)
+	}
+
+	expectedKeys := []string{"e.2", "l.EUR", "l.__unknown__"}
+	cursor := ""
+	seenKeys := make(map[string]struct{}, len(expectedKeys))
+	snapshotHash := ""
+	for index, expectedKey := range expectedKeys {
+		path := "/api/stats/cost-segments?limit=1"
+		if cursor != "" {
+			path += "&cursor=" + url.QueryEscape(cursor)
+		}
+		page := s15GET[map[string]any](t, harness, profileID, path, http.StatusOK)
+		pageSegments := page["cost_segments"].([]any)
+		if len(pageSegments) != 1 || asMap(t, pageSegments[0])["segment_key"] != expectedKey {
+			t.Fatalf("expected page %d key %s, got %+v", index+1, expectedKey, pageSegments)
+		}
+		if _, duplicate := seenKeys[expectedKey]; duplicate {
+			t.Fatalf("cost segment key %s repeated across pages", expectedKey)
+		}
+		seenKeys[expectedKey] = struct{}{}
+		if jsonInt(t, page["cost_segments_total_count"]) != len(expectedKeys) || jsonInt(t, page["cost_segments_consumed_count"]) != index+1 {
+			t.Fatalf("expected page %d total=%d consumed=%d, got %+v", index+1, len(expectedKeys), index+1, page)
+		}
+		pageSnapshotHash, ok := page["cost_segments_snapshot_hash"].(string)
+		if !ok || pageSnapshotHash == "" {
+			t.Fatalf("expected page %d to carry a snapshot hash, got %+v", index+1, page)
+		}
+		if snapshotHash == "" {
+			snapshotHash = pageSnapshotHash
+		} else if pageSnapshotHash != snapshotHash {
+			t.Fatalf("expected stable snapshot hash %s, got %s", snapshotHash, pageSnapshotHash)
+		}
+		nextCursor, hasNext := page["cost_segments_next_cursor"].(string)
+		if index < len(expectedKeys)-1 {
+			if !hasNext || nextCursor == "" {
+				t.Fatalf("expected page %d to carry a next cursor, got %+v", index+1, page)
+			}
+			cursor = nextCursor
+			continue
+		}
+		if page["cost_segments_next_cursor"] != nil {
+			t.Fatalf("expected final page to terminate pagination, got %+v", page)
+		}
 	}
 }

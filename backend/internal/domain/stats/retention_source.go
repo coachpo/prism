@@ -283,6 +283,14 @@ func RecordActualCoverageAppend(ctx context.Context, exec RetentionSourceWriter,
 	default:
 		return fmt.Errorf("unsupported retention coverage append domain %q", domain)
 	}
+	if _, ok := exec.(pgx.Tx); !ok {
+		if _, err := exec.Exec(ctx, `UPDATE retention_coverage_read_models SET
+			freshness = 'stale', dirty = TRUE, updated_at = $2
+			WHERE dataset = $1 AND dirty`, domain, now.UTC()); err != nil {
+			return fmt.Errorf("defer non-transactional %s append coverage handoff: %w", domain, err)
+		}
+		return fmt.Errorf("%s append coverage handoff requires a database transaction", domain)
+	}
 	source, err := LoadRetentionSourceProjection(ctx, exec, domain, now.UTC())
 	if err != nil {
 		return err
@@ -303,13 +311,15 @@ func RecordActualCoverageAppend(ctx context.Context, exec RetentionSourceWriter,
 		Complete       bool
 		Freshness      string
 		Dirty          bool
+		MutationInTx   bool
 	}
 	if err := exec.QueryRow(ctx, `SELECT earliest_retained_at, latest_retained_at,
-		coverage_revision, coverage_hash, source_revision, gaps, complete, freshness, dirty
+		coverage_revision, coverage_hash, source_revision, gaps, complete, freshness, dirty,
+		xmin = pg_current_xact_id()::xid
 		FROM retention_coverage_read_models
 		WHERE dataset = $1 FOR UPDATE`, domain).Scan(
 		&row.Earliest, &row.Latest, &row.CoverageRev, &row.CoverageHash,
-		&row.SourceRevision, &row.Gaps, &row.Complete, &row.Freshness, &row.Dirty); err != nil {
+		&row.SourceRevision, &row.Gaps, &row.Complete, &row.Freshness, &row.Dirty, &row.MutationInTx); err != nil {
 		if err == pgx.ErrNoRows {
 			return nil
 		}
@@ -318,7 +328,7 @@ func RecordActualCoverageAppend(ctx context.Context, exec RetentionSourceWriter,
 	// A trigger sets dirty=true for the current append while leaving a prior
 	// complete bit intact. A prior incomplete model is never repaired by an
 	// append-only hint; its owner must rescan/materialize it.
-	if !row.Complete || row.SourceRevision == "" || row.SourceRevision != source.SourceRevision || row.CoverageRev == "" || row.CoverageHash == "" || row.Freshness != "fresh" {
+	if !row.Dirty || !row.MutationInTx || !row.Complete || row.SourceRevision == "" || row.SourceRevision != source.SourceRevision || row.CoverageRev == "" || row.CoverageRev != row.CoverageHash || row.Freshness != "fresh" {
 		return nil
 	}
 
@@ -361,6 +371,9 @@ func RecordActualCoverageAppend(ctx context.Context, exec RetentionSourceWriter,
 			return fmt.Errorf("decode %s append coverage gaps: %w", domain, err)
 		}
 	}
+	if earliest != nil && latest != nil {
+		gaps = removeEmptyCoverageSentinel(gaps)
+	}
 	cutValue := cut.UTC().Format(time.RFC3339Nano)
 	materializationCut := map[string]any{}
 	if domain == "request_logs" {
@@ -402,6 +415,19 @@ func RecordActualCoverageAppend(ctx context.Context, exec RetentionSourceWriter,
 		return fmt.Errorf("publish %s append coverage: %w", domain, err)
 	}
 	return nil
+}
+
+func removeEmptyCoverageSentinel(gaps []map[string]any) []map[string]any {
+	retained := gaps[:0]
+	for _, gap := range gaps {
+		from, hasFrom := gap["from_time"]
+		to, hasTo := gap["to_time"]
+		if gap["reason"] == "no_retained_intersection" && hasFrom && from == nil && hasTo && to == nil {
+			continue
+		}
+		retained = append(retained, gap)
+	}
+	return retained
 }
 
 func minCoverageTime(left, right *time.Time) *time.Time {

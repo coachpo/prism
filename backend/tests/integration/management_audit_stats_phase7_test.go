@@ -28,6 +28,106 @@ import (
 
 var phase7Now = time.Date(2026, time.April, 30, 12, 0, 0, 0, time.UTC)
 
+func TestRetentionCoverageAppendHandoff(t *testing.T) {
+	ctx := t.Context()
+	conn := newPostgresHarness(t).openDatabase(t, ctx, "retention_coverage_append_handoff")
+	defer func() { _ = conn.Close(ctx) }()
+	profileID := task9InsertProfile(t, ctx, conn)
+	must := func(test *testing.T, err error) {
+		if err != nil {
+			test.Fatal(err)
+		}
+	}
+	refresh := func(test *testing.T, domain string, now time.Time) {
+		source, err := stats.LoadRetentionSourceProjection(ctx, conn, domain, now)
+		must(test, err)
+		must(test, stats.RefreshActualCoverageProjection(ctx, conn, source, now))
+	}
+	handoff := func(test *testing.T, domain string, at time.Time, marker string, row int, mutation func(pgx.Tx)) {
+		tx, err := conn.Begin(ctx)
+		must(test, err)
+		defer func() { _ = tx.Rollback(ctx) }()
+		if mutation != nil {
+			mutation(tx)
+		} else {
+			task9InsertManagedLogRow(test, ctx, tx, domain, profileID, marker, row, at)
+		}
+		must(test, stats.RecordActualCoverageAppend(ctx, tx, domain, []time.Time{at}, at))
+		must(test, tx.Commit(ctx))
+	}
+	assertState := func(test *testing.T, domain string, at time.Time, fresh, realGap bool, revision string) string {
+		must(test, conn.QueryRow(ctx, `SELECT coverage_revision FROM retention_coverage_read_models WHERE dataset = $1 AND CASE WHEN $3 THEN complete AND freshness = 'fresh' AND NOT dirty AND coverage_revision <> '' AND coverage_hash = coverage_revision AND source_revision <> '' AND earliest_retained_at <= $2 AND latest_retained_at >= $2 AND NOT gaps @> '[{"from_time":null,"to_time":null,"reason":"no_retained_intersection"}]'::jsonb AND (NOT $4 OR gaps @> '[{"reason":"known_gap"}]'::jsonb) AND materialization_cut->>'kind' = CASE WHEN dataset = 'request_logs' THEN 'request_visibility_cut' WHEN dataset = 'usage_request_events' THEN 'usage_hybrid_cut' ELSE 'event_hybrid_cut' END AND COALESCE(materialization_cut->>'request_committed_cut', materialization_cut->>'raw_committed_cut') = $5 ELSE dirty AND freshness = 'stale' AND coverage_revision = $6 END`, domain, at, fresh, realGap, at.Format(time.RFC3339Nano), revision).Scan(&revision))
+		return revision
+	}
+	for _, domain := range logretention.ManagedTables() {
+		t.Run(domain, func(t *testing.T) {
+			ensureDailyLogPartition(t, ctx, conn, domain, phase7Now, "coverage_handoff")
+			refresh(t, domain, phase7Now)
+			_, err := conn.Exec(ctx, `UPDATE retention_coverage_read_models SET gaps = gaps || '[{"from_time":"2026-04-30T10:00:00Z","to_time":"2026-04-30T11:00:00Z","reason":"known_gap"}]'::jsonb WHERE dataset = $1`, domain)
+			must(t, err)
+			handoff(t, domain, phase7Now, "coverage-first-"+domain, 0, nil)
+			revision := assertState(t, domain, phase7Now, true, true, "")
+			_, err = conn.Exec(ctx, `UPDATE retention_coverage_read_models SET freshness = 'stale', dirty = false WHERE dataset = $1`, domain)
+			must(t, err)
+			later := phase7Now.Add(time.Minute)
+			handoff(t, domain, later, "coverage-second-"+domain, 1, nil)
+			assertState(t, domain, later, false, false, revision)
+			for _, mutation := range []string{`UPDATE %s SET created_at = created_at WHERE created_at = $1`, `DELETE FROM %s WHERE created_at = $1`} {
+				refresh(t, domain, later)
+				revision = assertState(t, domain, later, true, false, "")
+				handoff(t, domain, later, "", 0, func(tx pgx.Tx) {
+					_, mutationErr := tx.Exec(ctx, fmt.Sprintf(mutation, quoteIdentifier(domain)), later)
+					must(t, mutationErr)
+				})
+				assertState(t, domain, later, false, false, revision)
+			}
+			if domain == "audit_logs" {
+				refresh(t, domain, later)
+				suppressed, allowed := phase7Now.Add(-time.Minute), later.Add(time.Minute)
+				_, err = conn.Exec(ctx, `INSERT INTO audit_retention_tombstones (profile_id, ingress_request_id, cutoff, retention_generation, reason, created_at) VALUES ($1, 'coverage-suppressed', $2, 1, 'test', $2)`, profileID, later)
+				must(t, err)
+				handoff(t, domain, suppressed, "coverage-suppressed", 2, nil)
+				must(t, conn.QueryRow(ctx, `SELECT coverage_revision FROM retention_coverage_read_models WHERE dataset = $1 AND NOT dirty AND freshness = 'fresh' AND earliest_retained_at = $2 AND latest_retained_at = $2`, domain, phase7Now).Scan(&revision))
+				handoff(t, domain, allowed, "", 0, func(tx pgx.Tx) {
+					task9InsertManagedLogRow(t, ctx, tx, domain, profileID, "coverage-suppressed", 3, suppressed)
+					task9InsertManagedLogRow(t, ctx, tx, domain, profileID, "coverage-allowed", 4, allowed)
+				})
+				must(t, conn.QueryRow(ctx, `SELECT coverage_revision FROM retention_coverage_read_models WHERE dataset = $1 AND NOT dirty AND freshness = 'fresh' AND earliest_retained_at = $2 AND latest_retained_at = $3`, domain, phase7Now, allowed).Scan(&revision))
+			}
+			if domain == "loadbalance_events" {
+				refresh(t, domain, later)
+				revision = assertState(t, domain, phase7Now, true, false, "")
+				racedAt := later.Add(time.Minute)
+				task9InsertManagedLogRow(t, ctx, conn, domain, profileID, "coverage-raced", 2, racedAt)
+				if err := stats.RecordActualCoverageAppend(ctx, conn, domain, []time.Time{racedAt}, racedAt); err == nil {
+					t.Fatal("non-transactional coverage handoff was accepted")
+				}
+				assertState(t, domain, racedAt, false, false, revision)
+				refresh(t, domain, racedAt)
+				revision = assertState(t, domain, racedAt, true, false, "")
+				rawAt := racedAt.Add(time.Minute)
+				task9InsertManagedLogRow(t, ctx, conn, domain, profileID, "coverage-raw", 3, rawAt)
+				pairedAt := rawAt.Add(time.Minute)
+				handoff(t, domain, pairedAt, "coverage-paired", 4, nil)
+				assertState(t, domain, pairedAt, false, false, revision)
+				refresh(t, domain, pairedAt)
+				multiAt := pairedAt.Add(time.Minute)
+				handoff(t, domain, multiAt, "", 0, func(tx pgx.Tx) {
+					task9InsertManagedLogRow(t, ctx, tx, domain, profileID, "coverage-multi-a", 5, multiAt)
+					task9InsertManagedLogRow(t, ctx, tx, domain, profileID, "coverage-multi-b", 6, multiAt)
+				})
+				assertState(t, domain, multiAt, true, false, "")
+			}
+			cutoff := later.Add(time.Hour)
+			_, err = conn.Exec(ctx, `UPDATE log_retention_policy_resources SET configured_logical_cutoff = $2, updated_at = $2 WHERE dataset = $1`, domain, cutoff)
+			must(t, err)
+			refresh(t, domain, cutoff)
+			handoff(t, domain, later.Add(time.Minute), "below-"+domain, 7, nil)
+			must(t, conn.QueryRow(ctx, `SELECT coverage_revision FROM retention_coverage_read_models WHERE dataset = $1 AND complete AND freshness = 'fresh' AND NOT dirty AND earliest_retained_at IS NULL AND latest_retained_at IS NULL AND gaps @> '[{"from_time":null,"to_time":null,"reason":"no_retained_intersection"}]'::jsonb`, domain).Scan(&revision))
+		})
+	}
+}
+
 func TestLogRetentionJobDropsExpiredPartitions(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()

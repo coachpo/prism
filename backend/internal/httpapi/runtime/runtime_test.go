@@ -848,6 +848,14 @@ func TestProxyEventStreamIgnoresOpenAIChatUsageWhenAnyChoiceIsNonTerminal(t *tes
 	}
 }
 
+func TestInsertedAuditTimesExcludeSuppressedRows(t *testing.T) {
+	times := appendAuditTimeIfInserted(nil, time.Unix(0, 0), false)
+	times = appendAuditTimeIfInserted(times, time.Unix(1, 0), true)
+	if len(times) != 1 || !times[0].Equal(time.Unix(1, 0)) {
+		t.Fatalf("expected only the inserted audit timestamp, got %v", times)
+	}
+}
+
 func TestProxyEventStreamCapturesRawAuditBodyWhenEnabled(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
 	stream := "event: response.created\n" +

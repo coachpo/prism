@@ -129,6 +129,35 @@ test("settings audit API stays profile-scoped and uses the exact family payload"
   ]);
 });
 
+test("request detail and audit lookup preserve BIGINT request-log IDs", async () => {
+  const requests = [];
+  const restoreFetch = installFetchRecorder(requests, [{ summary: {} }, { items: [] }]);
+  const { api } = loadApi();
+  const requestLogId = "9007199254740997";
+
+  try {
+    await api.stats.requestDetail(requestLogId);
+    await api.audit.listForRequestLog(requestLogId, {
+      from: "2026-08-13T00:00:00.000Z",
+      to: "2026-08-14T00:00:00.000Z",
+      limit: 20,
+      cursor: "signed-cursor",
+    });
+  } finally {
+    restoreFetch();
+  }
+
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].url, `/api/stats/requests/${requestLogId}`);
+  const auditUrl = new URL(requests[1].url, "https://prism.test");
+  assert.equal(auditUrl.pathname, "/api/audit/logs");
+  assert.equal(auditUrl.searchParams.get("request_log_id"), requestLogId);
+  assert.equal(auditUrl.searchParams.get("from"), "2026-08-13T00:00:00.000Z");
+  assert.equal(auditUrl.searchParams.get("to"), "2026-08-14T00:00:00.000Z");
+  assert.equal(auditUrl.searchParams.get("limit"), "20");
+  assert.equal(auditUrl.searchParams.get("cursor"), "signed-cursor");
+});
+
 // The auth session coordinator attaches a live epoch AbortSignal to every
 // protected fetch; the route contract is the remaining init surface.
 function normalizeFetchInit(init) {

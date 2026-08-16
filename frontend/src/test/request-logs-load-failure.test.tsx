@@ -19,10 +19,12 @@ import { LocaleProvider } from "@/i18n/LocaleProvider";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { ApiError } from "@/lib/api/core";
 import type { QueryCoverage, RequestLogListItem, RequestLogListResponse } from "@/lib/types";
+import type { ChainResponse, RequestLogRowV2 } from "@/lib/types/request-logs-v2";
 import { RequestLogsPage } from "@/pages/RequestLogsPage";
 
 const listRequests = vi.fn<(params?: unknown) => Promise<RequestLogListResponse>>();
 const listChains = vi.fn<(params?: unknown) => Promise<unknown>>();
+const requestDetail = vi.fn<(requestId: string) => Promise<never>>();
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -30,7 +32,7 @@ vi.mock("@/lib/api", () => ({
       requests: (params?: unknown) => listRequests(params),
       chains: (params?: unknown) => listChains(params),
       proxyApiKeyFilterOptions: () => Promise.resolve({ items: [], selected: null }),
-      requestDetail: () => Promise.reject(new Error("detail is not exercised here")),
+      requestDetail: (requestId: string) => requestDetail(requestId),
       exportCsv: () => Promise.reject(new Error("export is not exercised here")),
     },
     settings: {
@@ -127,6 +129,88 @@ function row(requestLogId: string): RequestLogListItem {
   };
 }
 
+function chainRow(requestLogId: string, attemptNumber: number): RequestLogRowV2 {
+  return {
+    request_log_id: requestLogId,
+    row_kind: "upstream",
+    ingress_request_id: "ingress-row-pages",
+    attempt_number: attemptNumber,
+    attempt_trigger: attemptNumber === 1 ? "initial" : "failover",
+    attempt_result: "completed",
+    is_winner: attemptNumber === 2,
+    attempt_duration_ms: 100,
+    legacy_duration_ms: null,
+    upstream_status_code: 200,
+    gateway_status_code: null,
+    legacy_status_code: null,
+    error_source: null,
+    error_code: null,
+    failure_stage: null,
+    failure_detail_preview: null,
+    failure_detail_source: "error_detail",
+    failure_detail_preview_truncated: false,
+    failure_detail_redacted: false,
+    failure_detail_persistence_truncated: false,
+    stream_outcome: "not_streaming",
+    stream_error_kind: null,
+    model_id: "gpt-4o",
+    resolved_target_model_id: "gpt-4o",
+    endpoint_id: 1,
+    terminal_target_id: 1,
+    terminal_target_label: "Primary target",
+    terminal_target_configured: true,
+    terminal_target_owner_model_id: "gpt-4o",
+    total_tokens: 30,
+    total_cost_user_currency_micros: "1000",
+    pricing_status: "priced",
+    unpriced_reason: null,
+    pricing_evidence_trust: "trusted",
+    created_at: `2026-08-12T12:00:0${attemptNumber}Z`,
+  };
+}
+
+function chainResponse(row: RequestLogRowV2, pageComplete: boolean, nextRowCursor: string | null): ChainResponse {
+  return {
+    view: "ingress_chains",
+    query_context: null,
+    source_ingress_total: 1,
+    retained_ingress_total: 1,
+    retained_upstream_attempt_total: 2,
+    retained_request_log_row_total: 2,
+    legacy_unknown_row_total: 0,
+    page_ingress_count: 1,
+    page_upstream_attempt_count: 2,
+    page_request_log_row_count: 2,
+    items: [{
+      ingress_request_id: "ingress-row-pages",
+      started_at: null,
+      completed_at: null,
+      elapsed_ms: null,
+      elapsed_evidence_state: "unavailable",
+      finalized_evidence_state: "unavailable",
+      finalized_summary: null,
+      expected_attempt_count: null,
+      expected_request_log_row_count: null,
+      retained_upstream_attempt_count: 2,
+      retained_request_log_row_count: 2,
+      legacy_unknown_row_count: 0,
+      chain_complete: null,
+      same_target_retry_occurred: false,
+      hedge_occurred: false,
+      failover_occurred: true,
+      routing_evidence_complete: null,
+      retained_rows_loaded_count: 1,
+      retained_rows_page_complete: pageComplete,
+      retained_row_count: 2,
+      matched_row_count: 0,
+      next_row_cursor: nextRowCursor,
+      retained_rows: [row],
+    }],
+    has_more_chains: false,
+    next_chain_cursor: null,
+  };
+}
+
 function renderRequestLogsPage(search = "?view=attempts") {
   const rootRoute = createRootRoute({ component: () => <Outlet /> });
   const requestsRoute = createRoute({
@@ -155,6 +239,8 @@ describe("request-log list read failure", () => {
     window.localStorage.clear();
     listRequests.mockReset();
     listChains.mockReset();
+    requestDetail.mockReset();
+    requestDetail.mockRejectedValue(new Error("detail is not exercised here"));
   });
 
   it("replaces the table with a failure surface instead of an empty result", async () => {
@@ -224,5 +310,38 @@ describe("request-log list read failure", () => {
     expect(screen.getByTestId("request-logs-stale-badge")).toHaveAttribute("title", "请求失败");
     expect(screen.getByTestId("request-log-row-101")).toBeInTheDocument();
     expect(screen.queryByTestId("request-logs-load-error")).not.toBeInTheDocument();
+  });
+
+  it("loads the next signed row page and preserves BIGINT request ids", async () => {
+    const user = userEvent.setup();
+    const firstId = "9007199254740995";
+    const secondId = "9007199254740997";
+    listChains
+      .mockResolvedValueOnce(chainResponse(chainRow(firstId, 1), false, "signed-row-cursor"))
+      .mockResolvedValueOnce(chainResponse(chainRow(secondId, 2), true, null));
+
+    renderRequestLogsPage("?view=ingress_chains");
+
+    await screen.findByTestId("chain-summary-ingress-row-pages", undefined, { timeout: 3000 });
+    await user.click(screen.getByRole("button", { name: messages.chainToggleAria("ingress-row-pages") }));
+    expect(screen.getByTestId(`chain-row-${firstId}`)).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("chain-rows-more-ingress-row-pages"));
+
+    await waitFor(() => expect(listChains).toHaveBeenCalledTimes(2));
+    expect(listChains.mock.calls[1]?.[0]).toMatchObject({
+      view: "ingress_chains",
+      ingress_request_id: "ingress-row-pages",
+      chain_limit: 1,
+      row_cursor: "signed-row-cursor",
+      chain_cursor: undefined,
+    });
+    expect(screen.getByTestId(`chain-row-${firstId}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`chain-row-${secondId}`)).toBeInTheDocument();
+    expect(screen.queryByTestId("chain-rows-more-ingress-row-pages")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId(`chain-row-${secondId}`));
+    await waitFor(() => expect(requestDetail).toHaveBeenCalledWith(secondId));
+    expect(listChains).toHaveBeenCalledTimes(2);
   });
 });

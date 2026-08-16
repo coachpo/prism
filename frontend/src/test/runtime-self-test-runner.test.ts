@@ -100,7 +100,7 @@ describe("reconcileSelfTestTelemetry", () => {
           return HttpResponse.json({ items: [], total: 0, limit: 5, offset: 0, filter_options: {} });
         }
         return HttpResponse.json({
-          items: [{ request_log_id: 101 }],
+          items: [{ request_log_id: "101" }],
           total: 1,
           limit: 5,
           offset: 0,

@@ -100,13 +100,16 @@ export interface IngressChainRow {
 export interface IngressChainItem {
   ingress_request_id: string;
   expected_attempt_count: number | null;
+  expected_request_log_row_count: number | null;
   retained_upstream_attempt_count: number;
   retained_request_log_row_count: number;
   legacy_unknown_row_count: number;
   chain_complete: boolean | null;
   retained_rows_loaded_count: number;
   retained_rows_page_complete: boolean;
-  next_row_cursor: string;
+  retained_row_count: number;
+  matched_row_count: number;
+  next_row_cursor: string | null;
   retained_rows: IngressChainRow[];
 }
 
@@ -177,7 +180,7 @@ export const stats = {
       headers: { Accept: "text/csv" },
     }, { responseType: "blob" });
   },
-  requestDetail: (requestId: number) => request<RequestLogDetailV2>(`/api/stats/requests/${requestId}`),
+  requestDetail: (requestId: string) => request<RequestLogDetailV2>(`/api/stats/requests/${requestId}`),
   proxyApiKeyFilterOptions: (params?: { q?: string; from_time?: string; to_time?: string; limit?: number; cursor?: string; selected_id?: number }) => {
     const query = buildQuery(params as Record<string, string | number | undefined> | undefined);
     return request<ProxyApiKeyFilterOptionsResponse>(`/api/stats/request-filter-options/proxy-api-keys${query ? `?${query}` : ""}`);
@@ -421,7 +424,7 @@ export const audit = {
     const query = buildQuery(params as Record<string, string | number | boolean | null | undefined> | undefined);
     return request<AuditLogListResponse>(`/api/audit/logs${query ? `?${query}` : ""}`);
   },
-  listForRequestLog: (requestLogId: number, params: RequestLogAuditParams) => {
+  listForRequestLog: (requestLogId: string, params: RequestLogAuditParams) => {
     const query = buildQuery({ ...params, request_log_id: requestLogId } as Record<string, string | number | boolean | null | undefined>);
     return request<AuditLogListResponse>(`/api/audit/logs${query ? `?${query}` : ""}`);
   },

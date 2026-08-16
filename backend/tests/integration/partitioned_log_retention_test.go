@@ -193,7 +193,7 @@ func task9InsertManagedLogRow(t *testing.T, ctx context.Context, exec task9Exec,
 			t.Fatalf("insert request_logs row %s: %v", marker, err)
 		}
 	case "audit_logs":
-		_, err := exec.Exec(ctx, `INSERT INTO audit_logs (profile_id, model_id, request_method, request_url, request_headers, request_headers_scrub_provenance, request_headers_capture_status, upstream_status_code, response_headers, response_headers_scrub_provenance, response_headers_capture_status, is_stream, row_kind, url_scrub_provenance, attempt_duration_ms, created_at) VALUES ($1, 'task9-model', 'POST', $2, '{}', 'runtime_scrubbed', 'captured', 200, '{}', 'runtime_scrubbed', 'captured', FALSE, 'upstream', 'runtime_scrubbed', 25, $3)`, profileID, "https://task9.invalid/"+marker, createdAt.UTC())
+		_, err := exec.Exec(ctx, `INSERT INTO audit_logs (profile_id, ingress_request_id, model_id, request_method, request_url, request_headers, request_headers_scrub_provenance, request_headers_capture_status, upstream_status_code, response_headers, response_headers_scrub_provenance, response_headers_capture_status, is_stream, row_kind, url_scrub_provenance, attempt_duration_ms, created_at) VALUES ($1, $2, 'task9-model', 'POST', $3, '{}', 'runtime_scrubbed', 'captured', 200, '{}', 'runtime_scrubbed', 'captured', FALSE, 'upstream', 'runtime_scrubbed', 25, $4)`, profileID, marker, "https://task9.invalid/"+marker, createdAt.UTC())
 		if err != nil {
 			t.Fatalf("insert audit_logs row %s: %v", marker, err)
 		}

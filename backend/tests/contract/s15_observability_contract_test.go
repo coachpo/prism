@@ -622,7 +622,7 @@ func TestAuditDetailMissingRequestLogWeakReference(t *testing.T) {
 	dropS15RequestLogPartition(t, harness, requestCreatedAt)
 
 	detailPayload := s15GET[map[string]any](t, harness, profileID, "/api/audit/logs/9201", http.StatusOK)
-	if jsonInt(t, detailPayload["request_log_id"]) != 9200 || detailPayload["ingress_request_id"] != "weak-request-9200" || detailPayload["request_log_created_at"] == nil || detailPayload["request_log_missing"] != true {
+	if detailPayload["request_log_id"] != "9200" || detailPayload["ingress_request_id"] != "weak-request-9200" || detailPayload["request_log_created_at"] == nil || detailPayload["request_log_missing"] != true {
 		t.Fatalf("expected audit detail weak request link with missing state, got %+v", detailPayload)
 	}
 }
@@ -642,8 +642,42 @@ func TestAuditPartitionProfileScopedWeakRequestLinkList(t *testing.T) {
 		t.Fatalf("expected profile-scoped audit partition list, got %+v", listPayload)
 	}
 	item := asMap(t, items[0])
-	if jsonInt(t, item["request_log_id"]) != 9300 || item["ingress_request_id"] != "weak-request-9300" || item["request_log_created_at"] == nil || item["request_log_missing"] != false {
+	if item["request_log_id"] != "9300" || item["ingress_request_id"] != "weak-request-9300" || item["request_log_created_at"] == nil || item["request_log_missing"] != false {
 		t.Fatalf("expected audit list weak request fields, got %+v", item)
+	}
+}
+
+func TestAuditListAndDetailPreserveBigIntRequestLogIDAsDecimalString(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	requestLogID := int(9007199254740997)
+	requestCreatedAt := fixedS15Now.Add(-20 * time.Minute)
+	auditCreatedAt := fixedS15Now.Add(-10 * time.Minute)
+	insertRequestLogSummaryRowWithAuditEnabled(t, harness, requestLogID, profileID, "audit-bigint", "openai", 12, 91, 200, 100, 0, 0, 0, requestCreatedAt, true)
+	insertAuditLog(t, harness, auditLogSeed{
+		ID:                          9401,
+		ProfileID:                   profileID,
+		RequestLogID:                intPtr(requestLogID),
+		RequestLogCreatedAt:         timePtr(requestCreatedAt),
+		IngressRequestID:            stringPtr("audit-bigint-ingress"),
+		ModelID:                     "audit-bigint",
+		RequestHeaders:              `{}`,
+		ResponseStatus:              200,
+		AuditEnabledAtRequest:       true,
+		AuditCaptureBodiesAtRequest: false,
+		CreatedAt:                   auditCreatedAt,
+	})
+	want := "9007199254740997"
+
+	listPayload := s15GET[map[string]any](t, harness, profileID, "/api/audit/logs?"+s15AuditWindowQuery()+"&request_log_id="+want+"&limit=20", http.StatusOK)
+	items := listPayload["items"].([]any)
+	if len(items) != 1 || asMap(t, items[0])["request_log_id"] != want {
+		t.Fatalf("expected audit list request_log_id %q as a decimal string, got %+v", want, listPayload)
+	}
+
+	detailPayload := s15GET[map[string]any](t, harness, profileID, "/api/audit/logs/9401", http.StatusOK)
+	if detailPayload["request_log_id"] != want {
+		t.Fatalf("expected audit detail request_log_id %q as a decimal string, got %T(%v)", want, detailPayload["request_log_id"], detailPayload["request_log_id"])
 	}
 }
 

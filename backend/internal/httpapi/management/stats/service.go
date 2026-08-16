@@ -498,17 +498,43 @@ func (s *Service) handleExportRequestLogs(w http.ResponseWriter, r *http.Request
 		if view == "" {
 			view = "ingress_chains"
 		}
-		params, err := parseChainQueryParams(r, profile.ID)
+		if view != "ingress_chains" && view != "attempts" {
+			return statsdomain.ExportResult{}, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "view must be ingress_chains or attempts"}
+		}
+		var signedRequestBounds *statsdomain.QueryBounds
+		if view != "ingress_chains" && requestLogHasSignedCohortSelector(r) {
+			if strings.TrimSpace(r.URL.Query().Get("query_context")) == "" {
+				return statsdomain.ExportResult{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "query_context_required", Detail: "query_context is required with final filters"}
+			}
+			token, _, resolveErr := s.resolveQueryContextFromRequest(r)
+			if resolveErr != nil {
+				return statsdomain.ExportResult{}, resolveErr
+			}
+			if token.ProfileID != profile.ID {
+				return statsdomain.ExportResult{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "query_context_scope_mismatch", Detail: "query_context scope mismatch"}
+			}
+			requestBounds, boundsErr := statsdomain.QueryBoundsForDomain(token, "request_logs")
+			if boundsErr != nil {
+				return statsdomain.ExportResult{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "invalid_query_context", Detail: "invalid query_context"}
+			}
+			signedRequestBounds = &requestBounds
+		}
+		params, err := parseRequestLogListParams(r, profile.ID, s.observabilitySigningKey(), s.nowUTC())
 		if err != nil {
 			return statsdomain.ExportResult{}, err
 		}
-		params.CoverageReferenceNow = s.nowUTC()
-		params.View = view
-		params, err = statsdomain.ResolveChainQueryBounds(r.Context(), tx, params, s.nowUTC())
-		if err != nil {
-			return statsdomain.ExportResult{}, err
+		// Signed final-result selectors bind the export to the same per-domain
+		// owner window as the JSON attempt list; browser bounds cannot widen it.
+		if signedRequestBounds != nil {
+			fromTime := signedRequestBounds.UsageFrom.UTC()
+			toTime := signedRequestBounds.UsageTo.UTC()
+			params.CoveragePreset = "custom"
+			params.CoverageRequestedFrom = &fromTime
+			params.CoverageRequestedTo = &toTime
+			params.FromTime = &fromTime
+			params.ToTime = &toTime
 		}
-		exportParams := statsdomain.ExportParams{ChainQueryParams: params, FromTimeResolved: params.FromTime, ToTimeResolved: params.ToTime}
+		exportParams := statsdomain.ExportParams{RequestLogListParams: params, View: view}
 		return statsdomain.ExportCSV(r.Context(), tx, exportParams)
 	})
 	if err != nil {

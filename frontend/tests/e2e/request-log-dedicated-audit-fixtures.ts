@@ -349,7 +349,7 @@ function createAuditListItem(id: number, scenario: Scenario) {
   const config = scenarioConfig(scenario);
   return {
     id,
-    request_log_id: 101,
+    request_log_id: "101",
     profile_id: 1,
     model_id: getScenarioModelId(scenario),
     endpoint_id: 1,

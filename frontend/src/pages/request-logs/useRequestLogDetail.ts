@@ -26,7 +26,7 @@ export function useRequestLogDetail({ requestId, enabled }: UseRequestLogDetailP
       setRequest(null);
 
       try {
-        const detail = await api.stats.requestDetail(Number(targetRequestId));
+        const detail = await api.stats.requestDetail(targetRequestId);
         if (activeRequestIdRef.current !== targetRequestId) {
           return;
         }

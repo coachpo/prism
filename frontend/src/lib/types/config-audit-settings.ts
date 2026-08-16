@@ -56,7 +56,7 @@ export interface AuditStorageSummary {
 
 export interface AuditLogListItem {
   id: number;
-  request_log_id: number | null;
+  request_log_id: string | null;
   profile_id: number;
   vendor_id?: number;
   model_id: string;
@@ -80,7 +80,7 @@ export interface AuditLogListItem {
 
 export interface AuditLogDetail {
   id: number;
-  request_log_id: number | null;
+  request_log_id: string | null;
   profile_id: number;
   vendor_id?: number;
   model_id: string;
@@ -161,7 +161,7 @@ export interface AuditLogListResponse {
 }
 
 export interface AuditLogParams {
-  request_log_id?: number;
+  request_log_id?: string;
   vendor_id?: number;
   model_id?: string;
   status_code?: number;

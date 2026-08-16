@@ -244,6 +244,6 @@ export function buildModelDetailPath(modelId: string | number): string {
   return `/route/models/${encodeURIComponent(String(modelId))}`
 }
 
-export function buildRequestAuditPath(requestId: string | number): string {
-  return `/observe/requests/${encodeURIComponent(String(requestId))}/audit`
+export function buildRequestAuditPath(requestId: string): string {
+  return `/observe/requests/${encodeURIComponent(requestId)}/audit`
 }

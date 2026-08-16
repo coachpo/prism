@@ -27,7 +27,7 @@ type ActivityItem struct {
 	StatusCode               int     `json:"status_code"`
 	FinalResult              string  `json:"final_result"`
 	OutcomeDetail            string  `json:"outcome_detail"`
-	IsStream                 *bool   `json:"is_stream"`
+	IsStream                 bool    `json:"is_stream"`
 	StreamOutcome            string  `json:"stream_outcome"`
 	StreamErrorKind          *string `json:"stream_error_kind"`
 	TTFTMS                   *int    `json:"ttft_ms"`
@@ -89,7 +89,8 @@ SELECT
 	id, ingress_request_id, created_at, model_id, resolved_target_model_id, endpoint_id, endpoint_label_snapshot, connection_id,
 	status_code, stream_outcome, stream_error_kind, ttft_ms, completion_duration_ms, output_tokens, total_tokens,
 	total_cost_user_currency_micros, pricing_status, unpriced_reason, reporting_currency_epoch, report_currency_code, report_currency_symbol,
-	attempt_count
+	attempt_count, COALESCE(routing_evidence_complete, false),
+	(COALESCE(NULLIF(stream_outcome, ''), 'not_streaming') <> 'not_streaming') AS is_stream
 FROM usage_request_events
 WHERE profile_id = $1 AND created_at >= $2 AND created_at < $3`+beforeCondition+`
 ORDER BY id DESC
@@ -111,7 +112,7 @@ ORDER BY id DESC
 		if err := rows.Scan(&id, &item.FinalIngressRequestID, &createdAt, &modelID, &resolvedTargetModelID,
 			&endpointID, &endpointLabel, &connectionID, &item.StatusCode, &item.StreamOutcome, &streamErrorKind,
 			&ttftMS, &completionDurationMS, &outputTokens, &totalTokens, &totalCost, &pricingStatus, &unpricedReason,
-			&epoch, &reportCode, &reportSymbol, &attemptCount); err != nil {
+			&epoch, &reportCode, &reportSymbol, &attemptCount, &item.RoutingEvidenceComplete, &item.IsStream); err != nil {
 			return result, err
 		}
 		item.UsageEventID = fmt.Sprintf("%d", id)

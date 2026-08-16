@@ -101,6 +101,39 @@ function flattenChainItems(response: ChainResponse): RequestLogListItem[] {
   return rows;
 }
 
+function appendUniqueRequestItems(
+  current: RequestLogListItem[],
+  incoming: RequestLogListItem[],
+): RequestLogListItem[] {
+  const seen = new Set(current.map((item) => item.request_log_id));
+  return [
+    ...current,
+    ...incoming.filter((item) => {
+      if (seen.has(item.request_log_id)) return false;
+      seen.add(item.request_log_id);
+      return true;
+    }),
+  ];
+}
+
+function mergeChainRowPage(current: ChainIngressItem, page: ChainIngressItem): ChainIngressItem {
+  const seen = new Set(current.retained_rows.map((row) => row.request_log_id));
+  const retainedRows = [
+    ...current.retained_rows,
+    ...page.retained_rows.filter((row) => {
+      if (seen.has(row.request_log_id)) return false;
+      seen.add(row.request_log_id);
+      return true;
+    }),
+  ];
+
+  return {
+    ...page,
+    retained_rows: retainedRows,
+    retained_rows_loaded_count: retainedRows.length,
+  };
+}
+
 interface UseRequestLogsPageDataParams {
   enabled?: boolean;
   revision: number;
@@ -140,6 +173,8 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
   const lastRevisionRef = useRef<number | null>(null);
   const endpointOptionsLoadedOnceRef = useRef(false);
   const loadedSignatureRef = useRef<string | null>(null);
+  const chainQueryParamsRef = useRef<StatsRequestParams | null>(null);
+  const rowLoadsInFlightRef = useRef(new Set<string>());
 
   useEffect(() => {
     const revisionChanged = lastRevisionRef.current !== revision;
@@ -219,6 +254,11 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
           setTotal(chain.retained_ingress_total);
           setNextChainCursor(chain.next_chain_cursor);
           setHasMoreChains(chain.has_more_chains);
+          chainQueryParamsRef.current = {
+            ...params,
+            chain_cursor: undefined,
+            row_cursor: undefined,
+          };
           setChainPageCounts((current) => state.chain_cursor ? {
             ingress: current.ingress + chain.page_ingress_count,
             attempts: current.attempts + chain.page_upstream_attempt_count,
@@ -251,6 +291,7 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
           setCoverage(list.coverage);
           setNextChainCursor(null);
           setHasMoreChains(false);
+          chainQueryParamsRef.current = null;
           setFilterOptions((prev) => ({
             ...prev,
             models: list.filter_options.models,
@@ -282,6 +323,7 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
           setNextChainCursor(null);
           setHasMoreChains(false);
           setCoverage(null);
+          chainQueryParamsRef.current = null;
           loadedSignatureRef.current = null;
           setLastLoadedAt(null);
         }
@@ -355,6 +397,50 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
     fetchData();
   }, [enabled, fetchData]);
 
+  const loadMoreChainRows = useCallback(async (ingressRequestId: string, rowCursor: string) => {
+    const baseParams = chainQueryParamsRef.current;
+    const normalizedIngress = ingressRequestId.trim();
+    const normalizedCursor = rowCursor.trim();
+    if (!enabled || !baseParams || !normalizedIngress || !normalizedCursor) return;
+
+    const loadKey = `${normalizedIngress}:${normalizedCursor}`;
+    if (rowLoadsInFlightRef.current.has(loadKey)) return;
+    rowLoadsInFlightRef.current.add(loadKey);
+    const querySignature = loadedSignatureRef.current;
+    setFailure(null);
+
+    try {
+      const response = await api.stats.chains({
+        ...baseParams,
+        view: "ingress_chains",
+        ingress_request_id: normalizedIngress,
+        chain_limit: 1,
+        chain_cursor: undefined,
+        row_cursor: normalizedCursor,
+      });
+      if (loadedSignatureRef.current !== querySignature) return;
+
+      const page = response.items.find((item) => item.ingress_request_id === normalizedIngress);
+      if (!page || (!page.retained_rows_page_complete && page.next_row_cursor === normalizedCursor)) {
+        throw new Error(messages.requestLogs.loadFailed);
+      }
+
+      setChains((current) => current.map((chain) => (
+        chain.ingress_request_id === normalizedIngress ? mergeChainRowPage(chain, page) : chain
+      )));
+      setItems((current) => appendUniqueRequestItems(current, flattenChainItems(response)));
+      setLastLoadedAt(new Date().toISOString());
+    } catch (err) {
+      if (loadedSignatureRef.current !== querySignature) return;
+      setFailure({
+        message: err instanceof Error ? err.message : messages.requestLogs.loadFailed,
+        stale: true,
+      });
+    } finally {
+      rowLoadsInFlightRef.current.delete(loadKey);
+    }
+  }, [enabled, messages.requestLogs.loadFailed]);
+
   const filterOptionsLoaded = endpointOptionsLoaded;
 
   return {
@@ -373,5 +459,6 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
     chainPageCounts: enabled ? chainPageCounts : { ingress: 0, attempts: 0, rows: 0 },
     coverage: enabled ? coverage : null,
     refresh,
+    loadMoreChainRows,
   };
 }

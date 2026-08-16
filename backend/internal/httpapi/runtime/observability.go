@@ -590,6 +590,7 @@ type usageEventInsert struct {
 	PricingTemplateNameSnapshot   *string
 	PricingTemplateRevisionIDUsed *int64
 	ReportingCurrencyEpoch        *int
+	CurrencyAttribution           string
 
 	// Observe finalized-ingress fields (Observe SPEC §3.5, Requests SPEC
 	// §3.6): expected request-log row count, routing evidence, final attempt
@@ -765,7 +766,9 @@ type runtimeTelemetryEnvelope struct {
 }
 
 const (
-	runtimeTelemetryHandoffPhaseStreamAccepted = "stream_accepted"
+	runtimeTelemetryHandoffPhaseStreamAccepted   = "stream_accepted"
+	runtimeUsageCurrencyAttributionIdentified    = "identified"
+	runtimeUsageCurrencyAttributionLegacyUnknown = "legacy_unknown"
 
 	// request_logs row kinds (Observe SPEC §3.5): new writers never produce
 	// legacy_unknown.
@@ -1049,6 +1052,7 @@ func (s *Service) buildRuntimeBudgetExhaustionTelemetryEnvelope(plan requestPlan
 		StreamOutcome:               runtimeStreamOutcomeNotStreaming,
 		PricingStatus:               runtimePricingStatusIneligible,
 		PricingEvidenceTrust:        runtimePricingEvidenceTrust,
+		CurrencyAttribution:         runtimeUsageCurrencyAttributionIdentified,
 		FinalErrorCode:              stringPtr(safediag.CodeAttemptBudgetExhausted),
 		FinalAttemptNumber:          nil,
 		FinalAttemptTrigger:         nil,
@@ -1296,6 +1300,7 @@ func (s *Service) buildRuntimePlanningFailureTelemetryEnvelope(failure runtimePl
 		StreamErrorKind:             nil,
 		PricingStatus:               runtimePricingStatusIneligible,
 		PricingEvidenceTrust:        runtimePricingEvidenceTrust,
+		CurrencyAttribution:         runtimeUsageCurrencyAttributionIdentified,
 	}
 	routeReason := runtimeExecutionRouteReason(gatewaycore.RouteReasonPolicyReject)
 	requestLogs := []requestLogInsert{requestLog}
@@ -1398,6 +1403,7 @@ func (s *Service) buildRuntimeExecutionFailureTelemetryEnvelope(plan requestPlan
 		StreamOutcome:               runtimeStreamOutcomeNotStreaming,
 		PricingStatus:               runtimePricingStatusIneligible,
 		PricingEvidenceTrust:        runtimePricingEvidenceTrust,
+		CurrencyAttribution:         runtimeUsageCurrencyAttributionIdentified,
 	}
 	requestLogs := []requestLogInsert{requestLog}
 	return runtimeTelemetryEnvelope{
@@ -2070,6 +2076,7 @@ func buildRuntimeUsageEvent(plan requestPlan, result executionResult, request *h
 		TTFTMS:                   telemetry.ttftMS,
 		StreamOutcome:            telemetry.streamOutcome,
 		StreamErrorKind:          telemetry.streamErrorKind,
+		CurrencyAttribution:      runtimeUsageCurrencyAttributionIdentified,
 	}
 	usageEvent.applyRuntimePricingResult(telemetry.pricingResult)
 	applyRuntimeUsageEventFinalizedFields(&usageEvent, plan, result, telemetry, finalAttempt, requestLogCount)
@@ -2491,6 +2498,13 @@ func normalizeRuntimeTelemetryEnvelopeTimestamps(envelope runtimeTelemetryEnvelo
 	} else {
 		envelope.UsageEvent.CreatedAt = envelope.UsageEvent.CreatedAt.UTC()
 	}
+	// Envelopes accepted before currency attribution became explicit have no
+	// attribution field in their serialized payload. They remain conservative
+	// historical evidence instead of being inferred from epoch/code at drain
+	// time. New producers always set identified before enqueue.
+	if strings.TrimSpace(envelope.UsageEvent.CurrencyAttribution) == "" {
+		envelope.UsageEvent.CurrencyAttribution = runtimeUsageCurrencyAttributionLegacyUnknown
+	}
 	if len(envelope.AccountingAttempts) > 0 {
 		for index := range envelope.AccountingAttempts {
 			if createdAt, ok := requestCreatedAtByAttempt[envelope.AccountingAttempts[index].AttemptNumber]; ok {
@@ -2528,6 +2542,7 @@ func ensureRuntimeTelemetryPartitions(ctx context.Context, logPartitions *runtim
 
 func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLogs []requestLogInsert, auditLogs []auditLogInsert, usageEvent usageEventInsert) (int, error) {
 	auditByAttempt := make(map[int]auditLogInsert, len(auditLogs))
+	auditTimes := make([]time.Time, 0, len(auditLogs))
 	for _, auditLog := range auditLogs {
 		auditByAttempt[auditLog.RequestLogAttemptNumber] = auditLog
 	}
@@ -2657,9 +2672,11 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 		}
 		if auditLog, ok := auditByAttempt[requestLog.AttemptNumber]; ok {
 			auditLog.CreatedAt = requestLog.CreatedAt
-			if err := insertRuntimeAuditLogTx(ctx, tx, requestLogID, requestLog.CreatedAt, requestLog.IngressRequestID, auditLog); err != nil {
+			inserted, err := insertRuntimeAuditLogTx(ctx, tx, requestLogID, requestLog.CreatedAt, requestLog.IngressRequestID, auditLog)
+			if err != nil {
 				return 0, err
 			}
+			auditTimes = appendAuditTimeIfInserted(auditTimes, auditLog.CreatedAt, inserted)
 		}
 	}
 	if _, err := tx.Exec(
@@ -2680,8 +2697,8 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 			same_target_retry_occurred, hedge_occurred, failover_occurred, routing_evidence_complete, final_error_code,
 			ingress_started_at, ingress_completed_at, proxy_api_key_id_snapshot, proxy_api_key_attribution_state,
 			upstream_operation_name, operation_translation_mode, upstream_request_path, endpoint_label_snapshot,
-			proxy_api_key_auth_enforced_at_request
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, $71, $72)`,
+			proxy_api_key_auth_enforced_at_request, currency_attribution
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, $71, $72, $73)`,
 		usageEvent.ProfileID,
 		usageEvent.IngressRequestID,
 		usageEvent.ModelID,
@@ -2754,16 +2771,13 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 		nullableStringArg(usageEvent.UpstreamRequestPath),
 		usageEventEndpointLabelSnapshotForInsert(usageEvent),
 		nullableBoolArg(usageEvent.ProxyAPIKeyAuthEnforcedAtRequest),
+		usageEvent.CurrencyAttribution,
 	); err != nil {
 		return 0, fmt.Errorf("insert usage event: %w (ingress=%s status=%d pricing_status=%s trust=%s created=%s)", err, usageEvent.IngressRequestID, usageEvent.StatusCode, usageEvent.PricingStatus, usageEvent.PricingEvidenceTrust, usageEvent.CreatedAt.UTC().Format(time.RFC3339))
 	}
 	requestTimes := make([]time.Time, 0, len(requestLogs))
 	for _, requestLog := range requestLogs {
 		requestTimes = append(requestTimes, requestLog.CreatedAt)
-	}
-	auditTimes := make([]time.Time, 0, len(auditLogs))
-	for _, auditLog := range auditLogs {
-		auditTimes = append(auditTimes, auditLog.CreatedAt)
 	}
 	if err := statsdomain.RecordActualCoverageAppend(ctx, tx, "request_logs", requestTimes, usageEvent.CreatedAt); err != nil {
 		return 0, fmt.Errorf("advance request-log coverage owner: %w", err)
@@ -2777,8 +2791,8 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 	return requestLogID, nil
 }
 
-func insertRuntimeAuditLogTx(ctx context.Context, tx pgx.Tx, requestLogID int, requestLogCreatedAt time.Time, ingressRequestID string, auditLog auditLogInsert) error {
-	if _, err := tx.Exec(
+func insertRuntimeAuditLogTx(ctx context.Context, tx pgx.Tx, requestLogID int, requestLogCreatedAt time.Time, ingressRequestID string, auditLog auditLogInsert) (bool, error) {
+	tag, err := tx.Exec(
 		ctx,
 		`INSERT INTO audit_logs (
 			request_log_id, request_log_created_at, ingress_request_id, profile_id, model_id,
@@ -2844,10 +2858,18 @@ func insertRuntimeAuditLogTx(ctx context.Context, tx pgx.Tx, requestLogID int, r
 		auditLog.CreatedAt.UTC(),
 		auditLog.AuditEnabledAtRequest,
 		auditLog.AuditCaptureBodiesAtRequest,
-	); err != nil {
-		return fmt.Errorf("insert audit log for request log %d: %w (row_kind=%s status=%s bytes_observed=%d bytes_stored=%d truncated=%v body_nil=%v)", requestLogID, err, auditLog.RowKind, auditLog.ResponseBodyCaptureStatus, derefInt64(auditLog.ResponseBodyBytesObserved), derefInt64(auditLog.ResponseBodyBytesStored), auditLog.ResponseBodyTruncated, auditLog.ResponseBody == nil)
+	)
+	if err != nil {
+		return false, fmt.Errorf("insert audit log for request log %d: %w (row_kind=%s status=%s bytes_observed=%d bytes_stored=%d truncated=%v body_nil=%v)", requestLogID, err, auditLog.RowKind, auditLog.ResponseBodyCaptureStatus, derefInt64(auditLog.ResponseBodyBytesObserved), derefInt64(auditLog.ResponseBodyBytesStored), auditLog.ResponseBodyTruncated, auditLog.ResponseBody == nil)
 	}
-	return nil
+	return tag.RowsAffected() == 1, nil
+}
+
+func appendAuditTimeIfInserted(times []time.Time, at time.Time, inserted bool) []time.Time {
+	if !inserted {
+		return times
+	}
+	return append(times, at)
 }
 
 func runtimeAuditHeadersCaptureStatus(serialized string) string {

@@ -56,6 +56,62 @@ func TestRuntimeDurableTelemetryIsDefault(t *testing.T) {
 	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
 }
 
+func TestRuntimeTelemetryV2CurrencyAttributionCompatibility(t *testing.T) {
+	tests := []struct {
+		name            string
+		mutation        string
+		wantAttribution string
+		failClosed      bool
+	}{
+		{
+			name:            "pre-owner payload remains legacy unknown",
+			mutation:        `UPDATE runtime_telemetry_outbox SET core_payload = core_payload #- '{envelope,usage_event,CurrencyAttribution}' WHERE profile_id = $1`,
+			wantAttribution: "legacy_unknown",
+		},
+		{
+			name:       "invalid owner is not acknowledged",
+			mutation:   `UPDATE runtime_telemetry_outbox SET core_payload = jsonb_set(core_payload, '{envelope,usage_event,CurrencyAttribution}', '"invalid"'::jsonb) WHERE profile_id = $1`,
+			failClosed: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			harness, profileID := enqueueBlockedCurrencyAttributionPayload(t)
+			if _, err := harness.conn.Exec(context.Background(), test.mutation, profileID); err != nil {
+				t.Fatalf("mutate v2 currency attribution payload: %v", err)
+			}
+			attempted := make(chan struct{}, 8)
+			restarted := restartRuntimeHarnessWithConfig(t, harness.databaseName, runtimeHarnessConfig{RuntimeOptions: runtimeapi.Options{TelemetryOutbox: runtimeapi.TelemetryOutboxOptions{
+				PollInterval: 25 * time.Millisecond, ShutdownTimeout: 150 * time.Millisecond,
+				Hooks: &runtimeapi.TelemetryOutboxHooks{BeforeMaterialize: func(context.Context) error {
+					select {
+					case attempted <- struct{}{}:
+					default:
+					}
+					return nil
+				}},
+			}}})
+			if test.failClosed {
+				waitForRuntimeMaterializeAttempts(t, attempted, 2)
+				counts := loadRuntimeTelemetryCounts(t, restarted.conn, profileID)
+				if counts != (runtimeTelemetryCounts{OutboxRows: 1}) {
+					t.Fatalf("expected invalid attribution to roll back materialization and keep pending outbox, got %+v", counts)
+				}
+				var coreState string
+				if err := restarted.conn.QueryRow(context.Background(), `SELECT core_state FROM runtime_telemetry_outbox WHERE profile_id = $1`, profileID).Scan(&coreState); err != nil || coreState != "pending" {
+					t.Fatalf("expected invalid attribution outbox to remain unacknowledged/pending, state=%q err=%v", coreState, err)
+				}
+				return
+			}
+			waitForRuntimeTelemetryCounts(t, restarted.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+			var attribution string
+			if err := restarted.conn.QueryRow(context.Background(), `SELECT currency_attribution FROM usage_request_events WHERE profile_id = $1`, profileID).Scan(&attribution); err != nil || attribution != test.wantAttribution {
+				t.Fatalf("expected compatible v2 payload attribution %q, got %q err=%v", test.wantAttribution, attribution, err)
+			}
+		})
+	}
+}
+
 func TestRuntimeProxyKeyUsageDurablyEnqueues(t *testing.T) {
 	shutdownTimeout := 150 * time.Millisecond
 	closeResults := make(chan runtimeapi.TelemetryOutboxCloseResult, 1)
@@ -628,6 +684,34 @@ func (g *runtimeTelemetryMaterializeGate) Release() {
 	case <-g.release:
 	default:
 		close(g.release)
+	}
+}
+
+func enqueueBlockedCurrencyAttributionPayload(t *testing.T) (*runtimeHarness, int) {
+	t.Helper()
+	gate := newRuntimeTelemetryMaterializeGate()
+	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{RuntimeOptions: runtimeapi.Options{TelemetryOutbox: runtimeapi.TelemetryOutboxOptions{
+		PollInterval: 25 * time.Millisecond, ShutdownTimeout: 150 * time.Millisecond,
+		Hooks: &runtimeapi.TelemetryOutboxHooks{BeforeMaterialize: gate.Wait},
+	}}})
+	profileID := harness.activeProfileID(t)
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{ProfileID: profileID, APIFamily: "openai", PublicModelID: "v2-owner-public-" + randomSuffix(), TargetModelID: "v2-owner-target-" + randomSuffix(), EndpointBaseURL: harness.upstream.baseURL("/telemetry/v2-owner"), EndpointAPIKey: "v2-owner-key"})
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"model": route.PublicModelID, "messages": []map[string]any{{"role": "user", "content": "persist v2 owner payload"}}}, nil)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{OutboxRows: 1}, 5*time.Second)
+	harness.runtimeService.Close()
+	return harness, profileID
+}
+
+func waitForRuntimeMaterializeAttempts(t *testing.T, attempted <-chan struct{}, want int) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for count := 0; count < want; count++ {
+		select {
+		case <-attempted:
+		case <-deadline:
+			t.Fatalf("timed out waiting for %d materialization attempts; got %d", want, count)
+		}
 	}
 }
 

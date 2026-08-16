@@ -132,7 +132,7 @@ export async function reconcileSelfTestTelemetry(
     });
     const item = response.items[0] ?? null;
     if (item) {
-      const detail = await api.stats.requestDetail(Number(item.request_log_id));
+      const detail = await api.stats.requestDetail(item.request_log_id);
       return { detail, state: "ready" };
     }
     if (attempt < delays.length) {
