@@ -222,6 +222,14 @@ test("routing strategy dialog links ban fields with provenance and keeps user ed
   await expect(cycleLimitInput).toBeVisible();
   await expect(cumulativeThresholdInput).toBeVisible();
 
+  // The effect preview renders the shared backend steps. The page-level
+  // timeline carries the same title, so scope these assertions to the dialog.
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("效果预览", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("固定延迟 60000ms")).toBeVisible();
+  await expect(dialog.getByText("抖动范围 48000ms – 72000ms")).toBeVisible();
+  await expect(dialog.getByText("本轮重试次数已用尽", { exact: true }).first()).toBeVisible();
+
   // Switching ban mode off -> temporary auto-fills the derived threshold
   // (cycle limit x2) and the safe 900s duration, with visible provenance.
   await page.getByLabel(banModeLabel).click();
@@ -236,13 +244,6 @@ test("routing strategy dialog links ban fields with provenance and keeps user ed
   await cycleLimitInput.fill("5");
   await expect(cumulativeThresholdInput).toHaveValue("4");
   await expect(page.getByRole("button", { name: /一键同步为 5/ })).toBeVisible();
-
-  // The effect preview renders the shared backend steps. The page-level
-  // timeline carries the same title, so this names the dialog's copy.
-  await expect(page.getByRole("dialog").getByText("效果预览", { exact: true })).toBeVisible();
-  await expect(page.getByText("固定延迟 60000ms")).toBeVisible();
-  await expect(page.getByText("抖动范围 48000ms – 72000ms")).toBeVisible();
-  await expect(page.getByText("本轮重试次数已用尽", { exact: true }).first()).toBeVisible();
 });
 
 test("set-default, built-in completion and delete guards behave per contract", async ({ page }) => {
