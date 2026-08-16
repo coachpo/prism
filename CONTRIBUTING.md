@@ -45,6 +45,38 @@ pnpm run build
 - Releases go through `./release.sh` (e.g. `./release.sh patch --dry-run`), which keeps `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` aligned, verifies backend version metadata plus the frontend build, then commits, tags, and pushes the single-image release. CI gates releases on `govulncheck` and `pnpm audit`.
 - Follow the project- and technology-specific rules in [docs/development-rules.md](docs/development-rules.md), the architecture facts in [docs/architecture.md](docs/architecture.md), and the unified size and responsibility policy in [docs/source-code-size-and-responsibility-rules.md](docs/source-code-size-and-responsibility-rules.md), together with the shared principles below.
 
+<!-- write-project-docs:derived-iteration-strategy:start -->
+<!-- write-project-docs:derived-iteration-strategy:metadata {"contentSha256":"sha256:1f28b294605df454e5a840d54cc200783c529201ba2c8a20cf8539c3b062cc5f","schemaVersion":1,"sources":[{"normalization":"without-visible-exact-mvp-control-line-terminal-lf-v2","path":"STATUS.md","sha256":"sha256:93715ce4184ef46eda361ef56d2cf153a9f2880c04816539851a8a44c6b2ca98"},{"path":"docs/product.md","sha256":"sha256:18affbe717081e1d861699581f38671301b86d53056f640a493b65e787fe11e3"},{"path":"docs/architecture.md","sha256":"sha256:ca0092f052eb7cccbb1f8011387a4d5ab9d0744814f94ff27326353a34dfd315"},{"path":"docs/development-rules.md","sha256":"sha256:fe3927cc5a9ab4e45f39d668c5969795bf18d41e41fbeeeac6e9ca1c380f82a1"}]} -->
+## Current Iteration Strategy
+
+Convenience-first active development on the operator's personal home-LAN instance: work is prioritized from gaps observed in day-to-day use of the running instance, and where a change trades off against data-security hardening the convenient path wins. Keep the local dev/deploy loop (launcher full|headless, root Compose bundle, same-origin Vite proxying) fast, easy, and accurately documented.
+
+Derived from (the source documents remain authoritative): [`STATUS.md`](STATUS.md), [`docs/product.md`](docs/product.md), [`docs/architecture.md`](docs/architecture.md), [`docs/development-rules.md`](docs/development-rules.md).
+
+> This block scopes only the current iteration. It does not change the MVP fast-validation switch or weaken security, privacy, permissions, data integrity, existing compatibility commitments, or higher-priority requirements.
+
+### Must Complete Now
+
+- Keep the documented dev/deploy loop (launcher full|headless, root Compose bundle, same-origin Vite proxying, plaintext bootstrap defaults) working and convenient, green on the applicable quick checks.
+- Pick up operator-facing gaps observed in day-to-day use of the running instance and ship them as the smallest verified changes, per the no-shim clean-architecture convention.
+
+### Not Pursued This Iteration
+
+- Data-security hardening beyond the shipped controls (TLS termination, external secret-manager integration, mandatory operator/query auth, global rate limiting, proxy-key scoping): no positive trigger on a personal home-LAN deployment without external exposure; re-evaluate when the instance gains public exposure, additional operators or tooling, or the operator's convenience-vs-security priority changes.
+
+### Non-negotiable Boundaries
+
+- Machine contracts (runtime operation registry with hook residency, file-backed bootstrap v1 with the required timeout fields, partitioned log-retention ownership) and their backend regression coverage are not lowered by the convenience-first stance.
+- Destructive data resets or data loss still require explicit authorization and a verified backup; the convenience-first priority does not authorize them.
+- Existing required checks still gate changes and releases: backend contract/integration/runtime/priority suites, frontend lint/build/test, and the CI dependency scanners (govulncheck, pnpm audit).
+
+### Re-derivation Triggers
+
+- The instance is exposed beyond the home LAN or operated for anyone else.
+- Deployment, user, or data-policy facts in STATUS.md change, including the recorded convenience-vs-security priority.
+- A release or lifecycle milestone changes the recorded version or the development mode in STATUS.md.
+<!-- write-project-docs:derived-iteration-strategy:end -->
+
 <!-- write-project-docs:shared-contributing:start -->
 ## General Design Principles
 

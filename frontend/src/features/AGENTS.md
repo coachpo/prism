@@ -9,7 +9,7 @@ features/
 ├── endpoints/        # `/route/endpoints` feature page and endpoint dialogs/hooks (`endpoints/AGENTS.md`)
 ├── loadbalance/      # `/route/ban-policies` strategies-only page, trusted fragment data hook, strategy dialog (groups/presets/provenance/preview)
 ├── models/           # `/models` list feature and `/models/$modelId` detail adapter
-├── observe/          # `/observe` dashboard adapter plus the 路由健康 tab (global Current State, events timeline, event detail)
+├── observe/          # `/observe` dashboard adapter (Window KPI grid incl. cache-read share) plus the 路由健康 tab (global Current State, events timeline, event detail)
 ├── pricing/          # `/route/pricing` feature page and pricing-template flows
 ├── proxy-keys/       # `/system/proxy-keys` global proxy-key surface: ledger, mutations, generated-secret session, access panel (`proxy-keys/AGENTS.md`)
 ├── routing-health/    # Observe 路由健康 tab: global current state, events timeline, reset flow

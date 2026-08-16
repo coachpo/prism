@@ -4,7 +4,7 @@
 `frontend/tests/` is Prism's frontend regression surface. It splits browser flows from seam-contract suites and keeps the tree aligned with the current route, provider, typed-client, observe, and model/access-target authoring structure.
 
 ## TEST SPLIT
-- `e2e/` holds the five Playwright browser journey specs only; see `e2e/AGENTS.md`.
+- `e2e/` holds the Playwright browser journey and evidence specs; see `e2e/AGENTS.md` for the scenario inventory and capture scripts.
 - `lib/` holds high-centrality Node seam contracts; see `lib/AGENTS.md`.
 - The historical `server/` and `model-detail/` node-test roots are absent; production serving is owned by the root single-image Nginx contract.
 - `helpers/` holds shared test-only utilities such as TypeScript module loading.
@@ -12,12 +12,12 @@
 
 ## CURRENT FACTS
 - `../package.json` exposes `pnpm exec vitest run`, `pnpm run test:lib`, and the browser regression entrypoint `pnpm run test:e2e`.
-- CI runs frontend `pnpm exec vitest run`, `test:lib`, `build`, `lint`, and the five Playwright journey specs in `e2e/`.
+- CI runs frontend `pnpm exec vitest run`, `test:lib`, `build`, `lint`, and the Playwright browser specs under `e2e/`.
 - `pnpm test` runs the same Vitest layer in watch mode over `../src/**/*.test.{ts,tsx}` through `../vitest.config.ts`; use `pnpm exec vitest run` for the CI-equivalent gate.
 - `test:lib` runs every `*.test.mjs` directly under `lib/`. There are no separate `model-detail/`, `main/`, or `loadbalance` node-test roots.
 - `../playwright.config.ts` points Playwright at `./tests/e2e` and uses `http://127.0.0.1:15174` as the web server target.
-- Browser coverage lives in `e2e/auth-session-lifecycle.spec.ts`, `e2e/loadbalance-strategies-recovery.spec.ts`, `e2e/models-access-target-authoring.spec.ts`, `e2e/request-log-dedicated-audit-page.spec.ts`, and `e2e/shared-chart-statistics.spec.ts`.
-- Dashboard/statistics browser fixture data lives in `e2e/dashboard-aggregate-fixtures.ts`.
+- Browser journey/evidence coverage lives in the `e2e/*.spec.ts` set: `auth-session-lifecycle`, `loadbalance-strategies-recovery`, `models-access-target-authoring`, `request-log-dedicated-audit-page`, `routing-health-events`, `shared-chart-statistics`, `terminal-target-custom-request-parameters`, `request-log-streaming-payloads`, and `narrow-accessibility-evidence`; `e2e/AGENTS.md` owns the scenario inventory.
+- Browser fixture data lives in `e2e/dashboard-aggregate-fixtures.ts` and `e2e/request-log-dedicated-audit-fixtures.ts`; `capture-*.mjs` files are evidence-capture scripts, not journey specs.
 - Model CRUD and access-target authoring seam coverage lives in `lib/model_form_state_contract.test.mjs`, `lib/management_api_model_targets_contract.test.mjs`, and `lib/profile_scope_header_contract.test.mjs`.
 - Observe and request-log API seam coverage lives in the corresponding `lib/*_contract.test.mjs` suites.
 
@@ -44,7 +44,7 @@
 - Keep pinned profile-header and typed-client contract tests separate from Playwright route flows.
 - Do not invent extra test roots or child AGENTS files unless a subtree has a distinct runner or command boundary like `e2e/` and `lib/`.
 - Keep test ownership single-layer: backend unit tests own process-local pricing, planning, and stream classification without DB; DB contract suites own one API surface; frontend Vitest/lib owns pure frontend logic. Do not duplicate one behavior across layers or add INSERT-then-SELECT mirror tests.
-- Keep Playwright capped near five journey specs; adding a browser journey deletes one. Browser specs must not assert table-cell text or i18n fallback behavior.
+- Keep one Playwright spec per owned journey or evidence scenario; additions must remain bounded, reuse existing fixtures, and update the `e2e/` inventory doc. Browser specs must not assert table-cell text or i18n fallback behavior.
 - Keep setup before the first act within 10 lines; use defaulted builders when it grows, reject e2e leading mocks over 50 lines, and keep container/build commands out of test functions.
 - Use baseline-plus-override helpers or golden files when expectations exceed eight fields. Use golden files for large shapes and inline assertions only for the fields the test cares about.
 - Table-drive three or more cases that share the same act/assert shape, and keep at most one narrative story test per resource.

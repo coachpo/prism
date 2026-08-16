@@ -31,7 +31,7 @@ e2e/
 - Request-log + audit journey: `request-log-dedicated-audit-page.spec.ts`; shared request-log/audit fixture builders: `request-log-dedicated-audit-fixtures.ts`
 - Routing-health events journey: `routing-health-events.spec.ts`
 - Shared statistics/chart journey: `shared-chart-statistics.spec.ts`
-- Settings responsive/a11y evidence: `capture-settings-evidence.mjs`; it uses bounded mocked owner snapshots at 1680, 1200, and narrow keyboard-focus viewports and is kept separate from the six-journey cap.
+- Settings responsive/a11y evidence: `capture-settings-evidence.mjs`; it uses bounded mocked owner snapshots at 1680, 1200, and narrow keyboard-focus viewports and is kept separate from the owned journey-spec set.
 
 ## CONVENTIONS
 - Run through `pnpm run test:e2e -- <playwright args>`.

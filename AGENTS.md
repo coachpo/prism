@@ -79,7 +79,7 @@ prism/
 - Runtime operation registry, hook residency, rejection semantics, and `operation_name` persistence: `backend/internal/httpapi/runtime/`, `backend/tests/runtime/`, `docs/architecture.md` (§14 API Reference, §15 Data Model Reference)
 - Startup bootstrap loading/parsing contract: `backend/internal/platform/config/`
 - Partitioned log retention: `backend/internal/platform/logretention/`, `backend/internal/httpapi/runtime/log_partitions.go`, `backend/migrations/000001_initial_schema.sql`
-- Pricing/observability v2 migrations 000003–000006: additive pricing-trust fields, requests/audit v2 columns, outbox-v2 artifacts, and the fail-closed finalize guard (000006 requires drained v1 outbox + ready backfill domains); the startup owner (`backend/internal/platform/startup/observability_v2_upgrade.go`) runs v1 drain and three-domain backfill
+- Pricing/observability v2 migrations 000008–000011: additive pricing-trust fields (000008) and requests/audit v2 columns plus outbox-v2 artifacts (000010), each closed by a fail-closed finalize guard (000009; 000011 requires drained v1 outbox + ready backfill domains); the startup owner (`backend/internal/platform/startup/observability_v2_upgrade.go`) runs v1 drain and three-domain backfill
 - Requests/Audit v2 read surfaces: scoped statuses (`upstream/gateway/legacy_status_code`), unified failure projection, retained ingress-chain view, server-side CSV export, and cost segments — all in `backend/internal/domain/stats/`, with the `safediag` safe-diagnostic bottom line in `backend/internal/domain/safediag/`
 - Runtime proxy planning, telemetry, request-log detail, final-target attribution, and partition ensuring: `backend/internal/httpapi/runtime/`, `backend/tests/runtime/`, `frontend/src/pages/request-logs/`
 - Model access-target authoring and removed exact-facade guards: `backend/internal/httpapi/management/models/`, `frontend/src/pages/models/`
@@ -150,6 +150,8 @@ Before starting related work, read the authoritative documents that cover the sc
 - [Development Rules](docs/development-rules.md)
 - [Source Code Size and Responsibility Rules](docs/source-code-size-and-responsibility-rules.md)
 - [Contributing Guide](CONTRIBUTING.md)
+
+When implementing, reviewing, or verifying an engineering change, use `STATUS.md` and the product overview for current facts and delivery intent, then read the [Current Iteration Strategy](CONTRIBUTING.md#current-iteration-strategy) when that derived section exists. Consume only the required-now items, non-negotiable boundaries, and re-derivation triggers relevant to the task; do not independently expand explicitly deferred or currently untriggered work. A new user requirement, active Goal, reachable risk, hard project rule or invariant, or evidence-backed review finding overrides a conflicting deferred description. The strategy does not expand user authorization, and the MVP Fast Validation switch neither defines nor overrides it; do not reuse a stale strategy after source facts or its digest change.
 
 ## Project Documentation Content Boundaries
 

@@ -22,6 +22,7 @@ request-logs/
 ├── requestLogAuditState.ts      # Audit capture mode and request-detail audit state helpers
 ├── streamTelemetry.ts           # Stream-outcome, TTFT, and rate helpers for request-log views
 ├── columns.tsx                  # Table column definitions (nine core + pricing state) and scoped status/duration helpers
+├── pricingExplanation.ts        # Unpriced-cause description and token-component coverage classification for rows and detail
 ├── RequestLogsViewToolbar.tsx   # View switcher plus the controls both views share (columns, page size, export)
 ├── FiltersBar.tsx               # UI shell for retained browse filters plus refresh/clear actions
 ├── FiltersBar.constants.ts      # Filter option constants and shared filter presentation helpers
@@ -53,6 +54,7 @@ request-logs/
 - Filter-bar composition and shared filter constants: `FiltersBar.constants.ts`, `FiltersBarPrimaryFilters.tsx`, `FiltersBar.tsx`
 - Detail sheet, exact-request fetch, audit capture state, and sheet-scoped clipboard fallback: `RequestLogDetailSheet.tsx`, `useRequestLogDetail.ts`, `requestLogAuditState.ts`
 - Stream telemetry helpers and TTFT/rate display logic: `streamTelemetry.ts`, `detail/RequestLogOverviewTab.tsx`
+- Cache-read share on the request detail row and unpriced-cause explanations: `detail/RequestLogOverviewTab.tsx`, `../../features/observe/cacheReadShare.ts`, `pricingExplanation.ts`
 - E2E seam for exact-request mode and dedicated audit-page states: `../../../tests/e2e/request-log-dedicated-audit-page.spec.ts`; shared request-log fixtures live in `../../../tests/e2e/request-log-dedicated-audit-fixtures.ts`.
 - Parent-covered detail cluster helpers: `detail/RequestLogOverviewTab.tsx`, `detail/RequestLogPayloadBlock.tsx`, `detail/requestLogDetailShared.tsx`, `detail/requestLogDetailUtils.ts`
 - Reporting-currency trust and spend display coupling: `../../context/ReportingCurrencyContext.tsx`, `../../lib/reportingCurrency.ts`, `detail/RequestLogOverviewTab.tsx`

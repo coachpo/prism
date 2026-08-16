@@ -36,6 +36,7 @@ runtime/
 ├── attempt_lifecycle.go         # Attempt triggers/results, launch-ordinal tracking, 64-attempt cap, failed-response sampler, safe transport/stream diagnostics
 ├── bounded_audit_capture.go     # 4 MiB per-body / 12+4 MiB per-ingress bounded audit capture
 ├── telemetry_outbox_v2.go       # v2 metadata/artifact split, provisional→finalized streaming state machine
+├── telemetry_outbox_poison.go   # Poison-row handling: permanent-vs-retryable materialization verdicts, safe SQLSTATE/constraint codes, backoff, and quarantine
 ├── log_partitions.go            # Runtime partition ensuring and cache
 ├── telemetry_outbox.go          # Durable telemetry enqueue and publisher wakeups
 ├── feedback_pipeline.go         # Runtime feedback persistence and worker handoff
@@ -55,7 +56,7 @@ runtime/
 - OpenAI native operation-set coverage, mismatched-target skipping, unsupported-wire rejection behavior, and planning diagnostics: `operation_translation.go`, `planning_snapshot.go`, `routing_plan*.go`, `runtime_test.go`
 - Local OpenAI model-list response: `openai_models.go`
 - Request-log and usage-event shaping plus `operation_name` persistence and v2 scoped/failure fields: `observability.go`, `attempt_lifecycle.go`, `../../../migrations/000001_initial_schema.sql`, `../../../migrations/000008_pricing_cost_trust_additive.sql`, `../../../migrations/000010_request_logs_audit_observability.sql`
-- Telemetry, feedback, and runtime side-effect ownership: `telemetry_outbox.go`, `telemetry_outbox_v2.go`, `feedback_pipeline.go`, `runtime_side_effects.go`
+- Telemetry, feedback, and runtime side-effect ownership: `telemetry_outbox.go`, `telemetry_outbox_v2.go`, `telemetry_outbox_poison.go`, `feedback_pipeline.go`, `runtime_side_effects.go`
 - Safe failure diagnostics bottom line: `../../domain/safediag/` (scrub/extract/codes/metadata/limits)
 - Partition ensuring and partition-cache behavior: `log_partitions.go`, `../../platform/logretention/`
 - Internal runtime regression coverage: `operations_test.go`, `service_ingress_test.go`, `request_generation_params_test.go`, `request_generation_params_runtime_test.go`, `operation_hook_residency_test.go`, `operation_response_hooks_test.go`, `operation_response_overflow_classifier_test.go`, `gateway_typed_hooks_bridge_test.go`, `planning_snapshot_contract_test.go`, `routing_plan_test.go`, `runtime_test.go`

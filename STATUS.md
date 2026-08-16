@@ -2,7 +2,7 @@
 
 ## Lifecycle
 
-Active development at version 1.0.16. Development proceeds as continuous iteration driven by the operator's own hands-on use of a running instance: work is prioritized from gaps observed in day-to-day operation rather than from an external roadmap. Upgrade work keeps the clean architecture and takes the best current implementation, so legacy shapes are preserved only when explicitly requested.
+Active development at version 1.0.18. Development proceeds as continuous iteration driven by the operator's own hands-on use of a running instance: work is prioritized from gaps observed in day-to-day operation rather than from an external roadmap. Upgrade work keeps the clean architecture and takes the best current implementation, so legacy shapes are preserved only when explicitly requested.
 
 ## Deployment
 
@@ -13,6 +13,8 @@ Verified self-hosted deployment models:
 - Local launcher (`./start.sh full|headless`) for development.
 
 Prism runs as a personal deployment on a home LAN and is reached from that network. It is not exposed to the public internet and is not operated as a service for anyone else.
+
+Development and deployment convenience is prioritized over data-security hardening: on this personal home-LAN deployment, the convenient path wins when the two trade off. Consistent with that posture, security controls stay optional and minimal (optional operator auth and proxy API keys, a plaintext bootstrap file, no TLS termination, operator-owned network exposure). The priority concerns security hardening; it does not by itself authorize destructive data resets or dropping the explicit-authorization-plus-backup bar for retained data, which remain governed by the policies below.
 
 ## Users
 

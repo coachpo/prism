@@ -15,6 +15,8 @@ runtime/
 ├── proxy_selector_test.go              # Access-target planning, failover, Ban Policy, admission
 ├── runtime_streaming_buffering_test.go # Streaming buffering and terminal behavior
 ├── runtime_telemetry_outbox_test.go    # Durable telemetry outbox behavior
+├── telemetry_outbox_poison_test.go     # Poison-row classification, quarantine, and backoff
+├── proxy_key_attribution_failure_test.go # Proxy-key attribution derivation and ingestion-failure behavior
 └── *_test.go                           # Focused runtime regressions
 ```
 
@@ -26,7 +28,7 @@ runtime/
 - Runtime planning, failover, current-state mutation, recovery, and admission exhaustion: `proxy_selector_test.go`
 - Runtime-created log partitions and helper parity: `runtime_partitioned_logs_test.go`, `log_partition_helpers_test.go`
 - Cache invalidation and runtime snapshots: `runtime_cache_invalidation_test.go`, `runtime_phase1_snapshot_test.go`
-- Streaming and telemetry durability: `runtime_streaming_buffering_test.go`, `runtime_telemetry_outbox_test.go`
+- Streaming and telemetry durability: `runtime_streaming_buffering_test.go`, `runtime_telemetry_outbox_test.go`, `telemetry_outbox_poison_test.go`, `proxy_key_attribution_failure_test.go`
 
 ## CONVENTIONS
 - Keep this suite aligned with `../../internal/httpapi/runtime/operations.go`; route additions require matrix and hook-residency coverage.
