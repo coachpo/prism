@@ -62,52 +62,51 @@ export function AuditConfigurationAPIFamilyCard({
         <OperatorLoadingState title={copy.loadingAPIFamilyAuditSettings} />
       ) : (
         <>
-        <div className="operator-table-shell overflow-hidden rounded-md border border-border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{copy.apiFamily}</TableHead>
-                <TableHead className="w-[140px]">{copy.auditEnabled}</TableHead>
-                <TableHead className="w-[140px]">{copy.captureBodies}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {apiFamilyAuditSettings.map((setting) => {
-                const familyLabel = getAPIFamilyLabel(setting.api_family, copy);
-                return (
-                  <TableRow key={setting.api_family} data-testid={`audit-api-family-row-${setting.api_family}`}>
-                    <TableCell>
-                      <div className="flex items-center gap-2 font-medium">
-                        <ApiFamilyIcon apiFamily={setting.api_family} />
-                        {familyLabel}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Switch
-                        aria-label={`${familyLabel} ${copy.auditEnabled}`}
-                        checked={setting.audit_enabled}
-                        disabled={savingAPIFamilyAuditSettings}
-                        onCheckedChange={(checked) =>
-                          setAPIFamilyAuditEnabled(setting.api_family, checked)
-                        }
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Switch
-                        aria-label={`${familyLabel} ${copy.captureBodies}`}
-                        checked={setting.audit_capture_bodies}
-                        disabled={!setting.audit_enabled || savingAPIFamilyAuditSettings}
-                        onCheckedChange={(checked) =>
-                          setAPIFamilyAuditCaptureBodies(setting.api_family, checked)
-                        }
-                      />
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
+        {/* 卡片自己的边框就是这张表的边框，不再套第二圈。 */}
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{copy.apiFamily}</TableHead>
+              <TableHead className="w-[140px]">{copy.auditEnabled}</TableHead>
+              <TableHead className="w-[140px]">{copy.captureBodies}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {apiFamilyAuditSettings.map((setting) => {
+              const familyLabel = getAPIFamilyLabel(setting.api_family, copy);
+              return (
+                <TableRow key={setting.api_family} data-testid={`audit-api-family-row-${setting.api_family}`}>
+                  <TableCell>
+                    <div className="flex items-center gap-2 font-medium">
+                      <ApiFamilyIcon apiFamily={setting.api_family} />
+                      {familyLabel}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Switch
+                      aria-label={`${familyLabel} ${copy.auditEnabled}`}
+                      checked={setting.audit_enabled}
+                      disabled={savingAPIFamilyAuditSettings}
+                      onCheckedChange={(checked) =>
+                        setAPIFamilyAuditEnabled(setting.api_family, checked)
+                      }
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Switch
+                      aria-label={`${familyLabel} ${copy.captureBodies}`}
+                      checked={setting.audit_capture_bodies}
+                      disabled={!setting.audit_enabled || savingAPIFamilyAuditSettings}
+                      onCheckedChange={(checked) =>
+                        setAPIFamilyAuditCaptureBodies(setting.api_family, checked)
+                      }
+                    />
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
         {auditStorageLoading ? (
           <p className="text-sm text-muted-foreground">{copy.loadingStorageSummary}</p>
         ) : auditStorageSummary ? (

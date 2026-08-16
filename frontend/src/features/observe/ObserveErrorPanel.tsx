@@ -62,10 +62,10 @@ export function ObserveErrorPanel({
   }, [queryContext]);
 
   if (!queryContext) {
-    return <section role="status" className="rounded-lg border border-border p-4 text-sm text-muted-foreground">{messages.observe.windowUnavailable}</section>;
+    return <section role="status" className="rounded-lg border border-border bg-inset p-4 text-sm text-muted-foreground">{messages.observe.windowUnavailable}</section>;
   }
   if (fragment.phase === "loading") {
-    return <section aria-busy="true" className="rounded-lg border border-border p-4" />;
+    return <section aria-busy="true" className="rounded-lg border border-border bg-inset p-4" />;
   }
   if (fragment.phase === "error" && fragment.data === null) {
     return (
@@ -79,7 +79,7 @@ export function ObserveErrorPanel({
   }
 
   if (fragment.data === null) {
-    return <section role="status" className="rounded-lg border border-border p-4 text-sm text-muted-foreground">{messages.observe.windowUnavailable}</section>;
+    return <section role="status" className="rounded-lg border border-border bg-inset p-4 text-sm text-muted-foreground">{messages.observe.windowUnavailable}</section>;
   }
 
   const data = fragment.data;
@@ -200,7 +200,7 @@ export function ObserveErrorPanel({
         </div>
       ) : null}
       {data.summary.request_count === 0 ? (
-        <div className="rounded-md border border-border p-3 text-sm text-muted-foreground">{messages.observe.noErrors}</div>
+        <div className="rounded-md border border-border bg-inset p-3 text-sm text-muted-foreground">{messages.observe.noErrors}</div>
       ) : null}
     </section>
   );

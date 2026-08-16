@@ -36,13 +36,15 @@ export function PricingImportPreview({ committing, onCancel, onCommit, preview }
   const items = preview.response.items ?? []
   const blocked = preview.response.errors.length > 0 || preview.response.committable === false
 
+  // The table runs to the card edge — the card border is its border — so the
+  // content area drops its gutter and the non-table blocks carry their own.
   return (
     <OperatorSectionCard
-      className="border-degraded/30"
+      className="gap-0 border-degraded/30"
       title={copy.importPreviewTitle}
       description={copy.importPreviewDescription}
       data-testid="pricing-import-preview"
-      contentClassName="flex flex-col gap-3"
+      contentClassName="flex flex-col gap-3 px-0"
       actions={
         <div className="flex items-center gap-2">
           <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={committing}>
@@ -56,12 +58,12 @@ export function PricingImportPreview({ committing, onCancel, onCommit, preview }
       }
     >
       {blocked ? (
-        <p className="text-xs text-destructive" role="alert">
+        <p className="px-[var(--density-card-pad-x)] text-xs text-destructive" role="alert">
           {preview.response.errors[0]?.detail ?? copy.importPreviewBlocked}
         </p>
       ) : null}
 
-      <div className="operator-table-shell overflow-hidden rounded-lg border border-border">
+      <div className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>

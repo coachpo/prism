@@ -81,7 +81,9 @@ export function ModelCostCards({
           ))}
         </div>
       ) : spending ? (
-        <div className="grid gap-[var(--density-card-gap)] sm:grid-cols-2 xl:grid-cols-4">
+        // KPI 卡默认是 panel 底色的页面级卡片；这里它们嵌在同为 panel 的卡片内，
+        // 降到 inset 底色才不是同色套同色的四个方块浮在一个方块里。
+        <div className="grid gap-[var(--density-card-gap)] sm:grid-cols-2 xl:grid-cols-4 [&>[data-slot=kpi-card]]:bg-inset">
           <OperatorKpiCard
             label={copy.kpiKnownCost}
             value={formatMoneyMicros(spending.total_cost_micros, currencySymbol, currencyCode, 2, 6, locale)}

@@ -318,41 +318,40 @@ function GlobalCurrentStateFragment({
         <OperatorEmptyState title={copy.currentStateEmpty} description={copy.currentStateEmptyDescription} />
       ) : null}
 
+      {/* The card supplies the outer border; the table only needs to scroll. */}
       {rows.length > 0 || fragment.phase === "loading" ? (
-        <div className="overflow-hidden rounded-md border border-border">
-          <div className="overflow-x-auto">
-            <Table aria-label={copy.currentStateTitle}>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{copy.modelColumn}</TableHead>
-                  <TableHead>{copy.targetColumn}</TableHead>
-                  <TableHead>{copy.stateColumn}</TableHead>
-                  <TableHead className="text-right">{copy.attemptsColumn}</TableHead>
-                  <TableHead>{copy.nextRetryColumn}</TableHead>
-                  <TableHead>{copy.banUntilColumn}</TableHead>
-                  <TableHead className="text-right">{copy.actionsColumn}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {fragment.phase === "loading" && rows.length === 0 ? (
-                  <OperationalTableSkeletonRows columns={7} rows={5} />
-                ) : (
-                  rows.map((item) => (
-                    <CurrentStateRow
-                      key={item.terminal_target.id}
-                      item={item}
-                      resetting={resettingTargetId === item.terminal_target.id}
-                      onRequestReset={() => setConfirmTarget(item)}
-                      formatTime={formatTime}
-                      formatNumber={formatNumber}
-                      copy={copy}
-                      missingLabel={messages.honesty.noValue}
-                    />
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+        <div className="overflow-x-auto">
+          <Table aria-label={copy.currentStateTitle}>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{copy.modelColumn}</TableHead>
+                <TableHead>{copy.targetColumn}</TableHead>
+                <TableHead>{copy.stateColumn}</TableHead>
+                <TableHead className="text-right">{copy.attemptsColumn}</TableHead>
+                <TableHead>{copy.nextRetryColumn}</TableHead>
+                <TableHead>{copy.banUntilColumn}</TableHead>
+                <TableHead className="text-right">{copy.actionsColumn}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {fragment.phase === "loading" && rows.length === 0 ? (
+                <OperationalTableSkeletonRows columns={7} rows={5} />
+              ) : (
+                rows.map((item) => (
+                  <CurrentStateRow
+                    key={item.terminal_target.id}
+                    item={item}
+                    resetting={resettingTargetId === item.terminal_target.id}
+                    onRequestReset={() => setConfirmTarget(item)}
+                    formatTime={formatTime}
+                    formatNumber={formatNumber}
+                    copy={copy}
+                    missingLabel={messages.honesty.noValue}
+                  />
+                ))
+              )}
+            </TableBody>
+          </Table>
         </div>
       ) : null}
 

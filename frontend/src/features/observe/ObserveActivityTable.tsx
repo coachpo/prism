@@ -82,13 +82,15 @@ export function ObserveActivityTable({ queryContext }: { queryContext: string | 
     [navigate, queryContext],
   );
 
+  // The card content is px-0 so the table can reach the card edge; every
+  // non-table block carries the gutter itself.
   if (!queryContext || (fragment.phase === "loading" && fragment.data === null)) {
-    return <Skeleton className="h-48 rounded-md" aria-busy="true" />;
+    return <Skeleton className="mx-[var(--density-card-pad-x)] h-48 rounded-md" aria-busy="true" />;
   }
 
   if (fragment.data === null) {
     return (
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2 px-[var(--density-card-pad-x)]">
         {fragment.retryAfterMs !== null ? <RetryAfterCallout retryAfterMs={fragment.retryAfterMs} /> : null}
         <OperatorErrorState
           testId="activity-load-error"
@@ -111,16 +113,21 @@ export function ObserveActivityTable({ queryContext }: { queryContext: string | 
     <div className="flex flex-col gap-2">
       {fragment.stale ? (
         <OperatorStalenessBadge
-          className="self-start"
+          className="mx-[var(--density-card-pad-x)] self-start"
           label={messages.observe.staleDataNote}
           reason={fragment.error ?? undefined}
         />
       ) : null}
 
       {items.length === 0 ? (
-        <OperatorEmptyState title={messages.observe.noData} description={messages.observe.adjustFiltersHint} />
+        <OperatorEmptyState
+          className="mx-[var(--density-card-pad-x)]"
+          title={messages.observe.noData}
+          description={messages.observe.adjustFiltersHint}
+        />
       ) : (
-        <div className="overflow-hidden rounded-md border border-border" data-testid="observe-activity-table">
+        // The card border is this table's border; no second ring around it.
+        <div data-testid="observe-activity-table">
           <div className="overflow-x-auto">
             <Table aria-label={messages.observe.activityTitle}>
               <TableHeader>

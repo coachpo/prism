@@ -317,7 +317,9 @@ export function RetentionDeletionSection({
                 })}
               </div>
               {retentionSettings.recommendations[0] ? (
-                <div className="mt-4 flex flex-col gap-2 rounded-lg border border-border bg-inset p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="mt-4 flex flex-col gap-2 rounded-lg border border-border bg-panel p-3 sm:flex-row sm:items-center sm:justify-between">
+                  {/* 这块嵌在 OperatorInsetPanel（同样是 bg-inset + 边框）里，
+                      用 panel 底色往上提一层，才不是同色套同色。 */}
                   <p className="text-sm text-muted-foreground">{copy.recommendationDescription}</p>
                   <Button type="button" variant="outline" size="sm" onClick={applyRecommendation}>{copy.applyRecommendation}</Button>
                 </div>

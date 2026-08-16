@@ -376,65 +376,64 @@ function SeriesTable({
   const lastBucketStart = items[0]?.points.at(-1)?.bucket_start;
   const lastBucketLabel = lastBucketStart ? copy.lastBucketColumn(formatBucket(lastBucketStart)) : copy.lastBucketColumn("—");
 
+  // The card supplies the outer border; the table only needs to scroll.
   return (
-    <div className="overflow-hidden rounded-md border border-border">
-      <div className="overflow-x-auto">
-        <Table aria-label={copy.semanticTable}>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{copy.seriesLabel}</TableHead>
-              <TableHead className="text-right">
-                {copy.windowTotalColumn} · {copy.requests}
-              </TableHead>
-              {metric === "requests" ? (
-                <>
-                  <TableHead className="text-right">{lastBucketLabel} · {copy.httpSuccessShort}</TableHead>
-                  <TableHead className="text-right">{lastBucketLabel} · {copy.httpFailedShort}</TableHead>
-                </>
-              ) : null}
-              {metric === "ttft" ? (
-                <>
-                  <TableHead className="text-right">{lastBucketLabel} · P50</TableHead>
-                  <TableHead className="text-right">{lastBucketLabel} · P95</TableHead>
-                </>
-              ) : null}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {items.map((item) => {
-              const lastPoint = item.points.at(-1);
-              return (
-                <TableRow key={item.key}>
-                  <TableCell>{item.label}</TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {formatNumber(item.request_count)}
-                  </TableCell>
-                  {metric === "requests" ? (
-                    <>
-                      <TableCell className="text-right font-mono tabular-nums">
-                        <Cell value={lastPoint?.http_success_count} />
-                      </TableCell>
-                      <TableCell className="text-right font-mono tabular-nums">
-                        <Cell value={lastPoint?.http_failed_count} />
-                      </TableCell>
-                    </>
-                  ) : null}
-                  {metric === "ttft" ? (
-                    <>
-                      <TableCell className="text-right font-mono tabular-nums">
-                        <Cell value={lastPoint?.p50_ttft_ms} />
-                      </TableCell>
-                      <TableCell className="text-right font-mono tabular-nums">
-                        <Cell value={lastPoint?.p95_ttft_ms} />
-                      </TableCell>
-                    </>
-                  ) : null}
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </div>
+    <div className="overflow-x-auto">
+      <Table aria-label={copy.semanticTable}>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{copy.seriesLabel}</TableHead>
+            <TableHead className="text-right">
+              {copy.windowTotalColumn} · {copy.requests}
+            </TableHead>
+            {metric === "requests" ? (
+              <>
+                <TableHead className="text-right">{lastBucketLabel} · {copy.httpSuccessShort}</TableHead>
+                <TableHead className="text-right">{lastBucketLabel} · {copy.httpFailedShort}</TableHead>
+              </>
+            ) : null}
+            {metric === "ttft" ? (
+              <>
+                <TableHead className="text-right">{lastBucketLabel} · P50</TableHead>
+                <TableHead className="text-right">{lastBucketLabel} · P95</TableHead>
+              </>
+            ) : null}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.map((item) => {
+            const lastPoint = item.points.at(-1);
+            return (
+              <TableRow key={item.key}>
+                <TableCell>{item.label}</TableCell>
+                <TableCell className="text-right font-mono tabular-nums">
+                  {formatNumber(item.request_count)}
+                </TableCell>
+                {metric === "requests" ? (
+                  <>
+                    <TableCell className="text-right font-mono tabular-nums">
+                      <Cell value={lastPoint?.http_success_count} />
+                    </TableCell>
+                    <TableCell className="text-right font-mono tabular-nums">
+                      <Cell value={lastPoint?.http_failed_count} />
+                    </TableCell>
+                  </>
+                ) : null}
+                {metric === "ttft" ? (
+                  <>
+                    <TableCell className="text-right font-mono tabular-nums">
+                      <Cell value={lastPoint?.p50_ttft_ms} />
+                    </TableCell>
+                    <TableCell className="text-right font-mono tabular-nums">
+                      <Cell value={lastPoint?.p95_ttft_ms} />
+                    </TableCell>
+                  </>
+                ) : null}
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
     </div>
   );
 }

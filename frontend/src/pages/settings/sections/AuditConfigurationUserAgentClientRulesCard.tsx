@@ -72,7 +72,8 @@ function UserAgentClientRuleSection({
         {rules.length === 0 ? (
           <OperatorEmptyState className="mt-1.5 py-8" title={emptyState} />
         ) : (
-          <div className="operator-table-shell mt-1.5 overflow-hidden rounded-md border border-border">
+          <div className="mt-1.5 overflow-x-auto">
+            {/* 卡片自己的边框就是这张表的边框，不再套第二圈。 */}
             <Table>
               <TableHeader>
                 <TableRow>

@@ -185,6 +185,8 @@ export function ObservePage() {
 
       {view === "activity" ? (
         <OperatorSectionCard
+          className="gap-0"
+          contentClassName="px-0"
           title={messages.observe.activityTitle}
           description={messages.observe.activityDescription}
         >

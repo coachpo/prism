@@ -262,7 +262,8 @@ export function AccessTargetsEditor({
       {persistedTargets.length === 0 ? (
         <OperatorEmptyState title={copy.noAccessTargetsSelected} className="py-6" />
       ) : (
-        <div className="operator-table-shell overflow-hidden rounded-lg border border-border">
+        <>
+          {/* 卡片自己的边框就是这张表的边框，不再套第二圈。 */}
           <div className="overflow-x-auto">
             <Table data-testid="access-targets-mixed-list">
               <TableHeader>
@@ -473,7 +474,7 @@ export function AccessTargetsEditor({
               </Button>
             </div>
           ) : null}
-        </div>
+        </>
       )}
 
       <div className="grid gap-3 rounded-lg border border-dashed bg-background p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">

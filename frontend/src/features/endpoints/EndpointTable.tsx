@@ -658,7 +658,9 @@ function MobileEndpointCard({
         </div>
       </dl>
       {expanded ? (
-        <div className="overflow-hidden rounded-lg border border-border">
+        // 展开区是行的从属内容，用 inset 底色把它与行卡本身区分开，
+        // 而不是只画一圈与外层同色的边框。
+        <div className="overflow-hidden rounded-lg border border-border bg-inset">
           <MobileReferenceDisclosure
             endpoint={endpoint}
             detailState={detailState}

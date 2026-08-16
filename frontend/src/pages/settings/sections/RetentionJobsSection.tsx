@@ -141,7 +141,8 @@ export function RetentionJobsSection({
         ) : jobs.length === 0 ? (
           <OperatorEmptyState title={copy.jobsEmptyTitle} description={copy.jobsEmptyDescription} />
         ) : (
-          <div className="operator-table-shell overflow-hidden rounded-lg border border-border">
+          <>
+            {/* 卡片自己的边框就是这张表的边框，不再套第二圈。 */}
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -181,7 +182,7 @@ export function RetentionJobsSection({
                 </Button>
               </div>
             ) : null}
-          </div>
+          </>
         )}
       </OperatorSectionCard>
       <RetentionJobDetailDialog

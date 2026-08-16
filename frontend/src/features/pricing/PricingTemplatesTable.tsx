@@ -209,7 +209,7 @@ export function PricingTemplatesTable({
   }
 
   return (
-    <Card className="operator-table-shell overflow-hidden" data-testid="pricing-templates-table">
+    <Card className="operator-table-shell gap-0 overflow-hidden" data-testid="pricing-templates-table">
       <CardHeader className="border-b pb-3">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="flex items-center gap-2 text-xs text-muted-foreground" data-testid="pricing-templates-summary">
@@ -253,208 +253,208 @@ export function PricingTemplatesTable({
           />
         ) : null}
 
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              {/* The per-1M-token unit is stated once, on the rate group. */}
-              <TableRow>
-                <TableHead className="w-8" />
-                <TableHead colSpan={3}>{copy.groupIdentity}</TableHead>
-                <TableHead colSpan={5} className="text-center">
-                  <span className="inline-flex items-center gap-1">
-                    {copy.groupRates}
-                    <span className="font-normal text-muted-foreground">{copy.rateUnitPerMillion}</span>
-                  </span>
-                </TableHead>
-                <TableHead colSpan={2}>{copy.groupUsage}</TableHead>
-                <TableHead />
-              </TableRow>
-              <TableRow>
-                <TableHead className="w-8" />
-                <SortableTableHead sortKey="name" sort={sort} onSort={updateSort}>
-                  {messages.settingsDialogs.name}
-                </SortableTableHead>
-                <SortableTableHead sortKey="currency" sort={sort} onSort={updateSort}>
-                  {copy.columnCurrency}
-                </SortableTableHead>
-                <SortableTableHead sortKey="version" sort={sort} onSort={updateSort}>
-                  {copy.columnVersion}
-                </SortableTableHead>
-                <SortableTableHead sortKey="input" sort={sort} onSort={updateSort} align="right">
-                  {copy.rateInput}
-                </SortableTableHead>
-                <SortableTableHead sortKey="output" sort={sort} onSort={updateSort} align="right">
-                  {copy.rateOutput}
-                </SortableTableHead>
-                <TableHead className="text-right">{copy.rateCachedInput}</TableHead>
-                <TableHead className="text-right">{copy.rateCacheCreation}</TableHead>
-                <TableHead className="text-right">{copy.rateReasoning}</TableHead>
-                <TableHead>{copy.columnReferences}</TableHead>
-                <SortableTableHead sortKey="updated" sort={sort} onSort={updateSort}>
-                  {copy.columnUpdatedAt}
-                </SortableTableHead>
-                <TableHead className="text-right">{copy.actions}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {pricingTemplatesLoading ? <OperationalTableSkeletonRows columns={PRICING_COLUMN_COUNT} rows={4} /> : null}
+        {/* Table already ships its own overflow-x-auto container; a second one
+            here just nests two scrollers that can never both scroll. */}
+        <Table>
+          <TableHeader>
+            {/* The per-1M-token unit is stated once, on the rate group. */}
+            <TableRow>
+              <TableHead className="w-8" />
+              <TableHead colSpan={3}>{copy.groupIdentity}</TableHead>
+              <TableHead colSpan={5} className="text-center">
+                <span className="inline-flex items-center gap-1">
+                  {copy.groupRates}
+                  <span className="font-normal text-muted-foreground">{copy.rateUnitPerMillion}</span>
+                </span>
+              </TableHead>
+              <TableHead colSpan={2}>{copy.groupUsage}</TableHead>
+              <TableHead />
+            </TableRow>
+            <TableRow>
+              <TableHead className="w-8" />
+              <SortableTableHead sortKey="name" sort={sort} onSort={updateSort}>
+                {messages.settingsDialogs.name}
+              </SortableTableHead>
+              <SortableTableHead sortKey="currency" sort={sort} onSort={updateSort}>
+                {copy.columnCurrency}
+              </SortableTableHead>
+              <SortableTableHead sortKey="version" sort={sort} onSort={updateSort}>
+                {copy.columnVersion}
+              </SortableTableHead>
+              <SortableTableHead sortKey="input" sort={sort} onSort={updateSort} align="right">
+                {copy.rateInput}
+              </SortableTableHead>
+              <SortableTableHead sortKey="output" sort={sort} onSort={updateSort} align="right">
+                {copy.rateOutput}
+              </SortableTableHead>
+              <TableHead className="text-right">{copy.rateCachedInput}</TableHead>
+              <TableHead className="text-right">{copy.rateCacheCreation}</TableHead>
+              <TableHead className="text-right">{copy.rateReasoning}</TableHead>
+              <TableHead>{copy.columnReferences}</TableHead>
+              <SortableTableHead sortKey="updated" sort={sort} onSort={updateSort}>
+                {copy.columnUpdatedAt}
+              </SortableTableHead>
+              <TableHead className="text-right">{copy.actions}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {pricingTemplatesLoading ? <OperationalTableSkeletonRows columns={PRICING_COLUMN_COUNT} rows={4} /> : null}
 
-              {!pricingTemplatesLoading
-                ? page.pageRows.map((template) => {
-                    const isPreparingEdit = pricingTemplatePreparingEditId === template.id
-                    const item = facts.byId.get(template.id)
-                    const references = totalReferences(item)
-                    const expanded = expandedId === template.id
+            {!pricingTemplatesLoading
+              ? page.pageRows.map((template) => {
+                  const isPreparingEdit = pricingTemplatePreparingEditId === template.id
+                  const item = facts.byId.get(template.id)
+                  const references = totalReferences(item)
+                  const expanded = expandedId === template.id
 
-                    return (
-                      <Fragment key={template.id}>
-                        <TableRow className="group/row" data-testid={`pricing-template-row-${template.id}`}>
-                          <TableCell className="align-top">
+                  return (
+                    <Fragment key={template.id}>
+                      <TableRow className="group/row" data-testid={`pricing-template-row-${template.id}`}>
+                        <TableCell className="align-top">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-expanded={expanded}
+                            aria-label={expanded ? copy.collapseRow(template.name) : copy.expandRow(template.name)}
+                            onClick={() => void toggleRow(template, detailView)}
+                          >
+                            {expanded ? <ChevronDown /> : <ChevronRight />}
+                          </Button>
+                        </TableCell>
+                        <TableCell className="align-top">
+                          <div className="flex min-w-48 flex-col gap-0.5">
+                            <span className="font-medium">{template.name}</span>
+                            {template.description ? (
+                              <span className="truncate text-xs text-muted-foreground">{template.description}</span>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell className="align-top">
+                          <OperatorValueBadge label={template.pricing_currency_code} className="text-xs" />
+                        </TableCell>
+                        <TableCell className="align-top">
+                          <OperatorValueBadge label={`v${template.version}`} className="text-xs" />
+                        </TableCell>
+                        <TableCell className="align-top text-right">
+                          <RateCell symbol={template.active_currency_symbol} value={template.input_price} />
+                        </TableCell>
+                        <TableCell className="align-top text-right">
+                          <RateCell symbol={template.active_currency_symbol} value={template.output_price} />
+                        </TableCell>
+                        <TableCell className="align-top text-right">
+                          <RateCell specialty symbol={template.active_currency_symbol} value={template.cached_input_price} />
+                        </TableCell>
+                        <TableCell className="align-top text-right">
+                          <RateCell specialty symbol={template.active_currency_symbol} value={template.cache_creation_price} />
+                        </TableCell>
+                        <TableCell className="align-top text-right">
+                          <RateCell specialty symbol={template.active_currency_symbol} value={template.reasoning_price} />
+                        </TableCell>
+                        <TableCell className="align-top">
+                          {facts.loading && !item ? (
+                            <Skeleton className="h-4 w-24" />
+                          ) : facts.failed && !item ? (
+                            <span className="text-xs font-medium text-failing" title={copy.referencesUnavailableReason}>
+                              {copy.referencesUnavailable}
+                            </span>
+                          ) : item ? (
+                            <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                              {references === 0
+                                ? copy.referencesNone
+                                : copy.referencesSummary(
+                                    formatNumber(item.model_reference_count),
+                                    formatNumber(item.endpoint_reference_count),
+                                    formatNumber(item.terminal_target_reference_count),
+                                  )}
+                            </span>
+                          ) : (
+                            <OperatorMissingValue className="text-xs" />
+                          )}
+                        </TableCell>
+                        <TableCell className="align-top">
+                          <span className="font-mono text-xs tabular-nums">{formatTime(template.updated_at)}</span>
+                        </TableCell>
+                        <TableCell className="align-top text-right">
+                          <div className={cn(operationalRowActionsClassName, "gap-1")}>
                             <Button
                               type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-expanded={expanded}
-                              aria-label={expanded ? copy.collapseRow(template.name) : copy.expandRow(template.name)}
-                              onClick={() => void toggleRow(template, detailView)}
+                              variant="outline"
+                              size="sm"
+                              disabled={isPreparingEdit}
+                              aria-label={`${messages.loadbalanceStrategiesTable.edit} ${template.name}`}
+                              onClick={() => void onEdit(template)}
                             >
-                              {expanded ? <ChevronDown /> : <ChevronRight />}
+                              <Pencil data-icon="inline-start" />
+                              {messages.loadbalanceStrategiesTable.edit}
                             </Button>
-                          </TableCell>
-                          <TableCell className="align-top">
-                            <div className="flex min-w-48 flex-col gap-0.5">
-                              <span className="font-medium">{template.name}</span>
-                              {template.description ? (
-                                <span className="truncate text-xs text-muted-foreground">{template.description}</span>
-                              ) : null}
-                            </div>
-                          </TableCell>
-                          <TableCell className="align-top">
-                            <OperatorValueBadge label={template.pricing_currency_code} className="text-xs" />
-                          </TableCell>
-                          <TableCell className="align-top">
-                            <OperatorValueBadge label={`v${template.version}`} className="text-xs" />
-                          </TableCell>
-                          <TableCell className="align-top text-right">
-                            <RateCell symbol={template.active_currency_symbol} value={template.input_price} />
-                          </TableCell>
-                          <TableCell className="align-top text-right">
-                            <RateCell symbol={template.active_currency_symbol} value={template.output_price} />
-                          </TableCell>
-                          <TableCell className="align-top text-right">
-                            <RateCell specialty symbol={template.active_currency_symbol} value={template.cached_input_price} />
-                          </TableCell>
-                          <TableCell className="align-top text-right">
-                            <RateCell specialty symbol={template.active_currency_symbol} value={template.cache_creation_price} />
-                          </TableCell>
-                          <TableCell className="align-top text-right">
-                            <RateCell specialty symbol={template.active_currency_symbol} value={template.reasoning_price} />
-                          </TableCell>
-                          <TableCell className="align-top">
-                            {facts.loading && !item ? (
-                              <Skeleton className="h-4 w-24" />
-                            ) : facts.failed && !item ? (
-                              <span className="text-xs font-medium text-failing" title={copy.referencesUnavailableReason}>
-                                {copy.referencesUnavailable}
-                              </span>
-                            ) : item ? (
-                              <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                                {references === 0
-                                  ? copy.referencesNone
-                                  : copy.referencesSummary(
-                                      formatNumber(item.model_reference_count),
-                                      formatNumber(item.endpoint_reference_count),
-                                      formatNumber(item.terminal_target_reference_count),
-                                    )}
-                              </span>
-                            ) : (
-                              <OperatorMissingValue className="text-xs" />
-                            )}
-                          </TableCell>
-                          <TableCell className="align-top">
-                            <span className="font-mono text-xs tabular-nums">{formatTime(template.updated_at)}</span>
-                          </TableCell>
-                          <TableCell className="align-top text-right">
-                            <div className={cn(operationalRowActionsClassName, "gap-1")}>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                disabled={isPreparingEdit}
-                                aria-label={`${messages.loadbalanceStrategiesTable.edit} ${template.name}`}
-                                onClick={() => void onEdit(template)}
-                              >
-                                <Pencil data-icon="inline-start" />
-                                {messages.loadbalanceStrategiesTable.edit}
-                              </Button>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button type="button" variant="outline" size="icon-sm" aria-label={copy.actions}>
-                                    <MoreHorizontal />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem onSelect={() => void toggleRow(template, "usage")}>
-                                    {copy.detailViewUsage}
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onSelect={() => void toggleRow(template, "history")}>
-                                    {copy.detailViewHistory}
-                                  </DropdownMenuItem>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem variant="destructive" onSelect={() => void onDelete(template)}>
-                                    <Trash2 />
-                                    {messages.settingsDialogs.delete}
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button type="button" variant="outline" size="icon-sm" aria-label={copy.actions}>
+                                  <MoreHorizontal />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onSelect={() => void toggleRow(template, "usage")}>
+                                  {copy.detailViewUsage}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => void toggleRow(template, "history")}>
+                                  {copy.detailViewHistory}
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem variant="destructive" onSelect={() => void onDelete(template)}>
+                                  <Trash2 />
+                                  {messages.settingsDialogs.delete}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+
+                      {expanded ? (
+                        <TableRow>
+                          <TableCell colSpan={PRICING_COLUMN_COUNT} className="bg-inset">
+                            <div className="flex flex-col gap-3">
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant={detailView === "usage" ? "secondary" : "ghost"}
+                                  onClick={() => void toggleRow(template, "usage")}
+                                >
+                                  {copy.detailViewUsage}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant={detailView === "history" ? "secondary" : "ghost"}
+                                  onClick={() => void toggleRow(template, "history")}
+                                >
+                                  {copy.detailViewHistory}
+                                </Button>
+                              </div>
+
+                              {detailView === "usage" ? (
+                                <UsagePanel
+                                  error={detailUsageError}
+                                  loading={detailUsageLoading}
+                                  rows={detailUsage}
+                                  onRetry={() => void onLoadUsage(template)}
+                                />
+                              ) : (
+                                <HistoryPanel loading={detailHistoryLoading} revisions={detailHistory} />
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
-
-                        {expanded ? (
-                          <TableRow>
-                            <TableCell colSpan={PRICING_COLUMN_COUNT} className="bg-inset">
-                              <div className="flex flex-col gap-3">
-                                <div className="flex items-center gap-1">
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant={detailView === "usage" ? "secondary" : "ghost"}
-                                    onClick={() => void toggleRow(template, "usage")}
-                                  >
-                                    {copy.detailViewUsage}
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant={detailView === "history" ? "secondary" : "ghost"}
-                                    onClick={() => void toggleRow(template, "history")}
-                                  >
-                                    {copy.detailViewHistory}
-                                  </Button>
-                                </div>
-
-                                {detailView === "usage" ? (
-                                  <UsagePanel
-                                    error={detailUsageError}
-                                    loading={detailUsageLoading}
-                                    rows={detailUsage}
-                                    onRetry={() => void onLoadUsage(template)}
-                                  />
-                                ) : (
-                                  <HistoryPanel loading={detailHistoryLoading} revisions={detailHistory} />
-                                )}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ) : null}
-                      </Fragment>
-                    )
-                  })
-                : null}
-            </TableBody>
-          </Table>
-        </div>
+                      ) : null}
+                    </Fragment>
+                  )
+                })
+              : null}
+          </TableBody>
+        </Table>
 
         {!pricingTemplatesLoading && pricingTemplateError && pricingTemplates.length === 0 ? (
           <div className="p-3">

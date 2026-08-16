@@ -321,34 +321,33 @@ export function LoadbalanceEventsFragment({
         </OperatorCallout>
       ) : null}
 
+      {/* The card supplies the outer border; the table only needs to scroll. */}
       {items.length > 0 || fragment.phase === "loading" || contextState.phase === "loading" ? (
-        <div className="overflow-hidden rounded-md border border-border">
-          <div className="overflow-x-auto">
-            <Table aria-label={copy.eventsTitle}>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{copy.timeColumn}</TableHead>
-                  <TableHead>{copy.eventColumn}</TableHead>
-                  <TableHead>{copy.modelColumn}</TableHead>
-                  <TableHead>{copy.targetColumn}</TableHead>
-                  <TableHead>{copy.windowColumn}</TableHead>
-                  <TableHead className="text-right">{copy.actionsColumn}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {items.length === 0 ? <OperationalTableSkeletonRows columns={6} rows={5} /> : null}
-                {items.map((item) => (
-                  <EventRow
-                    key={item.event_id}
-                    item={item}
-                    formatTime={formatTime}
-                    copy={copy}
-                    onOpenDetail={() => { setSelectedEventId(item.event_id); updateSearch({ event_id: item.event_id }, false) }}
-                  />
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+        <div className="overflow-x-auto">
+          <Table aria-label={copy.eventsTitle}>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{copy.timeColumn}</TableHead>
+                <TableHead>{copy.eventColumn}</TableHead>
+                <TableHead>{copy.modelColumn}</TableHead>
+                <TableHead>{copy.targetColumn}</TableHead>
+                <TableHead>{copy.windowColumn}</TableHead>
+                <TableHead className="text-right">{copy.actionsColumn}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.length === 0 ? <OperationalTableSkeletonRows columns={6} rows={5} /> : null}
+              {items.map((item) => (
+                <EventRow
+                  key={item.event_id}
+                  item={item}
+                  formatTime={formatTime}
+                  copy={copy}
+                  onOpenDetail={() => { setSelectedEventId(item.event_id); updateSearch({ event_id: item.event_id }, false) }}
+                />
+              ))}
+            </TableBody>
+          </Table>
         </div>
       ) : null}
 
