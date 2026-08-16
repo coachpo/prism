@@ -946,8 +946,38 @@ func parseRequestLogListParams(r *http.Request, profileID int, observabilitySign
 		}
 	}
 	reportingEpoch := normalizedQueryString(r, "reporting_currency_epoch")
+	sortBy, sortOrder, err := parseRequestLogSort(r)
+	if err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
 	coveragePreset := strings.TrimSpace(r.URL.Query().Get("time_range"))
-	return statsdomain.RequestLogListParams{ProfileID: profileID, IngressFinalResult: ingressFinalResult, ConfirmedFailover: confirmedFailover, IngressRequestID: normalizedQueryString(r, "ingress_request_id"), ModelID: normalizedQueryString(r, "model_id"), ResolvedTargetModelID: normalizedQueryString(r, "resolved_target_model_id"), StatusFamily: statusFamily, StatusCode: statusCode, ErrorText: normalizedQueryString(r, "error_text"), PricingStatus: pricingStatus, UnpricedReasons: unpricedReasons, FromTime: fromTime, ToTime: toTime, EndpointID: endpointID, TerminalTargetID: terminalTargetID, ProxyAPIKeyID: proxyAPIKeyID, ClientRuleID: clientRuleID, QueryContextFrom: queryContextFrom, QueryContextTo: queryContextTo, FinalResult: finalResult, FinalModelID: finalModelID, FinalEndpointID: finalEndpointID, FinalTerminalTargetID: finalTerminalTargetID, FinalPricingStatus: finalPricingStatus, FinalUnpricedReasons: finalUnpricedReasons, FinalReportingEpoch: reportingEpoch, CoveragePreset: coveragePreset, CoverageRequestedFrom: fromTime, CoverageRequestedTo: toTime, CoverageReferenceNow: referenceNow.UTC(), Limit: limit, Offset: offset}, nil
+	return statsdomain.RequestLogListParams{ProfileID: profileID, IngressFinalResult: ingressFinalResult, ConfirmedFailover: confirmedFailover, IngressRequestID: normalizedQueryString(r, "ingress_request_id"), ModelID: normalizedQueryString(r, "model_id"), ResolvedTargetModelID: normalizedQueryString(r, "resolved_target_model_id"), StatusFamily: statusFamily, StatusCode: statusCode, ErrorText: normalizedQueryString(r, "error_text"), PricingStatus: pricingStatus, UnpricedReasons: unpricedReasons, FromTime: fromTime, ToTime: toTime, EndpointID: endpointID, TerminalTargetID: terminalTargetID, ProxyAPIKeyID: proxyAPIKeyID, ClientRuleID: clientRuleID, QueryContextFrom: queryContextFrom, QueryContextTo: queryContextTo, FinalResult: finalResult, FinalModelID: finalModelID, FinalEndpointID: finalEndpointID, FinalTerminalTargetID: finalTerminalTargetID, FinalPricingStatus: finalPricingStatus, FinalUnpricedReasons: finalUnpricedReasons, FinalReportingEpoch: reportingEpoch, CoveragePreset: coveragePreset, CoverageRequestedFrom: fromTime, CoverageRequestedTo: toTime, CoverageReferenceNow: referenceNow.UTC(), SortBy: sortBy, SortOrder: sortOrder, Limit: limit, Offset: offset}, nil
+}
+
+// parseRequestLogSort resolves the attempt-view sort grammar: `sort_by` over
+// created_at|display_status|ttft_ms|total_tokens|total_cost_user_currency_micros
+// and `sort_order` asc|desc. An unsupported value is rejected instead of
+// falling back to created_at, so a sorted column header can never claim an
+// order the returned rows do not have. The ingress-chain view keeps its own
+// created_at-only restriction in parseChainQueryParams.
+func parseRequestLogSort(r *http.Request) (string, string, error) {
+	sortBy := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("sort_by")))
+	if sortBy == "" {
+		sortBy = "created_at"
+	}
+	switch sortBy {
+	case "created_at", "display_status", "ttft_ms", "total_tokens", "total_cost_user_currency_micros":
+	default:
+		return "", "", &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "sort_unsupported", Detail: "Unsupported sort_by: " + sortBy}
+	}
+	sortOrder := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("sort_order")))
+	if sortOrder == "" {
+		sortOrder = "desc"
+	}
+	if sortOrder != "asc" && sortOrder != "desc" {
+		return "", "", &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "sort_unsupported", Detail: "Unsupported sort_order: " + sortOrder}
+	}
+	return sortBy, sortOrder, nil
 }
 
 // rejectUnsupportedRequestLogQueryKeys enforces the strict request-log query
@@ -987,6 +1017,8 @@ func rejectUnsupportedRequestLogQueryKeys(r *http.Request) error {
 		"reporting_currency_epoch": {},
 		"view":                     {},
 		"observe_return":           {},
+		"sort_by":                  {},
+		"sort_order":               {},
 	}
 	for key := range r.URL.Query() {
 		if _, ok := supported[key]; !ok {
