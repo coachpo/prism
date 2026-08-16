@@ -48,7 +48,6 @@ request-logs/
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
 - Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 
-- When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation here, prefer manual confirmation over adding dedicated “proves not” tests unless the missing request-log surface is itself a shipped contract or guardrail.
 - Treat URL as the source of truth for the retained browse filters to support deep-linking.
 - Keep request-log browse defaults on the URL contract: `time_range=24h` is the page default and is omitted from generated default URLs.

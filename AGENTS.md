@@ -107,7 +107,8 @@ cd frontend && pnpm run test:e2e
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep this file focused on repo-wide boundaries instead of repeating design-system rules.
-- When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project has no external users and iterates continuously on the operator's own home-LAN instance, so preserve legacy shapes only when explicitly requested.
+- That convention governs code, API, and schema shape, not data. The running instance holds retained PostgreSQL history and a plaintext `config.json`, so a change that cannot carry existing data forward needs explicit authorization and a verified backup first; see `STATUS.md`.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep this file focused on repo-wide facts and cross-directory boundaries.
 - Point downward instead of repeating leaf-level implementation detail here.
