@@ -47,14 +47,6 @@ function seriesDash(index: number): string | undefined {
   return index % 2 === 1 ? "5 3" : undefined;
 }
 
-/**
- * The bottom margin is the room the x-axis caption sits in; without it the
- * caption renders below the plot area and the container clips it. The top
- * margin holds the half of the topmost y-axis tick that sits above its
- * gridline — two lines tall once the unit wraps.
- */
-const CHART_MARGIN = { top: 16, right: 8, bottom: 20, left: 0 } as const;
-
 type ChartRow = Record<string, unknown> & { bucket: string };
 
 export function ObserveMainChart({
@@ -219,7 +211,7 @@ export function ObserveMainChart({
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               {metric === "ttft" ? (
-                <LineChart data={chartData} margin={CHART_MARGIN}>
+                <LineChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
                   <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
                   <XAxis
                     dataKey="bucket"
@@ -252,7 +244,7 @@ export function ObserveMainChart({
                   )}
                 </LineChart>
               ) : (
-                <BarChart data={chartData} margin={CHART_MARGIN}>
+                <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
                   <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
                   <XAxis
                     dataKey="bucket"
