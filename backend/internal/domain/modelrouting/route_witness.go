@@ -1,6 +1,7 @@
 package modelrouting
 
 import (
+	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 	"sort"
 	"strings"
 )
@@ -33,22 +34,24 @@ type RouteWitnessRef struct {
 // ModelRouteReadinessSummary is the per-model compact readiness projection
 // embedded in the models list.
 type ModelRouteReadinessSummary struct {
-	Configuration         ReadinessAxis    `json:"configuration"`
-	Application           ReadinessAxis    `json:"application"`
-	RouteWitnessCount     int              `json:"route_witness_count"`
-	RepresentativeWitness *RouteWitnessRef `json:"representative_witness"`
+	Configuration         ReadinessAxis          `json:"configuration"`
+	Application           ReadinessAxis          `json:"application"`
+	RouteWitnessCount     int                    `json:"route_witness_count"`
+	RepresentativeWitness *RouteWitnessRef       `json:"representative_witness"`
+	RouteSchedule         RouteScheduleQualifier `json:"route_schedule"`
 }
 
 // ProfileRouteReadiness is the top-level aggregate of one immutable analyzer
 // snapshot.
 type ProfileRouteReadiness struct {
-	RouteWitnessGeneration       string           `json:"route_witness_generation"`
-	Configuration                ReadinessAxis    `json:"configuration"`
-	Application                  ReadinessAxis    `json:"application"`
-	ConfigurationReadyModelCount *int             `json:"configuration_ready_model_count"`
-	RouteReadyModelCount         *int             `json:"route_ready_model_count"`
-	RouteWitnessCount            *int             `json:"route_witness_count"`
-	RepresentativeWitness        *RouteWitnessRef `json:"representative_witness"`
+	RouteWitnessGeneration       string                 `json:"route_witness_generation"`
+	Configuration                ReadinessAxis          `json:"configuration"`
+	Application                  ReadinessAxis          `json:"application"`
+	ConfigurationReadyModelCount *int                   `json:"configuration_ready_model_count"`
+	RouteReadyModelCount         *int                   `json:"route_ready_model_count"`
+	RouteWitnessCount            *int                   `json:"route_witness_count"`
+	RepresentativeWitness        *RouteWitnessRef       `json:"representative_witness"`
+	RouteSchedule                RouteScheduleQualifier `json:"route_schedule"`
 }
 
 // routeWitnessSnapshot is the immutable analyzer output for one generation.
@@ -61,6 +64,25 @@ type RouteWitnessSnapshot struct {
 	Witnesses                    []RouteWitnessRef
 	ByModelConfigID              map[int][]RouteWitnessRef
 	ByModelID                    map[string][]RouteWitnessRef
+	// Schedule-limited witness counts. A witness is schedule-limited when its
+	// terminal target has windows that do not cover the whole week, i.e. the
+	// route it proves exists only during part of the week. Purely a
+	// configuration property, so it stays stable within one generation.
+	ScheduleLimitedWitnessCount    int
+	ScheduleLimitedByModelConfigID map[int]int
+}
+
+// RouteScheduleQualifier qualifies a "ready" readiness verdict: the route
+// exists, but only inside a routing window.
+//
+// It is a separate structured field rather than a reason code because
+// ReasonCodes is empty by construction whenever the state is "ready", and the
+// setup card renders reason codes verbatim next to a green check. Putting this
+// there would print a raw enum key beside a success mark.
+type RouteScheduleQualifier struct {
+	ScheduleLimited     bool `json:"schedule_limited"`
+	LimitedWitnessCount int  `json:"limited_witness_count"`
+	TotalWitnessCount   int  `json:"total_witness_count"`
 }
 
 // routeWitnessAnalyzer computes static route witnesses for one profile
@@ -179,10 +201,16 @@ func (snapshot RouteWitnessSnapshot) ModelSummary(modelConfigID int) ModelRouteR
 	if len(modelWitnesses) > 0 {
 		application = ReadinessAxis{State: "ready", ReasonCodes: []string{}}
 	}
+	limited := snapshot.ScheduleLimitedByModelConfigID[modelConfigID]
 	summary := ModelRouteReadinessSummary{
 		Configuration:     configuration,
 		Application:       application,
 		RouteWitnessCount: len(modelWitnesses),
+		RouteSchedule: RouteScheduleQualifier{
+			ScheduleLimited:     limited > 0,
+			LimitedWitnessCount: limited,
+			TotalWitnessCount:   len(modelWitnesses),
+		},
 	}
 	if len(modelWitnesses) > 0 {
 		sorted := sortWitnessesByRegistryRank(modelWitnesses)
@@ -209,7 +237,12 @@ func (snapshot RouteWitnessSnapshot) ProfileReadiness() ProfileRouteReadiness {
 		application = ReadinessAxis{State: "ready", ReasonCodes: []string{}}
 	}
 	return ProfileRouteReadiness{
-		RouteWitnessGeneration:       snapshot.GenerationLabel(),
+		RouteWitnessGeneration: snapshot.GenerationLabel(),
+		RouteSchedule: RouteScheduleQualifier{
+			ScheduleLimited:     snapshot.ScheduleLimitedWitnessCount > 0,
+			LimitedWitnessCount: snapshot.ScheduleLimitedWitnessCount,
+			TotalWitnessCount:   witnessCount,
+		},
 		Configuration:                configuration,
 		Application:                  application,
 		ConfigurationReadyModelCount: &configurationReadyCount,
@@ -344,6 +377,16 @@ func (analyzer *routeWitnessAnalyzer) addWitness(modelConfigID int, operation st
 	analyzer.snapshot.Witnesses = append(analyzer.snapshot.Witnesses, witness)
 	analyzer.snapshot.ByModelConfigID[modelConfigID] = append(analyzer.snapshot.ByModelConfigID[modelConfigID], witness)
 	analyzer.snapshot.ByModelID[model.ModelID] = append(analyzer.snapshot.ByModelID[model.ModelID], witness)
+	// Pure configuration test: never IsOpenAt. Whether the window happens to be
+	// open at this instant is not a property of the generation.
+	if connection, ok := analyzer.graph.ConnectionsByID[terminalTargetID]; ok &&
+		len(connection.RoutingWindows) > 0 && !terminaltarget.WindowsCoverFullWeek(connection.RoutingWindows) {
+		analyzer.snapshot.ScheduleLimitedWitnessCount++
+		if analyzer.snapshot.ScheduleLimitedByModelConfigID == nil {
+			analyzer.snapshot.ScheduleLimitedByModelConfigID = map[int]int{}
+		}
+		analyzer.snapshot.ScheduleLimitedByModelConfigID[modelConfigID]++
+	}
 }
 
 // finalizeSnapshot sorts witnesses and selects the stable representative by

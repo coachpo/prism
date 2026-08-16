@@ -13,6 +13,12 @@ import {
   normalizeOpenAITextCapability,
 } from "./useModelDetailDataSupport";
 import {
+  emptyRoutingScheduleDraft,
+  routingScheduleDraftFromSchedule,
+  type RoutingScheduleDraft,
+  type RoutingScheduleDraftError,
+} from "./routingScheduleDraft";
+import {
   customRequestParametersDraftFromValue,
   type CustomRequestParametersParseError,
 } from "./customRequestParameters";
@@ -113,6 +119,10 @@ export function useModelDetailDialogState({
   const [customRequestParametersDraft, setCustomRequestParametersDraft] = useState("");
   const [customRequestParametersError, setCustomRequestParametersError] =
     useState<CustomRequestParametersParseError | null>(null);
+  // Kept out of ConnectionDialogForm on purpose: that type is ConnectionCreate,
+  // and the shallow merge in setConnectionForm would blank the window array.
+  const [routingScheduleDraft, setRoutingScheduleDraft] = useState<RoutingScheduleDraft>(emptyRoutingScheduleDraft);
+  const [routingScheduleError, setRoutingScheduleError] = useState<RoutingScheduleDraftError | null>(null);
 
   const selectedEndpoint = useMemo(
     () => getSelectedEndpoint(globalEndpoints, selectedEndpointId),
@@ -145,6 +155,8 @@ export function useModelDetailDialogState({
       setHeaderRows(headers);
       setCustomRequestParametersDraft(customRequestParametersDraftFromValue(connection.custom_request_parameters));
       setCustomRequestParametersError(null);
+      setRoutingScheduleDraft(routingScheduleDraftFromSchedule(connection.routing_schedule));
+      setRoutingScheduleError(null);
       setConnectionFormState(
         createEditConnectionForm(connection, {
           apiFamily: apiFamily ?? connection.api_family,
@@ -158,6 +170,8 @@ export function useModelDetailDialogState({
       setHeaderRows([]);
       setCustomRequestParametersDraft("");
       setCustomRequestParametersError(null);
+      setRoutingScheduleDraft(emptyRoutingScheduleDraft());
+      setRoutingScheduleError(null);
       setConnectionFormState({ ...createDefaultConnectionForm(apiFamily, openAIMode) });
       setNewEndpointForm({ ...createDefaultEndpointForm() });
       setCreateMode("select");
@@ -190,6 +204,10 @@ export function useModelDetailDialogState({
     setCustomRequestParametersDraft,
     customRequestParametersError,
     setCustomRequestParametersError,
+    routingScheduleDraft,
+    setRoutingScheduleDraft,
+    routingScheduleError,
+    setRoutingScheduleError,
     selectedEndpoint,
     endpointSourceDefaultName,
     openConnectionDialog,

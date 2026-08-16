@@ -367,7 +367,7 @@ Feedback routing: while a dialog stays open, report inline only; once it closes,
 
 Interface language is Simplified Chinese, single locale. All visible strings and every `aria-label` / `sr-only` string go through `messages`; no new hard-coded literals.
 
-Fixed terminology: 端点, 终端目标, 终端配置 (孤立时称孤立终端配置), 访问目标, 模型目标, 价格模板, 路由策略, 代理密钥, 入口模型, 参与路由, 已知成本, 定价状态, 覆盖, 口径.
+Fixed terminology: 端点, 终端目标, 终端配置 (孤立时称孤立终端配置), 访问目标, 模型目标, 价格模板, 路由策略, 路由时段, 代理密钥, 入口模型, 参与路由, 已知成本, 定价状态, 覆盖, 口径.
 
 Left untranslated: Prism, Gateway, API family, epoch, cutoff, generation, FX, preflight, curl, OpenAI, Anthropic, Gemini.
 

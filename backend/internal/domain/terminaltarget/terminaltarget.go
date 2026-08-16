@@ -53,6 +53,8 @@ type Record struct {
 	AuthType                *string
 	CustomHeaders           map[string]string
 	CustomRequestParameters *CustomRequestParameters
+	RoutingScheduleTimezone *string
+	RoutingWindows          []Window
 	OpenAITextCapability    *string
 	OpenAIImageCapability   *string
 	PricingTemplateID       *int
@@ -88,5 +90,7 @@ type RuntimeRecord struct {
 	PricingTemplate         *RuntimePricingTemplateSnapshot
 	OpenAITextCapability    *string
 	OpenAIImageCapability   *string
+	RoutingScheduleTimezone *string
+	RoutingWindows          []Window
 	Endpoint                RuntimeEndpoint
 }

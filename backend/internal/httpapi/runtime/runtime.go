@@ -140,6 +140,7 @@ type runtimeConnection struct {
 	PricingTemplateSnapshot *runtimePricingTemplateSnapshot
 	OpenAITextCapability    *string
 	OpenAIImageCapability   *string
+	RoutingSchedule         terminaltarget.CompiledRoutingSchedule
 	EndpointFXSnapshot      *runtimeEndpointFXSnapshot
 	UpstreamAuth            *runtimeConnectionUpstreamAuthSnapshot
 	Endpoint                runtimeEndpoint
@@ -308,6 +309,13 @@ type requestPlanningInput struct {
 	ActiveProfileID int
 	Snapshot        *planningSnapshot
 	RoutingPlan     *runtimeRoutingPlan
+	// ReferenceNow is the single planning clock of this ingress, captured
+	// once at the runtime-operation boundary and shared by the probe plan
+	// and the final plan (Gemini path-bound requests plan twice with an
+	// upstream body read in between). Routing eligibility must never read
+	// the live clock; execution-phase admission and Ban re-checks
+	// deliberately keep reading it.
+	ReferenceNow time.Time
 	// ProbePlanning marks the rawBody == nil Gemini path-bound probe phase:
 	// the plan only decides whether the incoming body must be buffered, so
 	// custom-request-parameter overlay and object validation must be skipped.
@@ -717,7 +725,7 @@ func (s *Service) resolveRequestPlanTarget(input requestPlanningInput, operation
 	if err != nil {
 		return resolvedExecutionTarget{}, err
 	}
-	resolved, err := s.resolveExecutionTargetFromRoutingPlanWithOptions(input.ActiveProfileID, routingPlan, requestedModel, operation.Match.Operation, s.nowUTC())
+	resolved, err := s.resolveExecutionTargetFromRoutingPlanWithOptions(input.ActiveProfileID, routingPlan, requestedModel, operation.Match.Operation, input.ReferenceNow)
 	if err != nil {
 		return resolvedExecutionTarget{}, err
 	}

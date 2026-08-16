@@ -26,6 +26,12 @@ import { useLocale } from "@/i18n/useLocale";
 import { cn } from "@/lib/utils";
 import { classifyOpenAICoverage } from "./classifyOpenAICoverage";
 import { ConnectionCustomRequestParametersEditor } from "./ConnectionCustomRequestParametersEditor";
+import { ConnectionRoutingScheduleField } from "./ConnectionRoutingScheduleField";
+import {
+  routingScheduleDraftFromSchedule,
+  type RoutingScheduleDraft,
+  type RoutingScheduleDraftError,
+} from "./routingScheduleDraft";
 import {
   customRequestParametersDraftFromValue,
   parseCustomRequestParametersDraft,
@@ -65,6 +71,9 @@ interface ConnectionDialogProps {
   headerRows: HeaderRow[];
   setHeaderRows: (rows: HeaderRow[]) => void;
   customRequestParametersDraft: string;
+  routingScheduleDraft: RoutingScheduleDraft;
+  setRoutingScheduleDraft: (draft: RoutingScheduleDraft) => void;
+  routingScheduleError: RoutingScheduleDraftError | null;
   setCustomRequestParametersDraft: (draft: string) => void;
   customRequestParametersError: CustomRequestParametersParseError | null;
   setCustomRequestParametersError: (error: CustomRequestParametersParseError | null) => void;
@@ -147,6 +156,9 @@ export function ConnectionDialog({
   headerRows,
   setHeaderRows,
   customRequestParametersDraft,
+  routingScheduleDraft,
+  setRoutingScheduleDraft,
+  routingScheduleError,
   setCustomRequestParametersDraft,
   customRequestParametersError,
   setCustomRequestParametersError,
@@ -235,6 +247,9 @@ export function ConnectionDialog({
       max_in_flight_stream: source.max_in_flight_stream ?? null,
     });
     setCustomRequestParametersDraft(customRequestParametersDraftFromValue(source.custom_request_parameters));
+    // The copy source's schedule must be carried too: without this, "copy into
+    // a new connection" silently drops the windows the operator was copying.
+    setRoutingScheduleDraft(routingScheduleDraftFromSchedule(source.routing_schedule));
     setCustomRequestParametersError(null);
     setHeaderRows(
       Object.entries(source.custom_headers ?? {}).map(([key, value]) => ({
@@ -696,6 +711,19 @@ export function ConnectionDialog({
                         error={customRequestParametersError}
                       />
                     </ConnectionDialogSection>
+
+                    {/*
+                      A sibling section, not a member of the advanced request
+                      settings group: that group is described as request
+                      settings, while a routing window decides routing
+                      eligibility. Nesting it there would make the group's own
+                      description untrue.
+                    */}
+                    <ConnectionRoutingScheduleField
+                      draft={routingScheduleDraft}
+                      onDraftChange={setRoutingScheduleDraft}
+                      error={routingScheduleError}
+                    />
                   </div>
 
                 </div>

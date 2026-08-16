@@ -11,7 +11,7 @@ type TranslationMode string
 
 const TranslationModeNone TranslationMode = providerauth.OpenAITextTranslationModeNone
 
-// Stable OpenAI text planning rejection codes. These three codes are
+// Stable OpenAI text planning rejection codes. These four codes are
 // mutually distinguishable and are rejected before provider transport,
 // provider attempt, reservation, loadbalance event, usage/billing and audit
 // body capture side effects. Dynamic unavailability (Ban/admission/transport)

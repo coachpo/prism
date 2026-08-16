@@ -171,6 +171,19 @@ export interface GlobalCurrentStateModelIdentity {
   configured: boolean;
 }
 
+/**
+ * The routing-window dimension, orthogonal to the ban/retry state: a target can
+ * be available by every ban measure and still be outside its window.
+ */
+export interface GlobalCurrentStateSchedule {
+  configured: boolean;
+  timezone: string;
+  open: boolean | null;
+  unresolved: boolean;
+  next_open_at: string | null;
+  next_open_at_known: boolean;
+}
+
 export interface GlobalCurrentStateItem {
   model: GlobalCurrentStateModelIdentity;
   endpoint: GlobalCurrentStateIdentity;
@@ -193,6 +206,7 @@ export interface GlobalCurrentStateItem {
   qps_window_request_count: number | null;
   created_at: string | null;
   updated_at: string | null;
+  routing_schedule: GlobalCurrentStateSchedule | null;
 }
 
 export interface GlobalCurrentStateCompleteness {

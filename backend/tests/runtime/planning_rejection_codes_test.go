@@ -9,16 +9,23 @@ import (
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 )
 
-// TestRuntimeOpenAIPlanningRejectionCodesE2E pins the three stable, mutually
+// TestRuntimeOpenAIPlanningRejectionCodesE2E pins the stable, mutually
 // distinguishable planning codes plus the ordinary dynamic 503 across real
-// runtime proxy paths:
+// runtime proxy paths. Each bullet below names a code; the subtests that
+// currently exercise them are listed after it:
 //
 //   - openai_operation_not_supported (400): root model does not accept the operation;
 //   - openai_no_compatible_terminal_target (503): no capability-compatible leaf;
 //   - openai_no_eligible_terminal_target (503): compatible leaf exists but statically
-//     ineligible (inactive connection, disabled row, single truncation);
+//     ineligible. Covered here for an inactive connection and a disabled row.
+//     Single-strategy truncation reaches the same code but has no subtest here;
+//     do not cite this file as evidence that it is covered;
 //   - ordinary 503 without planning code: statically eligible compatible route was
-//     dynamically unavailable (Ban/retry).
+//     dynamically unavailable (Ban/retry);
+//   - terminal_target_schedule_closed (503): every evaluated terminal target is
+//     outside its configured routing window;
+//   - terminal_target_schedule_unresolvable (503): every evaluated terminal target
+//     has an unresolvable routing timezone.
 func TestRuntimeOpenAIPlanningRejectionCodesE2E(t *testing.T) {
 	t.Run("inactive connection classifies as no eligible terminal target", func(t *testing.T) {
 		harness := newRuntimeHarness(t)
@@ -93,6 +100,58 @@ func TestRuntimeOpenAIPlanningRejectionCodesE2E(t *testing.T) {
 		payload := runtimeResponsePayload(t, response)
 		if payload["error"] != nil {
 			t.Fatalf("expected dynamic unavailability to keep ordinary 503 without planning code, got %+v", payload)
+		}
+	})
+
+	t.Run("closed routing window classifies as terminal target schedule closed", func(t *testing.T) {
+		harness := newRuntimeHarness(t)
+		profileID := harness.activeProfileID(t)
+		suffix := randomSuffix()
+		strategyID := harness.seedLegacyStrategy(t, profileID, "planning-schedule-close-"+suffix, "fill-first")
+		publicModelID := "planning-schedule-close-public-" + suffix
+		modelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &strategyID)
+		endpointID := harness.seedEndpoint(t, profileID, "planning-schedule-close-endpoint-"+suffix, "https://planning-schedule-close.invalid", "planning-schedule-close-key")
+		connectionID := harness.seedConnectionWithOpenAITextCapability(t, profileID, modelConfigID, endpointID, "planning-schedule-close-connection-"+suffix, nil, nil, 0, runtimeStringPtr("dual_native"))
+
+		// Monday-only, all day: closed at the request instant (today is not a
+		// Monday in the running harness clock).
+		harness.updateConnectionRoutingSchedule(t, profileID, connectionID, "UTC", [][3]int{{1, 0, 1440}})
+		harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+		response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", chatCompletionsBody(publicModelID, "closed window"), nil)
+		assertStatus(t, response, http.StatusServiceUnavailable)
+		payload := runtimeResponsePayload(t, response)
+		if payload["error"] != "terminal_target_schedule_closed" {
+			t.Fatalf("expected terminal_target_schedule_closed, got %+v", payload)
+		}
+		if payload["schedule_excluded_connection_count"] != float64(1) {
+			t.Fatalf("expected one excluded connection on the wire, got %+v", payload)
+		}
+		if payload["schedule_earliest_next_open_at_known"] != true {
+			t.Fatalf("expected earliest next open known on the wire, got %+v", payload)
+		}
+	})
+
+	t.Run("unresolvable routing timezone classifies as schedule unresolvable", func(t *testing.T) {
+		harness := newRuntimeHarness(t)
+		profileID := harness.activeProfileID(t)
+		suffix := randomSuffix()
+		strategyID := harness.seedLegacyStrategy(t, profileID, "planning-schedule-tz-"+suffix, "fill-first")
+		publicModelID := "planning-schedule-tz-public-" + suffix
+		modelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", &strategyID)
+		endpointID := harness.seedEndpoint(t, profileID, "planning-schedule-tz-endpoint-"+suffix, "https://planning-schedule-tz.invalid", "planning-schedule-tz-key")
+		connectionID := harness.seedConnectionWithOpenAITextCapability(t, profileID, modelConfigID, endpointID, "planning-schedule-tz-connection-"+suffix, nil, nil, 0, runtimeStringPtr("dual_native"))
+
+		// Direct database injection of a bad timezone (the column has no DB
+		// CHECK); the failure must be confined to this single connection.
+		harness.updateConnectionRoutingSchedule(t, profileID, connectionID, "Not/AZone", [][3]int{{1, 0, 60}})
+		harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+		response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", chatCompletionsBody(publicModelID, "bad timezone"), nil)
+		assertStatus(t, response, http.StatusServiceUnavailable)
+		payload := runtimeResponsePayload(t, response)
+		if payload["error"] != "terminal_target_schedule_unresolvable" {
+			t.Fatalf("expected terminal_target_schedule_unresolvable, got %+v", payload)
 		}
 	})
 }

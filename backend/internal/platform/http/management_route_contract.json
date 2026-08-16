@@ -352,18 +352,6 @@
     "notes": "Endpoint update and delete refresh planning."
   },
   {
-    "route_pattern": "/api/endpoints/{endpoint_id}/position",
-    "methods": [
-      "PATCH"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile endpoint ordering route is non-invalidating in current classifier."
-  },
-  {
     "route_pattern": "/api/endpoints/{endpoint_id}/duplicate",
     "methods": [
       "POST"
@@ -374,18 +362,6 @@
     "invalidates_planning": true,
     "invalidates_all_planning": false,
     "notes": "Endpoint duplication refreshes planning."
-  },
-  {
-    "route_pattern": "/api/endpoints/{endpoint_id}/position",
-    "methods": [
-      "PATCH"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile endpoint ordering route is non-invalidating in current classifier."
   },
   {
     "route_pattern": "/api/loadbalance/strategies",

@@ -36,7 +36,12 @@ test("profile scope helper matches profile-scoped rows in the route contract man
   const scopedRows = routeContract.filter((row) => row.profile_scoped);
   const scopedNonInvalidatingRows = scopedRows.filter(isNonInvalidating);
 
-  assert.equal(routeContract.length, 100, "manifest row count should stay locked");
+  // 98 since the two duplicated entries for /api/endpoints/{endpoint_id}/position
+  // were removed: that route is not mounted anywhere in the backend, and the
+  // column it ordered by was dropped in migration 000004. The lock is here to
+  // force a deliberate decision whenever the manifest changes, so it moves only
+  // with an explanation like this one.
+  assert.equal(routeContract.length, 98, "manifest row count should stay locked");
   assert.ok(scopedRows.length > 0, "manifest should include profile-scoped rows");
   assert.ok(
     scopedNonInvalidatingRows.length > 0,

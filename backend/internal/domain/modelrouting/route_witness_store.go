@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -89,7 +90,7 @@ func LoadRouteWitnessGraph(ctx context.Context, exec RouteWitnessExecutor, profi
 	}
 
 	connectionTargetRows, err := exec.Query(ctx, `SELECT mat.id, mat.profile_id, mat.source_model_config_id, mat.target_connection_id, mat.position, mat.is_enabled,
-		c.id, c.profile_id, c.api_family, c.endpoint_id, c.is_active, c.openai_text_capability, c.openai_image_capability
+		c.id, c.profile_id, c.api_family, c.endpoint_id, c.is_active, c.openai_text_capability, c.openai_image_capability, c.routing_schedule_timezone
 		FROM model_access_targets mat
 		JOIN connections c ON c.id = mat.target_connection_id
 		JOIN endpoints e ON e.id = c.endpoint_id
@@ -104,7 +105,7 @@ func LoadRouteWitnessGraph(ctx context.Context, exec RouteWitnessExecutor, profi
 		var connectionID sql.NullInt64
 		var connection DiagnosticsConnection
 		if err := connectionTargetRows.Scan(&target.ID, &target.ProfileID, &target.SourceModelConfigID, &connectionID, &target.Position, &target.IsEnabled,
-			&connection.ID, &connection.ProfileID, &connection.APIFamily, &connection.EndpointID, &connection.IsActive, &connection.OpenAITextCapability, &connection.OpenAIImageCapability); err != nil {
+			&connection.ID, &connection.ProfileID, &connection.APIFamily, &connection.EndpointID, &connection.IsActive, &connection.OpenAITextCapability, &connection.OpenAIImageCapability, &connection.RoutingScheduleTimezone); err != nil {
 			return nil, fmt.Errorf("scan route-witness connection target for profile %d: %w", profileID, err)
 		}
 		if !connectionID.Valid {
@@ -119,6 +120,33 @@ func LoadRouteWitnessGraph(ctx context.Context, exec RouteWitnessExecutor, profi
 	}
 	if err := connectionTargetRows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate route-witness connection targets for profile %d: %w", profileID, err)
+	}
+	connectionTargetRows.Close()
+
+	// Fifth query: without it the witness graph would carry a timezone and no
+	// windows, the schedule projection would read as unrestricted, and the
+	// readiness card would keep claiming unconditional readiness. No existing
+	// assertion covers that, so the omission would be silent.
+	windowRows, err := exec.Query(ctx, `SELECT connection_id, weekday_mask, start_minute, end_minute FROM connection_routing_windows WHERE profile_id = $1 ORDER BY connection_id ASC, weekday_mask ASC, start_minute ASC, end_minute ASC`, profileID)
+	if err != nil {
+		return nil, fmt.Errorf("query route-witness routing windows for profile %d: %w", profileID, err)
+	}
+	defer windowRows.Close()
+	for windowRows.Next() {
+		var connectionID int
+		var window terminaltarget.Window
+		if err := windowRows.Scan(&connectionID, &window.WeekdayMask, &window.StartMinute, &window.EndMinute); err != nil {
+			return nil, fmt.Errorf("scan route-witness routing window for profile %d: %w", profileID, err)
+		}
+		connection, exists := graph.ConnectionsByID[connectionID]
+		if !exists {
+			continue
+		}
+		connection.RoutingWindows = append(connection.RoutingWindows, window)
+		graph.ConnectionsByID[connectionID] = connection
+	}
+	if err := windowRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate route-witness routing windows for profile %d: %w", profileID, err)
 	}
 
 	return graph, nil

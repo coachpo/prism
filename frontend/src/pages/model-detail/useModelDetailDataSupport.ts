@@ -1,3 +1,4 @@
+import type { RoutingSchedule } from "@/lib/types/routing";
 import type {
   ApiFamily,
   Connection,
@@ -51,6 +52,7 @@ interface BuildConnectionDraftPayloadInput {
   connectionForm: ConnectionDialogFormLike;
   headerRows: HeaderRowLike[];
   customRequestParametersValue: JsonObject | null;
+  routingScheduleValue: RoutingSchedule | null;
   editingConnection: Connection | null;
   endpointSourceDefaultName: string | null;
 }
@@ -73,6 +75,7 @@ export function buildConnectionDraftPayload({
   connectionForm,
   headerRows,
   customRequestParametersValue,
+  routingScheduleValue,
   editingConnection,
   endpointSourceDefaultName,
 }: BuildConnectionDraftPayloadInput): {
@@ -104,6 +107,7 @@ export function buildConnectionDraftPayload({
     is_active: connectionForm.is_active,
     custom_headers: customHeaders,
     custom_request_parameters: customRequestParametersValue,
+    routing_schedule: routingScheduleValue,
     openai_text_capability:
       resolvedApiFamily === "openai"
         ? normalizeOpenAITextCapability(connectionForm.openai_text_capability)

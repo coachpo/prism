@@ -1,3 +1,4 @@
+import { supportedTimezones } from "@/lib/ianaTimeZones";
 import React, { useState } from "react";
 import type { ReactNode } from "react";
 import { RefreshCcw, SlidersHorizontal } from "lucide-react";
@@ -133,7 +134,7 @@ export function BasisAndDisplaySection({
                           <SelectItem value="auto">
                             {copy.timezoneAuto(Intl.DateTimeFormat().resolvedOptions().timeZone)}
                           </SelectItem>
-                          {Intl.supportedValuesOf("timeZone").map((timezone) => (
+                          {supportedTimezones().map((timezone) => (
                             <SelectItem key={timezone} value={timezone}>
                               {timezone}
                             </SelectItem>

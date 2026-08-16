@@ -15,6 +15,7 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/domain/safediag"
+	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	"github.com/coachpo/prism/backend/internal/providerauth"
 )
@@ -542,6 +543,7 @@ func TestBuildRequestPlan_PreservesRecursiveModelStrategy(t *testing.T) {
 		OperationMatch:  operationMatch,
 		ActiveProfileID: requestPlanTestProfileID,
 		Snapshot:        snapshot,
+		ReferenceNow:    service.nowUTC(),
 	}
 
 	operation, err := resolveRequestOperation(input)
@@ -599,6 +601,59 @@ func TestBuildRequestPlan_PreservesRecursiveModelStrategy(t *testing.T) {
 	}
 	if !bytes.Equal(secondAttempts[0].UpstreamBody, secondUpstream.UpstreamBody) {
 		t.Fatalf("expected second compiled attempt body to match second upstream request")
+	}
+}
+
+func TestPlanningReferenceNowIsSharedAcrossProbeAndFinalPlan(t *testing.T) {
+	// Advancing clock: the first read returns T0, every later read T0+10m.
+	// A Gemini path-bound ingress plans twice (probe then final) with an
+	// upstream body read in between; before the shared ReferenceNow fix, the
+	// final plan re-read the live clock and could treat a still-banned
+	// connection as unbanned.
+	baseTime := time.Unix(1_700_000_000, 0).UTC()
+	advancingNow := baseTime
+	service := &Service{
+		runtimeState: loadbalance.NewLocalRuntimeStateStore(),
+		now: func() time.Time {
+			now := advancingNow
+			advancingNow = advancingNow.Add(10 * time.Minute)
+			return now
+		},
+	}
+	snapshot := newRequestPlanSnapshot(
+		runtimeModelRecord{ID: 1, APIFamily: "gemini", ModelID: "router-gemini"},
+		runtimeModelRecord{ID: 2, APIFamily: "gemini", ModelID: "peer-gemini"},
+	)
+	// Router keeps its auto terminal (1001) plus one model peer; the peer's
+	// only terminal is its auto connection 1002, which is what gets banned.
+	addRequestPlanModelTargetWithMetadata(snapshot, "router-gemini", "peer-gemini", 0)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1beta/models/router-gemini:generateContent", nil)
+	request.Header.Set("Content-Type", "application/json")
+	// One ingress carries one planning clock for the whole request.
+	request = request.WithContext(withRuntimeIngressContext(request.Context(), newRuntimeIngressContext(baseTime)))
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+
+	bannedUntil := baseTime.Add(5 * time.Minute)
+	seededAt := baseTime.Add(-time.Minute)
+	service.runtimeState.SeedConnectionState(requestPlanTestProfileID, 2, 1002, loadbalance.RuntimeConnectionState{ConnectionID: 1002, BanMode: "temporary", BannedUntilAt: &bannedUntil}, seededAt, seededAt)
+
+	probePlan, err := service.buildRequestPlanFromSnapshotCoreWithProbe(request, nil, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot, true)
+	if err != nil {
+		t.Fatalf("build probe plan: %v", err)
+	}
+	finalPlan, err := service.buildRequestPlanFromSnapshotCoreWithProbe(request, []byte(`{"contents":[{"parts":[{"text":"hi"}]}]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot, false)
+	if err != nil {
+		t.Fatalf("build final plan: %v", err)
+	}
+	if len(probePlan.TerminalAttempts) != len(finalPlan.TerminalAttempts) {
+		t.Fatalf("expected probe and final plans to agree on the candidate set: probe=%d final=%d", len(probePlan.TerminalAttempts), len(finalPlan.TerminalAttempts))
+	}
+	// Connection 1002 is banned until T0+5m; with the shared T0 clock both
+	// plans must exclude the peer. A final plan that re-read the clock at
+	// T0+10m would include the peer and disagree.
+	if len(finalPlan.TerminalAttempts) != 1 || finalPlan.TerminalAttempts[0].Connection.ID != 1001 {
+		t.Fatalf("expected both plans to keep only the direct terminal attempt, got %+v", finalPlan.TerminalAttempts)
 	}
 }
 
@@ -1782,6 +1837,7 @@ func addRequestPlanModelTargetWithMetadata(snapshot *planningSnapshot, proxyMode
 type requestPlanConnectionTargetOptions struct {
 	openAITextCapability    *string
 	pricingTemplateSnapshot *runtimePricingTemplateSnapshot
+	routingSchedule         terminaltarget.CompiledRoutingSchedule
 }
 
 func addRequestPlanConnectionTarget(snapshot *planningSnapshot, model runtimeModelRecord, connectionID int, targetID int, position int) {
@@ -1802,6 +1858,7 @@ func addRequestPlanConnectionTargetWithOptions(snapshot *planningSnapshot, model
 		Priority:                position,
 		PricingTemplateSnapshot: options.pricingTemplateSnapshot,
 		OpenAITextCapability:    openAITextCapability,
+		RoutingSchedule:         options.routingSchedule,
 		Endpoint:                runtimeEndpoint{ID: 1, BaseURL: "https://upstream.example"},
 	}
 	snapshot.AccessTargetsBySourceModelID[model.ID] = append(snapshot.AccessTargetsBySourceModelID[model.ID], runtimeAccessTargetRecord{
@@ -1851,6 +1908,20 @@ func assertPlanDomainError(t *testing.T, err error, wantStatus int, detailContai
 	}
 	if !strings.Contains(domainErr.Detail, detailContains) {
 		t.Fatalf("expected detail containing %q, got %q", detailContains, domainErr.Detail)
+	}
+}
+
+func assertPlanDomainErrorCode(t *testing.T, err error, wantStatus int, wantCode string) {
+	t.Helper()
+	var domainErr *domainError
+	if !errors.As(err, &domainErr) {
+		t.Fatalf("expected domain error, got %v", err)
+	}
+	if domainErr.StatusCode != wantStatus {
+		t.Fatalf("expected status %d, got %d with detail %q", wantStatus, domainErr.StatusCode, domainErr.Detail)
+	}
+	if domainErr.ErrorCode != wantCode {
+		t.Fatalf("expected error code %q, got %q with detail %q", wantCode, domainErr.ErrorCode, domainErr.Detail)
 	}
 }
 

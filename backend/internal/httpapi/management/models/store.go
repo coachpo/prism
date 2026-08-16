@@ -15,6 +15,7 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
+	"github.com/coachpo/prism/backend/internal/httpapi/management/connections"
 	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
@@ -407,9 +408,55 @@ func loadModelAccessTargetsForModels(ctx context.Context, exec queryExecutor, pr
 	return items, nil
 }
 
+// loadConnectionRoutingWindowsByIDs reads the routing window child rows for a
+// set of connections. The parent queries only carry the timezone column, so
+// without this second pass every connection would render as configured with
+// zero windows. It cannot be folded into the parent JOIN: window rows would
+// multiply the access-target rows cartesian-style.
+func loadConnectionRoutingWindowsByIDs(ctx context.Context, exec queryExecutor, profileID int, connectionIDs []int) (map[int][]terminaltarget.Window, error) {
+	if len(connectionIDs) == 0 {
+		return map[int][]terminaltarget.Window{}, nil
+	}
+	rows, err := exec.Query(ctx, `SELECT connection_id, weekday_mask, start_minute, end_minute FROM connection_routing_windows WHERE profile_id = $1 AND connection_id = ANY($2) ORDER BY connection_id ASC, weekday_mask ASC, start_minute ASC, end_minute ASC`, profileID, int32ArrayArg(connectionIDs))
+	if err != nil {
+		return nil, fmt.Errorf("query routing windows for profile %d: %w", profileID, err)
+	}
+	defer rows.Close()
+	items := map[int][]terminaltarget.Window{}
+	for rows.Next() {
+		var connectionID int
+		var window terminaltarget.Window
+		if err := rows.Scan(&connectionID, &window.WeekdayMask, &window.StartMinute, &window.EndMinute); err != nil {
+			return nil, fmt.Errorf("scan routing window: %w", err)
+		}
+		items[connectionID] = append(items[connectionID], window)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate routing windows for profile %d: %w", profileID, err)
+	}
+	return items, nil
+}
+
+// applyConnectionRoutingSchedule assembles the wire configuration from the
+// parent timezone column plus the child window rows. It is clock-free: the
+// evaluated state is projected later, at the single response funnel.
+func applyConnectionRoutingSchedule(summary *connectionTargetSummary, windows []terminaltarget.Window) {
+	if summary.routingScheduleTimezone == nil && len(windows) == 0 {
+		return
+	}
+	payload := &connections.RoutingSchedulePayload{}
+	if summary.routingScheduleTimezone != nil {
+		payload.Timezone = *summary.routingScheduleTimezone
+	}
+	for _, window := range windows {
+		payload.Windows = append(payload.Windows, connections.RoutingWindowPayload{WeekdayMask: window.WeekdayMask, StartMinute: window.StartMinute, EndMinute: window.EndMinute})
+	}
+	summary.RoutingSchedule = payload
+}
+
 func loadConnectionAccessTargetsForModels(ctx context.Context, exec queryExecutor, profileID int, modelIDs []int) (map[int][]accessTargetRecord, error) {
 	args := []any{profileID, int32ArrayArg(modelIDs)}
-	query := `SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_connection_id, model_access_targets.position, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.api_key_fingerprint, endpoints.api_key_updated_at, endpoints.config_revision, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.custom_request_parameters, connections.openai_text_capability, connections.openai_image_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, revisions.version, revisions.currency_code, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id LEFT JOIN pricing_template_revisions AS revisions ON revisions.id = pricing_templates.current_revision_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id = ANY($2) AND model_access_targets.target_connection_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`
+	query := `SELECT model_access_targets.id, model_access_targets.profile_id, model_access_targets.source_model_config_id, model_access_targets.target_connection_id, model_access_targets.position, model_access_targets.is_enabled, model_access_targets.created_at, model_access_targets.updated_at, connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.api_key_fingerprint, endpoints.api_key_updated_at, endpoints.config_revision, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.custom_request_parameters, connections.openai_text_capability, connections.openai_image_capability, connections.routing_schedule_timezone, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, revisions.version, revisions.currency_code, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id LEFT JOIN pricing_template_revisions AS revisions ON revisions.id = pricing_templates.current_revision_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id = ANY($2) AND model_access_targets.target_connection_id IS NOT NULL ORDER BY model_access_targets.source_model_config_id ASC, model_access_targets.position ASC, model_access_targets.id ASC`
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query connection access targets for profile %d: %w", profileID, err)
@@ -426,6 +473,33 @@ func loadConnectionAccessTargetsForModels(ctx context.Context, exec queryExecuto
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate connection access targets: %w", err)
+	}
+	rows.Close()
+	connectionIDs := make([]int, 0)
+	seen := map[int]struct{}{}
+	for _, records := range items {
+		for _, record := range records {
+			if record.Connection == nil {
+				continue
+			}
+			if _, ok := seen[record.Connection.ID]; ok {
+				continue
+			}
+			seen[record.Connection.ID] = struct{}{}
+			connectionIDs = append(connectionIDs, record.Connection.ID)
+		}
+	}
+	windowsByConnection, err := loadConnectionRoutingWindowsByIDs(ctx, exec, profileID, connectionIDs)
+	if err != nil {
+		return nil, err
+	}
+	for modelID := range items {
+		for index := range items[modelID] {
+			if items[modelID][index].Connection == nil {
+				continue
+			}
+			applyConnectionRoutingSchedule(items[modelID][index].Connection, windowsByConnection[items[modelID][index].Connection.ID])
+		}
 	}
 	return items, nil
 }
@@ -559,7 +633,7 @@ func loadConnectionSummariesByIDs(ctx context.Context, exec queryExecutor, profi
 		return map[int]connectionTargetSummary{}, nil
 	}
 	args := []any{profileID, int32ArrayArg(connectionIDs)}
-	query := `SELECT connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.api_key_fingerprint, endpoints.api_key_updated_at, endpoints.config_revision, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.custom_request_parameters, connections.openai_text_capability, connections.openai_image_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, revisions.version, revisions.currency_code, connections.created_at, connections.updated_at FROM connections JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id LEFT JOIN pricing_template_revisions AS revisions ON revisions.id = pricing_templates.current_revision_id WHERE connections.profile_id = $1 AND connections.id = ANY($2) ORDER BY connections.id ASC`
+	query := `SELECT connections.id, connections.profile_id, connections.api_family, connections.endpoint_id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.api_key_fingerprint, endpoints.api_key_updated_at, endpoints.config_revision, endpoints.created_at, endpoints.updated_at, connections.is_active, connections.priority, connections.name, connections.auth_type, connections.custom_headers, connections.custom_request_parameters, connections.openai_text_capability, connections.openai_image_capability, connections.routing_schedule_timezone, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, revisions.version, revisions.currency_code, connections.created_at, connections.updated_at FROM connections JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id LEFT JOIN pricing_template_revisions AS revisions ON revisions.id = pricing_templates.current_revision_id WHERE connections.profile_id = $1 AND connections.id = ANY($2) ORDER BY connections.id ASC`
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query target connections for profile %d: %w", profileID, err)
@@ -575,6 +649,16 @@ func loadConnectionSummariesByIDs(ctx context.Context, exec queryExecutor, profi
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate target connections: %w", err)
+	}
+	rows.Close()
+	windowsByConnection, err := loadConnectionRoutingWindowsByIDs(ctx, exec, profileID, connectionIDs)
+	if err != nil {
+		return nil, err
+	}
+	for id := range items {
+		summary := items[id]
+		applyConnectionRoutingSchedule(&summary, windowsByConnection[id])
+		items[id] = summary
 	}
 	return items, nil
 }
@@ -921,6 +1005,7 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 	var customRequestParameters sql.NullString
 	var openAITextCapability sql.NullString
 	var openAIImageCapability sql.NullString
+	var routingScheduleTimezone sql.NullString
 	var pricingTemplateID sql.NullInt32
 	var qpsLimit sql.NullInt32
 	var maxInFlightNonStream sql.NullInt32
@@ -953,6 +1038,7 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 		&customRequestParameters,
 		&openAITextCapability,
 		&openAIImageCapability,
+		&routingScheduleTimezone,
 		&pricingTemplateID,
 		&qpsLimit,
 		&maxInFlightNonStream,
@@ -978,6 +1064,7 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 	item.CustomRequestParameters = parseCustomRequestParameters(customRequestParameters)
 	item.OpenAITextCapability = nullableStringValue(openAITextCapability)
 	item.OpenAIImageCapability = nullableStringValue(openAIImageCapability)
+	item.routingScheduleTimezone = nullableStringValue(routingScheduleTimezone)
 	item.PricingTemplateID = nullableInt32(pricingTemplateID)
 	item.QPSLimit = nullableInt32(qpsLimit)
 	item.MaxInFlightNonStream = nullableInt32(maxInFlightNonStream)
@@ -988,8 +1075,8 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 	return item, nil
 }
 
-func buildModelListResponse(record modelRecord, strategies map[int]strategyRecord, accessTargets map[int][]accessTargetRecord, counts map[int]modelConnectionCounts, health map[string]modelHealthStats) modelConfigListResponse {
-	response := modelConfigListResponse{ID: record.ID, ProfileID: record.ProfileID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, OpenAIAcceptedFormat: record.OpenAIAcceptedFormat, OpenAIImageOperations: record.OpenAIImageOperations, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID]), IsEnabled: record.IsEnabled, HealthTotalRequests: 0, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
+func buildModelListResponse(record modelRecord, strategies map[int]strategyRecord, accessTargets map[int][]accessTargetRecord, counts map[int]modelConnectionCounts, health map[string]modelHealthStats, now time.Time) modelConfigListResponse {
+	response := modelConfigListResponse{ID: record.ID, ProfileID: record.ProfileID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, OpenAIAcceptedFormat: record.OpenAIAcceptedFormat, OpenAIImageOperations: record.OpenAIImageOperations, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID], now), IsEnabled: record.IsEnabled, HealthTotalRequests: 0, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
 	if record.LoadbalanceStrategyID != nil {
 		if strategy, ok := strategies[*record.LoadbalanceStrategyID]; ok {
 			response.LoadbalanceStrategy = strategySummaryFromRecord(strategy)
@@ -1006,8 +1093,8 @@ func buildModelListResponse(record modelRecord, strategies map[int]strategyRecor
 	return response
 }
 
-func buildModelDetailResponse(record modelRecord, strategies map[int]strategyRecord, accessTargets map[int][]accessTargetRecord) modelConfigResponse {
-	response := modelConfigResponse{ID: record.ID, ProfileID: record.ProfileID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, OpenAIAcceptedFormat: record.OpenAIAcceptedFormat, OpenAIImageOperations: record.OpenAIImageOperations, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID]), IsEnabled: record.IsEnabled, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
+func buildModelDetailResponse(record modelRecord, strategies map[int]strategyRecord, accessTargets map[int][]accessTargetRecord, now time.Time) modelConfigResponse {
+	response := modelConfigResponse{ID: record.ID, ProfileID: record.ProfileID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, LoadbalanceStrategyID: record.LoadbalanceStrategyID, OpenAIAcceptedFormat: record.OpenAIAcceptedFormat, OpenAIImageOperations: record.OpenAIImageOperations, AccessTargets: accessTargetResponsesFromRecords(accessTargets[record.ID], now), IsEnabled: record.IsEnabled, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
 	if record.LoadbalanceStrategyID != nil {
 		if strategy, ok := strategies[*record.LoadbalanceStrategyID]; ok {
 			response.LoadbalanceStrategy = strategySummaryFromRecord(strategy)
@@ -1020,7 +1107,7 @@ func strategySummaryFromRecord(record strategyRecord) *loadbalanceStrategySummar
 	return &loadbalanceStrategySummary{ID: record.ID, Name: record.Name, LegacyStrategyType: record.LegacyStrategyType, IsDefault: record.IsDefault, FailureStatusCodes: cloneIntSlice(record.FailureStatusCodes), BanMode: record.BanMode, RetryBaseDelayMS: record.RetryBaseDelayMS, RetryBackoffMultiplier: record.RetryBackoffMultiplier, RetryJitterRatio: record.RetryJitterRatio, RetryMaxDelayMS: record.RetryMaxDelayMS, CycleRetryAttemptLimit: record.CycleRetryAttemptLimit, BanCumulativeRetryAttemptThreshold: record.BanCumulativeRetryAttemptThreshold, BanDurationSeconds: record.BanDurationSeconds}
 }
 
-func accessTargetResponsesFromRecords(records []accessTargetRecord) []modelAccessTargetResponse {
+func accessTargetResponsesFromRecords(records []accessTargetRecord, now time.Time) []modelAccessTargetResponse {
 	if len(records) == 0 {
 		return []modelAccessTargetResponse{}
 	}
@@ -1034,6 +1121,13 @@ func accessTargetResponsesFromRecords(records []accessTargetRecord) []modelAcces
 		}
 		if record.Connection != nil {
 			connection := *record.Connection
+			// The evaluated state is projected here, at the single funnel where
+			// both the connection and terminal_target keys are filled from the
+			// same struct, so the two keys can never disagree. It reuses the
+			// connections package projection rather than a second
+			// implementation of window arithmetic.
+			connection.RoutingScheduleState = connections.RoutingScheduleStateForConfig(
+				connection.routingScheduleTimezone, routingWindowsFromPayload(connection.RoutingSchedule), connection.IsActive, now)
 			response.Connection = &connection
 			response.TerminalTarget = &connection
 		}
@@ -1260,4 +1354,29 @@ func setModelEnabled(ctx context.Context, exec queryExecutor, profileID int, mod
 		return fmt.Errorf("set model %d enabled=%t: %w", modelConfigID, enabled, err)
 	}
 	return nil
+}
+
+// routingWindowsFromPayload converts the assembled wire configuration back into
+// domain windows for the state projection.
+func routingWindowsFromPayload(payload *connections.RoutingSchedulePayload) []terminaltarget.Window {
+	if payload == nil || len(payload.Windows) == 0 {
+		return nil
+	}
+	windows := make([]terminaltarget.Window, 0, len(payload.Windows))
+	for _, window := range payload.Windows {
+		windows = append(windows, terminaltarget.Window{WeekdayMask: window.WeekdayMask, StartMinute: window.StartMinute, EndMinute: window.EndMinute})
+	}
+	return windows
+}
+
+// routingScheduleTimezoneFromSummary reads the timezone off an assembled
+// summary. The wire payload is the single source here: the unexported carrier
+// field is only populated on the scan path, while composite reads build the
+// summary from the payload.
+func routingScheduleTimezoneFromSummary(summary *connectionTargetSummary) *string {
+	if summary == nil || summary.RoutingSchedule == nil {
+		return nil
+	}
+	timezone := summary.RoutingSchedule.Timezone
+	return &timezone
 }

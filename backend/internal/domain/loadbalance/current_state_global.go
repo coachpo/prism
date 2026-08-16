@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 	"strings"
 	"time"
 
@@ -45,6 +46,7 @@ type CurrentStateItemGlobal struct {
 	QPSWindowRequestCount               *int                         `json:"qps_window_request_count"`
 	CreatedAt                           *time.Time                   `json:"created_at"`
 	UpdatedAt                           *time.Time                   `json:"updated_at"`
+	RoutingSchedule                     CurrentStateScheduleGlobal   `json:"routing_schedule"`
 }
 
 type CurrentStateModelIdentity struct {
@@ -144,6 +146,23 @@ type configuredTargetRow struct {
 	EndpointID         int
 	EndpointLabel      string
 	TargetLabel        string
+	// Routing schedule configuration travels on the cohort row so the item
+	// builder needs no extra parameter and no second lookup.
+	RoutingScheduleTimezone *string
+	RoutingWindows          []terminaltarget.Window
+}
+
+// CurrentStateScheduleGlobal is the routing-window dimension of a configured
+// target. It is orthogonal to the ban/retry state: a connection can be
+// "available" by every ban measure and still be outside its window, and the
+// routing-health view must not present the first as an answer to the second.
+type CurrentStateScheduleGlobal struct {
+	Configured      bool       `json:"configured"`
+	Timezone        string     `json:"timezone"`
+	Open            *bool      `json:"open"`
+	Unresolved      bool       `json:"unresolved"`
+	NextOpenAt      *time.Time `json:"next_open_at"`
+	NextOpenAtKnown bool       `json:"next_open_at_known"`
 }
 
 // listConfiguredTargetRows resolves the configured-target union: distinct
@@ -169,7 +188,7 @@ func listConfiguredTargetRows(ctx context.Context, exec queryExecutor, profileID
 			  AND mat.target_connection_id IS NOT NULL
 		)
 		SELECT t.connection_id, t.owner_model_config_id, mc.model_id, COALESCE(mc.display_name, mc.model_id),
-			conn.endpoint_id, endpoints.name, conn.name
+			conn.endpoint_id, endpoints.name, conn.name, conn.routing_schedule_timezone
 		FROM targets t
 		JOIN model_configs mc ON mc.id = t.owner_model_config_id AND mc.profile_id = $1
 		JOIN connections conn ON conn.id = t.connection_id AND conn.profile_id = $1
@@ -184,18 +203,55 @@ func listConfiguredTargetRows(ctx context.Context, exec queryExecutor, profileID
 	items := make([]configuredTargetRow, 0)
 	for rows.Next() {
 		var item configuredTargetRow
-		var endpointLabel, targetLabel sql.NullString
-		if err := rows.Scan(&item.ConnectionID, &item.OwnerModelConfigID, &item.ModelID, &item.ModelLabel, &item.EndpointID, &endpointLabel, &targetLabel); err != nil {
+		var endpointLabel, targetLabel, routingScheduleTimezone sql.NullString
+		if err := rows.Scan(&item.ConnectionID, &item.OwnerModelConfigID, &item.ModelID, &item.ModelLabel, &item.EndpointID, &endpointLabel, &targetLabel, &routingScheduleTimezone); err != nil {
 			return nil, fmt.Errorf("scan configured target row: %w", err)
 		}
 		item.EndpointLabel = labelOrFallback(endpointLabel, fmt.Sprintf("#%d", item.EndpointID))
 		item.TargetLabel = labelOrFallback(targetLabel, fmt.Sprintf("#%d", item.ConnectionID))
+		if routingScheduleTimezone.Valid {
+			timezone := routingScheduleTimezone.String
+			item.RoutingScheduleTimezone = &timezone
+		}
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate configured target rows: %w", err)
 	}
+	rows.Close()
+	if err := attachConfiguredTargetRoutingWindows(ctx, exec, profileID, items); err != nil {
+		return nil, err
+	}
 	return items, nil
+}
+
+// attachConfiguredTargetRoutingWindows reads the window child rows for the
+// cohort in one pass.
+func attachConfiguredTargetRoutingWindows(ctx context.Context, exec queryExecutor, profileID int, items []configuredTargetRow) error {
+	if len(items) == 0 {
+		return nil
+	}
+	rows, err := exec.Query(ctx, `SELECT connection_id, weekday_mask, start_minute, end_minute FROM connection_routing_windows WHERE profile_id = $1 ORDER BY connection_id ASC, weekday_mask ASC, start_minute ASC, end_minute ASC`, profileID)
+	if err != nil {
+		return fmt.Errorf("query configured target routing windows for profile %d: %w", profileID, err)
+	}
+	defer rows.Close()
+	windowsByConnection := map[int][]terminaltarget.Window{}
+	for rows.Next() {
+		var connectionID int
+		var window terminaltarget.Window
+		if err := rows.Scan(&connectionID, &window.WeekdayMask, &window.StartMinute, &window.EndMinute); err != nil {
+			return fmt.Errorf("scan configured target routing window: %w", err)
+		}
+		windowsByConnection[connectionID] = append(windowsByConnection[connectionID], window)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate configured target routing windows for profile %d: %w", profileID, err)
+	}
+	for index := range items {
+		items[index].RoutingWindows = windowsByConnection[items[index].ConnectionID]
+	}
+	return nil
 }
 
 func labelOrFallback(value sql.NullString, fallback string) string {
@@ -407,6 +463,11 @@ func currentStateItemFromCohortRow(row configuredTargetRow, observation *Runtime
 		TerminalTarget:   CurrentStateTargetIdentity{ID: row.ConnectionID, Label: row.TargetLabel, Configured: true},
 		ObservationState: CurrentStateObservationUnobserved,
 	}
+	// Filled before the unobserved early return: a connection that has never
+	// been attempted still has a schedule, and reporting it only for observed
+	// rows would hide exactly the case where the schedule is why nothing was
+	// ever attempted.
+	item.RoutingSchedule = currentStateScheduleFromRow(row, nowAt)
 	if observation == nil {
 		return item
 	}
@@ -435,3 +496,33 @@ func currentStateItemFromCohortRow(row configuredTargetRow, observation *Runtime
 }
 
 var _ = pgx.ErrNoRows
+
+// currentStateScheduleFromRow projects the routing-window dimension. It goes
+// through DecideAt like every other consumer, never IsOpenAt, so an
+// unconfigured connection reports "not configured" rather than "closed".
+func currentStateScheduleFromRow(row configuredTargetRow, nowAt time.Time) CurrentStateScheduleGlobal {
+	if row.RoutingScheduleTimezone == nil && len(row.RoutingWindows) == 0 {
+		return CurrentStateScheduleGlobal{}
+	}
+	timezone := ""
+	if row.RoutingScheduleTimezone != nil {
+		timezone = *row.RoutingScheduleTimezone
+	}
+	schedule := terminaltarget.CompileRoutingSchedule(timezone, row.RoutingWindows)
+	projection := CurrentStateScheduleGlobal{Configured: true, Timezone: timezone}
+	switch schedule.DecideAt(nowAt) {
+	case terminaltarget.RoutingScheduleUnresolved:
+		projection.Unresolved = true
+	case terminaltarget.RoutingScheduleOpen:
+		open := true
+		projection.Open = &open
+	case terminaltarget.RoutingScheduleClosed:
+		open := false
+		projection.Open = &open
+		if nextOpenAt, known := schedule.NextOpenAt(nowAt); known {
+			projection.NextOpenAt = &nextOpenAt
+			projection.NextOpenAtKnown = true
+		}
+	}
+	return projection
+}

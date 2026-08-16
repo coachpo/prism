@@ -127,6 +127,7 @@ describe("Endpoint direct-reference contract", () => {
             owner_model: { id: 7, model_id: "gpt-example", display_name: "Example", is_enabled: true, openai_accepted_format: "dual_native", openai_image_operations: null },
             openai_text_capability: "dual_native",
             openai_image_capability: null,
+            has_routing_schedule: false,
             pricing_template: { id: 2, name: "Default", current_revision_id: "944", current_version: 3 },
             enabled: true,
             inactive_reasons: [],

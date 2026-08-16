@@ -73,6 +73,8 @@ function createConnection(id: number, name: string): Connection {
     auth_type: null,
     custom_headers: null,
     custom_request_parameters: null,
+    routing_schedule: null,
+    routing_schedule_state: null,
     openai_text_capability: "dual_native",
     openai_image_capability: null,
     pricing_template_id: 3,

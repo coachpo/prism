@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 )
@@ -63,12 +64,12 @@ func TestModelResponseProjectionsPreserveOpenAIImageOperations(t *testing.T) {
 		IsEnabled:             true,
 	}
 
-	list := buildModelListResponse(record, nil, nil, nil, nil)
+	list := buildModelListResponse(record, nil, nil, nil, nil, time.Unix(0, 0).UTC())
 	if list.OpenAIImageOperations == nil || *list.OpenAIImageOperations != imageOperations {
 		t.Fatalf("list response lost image operations: %+v", list.OpenAIImageOperations)
 	}
 
-	detail := buildModelDetailResponse(record, nil, nil)
+	detail := buildModelDetailResponse(record, nil, nil, time.Unix(0, 0).UTC())
 	if detail.OpenAIImageOperations == nil || *detail.OpenAIImageOperations != imageOperations {
 		t.Fatalf("detail response lost image operations: %+v", detail.OpenAIImageOperations)
 	}

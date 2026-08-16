@@ -46,6 +46,7 @@ type OwnerScopedConnectionCreateInput struct {
 	AuthType                   *string
 	CustomHeaders              map[string]string
 	CustomRequestParameters    CustomRequestParametersInput
+	RoutingSchedule            RoutingScheduleInput
 	OpenAITextCapability       *string
 	OpenAIImageCapability      *string
 	PricingTemplateID          *int
@@ -115,6 +116,13 @@ func (s *Service) CreateOwnerScopedConnectionTx(ctx context.Context, tx pgx.Tx, 
 	if err != nil {
 		return OwnerConnectionCreateResult{}, err
 	}
+	// This chain does not call CreateOwnerConnection, so it must repeat the
+	// shared schedule resolution; omitting it would let composite create write
+	// an unvalidated schedule while the plain create path rejects the same body.
+	routingScheduleTimezone, routingWindows, err := resolveRoutingScheduleCreate(input.RoutingSchedule)
+	if err != nil {
+		return OwnerConnectionCreateResult{}, err
+	}
 	endpoint, err := s.resolveCreateEndpoint(ctx, tx, profileID, input.EndpointID, input.EndpointCreate)
 	if err != nil {
 		return OwnerConnectionCreateResult{}, err
@@ -134,6 +142,7 @@ func (s *Service) CreateOwnerScopedConnectionTx(ctx context.Context, tx pgx.Tx, 
 		AuthType:                authType,
 		CustomHeaders:           normalizeHeaders(input.CustomHeaders),
 		CustomRequestParameters: customRequestParameters,
+		RoutingSchedule:         routingSchedulePayloadFromRecord(routingScheduleTimezone, routingWindows),
 		OpenAITextCapability:    openAITextCapability,
 		OpenAIImageCapability:   openAIImageCapability,
 		PricingTemplateID:       pricingTemplateID,
@@ -145,6 +154,9 @@ func (s *Service) CreateOwnerScopedConnectionTx(ctx context.Context, tx pgx.Tx, 
 	}
 	connectionID, err := insertTerminalTarget(ctx, tx, terminalTargetRecordFromConnectionResponse(item))
 	if err != nil {
+		return OwnerConnectionCreateResult{}, err
+	}
+	if err := replaceConnectionRoutingWindows(ctx, tx, profileID, connectionID, routingWindows, now); err != nil {
 		return OwnerConnectionCreateResult{}, err
 	}
 	if err := insertOwnerTerminalTargetAccess(ctx, tx, profileID, owner.ID, connectionID, position, now); err != nil {

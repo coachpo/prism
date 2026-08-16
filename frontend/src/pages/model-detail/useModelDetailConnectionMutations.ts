@@ -1,4 +1,9 @@
 import { useCallback } from "react";
+import {
+  parseRoutingScheduleDraft,
+  type RoutingScheduleDraft,
+  type RoutingScheduleDraftError,
+} from "./routingScheduleDraft";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { ApiError } from "@/lib/api/core";
@@ -67,6 +72,10 @@ interface UseModelDetailConnectionMutationsInput {
   endpointSourceDefaultName: string | null;
   refreshCurrentState: () => void | Promise<void>;
   refreshDiagnostics?: () => void | Promise<void>;
+  routingScheduleDraft: RoutingScheduleDraft;
+  setRoutingScheduleDraft: (draft: RoutingScheduleDraft) => void;
+  routingScheduleError: RoutingScheduleDraftError | null;
+  setRoutingScheduleError: (error: RoutingScheduleDraftError | null) => void;
   setIsConnectionDialogOpen: (open: boolean) => void;
   setAllModels: React.Dispatch<React.SetStateAction<ModelConfigListItem[]>>;
   setConnections: React.Dispatch<React.SetStateAction<Connection[]>>;
@@ -107,6 +116,8 @@ export function useModelDetailConnectionMutations({
   endpointSourceDefaultName,
   refreshCurrentState,
   refreshDiagnostics,
+  routingScheduleDraft,
+  setRoutingScheduleError,
   setIsConnectionDialogOpen,
   setAllModels,
   setConnections,
@@ -160,6 +171,15 @@ export function useModelDetailConnectionMutations({
       }
       setCustomRequestParametersError(null);
 
+      // Parsed before the request so an invalid draft never reaches the API,
+      // and so the reason shown matches the one the server would have sent.
+      const parsedRoutingSchedule = parseRoutingScheduleDraft(routingScheduleDraft);
+      if (parsedRoutingSchedule.error) {
+        setRoutingScheduleError(parsedRoutingSchedule.error);
+        return;
+      }
+      setRoutingScheduleError(null);
+
       const { errorMessage, payload } = buildConnectionDraftPayload({
         apiFamily: modelApiFamily,
         createMode,
@@ -168,6 +188,7 @@ export function useModelDetailConnectionMutations({
         connectionForm,
         headerRows,
         customRequestParametersValue: parsedCustomRequestParameters.value,
+        routingScheduleValue: parsedRoutingSchedule.value,
         editingConnection,
         endpointSourceDefaultName,
       });
@@ -200,6 +221,17 @@ export function useModelDetailConnectionMutations({
         clearSharedReferenceData(undefined, revision);
         setIsConnectionDialogOpen(false);
       } catch (error) {
+        // Keyed on the field name rather than the detail text: the server
+        // flattens its field envelope onto the body top level, so field is a
+        // stable discriminator while the message is not.
+        if (isRoutingScheduleValidationError(error)) {
+          const body = error.detail as Record<string, unknown>;
+          setRoutingScheduleError({
+            reason: String(body.reason ?? "") as RoutingScheduleDraftError["reason"],
+            windowIndex: typeof body.index === "number" ? body.index : undefined,
+          });
+          return;
+        }
         if (isCustomRequestParametersValidationError(error)) {
           setCustomRequestParametersError(customRequestParametersErrorFromServerBody(error.detail as Record<string, unknown>));
           return;
@@ -210,6 +242,8 @@ export function useModelDetailConnectionMutations({
     [
       id,
       modelConfigId,
+      routingScheduleDraft,
+      setRoutingScheduleError,
       modelApiFamily,
       createMode,
       selectedEndpointId,
@@ -411,4 +445,14 @@ export function useModelDetailConnectionMutations({
     handleQuickCapabilityChange,
     handleQuickPricingChange,
   };
+}
+
+/**
+ * A 422 whose flattened field envelope names routing_schedule. Matching on the
+ * field name keeps this stable across message wording changes.
+ */
+function isRoutingScheduleValidationError(error: unknown): error is ApiError {
+  if (!(error instanceof ApiError)) return false;
+  const detail = error.detail as Record<string, unknown> | undefined;
+  return Boolean(detail && detail.field === "routing_schedule");
 }

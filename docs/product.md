@@ -38,6 +38,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Model Target rows and Terminal Target rows are type-neutral peers of the same authored mixed order; `single`, `fill-first`, and `round-robin` run once over the enabled mixed rows, and no target type holds a hidden priority tier
 - Model-target entries must stay within the same `api_family`, cannot target themselves, and cannot introduce cycles
 - A Model Target row is an atomic parent peer: entering it recursively resolves the child model with the child's own strategy, and the child's attempts stay one contiguous block in the parent result
+- A Terminal Target outside its routing window is skipped exactly like any other candidate-local miss: planning moves on to the next peer in effective order rather than failing the request
 - Each model owns its reusable load-balance strategy, so nested model targets evaluate strategy and Ban Policy at their own graph level
 - Model IDs are unique within a profile; the same model ID can exist in different profiles without collision
 - Gateway resolves the access graph before Terminal Target planning: incoming request for a public model -> final target model and Terminal Target -> upstream request
@@ -50,6 +51,7 @@ Single operator (developer/power user) running the application locally or on a l
   - **Automatic failover** when an attempt returns a failover-triggering status (`403`, `422`, `429`, `500`, `502`, `503`, `504`, `529` by default) or raises connection/timeout errors
   - Models attach one reusable explicit Ban Policy strategy using `single`, `fill-first`, or `round-robin` routing
   - The three strategies act on the same enabled mixed access-target rows: `single` takes only the first enabled mixed peer, `fill-first` walks the authored mixed order, and `round-robin` rotates the direct mixed rows once per request while each child model keeps its own cursor
+  - Two consequences of combining a routing schedule with these strategies are worth stating outright. Under `round-robin`, an out-of-window row still occupies its cursor slot, so the first in-window row after a run of `k` out-of-window rows takes `(k+1)/N` of the first attempts while that run lasts; availability is unaffected because every in-window row is still tried on failure. Under `single`, only the first enabled row is ever considered, so scheduling that row takes the whole model offline outside its window — `single` and routing schedules are effectively incompatible, and a time-based configuration should use `fill-first` or `round-robin`
   - Upstream request timing uses shared backend timeout settings, while Ban Policy owns retry windows, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, `temporary` or `until_reset` bans, and failover status codes
   - Ban Policy thresholds are inclusive: retry-cycle exhaustion uses `cycle_retry_attempts >= cycle_retry_attempt_limit`, and bans use `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`
 - Failover-worthy HTTP responses are governed by the attached strategy's configured failure status codes and retry-window settings
@@ -65,7 +67,7 @@ Single operator (developer/power user) running the application locally or on a l
 ### 4.5 Default-Profile Endpoints & Terminal Targets
 - **Endpoints** are profile-scoped credential objects containing a name, base URL, and API key.
 - **Models** carry fixed `api_family` metadata.
-- **Terminal Targets** are profile-scoped model routing, costing, and health configurations that reference endpoints in the same profile. They can also carry per-target custom HTTP headers and an optional static JSON request-body parameter overlay (see §4.12 and §4.13).
+- **Terminal Targets** are profile-scoped model routing, costing, and health configurations that reference endpoints in the same profile. They can also carry per-target custom HTTP headers, an optional static JSON request-body parameter overlay, and an optional routing schedule that limits which parts of the week the target may be selected (see §4.12, §4.13, and §4.17).
 - Endpoints can be reused across multiple models within the same profile; each Terminal Target keeps its own header and request-parameter configuration.
 - Deleting an endpoint is blocked if any Terminal Targets in that profile still reference it.
 
@@ -74,7 +76,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Backend request-derived stats can expose Terminal Target success-rate and routing-health read models for real runtime traffic. These are API/read-model capabilities, not a current per-target health-badge workflow.
 - The Models page renders plain telemetry text for each model: 24-hour success rate, P95 latency, and 24-hour request count, plus a 30-day spend value. Missing success data is shown as `- Success`; there are no colored success-rate thresholds or health badges.
 - The current model-detail UI does not render Terminal Target success-rate indicators, and the dashboard does not render the backend `routing_health_map` response field.
-- Model detail renders process-local Ban Policy runtime state for each Terminal Target: `state` (available / retry_wait / banned), next-retry or ban expiry, last success time, `last_success_response_headers_latency_ms` (latest successful attempt latency from request start to upstream response headers; a single sample, not a percentile and not TTFT), and in-flight stream/non-stream counts. An absent value is never one thing: the surface separates a failed read, a row observed only in part, a row outside the observation cohort because it does not participate in routing, a cohort cut short by paging, and a target the process has genuinely never observed. In-flight counters only advance while the matching limit is configured, so an unmetered gauge reads as absent rather than as a measured zero. These are Ban Policy observations, not probe health, success-rate or availability proof.
+- Model detail renders process-local Ban Policy runtime state for each Terminal Target: `state` (available / retry_wait / banned), next-retry or ban expiry, last success time, `last_success_response_headers_latency_ms` (latest successful attempt latency from request start to upstream response headers; a single sample, not a percentile and not TTFT), and in-flight stream/non-stream counts. An absent value is never one thing: the surface separates a failed read, a row observed only in part, a row outside the observation cohort because it does not participate in routing, a cohort cut short by paging, a target whose routing schedule has not been evaluated, and a target the process has genuinely never observed. The routing-window state is reported alongside these and is orthogonal to them: a target can be `available` by every ban measure and still be outside its window, so the two are never collapsed into one verdict. In-flight counters only advance while the matching limit is configured, so an unmetered gauge reads as absent rather than as a measured zero. These are Ban Policy observations, not probe health, success-rate or availability proof.
 - Cooldown reset (`POST /api/loadbalance/current-state/{connection_id}/reset`) clears only retry/ban cooldown fields (cycle/cumulative attempts, next-retry time, last retry delay, ban mode/expiry, last failure kind) and preserves QPS window, in-flight counts, last success facts, response-headers latency and round-robin cursors; the response returns the full post-reset state DTO and `cleared=false` when there is nothing to clear.
 
 ### 4.7 Web UI (Management Dashboard)
@@ -236,11 +238,27 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 - Observability rows (`request_logs`, `audit_logs`) carry immutable `profile_id` attribution for historical correctness.
 
 
+### 4.17 Routing Schedule per Terminal Target
+
+- A Terminal Target may carry a routing schedule: a set of recurring weekly windows during which it is allowed to be selected. Outside every window it is not a routing candidate at all.
+- Having no schedule means no restriction. Existing Terminal Targets migrated with none, so their routing behaviour is unchanged down to the byte.
+- Each schedule carries its own IANA timezone. This is the target's routing clock and is unrelated to the reporting timezone preference in Settings, which only affects how timestamps are displayed and never changes which upstream serves traffic.
+- A window names the weekdays it opens on, a start time, and an end time. An end time earlier in the day than the start means the window continues into the next day; the weekday selection still refers to the day it opens.
+- Windows are half-open: a window ending at 18:00 does not include 18:00. Adjacent windows therefore join without overlapping and without a gap.
+- A target may carry up to 32 windows, and their union is what counts. A configuration whose windows together cover the whole week is refused: "always available" is expressed by having no schedule, not by describing one that never closes.
+- Eligibility is decided once per incoming request, at the instant planning starts, and that decision governs the whole request including every retry and failover attempt. A request already in flight is never interrupted because a window closed.
+- The window check runs after ban filtering, so a target skipped for its schedule is one that was otherwise usable, and the reopen time shown to an operator is not contradicted by a ban the operator cannot see.
+- When every evaluated target was excluded solely by its schedule, the request fails with a dedicated code and the earliest reopen instant. When the exclusions were mixed with other causes, the ordinary failure is returned with a sentence recording how many targets were out of window, so the mixed case stays searchable without the dedicated code overstating what happened.
+- A target whose timezone cannot be resolved is excluded rather than allowed through. Routing is the act of releasing traffic, so a broken configuration must not release it at an unintended hour. The failure is confined to that one target and is reported as its own condition, distinct from being outside a window.
+- Daylight-saving transitions are handled by comparing local wall-clock time. A window loses an hour on a spring-forward day and gains one on a fall-back day, which matches what "every day from 09:00 to 18:00 local time" means to an operator.
+- Static routing diagnostics report the configured windows and whether they cover the week, never whether a window is open at this moment: diagnostics are a pure function of configuration so that one analysis generation always yields one answer. The live open/closed state is delivered separately, computed by the server, and never recomputed by the browser.
+- The model detail target list shows each target's current schedule state, and the state carries the boundary at which it stops being true so a page left open downgrades itself instead of asserting a stale verdict.
+
 ## 5. Non-Functional Requirements
 
 | Requirement | Target |
 |---|---|
-| Deployment | Root Compose self-hosted bundle uses one Prism app image plus PostgreSQL; the app image runs the Go backend behind Nginx, and the local launcher runs PostgreSQL, backend, and optional Vite frontend |
+| Deployment | Root Compose self-hosted bundle uses one Prism app image plus PostgreSQL; the app image runs the Go backend behind Nginx, and the local launcher runs PostgreSQL, backend, and optional Vite frontend. The runtime image must provide `/usr/share/zoneinfo`: the backend builds with `CGO_ENABLED=0`, so `time.LoadLocation` reads that directory only and has no libc fallback, and a missing database would push every connection with a routing schedule into `terminal_target_schedule_unresolvable`. The current base image ships tzdata, which makes this an implicit dependency that must be re-verified whenever the base image changes |
 | Authentication | Optional operator auth for `/api/*`; optional proxy API keys for `/v1/*` and `/v1beta/*` |
 | Latency overhead | < 50ms added to proxy requests |
 | Concurrent requests | Support 10+ simultaneous proxy requests |
@@ -264,6 +282,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 - Auth-based multi-tenancy, multi-operator RBAC, and per-user data isolation beyond the single-operator auth surface and profile namespace isolation
 - Usage-based billing/accounting integrations beyond Prism's built-in telemetry and costing reports
 - Global runtime rate limiting outside per-Terminal Target `qps_limit` and in-flight limits
+- Routing-schedule extensions beyond recurring weekly windows: calendar date ranges, holiday calendars, and cron expressions; a separate enable switch that keeps the windows while suspending them (clearing the schedule deletes the windows); an audit trail for schedule changes
 - External secret-manager integrations beyond Prism's built-in endpoint-secret encryption at rest
 - Proxy API key scoping. A key is an instance-wide credential: it can call every enabled model and every registered operation, and models enabled later are automatically in scope. v1 deliberately ships this single scope instead of per-model, per-Endpoint, per-API-family, per-operation, rate, token, or spend limits on an individual key, and the Proxy API Keys page states the limitation in the UI rather than leaving it implicit. Introducing scopes later would touch the key data model and its migration, the runtime authorization path, the management API and its UI, and would require deciding the default scope for keys that already exist.
 
@@ -527,7 +546,7 @@ The Requests page must remain compatible with the following backend-facing and s
 This document maps Prism's current operator workflows from mounted frontend routes to the backend APIs they drive. It is grounded in `frontend/src/app/router/appRouter.tsx`, `frontend/src/app/router/rewriteRoutes.ts`, the live Go backend API surface, and the markdown API reference.
 
 Validated again against current repo surfaces on 2026-08-13:
-- `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` are all `1.0.9`, which is the current backend/frontend version surface.
+- `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` are the four version surfaces and are always equal; `release.sh` is what keeps them aligned. The value itself is not restated here, because a copy of it in prose drifts the moment a release moves the files.
 - The protected frontend route shell mounts observe, request-log, model, route, settings, proxy-key, and pricing workflows; analytics lives under `/observe`.
 
 ### Evidence Sources
@@ -641,7 +660,7 @@ Validated again against current repo surfaces on 2026-08-13:
 1. Operators list, search, create, edit, and delete model configs.
 2. Model create and edit dialogs manage model metadata, OpenAI accepted format, loadbalance strategy, and enabled state.
 3. Model detail owns access-target authoring as one mixed list: same-family Model Targets and Terminal Targets share the global `position` order, cross-type adjacent moves use the same controls, and Terminal Target management covers the model's private endpoint bindings.
-4. The Terminal Target dialog's “高级请求设置” group lets operators configure request limits, custom request headers, and the optional custom request parameters JSON overlay (format/clear actions, top-level count summary, field-level validation, and server 422 mapping back to the editor).
+4. The Terminal Target dialog's “高级请求设置” group lets operators configure request limits, custom request headers, and the optional custom request parameters JSON overlay (format/clear actions, top-level count summary, field-level validation, and server 422 mapping back to the editor). The routing schedule is edited in its own sibling section rather than inside that group, because it governs routing eligibility rather than request content.
 5. Request logs preserve the requested model while final-target fields show the terminal model reached through the access graph.
 
 **UI-driven backend touchpoints**
@@ -816,7 +835,7 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 
 1. Global CORS runs first. The runtime branch then applies HTTP proxy admission, runtime proxy-key authentication, and the exact operation registry in that order. Once inside the registry, unsupported routes and wrong methods reject before body reads, provider transport, telemetry, audit, feedback, or runtime side effects.
 2. Provider adapters parse provider-specific payloads, build upstream requests, adapt responses, classify streams, extract usage, and own pure OpenAI Chat/Responses conversion.
-3. Planning evaluates the model's enabled mixed access-target rows in authored `position` order once: `single` keeps only the first enabled row, `fill-first` walks the mixed order, and `round-robin` rotates the direct mixed rows. A Model Target row resolves recursively through the child model's own strategy and contributes one contiguous block; candidate-local misses (zero-leaf child, operation incompatibility, unavailable connection) skip to the next peer in effective order, while cycle/depth and missing-strategy errors fail closed.
+3. Planning evaluates the model's enabled mixed access-target rows in authored `position` order once: `single` keeps only the first enabled row, `fill-first` walks the mixed order, and `round-robin` rotates the direct mixed rows. A Model Target row resolves recursively through the child model's own strategy and contributes one contiguous block; candidate-local misses (zero-leaf child, operation incompatibility, unavailable connection, routing window closed) skip to the next peer in effective order, while cycle/depth and missing-strategy errors fail closed. The routing-window check runs after Ban filtering, so a target excluded by its schedule is one already known to be otherwise usable, and the reopen instant reported to the operator is not contradicted by a ban.
 4. Connection planning applies the attached explicit Ban Policy strategy and per-connection limits.
 5. When any planned candidate carries custom request parameters, Prism buffers and validates the ingress body as a JSON object, applies the per-Connection top-level shallow overlay after provider-native model/path rewrite, and materializes an immutable merged body per attempt (failover/hedge candidates never share mutable body storage). Gemini path-streaming switches from the request-body streaming fast path to the buffered path in this case.
 6. The shared runtime/gateway owns operation registration, admission, routing, SSE lifecycle, accounting, pricing, request-log metadata, and durable handoff. Telemetry/audit rows are materialized by background workers from the runtime outbox; non-accepted side effects use their own in-memory or worker queues.

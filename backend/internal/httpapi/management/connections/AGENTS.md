@@ -42,6 +42,7 @@ connections/
 - The management route contract row must keep `invalidates_planning: true` so pricing-template imports refresh runtime planning snapshots.
 
 ## CONVENTIONS
+- Routing schedules are stored as a `connections` column plus `connection_routing_windows` child rows. Reads must attach the child rows in a second batch pass and project the evaluated state through `RoutingScheduleStateFor`, the single state projection every surface shares; never let a read return configuration without it.
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep pricing templates here, not in a separate management package.
 - Settings currency migration must consume `pricing_list_page.go` (bounded `limit` + signed cursor + owner snapshot hash) or the explicitly bounded inventory evidence routes; do not add a new unbounded active-template scan to a Settings handler.
@@ -62,6 +63,6 @@ connections/
 
 ## UX-UPGRADE SURFACES
 
-- Owner-scoped Connection create/update/delete and Access Target mutations return fixed envelopes: `{connection, access_targets, configuration_warnings}` / `{access_targets, configuration_warnings}` / `{deleted, access_targets, configuration_warnings}`. Warnings come from the `modelrouting` analyzer, are computed on the proposed final state in-transaction, are non-persisted and never echo secrets.
+- Owner-scoped Connection create/update/delete and Access Target mutations return fixed envelopes: `{connection, access_targets, configuration_warnings}` / `{access_targets, configuration_warnings}` / `{deleted, access_targets, configuration_warnings}`. Warnings are computed in-transaction on the proposed final state, are non-persisted, and never echo secrets. Note that `ownerScopedConnectionWarnings` does not run the `modelrouting` analyzer: it only produces OpenAI target-dimension warnings and returns nothing for other families. The analyzer-backed warnings come from the models package.
 - `POST /api/models/{model_config_id}/connections/{connection_id}/copies` is the transactional batch copy: all-or-nothing, sorted locks, `enable_copies` default false, redacted `connection_summary` (counts only), per-destination warnings. Runtime state is never copied.
-- The shared writer in `writer.go` (`CreateOwnerConnection`) is the single HTTP-neutral owner-scoped connection create used by both this package and the models composite create; keep validators/inserts there, not in handlers.
+- There are **two** HTTP-neutral owner-scoped create chains: `CreateOwnerConnection` in `writer.go` and `CreateOwnerScopedConnectionTx` in `composite_create.go`. The second does not call the first — it repeats the validation — so every new field must be validated in both, or composite create will silently accept what the plain create path rejects. Shared validators may live in their own file in this package (for example `routing_schedule.go`) rather than physically inside `writer.go`, but never in handlers.

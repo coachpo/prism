@@ -1,3 +1,4 @@
+import { TargetRoutingScheduleBadge } from "./TargetRoutingScheduleBadge";
 import { useEffect, useMemo, useState } from "react";
 import { Cable, Copy, GitBranch, GripVertical, Loader2, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -387,6 +388,10 @@ export function AccessTargetsEditor({
                           {connection?.is_active === false ? (
                             <OperatorTypeBadge intent="degraded" label={copy.connectionInactive} preserveLabel />
                           ) : null}
+                          <TargetRoutingScheduleBadge
+                            schedule={connection?.routing_schedule ?? null}
+                            state={connection?.routing_schedule_state ?? null}
+                          />
                         </div>
                       </TableCell>
 

@@ -65,6 +65,8 @@ export interface EndpointReferenceItem {
   owner_model: EndpointReferenceOwnerModel | null;
   openai_text_capability: OpenAITextCapability | null;
   openai_image_capability: OpenAIImageCapability | null;
+  /** Configuration only: whether a routing schedule exists, never whether it is open now. */
+  has_routing_schedule: boolean;
   pricing_template: EndpointReferencePricingTemplate | null;
   enabled: boolean;
   inactive_reasons: Array<
@@ -306,6 +308,41 @@ export interface ConnectionPricingTemplateUpdate {
   pricing_template_id: number | null;
 }
 
+
+/** One authored routing window. `end_minute` above 1440 continues into the next day. */
+export interface RoutingScheduleWindow {
+  weekday_mask: number;
+  start_minute: number;
+  end_minute: number;
+}
+
+/** Stored routing-schedule configuration. Carries no evaluated conclusion. */
+export interface RoutingSchedule {
+  timezone: string;
+  windows: RoutingScheduleWindow[];
+}
+
+export type RoutingScheduleStatus = "open" | "closed" | "unresolved" | "not_evaluated";
+export type RoutingScheduleNotEvaluatedReason = "connection_inactive";
+
+/**
+ * Server-computed state of a routing schedule at an instant.
+ *
+ * The `*_at` fields are optional rather than nullable because the server omits
+ * the key entirely when the matching `_known` flag is false. Typing them as
+ * `| null` would make consumers test `=== null` and never match.
+ */
+export interface RoutingScheduleState {
+  status: RoutingScheduleStatus;
+  not_evaluated_reason?: RoutingScheduleNotEvaluatedReason;
+  timezone: string;
+  evaluated_at: string;
+  next_open_at?: string;
+  next_open_at_known: boolean;
+  next_close_at?: string;
+  next_close_at_known: boolean;
+}
+
 export interface ConnectionPricingTemplateSummary {
   id: number;
   name: string;
@@ -351,6 +388,8 @@ export interface Connection {
   auth_type: string | null;
   custom_headers: Record<string, string> | null;
   custom_request_parameters: JsonObject | null;
+  routing_schedule: RoutingSchedule | null;
+  routing_schedule_state: RoutingScheduleState | null;
   openai_text_capability: OpenAITextCapability | null;
   openai_image_capability: OpenAIImageCapability | null;
   pricing_template_id: number | null;
@@ -373,6 +412,7 @@ export interface ConnectionCreate {
   auth_type?: string | null;
   custom_headers?: Record<string, string> | null;
   custom_request_parameters?: JsonObject | null;
+  routing_schedule?: RoutingSchedule | null;
   openai_text_capability?: OpenAITextCapability | null;
   openai_image_capability?: OpenAIImageCapability | null;
   pricing_template_id?: number | null;
@@ -390,6 +430,7 @@ export interface ConnectionUpdate {
   auth_type?: string | null;
   custom_headers?: Record<string, string> | null;
   custom_request_parameters?: JsonObject | null;
+  routing_schedule?: RoutingSchedule | null;
   openai_text_capability?: OpenAITextCapability | null;
   openai_image_capability?: OpenAIImageCapability | null;
   pricing_template_id?: number | null;

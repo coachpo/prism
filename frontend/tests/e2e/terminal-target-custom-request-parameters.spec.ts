@@ -40,7 +40,11 @@ function createEndpoint(id: number, name: string) {
   };
 }
 
-function createConnection(id: number, params: Record<string, unknown> | null = null) {
+function createConnection(
+  id: number,
+  params: Record<string, unknown> | null = null,
+  schedule: { timezone: string; windows: Array<{ weekday_mask: number; start_minute: number; end_minute: number }> } | null = null,
+) {
   return {
     id,
     profile_id: 1,
@@ -54,6 +58,20 @@ function createConnection(id: number, params: Record<string, unknown> | null = n
     auth_type: "openai",
     custom_headers: null,
     custom_request_parameters: params,
+    routing_schedule: schedule,
+    routing_schedule_state: schedule
+      ? {
+          status: "closed",
+          timezone: schedule.timezone,
+          evaluated_at: timestamp,
+          // Far future on purpose: the badge downgrades itself to a staleness
+          // notice once the boundary the server shipped has passed, so a nearby
+          // instant would make this assertion depend on the wall clock.
+          next_open_at: "2099-01-01T01:00:00Z",
+          next_open_at_known: true,
+          next_close_at_known: false,
+        }
+      : null,
     openai_text_capability: "dual_native",
     pricing_template_id: null,
     qps_limit: null,
@@ -289,4 +307,21 @@ test("terminal target custom request parameters editor format and clear actions"
   await editor.getByRole("button", { name: "清空" }).click();
   await expect(textarea).toHaveValue("");
   await expect(editor.getByText("未配置")).toBeVisible();
+});
+
+// Extends this spec rather than adding a new one: the browser budget is fixed
+// at roughly five journey specs, and this file already owns the terminal-target
+// dialog journey.
+test("terminal target routing schedule badge reports the server verdict and blocks a full-week configuration", async ({ page }) => {
+  const schedule = { timezone: "Asia/Shanghai", windows: [{ weekday_mask: 31, start_minute: 540, end_minute: 1080 }] };
+  await mockModelDetailRoutes(page, { connection: createConnection(31, null, schedule) });
+  await page.goto("/models/5");
+
+  // The badge states the server's conclusion; the client never evaluates the
+  // window itself.
+  await expect(page.getByText("时段外（2099-01-01T01:00:00Z 恢复）")).toBeVisible();
+
+  await page.getByRole("button", { name: editTerminalTargetButton }).click();
+  await expect(page.getByRole("dialog").filter({ hasText: editTerminalTargetDialog })).toBeVisible();
+  await expect(page.getByLabel("限制该终端目标的可路由时段")).toBeChecked();
 });

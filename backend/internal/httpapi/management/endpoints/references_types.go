@@ -60,6 +60,11 @@ type endpointReferenceItem struct {
 	OwnerModel            *endpointReferenceOwnerModel      `json:"owner_model"`
 	OpenAITextCapability  *string                           `json:"openai_text_capability"`
 	OpenAIImageCapability *string                           `json:"openai_image_capability"`
+	// Configuration only, never the evaluated open/closed verdict. The panel's
+	// snapshot hash is an optimistic-concurrency marker, so a clock-derived
+	// value would churn it every minute; whether a schedule exists changes only
+	// when an operator edits one, which is exactly when the hash should change.
+	HasRoutingSchedule    bool                              `json:"has_routing_schedule"`
 	PricingTemplate       *endpointReferencePricingTemplate `json:"pricing_template"`
 	Enabled               bool                              `json:"enabled"`
 	InactiveReasons       []string                          `json:"inactive_reasons"`

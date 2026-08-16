@@ -15,7 +15,8 @@ runtime/
 ├── routing_plan*.go             # Routing plan compilation and validation helpers
 ├── planning_snapshot.go         # Access-target snapshot assembly and resolution ordering helpers
 ├── planning_snapshot_legacy.go  # Legacy snapshot compatibility helpers
-├── planning_classification.go   # Failed OpenAI text resolution → the three stable planning rejection codes
+├── planning_classification.go   # Failed OpenAI text resolution → the stable OpenAI planning rejection codes
+├── planning_schedule_codes.go   # Family-neutral routing-schedule planning codes and their attribution whitelist
 ├── planning_terminal_target_adapter.go # Terminal Target record scanning and runtime-connection projection
 ├── proxy_selector_helpers.go    # Access-target ordering helpers used by request planning
 ├── cache.go                     # Shared runtime cache reads and snapshots
@@ -66,6 +67,9 @@ runtime/
 - Keep `operations.go` as the single source of truth for supported runtime method/path pairs, hook collection ids, streaming flags, and model-binding sources.
 - Keep management scope out of proxy traffic. Runtime request planning uses the current runtime snapshot, not `X-Profile-Id` management headers.
 - Keep requested-model resolution exact. Runtime planning starts from `planningSnapshot.ModelsByID` using the client-supplied model ID exactly, then evaluates one mixed peer sequence in which Model Target and Terminal Target rows share authored `(position, id)` ordering — there is no model-first tier and no terminal fallback tier (see `docs/architecture.md`). Do not add regex matching or capability-metadata expansion in this package.
+- Keep the routing-window gate in `resolveTerminalTargetFromRoutingPlan`, after the Ban early exit and never before it: placed earlier, an out-of-window connection never reads its ban state and the reopen instant promised to the operator can be one that is still dark. Always go through `DecideAt`, never `IsOpenAt` directly, which is false for every unconfigured connection and would fail all existing rows closed.
+- Keep the two routing-schedule planning codes family-neutral and out of `operation_translation.go`, whose doc comment scopes that file to the OpenAI code family. They fire only when the whole failure is attributable to schedules; a mixed-cause failure keeps the ordinary response and records the count in the detail instead. Attribution is a whitelist over deduplicated connection ids, not a monotonic "saw one" flag.
+- Keep one planning clock per ingress. `newRuntimeIngressContext` captures `planningReferenceNow` once at the runtime-operation boundary and `resolveRequestPlanTarget` must never re-read the clock: Gemini path-bound operations plan twice (probe then final) with an upstream body read in between, and the two plans must agree on candidate eligibility. Execution-phase admission and Ban re-checks deliberately keep reading the live clock and must not be frozen.
 - Keep the three strategies (`single`, `fill-first`, `round-robin`) applied once to that mixed peer sequence; a Model Target row recursively resolves through the child model's own strategy and stays one contiguous block. Reordering, add, remove, or enable-set changes must change the round-robin target-set hash.
 - Keep the `custom_request_parameters` overlay on the per-attempt materialized body: the shared `domain/terminaltarget` value applies a top-level shallow overlay after provider-native model/path rewrite, per-attempt generation-parameter snapshots are extracted from each attempt's final body, and any configured candidate forces the replayable-body path (Gemini probe planning stays two-phase: `rawBody == nil` never overlays or 400s).
 - Keep unsupported or wrong-method requests rejecting before body reads, runtime admission, provider transport, telemetry, audit, feedback, or runtime side effects.

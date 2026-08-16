@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
+	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
 	gatewaycore "github.com/coachpo/prism/backend/internal/gateway/core"
 	"github.com/coachpo/prism/backend/internal/gateway/provider/openai"
@@ -169,9 +170,14 @@ const runtimeAccessResolverMaxDepth = 32
 
 // runtimePlanningObservation accumulates facts discovered while resolving one
 // request so a failed static route can be distinguished from a dynamic
-// unavailability (for example a ban or admission limit).
+// unavailability (for example a ban or admission limit) and a routing-window
+// exclusion can be attributed to the schedule.
 type runtimePlanningObservation struct {
-	CompatibleStaticRouteSeen bool
+	CompatibleStaticRouteSeen         bool
+	EvaluatedTerminalConnectionIDs    map[int]struct{}
+	ScheduleExcludedConnectionIDs     map[int]struct{}
+	ScheduleUnresolvableConnectionIDs map[int]struct{}
+	OtherExclusionSeen                bool
 }
 
 type runtimeAccessResolutionContext struct {
@@ -246,22 +252,47 @@ func (s *Service) resolveExecutionTargetFromRoutingPlanWithOptions(profileID int
 	}
 	resolved, err := s.resolveRequestedModelExecutionTargetFromRoutingPlan(profileID, routingPlan, requestedModel, ctx)
 	if err != nil {
-		var noEligible *noEligibleTargetsError
-		if errors.As(err, &noEligible) {
-			if !openai.IsTextOperation(providerOperationFromRuntime(requestOperation)) {
-				return runtimeResolvedAccessPlan{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: noEligible.Error()}
-			}
-			return runtimeResolvedAccessPlan{}, s.classifyOpenAIPlanningRejection(profileID, routingPlan, requestedModel, requestOperation, ctx.Observation)
+		// Routing-window attribution runs before classification: it consumes
+		// the observation accumulated across every exit (including the E3
+		// fallthrough for depth/cycle/missing strategy/compiled model), and it
+		// must not be hooked onto the noEligible / planning-rejection branches
+		// below, where the E3 fallthrough would be missed and the
+		// compatibilityError return would bypass it. E0
+		// (validateOpenAIModelAcceptedFormat) returns before the observation
+		// exists and is deliberately not attributed.
+		if scheduleErr := scheduleRejectionError(routingPlan, requestedModel.ModelID, ctx.Observation, referenceNow); scheduleErr != nil {
+			return runtimeResolvedAccessPlan{}, scheduleErr
 		}
-		if _, ok := isOpenAIPlanningRejectionError(err); ok {
-			if !openai.IsTextOperation(providerOperationFromRuntime(requestOperation)) {
-				return runtimeResolvedAccessPlan{}, err
-			}
-			return runtimeResolvedAccessPlan{}, s.classifyOpenAIPlanningRejection(profileID, routingPlan, requestedModel, requestOperation, ctx.Observation)
+		classified := s.classifyPlanningRejection(profileID, routingPlan, requestedModel, requestOperation, ctx, err)
+		if domainErr, ok := classified.(*domainError); ok {
+			return runtimeResolvedAccessPlan{}, annotateSchedulePartialExclusion(domainErr, ctx.Observation)
 		}
-		return runtimeResolvedAccessPlan{}, err
+		return runtimeResolvedAccessPlan{}, classified
 	}
 	return resolved, nil
+}
+
+// classifyPlanningRejection holds the classification body of the entry error
+// handling: noEligible and OpenAI-planning-rejection errors map to the stable
+// OpenAI codes, everything else is a hard error. All exits return either a
+// bare *domainError or a non-domainError, so the caller's direct type
+// assertion (never errors.As, which would unwrap and drop outer wrappers)
+// is safe.
+func (s *Service) classifyPlanningRejection(profileID int, routingPlan *runtimeRoutingPlan, requestedModel runtimeModelRecord, requestOperation RuntimeOperation, ctx runtimeAccessResolutionContext, err error) error {
+	var noEligible *noEligibleTargetsError
+	if errors.As(err, &noEligible) {
+		if !openai.IsTextOperation(providerOperationFromRuntime(requestOperation)) {
+			return &domainError{StatusCode: http.StatusServiceUnavailable, Detail: noEligible.Error()}
+		}
+		return s.classifyOpenAIPlanningRejection(profileID, routingPlan, requestedModel, requestOperation, ctx.Observation)
+	}
+	if _, ok := isOpenAIPlanningRejectionError(err); ok {
+		if !openai.IsTextOperation(providerOperationFromRuntime(requestOperation)) {
+			return err
+		}
+		return s.classifyOpenAIPlanningRejection(profileID, routingPlan, requestedModel, requestOperation, ctx.Observation)
+	}
+	return err
 }
 
 func (s *Service) resolveRequestedModelExecutionTargetFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, requestedModel runtimeModelRecord, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, error) {
@@ -299,13 +330,16 @@ func (s *Service) resolveModelAccessFromSnapshot(profileID int, snapshot *planni
 
 func (s *Service) resolveModelAccessFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, model runtimeModelRecord, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, error) {
 	if ctx.Depth > runtimeAccessResolverMaxDepth {
+		ctx.Observation.recordOtherExclusion()
 		return runtimeResolvedAccessPlan{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("Model access graph exceeded maximum depth of %d while resolving model '%s'.", runtimeAccessResolverMaxDepth, ctx.RequestedModelID)}
 	}
 	if _, seen := ctx.VisitedModelIDs[model.ID]; seen {
+		ctx.Observation.recordOtherExclusion()
 		return runtimeResolvedAccessPlan{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("Model access cycle detected while resolving model '%s'.", ctx.RequestedModelID)}
 	}
 	strategy, ok := routingPlan.strategyForModel(model)
 	if !ok {
+		ctx.Observation.recordOtherExclusion()
 		return runtimeResolvedAccessPlan{}, fmt.Errorf("model %q is missing loadbalance_strategy", model.ModelID)
 	}
 	visited := cloneVisitedModelIDs(ctx.VisitedModelIDs)
@@ -316,6 +350,7 @@ func (s *Service) resolveModelAccessFromRoutingPlan(profileID int, routingPlan *
 
 	compiled, ok := routingPlan.ModelsByConfigID[model.ID]
 	if !ok {
+		ctx.Observation.recordOtherExclusion()
 		return runtimeResolvedAccessPlan{}, fmt.Errorf("model %q is missing from the compiled routing plan", model.ModelID)
 	}
 	effectivePeers := orderRuntimeAccessTargets(profileID, model.ID, strategy, compiled.OrderedEnabledTargets, s.runtimeState)
@@ -365,12 +400,14 @@ func (s *Service) evaluateAccessTargetCandidateFromRoutingPlan(profileID int, ro
 	compatibleCandidate, compatible, err := s.applyIngressOperationCompatibility(candidate, ctx)
 	if err != nil {
 		if domainErr, ok := isRequestTranslationUnsupportedError(err); ok {
+			ctx.Observation.recordOtherExclusion()
 			evaluation.compatibilityError = domainErr
 			return evaluation, nil
 		}
 		return runtimeResolvedAccessCandidateEvaluation{}, err
 	}
 	if !compatible || len(compatibleCandidate.TerminalAttempts) == 0 || len(compatibleCandidate.Connections) == 0 {
+		ctx.Observation.recordOtherExclusion()
 		return evaluation, nil
 	}
 
@@ -464,6 +501,7 @@ func candidateWithCompatibleOpenAITextAttempts(candidate runtimeResolvedAccessPl
 
 func (s *Service) resolveAccessTargetFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, sourceModel runtimeModelRecord, strategy loadbalance.RuntimeStrategy, target runtimeAccessTargetRecord, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, bool, error) {
 	if !target.IsEnabled || target.ProfileID != profileID || target.SourceModelConfigID != sourceModel.ID {
+		ctx.Observation.recordOtherExclusion()
 		return runtimeResolvedAccessPlan{}, false, nil
 	}
 	switch target.TargetType {
@@ -472,6 +510,7 @@ func (s *Service) resolveAccessTargetFromRoutingPlan(profileID int, routingPlan 
 	case runtimeAccessTargetTypeModel:
 		return s.resolveModelAccessTargetFromRoutingPlan(profileID, routingPlan, sourceModel, target, ctx)
 	default:
+		ctx.Observation.recordOtherExclusion()
 		return runtimeResolvedAccessPlan{}, false, nil
 	}
 }
@@ -479,11 +518,13 @@ func (s *Service) resolveAccessTargetFromRoutingPlan(profileID int, routingPlan 
 func (s *Service) resolveTerminalTargetFromRoutingPlan(profileID int, routingPlan *runtimeRoutingPlan, sourceModel runtimeModelRecord, strategy loadbalance.RuntimeStrategy, target runtimeAccessTargetRecord, ctx runtimeAccessResolutionContext) (runtimeResolvedAccessPlan, bool, error) {
 	connection, ok := routingPlan.terminalConnectionForAccessTarget(sourceModel, target)
 	if !ok {
+		ctx.Observation.recordOtherExclusion()
 		return runtimeResolvedAccessPlan{}, false, nil
 	}
+	ctx.Observation.recordEvaluatedTerminalConnection(connection.ID)
 	if ctx.Observation != nil && runtimeOperationIsOpenAICapabilityGated(ctx.RequestOperation) &&
 		runtimeOpenAICapabilitySatisfied(ctx.RequestOperation, runtimeModelCapabilityDimensions(sourceModel), runtimeConnectionCapabilityDimensions(connection)) {
-		ctx.Observation.CompatibleStaticRouteSeen = true
+		ctx.Observation.recordCompatibleStaticRoute()
 	}
 
 	resolvedConnection := connection
@@ -497,6 +538,22 @@ func (s *Service) resolveTerminalTargetFromRoutingPlan(profileID int, routingPla
 	runtimeStates := s.runtimeState.SnapshotConnectionStates(profileID, runtimeConnectionRefs([]runtimeConnection{resolvedConnection}))
 	eligibleConnectionIDs := loadbalance.FilterEligibleConnectionIDs(toConnectionOrderCandidates([]runtimeConnection{resolvedConnection}), runtimeStates, ctx.ReferenceNow)
 	if len(eligibleConnectionIDs) == 0 {
+		ctx.Observation.recordOtherExclusion()
+		return runtimeResolvedAccessPlan{}, false, nil
+	}
+	// Routing-window gate, deliberately after the Ban early exit above: placed
+	// before it, next_open_at would promise an instant that is still dark
+	// under an until_reset ban. DecideAt is the only eligibility entry point
+	// for CompiledRoutingSchedule — never IsOpenAt directly, which is false
+	// for every unconfigured connection and would fail all existing rows
+	// closed. Unrestricted / Open fall through to the existing code unchanged.
+	switch resolvedConnection.RoutingSchedule.DecideAt(ctx.ReferenceNow) {
+	case terminaltarget.RoutingScheduleUnresolved:
+		ctx.Observation.recordScheduleUnresolvable(resolvedConnection.ID)
+		return runtimeResolvedAccessPlan{}, false, nil
+	case terminaltarget.RoutingScheduleClosed:
+		ctx.Observation.recordScheduleExclusion(resolvedConnection.ID,
+			terminalTargetScheduleAttributable(sourceModel, connection, ctx))
 		return runtimeResolvedAccessPlan{}, false, nil
 	}
 	eligibleRuntimeStates := make(map[int]loadbalance.RuntimeConnectionState, len(eligibleConnectionIDs))
@@ -548,19 +605,30 @@ func (s *Service) resolveModelAccessTargetFromRoutingPlan(profileID int, routing
 		return runtimeResolvedAccessPlan{}, false, err
 	}
 	if !ok {
+		ctx.Observation.recordOtherExclusion()
 		return runtimeResolvedAccessPlan{}, false, nil
 	}
+	childObservation := &runtimePlanningObservation{}
 	childContext := ctx
 	childContext.ConsideredModelPath = appendRuntimeModelPath(ctx.ConsideredModelPath, childModel.ModelID)
+	childContext.Observation = childObservation
 	resolved, err := s.resolveModelAccessFromRoutingPlan(profileID, routingPlan, childModel, childContext)
+	// The child writes its own observation; CompatibleStaticRouteSeen must
+	// float up unconditionally, before every error branch: losing it would
+	// reclassify nested bare-503 failures as openai_no_eligible_terminal_target
+	// (a behavior regression, not a missing feature).
+	ctx.Observation.absorbChildStaticRoute(childObservation)
 	if err != nil {
 		if domainErr, ok := isRequestTranslationUnsupportedError(err); ok {
+			ctx.Observation.recordOtherExclusion()
 			return runtimeResolvedAccessPlan{CompatibilityError: domainErr}, false, nil
 		}
 		var noEligible *noEligibleTargetsError
 		if errors.As(err, &noEligible) {
+			ctx.Observation.mergeSwallowedChildObservation(childObservation)
 			return runtimeResolvedAccessPlan{}, false, nil
 		}
+		ctx.Observation.recordOtherExclusion()
 		return runtimeResolvedAccessPlan{}, false, err
 	}
 	resolved.RouteReason = mergeRuntimeRouteReason(gatewaycore.RouteReasonModelRedirect, resolved.RouteReason)

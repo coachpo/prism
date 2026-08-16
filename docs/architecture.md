@@ -181,7 +181,8 @@ Client -> POST /v1/messages {model: "claude-sonnet-4-5"}
      fill-first walks the mixed order, round-robin rotates the direct mixed rows
   -> Each peer row resolves by type: a Terminal row yields one attempt; a Model row recursively
      resolves through the child model's own strategy and contributes one contiguous block
-  -> Candidate-local misses (zero-leaf child, unavailable connection, operation incompatibility)
+  -> Candidate-local misses (zero-leaf child, unavailable connection, operation incompatibility,
+     routing window closed)
      skip to the next effective peer; cycle/depth and missing-strategy errors fail closed
   -> Executor plans attempts against Terminal Targets
   -> Upstream responds; eventual request history keeps model_id as the requested model and resolved_target_model_id as the final target model for each materialized attempt
@@ -341,11 +342,11 @@ Dashboard and analytics updates use REST polling rather than a persistent browse
 
 1. The operation registry resolves the exact runtime operation and hook collection before the request body is consumed.
 2. Request setup resolves the frozen Default profile id `1` model by exact `planningSnapshot.ModelsByID` lookup, ordered access targets, attached strategy, and one immutable effective strategy snapshot for the request.
-3. Planner and runtime-state helpers use the production `LocalRuntimeStateStore` to build the current candidate set from admission counters, leases, round-robin cursors, and Ban Policy retry-window state.
+3. Planner and runtime-state helpers use the production `LocalRuntimeStateStore` to build the current candidate set from admission counters, leases, round-robin cursors, and Ban Policy retry-window state. A connection carrying a routing schedule is additionally required to be inside one of its windows at the planning instant; the window check runs after Ban filtering, so a target excluded by its schedule is one already known to be otherwise usable.
 4. The shared execution core claims per-attempt local leases and uses shared upstream timeout behavior from the backend runtime before any client-visible bytes are committed.
 5. Operation request, response, and stream hooks interpret provider-native payload details by `HookCollectionID`, not necessarily operation name. Token-count and compact operations use their dedicated collections; passive outcomes feed back into process-local connection state while durable `loadbalance_events` retain transition history and model-policy snapshots, including `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold` when Ban Policy evaluation produced the event.
 
-Runtime request bodies are capped at `20 MiB`; oversized supported-operation requests return JSON `413` with `error: "request_body_too_large"` and `limit_bytes` before planning. If all eligible candidates are unavailable inside the current retry window, the gateway returns `503` with routing-availability detail. If all otherwise available candidates are blocked by admission limits, runtime returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. Exact facade routing, context-window preflight filtering, regex matching, capability-metadata expansion, hidden weight or tier semantics, and response-body model rewriting are retired. Request logs and usage events keep the existing requested-model and resolved-target fields.
+Runtime request bodies are capped at `20 MiB`; oversized supported-operation requests return JSON `413` with `error: "request_body_too_large"` and `limit_bytes` before planning. If all eligible candidates are unavailable inside the current retry window, the gateway returns `503` with routing-availability detail. If all otherwise available candidates are blocked by admission limits, runtime returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. If every evaluated candidate was excluded solely by its routing schedule, runtime returns `503` with `terminal_target_schedule_closed` or `terminal_target_schedule_unresolvable` (see §14.2.2A). Exact facade routing, context-window preflight filtering, regex matching, capability-metadata expansion, hidden weight or tier semantics, and response-body model rewriting are retired. Request logs and usage events keep the existing requested-model and resolved-target fields.
 
 ### 4.3 Runtime State Residency
 
@@ -388,8 +389,10 @@ resolve_access(profile_id, model_id):
     if candidate is a compatibility miss:
       remember first miss in effective order
       continue
-    if candidate has no eligible terminal attempts:
+    if candidate has no eligible terminal attempts:      // includes Ban filtering
       continue
+    if candidate's connection has a routing schedule and is outside it:
+      continue                                             // evaluated after Ban filtering
     append candidate attempts as one contiguous block
 
   if resolved has terminal attempts and connections:
@@ -400,6 +403,8 @@ resolve_access(profile_id, model_id):
 ```
 
 The three strategies act on the same enabled mixed rows: `single` keeps only the first enabled row, `fill-first` walks the authored mixed order, and `round-robin` rotates the direct mixed rows once per request (each row occupies one cursor slot; a child model's expanded attempts do not enlarge the parent modulus, and the child claims its own cursor keyed by its own source model, strategy, and target-set hash). An enabled but currently unavailable or incompatible row still consumes its round-robin slot; eligibility is judged after rotation. Reordering, adding, removing, or toggling rows changes the target-set hash, and a new hash starts a fresh cursor while a reappearing identical hash may continue its existing cursor. Cursors are process-local.
+
+Because eligibility is judged after rotation, a routing schedule shifts which row wins the first attempt rather than removing a cursor slot. A row that is outside its window still consumes its slot, so the first in-window row following a run of `k` consecutive out-of-window rows receives `(k+1)/N` of the first-attempt share for as long as that run lasts. This is a deliberate trade: the alternative filters before rotation, which would change the target-set hash whenever a window opens or closes and restart the cursor from zero each time. The skew matters most under the intended usage of switching upstreams by time of day, where most rows go out of window together — five rows with three of them scheduled for the night leave the remaining two splitting first attempts four to one throughout the day. Availability is unaffected: every in-window row is still attempted in order on failure.
 
 ### 5.4 Default profile and active runtime separation
 
@@ -789,7 +794,7 @@ Response `200`: `{ "deleted": true }`. Returns `409` if other models still refer
 ```
 GET /api/endpoints
 ```
-Response `200`: Array of endpoint objects in the effective profile scope, ordered by `position ASC, id ASC`.
+Response `200`: Array of endpoint objects in the effective profile scope, ordered by `lower(name) ASC, name ASC, id ASC`.
 
 ##### List All Connections (Dropdown)
 ```
@@ -832,30 +837,12 @@ Request:
 ```
 Response `200`: Updated endpoint object.
 
-##### Move Endpoint Position
-```
-PATCH /api/endpoints/{id}/position
-```
-Request:
-```json
-{
-  "to_index": 0
-}
-```
-Response `200`: Ordered array of endpoint objects after the move.
-
-Behavior:
-- `to_index` must be in the range `0..(endpoint_count - 1)` or the API returns `422`.
-- A no-op move returns the current ordered list unchanged.
-- The backend rewrites endpoint positions to contiguous `0..N-1` values after every successful move.
-
 ##### Delete Endpoint
 ```
 DELETE /api/endpoints/{id}
 ```
 Response `200`: `{ "deleted": true }`.
 Returns `409` if any connections still reference this endpoint.
-After a successful delete, later endpoints in the same profile are compacted so `position` remains contiguous.
 
 #### 1.5 Terminal Targets and Model Access Targets
 
@@ -943,14 +930,17 @@ Create semantics:
 - Limiter fields are optional. `null` means unlimited. Positive integers apply per-connection request admission limits.
 - `openai_text_capability` is the OpenAI text runtime capability source of truth for OpenAI-family Terminal Targets. It accepts `responses_only`, `chat_completions_only`, or `dual_native`, is required for OpenAI rows, and must equal the owner model's `openai_accepted_format` (strict mode equality). Non-OpenAI rows must omit it or persist `null`. Cross-mode authoring is rejected with `422`; changing a capability that would break an existing relation is rejected with `409`.
 - `custom_request_parameters` is an optional static top-level JSON object (`object | null`). Missing, `null`, and `{}` all persist as unconfigured (`NULL`); a non-empty object is validated (protected keys, 64 KiB compact limit, depth ≤ 16, members ≤ 256, safe integers) and canonicalized before write. Invalid values return `422` with `{"detail":"Invalid custom request parameters","field":"custom_request_parameters","path":...,"reason":...,"limit":...}`; malformed request JSON or unknown fields keep the generic `400`.
+- `routing_schedule` is an optional `{timezone, windows[]}` object (`object | null`). Missing and `null` both persist as unconfigured, which means no time restriction and byte-for-byte the pre-feature routing behaviour. A supplied object is validated and normalized before write: at most 32 windows, each with an ISO weekday bitmap (bit0 = Monday, 1–127), a `start_minute` in 0–1439 and an `end_minute` in 1–2880 that is greater than `start_minute` by at most 1440. An `end_minute` above 1440 continues into the next day, and `weekday_mask` names the day the window opens on, not every day it covers. A configuration whose windows together cover the whole week is rejected, because "always available" is expressed by having no schedule at all. Invalid values return `422` with `{"detail":"Invalid routing schedule","field":"routing_schedule","path":...,"reason":...,"index":...}`; an over-length timezone returns `400` and a server without a resolvable timezone database returns `503`, since that is a deployment gap rather than caller input.
 
 ##### Update Terminal Target
 ```
 PATCH /api/models/{model_config_id}/connections/{connection_id}
 ```
-Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `custom_request_parameters`, `openai_text_capability`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
+Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `custom_request_parameters`, `routing_schedule`, `openai_text_capability`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
 
 `custom_request_parameters` is a presence-aware whole-value replace: omitting the field keeps the current value, `null`/`{}` clears it to `NULL`, and a non-empty valid object replaces it wholesale; any violation fails the whole PATCH atomically.
+
+`routing_schedule` follows the same presence-aware contract: omitting the field keeps the current configuration and leaves the stored window rows untouched, `null` clears the timezone and deletes every window row, and an object replaces the whole configuration. Windows are never merged, because a wire window carries no stable identity that a merge could match against a stored row. The timezone here is the Terminal Target's own routing clock and is unrelated to `user_settings.timezone_preference`, which only affects how timestamps are displayed and never changes which upstream serves traffic.
 
 `pricing_template_id` is CAS-guarded: sending it requires both `expected_connection_updated_at` (the connection `updated_at` the client last read) and `expected_pricing_template_id` (its current template reference, `null` when unpriced). Missing either field returns `422` with `{"pricing_cas_required": ["expected_connection_updated_at", "expected_pricing_template_id"]}`; a drifted timestamp or template reference returns `409`. Clients that do not move the pricing reference must omit all three fields.
 
@@ -1436,7 +1426,9 @@ When any planned Terminal Target candidate has custom request parameters configu
 
 #### 2.2A Routing Failures
 
-Runtime planning orders the model's enabled mixed access-target rows once by `(position, id)` and lets the attached strategy shape the effective peer sequence: `single` keeps only the first enabled mixed row, `fill-first` walks the authored mixed order, and `round-robin` rotates the direct mixed rows once per request. A Model Target row recursively resolves through the child model's own strategy and contributes one contiguous block; a Terminal Target row contributes its own attempt. Candidate-local misses (zero-leaf child, unavailable connection, operation incompatibility) skip to the next effective peer, while cycle, depth, and missing-strategy errors fail closed. If no eligible Terminal Target is available inside the current retry window, Prism returns a routing-availability error before opening an upstream request. If all otherwise eligible attempts are blocked by admission counters, Prism returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. An OpenAI text request whose requested model does not accept the ingress operation rejects immediately with `400 openai_request_translation_unsupported`. Terminal Target connections that do not natively support the operation are skipped so later native attempts remain eligible; if every otherwise eligible attempt is wire-incompatible, Prism returns the same typed `400` with `translation_mode: "none"` and `unsupported_reason: "operation_translation_unsupported"` before provider transport. Availability failures with no otherwise eligible attempt retain the ordinary `503` no-eligible-target response.
+Runtime planning orders the model's enabled mixed access-target rows once by `(position, id)` and lets the attached strategy shape the effective peer sequence: `single` keeps only the first enabled mixed row, `fill-first` walks the authored mixed order, and `round-robin` rotates the direct mixed rows once per request. A Model Target row recursively resolves through the child model's own strategy and contributes one contiguous block; a Terminal Target row contributes its own attempt. Candidate-local misses (zero-leaf child, unavailable connection, operation incompatibility, routing window closed) skip to the next effective peer, while cycle, depth, and missing-strategy errors fail closed. If no eligible Terminal Target is available inside the current retry window, Prism returns a routing-availability error before opening an upstream request. If all otherwise eligible attempts are blocked by admission counters, Prism returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. An OpenAI text request whose requested model does not accept the ingress operation rejects immediately with `400 openai_request_translation_unsupported`. Terminal Target connections that do not natively support the operation are skipped so later native attempts remain eligible; if every otherwise eligible attempt is wire-incompatible, Prism returns the same typed `400` with `translation_mode: "none"` and `unsupported_reason: "operation_translation_unsupported"` before provider transport. Availability failures with no otherwise eligible attempt retain the ordinary `503` no-eligible-target response.
+
+Two family-neutral planning codes describe routing-schedule rejections, and this section is their authoritative definition. `terminal_target_schedule_closed` is returned when every terminal target the request evaluated was excluded solely because it sits outside its configured routing window; `terminal_target_schedule_unresolvable` is returned when they were all excluded solely because their routing timezone could not be resolved. Both are `503`. Neither fires when any other cause contributed to the failure — a mixed failure keeps the ordinary response and appends an `N of M` sentence to the detail instead, so the stable codes never overstate what happened. The closed code carries `schedule_excluded_connection_ids`, `schedule_excluded_connection_ids_truncated`, `schedule_excluded_connection_count`, `schedule_reference_now`, `schedule_earliest_next_open_at`, and `schedule_earliest_next_open_at_known`; the unresolvable code carries the matching `schedule_unresolvable_*` trio plus `schedule_reference_now`. The `_at` keys are absent whenever the matching `_known` flag is false.
 
 Request-log detail keeps flat final-target attribution fields such as `resolved_target_model_id`, `terminal_target_id`, `selected_terminal_target_id`, `endpoint_id`, and `operation_translation_mode`. Deleted model-owned routing metadata is not exposed on public detail responses.
 
@@ -3102,6 +3094,8 @@ Prism does not have one universal error envelope. Management handlers normally r
 }
 ```
 
+Field-scoped validation failures flatten their locator onto the same top level rather than nesting it, so `field`, `path`, `reason`, and where applicable `index` and `limit` appear as siblings of `detail`. Clients discriminate on `field` rather than on the detail text, which is not a stable contract.
+
 The auth control plane (and any surface converging on it) uses the canonical flat management problem envelope owned by `internal/httpapi/management/responseutil`:
 ```json
 {
@@ -3552,7 +3546,7 @@ Terminal Targets are represented as `connections` / `connection_id` in the compa
 | qps_limit | INTEGER | NULLABLE | Per-Terminal Target QPS cap; `NULL` means unlimited |
 | max_in_flight_non_stream | INTEGER | NULLABLE | Concurrent non-stream request cap; `NULL` means unlimited |
 | max_in_flight_stream | INTEGER | NULLABLE | Concurrent stream request cap; `NULL` means unlimited |
-| is_active | BOOLEAN | NOT NULL | Active routing candidate; application-managed value |
+| is_active | BOOLEAN | NOT NULL | Application-managed. Required for a connection to be a routing candidate, but no longer sufficient on its own: a connection with a routing schedule must also be inside one of its windows. The two are orthogonal and ordered — an inactive connection never reaches the planning snapshot, so its schedule is not evaluated at all |
 | priority | INTEGER | NOT NULL | Legacy fallback ordering hint for family-level reads; model routing order comes from access-target `position` |
 | name | TEXT | NULLABLE | Optional Terminal Target label |
 | auth_type | VARCHAR(50) | NULLABLE | Optional auth behavior metadata |
@@ -3563,7 +3557,9 @@ Terminal Targets are represented as `connections` / `connection_id` in the compa
 | last_health_check | TIMESTAMPTZ | NULLABLE | Retained compatibility health timestamp |
 | openai_probe_endpoint_variant | VARCHAR(40) | NULLABLE | Retained schema field for existing rows; the live UI no longer writes this metadata |
 | openai_text_capability | TEXT | NULLABLE | OpenAI Terminal Target text runtime capability: `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI Terminal Targets persist `NULL` |
+| openai_image_capability | TEXT | NULLABLE | OpenAI Terminal Target image runtime capability; must cover the owner model's `openai_image_operations` and may serve more; non-OpenAI Terminal Targets persist `NULL` |
 | monitoring_probe_interval_seconds | INTEGER | NOT NULL, DEFAULT 300 | Reserved monitoring cadence field |
+| routing_schedule_timezone | VARCHAR(100) | NULLABLE | IANA timezone of this Terminal Target's own routing clock; `NULL` together with zero window rows means no time restriction. Unrelated to `user_settings.timezone_preference` |
 | created_at | TIMESTAMPTZ | NOT NULL | Creation timestamp; application-managed |
 | updated_at | TIMESTAMPTZ | NOT NULL | Last update timestamp; application-managed |
 
@@ -3580,6 +3576,29 @@ Connection invariants:
 - OpenAI Terminal Targets require `openai_text_capability` in `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI Terminal Targets must keep it `NULL`.
 - `openai_text_capability` is the connection-owned OpenAI text runtime capability source of truth for planning. `responses_only` supports native Responses generation and Responses adjunct operations, `chat_completions_only` supports native Chat Completions, and `dual_native` supports both native text generation shapes. Strict mode equality requires the requested model's `openai_accepted_format` and the connection's `openai_text_capability` to be exactly equal; authoring any unequal relation is rejected by management (`422 target_openai_mode_mismatch`), mode changes that would break existing relations return `409`, and runtime skips mode-different connections in authored order so later equal-mode attempts remain eligible. An otherwise eligible set exhausted only by mode incompatibility returns the typed `400 openai_request_translation_unsupported` before provider transport; ordinary availability exhaustion without such an attempt remains `503`.
 - `openai_probe_endpoint_variant` is retained for existing rows; live Terminal Target authoring uses `openai_text_capability` for OpenAI runtime planning.
+- A connection with zero rows in `connection_routing_windows` has no time restriction and routes exactly as it did before routing schedules existed. Existing rows migrated with `routing_schedule_timezone` `NULL` and no window rows, so the feature is inert until configured.
+- `routing_schedule_timezone` and the window rows are written and cleared together. A timezone with no windows, or windows with no timezone, is refused by the write paths and compiles to an unresolvable schedule at runtime, which excludes only that one connection.
+
+#### 2.6A `connection_routing_windows` (profile-scoped routing windows)
+
+Half-open `[start_minute, end_minute)` intervals during which a Terminal Target may be selected. Appended as 2.6A rather than renumbering the sections that follow.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | BIGINT | PK, GENERATED ALWAYS AS IDENTITY | Unique identifier; carries no inbound foreign key and never reaches the wire |
+| connection_id | INTEGER | NOT NULL, FK → connections(id, profile_id) ON DELETE CASCADE | Owning Terminal Target |
+| profile_id | INTEGER | NOT NULL | Profile scope, part of the composite foreign key |
+| weekday_mask | SMALLINT | NOT NULL, CHECK 1–127 | ISO weekday bitmap, bit0 = Monday; names the day the window opens on |
+| start_minute | SMALLINT | NOT NULL, CHECK 0–1439 | Local wall-clock minute the window opens |
+| end_minute | SMALLINT | NOT NULL, CHECK 1–2880, `> start_minute`, span ≤ 1440 | Local wall-clock minute the window closes; above 1440 continues into the next day |
+| created_at | TIMESTAMPTZ | NOT NULL | Creation timestamp; application-managed |
+| updated_at | TIMESTAMPTZ | NOT NULL | Last update timestamp; application-managed |
+
+Index `idx_crw_profile_connection` on `(profile_id, connection_id)` serves the batch reads, which are always profile-scoped.
+
+Routing window invariants:
+- `ON DELETE CASCADE` is intentional and follows the runtime-state and lease tables: a window is part of a connection rather than a reference to one, so deleting the connection must take its windows with it.
+- Rows are rewritten whole on every schedule write. A wire window has no stable identity, the row count is bounded at 32, and the PATCH contract is whole-field replacement, so a delete-then-insert matches the contract exactly.
 
 #### 2.7 `pricing_templates` (profile-scoped reusable token pricing)
 
@@ -4256,10 +4275,10 @@ CREATE INDEX idx_model_configs_profile_model_enabled ON model_configs(profile_id
 CREATE INDEX idx_model_access_targets_profile_source_position ON model_access_targets(profile_id, source_model_config_id, "position");
 CREATE INDEX idx_model_access_targets_target_model ON model_access_targets(target_model_config_id) WHERE target_model_config_id IS NOT NULL;
 CREATE INDEX idx_model_access_targets_connection ON model_access_targets(target_connection_id) WHERE target_connection_id IS NOT NULL;
-CREATE INDEX idx_endpoints_profile_position ON endpoints(profile_id, "position");
 CREATE INDEX idx_connections_profile_family_active_priority ON connections(profile_id, api_family, is_active, priority);
 CREATE INDEX idx_connections_endpoint_id ON connections(endpoint_id);
 CREATE INDEX idx_connections_pricing_template_id ON connections(pricing_template_id);
+CREATE INDEX idx_crw_profile_connection ON connection_routing_windows(profile_id, connection_id);
 CREATE INDEX idx_request_logs_profile_created_at ON ONLY request_logs(profile_id, created_at);
 CREATE INDEX idx_request_logs_ingress_request_id ON ONLY request_logs(ingress_request_id);
 CREATE INDEX idx_request_logs_pricing_status ON ONLY request_logs(pricing_status);
@@ -4311,6 +4330,7 @@ Selected foreign-key deletion boundaries:
 | `model_access_targets(source_model_config_id, profile_id)` | `model_configs(id, profile_id)` | `CASCADE` |
 | `model_access_targets(target_model_config_id, profile_id)` | `model_configs(id, profile_id)` | `RESTRICT` |
 | `model_access_targets(target_connection_id, profile_id)` | `connections(id, profile_id)` | `RESTRICT` |
+| `connection_routing_windows(connection_id, profile_id)` | `connections(id, profile_id)` | `CASCADE` (intentional: a window is part of a connection, not a reference to one, matching the runtime-state and lease tables) |
 | `proxy_api_keys.created_by_auth_subject_id` | `app_auth_settings(id)` | `SET NULL` |
 | `refresh_tokens.auth_subject_id` | `app_auth_settings(id)` | `CASCADE` |
 | `refresh_tokens.rotated_from_id` | `refresh_tokens(id)` | `SET NULL` |
@@ -4319,7 +4339,7 @@ Selected foreign-key deletion boundaries:
 
 ### 4. Relationship and Ownership Rules
 
-- Profile-scoped entities include `model_configs`, `model_access_targets`, `loadbalance_strategies`, `endpoints`, `connections`, `pricing_templates`, `user_settings`, Pricing migration inventories/drafts, `profile_api_family_audit_settings`, `runtime_telemetry_outbox`, requesting-profile `audit_delete` jobs, user `header_blocklist_rules`, and user `user_agent_client_rules`.
+- Profile-scoped entities include `model_configs`, `model_access_targets`, `loadbalance_strategies`, `endpoints`, `connections`, `connection_routing_windows`, `pricing_templates`, `user_settings`, Pricing migration inventories/drafts, `profile_api_family_audit_settings`, `runtime_telemetry_outbox`, requesting-profile `audit_delete` jobs, user `header_blocklist_rules`, and user `user_agent_client_rules`.
 - `routing_connection_runtime_state`, `routing_connection_runtime_leases`, and `loadbalance_round_robin_state` retain profile identifiers as compatibility schema, but they are not the production runtime-state source.
 - `app_auth_settings` is the singleton auth root for `refresh_tokens` and `proxy_api_keys`.
 - `request_logs`, `usage_request_events`, `audit_logs`, and `loadbalance_events` keep immutable `profile_id` attribution and are not rewritten when the runtime profile snapshot changes.
@@ -4346,6 +4366,7 @@ Selected foreign-key deletion boundaries:
 - Ban Mode thresholding uses cumulative retry attempts for the private connection owned by the terminal model path.
 - Non-retryable client errors do not force-clear existing process-local current state; successful `2xx` responses clear local retry and ban state for the connection.
 - Header blocklist at runtime is resolved as: all enabled system rules + enabled user rules for frozen Default profile id `1`.
+- Routing-window eligibility is a pure function of the stored configuration and the request instant. It reads no process-local state, is not cached, and requires no cache-generation bump: a window opens and closes purely because the clock advanced. Precision is the request arrival instant within one process; across processes it is bounded by clock skew between them and by the timezone database each one resolves against.
 
 ### 7. Invariant Notes
 

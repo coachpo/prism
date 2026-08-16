@@ -25,6 +25,8 @@ function createEditingConnection(params?: Partial<Connection>): Connection {
     auth_type: null,
     custom_headers: null,
     custom_request_parameters: null,
+    routing_schedule: null,
+    routing_schedule_state: null,
     openai_text_capability: "dual_native",
     openai_image_capability: null,
     pricing_template_id: null,
@@ -164,6 +166,7 @@ describe("buildConnectionDraftPayload custom request parameters", () => {
     editingConnection: null,
     endpointSourceDefaultName: null,
     customRequestParametersValue: null,
+    routingScheduleValue: null,
   }
 
   it("sends null for unconfigured on create", () => {
@@ -175,6 +178,7 @@ describe("buildConnectionDraftPayload custom request parameters", () => {
     const { payload } = buildConnectionDraftPayload({
       ...baseInput,
       customRequestParametersValue: { provider: { only: ["deepinfra/turbo"] } },
+      routingScheduleValue: null,
     })
     expect(payload?.custom_request_parameters).toEqual({ provider: { only: ["deepinfra/turbo"] } })
   })
@@ -184,6 +188,7 @@ describe("buildConnectionDraftPayload custom request parameters", () => {
       ...baseInput,
       editingConnection: createEditingConnection(),
       customRequestParametersValue: null,
+      routingScheduleValue: null,
     })
     expect(payload?.custom_request_parameters).toBeNull()
   })
@@ -193,6 +198,7 @@ describe("buildConnectionDraftPayload custom request parameters", () => {
       ...baseInput,
       editingConnection: createEditingConnection({ custom_request_parameters: { provider: { only: ["old"] } } }),
       customRequestParametersValue: { provider: { only: ["new-provider"] }, temperature: null },
+      routingScheduleValue: null,
     })
     expect(payload?.custom_request_parameters).toEqual({ provider: { only: ["new-provider"] }, temperature: null })
   })

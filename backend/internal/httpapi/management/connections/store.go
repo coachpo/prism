@@ -439,7 +439,7 @@ func insertPricingMutationResultItem(ctx context.Context, tx pgx.Tx, operationID
 	return nil
 }
 
-func loadConnectionRecord(ctx context.Context, exec queryExecutor, profileID int, connectionID int, forUpdate bool) (connectionResponse, bool, error) {
+func loadConnectionRecord(ctx context.Context, exec queryExecutor, profileID int, connectionID int, forUpdate bool, now time.Time) (connectionResponse, bool, error) {
 	query := connectionSelectQuery + ` WHERE model_access_targets.profile_id = $1 AND connections.id = $2`
 	if forUpdate {
 		query += ` FOR UPDATE OF connections`
@@ -452,28 +452,46 @@ func loadConnectionRecord(ctx context.Context, exec queryExecutor, profileID int
 	if err != nil {
 		return connectionResponse{}, false, fmt.Errorf("load connection %d in profile %d: %w", connectionID, profileID, err)
 	}
-	return item, true, nil
+	items := []connectionResponse{item}
+	if err := attachConnectionRoutingWindows(ctx, exec, profileID, items, now); err != nil {
+		return connectionResponse{}, false, err
+	}
+	return items[0], true, nil
 }
 
-func listConnections(ctx context.Context, exec queryExecutor, profileID int) ([]connectionResponse, error) {
+func listConnections(ctx context.Context, exec queryExecutor, profileID int, now time.Time) ([]connectionResponse, error) {
 	rows, err := exec.Query(ctx, connectionSelectQuery+` WHERE model_access_targets.profile_id = $1 ORDER BY model_access_targets.position ASC, connections.id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query connections for profile %d: %w", profileID, err)
 	}
-	defer rows.Close()
-	return scanConnectionRows(rows, fmt.Sprintf("iterate connections for profile %d", profileID))
+	items, err := scanConnectionRows(rows, fmt.Sprintf("iterate connections for profile %d", profileID))
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if err := attachConnectionRoutingWindows(ctx, exec, profileID, items, now); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
-func listConnectionsForModel(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int) ([]connectionResponse, error) {
+func listConnectionsForModel(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, now time.Time) ([]connectionResponse, error) {
 	rows, err := exec.Query(ctx, connectionSelectQuery+` WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id = $2 ORDER BY model_access_targets.position ASC, connections.id ASC`, profileID, modelConfigID)
 	if err != nil {
 		return nil, fmt.Errorf("query connections for model %d: %w", modelConfigID, err)
 	}
-	defer rows.Close()
-	return scanConnectionRows(rows, fmt.Sprintf("iterate connections for model %d", modelConfigID))
+	items, err := scanConnectionRows(rows, fmt.Sprintf("iterate connections for model %d", modelConfigID))
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if err := attachConnectionRoutingWindows(ctx, exec, profileID, items, now); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
-func loadModelConnectionRecord(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, connectionID int) (connectionResponse, bool, error) {
+func loadModelConnectionRecord(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, connectionID int, now time.Time) (connectionResponse, bool, error) {
 	item, err := scanConnectionResponse(exec.QueryRow(ctx, connectionSelectQuery+` WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id = $2 AND connections.id = $3 LIMIT 1`, profileID, modelConfigID, connectionID))
 	if err == pgx.ErrNoRows {
 		return connectionResponse{}, false, nil
@@ -481,7 +499,11 @@ func loadModelConnectionRecord(ctx context.Context, exec queryExecutor, profileI
 	if err != nil {
 		return connectionResponse{}, false, fmt.Errorf("load connection %d for model %d: %w", connectionID, modelConfigID, err)
 	}
-	return item, true, nil
+	items := []connectionResponse{item}
+	if err := attachConnectionRoutingWindows(ctx, exec, profileID, items, now); err != nil {
+		return connectionResponse{}, false, err
+	}
+	return items[0], true, nil
 }
 
 func loadConnectionOwnerReference(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, connectionID int, forUpdate bool) (connectionReferenceRecord, bool, error) {
@@ -530,7 +552,7 @@ func lockProfileAccessTargetRows(ctx context.Context, tx pgx.Tx, profileID int) 
 	return nil
 }
 
-func listConnectionsByModelIDs(ctx context.Context, exec queryExecutor, profileID int, modelConfigIDs []int) (map[int][]connectionResponse, error) {
+func listConnectionsByModelIDs(ctx context.Context, exec queryExecutor, profileID int, modelConfigIDs []int, now time.Time) (map[int][]connectionResponse, error) {
 	items := make(map[int][]connectionResponse, len(modelConfigIDs))
 	if len(modelConfigIDs) == 0 {
 		return items, nil
@@ -541,25 +563,37 @@ func listConnectionsByModelIDs(ctx context.Context, exec queryExecutor, profileI
 	if err != nil {
 		return nil, fmt.Errorf("query connection batch for profile %d: %w", profileID, err)
 	}
-	defer rows.Close()
+	// Rows are drained into a flat slice and closed before the window batch
+	// read: the connection is busy while rows are open, so issuing the second
+	// query inside the loop would fail.
+	scanned := make([]connectionResponse, 0, len(modelConfigIDs))
 	for rows.Next() {
 		item, scanErr := scanConnectionResponse(rows)
 		if scanErr != nil {
+			rows.Close()
 			return nil, scanErr
 		}
+		scanned = append(scanned, item)
+	}
+	iterateErr := rows.Err()
+	rows.Close()
+	if iterateErr != nil {
+		return nil, fmt.Errorf("iterate connection batch for profile %d: %w", profileID, iterateErr)
+	}
+	if err := attachConnectionRoutingWindows(ctx, exec, profileID, scanned, now); err != nil {
+		return nil, err
+	}
+	for _, item := range scanned {
 		if item.ModelConfigID != nil {
 			items[*item.ModelConfigID] = append(items[*item.ModelConfigID], item)
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate connection batch for profile %d: %w", profileID, err)
 	}
 	return items, nil
 }
 
 func insertTerminalTarget(ctx context.Context, exec queryExecutor, item terminaltarget.Record) (int, error) {
 	var terminalTargetID int
-	err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_text_capability, openai_image_capability, is_active, priority, name, auth_type, custom_headers, custom_request_parameters, health_status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11, $12, $13, $14, 'unknown', $15, $16) RETURNING id`, item.ProfileID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAITextCapability), nullableString(item.OpenAIImageCapability), item.IsActive, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), nullableCustomRequestParametersArg(item.CustomRequestParameters), item.CreatedAt, item.UpdatedAt).Scan(&terminalTargetID)
+	err := exec.QueryRow(ctx, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_text_capability, openai_image_capability, is_active, priority, name, auth_type, custom_headers, custom_request_parameters, routing_schedule_timezone, health_status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11, $12, $13, $14, $17, 'unknown', $15, $16) RETURNING id`, item.ProfileID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAITextCapability), nullableString(item.OpenAIImageCapability), item.IsActive, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), nullableCustomRequestParametersArg(item.CustomRequestParameters), item.CreatedAt, item.UpdatedAt, nullableString(item.RoutingScheduleTimezone)).Scan(&terminalTargetID)
 	if err != nil {
 		return 0, fmt.Errorf("insert terminal target: %w", err)
 	}
@@ -574,8 +608,109 @@ func insertOwnerTerminalTargetAccess(ctx context.Context, exec queryExecutor, pr
 }
 
 func updateTerminalTarget(ctx context.Context, exec queryExecutor, item terminaltarget.Record) error {
-	if _, err := exec.Exec(ctx, `UPDATE connections SET api_family = $2, endpoint_id = $3, pricing_template_id = $4, qps_limit = $5, max_in_flight_non_stream = $6, max_in_flight_stream = $7, openai_text_capability = $8, openai_image_capability = $9, is_active = $10, name = $11, auth_type = $12, custom_headers = $13, custom_request_parameters = $14, updated_at = $15 WHERE id = $1`, item.ID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAITextCapability), nullableString(item.OpenAIImageCapability), item.IsActive, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), nullableCustomRequestParametersArg(item.CustomRequestParameters), item.UpdatedAt); err != nil {
+	if _, err := exec.Exec(ctx, `UPDATE connections SET api_family = $2, endpoint_id = $3, pricing_template_id = $4, qps_limit = $5, max_in_flight_non_stream = $6, max_in_flight_stream = $7, openai_text_capability = $8, openai_image_capability = $9, is_active = $10, name = $11, auth_type = $12, custom_headers = $13, custom_request_parameters = $14, updated_at = $15, routing_schedule_timezone = $16 WHERE id = $1`, item.ID, item.APIFamily, item.EndpointID, nullableInt(item.PricingTemplateID), nullableInt(item.QPSLimit), nullableInt(item.MaxInFlightNonStream), nullableInt(item.MaxInFlightStream), nullableString(item.OpenAITextCapability), nullableString(item.OpenAIImageCapability), item.IsActive, nullableString(item.Name), nullableString(item.AuthType), nullableJSONString(item.CustomHeaders), nullableCustomRequestParametersArg(item.CustomRequestParameters), item.UpdatedAt, nullableString(item.RoutingScheduleTimezone)); err != nil {
 		return fmt.Errorf("update terminal target %d: %w", item.ID, err)
+	}
+	return nil
+}
+
+// replaceConnectionRoutingWindows rewrites a connection's window rows whole.
+// A wire window carries no stable identity, the PATCH contract is whole-field
+// replacement, and the row count is bounded at RoutingScheduleMaxWindows, so a
+// delete-then-insert matches the contract exactly while a diff would have to
+// guess which stored row each payload row meant. The id churn is harmless:
+// connection_routing_windows.id has no inbound foreign key and never reaches
+// the wire. Callers already hold the profile-scoped row lock.
+func replaceConnectionRoutingWindows(ctx context.Context, exec queryExecutor, profileID int, connectionID int, windows []terminaltarget.Window, currentTime time.Time) error {
+	if _, err := exec.Exec(ctx, `DELETE FROM connection_routing_windows WHERE profile_id = $1 AND connection_id = $2`, profileID, connectionID); err != nil {
+		return fmt.Errorf("delete routing windows for connection %d: %w", connectionID, err)
+	}
+	if len(windows) == 0 {
+		return nil
+	}
+	masks := make([]int, 0, len(windows))
+	starts := make([]int, 0, len(windows))
+	ends := make([]int, 0, len(windows))
+	for _, window := range windows {
+		masks = append(masks, window.WeekdayMask)
+		starts = append(starts, window.StartMinute)
+		ends = append(ends, window.EndMinute)
+	}
+	if _, err := exec.Exec(ctx, `INSERT INTO connection_routing_windows (connection_id, profile_id, weekday_mask, start_minute, end_minute, created_at, updated_at) SELECT $1, $2, routing_window.weekday_mask, routing_window.start_minute, routing_window.end_minute, $6, $6 FROM unnest($3::smallint[], $4::smallint[], $5::smallint[]) AS routing_window(weekday_mask, start_minute, end_minute)`,
+		connectionID, profileID, int16ArrayArg(masks), int16ArrayArg(starts), int16ArrayArg(ends), currentTime); err != nil {
+		return fmt.Errorf("insert routing windows for connection %d: %w", connectionID, err)
+	}
+	return nil
+}
+
+// copyConnectionRoutingWindows clones the window rows of one connection onto
+// another inside the same profile. The connectionResponse literal clone cannot
+// carry child rows, so a copy that omits this call silently produces a target
+// with no schedule while every other assertion still passes.
+func copyConnectionRoutingWindows(ctx context.Context, exec queryExecutor, profileID int, sourceConnectionID int, targetConnectionID int, currentTime time.Time) error {
+	if _, err := exec.Exec(ctx, `INSERT INTO connection_routing_windows (connection_id, profile_id, weekday_mask, start_minute, end_minute, created_at, updated_at) SELECT $2, profile_id, weekday_mask, start_minute, end_minute, $4, $4 FROM connection_routing_windows WHERE profile_id = $3 AND connection_id = $1`,
+		sourceConnectionID, targetConnectionID, profileID, currentTime); err != nil {
+		return fmt.Errorf("copy routing windows from connection %d to %d: %w", sourceConnectionID, targetConnectionID, err)
+	}
+	return nil
+}
+
+func loadConnectionRoutingWindows(ctx context.Context, exec queryExecutor, profileID int, connectionIDs []int) (map[int][]terminaltarget.Window, error) {
+	if len(connectionIDs) == 0 {
+		return map[int][]terminaltarget.Window{}, nil
+	}
+	rows, err := exec.Query(ctx, `SELECT connection_id, weekday_mask, start_minute, end_minute FROM connection_routing_windows WHERE profile_id = $1 AND connection_id = ANY($2) ORDER BY connection_id ASC, weekday_mask ASC, start_minute ASC, end_minute ASC`, profileID, int32ArrayArg(connectionIDs))
+	if err != nil {
+		return nil, fmt.Errorf("query routing windows for profile %d: %w", profileID, err)
+	}
+	defer rows.Close()
+	windowsByConnection := map[int][]terminaltarget.Window{}
+	for rows.Next() {
+		var connectionID int
+		var window terminaltarget.Window
+		if err := rows.Scan(&connectionID, &window.WeekdayMask, &window.StartMinute, &window.EndMinute); err != nil {
+			return nil, fmt.Errorf("scan routing window: %w", err)
+		}
+		windowsByConnection[connectionID] = append(windowsByConnection[connectionID], window)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate routing windows for profile %d: %w", profileID, err)
+	}
+	return windowsByConnection, nil
+}
+
+// attachConnectionRoutingWindows fills the window rows of already-scanned
+// connections in one batch read. The parent SELECT only carries the timezone
+// column, so without this call every connection would render as configured
+// with zero windows.
+func attachConnectionRoutingWindows(ctx context.Context, exec queryExecutor, profileID int, items []connectionResponse, now time.Time) error {
+	if len(items) == 0 {
+		return nil
+	}
+	connectionIDs := make([]int, 0, len(items))
+	for _, item := range items {
+		connectionIDs = append(connectionIDs, item.ID)
+	}
+	windowsByConnection, err := loadConnectionRoutingWindows(ctx, exec, profileID, connectionIDs)
+	if err != nil {
+		return err
+	}
+	for index := range items {
+		if windows, ok := windowsByConnection[items[index].ID]; ok {
+			if items[index].RoutingSchedule == nil {
+				// Window rows without a timezone can only come from a write that
+				// bypassed the API. Surfacing it with an empty timezone makes it
+				// compile to Unresolved, which is the honest reading.
+				items[index].RoutingSchedule = &RoutingSchedulePayload{}
+			}
+			items[index].RoutingSchedule.Windows = routingWindowPayloadsFromWindows(windows)
+		}
+		// The evaluated state is filled in the same pass as the windows so no
+		// read path can ship configuration without it; a surface that returned
+		// only configuration would leave the client no way to say whether the
+		// leg is on duty right now, and no test would notice.
+		timezone, windows := routingScheduleConfigFromResponse(items[index])
+		items[index].RoutingScheduleState = RoutingScheduleStateForConfig(timezone, windows, items[index].IsActive, now)
 	}
 	return nil
 }
@@ -656,7 +791,7 @@ func listPricingTemplateConnectionUsageRows(ctx context.Context, exec queryExecu
 	return items, nil
 }
 
-const connectionSelectQuery = `SELECT connections.id, connections.profile_id, model_access_targets.source_model_config_id, connections.api_family, connections.endpoint_id, endpoints.id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.api_key_fingerprint, endpoints.api_key_updated_at, endpoints.config_revision, endpoints.created_at, endpoints.updated_at, connections.is_active, model_access_targets.position, connections.name, connections.auth_type, connections.custom_headers, connections.custom_request_parameters, connections.openai_text_capability, connections.openai_image_capability, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, revisions.version, revisions.currency_code, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id LEFT JOIN pricing_template_revisions AS revisions ON revisions.id = pricing_templates.current_revision_id`
+const connectionSelectQuery = `SELECT connections.id, connections.profile_id, model_access_targets.source_model_config_id, connections.api_family, connections.endpoint_id, endpoints.id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.api_key_fingerprint, endpoints.api_key_updated_at, endpoints.config_revision, endpoints.created_at, endpoints.updated_at, connections.is_active, model_access_targets.position, connections.name, connections.auth_type, connections.custom_headers, connections.custom_request_parameters, connections.openai_text_capability, connections.openai_image_capability, connections.routing_schedule_timezone, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, revisions.version, revisions.currency_code, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id LEFT JOIN pricing_template_revisions AS revisions ON revisions.id = pricing_templates.current_revision_id`
 
 func scanConnectionRows(rows pgx.Rows, iterateContext string) ([]connectionResponse, error) {
 	items := make([]connectionResponse, 0)
@@ -719,6 +854,7 @@ func scanTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminal
 	var customRequestParameters sql.NullString
 	var openAITextCapability sql.NullString
 	var openAIImageCapability sql.NullString
+	var routingScheduleTimezone sql.NullString
 	var pricingTemplateID sql.NullInt32
 	var qpsLimit sql.NullInt32
 	var maxInFlightNonStream sql.NullInt32
@@ -728,9 +864,10 @@ func scanTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminal
 	var templateCurrencyCode sql.NullString
 	var templateVersion sql.NullInt32
 	record := terminaltarget.Record{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &modelConfigID, &record.APIFamily, &record.EndpointID, &joinedEndpointID, &endpointProfileID, &endpointName, &endpointBaseURL, &endpointAPIKey, &endpointFingerprint, &endpointKeyUpdatedAt, &endpointConfigRevision, &endpointCreatedAt, &endpointUpdatedAt, &record.IsActive, &record.Priority, &connectionName, &authType, &customHeaders, &customRequestParameters, &openAITextCapability, &openAIImageCapability, &pricingTemplateID, &qpsLimit, &maxInFlightNonStream, &maxInFlightStream, &templateID, &templateName, &templateVersion, &templateCurrencyCode, &record.CreatedAt, &record.UpdatedAt); err != nil {
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &modelConfigID, &record.APIFamily, &record.EndpointID, &joinedEndpointID, &endpointProfileID, &endpointName, &endpointBaseURL, &endpointAPIKey, &endpointFingerprint, &endpointKeyUpdatedAt, &endpointConfigRevision, &endpointCreatedAt, &endpointUpdatedAt, &record.IsActive, &record.Priority, &connectionName, &authType, &customHeaders, &customRequestParameters, &openAITextCapability, &openAIImageCapability, &routingScheduleTimezone, &pricingTemplateID, &qpsLimit, &maxInFlightNonStream, &maxInFlightStream, &templateID, &templateName, &templateVersion, &templateCurrencyCode, &record.CreatedAt, &record.UpdatedAt); err != nil {
 		return terminaltarget.Record{}, err
 	}
+	record.RoutingScheduleTimezone = nullableStringValue(routingScheduleTimezone)
 	record.OwnerModelConfigID = nullableInt32(modelConfigID)
 	record.Name = nullableStringValue(connectionName)
 	record.AuthType = nullableStringValue(authType)
@@ -800,6 +937,13 @@ func terminalTargetRecordFromConnectionResponse(item connectionResponse) termina
 	if item.PricingTemplate != nil {
 		record.PricingTemplate = &terminaltarget.PricingTemplateSummary{ID: item.PricingTemplate.ID, Name: item.PricingTemplate.Name, PricingUnit: item.PricingTemplate.PricingUnit, PricingCurrencyCode: item.PricingTemplate.PricingCurrencyCode, Version: item.PricingTemplate.Version}
 	}
+	// RoutingScheduleState is deliberately not carried across: it is a clock
+	// derived projection computed at response assembly, not stored state.
+	if item.RoutingSchedule != nil {
+		timezone := item.RoutingSchedule.Timezone
+		record.RoutingScheduleTimezone = &timezone
+		record.RoutingWindows = routingWindowsFromPayload(item.RoutingSchedule)
+	}
 	return record
 }
 
@@ -831,6 +975,7 @@ func connectionResponseFromTerminalTargetRecord(record terminaltarget.Record) co
 	if record.PricingTemplate != nil {
 		item.PricingTemplate = &connectionPricingTemplateSummary{ID: record.PricingTemplate.ID, Name: record.PricingTemplate.Name, PricingUnit: record.PricingTemplate.PricingUnit, PricingCurrencyCode: record.PricingTemplate.PricingCurrencyCode, Version: record.PricingTemplate.Version}
 	}
+	item.RoutingSchedule = routingSchedulePayloadFromRecord(record.RoutingScheduleTimezone, record.RoutingWindows)
 	return item
 }
 
@@ -1015,6 +1160,19 @@ func int32ArrayArg(values []int) []int32 {
 	items := make([]int32, 0, len(values))
 	for _, value := range values {
 		items = append(items, int32(value))
+	}
+	return items
+}
+
+// int16ArrayArg feeds the smallint columns of connection_routing_windows.
+// Narrowing is safe here because every value has already passed the domain
+// range validation (mask 1..127, minutes 0..2880); validating first and
+// narrowing second is the required order, since narrowing first would turn an
+// out-of-range 384 into a plausible 128.
+func int16ArrayArg(values []int) []int16 {
+	items := make([]int16, 0, len(values))
+	for _, value := range values {
+		items = append(items, int16(value))
 	}
 	return items
 }

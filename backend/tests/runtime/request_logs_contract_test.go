@@ -2990,6 +2990,65 @@ func TestRuntimePlanningFailureWritesSafeDiagnostics(t *testing.T) {
 	assertStatus(t, search, http.StatusOK)
 }
 
+func TestRuntimeRoutingScheduleClosedWritesSafeDiagnostics(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	modelID := "runtime-schedule-closed-" + suffix
+	strategyID := harness.seedLegacyStrategy(t, profileID, "runtime-schedule-closed-"+suffix, "fill-first")
+	modelConfigID := harness.seedModel(t, profileID, "openai", modelID, "proxy", &strategyID)
+	endpointID := harness.seedEndpoint(t, profileID, "runtime-schedule-closed-endpoint-"+suffix, "https://runtime-schedule-closed.invalid", "runtime-schedule-closed-key")
+	connectionID := harness.seedConnectionWithOpenAITextCapability(t, profileID, modelConfigID, endpointID, "runtime-schedule-closed-connection-"+suffix, nil, nil, 0, runtimeStringPtr("dual_native"))
+	harness.updateConnectionRoutingSchedule(t, profileID, connectionID, "UTC", [][3]int{{1, 0, 1440}})
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "schedule closed diagnostics"}},
+			"model":    modelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusServiceUnavailable)
+
+	var errorCode string
+	var errorDetail *string
+	var upstreamStatusCode *int
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		err := harness.conn.QueryRow(context.Background(), `
+			SELECT error_code, error_detail, upstream_status_code
+			FROM request_logs
+			WHERE profile_id = $1 AND model_id = $2
+			ORDER BY id DESC LIMIT 1`,
+			profileID, modelID,
+		).Scan(&errorCode, &errorDetail, &upstreamStatusCode)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("load routing-schedule-closed request-log row: %v", err)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if errorCode != "terminal_target_schedule_closed" {
+		t.Fatalf("expected persisted terminal_target_schedule_closed, got %q", errorCode)
+	}
+	if errorDetail == nil || !strings.Contains(*errorDetail, "outside their configured routing window") {
+		t.Fatalf("expected routing-window detail in request_logs, got %v", errorDetail)
+	}
+	if upstreamStatusCode != nil {
+		t.Fatalf("expected upstream_status_code null for planning row, got %v", upstreamStatusCode)
+	}
+	// error_text predicate covers the stable code: the requests page search
+	// for the schedule code must hit this row.
+	search := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?error_text="+url.QueryEscape("terminal_target_schedule_closed"), nil, runtimeModelHeader(profileID))
+	assertStatus(t, search, http.StatusOK)
+}
+
 func TestRuntimeUpstreamFailureWritesSafeDiagnostics(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)

@@ -29,6 +29,7 @@ type referenceRow struct {
 	ConnectionIsActive        bool
 	OpenAITextCapability      *string
 	OpenAIImageCapability     *string
+	HasRoutingSchedule        bool
 	PricingTemplateID         *int
 	OwnerMatID                *int
 	OwnerMatPosition          *int
@@ -133,6 +134,7 @@ func loadCanonicalReferenceSets(ctx context.Context, exec queryExecutor, profile
 			&row.ConnectionIsActive,
 			&openAITextCapability,
 			&openAIImageCapability,
+			&row.HasRoutingSchedule,
 			&pricingTemplateID,
 			&matID,
 			&matPosition,
@@ -218,6 +220,7 @@ SELECT
 	c.is_active,
 	c.openai_text_capability,
 	c.openai_image_capability,
+	EXISTS (SELECT 1 FROM connection_routing_windows crw WHERE crw.connection_id = c.id AND crw.profile_id = c.profile_id),
 	c.pricing_template_id,
 	mat.id,
 	mat.position,
@@ -266,6 +269,7 @@ func deriveCanonicalSet(endpointID int, rows []referenceRow) canonicalReferenceS
 			ConnectionIsActive:    row.ConnectionIsActive,
 			OpenAITextCapability:  row.OpenAITextCapability,
 			OpenAIImageCapability: row.OpenAIImageCapability,
+			HasRoutingSchedule:    row.HasRoutingSchedule,
 		}
 		lowerName := (*string)(nil)
 		modelID := (*string)(nil)
@@ -457,6 +461,7 @@ func snapshotHash(endpointID int, summary endpointReferenceSummary, items []endp
 		}
 		fmt.Fprintf(hasher, "oc:%s;", nullableStringForHash(item.OpenAITextCapability))
 		fmt.Fprintf(hasher, "oi:%s;", nullableStringForHash(item.OpenAIImageCapability))
+		fmt.Fprintf(hasher, "rs:%d;", boolInt(item.HasRoutingSchedule))
 		if item.PricingTemplate != nil {
 			fmt.Fprintf(hasher, "p:%d:%s:%d;", item.PricingTemplate.ID, item.PricingTemplate.Name, item.PricingTemplate.CurrentVersion)
 		} else {

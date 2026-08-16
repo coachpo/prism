@@ -135,7 +135,8 @@ func (s *Service) handleCreateConnectionCopies(w http.ResponseWriter, r *http.Re
 		if err := lockCopyAccessTargetRows(r.Context(), tx, profile.ID, append([]int{sourceOwner.ID}, destinations...)); err != nil {
 			return terminalTargetCopyResponse{}, err
 		}
-		source, found, err := loadConnectionRecord(r.Context(), tx, profile.ID, connectionID, true)
+		now := s.nowUTC()
+		source, found, err := loadConnectionRecord(r.Context(), tx, profile.ID, connectionID, true, now)
 		if err != nil {
 			return terminalTargetCopyResponse{}, err
 		}
@@ -180,7 +181,6 @@ func (s *Service) handleCreateConnectionCopies(w http.ResponseWriter, r *http.Re
 			}
 		}
 
-		now := s.nowUTC()
 		items := make([]terminalTargetCopyItem, 0, len(destinations))
 		warnings := make([]modelrouting.ConfigurationWarning, 0, len(destinations))
 		for _, destinationID := range destinations {
@@ -222,6 +222,7 @@ func (s *Service) handleCreateConnectionCopies(w http.ResponseWriter, r *http.Re
 				AuthType:                cloneString(source.AuthType),
 				CustomHeaders:           cloneHeaderMap(source.CustomHeaders),
 				CustomRequestParameters: source.CustomRequestParameters.Clone(),
+				RoutingSchedule:         source.RoutingSchedule,
 				OpenAITextCapability:    cloneString(source.OpenAITextCapability),
 				OpenAIImageCapability:   cloneString(source.OpenAIImageCapability),
 				PricingTemplateID:       cloneInt(source.PricingTemplateID),
@@ -239,11 +240,17 @@ func (s *Service) handleCreateConnectionCopies(w http.ResponseWriter, r *http.Re
 			if err != nil {
 				return terminalTargetCopyResponse{}, err
 			}
+			// The literal clone above carries only the parent row; window child
+			// rows have to be copied explicitly or the copy silently lands with
+			// a timezone and no windows.
+			if err := copyConnectionRoutingWindows(r.Context(), tx, profile.ID, source.ID, copiedConnectionID, now); err != nil {
+				return terminalTargetCopyResponse{}, err
+			}
 			accessTargetID, err := insertOwnerTerminalTargetAccessWithEnabledReturningID(r.Context(), tx, profile.ID, destinationID, copiedConnectionID, position, requestBody.EnableCopies, now)
 			if err != nil {
 				return terminalTargetCopyResponse{}, err
 			}
-			loaded, found, err := loadModelConnectionRecord(r.Context(), tx, profile.ID, destinationID, copiedConnectionID)
+			loaded, found, err := loadModelConnectionRecord(r.Context(), tx, profile.ID, destinationID, copiedConnectionID, now)
 			if err != nil {
 				return terminalTargetCopyResponse{}, err
 			}

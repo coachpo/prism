@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -77,7 +78,7 @@ func (s *Service) handleListModels(w http.ResponseWriter, r *http.Request) {
 				return nil, err
 			}
 			for _, record := range records {
-				response = append(response, buildModelListResponse(record, strategies, accessTargets, counts, health))
+				response = append(response, buildModelListResponse(record, strategies, accessTargets, counts, health, s.now().UTC()))
 			}
 			for index := range response {
 				if summary, ok := readinessSummaries[response[index].ID]; ok {
@@ -92,7 +93,7 @@ func (s *Service) handleListModels(w http.ResponseWriter, r *http.Request) {
 			return modelListReadinessEnvelope{Items: response, RouteReadiness: readiness}, nil
 		}
 		for _, record := range records {
-			item := buildModelListResponse(record, strategies, accessTargets, counts, health)
+			item := buildModelListResponse(record, strategies, accessTargets, counts, health, s.now().UTC())
 			if summary, ok := summaries[record.ID]; ok {
 				summary := summary
 				item.RoutingSummary = &summary
@@ -130,7 +131,7 @@ func (s *Service) handleGetModel(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return modelConfigResponse{}, err
 		}
-		return buildModelDetailResponse(record, strategies, accessTargets), nil
+		return buildModelDetailResponse(record, strategies, accessTargets, s.now().UTC()), nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -227,6 +228,7 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 				AuthType:                   initial.AuthType,
 				CustomHeaders:              initial.CustomHeaders,
 				CustomRequestParameters:    connections.CustomRequestParametersInput{Set: initial.CustomRequestParameters.Set, Raw: initial.CustomRequestParameters.Raw},
+				RoutingSchedule:            connections.RoutingScheduleInput{Set: initial.RoutingSchedule.Set, Raw: initial.RoutingSchedule.Raw},
 				OpenAITextCapability:       capability,
 				OpenAIImageCapability:      imageCapability,
 				PricingTemplateID:          initial.PricingTemplateID,
@@ -243,7 +245,7 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return modelMutationEnvelope{}, err
 		}
-		detail := buildModelDetailResponse(created, strategies, accessTargets)
+		detail := buildModelDetailResponse(created, strategies, accessTargets, s.now().UTC())
 		warnings, err := modelMutationWarnings(r.Context(), tx, profile.ID, created.ID)
 		if err != nil {
 			return modelMutationEnvelope{}, err
@@ -389,7 +391,7 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return modelMutationEnvelope{}, err
 		}
-		detail := buildModelDetailResponse(updated, strategies, accessTargets)
+		detail := buildModelDetailResponse(updated, strategies, accessTargets, s.now().UTC())
 		return modelMutationEnvelope{Model: &detail, ConfigurationWarnings: warnings}, nil
 	})
 	if err != nil {
@@ -465,7 +467,7 @@ func (s *Service) handleListModelTargets(w http.ResponseWriter, r *http.Request)
 		if !found {
 			return nil, &domainError{StatusCode: http.StatusNotFound, Detail: "Model configuration not found"}
 		}
-		return loadModelTargetResponses(r.Context(), tx, profile.ID, model.ID)
+		return loadModelTargetResponses(r.Context(), tx, profile.ID, model.ID, s.now().UTC())
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -637,7 +639,7 @@ func (s *Service) handleDeleteModelTarget(w http.ResponseWriter, r *http.Request
 		}
 		var targets []modelAccessTargetResponse
 		if deletedPrivateConnection {
-			targets, err = loadModelTargetResponses(r.Context(), tx, profile.ID, model.ID)
+			targets, err = loadModelTargetResponses(r.Context(), tx, profile.ID, model.ID, s.now().UTC())
 			if err != nil {
 				return accessTargetMutationEnvelope{}, err
 			}
@@ -755,7 +757,7 @@ func (s *Service) replaceModelTargetsFromMutationItems(ctx context.Context, tx p
 	if err := replaceAccessTargetsPreservingConnections(ctx, tx, profileID, model.ID, resolvedTargets, preservedConnectionTargets, now); err != nil {
 		return nil, err
 	}
-	return loadModelTargetResponses(ctx, tx, profileID, model.ID)
+	return loadModelTargetResponses(ctx, tx, profileID, model.ID, now)
 }
 
 func (s *Service) updateModelTargetMetadataFromMutationItems(ctx context.Context, tx pgx.Tx, profileID int, model modelRecord, items []accessTargetMutationItem) ([]modelAccessTargetResponse, error) {
@@ -770,15 +772,15 @@ func (s *Service) updateModelTargetMetadataFromMutationItems(ctx context.Context
 	if err := updateAccessTargetMetadata(ctx, tx, profileID, model.ID, items, s.nowUTC()); err != nil {
 		return nil, err
 	}
-	return loadModelTargetResponses(ctx, tx, profileID, model.ID)
+	return loadModelTargetResponses(ctx, tx, profileID, model.ID, s.now().UTC())
 }
 
-func loadModelTargetResponses(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int) ([]modelAccessTargetResponse, error) {
+func loadModelTargetResponses(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, now time.Time) ([]modelAccessTargetResponse, error) {
 	accessTargets, err := loadAccessTargetsForModels(ctx, exec, profileID, []int{modelConfigID})
 	if err != nil {
 		return nil, err
 	}
-	return accessTargetResponsesFromRecords(accessTargets[modelConfigID]), nil
+	return accessTargetResponsesFromRecords(accessTargets[modelConfigID], now), nil
 }
 
 func loadAccessTargetMutationItems(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int) ([]accessTargetMutationItem, error) {
@@ -1116,7 +1118,7 @@ func (s *Service) handleModelsByEndpoint(w http.ResponseWriter, r *http.Request)
 		}
 		response := make([]modelConfigListResponse, 0, len(records))
 		for _, record := range records {
-			item := buildModelListResponse(record, strategies, accessTargets, counts, health)
+			item := buildModelListResponse(record, strategies, accessTargets, counts, health, s.now().UTC())
 			if summary, ok := summaries[record.ID]; ok {
 				summary := summary
 				item.RoutingSummary = &summary
@@ -1167,7 +1169,7 @@ func (s *Service) handleModelsByEndpoints(w http.ResponseWriter, r *http.Request
 			})
 			models := make([]modelConfigListResponse, 0, len(records))
 			for _, record := range records {
-				item := buildModelListResponse(record, strategies, accessTargets, byEndpointCounts[endpointID], health)
+				item := buildModelListResponse(record, strategies, accessTargets, byEndpointCounts[endpointID], health, s.now().UTC())
 				if summary, ok := summaries[record.ID]; ok {
 					summary := summary
 					item.RoutingSummary = &summary

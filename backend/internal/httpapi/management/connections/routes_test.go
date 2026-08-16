@@ -214,7 +214,16 @@ func TestTerminalTargetRecordAdapterPreservesConnectionResponseShape(t *testing.
 	connection := connectionResponse{
 		ID: 42, ProfileID: 5, ModelConfigID: &modelConfigID, APIFamily: "openai", EndpointID: 9,
 		IsActive: true, Priority: 2, Name: &name, AuthType: &authType,
-		CustomHeaders:        map[string]string{"X-Test": "1"},
+		CustomHeaders: map[string]string{"X-Test": "1"},
+		// A non-zero routing schedule is required here: with the field left at
+		// its zero value the round-trip passes even when both mappers drop it.
+		RoutingSchedule: &RoutingSchedulePayload{
+			Timezone: "Asia/Shanghai",
+			Windows: []RoutingWindowPayload{
+				{WeekdayMask: 31, StartMinute: 540, EndMinute: 1080},
+				{WeekdayMask: 96, StartMinute: 1320, EndMinute: 1800},
+			},
+		},
 		OpenAITextCapability: &textCapability, PricingTemplateID: &pricingTemplateID,
 		QPSLimit: &qpsLimit, MaxInFlightNonStream: &maxNonStream, MaxInFlightStream: &maxStream,
 		PricingTemplate: &connectionPricingTemplateSummary{ID: 11, Name: "standard", PricingUnit: "tokens", PricingCurrencyCode: "USD", Version: 1},

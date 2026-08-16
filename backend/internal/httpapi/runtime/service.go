@@ -329,7 +329,8 @@ func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
 	// for all request/usage/audit rows and outbox items. Caller-supplied
 	// X-Request-ID never becomes the grouping key; it is captured separately
 	// as a scrubbed, bounded caller_request_id value.
-	ingress := newRuntimeIngressContext()
+	planningStartedAt := s.nowUTC()
+	ingress := newRuntimeIngressContext(planningStartedAt)
 	if callerRequestID := strings.TrimSpace(r.Header.Get("X-Request-ID")); callerRequestID != "" {
 		ingress.callerRequestID = callerRequestID
 	}
@@ -341,7 +342,6 @@ func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	runtimeConfig := s.runtimeProxyConfigSnapshot()
-	planningStartedAt := s.nowUTC()
 	if canBuildStreamingRequestPlan(operationMatch.Operation) {
 		plan, err := s.buildProxyProbeRequestPlan(r, runtimeConfig, *operationMatch)
 		if err != nil {

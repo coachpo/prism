@@ -1,3 +1,4 @@
+import { timeZoneOffsetMinutes, timezoneLabel } from "@/lib/ianaTimeZones";
 import { useMemo, useState as useStateLocal } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -34,30 +35,6 @@ export interface ProxyKeyExpiryFieldProps {
   onClearWallClock?: () => void;
 }
 
-function timeZoneOffsetMinutes(timezone: string, instantMs: number): number {
-  try {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone,
-      timeZoneName: "longOffset",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    }).formatToParts(new Date(instantMs));
-    const offsetPart = parts.find((part) => part.type === "timeZoneName")?.value ?? "";
-    const match = offsetPart.match(/GMT([+-])(\d{2}):(\d{2})/);
-    if (!match) {
-      return 0;
-    }
-    const sign = match[1] === "-" ? -1 : 1;
-    return sign * (Number(match[2]) * 60 + Number(match[3]));
-  } catch {
-    return 0;
-  }
-}
-
 function wallClockToInstant(timezone: string, year: number, month: number, day: number, hour: number, minute: number): number {
   // Iterate to converge on the offset (DST transitions shift the wall clock).
   let candidate = Date.UTC(year, month - 1, day, hour, minute);
@@ -84,19 +61,6 @@ function formatWallClock(timezone: string, instantMs: number): { year: number; m
   }).formatToParts(new Date(instantMs));
   const get = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
   return { year: get("year"), month: get("month"), day: get("day"), hour: get("hour") % 24, minute: get("minute") };
-}
-
-function timezoneLabel(timezone: string): string {
-  try {
-    const offset = timeZoneOffsetMinutes(timezone, Date.now());
-    const sign = offset >= 0 ? "+" : "-";
-    const abs = Math.abs(offset);
-    const hours = Math.floor(abs / 60);
-    const minutes = abs % 60;
-    return `${timezone} (UTC${sign}${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")})`;
-  } catch {
-    return timezone;
-  }
 }
 
 function parseWallClockInput(value: string): { year: number; month: number; day: number; hour: number; minute: number } | null {

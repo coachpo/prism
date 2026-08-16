@@ -37,6 +37,7 @@ var expectedPrismMigrationVersions = []string{
 	"000016_proxy_api_key_in_place_rotation",
 	"000017_openai_image_operations",
 	"000018_retention_coverage_append_handoff",
+	"000019_connection_routing_schedule",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
@@ -980,6 +981,75 @@ func TestConnectionCustomRequestParametersUpgradePath(t *testing.T) {
 	}
 	if _, err := conn.Exec(testContext, `UPDATE connections SET custom_request_parameters = '{"provider":{"only":["deepinfra/turbo"]}}'::jsonb WHERE id = $1`, connectionID); err != nil {
 		t.Fatalf("expected database CHECK to accept an object custom_request_parameters root: %v", err)
+	}
+
+	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
+}
+
+func TestConnectionRoutingScheduleUpgradePath(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openEmptyDatabase(t, testContext, "connection_routing_schedule_upgrade")
+	defer func() { _ = conn.Close(testContext) }()
+
+	firstResult, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run full migration set: %v", err)
+	}
+	if firstResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected first run to apply migrations, got %q", firstResult.Outcome)
+	}
+
+	// Simulate a pre-upgrade database stamped with 000018 only: existing
+	// connection rows and no routing schedule surface.
+	if _, err := conn.Exec(testContext, `DELETE FROM prism_schema_migrations WHERE version = '000019_connection_routing_schedule'`); err != nil {
+		t.Fatalf("un-stamp 000019: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `DROP TABLE connection_routing_windows`); err != nil {
+		t.Fatalf("drop 000019 window table: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `ALTER TABLE connections DROP COLUMN routing_schedule_timezone`); err != nil {
+		t.Fatalf("drop 000019 column: %v", err)
+	}
+
+	now := time.Now().UTC()
+	var profileID int
+	if err := conn.QueryRow(testContext, `INSERT INTO profiles (name, description, is_active, is_default, is_editable, version, deleted_at, created_at, updated_at) VALUES ('schedule-upgrade', NULL, FALSE, FALSE, TRUE, 1, NULL, $1, $1) RETURNING id`, now).Scan(&profileID); err != nil {
+		t.Fatalf("seed upgrade profile: %v", err)
+	}
+	var endpointID int
+	if err := conn.QueryRow(testContext, `INSERT INTO endpoints (profile_id, name, base_url, api_key, created_at, updated_at) VALUES ($1, 'Upgrade Endpoint', 'https://upgrade.invalid', 'plain-api-key', $2, $2) RETURNING id`, profileID, now).Scan(&endpointID); err != nil {
+		t.Fatalf("seed upgrade endpoint: %v", err)
+	}
+	var connectionID int
+	if err := conn.QueryRow(testContext, `INSERT INTO connections (profile_id, api_family, endpoint_id, pricing_template_id, qps_limit, max_in_flight_non_stream, max_in_flight_stream, openai_text_capability, is_active, priority, name, auth_type, custom_headers, health_status, health_detail, last_health_check, created_at, updated_at) VALUES ($1, 'openai', $2, NULL, NULL, NULL, NULL, 'dual_native', TRUE, 0, 'Upgrade Connection', NULL, NULL, 'healthy', NULL, NULL, $3, $3) RETURNING id`, profileID, endpointID, now).Scan(&connectionID); err != nil {
+		t.Fatalf("seed upgrade connection: %v", err)
+	}
+
+	upgradeResult, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("apply 000019 upgrade: %v", err)
+	}
+	if upgradeResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected upgrade run to apply 000019, got %q", upgradeResult.Outcome)
+	}
+
+	var storedTimezone sql.NullString
+	if err := conn.QueryRow(testContext, `SELECT routing_schedule_timezone FROM connections WHERE id = $1`, connectionID).Scan(&storedTimezone); err != nil {
+		t.Fatalf("load upgraded connection column: %v", err)
+	}
+	if storedTimezone.Valid {
+		t.Fatalf("expected existing connection row to upgrade to NULL, got %q", storedTimezone.String)
+	}
+	var windowCount int
+	if err := conn.QueryRow(testContext, `SELECT count(*) FROM connection_routing_windows WHERE connection_id = $1`, connectionID).Scan(&windowCount); err != nil {
+		t.Fatalf("count upgraded window rows: %v", err)
+	}
+	if windowCount != 0 {
+		t.Fatalf("expected zero window rows for the upgraded connection, got %d", windowCount)
 	}
 
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))

@@ -4,10 +4,12 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
+	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 )
 
 func TestCompileRuntimeRoutingPlanBuildsCanonicalLookups(t *testing.T) {
@@ -336,4 +338,344 @@ func TestBuildRequestPlanFromSnapshotSingleUsesFirstAuthoredMixedPeer(t *testing
 	if err == nil {
 		t.Fatal("expected single to keep the first zero-leaf mixed peer and fail closed")
 	}
+}
+
+// requestPlanFixedNow is 2023-11-14T22:13:20Z: Tuesday (ISO 2 -> bit1),
+// local minute 1333 in UTC. All schedule windows below are designed around
+// these three numbers.
+var requestPlanFixedNow = time.Unix(1_700_000_000, 0).UTC()
+
+// requestPlanMondayOnlySchedule is closed at requestPlanFixedNow (mask 1 =
+// Monday only, all day).
+func requestPlanMondayOnlySchedule() terminaltarget.CompiledRoutingSchedule {
+	return terminaltarget.CompileRoutingSchedule("UTC", []terminaltarget.Window{{WeekdayMask: 1, StartMinute: 0, EndMinute: 1440}})
+}
+
+// requestPlanTuesdayOnlySchedule is open at requestPlanFixedNow (mask 2 =
+// Tuesday only, all day).
+func requestPlanTuesdayOnlySchedule() terminaltarget.CompiledRoutingSchedule {
+	return terminaltarget.CompileRoutingSchedule("UTC", []terminaltarget.Window{{WeekdayMask: 2, StartMinute: 0, EndMinute: 1440}})
+}
+
+func withRoutingSchedule(snapshot *planningSnapshot, connectionID int, schedule terminaltarget.CompiledRoutingSchedule) {
+	connection := snapshot.TerminalTargetsByID[connectionID]
+	connection.RoutingSchedule = schedule
+	snapshot.TerminalTargetsByID[connectionID] = connection
+}
+
+func TestBuildRequestPlanFromSnapshotRoutingScheduleGate(t *testing.T) {
+	// Table-driven: exclusion keeps peer order (both OpenAI and Gemini
+	// families), nested pure-schedule emits the closed code, nested mixed and
+	// subtree-mixed causes must NOT emit it, and a diamond authorization
+	// graph still emits it because the observation sets dedupe by connection.
+	requestBody := func(modelID string) []byte {
+		return []byte(`{"model":"` + modelID + `","messages":[]}`)
+	}
+	cases := []struct {
+		name       string
+		apiFamily  string
+		build      func(t *testing.T) (*Service, *planningSnapshot)
+		wantModels []string
+		wantCode   string
+	}{
+		{
+			name: "exclusion keeps peer order openai",
+			build: func(t *testing.T) (*Service, *planningSnapshot) {
+				snapshot := newRequestPlanSnapshot(
+					runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai"},
+					runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "first-openai"},
+					runtimeModelRecord{ID: 3, APIFamily: "openai", ModelID: "middle-openai"},
+					runtimeModelRecord{ID: 4, APIFamily: "openai", ModelID: "last-openai"},
+				)
+				snapshot.AccessTargetsBySourceModelID[1] = nil
+				addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "first-openai", 0)
+				addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "middle-openai", 1)
+				addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "last-openai", 2)
+				withRoutingSchedule(snapshot, 1003, requestPlanMondayOnlySchedule())
+				return newEnforcedRequestPlanUnitService(), snapshot
+			},
+			wantModels: []string{"first-openai", "last-openai"},
+		},
+		{
+			name:      "exclusion keeps peer order gemini",
+			apiFamily: "gemini",
+			build: func(t *testing.T) (*Service, *planningSnapshot) {
+				snapshot := newRequestPlanSnapshot(
+					runtimeModelRecord{ID: 1, APIFamily: "gemini", ModelID: "router-gemini"},
+					runtimeModelRecord{ID: 2, APIFamily: "gemini", ModelID: "first-gemini"},
+					runtimeModelRecord{ID: 3, APIFamily: "gemini", ModelID: "middle-gemini"},
+					runtimeModelRecord{ID: 4, APIFamily: "gemini", ModelID: "last-gemini"},
+				)
+				snapshot.AccessTargetsBySourceModelID[1] = nil
+				addRequestPlanModelTargetWithMetadata(snapshot, "router-gemini", "first-gemini", 0)
+				addRequestPlanModelTargetWithMetadata(snapshot, "router-gemini", "middle-gemini", 1)
+				addRequestPlanModelTargetWithMetadata(snapshot, "router-gemini", "last-gemini", 2)
+				withRoutingSchedule(snapshot, 1003, requestPlanMondayOnlySchedule())
+				return newEnforcedRequestPlanUnitService(), snapshot
+			},
+			wantModels: []string{"first-gemini", "last-gemini"},
+		},
+		{
+			name: "nested pure schedule emits closed code",
+			build: func(t *testing.T) (*Service, *planningSnapshot) {
+				snapshot := newRequestPlanSnapshot(
+					runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai"},
+					runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "peer-openai"},
+				)
+				snapshot.AccessTargetsBySourceModelID[1] = nil
+				addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "peer-openai", 0)
+				withRoutingSchedule(snapshot, 1002, requestPlanMondayOnlySchedule())
+				return newEnforcedRequestPlanUnitService(), snapshot
+			},
+			wantCode: terminalTargetScheduleClosedErrorCode,
+		},
+		{
+			name:      "nested pure schedule emits closed code gemini",
+			apiFamily: "gemini",
+			build: func(t *testing.T) (*Service, *planningSnapshot) {
+				snapshot := newRequestPlanSnapshot(
+					runtimeModelRecord{ID: 1, APIFamily: "gemini", ModelID: "router-gemini"},
+					runtimeModelRecord{ID: 2, APIFamily: "gemini", ModelID: "peer-gemini"},
+				)
+				snapshot.AccessTargetsBySourceModelID[1] = nil
+				addRequestPlanModelTargetWithMetadata(snapshot, "router-gemini", "peer-gemini", 0)
+				withRoutingSchedule(snapshot, 1002, requestPlanMondayOnlySchedule())
+				return newEnforcedRequestPlanUnitService(), snapshot
+			},
+			wantCode: terminalTargetScheduleClosedErrorCode,
+		},
+		{
+			name: "nested mixed schedule plus banned peer does not emit",
+			build: func(t *testing.T) (*Service, *planningSnapshot) {
+				snapshot := newRequestPlanSnapshot(
+					runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai"},
+					runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "peer-openai"},
+				)
+				addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "peer-openai", 0)
+				withRoutingSchedule(snapshot, 1002, requestPlanMondayOnlySchedule())
+				service := newEnforcedRequestPlanUnitService()
+				bannedUntil := service.nowUTC().Add(time.Minute)
+				seededAt := service.nowUTC().Add(-time.Minute)
+				service.runtimeState.SeedConnectionState(requestPlanTestProfileID, 1, 1001, loadbalance.RuntimeConnectionState{ConnectionID: 1001, BanMode: "temporary", BannedUntilAt: &bannedUntil}, seededAt, seededAt)
+				return service, snapshot
+			},
+			wantCode: "",
+		},
+		{
+			name: "subtree mixed schedule plus banned sibling does not emit",
+			build: func(t *testing.T) (*Service, *planningSnapshot) {
+				snapshot := newRequestPlanSnapshot(
+					runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai"},
+					runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "peer-openai"},
+				)
+				snapshot.AccessTargetsBySourceModelID[1] = nil
+				addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "peer-openai", 0)
+				withRoutingSchedule(snapshot, 1002, requestPlanMondayOnlySchedule())
+				addRequestPlanConnectionTarget(snapshot, snapshot.ModelsByID["peer-openai"], 1003, 20_003, 1)
+				service := newEnforcedRequestPlanUnitService()
+				bannedUntil := service.nowUTC().Add(time.Minute)
+				seededAt := service.nowUTC().Add(-time.Minute)
+				service.runtimeState.SeedConnectionState(requestPlanTestProfileID, 2, 1003, loadbalance.RuntimeConnectionState{ConnectionID: 1003, BanMode: "temporary", BannedUntilAt: &bannedUntil}, seededAt, seededAt)
+				return service, snapshot
+			},
+			wantCode: "",
+		},
+		{
+			name: "diamond graph dedupes by connection and emits",
+			build: func(t *testing.T) (*Service, *planningSnapshot) {
+				snapshot := newRequestPlanSnapshot(
+					runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai"},
+					runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "left-openai"},
+					runtimeModelRecord{ID: 3, APIFamily: "openai", ModelID: "right-openai"},
+				)
+				snapshot.AccessTargetsBySourceModelID[1] = nil
+				addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "left-openai", 0)
+				addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "right-openai", 1)
+				// Both children reach the same terminal connection 1002.
+				withRoutingSchedule(snapshot, 1002, requestPlanMondayOnlySchedule())
+				snapshot.AccessTargetsBySourceModelID[3] = nil
+				addRequestPlanConnectionTargetWithOptions(snapshot, snapshot.ModelsByID["right-openai"], 1002, 30_002, 0, requestPlanConnectionTargetOptions{routingSchedule: requestPlanMondayOnlySchedule()})
+				return newEnforcedRequestPlanUnitService(), snapshot
+			},
+			wantCode: terminalTargetScheduleClosedErrorCode,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			service, snapshot := tc.build(t)
+			apiFamily := tc.apiFamily
+			if apiFamily == "" {
+				apiFamily = "openai"
+			}
+			routerModelID := "router-" + apiFamily
+			var request *http.Request
+			var rawBody []byte
+			if apiFamily == "gemini" {
+				request = httptest.NewRequest(http.MethodPost, "/v1beta/models/"+routerModelID+":generateContent", nil)
+				rawBody = []byte(`{"contents":[{"parts":[{"text":"hi"}]}]}`)
+			} else {
+				request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+				rawBody = requestBody(routerModelID)
+			}
+			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+			plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+			if tc.wantModels != nil {
+				if err != nil {
+					t.Fatalf("expected plan to succeed, got %v", err)
+				}
+				if len(plan.TerminalAttempts) != len(tc.wantModels) {
+					t.Fatalf("expected %d attempts, got %+v", len(tc.wantModels), plan.TerminalAttempts)
+				}
+				for index, wantModelID := range tc.wantModels {
+					if got := plan.TerminalAttempts[index].TargetModel.ModelID; got != wantModelID {
+						t.Fatalf("expected attempt %d model %q, got %q", index, wantModelID, got)
+					}
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected routing failure, got plan %+v", plan)
+			}
+			assertPlanDomainErrorCode(t, err, http.StatusServiceUnavailable, tc.wantCode)
+		})
+	}
+}
+
+func TestRoutingSchedulePartialExclusionDetail(t *testing.T) {
+	buildFixture := func() (*Service, *planningSnapshot) {
+		service := newEnforcedRequestPlanUnitService()
+		snapshot := newRequestPlanSnapshot(
+			runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai"},
+			runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "peer-openai"},
+		)
+		addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "peer-openai", 0)
+		withRoutingSchedule(snapshot, 1002, requestPlanMondayOnlySchedule())
+		bannedUntil := service.nowUTC().Add(time.Minute)
+		seededAt := service.nowUTC().Add(-time.Minute)
+		service.runtimeState.SeedConnectionState(requestPlanTestProfileID, 1, 1001, loadbalance.RuntimeConnectionState{ConnectionID: 1001, BanMode: "temporary", BannedUntilAt: &bannedUntil}, seededAt, seededAt)
+		return service, snapshot
+	}
+
+	t.Run("closed hint", func(t *testing.T) {
+		service, snapshot := buildFixture()
+		_, err := service.buildRequestPlanFromSnapshot(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil), []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions"), requestPlanTestProfileID, snapshot)
+		if err == nil {
+			t.Fatalf("expected mixed-cause routing failure")
+		}
+		var domainErr *domainError
+		if !errors.As(err, &domainErr) {
+			t.Fatalf("expected domain error, got %v", err)
+		}
+		if domainErr.ErrorCode != "" {
+			t.Fatalf("expected no stable code for a mixed cause, got %q", domainErr.ErrorCode)
+		}
+		if !strings.Contains(domainErr.Detail, "1 of 2 terminal targets were outside their routing window.") {
+			t.Fatalf("expected mixed closed hint in detail, got %q", domainErr.Detail)
+		}
+	})
+
+	t.Run("unresolvable hint", func(t *testing.T) {
+		service, snapshot := buildFixture()
+		withRoutingSchedule(snapshot, 1002, terminaltarget.CompileRoutingSchedule("Not/AZone", []terminaltarget.Window{{WeekdayMask: 1, StartMinute: 0, EndMinute: 60}}))
+		_, err := service.buildRequestPlanFromSnapshot(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil), []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions"), requestPlanTestProfileID, snapshot)
+		if err == nil {
+			t.Fatalf("expected mixed-cause routing failure")
+		}
+		var domainErr *domainError
+		if !errors.As(err, &domainErr) {
+			t.Fatalf("expected domain error, got %v", err)
+		}
+		if domainErr.ErrorCode != "" {
+			t.Fatalf("expected no stable code for a mixed cause, got %q", domainErr.ErrorCode)
+		}
+		if !strings.Contains(domainErr.Detail, "1 of 2 terminal targets have an unresolvable routing timezone.") {
+			t.Fatalf("expected mixed unresolvable hint in detail, got %q", domainErr.Detail)
+		}
+	})
+}
+
+func TestRoutingScheduleExclusionsKeepTargetSetHashStable(t *testing.T) {
+	build := func(closed bool) []runtimeAccessTargetRecord {
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai"})
+		if closed {
+			withRoutingSchedule(snapshot, 1001, requestPlanMondayOnlySchedule())
+		}
+		return orderRuntimeAccessTargets(requestPlanTestProfileID, 1, snapshot.StrategiesByModelID[1], snapshot.AccessTargetsBySourceModelID[1], nil)
+	}
+	withoutSchedule := runtimeAccessTargetSetHash(build(false))
+	withSchedule := runtimeAccessTargetSetHash(build(true))
+	if withoutSchedule != withSchedule {
+		t.Fatalf("expected the round-robin set hash to ignore routing schedules: %q != %q", withoutSchedule, withSchedule)
+	}
+}
+
+func TestRoutingSchedulePreferredSelectionSkew(t *testing.T) {
+	t.Run("mild shape three peers one closed", func(t *testing.T) {
+		service := newEnforcedRequestPlanUnitService()
+		snapshot := newRequestPlanSnapshot(
+			runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai"},
+			runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "peer-a-openai"},
+			runtimeModelRecord{ID: 3, APIFamily: "openai", ModelID: "peer-b-openai"},
+			runtimeModelRecord{ID: 4, APIFamily: "openai", ModelID: "peer-c-openai"},
+		)
+		roundRobin := "round-robin"
+		snapshot.StrategiesByModelID[1] = loadbalance.RuntimeStrategy{ID: requestPlanTestStrategyID, Name: "router round robin", LegacyStrategyType: &roundRobin}
+		snapshot.AccessTargetsBySourceModelID[1] = nil
+		addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "peer-a-openai", 0)
+		addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "peer-b-openai", 1)
+		addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "peer-c-openai", 2)
+		withRoutingSchedule(snapshot, 1003, requestPlanMondayOnlySchedule()) // middle peer closed
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+		preferred := map[string]int{}
+		for i := 0; i < 6; i++ {
+			plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+			if err != nil {
+				t.Fatalf("build round %d: %v", i, err)
+			}
+			preferred[plan.TerminalAttempts[0].TargetModel.ModelID]++
+		}
+		if preferred["peer-a-openai"] != 2 || preferred["peer-c-openai"] != 4 {
+			t.Fatalf("expected 2:4 preference peer-a:peer-c (cursor lands on peer-a one of three positions), got %+v", preferred)
+		}
+	})
+
+	t.Run("collective window shape five peers three closed", func(t *testing.T) {
+		service := newEnforcedRequestPlanUnitService()
+		snapshot := newRequestPlanSnapshot(
+			runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "router-openai"},
+			runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "night-a-openai"},
+			runtimeModelRecord{ID: 3, APIFamily: "openai", ModelID: "night-b-openai"},
+			runtimeModelRecord{ID: 4, APIFamily: "openai", ModelID: "night-c-openai"},
+			runtimeModelRecord{ID: 5, APIFamily: "openai", ModelID: "day-d-openai"},
+			runtimeModelRecord{ID: 6, APIFamily: "openai", ModelID: "day-e-openai"},
+		)
+		roundRobin := "round-robin"
+		snapshot.StrategiesByModelID[1] = loadbalance.RuntimeStrategy{ID: requestPlanTestStrategyID, Name: "router round robin", LegacyStrategyType: &roundRobin}
+		snapshot.AccessTargetsBySourceModelID[1] = nil
+		addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "night-a-openai", 0)
+		addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "night-b-openai", 1)
+		addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "night-c-openai", 2)
+		addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "day-d-openai", 3)
+		addRequestPlanModelTargetWithMetadata(snapshot, "router-openai", "day-e-openai", 4)
+		withRoutingSchedule(snapshot, 1002, requestPlanMondayOnlySchedule())
+		withRoutingSchedule(snapshot, 1003, requestPlanMondayOnlySchedule())
+		withRoutingSchedule(snapshot, 1004, requestPlanMondayOnlySchedule())
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+		preferred := map[string]int{}
+		for i := 0; i < 10; i++ {
+			plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+			if err != nil {
+				t.Fatalf("build round %d: %v", i, err)
+			}
+			preferred[plan.TerminalAttempts[0].TargetModel.ModelID]++
+		}
+		// Cursor lands on night-a/b/c/day-d four positions out of five, so
+		// the first pick is day-d; only landing on day-e picks day-e first:
+		// (k+1)/N = 4/5 -> 8:2 over ten resolutions.
+		if preferred["day-d-openai"] != 8 || preferred["day-e-openai"] != 2 {
+			t.Fatalf("expected 8:2 preference day-d:day-e, got %+v", preferred)
+		}
+	})
 }

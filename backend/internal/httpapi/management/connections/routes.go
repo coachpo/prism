@@ -45,7 +45,7 @@ func (s *Service) handleListConnectionsBatch(w http.ResponseWriter, r *http.Requ
 		if err := ensureModelConfigIDsExist(r.Context(), tx, profile.ID, normalizedModelIDs); err != nil {
 			return modelConnectionsBatchResponse{}, err
 		}
-		connectionsByModel, err := listConnectionsByModelIDs(r.Context(), tx, profile.ID, normalizedModelIDs)
+		connectionsByModel, err := listConnectionsByModelIDs(r.Context(), tx, profile.ID, normalizedModelIDs, s.now().UTC())
 		if err != nil {
 			return modelConnectionsBatchResponse{}, err
 		}
@@ -84,7 +84,7 @@ func (s *Service) handleListModelConnections(w http.ResponseWriter, r *http.Requ
 		if !found {
 			return nil, &DomainError{StatusCode: http.StatusNotFound, Detail: "Model configuration not found"}
 		}
-		return listConnectionsForModel(r.Context(), tx, profile.ID, owner.ID)
+		return listConnectionsForModel(r.Context(), tx, profile.ID, owner.ID, s.now().UTC())
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -99,7 +99,7 @@ func (s *Service) handleListConnections(w http.ResponseWriter, r *http.Request) 
 		if err != nil {
 			return nil, err
 		}
-		return listConnections(r.Context(), tx, profile.ID)
+		return listConnections(r.Context(), tx, profile.ID, s.now().UTC())
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -119,7 +119,7 @@ func (s *Service) handleGetConnection(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return connectionResponse{}, err
 		}
-		connection, found, err := loadConnectionRecord(r.Context(), tx, profile.ID, connectionID, false)
+		connection, found, err := loadConnectionRecord(r.Context(), tx, profile.ID, connectionID, false, s.now().UTC())
 		if err != nil {
 			return connectionResponse{}, err
 		}
@@ -182,6 +182,7 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 			AuthType:                requestBody.AuthType,
 			CustomHeaders:           requestBody.CustomHeaders,
 			CustomRequestParameters: customRequestParameters,
+			RoutingSchedule:         requestBody.RoutingSchedule,
 			OpenAITextCapability:    requestBody.OpenAITextCapability,
 			OpenAIImageCapability:   requestBody.OpenAIImageCapability,
 			PricingTemplateID:       requestBody.PricingTemplateID,
@@ -249,7 +250,7 @@ func (s *Service) handleUpdateModelConnection(w http.ResponseWriter, r *http.Req
 		if err := lockProfileAccessTargetRows(r.Context(), tx, profile.ID); err != nil {
 			return connectionMutationEnvelope{}, err
 		}
-		current, found, err := loadConnectionRecord(r.Context(), tx, profile.ID, connectionID, true)
+		current, found, err := loadConnectionRecord(r.Context(), tx, profile.ID, connectionID, true, s.now().UTC())
 		if err != nil {
 			return connectionMutationEnvelope{}, err
 		}
@@ -268,7 +269,16 @@ func (s *Service) handleUpdateModelConnection(w http.ResponseWriter, r *http.Req
 		if err := updateTerminalTarget(r.Context(), tx, terminalTargetRecordFromConnectionResponse(next)); err != nil {
 			return connectionMutationEnvelope{}, err
 		}
-		updated, found, err := loadModelConnectionRecord(r.Context(), tx, profile.ID, owner.ID, current.ID)
+		// Gated on Set so a PATCH that only touches name leaves the window rows
+		// (and their ids) alone, and written before the read-back so the
+		// response reflects the new windows rather than the previous ones.
+		if requestBody.RoutingSchedule.Set {
+			_, nextWindows := routingScheduleConfigFromResponse(next)
+			if err := replaceConnectionRoutingWindows(r.Context(), tx, profile.ID, current.ID, nextWindows, s.now().UTC()); err != nil {
+				return connectionMutationEnvelope{}, err
+			}
+		}
+		updated, found, err := loadModelConnectionRecord(r.Context(), tx, profile.ID, owner.ID, current.ID, s.now().UTC())
 		if err != nil {
 			return connectionMutationEnvelope{}, err
 		}
@@ -378,6 +388,14 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 		}
 		next.CustomRequestParameters = customRequestParameters
 	}
+	if requestBody.RoutingSchedule.Set {
+		currentTimezone, currentWindows := routingScheduleConfigFromResponse(current)
+		timezone, windows, err := resolveRoutingScheduleUpdate(currentTimezone, currentWindows, requestBody.RoutingSchedule)
+		if err != nil {
+			return connectionResponse{}, err
+		}
+		next.RoutingSchedule = routingSchedulePayloadFromRecord(timezone, windows)
+	}
 	if requestBody.PricingTemplateID.Set {
 		if !requestBody.ExpectedConnectionUpdatedAt.Set || !requestBody.ExpectedPricingTemplateID.Set {
 			return connectionResponse{}, &domainError{
@@ -455,7 +473,7 @@ func (s *Service) handleDeleteModelConnection(w http.ResponseWriter, r *http.Req
 		if err := lockProfileAccessTargetRows(r.Context(), tx, profile.ID); err != nil {
 			return deletedConnectionMutationEnvelope{}, err
 		}
-		current, found, err := loadConnectionRecord(r.Context(), tx, profile.ID, connectionID, true)
+		current, found, err := loadConnectionRecord(r.Context(), tx, profile.ID, connectionID, true, s.now().UTC())
 		if err != nil {
 			return deletedConnectionMutationEnvelope{}, err
 		}
@@ -527,7 +545,7 @@ func (s *Service) handleListConnectionReferences(w http.ResponseWriter, r *http.
 		if err != nil {
 			return connectionReferencesResponse{}, err
 		}
-		if _, found, err := loadConnectionRecord(r.Context(), tx, profile.ID, connectionID, false); err != nil {
+		if _, found, err := loadConnectionRecord(r.Context(), tx, profile.ID, connectionID, false, s.now().UTC()); err != nil {
 			return connectionReferencesResponse{}, err
 		} else if !found {
 			return connectionReferencesResponse{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "Connection not found"}

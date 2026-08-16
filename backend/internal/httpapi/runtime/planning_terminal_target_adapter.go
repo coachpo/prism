@@ -12,12 +12,40 @@ import (
 )
 
 func listActiveConnectionsForProfile(ctx context.Context, tx pgx.Tx, profileID int) (map[int]runtimeConnection, error) {
+	records, err := listActiveTerminalTargetRecordsForProfile(ctx, tx, profileID)
+	if err != nil {
+		return nil, err
+	}
+	connectionIDs := make([]int, 0, len(records))
+	for _, record := range records {
+		connectionIDs = append(connectionIDs, record.ID)
+	}
+	windowsByConnectionID, err := listRoutingWindowsForConnections(ctx, tx, profileID, connectionIDs)
+	if err != nil {
+		return nil, err
+	}
+	items := make(map[int]runtimeConnection, len(records))
+	for _, record := range records {
+		record.RoutingWindows = windowsByConnectionID[record.ID]
+		item := runtimeConnectionFromTerminalTargetRecord(record)
+		items[item.ID] = item
+	}
+	return items, nil
+}
+
+// listActiveTerminalTargetRecordsForProfile reads the active connection rows
+// only. It is split from listActiveConnectionsForProfile so the routing-window
+// batch read runs after rows.Close() has returned: pgx single-connection
+// transactions report conn-busy when a second query starts while the first
+// result rows are still open, and correctness must not depend on the
+// rows-exhaustion auto-close implementation detail.
+func listActiveTerminalTargetRecordsForProfile(ctx context.Context, tx pgx.Tx, profileID int) ([]terminaltarget.RuntimeRecord, error) {
 	rows, err := tx.Query(
 		ctx,
 		`SELECT connections.id, connections.profile_id, connections.api_family, connections.endpoint_id,
 			connections.priority, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream,
 			connections.name, connections.auth_type, connections.custom_headers, connections.custom_request_parameters, connections.pricing_template_id,
-			connections.openai_text_capability, connections.openai_image_capability,
+			connections.openai_text_capability, connections.openai_image_capability, connections.routing_schedule_timezone,
 			pricing_templates.id, pricing_templates.name, pricing_templates.current_revision_id,
 			revisions.id, revisions.version, revisions.pricing_unit, revisions.currency_code,
 			revisions.reporting_currency_epoch, revisions.input_price, revisions.output_price,
@@ -37,19 +65,74 @@ func listActiveConnectionsForProfile(ctx context.Context, tx pgx.Tx, profileID i
 	}
 	defer rows.Close()
 
-	items := make(map[int]runtimeConnection)
+	records := make([]terminaltarget.RuntimeRecord, 0)
 	for rows.Next() {
 		record, scanErr := scanRuntimeTerminalTargetRecord(rows)
 		if scanErr != nil {
 			return nil, fmt.Errorf("scan runtime connection for profile %d: %w", profileID, scanErr)
 		}
-		item := runtimeConnectionFromTerminalTargetRecord(record)
-		items[item.ID] = item
+		records = append(records, record)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate active connections for profile %d: %w", profileID, err)
 	}
-	return items, nil
+	return records, nil
+}
+
+// listRoutingWindowsForConnections reads every routing window row of the
+// given connections in one query, keyed by connection ID. The empty set
+// short-circuits so no SQL is sent for profiles without connections (the
+// planning cache default branch rejects unknown queries). The three smallint
+// columns scan into Go int: the contract-test fake transaction only supports
+// *int for smallint-shaped values.
+func listRoutingWindowsForConnections(ctx context.Context, tx pgx.Tx, profileID int, connectionIDs []int) (map[int][]terminaltarget.Window, error) {
+	if len(connectionIDs) == 0 {
+		return map[int][]terminaltarget.Window{}, nil
+	}
+	rows, err := tx.Query(ctx,
+		`SELECT connection_routing_windows.connection_id,
+			connection_routing_windows.weekday_mask,
+			connection_routing_windows.start_minute,
+			connection_routing_windows.end_minute
+		FROM connection_routing_windows
+		WHERE connection_routing_windows.profile_id = $1
+		  AND connection_routing_windows.connection_id = ANY($2)
+		ORDER BY connection_routing_windows.connection_id ASC,
+			connection_routing_windows.weekday_mask ASC,
+			connection_routing_windows.start_minute ASC,
+			connection_routing_windows.end_minute ASC`,
+		profileID, int32ArrayArg(connectionIDs))
+	if err != nil {
+		return nil, fmt.Errorf("query routing windows for profile %d: %w", profileID, err)
+	}
+	defer rows.Close()
+
+	windowsByConnectionID := map[int][]terminaltarget.Window{}
+	for rows.Next() {
+		var connectionID, weekdayMask, startMinute, endMinute int
+		if err := rows.Scan(&connectionID, &weekdayMask, &startMinute, &endMinute); err != nil {
+			return nil, fmt.Errorf("scan routing window for profile %d: %w", profileID, err)
+		}
+		windowsByConnectionID[connectionID] = append(windowsByConnectionID[connectionID],
+			terminaltarget.Window{WeekdayMask: weekdayMask, StartMinute: startMinute, EndMinute: endMinute})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate routing windows for profile %d: %w", profileID, err)
+	}
+	return windowsByConnectionID, nil
+}
+
+// int32ArrayArg converts a Go int slice into the []int32 form expected by
+// pgx for a smallint[] ANY parameter. This package keeps its own copy rather
+// than sharing the four identical helpers in the management packages: a
+// cross-package extraction would touch all four callers and is out of scope
+// for the routing-schedule change.
+func int32ArrayArg(values []int) []int32 {
+	items := make([]int32, 0, len(values))
+	for _, value := range values {
+		items = append(items, int32(value))
+	}
+	return items
 }
 
 func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminaltarget.RuntimeRecord, error) {
@@ -63,6 +146,7 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 	var pricingTemplateID sql.NullInt32
 	var openAITextCapability sql.NullString
 	var openAIImageCapability sql.NullString
+	var routingScheduleTimezone sql.NullString
 	var templateID sql.NullInt32
 	var templateName sql.NullString
 	var templateRevisionID sql.NullInt64
@@ -95,6 +179,7 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 		&pricingTemplateID,
 		&openAITextCapability,
 		&openAIImageCapability,
+		&routingScheduleTimezone,
 		&templateID,
 		&templateName,
 		&templateRevisionID,
@@ -130,6 +215,7 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 	record.PricingTemplateID = nullableInt32(pricingTemplateID)
 	record.OpenAITextCapability = nullableString(openAITextCapability)
 	record.OpenAIImageCapability = nullableString(openAIImageCapability)
+	record.RoutingScheduleTimezone = nullableString(routingScheduleTimezone)
 	record.Endpoint.Name = nullableString(endpointName)
 	if templateID.Valid {
 		record.PricingTemplate = &terminaltarget.RuntimePricingTemplateSnapshot{
@@ -178,6 +264,17 @@ func parseRuntimeCustomRequestParameters(value sql.NullString) (*terminaltarget.
 }
 
 func runtimeConnectionFromTerminalTargetRecord(record terminaltarget.RuntimeRecord) runtimeConnection {
+	// The routing schedule compiles here and nowhere else. compileRuntimeConnection
+	// is wrong for two reasons: it returns early when the deployment has no
+	// secret encryption key configured, which would silently skip the whole
+	// schedule; and it can return errors, which buildPlanningSnapshot turns
+	// into a whole-snapshot failure. This function has no error return, so an
+	// unparseable timezone can only degrade to Unresolved on this single
+	// connection (fail-closed to the connection, never to the profile).
+	routingScheduleTimezone := ""
+	if record.RoutingScheduleTimezone != nil {
+		routingScheduleTimezone = strings.TrimSpace(*record.RoutingScheduleTimezone)
+	}
 	item := runtimeConnection{
 		ID:                      record.ID,
 		ProfileID:               record.ProfileID,
@@ -195,6 +292,7 @@ func runtimeConnectionFromTerminalTargetRecord(record terminaltarget.RuntimeReco
 		PricingTemplateID:       record.PricingTemplateID,
 		OpenAITextCapability:    record.OpenAITextCapability,
 		OpenAIImageCapability:   record.OpenAIImageCapability,
+		RoutingSchedule:         terminaltarget.CompileRoutingSchedule(routingScheduleTimezone, record.RoutingWindows),
 		Endpoint: runtimeEndpoint{
 			ID:      record.Endpoint.ID,
 			Name:    record.Endpoint.Name,

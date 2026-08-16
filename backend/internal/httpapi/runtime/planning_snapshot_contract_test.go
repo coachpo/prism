@@ -90,6 +90,9 @@ func TestBuildPlanningSnapshotFreezesRoutingAssemblyContract(t *testing.T) {
 	if connection.CustomRequestParameters == nil || connection.CustomRequestParameters.IsEmpty() || connection.CustomRequestParameters.TopLevelKeyCount() != 1 {
 		t.Fatalf("expected custom request parameters to be parsed into the snapshot, got %+v", connection.CustomRequestParameters)
 	}
+	if !connection.RoutingSchedule.Configured() || connection.RoutingSchedule.Unresolved || connection.RoutingSchedule.Timezone != "Asia/Shanghai" || len(connection.RoutingSchedule.Windows) != 2 {
+		t.Fatalf("expected routing schedule to be compiled into the snapshot, got %+v", connection.RoutingSchedule)
+	}
 
 	routingPlan, err := snapshot.compiledRoutingPlan()
 	if err != nil {
@@ -117,6 +120,38 @@ func TestRuntimeConnectionCarriesPricingOwnerSnapshot(t *testing.T) {
 	}
 }
 
+// TestRuntimeConnectionCompilesRoutingScheduleWithoutSecretKey is the only
+// guard that the schedule compiles before the empty-secret-key early return
+// in compileRuntimeConnection: every DB-backed test seeds a non-empty secret
+// key, so a compile point moved behind that early return would leave the
+// whole tests/runtime suite green while schedules silently never load.
+func TestRuntimeConnectionCompilesRoutingScheduleWithoutSecretKey(t *testing.T) {
+	// Normal compile: configured, resolvable, two windows in order.
+	item := runtimeConnectionFromTerminalTargetRecord(terminaltarget.RuntimeRecord{
+		RoutingScheduleTimezone: stringPtr("Asia/Shanghai"),
+		RoutingWindows: []terminaltarget.Window{
+			{WeekdayMask: 62, StartMinute: 540, EndMinute: 1080},
+			{WeekdayMask: 64, StartMinute: 1320, EndMinute: 1800},
+		},
+	})
+	if !item.RoutingSchedule.Configured() || item.RoutingSchedule.Unresolved || item.RoutingSchedule.Timezone != "Asia/Shanghai" || len(item.RoutingSchedule.Windows) != 2 {
+		t.Fatalf("expected compiled schedule, got %+v", item.RoutingSchedule)
+	}
+	// Zero record = unconfigured = the pre-feature behavior.
+	item = runtimeConnectionFromTerminalTargetRecord(terminaltarget.RuntimeRecord{})
+	if item.RoutingSchedule.Configured() || item.RoutingSchedule.Unresolved {
+		t.Fatalf("expected zero record to compile unconfigured, got %+v", item.RoutingSchedule)
+	}
+	// Bad timezone = Unresolved on this connection only (no error escapes).
+	item = runtimeConnectionFromTerminalTargetRecord(terminaltarget.RuntimeRecord{
+		RoutingScheduleTimezone: stringPtr("Not/AZone"),
+		RoutingWindows:          []terminaltarget.Window{{WeekdayMask: 1, StartMinute: 0, EndMinute: 60}},
+	})
+	if !item.RoutingSchedule.Configured() || !item.RoutingSchedule.Unresolved {
+		t.Fatalf("expected bad timezone to compile Unresolved, got %+v", item.RoutingSchedule)
+	}
+}
+
 type runtimePlanningSnapshotFakeTx struct {
 	encryptedAPIKey string
 }
@@ -136,6 +171,11 @@ func (tx *runtimePlanningSnapshotFakeTx) Query(_ context.Context, query string, 
 		return newRuntimePlanningRows([]any{303, "contract round robin", "round-robin", []int32{429, 500}, "temporary", 25, 2.0, 0.1, 1000, 3, 5, 60}), nil
 	case strings.Contains(query, "FROM connections") && strings.Contains(query, "JOIN endpoints"):
 		return tx.connectionRows(), nil
+	case strings.Contains(query, "FROM connection_routing_windows"):
+		return newRuntimePlanningRows(
+			[]any{901, 62, 540, 1080},
+			[]any{901, 64, 1320, 1800}, // cross-midnight row: end_minute > 1440
+		), nil
 	case strings.Contains(query, "FROM header_blocklist_rules"):
 		return newRuntimePlanningRows([]any{"prefix", "x-blocked"}), nil
 	default:
@@ -149,7 +189,7 @@ func (tx *runtimePlanningSnapshotFakeTx) connectionRows() pgx.Rows {
 		901, 42, "openai", 801, 2,
 		sql.NullInt32{Int32: 10, Valid: true}, sql.NullInt32{Int32: 3, Valid: true}, sql.NullInt32{Int32: 4, Valid: true},
 		sql.NullString{String: "primary terminal", Valid: true}, sql.NullString{String: "openai", Valid: true}, sql.NullString{String: `{"X-Custom":"allowed"}`, Valid: true}, sql.NullString{String: `{"provider":{"only":["deepinfra/turbo"]}}`, Valid: true}, sql.NullInt32{Int32: 701, Valid: true},
-		sql.NullString{String: providerauth.OpenAITextCapabilityChatCompletionsOnly, Valid: true}, sql.NullString{},
+		sql.NullString{String: providerauth.OpenAITextCapabilityChatCompletionsOnly, Valid: true}, sql.NullString{}, sql.NullString{String: "Asia/Shanghai", Valid: true},
 		sql.NullInt32{Int32: 701, Valid: true}, sql.NullString{String: "Contract Template", Valid: true}, sql.NullInt64{Int64: 99, Valid: true},
 		sql.NullInt64{Int64: 99, Valid: true}, sql.NullInt32{Int32: 3, Valid: true}, sql.NullString{String: runtimePricingUnitPerMillion, Valid: true}, sql.NullString{String: "USD", Valid: true}, sql.NullInt32{Int32: 1, Valid: true},
 		sql.NullString{String: "1", Valid: true}, sql.NullString{String: "2", Valid: true}, sql.NullString{String: "0.5", Valid: true}, sql.NullString{String: "0.25", Valid: true}, sql.NullString{String: "3", Valid: true}, sql.NullTime{},

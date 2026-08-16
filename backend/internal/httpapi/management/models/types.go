@@ -7,6 +7,7 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
+	"github.com/coachpo/prism/backend/internal/httpapi/management/connections"
 )
 
 type modelAccessTargetRequest struct {
@@ -65,6 +66,7 @@ type modelInitialTerminalTargetRequest struct {
 	MaxInFlightStream       *int                        `json:"max_in_flight_stream"`
 	CustomHeaders           map[string]string           `json:"custom_headers"`
 	CustomRequestParameters optionalRawMessage          `json:"custom_request_parameters"`
+	RoutingSchedule         optionalRawMessage          `json:"routing_schedule"`
 }
 
 type modelEndpointCreateRequest struct {
@@ -214,15 +216,24 @@ type connectionTargetSummary struct {
 	AuthType                *string                                 `json:"auth_type"`
 	CustomHeaders           map[string]string                       `json:"custom_headers"`
 	CustomRequestParameters *terminaltarget.CustomRequestParameters `json:"custom_request_parameters"`
-	OpenAITextCapability    *string                                 `json:"openai_text_capability"`
-	OpenAIImageCapability   *string                                 `json:"openai_image_capability"`
-	PricingTemplateID       *int                                    `json:"pricing_template_id"`
-	QPSLimit                *int                                    `json:"qps_limit"`
-	MaxInFlightNonStream    *int                                    `json:"max_in_flight_non_stream"`
-	MaxInFlightStream       *int                                    `json:"max_in_flight_stream"`
-	PricingTemplate         *connectionPricingTemplateSummary       `json:"pricing_template"`
-	CreatedAt               time.Time                               `json:"created_at"`
-	UpdatedAt               time.Time                               `json:"updated_at"`
+	// RoutingSchedule and RoutingScheduleState reuse the connections package
+	// types and its single state projection. The model detail page reads this
+	// summary and the connection list through the same client type, so a shape
+	// that differed here would degrade one surface while the other looked fine.
+	RoutingSchedule       *connections.RoutingSchedulePayload      `json:"routing_schedule"`
+	RoutingScheduleState  *connections.RoutingScheduleStatePayload `json:"routing_schedule_state"`
+	OpenAITextCapability  *string                                  `json:"openai_text_capability"`
+	OpenAIImageCapability *string                                  `json:"openai_image_capability"`
+	// routingScheduleTimezone carries the parent-row column between the scanner
+	// and the window batch read; the wire shape is assembled from it.
+	routingScheduleTimezone *string
+	PricingTemplateID       *int                              `json:"pricing_template_id"`
+	QPSLimit                *int                              `json:"qps_limit"`
+	MaxInFlightNonStream    *int                              `json:"max_in_flight_non_stream"`
+	MaxInFlightStream       *int                              `json:"max_in_flight_stream"`
+	PricingTemplate         *connectionPricingTemplateSummary `json:"pricing_template"`
+	CreatedAt               time.Time                         `json:"created_at"`
+	UpdatedAt               time.Time                         `json:"updated_at"`
 }
 
 type terminalTargetSummary = connectionTargetSummary

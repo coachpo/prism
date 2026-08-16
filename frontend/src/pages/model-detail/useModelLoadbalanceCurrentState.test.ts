@@ -34,6 +34,7 @@ function observedItem(terminalTargetId: number): GlobalCurrentStateItem {
     qps_window_request_count: 0,
     created_at: "2026-08-08T07:00:00Z",
     updated_at: "2026-08-08T08:00:00Z",
+    routing_schedule: null,
   };
 }
 

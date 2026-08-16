@@ -45,6 +45,7 @@ type OwnerConnectionCreateInput struct {
 	AuthType                *string
 	CustomHeaders           map[string]string
 	CustomRequestParameters *terminaltarget.CustomRequestParameters
+	RoutingSchedule         RoutingScheduleInput
 	OpenAITextCapability    *string
 	OpenAIImageCapability   *string
 	PricingTemplateID       *int
@@ -76,6 +77,13 @@ func CreateOwnerConnection(ctx context.Context, tx pgx.Tx, profileID int, owner 
 		return connectionResponse{}, 0, 0, nil, err
 	}
 	if err := validateLimiter("max_in_flight_stream", input.MaxInFlightStream); err != nil {
+		return connectionResponse{}, 0, 0, nil, err
+	}
+	// Both HTTP-neutral create chains resolve the schedule through this shared
+	// helper. CreateOwnerScopedConnectionTx does not call this function, so it
+	// repeats the call rather than inheriting it.
+	routingScheduleTimezone, routingWindows, err := resolveRoutingScheduleCreate(input.RoutingSchedule)
+	if err != nil {
 		return connectionResponse{}, 0, 0, nil, err
 	}
 	openAITextCapability, err := resolveOpenAITextCapabilityCreate(owner.APIFamily, input.OpenAITextCapability)
@@ -119,6 +127,7 @@ func CreateOwnerConnection(ctx context.Context, tx pgx.Tx, profileID int, owner 
 		AuthType:                authType,
 		CustomHeaders:           normalizeHeaders(input.CustomHeaders),
 		CustomRequestParameters: input.CustomRequestParameters,
+		RoutingSchedule:         routingSchedulePayloadFromRecord(routingScheduleTimezone, routingWindows),
 		OpenAITextCapability:    openAITextCapability,
 		OpenAIImageCapability:   openAIImageCapability,
 		PricingTemplateID:       pricingTemplateID,
@@ -132,11 +141,14 @@ func CreateOwnerConnection(ctx context.Context, tx pgx.Tx, profileID int, owner 
 	if err != nil {
 		return connectionResponse{}, 0, 0, nil, err
 	}
+	if err := replaceConnectionRoutingWindows(ctx, tx, profileID, connectionID, routingWindows, nowUTC); err != nil {
+		return connectionResponse{}, 0, 0, nil, err
+	}
 	accessTargetID, err := insertOwnerTerminalTargetAccessReturningID(ctx, tx, profileID, owner.ID, connectionID, position, nowUTC)
 	if err != nil {
 		return connectionResponse{}, 0, 0, nil, err
 	}
-	created, found, err := loadModelConnectionRecord(ctx, tx, profileID, owner.ID, connectionID)
+	created, found, err := loadModelConnectionRecord(ctx, tx, profileID, owner.ID, connectionID, nowUTC)
 	if err != nil {
 		return connectionResponse{}, 0, 0, nil, err
 	}

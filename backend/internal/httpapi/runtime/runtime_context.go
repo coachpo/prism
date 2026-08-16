@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"strings"
+	"time"
 )
 
 type runtimeTraceContext struct {
@@ -56,6 +57,12 @@ func eventAPIFamily(existing string, operationName string) string {
 type runtimeIngressContext struct {
 	ingressRequestID string
 	callerRequestID  string
+	// planningReferenceNow is the single planning clock of this ingress,
+	// captured at the runtime-operation boundary before any planning and
+	// shared by the probe plan and the final plan. Gemini path-bound
+	// operations plan twice with a full upstream body read in between;
+	// routing eligibility must never re-read the live clock.
+	planningReferenceNow time.Time
 }
 
 type runtimeIngressContextKey struct{}
@@ -63,8 +70,8 @@ type runtimeIngressContextKey struct{}
 // newRuntimeIngressContext generates a canonical lowercase UUIDv4 string
 // (36 chars) using crypto/rand. Generation failure falls back to a
 // hex-encoded random value; the empty string is never returned.
-func newRuntimeIngressContext() runtimeIngressContext {
-	return runtimeIngressContext{ingressRequestID: newRuntimeUUIDv4()}
+func newRuntimeIngressContext(planningReferenceNow time.Time) runtimeIngressContext {
+	return runtimeIngressContext{ingressRequestID: newRuntimeUUIDv4(), planningReferenceNow: planningReferenceNow}
 }
 
 func newRuntimeUUIDv4() string {
@@ -134,4 +141,17 @@ func runtimeCallerRequestIDFromContext(ctx context.Context) string {
 		return ""
 	}
 	return ingress.callerRequestID
+}
+
+// runtimePlanningReferenceNowFromContext returns the single planning clock of
+// this ingress if present.
+func runtimePlanningReferenceNowFromContext(ctx context.Context) (time.Time, bool) {
+	if ctx == nil {
+		return time.Time{}, false
+	}
+	ingress, ok := ctx.Value(runtimeIngressContextKey{}).(runtimeIngressContext)
+	if !ok {
+		return time.Time{}, false
+	}
+	return ingress.planningReferenceNow, true
 }

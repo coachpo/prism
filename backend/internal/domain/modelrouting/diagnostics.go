@@ -1,6 +1,7 @@
 package modelrouting
 
 import (
+	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 	"sort"
 	"strings"
 )
@@ -78,6 +79,12 @@ type DiagnosticsConnection struct {
 	IsActive              bool
 	OpenAITextCapability  *string
 	OpenAIImageCapability *string
+	// Raw authored configuration, not a compiled schedule: compiling would
+	// require a timezone database lookup, whose result varies per instance and
+	// would make the analyzer's output depend on something other than the
+	// configuration generation it claims to describe.
+	RoutingScheduleTimezone *string
+	RoutingWindows          []terminaltarget.Window
 }
 
 type DiagnosticsStrategy struct {
@@ -121,6 +128,7 @@ type DiagnosticsTarget struct {
 	SupportedOperations           []string                     `json:"supported_operations"`
 	UnsupportedAcceptedOperations []string                     `json:"unsupported_accepted_operations"`
 	OperationResults              []DiagnosticsOperationResult `json:"operation_results"`
+	Schedule                      *DiagnosticsRoutingSchedule  `json:"schedule,omitempty"`
 }
 
 type DiagnosticsOperationResult struct {
@@ -291,6 +299,11 @@ func buildStage(graph *DiagnosticsGraph, root DiagnosticsModel, stage string, or
 			row.TargetModelConfigID = cloneIntPointer(target.TargetModelConfigID)
 		} else {
 			row.ConnectionID = cloneIntPointer(target.TargetConnectionID)
+			if row.ConnectionID != nil {
+				if connection, ok := graph.ConnectionsByID[*row.ConnectionID]; ok {
+					row.Schedule = routingScheduleProjection(connection)
+				}
+			}
 		}
 		built.Targets = append(built.Targets, row)
 	}

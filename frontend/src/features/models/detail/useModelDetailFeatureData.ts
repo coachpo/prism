@@ -42,6 +42,10 @@ interface UseModelDetailFeatureDataInput {
   searchParams: URLSearchParams
   setSearchParams: SetURLSearchParams
   navigateTo: (to: string) => void
+  // The mutations hook has always accepted refreshDiagnostics and calls it in
+  // four places, but nothing ever passed one in, so every call was a no-op and
+  // the diagnostics panel kept showing pre-mutation results until a reload.
+  refreshDiagnostics?: () => void | Promise<void>
 }
 
 export function useModelDetailFeatureData({
@@ -49,6 +53,7 @@ export function useModelDetailFeatureData({
   searchParams,
   setSearchParams,
   navigateTo,
+  refreshDiagnostics,
 }: UseModelDetailFeatureDataInput) {
   const revision = 0
   const modelConfigId = modelId ? Number.parseInt(modelId, 10) : undefined
@@ -89,6 +94,10 @@ export function useModelDetailFeatureData({
     headerRows,
     setHeaderRows,
     customRequestParametersDraft,
+    routingScheduleDraft,
+    setRoutingScheduleDraft,
+    routingScheduleError,
+    setRoutingScheduleError,
     setCustomRequestParametersDraft,
     customRequestParametersError,
     setCustomRequestParametersError,
@@ -156,11 +165,16 @@ export function useModelDetailFeatureData({
     connectionForm,
     headerRows,
     customRequestParametersDraft,
+    routingScheduleDraft,
+    setRoutingScheduleDraft,
+    routingScheduleError,
+    setRoutingScheduleError,
     setCustomRequestParametersError,
     editingConnection,
     pricingTemplates,
     endpointSourceDefaultName,
     refreshCurrentState,
+    refreshDiagnostics,
     setIsConnectionDialogOpen,
     setAllModels,
     setConnections,
@@ -282,6 +296,10 @@ export function useModelDetailFeatureData({
     headerRows,
     setHeaderRows,
     customRequestParametersDraft,
+    routingScheduleDraft,
+    setRoutingScheduleDraft,
+    routingScheduleError,
+    setRoutingScheduleError,
     setCustomRequestParametersDraft,
     customRequestParametersError,
     setCustomRequestParametersError,

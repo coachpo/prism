@@ -130,6 +130,11 @@ func loadRoutingDiagnosticsGraph(ctx context.Context, tx pgx.Tx, profileID int, 
 				IsActive:              target.Connection.IsActive,
 				OpenAITextCapability:  cloneStringPointer(target.Connection.OpenAITextCapability),
 				OpenAIImageCapability: cloneStringPointer(target.Connection.OpenAIImageCapability),
+				// All three DiagnosticsConnection assembly sites must carry the
+				// same field set; EndpointID is the standing counter-example,
+				// filled only by the route-witness loader.
+				RoutingScheduleTimezone: routingScheduleTimezoneFromSummary(target.Connection),
+				RoutingWindows:          routingWindowsFromPayload(target.Connection.RoutingSchedule),
 			}
 		}
 	}
@@ -227,6 +232,11 @@ func attachRoutingSummaries(records []modelRecord, accessTargets map[int][]acces
 				IsActive:              target.Connection.IsActive,
 				OpenAITextCapability:  cloneStringPointer(target.Connection.OpenAITextCapability),
 				OpenAIImageCapability: cloneStringPointer(target.Connection.OpenAIImageCapability),
+				// All three DiagnosticsConnection assembly sites must carry the
+				// same field set; EndpointID is the standing counter-example,
+				// filled only by the route-witness loader.
+				RoutingScheduleTimezone: routingScheduleTimezoneFromSummary(target.Connection),
+				RoutingWindows:          routingWindowsFromPayload(target.Connection.RoutingSchedule),
 			}
 		}
 	}

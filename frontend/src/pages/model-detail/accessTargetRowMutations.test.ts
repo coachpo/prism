@@ -2,6 +2,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelAccessTarget, ModelConfig } from "@/lib/types";
 import { useModelDetailConnectionMutations } from "./useModelDetailConnectionMutations";
+import { emptyRoutingScheduleDraft } from "./routingScheduleDraft";
 
 const mocks = vi.hoisted(() => ({
   update: vi.fn(),
@@ -100,6 +101,10 @@ function renderMutations() {
       headerRows: [],
       customRequestParametersDraft: "",
       setCustomRequestParametersError: vi.fn(),
+    routingScheduleDraft: emptyRoutingScheduleDraft(),
+    setRoutingScheduleDraft: vi.fn(),
+    routingScheduleError: null,
+    setRoutingScheduleError: vi.fn(),
       editingConnection: null,
       pricingTemplates: [],
       endpointSourceDefaultName: null,

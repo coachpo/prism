@@ -40,6 +40,7 @@ docs/
 - Active working plans and live execution evidence: `../artifacts/plans/`, `../artifacts/evidence/`
 
 ## CONVENTIONS
+- `docs/architecture.md` §14.2.2A is the single authoritative definition of the routing-schedule planning codes and their wire fields; other sections and `docs/product.md` describe behavior and must not restate the field list.
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `../frontend/DESIGN.md`; keep docs focused on durable reference ownership instead of repeating design-system rules.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep docs Prism-specific.

@@ -1078,6 +1078,40 @@ func (h *runtimeHarness) updateConnectionCustomRequestParameters(tb testing.TB, 
 	}
 }
 
+// updateConnectionRoutingSchedule replaces the connection's routing schedule
+// (timezone column plus the full window row set) directly in the database.
+// Like updateConnectionCustomRequestParameters it does NOT refresh the
+// runtime snapshot: the caller must refresh after the mutation.
+func (h *runtimeHarness) updateConnectionRoutingSchedule(tb testing.TB, profileID int, connectionID int, timezone string, windows [][3]int) {
+	tb.Helper()
+	now := time.Now().UTC()
+	var timezoneValue any
+	if timezone != "" {
+		timezoneValue = timezone
+	}
+	if _, err := h.conn.Exec(
+		context.Background(),
+		`UPDATE connections SET routing_schedule_timezone = $3, updated_at = $2 WHERE id = $1 AND profile_id = $4`,
+		connectionID,
+		now,
+		timezoneValue,
+		profileID,
+	); err != nil {
+		tb.Fatalf("update runtime connection routing schedule timezone: %v", err)
+	}
+	if _, err := h.conn.Exec(context.Background(), `DELETE FROM connection_routing_windows WHERE connection_id = $1 AND profile_id = $2`, connectionID, profileID); err != nil {
+		tb.Fatalf("clear runtime connection routing windows: %v", err)
+	}
+	for _, window := range windows {
+		if _, err := h.conn.Exec(context.Background(),
+			`INSERT INTO connection_routing_windows (connection_id, profile_id, weekday_mask, start_minute, end_minute, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+			connectionID, profileID, window[0], window[1], window[2], now,
+		); err != nil {
+			tb.Fatalf("insert runtime connection routing window: %v", err)
+		}
+	}
+}
+
 func (h *runtimeHarness) updateConnectionCustomHeaders(t *testing.T, connectionID int, customHeaders map[string]any) {
 	t.Helper()
 	now := time.Now().UTC()

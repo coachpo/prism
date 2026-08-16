@@ -56,6 +56,68 @@ function updateBrowserSearch(searchParams: URLSearchParams, replace?: boolean) {
   window.history.pushState(null, "", nextUrl)
 }
 
+export type DiagnosticsView =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "error"; message: string }
+  | { kind: "loaded"; value: RoutingDiagnosticsResponse };
+
+
+/**
+ * Reads static routing diagnostics for one model, keeping the four states a
+ * consumer needs to tell apart: never read, reading, read failed, and read
+ * successfully. Collapsing them into one nullable value is what let a failed
+ * fetch render as an absent panel.
+ *
+ * The fetch lives in a hook rather than inline in the component so the pending
+ * transition can be set before the request without tripping the
+ * set-state-in-effect rule, matching usePricingListFacts.
+ */
+function useRoutingDiagnosticsView(modelConfigId: number | undefined) {
+  const [settled, setSettled] = useState<{ token: number; modelConfigId: number; result: DiagnosticsView } | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
+  const refreshDiagnostics = useCallback(() => {
+    setReloadToken((token) => token + 1);
+  }, []);
+
+  useEffect(() => {
+    if (!modelConfigId || Number.isNaN(modelConfigId)) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const diagnostics = await modelRoutingDiagnostics.get(modelConfigId);
+        if (!cancelled) setSettled({ token: reloadToken, modelConfigId, result: { kind: "loaded", value: diagnostics } });
+      } catch (error: unknown) {
+        if (!cancelled) {
+          setSettled({
+            token: reloadToken,
+            modelConfigId,
+            result: { kind: "error", message: error instanceof Error ? error.message : String(error) },
+          });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // reloadToken is the only retry dimension: without it the retry button
+    // would update state that no effect reads and issue no request.
+  }, [modelConfigId, reloadToken]);
+
+  // Pending is derived from "has the current request settled" rather than
+  // written by the effect. Besides keeping the effect free of a synchronous
+  // setState, this makes a stale result impossible to present as the current
+  // one: a settled record only counts when both its token and its model match.
+  const diagnosticsView: DiagnosticsView =
+    !modelConfigId || Number.isNaN(modelConfigId)
+      ? { kind: "idle" }
+      : settled && settled.token === reloadToken && settled.modelConfigId === modelConfigId
+        ? settled.result
+        : { kind: "loading" };
+
+  return { diagnosticsView, refreshDiagnostics };
+}
+
 export function ModelDetailFeaturePage({
   modelId,
   searchParams,
@@ -85,33 +147,19 @@ export function ModelDetailFeaturePage({
     }
     window.location.assign(to)
   }, [onNavigateTo])
+  const parsedModelConfigId = modelId ? Number.parseInt(modelId, 10) : undefined;
+  const { diagnosticsView, refreshDiagnostics } = useRoutingDiagnosticsView(parsedModelConfigId);
   const data = useModelDetailFeatureData({
     modelId,
     searchParams: resolvedSearchParams,
     setSearchParams,
     navigateTo,
+    refreshDiagnostics,
   })
-  const [routingDiagnostics, setRoutingDiagnostics] = useState<RoutingDiagnosticsResponse | null>(null);
   const [copyTarget, setCopyTarget] = useState<Connection | null>(null);
   // The breadcrumb leaf must name the model, not say "配置". Until the model
   // loads this stays null and the shell falls back to the id.
   usePublishBreadcrumbEntity(data.model?.display_name || data.model?.model_id);
-  const parsedModelConfigIdForDiag = modelId ? Number.parseInt(modelId, 10) : undefined;
-  useEffect(() => {
-    if (!parsedModelConfigIdForDiag || Number.isNaN(parsedModelConfigIdForDiag)) return;
-    let cancelled = false;
-    void modelRoutingDiagnostics
-      .get(parsedModelConfigIdForDiag)
-      .then((diagnostics) => {
-        if (!cancelled) setRoutingDiagnostics(diagnostics);
-      })
-      .catch(() => {
-        if (!cancelled) setRoutingDiagnostics(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [parsedModelConfigIdForDiag, data.loading]);
 
   if (data.loading) {
     return (
@@ -135,7 +183,6 @@ export function ModelDetailFeaturePage({
     .map((item) => item.updated_at)
     .sort()
     .at(-1) ?? model.updated_at
-  const parsedModelConfigId = modelId ? Number.parseInt(modelId, 10) : undefined
   const isConnectionTargetMutable = (connectionId: number) =>
     isOwnedConnectionTarget(model, parsedModelConfigId, connectionId)
   const ownerOpenAIAcceptedFormat = model.openai_accepted_format ?? null
@@ -189,7 +236,8 @@ export function ModelDetailFeaturePage({
 
       <RouteReadinessCard
         accessTargetSummary={data.accessTargetSummary}
-        diagnostics={routingDiagnostics}
+        diagnosticsView={diagnosticsView}
+              onRetryDiagnostics={refreshDiagnostics}
         model={model}
       />
 
@@ -259,6 +307,9 @@ export function ModelDetailFeaturePage({
         headerRows={data.headerRows}
         setHeaderRows={data.setHeaderRows}
         customRequestParametersDraft={data.customRequestParametersDraft}
+        routingScheduleDraft={data.routingScheduleDraft}
+        setRoutingScheduleDraft={data.setRoutingScheduleDraft}
+        routingScheduleError={data.routingScheduleError}
         setCustomRequestParametersDraft={data.setCustomRequestParametersDraft}
         customRequestParametersError={data.customRequestParametersError}
         setCustomRequestParametersError={data.setCustomRequestParametersError}

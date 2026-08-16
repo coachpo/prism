@@ -32,6 +32,16 @@ const (
 	WarningCodeOpenAITargetPartialCoverage    = "openai_target_partial_coverage"
 	WarningCodeOpenAIOperationUncovered       = "openai_operation_uncovered"
 	WarningCodeSingleStrategyTruncatesTargets = "single_strategy_truncates_targets"
+	// Family-neutral: a routing schedule restricts availability the same way
+	// for every provider, so this code has no OpenAI gate. The precedent is
+	// single_strategy_truncates_targets, which is likewise ungated.
+	WarningCodeTerminalTargetScheduleLimitsAvailability = "terminal_target_schedule_limits_availability"
+)
+
+// Routing-schedule availability reasons carried in Details["reason"].
+const (
+	ScheduleAvailabilityReasonUnionHasGaps   = "schedule_union_has_gaps"
+	ScheduleAvailabilityReasonMixedTimezones = "mixed_timezones_not_solved"
 )
 
 // Uncovered-operation reasons carried in Details["reason"].
@@ -176,6 +186,48 @@ func GenerateConfigurationWarnings(graph *DiagnosticsGraph, root DiagnosticsMode
 				details,
 			))
 		}
+	}
+
+	// Appended after the existing warnings on purpose: diagnostics_test.go
+	// asserts warning codes by index, so inserting earlier would make those
+	// assertions fail for the wrong reason.
+	//
+	// Only operations that are statically routable are considered. An operation
+	// with no route at all is already reported by the coverage warnings above,
+	// and adding a schedule warning on top would describe a second cause for a
+	// failure that has a simpler one.
+	for _, coverage := range result.OperationCoverage {
+		if !coverage.Accepted || !coverage.StaticallyRoutable {
+			continue
+		}
+		finding := evaluateScheduleAvailability(graph, result, coverage.OperationName)
+		if finding == nil {
+			continue
+		}
+		details := map[string]any{
+			"reason":                  finding.reason,
+			"operation_name":          finding.operationName,
+			"terminal_connection_ids": finding.connectionIDs,
+			"timezones":               finding.timezones,
+		}
+		severity := WarningSeverityDanger
+		message := "该操作可路由的全部 Terminal Target 都配置了时段，且这些时段合起来没有覆盖整周：在未被覆盖的时间里该操作没有任何可用目标。"
+		if finding.reason == ScheduleAvailabilityReasonMixedTimezones {
+			// Windows authored in different zones cannot be unioned without
+			// choosing a zone to project into, so this reports the mix rather
+			// than asserting a gap it cannot actually compute.
+			severity = WarningSeverityWarning
+			message = "该操作可路由的全部 Terminal Target 都配置了时段，但分属不同时区，无法判定它们合起来是否覆盖整周。"
+		}
+		warnings = append(warnings, NewWarning(
+			WarningCodeTerminalTargetScheduleLimitsAvailability,
+			severity,
+			message,
+			"routing_schedule",
+			root.ConfigID,
+			nil,
+			details,
+		))
 	}
 	return warnings
 }

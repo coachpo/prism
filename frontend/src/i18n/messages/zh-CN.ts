@@ -1185,6 +1185,52 @@ export const zhCNMessages = {
     strategyLabel: "路由策略",
     strategyUnassignedReason: "该模型没有绑定路由策略。",
 
+    // 路由诊断的四态。读失败必须与「后端确实没有诊断」区分开，
+    // 否则一次失败的读取看起来就像一个干净的空结果。
+    diagnosticsErrorTitle: "路由诊断读取失败",
+    diagnosticsErrorDescription: "这不代表该模型没有诊断结果，只表示本次没有读到。",
+    diagnosticsErrorDetailsLabel: "错误详情",
+    diagnosticsRetry: "重试",
+
+    // 时段路由编辑器。时段决定这个终端目标在一周里的哪些时间参与路由，
+    // 与「是否启用」正交：停用的连接根本不会被求值时段。
+    routingScheduleEnableLabel: "限制该终端目标的可路由时段",
+    routingScheduleDescription: "不配置时段等于不限制。配置后，只有落在窗口内的请求才会把该终端目标算作候选。",
+    routingScheduleTimezoneLabel: "时段时区",
+    routingScheduleTimezonePlaceholder: "选择时区",
+    routingScheduleTimezoneDescription: "这是该终端目标自己的路由时钟，与设置页的报表显示时区无关。",
+    routingScheduleWeekdaysLegend: "生效的星期",
+    routingScheduleWeekdays: ["一", "二", "三", "四", "五", "六", "日"],
+    routingScheduleStartLabel: "开始时间",
+    routingScheduleEndLabel: "结束时间",
+    routingScheduleEndsNextDay: "结束于次日",
+    routingScheduleAddWindow: "添加时段",
+    routingScheduleRemoveWindow: "删除",
+    routingScheduleError: (reason: MessageArg) => {
+      switch (reason) {
+        case "no_windows":
+          return "已开启时段限制但没有任何窗口。若要始终可用，请关闭时段限制。";
+        case "too_many_windows":
+          return "窗口数量超过上限（32 个）。";
+        case "timezone_required":
+          return "请选择时段时区。";
+        case "invalid_time":
+          return "时间格式必须是 HH:mm。";
+        case "end_minute_not_after_start":
+          return "结束时间必须晚于开始时间；跨午夜请勾选「结束于次日」。";
+        case "span_exceeds_one_day":
+          return "单个窗口不能超过 24 小时。";
+        case "duplicate_window":
+          return "存在完全重复的窗口。";
+        case "weekday_mask_out_of_range":
+          return "请至少选择一个星期。";
+        case "covers_full_week":
+          return "这些窗口已覆盖整周，等同于不限制。若要始终可用，请关闭时段限制。";
+        default:
+          return "时段配置无效。";
+      }
+    },
+
     // 成本区：四张 KPI 卡 + 窗口切换 + 未定价裁剪。
     costWindowLabel: "成本时间窗",
     costWindowToday: "今日",
@@ -1691,6 +1737,16 @@ export const zhCNMessages = {
     unlimited: "无限制",
   },
   modelsUi: {
+    // 时段徽标的六态。每一态都必须有服务端来源，前端不做任何窗口推算。
+    routingScheduleOpen: "时段内",
+    routingScheduleClosed: "时段外",
+    routingScheduleClosedUntil: (at: MessageArg) => `时段外（${at} 恢复）`,
+    routingScheduleUnresolved: "时段时区不可解析",
+    routingScheduleNotEvaluatedInactive: "连接已停用，时段未生效",
+    routingScheduleNotEvaluated: "时段未求值",
+    routingScheduleStateUnavailable: "时段状态未读到",
+    routingScheduleStale: "时段状态已过期",
+    routingScheduleStaleReason: "该结论的有效期已过，请刷新后再判断。",
     copyTargetTitle: "复制终端目标",
     copyTargetDescription: (name: MessageArg) => `将终端目标「${name}」复制到选定的模型（单事务、各模型私有连接）。`,
     copyDestinationModels: "目标模型（同家族；OpenAI 必须模式完全相同）",

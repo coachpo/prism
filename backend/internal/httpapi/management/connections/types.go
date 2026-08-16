@@ -107,6 +107,40 @@ func (value *optionalCustomRequestParameters) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// RoutingWindowPayload is one wire routing window. EndMinute above
+// 1440 continues into the following day, and WeekdayMask names the days the
+// window opens on (not every day it covers).
+type RoutingWindowPayload struct {
+	WeekdayMask int `json:"weekday_mask"`
+	StartMinute int `json:"start_minute"`
+	EndMinute   int `json:"end_minute"`
+}
+
+// RoutingSchedulePayload is the stored configuration of a Terminal
+// Target's routing schedule. It carries no evaluated conclusion; the current
+// state lives in RoutingScheduleStatePayload so that configuration reads stay
+// clock-independent.
+type RoutingSchedulePayload struct {
+	Timezone string                 `json:"timezone"`
+	Windows  []RoutingWindowPayload `json:"windows"`
+}
+
+// RoutingScheduleInput preserves the raw JSON of the routing_schedule field
+// instead of decoding it here, so that array and scalar roots reach the shared
+// field validator as a 422 rather than degrading into a generic 400, and so
+// JSON null reaches the clear semantics. It is exported because other
+// management packages forward the field into the shared owner-scoped writer.
+type RoutingScheduleInput struct {
+	Set bool
+	Raw json.RawMessage
+}
+
+func (value *RoutingScheduleInput) UnmarshalJSON(data []byte) error {
+	value.Set = true
+	value.Raw = append(json.RawMessage(nil), data...)
+	return nil
+}
+
 func (value *optionalHeaders) UnmarshalJSON(data []byte) error {
 	value.Set = true
 	trimmed := bytes.TrimSpace(data)
@@ -180,6 +214,7 @@ type connectionCreateRequest struct {
 	AuthType                *string                         `json:"auth_type"`
 	CustomHeaders           map[string]string               `json:"custom_headers"`
 	CustomRequestParameters optionalCustomRequestParameters `json:"custom_request_parameters"`
+	RoutingSchedule         RoutingScheduleInput            `json:"routing_schedule"`
 	OpenAITextCapability    *string                         `json:"openai_text_capability"`
 	OpenAIImageCapability   *string                         `json:"openai_image_capability"`
 	PricingTemplateID       *int                            `json:"pricing_template_id"`
@@ -198,6 +233,7 @@ type connectionUpdateRequest struct {
 	AuthType                optionalString                  `json:"auth_type"`
 	CustomHeaders           optionalHeaders                 `json:"custom_headers"`
 	CustomRequestParameters optionalCustomRequestParameters `json:"custom_request_parameters"`
+	RoutingSchedule         RoutingScheduleInput            `json:"routing_schedule"`
 	OpenAITextCapability    optionalString                  `json:"openai_text_capability"`
 	OpenAIImageCapability   optionalString                  `json:"openai_image_capability"`
 	PricingTemplateID       optionalInt                     `json:"pricing_template_id"`
@@ -255,6 +291,8 @@ type connectionResponse struct {
 	AuthType                *string                                 `json:"auth_type"`
 	CustomHeaders           map[string]string                       `json:"custom_headers"`
 	CustomRequestParameters *terminaltarget.CustomRequestParameters `json:"custom_request_parameters"`
+	RoutingSchedule         *RoutingSchedulePayload                 `json:"routing_schedule"`
+	RoutingScheduleState    *RoutingScheduleStatePayload            `json:"routing_schedule_state"`
 	OpenAITextCapability    *string                                 `json:"openai_text_capability"`
 	OpenAIImageCapability   *string                                 `json:"openai_image_capability"`
 	PricingTemplateID       *int                                    `json:"pricing_template_id"`
