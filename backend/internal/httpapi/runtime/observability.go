@@ -1918,6 +1918,11 @@ func buildRuntimeAuditLogRow(plan requestPlan, request *http.Request, telemetry 
 			}
 		}
 	}
+	// The stored request body is the capped/budgeted prefix computed above, not
+	// the captured original: request_body_bytes_stored, the truncated flag and
+	// the omitted_ingress_budget status all describe those bytes, so writing the
+	// full body would contradict its own metadata.
+	storedRequestBody := auditBodyString(requestBodyBytes)
 	auditLog := auditLogInsert{
 		RequestLogAttemptNumber:           attempt.attemptNumber,
 		ProfileID:                         plan.ProfileID,
@@ -1931,7 +1936,7 @@ func buildRuntimeAuditLogRow(plan requestPlan, request *http.Request, telemetry 
 		RequestURL:                        scrubbedRequestURL,
 		RequestURLTruncated:               requestURLTruncated,
 		RequestHeaders:                    requestHeaders,
-		RequestBody:                       requestBody,
+		RequestBody:                       storedRequestBody,
 		RequestBodyStored:                 requestBodyStoredBytes > 0,
 		ResponseStatus:                    attempt.attempt.StatusCode,
 		ResponseHeaders:                   responseHeaders,
@@ -2859,7 +2864,7 @@ func insertRuntimeAuditLogTx(ctx context.Context, tx pgx.Tx, requestLogID int, r
 		auditLog.ResponseHeadersScrubProvenance,
 		runtimeAuditHeadersCaptureStatusOptional(auditLog.ResponseHeaders),
 		"none",
-		nullableStringArg(auditLog.RequestBody),
+		nullableBytesArg(auditLog.RequestBody),
 		nullableStringArg(auditLog.RequestBodyEncoding),
 		auditLog.RequestBodyCaptureProvenance,
 		nullableStringArg(auditLog.RequestBodyCaptureEndState),
@@ -2868,7 +2873,7 @@ func insertRuntimeAuditLogTx(ctx context.Context, tx pgx.Tx, requestLogID int, r
 		auditLog.RequestBodyTruncated,
 		nullableInt64Arg(auditLog.RequestBodyBytesObserved),
 		nullableInt64Arg(auditLog.RequestBodyBytesStored),
-		nullableStringArg(auditLog.ResponseBody),
+		nullableBytesArg(auditLog.ResponseBody),
 		nullableStringArg(auditLog.ResponseBodyEncoding),
 		auditLog.ResponseBodyCaptureProvenance,
 		nullableStringArg(auditLog.ResponseBodyCaptureEndState),
@@ -3143,6 +3148,19 @@ func nullableStringArg(value *string) any {
 		return nil
 	}
 	return *value
+}
+
+// nullableBytesArg binds a captured audit body to its bytea column. The bytes
+// must reach the driver as []byte: a Go string is sent in text format, which
+// PostgreSQL then parses as a bytea input literal, so a body containing a
+// backslash fails with 22P02 and one without is stored escape-interpreted
+// instead of verbatim. The legacy v1 drain already writes these columns this
+// way (platform/startup/runtime_telemetry_v1_drain.go legacyBodyBytes).
+func nullableBytesArg(value *string) any {
+	if value == nil {
+		return nil
+	}
+	return []byte(*value)
 }
 
 // nullableAttemptNumberArg writes the attempt number only for real upstream
