@@ -89,6 +89,17 @@ export function LoadbalanceStrategiesTable({
       <span>
         {defaultStrategy ? copy.tableSummaryDefault(defaultStrategy.name) : copy.tableSummaryNoDefault}
       </span>
+      {/* 内置策略是否齐全也是这张表的状态，与条数同属摘要行，
+          不再单独占一条横贯卡片的说明带。 */}
+      {defaultsCompleteness.complete ? (
+        <>
+          <span aria-hidden="true">·</span>
+          <span className="inline-flex items-center gap-1" data-testid="built-in-complete">
+            <Star className="size-3.5" />
+            {copy.builtInComplete}
+          </span>
+        </>
+      ) : null}
     </>
   ) : null
 
@@ -103,77 +114,84 @@ export function LoadbalanceStrategiesTable({
           </Button>
         ) : null
       }
-      contentClassName="flex flex-col gap-4"
     >
-      {defaultsCompleteness.complete ? (
-        <div className="flex items-center gap-2 px-1 text-sm text-foreground/60" data-testid="built-in-complete">
-          <Star data-icon="inline-start" className="size-4" />
-          {copy.builtInComplete}
-        </div>
-      ) : null}
+      {/* 状态块自带留白并与卡头左右对齐；表格本身贴边铺满，
+          卡片边框就是表格边框，不再多套一层“卡中卡”。 */}
       {defaultsError ? (
-        <OperatorErrorState
-          title={copy.loadFailed}
-          description={defaultsError}
-          action={<Button type="button" variant="outline" size="sm" onClick={onCreateDefaults} disabled={defaultsCreating}><RefreshCw data-icon="inline-start" />{copy.retry}</Button>}
-        />
+        <div className="px-[var(--density-card-pad-x)] pb-[var(--density-card-pad-y)]">
+          <OperatorErrorState
+            title={copy.loadFailed}
+            description={defaultsError}
+            action={<Button type="button" variant="outline" size="sm" onClick={onCreateDefaults} disabled={defaultsCreating}><RefreshCw data-icon="inline-start" />{copy.retry}</Button>}
+          />
+        </div>
       ) : null}
 
       {/* A default-strategy conflict is a page-level fact — someone else moved
           the default — so it sits above the table rather than inside one row. */}
-      {conflicts.map(([strategyId, state]) => (
-        <OperatorCallout
-          key={strategyId}
-          intent="danger"
-          title={copy.defaultConflictTitle}
-          description={state.error ?? copy.defaultChangedConflict}
-          action={
-            <Button type="button" variant="outline" size="sm" onClick={() => onClearSetDefaultError(Number(strategyId))}>
-              {copy.defaultConflictAction}
-            </Button>
-          }
-        />
-      ))}
+      {conflicts.length > 0 ? (
+        <div className="flex flex-col gap-2 px-[var(--density-card-pad-x)] pb-[var(--density-card-pad-y)]">
+          {conflicts.map(([strategyId, state]) => (
+            <OperatorCallout
+              key={strategyId}
+              intent="danger"
+              title={copy.defaultConflictTitle}
+              description={state.error ?? copy.defaultChangedConflict}
+              action={
+                <Button type="button" variant="outline" size="sm" onClick={() => onClearSetDefaultError(Number(strategyId))}>
+                  {copy.defaultConflictAction}
+                </Button>
+              }
+            />
+          ))}
+        </div>
+      ) : null}
 
       {fragment.phase === "error" ? (
-        <OperatorErrorState
-          title={fragment.stale ? copy.loadFailedStale(fragment.lastSuccessfulAt ?? "") : copy.loadFailed}
-          description={fragment.error ?? ""}
-          action={<Button type="button" variant="outline" size="sm" onClick={onRetry}><RefreshCw data-icon="inline-start" />{copy.retry}</Button>}
-        />
+        <div className="px-[var(--density-card-pad-x)] pb-[var(--density-card-pad-y)]">
+          <OperatorErrorState
+            title={fragment.stale ? copy.loadFailedStale(fragment.lastSuccessfulAt ?? "") : copy.loadFailed}
+            description={fragment.error ?? ""}
+            action={<Button type="button" variant="outline" size="sm" onClick={onRetry}><RefreshCw data-icon="inline-start" />{copy.retry}</Button>}
+          />
+        </div>
       ) : null}
 
       {fragment.phase === "empty" ? (
-        <OperatorEmptyState
-          title={copy.emptyTitle}
-          description={copy.emptyDescription}
-          action={<Button type="button" size="sm" onClick={onCreateDefaults} disabled={defaultsCreating}>{copy.completeBuiltInStrategies}</Button>}
-        />
+        <div className="px-[var(--density-card-pad-x)] pb-[var(--density-card-pad-y)]">
+          <OperatorEmptyState
+            title={copy.emptyTitle}
+            description={copy.emptyDescription}
+            action={<Button type="button" size="sm" onClick={onCreateDefaults} disabled={defaultsCreating}>{copy.completeBuiltInStrategies}</Button>}
+          />
+        </div>
       ) : null}
 
       {/* Loading keeps the shell and the header and swaps in skeleton rows,
           so the table does not collapse and jump back on arrival. */}
       {fragment.phase === "loading" || (fragment.phase === "ready" && sorted.length > 0) ? (
-        <div className="overflow-hidden rounded-lg border border-border">
+        <>
           <div className="overflow-x-auto">
             <Table aria-label={messages.loadbalanceStrategiesPage.title}>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="min-w-56">
+                  {/* 名称列吃掉剩余宽度，其余列按内容给下限，
+                      让 7 列在常规桌面宽度内放得下、不必横向滚动。 */}
+                  <TableHead className="w-[26%] min-w-52">
                     <button type="button" className="inline-flex items-center gap-1 text-left" onClick={() => setSortColumn(sortColumn === "name" ? "type" : "name")} aria-sort={sortColumn === "name" ? "ascending" : "none"}>
                       {copy.nameLabel}
                     </button>
                   </TableHead>
-                  <TableHead className="min-w-44">
+                  <TableHead className="w-28">
                     <button type="button" className="inline-flex items-center gap-1 text-left" onClick={() => setSortColumn(sortColumn === "type" ? "default" : "type")} aria-sort={sortColumn === "type" ? "ascending" : "none"}>
                       {copy.strategyTypeLabel}
                     </button>
                   </TableHead>
-                  <TableHead className="min-w-36">{copy.defaultBadge}</TableHead>
-                  <TableHead className="min-w-40">{copy.attachedModels}</TableHead>
-                  <TableHead className="min-w-56">{copy.retrySummaryColumn}</TableHead>
-                  <TableHead className="min-w-44">{copy.banSummaryColumn}</TableHead>
-                  <TableHead className="text-right">{copy.actions}</TableHead>
+                  <TableHead className="w-36">{copy.defaultBadge}</TableHead>
+                  <TableHead className="w-40">{copy.attachedModels}</TableHead>
+                  <TableHead className="w-[22%] min-w-48">{copy.retrySummaryColumn}</TableHead>
+                  <TableHead className="w-40">{copy.banSummaryColumn}</TableHead>
+                  <TableHead className="w-24 text-right">{copy.actions}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -204,7 +222,15 @@ export function LoadbalanceStrategiesTable({
               </TableBody>
             </Table>
           </div>
-        </div>
+
+          {/* “新模型默认”改的是什么，是整列的注解而非某一行的属性：
+              作为表尾脚注说明一次，主轴（卡头 → 表头 → 数据）不被打断。 */}
+          {defaultStrategy ? (
+            <p className="border-t border-border px-[var(--density-card-pad-x)] pt-2 text-xs text-muted-foreground">
+              {copy.defaultOnlyAffectsNewModels}
+            </p>
+          ) : null}
+        </>
       ) : null}
     </OperatorTableShell>
   )
@@ -249,9 +275,11 @@ function StrategyRow(props: StrategyRowProps) {
         onClick={() => props.onSelect(strategy)}
       >
         <TableCell className="align-top">
-          <div className="flex flex-col gap-1">
+          {/* 单元格默认 whitespace-nowrap，这里的路由方式说明是整句，
+              必须允许换行，否则它会把整张表撑出横向滚动。 */}
+          <div className="flex min-w-0 flex-col gap-1">
             <span className="font-medium">{strategy.name}</span>
-            <span className="text-xs text-foreground/60">{summaryByStrategyType}</span>
+            <span className="text-xs whitespace-normal text-foreground/60">{summaryByStrategyType}</span>
           </div>
         </TableCell>
         <TableCell className="align-top">
@@ -263,10 +291,7 @@ function StrategyRow(props: StrategyRowProps) {
         <TableCell className="align-top">
           <div className="flex flex-col items-start gap-1.5">
             {strategy.is_default ? (
-              <>
-                <OperatorTypeBadge label={props.copy.defaultBadge} intent="accent" />
-                <span className="text-xs text-foreground/60">{props.copy.defaultOnlyAffectsNewModels}</span>
-              </>
+              <OperatorTypeBadge label={props.copy.defaultBadge} intent="accent" />
             ) : (
               <Button
                 type="button"
@@ -300,9 +325,10 @@ function StrategyRow(props: StrategyRowProps) {
                 }}
                 aria-expanded={impactState?.expanded ?? false}
                 aria-controls={`strategy-impact-${strategy.id}`}
+                aria-label={impactState?.expanded ? props.copy.attachedModelsCollapse : props.copy.attachedModelsExpand(strategy.attached_model_count)}
               >
                 {impactState?.expanded ? <ChevronUp data-icon="inline-start" /> : <ChevronDown data-icon="inline-start" />}
-                {impactState?.expanded ? props.copy.attachedModelsCollapse : props.copy.attachedModelsExpand(strategy.attached_model_count)}
+                {impactState?.expanded ? props.copy.attachedModelsCollapseRow : props.copy.attachedModelsExpandRow}
               </Button>
             ) : null}
           </div>
@@ -315,7 +341,7 @@ function StrategyRow(props: StrategyRowProps) {
                 <OperatorValueBadge key={badge.key} label={badge.label} />
               ))}
             </div>
-            <span className="text-[11px] text-foreground/60">{failureStatusCodeLabel(strategy)}</span>
+            <span className="text-[11px] whitespace-normal text-foreground/60">{failureStatusCodeLabel(strategy)}</span>
             {retryIsBalanced ? <span className="text-[11px] text-foreground/60">{props.copy.retryBalancedDefault}</span> : null}
           </div>
         </TableCell>

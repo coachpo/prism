@@ -75,9 +75,8 @@ export function StrategyPreviewTimeline({ strategy }: StrategyPreviewTimelinePro
       description={strategy ? copy.previewSubtitle(strategy.name) : copy.previewSelectPrompt}
       contentClassName="flex flex-col gap-3"
     >
-      {state.phase === "idle" ? (
-        <p className="text-xs text-muted-foreground">{copy.previewSelectPrompt}</p>
-      ) : state.phase === "loading" ? (
+      {/* 未选中时卡片描述已经在讲“选一条策略”，内容区不再重复同一句。 */}
+      {state.phase === "idle" ? null : state.phase === "loading" ? (
         <Skeleton className="h-24 rounded-md" />
       ) : state.phase === "error" ? (
         <OperatorErrorState

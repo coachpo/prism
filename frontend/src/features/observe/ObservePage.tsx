@@ -52,11 +52,7 @@ export function ObservePage() {
 
   const setSearch = useCallback(
     (patch: Record<string, string | undefined>) => {
-      // Every control on this page — the view switcher, the metric and grouping
-      // toggles, the window preset — writes to the URL. They are in-page state
-      // changes, not navigations, so the router's default scroll reset would
-      // yank the operator back to the top of a long page mid-inspection.
-      void navigate({ to: "/observe", search: { ...search, ...patch }, resetScroll: false });
+      void navigate({ to: "/observe", search: { ...search, ...patch } });
     },
     [navigate, search],
   );

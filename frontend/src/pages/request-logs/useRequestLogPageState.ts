@@ -14,13 +14,6 @@ import {
   type TimeRange,
 } from "./queryParams";
 
-/**
- * Every write below targets the page the operator is already on — filters,
- * sort, paging, row selection and the canonical-URL rewrite are all in-page
- * state, not navigation. Each therefore opts out of the router's default
- * scroll reset, which would otherwise throw the operator back to the top of a
- * long log page on every filter keystroke and every page turn.
- */
 export function useRequestLogPageState() {
   const location = useRouterState({ select: (routerState) => routerState.location });
   const navigate = useNavigate();
@@ -33,7 +26,7 @@ export function useRequestLogPageState() {
 
     const canonicalParams = stateToParams(state);
     if (canonicalParams.toString() !== new URLSearchParams(location.searchStr).toString()) {
-      void navigate({ to: "/observe/requests", search: () => stateToSearch(state), replace: true, resetScroll: false });
+      void navigate({ to: "/observe/requests", search: () => stateToSearch(state), replace: true });
     }
   }, [location.pathname, location.searchStr, navigate, state]);
 
@@ -41,7 +34,7 @@ export function useRequestLogPageState() {
     (patch: Partial<RequestLogPageState>, resetOffset = true) => {
       const next = { ...state, ...patch };
       if (resetOffset && !("offset" in patch)) next.offset = DEFAULTS.offset;
-      void navigate({ to: "/observe/requests", search: () => stateToSearch(next), replace: true, resetScroll: false });
+      void navigate({ to: "/observe/requests", search: () => stateToSearch(next), replace: true });
     },
     [navigate, state]
   );
@@ -64,7 +57,7 @@ export function useRequestLogPageState() {
   const setConfirmedFailover = useCallback((v: boolean) => update({ confirmed_failover: v, ingress_final_result: "" }, false), [update]);
   const clearTriage = useCallback(() => update({ ingress_final_result: "", confirmed_failover: false, pricing_status: DEFAULTS.pricing_status, unpriced_reason: "" }, false), [update]);
   const replaceState = useCallback((next: RequestLogPageState) => {
-    void navigate({ to: "/observe/requests", search: () => stateToSearch(next), replace: true, resetScroll: false });
+    void navigate({ to: "/observe/requests", search: () => stateToSearch(next), replace: true });
   }, [navigate]);
   const setTimeRange = useCallback((v: TimeRange) => update({ time_range: v }), [update]);
   const setStatusFamily = useCallback((v: StatusFamilyFilter) => update({ status_family: v }), [update]);
@@ -92,7 +85,7 @@ export function useRequestLogPageState() {
 
   const clearFilters = useCallback(() => {
     if (!state.request_id && !state.selected_request_id) {
-      void navigate({ to: "/observe/requests", search: {}, replace: true, resetScroll: false });
+      void navigate({ to: "/observe/requests", search: {}, replace: true });
       return;
     }
 
@@ -100,7 +93,7 @@ export function useRequestLogPageState() {
       ...parsePageState(new URLSearchParams()),
       request_id: state.request_id,
       selected_request_id: state.selected_request_id,
-    }), replace: true, resetScroll: false });
+    }), replace: true });
   }, [navigate, state.request_id, state.selected_request_id]);
 
   const goToNextPage = useCallback(

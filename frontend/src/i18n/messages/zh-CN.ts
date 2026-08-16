@@ -283,6 +283,9 @@ export const zhCNMessages = {
     attachedModels: "已绑定模型",
     attachedModelsExpand: (count: MessageArg) => `展开查看 ${count} 个已绑定模型`,
     attachedModelsCollapse: "收起模型名单",
+    // 表格行内版本：数量就在按钮旁边，无需在按钮里重复，否则这一列会被撑宽。
+    attachedModelsExpandRow: "展开名单",
+    attachedModelsCollapseRow: "收起名单",
     attachedModelsFailed: "模型名单加载失败",
     attachedModelsEmpty: "没有直接绑定此策略的模型。",
     openModel: "打开模型",

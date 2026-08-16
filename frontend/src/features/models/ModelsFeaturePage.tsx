@@ -52,11 +52,6 @@ export function ModelsFeaturePage() {
           return next
         },
         replace: true,
-        // Filters, sort and paging are in-page state changes, not navigations.
-        // The search box writes on every keystroke, and the pager sits at the
-        // bottom of the table, so the router's default scroll reset would throw
-        // the operator back to the top on each one.
-        resetScroll: false,
       })
     },
     [navigate],
