@@ -1607,7 +1607,7 @@ func TestRuntimeRequestLogPersistsStreamedGeminiUsage(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"你好\"}]}}]}\n\n")
-		_, _ = io.WriteString(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"你好！有什么我可以帮你的吗？\"}]}}],\"usageMetadata\":{\"promptTokenCount\":7,\"candidatesTokenCount\":13,\"totalTokenCount\":20,\"cachedContentTokenCount\":3,\"thoughtsTokenCount\":5}}\n\n")
+		_, _ = io.WriteString(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"你好！有什么我可以帮你的吗？\"}]}}],\"usageMetadata\":{\"promptTokenCount\":7,\"candidatesTokenCount\":13,\"totalTokenCount\":25,\"cachedContentTokenCount\":3,\"thoughtsTokenCount\":5}}\n\n")
 	}))
 	defer upstream.Close()
 
@@ -1635,8 +1635,8 @@ func TestRuntimeRequestLogPersistsStreamedGeminiUsage(t *testing.T) {
 	assertStatus(t, response, http.StatusOK)
 	assertLatestRuntimeUsageRows(t, harness.conn, profileID, true, runtimePersistedUsageRow{
 		InputTokens:          runtimeNullInt64(4),
-		OutputTokens:         runtimeNullInt64(8),
-		TotalTokens:          runtimeNullInt64(20),
+		OutputTokens:         runtimeNullInt64(13),
+		TotalTokens:          runtimeNullInt64(25),
 		CacheReadInputTokens: runtimeNullInt64(3),
 		ReasoningTokens:      runtimeNullInt64(5),
 	})
@@ -1684,7 +1684,7 @@ func TestRuntimeRequestLogPersistsGeminiStreamGenerateContentUsage(t *testing.T)
 	assertStatus(t, response, http.StatusOK)
 	assertLatestRuntimeUsageRows(t, harness.conn, profileID, true, runtimePersistedUsageRow{
 		InputTokens:          runtimeNullInt64(4),
-		OutputTokens:         runtimeNullInt64(8),
+		OutputTokens:         runtimeNullInt64(13),
 		TotalTokens:          runtimeNullInt64(99),
 		CacheReadInputTokens: runtimeNullInt64(3),
 		ReasoningTokens:      runtimeNullInt64(5),

@@ -154,6 +154,7 @@ export interface ModelConfigCompositeCreate extends ModelConfigCreate {
     max_in_flight_non_stream?: number | null;
     max_in_flight_stream?: number | null;
     custom_headers?: Record<string, string> | null;
+    custom_headers_redacted?: string[] | null;
     custom_request_parameters?: Record<string, unknown> | null;
   };
 }
@@ -197,6 +198,7 @@ export interface RequestLogListItem {
   terminal_target_id: number | null;
   terminal_target_label: string | null;
   terminal_target_configured: boolean;
+  terminal_target_owner_model_id: string | null;
   ttft_ms: number | null;
   completion_duration_ms: number | null;
   upstream_status_code: number | null;
@@ -263,6 +265,8 @@ export interface RequestLogFilterEndpointOption {
 export interface RequestLogListResponse {
   items: RequestLogListItem[];
   total: number;
+  total_is_exact: boolean;
+  has_more: boolean;
   limit: number;
   offset: number;
   filter_options: {
@@ -361,10 +365,10 @@ export interface ModelMetricsBatchParams {
 
 export interface ModelMetricsBatchItem {
   model_id: string;
-  success_rate: number;
+  success_rate: number | null;
   request_count_24h: number;
-  p95_latency_ms: number;
-  spend_30d_micros: number;
+  p95_latency_ms: number | null;
+  spend_30d_micros: number | null;
 }
 
 export interface ModelMetricsBatchResponse {
@@ -494,12 +498,12 @@ export interface DashboardMetricSnapshot {
   active_models: number;
   average_rpm: number;
   average_rpm_request_total: number;
-  avg_latency: number;
-  error_rate: number;
-  p95_latency: number;
+  avg_latency: number | null;
+  error_rate: number | null;
+  p95_latency: number | null;
   priced_request_count: number;
   stream_share: number;
-  success_rate: number;
+  success_rate: number | null;
   total_cost: number;
   total_models: number;
   total_requests: number;
@@ -584,8 +588,8 @@ export interface DashboardRecentActivityItem {
   resolved_target_model_label: string | null;
   endpoint_id: number | null;
   endpoint_label: string;
-  status_code: number;
-  response_time_ms: number;
+  status_code: number | null;
+  response_time_ms: number | null;
   ttft_ms: number | null;
   completion_duration_ms: number | null;
   is_stream: boolean;

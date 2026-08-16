@@ -49,9 +49,16 @@ func inTxValue[T any](ctx context.Context, beginner Beginner, label string, opti
 	if err != nil {
 		return value, err
 	}
-	if hook, ok := ctx.Value(beforeCommitHookContextKey{}).(BeforeCommitHook); ok && hook != nil {
-		if err := hook(ctx, tx); err != nil {
-			return value, err
+	// Runtime-cache generation bumps are writes and must land in the same
+	// transaction as the primary state change (architecture.md:140). A
+	// read-only transaction can never be that transaction, so the hook is
+	// skipped there instead of failing the request or advancing generations
+	// ahead of the write.
+	if options.AccessMode != pgx.ReadOnly {
+		if hook, ok := ctx.Value(beforeCommitHookContextKey{}).(BeforeCommitHook); ok && hook != nil {
+			if err := hook(ctx, tx); err != nil {
+				return value, err
+			}
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {

@@ -91,6 +91,12 @@ func (r Runner) Run(ctx context.Context, conn *pgx.Conn) (Result, error) {
 		return Result{}, err
 	}
 
+	if ahead := versionsAheadOfBinary(migrations, appliedVersions); len(ahead) > 0 {
+		return Result{}, fmt.Errorf(
+			"database schema is ahead of this binary: %s recorded in %s but absent from %s; restore a database backup taken before the upgrade, or run an image at or newer than the recorded schema",
+			strings.Join(ahead, ", "), HistoryTable, r.migrationsDir)
+	}
+
 	pending := pendingMigrations(migrations, appliedVersions)
 	applicationTables, err := listApplicationTables(ctx, conn)
 	if err != nil {
@@ -216,6 +222,46 @@ func pendingMigrations(migrations []fileMigration, applied map[string]struct{}) 
 		pending = append(pending, migration)
 	}
 	return pending
+}
+
+// versionsAheadOfBinary reports applied history versions this binary does not
+// know: either never shipped, or superseded catalog entries whose DDL was
+// folded into a later migration. Superseded versions are intentionally part
+// of the known set because live databases record them even though
+// loadMigrations skips the files.
+func versionsAheadOfBinary(migrations []fileMigration, applied map[string]struct{}) []string {
+	known := make(map[string]struct{}, len(migrations)+len(supersededMigrationVersions)+1)
+	known[DefaultBaselineVersion] = struct{}{}
+	for _, migration := range migrations {
+		known[migration.Version] = struct{}{}
+	}
+	for version := range supersededMigrationVersions {
+		known[version] = struct{}{}
+	}
+	// "Ahead" means the database carries a migration this binary does not have
+	// yet, which is what happens after rolling an image back. An unrecognised
+	// version that sorts *before* the newest known one is not that: it is a
+	// legacy or renamed stamp (the v1.0.0 squash renamed the baseline), and the
+	// baseline-mismatch check below reports it with a far more actionable
+	// message. Flagging those here told operators to restore a backup when the
+	// real answer was that the history predates the current baseline.
+	newestKnown := ""
+	for _, migration := range migrations {
+		if migration.Version > newestKnown {
+			newestKnown = migration.Version
+		}
+	}
+	ahead := make([]string, 0)
+	for version := range applied {
+		if _, ok := known[version]; ok {
+			continue
+		}
+		if version > newestKnown {
+			ahead = append(ahead, version)
+		}
+	}
+	sort.Strings(ahead)
+	return ahead
 }
 
 func migrationVersionPending(migrations []fileMigration, version string) bool {

@@ -215,6 +215,7 @@ type connectionTargetSummary struct {
 	Name                    *string                                 `json:"name"`
 	AuthType                *string                                 `json:"auth_type"`
 	CustomHeaders           map[string]string                       `json:"custom_headers"`
+	CustomHeadersRedacted   []string                                `json:"custom_headers_redacted"`
 	CustomRequestParameters *terminaltarget.CustomRequestParameters `json:"custom_request_parameters"`
 	// RoutingSchedule and RoutingScheduleState reuse the connections package
 	// types and its single state projection. The model detail page reads this

@@ -103,67 +103,6 @@ type dashboardStatsSummaryGroup struct {
 }
 
 func GetStatsSummary(ctx context.Context, exec queryExecutor, params StatsSummaryParams) (StatsSummaryResponse, error) {
-	rows, err := loadSummaryRequestLogRows(ctx, exec, params)
-	if err != nil {
-		return StatsSummaryResponse{}, err
-	}
-	response := StatsSummaryResponse{Groups: []StatGroup{}}
-	response.TotalRequests = len(rows)
-	response.TotalInputTokens = 0
-	response.TotalOutputTokens = 0
-	response.TotalTokens = 0
-	latencies := make([]int, 0, len(rows))
-	groups := map[string]*StatGroup{}
-	for _, row := range rows {
-		if row.StatusCode >= 200 && row.StatusCode <= 299 {
-			response.SuccessCount++
-		}
-		latencies = append(latencies, row.ResponseTimeMS)
-		response.TotalInputTokens += intValue(row.InputTokens)
-		response.TotalOutputTokens += intValue(row.OutputTokens)
-		response.TotalTokens += intValue(row.TotalTokens)
-		if normalizedGroupBy, ok := normalizedStatsSummaryGroupBy(params.GroupBy); ok {
-			key := summaryGroupKey(normalizedGroupBy, row)
-			group := groups[key]
-			if group == nil {
-				groups[key] = &StatGroup{Key: key}
-				group = groups[key]
-			}
-			group.TotalRequests++
-			if row.StatusCode >= 200 && row.StatusCode <= 299 {
-				group.SuccessCount++
-			}
-			group.TotalTokens += intValue(row.TotalTokens)
-			group.AvgResponseTimeMS += float64(row.ResponseTimeMS)
-		}
-	}
-	response.ErrorCount = response.TotalRequests - response.SuccessCount
-	response.SuccessRate = successRate(response.SuccessCount, response.TotalRequests)
-	if response.TotalRequests > 0 {
-		response.AvgResponseTimeMS = roundFloat(sumInts(latencies)/float64(len(latencies)), 1)
-	}
-	if p95 := percentileContInt(latencies, 0.95); p95 != nil {
-		response.P95ResponseTimeMS = *p95
-	}
-	groupItems := make([]StatGroup, 0, len(groups))
-	for _, group := range groups {
-		group.ErrorCount = group.TotalRequests - group.SuccessCount
-		if group.TotalRequests > 0 {
-			group.AvgResponseTimeMS = roundFloat(group.AvgResponseTimeMS/float64(group.TotalRequests), 1)
-		}
-		groupItems = append(groupItems, *group)
-	}
-	sort.Slice(groupItems, func(i int, j int) bool {
-		if groupItems[i].TotalRequests != groupItems[j].TotalRequests {
-			return groupItems[i].TotalRequests > groupItems[j].TotalRequests
-		}
-		return groupItems[i].Key < groupItems[j].Key
-	})
-	response.Groups = groupItems
-	return response, nil
-}
-
-func GetDashboardStatsSummary(ctx context.Context, exec queryExecutor, params StatsSummaryParams) (StatsSummaryResponse, error) {
 	records, err := loadUsageEventRecords(ctx, exec, params.ProfileID, params.FromTime, params.ToTime, params.APIFamily, params.ModelID, params.EndpointID, params.ConnectionID)
 	if err != nil {
 		return StatsSummaryResponse{}, err
@@ -172,7 +111,7 @@ func GetDashboardStatsSummary(ctx context.Context, exec queryExecutor, params St
 }
 
 func buildDashboardStatsSummary(records []usageEventRecord, params StatsSummaryParams) StatsSummaryResponse {
-	response := StatsSummaryResponse{Groups: []StatGroup{}}
+	response := StatsSummaryResponse{Groups: []StatGroup{}, Granularity: "request", LatencyBasis: "end_to_end"}
 	response.TotalRequests = len(records)
 	latencies := make([]int, 0, len(records))
 	groups := map[string]*dashboardStatsSummaryGroup{}
@@ -385,6 +324,13 @@ func GetModelMetrics(ctx context.Context, exec queryExecutor, params ModelMetric
 	if err != nil {
 		return ModelMetricsBatchResponse{}, err
 	}
+	return ModelMetricsBatchResponse{Items: buildModelMetricsItems(uniqueModelIDs, summaryRows, spendingRows)}, nil
+}
+
+// buildModelMetricsItems assembles the per-model metric rows. Fields that
+// have no samples in the window stay nil: success_rate, p95_latency_ms, and
+// spend_30d_micros are only set when there is evidence for them.
+func buildModelMetricsItems(uniqueModelIDs []string, summaryRows []summaryRequestLogRow, spendingRows []usageEventRecord) []ModelMetricsBatchItem {
 	resultByModelID := map[string]ModelMetricsBatchItem{}
 	for _, modelID := range uniqueModelIDs {
 		resultByModelID[modelID] = ModelMetricsBatchItem{ModelID: modelID}
@@ -404,10 +350,9 @@ func GetModelMetrics(ctx context.Context, exec queryExecutor, params ModelMetric
 			}
 		}
 		item.RequestCount24H = len(rows)
-		item.SuccessRate = successRate(successCount, len(rows))
-		if p95 := percentileContInt(latencies, 0.95); p95 != nil {
-			item.P95LatencyMS = *p95
-		}
+		rate := successRate(successCount, len(rows))
+		item.SuccessRate = &rate
+		item.P95LatencyMS = percentileContInt(latencies, 0.95)
 		resultByModelID[modelID] = item
 	}
 	for _, row := range spendingRows {
@@ -416,14 +361,18 @@ func GetModelMetrics(ctx context.Context, exec queryExecutor, params ModelMetric
 			continue
 		}
 		if row.TrustedKnownCost() {
-			item.Spend30DMicros += row.TotalCostUserCurrencyMicros
+			if item.Spend30DMicros == nil {
+				item.Spend30DMicros = new(int64)
+			}
+			*item.Spend30DMicros += row.TotalCostUserCurrencyMicros
 		}
 		resultByModelID[row.ModelID] = item
 	}
+	items := make([]ModelMetricsBatchItem, 0, len(uniqueModelIDs))
 	for _, modelID := range uniqueModelIDs {
 		items = append(items, resultByModelID[modelID])
 	}
-	return ModelMetricsBatchResponse{Items: items}, nil
+	return items
 }
 
 func GetEndpointModelStatistics(ctx context.Context, exec queryExecutor, params EndpointModelStatisticsParams, referenceNow time.Time) ([]EndpointModelStatistic, error) {
@@ -700,22 +649,6 @@ func normalizedStatsSummaryGroupBy(value *string) (string, bool) {
 	}
 }
 
-func summaryGroupKey(groupBy string, row summaryRequestLogRow) string {
-	switch groupBy {
-	case "model":
-		return row.ModelID
-	case "api_family":
-		return row.APIFamily
-	case "endpoint":
-		if row.EndpointBaseURL != nil && strings.TrimSpace(*row.EndpointBaseURL) != "" {
-			return strings.TrimSpace(*row.EndpointBaseURL)
-		}
-		return "unknown"
-	default:
-		return ""
-	}
-}
-
 func buildConnectionSuccessRatesQuery(params ConnectionSuccessRateParams) (string, []any) {
 	clauses := []string{"profile_id = $1", "connection_id IS NOT NULL"}
 	args := []any{params.ProfileID}
@@ -728,69 +661,6 @@ func buildConnectionSuccessRatesQuery(params ConnectionSuccessRateParams) (strin
 		clauses = append(clauses, fmt.Sprintf("created_at <= $%d", len(args)))
 	}
 	return `SELECT connection_id, ` + scopedRequestLogStatusSQL + ` AS scoped_status FROM request_logs WHERE ` + strings.Join(clauses, " AND "), args
-}
-
-func loadSummaryRequestLogRows(ctx context.Context, exec queryExecutor, params StatsSummaryParams) ([]summaryRequestLogRow, error) {
-	clauses := []string{"profile_id = $1"}
-	args := []any{params.ProfileID}
-	if params.FromTime != nil {
-		args = append(args, params.FromTime.UTC())
-		clauses = append(clauses, fmt.Sprintf("created_at >= $%d", len(args)))
-	}
-	if params.ToTime != nil {
-		args = append(args, params.ToTime.UTC())
-		clauses = append(clauses, fmt.Sprintf("created_at <= $%d", len(args)))
-	}
-	if params.ModelID != nil && strings.TrimSpace(*params.ModelID) != "" {
-		args = append(args, strings.TrimSpace(*params.ModelID))
-		clauses = append(clauses, fmt.Sprintf("model_id = $%d", len(args)))
-	}
-	if params.APIFamily != nil && strings.TrimSpace(*params.APIFamily) != "" {
-		args = append(args, strings.TrimSpace(*params.APIFamily))
-		clauses = append(clauses, fmt.Sprintf("api_family = $%d", len(args)))
-	}
-	if params.EndpointID != nil {
-		args = append(args, *params.EndpointID)
-		clauses = append(clauses, fmt.Sprintf("endpoint_id = $%d", len(args)))
-	}
-	if params.ConnectionID != nil {
-		args = append(args, *params.ConnectionID)
-		clauses = append(clauses, fmt.Sprintf("connection_id = $%d", len(args)))
-	}
-	rows, err := exec.Query(ctx, `SELECT created_at, model_id, api_family, endpoint_base_url, endpoint_id, connection_id, `+scopedRequestLogStatusSQL+` AS scoped_status, `+scopedRequestLogDurationSQL+` AS scoped_duration_ms, input_tokens, output_tokens, total_tokens FROM request_logs WHERE `+strings.Join(clauses, " AND "), args...)
-	if err != nil {
-		return nil, fmt.Errorf("query request-log summary rows for profile %d: %w", params.ProfileID, err)
-	}
-	defer rows.Close()
-	items := make([]summaryRequestLogRow, 0)
-	for rows.Next() {
-		var endpointBaseURL sql.NullString
-		var endpointID sql.NullInt32
-		var connectionID sql.NullInt32
-		var inputTokens sql.NullInt32
-		var outputTokens sql.NullInt32
-		var totalTokens sql.NullInt32
-		var scopedStatus sql.NullInt32
-		var scopedDuration sql.NullInt32
-		var item summaryRequestLogRow
-		if err := rows.Scan(&item.CreatedAt, &item.ModelID, &item.APIFamily, &endpointBaseURL, &endpointID, &connectionID, &scopedStatus, &scopedDuration, &inputTokens, &outputTokens, &totalTokens); err != nil {
-			return nil, fmt.Errorf("scan request-log summary row: %w", err)
-		}
-		item.StatusCode = intValue(nullableInt32(scopedStatus))
-		item.ResponseTimeMS = intValue(nullableInt32(scopedDuration))
-		item.CreatedAt = item.CreatedAt.UTC()
-		item.EndpointBaseURL = nullableString(endpointBaseURL)
-		item.EndpointID = nullableInt32(endpointID)
-		item.ConnectionID = nullableInt32(connectionID)
-		item.InputTokens = nullableInt32(inputTokens)
-		item.OutputTokens = nullableInt32(outputTokens)
-		item.TotalTokens = nullableInt32(totalTokens)
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate request-log summary rows for profile %d: %w", params.ProfileID, err)
-	}
-	return items, nil
 }
 
 func loadThroughputTimestamps(ctx context.Context, exec queryExecutor, params ThroughputParams) ([]time.Time, error) {

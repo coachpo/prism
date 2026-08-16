@@ -1,7 +1,7 @@
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
 import { formatNumber, getCurrentLocale } from "@/i18n/format";
 import { getStaticMessages } from "@/i18n/staticMessages";
-import { formatMoneyMicros, resolveSpendTrustState } from "@/lib/costing";
+import { formatMoneyMicros, formatUnpricedReasonLabel, resolveSpendTrustState } from "@/lib/costing";
 import { cn, formatApiFamily } from "@/lib/utils";
 import type { RequestLogListItem } from "@/lib/types";
 import { OperatorTypeBadge, OperatorValueBadge } from "@/shared/design-system";
@@ -12,6 +12,7 @@ import {
   hasStreamTelemetryOutcome,
   isStreamUsageUnavailableReason,
 } from "./streamTelemetry";
+import { describeUnpricedCause } from "./pricingExplanation";
 
 export const ROW_HEIGHT = 45;
 
@@ -344,20 +345,26 @@ export function getColumns(): ColumnDef[] {
     },
     {
       key: "pricing_state",
-      label: messages.pricingStateLabel ?? "Pricing state",
+      label: messages.pricingStateLabel,
       width: 168,
       grow: 1,
-      render: (row) => (
-        <span className="block truncate text-xs font-medium">
-          {row.pricing_status === "priced"
-            ? "Priced"
+      render: (row) => {
+        const copy = getStaticMessages().requestLogs;
+        const label =
+          row.pricing_status === "priced"
+            ? copy.priced
             : row.pricing_status === "unpriced"
-              ? (row.unpriced_reason ?? "Unpriced")
+              ? (row.unpriced_reason ? formatUnpricedReasonLabel(row.unpriced_reason) : copy.pricingStatusUnpriced)
               : row.pricing_status === "ineligible"
-                ? "Not applicable"
-                : "Unknown"}
-        </span>
-      ),
+                ? copy.ineligible
+                : copy.unknown;
+        const cause = describeUnpricedCause({
+          pricingStatus: row.pricing_status,
+          unpricedReason: row.unpriced_reason,
+          streamOutcome: row.stream_outcome,
+        });
+        return <span className="block truncate text-xs font-medium" title={cause ?? undefined}>{label}</span>;
+      },
     },
     {
       key: "is_stream",

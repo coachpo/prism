@@ -290,6 +290,7 @@ type connectionResponse struct {
 	Name                    *string                                 `json:"name"`
 	AuthType                *string                                 `json:"auth_type"`
 	CustomHeaders           map[string]string                       `json:"custom_headers"`
+	CustomHeadersRedacted   []string                                `json:"custom_headers_redacted"`
 	CustomRequestParameters *terminaltarget.CustomRequestParameters `json:"custom_request_parameters"`
 	RoutingSchedule         *RoutingSchedulePayload                 `json:"routing_schedule"`
 	RoutingScheduleState    *RoutingScheduleStatePayload            `json:"routing_schedule_state"`
@@ -302,6 +303,15 @@ type connectionResponse struct {
 	PricingTemplate         *connectionPricingTemplateSummary       `json:"pricing_template"`
 	CreatedAt               time.Time                               `json:"created_at"`
 	UpdatedAt               time.Time                               `json:"updated_at"`
+}
+
+// maskedForWire returns a copy whose sensitive custom header values are
+// replaced with the redaction sentinel and whose CustomHeadersRedacted lists
+// the masked names, so management read APIs never leak stored header values.
+func (response connectionResponse) maskedForWire() connectionResponse {
+	masked := response
+	masked.CustomHeaders, masked.CustomHeadersRedacted = redactCustomHeaders(response.CustomHeaders)
+	return masked
 }
 
 type connectionReferenceResponse struct {

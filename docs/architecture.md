@@ -137,7 +137,7 @@ Runtime telemetry has durable success handoffs, scheduled activity handoffs, and
 
 Audit and statistics reads are bounded. Raw audit lists require backend-enforced time windows and keyset cursors. `GET /api/stats/dashboard` still returns backend-computed `routing_health_map`, but the current dashboard adapter does not render it; the production Models table presents retained success rate, P95 latency, and 24-hour request count as text rather than health badges. The connection-success-rate API also exists without a current production UI consumer. Broad deletes run as durable management jobs.
 
-Runtime cache correctness is generation-based. Management mutations advance durable runtime-cache generations in the same transaction as the primary state change, runtime reads validate generation vectors and refresh or fail closed when stale, and post-response cache warming is non-authoritative. Cache generation lag may delay warm snapshots, but auth-sensitive runtime reads reject stale or unverifiable snapshots instead of accepting old state.
+Runtime cache correctness is generation-based. Management mutations advance durable runtime-cache generations in the same transaction as the primary state change, runtime reads validate generation vectors and refresh or fail closed when stale, and post-response cache warming is non-authoritative. Cache generation lag may delay warm snapshots, but auth-sensitive runtime reads reject stale or unverifiable snapshots instead of accepting old state. The bump is carried by the pgxutil before-commit hook and only runs inside read-write transactions; read-only transactions never advance generations (see `pgxutil/tx.go`).
 
 ## 3. Request Flow
 
@@ -208,13 +208,17 @@ Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
   -> On stream finalization or cancellation: release the stream lease, finalize the accepted telemetry outbox payload when possible, and record runtime feedback
 ```
 
+Streaming OpenAI usage instrumentation: for `openai.chat_completions` requests whose body sets `stream: true`, the OpenAI adapter injects `stream_options.include_usage = true` into the upstream body before transport. OpenAI-compatible upstreams emit the final usage chunk only when the caller asks for it, so without the injection every streaming attempt persists NULL token components and `pricing_status = unpriced` / `unpriced_reason = MISSING_TOKEN_USAGE`. Caller intent wins: a client-supplied `stream_options` object that already declares `include_usage` is forwarded unchanged; a missing key or an explicit JSON `null` is treated as unset and receives the injected object. The injection is scoped to Chat Completions - `openai.responses` reports usage in its `response.completed` event, and Anthropic and Gemini streams carry usage natively, so none of them are modified. The injected upstream body is what audit body capture stores, and the extra `choices: []` usage chunk is forwarded to the client verbatim.
+
 ### 3.4 API Family Routing
 
 | API family            | Canonical operation names                       | Supported Prism operation paths                    | Upstream path                                      | Auth header                                          |
 | --------------------- | ----------------------------------------------- | -------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------- |
 | OpenAI                | `openai.models`, `openai.chat_completions`, `openai.responses`, `openai.responses.input_tokens`, `openai.responses.compact`, `openai.images.generations`, `openai.images.edits` | `GET /v1/models`, `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/responses/input_tokens`, `POST /v1/responses/compact`, `POST /v1/images/generations`, `POST /v1/images/edits` | Local OpenAI list for `GET /v1/models`; otherwise same path under `{base_url}` | `Authorization: Bearer {key}`                        |
 | Anthropic             | `anthropic.messages`, `anthropic.count_tokens`  | `POST /v1/messages`, `POST /v1/messages/count_tokens` | Same path under `{base_url}` | `x-api-key` set to `{key}` plus `anthropic-version` set to `2023-06-01` |
-| Gemini                | `gemini.generate_content`, `gemini.stream_generate_content`, `gemini.count_tokens` | `POST /v1beta/models/{model}:generateContent`, `POST /v1beta/models/{model}:streamGenerateContent`, `POST /v1beta/models/{model}:countTokens` | Same path under `{base_url}` | `Authorization: Bearer {key}`                        |
+| Gemini                | `gemini.generate_content`, `gemini.stream_generate_content`, `gemini.count_tokens` | `POST /v1beta/models/{model}:generateContent`, `POST /v1beta/models/{model}:streamGenerateContent`, `POST /v1beta/models/{model}:countTokens` | Same path under `{base_url}` | `Authorization: Bearer {key}` by default (`auth_type` unset or `gemini`, for Gemini-compatible gateways and OAuth access tokens); `x-goog-api-key: {key}` when `auth_type` is `gemini_api_key`, which is what Google's official generativelanguage endpoint requires for API keys |
+
+The endpoint verify probe uses the same auth profile as the runtime: a verified endpoint is verified under the exact credential scheme (`auth_type`) it will be used with.
 
 OpenAI runtime support is limited to the registered local models list plus the chat, Responses generation, Responses input-token, and Responses compact operations listed above. Stored Responses object lifecycle APIs, including retrieve, list, delete, and cancel routes, are outside Prism's supported contract.
 
@@ -251,7 +255,7 @@ When a connection has `custom_headers` configured, they are injected into the up
 
 ```
 build_upstream_headers():
-  1. Start with client headers (minus hop-by-hop, minus client auth headers, minus proxy-controlled auth/version headers)
+  1. Start with the fixed client-header allowlist (accept, accept-language, content-type, user-agent, anthropic-version/beta, openai-beta/organization/project); every other client header, including cookie and any credential header, is dropped
   2. Apply blocklist sanitization to client-supplied headers
   3. Add api-family auth headers
   4. Add api-family extra headers (e.g., anthropic-version)
@@ -262,7 +266,15 @@ build_upstream_headers():
   7. Return final header dict
 ```
 
-Custom headers are a power-user feature. They can override ordinary forwarded headers, but they cannot override Prism-controlled authentication or provider-version headers and cannot re-add headers blocked by the Header Blocklist. This is enforced by skipping proxy-controlled custom header names and applying the blocklist last in the header construction pipeline.
+Upstream response headers are filtered by a fixed allowlist before relay: `content-type`/`content-length`/`content-encoding`/`content-disposition`, `cache-control`, `date`, `etag`, `last-modified`, `vary`, `retry-after`, `request-id`, and any header starting with `x-ratelimit-`, `anthropic-ratelimit-`, or `openai-`. `set-cookie`, `server`, vendor-private `x-*` headers and upstream `access-control-*` decisions are never relayed: Prism owns this response.
+
+Outbound client headers are governed by a fixed protocol allowlist, not by the Header Blocklist. Only headers the ingress protocols actually need cross to an upstream (`accept`, `accept-language`, `content-type`, `anthropic-version`, `anthropic-beta`, `openai-beta`, `openai-organization`, `openai-project`); everything else the caller sent — session state, tracing, and whatever headers a given IDE happens to add — is withheld. An allowlist rather than a blocklist because the goal is that an upstream cannot fingerprint which client is behind the gateway, and no enumeration of forbidden headers can keep up with clients that keep inventing new ones.
+
+`user-agent` is not forwarded either, and is worth calling out because it is the strongest client fingerprint a request carries and it leaks transitively when the upstream is itself a proxy. An upstream that only accepts particular User-Agents is stating a fact about that endpoint, not about whoever called, so it is declared on `connection.custom_headers`: one value, identical on every request, visible afterwards through `request_logs.user_agent_overridden`. Forwarding the caller's value instead made acceptance depend on which client made the call, so the same model could work from one IDE and fail from a script. With nothing declared Prism sends an empty User-Agent rather than the Go default, so no client identity reaches the upstream.
+
+Withholding a header does not erase it. The audit trail records the headers the caller actually sent unioned with the headers Prism actually forwarded, so an operator can answer both "did my client leak something" and "what did Prism send" from the same record. Values are redacted by the audit scrubber, which is where the Header Blocklist applies: the blocklist is a redaction policy for diagnostics and audit, not a forwarding policy.
+
+Custom headers are a power-user feature and the supported way to give one upstream a header the allowlist withholds. They can override ordinary forwarded headers, but they cannot override Prism-controlled authentication or provider-version headers and cannot re-add headers blocked by the Header Blocklist. This is enforced by skipping proxy-controlled custom header names and applying the blocklist last in the header construction pipeline.
 
 ### 3.7 Custom Request Parameter Overlay
 
@@ -281,6 +293,8 @@ build_planned_terminal_attempts():
 ```
 
 Overlay rules: non-conflicting client top-level fields are preserved verbatim; matching top-level keys are replaced wholesale (nested objects are never recursively merged); configured `null` is sent as literal JSON null; there is no delete-member syntax. `model`, `models`, `stream`, `messages`, `input`, `contents`, `instructions`, `system`, and `systemInstruction` are protected and can never appear in the configuration.
+
+The overlay runs after adapter body construction, so a Connection that configures `stream_options` replaces the value Prism injected for streaming Chat Completions. Setting `"stream_options": null` restores the pre-injection wire shape for upstreams that reject the field; the overlay has no delete-member syntax, so the key itself is always present once configured.
 
 Body-dependent headers (`Content-Encoding`, `Content-MD5`, `Digest`, `Content-Digest`) are stripped from client headers, provider auth extras, and Connection `custom_headers` whenever an overlay re-encodes the body; `Content-Length` is recomputed from the merged body. Non-identity `Content-Encoding` cannot be re-encoded: Gemini path-bound operations with a configured candidate reject it with `415`, while body-bound OpenAI/Anthropic operations keep the existing `400` malformed-body path.
 
@@ -637,6 +651,9 @@ See section 14 (API Reference) for the complete API documentation.
 - **Safe failure diagnostics**: Failed attempts persist a scrubbed, 4 KiB-bounded error summary through the fixed `safediag` bottom line (Bearer/Basic/JWT/API-key-like/key=value/URL-secret redaction, control-character and whitespace normalization, metadata field scrubbing with provenance arrays) plus request-time Header Blocklist additions; stream failures keep an independent scrubbed `stream_error_detail`. Raw provider bodies are never stored in `error_detail`. The raw upstream error sample the summary is derived from is itself bounded at 32 KiB per attempt (`safediag.MaxUpstreamErrorSampleBytes`, applied as the attempt-lifecycle failed-response sample cap) and stays in memory for that derivation only: it never enters the telemetry outbox or any table. Both caps are code-fixed constants, not settings.
 - **Bounded audit capture**: Audit bodies are BYTEA prefixes capped at 4 MiB per body during the copy with a 12 MiB shared request-body budget per ingress plus a 4 MiB final-response reservation; scrub provenance, observed/stored counts, and typed capture statuses are persisted. Raw downloads are byte-exact with attachment/nosniff/no-store/sandbox headers.
 - **Cache safety**: All Requests/Audit list, detail, chain, body, and export responses send `Cache-Control: private, no-store` and preserve auth/profile-sensitive `Vary`; safe failure detail may still contain prompt/PII and must not enter shared caches.
+- **Management CSRF**: the management browser-write guard rejects cross-origin and non-JSON `/api/*` writes (`403 management_cross_origin_write_blocked` / `415 management_unsupported_media_type`) independent of operator auth; see §1.0.
+- **Browser response headers**: the container nginx always sends `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, and `Referrer-Policy: no-referrer` on the SPA, API, and health surfaces; the CSP currently covers only `frame-ancestors`.
+- **Upstream boundary**: outbound client headers are allowlisted (see §3.6) and upstream response headers are allowlisted before relay; transport failures surface only fixed classification labels (`upstream_connect_failed` / `upstream_tls_failed` / `upstream_dns_failed` / `upstream_timeout` / `client_disconnected` / `upstream_http_<status>` / `unknown_upstream_failure`) so callers never learn upstream host, port, path, or the refused-vs-unreachable distinction.
 - **Network**: Prism does not terminate TLS and does not enforce a LAN-only boundary. Deployment exposure is the operator's responsibility: use firewall rules, reverse-proxy access controls, container or host network policy, and TLS termination appropriate to the environment.
 
 ## 13. Supported Runtime API Families
@@ -676,6 +693,8 @@ Prism does not expose a backend-local `/metrics` operations endpoint or start te
 #### 1.0 Request Boundary
 
 Global CORS handling runs before both management and runtime branches and answers qualifying preflight requests with `204` before route middleware runs.
+
+The mounted request path applies the management browser-write guard, runtime-cache invalidation handling, management admission, request-body limits, management-session authentication, and then the mounted management router. For non-GET/HEAD/OPTIONS `/api/*` requests, a cross-origin `Origin` (neither same-origin with the request host nor in the CORS allowlist) returns `403 management_cross_origin_write_blocked`; a body-bearing write whose `Content-Type` is not `application/json` returns `415 management_unsupported_media_type`. The guard is independent of operator auth and applies when auth is off.
 
 For management routes, the mounted request path applies runtime-cache invalidation handling, management admission, request-body limits, management-session authentication, and then the mounted management router. `POST`, `PUT`, and `PATCH` requests under `/api/auth/*` are limited to `64 KiB`; other mutating management requests are limited to `1 MiB`. The limit wrapper observes reads from the request body. If a downstream handler reads past the limit, Prism replaces its response with `413`:
 ```json
@@ -835,6 +854,7 @@ Request:
   "api_key": "sk-new-key..."
 }
 ```
+Optional `expected_updated_at` is an RFC3339 optimistic-concurrency guard mirroring the pricing-template contract: when supplied and different from the stored row `updated_at`, the backend returns `409` with detail `endpoint_stale` and the current endpoint state for immediate refresh. When omitted, behavior is unchanged (last write wins).
 Response `200`: Updated endpoint object.
 
 ##### Delete Endpoint
@@ -936,7 +956,7 @@ Create semantics:
 ```
 PATCH /api/models/{model_config_id}/connections/{connection_id}
 ```
-Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `custom_request_parameters`, `routing_schedule`, `openai_text_capability`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`.
+Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `custom_request_parameters`, `routing_schedule`, `openai_text_capability`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`. `auth_type` accepts `openai`, `anthropic`, `gemini`, or `gemini_api_key`; it is independent of `api_family` and selects only the upstream credential scheme.
 
 `custom_request_parameters` is a presence-aware whole-value replace: omitting the field keeps the current value, `null`/`{}` clears it to `NULL`, and a non-empty valid object replaces it wholesale; any violation fails the whole PATCH atomically.
 
@@ -981,7 +1001,7 @@ Response `200`: `{ "deleted": true }`.
 
 Deletes the Terminal Target and its internal owner access-target row together, subject to enabled-model target validation. Public `DELETE /api/connections/{connection_id}` rejects mutation requests.
 
-Rejected legacy mutation routes return `400` with guidance to use model-scoped Terminal Target routes instead: `POST /api/connections`, `PUT/PATCH/DELETE /api/connections/{connection_id}`, `PUT /api/connections/{connection_id}/pricing-template`, `PUT /api/models/{model_config_id}/connections/{connection_id}`, `PUT /api/models/{model_config_id}/connections/{connection_id}/pricing-template`, and `PATCH /api/models/{model_config_id}/connections/{connection_id}/priority`.
+Rejected legacy mutation routes return `400` with guidance to use model-scoped Terminal Target routes instead: `POST /api/connections`, `PUT/PATCH/DELETE /api/connections/{connection_id}`, `PUT /api/models/{model_config_id}/connections/{connection_id}`, and `PATCH /api/models/{model_config_id}/connections/{connection_id}/priority`. None of these 400 stubs ever advances a runtime-cache generation, because they never return `2xx`.
 
 ##### Model Target Routes
 ```
@@ -1127,6 +1147,8 @@ Request:
 Response `200`: `{ "created": 1, "updated": 0, "skipped": [], "errors": [] }`.
 
 `mode` is either `upsert_by_name` or `create_only`. Imports are Default-profile scoped and use one transaction: validation errors return `400` with row-level `errors[]`, and no templates are created or updated.
+
+`POST /api/pricing-templates/import` is a pure preview: it validates every row and returns the per-row action, summary, and preview hash without writing anything, so it never advances a runtime-cache generation. `POST /api/pricing-templates/import/commit` replays the identical previewed payload and is the only write path; it advances the Default-profile planning generation in the same transaction as the write.
 
 ##### Update Pricing Template
 ```
@@ -1630,7 +1652,7 @@ The gateway extracts token usage from upstream responses and logs canonical disj
 | `openai.images.generations`, `openai.images.edits` | `{"usage": {"input_tokens": N, "output_tokens": N, "total_tokens": N, "input_tokens_details": {...}}}` | Base input and output are taken whole with no subtraction; there is no cache or reasoning component, and `input_tokens_details` is a breakdown rather than a separate billing component, so its `text_tokens`/`image_tokens` split is not persisted |
 | `anthropic.messages` | `{"usage": {"input_tokens": N, "cache_read_input_tokens": N, "cache_creation_input_tokens": N, "output_tokens": N}}` | Base input, cache-read input, cache-creation input, and base output stay separate; total is derived when upstream omits it |
 | `anthropic.count_tokens` | `{"input_tokens": N}` | Top-level count as base `input_tokens` and `total_tokens`; `output_tokens` = null |
-| `gemini.generate_content`, `gemini.stream_generate_content` when handled as non-stream JSON | `{"usageMetadata": {"promptTokenCount": N, "cachedContentTokenCount": N, "candidatesTokenCount": N, "thoughtsTokenCount": N, "totalTokenCount": N}}` | Base input subtracts cache-read input; base output subtracts reasoning output; provider `totalTokenCount` stays authoritative |
+| `gemini.generate_content`, `gemini.stream_generate_content` when handled as non-stream JSON | `{"usageMetadata": {"promptTokenCount": N, "cachedContentTokenCount": N, "candidatesTokenCount": N, "thoughtsTokenCount": N, "totalTokenCount": N}}` | Base input subtracts cache-read input because `cachedContentTokenCount` is part of `promptTokenCount`; base output is `candidatesTokenCount` as reported and reasoning output is `thoughtsTokenCount` as reported, because Google defines `totalTokenCount` as prompt + thoughts + response candidates (three parallel terms); provider `totalTokenCount` stays authoritative |
 | `gemini.count_tokens` | `{"totalTokens": N}` or `{"total_tokens": N}` | Top-level count as base `input_tokens` and `total_tokens`; `output_tokens` = null |
 
 **Streaming responses:**
@@ -1647,6 +1669,8 @@ The gateway accumulates SSE chunks during streaming and extracts usage from oper
 Image operations are priced through the ordinary `PER_1M` token pipeline because GPT image models return a token `usage` object. The pricing template has no per-component slot for the text/image input split, so both kinds of input token are priced at the single `input_price`; an image template's `input_price` must therefore be authored as a weighted rate. Models that return no usage at all (the DALL-E family) record `MISSING_TOKEN_USAGE` and stay unpriced.
 
 If token data cannot be extracted from the provider response, runtime usage token fields are logged as `null`. Completed streams that lack required usage keep `MISSING_TOKEN_USAGE`; interrupted or no-terminal streams with missing required tokens use `STREAM_USAGE_UNAVAILABLE` when their classified stream outcome made terminal usage unavailable. Aggregate `cached_tokens` is derived-only from cache-read plus cache-creation input tokens and is not a persisted runtime component.
+
+A Gemini `usageMetadata` payload whose provider total falls below the canonical disjoint component sum, or that yields a negative component, is rejected rather than silently treated as absent: the telemetry envelope records `usage_source = normalization_rejected` and the backend emits a `runtime usage normalization rejected upstream payload` warning.
 
 ---
 
@@ -1719,6 +1743,7 @@ Response `200`:
     "total_requests": 42,
     "unpriced_request_count": 2
   },
+
   "api_family_rows": [
     { "key": "openai", "total_requests": 42, "success_rate": 97.62 }
   ],
@@ -1736,6 +1761,8 @@ Response `200`:
 ```
 
 `routing_health_map` is assembled by the backend from Default-profile model, access-target, endpoint, connection, and final-attributed usage-event data.
+
+In `metric_snapshot`, `avg_latency`, `error_rate`, `p95_latency`, and `success_rate` are `null` when the window has zero traffic; the counts (`total_requests` etc.) stay numeric. Recent-activity items carry nullable `status_code` / `response_time_ms` (null for rows without a resolved duration), and `response_time_ms` is the end-to-end duration including stream finalization.
 
 #### 4.0A Dashboard Recent Activity
 ```
@@ -1793,6 +1820,8 @@ The snapshot is backed by `backend/internal/httpapi/management/stats/service.go`
 The snapshot is aggregated from persisted usage-event rows. Endpoint aggregates read the stored `usage_request_events.endpoint_label_snapshot` value and expose it as public `endpoint_label`, so historical labels survive later endpoint renames or deletion. `/api/stats/dashboard` is the canonical overview aggregate and includes a backend-computed `routing_health_map` response field; the current dashboard leaves that field unrendered. Exact request investigation remains on `/observe/requests`, while dashboard and other pages continue to use the shared stats routes below.
 
 Response `200` includes `latency_trends` alongside `request_trends`, `token_usage_trends`, `token_type_breakdown`, and `cost_overview`. `latency_trends.hourly[]` and `latency_trends.daily[]` use the same series key/label shape as request trends; each point exposes `bucket_start`, `p50_ms`, and `p95_ms`. Empty latency buckets keep the bucket and return `null` percentile values.
+
+`overview` token fields use the canonical disjoint caliber described in section 7: `input_tokens` excludes cache-read and cache-creation input, `output_tokens` excludes reasoning output, and `cached_tokens` is the derived cache-read plus cache-creation aggregate. `token_component_basis` names that caliber (`"disjoint"`), and `uncategorized_tokens` reports `total_tokens` minus the sum of the components, clamped at zero. A positive `uncategorized_tokens` means upstreams supplied provider totals that the components cannot reconstruct - typically usage payloads carrying only a total - so the components and the total are expected not to add up in that case.
 
 `GET /api/stats/requests/operations` is not part of the current management API.
 
@@ -1925,6 +1954,8 @@ Attempt-view response `200`:
   "offset": 0
 }
 ```
+
+`terminal_target_label` is resolved from the current connection catalog: `null` means the connection row no longer exists; a label with `terminal_target_configured=false` means the connection exists but is inactive; a catalog read failure always returns `5xx` and never downgrades to `configured=false`. `total` is capped at 10000 with `total_is_exact=false` above the cap (`has_more` is then also true), so the UI can render "10,000+".
 
 Chain-view response `200`:
 ```json
@@ -2264,6 +2295,8 @@ Response `200`:
 }
 ```
 
+Caliber declaration: the summary is built from `usage_request_events` (one row per ingress), carries `granularity: "request"` and `latency_basis: "end_to_end"`, and is deliberately different from the attempt-level caliber of `models/metrics`.
+
 #### 4.5 Model Metrics (Batch)
 ```
 POST /api/stats/models/metrics
@@ -2276,7 +2309,7 @@ Request:
   "spending_preset": "last_30_days"
 }
 ```
-Response `200`: `items[]`, where each item contains `model_id`, `success_rate`, `request_count_24h`, `p95_latency_ms`, and `spend_30d_micros`.
+Response `200`: `items[]`, where each item contains `model_id`, `success_rate`, `request_count_24h`, `p95_latency_ms`, and `spend_30d_micros`. `success_rate` is `null` when the window has no samples for the model, `p95_latency_ms` is `null` without latency samples, and `spend_30d_micros` is `null` without trusted pricing evidence.
 
 #### 4.6 Get Connection Success Rates
 ```
@@ -3130,18 +3163,19 @@ Profile-resolution failures add a stable `code`:
 }
 ```
 
-Audit and statistics domain-validation errors use a nested structured envelope. `details` is present only when the domain error includes structured detail:
+Audit and statistics domain-validation errors use the flat management problem envelope (`code`, `detail`, `params`, `details`, `request_id`). `details` is present only when the domain error includes structured detail:
 ```json
 {
-  "error": {
-    "code": "audit_window_too_large",
-    "message": "Audit event windows may not exceed 7 days.",
-    "details": {
-      "max_window_seconds": 604800
-    }
-  }
+  "code": "audit_window_too_large",
+  "detail": "Audit event windows may not exceed 7 days.",
+  "params": {},
+  "details": {
+    "max_window_seconds": 604800
+  },
+  "request_id": "..."
 }
 ```
+Unregistered management paths and wrong-method management writes return the same flat problem envelope (`management_route_not_found` / `management_method_not_allowed`). `request_id` comes from the chi `RequestID` middleware when present, so it can be aligned with server-side logs.
 
 Runtime handlers return `detail`, and include `error` only when the runtime error has a machine-readable code:
 ```json
@@ -3150,6 +3184,17 @@ Runtime handlers return `detail`, and include `error` only when the runtime erro
   "detail": "No eligible Terminal Target passed admission."
 }
 ```
+
+Transport exhaustion returns the fixed `transport_error` shape with a normalized `last_failure` classification label:
+```json
+{
+  "error": "transport_error",
+  "detail": "All connections failed for model 'gpt-4o'. Last failure: upstream_connect_failed.",
+  "route_reason": "no_healthy_upstream",
+  "last_failure": "upstream_connect_failed"
+}
+```
+`last_failure` takes one of `upstream_connect_failed` / `upstream_tls_failed` / `upstream_dns_failed` / `upstream_timeout` / `client_disconnected` / `upstream_http_<status>` / `unknown_upstream_failure` and never contains an upstream address.
 
 The request-size guard is a separate envelope with `error`, `message`, and `limit_bytes`, as documented above.
 
@@ -3550,6 +3595,8 @@ Terminal Targets are represented as `connections` / `connection_id` in the compa
 | priority | INTEGER | NOT NULL | Legacy fallback ordering hint for family-level reads; model routing order comes from access-target `position` |
 | name | TEXT | NULLABLE | Optional Terminal Target label |
 | auth_type | VARCHAR(50) | NULLABLE | Optional auth behavior metadata |
+
+Management read APIs mask values whose header name matches the fixed `safediag` sensitive-name rules, returning the `__prism_redacted__` sentinel plus a `custom_headers_redacted` name list; writing the sentinel back preserves the stored value, and a sentinel for an unknown header name is rejected with 422.
 | custom_headers | TEXT | NULLABLE | JSON headers applied before blocklist filtering |
 | custom_request_parameters | JSONB | NULLABLE | Optional static top-level JSON object overlaid onto every upstream attempt body; `NULL`/`{}`/`null` all mean unconfigured; CHECK constraint `connections_custom_request_parameters_object` requires `NULL` or a JSON object root |
 | health_status | VARCHAR(20) | NOT NULL | `unknown`, `healthy`, `unhealthy`; application-managed compatibility value |

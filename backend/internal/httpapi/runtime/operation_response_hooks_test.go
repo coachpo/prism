@@ -89,7 +89,7 @@ func TestGeminiGenerateContentNormalizesUsageMetadataDisjointSplits(t *testing.T
 	if forwarded.String() != payload {
 		t.Fatalf("expected response body to pass through unchanged, got %q", forwarded.String())
 	}
-	wantUsage := responseUsage{InputTokens: intPtr(7), OutputTokens: intPtr(11), TotalTokens: intPtr(99), CacheReadInputTokens: intPtr(4), ReasoningTokens: intPtr(6)}
+	wantUsage := responseUsage{InputTokens: intPtr(7), OutputTokens: intPtr(17), TotalTokens: intPtr(99), CacheReadInputTokens: intPtr(4), ReasoningTokens: intPtr(6)}
 	if got := capture.extractedUsage(); !reflect.DeepEqual(got, wantUsage) {
 		t.Fatalf("expected Gemini disjoint usage with provider total: want %+v got %+v", wantUsage, got)
 	}

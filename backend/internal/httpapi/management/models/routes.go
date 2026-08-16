@@ -1649,6 +1649,7 @@ func decodeJSONBytes(body []byte, target any) error {
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
+		return responseutil.SanitizeDecodeError(err)
 		return err
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {

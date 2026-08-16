@@ -3,7 +3,7 @@ import { toast } from "sonner"
 import { getStaticMessages } from "@/i18n/staticMessages"
 import { useTimezone } from "@/hooks/useTimezone"
 import { api } from "@/lib/api"
-import { extractEndpointFieldErrors, innerDetail, isEndpointConfigChangedError, isEndpointInUseError, isReferenceIntegrityError } from "@/lib/api/endpointErrors"
+import { extractEndpointFieldErrors, innerDetail, isEndpointConfigChangedError, isEndpointInUseError, isEndpointStaleError, isReferenceIntegrityError } from "@/lib/api/endpointErrors"
 import { ApiError } from "@/lib/api/core"
 import type { Endpoint, EndpointReferenceDetail, EndpointReferenceItem, EndpointReferencePage, EndpointReferenceSummary, EndpointVerifyResult } from "@/lib/types"
 import { getSharedEndpoints, setSharedEndpoints } from "@/lib/referenceData"
@@ -235,7 +235,7 @@ export function useEndpointsFeatureData() {
     const messages = getStaticMessages()
     if (!editingEndpoint) return null
     try {
-      const updated = await api.endpoints.update(editingEndpoint.id, buildEndpointUpdatePayload(values))
+      const updated = await api.endpoints.update(editingEndpoint.id, buildEndpointUpdatePayload(values, editingEndpoint.updated_at))
       const keyRotated = updated.api_key_updated_at !== editingEndpoint.api_key_updated_at
       toast.success(keyRotated && updated.api_key_fingerprint ? messages.endpointsData.keyRotated(updated.api_key_fingerprint) : messages.endpointsData.keyUnchanged)
       if (!verifyFamily) {
@@ -249,6 +249,17 @@ export function useEndpointsFeatureData() {
       }
       return { endpoint: updated, verifyFamily }
     } catch (error) {
+      if (isEndpointStaleError(error)) {
+        const stale = innerDetail<{ endpoint: Endpoint }>(error)
+        const current = stale?.endpoint
+        if (current) {
+          commitEndpoints((items) => items.map((endpoint) => (endpoint.id === current.id ? current : endpoint)))
+          setEditingEndpoint(current)
+        }
+        setEndpointDialogError(messages.endpointsData.endpointStale)
+        toast.error(messages.endpointsData.endpointStale)
+        return null
+      }
       const fieldErrors = extractEndpointFieldErrors(error)
       if (fieldErrors) {
         setEndpointFieldErrors(fieldErrors)

@@ -482,7 +482,7 @@ func normalizeAndValidateUserAgentUpdate(requestBody *userAgentClientRuleUpdateR
 
 func decodeJSONBody(request *http.Request, target any) error {
 	defer func() { _ = request.Body.Close() }()
-	return json.NewDecoder(request.Body).Decode(target)
+	return responseutil.SanitizeDecodeError(json.NewDecoder(request.Body).Decode(target))
 }
 
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {

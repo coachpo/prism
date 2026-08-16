@@ -32,6 +32,14 @@ export type EndpointConfigChangedError = ApiError & {
   };
 };
 
+export type EndpointStaleError = ApiError & {
+  detail: {
+    code: "endpoint_stale";
+    message: string;
+    endpoint: Endpoint;
+  };
+};
+
 export type ReferenceIntegrityError = ApiError & {
   detail: {
     code: "reference_integrity_error";
@@ -104,6 +112,10 @@ export function isConnectionNotOrphanedError(error: unknown): error is Connectio
 
 export function isEndpointConfigChangedError(error: unknown): error is EndpointConfigChangedError {
   return isApiError(error) && detailCode(error) === "endpoint_config_changed";
+}
+
+export function isEndpointStaleError(error: unknown): error is EndpointStaleError {
+  return isApiError(error) && error.status === 409 && detailCode(error) === "endpoint_stale";
 }
 
 export function isReferenceIntegrityError(error: unknown): error is ReferenceIntegrityError {

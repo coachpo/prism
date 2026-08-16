@@ -10,8 +10,10 @@ import (
 // balanced preview preset; the one-time SQL backfill migration carries the same
 // values and is covered by migration fixtures.
 const (
-	canonicalBanMode                            = "off"
-	canonicalRetryBaseDelayMS                   = 60000
+	canonicalBanMode = "off"
+	// 5s, not 60s: the runtime writes next_retry_at on the first failure, so this
+	// value is effectively "how long this connection stops being preferred".
+	canonicalRetryBaseDelayMS                   = 5000
 	canonicalRetryBackoffMultiplier             = 2.0
 	canonicalRetryJitterRatio                   = 0.2
 	canonicalRetryMaxDelayMS                    = 900000

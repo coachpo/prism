@@ -27,6 +27,8 @@ import { allColumnKeys } from "./requestLogColumnPreferences";
 interface RequestLogsTableProps {
   items: RequestLogListItem[];
   total: number;
+  totalIsExact: boolean;
+  hasMoreRows: boolean;
   loading: boolean;
   limit: number;
   offset: number;
@@ -100,6 +102,8 @@ function resolveColumns(columns: ColumnDef[], containerWidth: number): ResolvedC
 export function RequestLogsTable({
   items,
   total,
+  totalIsExact,
+  hasMoreRows,
   loading,
   limit,
   offset,
@@ -166,7 +170,7 @@ export function RequestLogsTable({
   const pageStart = total > 0 ? offset + 1 : 0;
   const pageEnd = total > 0 ? Math.min(offset + limit, total) : 0;
   const hasPrev = offset > 0;
-  const hasNext = offset + limit < total;
+  const hasNext = hasMoreRows;
 
   return (
     <div className="operator-table-shell flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-panel" data-testid="request-logs-table">
@@ -292,11 +296,17 @@ export function RequestLogsTable({
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span>
             {total > 0
-              ? messages.requestLogs.resultsRange(
-                  formatNumber(pageStart),
-                  formatNumber(pageEnd),
-                  formatNumber(total),
-                )
+              ? (totalIsExact
+                  ? messages.requestLogs.resultsRange(
+                      formatNumber(pageStart),
+                      formatNumber(pageEnd),
+                      formatNumber(total),
+                    )
+                  : messages.requestLogs.resultsRangeAtLeast(
+                      formatNumber(pageStart),
+                      formatNumber(pageEnd),
+                      formatNumber(total),
+                    ))
               : messages.requestLogs.zeroResults}
           </span>
           <Select value={String(limit)} onValueChange={(v) => onSetLimit(Number(v))}>

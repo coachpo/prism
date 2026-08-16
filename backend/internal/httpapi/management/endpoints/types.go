@@ -36,6 +36,16 @@ type endpointUpdateRequest struct {
 	Name    optionalString `json:"name"`
 	BaseURL optionalString `json:"base_url"`
 	APIKey  optionalString `json:"api_key"`
+	// ExpectedUpdatedAt is the optimistic-concurrency guard, mirroring the
+	// pricing-template expected_updated_at contract (architecture.md:1145).
+	// RFC3339; a mismatch against the stored row returns 409 endpoint_stale.
+	ExpectedUpdatedAt *string `json:"expected_updated_at"`
+}
+
+type endpointStaleDetail struct {
+	Code     string           `json:"code"` // "endpoint_stale"
+	Message  string           `json:"message"`
+	Endpoint endpointResponse `json:"endpoint"` // current server state for the frontend to refresh
 }
 
 // endpointResponse is the shared Endpoint read contract. Raw secrets and the

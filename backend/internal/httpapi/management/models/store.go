@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
+	"github.com/coachpo/prism/backend/internal/domain/safediag"
 	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 	"github.com/coachpo/prism/backend/internal/httpapi/management/connections"
 	"github.com/coachpo/prism/backend/internal/providerauth"
@@ -1060,7 +1061,7 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 	item.Endpoint = &endpoint
 	item.Name = nullableStringValue(connectionName)
 	item.AuthType = nullableStringValue(authType)
-	item.CustomHeaders = parseCustomHeaders(customHeaders)
+	item.CustomHeaders, item.CustomHeadersRedacted = safediag.RedactSensitiveHeaderValues(parseCustomHeaders(customHeaders))
 	item.CustomRequestParameters = parseCustomRequestParameters(customRequestParameters)
 	item.OpenAITextCapability = nullableStringValue(openAITextCapability)
 	item.OpenAIImageCapability = nullableStringValue(openAIImageCapability)

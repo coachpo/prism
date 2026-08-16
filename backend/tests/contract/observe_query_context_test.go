@@ -520,8 +520,7 @@ func TestObserveRequestsFinalFiltersDeepLink(t *testing.T) {
 	assertStatus(t, missingContext, http.StatusUnprocessableEntity)
 	var missingContextPayload map[string]any
 	decodeJSONResponse(t, missingContext, &missingContextPayload)
-	missingContextError := asMap(t, missingContextPayload["error"])
-	if missingContextError["code"] != "query_context_required" {
+	if missingContextPayload["code"] != "query_context_required" {
 		t.Fatalf("expected query_context_required, got %+v", missingContextPayload)
 	}
 
@@ -703,7 +702,7 @@ func TestObserveRequestsExportCSV(t *testing.T) {
 	assertStatus(t, noRange, http.StatusUnprocessableEntity)
 	var noRangePayload map[string]any
 	decodeJSONResponse(t, noRange, &noRangePayload)
-	if asMap(t, noRangePayload["error"])["code"] != "export_range_required" {
+	if noRangePayload["code"] != "export_range_required" {
 		t.Fatalf("expected export_range_required, got %+v", noRangePayload)
 	}
 }

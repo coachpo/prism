@@ -10,6 +10,11 @@ const (
 	APIFamilyOpenAI    = "openai"
 	APIFamilyAnthropic = "anthropic"
 	APIFamilyGemini    = "gemini"
+	// AuthTypeGeminiAPIKey selects Google's official API-key scheme
+	// (x-goog-api-key). The plain "gemini" auth type keeps Authorization:
+	// Bearer, which is what Gemini-compatible gateways and OAuth access
+	// tokens expect.
+	AuthTypeGeminiAPIKey = "gemini_api_key"
 )
 
 const (
@@ -29,6 +34,13 @@ var supportedAPIFamilies = map[string]struct{}{
 	APIFamilyOpenAI:    {},
 	APIFamilyAnthropic: {},
 	APIFamilyGemini:    {},
+}
+
+var supportedAuthTypes = map[string]struct{}{
+	APIFamilyOpenAI:      {},
+	APIFamilyAnthropic:   {},
+	APIFamilyGemini:      {},
+	AuthTypeGeminiAPIKey: {},
 }
 
 type AuthProfile struct {
@@ -55,6 +67,11 @@ var authProfiles = map[string]AuthProfile{
 		AuthPrefix:   "Bearer ",
 		ExtraHeaders: map[string]string{},
 	},
+	AuthTypeGeminiAPIKey: {
+		AuthHeader:   "x-goog-api-key",
+		AuthPrefix:   "",
+		ExtraHeaders: map[string]string{},
+	},
 }
 
 func NormalizeAPIFamily(value string) string {
@@ -76,7 +93,8 @@ func SameAPIFamily(left string, right string) bool {
 }
 
 func IsSupportedAuthType(value string) bool {
-	return IsSupportedAPIFamily(value)
+	_, ok := supportedAuthTypes[NormalizeAPIFamily(value)]
+	return ok
 }
 
 func ResolveAuthProfile(authType *string, apiFamily string) (AuthProfile, error) {

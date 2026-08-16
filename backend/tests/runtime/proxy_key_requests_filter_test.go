@@ -342,14 +342,16 @@ func TestRequestLogsDeepLinkRoundTripsProxyAPIKeyID(t *testing.T) {
 
 func assertStructuredErrorCode(t *testing.T, response *http.Response, wantCode string) {
 	t.Helper()
+	// Management errors converged on the flat problem envelope
+	// (code/detail/params/details/request_id); the older nested {"error":{...}}
+	// shape is gone, and with it the frontend's inability to read a code out of
+	// stats and audit failures.
 	var payload struct {
-		Error struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
+		Code   string `json:"code"`
+		Detail string `json:"detail"`
 	}
 	decodeJSONResponse(t, response, &payload)
-	if payload.Error.Code != wantCode {
-		t.Fatalf("expected structured error code %q, got %+v", wantCode, payload)
+	if payload.Code != wantCode {
+		t.Fatalf("expected problem code %q, got %+v", wantCode, payload)
 	}
 }

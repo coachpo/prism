@@ -8,7 +8,7 @@ import (
 func TestSensitiveNameMatcher(t *testing.T) {
 	matcher := NewSensitiveNameMatcher()
 	cases := []struct {
-		name    string
+		name      string
 		sensitive bool
 	}{
 		{"Authorization", true},
@@ -69,8 +69,8 @@ func TestSensitiveNameMatcherExtraRules(t *testing.T) {
 
 func TestScrubValueCredentials(t *testing.T) {
 	cases := []struct {
-		input   string
-		want    string
+		input    string
+		want     string
 		redacted bool
 	}{
 		{"Bearer sk-abc123", "Bearer " + RedactedMarker, true},

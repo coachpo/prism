@@ -421,24 +421,51 @@ func (s *LocalRuntimeStateStore) ResetConnectionCooldown(profileID int, connecti
 
 func (state *localRuntimeConnectionState) clearCooldownLocked() bool {
 	cleared := false
-	if state.state.CycleRetryAttempts != 0 { state.state.CycleRetryAttempts = 0; cleared = true }
-	if state.state.CumulativeRetryAttempts != 0 { state.state.CumulativeRetryAttempts = 0; cleared = true }
-	if state.state.NextRetryAt != nil { state.state.NextRetryAt = nil; cleared = true }
-	if state.state.LastRetryDelayMS != 0 { state.state.LastRetryDelayMS = 0; cleared = true }
-	if !strings.EqualFold(strings.TrimSpace(state.state.BanMode), "off") { state.state.BanMode = "off"; cleared = true }
-	if state.state.BannedUntilAt != nil { state.state.BannedUntilAt = nil; cleared = true }
-	if state.state.LastFailureKind != nil { state.state.LastFailureKind = nil; cleared = true }
+	if state.state.CycleRetryAttempts != 0 {
+		state.state.CycleRetryAttempts = 0
+		cleared = true
+	}
+	if state.state.CumulativeRetryAttempts != 0 {
+		state.state.CumulativeRetryAttempts = 0
+		cleared = true
+	}
+	if state.state.NextRetryAt != nil {
+		state.state.NextRetryAt = nil
+		cleared = true
+	}
+	if state.state.LastRetryDelayMS != 0 {
+		state.state.LastRetryDelayMS = 0
+		cleared = true
+	}
+	if !strings.EqualFold(strings.TrimSpace(state.state.BanMode), "off") {
+		state.state.BanMode = "off"
+		cleared = true
+	}
+	if state.state.BannedUntilAt != nil {
+		state.state.BannedUntilAt = nil
+		cleared = true
+	}
+	if state.state.LastFailureKind != nil {
+		state.state.LastFailureKind = nil
+		cleared = true
+	}
 	return cleared
 }
 
 func (s *LocalRuntimeStateStore) ResetRoundRobinCursor(profileID int, modelConfigID int) bool {
-	if s == nil || profileID <= 0 || modelConfigID <= 0 { return false }
+	if s == nil || profileID <= 0 || modelConfigID <= 0 {
+		return false
+	}
 	profile, ok := s.lookupProfile(profileID)
-	if !ok { return false }
+	if !ok {
+		return false
+	}
 	profile.mu.RLock()
 	cursor := profile.roundRobin[modelConfigID]
 	profile.mu.RUnlock()
-	if cursor == nil { return false }
+	if cursor == nil {
+		return false
+	}
 	cursor.next.Store(0)
 	return true
 }

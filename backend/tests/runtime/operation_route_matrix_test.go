@@ -244,7 +244,7 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			operationName: "gemini.generate_content",
 			responsePayload: map[string]any{
 				"responseId":    "route-matrix-gemini-generate",
-				"usageMetadata": map[string]any{"promptTokenCount": 11, "candidatesTokenCount": 17, "totalTokenCount": 28, "cachedContentTokenCount": 4, "thoughtsTokenCount": 6},
+				"usageMetadata": map[string]any{"promptTokenCount": 11, "candidatesTokenCount": 17, "totalTokenCount": 34, "cachedContentTokenCount": 4, "thoughtsTokenCount": 6},
 			},
 			requestPath: func(route seededRuntimeRoute) string {
 				return fmt.Sprintf("/v1beta/models/%s:generateContent", route.PublicModelID)
@@ -255,7 +255,7 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			wantUpstreamPath:  routeMatrixGeminiUpstreamPath(":generateContent"),
 			assertModelSource: assertRouteMatrixPathModelBinding,
 			generationParams:  routeMatrixGenerationParamsExpectation{status: "complete", params: map[string]any{"provider": "gemini", "temperature": 0.44}},
-			usage:             routeMatrixUsageExpectation{streamOutcome: "not_streaming", inputTokens: routeMatrixInt64(7), outputTokens: routeMatrixInt64(11), totalTokens: routeMatrixInt64(28), cacheReadInputTokens: routeMatrixInt64(4), reasoningTokens: routeMatrixInt64(6)},
+			usage:             routeMatrixUsageExpectation{streamOutcome: "not_streaming", inputTokens: routeMatrixInt64(7), outputTokens: routeMatrixInt64(17), totalTokens: routeMatrixInt64(34), cacheReadInputTokens: routeMatrixInt64(4), reasoningTokens: routeMatrixInt64(6)},
 			responseContains:  "route-matrix-gemini-generate",
 		},
 		{
@@ -263,7 +263,7 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			apiFamily:           "gemini",
 			operationName:       "gemini.stream_generate_content",
 			responseContentType: "text/event-stream",
-			responseBody:        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"route matrix gemini stream\"}]}}],\"usageMetadata\":{\"promptTokenCount\":13,\"candidatesTokenCount\":21,\"totalTokenCount\":34,\"cachedContentTokenCount\":5,\"thoughtsTokenCount\":8}}\n\n",
+			responseBody:        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"route matrix gemini stream\"}]}}],\"usageMetadata\":{\"promptTokenCount\":13,\"candidatesTokenCount\":21,\"totalTokenCount\":42,\"cachedContentTokenCount\":5,\"thoughtsTokenCount\":8}}\n\n",
 			requestPath: func(route seededRuntimeRoute) string {
 				return fmt.Sprintf("/v1beta/models/%s:streamGenerateContent", route.PublicModelID)
 			},
@@ -273,7 +273,7 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			wantUpstreamPath:  routeMatrixGeminiUpstreamPath(":streamGenerateContent"),
 			assertModelSource: assertRouteMatrixPathModelBinding,
 			generationParams:  routeMatrixGenerationParamsExpectation{status: "complete", params: map[string]any{"provider": "gemini", "temperature": 0.55}},
-			usage:             routeMatrixUsageExpectation{isStream: true, streamOutcome: "completed", inputTokens: routeMatrixInt64(8), outputTokens: routeMatrixInt64(13), totalTokens: routeMatrixInt64(34), cacheReadInputTokens: routeMatrixInt64(5), reasoningTokens: routeMatrixInt64(8)},
+			usage:             routeMatrixUsageExpectation{isStream: true, streamOutcome: "completed", inputTokens: routeMatrixInt64(8), outputTokens: routeMatrixInt64(21), totalTokens: routeMatrixInt64(42), cacheReadInputTokens: routeMatrixInt64(5), reasoningTokens: routeMatrixInt64(8)},
 			responseContains:  "route matrix gemini stream",
 		},
 		{
@@ -355,7 +355,7 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 func TestGeminiStreamGenerateUsesPathStreaming(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
-	upstream := newRouteMatrixUpstream(t, "text/event-stream", []byte("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"split stream\"}]}}],\"usageMetadata\":{\"promptTokenCount\":11,\"candidatesTokenCount\":17,\"totalTokenCount\":28,\"cachedContentTokenCount\":4,\"thoughtsTokenCount\":6}}\n\n"))
+	upstream := newRouteMatrixUpstream(t, "text/event-stream", []byte("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"split stream\"}]}}],\"usageMetadata\":{\"promptTokenCount\":11,\"candidatesTokenCount\":17,\"totalTokenCount\":34,\"cachedContentTokenCount\":4,\"thoughtsTokenCount\":6}}\n\n"))
 	route := harness.seedProxyRoute(t, runtimeRouteSeed{
 		ProfileID:       profileID,
 		APIFamily:       "gemini",
@@ -384,7 +384,7 @@ func TestGeminiStreamGenerateUsesPathStreaming(t *testing.T) {
 	assertRouteMatrixSharedCoreForwarding(t, upstreamRequest, route, "gemini", "/route-matrix/gemini-stream-path/v1beta/models/"+route.TargetModelID+":streamGenerateContent", "route-matrix-gemini-stream-path")
 	assertRouteMatrixPathModelBinding(t, upstreamRequest, route, ignoredBodyModel)
 	assertRouteMatrixSharedCorePersistence(t, harness, profileID, route, "gemini.stream_generate_content", requestPath)
-	assertRouteMatrixUsage(t, harness, profileID, routeMatrixUsageExpectation{isStream: true, streamOutcome: "completed", inputTokens: routeMatrixInt64(7), outputTokens: routeMatrixInt64(11), totalTokens: routeMatrixInt64(28), cacheReadInputTokens: routeMatrixInt64(4), reasoningTokens: routeMatrixInt64(6)})
+	assertRouteMatrixUsage(t, harness, profileID, routeMatrixUsageExpectation{isStream: true, streamOutcome: "completed", inputTokens: routeMatrixInt64(7), outputTokens: routeMatrixInt64(17), totalTokens: routeMatrixInt64(34), cacheReadInputTokens: routeMatrixInt64(4), reasoningTokens: routeMatrixInt64(6)})
 	assertRouteMatrixGenerationParams(t, harness, profileID, routeMatrixGenerationParamsExpectation{status: "complete", params: map[string]any{"provider": "gemini", "temperature": 0.67}})
 }
 

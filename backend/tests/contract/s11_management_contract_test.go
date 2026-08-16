@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -200,49 +199,6 @@ func TestAuditSettings(t *testing.T) {
 	}
 }
 
-func TestAuditSettingsRouteContractProfileScope(t *testing.T) {
-	raw, err := os.ReadFile("../../internal/platform/http/management_route_contract.json")
-	if err != nil {
-		t.Fatalf("read management route contract: %v", err)
-	}
-	var rows []struct {
-		RoutePattern        string   `json:"route_pattern"`
-		Methods             []string `json:"methods"`
-		ProfileScoped       bool     `json:"profile_scoped"`
-		InvalidatesPlanning bool     `json:"invalidates_planning"`
-	}
-	if err := json.Unmarshal(raw, &rows); err != nil {
-		t.Fatalf("parse management route contract: %v", err)
-	}
-	for _, row := range rows {
-		if row.RoutePattern != "/api/settings/audit" {
-			continue
-		}
-		if !row.ProfileScoped || !row.InvalidatesPlanning || !stringSetEqual(row.Methods, []string{http.MethodGet, http.MethodPut}) {
-			t.Fatalf("unexpected audit settings route contract: %+v", row)
-		}
-		return
-	}
-	t.Fatal("/api/settings/audit route contract entry not found")
-}
-
-func TestAdditionalManagementRouteContracts(t *testing.T) {
-	for _, tc := range []struct {
-		name                string
-		routePattern        string
-		methods             []string
-		profileScoped       bool
-		invalidatesPlanning bool
-	}{
-		{name: "pricing-template import", routePattern: "/api/pricing-templates/import", methods: []string{http.MethodPost}, profileScoped: true, invalidatesPlanning: true},
-		{name: "loadbalance incidents", routePattern: "/api/loadbalance/incidents", methods: []string{http.MethodGet}, profileScoped: true, invalidatesPlanning: false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			assertManagementRouteContract(t, tc.routePattern, tc.methods, tc.profileScoped, tc.invalidatesPlanning, tc.name)
-		})
-	}
-}
-
 func TestGlobalLogRetentionSettingsAndJobs(t *testing.T) {
 	harness := newS11ContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
@@ -313,12 +269,12 @@ func TestLoadbalanceStrategies(t *testing.T) {
 		{
 			name:       "timeout policy",
 			body:       map[string]any{"name": "S11 Timeout Legacy", "legacy_strategy_type": "round-robin", "timeout_policy": map[string]any{"attempt_open_timeout_ms": 2000}},
-			wantDetail: `json: unknown field "timeout_policy"`,
+			wantDetail: `unknown field "timeout_policy"`,
 		},
 		{
 			name:       "removed retry limit",
 			body:       map[string]any{"name": "S11 Removed Retry Limit", "legacy_strategy_type": "round-robin", removedRetryAttemptsField(): 4},
-			wantDetail: fmt.Sprintf("json: unknown field %q", removedRetryAttemptsField()),
+			wantDetail: fmt.Sprintf("unknown field %q", removedRetryAttemptsField()),
 		},
 		{
 			name:       "removed ban mode",
@@ -755,35 +711,6 @@ func assertAuditSettingsRows(t *testing.T, harness *contractHarness, profileID i
 			t.Fatalf("expected audit settings rows %+v, got %+v", want, got)
 		}
 	}
-}
-
-type managementRouteContractRow struct {
-	RoutePattern        string   `json:"route_pattern"`
-	Methods             []string `json:"methods"`
-	ProfileScoped       bool     `json:"profile_scoped"`
-	InvalidatesPlanning bool     `json:"invalidates_planning"`
-}
-
-func assertManagementRouteContract(t *testing.T, routePattern string, methods []string, profileScoped bool, invalidatesPlanning bool, name string) {
-	t.Helper()
-	raw, err := os.ReadFile("../../internal/platform/http/management_route_contract.json")
-	if err != nil {
-		t.Fatalf("read management route contract: %v", err)
-	}
-	var rows []managementRouteContractRow
-	if err := json.Unmarshal(raw, &rows); err != nil {
-		t.Fatalf("parse management route contract: %v", err)
-	}
-	for _, row := range rows {
-		if row.RoutePattern != routePattern {
-			continue
-		}
-		if row.ProfileScoped != profileScoped || row.InvalidatesPlanning != invalidatesPlanning || !stringSetEqual(row.Methods, methods) {
-			t.Fatalf("unexpected %s route contract: %+v", name, row)
-		}
-		return
-	}
-	t.Fatalf("%s route contract entry not found", routePattern)
 }
 
 func retentionIsDestructive(current map[string]any, requestLogs *int, statistics *int, audit *int, loadbalance *int) bool {

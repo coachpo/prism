@@ -28,7 +28,7 @@ contract/
 - Test public Prism contracts through HTTP responses and persisted state, not handler internals.
 - Keep removed management fields guarded only when absence is itself a shipped contract.
 - Share package-level database setup through the existing harness; do not add per-test process or container startup.
-- Keep route-scope expectations aligned with `../../internal/platform/http/management_route_contract.json`.
+- Route-scope and cache-invalidation expectations are owned by `managementRouteSpecs` in `../../internal/platform/http/admission.go`; this directory no longer duplicates contract assertions for management routes.
 
 ## ANTI-PATTERNS
 - Do not duplicate runtime proxy route-matrix coverage from `../runtime/`.

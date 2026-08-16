@@ -28,6 +28,7 @@ function makeRow(overrides: Partial<RequestLogListItem>): RequestLogListItem {
     terminal_target_id: 34,
     terminal_target_label: "Primary target",
     terminal_target_configured: true,
+    terminal_target_owner_model_id: null,
     upstream_status_code: 200,
     gateway_status_code: null,
     legacy_status_code: null,

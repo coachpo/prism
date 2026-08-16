@@ -50,24 +50,24 @@ type endpointReferenceAccessTarget struct {
 // kind="orphan_connection" with null owner/access-target/pricing fields and
 // still count as blockers.
 type endpointReferenceItem struct {
-	Kind                  string                            `json:"kind"`
-	ConnectionID          int                               `json:"connection_id"`
-	TerminalTargetID      int                               `json:"terminal_target_id"`
-	TerminalTargetName    *string                           `json:"terminal_target_name"`
-	APIFamily             string                            `json:"api_family"`
-	ConnectionIsActive    bool                              `json:"connection_is_active"`
-	AccessTarget          *endpointReferenceAccessTarget    `json:"access_target"`
-	OwnerModel            *endpointReferenceOwnerModel      `json:"owner_model"`
-	OpenAITextCapability  *string                           `json:"openai_text_capability"`
-	OpenAIImageCapability *string                           `json:"openai_image_capability"`
+	Kind                  string                         `json:"kind"`
+	ConnectionID          int                            `json:"connection_id"`
+	TerminalTargetID      int                            `json:"terminal_target_id"`
+	TerminalTargetName    *string                        `json:"terminal_target_name"`
+	APIFamily             string                         `json:"api_family"`
+	ConnectionIsActive    bool                           `json:"connection_is_active"`
+	AccessTarget          *endpointReferenceAccessTarget `json:"access_target"`
+	OwnerModel            *endpointReferenceOwnerModel   `json:"owner_model"`
+	OpenAITextCapability  *string                        `json:"openai_text_capability"`
+	OpenAIImageCapability *string                        `json:"openai_image_capability"`
 	// Configuration only, never the evaluated open/closed verdict. The panel's
 	// snapshot hash is an optimistic-concurrency marker, so a clock-derived
 	// value would churn it every minute; whether a schedule exists changes only
 	// when an operator edits one, which is exactly when the hash should change.
-	HasRoutingSchedule    bool                              `json:"has_routing_schedule"`
-	PricingTemplate       *endpointReferencePricingTemplate `json:"pricing_template"`
-	Enabled               bool                              `json:"enabled"`
-	InactiveReasons       []string                          `json:"inactive_reasons"`
+	HasRoutingSchedule bool                              `json:"has_routing_schedule"`
+	PricingTemplate    *endpointReferencePricingTemplate `json:"pricing_template"`
+	Enabled            bool                              `json:"enabled"`
+	InactiveReasons    []string                          `json:"inactive_reasons"`
 }
 
 type endpointReferencePage struct {
@@ -122,13 +122,15 @@ type referenceIntegrityErrorDetail struct {
 }
 
 type endpointVerifyRequest struct {
-	APIFamily              string `json:"api_family"`
-	ExpectedConfigRevision int64  `json:"expected_config_revision"`
+	APIFamily              string  `json:"api_family"`
+	ExpectedConfigRevision int64   `json:"expected_config_revision"`
+	AuthType               *string `json:"auth_type"`
 }
 
 type endpointVerifyResponse struct {
 	EndpointID        int     `json:"endpoint_id"`
 	APIFamily         string  `json:"api_family"`
+	AuthType          *string `json:"auth_type"`
 	ConfigRevision    int64   `json:"config_revision"`
 	APIKeyFingerprint *string `json:"api_key_fingerprint"`
 	IsCurrent         bool    `json:"is_current"`

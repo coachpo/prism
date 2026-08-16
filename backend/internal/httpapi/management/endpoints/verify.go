@@ -2,6 +2,7 @@ package endpoints
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,7 +35,6 @@ const (
 
 const (
 	verifyMaxResponseBodyBytes   = 8 * 1024
-	verifyMaxErrorSummaryBytes   = 512
 	verifyMaxSameOriginRedirects = 3
 	verifyConcurrencyLimit       = 4
 )
@@ -42,11 +42,27 @@ const (
 var supportedVerifyFamilies = map[string]struct{}{"openai": {}, "anthropic": {}, "gemini": {}}
 
 type verifyProbeSpec struct {
-	Path    string
-	Query   string
-	Headers map[string]string // extra headers beyond family auth
-	Auth    func(plaintextKey string) map[string]string
-	Valid   func(body []byte) bool
+	Path  string
+	Query string
+	Valid func(body []byte) bool
+}
+
+// probeAuthHeaders resolves the exact header set the runtime would send, so a
+// verified endpoint is verified under the same credential scheme it will be
+// used with.
+func probeAuthHeaders(authType *string, family string, plaintextKey string) (map[string]string, error) {
+	profile, err := providerauth.ResolveAuthProfile(authType, family)
+	if err != nil {
+		return nil, err
+	}
+	headers := map[string]string{}
+	for name, value := range profile.ExtraHeaders {
+		headers[name] = value
+	}
+	if strings.TrimSpace(plaintextKey) != "" && strings.TrimSpace(profile.AuthHeader) != "" {
+		headers[profile.AuthHeader] = profile.AuthPrefix + plaintextKey
+	}
+	return headers, nil
 }
 
 func verifyProbeSpecFor(family string) verifyProbeSpec {
@@ -54,12 +70,6 @@ func verifyProbeSpecFor(family string) verifyProbeSpec {
 	case "openai":
 		return verifyProbeSpec{
 			Path: "/v1/models",
-			Auth: func(key string) map[string]string {
-				if strings.TrimSpace(key) == "" {
-					return nil
-				}
-				return map[string]string{"Authorization": "Bearer " + key}
-			},
 			Valid: func(body []byte) bool {
 				var payload struct {
 					Data []json.RawMessage `json:"data"`
@@ -69,15 +79,8 @@ func verifyProbeSpecFor(family string) verifyProbeSpec {
 		}
 	case "anthropic":
 		return verifyProbeSpec{
-			Path:    "/v1/models",
-			Query:   "limit=1",
-			Headers: map[string]string{"anthropic-version": "2023-06-01"},
-			Auth: func(key string) map[string]string {
-				if strings.TrimSpace(key) == "" {
-					return nil
-				}
-				return map[string]string{"x-api-key": key}
-			},
+			Path:  "/v1/models",
+			Query: "limit=1",
 			Valid: func(body []byte) bool {
 				var payload struct {
 					Data []json.RawMessage `json:"data"`
@@ -89,13 +92,6 @@ func verifyProbeSpecFor(family string) verifyProbeSpec {
 		return verifyProbeSpec{
 			Path:  "/v1beta/models",
 			Query: "pageSize=1",
-			Auth: func(key string) map[string]string {
-				if strings.TrimSpace(key) == "" {
-					return nil
-				}
-				// x-goog-api-key header only; never a key query parameter.
-				return map[string]string{"x-goog-api-key": key}
-			},
 			Valid: func(body []byte) bool {
 				var payload struct {
 					Models []json.RawMessage `json:"models"`
@@ -133,6 +129,11 @@ func (s *Service) handleEndpointVerify(w http.ResponseWriter, r *http.Request) {
 	family := providerauth.NormalizeAPIFamily(requestBody.APIFamily)
 	if _, supported := supportedVerifyFamilies[family]; !supported {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, map[string]any{"code": "validation_failed", "fields": map[string]string{"api_family": "api_family_invalid"}})
+		return
+	}
+	authType := requestBody.AuthType
+	if authType != nil && strings.TrimSpace(*authType) != "" && !providerauth.IsSupportedAuthType(*authType) {
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, map[string]any{"code": "validation_failed", "fields": map[string]string{"auth_type": "auth_type_invalid"}})
 		return
 	}
 	if requestBody.ExpectedConfigRevision < 1 {
@@ -207,6 +208,11 @@ func (s *Service) handleEndpointVerify(w http.ResponseWriter, r *http.Request) {
 	defer s.releaseVerifySlot()
 
 	spec := verifyProbeSpecFor(family)
+	authHeaders, authErr := probeAuthHeaders(authType, family, snapshot.PlaintextKey)
+	if authErr != nil {
+		responseutil.WriteJSON(w, http.StatusOK, verifyResponseForSnapshot(snapshot, family, spec.Path, verifyOutcomeUpstreamRejected, nil, 0, "verification credential scheme could not be resolved"))
+		return
+	}
 	probeURL, joinErr := buildUpstreamURL(snapshot.BaseURL, spec.Path, spec.Query)
 	if joinErr != nil {
 		responseutil.WriteJSON(w, http.StatusOK, verifyResponseForSnapshot(snapshot, family, spec.Path, verifyOutcomeUpstreamRejected, nil, 0, "base URL could not be joined for verification"))
@@ -214,15 +220,20 @@ func (s *Service) handleEndpointVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	probeParsed, _ := url.Parse(probeURL)
 	started := s.nowUTC()
-	statusCode, bodyBytes, outcome, errorSummary := s.runVerifyProbe(r.Context(), probeURL, probeParsed, spec, snapshot.PlaintextKey)
+	statusCode, bodyBytes, outcome, errorSummary := s.runVerifyProbe(r.Context(), probeURL, probeParsed, spec, authHeaders)
 	durationMS := s.nowUTC().Sub(started).Milliseconds()
 	upstreamStatus := (*int)(nil)
 	if statusCode > 0 {
 		upstreamStatus = &statusCode
 	}
+	resolvedAuthType := family
+	if authType != nil && strings.TrimSpace(*authType) != "" {
+		resolvedAuthType = providerauth.NormalizeAPIFamily(*authType)
+	}
 	response := endpointVerifyResponse{
 		EndpointID:        snapshot.EndpointID,
 		APIFamily:         family,
+		AuthType:          &resolvedAuthType,
 		ConfigRevision:    snapshot.ConfigRevision,
 		APIKeyFingerprint: snapshot.Fingerprint,
 		Outcome:           outcome,
@@ -315,7 +326,7 @@ var errRedirectExhausted = errors.New("too many same-origin redirects")
 // deadline, no cross-origin credential forwarding, at most 3 same-origin
 // redirects, and an 8 KiB response body cap. It returns the outcome and a
 // redacted, truncated error summary.
-func (s *Service) runVerifyProbe(ctx context.Context, probeURL string, probeParsed *url.URL, spec verifyProbeSpec, plaintextKey string) (int, []byte, string, string) {
+func (s *Service) runVerifyProbe(ctx context.Context, probeURL string, probeParsed *url.URL, spec verifyProbeSpec, authHeaders map[string]string) (int, []byte, string, string) {
 	timeout := s.attemptTimeout
 	if timeout <= 0 {
 		timeout = 10 * time.Second
@@ -342,11 +353,7 @@ func (s *Service) runVerifyProbe(ctx context.Context, probeURL string, probePars
 		return 0, nil, verifyOutcomeUpstreamRejected, "verification request could not be built"
 	}
 	request.Header.Set("Accept", "application/json")
-	authHeaders := spec.Auth(plaintextKey)
 	for name, value := range authHeaders {
-		request.Header.Set(name, value)
-	}
-	for name, value := range spec.Headers {
 		request.Header.Set(name, value)
 	}
 
@@ -365,7 +372,7 @@ func (s *Service) runVerifyProbe(ctx context.Context, probeURL string, probePars
 		if errors.Is(err, errRedirectExhausted) {
 			return 0, nil, verifyOutcomeUpstreamRejected, "upstream issued too many redirects; verification stopped"
 		}
-		return 0, nil, verifyOutcomeUnreachable, redactVerifySummary(err.Error())
+		return 0, nil, verifyOutcomeUnreachable, verifyUnreachableSummary(err)
 	}
 	defer func() { _ = httpResponse.Body.Close() }()
 	statusCode := httpResponse.StatusCode
@@ -401,17 +408,23 @@ func (s *Service) runVerifyProbe(ctx context.Context, probeURL string, probePars
 	}
 }
 
-// redactVerifySummary truncates and strips anything that could carry secrets
-// from a transport-level error summary, keeping it under 512 UTF-8 bytes.
-func redactVerifySummary(message string) string {
-	// Transport errors can embed URLs; strip query strings defensively.
-	if at := strings.Index(message, "?"); at >= 0 {
-		message = message[:at]
+// verifyUnreachableSummary normalizes transport failure reasons. It keeps the
+// classifications that help an operator (name resolution / TLS / everything
+// else unreachable) but never echoes host, port, or path, and does not
+// distinguish "connection refused" from "no route to host" - that kind of
+// difference is only useful to a probe oracle.
+func verifyUnreachableSummary(err error) string {
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return "the upstream host name could not be resolved"
 	}
-	message = strings.TrimSpace(message)
-	runes := []rune(message)
-	if len(runes) > verifyMaxErrorSummaryBytes {
-		runes = runes[:verifyMaxErrorSummaryBytes]
+	var certErr *tls.CertificateVerificationError
+	if errors.As(err, &certErr) {
+		return "the TLS handshake with the upstream failed"
 	}
-	return string(runes)
+	var recordErr tls.RecordHeaderError
+	if errors.As(err, &recordErr) {
+		return "the TLS handshake with the upstream failed"
+	}
+	return "the upstream could not be reached"
 }

@@ -843,6 +843,7 @@ func decodeStrictJSONBody(request *http.Request, target any) error {
 	decoder := json.NewDecoder(request.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
+		return responseutil.SanitizeDecodeError(err)
 		return err
 	}
 	var extra any

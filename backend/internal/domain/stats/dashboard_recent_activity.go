@@ -19,8 +19,8 @@ type dashboardRecentActivityRow struct {
 	ModelID                     string
 	ResolvedTargetModelID       *string
 	EndpointID                  *int
-	StatusCode                  int
-	ResponseTimeMS              int
+	StatusCode                  *int
+	ResponseTimeMS              *int
 	TTFTMS                      *int
 	CompletionDurationMS        *int
 	IsStream                    bool
@@ -48,6 +48,8 @@ func GetDashboardRecentActivity(ctx context.Context, exec queryExecutor, profile
 	if err != nil {
 		return DashboardRecentActivityResponse{}, err
 	}
+	// response_time_ms is the row-scoped end-to-end duration (stream rows use
+	// completion_duration_ms) and is null when no duration resolved.
 	rows, err := exec.Query(ctx, `SELECT id AS request_log_id, created_at, model_id, resolved_target_model_id, endpoint_id, `+scopedRequestLogStatusSQL+` AS status_code, `+scopedRequestLogDurationSQL+` AS response_time_ms, ttft_ms, completion_duration_ms, is_stream, stream_outcome, total_tokens, total_cost_user_currency_micros, pricing_status, unpriced_reason, report_currency_symbol, endpoint_base_url
 		 FROM request_logs
 		 WHERE profile_id = $1
@@ -73,6 +75,8 @@ func GetDashboardRecentActivityForRequestLog(ctx context.Context, exec queryExec
 	if err != nil {
 		return DashboardRecentActivityResponse{}, err
 	}
+	// response_time_ms is the row-scoped end-to-end duration (stream rows use
+	// completion_duration_ms) and is null when no duration resolved.
 	rows, err := exec.Query(ctx, `SELECT id AS request_log_id, created_at, model_id, resolved_target_model_id, endpoint_id, `+scopedRequestLogStatusSQL+` AS status_code, `+scopedRequestLogDurationSQL+` AS response_time_ms, ttft_ms, completion_duration_ms, is_stream, stream_outcome, total_tokens, total_cost_user_currency_micros, pricing_status, unpriced_reason, report_currency_symbol, endpoint_base_url
 		 FROM request_logs
 		 WHERE profile_id = $1 AND id = $2
@@ -147,6 +151,8 @@ func dashboardRecentActivityWatermark(items []DashboardRecentActivityItem) Dashb
 func scanDashboardRecentActivityRow(scanner interface{ Scan(...any) error }) (dashboardRecentActivityRow, error) {
 	var resolvedTargetModelID sql.NullString
 	var endpointID sql.NullInt32
+	var statusCode sql.NullInt32
+	var responseTimeMS sql.NullInt32
 	var ttftMS sql.NullInt32
 	var completionDurationMS sql.NullInt32
 	var streamOutcome sql.NullString
@@ -157,12 +163,16 @@ func scanDashboardRecentActivityRow(scanner interface{ Scan(...any) error }) (da
 	var reportCurrencySymbol sql.NullString
 	var endpointBaseURL sql.NullString
 	row := dashboardRecentActivityRow{}
-	if err := scanner.Scan(&row.RequestLogID, &row.CreatedAt, &row.ModelID, &resolvedTargetModelID, &endpointID, &row.StatusCode, &row.ResponseTimeMS, &ttftMS, &completionDurationMS, &row.IsStream, &streamOutcome, &totalTokens, &totalCostUserCurrencyMicros, &pricingStatus, &unpricedReason, &reportCurrencySymbol, &endpointBaseURL); err != nil {
+	if err := scanner.Scan(&row.RequestLogID, &row.CreatedAt, &row.ModelID, &resolvedTargetModelID, &endpointID, &statusCode, &responseTimeMS, &ttftMS, &completionDurationMS, &row.IsStream, &streamOutcome, &totalTokens, &totalCostUserCurrencyMicros, &pricingStatus, &unpricedReason, &reportCurrencySymbol, &endpointBaseURL); err != nil {
 		return dashboardRecentActivityRow{}, err
 	}
 	row.CreatedAt = row.CreatedAt.UTC()
 	row.ResolvedTargetModelID = nullableString(resolvedTargetModelID)
 	row.EndpointID = nullableInt32(endpointID)
+	// response_time_ms is now the end-to-end duration and may be null for
+	// rows without a resolved duration.
+	row.StatusCode = nullableInt32(statusCode)
+	row.ResponseTimeMS = nullableInt32(responseTimeMS)
 	row.TTFTMS = nullableInt32(ttftMS)
 	row.CompletionDurationMS = nullableInt32(completionDurationMS)
 	row.StreamOutcome = normalizeRequestLogStreamOutcome(nullableString(streamOutcome), row.IsStream, row.CompletionDurationMS)

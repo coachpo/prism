@@ -13,9 +13,11 @@ import (
 	managementendpoints "github.com/coachpo/prism/backend/internal/httpapi/management/endpoints"
 	managementloadbalance "github.com/coachpo/prism/backend/internal/httpapi/management/loadbalance"
 	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
+	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	"github.com/coachpo/prism/backend/internal/platform/admission"
+	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 )
 
 type healthResponse struct {
@@ -45,11 +47,27 @@ func mountManagementBranch(router chi.Router, deps Dependencies, admissionContro
 	managementHandler = managementBodyLimitMiddleware(managementHandler)
 	managementHandler = (&managementAdmissionController{controller: admissionController, provider: admissionProvider}).Middleware(managementHandler)
 	managementHandler = newRuntimeCacheInvalidationMiddleware(deps.RuntimeCache, deps.RuntimeAuthService, deps.RuntimeState, deps.StatsService).Middleware(managementHandler)
+	// The browser write guard must be the outermost layer: a rejected
+	// cross-origin write must not occupy admission slots, must not enter the
+	// body-limit wrapper, and must not advance runtime-cache generations.
+	managementHandler = newManagementBrowserWriteGuard(deps.CORSOriginProvider).Middleware(managementHandler)
 	router.Mount("/api", managementHandler)
 }
 
 func NewManagementRouter(auditService *managementaudit.Service, authService *managementauth.Service, configRulesService *managementconfigrules.Service, connectionsService *managementconnections.Service, endpointsService *managementendpoints.Service, loadbalanceService *managementloadbalance.Service, modelsService *managementmodels.Service, settingsService *managementsettings.Service, statsService *managementstats.Service) http.Handler {
 	router := chi.NewRouter()
+	// Unregistered paths and wrong-method writes get the same flat problem
+	// envelope as every other management error, instead of chi's text/plain
+	// defaults. CORS headers come from the outer cors middleware; the empty
+	// snapshot here never overrides an already-set Access-Control-Allow-Origin.
+	router.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		responseutil.WriteProblem(w, r, platformcors.Snapshot{}, http.StatusNotFound,
+			"management_route_not_found", "No management route matches this path.", map[string]any{}, nil)
+	})
+	router.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
+		responseutil.WriteProblem(w, r, platformcors.Snapshot{}, http.StatusMethodNotAllowed,
+			"management_method_not_allowed", "This management route does not accept the requested method.", map[string]any{}, nil)
+	})
 	if auditService != nil {
 		auditService.MountManagementRoutes(router)
 	}

@@ -28,19 +28,19 @@ const (
 const MetadataFieldCount = 13
 
 var metadataFieldNames = map[MetadataField]string{
-	MetadataFieldCallerRequestID:      "caller_request_id",
+	MetadataFieldCallerRequestID:       "caller_request_id",
 	MetadataFieldProviderCorrelationID: "provider_correlation_id",
-	MetadataFieldCallerUserAgent:      "caller_user_agent",
-	MetadataFieldUpstreamUserAgent:    "upstream_user_agent",
-	MetadataFieldProviderRequestID:    "provider_request_id",
-	MetadataFieldRequestURL:           "request_url",
-	MetadataFieldEndpointBaseURL:      "endpoint_base_url",
-	MetadataFieldRequestedModelLabel:  "requested_model_label",
-	MetadataFieldResolvedModelLabel:   "resolved_model_label",
-	MetadataFieldOperationName:        "operation_name",
-	MetadataFieldRequestPath:          "request_path",
-	MetadataFieldTerminalTargetLabel:  "terminal_target_label",
-	MetadataFieldEndpointLabel:        "endpoint_label",
+	MetadataFieldCallerUserAgent:       "caller_user_agent",
+	MetadataFieldUpstreamUserAgent:     "upstream_user_agent",
+	MetadataFieldProviderRequestID:     "provider_request_id",
+	MetadataFieldRequestURL:            "request_url",
+	MetadataFieldEndpointBaseURL:       "endpoint_base_url",
+	MetadataFieldRequestedModelLabel:   "requested_model_label",
+	MetadataFieldResolvedModelLabel:    "resolved_model_label",
+	MetadataFieldOperationName:         "operation_name",
+	MetadataFieldRequestPath:           "request_path",
+	MetadataFieldTerminalTargetLabel:   "terminal_target_label",
+	MetadataFieldEndpointLabel:         "endpoint_label",
 }
 
 // MetadataFieldName returns the canonical wire name for a field.

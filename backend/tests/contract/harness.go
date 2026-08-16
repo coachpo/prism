@@ -107,6 +107,17 @@ type proxyKeySnapshot struct {
 }
 
 func startSharedPostgresHarness() (testPostgresHarness, error) {
+	// An externally provisioned PostgreSQL lets the suite run without shelling
+	// out to Docker at all, which is what closed-loop verification needs to be
+	// able to certify that the case left no stray processes behind. It also lets
+	// CI attach a service container instead of running docker-in-docker. The
+	// credentials stay the harness defaults (prism/prism).
+	if externalPort := strings.TrimSpace(os.Getenv("PRISM_TEST_POSTGRES_PORT")); externalPort != "" {
+		if err := waitForPostgres(externalPort); err != nil {
+			return testPostgresHarness{}, err
+		}
+		return testPostgresHarness{hostPort: externalPort}, nil
+	}
 	containerName := testDockerContainerName("postgres")
 	if err := runDockerCommand(context.Background(), "run", "--rm", "-d", "--name", containerName, "-e", "POSTGRES_DB=postgres", "-e", "POSTGRES_USER=prism", "-e", "POSTGRES_PASSWORD=prism", "-P", "postgres:16-alpine"); err != nil {
 		return testPostgresHarness{}, err
@@ -427,7 +438,7 @@ func (h *contractHarness) ensureOpenAIAcceptedFormat(t *testing.T, method string
 		return
 	}
 	if apiFamily, ok := body["api_family"].(string); ok {
-		if apiFamily == "openai" {
+		if apiFamily == "openai" && !strings.Contains(path, "/verify") {
 			body["openai_accepted_format"] = "dual_native"
 		}
 		return

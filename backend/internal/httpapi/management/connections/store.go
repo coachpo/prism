@@ -506,6 +506,17 @@ func loadModelConnectionRecord(ctx context.Context, exec queryExecutor, profileI
 	return items[0], true, nil
 }
 
+// loadConnectionCustomHeadersRaw returns the stored custom header map without
+// any wire masking, for write paths that must resolve redaction sentinels or
+// clone values verbatim.
+func loadConnectionCustomHeadersRaw(ctx context.Context, exec queryExecutor, profileID int, connectionID int) (map[string]string, error) {
+	var raw sql.NullString
+	if err := exec.QueryRow(ctx, `SELECT custom_headers FROM connections WHERE profile_id = $1 AND id = $2`, profileID, connectionID).Scan(&raw); err != nil {
+		return nil, fmt.Errorf("load connection %d custom headers: %w", connectionID, err)
+	}
+	return parseCustomHeaders(raw), nil
+}
+
 func loadConnectionOwnerReference(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, connectionID int, forUpdate bool) (connectionReferenceRecord, bool, error) {
 	query := `SELECT model_access_targets.id, model_configs.id, model_configs.model_id, model_configs.api_family, model_access_targets.position, model_access_targets.is_enabled FROM model_access_targets JOIN model_configs ON model_configs.id = model_access_targets.source_model_config_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.source_model_config_id = $2 AND model_access_targets.target_connection_id = $3`
 	if forUpdate {

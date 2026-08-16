@@ -59,7 +59,7 @@ func TestExtractGenerateContentUsagePreservesGeminiSplits(t *testing.T) {
 	usage := ExtractGenerateContentUsage([]byte(`{"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":17,"totalTokenCount":99,"cachedContentTokenCount":4,"thoughtsTokenCount":6}}`))
 	want := provider.UsageEnvelope{
 		InputTokens:          intPtr(7),
-		OutputTokens:         intPtr(11),
+		OutputTokens:         intPtr(17),
 		TotalTokens:          intPtr(99),
 		CacheReadInputTokens: intPtr(4),
 		ReasoningTokens:      intPtr(6),
@@ -80,12 +80,12 @@ func TestExtractCountTokensUsageIgnoresGenerationUsageMetadata(t *testing.T) {
 
 func TestParseStreamGenerateContentUsesTerminalUsageMetadata(t *testing.T) {
 	stream := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hello\"}]}}]}\n\n" +
-		"data: {\"usageMetadata\":{\"promptTokenCount\":13,\"candidatesTokenCount\":21,\"totalTokenCount\":34,\"cachedContentTokenCount\":5,\"thoughtsTokenCount\":8}}\n\n"
+		"data: {\"usageMetadata\":{\"promptTokenCount\":13,\"candidatesTokenCount\":21,\"totalTokenCount\":42,\"cachedContentTokenCount\":5,\"thoughtsTokenCount\":8}}\n\n"
 	usage, completed, terminal := ParseStreamGenerateContent([]byte(stream))
 	want := provider.UsageEnvelope{
 		InputTokens:          intPtr(8),
-		OutputTokens:         intPtr(13),
-		TotalTokens:          intPtr(34),
+		OutputTokens:         intPtr(21),
+		TotalTokens:          intPtr(42),
 		CacheReadInputTokens: intPtr(5),
 		ReasoningTokens:      intPtr(8),
 		NormalizationRule:    OperationStreamGenerateContent,

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -174,6 +175,7 @@ func TestRuntimeHeaderBlocklistMerge(t *testing.T) {
 			"x-api-key":         "bad-upstream-key",
 			"x-request-id":      "blocked-after-merge",
 			"x-allow-smoke":     allowedHeaderValue,
+			"user-agent":        "declared-by-connection/1.0",
 		},
 	})
 	harness.seedProfileHeaderBlocklistRule(t, activeProfileID, "Block anthropic version", "exact", "anthropic-version")
@@ -205,8 +207,21 @@ func TestRuntimeHeaderBlocklistMerge(t *testing.T) {
 	if upstreamRequest.Headers.Get("X-Allow-Smoke") != allowedHeaderValue {
 		t.Fatalf("expected allowed custom header, got %q", upstreamRequest.Headers.Get("X-Allow-Smoke"))
 	}
-	if upstreamRequest.Headers.Get("X-Client-Kept") != "runtime-ok" {
-		t.Fatalf("expected non-blocked client header to survive, got %q", upstreamRequest.Headers.Get("X-Client-Kept"))
+	// Client headers outside the protocol allowlist never reach an upstream,
+	// blocklist rule or not. A blocklist cannot deliver the anti-fingerprinting
+	// this filter exists for, because every IDE keeps inventing new headers;
+	// operators declare what an upstream needs via connection.custom_headers
+	// instead (X-Allow-Smoke above). The dropped header stays visible in the
+	// audit trail — see TestRuntimeAuditHeaderScrubPersistsRedactedOnly — so the
+	// filter removes the leak without also removing the evidence.
+	if upstreamRequest.Headers.Get("X-Client-Kept") != "" {
+		t.Fatalf("expected unlisted client header to be withheld from the upstream, got %q", upstreamRequest.Headers.Get("X-Client-Kept"))
+	}
+	// The caller's User-Agent identifies the client more precisely than any
+	// other header, so it never crosses; what the upstream sees is what the
+	// connection declared, identically on every request regardless of caller.
+	if got := upstreamRequest.Headers.Get("User-Agent"); got != "declared-by-connection/1.0" {
+		t.Fatalf("expected the connection-declared User-Agent, got %q", got)
 	}
 	if upstreamRequest.Headers.Get("X-Request-Id") != "" {
 		t.Fatalf("expected blocked request id header to be removed, got %q", upstreamRequest.Headers.Get("X-Request-Id"))
@@ -236,8 +251,11 @@ func TestRuntimeUserAgentRuleMerge(t *testing.T) {
 		map[string]string{"User-Agent": callerUserAgent},
 	)
 	assertStatus(t, firstResponse, http.StatusOK)
-	if firstUpstreamUA := harness.upstream.lastRequest(t).Headers.Get("User-Agent"); firstUpstreamUA != callerUserAgent {
-		t.Fatalf("expected caller user-agent to flow upstream, got %q", firstUpstreamUA)
+	// With nothing declared on the connection the upstream learns nothing about
+	// the caller: Prism sends an empty User-Agent rather than relaying
+	// "claude-cli/..." or falling back to Go's default.
+	if firstUpstreamUA := harness.upstream.lastRequest(t).Headers.Get("User-Agent"); firstUpstreamUA != "" {
+		t.Fatalf("expected the caller user-agent to be withheld from the upstream, got %q", firstUpstreamUA)
 	}
 
 	harness.updateConnectionCustomHeaders(t, route.ConnectionID, map[string]any{"User-Agent": "Prism Custom Agent/1.0"})
@@ -1240,6 +1258,17 @@ func TestRuntimeStatePersistsRecoveredStateAcrossRestart(t *testing.T) {
 }
 
 func startSharedPostgresHarness() (testPostgresHarness, error) {
+	// An externally provisioned PostgreSQL lets the suite run without shelling
+	// out to Docker at all, which is what closed-loop verification needs to be
+	// able to certify that the case left no stray processes behind. It also lets
+	// CI attach a service container instead of running docker-in-docker. The
+	// credentials stay the harness defaults (prism/prism).
+	if externalPort := strings.TrimSpace(os.Getenv("PRISM_TEST_POSTGRES_PORT")); externalPort != "" {
+		if err := waitForPostgres(externalPort); err != nil {
+			return testPostgresHarness{}, err
+		}
+		return testPostgresHarness{hostPort: externalPort}, nil
+	}
 	containerName := containername.Prefix() + "-s14-runtime-" + randomSuffix()
 	if err := runDockerCommand(context.Background(), "run", "--rm", "-d", "--name", containerName, "--tmpfs", "/var/lib/postgresql/data:rw", "-e", "POSTGRES_DB=postgres", "-e", "POSTGRES_USER=prism", "-e", "POSTGRES_PASSWORD=prism", "-P", "postgres:16-alpine"); err != nil {
 		return testPostgresHarness{}, err

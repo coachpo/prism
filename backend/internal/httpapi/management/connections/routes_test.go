@@ -51,7 +51,7 @@ func TestValidateLimiterAndAuthType(t *testing.T) {
 	if _, err := validateAuthType(connectionStringRef(" ")); err == nil {
 		t.Fatal("expected blank auth type to fail")
 	} else {
-		requireConnectionDomainError(t, err, http.StatusUnprocessableEntity, "auth_type must be one of 'openai', 'anthropic', or 'gemini'")
+		requireConnectionDomainError(t, err, http.StatusUnprocessableEntity, "auth_type must be one of 'openai', 'anthropic', 'gemini', or 'gemini_api_key'")
 	}
 }
 

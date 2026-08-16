@@ -38,6 +38,7 @@ management/
 
 ## LLM UPSTREAM MATRIX
 - When management work changes model, endpoint, runtime-cache, audit, or request-log semantics that affect proxy behavior, evaluate OpenAI Chat/Responses, Anthropic, and Gemini operation shapes instead of assuming one provider family covers all effects.
+- Terminal Target `custom_headers` is covered by the same rule: read APIs mask sensitive-named values with the `__prism_redacted__` sentinel and expose `custom_headers_redacted`; writes substitute the sentinel back from stored state, and never persist the sentinel itself.
 
 ## ANTI-PATTERNS
 - Do not turn `settings/` into startup bootstrap ownership.

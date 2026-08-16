@@ -27,6 +27,19 @@ func rollbackRoutingPolicyMigration(t *testing.T, ctx context.Context, conn *pgx
 		`ALTER TABLE public.loadbalance_events DROP COLUMN IF EXISTS model_config_id`,
 		`DROP INDEX IF EXISTS public.loadbalance_strategies_one_default_per_profile_idx`,
 		`ALTER TABLE public.loadbalance_strategies DROP COLUMN IF EXISTS is_default`,
+		// Restore the pre-000007 column defaults. Later migrations (000019)
+		// change them, and fixture rows rely on defaults to reproduce the exact
+		// canonical payload that 000007 matches against.
+		`ALTER TABLE public.loadbalance_strategies ALTER COLUMN failure_status_codes SET DEFAULT ARRAY[403, 422, 429, 500, 502, 503, 504, 529]`,
+		`ALTER TABLE public.loadbalance_strategies ALTER COLUMN retry_base_delay_ms SET DEFAULT 60000`,
+		// The fixtures below seed "exact canonical" rows from the column
+		// defaults, so simulating the pre-000007 world means restoring the
+		// defaults of that era too. Later migrations move them forward
+		// (000019 widened the failover set and shortened the retry delay), and
+		// without this the seeded row silently stops matching what 000007
+		// itself considers canonical.
+		`ALTER TABLE public.loadbalance_strategies ALTER COLUMN failure_status_codes SET DEFAULT ARRAY[403, 422, 429, 500, 502, 503, 504, 529]`,
+		`ALTER TABLE public.loadbalance_strategies ALTER COLUMN retry_base_delay_ms SET DEFAULT 60000`,
 		`DELETE FROM prism_schema_migrations WHERE version = '000007_routing_policy_strategy_defaults_and_event_identity'`,
 	} {
 		if _, err := conn.Exec(ctx, statement); err != nil {

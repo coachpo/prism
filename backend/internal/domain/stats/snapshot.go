@@ -48,19 +48,19 @@ type DashboardSnapshotSourceWatermark struct {
 }
 
 type DashboardMetricSnapshot struct {
-	ActiveModels           int     `json:"active_models"`
-	AverageRPM             float64 `json:"average_rpm"`
-	AverageRPMRequestTotal int     `json:"average_rpm_request_total"`
-	AvgLatency             float64 `json:"avg_latency"`
-	ErrorRate              float64 `json:"error_rate"`
-	P95Latency             int     `json:"p95_latency"`
-	PricedRequestCount     int     `json:"priced_request_count"`
-	StreamShare            float64 `json:"stream_share"`
-	SuccessRate            float64 `json:"success_rate"`
-	TotalCost              int64   `json:"total_cost"`
-	TotalModels            int     `json:"total_models"`
-	TotalRequests          int     `json:"total_requests"`
-	UnpricedRequestCount   int     `json:"unpriced_request_count"`
+	ActiveModels           int      `json:"active_models"`
+	AverageRPM             float64  `json:"average_rpm"`
+	AverageRPMRequestTotal int      `json:"average_rpm_request_total"`
+	AvgLatency             *float64 `json:"avg_latency"`
+	ErrorRate              *float64 `json:"error_rate"`
+	P95Latency             *int     `json:"p95_latency"`
+	PricedRequestCount     int      `json:"priced_request_count"`
+	StreamShare            float64  `json:"stream_share"`
+	SuccessRate            *float64 `json:"success_rate"`
+	TotalCost              int64    `json:"total_cost"`
+	TotalModels            int      `json:"total_models"`
+	TotalRequests          int      `json:"total_requests"`
+	UnpricedRequestCount   int      `json:"unpriced_request_count"`
 }
 
 type DashboardRoutingHealthMap struct {
@@ -148,25 +148,29 @@ func newDashboardMetricSnapshot(aggregate DashboardAggregateSnapshot) DashboardM
 	if aggregate.UsageEventRequestCount24H > 0 {
 		streamShare = roundFloat((float64(aggregate.StreamRequestCount24H)/float64(aggregate.UsageEventRequestCount24H))*100, 2)
 	}
-	errorRate := 100 - aggregate.StatsSummary24H.SuccessRate
-	if errorRate < 0 {
-		errorRate = 0
-	}
-	return DashboardMetricSnapshot{
+	snapshot := DashboardMetricSnapshot{
 		ActiveModels:           aggregate.ActiveModelCount,
 		AverageRPM:             aggregate.Throughput24H.AverageRPM,
 		AverageRPMRequestTotal: aggregate.Throughput24H.TotalRequests,
-		AvgLatency:             aggregate.StatsSummary24H.AvgResponseTimeMS,
-		ErrorRate:              errorRate,
-		P95Latency:             aggregate.StatsSummary24H.P95ResponseTimeMS,
 		PricedRequestCount:     aggregate.SpendingSummary30D.Summary.PricedRequestCount,
 		StreamShare:            streamShare,
-		SuccessRate:            aggregate.StatsSummary24H.SuccessRate,
 		TotalCost:              aggregate.SpendingSummary30D.Summary.TotalCostMicros,
 		TotalModels:            aggregate.TotalModelCount,
 		TotalRequests:          aggregate.StatsSummary24H.TotalRequests,
 		UnpricedRequestCount:   aggregate.SpendingSummary30D.Summary.UnpricedRequestCount,
 	}
+	if total := aggregate.StatsSummary24H.TotalRequests; total > 0 {
+		successRate := aggregate.StatsSummary24H.SuccessRate
+		// Error rate comes straight from the counts instead of 100 minus
+		// success rate: the subtraction would turn "no samples" into "100%
+		// failed" and would carry the success-rate rounding drift.
+		errorRate := roundFloat(float64(aggregate.StatsSummary24H.ErrorCount)/float64(total)*100, 2)
+		avgLatency := aggregate.StatsSummary24H.AvgResponseTimeMS
+		p95 := aggregate.StatsSummary24H.P95ResponseTimeMS
+		snapshot.SuccessRate, snapshot.ErrorRate = &successRate, &errorRate
+		snapshot.AvgLatency, snapshot.P95Latency = &avgLatency, &p95
+	}
+	return snapshot
 }
 
 type DashboardAggregateInvalidation struct {
@@ -362,11 +366,11 @@ func BuildDashboardAggregateSnapshot(ctx context.Context, exec queryExecutor, pr
 	if err != nil {
 		return DashboardAggregateSnapshot{}, err
 	}
-	statsSummary, err := GetDashboardStatsSummary(ctx, exec, StatsSummaryParams{ProfileID: profileID, FromTime: &windowStart24H, ToTime: &generatedAt})
+	statsSummary, err := GetStatsSummary(ctx, exec, StatsSummaryParams{ProfileID: profileID, FromTime: &windowStart24H, ToTime: &generatedAt})
 	if err != nil {
 		return DashboardAggregateSnapshot{}, err
 	}
-	apiFamilySummary, err := GetDashboardStatsSummary(ctx, exec, StatsSummaryParams{ProfileID: profileID, FromTime: &windowStart24H, ToTime: &generatedAt, GroupBy: &apiFamilyGroupBy})
+	apiFamilySummary, err := GetStatsSummary(ctx, exec, StatsSummaryParams{ProfileID: profileID, FromTime: &windowStart24H, ToTime: &generatedAt, GroupBy: &apiFamilyGroupBy})
 	if err != nil {
 		return DashboardAggregateSnapshot{}, err
 	}
@@ -551,6 +555,8 @@ func GetUsageSnapshot(ctx context.Context, exec queryExecutor, profileID int, pr
 			OutputTokens:         outputTokens,
 			CachedTokens:         cachedTokens,
 			ReasoningTokens:      reasoningTokens,
+			TokenComponentBasis:  usageSnapshotTokenComponentBasis,
+			UncategorizedTokens:  usageSnapshotUncategorizedTokens(totalTokens, inputTokens, outputTokens, cachedTokens, reasoningTokens),
 			AverageRPM:           dividePerMinute(totalRequests, windowMinutes),
 			AverageTPM:           dividePerMinute(totalTokens, windowMinutes),
 			TotalCostMicros:      totalCostMicros,
@@ -610,21 +616,21 @@ func buildSnapshotEvents(records []usageEventRecord) []snapshotEvent {
 			ModelLabel:               modelLabel,
 			OutputTokens:             record.OutputTokens,
 
-			ProxyAPIKeyID:            record.ProxyAPIKeyID,
-			ProxyAPIKeyLabel:         proxyAPIKeyLabel,
-			ProxyAPIKeyStatsLabel:    proxyAPIKeyStatsLabel,
-			ProxyAPIKeyPrefix:        record.CurrentProxyAPIKeyPrefix,
-			ReasoningTokens:          record.ReasoningTokens,
-			RequestPath:              record.RequestPath,
-			ResolvedTargetModelID:    record.ResolvedTargetModelID,
-			StatusCode:               record.StatusCode,
-			SuccessFlag:              record.SuccessFlag,
-			ResponseTimeMS:           record.ResponseTimeMS,
-			TTFTMS:                   record.TTFTMS,
-			CompletionDurationMS:     record.CompletionDurationMS,
-			HasOutputTokens:          record.HasOutputTokens,
-			TotalCostMicros:          totalCostMicros,
-			TotalTokens:              record.TotalTokens,
+			ProxyAPIKeyID:         record.ProxyAPIKeyID,
+			ProxyAPIKeyLabel:      proxyAPIKeyLabel,
+			ProxyAPIKeyStatsLabel: proxyAPIKeyStatsLabel,
+			ProxyAPIKeyPrefix:     record.CurrentProxyAPIKeyPrefix,
+			ReasoningTokens:       record.ReasoningTokens,
+			RequestPath:           record.RequestPath,
+			ResolvedTargetModelID: record.ResolvedTargetModelID,
+			StatusCode:            record.StatusCode,
+			SuccessFlag:           record.SuccessFlag,
+			ResponseTimeMS:        record.ResponseTimeMS,
+			TTFTMS:                record.TTFTMS,
+			CompletionDurationMS:  record.CompletionDurationMS,
+			HasOutputTokens:       record.HasOutputTokens,
+			TotalCostMicros:       totalCostMicros,
+			TotalTokens:           record.TotalTokens,
 		})
 	}
 	return events
@@ -632,6 +638,20 @@ func buildSnapshotEvents(records []usageEventRecord) []snapshotEvent {
 
 func cachedTokensForSnapshotEvent(event snapshotEvent) int {
 	return event.CacheReadInputTokens + event.CacheCreationInputTokens
+}
+
+const usageSnapshotTokenComponentBasis = "disjoint"
+
+// usageSnapshotUncategorizedTokens reports the part of the provider total that
+// the disjoint components cannot account for. Components are stored as
+// NULL-coalesced integers, so a bare provider total surfaces here as the whole
+// total instead of silently disappearing.
+func usageSnapshotUncategorizedTokens(total, input, output, cached, reasoning int) int {
+	residual := total - (input + output + cached + reasoning)
+	if residual < 0 {
+		return 0
+	}
+	return residual
 }
 
 func statsBoolPtr(value bool) *bool {

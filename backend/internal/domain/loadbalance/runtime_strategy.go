@@ -30,7 +30,12 @@ type ConnectionOrderCandidate struct {
 	Priority int
 }
 
-var defaultRuntimeFailoverStatusCodes = []int{403, 422, 429, 500, 502, 503, 504, 529}
+// 401 and 408 are in the set because an expired or revoked upstream credential
+// is the most common self-hosted failure, and leaving it out meant a model with
+// several healthy backups still returned the first target's 401 to the caller
+// without ever trying them, and without recording anything against that
+// connection's health.
+var defaultRuntimeFailoverStatusCodes = []int{401, 403, 408, 422, 429, 500, 502, 503, 504, 529}
 
 type runtimeFeedbackPolicy struct {
 	Enabled                            bool

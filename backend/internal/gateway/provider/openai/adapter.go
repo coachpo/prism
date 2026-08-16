@@ -66,6 +66,9 @@ func (adapter Adapter) BuildTextUpstreamRequest(_ context.Context, request TextU
 		return provider.UpstreamRequest{}, &provider.AdapterError{HTTPStatus: http.StatusBadRequest, Code: "openai_text_operation_unsupported", Detail: "OpenAI text operation is unsupported by this adapter."}
 	}
 	body := rewriteJSONModel(request.RawBody, request.TargetModelID)
+	if metadata.Name == OperationChatCompletions && RequestWantsStream(request.Operation, request.RawBody, metadata.NativePath) {
+		body = ensureChatCompletionsStreamUsage(body)
+	}
 	return provider.UpstreamRequest{Method: http.MethodPost, Path: metadata.NativePath, Body: body}, nil
 }
 
@@ -87,6 +90,52 @@ func rewriteJSONModel(rawBody []byte, targetModelID string) []byte {
 		return append([]byte(nil), rawBody...)
 	}
 	return rewritten
+}
+
+// streamOptionsIncludeUsageDefault is the stream_options object Prism injects
+// on streaming Chat Completions requests. OpenAI-compatible upstreams emit the
+// final usage chunk only when the caller asks for it, so without this every
+// streaming request persists NULL tokens and unpriced/MISSING_TOKEN_USAGE.
+var streamOptionsIncludeUsageDefault = json.RawMessage(`{"include_usage":true}`)
+
+// ensureChatCompletionsStreamUsage adds stream_options.include_usage=true to a
+// streaming Chat Completions body. Caller intent wins: a stream_options object
+// that already declares include_usage (any value, including false) is left
+// untouched. A missing key and an explicit JSON null are both treated as "no
+// opinion" - null is the documented OpenAI default and clients emit it for an
+// unset field - so both receive the injected object. A non-object, non-null
+// stream_options is passed through for the upstream to reject.
+func ensureChatCompletionsStreamUsage(body []byte) []byte {
+	if len(body) == 0 {
+		return body
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil || payload == nil {
+		return body
+	}
+	existing, present := payload["stream_options"]
+	if !present || string(existing) == "null" {
+		payload["stream_options"] = streamOptionsIncludeUsageDefault
+	} else {
+		var options map[string]json.RawMessage
+		if err := json.Unmarshal(existing, &options); err != nil || options == nil {
+			return body
+		}
+		if _, declared := options["include_usage"]; declared {
+			return body
+		}
+		options["include_usage"] = json.RawMessage(`true`)
+		merged, err := json.Marshal(options)
+		if err != nil {
+			return body
+		}
+		payload["stream_options"] = merged
+	}
+	injected, err := json.Marshal(payload)
+	if err != nil {
+		return body
+	}
+	return injected
 }
 
 func (adapter Adapter) ParseRequest(_ context.Context, envelope provider.RequestEnvelope) (provider.ProviderRequest, error) {

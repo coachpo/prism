@@ -15,19 +15,19 @@ const (
 )
 
 type RuntimeConnectionState struct {
-	ConnectionID            int
-	WindowStartedAt         *time.Time
-	WindowRequestCount      int
-	InFlightNonStream       int
-	InFlightStream          int
-	CycleRetryAttempts      int
-	CumulativeRetryAttempts int
-	NextRetryAt             *time.Time
-	LastRetryDelayMS        int
-	BanMode                 string
-	BannedUntilAt           *time.Time
-	LastFailureKind         *string
-	LastSuccessAt           *time.Time
+	ConnectionID                        int
+	WindowStartedAt                     *time.Time
+	WindowRequestCount                  int
+	InFlightNonStream                   int
+	InFlightStream                      int
+	CycleRetryAttempts                  int
+	CumulativeRetryAttempts             int
+	NextRetryAt                         *time.Time
+	LastRetryDelayMS                    int
+	BanMode                             string
+	BannedUntilAt                       *time.Time
+	LastFailureKind                     *string
+	LastSuccessAt                       *time.Time
 	LastSuccessResponseHeadersLatencyMS *int
 }
 
@@ -51,7 +51,23 @@ func FilterEligibleConnectionIDs(candidates []ConnectionOrderCandidate, states m
 		}
 		eligible = append(eligible, candidate.ID)
 	}
-	return eligible
+	if len(eligible) > 0 || len(candidates) == 0 {
+		return eligible
+	}
+	// Every candidate is in retry backoff. Returning nothing here is what turned
+	// a single transient upstream blip into a model-wide 503 for the whole
+	// backoff window, answered in milliseconds without ever asking an upstream
+	// that may well have recovered. A retry delay is a hint about ordering, not
+	// a statement that the connection is unusable, so fall back to trying them
+	// and let the upstream decide. An explicit ban is a decision and still holds.
+	fallback := make([]int, 0, len(candidates))
+	for _, candidate := range candidates {
+		if state, ok := states[candidate.ID]; ok && state.isBanned(referenceNow) {
+			continue
+		}
+		fallback = append(fallback, candidate.ID)
+	}
+	return fallback
 }
 
 func AdmissionRejectionReason(state RuntimeConnectionState, admission RuntimeConnectionAdmission, policy runtimeAdmissionPolicy, isStream bool, referenceNow time.Time) string {
@@ -79,6 +95,13 @@ func AdmissionRejectionReason(state RuntimeConnectionState, admission RuntimeCon
 
 func (state RuntimeConnectionState) IsEligible(referenceNow time.Time) bool {
 	return deriveCurrentState(state.BanMode, state.BannedUntilAt, state.NextRetryAt, referenceNow.UTC()) == "available"
+}
+
+// isBanned separates an explicit ban, which must be honoured even when nothing
+// else is left to try, from a retry backoff, which may be bypassed as a last
+// resort rather than failing the request outright.
+func (state RuntimeConnectionState) isBanned(referenceNow time.Time) bool {
+	return deriveCurrentState(state.BanMode, state.BannedUntilAt, state.NextRetryAt, referenceNow.UTC()) == "banned"
 }
 
 func retryDelayMilliseconds(policy runtimeFeedbackPolicy, cycleAttempt int) int {

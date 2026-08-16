@@ -280,8 +280,8 @@ func (s *Service) handleProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 const (
-	runtimeOperationNotFoundDetail         = "Runtime operation not found"
-	runtimeOperationMethodNotAllowedDetail = "Method not allowed for runtime operation"
+	runtimeOperationNotFoundDetail          = "Runtime operation not found"
+	runtimeOperationMethodNotAllowedDetail  = "Method not allowed for runtime operation"
 	runtimeContentEncodingUnsupportedDetail = "Content-Encoding is not supported when custom request parameters are configured"
 )
 
@@ -475,7 +475,7 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 	captureAuditBody := execution.AuditEnabledAtRequest && execution.AuditCaptureBodiesAtRequest
 	if strings.Contains(contentType, "text/event-stream") {
 		if _, ok := streamHooksForProxyResponse(plan.RuntimeOperation, plan.IsStreamingRequest); ok {
-			copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
+			copyUpstreamResponseHeaders(proxyWriter.Header(), execution.Response.Header)
 			proxyWriter.WriteHeader(execution.Response.StatusCode)
 			acceptedRowID := int64(0)
 			if s.runtimeResponseRequiresDurableHandoff(execution) {
@@ -500,12 +500,17 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 			} else {
 				s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
 			}
+			// Emitted after the handoff so a finalize failure reports itself once
+			// rather than stacking two error frames on the same stream.
+			if reason, aborted := runtimeStreamAbortReasonFor(responseCapture.StreamOutcome); aborted {
+				writeRuntimeStreamAbortFrame(proxyWriter, plan.RuntimeOperation, reason)
+			}
 			proxyWriter.Commit()
 			return
 		}
 	}
 	if !nonStreamResponseRequiresBufferedInspection(execution.Response.StatusCode) {
-		copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
+		copyUpstreamResponseHeaders(proxyWriter.Header(), execution.Response.Header)
 		proxyWriter.WriteHeader(execution.Response.StatusCode)
 		acceptedRowID := int64(0)
 		if s.runtimeResponseRequiresDurableHandoff(execution) {
@@ -597,7 +602,7 @@ func readAndCloseRuntimeResponseBody(response *http.Response) ([]byte, error) {
 func (s *Service) writeBufferedNonStreamResponse(proxyWriter *runtimeDeferredCommitWriter, plan requestPlan, execution executionResult, rawBody []byte) (runtimeResponseCapture, error) {
 	contentType := strings.ToLower(strings.TrimSpace(execution.Response.Header.Get("Content-Type")))
 	captureAuditBody := execution.AuditEnabledAtRequest && execution.AuditCaptureBodiesAtRequest
-	copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
+	copyUpstreamResponseHeaders(proxyWriter.Header(), execution.Response.Header)
 	proxyWriter.WriteHeader(execution.Response.StatusCode)
 	return proxyNonEventResponseAndCaptureByOperation(plan.RuntimeOperation, proxyWriter, bytes.NewReader(rawBody), contentType, s.nowUTC, captureAuditBody)
 }
@@ -675,12 +680,14 @@ const (
 	runtimeStreamOutcomeCompleted                    = "completed"
 	runtimeStreamOutcomeProviderIncomplete           = "provider_incomplete"
 	runtimeStreamOutcomeClientDisconnected           = "client_disconnected"
+	runtimeStreamOutcomeGatewayTimeout               = "gateway_timeout"
 	runtimeStreamOutcomeUpstreamReadError            = "upstream_read_error"
 	runtimeStreamOutcomeUpstreamEndedWithoutTerminal = "upstream_ended_without_terminal"
 	runtimeStreamOutcomeUnknown                      = "unknown"
 
 	runtimeStreamErrorKindClientWriteFailed      = "client_write_failed"
 	runtimeStreamErrorKindRequestContextCanceled = "request_context_canceled"
+	runtimeStreamErrorKindGatewayStreamDeadline  = "gateway_stream_deadline_exceeded"
 	runtimeStreamErrorKindUpstreamReadFailed     = "upstream_read_failed"
 	runtimeStreamErrorKindMissingTerminalEvent   = "missing_terminal_event"
 	runtimeStreamErrorDetailMaxLength            = 512
@@ -1164,6 +1171,13 @@ func classifySSEStreamOutcome(ctx context.Context, terminal sseTerminalSignal, u
 		return sseStreamClassification{outcome: runtimeStreamOutcomeClientDisconnected, kind: stringPtr(runtimeStreamErrorKindClientWriteFailed), detail: sanitizedStreamErrorDetail(writeErr)}
 	}
 	if ctx != nil && ctx.Err() != nil {
+		// A client that goes away cancels the inbound request context
+		// (context.Canceled). A budget the gateway itself imposed expires it
+		// (context.DeadlineExceeded). Blaming the client for both is what made
+		// gateway-side truncation unattributable in the request log.
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return sseStreamClassification{outcome: runtimeStreamOutcomeGatewayTimeout, kind: stringPtr(runtimeStreamErrorKindGatewayStreamDeadline), detail: sanitizedStreamErrorDetail(ctx.Err())}
+		}
 		return sseStreamClassification{outcome: runtimeStreamOutcomeClientDisconnected, kind: stringPtr(runtimeStreamErrorKindRequestContextCanceled), detail: sanitizedStreamErrorDetail(ctx.Err())}
 	}
 	if upstreamErr != nil && !errors.Is(upstreamErr, io.EOF) {

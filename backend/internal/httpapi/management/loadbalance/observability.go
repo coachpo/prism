@@ -139,7 +139,8 @@ func (s *Service) handleIssueEventsQueryContext(w http.ResponseWriter, r *http.R
 	decoder.DisallowUnknownFields()
 	var requestBody eventsQueryContextRequest
 	if err := decoder.Decode(&requestBody); err != nil {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "invalid query context request")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, responseutil.SanitizeDecodeError(err).Error())
+		return
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (eventsQueryContextResponse, error) {

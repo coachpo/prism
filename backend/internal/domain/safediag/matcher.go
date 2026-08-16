@@ -1,6 +1,9 @@
 package safediag
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // SensitiveNameRule is an extra exact/prefix header name rule contributed by
 // the request-time effective Header Blocklist. It can only make scrubbing
@@ -133,6 +136,33 @@ func FixedSensitiveNameList() []string {
 
 // FixedSensitiveFragments returns the fixed case-insensitive fragments for
 // documentation and test parity with the frontend mask mirror.
+// CustomHeaderRedactedValue is the sentinel management read APIs return in
+// place of stored values whose header name matches the fixed sensitive-name
+// bottom line. Writing the sentinel back preserves the stored value.
+const CustomHeaderRedactedValue = "__prism_redacted__"
+
+// RedactSensitiveHeaderValues masks values whose header name matches the
+// fixed sensitive-name bottom line, and returns the sorted list of masked
+// names so clients can render them as write-only fields.
+func RedactSensitiveHeaderValues(headers map[string]string) (map[string]string, []string) {
+	if len(headers) == 0 {
+		return nil, nil
+	}
+	matcher := NewSensitiveNameMatcher()
+	masked := make(map[string]string, len(headers))
+	redacted := make([]string, 0, len(headers))
+	for name, value := range headers {
+		if matcher.IsSensitiveName(name) {
+			masked[name] = CustomHeaderRedactedValue
+			redacted = append(redacted, name)
+			continue
+		}
+		masked[name] = value
+	}
+	sort.Strings(redacted)
+	return masked, redacted
+}
+
 func FixedSensitiveFragments() []string {
 	return append([]string(nil), fixedFragments...)
 }

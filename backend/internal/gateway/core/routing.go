@@ -28,6 +28,10 @@ const (
 	UsageSourceProviderStreamTerminal UsageSource = "provider_stream_terminal"
 	UsageSourceLocalEstimate          UsageSource = "local_estimate"
 	UsageSourceMissing                UsageSource = "missing"
+	// UsageSourceNormalizationRejected means the upstream did send a usage
+	// payload but it failed provider-side normalization; it is deliberately
+	// distinct from UsageSourceMissing.
+	UsageSourceNormalizationRejected UsageSource = "normalization_rejected"
 )
 
 type RoutePlan struct {

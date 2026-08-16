@@ -99,6 +99,11 @@ type UsageEnvelope struct {
 	CacheCreationInputTokens *int
 	ReasoningTokens          *int
 	NormalizationRule        string
+	// NormalizationRejected marks a payload that did carry usage values but
+	// failed normalization (negative component or provider total below the
+	// disjoint component sum). All token fields stay nil; this flag is the
+	// only thing that distinguishes it from an absent usage payload.
+	NormalizationRejected bool
 }
 
 type TokenEstimate struct {

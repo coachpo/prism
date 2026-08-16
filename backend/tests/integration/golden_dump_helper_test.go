@@ -44,7 +44,7 @@ func TestDumpMigratedSchema(t *testing.T) {
 		"exec",
 		"-e",
 		"PGPASSWORD=prism",
-		harness.containerName,
+		harness.dumpContainerName(),
 		"pg_dump",
 		"--host=127.0.0.1",
 		"--username=prism",

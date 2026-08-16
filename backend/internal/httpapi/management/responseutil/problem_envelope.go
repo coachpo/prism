@@ -3,8 +3,10 @@ package responseutil
 import (
 	"crypto/rand"
 	"encoding/hex"
-
 	"net/http"
+	"strings"
+
+	"github.com/go-chi/chi/v5/middleware"
 
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 )
@@ -38,9 +40,20 @@ func WriteProblem(
 		"detail":     detail,
 		"params":     params,
 		"details":    details,
-		"request_id": newProblemRequestID(),
+		"request_id": problemRequestID(r),
 	}
 	WriteJSON(w, statusCode, payload)
+}
+
+// problemRequestID prefers the chi request id when one is present and falls
+// back to a fresh opaque correlation value.
+func problemRequestID(r *http.Request) string {
+	if r != nil {
+		if id := strings.TrimSpace(middleware.GetReqID(r.Context())); id != "" {
+			return id
+		}
+	}
+	return newProblemRequestID()
 }
 
 func newProblemRequestID() string {

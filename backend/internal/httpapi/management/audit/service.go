@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"slices"
 	"strconv"
@@ -356,7 +357,7 @@ func (s *Service) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&request); err != nil {
-			responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+			responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, responseutil.SanitizeDecodeError(err).Error())
 			return
 		}
 		if strings.TrimSpace(request.OperationID) == "" {
@@ -501,7 +502,7 @@ func parseListParams(r *http.Request, profileID int) (auditdomain.ListParams, er
 	if err := rejectUnsupportedListFilters(r); err != nil {
 		return auditdomain.ListParams{}, err
 	}
-	requestLogID, err := parseOptionalInt(r, "request_log_id")
+	requestLogID, err := parseOptionalBigInt(r, "request_log_id")
 	if err != nil {
 		return auditdomain.ListParams{}, err
 	}
@@ -517,7 +518,7 @@ func parseListParams(r *http.Request, profileID int) (auditdomain.ListParams, er
 	if err != nil {
 		return auditdomain.ListParams{}, err
 	}
-	anchorAuditID, err := parseOptionalInt(r, "anchor_id")
+	anchorAuditID, err := parseOptionalBigInt(r, "anchor_id")
 	if err != nil {
 		return auditdomain.ListParams{}, err
 	}
@@ -571,6 +572,15 @@ func parseRequiredTime(r *http.Request, key string) (*time.Time, error) {
 	return parsed, nil
 }
 
+func invalidQueryParameter(key string, reason string) error {
+	return &auditdomain.HTTPError{
+		StatusCode: http.StatusUnprocessableEntity,
+		Code:       "invalid_query_parameter",
+		Detail:     fmt.Sprintf("%s %s", key, reason),
+		Details:    map[string]any{"parameter": key},
+	}
+}
+
 func parseOptionalTime(r *http.Request, key string) (*time.Time, error) {
 	raw := strings.TrimSpace(r.URL.Query().Get(key))
 	if raw == "" {
@@ -580,7 +590,7 @@ func parseOptionalTime(r *http.Request, key string) (*time.Time, error) {
 	if err != nil {
 		parsed, err = time.Parse(time.RFC3339Nano, raw)
 		if err != nil {
-			return nil, fmt.Errorf("invalid %s", key)
+			return nil, invalidQueryParameter(key, "must be an RFC3339 timestamp")
 		}
 	}
 	resolved := parsed.UTC()
@@ -594,7 +604,26 @@ func parseOptionalInt(r *http.Request, key string) (*int, error) {
 	}
 	parsed, err := strconv.Atoi(raw)
 	if err != nil {
-		return nil, fmt.Errorf("invalid %s", key)
+		return nil, invalidQueryParameter(key, "must be an integer")
+	}
+	if parsed > math.MaxInt32 || parsed < math.MinInt32 {
+		return nil, invalidQueryParameter(key, fmt.Sprintf("must be within [%d, %d]", math.MinInt32, math.MaxInt32))
+	}
+	resolved := parsed
+	return &resolved, nil
+}
+
+// parseOptionalBigInt is the unbounded variant for bigint identifiers
+// (request_log_id, anchor_id): audit rows carry BIGINT request-log ids, so an
+// int32 bound would reject legitimate values past 2^31.
+func parseOptionalBigInt(r *http.Request, key string) (*int, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get(key))
+	if raw == "" {
+		return nil, nil
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil {
+		return nil, invalidQueryParameter(key, "must be an integer")
 	}
 	resolved := parsed
 	return &resolved, nil
@@ -609,7 +638,7 @@ func parsePositiveIntWithDefault(r *http.Request, key string, defaultValue int) 
 		return defaultValue, nil
 	}
 	if *parsed <= 0 {
-		return 0, fmt.Errorf("invalid %s", key)
+		return 0, invalidQueryParameter(key, "must be >= 1")
 	}
 	return *parsed, nil
 }
@@ -637,7 +666,7 @@ func routeInt(r *http.Request, name string) (int, error) {
 	raw := strings.TrimSpace(chi.URLParam(r, name))
 	parsed, err := strconv.Atoi(raw)
 	if err != nil || parsed <= 0 {
-		return 0, fmt.Errorf("invalid %s", name)
+		return 0, invalidQueryParameter(name, "must be a positive integer")
 	}
 	return parsed, nil
 }
@@ -672,12 +701,11 @@ func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platf
 }
 
 func writeStructuredError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err *auditdomain.HTTPError) {
-	writeCORSHeaders(w, r, corsSnapshot)
-	payload := map[string]any{"error": map[string]any{"code": err.Code, "message": err.Detail}}
+	var details any
 	if len(err.Details) > 0 {
-		payload["error"].(map[string]any)["details"] = err.Details
+		details = err.Details
 	}
-	responseutil.WriteJSON(w, err.StatusCode, payload)
+	responseutil.WriteProblem(w, r, corsSnapshot, err.StatusCode, err.Code, err.Detail, map[string]any{}, details)
 }
 
 func writeCORSHeaders(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot) {

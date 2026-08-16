@@ -134,7 +134,7 @@ func (s *Service) handleCreatePricingTemplate(w http.ResponseWriter, r *http.Req
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&requestBody); err != nil {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, responseutil.SanitizeDecodeError(err).Error())
 		return
 	}
 	var fields map[string]json.RawMessage
@@ -283,7 +283,7 @@ func (s *Service) previewImportPayload(r *http.Request, requestBody pricingTempl
 		return pricingTemplateImportResponse{Skipped: []string{}, Errors: importErrors}, nil
 	}
 
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (pricingTemplateImportResponse, error) {
+	response, err := pgxutil.InReadOnlyTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (pricingTemplateImportResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return pricingTemplateImportResponse{}, err

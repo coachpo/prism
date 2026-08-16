@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -22,13 +23,24 @@ const integrationTemplateDatabase = "template1_prism"
 var sharedIntegrationPostgresHarness postgresHarness
 
 type postgresHarness struct {
-	containerName string
-	hostPort      string
+	containerName     string
+	externalContainer string
+	hostPort          string
+}
+
+// dumpContainerName returns the container to run pg_dump inside: the one this
+// suite started, or an externally provisioned one when the database was
+// supplied through PRISM_TEST_POSTGRES_PORT.
+func (h postgresHarness) dumpContainerName() string {
+	if h.containerName != "" {
+		return h.containerName
+	}
+	return h.externalContainer
 }
 
 func newPostgresHarness(t *testing.T) postgresHarness {
 	t.Helper()
-	if sharedIntegrationPostgresHarness.containerName == "" {
+	if sharedIntegrationPostgresHarness.hostPort == "" {
 		t.Fatal("shared integration postgres harness not initialized")
 	}
 	return sharedIntegrationPostgresHarness
@@ -171,6 +183,20 @@ func randomSuffix(t *testing.T) string {
 }
 
 func startSharedPostgresHarness() (postgresHarness, error) {
+	// An externally provisioned PostgreSQL lets the suite run without shelling
+	// out to Docker at all, which is what closed-loop verification needs to be
+	// able to certify that the case left no stray processes behind. It also lets
+	// CI attach a service container instead of running docker-in-docker. The
+	// credentials stay the harness defaults (prism/prism).
+	if externalPort := strings.TrimSpace(os.Getenv("PRISM_TEST_POSTGRES_PORT")); externalPort != "" {
+		if err := waitForPostgresPort(externalPort); err != nil {
+			return postgresHarness{}, err
+		}
+		// externalContainer is only used by the schema-dump assertions, which
+		// shell into the database with pg_dump. cleanupSharedPostgresHarness
+		// still refuses to remove a container it did not create.
+		return postgresHarness{hostPort: externalPort, externalContainer: strings.TrimSpace(os.Getenv("PRISM_TEST_POSTGRES_CONTAINER"))}, nil
+	}
 	containerName := containername.Prefix() + "-integration-" + randomSuffixString()
 	if _, err := runDockerCommand(context.Background(), "run", "--rm", "-d", "--name", containerName, "--tmpfs", "/var/lib/postgresql/data:rw", "-e", "POSTGRES_DB=postgres", "-e", "POSTGRES_USER=prism", "-e", "POSTGRES_PASSWORD=prism", "-P", "postgres:16-alpine"); err != nil {
 		return postgresHarness{}, err
@@ -195,6 +221,12 @@ func prepareTemplateDatabase(h postgresHarness) error {
 	}
 	defer func() { _ = adminConn.Close(context.Background()) }()
 
+	// PostgreSQL refuses to drop a database while it is still flagged as a
+	// template. A throwaway container never hits this, but a reused database
+	// carries the flag over from the previous run, so clear it first.
+	if _, err := adminConn.Exec(ctx, `UPDATE pg_database SET datistemplate = FALSE WHERE datname = $1`, integrationTemplateDatabase); err != nil {
+		return fmt.Errorf("clear template flag on %s: %w", integrationTemplateDatabase, err)
+	}
 	if _, err := adminConn.Exec(ctx, `DROP DATABASE IF EXISTS `+quoteIdentifier(integrationTemplateDatabase)+` WITH (FORCE)`); err != nil {
 		return fmt.Errorf("drop template database %s: %w", integrationTemplateDatabase, err)
 	}

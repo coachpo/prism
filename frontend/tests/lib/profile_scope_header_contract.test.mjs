@@ -36,12 +36,16 @@ test("profile scope helper matches profile-scoped rows in the route contract man
   const scopedRows = routeContract.filter((row) => row.profile_scoped);
   const scopedNonInvalidatingRows = scopedRows.filter(isNonInvalidating);
 
-  // 98 since the two duplicated entries for /api/endpoints/{endpoint_id}/position
-  // were removed: that route is not mounted anywhere in the backend, and the
-  // column it ordered by was dropped in migration 000004. The lock is here to
+  // 124 rows, up from the older 100, for two independent reasons that landed
+  // together. The manifest is now emitted one row per admission-table entry, so
+  // a path whose methods differ in cache-invalidation effect (GET /api/models vs
+  // POST /api/models) contributes a row each instead of one merged row. Against
+  // that, the two duplicated entries for /api/endpoints/{endpoint_id}/position
+  // were dropped: that route is not mounted anywhere in the backend, and the
+  // column it ordered by was removed in migration 000004. The lock is here to
   // force a deliberate decision whenever the manifest changes, so it moves only
   // with an explanation like this one.
-  assert.equal(routeContract.length, 98, "manifest row count should stay locked");
+  assert.equal(routeContract.length, 124, "manifest row count should stay locked");
   assert.ok(scopedRows.length > 0, "manifest should include profile-scoped rows");
   assert.ok(
     scopedNonInvalidatingRows.length > 0,

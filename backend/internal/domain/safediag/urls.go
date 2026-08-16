@@ -9,10 +9,10 @@ import (
 type URLScrubProvenance string
 
 const (
-	URLScrubProvenanceRuntimeScrubbed   URLScrubProvenance = "runtime_scrubbed"
-	URLScrubProvenanceLegacyRescrubbed  URLScrubProvenance = "legacy_rescrubbed"
-	URLScrubProvenanceLegacyUnknown     URLScrubProvenance = "legacy_unknown"
-	URLScrubProvenanceNotApplicable     URLScrubProvenance = "not_applicable"
+	URLScrubProvenanceRuntimeScrubbed  URLScrubProvenance = "runtime_scrubbed"
+	URLScrubProvenanceLegacyRescrubbed URLScrubProvenance = "legacy_rescrubbed"
+	URLScrubProvenanceLegacyUnknown    URLScrubProvenance = "legacy_unknown"
+	URLScrubProvenanceNotApplicable    URLScrubProvenance = "not_applicable"
 )
 
 // ScrubRequestURL sanitizes a request URL for persistence: only normalized

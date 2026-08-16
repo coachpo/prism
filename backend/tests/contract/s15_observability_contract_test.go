@@ -41,8 +41,9 @@ func s15AuditWindowQuery() string {
 
 func assertErrorCode(t *testing.T, payload map[string]any, want string) {
 	t.Helper()
-	errorPayload := asMap(t, payload["error"])
-	if errorPayload["code"] != want {
+	// The audit/stats surfaces use the flat management problem envelope:
+	// {code, detail, params, details, request_id}.
+	if payload["code"] != want {
 		t.Fatalf("expected error code %q, got %+v", want, payload)
 	}
 }
@@ -263,9 +264,15 @@ func TestEndpointModelStatistics(t *testing.T) {
 func TestStatsSummary(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
-	insertRequestLogSummaryRow(t, harness, 100, profileID, "summary-model-a", "openai", 12, 41, 200, 100, 10, 20, 30, fixedS15Now.Add(-55*time.Minute))
-	insertRequestLogSummaryRow(t, harness, 101, profileID, "summary-model-a", "openai", 12, 41, 500, 300, 5, 10, 15, fixedS15Now.Add(-50*time.Minute))
-	insertRequestLogSummaryRow(t, harness, 102, profileID, "summary-model-b", "anthropic", 13, 42, 200, 200, 8, 12, 20, fixedS15Now.Add(-45*time.Minute))
+	// /api/stats/summary reports the request-level granularity it advertises, so
+	// it reads finalized usage events rather than per-attempt request_logs rows.
+	// Seeding request_logs here would count attempts and reintroduce the basis
+	// mismatch this endpoint was changed to remove.
+	endpointA, connectionA := 12, 41
+	endpointB, connectionB := 13, 42
+	insertUsageEvent(t, harness, usageEventSeed{ID: 100, ProfileID: profileID, IngressRequestID: "summary-1", ModelID: "summary-model-a", APIFamily: "openai", EndpointID: &endpointA, ConnectionID: &connectionA, StatusCode: 200, SuccessFlag: true, ResponseTimeMS: intPtr(100), InputTokens: intPtr(10), OutputTokens: intPtr(20), TotalTokens: intPtr(30), CreatedAt: fixedS15Now.Add(-55 * time.Minute)})
+	insertUsageEvent(t, harness, usageEventSeed{ID: 101, ProfileID: profileID, IngressRequestID: "summary-2", ModelID: "summary-model-a", APIFamily: "openai", EndpointID: &endpointA, ConnectionID: &connectionA, StatusCode: 500, SuccessFlag: false, ResponseTimeMS: intPtr(300), InputTokens: intPtr(5), OutputTokens: intPtr(10), TotalTokens: intPtr(15), CreatedAt: fixedS15Now.Add(-50 * time.Minute)})
+	insertUsageEvent(t, harness, usageEventSeed{ID: 102, ProfileID: profileID, IngressRequestID: "summary-3", ModelID: "summary-model-b", APIFamily: "anthropic", EndpointID: &endpointB, ConnectionID: &connectionB, StatusCode: 200, SuccessFlag: true, ResponseTimeMS: intPtr(200), InputTokens: intPtr(8), OutputTokens: intPtr(12), TotalTokens: intPtr(20), CreatedAt: fixedS15Now.Add(-45 * time.Minute)})
 
 	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/summary?group_by=api_family", http.StatusOK)
 	if jsonInt(t, payload["total_requests"]) != 3 || jsonInt(t, payload["success_count"]) != 2 || jsonInt(t, payload["error_count"]) != 1 {

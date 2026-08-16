@@ -5,7 +5,7 @@ import type { LoadbalanceStrategy, LoadbalanceStrategyCreate, LoadbalanceStrateg
 export const banPolicyRoutingTypes = ["single", "fill-first", "round-robin"] as const
 export const banPolicyModes = ["off", "temporary", "until_reset"] as const
 
-export const CANONICAL_FAILURE_STATUS_CODES = [403, 422, 429, 500, 502, 503, 504, 529]
+export const CANONICAL_FAILURE_STATUS_CODES = [401, 403, 408, 422, 429, 500, 502, 503, 504, 529]
 
 export type BanPolicyPresetKey = "conservative" | "balanced" | "aggressive"
 
@@ -28,7 +28,7 @@ export const BAN_POLICY_PRESETS: Record<BanPolicyPresetKey, BanPolicyPreset> = {
   conservative: {
     key: "conservative",
     failure_status_codes: CANONICAL_FAILURE_STATUS_CODES,
-    retry_base_delay_ms: 120000,
+    retry_base_delay_ms: 30000,
     retry_backoff_multiplier: 2.0,
     retry_jitter_ratio: 0.2,
     retry_max_delay_ms: 1800000,
@@ -40,7 +40,7 @@ export const BAN_POLICY_PRESETS: Record<BanPolicyPresetKey, BanPolicyPreset> = {
   balanced: {
     key: "balanced",
     failure_status_codes: CANONICAL_FAILURE_STATUS_CODES,
-    retry_base_delay_ms: 60000,
+    retry_base_delay_ms: 5000,
     retry_backoff_multiplier: 2.0,
     retry_jitter_ratio: 0.2,
     retry_max_delay_ms: 900000,
@@ -52,7 +52,7 @@ export const BAN_POLICY_PRESETS: Record<BanPolicyPresetKey, BanPolicyPreset> = {
   aggressive: {
     key: "aggressive",
     failure_status_codes: CANONICAL_FAILURE_STATUS_CODES,
-    retry_base_delay_ms: 10000,
+    retry_base_delay_ms: 2000,
     retry_backoff_multiplier: 1.5,
     retry_jitter_ratio: 0.2,
     retry_max_delay_ms: 120000,

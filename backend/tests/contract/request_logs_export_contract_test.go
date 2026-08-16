@@ -141,7 +141,7 @@ func TestRequestLogCSVExportContract(t *testing.T) {
 		t.Fatalf("expected JSON/CSV stream-duration and currency parity, JSON=%+v CSV=%+v", winner, failover)
 	}
 	missingPayload := requestJSONStatus[map[string]any](t, harness, http.MethodGet, path+"&ingress_final_result=failed", nil, modelHeader(profileID), http.StatusUnprocessableEntity)
-	if asMap(t, missingPayload["error"])["code"] != "query_context_required" {
+	if missingPayload["code"] != "query_context_required" {
 		t.Fatalf("expected export query_context_required parity, got %+v", missingPayload)
 	}
 

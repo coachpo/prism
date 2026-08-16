@@ -126,6 +126,10 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 	if err != nil {
 		return RequestLogListResponse{}, err
 	}
+	currentConnectionsByID, err := loadCurrentConnections(ctx, exec, params.ProfileID)
+	if err != nil {
+		return RequestLogListResponse{}, err
+	}
 	rules, err := loadCompiledUserAgentRules(ctx, exec, params.ProfileID)
 	if err != nil {
 		return RequestLogListResponse{}, err
@@ -141,11 +145,21 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 		params.ClientRulePattern = &rule.RawPattern
 	}
 	whereClause, args := buildRequestLogBrowseWhere(params)
-	// ponytail: 全量 COUNT，日志量上万后换估算或 keyset 分页
-	countQuery := `SELECT COUNT(*) FROM request_logs WHERE ` + whereClause
-	var total int
-	if err := exec.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+	// requestLogCountCap bounds the browse-count scan. Requests is the
+	// highest-write table on the gateway; an exact count is not worth a scan
+	// across every retained partition. Above the cap the response carries
+	// total=cap with total_is_exact=false so the UI can render "10,000+".
+	countQuery := `SELECT COUNT(*) FROM (SELECT 1 FROM request_logs WHERE ` + whereClause +
+		` LIMIT $` + fmt.Sprintf("%d", len(args)+1) + `) AS bounded`
+	var counted int
+	if err := exec.QueryRow(ctx, countQuery, append(args, requestLogCountCap+1)...).Scan(&counted); err != nil {
 		return RequestLogListResponse{}, fmt.Errorf("count request logs for profile %d: %w", params.ProfileID, err)
+	}
+	total := counted
+	totalIsExact := true
+	if counted > requestLogCountCap {
+		total = requestLogCountCap
+		totalIsExact = false
 	}
 	rows, err := exec.Query(
 		ctx,
@@ -162,7 +176,7 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 		 WHERE `+whereClause+`
 		 `+requestLogOrderBy(params.SortBy, params.SortOrder)+`
 		 LIMIT $`+fmt.Sprintf("%d", len(args)+1)+` OFFSET $`+fmt.Sprintf("%d", len(args)+2),
-		append(append(args, limit), offset)...,
+		append(append(args, limit+1), offset)...,
 	)
 	if err != nil {
 		return RequestLogListResponse{}, fmt.Errorf("query request logs for profile %d: %w", params.ProfileID, err)
@@ -175,7 +189,7 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 			return RequestLogListResponse{}, scanErr
 		}
 		currentEndpoint, _ := endpointFromMap(currentEndpointsByID, item.EndpointID)
-		terminalTargetLabel, terminalTargetConfigured := resolveListTargetLabel(ctx, exec, params.ProfileID, item.ConnectionID)
+		terminalTarget := resolveTerminalTargetProjection(currentConnectionsByID, item.ConnectionID)
 		listItem := RequestLogListItem{
 			RequestLogID:                  fmt.Sprintf("%d", item.ID),
 			RowKind:                       item.RowKind,
@@ -197,8 +211,9 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 			ProxyAPIKeyNameSnapshot:       item.ProxyAPIKeyNameSnapshot,
 			ProxyAPIKeyAttributionState:   item.ProxyAPIKeyAttributionState,
 			ProxyAPIKeyAuthEnforced:       item.ProxyAPIKeyAuthEnforced,
-			TerminalTargetLabel:           terminalTargetLabel,
-			TerminalTargetConfigured:      terminalTargetConfigured,
+			TerminalTargetLabel:           terminalTarget.Label,
+			TerminalTargetConfigured:      terminalTarget.Configured,
+			TerminalTargetOwnerModelID:    terminalTarget.OwnerModelID,
 			StatusCode:                    item.StatusCode,
 			UpstreamStatusCode:            item.UpstreamStatusCode,
 			GatewayStatusCode:             item.GatewayStatusCode,
@@ -234,6 +249,11 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 	if err := rows.Err(); err != nil {
 		return RequestLogListResponse{}, fmt.Errorf("iterate request logs for profile %d: %w", params.ProfileID, err)
 	}
+	hasMore := false
+	if len(items) > limit {
+		hasMore = true
+		items = items[:limit]
+	}
 	return RequestLogListResponse{
 		Coverage: coverage,
 		FilterOptions: RequestLogListFilterOptions{
@@ -242,12 +262,16 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 			ResolvedTargetModels: buildRequestLogResolvedTargetModelOptions(currentModels, params.ResolvedTargetModelID),
 			Clients:              buildRequestLogClientOptions(rules),
 		},
-		Items:  items,
-		Total:  total,
-		Limit:  limit,
-		Offset: offset,
+		Items:        items,
+		Total:        total,
+		TotalIsExact: totalIsExact,
+		HasMore:      hasMore,
+		Limit:        limit,
+		Offset:       offset,
 	}, nil
 }
+
+const requestLogCountCap = 10000
 
 func buildRequestLogBrowseWhere(params RequestLogListParams) (string, []any) {
 	clauses := []string{"profile_id = $1"}
@@ -438,7 +462,7 @@ func buildFinalizedCohortExistsClause(params RequestLogListParams, args *[]any) 
 const finalizedUsageResultClassifierSQL = `CASE
 	WHEN ue.status_code NOT BETWEEN 200 AND 299 THEN 'failed'
 	WHEN ue.stream_outcome = 'client_disconnected' THEN 'client_disconnected'
-	WHEN ue.stream_outcome IN ('provider_incomplete','upstream_read_error','upstream_ended_without_terminal','unknown') THEN 'failed'
+	WHEN ue.stream_outcome IN ('provider_incomplete','upstream_read_error','gateway_timeout','upstream_ended_without_terminal','unknown') THEN 'failed'
 	ELSE 'completed' END`
 
 func buildRequestLogEndpointOptions(currentEndpoints []endpointRecord, selectedEndpointID *int) []RequestLogFilterEndpointOption {
@@ -672,15 +696,6 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 	item.UpstreamUserAgent = nullableString(upstreamUserAgent)
 	item.EndpointBaseURL = nullableString(endpointBaseURL)
 	return item, nil
-}
-
-// resolveListTargetLabel resolves the terminal target label for an attempt row.
-func resolveListTargetLabel(ctx context.Context, exec queryExecutor, profileID int, connectionID *int) (*string, bool) {
-	if connectionID == nil {
-		return nil, false
-	}
-	label := resolveChainTargetLabel(ctx, exec, profileID, *connectionID)
-	return label, label != nil
 }
 
 func normalizeRequestLogStreamOutcome(value *string, isStream bool, completionDurationMS *int) string {

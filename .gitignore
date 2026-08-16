@@ -46,3 +46,6 @@ backend/prism-backend
 docs/pending-design
 /backend/tests/integration/root_dockerfile_contract_test.go
 /models-list.png
+
+# Closed-loop verification campaign state
+.closed-loop-verification*/

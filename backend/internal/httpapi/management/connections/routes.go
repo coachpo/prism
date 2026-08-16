@@ -55,7 +55,7 @@ func (s *Service) handleListConnectionsBatch(w http.ResponseWriter, r *http.Requ
 			if connections == nil {
 				connections = []connectionResponse{}
 			}
-			items = append(items, modelConnectionsBatchItem{ModelConfigID: modelConfigID, Connections: connections})
+			items = append(items, modelConnectionsBatchItem{ModelConfigID: modelConfigID, Connections: maskConnectionsForWire(connections)})
 		}
 		return modelConnectionsBatchResponse{Items: items}, nil
 	})
@@ -84,7 +84,11 @@ func (s *Service) handleListModelConnections(w http.ResponseWriter, r *http.Requ
 		if !found {
 			return nil, &DomainError{StatusCode: http.StatusNotFound, Detail: "Model configuration not found"}
 		}
-		return listConnectionsForModel(r.Context(), tx, profile.ID, owner.ID, s.now().UTC())
+		connections, err := listConnectionsForModel(r.Context(), tx, profile.ID, owner.ID, s.now().UTC())
+		if err != nil {
+			return nil, err
+		}
+		return maskConnectionsForWire(connections), nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -99,7 +103,11 @@ func (s *Service) handleListConnections(w http.ResponseWriter, r *http.Request) 
 		if err != nil {
 			return nil, err
 		}
-		return listConnections(r.Context(), tx, profile.ID, s.now().UTC())
+		connections, err := listConnections(r.Context(), tx, profile.ID, s.now().UTC())
+		if err != nil {
+			return nil, err
+		}
+		return maskConnectionsForWire(connections), nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -126,7 +134,7 @@ func (s *Service) handleGetConnection(w http.ResponseWriter, r *http.Request) {
 		if !found {
 			return connectionResponse{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "Connection not found"}
 		}
-		return connection, nil
+		return connection.maskedForWire(), nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -197,7 +205,7 @@ func (s *Service) handleCreateModelConnection(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			return connectionMutationEnvelope{}, err
 		}
-		return connectionMutationEnvelope{Connection: created, AccessTargets: accessTargets, ConfigurationWarnings: warnings}, nil
+		return connectionMutationEnvelope{Connection: created.maskedForWire(), AccessTargets: accessTargets, ConfigurationWarnings: warnings}, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -297,7 +305,7 @@ func (s *Service) handleUpdateModelConnection(w http.ResponseWriter, r *http.Req
 			}
 		}
 		warnings := ownerScopedConnectionWarnings(OwnerModel{ID: owner.ID, ProfileID: owner.ProfileID, ModelID: owner.ModelID, APIFamily: owner.APIFamily, OpenAIAcceptedFormat: owner.OpenAIAcceptedFormat, OpenAIImageOperations: owner.OpenAIImageOperations}, updated.OpenAITextCapability, updated.OpenAIImageCapability, accessTargetID, connectionID)
-		return connectionMutationEnvelope{Connection: updated, AccessTargets: accessTargets, ConfigurationWarnings: warnings}, nil
+		return connectionMutationEnvelope{Connection: updated.maskedForWire(), AccessTargets: accessTargets, ConfigurationWarnings: warnings}, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -379,7 +387,15 @@ func (s *Service) applyOwnerScopedConnectionUpdate(ctx context.Context, tx pgx.T
 		next.AuthType = authType
 	}
 	if requestBody.CustomHeaders.Set {
-		next.CustomHeaders = normalizeHeaders(requestBody.CustomHeaders.Value)
+		rawHeaders, err := loadConnectionCustomHeadersRaw(ctx, tx, profileID, current.ID)
+		if err != nil {
+			return connectionResponse{}, err
+		}
+		headers, err := resolveCustomHeadersWrite(rawHeaders, requestBody.CustomHeaders.Value)
+		if err != nil {
+			return connectionResponse{}, err
+		}
+		next.CustomHeaders = headers
 	}
 	if requestBody.CustomRequestParameters.Set {
 		customRequestParameters, err := resolveCustomRequestParametersUpdate(current.CustomRequestParameters, requestBody.CustomRequestParameters)
@@ -719,7 +735,7 @@ func validateAuthType(value *string) (*string, error) {
 	}
 	normalized := providerauth.NormalizeAPIFamily(*value)
 	if normalized == "" || !providerauth.IsSupportedAuthType(normalized) {
-		return nil, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "auth_type must be one of 'openai', 'anthropic', or 'gemini'"}
+		return nil, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "auth_type must be one of 'openai', 'anthropic', 'gemini', or 'gemini_api_key'"}
 	}
 	return &normalized, nil
 }
@@ -815,7 +831,7 @@ func decodeJSONBody(request *http.Request, target any) error {
 	defer func() { _ = request.Body.Close() }()
 	decoder := json.NewDecoder(request.Body)
 	decoder.DisallowUnknownFields()
-	return decoder.Decode(target)
+	return responseutil.SanitizeDecodeError(decoder.Decode(target))
 }
 
 func decodeJSONRawBody(request *http.Request) ([]byte, error) {

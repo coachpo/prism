@@ -8,6 +8,8 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +33,36 @@ import (
 	"github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
+func TestManagementMutationRouteSpecsDeclareCacheEffect(t *testing.T) {
+	t.Parallel()
+
+	seenExplicitNone := false
+	seenPlanning := false
+	for _, spec := range managementRouteSpecs {
+		normalizedMethod := strings.ToUpper(strings.TrimSpace(spec.method))
+		if !isManagementMutationMethod(normalizedMethod) {
+			continue
+		}
+		effect := spec.cache
+		declared := effect.none || effect.auth || effect.planning || effect.allPlanning || effect.routeWitness
+		if !declared {
+			t.Fatalf("mutation spec %s %s must declare cache: none or a non-none flag", spec.method, spec.pattern)
+		}
+		if effect.none {
+			seenExplicitNone = true
+		}
+		if effect.planning {
+			seenPlanning = true
+		}
+	}
+	if !seenExplicitNone {
+		t.Fatal("registry should include at least one explicitly non-invalidating mutation")
+	}
+	if !seenPlanning {
+		t.Fatal("registry should include at least one planning-invalidating mutation")
+	}
+}
+
 func TestManagementRouteSpecClassification(t *testing.T) {
 	t.Parallel()
 
@@ -45,7 +77,7 @@ func TestManagementRouteSpecClassification(t *testing.T) {
 		{name: "general management route has explicit m2 tier", method: http.MethodGet, path: "/api/settings/auth/proxy-keys", want: priority.ManagementTierM2, ok: true},
 		{name: "connection batch read uses m2 tier", method: http.MethodPost, path: "/api/models/connections/batch", want: priority.ManagementTierM2, ok: true},
 		{name: "audit logs list uses first shed tier", method: http.MethodGet, path: "/api/audit/logs", want: priority.ManagementTierM3, ok: true},
-		{name: "audit delete job uses first shed tier", method: http.MethodPost, path: "/api/audit/logs/delete-jobs", want: priority.ManagementTierM3, ok: true},
+		{name: "removed ghost audit delete job route is not admitted", method: http.MethodPost, path: "/api/audit/logs/delete-jobs", ok: false},
 		{name: "maintenance log retention job uses first shed tier", method: http.MethodPost, path: "/api/maintenance/log-retention/jobs", want: priority.ManagementTierM3, ok: true},
 		{name: "management jobs list uses first shed tier", method: http.MethodGet, path: "/api/management/jobs", want: priority.ManagementTierM3, ok: true},
 		{name: "dashboard stats uses first shed tier", method: http.MethodGet, path: "/api/stats/dashboard", want: priority.ManagementTierM3, ok: true},
@@ -67,6 +99,89 @@ func TestManagementRouteSpecClassification(t *testing.T) {
 				t.Fatalf("matchManagementRouteSpec(%q, %q) tier = %v, want %v", testCase.method, testCase.path, got.tier, testCase.want)
 			}
 		})
+	}
+}
+
+const updateRouteContractEnv = "PRISM_UPDATE_MANAGEMENT_ROUTE_CONTRACT"
+
+// TestManagementRouteContractMatchesRouteSpecs is the reverse drift guard:
+// the manifest rows must be exactly the registry's (pattern, cache-effect)
+// groups. Regenerate the JSON with PRISM_UPDATE_MANAGEMENT_ROUTE_CONTRACT=1.
+func TestManagementRouteContractMatchesRouteSpecs(t *testing.T) {
+	methodsByHTTP := map[string]string{
+		http.MethodGet:    "GET",
+		http.MethodPost:   "POST",
+		http.MethodPut:    "PUT",
+		http.MethodPatch:  "PATCH",
+		http.MethodDelete: "DELETE",
+	}
+	groups := map[string]*managementRouteContractRow{}
+	for _, spec := range managementRouteSpecs {
+		effect := spec.cache
+		flags := []string{}
+		if effect.auth {
+			flags = append(flags, "auth")
+		}
+		if effect.planning {
+			flags = append(flags, "planning")
+		}
+		if effect.allPlanning {
+			flags = append(flags, "allPlanning")
+		}
+		key := spec.pattern + "|" + strings.Join(flags, ",")
+		row, ok := groups[key]
+		if !ok {
+			row = &managementRouteContractRow{
+				RoutePattern:           "/api" + spec.pattern,
+				ProfileScoped:          spec.profileScoped,
+				InvalidatesAuth:        effect.auth,
+				InvalidatesPlanning:    effect.planning,
+				InvalidatesAllPlanning: effect.allPlanning,
+			}
+			groups[key] = row
+		}
+		row.Methods = append(row.Methods, methodsByHTTP[spec.method])
+		row.ProfileScoped = row.ProfileScoped && spec.profileScoped
+	}
+	rows := make([]managementRouteContractRow, 0, len(groups))
+	for _, row := range groups {
+		slices.Sort(row.Methods)
+		rows = append(rows, *row)
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].RoutePattern != rows[j].RoutePattern {
+			return rows[i].RoutePattern < rows[j].RoutePattern
+		}
+		return strings.Join(rows[i].Methods, ",") < strings.Join(rows[j].Methods, ",")
+	})
+
+	if os.Getenv(updateRouteContractEnv) != "" {
+		payload, err := json.MarshalIndent(rows, "", "  ")
+		if err != nil {
+			t.Fatalf("marshal regenerated route contract: %v", err)
+		}
+		if err := os.WriteFile("management_route_contract.json", append(payload, '\n'), 0o644); err != nil {
+			t.Fatalf("write regenerated route contract: %v", err)
+		}
+	}
+
+	raw, err := os.ReadFile("management_route_contract.json")
+	if err != nil {
+		t.Fatalf("read management route contract manifest: %v", err)
+	}
+	var current []managementRouteContractRow
+	if err := json.Unmarshal(raw, &current); err != nil {
+		t.Fatalf("parse management route contract manifest: %v", err)
+	}
+	if len(current) != len(rows) {
+		t.Fatalf("management route contract manifest drifted from registry: got %d rows, want %d; run with %s=1 to regenerate", len(current), len(rows), updateRouteContractEnv)
+	}
+	for index := range rows {
+		got := current[index]
+		want := rows[index]
+		if got.RoutePattern != want.RoutePattern || got.ProfileScoped != want.ProfileScoped || got.InvalidatesAuth != want.InvalidatesAuth || got.InvalidatesPlanning != want.InvalidatesPlanning || got.InvalidatesAllPlanning != want.InvalidatesAllPlanning || !slices.Equal(got.Methods, want.Methods) {
+			t.Fatalf("management route contract manifest drifted at row %d: got %+v, want %+v; run with %s=1 to regenerate", index, got, want, updateRouteContractEnv)
+		}
 	}
 }
 
@@ -386,7 +501,6 @@ func assertRouteNotMounted(t *testing.T, router *chi.Mux, method string, path st
 
 func TestManagementRouteSpecsCoverMountedRoutes(t *testing.T) {
 	t.Parallel()
-
 	managementRouter, ok := NewManagementRouter(
 		&managementaudit.Service{},
 		&managementauth.Service{},

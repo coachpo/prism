@@ -112,7 +112,8 @@
       "unpriced_reason": null,
       "upstream_client_display": "OpenAI SDK",
       "upstream_status_code": 200,
-      "user_agent_overridden": true
+      "user_agent_overridden": true,
+      "terminal_target_owner_model_id": null
     },
     {
       "api_family": "openai",
@@ -165,10 +166,13 @@
       "unpriced_reason": "MISSING_PRICE_DATA",
       "upstream_client_display": null,
       "upstream_status_code": 200,
-      "user_agent_overridden": false
+      "user_agent_overridden": false,
+      "terminal_target_owner_model_id": null
     }
   ],
   "limit": 50,
   "offset": 0,
-  "total": 2
+  "total": 2,
+  "total_is_exact": true,
+  "has_more": false
 }

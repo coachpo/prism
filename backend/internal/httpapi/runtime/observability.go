@@ -330,7 +330,7 @@ func usageFromParentTotals(inputTokens *int, cacheReadTokens *int, outputTokens 
 
 func parseGeminiRuntimeUsagePayload(usagePayload map[string]any) (responseUsage, bool) {
 	usage := responseUsageFromProviderUsageEnvelope(geminiprovider.ParseUsageMetadata(usagePayload, geminiprovider.OperationGenerateContent))
-	return usage, usage.hasValues()
+	return usage, usage.hasValues() || usage.discarded
 }
 
 func (usage *responseUsage) merge(parsed responseUsage) {
@@ -351,6 +351,9 @@ func (usage *responseUsage) merge(parsed responseUsage) {
 	}
 	if parsed.ReasoningTokens != nil {
 		usage.ReasoningTokens = parsed.ReasoningTokens
+	}
+	if parsed.discarded {
+		usage.discarded = true
 	}
 }
 
@@ -889,21 +892,21 @@ func (s *Service) recordRuntimeExecutionFailure(plan requestPlan, result executi
 	if !errors.As(err, &runtimeErr) || runtimeErr == nil {
 		return
 	}
-	// Execution-failure telemetry covers both gateway terminal codes:
-	// admission_exhausted and the 64-launch safety bound (attempt budget
-	// exhaustion preserves all launched attempt rows with typed facts).
-	switch runtimeErr.ErrorCode {
-	case runtimeAdmissionExhaustedErrorCode, safediag.CodeAttemptBudgetExhausted:
-	default:
-		return
-	}
+	// Every terminal gateway error is recorded. An allowlist here used to drop
+	// transport_error and request_body_too_large entirely, so the single most
+	// common self-hosted failure — an upstream that cannot be reached — produced
+	// a 502 for the caller and no row at all in Requests, Dashboard or
+	// Analytics, silently inflating the success rate.
 	ctx := runtimeRequestContext(request)
 	var envelope runtimeTelemetryEnvelope
-	if runtimeErr.ErrorCode == safediag.CodeAttemptBudgetExhausted && len(result.Attempts) > 0 {
-		// The 64-launch safety bound preserves every already-launched
-		// upstream row (trigger, target identity, attempt duration, safe
-		// transport detail) plus a finalized usage summary carrying the
-		// gateway terminal code (Requests SPEC §4.6).
+	if result.AttemptCount > 0 && len(result.Attempts) > 0 {
+		// Whenever upstream attempts were actually launched, preserve one row
+		// per attempt (trigger, target identity, duration, safe transport
+		// detail) plus a finalized usage summary carrying the gateway terminal
+		// code (Requests SPEC §4.6). This covers both the 64-launch safety
+		// bound and "all launched attempts failed" (transport_error).
+		// admission_exhausted never reaches this branch: runtime.go only raises
+		// it while launchedAttempts == 0.
 		envelope = s.buildRuntimeBudgetExhaustionTelemetryEnvelope(plan, result, request, startedAt, runtimeErr)
 	} else {
 		envelope = s.buildRuntimeExecutionFailureTelemetryEnvelope(plan, result, request, startedAt, runtimeErr)
@@ -1454,6 +1457,7 @@ func (s *Service) buildRuntimeTelemetryPricingTimingContext(plan requestPlan, re
 	responseTimeMS := durationMilliseconds(requestCompletedAt.Sub(startedAt))
 	usage := responseCapture.extractedUsage()
 	streamOutcome := runtimeStreamOutcomeForTelemetry(responseCapture.StreamOutcome)
+	warnOnNormalizationRejectedUsage(plan, responseCapture, usage, streamOutcome)
 	isStream := runtimeStreamOutcomeIsStreaming(streamOutcome)
 	ttftMS, completionDurationMS := runtimeResponseTiming(startedAt, requestCompletedAt, isStream, responseCapture)
 	successFlag := result.Response.StatusCode >= 200 && result.Response.StatusCode <= 299
@@ -1482,6 +1486,17 @@ func (s *Service) buildRuntimeTelemetryPricingTimingContext(plan requestPlan, re
 		streamErrorKind:      responseCapture.StreamErrorKind,
 		streamErrorDetail:    responseCapture.StreamErrorDetail,
 	}
+}
+
+func warnOnNormalizationRejectedUsage(plan requestPlan, responseCapture runtimeResponseCapture, usage responseUsage, streamOutcome string) {
+	usageSource := runtimeUsageSourceFromCapture(responseCapture, usage, streamOutcome)
+	if usageSource != gatewaycore.UsageSourceNormalizationRejected {
+		return
+	}
+	slog.Warn("runtime usage normalization rejected upstream payload",
+		"operation_name", strings.TrimSpace(plan.RuntimeOperation.Name),
+		"api_family", strings.TrimSpace(plan.APIFamily),
+		"stream_outcome", streamOutcome)
 }
 
 func runtimeTelemetryAttempts(plan requestPlan, result executionResult, request *http.Request, pricingTiming runtimeTelemetryPricingTimingContext) []executionAttempt {
@@ -2292,6 +2307,9 @@ func runtimeUsageSourceFromCapture(capture runtimeResponseCapture, usage respons
 }
 
 func runtimeUsageSourceFromUsage(usage responseUsage, streamOutcome string) gatewaycore.UsageSource {
+	if usage.discarded {
+		return gatewaycore.UsageSourceNormalizationRejected
+	}
 	if !usage.hasValues() {
 		return gatewaycore.UsageSourceMissing
 	}

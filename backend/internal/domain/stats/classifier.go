@@ -29,8 +29,11 @@ const (
 
 // Stream outcome values persisted by the runtime (canonical enum).
 const (
-	StreamOutcomeNotStreaming                 = "not_streaming"
-	StreamOutcomeCompleted                    = "completed"
+	StreamOutcomeNotStreaming = "not_streaming"
+	StreamOutcomeCompleted    = "completed"
+	// GatewayTimeout is distinct from ClientDisconnected on purpose: the caller
+	// is still there, Prism is the one that ended the stream.
+	StreamOutcomeGatewayTimeout               = "gateway_timeout"
 	StreamOutcomeProviderIncomplete           = "provider_incomplete"
 	StreamOutcomeClientDisconnected           = "client_disconnected"
 	StreamOutcomeUpstreamReadError            = "upstream_read_error"

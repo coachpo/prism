@@ -24,12 +24,7 @@ import {
 import type { UsageSeriesResponse } from "@/lib/api/observability";
 import type { FragmentState } from "@/features/observe/useObserveFragments";
 import { cn } from "@/lib/utils";
-import {
-  OperatorEmptyState,
-  OperatorErrorState,
-  OperatorMissingValue,
-  OperatorStalenessBadge,
-} from "@/shared/design-system";
+import { OperatorClippedBadge, OperatorEmptyState, OperatorErrorState, OperatorMissingValue, OperatorStalenessBadge } from "@/shared/design-system";
 
 /**
  * Series take the spectrum in order through `var(--chart-N)`; hard-coded hex
@@ -116,6 +111,12 @@ export function ObserveMainChart({
           onChange={(value) => onMetricChange(value as ObserveMetric)}
         />
         <div className="flex items-center gap-2">
+          {fragment.data?.truncated ? (
+            <OperatorClippedBadge
+              label={copy.seriesTruncatedLabel}
+              reason={copy.seriesTruncatedReason(fragment.data.series_limit)}
+            />
+          ) : null}
           <Segmented
             ariaLabel={copy.groupLabel}
             options={OBSERVE_GROUPS.map((value) => ({ label: copy.groupName(value), value }))}

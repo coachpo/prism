@@ -27,19 +27,24 @@ export interface HeaderRow {
   id: string;
   key: string;
   value: string;
+  /** True when the value is the redaction sentinel from the backend and must
+   *  be rendered as a write-only field; cleared once the operator types a
+   *  replacement value. */
+  redacted?: boolean;
 }
 
 export type ConnectionDialogForm = ConnectionCreate;
 
 let headerRowIdCounter = 0;
 
-export function createHeaderRow(overrides?: Partial<Pick<HeaderRow, "key" | "value">>): HeaderRow {
+export function createHeaderRow(overrides?: Partial<Pick<HeaderRow, "key" | "value" | "redacted">>): HeaderRow {
   headerRowIdCounter += 1;
 
   return {
     id: `header-row-${headerRowIdCounter}`,
     key: overrides?.key ?? "",
     value: overrides?.value ?? "",
+    redacted: overrides?.redacted ?? false,
   };
 }
 
@@ -149,8 +154,9 @@ export function useModelDetailDialogState({
   const openConnectionDialog = (connection?: Connection) => {
     if (connection) {
       setEditingConnection(connection);
+      const redactedNames = new Set(connection.custom_headers_redacted ?? []);
       const headers = connection.custom_headers
-        ? Object.entries(connection.custom_headers).map(([key, value]) => createHeaderRow({ key, value }))
+        ? Object.entries(connection.custom_headers).map(([key, value]) => createHeaderRow({ key, value, redacted: redactedNames.has(key) }))
         : [];
       setHeaderRows(headers);
       setCustomRequestParametersDraft(customRequestParametersDraftFromValue(connection.custom_request_parameters));

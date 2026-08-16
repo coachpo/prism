@@ -50,8 +50,8 @@ describe("Ban Policy strategy schema", () => {
 describe("routing strategy presets and provenance", () => {
   it("exposes the three SPEC §5.6 presets with exact full payloads", () => {
     expect(BAN_POLICY_PRESETS.conservative).toMatchObject({
-      failure_status_codes: [403, 422, 429, 500, 502, 503, 504, 529],
-      retry_base_delay_ms: 120000,
+      failure_status_codes: [401, 403, 408, 422, 429, 500, 502, 503, 504, 529],
+      retry_base_delay_ms: 30000,
       retry_backoff_multiplier: 2,
       retry_jitter_ratio: 0.2,
       retry_max_delay_ms: 1800000,
@@ -61,7 +61,7 @@ describe("routing strategy presets and provenance", () => {
       ban_duration_seconds: 3600,
     })
     expect(BAN_POLICY_PRESETS.balanced).toMatchObject({
-      retry_base_delay_ms: 60000,
+      retry_base_delay_ms: 5000,
       retry_max_delay_ms: 900000,
       cycle_retry_attempt_limit: 3,
       ban_mode: "off",
@@ -69,7 +69,7 @@ describe("routing strategy presets and provenance", () => {
       ban_duration_seconds: 0,
     })
     expect(BAN_POLICY_PRESETS.aggressive).toMatchObject({
-      retry_base_delay_ms: 10000,
+      retry_base_delay_ms: 2000,
       retry_backoff_multiplier: 1.5,
       retry_max_delay_ms: 120000,
       cycle_retry_attempt_limit: 5,
@@ -84,7 +84,7 @@ describe("routing strategy presets and provenance", () => {
     const applied = applyPreset(form, BAN_POLICY_PRESETS.aggressive)
     expect(applied.name).toBe("My Strategy")
     expect(applied.legacy_strategy_type).toBe("single")
-    expect(applied.retry_base_delay_ms).toBe(10000)
+    expect(applied.retry_base_delay_ms).toBe(2000)
   })
 
   it("detects exact preset matches and custom combinations", () => {

@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -2080,6 +2081,18 @@ func (s *Store) checkpointPage(ctx context.Context, jobID string, limit int, cur
 		positionID = decoded.PositionID
 		upperID = decoded.UpperID
 	}
+	// The upper bound is resolved once, on the first page only: deriving it
+	// from MAX(id) OVER () inside the paged query forces the planner to scan
+	// the whole job even though LIMIT bounds the page.
+	if upperID == 0 {
+		var maxEventID sql.NullInt64
+		if err := s.pool.QueryRow(ctx, `SELECT MAX(id) FROM management_job_events WHERE job_id = $1`, jobID).Scan(&maxEventID); err != nil {
+			return page, fmt.Errorf("resolve job checkpoint upper bound: %w", err)
+		}
+		if maxEventID.Valid {
+			upperID = maxEventID.Int64
+		}
+	}
 	args := []any{jobID}
 	where := "job_id = $1"
 	if upperID > 0 {
@@ -2091,8 +2104,7 @@ func (s *Store) checkpointPage(ctx context.Context, jobID string, limit int, cur
 		where += fmt.Sprintf(" AND id > $%d", len(args))
 	}
 	args = append(args, limit+1)
-	rows, err := s.pool.Query(ctx, `SELECT id, event_type, rows_deleted, created_at,
-		MAX(id) OVER () AS upper_id
+	rows, err := s.pool.Query(ctx, `SELECT id, event_type, rows_deleted, created_at
 		FROM management_job_events WHERE `+where+` ORDER BY id ASC LIMIT $`+fmt.Sprintf("%d", len(args)), args...)
 	if err != nil {
 		return page, fmt.Errorf("list job checkpoints: %w", err)
@@ -2110,12 +2122,8 @@ func (s *Store) checkpointPage(ctx context.Context, jobID string, limit int, cur
 		var eventType string
 		var rowsDeleted int64
 		var createdAt time.Time
-		var queryUpperID int64
-		if err := rows.Scan(&eventID, &eventType, &rowsDeleted, &createdAt, &queryUpperID); err != nil {
+		if err := rows.Scan(&eventID, &eventType, &rowsDeleted, &createdAt); err != nil {
 			return page, fmt.Errorf("scan job checkpoint: %w", err)
-		}
-		if upperID == 0 {
-			upperID = queryUpperID
 		}
 		items = append(items, checkpointEvidence{id: eventID, eventType: eventType, rowsDeleted: rowsDeleted, createdAt: createdAt})
 	}

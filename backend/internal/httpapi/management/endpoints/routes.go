@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -152,6 +153,20 @@ func (s *Service) handleUpdateEndpoint(w http.ResponseWriter, r *http.Request) {
 		}
 		if !found {
 			return endpointResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Endpoint not found"}
+		}
+
+		if requestBody.ExpectedUpdatedAt != nil {
+			expected, parseErr := time.Parse(time.RFC3339Nano, strings.TrimSpace(*requestBody.ExpectedUpdatedAt))
+			if parseErr != nil {
+				return endpointResponse{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: validationFailureDetail{Code: "validation_failed", Fields: map[string]string{"expected_updated_at": "expected_updated_at_invalid"}}}
+			}
+			if !record.UpdatedAt.UTC().Equal(expected.UTC()) {
+				return endpointResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: endpointStaleDetail{
+					Code:     "endpoint_stale",
+					Message:  "Endpoint changed since it was loaded; refresh and retry",
+					Endpoint: responseFromRecord(record),
+				}}
+			}
 		}
 
 		nameChanged := false
@@ -318,7 +333,9 @@ func resolveEffectiveProfile(ctx context.Context, tx pgx.Tx, r *http.Request) (p
 
 func decodeJSONBody(request *http.Request, target any) error {
 	defer func() { _ = request.Body.Close() }()
-	return json.NewDecoder(request.Body).Decode(target)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	return responseutil.SanitizeDecodeError(decoder.Decode(target))
 }
 
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {

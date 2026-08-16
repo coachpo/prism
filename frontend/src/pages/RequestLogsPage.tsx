@@ -52,7 +52,7 @@ export function RequestLogsPage() {
     setColumnPreferences(defaults);
   }, []);
 
-  const { items, total, loading, error, stale, lastLoadedAt, filterOptions, filterOptionsLoaded, refresh, loadMoreChainRows, nextChainCursor, hasMoreChains, chains, chainPageCounts, coverage } =
+  const { items, total, totalIsExact, hasMoreRows, loading, error, stale, lastLoadedAt, filterOptions, filterOptionsLoaded, refresh, loadMoreChainRows, nextChainCursor, hasMoreChains, chains, chainPageCounts, coverage } =
     useRequestLogsPageData({ revision: 0, state, enabled: !isExactMode });
 
   const selectedRequestId = useMemo(() => {
@@ -256,6 +256,8 @@ export function RequestLogsPage() {
         <RequestLogsTable
           items={items}
           total={total}
+          totalIsExact={totalIsExact}
+          hasMoreRows={hasMoreRows}
           loading={loading}
           limit={state.limit}
           offset={state.offset}
@@ -272,7 +274,7 @@ export function RequestLogsPage() {
           onNextPage={() => {
             if (state.view === "ingress_chains" && hasMoreChains && nextChainCursor) {
               actions.setChainCursor(nextChainCursor);
-            } else {
+            } else if (hasMoreRows) {
               actions.goToNextPage(total);
             }
           }}

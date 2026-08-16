@@ -145,12 +145,20 @@ func TestRuntimeManagementMutationPublishesNewSnapshotGeneration(t *testing.T) {
 		TargetModelID:   "phase1-mutation-target-" + suffix,
 		EndpointBaseURL: harness.upstream.baseURL("/phase1/mutation"),
 		EndpointAPIKey:  "phase1-mutation-key",
+		// Probes ride on connection custom headers: client headers outside the
+		// protocol allowlist never reach an upstream, so they cannot observe a
+		// snapshot refresh. Custom headers cross and stay subject to the
+		// blocklist, which is the signal these tests need.
+		CustomHeaders: map[string]any{
+			"X-Phase1-Blocked": "before-mutation",
+			"X-Phase1-Allowed": "still-allowed",
+		},
 	})
 
 	baselineResponse, baselineObserved := harness.captureJSONRequest(t, http.MethodPost, "/v1/chat/completions", map[string]any{
 		"messages": []map[string]any{{"role": "user", "content": "phase-1 baseline before mutation"}},
 		"model":    route.PublicModelID,
-	}, map[string]string{blockedHeaderName: "before-mutation", allowedHeaderName: "still-allowed"})
+	}, nil)
 	if baselineResponse.StatusCode != http.StatusOK {
 		t.Fatalf("expected baseline mutation runtime request status 200, got %d with body %s", baselineResponse.StatusCode, readResponseBody(t, baselineResponse))
 	}
@@ -171,7 +179,7 @@ func TestRuntimeManagementMutationPublishesNewSnapshotGeneration(t *testing.T) {
 	response, observed := harness.captureJSONRequest(t, http.MethodPost, "/v1/chat/completions", map[string]any{
 		"messages": []map[string]any{{"role": "user", "content": "phase-1 published mutation"}},
 		"model":    route.PublicModelID,
-	}, map[string]string{blockedHeaderName: "removed-after-publish", allowedHeaderName: "still-allowed"})
+	}, nil)
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("expected post-mutation runtime request status 200, got %d with body %s", response.StatusCode, readResponseBody(t, response))
 	}
@@ -215,12 +223,20 @@ func TestRuntimeRefreshFailureKeepsLastGoodSnapshot(t *testing.T) {
 		TargetModelID:   "phase1-failure-target-" + suffix,
 		EndpointBaseURL: harness.upstream.baseURL("/phase1/failure"),
 		EndpointAPIKey:  "phase1-failure-key",
+		// Probes ride on connection custom headers: client headers outside the
+		// protocol allowlist never reach an upstream, so they cannot observe a
+		// snapshot refresh. Custom headers cross and stay subject to the
+		// blocklist, which is the signal these tests need.
+		CustomHeaders: map[string]any{
+			"X-Phase1-Failure-Blocked": "still-present-before-failure",
+			"X-Phase1-Failure-Allowed": "still-allowed",
+		},
 	})
 
 	baselineResponse, baselineObserved := harness.captureJSONRequest(t, http.MethodPost, "/v1/chat/completions", map[string]any{
 		"messages": []map[string]any{{"role": "user", "content": "phase-1 refresh failure baseline"}},
 		"model":    route.PublicModelID,
-	}, map[string]string{blockedHeaderName: "still-present-before-failure", allowedHeaderName: "still-allowed"})
+	}, nil)
 	if baselineResponse.StatusCode != http.StatusOK {
 		t.Fatalf("expected refresh-failure baseline status 200, got %d with body %s", baselineResponse.StatusCode, readResponseBody(t, baselineResponse))
 	}
@@ -276,12 +292,19 @@ func TestRuntimeCompiledSnapshotPublishesAuthAndRoutingTogether(t *testing.T) {
 		TargetModelID:   "phase1-compiled-target-" + suffix,
 		EndpointBaseURL: harness.upstream.baseURL("/phase1/compiled"),
 		EndpointAPIKey:  "phase1-compiled-key",
+		// Probe rides on a connection custom header: client headers outside the
+		// protocol allowlist never reach an upstream, so they cannot observe a
+		// compiled-snapshot publish. Custom headers cross and stay subject to
+		// the blocklist.
+		CustomHeaders: map[string]any{
+			"X-Phase1-Compiled-Blocked": "before-compiled-publish",
+		},
 	})
 
 	baselineResponse, baselineObserved := harness.captureJSONRequest(t, http.MethodPost, "/v1/chat/completions", map[string]any{
 		"messages": []map[string]any{{"role": "user", "content": "phase-1 compiled snapshot baseline"}},
 		"model":    route.PublicModelID,
-	}, map[string]string{blockedHeaderName: "before-compiled-publish"})
+	}, nil)
 	if baselineResponse.StatusCode != http.StatusOK {
 		t.Fatalf("expected compiled-snapshot baseline status 200, got %d with body %s", baselineResponse.StatusCode, readResponseBody(t, baselineResponse))
 	}

@@ -66,6 +66,7 @@ function flattenChainItems(response: ChainResponse): RequestLogListItem[] {
         terminal_target_id: row.terminal_target_id,
         terminal_target_label: row.terminal_target_label,
         terminal_target_configured: row.terminal_target_configured,
+        terminal_target_owner_model_id: row.terminal_target_owner_model_id ?? null,
         ttft_ms: withLabels.ttft_ms ?? null,
         completion_duration_ms: withLabels.completion_duration_ms ?? null,
         upstream_status_code: row.upstream_status_code,
@@ -164,6 +165,8 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
   const [endpointOptionsLoaded, setEndpointOptionsLoaded] = useState(false);
   const [nextChainCursor, setNextChainCursor] = useState<string | null>(null);
   const [hasMoreChains, setHasMoreChains] = useState(false);
+const [totalIsExact, setTotalIsExact] = useState(true);
+  const [hasMoreRows, setHasMoreRows] = useState(false);
   const [chains, setChains] = useState<ChainIngressItem[]>([]);
   const [chainPageCounts, setChainPageCounts] = useState({ ingress: 0, attempts: 0, rows: 0 });
   const [coverage, setCoverage] = useState<QueryCoverage | null>(null);
@@ -288,6 +291,8 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
           setChains([]);
           setChainPageCounts({ ingress: 0, attempts: 0, rows: 0 });
           setTotal(list.total);
+          setTotalIsExact(list.total_is_exact);
+          setHasMoreRows(list.has_more);
           setCoverage(list.coverage);
           setNextChainCursor(null);
           setHasMoreChains(false);
@@ -446,6 +451,8 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
   return {
     items: enabled ? items : [],
     total: enabled ? total : 0,
+    totalIsExact: enabled ? totalIsExact : true,
+    hasMoreRows: enabled ? hasMoreRows : false,
     loading: enabled ? loading : false,
     error: enabled ? failure?.message ?? null : null,
     /** The read failed but the rows on screen are the last successful ones. */

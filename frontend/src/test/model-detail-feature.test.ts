@@ -16,6 +16,7 @@ function createConnection(id: number, priority: number, name: string): Connectio
     name,
     auth_type: null,
     custom_headers: null,
+    custom_headers_redacted: null,
     openai_text_capability: "responses_only",
     openai_image_capability: null,
     custom_request_parameters: null,

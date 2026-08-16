@@ -7,11 +7,11 @@ import (
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
 )
 
-var defaultFailureStatusCodes = []int{403, 422, 429, 500, 502, 503, 504, 529}
+var defaultFailureStatusCodes = []int{401, 403, 408, 422, 429, 500, 502, 503, 504, 529}
 
 const (
 	defaultBanMode                            = "off"
-	defaultRetryBaseDelayMS                   = 60000
+	defaultRetryBaseDelayMS                   = 5000
 	defaultRetryBackoffMultiplier             = 2.0
 	defaultRetryJitterRatio                   = 0.2
 	defaultRetryMaxDelayMS                    = 900000

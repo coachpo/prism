@@ -256,6 +256,7 @@ export function ConnectionDialog({
         id: `prefill-header-${key}`,
         key,
         value: String(value),
+        redacted: (source.custom_headers_redacted ?? []).includes(key),
       })),
     );
   };
@@ -492,6 +493,29 @@ export function ConnectionDialog({
                           }
                         />
 
+                        {apiFamily === "gemini" ? (
+                          <ConnectionDialogField
+                            id="conn-auth-type"
+                            label={copy.authType}
+                            description={copy.authTypeGeminiHint}
+                          >
+                            <Select
+                              value={connectionForm.auth_type ?? "gemini"}
+                              onValueChange={(value) =>
+                                updateConnectionForm({ ...connectionForm, auth_type: value })
+                              }
+                            >
+                              <SelectTrigger id="conn-auth-type">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="gemini">{copy.authTypeGeminiBearer}</SelectItem>
+                                <SelectItem value="gemini_api_key">{copy.authTypeGeminiAPIKey}</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </ConnectionDialogField>
+                        ) : null}
+
                         <ConnectionDialogField
                           id="conn-pricing-template"
                           label={copy.pricingTemplate}
@@ -677,14 +701,19 @@ export function ConnectionDialog({
                                     autoComplete="off"
                                     aria-label={copy.headerValue}
                                     placeholder={copy.headerValue}
-                                    value={row.value}
+                                    type={row.redacted ? "password" : undefined}
+                                    value={row.redacted && !row.value ? "" : row.value}
                                     onChange={(e) => {
                                       const nextRows = [...headerRows];
                                       nextRows[index].value = e.target.value;
+                                      nextRows[index].redacted = false;
                                       updateHeaderRows(nextRows);
                                     }}
                                     className="flex-1"
                                   />
+                                  {row.redacted ? (
+                                    <span className="text-[11px] text-muted-foreground">{copy.customHeaderRedactedHint}</span>
+                                  ) : null}
                                   <Button
                                     type="button"
                                     variant="ghost"

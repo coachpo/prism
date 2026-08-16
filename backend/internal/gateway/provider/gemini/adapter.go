@@ -160,6 +160,12 @@ func ExtractCountTokensUsage(body []byte) provider.UsageEnvelope {
 	return normalizeTokenCountUsage(usage)
 }
 
+// ParseUsageMetadata maps Gemini usageMetadata to Prism's canonical disjoint
+// components. Google defines totalTokenCount as "prompt + thoughts + response
+// candidates" (three parallel terms), and cachedContentTokenCount as a subset
+// of promptTokenCount. Therefore only the input side subtracts its child:
+// InputTokens = prompt - cachedContent, OutputTokens = candidates as reported,
+// ReasoningTokens = thoughts as reported.
 func ParseUsageMetadata(usagePayload map[string]any, normalizationRule string) provider.UsageEnvelope {
 	inputTokens := intPointerFromAny(firstValue(usagePayload, "promptTokenCount", "prompt_token_count"))
 	cacheReadTokens := intPointerFromAny(firstValue(usagePayload, "cachedContentTokenCount", "cached_content_token_count"))
@@ -171,10 +177,7 @@ func ParseUsageMetadata(usagePayload map[string]any, normalizationRule string) p
 		baseInputTokens := *inputTokens - intValue(cacheReadTokens)
 		usage.InputTokens = &baseInputTokens
 	}
-	if outputTokens != nil {
-		baseOutputTokens := *outputTokens - intValue(reasoningTokens)
-		usage.OutputTokens = &baseOutputTokens
-	}
+	usage.OutputTokens = outputTokens
 	return normalizeGenerationUsage(usage, normalizationRule)
 }
 
@@ -213,6 +216,9 @@ func ParseStreamGenerateContent(streamBody []byte) (provider.UsageEnvelope, bool
 }
 
 func MergeStreamGenerateContentUsage(current provider.UsageEnvelope, payload map[string]any) provider.UsageEnvelope {
+	if current.NormalizationRejected {
+		return current
+	}
 	usagePayload, ok := payload["usageMetadata"].(map[string]any)
 	if !ok {
 		usagePayload, ok = payload["usage_metadata"].(map[string]any)
@@ -235,6 +241,9 @@ func IsStreamGenerateContentTerminal(payload map[string]any) bool {
 }
 
 func mergeUsage(current provider.UsageEnvelope, parsed provider.UsageEnvelope) provider.UsageEnvelope {
+	if current.NormalizationRejected || parsed.NormalizationRejected {
+		return provider.UsageEnvelope{NormalizationRejected: true}
+	}
 	if parsed.InputTokens != nil {
 		current.InputTokens = parsed.InputTokens
 	}
@@ -254,26 +263,32 @@ func mergeUsage(current provider.UsageEnvelope, parsed provider.UsageEnvelope) p
 }
 
 func normalizeGenerationUsage(usage provider.UsageEnvelope, normalizationRule string) provider.UsageEnvelope {
-	if !usageHasValues(usage) || hasNegativeTokens(usage) {
+	if !usageHasValues(usage) {
 		return provider.UsageEnvelope{}
+	}
+	if hasNegativeTokens(usage) {
+		return provider.UsageEnvelope{NormalizationRejected: true}
 	}
 	if usage.TotalTokens == nil && usageHasComponents(usage) {
 		total := componentTotal(usage)
 		usage.TotalTokens = &total
 	}
 	if usage.TotalTokens != nil && *usage.TotalTokens < componentTotal(usage) {
-		return provider.UsageEnvelope{}
+		return provider.UsageEnvelope{NormalizationRejected: true}
 	}
 	usage.NormalizationRule = normalizationRule
 	return usage
 }
 
 func normalizeTokenCountUsage(usage provider.UsageEnvelope) provider.UsageEnvelope {
-	if !usageHasValues(usage) || hasNegativeTokens(usage) {
+	if !usageHasValues(usage) {
 		return provider.UsageEnvelope{}
 	}
+	if hasNegativeTokens(usage) {
+		return provider.UsageEnvelope{NormalizationRejected: true}
+	}
 	if usage.TotalTokens != nil && usage.InputTokens != nil && *usage.TotalTokens < *usage.InputTokens {
-		return provider.UsageEnvelope{}
+		return provider.UsageEnvelope{NormalizationRejected: true}
 	}
 	usage.NormalizationRule = OperationCountTokens
 	return usage

@@ -277,6 +277,15 @@ func runtimePlanningCacheInvalidationAfterHeaderBlocklistWrite(t *testing.T) {
 		TargetModelID:   "cache-header-target-" + suffix,
 		EndpointBaseURL: harness.upstream.baseURL("/cache-invalidation/header-blocklist"),
 		EndpointAPIKey:  "cache-header-upstream-key",
+		// The probe rides on connection custom headers rather than caller
+		// headers: client headers outside the protocol allowlist never reach an
+		// upstream, so they cannot observe whether a blocklist write refreshed
+		// the planning snapshot. Custom headers do cross, and are still subject
+		// to the blocklist, which is exactly the signal this test needs.
+		CustomHeaders: map[string]any{
+			"X-Cache-Blocked": "before-invalidation",
+			"X-Cache-Allowed": "allowed-before-and-after",
+		},
 	})
 
 	initialResponse := harness.requestJSON(
@@ -287,10 +296,7 @@ func runtimePlanningCacheInvalidationAfterHeaderBlocklistWrite(t *testing.T) {
 			"messages": []map[string]any{{"role": "user", "content": "prime planning snapshot cache"}},
 			"model":    route.PublicModelID,
 		},
-		map[string]string{
-			blockedHeaderName: "before-invalidation",
-			allowedHeaderName: "allowed-before-and-after",
-		},
+		nil,
 	)
 	assertStatus(t, initialResponse, http.StatusOK)
 
@@ -317,10 +323,7 @@ func runtimePlanningCacheInvalidationAfterHeaderBlocklistWrite(t *testing.T) {
 			"messages": []map[string]any{{"role": "user", "content": "use post-write planning snapshot"}},
 			"model":    route.PublicModelID,
 		},
-		map[string]string{
-			blockedHeaderName: "should-be-removed",
-			allowedHeaderName: "allowed-before-and-after",
-		},
+		nil,
 	)
 	assertStatus(t, invalidatedResponse, http.StatusOK)
 	assertRuntimeCacheInvalidationVisibleWithin(t, blocklistVisibleAt, "header-blocklist write")

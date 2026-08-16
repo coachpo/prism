@@ -67,6 +67,8 @@ function listResponse(items: RequestLogListItem[]): RequestLogListResponse {
   return {
     items,
     total: items.length,
+    total_is_exact: true,
+    has_more: false,
     limit: 50,
     offset: 0,
     filter_options: { endpoints: [], models: [], clients: [], resolved_target_models: [] },
@@ -97,6 +99,7 @@ function row(requestLogId: string): RequestLogListItem {
     terminal_target_id: 1,
     terminal_target_label: "Primary target",
     terminal_target_configured: true,
+    terminal_target_owner_model_id: null,
     upstream_status_code: 200,
     gateway_status_code: null,
     legacy_status_code: null,

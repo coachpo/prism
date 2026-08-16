@@ -23,6 +23,9 @@ export interface EndpointUpdate {
   name?: string;
   base_url?: string;
   api_key?: string | null;
+  /** Optimistic-concurrency guard; the updated_at of the endpoint row the
+   *  form was opened with. A mismatch returns 409 endpoint_stale. */
+  expected_updated_at?: string;
 }
 
 export interface EndpointReferenceSummary {
@@ -387,6 +390,7 @@ export interface Connection {
   name: string | null;
   auth_type: string | null;
   custom_headers: Record<string, string> | null;
+  custom_headers_redacted: string[] | null;
   custom_request_parameters: JsonObject | null;
   routing_schedule: RoutingSchedule | null;
   routing_schedule_state: RoutingScheduleState | null;

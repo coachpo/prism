@@ -332,7 +332,8 @@ func (s *Service) handleSetStrategyDefault(w http.ResponseWriter, r *http.Reques
 		ExpectedDefaultStrategyID json.RawMessage `json:"expected_default_strategy_id"`
 	}
 	if err := decoder.Decode(&requestEnvelope); err != nil {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "invalid expected_default_strategy_id")
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, responseutil.SanitizeDecodeError(err).Error())
+		return
 		return
 	}
 	// expected_default_strategy_id is a present-but-nullable CAS key: an absent
@@ -552,7 +553,7 @@ func decodeStrategyRequest(request *http.Request) (loadbalanceStrategyRequest, e
 	decoder.DisallowUnknownFields()
 	var requestBody loadbalanceStrategyRequest
 	if err := decoder.Decode(&requestBody); err != nil {
-		return loadbalanceStrategyRequest{}, err
+		return loadbalanceStrategyRequest{}, responseutil.SanitizeDecodeError(err)
 	}
 	return requestBody, nil
 }

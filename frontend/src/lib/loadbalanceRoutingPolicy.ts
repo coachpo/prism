@@ -10,7 +10,7 @@ export const LOADBALANCE_LEGACY_STRATEGY_TYPES = [
   "round-robin",
 ] as const;
 export const LOADBALANCE_BAN_MODES = ["off", "temporary", "until_reset"] as const;
-export const DEFAULT_FAILURE_STATUS_CODES = [403, 422, 429, 500, 502, 503, 504, 529];
+export const DEFAULT_FAILURE_STATUS_CODES = [401, 403, 408, 422, 429, 500, 502, 503, 504, 529];
 
 export const DEFAULT_BAN_POLICY_FIELDS = {
   failure_status_codes: [...DEFAULT_FAILURE_STATUS_CODES],

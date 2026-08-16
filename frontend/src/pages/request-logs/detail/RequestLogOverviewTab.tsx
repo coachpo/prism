@@ -14,6 +14,7 @@ import {
   formatTokens,
 } from "../columns";
 import { formatUnpricedReasonLabel } from "@/lib/costing";
+import { classifyTokenComponents, describeUnpricedCause } from "../pricingExplanation";
 import {
   OperatorCallout,
   OperatorMissingValue,
@@ -179,6 +180,19 @@ export function RequestLogOverviewTab({
     || requestInfo.caller_user_agent !== null
     || requestInfo.user_agent_overridden;
   const streamUsageUnavailable = isStreamUsageUnavailableReason(pricing.unpriced_reason);
+  const unpricedCause = describeUnpricedCause({
+    pricingStatus: pricing.pricing_status,
+    unpricedReason: pricing.unpriced_reason,
+    streamOutcome: summary.stream_outcome as string | null,
+  });
+  const tokenCoverage = classifyTokenComponents({
+    input: usage.input_tokens,
+    output: usage.output_tokens,
+    total: usage.total_tokens,
+    cacheRead: usage.cache_read_input_tokens,
+    cacheCreation: usage.cache_creation_input_tokens,
+    reasoning: usage.reasoning_tokens,
+  });
   const streamOutcome = summary.stream_outcome as import("@/lib/types").StreamOutcome;
   const streamStatusLabel = getStreamOutcomeLabel(streamOutcome, messages.requestLogs);
   const hasStreamTelemetry = hasStreamTelemetryOutcome(streamOutcome);
@@ -500,6 +514,16 @@ export function RequestLogOverviewTab({
               <DetailRow label={messages.requestLogs.reasoning}>
                 <span className="font-mono">{formatTokens(usage.reasoning_tokens)}</span>
               </DetailRow>
+              {tokenCoverage.kind === "residual" || tokenCoverage.kind === "total_only" ? (
+                <DetailRow label={messages.requestLogs.uncategorizedTokens}>
+                  <span className="font-mono">{formatTokens(tokenCoverage.uncategorized)}</span>
+                </DetailRow>
+              ) : null}
+              <span className="text-[11px] text-muted-foreground">
+                {tokenCoverage.kind === "total_only"
+                  ? messages.requestLogs.tokenComponentsTotalOnly
+                  : messages.requestLogs.tokenComponentBasisDisjoint}
+              </span>
             </div>
 
             <div className="flex flex-col gap-1 border-t border-border pt-3">
@@ -521,7 +545,12 @@ export function RequestLogOverviewTab({
               </DetailRow>
               {pricing.unpriced_reason ? (
                 <DetailRow label={messages.requestLogs.whyUnpriced}>
-                  {formatUnpricedReasonLabel(pricing.unpriced_reason)}
+                  <div className="flex flex-col gap-1">
+                    <span>{formatUnpricedReasonLabel(pricing.unpriced_reason)}</span>
+                    {unpricedCause ? (
+                      <span className="text-[11px] text-muted-foreground">{unpricedCause}</span>
+                    ) : null}
+                  </div>
                 </DetailRow>
               ) : null}
               <DetailRow label={messages.requestLogs.reportCurrency}>

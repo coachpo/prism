@@ -116,64 +116,23 @@ func isManagementMutationMethod(method string) bool {
 
 func classifyRuntimeCacheInvalidation(method string, rawPath string, _ http.Header) runtimeCacheInvalidationAction {
 	normalizedMethod := strings.ToUpper(strings.TrimSpace(method))
-	segments := managementRouteSegments(normalizeManagementRoutePath(rawPath))
 	action := runtimeCacheInvalidationAction{}
-
-	switch {
-	case normalizedMethod == http.MethodPut && matchesSegments(segments, "settings", "auth"):
-		action.auth = true
-	case isRuntimeAuthProxyKeyMutation(normalizedMethod, segments):
-		action.auth = true
-	case normalizedMethod == http.MethodPut && matchesSegments(segments, "settings", "costing"):
-		action.addPlanningProfile(defaultRuntimeCacheProfileID)
-	case normalizedMethod == http.MethodPost && matchesSegments(segments, "settings", "costing", "currency-migrations", "commit"):
-		action.addPlanningProfile(defaultRuntimeCacheProfileID)
-	case normalizedMethod == http.MethodPut && matchesSegments(segments, "settings", "audit"):
-		action.addPlanningProfile(defaultRuntimeCacheProfileID)
-	case isHeaderBlocklistMutation(normalizedMethod, segments):
-		action.addPlanningProfile(defaultRuntimeCacheProfileID)
-	case isModelPlanningMutation(normalizedMethod, segments):
-		action.addPlanningProfile(defaultRuntimeCacheProfileID)
-	case isEndpointPlanningMutation(normalizedMethod, segments):
-		action.addPlanningProfile(defaultRuntimeCacheProfileID)
-	case isConnectionPlanningMutation(normalizedMethod, segments):
-		action.addPlanningProfile(defaultRuntimeCacheProfileID)
-	case isLoadbalancePlanningMutation(normalizedMethod, segments):
+	if !isManagementMutationMethod(normalizedMethod) {
+		return action
+	}
+	spec, ok := matchManagementRouteSpec(normalizedMethod, rawPath)
+	if !ok {
+		return action
+	}
+	action.auth = spec.cache.auth
+	action.planningAll = spec.cache.allPlanning
+	if spec.cache.planning {
 		action.addPlanningProfile(defaultRuntimeCacheProfileID)
 	}
-
-	if isRouteWitnessAffectingMutation(normalizedMethod, segments) {
+	if spec.cache.routeWitness {
 		action.addRouteWitnessProfile(defaultRuntimeCacheProfileID)
 	}
-
 	return action
-}
-
-// isRouteWitnessAffectingMutation reports whether the mutation changes static
-// route-witness eligibility (model/access-target/connection-capability/
-// endpoint/referenced-strategy writes). Pricing-template writes are excluded:
-// they change cost readiness, not witness existence, and the pricing
-// projection tracks its own owner revision for that.
-func isRouteWitnessAffectingMutation(method string, segments []string) bool {
-	if isModelPlanningMutation(method, segments) {
-		return true
-	}
-	if isEndpointPlanningMutation(method, segments) {
-		return true
-	}
-	if isLoadbalancePlanningMutation(method, segments) {
-		return true
-	}
-	// Connection writes under the model scoped surface plus the standalone
-	// connection update/delete surface; the pricing-template binding route is
-	// intentionally excluded.
-	return (method == http.MethodPost && matchesSegments(segments, "models", "*", "connections")) ||
-		(method == http.MethodPost && matchesSegments(segments, "models", "*", "connections", "*", "copies")) ||
-		(method == http.MethodPatch && matchesSegments(segments, "models", "*", "connections", "*")) ||
-		(method == http.MethodDelete && matchesSegments(segments, "models", "*", "connections", "*")) ||
-		(method == http.MethodPatch && matchesSegments(segments, "models", "*", "connections", "*", "priority")) ||
-		(method == http.MethodPut && matchesSegments(segments, "connections", "*")) ||
-		(method == http.MethodDelete && matchesSegments(segments, "connections", "*"))
 }
 
 func (a runtimeCacheInvalidationAction) apply(planningCache *runtimeapi.SharedCache, runtimeState *loadbalancedomain.LocalRuntimeStateStore, dashboardSnapshots dashboardSnapshotInvalidator) {
@@ -257,59 +216,4 @@ func matchesSegments(segments []string, pattern ...string) bool {
 		}
 	}
 	return true
-}
-
-func isRuntimeAuthProxyKeyMutation(method string, segments []string) bool {
-	return (method == http.MethodPost && matchesSegments(segments, "settings", "auth", "proxy-keys")) ||
-		(method == http.MethodPatch && matchesSegments(segments, "settings", "auth", "proxy-keys", "*")) ||
-		(method == http.MethodDelete && matchesSegments(segments, "settings", "auth", "proxy-keys", "*")) ||
-		(method == http.MethodPost && matchesSegments(segments, "settings", "auth", "proxy-keys", "*", "rotate"))
-}
-
-func isHeaderBlocklistMutation(method string, segments []string) bool {
-	return (method == http.MethodPost && matchesSegments(segments, "config", "header-blocklist-rules")) ||
-		(method == http.MethodPatch && matchesSegments(segments, "config", "header-blocklist-rules", "*")) ||
-		(method == http.MethodDelete && matchesSegments(segments, "config", "header-blocklist-rules", "*"))
-}
-
-func isModelPlanningMutation(method string, segments []string) bool {
-	return (method == http.MethodPost && matchesSegments(segments, "models")) ||
-		(method == http.MethodPut && matchesSegments(segments, "models", "*")) ||
-		(method == http.MethodDelete && matchesSegments(segments, "models", "*")) ||
-		(method == http.MethodPost && matchesSegments(segments, "models", "*", "targets")) ||
-		(method == http.MethodPut && matchesSegments(segments, "models", "*", "targets", "*")) ||
-		(method == http.MethodPatch && matchesSegments(segments, "models", "*", "targets", "*")) ||
-		(method == http.MethodPatch && matchesSegments(segments, "models", "*", "targets", "*", "position")) ||
-		(method == http.MethodDelete && matchesSegments(segments, "models", "*", "targets", "*"))
-}
-
-func isEndpointPlanningMutation(method string, segments []string) bool {
-	return (method == http.MethodPost && matchesSegments(segments, "endpoints")) ||
-		(method == http.MethodPut && matchesSegments(segments, "endpoints", "*")) ||
-		(method == http.MethodDelete && matchesSegments(segments, "endpoints", "*")) ||
-		(method == http.MethodPost && matchesSegments(segments, "endpoints", "*", "duplicate")) ||
-		(method == http.MethodDelete && matchesSegments(segments, "endpoints", "*", "orphan-connections", "*"))
-}
-
-func isConnectionPlanningMutation(method string, segments []string) bool {
-	return (method == http.MethodPost && matchesSegments(segments, "models", "*", "connections")) ||
-		(method == http.MethodPost && matchesSegments(segments, "models", "*", "connections", "*", "copies")) ||
-		(method == http.MethodPatch && matchesSegments(segments, "models", "*", "connections", "*")) ||
-		(method == http.MethodDelete && matchesSegments(segments, "models", "*", "connections", "*")) ||
-		(method == http.MethodPatch && matchesSegments(segments, "models", "*", "connections", "*", "priority")) ||
-		(method == http.MethodPost && matchesSegments(segments, "models", "*", "connections", "*", "copies")) ||
-		(method == http.MethodPut && matchesSegments(segments, "connections", "*")) ||
-		(method == http.MethodPut && matchesSegments(segments, "connections", "*", "pricing-template")) ||
-		(method == http.MethodDelete && matchesSegments(segments, "connections", "*")) ||
-		(method == http.MethodPost && matchesSegments(segments, "pricing-templates")) ||
-		(method == http.MethodPost && matchesSegments(segments, "pricing-templates", "import")) ||
-		(method == http.MethodPut && matchesSegments(segments, "pricing-templates", "*")) ||
-		(method == http.MethodDelete && matchesSegments(segments, "pricing-templates", "*"))
-}
-
-func isLoadbalancePlanningMutation(method string, segments []string) bool {
-	return (method == http.MethodPost && matchesSegments(segments, "loadbalance", "strategies")) ||
-		(method == http.MethodPost && matchesSegments(segments, "loadbalance", "strategies", "defaults")) ||
-		(method == http.MethodPut && matchesSegments(segments, "loadbalance", "strategies", "*")) ||
-		(method == http.MethodDelete && matchesSegments(segments, "loadbalance", "strategies", "*"))
 }

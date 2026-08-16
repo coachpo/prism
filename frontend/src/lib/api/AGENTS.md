@@ -30,7 +30,7 @@ api/
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep `core.ts` as the only place that injects `X-Profile-Id`, applies cookie credentials, and performs one refresh retry for eligible `/api/*` requests.
 - Keep `profileScope.ts` as the only route matcher deciding which management calls receive `X-Profile-Id`.
-- When adding or changing profile-scoped management routes, update `backend/internal/platform/http/management_route_contract.json` in the same change so frontend drift tests keep the matcher in backend contract lockstep.
+- When adding or changing profile-scoped management routes, update `managementRouteSpecs` in `backend/internal/platform/http/admission.go` and regenerate `backend/internal/platform/http/management_route_contract.json` (it is a backend-generated artifact) in the same change so frontend drift tests keep the matcher in backend contract lockstep.
 - Keep grouped endpoint surfaces in their existing modules instead of expanding `api.ts` into a second implementation layer.
 - Keep model payload normalization in `management.ts` aligned with server-shaped CRUD and access-target fields.
 - Keep auth/settings nesting in `authSettings.ts` and `api.settings` aligned with the backend route structure.

@@ -69,7 +69,7 @@ var valuePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`), // JWT
 	regexp.MustCompile(`(?i)(?:password|passwd|pwd|secret|api[_-]?key|token|credential|private[_-]?key|access[_-]?key)\s*[=:]\s*["']?[^\s"',;]+`),
 	regexp.MustCompile(`(?i)\b(?:sk|pk|rk|AKIA)[A-Za-z0-9]{16,}\b`), // sk-… / AWS access key shapes
-	regexp.MustCompile(`(?i)\b(?:sk|pk|rk)-[A-Za-z0-9_-]{12,}\b`), // sk-proj-… provider keys
+	regexp.MustCompile(`(?i)\b(?:sk|pk|rk)-[A-Za-z0-9_-]{12,}\b`),   // sk-proj-… provider keys
 }
 
 // HeaderNameSensitive reports whether a header name must be masked.

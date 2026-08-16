@@ -708,7 +708,6 @@ Validated again against current repo surfaces on 2026-08-13:
 - `POST /api/endpoints`
 - `PUT /api/endpoints/{endpoint_id}`
 - `DELETE /api/endpoints/{endpoint_id}`
-- `PATCH /api/endpoints/{endpoint_id}/position`
 - `POST /api/endpoints/{endpoint_id}/duplicate`
 - `GET /api/loadbalance/strategies`
 - `POST /api/loadbalance/strategies/defaults`

@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 	"github.com/coachpo/prism/backend/internal/providerauth"
@@ -448,6 +449,7 @@ func decodeStrictJSONBody(request *http.Request, target any) error {
 	decoder := json.NewDecoder(request.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
+		return responseutil.SanitizeDecodeError(err)
 		return err
 	}
 	var extra any

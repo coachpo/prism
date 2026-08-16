@@ -455,11 +455,16 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 		ingresses = ingresses[:params.ChainLimit]
 	}
 
+	connectionCatalog, err := loadCurrentConnections(ctx, exec, params.ProfileID)
+	if err != nil {
+		return ChainResponse{}, err
+	}
+
 	items := make([]ChainIngressItem, 0, len(ingresses))
 	pageUpstreamAttempts := 0
 	pageRequestLogRows := 0
 	for _, ingress := range ingresses {
-		item, err := loadChainIngressItem(ctx, exec, params, ingress, params.ChainRowLimit, rowCursor, requestEpoch, requestGeneration)
+		item, err := loadChainIngressItem(ctx, exec, params, ingress, params.ChainRowLimit, rowCursor, requestEpoch, requestGeneration, connectionCatalog)
 		if err != nil {
 			return ChainResponse{}, err
 		}
@@ -568,7 +573,7 @@ func buildChainIngressWhere(params ChainQueryParams) (string, []any) {
 	if params.IngressFinalResult != nil {
 		add(*params.IngressFinalResult, `CASE WHEN status_code NOT BETWEEN 200 AND 299 THEN 'failed'
 			WHEN stream_outcome = 'client_disconnected' THEN 'client_disconnected'
-			WHEN stream_outcome IN ('provider_incomplete','upstream_read_error','upstream_ended_without_terminal','unknown') THEN 'failed'
+			WHEN stream_outcome IN ('provider_incomplete','upstream_read_error','gateway_timeout','upstream_ended_without_terminal','unknown') THEN 'failed'
 			ELSE 'completed' END = $%d`)
 	}
 	if params.ConfirmedFailover != nil {
@@ -662,7 +667,7 @@ func selectChainIngressSet(ctx context.Context, exec queryExecutor, params Chain
 		// derived, never a stored column.
 		classifier := `CASE WHEN status_code NOT BETWEEN 200 AND 299 THEN 'failed'
 			WHEN stream_outcome = 'client_disconnected' THEN 'client_disconnected'
-			WHEN stream_outcome IN ('provider_incomplete','upstream_read_error','upstream_ended_without_terminal','unknown') THEN 'failed'
+			WHEN stream_outcome IN ('provider_incomplete','upstream_read_error','gateway_timeout','upstream_ended_without_terminal','unknown') THEN 'failed'
 			ELSE 'completed' END`
 		query = fmt.Sprintf("%s AND %s = $%d", query, classifier, appendArg(*params.IngressFinalResult))
 	}
@@ -1005,6 +1010,7 @@ func loadChainIngressItem(
 	rowCursor *rowCursorPayload,
 	retentionEpoch int64,
 	retentionGeneration int64,
+	connectionCatalog map[int]connectionRecord,
 ) (ChainIngressItem, error) {
 	item := ChainIngressItem{
 		IngressRequestID:       ingress.IngressRequestID,
@@ -1035,7 +1041,7 @@ func loadChainIngressItem(
 	if err != nil {
 		return ChainIngressItem{}, err
 	}
-	page, err := loadRetainedRows(ctx, exec, params, ingress.IngressRequestID, rowLimit, rowCursor)
+	page, err := loadRetainedRows(ctx, exec, params, ingress.IngressRequestID, rowLimit, rowCursor, connectionCatalog)
 	if err != nil {
 		return ChainIngressItem{}, err
 	}
@@ -1283,7 +1289,7 @@ func deriveFinalResult(statusCode int, successFlag bool, streamOutcome string) s
 	switch streamOutcome {
 	case "client_disconnected":
 		return "client_disconnected"
-	case "provider_incomplete", "upstream_read_error", "upstream_ended_without_terminal", "unknown":
+	case "provider_incomplete", "upstream_read_error", "gateway_timeout", "upstream_ended_without_terminal", "unknown":
 		return "failed"
 	default:
 		return "completed"
@@ -1315,7 +1321,7 @@ func loadRetainedRowCounts(ctx context.Context, exec queryExecutor, params Chain
 // loadRetainedRows loads one bounded retained-row page for one ingress. The
 // limit+1 sentinel determines page completeness without deriving full-chain
 // counts from the bounded page.
-func loadRetainedRows(ctx context.Context, exec queryExecutor, params ChainQueryParams, ingressRequestID string, rowLimit int, cursor *rowCursorPayload) (retainedRowsPage, error) {
+func loadRetainedRows(ctx context.Context, exec queryExecutor, params ChainQueryParams, ingressRequestID string, rowLimit int, cursor *rowCursorPayload, connectionCatalog map[int]connectionRecord) (retainedRowsPage, error) {
 	profileID := params.ProfileID
 	queryArgs := []any{profileID, ingressRequestID}
 	matchPredicate := buildChainRowMatchPredicate(&queryArgs, params, "request_logs")
@@ -1391,15 +1397,13 @@ func loadRetainedRows(ctx context.Context, exec queryExecutor, params ChainQuery
 			item.FailureDetailPersistenceTruncated = truncated
 		}
 		item.FailureDetailSource = source
-		// Terminal target label from current connections (no historical
-		// snapshot; label follows renames).
+		// Terminal target projection from the current connection catalog (no
+		// historical snapshot; label follows renames).
 		if item.TerminalTargetID != nil {
-			item.TerminalTargetLabel = resolveChainTargetLabel(ctx, exec, profileID, *item.TerminalTargetID)
-			item.TerminalTargetConfigured = item.TerminalTargetLabel != nil
-			if item.TerminalTargetLabel != nil {
-				owner, _ := resolveChainTargetOwner(ctx, exec, profileID, *item.TerminalTargetID)
-				item.TerminalTargetOwnerModelID = owner
-			}
+			target := resolveTerminalTargetProjection(connectionCatalog, item.TerminalTargetID)
+			item.TerminalTargetLabel = target.Label
+			item.TerminalTargetConfigured = target.Configured
+			item.TerminalTargetOwnerModelID = target.OwnerModelID
 		}
 		items = append(items, item)
 	}
@@ -1421,27 +1425,6 @@ func truncateCodePoints(value string, limit int) (string, bool) {
 	return string(runes[:limit]), true
 }
 
-func resolveChainTargetLabel(ctx context.Context, exec queryExecutor, profileID int, connectionID int) *string {
-	var name string
-	err := exec.QueryRow(ctx, `SELECT name FROM connections WHERE id = $1 AND profile_id = $2 AND is_active = TRUE`, connectionID, profileID).Scan(&name)
-	if err != nil {
-		return nil
-	}
-	return &name
-}
-
-func resolveChainTargetOwner(ctx context.Context, exec queryExecutor, profileID int, connectionID int) (*string, error) {
-	var ownerModelID string
-	err := exec.QueryRow(ctx, `SELECT model_configs.model_id FROM model_access_targets
-		JOIN model_configs ON model_configs.id = model_access_targets.source_model_config_id
-		WHERE model_access_targets.profile_id = $1 AND model_access_targets.target_connection_id = $2
-		ORDER BY model_access_targets.position ASC, model_access_targets.id ASC LIMIT 1`, profileID, connectionID).Scan(&ownerModelID)
-	if err != nil {
-		return nil, err
-	}
-	return &ownerModelID, nil
-}
-
 // appendChainFinalizedCohortExists constrains a retained-row query to the
 // finalized usage event selectors. Final status/pricing/epoch facts remain
 // usage-owner facts; this helper never substitutes a request-log row for
@@ -1458,7 +1441,7 @@ func appendChainFinalizedCohortExists(query string, args *[]any, params ChainQue
 	if params.IngressFinalResult != nil {
 		classifier := `CASE WHEN final_rows.status_code NOT BETWEEN 200 AND 299 THEN 'failed'
 			WHEN final_rows.stream_outcome = 'client_disconnected' THEN 'client_disconnected'
-			WHEN final_rows.stream_outcome IN ('provider_incomplete','upstream_read_error','upstream_ended_without_terminal','unknown') THEN 'failed'
+			WHEN final_rows.stream_outcome IN ('provider_incomplete','upstream_read_error','gateway_timeout','upstream_ended_without_terminal','unknown') THEN 'failed'
 			ELSE 'completed' END`
 		add(*params.IngressFinalResult, classifier+" = $%d")
 	}

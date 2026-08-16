@@ -37,7 +37,9 @@ var expectedPrismMigrationVersions = []string{
 	"000016_proxy_api_key_in_place_rotation",
 	"000017_openai_image_operations",
 	"000018_retention_coverage_append_handoff",
-	"000019_connection_routing_schedule",
+	"000019_routing_failover_defaults_credentials_and_cooldown",
+	"000020_stats_read_path_indexes",
+	"000021_connection_routing_schedule",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
@@ -412,7 +414,7 @@ func assertMigratedSchemaGolden(t *testing.T, ctx context.Context, harness postg
 		"exec",
 		"-e",
 		"PGPASSWORD=prism",
-		harness.containerName,
+		harness.dumpContainerName(),
 		"pg_dump",
 		"--host=127.0.0.1",
 		"--username=prism",
@@ -1003,16 +1005,16 @@ func TestConnectionRoutingScheduleUpgradePath(t *testing.T) {
 		t.Fatalf("expected first run to apply migrations, got %q", firstResult.Outcome)
 	}
 
-	// Simulate a pre-upgrade database stamped with 000018 only: existing
+	// Simulate a pre-upgrade database stamped through 000020 only: existing
 	// connection rows and no routing schedule surface.
-	if _, err := conn.Exec(testContext, `DELETE FROM prism_schema_migrations WHERE version = '000019_connection_routing_schedule'`); err != nil {
-		t.Fatalf("un-stamp 000019: %v", err)
+	if _, err := conn.Exec(testContext, `DELETE FROM prism_schema_migrations WHERE version = '000021_connection_routing_schedule'`); err != nil {
+		t.Fatalf("un-stamp 000021: %v", err)
 	}
 	if _, err := conn.Exec(testContext, `DROP TABLE connection_routing_windows`); err != nil {
-		t.Fatalf("drop 000019 window table: %v", err)
+		t.Fatalf("drop 000021 window table: %v", err)
 	}
 	if _, err := conn.Exec(testContext, `ALTER TABLE connections DROP COLUMN routing_schedule_timezone`); err != nil {
-		t.Fatalf("drop 000019 column: %v", err)
+		t.Fatalf("drop 000021 column: %v", err)
 	}
 
 	now := time.Now().UTC()
@@ -1031,10 +1033,10 @@ func TestConnectionRoutingScheduleUpgradePath(t *testing.T) {
 
 	upgradeResult, err := runner.Run(testContext, conn)
 	if err != nil {
-		t.Fatalf("apply 000019 upgrade: %v", err)
+		t.Fatalf("apply 000021 upgrade: %v", err)
 	}
 	if upgradeResult.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected upgrade run to apply 000019, got %q", upgradeResult.Outcome)
+		t.Fatalf("expected upgrade run to apply 000021, got %q", upgradeResult.Outcome)
 	}
 
 	var storedTimezone sql.NullString

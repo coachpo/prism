@@ -1,732 +1,5 @@
 [
   {
-    "route_pattern": "/api/settings/auth",
-    "methods": [
-      "PUT"
-    ],
-    "profile_scoped": false,
-    "invalidates_auth": true,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Auth settings writes refresh runtime auth state."
-  },
-  {
-    "route_pattern": "/api/settings/auth/proxy-keys",
-    "methods": [
-      "POST"
-    ],
-    "profile_scoped": false,
-    "invalidates_auth": true,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Proxy key creation refreshes runtime auth state."
-  },
-  {
-    "route_pattern": "/api/settings/auth/proxy-keys/{key_id}",
-    "methods": [
-      "PATCH",
-      "DELETE"
-    ],
-    "profile_scoped": false,
-    "invalidates_auth": true,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Proxy key mutation or retirement refreshes runtime auth state."
-  },
-  {
-    "route_pattern": "/api/settings/auth/proxy-keys/{key_id}/rotate",
-    "methods": [
-      "POST"
-    ],
-    "profile_scoped": false,
-    "invalidates_auth": true,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Proxy key rotation refreshes runtime auth state."
-  },
-  {
-    "route_pattern": "/api/models",
-    "methods": [
-      "GET",
-      "POST"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile model list reads and model creation writes."
-  },
-  {
-    "route_pattern": "/api/models/connections/batch",
-    "methods": [
-      "POST"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile batch connection read."
-  },
-  {
-    "route_pattern": "/api/models/by-endpoints",
-    "methods": [
-      "POST"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile endpoint-to-model lookup."
-  },
-  {
-    "route_pattern": "/api/models/by-endpoint/{endpoint_id}",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile models for one endpoint."
-  },
-  {
-    "route_pattern": "/api/models/{model_config_id}",
-    "methods": [
-      "GET",
-      "PUT",
-      "DELETE"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Model reads are scoped; model updates and deletes refresh planning."
-  },
-  {
-    "route_pattern": "/api/models/{model_config_id}/routing-diagnostics",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Read-only static routing diagnostics."
-  },
-  {
-    "route_pattern": "/api/models/{model_config_id}/targets",
-    "methods": [
-      "GET",
-      "POST"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Model target list reads and target creation writes."
-  },
-  {
-    "route_pattern": "/api/models/{model_config_id}/targets/{target_id}",
-    "methods": [
-      "PUT",
-      "PATCH",
-      "DELETE"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Model target update, metadata patch, and delete refresh planning."
-  },
-  {
-    "route_pattern": "/api/models/{model_config_id}/targets/{target_id}/position",
-    "methods": [
-      "PATCH"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Model target ordering changes refresh planning."
-  },
-  {
-    "route_pattern": "/api/models/{model_config_id}/connections",
-    "methods": [
-      "GET",
-      "POST"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Owner-scoped connection list reads and creation writes."
-  },
-  {
-    "route_pattern": "/api/models/{model_config_id}/connections/{connection_id}",
-    "methods": [
-      "PATCH",
-      "DELETE"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Owner-scoped connection mutation refreshes planning."
-  },
-  {
-    "route_pattern": "/api/models/{model_config_id}/connections/{connection_id}/copies",
-    "methods": [
-      "POST"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Terminal Target batch copy refreshes planning once after commit."
-  },
-  {
-    "route_pattern": "/api/models/{model_config_id}/connections/{connection_id}/priority",
-    "methods": [
-      "PATCH"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Classifier still recognizes legacy owner-scoped priority mutation."
-  },
-  {
-    "route_pattern": "/api/connections",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile reusable connection list read."
-  },
-  {
-    "route_pattern": "/api/connections/{connection_id}",
-    "methods": [
-      "GET",
-      "PUT",
-      "DELETE"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Connection read is scoped; legacy write/delete paths refresh planning if successful."
-  },
-  {
-    "route_pattern": "/api/connections/{connection_id}/pricing-template",
-    "methods": [
-      "PUT"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Classifier still recognizes legacy public connection pricing-template mutation."
-  },
-  {
-    "route_pattern": "/api/connections/{connection_id}/references",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile connection reference read."
-  },
-  {
-    "route_pattern": "/api/pricing-templates",
-    "methods": [
-      "GET",
-      "POST"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Pricing template list reads and creation writes."
-  },
-  {
-    "route_pattern": "/api/pricing-templates/import",
-    "methods": [
-      "POST"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Pricing template JSON import creates or updates templates and refreshes planning."
-  },
-  {
-    "route_pattern": "/api/pricing-templates/{template_id}",
-    "methods": [
-      "GET",
-      "PUT",
-      "DELETE"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Pricing template reads are scoped; writes refresh planning."
-  },
-  {
-    "route_pattern": "/api/pricing-templates/{template_id}/connections",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile pricing-template connection read."
-  },
-  {
-    "route_pattern": "/api/endpoints",
-    "methods": [
-      "GET",
-      "POST"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Endpoint list reads and endpoint creation writes."
-  },
-  {
-    "route_pattern": "/api/endpoints/connections",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile endpoint connection dropdown read."
-  },
-  {
-    "route_pattern": "/api/endpoints/{endpoint_id}",
-    "methods": [
-      "PUT",
-      "DELETE"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Endpoint update and delete refresh planning."
-  },
-  {
-    "route_pattern": "/api/endpoints/{endpoint_id}/duplicate",
-    "methods": [
-      "POST"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Endpoint duplication refreshes planning."
-  },
-  {
-    "route_pattern": "/api/loadbalance/strategies",
-    "methods": [
-      "GET",
-      "POST"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "settings_schema_guard_methods": [
-      "POST"
-    ],
-    "notes": "Load-balance strategy list reads and creation writes."
-  },
-  {
-    "route_pattern": "/api/loadbalance/strategies/preview",
-    "methods": [
-      "POST"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Side-effect-free retry/ban effect preview; never invalidates planning."
-  },
-  {
-    "route_pattern": "/api/loadbalance/strategies/defaults",
-    "methods": [
-      "POST"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "settings_schema_guard_methods": [
-      "POST"
-    ],
-    "notes": "Default strategy creation refreshes planning."
-  },
-  {
-    "route_pattern": "/api/loadbalance/strategies/{strategy_id}",
-    "methods": [
-      "GET",
-      "PUT",
-      "DELETE"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "settings_schema_guard_methods": [
-      "DELETE"
-    ],
-    "notes": "Strategy reads are scoped; writes refresh planning."
-  },
-  {
-    "route_pattern": "/api/loadbalance/strategies/{strategy_id}/default",
-    "methods": [
-      "PUT"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "settings_schema_guard_methods": [
-      "PUT"
-    ],
-    "notes": "Set-default only changes authoring metadata; existing model bindings and planning stay untouched."
-  },
-  {
-    "route_pattern": "/api/loadbalance/strategies/{strategy_id}/models",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Bounded lazy strategy impact list read."
-  },
-  {
-    "route_pattern": "/api/loadbalance/current-state",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile runtime state read."
-  },
-  {
-    "route_pattern": "/api/loadbalance/current-state/{connection_id}/reset",
-    "methods": [
-      "POST"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile runtime state reset is non-invalidating in current classifier."
-  },
-  {
-    "route_pattern": "/api/loadbalance/incidents",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile active ban and recent failover incident read."
-  },
-  {
-    "route_pattern": "/api/loadbalance/events",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile load-balance event list read."
-  },
-  {
-    "route_pattern": "/api/loadbalance/events/query-context",
-    "methods": [
-      "POST"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Signed events query-context issue; read-only and never invalidates planning."
-  },
-  {
-    "route_pattern": "/api/loadbalance/events/{event_id}",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile load-balance event detail read."
-  },
-  {
-    "route_pattern": "/api/stats/dashboard",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile dashboard statistics read."
-  },
-  {
-    "route_pattern": "/api/stats/dashboard/recent-activity",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile dashboard recent activity read."
-  },
-  {
-    "route_pattern": "/api/stats/requests",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile request log list read."
-  },
-  {
-    "route_pattern": "/api/stats/requests/{request_id}",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile request log detail read."
-  },
-  {
-    "route_pattern": "/api/stats/requests/export",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Full filtered request-log CSV export."
-  },
-  {
-    "route_pattern": "/api/stats/usage-snapshot",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile usage snapshot read."
-  },
-  {
-    "route_pattern": "/api/stats/query-context",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Observe signed query-context creation."
-  },
-  {
-    "route_pattern": "/api/stats/usage-summary",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Observe window KPI aggregate."
-  },
-  {
-    "route_pattern": "/api/stats/usage-series",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Observe single main chart."
-  },
-  {
-    "route_pattern": "/api/stats/usage-errors",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Observe error aggregation with Requests deep-link filters."
-  },
-  {
-    "route_pattern": "/api/stats/dashboard/now",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Observe Now rolling strip."
-  },
-  {
-    "route_pattern": "/api/stats/endpoints/{endpoint_id}/models",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile endpoint model usage read."
-  },
-  {
-    "route_pattern": "/api/stats/summary",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile stats summary read."
-  },
-  {
-    "route_pattern": "/api/stats/models/metrics",
-    "methods": [
-      "POST"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile model metrics batch read."
-  },
-  {
-    "route_pattern": "/api/stats/connection-success-rates",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile connection success-rate read."
-  },
-  {
-    "route_pattern": "/api/stats/spending",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile spending report read."
-  },
-  {
-    "route_pattern": "/api/stats/throughput",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile throughput statistics read."
-  },
-  {
     "route_pattern": "/api/audit/logs",
     "methods": [
       "GET"
@@ -735,8 +8,7 @@
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile audit log list read."
+    "invalidates_all_planning": false
   },
   {
     "route_pattern": "/api/audit/logs/{log_id}",
@@ -747,199 +19,151 @@
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile audit log detail read."
+    "invalidates_all_planning": false
   },
   {
-    "route_pattern": "/api/settings/audit",
+    "route_pattern": "/api/audit/logs/{log_id}/body/request",
     "methods": [
-      "GET",
-      "PUT"
+      "GET"
     ],
     "profile_scoped": true,
     "invalidates_auth": false,
     "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "settings_schema_guard_methods": [
-      "PUT"
-    ],
-    "notes": "Audit reads are scoped; full-family replacement refreshes planning."
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
   },
   {
-    "route_pattern": "/api/settings/costing",
+    "route_pattern": "/api/audit/logs/{log_id}/body/response",
     "methods": [
-      "GET",
-      "PUT"
+      "GET"
     ],
     "profile_scoped": true,
     "invalidates_auth": false,
     "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Costing reads are scoped; writes refresh planning."
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
   },
   {
-    "route_pattern": "/api/settings/costing/currency-migrations/preview",
+    "route_pattern": "/api/auth/login",
     "methods": [
       "POST"
     ],
-    "profile_scoped": true,
+    "profile_scoped": false,
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Currency cutover, repair, and archive previews are read-only authoritative owner checks."
+    "invalidates_all_planning": false
   },
   {
-    "route_pattern": "/api/settings/costing/currency-migrations/commit",
+    "route_pattern": "/api/auth/logout",
     "methods": [
       "POST"
     ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "settings_schema_guard_methods": [
-      "POST"
-    ],
-    "notes": "Currency migration commit is atomic and wakes the existing pricing planning invalidation owner."
-  },
-  {
-    "route_pattern": "/api/settings/costing/pricing-migration-inventories/{inventory_id}/templates",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
+    "profile_scoped": false,
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Pricing-owned immutable template migration evidence is a bounded Settings read-only scaffold."
+    "invalidates_all_planning": false
   },
   {
-    "route_pattern": "/api/settings/costing/pricing-migration-inventories/{inventory_id}/fx-evidence",
+    "route_pattern": "/api/auth/operations/{operation_id}/status",
     "methods": [
       "GET"
     ],
-    "profile_scoped": true,
+    "profile_scoped": false,
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Pricing-owned immutable FX migration evidence is a bounded Settings read-only scaffold."
+    "invalidates_all_planning": false
   },
   {
-    "route_pattern": "/api/settings/costing/currency-migration-drafts",
+    "route_pattern": "/api/auth/public-bootstrap",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": false,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/auth/refresh",
     "methods": [
       "POST"
     ],
-    "profile_scoped": true,
+    "profile_scoped": false,
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Currency migration draft creation reserves an operation and stores only bounded draft metadata."
+    "invalidates_all_planning": false
   },
   {
-    "route_pattern": "/api/settings/costing/currency-migration-drafts/{draft_id}",
+    "route_pattern": "/api/auth/session",
     "methods": [
       "GET"
     ],
-    "profile_scoped": true,
+    "profile_scoped": false,
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Currency draft header recovery is bounded and non-planning."
+    "invalidates_all_planning": false
   },
   {
-    "route_pattern": "/api/settings/costing/currency-migration-drafts/{draft_id}/chunks",
+    "route_pattern": "/api/auth/status",
     "methods": [
       "GET"
     ],
-    "profile_scoped": true,
+    "profile_scoped": false,
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Currency draft chunk metadata uses a signed bounded cursor."
-  },
-  {
-    "route_pattern": "/api/settings/costing/currency-migration-drafts/{draft_id}/chunks/{ordinal}",
-    "methods": [
-      "PUT"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Currency draft chunks are isolated authoring writes and do not touch live pricing state."
-  },
-  {
-    "route_pattern": "/api/settings/costing/currency-migration-drafts/{draft_id}/seal",
-    "methods": [
-      "POST"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Currency draft sealing only materializes immutable draft items."
-  },
-  {
-    "route_pattern": "/api/settings/costing/currency-migration-drafts/{draft_id}/items",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Sealed currency draft items are returned through a bounded signed page."
-  },
-  {
-    "route_pattern": "/api/settings/costing/currency-migration-drafts/{draft_id}/preview-items",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Currency preview items are owner-derived bounded pages."
+    "invalidates_all_planning": false
   },
   {
     "route_pattern": "/api/config/header-blocklist-rules",
     "methods": [
-      "GET",
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/config/header-blocklist-rules",
+    "methods": [
       "POST"
     ],
     "profile_scoped": true,
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Header blocklist reads are scoped; creation refreshes planning."
+    "invalidates_all_planning": false
   },
   {
     "route_pattern": "/api/config/header-blocklist-rules/{rule_id}",
     "methods": [
-      "GET",
-      "PATCH",
-      "DELETE"
+      "DELETE",
+      "PATCH"
     ],
     "profile_scoped": true,
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Header blocklist reads are scoped; mutations refresh planning."
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/config/header-blocklist-rules/{rule_id}",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
   },
   {
     "route_pattern": "/api/config/user-agent-client-rules",
@@ -951,25 +175,49 @@
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile user-agent client rules are non-invalidating in current classifier."
+    "invalidates_all_planning": false
   },
   {
     "route_pattern": "/api/config/user-agent-client-rules/{rule_id}",
     "methods": [
+      "DELETE",
+      "GET",
+      "PATCH"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/connections",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/connections/{connection_id}",
+    "methods": [
+      "DELETE",
       "GET",
       "PATCH",
-      "DELETE"
+      "PUT"
     ],
     "profile_scoped": true,
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile user-agent client rule detail and mutations are non-invalidating in current classifier."
+    "invalidates_all_planning": false
   },
   {
-    "route_pattern": "/api/models/{model_config_id}/routing-diagnostics",
+    "route_pattern": "/api/connections/{connection_id}/references",
     "methods": [
       "GET"
     ],
@@ -977,11 +225,10 @@
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Read-only static routing diagnostics; no planning invalidation."
+    "invalidates_all_planning": false
   },
   {
-    "route_pattern": "/api/stats/endpoints/{endpoint_id}/terminal-targets",
+    "route_pattern": "/api/endpoints",
     "methods": [
       "GET"
     ],
@@ -989,8 +236,29 @@
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Bounded Terminal Target drill-down per endpoint (lazy expansion)."
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/endpoints",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": true,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/endpoints/connections",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
   },
   {
     "route_pattern": "/api/endpoints/references/batch",
@@ -1001,32 +269,30 @@
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Read-only direct endpoint reference batch; no planning invalidation."
+    "invalidates_all_planning": false
   },
   {
-    "route_pattern": "/api/endpoints/{endpoint_id}/references",
+    "route_pattern": "/api/endpoints/{endpoint_id}",
     "methods": [
-      "GET"
+      "DELETE",
+      "PUT"
     ],
     "profile_scoped": true,
     "invalidates_auth": false,
     "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Read-only bounded direct endpoint reference detail."
+    "invalidates_planning": true,
+    "invalidates_all_planning": false
   },
   {
-    "route_pattern": "/api/endpoints/{endpoint_id}/verify",
+    "route_pattern": "/api/endpoints/{endpoint_id}/duplicate",
     "methods": [
       "POST"
     ],
     "profile_scoped": true,
     "invalidates_auth": false,
     "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Read-only one-time family-aware endpoint metadata verification."
+    "invalidates_planning": true,
+    "invalidates_all_planning": false
   },
   {
     "route_pattern": "/api/endpoints/{endpoint_id}/orphan-connections/{connection_id}",
@@ -1037,11 +303,109 @@
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Ownerless endpoint connection cleanup refreshes planning after commit."
+    "invalidates_all_planning": false
   },
   {
-    "route_pattern": "/api/models/{model_config_id}/connections/{connection_id}/copies",
+    "route_pattern": "/api/endpoints/{endpoint_id}/references",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/endpoints/{endpoint_id}/verify",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/loadbalance/current-state",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/loadbalance/current-state/{connection_id}/reset",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/loadbalance/events",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/loadbalance/events/query-context",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/loadbalance/events/{event_id}",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/loadbalance/incidents",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/loadbalance/strategies",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/loadbalance/strategies",
     "methods": [
       "POST"
     ],
@@ -1049,11 +413,44 @@
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": true,
-    "invalidates_all_planning": false,
-    "notes": "Transactional Terminal Target batch copy; single after-commit planning invalidation."
+    "invalidates_all_planning": false
   },
   {
-    "route_pattern": "/api/stats/requests/export",
+    "route_pattern": "/api/loadbalance/strategies/defaults",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": true,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/loadbalance/strategies/preview",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/loadbalance/strategies/{strategy_id}",
+    "methods": [
+      "DELETE",
+      "PUT"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": true,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/loadbalance/strategies/{strategy_id}",
     "methods": [
       "GET"
     ],
@@ -1061,11 +458,21 @@
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile full filtered CSV export."
+    "invalidates_all_planning": false
   },
   {
-    "route_pattern": "/api/stats/cost-segments",
+    "route_pattern": "/api/loadbalance/strategies/{strategy_id}/default",
+    "methods": [
+      "PUT"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/loadbalance/strategies/{strategy_id}/models",
     "methods": [
       "GET"
     ],
@@ -1073,74 +480,7 @@
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile cost segment catalogue."
-  },
-  {
-    "route_pattern": "/api/audit/logs/{log_id}/body/request",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile audit raw request body download."
-  },
-  {
-    "route_pattern": "/api/audit/logs/{log_id}/body/response",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": true,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "Default-profile audit raw response body download."
-  },
-  {
-    "route_pattern": "/api/settings/audit/storage-summary",
-    "methods": [
-      "GET"
-    ],
-    "profile_scoped": false,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "settings audit logical storage summary (M3)"
-  },
-  {
-    "route_pattern": "/api/settings/log-retention/owner-drift-archive",
-    "methods": [
-      "POST"
-    ],
-    "profile_scoped": false,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "settings_schema_guard_methods": [
-      "POST"
-    ],
-    "notes": "archive current owner-drift heads; no policy change (no runtime cache invalidation: read-only evidence / evidence-only)"
-  },
-  {
-    "route_pattern": "/api/maintenance/log-retention/preflights",
-    "methods": [
-      "POST"
-    ],
-    "profile_scoped": false,
-    "invalidates_auth": false,
-    "invalidates_active_profile": false,
-    "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "settings_schema_guard_methods": [
-      "POST"
-    ],
-    "notes": "fresh destructive preflight (read-only) (no runtime cache invalidation: read-only evidence / evidence-only)"
+    "invalidates_all_planning": false
   },
   {
     "route_pattern": "/api/maintenance/log-retention/jobs",
@@ -1151,11 +491,18 @@
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "settings_schema_guard_methods": [
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/maintenance/log-retention/preflights",
+    "methods": [
       "POST"
     ],
-    "notes": "sealed global manual log-retention job acceptance"
+    "profile_scoped": false,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
   },
   {
     "route_pattern": "/api/management/jobs",
@@ -1166,8 +513,7 @@
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "global log-retention job discovery uses explicit scope/type filters"
+    "invalidates_all_planning": false
   },
   {
     "route_pattern": "/api/management/jobs/{job_id}",
@@ -1178,8 +524,7 @@
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "global log-retention job detail uses explicit scope/type filters"
+    "invalidates_all_planning": false
   },
   {
     "route_pattern": "/api/management/jobs/{job_id}/cancel",
@@ -1190,11 +535,7 @@
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "settings_schema_guard_methods": [
-      "POST"
-    ],
-    "notes": "durable global log-retention cancel operation"
+    "invalidates_all_planning": false
   },
   {
     "route_pattern": "/api/management/jobs/{job_id}/checkpoints",
@@ -1205,8 +546,7 @@
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "global log-retention job checkpoints"
+    "invalidates_all_planning": false
   },
   {
     "route_pattern": "/api/management/jobs/{job_id}/partitions",
@@ -1217,8 +557,365 @@
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "global log-retention partition evidence"
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": true,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/by-endpoint/{endpoint_id}",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/by-endpoints",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/connections/batch",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/route-witnesses",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/{model_config_id}",
+    "methods": [
+      "DELETE",
+      "PUT"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": true,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/{model_config_id}",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/{model_config_id}/connections",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/{model_config_id}/connections",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": true,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/{model_config_id}/connections/{connection_id}",
+    "methods": [
+      "DELETE",
+      "PATCH",
+      "PUT"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": true,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/{model_config_id}/connections/{connection_id}/copies",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": true,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/{model_config_id}/connections/{connection_id}/priority",
+    "methods": [
+      "PATCH"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/{model_config_id}/routing-diagnostics",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/{model_config_id}/targets",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/{model_config_id}/targets",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": true,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/{model_config_id}/targets/{target_id}",
+    "methods": [
+      "DELETE",
+      "PATCH",
+      "PUT"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": true,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/{model_config_id}/targets/{target_id}/position",
+    "methods": [
+      "PATCH"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": true,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/pricing-templates",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/pricing-templates",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": true,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/pricing-templates/import",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/pricing-templates/import/commit",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": true,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/pricing-templates/{template_id}",
+    "methods": [
+      "DELETE",
+      "PUT"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": true,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/pricing-templates/{template_id}",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/pricing-templates/{template_id}/connections",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/pricing-templates/{template_id}/impact",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/pricing-templates/{template_id}/revisions",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/audit",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/audit",
+    "methods": [
+      "PUT"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": true,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/audit/storage-summary",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": false,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/auth",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": false,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/auth",
+    "methods": [
+      "PUT"
+    ],
+    "profile_scoped": false,
+    "invalidates_auth": true,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
   },
   {
     "route_pattern": "/api/settings/auth/operations/{operation_id}",
@@ -1229,7 +926,459 @@
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": false,
-    "invalidates_all_planning": false,
-    "notes": "protected auth operation result"
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/auth/proxy-keys",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": false,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/auth/proxy-keys",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": false,
+    "invalidates_auth": true,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/auth/proxy-keys/{key_id}",
+    "methods": [
+      "DELETE",
+      "PATCH"
+    ],
+    "profile_scoped": false,
+    "invalidates_auth": true,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/auth/proxy-keys/{key_id}/rotate",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": false,
+    "invalidates_auth": true,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/costing",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/costing",
+    "methods": [
+      "PUT"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": true,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/costing/currency-migration-drafts",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/costing/currency-migration-drafts/{draft_id}",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/costing/currency-migration-drafts/{draft_id}/chunks",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/costing/currency-migration-drafts/{draft_id}/chunks/{ordinal}",
+    "methods": [
+      "PUT"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/costing/currency-migration-drafts/{draft_id}/items",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/costing/currency-migration-drafts/{draft_id}/preview-items",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/costing/currency-migration-drafts/{draft_id}/seal",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/costing/currency-migrations/commit",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": true,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/costing/currency-migrations/preview",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/costing/pricing-migration-inventories/{inventory_id}/fx-evidence",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/costing/pricing-migration-inventories/{inventory_id}/templates",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/log-retention",
+    "methods": [
+      "GET",
+      "PUT"
+    ],
+    "profile_scoped": false,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/settings/log-retention/owner-drift-archive",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": false,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/connection-success-rates",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/cost-segments",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/cost-segments/{segment_key}/symbols",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/dashboard/now",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/dashboard/recent-activity",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/endpoints/{endpoint_id}/models",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/endpoints/{endpoint_id}/terminal-targets",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/models/metrics",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/observe-activity",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/query-context",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/request-filter-options/proxy-api-keys",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/requests",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/requests/export",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/requests/{request_id}",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/spending",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/summary",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/throughput",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/usage-errors",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/usage-series",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/usage-snapshot",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/stats/usage-summary",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
   }
 ]

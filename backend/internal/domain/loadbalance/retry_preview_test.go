@@ -14,16 +14,16 @@ func TestRetryDelayBoundsBalancedGolden(t *testing.T) {
 	policy := feedbackPolicyForStrategy(t, strategy)
 
 	first := retryDelayBounds(policy, 1)
-	if first.NominalDelayMS != 60000 || first.JitterMinDelayMS != 48000 || first.JitterMaxDelayMS != 72000 {
-		t.Fatalf("expected balanced attempt 1 bounds 60000/48000/72000, got %+v", first)
+	if first.NominalDelayMS != 5000 || first.JitterMinDelayMS != 4000 || first.JitterMaxDelayMS != 6000 {
+		t.Fatalf("expected balanced attempt 1 bounds 5000/4000/6000, got %+v", first)
 	}
 	second := retryDelayBounds(policy, 2)
-	if second.NominalDelayMS != 120000 || second.JitterMinDelayMS != 96000 || second.JitterMaxDelayMS != 144000 {
-		t.Fatalf("expected balanced attempt 2 bounds 120000/96000/144000, got %+v", second)
+	if second.NominalDelayMS != 10000 || second.JitterMinDelayMS != 8000 || second.JitterMaxDelayMS != 12000 {
+		t.Fatalf("expected balanced attempt 2 bounds 10000/8000/12000, got %+v", second)
 	}
 	third := retryDelayBounds(policy, 3)
-	if third.NominalDelayMS != 240000 || third.JitterMinDelayMS != 192000 || third.JitterMaxDelayMS != 288000 {
-		t.Fatalf("expected balanced attempt 3 bounds 240000/192000/288000, got %+v", third)
+	if third.NominalDelayMS != 20000 || third.JitterMinDelayMS != 16000 || third.JitterMaxDelayMS != 24000 {
+		t.Fatalf("expected balanced attempt 3 bounds 20000/16000/24000, got %+v", third)
 	}
 }
 
@@ -246,7 +246,7 @@ func TestCanonicalStrategyPayloadAndSpecsReconcile(t *testing.T) {
 		}
 	}
 	edited := DefaultStrategyPayload(specs[1])
-	edited.RetryBaseDelayMS = 5000
+	edited.RetryBaseDelayMS = 60000
 	if StrategyMatchesCanonical(edited, specs[1]) {
 		t.Fatalf("expected edited payload to stop matching the canonical spec")
 	}

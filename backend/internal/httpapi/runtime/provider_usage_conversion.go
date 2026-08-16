@@ -10,6 +10,7 @@ func responseUsageFromProviderUsageEnvelope(usage provider.UsageEnvelope) respon
 		CacheReadInputTokens:     usage.CacheReadInputTokens,
 		CacheCreationInputTokens: usage.CacheCreationInputTokens,
 		ReasoningTokens:          usage.ReasoningTokens,
+		discarded:                usage.NormalizationRejected,
 	}
 }
 
@@ -21,5 +22,6 @@ func providerUsageEnvelope(usage responseUsage) provider.UsageEnvelope {
 		CacheReadInputTokens:     usage.CacheReadInputTokens,
 		CacheCreationInputTokens: usage.CacheCreationInputTokens,
 		ReasoningTokens:          usage.ReasoningTokens,
+		NormalizationRejected:    usage.discarded,
 	}
 }

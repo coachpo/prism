@@ -1013,11 +1013,11 @@ func TestSSEStreamHooksByOperation(t *testing.T) {
 		{
 			name:         "gemini stream generate owns usage metadata terminal",
 			requestPath:  "/v1beta/models/gemini-2.5-pro:streamGenerateContent",
-			stream:       "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hello\"}]}}],\"usageMetadata\":{\"promptTokenCount\":7,\"candidatesTokenCount\":13,\"totalTokenCount\":20,\"cachedContentTokenCount\":3,\"thoughtsTokenCount\":5}}\n\n",
+			stream:       "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hello\"}]}}],\"usageMetadata\":{\"promptTokenCount\":7,\"candidatesTokenCount\":13,\"totalTokenCount\":25,\"cachedContentTokenCount\":3,\"thoughtsTokenCount\":5}}\n\n",
 			wantProvider: "gemini",
 			wantKind:     operationResponseKindTextGeneration,
 			wantOutcome:  runtimeStreamOutcomeCompleted,
-			wantUsage:    responseUsage{InputTokens: intPtr(4), OutputTokens: intPtr(8), TotalTokens: intPtr(20), CacheReadInputTokens: intPtr(3), ReasoningTokens: intPtr(5)},
+			wantUsage:    responseUsage{InputTokens: intPtr(4), OutputTokens: intPtr(13), TotalTokens: intPtr(25), CacheReadInputTokens: intPtr(3), ReasoningTokens: intPtr(5)},
 		},
 		{
 			name:         "gemini stream generate owns done terminal",
@@ -1955,11 +1955,11 @@ func TestProxyNonEventResponseAndCaptureUsageAcceptsOnlySupportedUsageSchemaPath
 		{
 			name:        "keeps top-level usage metadata and ignores nested spoofed usage metadata object",
 			requestPath: "/v1beta/models/gemini-2.5-pro:generateContent",
-			payload:     `{"candidates":[{"content":{"parts":[{"text":"hello"},{"metadata":{"usageMetadata":{"promptTokenCount":999,"candidatesTokenCount":999,"totalTokenCount":1998,"cachedContentTokenCount":777,"thoughtsTokenCount":666}}}]}}],"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":13,"totalTokenCount":20,"cachedContentTokenCount":3,"thoughtsTokenCount":5}}`,
+			payload:     `{"candidates":[{"content":{"parts":[{"text":"hello"},{"metadata":{"usageMetadata":{"promptTokenCount":999,"candidatesTokenCount":999,"totalTokenCount":1998,"cachedContentTokenCount":777,"thoughtsTokenCount":666}}}]}}],"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":13,"totalTokenCount":25,"cachedContentTokenCount":3,"thoughtsTokenCount":5}}`,
 			want: responseUsage{
 				InputTokens:          intPtr(4),
-				OutputTokens:         intPtr(8),
-				TotalTokens:          intPtr(20),
+				OutputTokens:         intPtr(13),
+				TotalTokens:          intPtr(25),
 				CacheReadInputTokens: intPtr(3),
 				ReasoningTokens:      intPtr(5),
 			},

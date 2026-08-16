@@ -117,6 +117,10 @@ func CreateOwnerConnection(ctx context.Context, tx pgx.Tx, profileID int, owner 
 		return connectionResponse{}, 0, 0, nil, err
 	}
 	nowUTC := now().UTC()
+	customHeaders, err := mustResolveCustomHeadersWrite(input.CustomHeaders)
+	if err != nil {
+		return connectionResponse{}, 0, 0, nil, err
+	}
 	item := connectionResponse{
 		ProfileID:               profileID,
 		APIFamily:               owner.APIFamily,
@@ -125,7 +129,7 @@ func CreateOwnerConnection(ctx context.Context, tx pgx.Tx, profileID int, owner 
 		Priority:                position,
 		Name:                    normalizeOptionalString(input.Name),
 		AuthType:                authType,
-		CustomHeaders:           normalizeHeaders(input.CustomHeaders),
+		CustomHeaders:           customHeaders,
 		CustomRequestParameters: input.CustomRequestParameters,
 		RoutingSchedule:         routingSchedulePayloadFromRecord(routingScheduleTimezone, routingWindows),
 		OpenAITextCapability:    openAITextCapability,

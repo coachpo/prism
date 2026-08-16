@@ -500,21 +500,19 @@ func emptyDashboardRoutingHealthMap() DashboardRoutingHealthMap {
 	}
 }
 
+// cloneDashboardRoutingHealthMap returns a deep-enough copy for snapshot
+// reuse. The value copy carries every scalar field; only the slices need
+// fresh backing arrays. Rebuilding the struct field-by-field is what silently
+// dropped ActiveTerminalTargetTotal, so never reintroduce a field list here.
 func cloneDashboardRoutingHealthMap(value DashboardRoutingHealthMap) DashboardRoutingHealthMap {
-	nodes := append([]DashboardRoutingNode{}, value.Nodes...)
-	links := append([]DashboardRoutingLink{}, value.Links...)
-	if nodes == nil {
-		nodes = []DashboardRoutingNode{}
+	cloned := value
+	cloned.Nodes = append([]DashboardRoutingNode{}, value.Nodes...)
+	cloned.Links = append([]DashboardRoutingLink{}, value.Links...)
+	if cloned.Nodes == nil {
+		cloned.Nodes = []DashboardRoutingNode{}
 	}
-	if links == nil {
-		links = []DashboardRoutingLink{}
+	if cloned.Links == nil {
+		cloned.Links = []DashboardRoutingLink{}
 	}
-	return DashboardRoutingHealthMap{
-		Nodes:                  nodes,
-		Links:                  links,
-		EndpointCount:          value.EndpointCount,
-		ModelCount:             value.ModelCount,
-		ActiveConnectionTotal:  value.ActiveConnectionTotal,
-		TrafficRequestTotal24H: value.TrafficRequestTotal24H,
-	}
+	return cloned
 }

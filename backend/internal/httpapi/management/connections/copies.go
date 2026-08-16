@@ -143,6 +143,10 @@ func (s *Service) handleCreateConnectionCopies(w http.ResponseWriter, r *http.Re
 		if !found {
 			return terminalTargetCopyResponse{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "terminal_target_not_found"}
 		}
+		sourceCustomHeaders, err := loadConnectionCustomHeadersRaw(r.Context(), tx, profile.ID, connectionID)
+		if err != nil {
+			return terminalTargetCopyResponse{}, err
+		}
 		if _, found, err := loadConnectionOwnerReference(r.Context(), tx, profile.ID, sourceOwner.ID, source.ID, true); err != nil {
 			return terminalTargetCopyResponse{}, err
 		} else if !found {
@@ -220,7 +224,7 @@ func (s *Service) handleCreateConnectionCopies(w http.ResponseWriter, r *http.Re
 				Priority:                position,
 				Name:                    cloneString(source.Name),
 				AuthType:                cloneString(source.AuthType),
-				CustomHeaders:           cloneHeaderMap(source.CustomHeaders),
+				CustomHeaders:           cloneHeaderMap(sourceCustomHeaders),
 				CustomRequestParameters: source.CustomRequestParameters.Clone(),
 				RoutingSchedule:         source.RoutingSchedule,
 				OpenAITextCapability:    cloneString(source.OpenAITextCapability),

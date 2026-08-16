@@ -17,17 +17,17 @@ const TranslationModeNone TranslationMode = providerauth.OpenAITextTranslationMo
 // body capture side effects. Dynamic unavailability (Ban/admission/transport)
 // keeps the ordinary 503 / admission_exhausted error family instead.
 const (
-	openAIOperationNotSupportedErrorCode      = "openai_operation_not_supported"
-	openAINoCompatibleTerminalTargetErrorCode = "openai_no_compatible_terminal_target"
-	openAINoEligibleTerminalTargetErrorCode   = "openai_no_eligible_terminal_target"
+	openAIOperationNotSupportedErrorCode         = "openai_operation_not_supported"
+	openAINoCompatibleTerminalTargetErrorCode    = "openai_no_compatible_terminal_target"
+	openAINoEligibleTerminalTargetErrorCode      = "openai_no_eligible_terminal_target"
 	openAIRequestTranslationUnsupportedErrorCode = "openai_request_translation_unsupported"
-	openAIRequestTranslationUnsupportedReason   = "operation_translation_unsupported"
+	openAIRequestTranslationUnsupportedReason    = "operation_translation_unsupported"
 )
 
 const (
-	openAIOperationNotSupportedDetail      = "The requested model does not accept this OpenAI operation."
-	openAINoCompatibleTerminalTargetDetail = "No configured terminal target can natively serve this OpenAI operation for the requested model."
-	openAINoEligibleTerminalTargetDetail   = "No terminal target is currently eligible to serve this OpenAI operation for the requested model."
+	openAIOperationNotSupportedDetail         = "The requested model does not accept this OpenAI operation."
+	openAINoCompatibleTerminalTargetDetail    = "No configured terminal target can natively serve this OpenAI operation for the requested model."
+	openAINoEligibleTerminalTargetDetail      = "No terminal target is currently eligible to serve this OpenAI operation for the requested model."
 	openAIRequestTranslationUnsupportedDetail = "Prism cannot translate this OpenAI request shape for the selected target."
 )
 

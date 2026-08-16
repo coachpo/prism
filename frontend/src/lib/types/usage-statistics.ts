@@ -44,6 +44,10 @@ export interface UsageSnapshotOverview {
   /** Derived aggregate: cache-read input plus cache-creation input tokens. */
   cached_tokens: number;
   reasoning_tokens: number;
+  /** Caliber of the component fields above; currently always "disjoint". */
+  token_component_basis: string;
+  /** total_tokens minus the sum of the disjoint components, clamped at zero. */
+  uncategorized_tokens: number;
   average_rpm: number;
   average_tpm: number;
   total_cost_micros: number;

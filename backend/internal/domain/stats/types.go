@@ -163,14 +163,21 @@ type RequestLogListItem struct {
 	UserAgentOverridden           bool      `json:"user_agent_overridden"`
 	TerminalTargetLabel           *string   `json:"terminal_target_label"`
 	TerminalTargetConfigured      bool      `json:"terminal_target_configured"`
+	TerminalTargetOwnerModelID    *string   `json:"terminal_target_owner_model_id"`
 }
 
 type RequestLogListResponse struct {
 	FilterOptions RequestLogListFilterOptions `json:"filter_options"`
 	Items         []RequestLogListItem        `json:"items"`
 	Total         int                         `json:"total"`
-	Limit         int                         `json:"limit"`
-	Offset        int                         `json:"offset"`
+	// TotalIsExact is false when the browse count hit requestLogCountCap and
+	// Total is the capped value rather than the exact row count.
+	TotalIsExact bool `json:"total_is_exact"`
+	// HasMore is true when the requested page is not the last one; the list
+	// query fetches limit+1 rows to decide this without an extra count pass.
+	HasMore bool `json:"has_more"`
+	Limit   int  `json:"limit"`
+	Offset  int  `json:"offset"`
 	// Coverage is the non-null ordinary query-scoped retention projection
 	// (Requests SPEC: every successful ordinary attempts envelope carries it).
 	Coverage QueryCoverage `json:"coverage"`
@@ -185,8 +192,8 @@ type DashboardRecentActivityItem struct {
 	ResolvedTargetModelLabel    *string   `json:"resolved_target_model_label"`
 	EndpointID                  *int      `json:"endpoint_id"`
 	EndpointLabel               string    `json:"endpoint_label"`
-	StatusCode                  int       `json:"status_code"`
-	ResponseTimeMS              int       `json:"response_time_ms"`
+	StatusCode                  *int      `json:"status_code"`
+	ResponseTimeMS              *int      `json:"response_time_ms"`
 	TTFTMS                      *int      `json:"ttft_ms"`
 	CompletionDurationMS        *int      `json:"completion_duration_ms"`
 	IsStream                    bool      `json:"is_stream"`
@@ -240,14 +247,20 @@ type StatsSummaryResponse struct {
 	TotalOutputTokens int         `json:"total_output_tokens"`
 	TotalTokens       int         `json:"total_tokens"`
 	Groups            []StatGroup `json:"groups"`
+	// Granularity is always "request": the summary is built from the
+	// request-level usage-event records, not attempt rows.
+	Granularity string `json:"granularity"`
+	// LatencyBasis is always "end_to_end": stream durations include the
+	// finalization time, not just the response-header time.
+	LatencyBasis string `json:"latency_basis"`
 }
 
 type ModelMetricsBatchItem struct {
-	ModelID         string  `json:"model_id"`
-	SuccessRate     float64 `json:"success_rate"`
-	RequestCount24H int     `json:"request_count_24h"`
-	P95LatencyMS    int     `json:"p95_latency_ms"`
-	Spend30DMicros  int64   `json:"spend_30d_micros"`
+	ModelID         string   `json:"model_id"`
+	SuccessRate     *float64 `json:"success_rate"`      // null when the window has no samples
+	RequestCount24H int      `json:"request_count_24h"` // 0 is a fact; stays non-pointer
+	P95LatencyMS    *int     `json:"p95_latency_ms"`    // null without latency samples
+	Spend30DMicros  *int64   `json:"spend_30d_micros"`  // null without trusted pricing evidence
 }
 
 type ModelMetricsBatchResponse struct {
@@ -343,8 +356,17 @@ type UsageSnapshotOverview struct {
 	InputTokens     int     `json:"input_tokens"`
 	OutputTokens    int     `json:"output_tokens"`
 	// CachedTokens is derived from cache-read plus cache-creation input tokens for aggregate presentation only.
-	CachedTokens         int     `json:"cached_tokens"`
-	ReasoningTokens      int     `json:"reasoning_tokens"`
+	CachedTokens    int `json:"cached_tokens"`
+	ReasoningTokens int `json:"reasoning_tokens"`
+	// TokenComponentBasis names the caliber of the component fields above.
+	// "disjoint" means InputTokens excludes cache-read and cache-creation
+	// input and OutputTokens excludes reasoning output.
+	TokenComponentBasis string `json:"token_component_basis"`
+	// UncategorizedTokens is TotalTokens minus the sum of the disjoint
+	// components, clamped at zero. A positive value means upstreams reported
+	// provider totals the components cannot reconstruct - typically usage
+	// payloads that carry only a total.
+	UncategorizedTokens  int     `json:"uncategorized_tokens"`
 	AverageRPM           float64 `json:"average_rpm"`
 	AverageTPM           float64 `json:"average_tpm"`
 	TotalCostMicros      int64   `json:"total_cost_micros"`

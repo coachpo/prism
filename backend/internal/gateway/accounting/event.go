@@ -127,7 +127,8 @@ func NormalizeUsageSource(source gatewaycore.UsageSource) gatewaycore.UsageSourc
 	case gatewaycore.UsageSourceProvider,
 		gatewaycore.UsageSourceProviderStreamTerminal,
 		gatewaycore.UsageSourceLocalEstimate,
-		gatewaycore.UsageSourceMissing:
+		gatewaycore.UsageSourceMissing,
+		gatewaycore.UsageSourceNormalizationRejected:
 		return source
 	default:
 		return gatewaycore.UsageSourceMissing

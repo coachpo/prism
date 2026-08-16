@@ -15,6 +15,7 @@ function createConnection(params?: Partial<Connection>): Connection {
     name: "openrouter link",
     auth_type: null,
     custom_headers: null,
+    custom_headers_redacted: null,
     custom_request_parameters: null,
     routing_schedule: null,
     routing_schedule_state: null,

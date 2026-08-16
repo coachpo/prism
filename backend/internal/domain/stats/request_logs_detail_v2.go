@@ -325,14 +325,18 @@ func GetRequestLogDetailV2(ctx context.Context, exec queryExecutor, profileID in
 	if err != nil {
 		return nil, false, err
 	}
+	connectionCatalog, err := loadCurrentConnections(ctx, exec, profileID)
+	if err != nil {
+		return nil, false, err
+	}
 	currentEndpoint, _ := endpointFromMap(currentEndpointsByID, row.EndpointID)
 	callerClientDisplay := classifyUserAgentDisplay(row.CallerUserAgent, rules)
 	upstreamClientDisplay := classifyUserAgentDisplay(row.UpstreamUserAgent, rules)
 
 	// Canonical refs: terminal target + endpoint from current tables.
-	terminalTarget := buildDetailTerminalTarget(ctx, exec, profileID, row)
+	terminalTarget := buildDetailTerminalTarget(connectionCatalog, row)
 	endpoint := buildDetailEndpoint(ctx, exec, profileID, currentEndpoint, row)
-	initialTarget := buildDetailInitialTarget(ctx, exec, profileID, row)
+	initialTarget := buildDetailInitialTarget(connectionCatalog, row)
 
 	pricing := buildDetailPricing(row)
 	legacyEvidence := buildDetailLegacyPricingEvidence(row)
@@ -576,77 +580,42 @@ func buildDetailLegacyPricingEvidence(row requestLogDetailRowV2) *LegacyPricingE
 	}
 }
 
-func buildDetailTerminalTarget(ctx context.Context, exec queryExecutor, profileID int, row requestLogDetailRowV2) *TerminalTargetProjectionDetail {
+func buildDetailTerminalTarget(catalog map[int]connectionRecord, row requestLogDetailRowV2) *TerminalTargetProjectionDetail {
 	if row.ConnectionID == nil {
 		return nil
 	}
-	var name *string
-	var active bool
-	err := exec.QueryRow(ctx, `SELECT name, is_active FROM connections WHERE id = $1 AND profile_id = $2`, *row.ConnectionID, profileID).Scan(&name, &active)
-	if err == pgx.ErrNoRows {
-		return &TerminalTargetProjectionDetail{
-			Kind:             "terminal_target",
-			TerminalTargetID: fmt.Sprintf("%d", *row.ConnectionID),
-			NameSource:       "unavailable",
-			Deleted:          true,
-			Configured:       false,
-		}
-	}
-	if err != nil {
-		return &TerminalTargetProjectionDetail{
-			Kind:             "terminal_target",
-			TerminalTargetID: fmt.Sprintf("%d", *row.ConnectionID),
-			NameSource:       "unavailable",
-			Configured:       false,
-		}
-	}
-	owner, _ := resolveChainTargetOwner(ctx, exec, profileID, *row.ConnectionID)
-	label := ""
-	if name != nil {
-		label = *name
-	}
+	target := resolveTerminalTargetProjection(catalog, row.ConnectionID)
 	projection := &TerminalTargetProjectionDetail{
 		Kind:               "terminal_target",
 		TerminalTargetID:   fmt.Sprintf("%d", *row.ConnectionID),
-		OwnerModelConfigID: owner,
+		OwnerModelConfigID: target.OwnerModelID,
+		Name:               target.Label,
+		Configured:         target.Configured,
+		Deleted:            target.Deleted,
 		NameSource:         "current",
-		Configured:         active,
 	}
-	if label != "" {
-		projection.Name = &label
+	if target.Deleted {
+		projection.NameSource = "unavailable"
 	}
 	return projection
 }
 
-func buildDetailInitialTarget(ctx context.Context, exec queryExecutor, profileID int, row requestLogDetailRowV2) *TerminalTargetProjectionDetail {
+func buildDetailInitialTarget(catalog map[int]connectionRecord, row requestLogDetailRowV2) *TerminalTargetProjectionDetail {
 	if row.SelectedTerminalTargetID == nil {
 		return nil
 	}
-	var name *string
-	var active bool
-	err := exec.QueryRow(ctx, `SELECT name, is_active FROM connections WHERE id = $1 AND profile_id = $2`, *row.SelectedTerminalTargetID, profileID).Scan(&name, &active)
-	if err == pgx.ErrNoRows {
-		return &TerminalTargetProjectionDetail{
-			Kind:             "terminal_target",
-			TerminalTargetID: fmt.Sprintf("%d", *row.SelectedTerminalTargetID),
-			NameSource:       "unavailable",
-			Deleted:          true,
-			Configured:       false,
-		}
-	}
-	if err != nil {
-		return nil
-	}
-	owner, _ := resolveChainTargetOwner(ctx, exec, profileID, *row.SelectedTerminalTargetID)
+	target := resolveTerminalTargetProjection(catalog, row.SelectedTerminalTargetID)
 	projection := &TerminalTargetProjectionDetail{
 		Kind:               "terminal_target",
 		TerminalTargetID:   fmt.Sprintf("%d", *row.SelectedTerminalTargetID),
-		OwnerModelConfigID: owner,
+		OwnerModelConfigID: target.OwnerModelID,
+		Name:               target.Label,
+		Configured:         target.Configured,
+		Deleted:            target.Deleted,
 		NameSource:         "current",
-		Configured:         active,
 	}
-	if name != nil && strings.TrimSpace(*name) != "" {
-		projection.Name = name
+	if target.Deleted {
+		projection.NameSource = "unavailable"
 	}
 	return projection
 }

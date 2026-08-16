@@ -1,8 +1,12 @@
 package runtime
 
 import (
+	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -216,6 +220,38 @@ func (sampler *failedResponseSampler) run() {
 		Redacted:  extraction.Redacted,
 		Truncated: extraction.Truncated,
 	})
+}
+
+// upstreamFailureClass maps a transport error to a fixed classification
+// label that never contains an upstream address. It is the only source of
+// client-visible 502 detail: callers never receive host, port, or path.
+func upstreamFailureClass(err error) string {
+	if err == nil {
+		return ""
+	}
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "client_disconnected"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "upstream_timeout"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "upstream_timeout"
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return "upstream_dns_failed"
+	}
+	var certErr *tls.CertificateVerificationError
+	if errors.As(err, &certErr) {
+		return "upstream_tls_failed"
+	}
+	var recordErr tls.RecordHeaderError
+	if errors.As(err, &recordErr) {
+		return "upstream_tls_failed"
+	}
+	return "upstream_connect_failed"
 }
 
 // safeTransportDiagnostic builds the bounded transport diagnostic from a

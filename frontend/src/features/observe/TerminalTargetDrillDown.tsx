@@ -28,21 +28,31 @@ export function TerminalTargetDrillDown({ preset }: { preset: ObservePreset }) {
   const [response, setResponse] = useState<TerminalTargetStatisticsResponse | null>(null);
   const [phase, setPhase] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
+  // A failed endpoint read is not "there are no endpoints". Collapsing the two
+  // told the operator a fact about their deployment that was never established.
+  const [endpointsFailed, setEndpointsFailed] = useState(false);
+  const [endpointsReloadKey, setEndpointsReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     void api.endpoints
       .list()
       .then((items) => {
-        if (!cancelled) setEndpoints(items);
+        if (!cancelled) {
+          setEndpoints(items);
+          setEndpointsFailed(false);
+        }
       })
       .catch(() => {
-        // Endpoint list failure leaves the selector empty; the drill-down stays idle.
+        if (!cancelled) {
+          setEndpoints([]);
+          setEndpointsFailed(true);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [endpointsReloadKey]);
 
   const load = (endpointId: number) => {
     setPhase("loading");
@@ -76,7 +86,19 @@ export function TerminalTargetDrillDown({ preset }: { preset: ObservePreset }) {
   return (
     <section className="flex flex-col gap-1.5" data-testid="terminal-target-drill-down">
       <div className="flex flex-col gap-1.5">
-        {endpoints.length === 0 ? (
+        {endpointsFailed ? (
+          <div className="flex items-center gap-2">
+            <p className="text-xs text-destructive">{messages.observe.ttDrillDownEndpointsFailed}</p>
+            <Button variant="outline" size="sm" onClick={() => {
+              setEndpointsFailed(false);
+              setEndpoints([]);
+              setEndpointsReloadKey((key) => key + 1);
+            }}>
+              <RefreshCw className="mr-1 h-3 w-3" />
+              {messages.observe.retry}
+            </Button>
+          </div>
+        ) : endpoints.length === 0 ? (
           <p className="text-xs text-muted-foreground">{messages.observe.ttDrillDownNoEndpoints}</p>
         ) : null}
         {endpoints.map((endpoint) => {

@@ -31,9 +31,9 @@ const (
 
 // v2ArtifactKind values for runtime_telemetry_artifacts.artifact_kind.
 const (
-	artifactKindRequestBody   = "request_body"
-	artifactKindResponseBody  = "response_body"
-	artifactKindHeaders       = "headers"
+	artifactKindRequestBody  = "request_body"
+	artifactKindResponseBody = "response_body"
+	artifactKindHeaders      = "headers"
 )
 
 // v2ArtifactComponentKeyPrefix is the stable upstream launch key prefix.
@@ -50,47 +50,47 @@ type v2MetadataPayload struct {
 // v2ArtifactDescriptor describes one durable artifact item (the bytes live in
 // the artifact table, never in the metadata payload).
 type v2ArtifactDescriptor struct {
-	ComponentKey    string `json:"component_key"`
-	ArtifactKind    string `json:"artifact_kind"`
-	RequestLogAttemptNumber int    `json:"request_log_attempt_number"`
-	ProfileID       int    `json:"profile_id"`
-	IngressRequestID string `json:"ingress_request_id"`
-	CreatedAt       time.Time `json:"created_at"`
+	ComponentKey            string    `json:"component_key"`
+	ArtifactKind            string    `json:"artifact_kind"`
+	RequestLogAttemptNumber int       `json:"request_log_attempt_number"`
+	ProfileID               int       `json:"profile_id"`
+	IngressRequestID        string    `json:"ingress_request_id"`
+	CreatedAt               time.Time `json:"created_at"`
 }
 
 // v2ArtifactPayload is the serialized body of one artifact item.
 type v2ArtifactPayload struct {
 	// RequestBody / ResponseBody are the exact stored raw byte prefixes
 	// (base64). Header blocks are the canonical scrubbed entries.
-	RequestBody  *string `json:"request_body,omitempty"`
-	ResponseBody *string `json:"response_body,omitempty"`
-	RequestHeaders  *string `json:"request_headers,omitempty"`
-	ResponseHeaders *string `json:"response_headers,omitempty"`
-	ObservedBytes int64  `json:"observed_bytes"`
-	StoredBytes   int64  `json:"stored_bytes"`
-	Truncated     bool   `json:"truncated"`
-	Encoding      *string `json:"encoding,omitempty"`
-	CaptureStatus *string `json:"capture_status,omitempty"`
-	CaptureLimitReason *string `json:"capture_limit_reason,omitempty"`
-	CaptureEndState *string `json:"capture_end_state,omitempty"`
-	RequestBodyTruncated  bool `json:"request_body_truncated,omitempty"`
-	ResponseBodyTruncated bool `json:"response_body_truncated,omitempty"`
-	RequestHeadersScrubProvenance  string `json:"request_headers_scrub_provenance,omitempty"`
-	ResponseHeadersScrubProvenance string `json:"response_headers_scrub_provenance,omitempty"`
-	RequestHeadersCaptureStatus  string `json:"request_headers_capture_status,omitempty"`
-	ResponseHeadersCaptureStatus string `json:"response_headers_capture_status,omitempty"`
-	RequestHeadersCaptureLimitReason  string `json:"request_headers_capture_limit_reason,omitempty"`
-	ResponseHeadersCaptureLimitReason string `json:"response_headers_capture_limit_reason,omitempty"`
-	RequestHeadersTruncated  bool `json:"request_headers_truncated,omitempty"`
-	ResponseHeadersTruncated bool `json:"response_headers_truncated,omitempty"`
-	RequestHeadersEntriesObserved *int `json:"request_headers_entries_observed,omitempty"`
-	RequestHeadersEntriesStored  *int `json:"request_headers_entries_stored,omitempty"`
-	ResponseHeadersEntriesObserved *int `json:"response_headers_entries_observed,omitempty"`
-	ResponseHeadersEntriesStored  *int `json:"response_headers_entries_stored,omitempty"`
-	RequestHeadersBytesObserved *int64 `json:"request_headers_bytes_observed,omitempty"`
-	RequestHeadersBytesStored  *int64 `json:"request_headers_bytes_stored,omitempty"`
-	ResponseHeadersBytesObserved *int64 `json:"response_headers_bytes_observed,omitempty"`
-	ResponseHeadersBytesStored  *int64 `json:"response_headers_bytes_stored,omitempty"`
+	RequestBody                       *string `json:"request_body,omitempty"`
+	ResponseBody                      *string `json:"response_body,omitempty"`
+	RequestHeaders                    *string `json:"request_headers,omitempty"`
+	ResponseHeaders                   *string `json:"response_headers,omitempty"`
+	ObservedBytes                     int64   `json:"observed_bytes"`
+	StoredBytes                       int64   `json:"stored_bytes"`
+	Truncated                         bool    `json:"truncated"`
+	Encoding                          *string `json:"encoding,omitempty"`
+	CaptureStatus                     *string `json:"capture_status,omitempty"`
+	CaptureLimitReason                *string `json:"capture_limit_reason,omitempty"`
+	CaptureEndState                   *string `json:"capture_end_state,omitempty"`
+	RequestBodyTruncated              bool    `json:"request_body_truncated,omitempty"`
+	ResponseBodyTruncated             bool    `json:"response_body_truncated,omitempty"`
+	RequestHeadersScrubProvenance     string  `json:"request_headers_scrub_provenance,omitempty"`
+	ResponseHeadersScrubProvenance    string  `json:"response_headers_scrub_provenance,omitempty"`
+	RequestHeadersCaptureStatus       string  `json:"request_headers_capture_status,omitempty"`
+	ResponseHeadersCaptureStatus      string  `json:"response_headers_capture_status,omitempty"`
+	RequestHeadersCaptureLimitReason  string  `json:"request_headers_capture_limit_reason,omitempty"`
+	ResponseHeadersCaptureLimitReason string  `json:"response_headers_capture_limit_reason,omitempty"`
+	RequestHeadersTruncated           bool    `json:"request_headers_truncated,omitempty"`
+	ResponseHeadersTruncated          bool    `json:"response_headers_truncated,omitempty"`
+	RequestHeadersEntriesObserved     *int    `json:"request_headers_entries_observed,omitempty"`
+	RequestHeadersEntriesStored       *int    `json:"request_headers_entries_stored,omitempty"`
+	ResponseHeadersEntriesObserved    *int    `json:"response_headers_entries_observed,omitempty"`
+	ResponseHeadersEntriesStored      *int    `json:"response_headers_entries_stored,omitempty"`
+	RequestHeadersBytesObserved       *int64  `json:"request_headers_bytes_observed,omitempty"`
+	RequestHeadersBytesStored         *int64  `json:"request_headers_bytes_stored,omitempty"`
+	ResponseHeadersBytesObserved      *int64  `json:"response_headers_bytes_observed,omitempty"`
+	ResponseHeadersBytesStored        *int64  `json:"response_headers_bytes_stored,omitempty"`
 }
 
 // splitEnvelopeIntoV2Items splits a runtime telemetry envelope into one
@@ -115,12 +115,12 @@ func splitEnvelopeIntoV2Items(envelope runtimeTelemetryEnvelope) (v2MetadataPayl
 		}
 		// Headers artifact (scrubbed representation only).
 		headersPayload := v2ArtifactPayload{
-			RequestHeaders:  auditHeadersJSONPtr(auditLog.RequestHeaders),
-			ResponseHeaders: auditLog.ResponseHeaders,
-			RequestHeadersScrubProvenance:  auditLog.RequestHeadersScrubProvenance,
-			ResponseHeadersScrubProvenance: auditLog.ResponseHeadersScrubProvenance,
-			RequestHeadersCaptureStatus:  auditLog.RequestHeadersCaptureStatus,
-			ResponseHeadersCaptureStatus: auditLog.ResponseHeadersCaptureStatus,
+			RequestHeaders:                    auditHeadersJSONPtr(auditLog.RequestHeaders),
+			ResponseHeaders:                   auditLog.ResponseHeaders,
+			RequestHeadersScrubProvenance:     auditLog.RequestHeadersScrubProvenance,
+			ResponseHeadersScrubProvenance:    auditLog.ResponseHeadersScrubProvenance,
+			RequestHeadersCaptureStatus:       auditLog.RequestHeadersCaptureStatus,
+			ResponseHeadersCaptureStatus:      auditLog.ResponseHeadersCaptureStatus,
 			RequestHeadersCaptureLimitReason:  auditLog.RequestHeadersCaptureLimitReason,
 			ResponseHeadersCaptureLimitReason: auditLog.ResponseHeadersCaptureLimitReason,
 		}
@@ -359,11 +359,11 @@ func (o *runtimeTelemetryOutbox) finalizeV2StreamingAccepted(ctx context.Context
 
 // v2MetadataRow is the materializer's view of one metadata item.
 type v2MetadataRow struct {
-	ID           int64
-	ProfileID    int
-	IngressID    string
-	CorePayload  []byte
-	CreatedAt    time.Time
+	ID          int64
+	ProfileID   int
+	IngressID   string
+	CorePayload []byte
+	CreatedAt   time.Time
 }
 
 // loadNextV2MetadataRow selects the oldest finalized metadata item whose core

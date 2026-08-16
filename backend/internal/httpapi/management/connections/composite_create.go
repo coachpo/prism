@@ -132,6 +132,10 @@ func (s *Service) CreateOwnerScopedConnectionTx(ctx context.Context, tx pgx.Tx, 
 		return OwnerConnectionCreateResult{}, err
 	}
 	now := s.nowUTC()
+	customHeaders, err := mustResolveCustomHeadersWrite(input.CustomHeaders)
+	if err != nil {
+		return OwnerConnectionCreateResult{}, err
+	}
 	item := connectionResponse{
 		ProfileID:               profileID,
 		APIFamily:               owner.APIFamily,
@@ -140,7 +144,7 @@ func (s *Service) CreateOwnerScopedConnectionTx(ctx context.Context, tx pgx.Tx, 
 		Priority:                position,
 		Name:                    normalizeOptionalString(input.Name),
 		AuthType:                authType,
-		CustomHeaders:           normalizeHeaders(input.CustomHeaders),
+		CustomHeaders:           customHeaders,
 		CustomRequestParameters: customRequestParameters,
 		RoutingSchedule:         routingSchedulePayloadFromRecord(routingScheduleTimezone, routingWindows),
 		OpenAITextCapability:    openAITextCapability,

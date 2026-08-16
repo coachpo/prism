@@ -60,12 +60,13 @@ export function buildEndpointCreatePayload(values: EndpointFormValues): Endpoint
   }
 }
 
-export function buildEndpointUpdatePayload(values: EndpointFormValues): EndpointUpdate {
+export function buildEndpointUpdatePayload(values: EndpointFormValues, expectedUpdatedAt?: string): EndpointUpdate {
   const parsed = normalizeEndpointFormValues(values)
   return {
     name: parsed.name,
     base_url: canonicalBaseURLPreview(parsed.base_url),
     ...(parsed.api_key.trim() ? { api_key: parsed.api_key.trim() } : {}),
+    ...(expectedUpdatedAt ? { expected_updated_at: expectedUpdatedAt } : {}),
   }
 }
 
