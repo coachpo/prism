@@ -22,6 +22,9 @@ export function RoutingHealthFeaturePage() {
         to: "/observe/routing-health",
         search: { ...search, ...patch } as never,
         replace,
+        // Filtering is an in-page state change, not a navigation: the router's
+        // default scroll reset would throw the operator back to the top.
+        resetScroll: false,
       });
     },
     [navigate, search],
