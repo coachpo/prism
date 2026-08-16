@@ -1736,6 +1736,11 @@ func nonCascades(dataset string) []any {
 	return []any{}
 }
 
+type retentionBoundaryEstimate struct {
+	Name        string
+	MatchedRows int64
+}
+
 // estimateImpact produces bounded count/partition facts using partition
 // catalog metadata and a bounded boundary count (SPEC §6.2: no unbounded
 // COUNT for a prettier dialog).
@@ -1784,7 +1789,7 @@ func estimateImpact(ctx context.Context, tx pgx.Tx, dataset string, cutoff *time
 	droppedKnown := true
 	retainedKnown := true
 	droppedNames := []string{}
-	boundaryMatched := int64(-1)
+	var boundaryPartition *retentionBoundaryEstimate
 	for _, partition := range partitions {
 		startTime, startOK := parseBoundTime(parsePartitionBound(partition.Bound, false))
 		endStr := parsePartitionBound(partition.Bound, true)
@@ -1804,18 +1809,21 @@ func estimateImpact(ctx context.Context, tx pgx.Tx, dataset string, cutoff *time
 		} else {
 			retainedTuples += *partition.Tuples
 		}
-		if cutoff != nil && startOK && endOK && boundaryMatched < 0 && !cutoff.Before(startTime) && endTime.After(*cutoff) {
+		if cutoff != nil && startOK && endOK && boundaryPartition == nil && !cutoff.Before(startTime) && endTime.After(*cutoff) {
 			// First partition spanning the cutoff is the boundary partition.
 			if partition.Tuples != nil {
-				boundaryMatched = *partition.Tuples
+				boundaryPartition = &retentionBoundaryEstimate{
+					Name:        partition.Name,
+					MatchedRows: *partition.Tuples,
+				}
 			}
 		}
 	}
 	// Boundary rows: bounded exact count when feasible, else catalog estimate.
 	matched := retentionImpactCount{Accuracy: "estimated", Method: "partition_metadata"}
 	retained := retentionImpactCount{Accuracy: "estimated", Method: "partition_metadata"}
-	if droppedKnown && boundaryMatched >= 0 {
-		matched.Value = strPtr(fmt.Sprintf("%d", droppedTuples+boundaryMatched))
+	if droppedKnown && boundaryPartition != nil {
+		matched.Value = strPtr(fmt.Sprintf("%d", droppedTuples+boundaryPartition.MatchedRows))
 	} else if droppedKnown {
 		matched.Value = strPtr(fmt.Sprintf("%d", droppedTuples))
 	} else {
@@ -1835,10 +1843,10 @@ func estimateImpact(ctx context.Context, tx pgx.Tx, dataset string, cutoff *time
 		"truncated":         len(droppedNames) > 8,
 	}
 	boundary := []map[string]any{}
-	if boundaryMatched >= 0 {
+	if boundaryPartition != nil {
 		boundary = append(boundary, map[string]any{
-			"name":         "boundary",
-			"matched_rows": map[string]any{"value": strPtr(fmt.Sprintf("%d", boundaryMatched)), "accuracy": "estimated", "method": "partition_metadata"},
+			"name":         boundaryPartition.Name,
+			"matched_rows": map[string]any{"value": strPtr(fmt.Sprintf("%d", boundaryPartition.MatchedRows)), "accuracy": "estimated", "method": "partition_metadata"},
 		})
 	}
 	return matched, retained, whole, boundary, nil

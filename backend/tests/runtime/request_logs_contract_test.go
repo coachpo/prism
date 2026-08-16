@@ -1218,14 +1218,35 @@ func TestRuntimeUsageEventEndpointLabelSnapshotForSelectedEndpoint(t *testing.T)
 	}
 }
 
-func TestRuntimeRequestLogPersistsFailoverAttemptRowsAndSingleUsageEvent(t *testing.T) {
-	harness := newRuntimeHarness(t)
-	profileID := harness.activeProfileID(t)
-	suffix := randomSuffix()
-	publicModelID := "runtime-request-log-fill-first-" + suffix
-	targetModelID := "runtime-request-log-target-" + suffix
+type runtimePricingOwnerFixture struct {
+	templateID, configVersion                                                                                                             int
+	templateName, unit, currency, inputPrice, outputPrice, cachedInputPrice, cacheCreationPrice, reasoningPrice, reportCode, reportSymbol string
+	revisionID                                                                                                                            int64
+	effectiveAt                                                                                                                           time.Time
+	reportingEpoch                                                                                                                        int
+}
+
+type runtimePricingOwnerFailoverFixture struct {
+	harness                                    *runtimeHarness
+	gate                                       *runtimeTelemetryMaterializeGate
+	profileID                                  int
+	publicModelID                              string
+	primaryUpstream, secondaryUpstream         *scriptedUpstream
+	primaryEndpointID, secondaryEndpointID     int
+	primaryConnectionID, secondaryConnectionID int
+	primaryTemplateID, secondaryTemplateID     int
+	primaryOwner, secondaryOwner               runtimePricingOwnerFixture
+	reportCurrency                             runtimeReportCurrencySnapshot
+}
+
+func newRuntimePricingOwnerFailoverFixture(t *testing.T) runtimePricingOwnerFailoverFixture {
+	t.Helper()
+	gate := newRuntimeTelemetryMaterializeGate()
+	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{RuntimeOptions: runtimeapi.Options{TelemetryOutbox: runtimeapi.TelemetryOutboxOptions{WorkerCount: 1, PollInterval: 25 * time.Millisecond, Hooks: &runtimeapi.TelemetryOutboxHooks{BeforeMaterialize: gate.Wait}}}})
+	profileID, suffix := harness.activeProfileID(t), randomSuffix()
+	publicModelID, targetModelID := "runtime-request-log-fill-first-"+suffix, "runtime-request-log-target-"+suffix
 	primaryUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "primary unavailable"})
-	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-runtime-request-log-secondary"})
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-runtime-request-log-secondary", "usage": map[string]any{"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}})
 	strategyID := harness.seedLegacyStrategy(t, profileID, "runtime-request-log-fill-first-"+suffix, "fill-first")
 	targetModelConfigID := harness.seedModel(t, profileID, "openai", targetModelID, "native", &strategyID)
 	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", nil)
@@ -1234,37 +1255,120 @@ func TestRuntimeRequestLogPersistsFailoverAttemptRowsAndSingleUsageEvent(t *test
 	secondaryEndpointID := harness.seedEndpoint(t, profileID, "runtime-request-log-secondary-endpoint-"+suffix, secondaryUpstream.baseURL("/request-logs/fill-first/secondary"), "runtime-request-log-secondary-key", 1)
 	primaryConnectionID := harness.seedConnection(t, profileID, targetModelConfigID, primaryEndpointID, "runtime-request-log-primary-connection-"+suffix, nil, nil, 0)
 	secondaryConnectionID := harness.seedConnection(t, profileID, targetModelConfigID, secondaryEndpointID, "runtime-request-log-secondary-connection-"+suffix, nil, nil, 1)
+	reportCurrency := loadRuntimeReportCurrencySnapshot(t, harness.conn, profileID)
+	primaryTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-request-log-primary-pricing-"+suffix, reportCurrency.Code, "1", "2", "3", "4", "5")
+	secondaryTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-request-log-secondary-pricing-"+suffix, reportCurrency.Code, "6", "7", "8", "9", "10")
+	advanceRuntimePricingTemplateRevision(t, harness.conn, primaryTemplateID)
+	advanceRuntimePricingTemplateRevision(t, harness.conn, secondaryTemplateID)
+	attachRuntimeConnectionPricingTemplate(t, harness, primaryConnectionID, primaryTemplateID)
+	attachRuntimeConnectionPricingTemplate(t, harness, secondaryConnectionID, secondaryTemplateID)
+	return runtimePricingOwnerFailoverFixture{harness: harness, gate: gate, profileID: profileID, publicModelID: publicModelID, primaryUpstream: primaryUpstream, secondaryUpstream: secondaryUpstream, primaryEndpointID: primaryEndpointID, secondaryEndpointID: secondaryEndpointID, primaryConnectionID: primaryConnectionID, secondaryConnectionID: secondaryConnectionID, primaryTemplateID: primaryTemplateID, secondaryTemplateID: secondaryTemplateID, primaryOwner: loadRuntimePricingOwnerFixture(t, harness.conn, primaryTemplateID, reportCurrency), secondaryOwner: loadRuntimePricingOwnerFixture(t, harness.conn, secondaryTemplateID, reportCurrency), reportCurrency: reportCurrency}
+}
 
-	response := harness.requestJSON(
+func loadRuntimePricingOwnerFixture(t *testing.T, conn *pgx.Conn, templateID int, reportCurrency runtimeReportCurrencySnapshot) runtimePricingOwnerFixture {
+	t.Helper()
+	var owner runtimePricingOwnerFixture
+	var revisionEpoch int
+	if err := conn.QueryRow(context.Background(), `SELECT templates.id, templates.name, revisions.id, revisions.version, revisions.effective_at, revisions.reporting_currency_epoch, revisions.pricing_unit, revisions.currency_code, revisions.input_price, revisions.output_price, revisions.cached_input_price, revisions.cache_creation_price, revisions.reasoning_price FROM pricing_templates AS templates JOIN pricing_template_revisions AS revisions ON revisions.id = templates.current_revision_id WHERE templates.id = $1`, templateID).Scan(&owner.templateID, &owner.templateName, &owner.revisionID, &owner.configVersion, &owner.effectiveAt, &revisionEpoch, &owner.unit, &owner.currency, &owner.inputPrice, &owner.outputPrice, &owner.cachedInputPrice, &owner.cacheCreationPrice, &owner.reasoningPrice); err != nil {
+		t.Fatalf("load request-time pricing owner for template %d: %v", templateID, err)
+	}
+	owner.reportingEpoch, owner.reportCode, owner.reportSymbol = reportCurrency.Epoch, reportCurrency.Code, reportCurrency.Symbol
+	if owner.revisionID == int64(owner.configVersion) || revisionEpoch != reportCurrency.Epoch || owner.effectiveAt.IsZero() {
+		t.Fatalf("expected distinct, effective active-epoch pricing revision identity, got %+v revision_epoch=%d", owner, revisionEpoch)
+	}
+	return owner
+}
+
+type runtimePersistedPricingOwnerFixture struct {
+	owner         runtimePricingOwnerFixture
+	pricingStatus string
+	hasCosts      bool
+}
+
+func loadRuntimePersistedPricingOwnerFixture(t *testing.T, conn *pgx.Conn, profileID int, ingressRequestID string, tableName string, connectionID *int) runtimePersistedPricingOwnerFixture {
+	t.Helper()
+	const columns = `pricing_template_id_used, COALESCE(pricing_template_name_snapshot, ''), pricing_template_revision_id_used, pricing_version_effective_at, reporting_currency_epoch, pricing_config_version_used, COALESCE(pricing_snapshot_unit, ''), COALESCE(currency_code_original, ''), COALESCE(pricing_snapshot_input, ''), COALESCE(pricing_snapshot_output, ''), COALESCE(pricing_snapshot_cache_read_input, ''), COALESCE(pricing_snapshot_cache_creation_input, ''), COALESCE(pricing_snapshot_reasoning, ''), COALESCE(report_currency_code, ''), COALESCE(report_currency_symbol, ''), pricing_status, input_cost_micros IS NOT NULL OR output_cost_micros IS NOT NULL OR cache_read_input_cost_micros IS NOT NULL OR cache_creation_input_cost_micros IS NOT NULL OR reasoning_cost_micros IS NOT NULL OR total_cost_original_micros IS NOT NULL OR total_cost_user_currency_micros IS NOT NULL`
+	query, args := "", []any{profileID, ingressRequestID}
+	switch tableName {
+	case "request_logs":
+		if connectionID == nil {
+			t.Fatal("request_logs persisted pricing owner requires a connection ID")
+		}
+		query, args = `SELECT `+columns+` FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 AND connection_id = $3`, append(args, *connectionID)
+	case "usage_request_events":
+		query = `SELECT ` + columns + ` FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2`
+	default:
+		t.Fatalf("unsupported persisted pricing owner table %q", tableName)
+	}
+	var persisted runtimePersistedPricingOwnerFixture
+	owner := &persisted.owner
+	if err := conn.QueryRow(context.Background(), query, args...).Scan(&owner.templateID, &owner.templateName, &owner.revisionID, &owner.effectiveAt, &owner.reportingEpoch, &owner.configVersion, &owner.unit, &owner.currency, &owner.inputPrice, &owner.outputPrice, &owner.cachedInputPrice, &owner.cacheCreationPrice, &owner.reasoningPrice, &owner.reportCode, &owner.reportSymbol, &persisted.pricingStatus, &persisted.hasCosts); err != nil {
+		t.Fatalf("load persisted pricing owner from %s: %v", tableName, err)
+	}
+	return persisted
+}
+
+func assertRuntimePricingOwnerFixture(t *testing.T, label string, got runtimePricingOwnerFixture, want runtimePricingOwnerFixture) {
+	t.Helper()
+	gotEffectiveAt, wantEffectiveAt := got.effectiveAt, want.effectiveAt
+	got.effectiveAt, want.effectiveAt = time.Time{}, time.Time{}
+	if got != want || !gotEffectiveAt.Equal(wantEffectiveAt) {
+		t.Fatalf("expected %s to retain request-time owner %+v after current revision changed, got %+v", label, want, got)
+	}
+}
+
+func TestRuntimeRequestLogPersistsFailoverAttemptRowsAndSingleUsageEvent(t *testing.T) {
+	fixture := newRuntimePricingOwnerFailoverFixture(t)
+
+	response := fixture.harness.requestJSON(
 		t,
 		http.MethodPost,
 		"/v1/chat/completions",
 		map[string]any{
 			"messages": []map[string]any{{"role": "user", "content": "persist failover attempt counts"}},
-			"model":    publicModelID,
+			"model":    fixture.publicModelID,
 		},
 		nil,
 	)
 	assertStatus(t, response, http.StatusOK)
-	if got := len(primaryUpstream.requestsSnapshot()); got != 1 {
+	waitForRuntimeTelemetryCounts(t, fixture.harness.conn, fixture.profileID, runtimeTelemetryCounts{RequestLogs: 0, UsageEvents: 0, OutboxRows: 1}, 5*time.Second)
+	if replacementID := advanceRuntimePricingTemplateRevision(t, fixture.harness.conn, fixture.primaryTemplateID); replacementID == fixture.primaryOwner.revisionID {
+		t.Fatalf("expected primary current revision to advance beyond %d", fixture.primaryOwner.revisionID)
+	}
+	if replacementID := advanceRuntimePricingTemplateRevision(t, fixture.harness.conn, fixture.secondaryTemplateID); replacementID == fixture.secondaryOwner.revisionID {
+		t.Fatalf("expected secondary current revision to advance beyond %d", fixture.secondaryOwner.revisionID)
+	}
+	fixture.gate.Release()
+	waitForRuntimeTelemetryCounts(t, fixture.harness.conn, fixture.profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	if got := len(fixture.primaryUpstream.requestsSnapshot()); got != 1 {
 		t.Fatalf("expected primary upstream to receive one failover attempt, got %d requests", got)
 	}
-	if got := len(secondaryUpstream.requestsSnapshot()); got != 1 {
+	if got := len(fixture.secondaryUpstream.requestsSnapshot()); got != 1 {
 		t.Fatalf("expected secondary upstream to receive one failover attempt, got %d requests", got)
 	}
-	assertLatestRuntimeAttemptSequence(t, harness.conn, profileID, []runtimeRequestLogAttempt{{
+	assertLatestRuntimeAttemptSequence(t, fixture.harness.conn, fixture.profileID, []runtimeRequestLogAttempt{{
 		AttemptNumber: 1,
-		ConnectionID:  primaryConnectionID,
-		EndpointID:    primaryEndpointID,
+		ConnectionID:  fixture.primaryConnectionID,
+		EndpointID:    fixture.primaryEndpointID,
 		StatusCode:    http.StatusServiceUnavailable,
 		SuccessFlag:   false,
 	}, {
 		AttemptNumber: 2,
-		ConnectionID:  secondaryConnectionID,
-		EndpointID:    secondaryEndpointID,
+		ConnectionID:  fixture.secondaryConnectionID,
+		EndpointID:    fixture.secondaryEndpointID,
 		StatusCode:    http.StatusOK,
 		SuccessFlag:   true,
 	}})
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, fixture.harness.conn, fixture.profileID)
+	primaryPersisted := loadRuntimePersistedPricingOwnerFixture(t, fixture.harness.conn, fixture.profileID, ingressRequestID, "request_logs", &fixture.primaryConnectionID)
+	assertRuntimePricingOwnerFixture(t, "failed primary request log", primaryPersisted.owner, fixture.primaryOwner)
+	if primaryPersisted.pricingStatus != "ineligible" || primaryPersisted.hasCosts {
+		t.Fatalf("expected failed primary attempt to remain ineligible without costs, got %+v", primaryPersisted)
+	}
+	secondaryPersisted := loadRuntimePersistedPricingOwnerFixture(t, fixture.harness.conn, fixture.profileID, ingressRequestID, "request_logs", &fixture.secondaryConnectionID)
+	assertRuntimePricingOwnerFixture(t, "winning secondary request log", secondaryPersisted.owner, fixture.secondaryOwner)
+	usagePersisted := loadRuntimePersistedPricingOwnerFixture(t, fixture.harness.conn, fixture.profileID, ingressRequestID, "usage_request_events", nil)
+	assertRuntimePricingOwnerFixture(t, "final usage event", usagePersisted.owner, fixture.secondaryOwner)
 }
 
 func TestRuntimeRequestLogPersistsStreamedResponsesUsage(t *testing.T) {
@@ -1705,6 +1809,7 @@ type runtimePersistedStreamTelemetryRow struct {
 type runtimeReportCurrencySnapshot struct {
 	Code   string
 	Symbol string
+	Epoch  int
 }
 
 func loadRuntimeReportCurrencySnapshot(t *testing.T, conn *pgx.Conn, profileID int) runtimeReportCurrencySnapshot {
@@ -1712,9 +1817,9 @@ func loadRuntimeReportCurrencySnapshot(t *testing.T, conn *pgx.Conn, profileID i
 	var snapshot runtimeReportCurrencySnapshot
 	if err := conn.QueryRow(
 		context.Background(),
-		`SELECT report_currency_code, report_currency_symbol FROM user_settings WHERE profile_id = $1 ORDER BY id ASC LIMIT 1`,
+		`SELECT epochs.currency_code, settings.report_currency_symbol, epochs.epoch FROM user_settings AS settings JOIN reporting_currency_epochs AS epochs ON epochs.id = settings.current_reporting_currency_epoch_id WHERE settings.profile_id = $1 ORDER BY settings.id ASC LIMIT 1`,
 		profileID,
-	).Scan(&snapshot.Code, &snapshot.Symbol); err != nil {
+	).Scan(&snapshot.Code, &snapshot.Symbol, &snapshot.Epoch); err != nil {
 		t.Fatalf("load runtime report currency snapshot: %v", err)
 	}
 	return snapshot
@@ -2689,7 +2794,7 @@ func insertRuntimePricingTemplate(t *testing.T, conn *pgx.Conn, profileID int, n
 		t.Fatalf("insert runtime pricing template %q: %v", name, err)
 	}
 	var revisionID int64
-	if err := tx.QueryRow(context.Background(), `INSERT INTO pricing_template_revisions (template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, effective_at, created_at, created_by_kind, created_by_operation_id) VALUES ($1, 1, 'PER_1M', $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, $11, 'legacy_backfill', NULL) RETURNING id`, templateID, pricingCurrencyCode, epochID, epoch, attribution, nilPrice(inputPrice), nilPrice(outputPrice), nilPrice(cachedInputPrice), nilPrice(cacheCreationPrice), nilPrice(reasoningPrice), now).Scan(&revisionID); err != nil {
+	if err := tx.QueryRow(context.Background(), `WITH first_identity AS (SELECT nextval('public.pricing_template_revisions_id_seq'::regclass) AS id), identity AS (SELECT CASE WHEN id = 1 THEN nextval('public.pricing_template_revisions_id_seq'::regclass) ELSE id END AS id FROM first_identity) INSERT INTO pricing_template_revisions (id, template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, effective_at, created_at, created_by_kind, created_by_operation_id) SELECT id, $1, 1, 'PER_1M', $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, $11, 'legacy_backfill', NULL FROM identity RETURNING id`, templateID, pricingCurrencyCode, epochID, epoch, attribution, nilPrice(inputPrice), nilPrice(outputPrice), nilPrice(cachedInputPrice), nilPrice(cacheCreationPrice), nilPrice(reasoningPrice), now).Scan(&revisionID); err != nil {
 		t.Fatalf("insert runtime pricing revision %q: %v", name, err)
 	}
 	if _, err := tx.Exec(context.Background(), `UPDATE pricing_templates SET current_revision_id = $1, updated_at = $2 WHERE id = $3`, revisionID, now, templateID); err != nil {
@@ -2699,6 +2804,15 @@ func insertRuntimePricingTemplate(t *testing.T, conn *pgx.Conn, profileID int, n
 		t.Fatalf("commit runtime pricing template %q: %v", name, err)
 	}
 	return templateID
+}
+
+func advanceRuntimePricingTemplateRevision(t *testing.T, conn *pgx.Conn, templateID int) int64 {
+	t.Helper()
+	var revisionID int64
+	if err := conn.QueryRow(context.Background(), `WITH current_revision AS (SELECT revisions.* FROM pricing_templates AS templates JOIN pricing_template_revisions AS revisions ON revisions.id = templates.current_revision_id WHERE templates.id = $1), inserted AS (INSERT INTO pricing_template_revisions (template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, effective_at, created_at, created_by_kind, created_by_operation_id) SELECT template_id, version + 1, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, $2, $2, 'legacy_backfill', NULL FROM current_revision RETURNING id) UPDATE pricing_templates AS templates SET current_revision_id = inserted.id, updated_at = $2 FROM inserted WHERE templates.id = $1 RETURNING inserted.id`, templateID, time.Now().UTC()).Scan(&revisionID); err != nil {
+		t.Fatalf("advance runtime pricing template %d revision: %v", templateID, err)
+	}
+	return revisionID
 }
 
 func attachRuntimeConnectionPricingTemplate(t *testing.T, harness *runtimeHarness, connectionID int, pricingTemplateID int) {

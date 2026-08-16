@@ -1140,7 +1140,7 @@ func TestCurrencyMigrationAtomicCutover(t *testing.T) {
 	preview = requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/settings/costing/currency-migrations/preview", map[string]any{
 		"operation_kind": "currency_cutover", "migration_operation_id": operationID, "draft_id": draftID, "draft_hash": draft["draft_hash"],
 	}, modelHeader(profileID), http.StatusOK)
-	if preview["current_currency_code"] != "USD" || jsonInt(t, preview["current_epoch"]) != 1 || jsonInt(t, preview["next_epoch"]) != 2 {
+	if preview["current_currency_code"] != "USD" || jsonInt(t, preview["current_epoch"]) != 1 || jsonInt(t, preview["next_epoch"]) != 2 || preview["epoch_change"] != true {
 		t.Fatalf("expected USD epoch 1 -> EUR epoch 2 preview, got %+v", preview)
 	}
 	if jsonInt(t, preview["template_count"]) != 2 || jsonInt(t, preview["revision_change_count"]) != 2 {

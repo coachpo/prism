@@ -443,6 +443,11 @@ func V2RetentionJobSummary(row v2RetentionJobRow) V2RetentionJobSummaryDTO {
 }
 
 func boundedStringPreview(values []string, limit int) []string {
+	// Public progress requires an array even when persistence has no names;
+	// a nil slice would encode as JSON null.
+	if len(values) == 0 {
+		return []string{}
+	}
 	if len(values) <= limit {
 		return values
 	}
@@ -2226,6 +2231,28 @@ func (s *Store) partitionPage(ctx context.Context, row v2RetentionJobRow, limit 
 	return page, nil
 }
 
+const (
+	cancellationScopeQueuedNoDataChanged         = "queued_no_data_changed"
+	cancellationScopeAutomaticRemainingStepsOnly = "automatic_remaining_steps_only"
+	cancellationScopeLegacyUnknown               = "legacy_unknown"
+)
+
+func cancellationScopeFor(row v2RetentionJobRow) string {
+	if row.ContractVersion == 1 {
+		return cancellationScopeLegacyUnknown
+	}
+	// cancel_requested also records queued cancellations. started_at is durable
+	// execution evidence, but it does not prove an automatic job: a manual job
+	// can be requeued after a pre-fence failure and then cancelled. Require the
+	// automatic origin as well so requeued manual work is never reported as a
+	// partial automatic cancellation.
+	if row.ContractVersion == 2 && row.CancelRequested && row.StartedAt != nil &&
+		row.Origin != nil && *row.Origin == "automatic" {
+		return cancellationScopeAutomaticRemainingStepsOnly
+	}
+	return cancellationScopeQueuedNoDataChanged
+}
+
 func terminalResultFor(row v2RetentionJobRow) *V2JobTerminalResultDTO {
 	if row.FinishedAt == nil {
 		return nil
@@ -2254,13 +2281,7 @@ func terminalResultFor(row v2RetentionJobRow) *V2JobTerminalResultDTO {
 			VisibilityState: row.VisibilityState, PublishedEpoch: publishedEpoch, PublishedFloor: publishedFloor,
 		}
 	case "cancelled":
-		scope := "queued_no_data_changed"
-		if row.ContractVersion == 2 && row.CancelRequested {
-			scope = "automatic_remaining_steps_only"
-		}
-		if row.ContractVersion == 1 {
-			scope = "legacy_unknown"
-		}
+		scope := cancellationScopeFor(row)
 		return &V2JobTerminalResultDTO{
 			Kind: "cancelled", FinishedAt: finishedAt, AccountingProvenance: provenance,
 			CancellationScope: &scope,

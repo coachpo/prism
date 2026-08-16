@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
 	"github.com/coachpo/prism/backend/internal/providerauth"
 )
@@ -104,6 +105,15 @@ func TestBuildPlanningSnapshotFreezesRoutingAssemblyContract(t *testing.T) {
 	}
 	if terminal := routingPlan.TerminalTargetsByID[901]; terminal.Endpoint.ID != 801 || terminal.UpstreamAuth == nil {
 		t.Fatalf("expected compiled routing plan to index terminal targets by connection id, got %+v", terminal)
+	}
+}
+
+func TestRuntimeConnectionCarriesPricingOwnerSnapshot(t *testing.T) {
+	sourceEpoch, sourceEffectiveAt := 4, time.Date(2026, 8, 14, 15, 4, 5, 0, time.FixedZone("UTC+3", 3*60*60))
+	got := runtimeConnectionFromTerminalTargetRecord(terminaltarget.RuntimeRecord{PricingTemplate: &terminaltarget.RuntimePricingTemplateSnapshot{RevisionID: 99, Version: 3, ReportingCurrencyEpoch: &sourceEpoch, VersionEffectiveAt: &sourceEffectiveAt}}).PricingTemplateSnapshot
+	sourceEpoch, sourceEffectiveAt = 5, time.Time{}
+	if got == nil || got.RevisionID != 99 || got.Version != 3 || got.ReportingCurrencyEpoch == nil || *got.ReportingCurrencyEpoch != 4 || got.VersionEffectiveAt == nil || got.VersionEffectiveAt.Location() != time.UTC || !got.VersionEffectiveAt.Equal(time.Date(2026, 8, 14, 12, 4, 5, 0, time.UTC)) || templateRevisionIDPointer(got) == nil || *templateRevisionIDPointer(got) != 99 || templateRevisionIDPointer(&runtimePricingTemplateSnapshot{}) != nil {
+		t.Fatalf("expected immutable canonical pricing owner snapshot, got %+v", got)
 	}
 }
 

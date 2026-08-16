@@ -227,6 +227,35 @@ func runtimeCheckedSumMicros(values ...int64) (int64, bool) {
 	return total, true
 }
 
+func buildRuntimePricingProvenance(reportCurrencySnapshot runtimeReportCurrencySnapshot, pricingTemplateSnapshot *runtimePricingTemplateSnapshot) runtimePricingResult {
+	result := runtimePricingResult{
+		PricingStatus:          runtimePricingStatusIneligible,
+		PricingEvidenceTrust:   runtimePricingEvidenceTrust,
+		ReportCurrencyCode:     runtimeOptionalTrimmedString(reportCurrencySnapshot.Code),
+		ReportCurrencySymbol:   runtimeOptionalTrimmedString(reportCurrencySnapshot.Symbol),
+		ReportingCurrencyEpoch: nonZeroIntPointer(reportCurrencySnapshot.Epoch),
+	}
+	if pricingTemplateSnapshot == nil {
+		return result
+	}
+	result.PricingTemplateIDUsed = templateIDPointer(pricingTemplateSnapshot)
+	result.PricingTemplateNameSnapshot = templateNamePointer(pricingTemplateSnapshot)
+	result.PricingTemplateRevisionIDUsed = templateRevisionIDPointer(pricingTemplateSnapshot)
+	if pricingTemplateSnapshot.VersionEffectiveAt != nil {
+		effective := pricingTemplateSnapshot.VersionEffectiveAt.UTC()
+		result.PricingVersionEffectiveAt = &effective
+	}
+	result.CurrencyCodeOriginal = runtimeOptionalTrimmedString(pricingTemplateSnapshot.PricingCurrencyCode)
+	result.PricingSnapshotUnit = runtimeOptionalTrimmedString(pricingTemplateSnapshot.PricingUnit)
+	result.PricingSnapshotInput = runtimeOptionalTrimmedString(pricingTemplateSnapshot.InputPrice)
+	result.PricingSnapshotOutput = runtimeOptionalTrimmedString(pricingTemplateSnapshot.OutputPrice)
+	result.PricingSnapshotCacheReadInput = runtimeOptionalTrimmedString(pricingTemplateSnapshot.CachedInputPrice)
+	result.PricingSnapshotCacheCreationInput = runtimeOptionalTrimmedString(pricingTemplateSnapshot.CacheCreationPrice)
+	result.PricingSnapshotReasoning = runtimeOptionalTrimmedString(pricingTemplateSnapshot.ReasoningPrice)
+	result.PricingConfigVersionUsed = intPtr(pricingTemplateSnapshot.Version)
+	return result
+}
+
 func buildRuntimePricingResult(reportCurrencySnapshot runtimeReportCurrencySnapshot, pricingTemplateSnapshot *runtimePricingTemplateSnapshot, endpointFXSnapshot *runtimeEndpointFXSnapshot, usage responseUsage, streamOutcome string) runtimePricingResult {
 	result := runtimePricingResult{Billable: true, PricingEvidenceTrust: runtimePricingEvidenceTrust}
 	result.PricingTemplateIDUsed = templateIDPointer(pricingTemplateSnapshot)
@@ -242,7 +271,12 @@ func buildRuntimePricingResult(reportCurrencySnapshot runtimeReportCurrencySnaps
 		result.PricingStatus = runtimePricingStatusUnpriced
 		return result
 	}
-
+	if !runtimePricingSnapshotUsableForReady(pricingTemplateSnapshot) {
+		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
+		result.PricingResolutionKind = stringPtr(runtimePricingResolutionCurrencyMigrationRequired)
+		result.PricingStatus = runtimePricingStatusUnpriced
+		return result
+	}
 	if usage.InputTokens == nil || usage.OutputTokens == nil {
 		if runtimeStreamOutcomeMakesUsageUnavailable(streamOutcome) {
 			result.UnpricedReason = stringPtr(runtimeUnpricedReasonStreamUsageUnavailable)
@@ -260,6 +294,9 @@ func buildRuntimePricingResult(reportCurrencySnapshot runtimeReportCurrencySnaps
 		result.PricingResolutionKind = stringPtr(runtimePricingResolutionUnsupportedUnit)
 		result.PricingStatus = runtimePricingStatusUnpriced
 		return result
+	}
+	if !runtimePricingEpochCurrencyCoherent(reportCurrencySnapshot, pricingTemplateSnapshot) {
+		return runtimeSnapshotIncoherentPricingResult(result)
 	}
 
 	fxRate, fxSource, ok := resolveRuntimeFXRate(reportCurrencySnapshot, pricingTemplateSnapshot, endpointFXSnapshot)
@@ -315,7 +352,10 @@ func buildRuntimePricingResult(reportCurrencySnapshot runtimeReportCurrencySnaps
 		return result
 	}
 
-	totalOriginalMicros := runtimeSumMicros(inputCostMicros, outputCostMicros, cacheReadInputCostMicros, cacheCreationInputCostMicros, reasoningCostMicros)
+	totalOriginalMicros, ok := runtimeCheckedSumMicros(inputCostMicros, outputCostMicros, cacheReadInputCostMicros, cacheCreationInputCostMicros, reasoningCostMicros)
+	if !ok {
+		return runtimeSnapshotIncoherentPricingResult(result)
+	}
 	totalReportMicros, ok := runtimeConvertMicros(totalOriginalMicros, fxRate)
 	if !ok {
 		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
@@ -399,10 +439,10 @@ func templateNamePointer(snapshot *runtimePricingTemplateSnapshot) *string {
 }
 
 func templateRevisionIDPointer(snapshot *runtimePricingTemplateSnapshot) *int64 {
-	if snapshot == nil {
+	if snapshot == nil || snapshot.RevisionID <= 0 {
 		return nil
 	}
-	return int64Ptr(int64(snapshot.Version))
+	return int64Ptr(snapshot.RevisionID)
 }
 
 func nonZeroIntPointer(value int) *int {
@@ -544,14 +584,6 @@ func roundRuntimeRatToInt64(value *big.Rat) (int64, bool) {
 		return 0, false
 	}
 	return quotient.Int64(), true
-}
-
-func runtimeSumMicros(values ...int64) int64 {
-	total := int64(0)
-	for _, value := range values {
-		total += value
-	}
-	return total
 }
 
 func runtimeOptionalTrimmedString(value string) *string {

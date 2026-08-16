@@ -1314,7 +1314,7 @@ func buildCurrencyMigrationPreviewWithSettings(ctx context.Context, tx pgx.Tx, h
 	response := currencyMigrationDraftPreviewResponse{
 		OperationKind: header.OperationKind, MigrationOperationID: header.MigrationOperationID, DraftID: header.DraftID, DraftHash: stringValue(header.DraftHash), PreviewHash: previewHash,
 		TargetCurrencyCode: header.TargetCurrencyCode, TargetCurrencySymbol: header.TargetCurrencySymbol, CurrentCurrencyCode: nullableNonEmptyString(settingsRow.ReportCurrencyCode),
-		CurrentEpoch: currentEpoch, NextEpoch: &nextEpochValue, TemplateCount: len(previewItems), RevisionChangeCount: len(previewItems), Committable: true, ValidationErrors: []map[string]any{},
+		CurrentEpoch: currentEpoch, NextEpoch: &nextEpochValue, TemplateCount: len(previewItems), RevisionChangeCount: len(previewItems), Committable: true, ValidationErrors: []map[string]any{}, EpochChange: true,
 	}
 	return computedCurrencyPreview{Response: response, Items: previewItems, PreviewHash: previewHash}, nil
 }

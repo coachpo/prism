@@ -1,9 +1,6 @@
 package runtime
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
 // TestPricingClassifierResearchFixtureReconciliation is the fixed 24-row
 // research fixture (SPEC 3.6): 17 non-2xx ineligible rows, 5
@@ -204,10 +201,10 @@ func TestPricingClassifierEpochAttributionAndMigrationBlock(t *testing.T) {
 // fail-closed behavior (SPEC 4.5).
 func TestPricingClassifierExactArithmeticOverflow(t *testing.T) {
 	reportCurrency := runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$", Epoch: 1}
-	large := int(1 << 30)
+	large := 1
 	template := runtimePricingTemplateForTest(func(snapshot *runtimePricingTemplateSnapshot) {
-		snapshot.InputPrice = strings.Repeat("9", 20)
-		snapshot.OutputPrice = strings.Repeat("9", 20)
+		snapshot.InputPrice = "9223372036854775800"
+		snapshot.OutputPrice = "9223372036854775800"
 	})
 	result := classifyRuntimePricing(200, reportCurrency, template, responseUsage{
 		InputTokens: &large, OutputTokens: &large,
@@ -217,5 +214,9 @@ func TestPricingClassifierExactArithmeticOverflow(t *testing.T) {
 	}
 	if result.PricingResolutionKind == nil || *result.PricingResolutionKind != runtimePricingResolutionSnapshotIncoherent {
 		t.Fatalf("expected snapshot_incoherent resolution for overflow, got %+v", result)
+	}
+	built := buildRuntimePricingResult(reportCurrency, template, nil, responseUsage{InputTokens: &large, OutputTokens: &large}, runtimeStreamOutcomeCompleted)
+	if built.PricingStatus != runtimePricingStatusUnpriced || built.PricingResolutionKind == nil || *built.PricingResolutionKind != runtimePricingResolutionSnapshotIncoherent || built.TotalCostOriginalMicros != nil {
+		t.Fatalf("expected production pricing builder overflow to fail closed without costs, got %+v", built)
 	}
 }

@@ -65,7 +65,7 @@ func TestRuntimeTelemetryV2CurrencyAttributionCompatibility(t *testing.T) {
 	}{
 		{
 			name:            "pre-owner payload remains legacy unknown",
-			mutation:        `UPDATE runtime_telemetry_outbox SET core_payload = core_payload #- '{envelope,usage_event,CurrencyAttribution}' WHERE profile_id = $1`,
+			mutation:        `UPDATE runtime_telemetry_outbox SET core_payload = core_payload #- '{envelope,usage_event,CurrencyAttribution}' #- '{envelope,usage_event,PricingVersionEffectiveAt}' #- '{envelope,request_logs,0,PricingVersionEffectiveAt}' WHERE profile_id = $1`,
 			wantAttribution: "legacy_unknown",
 		},
 		{
@@ -107,6 +107,10 @@ func TestRuntimeTelemetryV2CurrencyAttributionCompatibility(t *testing.T) {
 			var attribution string
 			if err := restarted.conn.QueryRow(context.Background(), `SELECT currency_attribution FROM usage_request_events WHERE profile_id = $1`, profileID).Scan(&attribution); err != nil || attribution != test.wantAttribution {
 				t.Fatalf("expected compatible v2 payload attribution %q, got %q err=%v", test.wantAttribution, attribution, err)
+			}
+			var effectiveAtAbsent bool
+			if err := restarted.conn.QueryRow(context.Background(), `SELECT logs.pricing_version_effective_at IS NULL AND usage.pricing_version_effective_at IS NULL FROM request_logs AS logs JOIN usage_request_events AS usage USING (profile_id, ingress_request_id) WHERE logs.profile_id = $1`, profileID).Scan(&effectiveAtAbsent); err != nil || !effectiveAtAbsent {
+				t.Fatalf("expected pre-owner v2 payload to retain null pricing effective-at, absent=%v err=%v", effectiveAtAbsent, err)
 			}
 		})
 	}
@@ -696,6 +700,8 @@ func enqueueBlockedCurrencyAttributionPayload(t *testing.T) (*runtimeHarness, in
 	}}})
 	profileID := harness.activeProfileID(t)
 	route := harness.seedProxyRoute(t, runtimeRouteSeed{ProfileID: profileID, APIFamily: "openai", PublicModelID: "v2-owner-public-" + randomSuffix(), TargetModelID: "v2-owner-target-" + randomSuffix(), EndpointBaseURL: harness.upstream.baseURL("/telemetry/v2-owner"), EndpointAPIKey: "v2-owner-key"})
+	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "v2-owner-template-"+randomSuffix(), loadRuntimeReportCurrencyCode(t, harness.conn, profileID), "1", "2", "0", "0", "0")
+	attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"model": route.PublicModelID, "messages": []map[string]any{{"role": "user", "content": "persist v2 owner payload"}}}, nil)
 	assertStatus(t, response, http.StatusOK)
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{OutboxRows: 1}, 5*time.Second)

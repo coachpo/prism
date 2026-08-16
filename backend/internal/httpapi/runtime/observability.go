@@ -497,6 +497,7 @@ type requestLogInsert struct {
 	PricingTemplateIDUsed         *int
 	PricingTemplateNameSnapshot   *string
 	PricingTemplateRevisionIDUsed *int64
+	PricingVersionEffectiveAt     *time.Time
 	ReportingCurrencyEpoch        *int
 
 	// Requests/Audit v2 fields (Requests SPEC §3.2-§3.4/§4.4).
@@ -589,6 +590,7 @@ type usageEventInsert struct {
 	PricingTemplateIDUsed         *int
 	PricingTemplateNameSnapshot   *string
 	PricingTemplateRevisionIDUsed *int64
+	PricingVersionEffectiveAt     *time.Time
 	ReportingCurrencyEpoch        *int
 	CurrencyAttribution           string
 
@@ -639,6 +641,7 @@ func (requestLog *requestLogInsert) applyRuntimePricingResult(pricingResult runt
 	requestLog.PricingTemplateIDUsed = pricingResult.PricingTemplateIDUsed
 	requestLog.PricingTemplateNameSnapshot = pricingResult.PricingTemplateNameSnapshot
 	requestLog.PricingTemplateRevisionIDUsed = pricingResult.PricingTemplateRevisionIDUsed
+	requestLog.PricingVersionEffectiveAt = pricingResult.PricingVersionEffectiveAt
 	requestLog.ReportingCurrencyEpoch = pricingResult.ReportingCurrencyEpoch
 }
 
@@ -670,6 +673,7 @@ func (usageEvent *usageEventInsert) applyRuntimePricingResult(pricingResult runt
 	usageEvent.PricingTemplateIDUsed = pricingResult.PricingTemplateIDUsed
 	usageEvent.PricingTemplateNameSnapshot = pricingResult.PricingTemplateNameSnapshot
 	usageEvent.PricingTemplateRevisionIDUsed = pricingResult.PricingTemplateRevisionIDUsed
+	usageEvent.PricingVersionEffectiveAt = pricingResult.PricingVersionEffectiveAt
 	usageEvent.ReportingCurrencyEpoch = pricingResult.ReportingCurrencyEpoch
 }
 
@@ -1455,7 +1459,7 @@ func (s *Service) buildRuntimeTelemetryPricingTimingContext(plan requestPlan, re
 	successFlag := result.Response.StatusCode >= 200 && result.Response.StatusCode <= 299
 	reportCurrencyCode := runtimeOptionalTrimmedString(plan.ReportCurrencySnapshot.Code)
 	reportCurrencySymbol := runtimeOptionalTrimmedString(plan.ReportCurrencySnapshot.Symbol)
-	pricingResult := runtimePricingResult{ReportCurrencyCode: reportCurrencyCode, ReportCurrencySymbol: reportCurrencySymbol}
+	pricingResult := buildRuntimePricingProvenance(plan.ReportCurrencySnapshot, result.Connection.PricingTemplateSnapshot)
 	if successFlag {
 		pricingResult = buildRuntimePricingResult(plan.ReportCurrencySnapshot, result.Connection.PricingTemplateSnapshot, result.Connection.EndpointFXSnapshot, usage, streamOutcome)
 		pricingResult = withRuntimePricingSnapshotForPersistence(pricingResult, result.Connection.PricingTemplateSnapshot)
@@ -1616,6 +1620,7 @@ func buildRuntimeRequestLogRow(plan requestPlan, request *http.Request, telemetr
 		UpstreamRequestStarted:        boolPtr(attempt.attempt.UpstreamRequestStarted),
 		ResponseHeadersReceived:       boolPtr(attempt.attempt.ResponseHeadersReceived),
 	}
+	requestLog.applyRuntimePricingResult(buildRuntimePricingProvenance(plan.ReportCurrencySnapshot, attempt.attempt.Connection.PricingTemplateSnapshot))
 	if attempt.attempt.ResponseHeadersReceived {
 		requestLog.UpstreamStatusCode = intPtr(attempt.attempt.StatusCode)
 	} else {
@@ -2484,6 +2489,10 @@ func normalizeRuntimeTelemetryEnvelopeTimestamps(envelope runtimeTelemetryEnvelo
 	requestCreatedAtByAttempt := make(map[int]time.Time, len(envelope.RequestLogs))
 	for index := range envelope.RequestLogs {
 		envelope.RequestLogs[index].CreatedAt = envelope.RequestLogs[index].CreatedAt.UTC()
+		if envelope.RequestLogs[index].PricingVersionEffectiveAt != nil {
+			effectiveAt := envelope.RequestLogs[index].PricingVersionEffectiveAt.UTC()
+			envelope.RequestLogs[index].PricingVersionEffectiveAt = &effectiveAt
+		}
 		requestCreatedAtByAttempt[envelope.RequestLogs[index].AttemptNumber] = envelope.RequestLogs[index].CreatedAt
 	}
 	for index := range envelope.AuditLogs {
@@ -2497,6 +2506,10 @@ func normalizeRuntimeTelemetryEnvelopeTimestamps(envelope runtimeTelemetryEnvelo
 		envelope.UsageEvent.CreatedAt = envelope.RequestLogs[len(envelope.RequestLogs)-1].CreatedAt
 	} else {
 		envelope.UsageEvent.CreatedAt = envelope.UsageEvent.CreatedAt.UTC()
+	}
+	if envelope.UsageEvent.PricingVersionEffectiveAt != nil {
+		effectiveAt := envelope.UsageEvent.PricingVersionEffectiveAt.UTC()
+		envelope.UsageEvent.PricingVersionEffectiveAt = &effectiveAt
 	}
 	// Envelopes accepted before currency attribution became explicit have no
 	// attribution field in their serialized payload. They remain conservative
@@ -2572,8 +2585,8 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 				completion_duration_ms, ttft_ms, stream_outcome, stream_error_kind,
 				audit_enabled_at_request, audit_capture_bodies_at_request,
 				request_generation_params, request_generation_params_status, upstream_operation_name, operation_translation_mode, upstream_request_path,
-				proxy_api_key_auth_enforced_at_request
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, CASE WHEN $14::bigint IS NOT NULL AND $15::varchar IS NOT NULL THEN 'identified' WHEN $14::bigint IS NULL AND $15::varchar IS NULL THEN 'none' ELSE 'unknown' END, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $80, $81, $82, $83, $84, $85, $86, $87, $88, $89, $90, $91, $92) RETURNING id`,
+				proxy_api_key_auth_enforced_at_request, pricing_version_effective_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, CASE WHEN $14::bigint IS NOT NULL AND $15::varchar IS NOT NULL THEN 'identified' WHEN $14::bigint IS NULL AND $15::varchar IS NULL THEN 'none' ELSE 'unknown' END, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $80, $81, $82, $83, $84, $85, $86, $87, $88, $89, $90, $91, $92, $93) RETURNING id`,
 			requestLog.ProfileID,
 			requestLog.ModelID,
 			nullableStringArg(requestLog.ResolvedTargetModelID),
@@ -2666,6 +2679,7 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 			nullableStringArg(requestLog.OperationTranslationMode),
 			nullableStringArg(requestLog.UpstreamRequestPath),
 			nullableBoolArg(requestLog.ProxyAPIKeyAuthEnforcedAtRequest),
+			nullableTimeArg(requestLog.PricingVersionEffectiveAt),
 		).Scan(&requestLogID)
 		if err != nil {
 			return 0, fmt.Errorf("insert request log: %w (row_kind=%s pricing_status=%s reason=%v resolution=%v components=%v trust=%s)", err, requestLog.RowKind, requestLog.PricingStatus, dereferenceString(requestLog.UnpricedReason), dereferenceString(requestLog.PricingResolutionKind), requestLog.MissingPriceComponents, requestLog.PricingEvidenceTrust)
@@ -2697,8 +2711,8 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 			same_target_retry_occurred, hedge_occurred, failover_occurred, routing_evidence_complete, final_error_code,
 			ingress_started_at, ingress_completed_at, proxy_api_key_id_snapshot, proxy_api_key_attribution_state,
 			upstream_operation_name, operation_translation_mode, upstream_request_path, endpoint_label_snapshot,
-			proxy_api_key_auth_enforced_at_request, currency_attribution
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, $71, $72, $73)`,
+			proxy_api_key_auth_enforced_at_request, currency_attribution, pricing_version_effective_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, $71, $72, $73, $74)`,
 		usageEvent.ProfileID,
 		usageEvent.IngressRequestID,
 		usageEvent.ModelID,
@@ -2772,6 +2786,7 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 		usageEventEndpointLabelSnapshotForInsert(usageEvent),
 		nullableBoolArg(usageEvent.ProxyAPIKeyAuthEnforcedAtRequest),
 		usageEvent.CurrencyAttribution,
+		nullableTimeArg(usageEvent.PricingVersionEffectiveAt),
 	); err != nil {
 		return 0, fmt.Errorf("insert usage event: %w (ingress=%s status=%d pricing_status=%s trust=%s created=%s)", err, usageEvent.IngressRequestID, usageEvent.StatusCode, usageEvent.PricingStatus, usageEvent.PricingEvidenceTrust, usageEvent.CreatedAt.UTC().Format(time.RFC3339))
 	}

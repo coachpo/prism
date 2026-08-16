@@ -228,13 +228,19 @@ func TestLogRetentionSettingsAndJobRoutesAreGlobal(t *testing.T) {
 	if getRecorder.Code != http.StatusOK || !strings.Contains(getRecorder.Body.String(), `"loadbalance_events_retention_days":6`) {
 		t.Fatalf("GET /settings/log-retention status=%d body=%s", getRecorder.Code, getRecorder.Body.String())
 	}
+	if err := retentionStore.EnsurePartitionForTime(ctx, "loadbalance_events", phase7Now.AddDate(0, 0, -7)); err != nil {
+		t.Fatalf("ensure boundary partition: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ANALYZE loadbalance_events_p20260423`); err != nil {
+		t.Fatalf("analyze boundary partition: %v", err)
+	}
 	// Destructive manual cleanup: fresh preflight then sealed job acceptance
 	// (SPEC §6). The old table/cutoff create route is removed.
 	preflight := httptest.NewRequest(http.MethodPost, "/maintenance/log-retention/preflights", bytes.NewBufferString(`{"kind":"manual_cleanup","operation_id":"route-op-2","preflight_attempt_id":"attempt-1","dataset":"loadbalance_events","selection":{"mode":"keep_days","days":7}}`))
 	preflight.Header.Set("Content-Type", "application/json")
 	preflightRecorder := httptest.NewRecorder()
 	router.ServeHTTP(preflightRecorder, preflight)
-	if preflightRecorder.Code != http.StatusCreated {
+	if preflightRecorder.Code != http.StatusCreated || !strings.Contains(preflightRecorder.Body.String(), `"name":"loadbalance_events_p20260423"`) {
 		t.Fatalf("POST preflight status=%d body=%s", preflightRecorder.Code, preflightRecorder.Body.String())
 	}
 	var preflightPayload struct {
@@ -381,8 +387,8 @@ func TestManagementGlobalQueuedLogRetentionCancel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload global queued job: %v", err)
 	}
-	if detail.Job.State != "cancelled" || detail.Job.FinishedAt == nil {
-		t.Fatalf("expected cancelled global job to be terminal, got %+v", detail.Job)
+	if detail.Job.State != "cancelled" || detail.Job.FinishedAt == nil || detail.Job.Progress.DroppedPartitionNamesPreview == nil || len(detail.Job.Progress.DroppedPartitionNamesPreview) != 0 {
+		t.Fatalf("expected cancelled global job to have terminal empty-partition progress, got %+v", detail)
 	}
 }
 
