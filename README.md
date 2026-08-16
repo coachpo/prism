@@ -1,6 +1,6 @@
 # Prism
 
-> **Status**: active development at v1.0.9 — self-hosted on a home LAN, no external users, PostgreSQL-backed. See [STATUS.md](STATUS.md) for the authoritative lifecycle, deployment, and compatibility facts.
+> **Status**: active development at v1.0.5 — self-hosted, no external users, PostgreSQL-backed. See [STATUS.md](STATUS.md) for the authoritative lifecycle, deployment, and compatibility facts.
 
 Prism is a self-hosted gateway that sits between your tools and LLM providers, giving you one endpoint, one place to manage API keys, and a web dashboard to see what every request cost. It is built for developers and power users who juggle several providers and want failover, routing, and usage tracking without running heavy infrastructure.
 

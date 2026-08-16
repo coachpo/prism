@@ -77,6 +77,18 @@ type pricingListCursor struct {
 	LastID           int    `json:"last_id"`
 }
 
+// startKey is the keyset lower bound the page walks from. The first page has
+// no cursor, and pgx encodes a nil []byte as SQL NULL: every comparison
+// against NULL is NULL, so a nil bound would drop the whole page while
+// total_count still reported the real size. The empty prefix stays an empty
+// bytea, which sorts before every real name_identity.
+func (c pricingListCursor) startKey() []byte {
+	if c.LastNameIdentity == nil {
+		return []byte{}
+	}
+	return c.LastNameIdentity
+}
+
 func (s *Service) handleListPricingTemplatePage(w http.ResponseWriter, r *http.Request) {
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "pricing template page", func(tx pgx.Tx) (pricingTemplateListPage, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
@@ -119,13 +131,13 @@ func (s *Service) handleListPricingTemplatePage(w http.ResponseWriter, r *http.R
 			LEFT JOIN pricing_template_revisions AS revisions ON revisions.id = templates.current_revision_id
 			WHERE templates.profile_id = $1 AND templates.deleted_at IS NULL AND ($2 = '' OR templates.name LIKE '%' || $2 || '%')
 				AND (templates.name_identity > $3 OR (templates.name_identity = $3 AND templates.id > $4))
-			ORDER BY templates.name_identity ASC, templates.id ASC LIMIT $5`, profile.ID, queryText, cursor.LastNameIdentity, cursor.LastID, limit)
+			ORDER BY templates.name_identity ASC, templates.id ASC LIMIT $5`, profile.ID, queryText, cursor.startKey(), cursor.LastID, limit)
 		if err != nil {
 			return pricingTemplateListPage{}, fmt.Errorf("load pricing template page: %w", err)
 		}
 		defer rows.Close()
 		items := make([]pricingTemplateListItem, 0, limit)
-		lastName := cursor.LastNameIdentity
+		lastName := cursor.startKey()
 		lastID := cursor.LastID
 		for rows.Next() {
 			item, nameIdentity, err := scanPricingTemplateListItem(rows)

@@ -37,6 +37,7 @@ auth/
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
+- When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation here, prefer manual confirmation over adding dedicated “proves not” tests unless the missing surface is itself a shipped contract or guardrail.
 - Keep the auth problem registry as the single source of truth for auth error codes. Every entry binds an exact route matcher, wire params (exact empty objects), details schema, retry policy, recovery kind, and Retry-After rule; the Go registry, the TypeScript known-code decoder, the coordinator classifier, and the zh-CN catalog stay exhaustive against it.
 - Keep `GET /api/auth/status` a tagged union (`state` = `enabled|disabled|transition_fail_closed`, plus `transition_state`, `login_available`, `effective_generation`). Never regress to an untagged `auth_enabled`-only payload; the E2E fixture contract is the tagged shape.

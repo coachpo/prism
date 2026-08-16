@@ -526,8 +526,8 @@ The Requests page must remain compatible with the following backend-facing and s
 
 This document maps Prism's current operator workflows from mounted frontend routes to the backend APIs they drive. It is grounded in `frontend/src/app/router/appRouter.tsx`, `frontend/src/app/router/rewriteRoutes.ts`, the live Go backend API surface, and the markdown API reference.
 
-Validated again against current repo surfaces on 2026-08-13:
-- `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` are all `1.0.9`, which is the current backend/frontend version surface.
+Validated again against current repo surfaces on 2026-07-10:
+- `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` are all `1.0.4`, which is the current backend/frontend version surface.
 - The protected frontend route shell mounts observe, request-log, model, route, settings, proxy-key, and pricing workflows; analytics lives under `/observe`.
 
 ### Evidence Sources

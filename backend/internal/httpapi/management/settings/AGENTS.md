@@ -30,6 +30,7 @@ settings/
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
+- When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - Keep costing, timezone, and API-family audit settings pinned to Default profile id `1`; `X-Profile-Id` may be accepted but is ignored. Keep storage `profile_id` columns untouched.
 - Keep `/api/settings/audit` as exactly three rows (`openai`, `anthropic`, `gemini`) using the three-state `disabled|metadata_only|body_capture` mode union with full replacement PUT semantics; body capture requires audit enabled.
 - Timezone is part of the costing CAS (`GET/PUT /api/settings/costing`); there is no standalone timezone route. Reporting currency has a single active epoch; currency-code change with an existing epoch requires the migration preview/commit flow.

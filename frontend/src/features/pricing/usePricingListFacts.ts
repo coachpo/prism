@@ -19,7 +19,8 @@ export type PricingListFacts = {
   refresh: () => void
 }
 
-const PAGE_LIMIT = 200
+/** The bounded page endpoint rejects anything above 100. */
+const PAGE_LIMIT = 100
 
 export function usePricingListFacts(revision: number): PricingListFacts {
   const [items, setItems] = useState<PricingTemplateListPageItem[]>([])
@@ -32,9 +33,23 @@ export function usePricingListFacts(revision: number): PricingListFacts {
     setLoading(true)
     void (async () => {
       try {
-        const page = await api.pricingTemplates.listPage({ limit: PAGE_LIMIT })
-        if (cancelled) return
-        setItems(page.items)
+        // The table renders every template the list read returned, so the
+        // facts have to cover all of them. A bounded page is followed to its
+        // end instead of keeping only the first one, which would leave the
+        // tail rows without counts and no way to tell that from "no data".
+        const collected: PricingTemplateListPageItem[] = []
+        const seenCursors = new Set<string>()
+        let cursor: string | undefined
+        for (;;) {
+          const page = await api.pricingTemplates.listPage({ cursor, limit: PAGE_LIMIT })
+          if (cancelled) return
+          collected.push(...page.items)
+          if (!page.next_cursor) break
+          if (seenCursors.has(page.next_cursor)) throw new Error("pricing list page cursor repeated")
+          seenCursors.add(page.next_cursor)
+          cursor = page.next_cursor
+        }
+        setItems(collected)
         setFailed(false)
       } catch {
         if (cancelled) return
