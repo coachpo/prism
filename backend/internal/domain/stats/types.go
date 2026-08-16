@@ -47,8 +47,12 @@ type RequestLogListParams struct {
 	// callers pass the service clock; direct domain callers may leave it zero.
 	CoverageReferenceNow time.Time
 	Coverage             *QueryCoverage
-	Limit                int
-	Offset               int
+	// SortBy/SortOrder carry the attempt-view sort grammar. HTTP callers pass
+	// validated values; an empty SortBy keeps the created_at default.
+	SortBy    string
+	SortOrder string
+	Limit     int
+	Offset    int
 }
 
 type RequestLogFilterEndpointOption struct {
