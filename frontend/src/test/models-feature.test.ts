@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { DEFAULT_MODEL_FORM_DATA, toModelCreatePayload } from "@/pages/models/modelFormState"
-import { createModelAuthoringFormOptions } from "@/features/models/modelForm"
+import { DEFAULT_MODEL_FORM_DATA, toModelCreatePayload, validateModelFormData } from "@/pages/models/modelFormState"
 import { modelsQueryKeys } from "@/features/models/queryKeys"
-import { validateModelAuthoringValues } from "@/features/models/modelSchemas"
 
 const baseForm = {
   ...DEFAULT_MODEL_FORM_DATA,
@@ -41,17 +39,12 @@ describe("models feature contracts", () => {
     expect(Object.prototype.hasOwnProperty.call(payload, "access_targets")).toBe(false)
   })
 
+  // Both authoring surfaces (models list and model detail) validate through
+  // this helper directly, so it is the path that decides whether a form saves.
   it("allows enabled state through model CRUD validation without target payloads", () => {
-    expect(validateModelAuthoringValues({
+    expect(validateModelFormData({
       ...baseForm,
       is_enabled: true,
     })).toBe(null)
-  })
-  it("exposes React Hook Form options backed by the Zod authoring schema", () => {
-    const options = createModelAuthoringFormOptions(baseForm)
-
-    expect(options.defaultValues.model_id).toBe("gpt-entry")
-    expect(options.mode).toBe("onSubmit")
-    expect(options.resolver).toBeTypeOf("function")
   })
 })

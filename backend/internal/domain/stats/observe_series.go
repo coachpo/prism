@@ -147,11 +147,7 @@ LIMIT %d`, groupColumn, seriesLimit-1), profileID, bounds.UsageFrom, bounds.Usag
 		}
 		result.Truncated = len(topIDs) == seriesLimit-1
 	}
-	labels, err := loadSeriesLabels(ctx, exec, profileID, bounds, groupBy, topIDs)
-	if err != nil {
-		return result, err
-	}
-	series, err := loadSeriesBuckets(ctx, exec, profileID, bounds, metric, groupBy, topIDs, labels, bucketSize, reportCurrencyCode, reportCurrencySymbol)
+	series, err := loadSeriesBuckets(ctx, exec, profileID, bounds, metric, groupBy, topIDs, bucketSize, reportCurrencyCode, reportCurrencySymbol)
 	if err != nil {
 		return result, err
 	}
@@ -172,77 +168,7 @@ func groupColumnFor(groupBy string) string {
 	}
 }
 
-// loadSeriesLabels resolves the display label for the Top entity IDs.
-//
-// The bucket aggregate groups on the entity ID, never on a label: a rename
-// inside the window would otherwise split one entity into two series. Labels
-// are therefore a separate lookup over at most `seriesLimit-1` ids, which also
-// keeps the join off the hot aggregate. `model` needs no lookup because
-// `model_id` is already the model identifier.
-func loadSeriesLabels(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, groupBy string, topIDs []string) (map[string]string, error) {
-	labels := map[string]string{}
-	if len(topIDs) == 0 {
-		return labels, nil
-	}
-	var query string
-	switch groupBy {
-	case "endpoint":
-		// The retained snapshot is the endpoint label source for usage
-		// reporting, not the mutable endpoints.name; `usageEventEndpointLabel`
-		// applies the same rule to the record surfaces.
-		query = `
-SELECT DISTINCT ON (endpoint_id)
-	endpoint_id::text,
-	COALESCE(NULLIF(endpoint_label_snapshot, ''), 'Unknown Endpoint')
-FROM usage_request_events
-WHERE ` + usageWindowPredicate + ` AND endpoint_id::text = ANY($4::text[])
-ORDER BY endpoint_id, created_at DESC`
-	case "terminal_target":
-		// Same precedence as the terminal-target drill-down, so one target
-		// cannot read as two different names on two surfaces.
-		query = `
-SELECT DISTINCT ON (usage_request_events.connection_id)
-	usage_request_events.connection_id::text,
-	COALESCE(NULLIF(connections.name, ''), endpoints.name, NULLIF(usage_request_events.endpoint_label_snapshot, ''), 'Terminal Target')
-FROM usage_request_events
-LEFT JOIN connections ON connections.id = usage_request_events.connection_id AND connections.profile_id = usage_request_events.profile_id
-LEFT JOIN endpoints ON endpoints.id = usage_request_events.endpoint_id AND endpoints.profile_id = usage_request_events.profile_id
-WHERE usage_request_events.profile_id = $1 AND usage_request_events.created_at >= $2 AND usage_request_events.created_at < $3
-	AND usage_request_events.connection_id::text = ANY($4::text[])
-ORDER BY usage_request_events.connection_id, usage_request_events.created_at DESC`
-	default:
-		return labels, nil
-	}
-	rows, err := exec.Query(ctx, query, profileID, bounds.UsageFrom, bounds.UsageTo, intSliceStrings(topIDs))
-	if err != nil {
-		return nil, fmt.Errorf("load series labels: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var entityID string
-		var label string
-		if err := rows.Scan(&entityID, &label); err != nil {
-			return nil, err
-		}
-		labels[entityID] = label
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return labels, nil
-}
-
-// seriesLabel keeps the raw id as the last resort: a series that was selected
-// from the window always has a label, and an invented one would be worse than
-// the id it stands for.
-func seriesLabel(labels map[string]string, entityID string) string {
-	if label := strings.TrimSpace(labels[entityID]); label != "" {
-		return label
-	}
-	return entityID
-}
-
-func loadSeriesBuckets(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, metric string, groupBy string, topIDs []string, labels map[string]string, bucketSize time.Duration, reportCurrencyCode string, reportCurrencySymbol string) ([]SeriesItem, error) {
+func loadSeriesBuckets(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, metric string, groupBy string, topIDs []string, bucketSize time.Duration, reportCurrencyCode string, reportCurrencySymbol string) ([]SeriesItem, error) {
 	groupColumn := groupColumnFor(groupBy)
 	// Build per-entity bucket rows plus Other in one statement using
 	// grouping sets; the caller re-aggregates Other from raw rows.
@@ -354,9 +280,8 @@ LIMIT 2000`, bucketDurationLiteral(bucketSize), entityExpr, entityIDExpr, where)
 	byKey := map[string]*SeriesItem{}
 	for _, id := range topIDs {
 		key := groupBy + ":" + id
-		entityID := id
 		orderedKeys = append(orderedKeys, key)
-		byKey[key] = &SeriesItem{Key: key, EntityID: &entityID, Label: seriesLabel(labels, id), Configured: boolPointer(true)}
+		byKey[key] = &SeriesItem{Key: key, Label: id, Configured: boolPointer(true)}
 	}
 	for _, bucket := range buckets {
 		key := bucket.entityID
@@ -370,18 +295,12 @@ LIMIT 2000`, bucketDurationLiteral(bucketSize), entityExpr, entityIDExpr, where)
 		item, ok := byKey[key]
 		if !ok {
 			orderedKeys = append(orderedKeys, key)
-			item = &SeriesItem{Key: key}
-			switch key {
-			case "other":
-				// The re-aggregated remainder is not an entity, so it carries
-				// no id and no configured flag.
+			item = &SeriesItem{Key: key, Label: bucket.entityLabel}
+			if key == "other" {
 				item.Label = "Other"
-			case "total":
-				item.Label = "Total"
-			default:
-				entityID := bucket.entityID
-				item.EntityID = &entityID
-				item.Label = seriesLabel(labels, bucket.entityID)
+				item.Configured = nil
+			} else {
+				item.Label = bucket.entityLabel
 			}
 			byKey[key] = item
 		}

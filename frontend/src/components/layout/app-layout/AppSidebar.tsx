@@ -52,14 +52,12 @@ export function AppSidebar({ authEnabled, sidebarGroups }: Props) {
       collapsible="icon"
       className="border-r border-sidebar-border"
     >
-      {/* Same 48px band as SiteHeader with the rule inside it, so the two
-          bottom outlines read as one continuous line across the viewport. */}
-      <SidebarHeader className="h-12 shrink-0 border-b border-sidebar-border p-0">
+      <SidebarHeader className="border-b border-sidebar-border p-0">
         <Link
           to="/observe"
           aria-label={messages.shell.goToDashboard}
           onClick={(event) => handleNavigate(event, "/observe")}
-          className="flex h-full items-center gap-2 px-3 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+          className="flex h-12 items-center gap-2 px-3 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
         >
           <span
             aria-hidden="true"

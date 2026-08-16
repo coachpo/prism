@@ -13,10 +13,12 @@
 model-detail/
 ├── ConnectionDialog.tsx
 ├── ConnectionCustomRequestParametersEditor.tsx
+├── CopyTerminalTargetDialog.tsx
+├── ModelCostCards.tsx
+├── RouteReadinessCard.tsx
+├── classifyOpenAICoverage.ts
 ├── customRequestParameters.ts
-├── ModelDetailHeader.tsx
 ├── modelDetailMetricsAndPaths.ts
-├── OverviewCards.tsx
 ├── useConnectionFocus.ts
 ├── useModelDetailBootstrap.ts
 ├── useModelDetailConnectionMutations.ts

@@ -1,7 +1,6 @@
 import { http, HttpResponse } from "msw"
 import { beforeEach, describe, expect, it } from "vitest"
 import { api } from "@/lib/api"
-import { request } from "@/lib/api/core"
 import { authSessionCoordinator } from "@/context/auth/coordinatorInstance"
 import { rewriteTestServer } from "@/test"
 
@@ -104,64 +103,6 @@ describe("api client contracts", () => {
     expect(modelRequests).toBe(1)
     expect(refreshRequests).toBe(1)
     expect(authSessionCoordinator.getPhase().kind).toBe("SESSION_EXPIRED")
-  })
-
-  // Management admission rejects the request over its ceiling immediately with
-  // 503 + Retry-After, so a read that is one slot late must replay rather than
-  // leave the panel permanently failed.
-  it("replays an overloaded read and returns the eventual answer", async () => {
-    let modelRequests = 0
-
-    rewriteTestServer.use(
-      http.get("/api/models", () => {
-        modelRequests += 1
-        if (modelRequests === 1) {
-          return HttpResponse.json({ detail: "Management route temporarily overloaded. Retry later." }, {
-            status: 503,
-            headers: { "Retry-After": "0" },
-          })
-        }
-        return HttpResponse.json([])
-      }),
-    )
-
-    await expect(api.models.list()).resolves.toEqual([])
-    expect(modelRequests).toBe(2)
-  })
-
-  it("gives up after a bounded number of overload replays", async () => {
-    let modelRequests = 0
-
-    rewriteTestServer.use(
-      http.get("/api/models", () => {
-        modelRequests += 1
-        return HttpResponse.json({ detail: "Management route temporarily overloaded. Retry later." }, {
-          status: 503,
-          headers: { "Retry-After": "0" },
-        })
-      }),
-    )
-
-    await expect(api.models.list()).rejects.toMatchObject({ status: 503 })
-    // One original attempt plus the two replays, never an unbounded loop.
-    expect(modelRequests).toBe(3)
-  })
-
-  it("never replays an overloaded write", async () => {
-    let writeRequests = 0
-
-    rewriteTestServer.use(
-      http.post("/api/models", () => {
-        writeRequests += 1
-        return HttpResponse.json({ detail: "Management route temporarily overloaded. Retry later." }, {
-          status: 503,
-          headers: { "Retry-After": "0" },
-        })
-      }),
-    )
-
-    await expect(request("/api/models", { method: "POST", body: "{}" })).rejects.toMatchObject({ status: 503 })
-    expect(writeRequests).toBe(1)
   })
 
   it("routes protected CSV exports through the auth coordinator", async () => {

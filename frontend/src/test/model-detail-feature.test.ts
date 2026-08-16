@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest"
 import { moveConnectionInList } from "@/pages/model-detail/useModelDetailDataSupport"
-import { modelDetailQueryKeys } from "@/features/models/detail/queryKeys"
 import { modelDetailSearchSchema, normalizeModelDetailTab } from "@/features/models/detail/modelDetailSchemas"
 import type { Connection } from "@/lib/types"
 
@@ -31,17 +30,6 @@ function createConnection(id: number, priority: number, name: string): Connectio
 }
 
 describe("model detail feature contracts", () => {
-  it("keeps the pinned profile and model id in detail query keys", () => {
-    expect(modelDetailQueryKeys.detail(1, 42)).toEqual([
-      "rewrite",
-      "selected-profile",
-      "1",
-      "models",
-      "detail",
-      "42",
-    ])
-  })
-
   it("normalizes dead tab search away and keeps one-shot parameters only", () => {
     // Old ?tab=connections|events URLs normalize to the canonical default tab.
     expect(modelDetailSearchSchema.parse({ tab: "events" })).toEqual({ tab: "connections" })

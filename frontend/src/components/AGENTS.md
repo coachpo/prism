@@ -6,14 +6,11 @@
 ## STRUCTURE
 ```text
 components/
-├── AnimatedListItem.tsx                               # Shared animated list row used across route surfaces
 ├── ApiFamilyIcon.tsx + ApiFamilySelect.tsx            # Shared API-family icon and picker helpers
 ├── CopyButton.tsx                                     # Shared copy affordance
 ├── IconActionGroup.tsx                                # Shared icon action cluster
-├── SpendTrustIndicator.tsx                            # Shared spend trust and fallback note
 ├── layout/app-layout/AGENTS.md                        # Post-upgrade shell cluster behind the mounted page wrapper
 ├── loadbalance/AGENTS.md                              # Retired loadbalance renderers (superseded by features/loadbalance + features/observe)
-├── statistics/TopSpendingCard.tsx                     # Shared statistics renderer
 └── ui/AGENTS.md                                       # shadcn/ui primitives and local wrappers
 ```
 
@@ -21,16 +18,14 @@ components/
 - Shell chrome and layout handoff: `layout/page.tsx`
 - Shell state cluster plus nav/version ownership: `layout/app-layout/AGENTS.md`
 - Shared theme control: `ThemeToggle.tsx`
-- Shared list, copy, icon action, and spend-trust note widgets: `AnimatedListItem.tsx`, `ApiFamilyIcon.tsx`, `ApiFamilySelect.tsx`, `CopyButton.tsx`, `IconActionGroup.tsx`, `SpendTrustIndicator.tsx`
+- Shared API-family, copy, and icon action widgets: `ApiFamilyIcon.tsx`, `ApiFamilySelect.tsx`, `CopyButton.tsx`, `IconActionGroup.tsx`
 - Shared loadbalance rendering is retired: the old badges/table/detail-sheet components were deleted; the routing-policy config surface and the Observe 路由健康 tab own the current renderers
-- Shared statistics rendering: `statistics/TopSpendingCard.tsx`
 - Design-system primitives and local wrappers: `ui/`
 - shadcn registry source of truth for `ui/`: `../../components.json`, `../index.css`
 
 ## CHILD DOCS
 - `layout/app-layout/AGENTS.md`: mounted shell chrome, sidebar navigation, user footer, and visible version-label ownership.
 - `loadbalance/AGENTS.md`: retired loadbalance renderer ownership (no active components).
-- Shared statistics renderer: `statistics/TopSpendingCard.tsx`; page-specific orchestration stays under the owning feature or page instructions.
 - `ui/AGENTS.md`: shadcn/ui primitives and local wrappers in `src/components/ui/`.
 
 ## CONVENTIONS
@@ -42,7 +37,6 @@ components/
 - Keep data fetching and route state out of this tree.
 - Keep shell-state ownership in `layout/app-layout/`; the direct components here should stay compositional or presentational.
 - Keep theme controls in shared preference widgets instead of duplicating them in auth pages or shell headers.
-- Keep shared spend-trust fallback copy in `SpendTrustIndicator.tsx` instead of duplicating it across dashboard, models, statistics, or request-log views.
 - Reuse `ui/` primitives before adding one-off markup, and prefer local wrappers in `ui/` when a pattern belongs to the design system.
 - Keep semantic Tailwind tokens, `cn(...)` class composition, and shadcn variant/size props in shared components instead of raw color overrides or bespoke primitive copies.
 - Keep the leaf docs in `ui/` for primitive-level wrappers, and keep this parent focused on the shared widgets above them.

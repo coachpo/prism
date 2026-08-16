@@ -101,7 +101,6 @@ function GlobalCurrentStateFragment({
   const [resetNotice, setResetNotice] = useState<string | null>(null)
   const [confirmTarget, setConfirmTarget] = useState<GlobalCurrentStateItem | null>(null)
   const generation = useRef(0)
-  const abortRef = useRef<AbortController | null>(null)
 
   const modelId = (search.runtime_model_id as string) || undefined
   const states = useMemo(() => Array.isArray(search.runtime_state) ? search.runtime_state as string[] : search.runtime_state ? [search.runtime_state as string] : [], [search.runtime_state])
@@ -122,11 +121,6 @@ function GlobalCurrentStateFragment({
 
   const load = useCallback(async () => {
     const current = ++generation.current
-    // The superseded read is cancelled, not just ignored: while it runs it
-    // holds a management admission slot that the new read can be rejected for.
-    abortRef.current?.abort()
-    const controller = new AbortController()
-    abortRef.current = controller
     setFragment((fragment) => ({ ...fragment, phase: fragment.data === null ? "loading" : fragment.phase, stale: fragment.data !== null }))
     try {
       const response = await api.loadbalance.listCurrentState({
@@ -136,20 +130,17 @@ function GlobalCurrentStateFragment({
         terminal_target_id: targetId ? Number(targetId) : undefined,
         limit: 50,
         cursor,
-      }, controller.signal)
-      if (current !== generation.current || controller.signal.aborted) return
+      })
+      if (current !== generation.current) return
       const phase = response.items.length === 0 && response.completeness.state === "ready" ? "empty" : "ready"
       setFragment({ phase, data: response, stale: false, lastSuccessfulAt: new Date().toISOString(), error: null, semanticQueryKey: semanticKey })
     } catch (error) {
-      if (current !== generation.current || controller.signal.aborted) return
+      if (current !== generation.current) return
       setFragment((fragment) => ({ ...fragment, phase: "error", stale: fragment.data !== null, error: error instanceof Error ? error.message : copy.loadFailed }))
     }
   }, [copy.loadFailed, cursor, endpointId, modelId, semanticKey, states, targetId])
 
-  useEffect(() => {
-    void load()
-    return () => abortRef.current?.abort()
-  }, [load])
+  useEffect(() => { void load() }, [load])
 
   const updateSearch = useCallback((patch: RoutingHealthSearch) => {
     setCursorStack([])

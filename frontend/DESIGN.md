@@ -361,7 +361,7 @@ Feedback routing: while a dialog stays open, report inline only; once it closes,
 - Legend above the chart, right-aligned, 12px, clickable to toggle series.
 - X-axis renders local time through `useTimezone`, never a raw RFC3339 string. Y-axis carries the unit for the selected metric.
 - **No data draws no empty axes** — render the empty state instead.
-- Use the existing `ChartContainer` / `ChartTooltipContent` / `ChartLegendContent` in `src/components/ui/chart.tsx` and `var(--chart-N)` tokens. Hard-coded hex series colors are a defect.
+- Series colors come from `var(--chart-N)` tokens. Hard-coded hex series colors are a defect. No wrapper component is prescribed; charts compose the plotting library directly and carry the rules above themselves.
 
 ## Copy
 

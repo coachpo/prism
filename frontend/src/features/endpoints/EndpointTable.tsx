@@ -232,10 +232,7 @@ function ReferenceDisclosureRow({
 
   return (
     <TableRow id={`endpoint-references-${endpoint.id}`} data-testid={`endpoint-references-${endpoint.id}`}>
-      {/* Six, matching the header. Chrome clamps an over-wide colspan, so the
-          seventh was invisible, but it still misreports the row's span to
-          assistive technology. */}
-      <TableCell colSpan={6} className="bg-inset/60 p-0">
+      <TableCell colSpan={7} className="bg-inset/60 p-0">
         <div className="px-4 py-3">
           {detailState?.status === "loading" ? (
             <div role="status" className="flex items-center gap-2 text-xs text-muted-foreground">

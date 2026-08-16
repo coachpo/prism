@@ -133,22 +133,19 @@ export function SortableTableHead<TColumn extends string>({
 }
 
 const STATUS_STRIPE_CLASS: Record<Exclude<OperatorStatusTier, "idle">, string> = {
-  healthy: "[&>td:first-child]:before:bg-healthy",
-  degraded: "[&>td:first-child]:before:bg-degraded",
-  failing: "[&>td:first-child]:before:bg-failing",
+  healthy: "before:bg-healthy",
+  degraded: "before:bg-degraded",
+  failing: "before:bg-failing",
 }
 
 /**
  * A 2px status bar on the row's left edge, for runtime state only. Idle rows
  * get no stripe, and a non-runtime attribute must never be encoded here.
- * The bar hangs off the row's first cell, never off the `tr`: a pseudo-element
- * on a table-row box gets wrapped in an anonymous table cell, which pushes
- * every real cell one column to the right.
  */
 export function operationalRowStripe(tier: OperatorStatusTier | null | undefined): string {
   if (!tier || tier === "idle") return ""
   return cn(
-    "[&>td:first-child]:relative [&>td:first-child]:before:absolute [&>td:first-child]:before:inset-y-0 [&>td:first-child]:before:left-0 [&>td:first-child]:before:w-0.5 [&>td:first-child]:before:content-['']",
+    "relative before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:content-['']",
     STATUS_STRIPE_CLASS[tier],
   )
 }

@@ -13,21 +13,16 @@ ui/
 ├── input.tsx, label.tsx, popover.tsx, progress.tsx
 ├── scroll-area.tsx, select.tsx, separator.tsx, sheet.tsx
 ├── sidebar-context.ts, sidebar.tsx
-├── skeleton.tsx, sonner.tsx, spinner.tsx, status-dot.tsx
+├── skeleton.tsx, sonner.tsx, spinner.tsx
 ├── switch.tsx, table.tsx, tabs.tsx, textarea.tsx, tooltip.tsx
-├── chart.tsx
-├── topography.tsx
 └── ... other shadcn/ui primitives and local wrappers
 ```
 
 ## WHERE TO LOOK
 - Registry-backed primitive set and checked-in component inventory: `../../../components.json`, files in `ui/`
-- Recharts-aware chart helpers and i18n format hooks: `chart.tsx`
 - Responsive sidebar provider and shell-friendly sidebar pieces: `sidebar-context.ts`, `sidebar.tsx`
 - Empty, field, breadcrumb, alert-dialog, sonner, and table primitives: `empty.tsx`, `field.tsx`, `breadcrumb.tsx`, `alert-dialog.tsx`, `sonner.tsx`, `table.tsx`
 - Shared loading primitive: `spinner.tsx`
-- Intent-based status indicator styling: `status-dot.tsx`
-- Animated background wrapper used by local surfaces: `topography.tsx`
 
 ## CONVENTIONS
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.

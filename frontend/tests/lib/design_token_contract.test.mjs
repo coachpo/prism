@@ -168,29 +168,6 @@ test("no contracted token is dead", () => {
   assert.deepEqual(dead, []);
 });
 
-/**
- * Recharts writes chart tokens straight into SVG presentation attributes, where
- * an undeclared name is invalid at computed-value time and the SVG initial
- * value paints instead — fill black, stroke none. A token declared only inside
- * a component's own scoped `<style>` resolves nowhere else, so a chart that
- * never mounts that component reads nothing. Same-file declarations are the one
- * exception: those references and their scope always render together.
- */
-test("every chart token is declared where the code that reads it renders", () => {
-  const undeclared = [];
-  for (const file of globSync("src/**/*.{ts,tsx}", { cwd: rootDir })) {
-    const source = readFileSync(path.join(rootDir, String(file)), "utf8");
-    // `var(--chart-x)` and Tailwind's `bg-(--chart-x)` shorthand alike.
-    for (const [, token] of source.matchAll(/\((--chart-[a-z0-9-]+)\)/g)) {
-      const name = token.slice(2);
-      if (rootDeclarations.has(name)) continue;
-      if (source.includes(`"${token}"`)) continue;
-      undeclared.push(`${file} reads ${token}`);
-    }
-  }
-  assert.deepEqual([...new Set(undeclared)], []);
-});
-
 test("both density modes define every contracted density variable", () => {
   const standard = blockFor("html");
   const compact = blockFor('html[data-density="compact"]');

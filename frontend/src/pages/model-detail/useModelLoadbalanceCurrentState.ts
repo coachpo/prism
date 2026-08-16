@@ -2,7 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
-import type { GlobalCurrentStateItem, LoadbalanceCurrentStateItem } from "@/lib/types";
+import type {
+  GlobalCurrentStateCompleteness,
+  GlobalCurrentStateItem,
+  LoadbalanceCurrentStateItem,
+} from "@/lib/types";
 
 interface UseModelLoadbalanceCurrentStateInput {
   /** Public model id; the global current-state read model filters by it. */
@@ -11,11 +15,39 @@ interface UseModelLoadbalanceCurrentStateInput {
   enabled?: boolean;
 }
 
+/**
+ * Why a row carries no fully observed snapshot. The read model deliberately
+ * separates these, so the surface must too: "the process has never seen this
+ * target" and "the process has seen it but cannot report every field" are
+ * different facts, and neither is a read failure.
+ */
+export type CurrentStateRowGap = "partial" | "unobserved";
+
+/**
+ * A failed read never degrades to an empty cohort. `staleData` is true when a
+ * refresh failed on top of a previously successful read — the rows stay on
+ * screen and the surface marks them stale instead of blanking them.
+ */
+export interface CurrentStateFailure {
+  message: string;
+  staleData: boolean;
+}
+
+export interface CurrentStateCompleteness extends GlobalCurrentStateCompleteness {
+  /** The cohort was cut off by the page limit; absence proves nothing below it. */
+  hasMore: boolean;
+}
+
 // The model-detail target summary consumes the per-target projection of the
 // shared global current-state read model (SPEC §6): rows for this model are
 // bridged to the target-keyed shape without a second fetch owner.
-function toCurrentStateMap(items: GlobalCurrentStateItem[]) {
+function toCurrentStateProjection(items: GlobalCurrentStateItem[]) {
   const map = new Map<number, LoadbalanceCurrentStateItem>();
+  // Rows the cohort DID return but that carry no complete snapshot. Dropping
+  // them entirely would make them indistinguishable from rows the cohort never
+  // contained at all, which is the difference between "not observed" and
+  // "not configured for observation".
+  const gaps = new Map<number, CurrentStateRowGap>();
   for (const item of items) {
     // The target identity is required by the global read model. Keep a
     // defensive connection_id fallback for mocked/legacy rows so one
@@ -28,10 +60,12 @@ function toCurrentStateMap(items: GlobalCurrentStateItem[]) {
     }
     // The global read model deliberately uses nullable fields for
     // unobserved/partial rows. Do not manufacture zero counters or an
-    // available state; omitting an unproven row lets the detail surface keep
-    // its explicit unobserved/unknown presentation.
+    // available state — record the gap and let the surface name it.
+    if (item.observation_state !== "observed") {
+      gaps.set(targetId, "unobserved");
+      continue;
+    }
     if (
-      item.observation_state !== "observed" ||
       item.qps_window_request_count === null ||
       item.in_flight_non_stream === null ||
       item.in_flight_stream === null ||
@@ -43,6 +77,7 @@ function toCurrentStateMap(items: GlobalCurrentStateItem[]) {
       item.created_at === null ||
       item.updated_at === null
     ) {
+      gaps.set(targetId, "partial");
       continue;
     }
     map.set(targetId, {
@@ -65,7 +100,7 @@ function toCurrentStateMap(items: GlobalCurrentStateItem[]) {
       updated_at: item.updated_at,
     });
   }
-  return map;
+  return { map, gaps };
 }
 
 export function useModelLoadbalanceCurrentState({
@@ -76,9 +111,18 @@ export function useModelLoadbalanceCurrentState({
   const [currentStateByConnectionId, setCurrentStateByConnectionId] = useState<
     Map<number, LoadbalanceCurrentStateItem>
   >(new Map());
+  const [currentStateGapByConnectionId, setCurrentStateGapByConnectionId] = useState<
+    Map<number, CurrentStateRowGap>
+  >(new Map());
+  const [currentStateFailure, setCurrentStateFailure] = useState<CurrentStateFailure | null>(null);
+  const [currentStateCompleteness, setCurrentStateCompleteness] =
+    useState<CurrentStateCompleteness | null>(null);
   const [resettingConnectionIds, setResettingConnectionIds] = useState<Set<number>>(
     new Set()
   );
+  // A successful read is the only thing that proves the cohort is empty rather
+  // than unread. Until one lands, an empty map means "not read yet".
+  const loadedOnceRef = useRef(false);
   const requestIdRef = useRef(0);
   const resetKey = `${enabled ? modelId ?? "none" : "disabled"}:${revision}`;
   const resetKeyRef = useRef(resetKey);
@@ -86,7 +130,11 @@ export function useModelLoadbalanceCurrentState({
   const fetchCurrentState = useCallback(async () => {
     if (!enabled || !modelId || modelId.trim() === "") {
       requestIdRef.current += 1;
+      loadedOnceRef.current = false;
       setCurrentStateByConnectionId(new Map());
+      setCurrentStateGapByConnectionId(new Map());
+      setCurrentStateCompleteness(null);
+      setCurrentStateFailure(null);
       return;
     }
 
@@ -103,15 +151,24 @@ export function useModelLoadbalanceCurrentState({
         return;
       }
 
-      setCurrentStateByConnectionId(toCurrentStateMap(data.items));
+      const { map, gaps } = toCurrentStateProjection(data.items);
+      loadedOnceRef.current = true;
+      setCurrentStateByConnectionId(map);
+      setCurrentStateGapByConnectionId(gaps);
+      setCurrentStateCompleteness({ ...data.completeness, hasMore: data.has_more });
+      setCurrentStateFailure(null);
     } catch (error) {
       if (requestId !== requestIdRef.current) {
         return;
       }
 
-      toast.error(
-        error instanceof Error ? error.message : getStaticMessages().modelDetailData.loadBanPolicyStateFailed
-      );
+      const message =
+        error instanceof Error ? error.message : getStaticMessages().modelDetailData.loadBanPolicyStateFailed;
+      // A failed read must not read as an observed empty cohort. Rows already
+      // on screen stay and are marked stale; with nothing on screen yet the
+      // surface renders the failure instead of an empty state.
+      setCurrentStateFailure({ message, staleData: loadedOnceRef.current });
+      toast.error(message);
       console.error("Failed to load model loadbalance current state", error);
     }
   }, [enabled, modelId]);
@@ -195,7 +252,11 @@ export function useModelLoadbalanceCurrentState({
     if (resetKeyRef.current !== resetKey) {
       resetKeyRef.current = resetKey;
       requestIdRef.current += 1;
+      loadedOnceRef.current = false;
       setCurrentStateByConnectionId(new Map());
+      setCurrentStateGapByConnectionId(new Map());
+      setCurrentStateCompleteness(null);
+      setCurrentStateFailure(null);
       setResettingConnectionIds(new Set());
     }
 
@@ -204,6 +265,9 @@ export function useModelLoadbalanceCurrentState({
 
   return {
     currentStateByConnectionId,
+    currentStateGapByConnectionId,
+    currentStateFailure,
+    currentStateCompleteness,
     resettingConnectionIds,
     refreshCurrentState: fetchCurrentState,
     resetCooldown,
