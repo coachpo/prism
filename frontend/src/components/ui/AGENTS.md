@@ -6,20 +6,12 @@
 ## STRUCTURE
 ```text
 ui/
-├── alert-dialog.tsx, alert.tsx, badge.tsx, breadcrumb.tsx
-├── button.tsx
-├── card.tsx, checkbox.tsx, collapsible.tsx, dialog.tsx
-├── dropdown-menu.tsx, empty.tsx, field.tsx, form.tsx
-├── input.tsx, label.tsx, popover.tsx, progress.tsx
-├── scroll-area.tsx, select.tsx, separator.tsx, sheet.tsx
-├── sidebar-context.ts, sidebar.tsx
-├── skeleton.tsx, sonner.tsx, spinner.tsx
-├── switch.tsx, table.tsx, tabs.tsx, textarea.tsx, tooltip.tsx
-└── ... other shadcn/ui primitives and local wrappers
+├── <primitive>.tsx      # One file per checked-in shadcn/ui primitive, named after the registry component
+└── sidebar-context.ts   # The one non-component split: sidebar context extracted for fast refresh
 ```
 
 ## WHERE TO LOOK
-- Registry-backed primitive set and checked-in component inventory: `../../../components.json`, files in `ui/`
+- Registry-backed primitive set and the current checked-in inventory: `../../../components.json`, plus `ls` of this folder — the file list is not duplicated here because the registry adds to it
 - Responsive sidebar provider and shell-friendly sidebar pieces: `sidebar-context.ts`, `sidebar.tsx`
 - Empty, field, breadcrumb, alert-dialog, sonner, and table primitives: `empty.tsx`, `field.tsx`, `breadcrumb.tsx`, `alert-dialog.tsx`, `sonner.tsx`, `table.tsx`
 - Shared loading primitive: `spinner.tsx`

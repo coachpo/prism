@@ -11,6 +11,11 @@ loadbalance/
 ├── runtime_state.go            # Persisted runtime state projection helpers
 ├── runtime_local_state.go      # In-process/runtime-local state provider behavior
 ├── runtime_events.go           # Event creation, summaries, and payload snapshots
+├── current_state_global.go     # Global current-state cohort, completeness and cursor paging
+├── event_query.go              # Event filter parsing and query construction
+├── event_dto.go                # Event wire shapes shared with the management layer
+├── canonical_strategies.go     # Canonical strategy definitions and defaults
+├── retry_preview.go            # Retry/backoff preview math for the strategy UI
 └── *_test.go                   # Strategy and local-state tests
 ```
 

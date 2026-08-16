@@ -10,7 +10,9 @@ api/
 ├── profileScope.ts   # Management-route matcher for pinned Default-profile headers
 ├── authSettings.ts   # Auth bootstrap/session/login/logout, settings.auth, and proxy keys
 ├── management.ts     # Models, access targets, loadbalance strategies, endpoints, connections, pricing templates
-└── observability.ts  # Stats, usage snapshot, config rules, audit, loadbalance events/current-state, settings costing/timezone/retention
+├── observability.ts  # Stats, usage snapshot, config rules, audit, loadbalance events/current-state, settings costing/timezone/retention
+├── endpointErrors.ts # Typed Endpoint error guards; never specializes `ApiError` globally
+└── *.test.ts         # Client core coverage
 ```
 
 ## WHERE TO LOOK

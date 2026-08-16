@@ -11,6 +11,7 @@ settings/
 ├── dialogs/
 │   ├── AGENTS.md                  # Delete confirmation and audit-rule dialogs
 │   └── ...
+├── SettingsSaveAction.tsx          # Header save action naming the cards with unsaved edits
 ├── SettingsSectionsNav.tsx         # Sticky navigation for visible Global-tab sections
 ├── SettingsProfileTab.tsx          # Visible Global-tab body and section layout
 ├── SettingsGlobalTab.tsx           # Visible Instance-tab body for auth plus retention and deletion
@@ -22,7 +23,8 @@ settings/
 ├── useRetentionDeletionData.ts
 ├── sectionSaveState.tsx           # Shared dirty, saving, and recently-saved rendering
 ├── settingsPageHelpers.ts         # Tab ids, section ids, default costing form, shared validation helpers
-└── settingsSaveTypes.ts
+├── settingsSaveTypes.ts
+└── *.test.tsx                     # Save-action and retention keyword-confirmation coverage
 ```
 
 ## SHELL CONTRACT

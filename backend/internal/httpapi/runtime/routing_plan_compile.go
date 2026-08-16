@@ -31,7 +31,6 @@ func compileRuntimeRoutingPlan(snapshot *planningSnapshot) (*runtimeRoutingPlan,
 			compiled.Strategy = strategy
 		}
 		compiled.OrderedEnabledTargets = sortedEnabledRuntimeAccessTargets(snapshot.AccessTargetsBySourceModelID[model.ID])
-		compiled.OrderedFallbackTargets = cloneRuntimeAccessTargetRecords(compiled.OrderedEnabledTargets)
 		compiled.OrderedTerminalTargets = compileRuntimeRoutingPlanTerminalTargets(compiled.OrderedEnabledTargets)
 		plan.ModelsByID[modelID] = compiled
 		plan.ModelsByConfigID[model.ID] = compiled

@@ -8,12 +8,19 @@
 connections/
 ├── service.go              # Service construction and route mounting
 ├── routes.go               # Public connection reads, rejection surfaces, and owner-scoped mutations
+├── writer.go               # Shared HTTP-neutral owner-scoped create (`CreateOwnerConnection`)
+├── composite_create.go     # Redacted, secret-free composite create input/result shapes
+├── copies.go               # Transactional batch copy route and redacted copy summaries
+├── access_targets.go       # Flat access-target summary carried in mutation envelopes
 ├── custom_request_parameters.go  # Presence-aware field parsing and 422 field-error envelope
+├── openai_image_dimension.go     # OpenAI image-dimension authoring rules, independent of text capability
 ├── pricing_templates.go    # Pricing-template CRUD and validation
 ├── pricing_list_page.go    # Bounded keyset pricing-template owner page
 ├── pricing_lookup.go       # Pricing-template connection usage lookup
+├── pricing_setup_readiness.go    # Pricing/Proxy setup-readiness projection over the route witness
 ├── store.go                # Profile-scoped connection, endpoint, model, rule, and pricing SQL
-└── types.go                # Request and response shapes
+├── types.go                # Request and response shapes
+└── *_test.go               # Route-level regression coverage
 ```
 
 ## WHERE TO LOOK

@@ -7,12 +7,15 @@
 ```text
 platform/
 ├── admission/               # Admission budgets and protected lane policy
+├── alerting/                # Webhook incident outbox store
 ├── background/              # Scheduler, worker specs, coalescing, drain behavior
 ├── bodylimits/              # Shared request body-size limits
 ├── config/                  # Plaintext bootstrap config, validation, restart field classification
+│   └── AGENTS.md            # Bootstrap contract and restart-applied field rules
 ├── cors/                    # Runtime CORS snapshot matching
 ├── db/                      # Named PostgreSQL pool lanes
 ├── http/                    # Server assembly, router mounting, hot bootstrap runtime
+│   └── AGENTS.md            # Route mounting, admission, and invalidation rules
 ├── lifecycle/               # Production dependency assembly and shutdown order
 ├── logretention/            # Partitioned log horizon, retention, and maintenance worker
 ├── managementjobs/          # Low-priority management job store

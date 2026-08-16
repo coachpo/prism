@@ -37,7 +37,7 @@ Supporting rules:
 - **Stale data is labelled stale, not repainted as fresh.** On a failed refresh keep the last successful data and attach the staleness badge carrying the last success time and the failure reason. Exactly one staleness badge design exists site-wide.
 - **Every data block answers "when is this from".** Pages with a time window carry a freshness bar. A refresh control must actually refresh.
 - **Basis must be labelled.** When one column is a window total and another is the last bucket, say so in the column header. When a block uses a different time window than the page, say so on the block.
-- **Never leak enum keys.** `priced`, `unpriced`, `healthy`, `stream_outcome` and friends pass through a Chinese label dictionary before display.
+- **Never leak enum keys.** `priced`, `unpriced`, `healthy`, `stream_outcome` and friends pass through a Chinese label dictionary before display. Dotted registry identifiers such as `anthropic.messages` are enum keys too: brand nouns like Anthropic and Gemini stay untranslated, the identifier around them does not reach the screen. A label dictionary needs a named fallback for the key it has not learned yet, never the key itself.
 
 ## Visual Direction
 

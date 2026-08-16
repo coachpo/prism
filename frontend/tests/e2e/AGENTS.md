@@ -15,7 +15,9 @@ e2e/
 ├── narrow-accessibility-evidence.spec.ts
 ├── request-log-streaming-payloads.spec.ts
 ├── terminal-target-custom-request-parameters.spec.ts
-├── capture-settings-evidence.mjs # Responsive Settings evidence capture (not a journey spec)
+├── capture-a11y-evidence.mjs      # Accessibility evidence capture (not a journey spec)
+├── capture-endpoint-evidence.mjs  # Endpoint evidence capture (not a journey spec)
+├── capture-settings-evidence.mjs  # Responsive Settings evidence capture (not a journey spec)
 ├── dashboard-aggregate-fixtures.ts
 └── request-log-dedicated-audit-fixtures.ts
 ```

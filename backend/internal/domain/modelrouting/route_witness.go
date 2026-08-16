@@ -95,10 +95,10 @@ func operationRegistryRank(operationName string) int {
 
 // AnalyzeRouteWitnessSnapshot computes the immutable route-witness snapshot
 // for the profile graph. Route eligibility: enabled model with resolvable
-// explicit strategy; owner-accepted operation; Model-first then
-// Terminal-fallback resolution; enabled terminal target with active
-// Connection and existing Endpoint (the graph loader only includes
-// connections joined to live endpoints).
+// explicit strategy; owner-accepted operation; an access target the model's
+// strategy actually reaches; enabled terminal target with active Connection
+// and existing Endpoint (the graph loader only includes connections joined to
+// live endpoints).
 func AnalyzeRouteWitnessSnapshot(graph *DiagnosticsGraph, generation int) RouteWitnessSnapshot {
 	snapshot := RouteWitnessSnapshot{
 		Generation:                generation,
@@ -117,10 +117,12 @@ func AnalyzeRouteWitnessSnapshot(graph *DiagnosticsGraph, generation int) RouteW
 		configuration: map[int]bool{},
 		application:   map[int]bool{},
 	}
-	// Terminal fallback first (every model's own enabled terminal targets),
-	// then Model-first child chains: the Model-first stage consumes the child
-	// model's complete witness set (own terminals plus its own child chains),
-	// mirroring the runtime's two-stage routing semantics bottom-up.
+	// Two bottom-up passes, which is an evaluation order and not a routing
+	// tier: every model's own reachable terminal targets first, so that a
+	// model target row can then consume the child's complete witness set.
+	// Model Target and Terminal Target rows are type-neutral peers to the
+	// strategy — see docs/architecture.md — and both passes therefore skip
+	// rows the strategy does not reach.
 	for _, model := range graph.ModelsByID {
 		if !model.IsEnabled {
 			continue
@@ -253,8 +255,12 @@ func (analyzer *routeWitnessAnalyzer) resolveModelFirst(modelConfigID int, opera
 	}
 	analyzer.resolving[modelConfigID] = true
 	defer delete(analyzer.resolving, modelConfigID)
+	considered := analyzer.strategyConsideredRows(modelConfigID)
 	for _, target := range analyzer.graph.AccessTargetsBySourceModelID[modelConfigID] {
 		if !IsModelTargetType(target.TargetType) || target.TargetModelConfigID == nil || !target.IsEnabled {
+			continue
+		}
+		if !considered[target.ID] {
 			continue
 		}
 		child, ok := analyzer.graph.ModelsByID[*target.TargetModelConfigID]
@@ -277,11 +283,27 @@ func (analyzer *routeWitnessAnalyzer) resolveModelFirst(modelConfigID int, opera
 	}
 }
 
+// strategyConsideredRows reports which of the model's enabled access targets
+// its strategy actually acts on. A witness is a claim that traffic can reach a
+// terminal target, so a row the strategy never reaches cannot witness anything:
+// under `single` only the first row of the authored mixed list counts.
+func (analyzer *routeWitnessAnalyzer) strategyConsideredRows(modelConfigID int) map[int]bool {
+	model, ok := analyzer.graph.ModelsByID[modelConfigID]
+	if !ok {
+		return map[int]bool{}
+	}
+	return strategyConsideredRows(analyzer.graph, model, analyzer.graph.strategyForModel(model))
+}
+
 // resolveTerminalFallback resolves the operation through the enabled
 // terminal targets of the model itself.
 func (analyzer *routeWitnessAnalyzer) resolveTerminalFallback(model DiagnosticsModel, operation string) {
+	considered := analyzer.strategyConsideredRows(model.ConfigID)
 	for _, target := range analyzer.graph.AccessTargetsBySourceModelID[model.ConfigID] {
 		if !IsTerminalTargetType(target.TargetType) || target.TargetConnectionID == nil || !target.IsEnabled {
+			continue
+		}
+		if !considered[target.ID] {
 			continue
 		}
 		connection, ok := analyzer.graph.ConnectionsByID[*target.TargetConnectionID]

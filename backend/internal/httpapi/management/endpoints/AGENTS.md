@@ -13,7 +13,8 @@ endpoints/
 ├── references_types.go # Reference summary/detail/cursor/verify DTOs
 ├── references_store.go # Canonical direct-reference query, summary/hash derivation, signed cursor
 ├── references_routes.go# Batch summaries, single detail pages, lock-time delete, orphan cleanup
-└── verify.go           # One-time family-aware metadata probe, classification, redaction
+├── verify.go           # One-time family-aware metadata probe, classification, redaction
+└── *_test.go           # Reference-store query and cursor coverage
 ```
 
 ## WHERE TO LOOK

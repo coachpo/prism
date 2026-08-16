@@ -6,6 +6,9 @@
 ## STRUCTURE
 ```text
 src/
+├── main.tsx      # Browser mount and the provider stack
+├── App.tsx       # Thin wrapper over the router, query client, and auth provider
+├── index.css     # Tailwind entrypoint and design tokens
 ├── app/          # router, providers, forms, route rewrite metadata
 ├── features/     # active protected route modules
 ├── pages/        # legacy/oracle page clusters and dense page helpers

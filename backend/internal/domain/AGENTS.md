@@ -10,6 +10,8 @@ domain/
 ├── loadbalance/    # Runtime connection state, strategy math, bans, and events
 │   └── AGENTS.md   # Ban Policy runtime-state and event rules
 ├── modelrouting/   # Ordered access-target and terminal-target routing helpers
+├── safediag/       # Fixed safe-diagnostic scrub bottom line shared by audit and request logs
+│   └── AGENTS.md   # Scrub, extract, code, metadata, and limit rules
 ├── stats/          # Dashboard, usage, spending, and request-log projections
 │   └── AGENTS.md   # Stats read-model and retained-history rules
 └── terminaltarget/ # Terminal Target helper types plus the shared custom request parameters validator/overlay

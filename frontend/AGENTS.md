@@ -6,12 +6,19 @@
 ## STRUCTURE
 ```text
 frontend/
-├── src/AGENTS.md
-├── src/{app,features,shared,pages,components,context,hooks,i18n,lib}/AGENTS.md
-├── tests/AGENTS.md
-├── components.json
-├── package.json
-└── vite.config.ts
+├── DESIGN.md            # Binding operator design contract; every UI/UX change defers to it
+├── src/                 # Dashboard source; `src/AGENTS.md` routes to every owning cluster
+├── tests/               # Playwright journeys and Node seam contracts; `tests/AGENTS.md` owns the split
+├── scripts/             # Standalone evidence-capture and debug scripts, not part of the build
+├── public/, index.html, README.md
+├── output/playwright/   # Checked-in route screenshots; the only tracked output directory
+├── .env.example         # Transport-only env wiring (`VITE_API_BASE`, launcher proxy)
+├── pnpm-workspace.yaml, pnpm-lock.yaml
+├── components.json      # shadcn registry config
+├── package.json         # Scripts and pnpm/Node pins
+├── vite.config.ts, vitest.config.ts, playwright.config.ts, eslint.config.js
+├── tsconfig.json        # Solution-style (`files: []` + references); the real checks are in `tsconfig.app.json` and `tsconfig.node.json`
+└── VERSION              # One of the four version surfaces `../release.sh` keeps aligned
 ```
 
 ## ROUTE MAP
@@ -50,6 +57,7 @@ frontend/
 
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Node is `>=24`, package management is `pnpm@10.30.1`, and frontend scripts are `dev`, `build`, `lint`, `preview`, `test`, `test:lib`, and `test:e2e`.
+- Type-check with `pnpm run build` (`tsc -b && vite build`) or `pnpm exec tsc -b`. The root `tsconfig.json` is solution-style with `files: []`, so `tsc --noEmit -p tsconfig.json` checks nothing and exits `0` on a broken tree.
 - Treat `src/app/router/appRouter.tsx` and `src/app/router/rewriteRoutes.ts` as the source of truth for mounted routes, search schemas, and route scopes; `src/App.tsx` stays the thin wrapper.
 - Keep `src/components/` focused on shared shell chrome, shared widgets, and design-system wrappers, and keep the leaf ownership documented below it.
 - Keep model CRUD, access-target authoring, accepted-format controls, and typed/import validation in their owning leaves without reintroducing deleted model-owned context routing fields.

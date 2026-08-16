@@ -9,9 +9,9 @@ dialogs/
 ├── DeleteConfirmDialog.tsx
 ├── DeleteRuleConfirmDialog.tsx
 ├── DeleteUserAgentClientRuleConfirmDialog.tsx
+├── RetentionPolicyPreflightDialog.tsx  # Fresh server preflight impact + typed confirmation
 ├── RuleDialog.tsx
-├── UserAgentClientRuleDialog.tsx
-
+└── UserAgentClientRuleDialog.tsx
 ```
 
 ## WHERE TO LOOK

@@ -311,7 +311,16 @@ export function AccessTargetsEditor({
                   <TableHead className="w-16">{copy.targetColumnPosition}</TableHead>
                   <TableHead>{copy.targetColumnType}</TableHead>
                   <TableHead>{copy.targetColumnName}</TableHead>
-                  <TableHead>{copy.targetColumnCapability}</TableHead>
+                  {/* DESIGN.md: a column whose values come from one basis says
+                      so in the header. This column reads what each target
+                      declares, never what the routing analyzer resolved. */}
+                  <TableHead title={copy.targetColumnCapabilityBasis}>
+                    <span className="inline-flex flex-wrap items-center gap-1">
+                      {copy.targetColumnCapability}
+                      <span aria-hidden="true" className="text-text-disabled">?</span>
+                      <span className="sr-only">{copy.targetColumnCapabilityBasis}</span>
+                    </span>
+                  </TableHead>
                   <TableHead>{copy.targetColumnLimits}</TableHead>
                   <TableHead>{copy.targetColumnRuntime}</TableHead>
                   <TableHead>{copy.targetColumnEnabled}</TableHead>
@@ -694,7 +703,11 @@ function TargetRuntime({
       // No successful read has landed yet; "never observed" is not proven.
       return <OperatorMissingValue className="text-xs" reason={copy.runtimeNotReadYet} />;
     }
-    return <span className="text-xs text-muted-foreground">{copy.noRuntimeObservation}</span>;
+    // The read succeeded, the row participates in routing and nothing was
+    // truncated, yet the cohort does not contain this terminal target. That is
+    // not the same fact as "the process has never observed it", so it must not
+    // borrow that sentence.
+    return <OperatorMissingValue className="text-xs" reason={copy.runtimeAbsentFromCohortReason} />;
   }
 
   const showReset = state.state === "retry_wait" || state.state === "banned";

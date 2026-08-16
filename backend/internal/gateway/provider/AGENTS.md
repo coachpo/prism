@@ -10,7 +10,8 @@ provider/
 ├── openai/                         # Native Chat/Responses handling and usage parsing
 │   └── AGENTS.md                   # OpenAI adapter and capability rules
 ├── anthropic/                      # Messages/count-token path and usage/stream parsing
-└── gemini/                         # GenerateContent/countTokens path and stream parsing
+├── gemini/                         # GenerateContent/countTokens path and stream parsing
+└── *_test.go                       # Cross-adapter boundary and conformance coverage
 ```
 
 ## WHERE TO LOOK

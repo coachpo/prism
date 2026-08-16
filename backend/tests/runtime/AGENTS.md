@@ -7,6 +7,8 @@
 ```text
 runtime/
 ├── runtime_harness.go                  # Shared runtime test harness and seed helpers
+├── proxy_key_record.go                 # Shared proxy-key record helper used by attribution tests
+├── testdata/                           # Runtime fixtures
 ├── operation_route_matrix_test.go      # Supported method/path matrix and operation names
 ├── rejected_route_isolation_test.go    # Unsupported/wrong-method isolation before side effects
 ├── request_logs_contract_test.go       # Request-log list/detail and filter contracts

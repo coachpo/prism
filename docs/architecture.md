@@ -472,7 +472,7 @@ All Requests list/detail/chain/export responses send `Cache-Control: private, no
 
 ### 8.1 Concept
 
-Audit logging records request-time provenance without changing routing choices or client-facing response handling. Before the ordinary backend outbox, it applies the fixed safe-diagnostic scrub bottom line (Bearer/Basic/JWT/API-key-like/URL-secret redaction from `safediag`) plus the request-time effective Header Blocklist, using the shared matcher in `internal/domain/audit/scrub.go`; the browser reuses the same matcher (`frontend/src/lib/security/headerScrub.ts`) for legacy/deep-defense. Canonical sorted `[{name,value}]` header entries retain per-direction scrub provenance. Runtime snapshots load audit policy from `profile_api_family_audit_settings` by profile and model API family, then retain request-time booleans in the telemetry envelope. Materialization creates one audit row for each audited upstream attempt, including failover attempts, and metadata-only requests still create audit metadata when audit is enabled. Body capture is allowed only when audit is enabled for that family; request bodies may be captured per attempted upstream request while response body capture is associated with the final attempt.
+Audit logging records request-time provenance without changing routing choices or client-facing response handling. Before the ordinary backend outbox, it applies the fixed safe-diagnostic scrub bottom line (Bearer/Basic/JWT/API-key-like/URL-secret redaction from `safediag`) plus the request-time effective Header Blocklist, using the shared matcher in `internal/domain/audit/scrub.go`. Canonical sorted `[{name,value}]` header entries retain per-direction scrub provenance. Runtime snapshots load audit policy from `profile_api_family_audit_settings` by profile and model API family, then retain request-time booleans in the telemetry envelope. Materialization creates one audit row for each audited upstream attempt, including failover attempts, and metadata-only requests still create audit metadata when audit is enabled. Body capture is allowed only when audit is enabled for that family; request bodies may be captured per attempted upstream request while response body capture is associated with the final attempt.
 
 Captured bodies persist as **BYTEA byte-exact stored prefixes** (`request_body_bytes`/`response_body_bytes`, migration `000010_request_logs_audit_observability`); the telemetry envelope carries `[]byte` (base64 JSON) so bytes never round-trip through TEXT. Capture is bounded by a per-body 4 MiB cap and per-ingress budgets: request copies 12 MiB, final response 4 MiB, scrubbed header blocks 64 KiB with 1 MiB per direction (response reserves 64 KiB for the final winner). Each audit row records ingress and per-direction byte counters, typed capture/truncation statuses and the enumerated limit reasons; allocation follows immutable launch order and budget exhaustion only stops extra audit storage, never proxy traffic.
 
@@ -1037,6 +1037,43 @@ Valid examples:
 - ✅ `https://generativelanguage.googleapis.com/v1beta`
 - ❌ `https://api.openai.com/v1?timeout=30`
 - ❌ `https://api.openai.com/v1#runtime`
+
+#### 1.5A Static Routing Diagnostics
+
+```
+GET /api/models/{model_config_id}/routing-diagnostics
+```
+
+A read-only static analysis of the authored routing graph for one model. It is
+pure: it never reads Ban Policy state, retry windows, QPS or in-flight counters,
+current-state or round-robin cursors, and it never contacts an upstream. What it
+answers is "could this configuration route this operation at all", not "is this
+upstream healthy right now".
+
+The analyzer applies the model's strategy to the same single mixed peer sequence
+the runtime uses — Model Target and Terminal Target rows share
+`model_access_targets.position` and are numbered once across that list. A `single`
+strategy therefore truncates that one list, not each target type, and a row the
+strategy does not reach reports `truncated_by_single` regardless of which kind of
+target it is. The models list embeds a compact `routing_summary` from the same
+analyzer, whose `single_truncated_access_target_ids` names the rows the strategy
+drops.
+
+Per-target dispositions distinguish why a row cannot serve an operation:
+`candidate`, `disabled`, `inactive`, `incompatible`, `no_eligible_leaf`,
+`truncated_by_single`, `structural_error`, and — for a Model Target chain that
+the analyzer refuses to walk — `cycle` and `depth_exceeded`. The Model Target
+walk is bounded and never revisits a model on the current path, because the
+analyzer runs on whatever the database holds rather than only on graphs that
+passed write-time validation.
+
+Coverage is a separate axis and exists only for Terminal Target rows: a Model
+Target declares no capability of its own, so its `coverage` is empty and its
+effective capability is whatever its subtree resolves to. Non-OpenAI families
+carry no capability matrix and report `not_applicable`.
+
+The field set is fixed by `backend/tests/contract/routing_diagnostics_contract_test.go`
+under CI; this section describes intent rather than restating the payload.
 
 #### 1.6 Pricing Templates
 
@@ -2809,56 +2846,50 @@ Returns `409` when the strategy is still attached to one or more models; the res
 ```
 GET /api/loadbalance/current-state
 ```
-Query parameters:
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `model_config_id` | integer | — | Model config ID in the effective profile (required, `>=1`) |
 
-Response `200`:
-```json
-{
-  "items": [
-    {
-      "connection_id": 12,
-      "window_started_at": "2026-03-30T08:00:00Z",
-      "window_request_count": 4,
-      "in_flight_non_stream": 1,
-      "in_flight_stream": 0,
-      "cycle_retry_attempts": 2,
-      "cumulative_retry_attempts": 5,
-      "next_retry_at": "2026-03-30T08:02:00Z",
-      "last_retry_delay_ms": 60000,
-      "ban_mode": "temporary",
-      "banned_until_at": "2026-03-30T08:30:00Z",
-      "last_failure_kind": "transient_http",
-      "last_success_at": null,
-      "last_success_response_headers_latency_ms": 540,
-      "state": "banned",
-      "created_at": "2026-03-30T08:00:00Z",
-      "updated_at": "2026-03-30T08:01:00Z"
-    }
-  ]
-}
-```
+Every query parameter is optional and acts as a filter; there is no required
+parameter and no existence check. `model_id` matches the **public model id
+string**, not the numeric config id, and selects the connections that model
+directly owns — a connection reached through a Model Target belongs to the child
+model that owns it. An identifier that matches nothing returns `200` with an
+empty cohort and `completeness.state = "no_config"`, never `404`; `404` is
+reserved for path-addressed resources.
 
-Returns `404` when the model config does not exist in the effective profile.
+The response is an envelope carrying `generated_at`, `scope`, `instance_id`,
+`configuration_revision`, `completeness`, `items`, `has_more` and `next_cursor`.
+Each item nests `model`, `endpoint` and `terminal_target` identities alongside
+`observation_state` and the nullable runtime fields; a row the process has not
+observed reports `observation_state: "unobserved"` with those fields null rather
+than synthesized zeros.
 
-`state` is derived from the connection-global Ban Policy runtime state and is one of `available`, `retry_wait`, or `banned`. `until_reset` bans stay `banned` until the current-state reset endpoint clears them; temporary bans stay `banned` until `banned_until_at`; retry windows stay `retry_wait` until `next_retry_at`; otherwise the connection is `available`. Current-state items expose QPS and in-flight admission counters plus live retry-cycle counters for each private connection directly owned by the model. They intentionally omit `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold` because current state is connection-global, while policy thresholds belong to the model strategy snapshot recorded on events.
+State is derived from the connection-global Ban Policy runtime state: `until_reset`
+bans stay `banned` until the reset endpoint clears them; temporary bans stay
+`banned` until `banned_until_at`; retry windows stay `retry_wait` until
+`next_retry_at`; otherwise the connection is `available`. Items expose QPS and
+in-flight admission counters plus live retry-cycle counters, and intentionally
+omit `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold`
+because current state is connection-global while policy thresholds belong to the
+model strategy snapshot recorded on events. Note that the admission counters only
+advance while the matching limit is configured and positive.
+
+The exact field set is fixed by the contract tests in
+`backend/tests/contract/loadbalance_observe_contract_test.go`, which run under CI;
+this section describes intent and does not restate the payload.
 
 #### 6.8 Reset Current Loadbalance State for a Connection
 ```
 POST /api/loadbalance/current-state/{connection_id}/reset
 ```
-Response `200`:
-```json
-{
-  "connection_id": 12,
-  "cleared": true
-}
-```
 
-`cleared=false` is returned when no process-local state or related round-robin cursor existed for that connection.
-Reset clears process-local retry-window counters, next retry timing, ban state, admission counters, and the related round-robin cursor for an attached model when one exists. This state is intentionally ephemeral and is lost on backend restart; retained SQL runtime-state tables are compatibility schema, not the production hot path.
+Returns `connection_id`, `cleared`, and the post-reset `state` snapshot, so the
+caller can calibrate the row it just reset without a second read. `cleared=false`
+means no process-local state existed for that connection, which is a success.
+
+Reset clears the process-local retry window, next retry timing and ban state. It
+does not clear in-flight or QPS admission counters, and it does not move the
+round-robin cursor. This state is ephemeral and is lost on backend restart;
+retained SQL runtime-state tables are compatibility schema, not the production
+hot path.
 
 #### 6.9 List Loadbalance Events
 ```

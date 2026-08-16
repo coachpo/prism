@@ -12,6 +12,9 @@ loadbalance/
 ├── policy.go           # Strategy policy normalization
 ├── store.go            # Strategy persistence
 ├── import_contract.go  # Import-facing strategy contract helpers
+├── cursor.go           # Opaque current-state cursor encoding and scope validation
+├── generation.go       # Configuration-revision stamping for observability reads
+├── events_query_context.go # Event filter resolution shared by the event routes
 └── types.go            # Request and response shapes
 ```
 

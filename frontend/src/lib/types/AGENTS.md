@@ -10,7 +10,10 @@ types/
 ├── config-audit-settings.ts
 ├── loadbalance.ts
 ├── model-stats.ts
+├── request-logs-v2.ts       # Requests/Audit v2 discriminated DTOs; BIGINT/micros stay decimal strings
 ├── routing.ts
+├── routing-diagnostics.ts   # Static routing-diagnostics types; the backend analyzer is authoritative
+├── setup.ts                 # Readiness axes, route-witness refs, model entity refs
 ├── target-compatibility.ts
 ├── usage-statistics.ts
 └── vendor.ts

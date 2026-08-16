@@ -12,6 +12,7 @@ internal/
 ├── domain/        # HTTP-neutral audit, loadbalance, model-routing, stats, safediag, terminal targets
 ├── pgxutil/       # shared PostgreSQL transaction helpers
 ├── endpointdomain/
+├── openaimodecheck/ # read-only OpenAI text mode equality check (preflight + startup fail-fast)
 ├── profiledomain/
 └── providerauth/
 ```
@@ -24,6 +25,7 @@ internal/
 - Audit, loadbalance, stats, terminal-target, and model-routing helpers that must stay HTTP-neutral: `domain/AGENTS.md`
 - SQL transaction helper ownership: `pgxutil/tx.go`
 - Small shared packages used across management/runtime boundaries: `endpointdomain/`, `profiledomain/`, `providerauth/`
+- OpenAI text mode equality check shared by the upgrade preflight and the startup fail-fast step: `openaimodecheck/`
 
 ## CONVENTIONS
 - Keep this file as the router. Put package-specific facts in the nearest child `AGENTS.md`.

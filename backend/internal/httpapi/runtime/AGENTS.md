@@ -15,8 +15,11 @@ runtime/
 ├── routing_plan*.go             # Routing plan compilation and validation helpers
 ├── planning_snapshot.go         # Access-target snapshot assembly and resolution ordering helpers
 ├── planning_snapshot_legacy.go  # Legacy snapshot compatibility helpers
+├── planning_classification.go   # Failed OpenAI text resolution → the three stable planning rejection codes
+├── planning_terminal_target_adapter.go # Terminal Target record scanning and runtime-connection projection
 ├── proxy_selector_helpers.go    # Access-target ordering helpers used by request planning
 ├── cache.go                     # Shared runtime cache reads and snapshots
+├── runtime_context.go           # Runtime trace-context propagation helpers
 ├── ingress_request_id.go        # Server-generated ingress correlation ID middleware + response-writer guard
 ├── request_generation_params.go # Internal generation-param extraction orchestration
 ├── *_adapter_bridge.go          # Runtime-to-gateway provider adapter bridge files
@@ -36,7 +39,8 @@ runtime/
 ├── telemetry_outbox.go          # Durable telemetry enqueue and publisher wakeups
 ├── feedback_pipeline.go         # Runtime feedback persistence and worker handoff
 ├── runtime_side_effects.go      # Runtime side-effect manager and shutdown behavior
-└── runtime_pricing.go           # Runtime pricing snapshots and usage pricing helpers
+├── runtime_pricing.go           # Runtime pricing snapshots and usage pricing helpers
+└── *_test.go                    # Route matrix, hook residency, planning, and ingress regressions
 ```
 
 ## WHERE TO LOOK
@@ -61,8 +65,8 @@ runtime/
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep `operations.go` as the single source of truth for supported runtime method/path pairs, hook collection ids, streaming flags, and model-binding sources.
 - Keep management scope out of proxy traffic. Runtime request planning uses the current runtime snapshot, not `X-Profile-Id` management headers.
-- Keep requested-model resolution exact. Runtime planning starts from `planningSnapshot.ModelsByID` using the client-supplied model ID exactly, then evaluates Model Target rows first and direct Terminal Target rows only as fallback; both stages use authored `(position, id)` ordering. Do not add regex matching or capability-metadata expansion in this package.
-- Keep the three strategies (`single`, `fill-first`, `round-robin`) independent per entered stage (`orderRuntimeRoutingPlanTargetsForStrategy`); a Model Target row recursively resolves through the child model's own strategy and stays one contiguous block. Reordering, add, remove, or enable-set changes must change the round-robin target-set hash for the affected stage.
+- Keep requested-model resolution exact. Runtime planning starts from `planningSnapshot.ModelsByID` using the client-supplied model ID exactly, then evaluates one mixed peer sequence in which Model Target and Terminal Target rows share authored `(position, id)` ordering — there is no model-first tier and no terminal fallback tier (see `docs/architecture.md`). Do not add regex matching or capability-metadata expansion in this package.
+- Keep the three strategies (`single`, `fill-first`, `round-robin`) applied once to that mixed peer sequence; a Model Target row recursively resolves through the child model's own strategy and stays one contiguous block. Reordering, add, remove, or enable-set changes must change the round-robin target-set hash.
 - Keep the `custom_request_parameters` overlay on the per-attempt materialized body: the shared `domain/terminaltarget` value applies a top-level shallow overlay after provider-native model/path rewrite, per-attempt generation-parameter snapshots are extracted from each attempt's final body, and any configured candidate forces the replayable-body path (Gemini probe planning stays two-phase: `rawBody == nil` never overlays or 400s).
 - Keep unsupported or wrong-method requests rejecting before body reads, runtime admission, provider transport, telemetry, audit, feedback, or runtime side effects.
 - Keep the shared execution core in `service.go` and `runtime.go`; provider-native differences belong in request, response, or stream hooks instead of forked executors.
@@ -85,7 +89,7 @@ runtime/
 - Do not describe mounted `/v1` and `/v1beta` prefixes as broad passthrough support.
 - Do not add generic OpenAI or vendor fallback behavior outside the allowlist in `operations.go`.
 - Do not inject management-only `X-Profile-Id` logic or auth-session state into runtime proxy handlers.
-- Do not reintroduce exact facades, context-window preflight filtering, facade-level response-body model rewriting, or a flat mixed-peer resolver that bypasses the two-stage Model Target then Terminal Target fallback contract.
+- Do not reintroduce exact facades, context-window preflight filtering, or facade-level response-body model rewriting.
 - Do not reuse text-generation hooks for token-count operations.
 - Do not reintroduce OpenAI Chat/Responses sibling translation, provider fallbacks, or best-effort request rewrites.
 - Do not bypass the `custom_request_parameters` fail-closed boundaries: non-object ingress, non-identity `Content-Encoding` on configured Gemini path-bound candidates, and merged bodies over the 20 MiB limit must fail before admission/transport; invalid persisted configuration must reject the snapshot generation instead of being normalized to unconfigured.

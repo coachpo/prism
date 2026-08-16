@@ -352,7 +352,61 @@ func TestDiagnosticsModelStageDeadFallsBackToTerminal(t *testing.T) {
 	}
 }
 
-func TestDiagnosticsSingleTruncatesPerStageAndUncoveredWithCompatibleTruncatedRow(t *testing.T) {
+// A `single` strategy truncates the model's one authored mixed list. When a
+// Model Target with no reachable leaf sits ahead of a usable Terminal Target,
+// the runtime keeps only that first row and answers 503 — so the analyzer must
+// not report the operation as statically routable through the second row.
+func TestDiagnosticsSingleTruncatesAcrossMixedListNotPerStage(t *testing.T) {
+	graph := testGraph()
+	graph.addStrategy(1, "single")
+	graph.addModel(10, "mixed-single-root", "openai", "dual_native", true, intRef(1))
+	// The child model is enabled but owns nothing, so the Model Target row can
+	// never produce a leaf.
+	graph.addModel(20, "empty-child", "openai", "dual_native", true, intRef(1))
+	graph.addConnection(200, "openai", "dual_native", true)
+	graph.addModelRow(10, 1000, 20, 0, true)
+	graph.addTerminalRow(10, 1001, 200, 1, true)
+
+	result := Analyze(graph, 10, dualOperations())
+
+	chat := resultForOperation(t, result, providerauth.OpenAIUpstreamOperationChatCompletions)
+	if chat.StaticallyRoutable {
+		t.Fatalf("expected chat_completions to be non-routable: single keeps only the Model Target row, which has no leaf; got %+v", chat)
+	}
+	if chat.ResolvedStage != nil {
+		t.Fatalf("expected no resolved stage when nothing is routable, got %v", *chat.ResolvedStage)
+	}
+
+	modelRow := result.Stages[0].Targets[0]
+	terminalRow := result.Stages[1].Targets[0]
+	if modelRow.EnabledStrategyIndex == nil || *modelRow.EnabledStrategyIndex != 0 {
+		t.Fatalf("expected the Model Target row to hold mixed-list index 0, got %+v", modelRow)
+	}
+	if terminalRow.EnabledStrategyIndex == nil || *terminalRow.EnabledStrategyIndex != 1 {
+		t.Fatalf("expected the Terminal Target row to hold mixed-list index 1, not a per-stage 0, got %+v", terminalRow)
+	}
+	if got := targetResultForOperation(t, terminalRow, providerauth.OpenAIUpstreamOperationChatCompletions).Disposition; got != DispositionTruncatedBySingle {
+		t.Fatalf("expected the Terminal Target row to be truncated by single, got %s", got)
+	}
+
+	// The truncation warning has to arrive with the truncated disposition;
+	// reporting one without the other leaves the page red with no reason.
+	var truncationWarning *ConfigurationWarning
+	for index := range result.ConfigurationWarnings {
+		if result.ConfigurationWarnings[index].Code == WarningCodeSingleStrategyTruncatesTargets {
+			truncationWarning = &result.ConfigurationWarnings[index]
+		}
+	}
+	if truncationWarning == nil {
+		t.Fatalf("expected a single-truncation warning, got %+v", result.ConfigurationWarnings)
+	}
+	ids, ok := truncationWarning.Details["truncated_access_target_ids"].([]int)
+	if !ok || len(ids) != 1 || ids[0] != 1001 {
+		t.Fatalf("expected the warning to name the truncated Terminal Target row, got %+v", truncationWarning.Details)
+	}
+}
+
+func TestDiagnosticsSingleTruncatesAndUncoveredWithCompatibleTruncatedRow(t *testing.T) {
 	graph := testGraph()
 	graph.addStrategy(1, "single")
 	graph.addModel(10, "single-root", "openai", "dual_native", true, intRef(1))
@@ -380,8 +434,9 @@ func TestDiagnosticsSingleTruncatesPerStageAndUncoveredWithCompatibleTruncatedRo
 	for _, warning := range result.ConfigurationWarnings {
 		if warning.Code == WarningCodeSingleStrategyTruncatesTargets {
 			hasSingleWarning = true
-			if warning.Details["stage"] != StageTerminalTargets {
-				t.Fatalf("expected single warning on terminal stage, got %+v", warning.Details)
+			ids, ok := warning.Details["truncated_access_target_ids"].([]int)
+			if !ok || len(ids) != 1 || ids[0] != 1001 {
+				t.Fatalf("expected the warning to name the truncated row, got %+v", warning.Details)
 			}
 		}
 		if warning.Code == WarningCodeOpenAIOperationUncovered && warning.Details["reason"] == UncoveredReasonNoStaticEligibleTarget {
@@ -558,8 +613,8 @@ func TestRoutingSummaryProjection(t *testing.T) {
 	if summary.Coverage != string(CoveragePartial) {
 		t.Fatalf("expected partial overall coverage (chat routable, responses compatible but truncated), got %s", summary.Coverage)
 	}
-	if len(summary.SingleTruncatedStages) != 1 || summary.SingleTruncatedStages[0] != StageTerminalTargets {
-		t.Fatalf("expected single truncation on terminal stage, got %v", summary.SingleTruncatedStages)
+	if len(summary.SingleTruncatedAccessTargetIDs) != 1 || summary.SingleTruncatedAccessTargetIDs[0] != 1001 {
+		t.Fatalf("expected the second authored row to be the truncated one, got %v", summary.SingleTruncatedAccessTargetIDs)
 	}
 	groups := map[string]string{}
 	for _, group := range summary.OperationGroups {

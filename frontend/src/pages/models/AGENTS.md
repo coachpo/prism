@@ -6,13 +6,15 @@
 ## STRUCTURE
 ```
 models/
-├── ModelDialog.tsx         # Create-edit dialog and backend errors
+├── ModelDialog.tsx         # Edit dialog and backend errors
+├── CreateModelDialog.tsx   # Create flow
 ├── DeleteModelDialog.tsx   # Delete confirmation flow
+├── AccessTargetsEditor.tsx # Mixed Model Target/Terminal Target list editor with row-ID mutations
 ├── modelFormState.ts       # Form defaults, payload transforms, and access-target helpers
-├── ModelsToolbar.tsx       # Search-only toolbar
 ├── modelTableContracts.ts  # Shared metric type contract
 ├── useModelMetrics24h.ts   # 24h metrics and spend hydration
-└── useModelsPageData.ts    # Shared-cache bootstrap, local patching, dialog orchestration
+├── useModelsPageData.ts    # Shared-cache bootstrap, local patching, dialog orchestration
+└── *.test.ts(x)            # Access-target editor and metrics-hydration coverage
 ```
 
 ## WHERE TO LOOK
@@ -23,7 +25,6 @@ models/
 - Mixed access-target list editor with row-ID mutations: `AccessTargetsEditor.tsx`
 - Backend validation messages and create/edit payload handoff: `ModelDialog.tsx`
 - 24h metrics and spend overlays: `useModelMetrics24h.ts`
-- Search toolbar: `ModelsToolbar.tsx`
 
 ## CONVENTIONS
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.

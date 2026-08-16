@@ -6,13 +6,13 @@
 ## STRUCTURE
 ```text
 pricing-templates/
-├── DeletePricingTemplateDialog.tsx # Delete confirmation and in-use conflict display
-└── PricingTemplateUsageDialog.tsx  # Connection usage lookup dialog
+└── DeletePricingTemplateDialog.tsx # Delete confirmation and in-use conflict display
 ```
 
 ## WHERE TO LOOK
 - Feature route, form schema, table, and mutation orchestration: `../../features/pricing/`
-- Delete conflict display and usage dialog: `DeletePricingTemplateDialog.tsx`, `PricingTemplateUsageDialog.tsx`
+- Delete conflict display: `DeletePricingTemplateDialog.tsx`
+- Connection usage lookup that feeds those conflict rows: `../../features/pricing/usePricingFeatureData.ts` (`handleViewPricingTemplateUsage`), `../../features/pricing/PricingTemplatesTable.tsx`
 
 ## CONVENTIONS
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.

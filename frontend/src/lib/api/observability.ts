@@ -467,10 +467,11 @@ export const loadbalance = {
       method: "POST",
       body: JSON.stringify(params),
     }),
-  listCurrentState: (params: ListCurrentStateParams = {}) => {
+  listCurrentState: (params: ListCurrentStateParams = {}, signal?: AbortSignal) => {
     const query = buildQuery(params as Record<string, string | number | boolean | null | undefined> | undefined);
     return request<GlobalCurrentStateResponse>(
-      `/api/loadbalance/current-state${query ? `?${query}` : ""}`
+      `/api/loadbalance/current-state${query ? `?${query}` : ""}`,
+      { signal }
     );
   },
   resetCurrentState: (terminalTargetId: number) =>
@@ -631,26 +632,31 @@ export const modelRoutingDiagnostics = {
   get: (modelConfigId: number) => request<RoutingDiagnosticsResponse>(`/api/models/${modelConfigId}/routing-diagnostics`),
 };
 
+/**
+ * Every read takes an optional signal. An abandoned panel that only ignores
+ * its answer still holds a management admission slot until the query finishes,
+ * so navigating away has to actually cancel, not just stop listening.
+ */
 export const observe = {
-  observeActivity: (queryContext: string, params: { limit?: number; before?: string }) => {
+  observeActivity: (queryContext: string, params: { limit?: number; before?: string }, signal?: AbortSignal) => {
     const query = buildQuery({ ...params, query_context: queryContext });
-    return request<ObserveActivityResponse>(`/api/stats/observe-activity${query ? `?${query}` : ""}`);
+    return request<ObserveActivityResponse>(`/api/stats/observe-activity${query ? `?${query}` : ""}`, { signal });
   },
-  usageErrors: (queryContext: string, params: { group_by?: string; limit?: number }) => {
+  usageErrors: (queryContext: string, params: { group_by?: string; limit?: number }, signal?: AbortSignal) => {
     const query = buildQuery({ ...params, query_context: queryContext });
-    return request<UsageErrorsResponse>(`/api/stats/usage-errors${query ? `?${query}` : ""}`);
+    return request<UsageErrorsResponse>(`/api/stats/usage-errors${query ? `?${query}` : ""}`, { signal });
   },
-  queryContext: (params: { preset: string; from_time?: string; to_time?: string }) => {
+  queryContext: (params: { preset: string; from_time?: string; to_time?: string }, signal?: AbortSignal) => {
     const query = buildQuery(params);
-    return request<QueryContextResponse>(`/api/stats/query-context${query ? `?${query}` : ""}`);
+    return request<QueryContextResponse>(`/api/stats/query-context${query ? `?${query}` : ""}`, { signal });
   },
-  usageSummary: (queryContext: string) =>
-    request<UsageSummaryResponse>(`/api/stats/usage-summary?query_context=${encodeURIComponent(queryContext)}`),
-  usageSeries: (queryContext: string, params: { metric?: string; group_by?: string; interval?: string }) => {
+  usageSummary: (queryContext: string, signal?: AbortSignal) =>
+    request<UsageSummaryResponse>(`/api/stats/usage-summary?query_context=${encodeURIComponent(queryContext)}`, { signal }),
+  usageSeries: (queryContext: string, params: { metric?: string; group_by?: string; interval?: string }, signal?: AbortSignal) => {
     const query = buildQuery({ ...params, query_context: queryContext });
-    return request<UsageSeriesResponse>(`/api/stats/usage-series${query ? `?${query}` : ""}`);
+    return request<UsageSeriesResponse>(`/api/stats/usage-series${query ? `?${query}` : ""}`, { signal });
   },
-  dashboardNow: () => request<DashboardNowResponse>("/api/stats/dashboard/now"),
+  dashboardNow: (signal?: AbortSignal) => request<DashboardNowResponse>("/api/stats/dashboard/now", { signal }),
 };
 
 export type UsageErrorsResponse = {

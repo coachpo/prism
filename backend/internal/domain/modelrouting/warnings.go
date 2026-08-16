@@ -1,6 +1,9 @@
 package modelrouting
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // ConfigurationWarning is a structured, non-persisted warning returned by
 // routing-relevant mutation responses and by diagnostics. Frontends must key
@@ -84,8 +87,8 @@ func intPointerCopy(value int) *int {
 
 // GenerateConfigurationWarnings derives the structured configuration warnings
 // for a root model from its diagnostics result: uncovered accepted operations,
-// per-terminal-target Full/Partial/None coverage, and per-stage single
-// truncation. Warnings are computed on the proposed final state, are not
+// per-terminal-target Full/Partial/None coverage, and `single`
+// truncation over the authored mixed list. Warnings are computed on the proposed final state, are not
 // persisted, and never carry secrets or cross-profile IDs.
 func GenerateConfigurationWarnings(graph *DiagnosticsGraph, root DiagnosticsModel, result DiagnosticsResult, acceptedOperations []string) []ConfigurationWarning {
 	warnings := make([]ConfigurationWarning, 0, 8)
@@ -156,39 +159,42 @@ func GenerateConfigurationWarnings(graph *DiagnosticsGraph, root DiagnosticsMode
 		}
 	}
 
+	// `single` truncates the model's one authored mixed list, not each target
+	// type separately, so this is one warning per model naming every row the
+	// strategy drops.
 	if strings.EqualFold(strings.TrimSpace(strategy.Subtype), "single") {
-		for _, stage := range []string{StageModelTargets, StageTerminalTargets} {
-			truncatedIDs := []int{}
-			for _, stageResult := range result.Stages {
-				if stageResult.Stage != stage {
-					continue
-				}
-				enabledSeen := 0
-				for _, target := range stageResult.Targets {
-					if target.EnabledStrategyIndex == nil {
-						continue
-					}
-					enabledSeen++
-					if enabledSeen > 1 {
-						truncatedIDs = append(truncatedIDs, target.AccessTargetID)
-					}
-				}
-			}
-			if len(truncatedIDs) > 0 {
-				details := map[string]any{"stage": stage, "truncated_access_target_ids": truncatedIDs}
-				warnings = append(warnings, NewWarning(
-					WarningCodeSingleStrategyTruncatesTargets,
-					WarningSeverityWarning,
-					"该阶段只有第一个启用目标会参与路由。",
-					"loadbalance_strategy_id",
-					root.ConfigID,
-					nil,
-					details,
-				))
-			}
+		truncatedIDs := singleTruncatedAccessTargetIDs(result)
+		if len(truncatedIDs) > 0 {
+			details := map[string]any{"truncated_access_target_ids": truncatedIDs}
+			warnings = append(warnings, NewWarning(
+				WarningCodeSingleStrategyTruncatesTargets,
+				WarningSeverityWarning,
+				"只有第一个启用的访问目标会参与路由，其余启用目标不会被尝试。",
+				"loadbalance_strategy_id",
+				root.ConfigID,
+				nil,
+				details,
+			))
 		}
 	}
 	return warnings
+}
+
+// singleTruncatedAccessTargetIDs lists the enabled rows a `single` strategy
+// never reaches. Rows are numbered across the authored mixed list, so every
+// enabled row except the one holding index 0 is dropped.
+func singleTruncatedAccessTargetIDs(result DiagnosticsResult) []int {
+	truncatedIDs := []int{}
+	for _, stageResult := range result.Stages {
+		for _, target := range stageResult.Targets {
+			if target.EnabledStrategyIndex == nil || *target.EnabledStrategyIndex == 0 {
+				continue
+			}
+			truncatedIDs = append(truncatedIDs, target.AccessTargetID)
+		}
+	}
+	sort.Ints(truncatedIDs)
+	return truncatedIDs
 }
 
 // GenerateOpenAIWarningsForTarget computes direct owner-scoped warnings for one
@@ -231,13 +237,13 @@ func GenerateOpenAIWarningsForTargetDimensions(ownerAcceptedFormat *string, owne
 // analyzer. Models list/detail must reuse this projection; the frontend must
 // not re-derive coverage or eligibility from card text.
 type RoutingSummary struct {
-	EnabledAccessTargetCount int                     `json:"enabled_access_target_count"`
-	TotalAccessTargetCount   int                     `json:"total_access_target_count"`
-	OpenAIMode               *string                 `json:"openai_mode"`
-	Coverage                 string                  `json:"coverage"`
-	OperationGroups          []RoutingOperationGroup `json:"operation_groups"`
-	SingleTruncatedStages    []string                `json:"single_truncated_stages"`
-	WarningCodes             []string                `json:"warning_codes"`
+	EnabledAccessTargetCount       int                     `json:"enabled_access_target_count"`
+	TotalAccessTargetCount         int                     `json:"total_access_target_count"`
+	OpenAIMode                     *string                 `json:"openai_mode"`
+	Coverage                       string                  `json:"coverage"`
+	OperationGroups                []RoutingOperationGroup `json:"operation_groups"`
+	SingleTruncatedAccessTargetIDs []int                   `json:"single_truncated_access_target_ids"`
+	WarningCodes                   []string                `json:"warning_codes"`
 }
 
 type RoutingOperationGroup struct {
@@ -249,10 +255,10 @@ type RoutingOperationGroup struct {
 // model-list summary shape.
 func BuildRoutingSummary(graph *DiagnosticsGraph, root DiagnosticsModel, result DiagnosticsResult) RoutingSummary {
 	summary := RoutingSummary{
-		OpenAIMode:            cloneStringPointer(root.OpenAIAcceptedFormat),
-		OperationGroups:       []RoutingOperationGroup{},
-		SingleTruncatedStages: []string{},
-		WarningCodes:          []string{},
+		OpenAIMode:                     cloneStringPointer(root.OpenAIAcceptedFormat),
+		OperationGroups:                []RoutingOperationGroup{},
+		SingleTruncatedAccessTargetIDs: []int{},
+		WarningCodes:                   []string{},
 	}
 	enabledCount := 0
 	totalCount := 0
@@ -310,22 +316,7 @@ func BuildRoutingSummary(graph *DiagnosticsGraph, root DiagnosticsModel, result 
 
 	strategy := graph.strategyForModel(root)
 	if strings.EqualFold(strings.TrimSpace(strategy.Subtype), "single") {
-		for _, stage := range []string{StageModelTargets, StageTerminalTargets} {
-			enabledRows := 0
-			for _, stageResult := range result.Stages {
-				if stageResult.Stage != stage {
-					continue
-				}
-				for _, target := range stageResult.Targets {
-					if target.EnabledStrategyIndex != nil {
-						enabledRows++
-					}
-				}
-			}
-			if enabledRows > 1 {
-				summary.SingleTruncatedStages = append(summary.SingleTruncatedStages, stage)
-			}
-		}
+		summary.SingleTruncatedAccessTargetIDs = singleTruncatedAccessTargetIDs(result)
 	}
 	seenCodes := map[string]struct{}{}
 	for _, warning := range result.ConfigurationWarnings {

@@ -7,28 +7,29 @@ Prism is a self-hosted LLM proxy gateway. The repo root owns the local launcher,
 ## STRUCTURE
 ```text
 prism/
-├── README.md, VERSION
+├── README.md, VERSION, CONTRIBUTING.md
+├── STATUS.md      # Live project status; the data-migration authority named in CONVENTIONS below
 ├── start.sh, release.sh
 ├── Dockerfile, docker-compose.yml, docker/
 ├── backend/       # Go backend, migrations, Go tests
 ├── frontend/      # React/Vite dashboard, shadcn config, frontend tests
 ├── docs/          # Durable reference docs only
-├── artifacts/     # Ignored local run evidence and scratch plans
+├── artifacts/     # Ignored local run evidence and scratch plans, except tracked `artifacts/tools/`
 └── .github/workflows/{ci,docker-images,cleanup}.yml
 ```
 
 ## HIERARCHY
 - `backend/AGENTS.md`: Go runtime root, migrations, and regression boundaries.
 - `backend/internal/AGENTS.md`: backend source router for platform, domain, gateway, HTTP API, and small compatibility packages.
-- `backend/internal/platform/AGENTS.md`: process lifecycle, HTTP assembly, hot bootstrap runtime, DB lanes, scheduler, retention, side effects; `platform/startup/AGENTS.md` owns startup sequencing and seeds.
-- `backend/internal/domain/AGENTS.md`: HTTP-neutral audit, loadbalance, model-routing, stats, and terminal-target helpers; `domain/loadbalance/AGENTS.md` owns Ban Policy runtime state, and `domain/stats/AGENTS.md` owns stats read models.
+- `backend/internal/platform/AGENTS.md`: process lifecycle, HTTP assembly, hot bootstrap runtime, DB lanes, scheduler, retention, side effects; `platform/startup/AGENTS.md` owns startup sequencing and seeds, `platform/config/AGENTS.md` the bootstrap contract, `platform/http/AGENTS.md` route mounting and admission, and `platform/managementjobs/AGENTS.md` the retention v2 job state.
+- `backend/internal/domain/AGENTS.md`: HTTP-neutral audit, loadbalance, model-routing, stats, and terminal-target helpers; `domain/loadbalance/AGENTS.md` owns Ban Policy runtime state, `domain/stats/AGENTS.md` owns stats read models, and `domain/safediag/AGENTS.md` owns the safe-diagnostic bottom line.
 - `backend/internal/gateway/AGENTS.md`: provider-agnostic envelopes, hooks, routing, reservations, adapters, accounting; `gateway/core/AGENTS.md` owns shared gateway contracts, `gateway/provider/AGENTS.md` owns provider-native adapter rules, and `gateway/provider/openai/AGENTS.md` owns native OpenAI Chat/Responses handling.
 - `backend/internal/httpapi/AGENTS.md`: mounted management, runtime, proxy-key usage, and request-context seams.
 - `backend/internal/httpapi/management/AGENTS.md`: `/api/*` management fanout and shared management conventions; leaf docs live below it.
 - `backend/internal/httpapi/runtime/AGENTS.md`: operation-registered proxy surfaces.
 - `frontend/AGENTS.md`: React/Vite dashboard root, route shell, providers, shadcn config, and frontend tests.
 - `frontend/src/AGENTS.md`: frontend source router for app, features, pages, components, context, hooks, i18n, shared, lib, and test.
-- `frontend/src/{app,features,pages,components,context,hooks,i18n,shared,lib}/AGENTS.md`: frontend route, shell, page, provider, hook, locale, API, and shared UI seams; `shared/design-system/AGENTS.md` and `lib/types/AGENTS.md` own high-centrality leaves.
+- `frontend/src/{app,features,pages,components,context,hooks,i18n,shared,lib}/AGENTS.md`: frontend route, shell, page, provider, hook, locale, API, and shared UI seams. Each of those routers names its own nested leaves; `shared/design-system/AGENTS.md` and `lib/types/AGENTS.md` are the highest-centrality ones.
 - `backend/tests/AGENTS.md`: Go regression root; `tests/contract/AGENTS.md`, `tests/integration/AGENTS.md`, and `tests/runtime/AGENTS.md` own the large suite boundaries.
 - `frontend/tests/AGENTS.md`: Playwright browser flows plus frontend seam/lib contract boundaries; `tests/e2e/AGENTS.md` and `tests/lib/AGENTS.md` own the large runner-specific leaves.
 - `docs/AGENTS.md`: durable docs ownership and local artifact handoff rules.
@@ -50,7 +51,7 @@ prism/
 ## SHARED FACTS
 - `start.sh` reads the root `.env`, supports `headless` and `full`, defaults `PRISM_CONFIG_PATH` to repo-local `config.json`, keeps frontend `5173` and PostgreSQL `15432`, and follows the selected bootstrap file's backend port; fresh seeds default that port to `8000`.
 - `start.sh` keeps a local launcher contract by using plaintext bootstrap ownership and the local PostgreSQL DSN, and in `full` mode keeping browser traffic same-origin by unsetting `VITE_API_BASE` and starting Vite with `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET` pointed at the effective backend port from the selected bootstrap file.
-- Local scratch plans and execution artifacts live under ignored `artifacts/`; run evidence uses `artifacts/evidence/`.
+- Local scratch plans and execution artifacts live under ignored `artifacts/`; run evidence uses `artifacts/evidence/`. `artifacts/tools/` is the one tracked exception: checked-in workflow-case tooling with its own tests.
 - The root `docker-compose.yml` is the only local/self-hosted bundle. It builds the single-image app, runs PostgreSQL as a separate service, publishes the public Prism HTTP port plus the launcher database port, and persists `prism_postgres_data` plus `prism_config` volumes.
 - The root `Dockerfile` always builds the single app image with the Go backend, backend migrations/version, React static assets, Nginx, and `docker/entrypoint.sh`.
 - The root Nginx template proxies `/health`, `/api`, `/v1`, and `/v1beta` to the private backend upstream and serves SPA assets from `/usr/share/nginx/html`.
@@ -59,7 +60,7 @@ prism/
 - `operation_name` is persisted in `request_logs` and `usage_request_events`, and the route matrix plus hook residency are regression-backed in backend runtime tests.
 - `usage_request_events.endpoint_label_snapshot` is the retained endpoint label source for usage snapshots, spending, and Top Endpoints while public stats JSON continues to expose `endpoint_label`.
 - Request-log browsing supports `client_rule_id` against caller User-Agent Client Rules only, plus `resolved_target_model_id` for final target filtering.
-- Model-owned context routing, overflow-promotion authoring, exact facade routing, and OpenAI sibling-operation translation were hard-deleted. OpenAI text attempts are native-only and use operation-set coverage: the model accepted format and Terminal Target capability may be FULL, PARTIAL, or NONE, with valid differences surfaced as structured warnings and no translation. Invalid enum/nullability remains a management 422; runtime planning uses the stable native-operation errors and ordinary dynamic 503 family. Keep ordinary operation-registered routing, two-stage Model Target then Terminal Target fallback, Ban Policy strategies, flat final-target observability, and historical `operation_translation_mode` reads as the live contract.
+- Model-owned context routing, overflow-promotion authoring, exact facade routing, and OpenAI sibling-operation translation were hard-deleted. OpenAI text attempts are native-only and use operation-set coverage: the model accepted format and Terminal Target capability may be FULL, PARTIAL, or NONE, with valid differences surfaced as structured warnings and no translation. Invalid enum/nullability remains a management 422; runtime planning uses the stable native-operation errors and ordinary dynamic 503 family. Keep ordinary operation-registered routing, the single mixed peer sequence of Model Target and Terminal Target rows (see `docs/architecture.md`), Ban Policy strategies, flat final-target observability, and historical `operation_translation_mode` reads as the live contract.
 - Plaintext bootstrap startup is file-backed. Backend-owned canonical defaults are the source of truth for fresh seeds: `0.0.0.0:8000`, standalone database URL `postgres://prism:prism@localhost:5432/prism?sslmode=disable` unless `DATABASE_URL` is set, CORS `5173`, PostgreSQL pools and admission derived from CPU count via `unit = clamp(GOMAXPROCS, 8, 16)` (management `unit+1`, execution `unit`, telemetry `unit/2`, feedback/cache/jobs `unit/4`, total = lane sum 27–53, admission m2 `unit` / m3 `unit/2`), transport `100/16/16/300s/90s/0s/10s/1s`, and side-effect timeout `10s`; the root launcher sets `DATABASE_URL` to local PostgreSQL on host port `15432`. Runtime buffering is automatic and internal. Existing valid files are preserved until manual reset by stop, remove or relocate, and restart.
 - Mail config fields are parsed for live `config.json` compatibility only. Mail delivery and transport behavior are removed.
 - Backend database capacity is split into named lanes for runtime execution, telemetry, feedback, management, cache refresh, and background jobs. Background or management work must not borrow protected proxy capacity.
@@ -86,8 +87,8 @@ prism/
 - Frontend toolchain and shadcn registry config: `frontend/package.json`, `frontend/components.json`, `frontend/src/index.css`, `frontend/src/main.tsx`.
 - Normative architecture and contract docs: `docs/architecture.md` (§14 API Reference, §15 Data Model Reference)
 - Product, requests-page, and workflow surfaces: `docs/product.md` (§8 Requests Page Specification, §9 Workflows Reference)
-- Backend ownership tree: `backend/AGENTS.md`, `backend/internal/AGENTS.md`, `backend/internal/platform/AGENTS.md`, `backend/internal/platform/startup/AGENTS.md`, `backend/internal/domain/AGENTS.md`, `backend/internal/domain/loadbalance/AGENTS.md`, `backend/internal/domain/stats/AGENTS.md`, `backend/internal/gateway/AGENTS.md`, `backend/internal/gateway/core/AGENTS.md`, `backend/internal/gateway/provider/AGENTS.md`, `backend/internal/gateway/provider/openai/AGENTS.md`, `backend/internal/httpapi/AGENTS.md`, `backend/internal/httpapi/management/AGENTS.md`, `backend/internal/httpapi/runtime/AGENTS.md`, `backend/internal/httpapi/management/*/AGENTS.md`, `backend/tests/AGENTS.md`, `backend/tests/{contract,integration,runtime}/AGENTS.md`
-- Frontend ownership tree: `frontend/AGENTS.md`, `frontend/src/AGENTS.md`, `frontend/src/app/AGENTS.md`, `frontend/src/features/AGENTS.md`, `frontend/src/pages/AGENTS.md`, `frontend/src/components/AGENTS.md`, `frontend/src/context/AGENTS.md`, `frontend/src/hooks/AGENTS.md`, `frontend/src/i18n/AGENTS.md`, `frontend/src/shared/AGENTS.md`, `frontend/src/shared/design-system/AGENTS.md`, `frontend/src/lib/AGENTS.md`, `frontend/src/lib/types/AGENTS.md`, `frontend/tests/AGENTS.md`, `frontend/tests/e2e/AGENTS.md`, `frontend/tests/lib/AGENTS.md`
+- Backend ownership tree: start at `backend/AGENTS.md` and `backend/internal/AGENTS.md`, then follow the nested `AGENTS.md` files under `backend/internal/{platform,domain,gateway,httpapi}/` and `backend/tests/`. Each router names its own leaves, so enumerate the current set with `find backend -name AGENTS.md` rather than trusting a list here.
+- Frontend ownership tree: start at `frontend/AGENTS.md` and `frontend/src/AGENTS.md`, then follow the nested `AGENTS.md` files under `frontend/src/` and `frontend/tests/`. Enumerate with `find frontend -name AGENTS.md -not -path '*/node_modules/*'`.
 - Docs provenance, scratch-plan handoff, and live evidence routing: `docs/AGENTS.md`, `artifacts/plans/`, `artifacts/evidence/`
 
 ## COMMANDS

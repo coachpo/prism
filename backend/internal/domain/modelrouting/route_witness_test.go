@@ -8,7 +8,11 @@ func strategyPtr(id int) *int { return &id }
 
 func ptr[T any](value T) *T { return &value }
 
-func TestAnalyzeRouteWitnessSnapshotTerminalFallback(t *testing.T) {
+// A model with two directly owned Terminal Targets: every accepted operation
+// witnesses through whichever connections support it, and a disabled model
+// produces no witness at all. Nothing here falls back — the earlier name came
+// from a routing tier that does not exist.
+func TestAnalyzeRouteWitnessSnapshotDirectTerminalTargets(t *testing.T) {
 	graph := &DiagnosticsGraph{
 		ModelsByID: map[int]DiagnosticsModel{
 			1: {ConfigID: 1, ProfileID: 1, ModelID: "dual-model", APIFamily: "openai", IsEnabled: true, OpenAIAcceptedFormat: ptr("dual_native"), LoadbalanceStrategyID: strategyPtr(10)},
@@ -66,7 +70,9 @@ func TestAnalyzeRouteWitnessSnapshotTerminalFallback(t *testing.T) {
 	}
 }
 
-func TestAnalyzeRouteWitnessSnapshotModelFirstFallback(t *testing.T) {
+// A parent whose only access target is a Model Target takes its witness from the
+// child's own terminal target, narrowed to the operations the child accepts.
+func TestAnalyzeRouteWitnessSnapshotResolvesThroughModelTarget(t *testing.T) {
 	// Parent has no terminal targets; child model has a terminal target.
 	graph := &DiagnosticsGraph{
 		ModelsByID: map[int]DiagnosticsModel{

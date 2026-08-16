@@ -11,21 +11,16 @@ auth/
 ├── refreshOutcome.ts       # Typed refresh outcome contract (recovery/passive/disabled probe)
 ├── authExempt.ts           # Auth-exempt path/query matcher shared with api/core and gates
 ├── crossTab.ts             # Cross-tab generation + auth-state broadcast signaling
-├── bootstrap.ts            # Public-vs-full bootstrap loader and 401 refresh fallback
-├── broadcast.ts            # Cross-tab auth refresh channel helpers
-├── mutations.ts            # Login/logout mutation wrappers over API callbacks
-└── refresh.ts              # Proactive timer interval and passive refresh guards
+├── refresh.ts              # Proactive timer interval and passive refresh guards
+└── *.test.ts               # Session-coordinator phase/epoch/singleflight coverage
 ```
 
 ## WHERE TO LOOK
 
 - Coordinator phase machine (`BOOTSTRAPPING`, `AUTH_DISABLED`, `AUTH_DISABLED_VERIFYING`, `ANONYMOUS`, `AUTHENTICATED`, `REFRESHING`, `SESSION_EXPIRED`, `LOGGING_OUT`, `AUTH_TRANSITION_FAIL_CLOSED`, `AUTH_UNAVAILABLE`), epoch rotation, refresh singleflight and replay rules, logout intent, disabled-401 breaker probe, and classifier entrypoints (`applyBootstrapStatus`, `applyLoginSuccess`, `ensureRecoveryFlight`, `ensurePassiveFlight`, `beginDisabledVerification`, `getEpoch`, `getPhase`, `subscribe`): `sessionCoordinator.ts`
-- Singleton wiring, storage of `prism.authSessionGeneration`, and shared `storage`/`broadcast` listeners: `coordinatorInstance.ts`, `crossTab.ts`
+- Singleton wiring, storage of `prism.authSessionGeneration`, and shared storage/broadcast listeners: `coordinatorInstance.ts`, `crossTab.ts`
 - Typed refresh outcome mapping (recovery success, expired, disabled, protocol inconsistency, unavailable): `refreshOutcome.ts`
 - Auth-exempt request classification used by the API client and route gates: `authExempt.ts`
-- Public-vs-full bootstrap sequencing, in-flight reuse, `status` gate, and session-to-refresh fallback: `bootstrap.ts`
-- Cross-tab auth refresh broadcast helpers used by `AuthContext.tsx`: `broadcast.ts`
-- Login and logout mutation wrappers used by `AuthContext.tsx`: `mutations.ts`
 - Proactive refresh cadence, visibility-triggered refresh rules, and mutation-aware passive refresh guard: `refresh.ts`
 - Provider-owned state composition, epoch-boundary query/cache purging, cross-tab listener lifecycle, and timer lifecycle: `../AuthContext.tsx`
 - Route gates and global blocking surface: `../../app/router/authGates.ts`, `../../app/router/GlobalAccessLayer.tsx`

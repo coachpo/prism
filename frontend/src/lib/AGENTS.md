@@ -13,12 +13,14 @@ lib/
 │   ├── profileScope.ts           # Profile-scoped management route matcher
 │   ├── authSettings.ts           # Auth bootstrap, session flows, and proxy keys
 │   ├── management.ts             # Models, endpoints, connections, pricing templates
-│   └── observability.ts          # Usage snapshot, stats, audit, loadbalance, settings costing/timezone
+│   ├── observability.ts          # Usage snapshot, stats, audit, loadbalance, settings costing/timezone
+│   └── endpointErrors.ts         # Typed Endpoint error guards at the API/domain boundary
 ├── referenceData.ts              # Shared reference-data cache keyed by profile revision
 ├── referenceDataRegistry.ts      # Registry of shared reference-data datasets
 ├── loadbalanceRoutingPolicy.ts   # Dual-family defaults and policy normalization
 ├── appVersion.ts                 # Browser-facing app version helper built from Vite-injected package metadata
 ├── reportingCurrency.ts          # Pinned-profile keyed reporting-currency cache
+├── observeReturn.ts              # Validated return-state token restoring routing-health context from Requests
 ├── types.ts                      # Public type barrel
 ├── types/AGENTS.md               # Backend-aligned payload and domain type rules
 ├── types/                        # Backend-aligned payload and domain types

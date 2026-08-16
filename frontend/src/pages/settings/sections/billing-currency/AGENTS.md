@@ -12,7 +12,7 @@ billing-currency/
 ```
 
 ## WHERE TO LOOK
-- Section shell and parent handoff: `../BillingCurrencySection.tsx`, `../AGENTS.md`
+- Section shell and parent handoff: `../BasisAndDisplaySection.tsx`, `../AGENTS.md`
 - Stateful costing hooks and save flow: `../../costing/AGENTS.md`
 - Shared normalization and display formatting helpers: `../../settingsPageHelpers.ts`
 - Reporting-currency inputs and summary: `ReportingCurrencyCard.tsx`

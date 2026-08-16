@@ -6,14 +6,14 @@
 ## STRUCTURE
 ```text
 backend/
-├── cmd/prism-backend/          # Go process entrypoint
-├── internal/AGENTS.md           # Backend source ownership router
-├── internal/{platform,gateway,httpapi,domain}/AGENTS.md
-├── internal/{endpointdomain,profiledomain,pgxutil}/
-├── migrations/                 # Fresh-install SQL baseline
-├── testdata/                   # Regression fixtures
-├── tests/AGENTS.md             # Go regression ownership
-└── VERSION
+├── cmd/prism-backend/   # Go process entrypoint
+├── internal/            # Live implementation; `internal/AGENTS.md` routes to every owning package
+├── migrations/          # Fresh-install SQL baseline
+├── testdata/            # Regression fixtures
+├── tests/               # Go regression suites; `tests/AGENTS.md` owns the suite boundaries
+├── go.mod, go.sum
+├── README.md
+└── VERSION              # One of the four version surfaces `../release.sh` keeps aligned
 ```
 
 ## CHILD DOCS

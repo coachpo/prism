@@ -152,18 +152,33 @@ function OperationGroupRow({ group, copy }: { group: OperationGroup; copy: Obser
   );
 }
 
+/**
+ * Non-OpenAI families are not grouped, so their group key is the raw registry
+ * operation name. Those dotted identifiers are internal enum keys and must not
+ * reach the screen — every registered operation carries a localized label.
+ */
+function operationLabel(operationName: string, copy: ObserveCopy): string | null {
+  if (operationName === "anthropic.messages") return copy.routingAnthropicMessagesLabel;
+  if (operationName === "anthropic.count_tokens") return copy.routingAnthropicCountTokensLabel;
+  if (operationName === "gemini.generate_content") return copy.routingGeminiGenerateContentLabel;
+  if (operationName === "gemini.stream_generate_content") return copy.routingGeminiStreamGenerateContentLabel;
+  if (operationName === "gemini.count_tokens") return copy.routingGeminiCountTokensLabel;
+  return null;
+}
+
 function groupLabel(groupKey: string, copy: ObserveCopy): string {
   if (groupKey === "chat_completions") return copy.routingChatLabel;
   if (groupKey === "responses") return copy.routingResponsesLabel;
   if (groupKey === "images") return copy.routingImagesLabel;
-  return groupKey;
+  return operationLabel(groupKey, copy) ?? copy.routingUnknownOperationLabel;
 }
 
 /** Short name used only when a group's members disagree and must be told apart. */
 function memberLabel(operationName: string, copy: ObserveCopy): string {
   if (operationName === "openai.images.generations") return copy.imagesGenerations;
   if (operationName === "openai.images.edits") return copy.imagesEdits;
-  return operationName.replace(/^openai\./, "");
+  if (operationName.startsWith("openai.")) return operationName.slice("openai.".length);
+  return operationLabel(operationName, copy) ?? copy.routingUnknownOperationLabel;
 }
 
 function modeLabel(mode: string, copy: ObserveCopy): string {

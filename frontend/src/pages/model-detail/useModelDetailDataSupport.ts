@@ -90,6 +90,13 @@ export function buildConnectionDraftPayload({
         ? endpointSourceDefaultName
         : null;
 
+  // The backend accepts a positive integer or nothing at all; 0 is rejected
+  // there and would otherwise reach the operator as an untranslated 422 detail.
+  const limiterError = firstInvalidLimiterMessage(connectionForm);
+  if (limiterError) {
+    return { errorMessage: limiterError, payload: null };
+  }
+
   const resolvedApiFamily = apiFamily ?? connectionForm.api_family;
   const payload: ConnectionCreate = {
     api_family: resolvedApiFamily,
@@ -166,6 +173,29 @@ function normalizeLimiterField(value: number | null | undefined): number | null 
   }
 
   return value;
+}
+
+/**
+ * The three limiter columns are "leave empty for no limit, otherwise a positive
+ * integer". Zero is not a third option: the runtime only enforces a limit that
+ * is greater than zero, so a stored 0 would read as a throttle on screen while
+ * imposing nothing. The dialog names the offending field rather than letting the
+ * backend answer with an untranslated 422.
+ */
+function firstInvalidLimiterMessage(connectionForm: ConnectionDialogFormLike): string | null {
+  const messages = getStaticMessages();
+  const fields: Array<{ value: number | null | undefined; label: string }> = [
+    { value: connectionForm.qps_limit, label: messages.modelDetail.qpsLimit },
+    { value: connectionForm.max_in_flight_non_stream, label: messages.modelDetail.maxInFlightNonStream },
+    { value: connectionForm.max_in_flight_stream, label: messages.modelDetail.maxInFlightStream },
+  ];
+  for (const field of fields) {
+    const normalized = normalizeLimiterField(field.value);
+    if (normalized !== null && normalized < 1) {
+      return messages.modelDetailData.limiterMustBePositive(field.label);
+    }
+  }
+  return null;
 }
 
 export function resequenceConnections(connections: Connection[]): Connection[] {

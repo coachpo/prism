@@ -20,7 +20,15 @@ const (
 	DispositionNoEligibleLeaf    = "no_eligible_leaf"
 	DispositionTruncatedBySingle = "truncated_by_single"
 	DispositionStructuralError   = "structural_error"
+	DispositionCycle             = "cycle"
+	DispositionDepthExceeded     = "depth_exceeded"
 )
+
+// diagnosticsMaxModelDepth bounds the Model Target chain this analyzer will
+// walk. The runtime resolver carries the same bound; a graph that exceeds it
+// cannot be routed either way, and without a bound a cycle reaches the analyzer
+// as a Go stack overflow, which is fatal rather than recoverable.
+const diagnosticsMaxModelDepth = 32
 
 // Operation group statuses used by the compact model-list summary.
 const (
@@ -177,7 +185,7 @@ func Analyze(graph *DiagnosticsGraph, rootModelConfigID int, acceptedOperations 
 			result.OperationCoverage = append(result.OperationCoverage, coverage)
 			continue
 		}
-		modelCandidate, modelLeaves, modelCompatibleRows := stageCandidateForOperation(graph, root, &modelStage, rootStrategy, trimmed)
+		modelCandidate, modelLeaves, modelCompatibleRows := stageCandidateForOperation(graph, root, &modelStage, rootStrategy, trimmed, newModelWalk(root.ConfigID))
 		if modelCandidate {
 			coverage.CapabilityCovered = true
 			coverage.StaticallyRoutable = true
@@ -188,7 +196,7 @@ func Analyze(graph *DiagnosticsGraph, rootModelConfigID int, acceptedOperations 
 			result.OperationCoverage = append(result.OperationCoverage, coverage)
 			continue
 		}
-		terminalCandidate, terminalRows, terminalCompatibleRows := stageCandidateForOperation(graph, root, &terminalStage, rootStrategy, trimmed)
+		terminalCandidate, terminalRows, terminalCompatibleRows := stageCandidateForOperation(graph, root, &terminalStage, rootStrategy, trimmed, newModelWalk(root.ConfigID))
 		coverage.CapabilityCovered = terminalCandidate || len(modelCompatibleRows) > 0 || len(terminalCompatibleRows) > 0 || graphHasCompatibleLeafForOperation(graph, root, trimmed)
 		coverage.CompatibleAccessTargetIDs = sortedUniqueInts(append(append([]int(nil), modelCompatibleRows...), terminalCompatibleRows...))
 		if terminalCandidate {
@@ -243,10 +251,28 @@ func acceptedOperationsForTerminalCoverage(root DiagnosticsModel, operationList 
 	return OpenAIAcceptedOperationSetForDimensions(root.OpenAIAcceptedFormat, root.OpenAIImageOperations)
 }
 
+// modelEnabledStrategyIndexes numbers the model's enabled access targets in one
+// sequence over the authored mixed list. Model Target and Terminal Target rows
+// are type-neutral peers to the strategy, so the index a row carries has to come
+// from that single ordering — numbering each stage from zero would make index 0
+// mean "first of its type", which is not what any strategy acts on.
+func modelEnabledStrategyIndexes(graph *DiagnosticsGraph, root DiagnosticsModel) map[int]int {
+	indexes := map[int]int{}
+	next := 0
+	for _, target := range sortedDiagnosticsAccessTargets(graph.AccessTargetsBySourceModelID[root.ConfigID]) {
+		if !target.IsEnabled {
+			continue
+		}
+		indexes[target.ID] = next
+		next++
+	}
+	return indexes
+}
+
 func buildStage(graph *DiagnosticsGraph, root DiagnosticsModel, stage string, order int, enteredWhen string, targetType string) DiagnosticsStage {
 	built := DiagnosticsStage{Stage: stage, Order: order, EnteredWhen: enteredWhen, Targets: []DiagnosticsTarget{}}
 	authored := sortedDiagnosticsAccessTargets(graph.AccessTargetsBySourceModelID[root.ConfigID])
-	enabledIndex := 0
+	enabledIndexes := modelEnabledStrategyIndexes(graph, root)
 	stageRows := make([]DiagnosticsAccessTarget, 0, len(authored))
 	for _, target := range authored {
 		if IsTargetTypeForStage(target.TargetType, targetType) {
@@ -258,9 +284,8 @@ func buildStage(graph *DiagnosticsGraph, root DiagnosticsModel, stage string, or
 			AccessTargetID:        target.ID,
 			AuthoredStagePosition: index,
 		}
-		if target.IsEnabled {
+		if enabledIndex, ok := enabledIndexes[target.ID]; ok {
 			row.EnabledStrategyIndex = intPointerCopy(enabledIndex)
-			enabledIndex++
 		}
 		if IsModelTargetType(target.TargetType) {
 			row.TargetModelConfigID = cloneIntPointer(target.TargetModelConfigID)
@@ -306,14 +331,14 @@ func IsTargetTypeForStage(targetType string, stageType string) bool {
 // per-target operation results in place. It returns whether the stage produced
 // a candidate, the resolved terminal leaf connection ids, and the ids of rows
 // whose subtree/leaf is capability-compatible (ignoring enable/active).
-func stageCandidateForOperation(graph *DiagnosticsGraph, root DiagnosticsModel, stage *DiagnosticsStage, strategy DiagnosticsStrategy, operation string) (bool, []int, []int) {
+func stageCandidateForOperation(graph *DiagnosticsGraph, root DiagnosticsModel, stage *DiagnosticsStage, strategy DiagnosticsStrategy, operation string, walk modelWalk) (bool, []int, []int) {
 	candidate := false
 	leaves := []int{}
 	compatibleRows := []int{}
-	strategyConsiders := stageStrategyConsideredRows(stage.Targets, strategy)
+	strategyConsiders := strategyConsideredRows(graph, root, strategy)
 	for index := range stage.Targets {
 		row := &stage.Targets[index]
-		disposition, rowLeaves := resolveRowForOperation(graph, root, stage.Stage, *row, strategyConsiders[row.AccessTargetID], operation)
+		disposition, rowLeaves := resolveRowForOperation(graph, root, stage.Stage, *row, strategyConsiders[row.AccessTargetID], operation, walk)
 		if len(rowLeaves) > 0 {
 			leaves = append(leaves, rowLeaves...)
 		}
@@ -343,14 +368,14 @@ func stageCandidateForOperation(graph *DiagnosticsGraph, root DiagnosticsModel, 
 	return candidate, leaves, sortedUniqueInts(compatibleRows)
 }
 
-func stageStrategyConsideredRows(targets []DiagnosticsTarget, strategy DiagnosticsStrategy) map[int]bool {
+// strategyConsideredRows decides which of the model's enabled access targets the
+// strategy actually acts on. `single` keeps the first row of the authored mixed
+// list and nothing else — the runtime truncates that one sequence, so counting
+// per stage here would keep one Model Target and one Terminal Target and report
+// a route the runtime will never take.
+func strategyConsideredRows(graph *DiagnosticsGraph, root DiagnosticsModel, strategy DiagnosticsStrategy) map[int]bool {
 	considered := map[int]bool{}
-	enabledIDs := make([]int, 0, len(targets))
-	for _, row := range targets {
-		if row.EnabledStrategyIndex != nil {
-			enabledIDs = append(enabledIDs, row.AccessTargetID)
-		}
-	}
+	enabledIDs := enabledAccessTargetIDsInAuthoredOrder(graph, root)
 	if strings.EqualFold(strings.TrimSpace(strategy.Subtype), "single") && len(enabledIDs) > 1 {
 		for index, id := range enabledIDs {
 			considered[id] = index == 0
@@ -363,7 +388,40 @@ func stageStrategyConsideredRows(targets []DiagnosticsTarget, strategy Diagnosti
 	return considered
 }
 
-func resolveRowForOperation(graph *DiagnosticsGraph, root DiagnosticsModel, stage string, row DiagnosticsTarget, considered bool, operation string) (string, []int) {
+func enabledAccessTargetIDsInAuthoredOrder(graph *DiagnosticsGraph, root DiagnosticsModel) []int {
+	enabledIDs := []int{}
+	for _, target := range sortedDiagnosticsAccessTargets(graph.AccessTargetsBySourceModelID[root.ConfigID]) {
+		if target.IsEnabled {
+			enabledIDs = append(enabledIDs, target.ID)
+		}
+	}
+	return enabledIDs
+}
+
+// modelWalk carries the Model Target chain already entered on this branch. It
+// exists so a cycle and an over-deep chain stay distinguishable: both terminate
+// the walk, but only one of them is a graph the operator can fix by shortening.
+type modelWalk struct {
+	depth   int
+	visited map[int]bool
+}
+
+// newModelWalk seeds the walk with the model the analysis started from, so an
+// edge pointing back at the root is a cycle like any other.
+func newModelWalk(rootModelConfigID int) modelWalk {
+	return modelWalk{depth: 0, visited: map[int]bool{rootModelConfigID: true}}
+}
+
+func (w modelWalk) enter(modelConfigID int) modelWalk {
+	next := modelWalk{depth: w.depth + 1, visited: make(map[int]bool, len(w.visited)+1)}
+	for id := range w.visited {
+		next.visited[id] = true
+	}
+	next.visited[modelConfigID] = true
+	return next
+}
+
+func resolveRowForOperation(graph *DiagnosticsGraph, root DiagnosticsModel, stage string, row DiagnosticsTarget, considered bool, operation string, walk modelWalk) (string, []int) {
 	if row.EnabledStrategyIndex == nil {
 		return DispositionDisabled, nil
 	}
@@ -371,12 +429,12 @@ func resolveRowForOperation(graph *DiagnosticsGraph, root DiagnosticsModel, stag
 		return DispositionTruncatedBySingle, nil
 	}
 	if stage == StageModelTargets {
-		return resolveModelRowForOperation(graph, root, row, operation)
+		return resolveModelRowForOperation(graph, root, row, operation, walk)
 	}
 	return resolveTerminalRowForOperation(graph, root, row, operation)
 }
 
-func resolveModelRowForOperation(graph *DiagnosticsGraph, root DiagnosticsModel, row DiagnosticsTarget, operation string) (string, []int) {
+func resolveModelRowForOperation(graph *DiagnosticsGraph, root DiagnosticsModel, row DiagnosticsTarget, operation string, walk modelWalk) (string, []int) {
 	if row.TargetModelConfigID == nil {
 		return DispositionStructuralError, nil
 	}
@@ -390,14 +448,25 @@ func resolveModelRowForOperation(graph *DiagnosticsGraph, root DiagnosticsModel,
 	if !child.IsEnabled {
 		return DispositionNoEligibleLeaf, nil
 	}
+	// Write-time validation keeps the stored graph acyclic, but this analyzer
+	// runs on whatever the database holds — including a graph that arrived
+	// around that validation. An unguarded walk would meet a cycle as a Go
+	// stack overflow, which no recover can catch.
+	if walk.visited[child.ConfigID] {
+		return DispositionCycle, nil
+	}
+	if walk.depth >= diagnosticsMaxModelDepth {
+		return DispositionDepthExceeded, nil
+	}
+	childWalk := walk.enter(child.ConfigID)
 	childStrategy := graph.strategyForModel(child)
 	childModelStage := buildStage(graph, child, StageModelTargets, 1, "always", TargetTypeModel)
 	childTerminalStage := buildStage(graph, child, StageTerminalTargets, 2, "model_targets_has_no_eligible_candidate", TargetTypeTerminal)
-	childModelCandidate, childModelLeaves, _ := stageCandidateForOperation(graph, child, &childModelStage, childStrategy, operation)
+	childModelCandidate, childModelLeaves, _ := stageCandidateForOperation(graph, child, &childModelStage, childStrategy, operation, childWalk)
 	if childModelCandidate {
 		return DispositionCandidate, childModelLeaves
 	}
-	childTerminalCandidate, childTerminalLeaves, _ := stageCandidateForOperation(graph, child, &childTerminalStage, childStrategy, operation)
+	childTerminalCandidate, childTerminalLeaves, _ := stageCandidateForOperation(graph, child, &childTerminalStage, childStrategy, operation, childWalk)
 	if childTerminalCandidate {
 		return DispositionCandidate, childTerminalLeaves
 	}

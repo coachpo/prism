@@ -6,12 +6,19 @@
 ## STRUCTURE
 ```text
 app-layout/
-├── AppSidebar.tsx              # Sidebar navigation and user footer composition
-├── NavUser.tsx                 # Footer user menu, version label, theme/logout actions
-├── SiteHeader.tsx              # Shell header chrome, sidebar trigger, and breadcrumbs
+├── AppSidebar.tsx              # Sidebar navigation and footer composition
+├── SidebarFooterStatus.tsx     # Sidebar footer auth/status strip
+├── SiteHeader.tsx              # Shell header chrome, sidebar trigger, breadcrumbs, version label
+├── HeaderAccountMenu.tsx       # Header account menu: username and logout action
+├── GlobalSearch.tsx            # Header global search over the sidebar item set
+├── DensityToggle.tsx           # Operator density switch rendered in the shell
+├── densityMode.ts              # Density read/write/apply helpers and `prism.density.v1` storage key
+├── BreadcrumbEntityProvider.tsx # Provider for the route-published breadcrumb entity label
+├── breadcrumbEntity.ts         # Breadcrumb entity contexts plus publish/read hooks
 ├── useAppLayoutState.ts        # Shell composition over auth and sidebar state
 ├── useShellNavigation.ts       # Nav links, route matching, breadcrumbs, and version label
-└── sidebarPersistence.ts       # Sidebar collapsed-state localStorage helpers
+├── sidebarPersistence.ts       # Sidebar collapsed-state localStorage helpers
+└── *.test.ts                   # Shell navigation coverage
 ```
 
 ## WHERE TO LOOK
@@ -20,8 +27,11 @@ app-layout/
 - Sidebar links, route matching, breadcrumbs, and visible version label: `useShellNavigation.ts`
 - Auth composition, sidebar state, and logout flow: `useAppLayoutState.ts`
 - Sidebar collapsed-state persistence helpers: `sidebarPersistence.ts`
-- Shell footer user actions, theme/logout controls, and version label ownership: `NavUser.tsx`
-- Shell header chrome and breadcrumb presentation: `SiteHeader.tsx`
+- Account menu and logout control: `HeaderAccountMenu.tsx`; sidebar footer status strip: `SidebarFooterStatus.tsx`
+- Shell header chrome, breadcrumb presentation, and the visible version label: `SiteHeader.tsx`
+- Breadcrumb entity published by a route and read by the header: `breadcrumbEntity.ts`, `BreadcrumbEntityProvider.tsx`
+- Operator density switch and its persistence: `DensityToggle.tsx`, `densityMode.ts`
+- Header global search over sidebar items: `GlobalSearch.tsx`
 
 ## CONVENTIONS
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
@@ -31,7 +41,7 @@ app-layout/
 - Keep `page.tsx` thin. State composition belongs in `useAppLayoutState.ts`.
 - Keep navigation, route matching, breadcrumbs, and version-label formatting in `useShellNavigation.ts`.
 - Use `useAuth()` through `useAppLayoutState.ts`; route shells should not duplicate shell bootstrap logic.
-- Keep footer preferences, logout, and version-label concerns in `NavUser.tsx`.
+- Keep logout in `HeaderAccountMenu.tsx` and version-label formatting in `useShellNavigation.ts`; the shell footer carries status only.
 - Keep the shell limited to the mounted `page.tsx` wrapper and retained seams above.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.

@@ -6,11 +6,15 @@
 ## STRUCTURE
 ```text
 startup/
-├── service.go    # Startup orchestration entrypoint
-├── seeds.go      # Database seed rows and default product state
+├── service.go    # Startup orchestration entrypoint and step sequencing
+├── seeds.go      # Database seed rows, default product state, endpoint secret normalization
 ├── profiles.go   # Default profile creation and invariants
 ├── defaults.go   # Canonical default values
-├── crypto.go     # Secret normalization/encryption helpers
+├── strategies.go             # Canonical loadbalance strategy defaults
+├── audit_settings_seed.go    # Per-profile audit settings seed
+├── retention_coverage_seed.go # Retention coverage resource seed
+├── settings_v2_cutover.go    # Settings v2 cutover step
+├── settings_schema_finalizer.go  # Settings schema finalization run under the startup connection
 ├── observability_v2_upgrade.go   # v2 upgrade state machine (v1_drained → backfill_ready)
 ├── runtime_telemetry_v1_drain.go # Exclusive offline v1 outbox drain (scrub/cap/split, orphan tombstones)
 ├── request_audit_v2_backfill.go  # Three-domain backfill owner (request_urls/request_metadata/audit_headers_urls)
@@ -22,7 +26,7 @@ startup/
 - Canonical product-state seeds: `seeds.go`
 - Default profile id `1` invariants: `profiles.go`
 - Fresh bootstrap defaults and startup constants: `defaults.go`
-- Secret normalization boundaries: `crypto.go`
+- Secret normalization boundaries: `seeds.go` (`normalizeEndpointSecrets`); the encrypt/decrypt/fingerprint primitives it calls live in `../../endpointdomain/`
 - Integration coverage: `../../../tests/integration/startup_test.go`, `../../../tests/integration/launcher_startup_contract_test.go`
 
 ## CONVENTIONS

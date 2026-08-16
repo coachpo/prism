@@ -10,17 +10,17 @@
 
 ## DOMAINS
 - Auth entry: `LoginPage.tsx`
-- Feature oracle clusters: dashboard, model detail, endpoints, models, pricing templates, request logs, settings, and statistics helpers still imported by current rewrite feature modules or contract tests
+- Feature oracle clusters: model detail, endpoints, models, pricing templates, request logs, and settings helpers still imported by current rewrite feature modules or contract tests. The dashboard and statistics clusters were deleted; `../features/observe/` owns those surfaces now.
 - Settings shell oracle: `SettingsPage.tsx` with visible Global and Instance tabs, plus `settings/sections/`, `settings/dialogs/`, and `settings/costing/`.
 
 ## WHERE TO LOOK
 - Mounted rewrite route list, public auth split, and protected shell boundary: `../app/router/appRouter.tsx`, `../App.tsx`
-- Dashboard, model detail, request logs, settings, and dashboard-owned statistics leaf maps: `dashboard/AGENTS.md`, `model-detail/AGENTS.md`, `request-logs/AGENTS.md`, `settings/AGENTS.md`, `statistics/AGENTS.md`
+- Model detail, request logs, and settings leaf maps: `model-detail/AGENTS.md`, `request-logs/AGENTS.md`, `settings/AGENTS.md`
+- Dashboard and analytics surfaces are not here; they live in `../features/observe/` under `../features/AGENTS.md`
 - Active feature-route ownership and leaves: `../features/AGENTS.md`
 - Settings nested ownership split: `settings/sections/AGENTS.md`, `settings/sections/authentication/AGENTS.md`, `settings/sections/billing-currency/AGENTS.md`, `settings/dialogs/AGENTS.md`, `settings/costing/AGENTS.md`
 
 ## CHILD DOCS
-- `dashboard/AGENTS.md`
 - `endpoints/AGENTS.md`
 - `loadbalance-strategies/AGENTS.md`
 - `model-detail/AGENTS.md`
@@ -34,7 +34,6 @@
 - `settings/sections/AGENTS.md`
 - `settings/sections/authentication/AGENTS.md`
 - `settings/sections/billing-currency/AGENTS.md`
-- `statistics/AGENTS.md`
 
 ## CONVENTIONS
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.

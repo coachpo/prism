@@ -7,6 +7,7 @@
 ```text
 integration/
 ├── harness.go                              # Shared integration database/process helpers
+├── testdata/                               # Golden dumps and integration fixtures
 ├── startup_test.go                         # Startup config, seeding, bootstrap preservation
 ├── launcher_startup_contract_test.go       # Root launcher and local bootstrap contract
 ├── migrations_test.go                      # Fresh-install baseline and schema-history guards

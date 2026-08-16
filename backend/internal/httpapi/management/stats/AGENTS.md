@@ -6,14 +6,18 @@
 ## STRUCTURE
 ```text
 stats/
-└── service.go    # Service construction, route mounting, snapshots, handlers, parsers, invalidation handler
+├── service.go                   # Service construction, route mounting, snapshots, parsers, invalidation handler
+├── observe_handlers.go          # Query-context issuing/resolution, usage summary/series, dashboard-now, retention floor
+└── observe_endpoint_handlers.go # Endpoint Terminal Target statistics and the Observe activity feed
 ```
 
 ## WHERE TO LOOK
 - Route list and mount contract: `service.go`
 - Dashboard aggregate snapshot reads plus side-effect invalidation handler: `service.go`, `../../../domain/stats/`
 - Dashboard recent activity and request-log list/detail routes: `service.go`, `../../../domain/stats/`
-- Summary, spending, throughput, model metrics, usage snapshot, and endpoint model statistics: `service.go`
+- Spending, throughput, model metrics, and usage snapshot: `service.go`
+- Observe query contexts, usage summary/series, and dashboard-now: `observe_handlers.go`
+- Endpoint Terminal Target statistics and the Observe activity feed: `observe_endpoint_handlers.go`
 - Invalidation event source outside the public stats routes: `../../../platform/managementsideeffects/`, `../../../platform/http/runtime_cache_invalidation.go`
 
 ## CONVENTIONS

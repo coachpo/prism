@@ -10,6 +10,7 @@ settings/
 ├── service.go          # Service wiring, CORS snapshot, jobs store
 ├── problems.go         # Flat problem envelope + code registry (Settings SPEC §4.1)
 ├── types_v2.go         # Target DTOs (retention settings/preflight/jobs/audit)
+├── types.go            # Costing, timezone, retention, and audit request/response DTOs
 ├── retention_service.go# log-retention GET/PUT CAS, destructive classifier, preflight,
 │                       #   manual job acceptance, owner-drift lineage/archive
 ├── audit_service.go    # Three-state audit policy CAS + storage summary

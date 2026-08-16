@@ -4,7 +4,7 @@
 `pages/model-detail/` keeps model-detail helpers still imported by `src/features/models/detail/`. The feature route owns page composition, mixed access-target editing, Terminal Target dialogs, and runtime-state rendering.
 
 ## UX-UPGRADE SURFACES
-- `AccessTargetsEditor.tsx` renders one mixed Model Target/Terminal Target list with global numbering; runtime order is shared across both target kinds.
+- `../models/AccessTargetsEditor.tsx` renders one mixed Model Target/Terminal Target list with global numbering; runtime order is shared across both target kinds.
 - `ConnectionDialog.tsx` keeps OpenAI Terminal Target capability equal to the owner model mode and lets "从已有终端目标填充" prefill a draft that saves as an independent private Connection.
 - Dead `?tab=` state is normalized away at the router; `action=create-terminal-target` (+ `endpoint_id`) and `focus_connection_id` are one-shot parameters consumed exactly once.
 
@@ -25,7 +25,8 @@ model-detail/
 ├── useModelDetailDataSupport.ts
 ├── useModelDetailDialogState.ts
 ├── useModelDetailModelForm.ts
-└── useModelLoadbalanceCurrentState.ts
+├── useModelLoadbalanceCurrentState.ts
+└── *.test.ts                            # Row-mutation, coverage-classification, and current-state coverage
 ```
 
 ## WHERE TO LOOK
@@ -35,7 +36,7 @@ model-detail/
 - Custom request parameters editor, client-side parser/validator mirroring the backend limits, and server 422 field mapping: `ConnectionCustomRequestParametersEditor.tsx`, `customRequestParameters.ts`, `useModelDetailConnectionMutations.ts`
 - Mixed access-target editor rendering and shared-order mutations: `../models/AccessTargetsEditor.tsx`
 - Default forms, access-target summary (single enabled authored-order first row), and model list patching helpers: `useModelDetailDataSupport.ts`, `useModelDetailModelForm.ts`
-- Spending-summary loading: `useModelDetailBootstrap.ts`, `OverviewCards.tsx`
+- Spending-summary loading: `useModelDetailBootstrap.ts`, `ModelCostCards.tsx`
 - Retained Ban Policy current-state fetch/reset hook: `useModelLoadbalanceCurrentState.ts`
 - Shared latency and connection-label formatting: `modelDetailMetricsAndPaths.ts`
 

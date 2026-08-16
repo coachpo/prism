@@ -13,23 +13,36 @@ request-logs/
 ├── useRequestLogChain.ts        # Retained ingress chain fetch for the detail sheet
 ├── requestLogSavedViews.ts      # Versioned saved canonical views (localStorage)
 ├── requestLogColumnPreferences.ts # Versioned column-visibility preferences (localStorage)
+├── RequestLogAuditPage.tsx      # Dedicated full audit page
 ├── useDedicatedRequestLogAudit.ts # Dedicated full audit page detail lookup
+├── requestLogAuditRoute.ts      # Audit-page id parsing and path building
 ├── requestLogAuditWindow.ts     # Dedicated audit lookup window helper
+├── RequestLogAuditWindowBar.tsx # Permanent disclosure of the frontend-chosen audit query bound
+├── AuditCaptureLedger.tsx       # Bytes seen, kept, and dropped with the reason capture stopped
 ├── requestLogAuditState.ts      # Audit capture mode and request-detail audit state helpers
 ├── streamTelemetry.ts           # Stream-outcome, TTFT, and rate helpers for request-log views
 ├── columns.tsx                  # Table column definitions (nine core + pricing state) and scoped status/duration helpers
+├── RequestLogsViewToolbar.tsx   # View switcher plus the controls both views share (columns, page size, export)
 ├── FiltersBar.tsx               # UI shell for retained browse filters plus refresh/clear actions
 ├── FiltersBar.constants.ts      # Filter option constants and shared filter presentation helpers
 ├── FiltersBarPrimaryFilters.tsx # Retained filter row composition (pricing_status four-state)
-├── RequestLogsTable.tsx         # Adaptive-height virtualized log list with server chain cursors
+├── ActiveFilterChips.tsx        # Every filter actually in effect, as closable chips
+├── RequestLogsTable.tsx         # Adaptive-height virtualized attempt list with server chain cursors
+├── IngressChainsTable.tsx       # Default server-side retained ingress-chain view
 ├── requestLogsCsv.ts            # Server-side full filtered CSV download helper
 ├── RequestLogDetailSheet.tsx    # Overview-only request inspection drawer, retained-chain section, clipboard fallback root
 ├── RequestFocusBanner.tsx       # Exact-request mode banner and exit action
-└── detail/                      # Parent-covered overview, payload, and shared detail helpers
-    ├── sseFraming.ts            # SSE framing (LF/CRLF/CR-only, BOM, multi-line data, [DONE], incomplete tails)
-    ├── streamTranscript.ts      # Operation-aware stream accumulation with tool calls/results
-    ├── payloadDocumentViewModel.ts # Content-aware payload views (消息/JSON 事件/原始 SSE/JSON/原始文本/不可解析)
-    └── payloadViewLabels.ts     # View-label mapping
+├── detail/                      # Parent-covered overview, payload, and shared detail helpers
+│   ├── RequestLogOverviewTab.tsx   # Overview tab: routing, timing, usage, spend
+│   ├── RequestLogPayloadBlock.tsx  # Payload viewer block with the content-aware view switch
+│   ├── requestLogPayloadDocuments.ts # Payload document model shared by the viewer
+│   ├── payloadDocumentViewModel.ts # Content-aware payload views (消息/JSON 事件/原始 SSE/JSON/原始文本/不可解析)
+│   ├── payloadViewLabels.ts     # View-label mapping
+│   ├── sseFraming.ts            # SSE framing (LF/CRLF/CR-only, BOM, multi-line data, [DONE], incomplete tails)
+│   ├── streamTranscript.ts      # Operation-aware stream accumulation with tool calls/results
+│   ├── requestLogDetailShared.tsx  # Shared detail rows, stats, section cards, API-family pill
+│   └── requestLogDetailUtils.ts # Status intent/tone and detail copy helpers
+└── *.test.ts(x)                 # Saved views, preferences, audit route, and audit lookup coverage
 ```
 
 ## WHERE TO LOOK

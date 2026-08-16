@@ -11,6 +11,7 @@ safediag/
 ├── urls.go          # request_url / endpoint_base_url scrubbing with provenance
 ├── extract.go       # Provider JSON error envelope extraction + stable fallback codes
 ├── codes.go         # Stable error-code grammar and fallback helpers
+├── metadata.go      # Schema-versioned external metadata-field enum, per-field caps, value scrubbing
 ├── limits.go        # Fixed byte/codepoint caps (4 KiB error detail, etc.)
 └── *_test.go        # Table-driven unit tests
 ```

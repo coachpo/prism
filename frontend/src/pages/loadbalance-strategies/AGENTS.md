@@ -7,7 +7,9 @@
 ```text
 loadbalance-strategies/
 ├── DeleteLoadbalanceStrategyDialog.tsx # Delete confirmation and dependency handling
-└── LoadbalanceStrategiesTable.tsx      # Table rendering and row actions
+├── LoadbalanceStrategiesTable.tsx      # Table rendering and row actions
+├── StrategyPreviewTimeline.tsx         # Retry/backoff preview rendered as a timeline
+└── strategyValueBadges.tsx             # Duration and retry badges in reading units, not raw milliseconds
 ```
 
 ## WHERE TO LOOK

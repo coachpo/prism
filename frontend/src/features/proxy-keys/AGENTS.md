@@ -10,8 +10,9 @@ proxy-keys/
 ├── useProxyKeysFeatureData.ts     # Ledger query, mutations, capacity reconciliation, session dispatch
 ├── generatedSecretSession.ts      # Mutation-owned unacknowledged session reducer (idle/unacknowledged/closing_confirm)
 ├── ProxyKeySecretDialog.tsx       # One-time-secret access panel with ack gate and closing-confirm state
-└── (shared runtime-self-test lives in features/runtime-self-test/)
+└── useProxyKeyUsage.ts            # Per-key 7-day counts for the ledger column, with its own failure state
 ```
+The shared runtime self-test is not here; it lives in `../runtime-self-test/`.
 
 ## CONVENTIONS
 - The raw key exists only in the create/rotate response and the unacknowledged in-memory session; it never enters query cache, URL, storage, logs, or error reporting. Mutation-owned response data is reset after dispatch.

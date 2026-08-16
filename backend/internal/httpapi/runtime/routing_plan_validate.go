@@ -127,7 +127,6 @@ func validateRuntimeRoutingPlanTargets(plan *runtimeRoutingPlan, issues []runtim
 			issues = appendRuntimeRoutingPlanValidationIssue(issues, "targets_not_sorted", path+".ordered_enabled_targets", fmt.Sprintf("model %q ordered targets are not sorted", compiled.Model.ModelID))
 		}
 	}
-	issues = validateRuntimeRoutingPlanFallbackTargets(issues, path, compiled)
 	issues = validateRuntimeRoutingPlanTerminalTargets(issues, path, compiled)
 	return issues
 }
@@ -168,18 +167,6 @@ func validateRuntimeRoutingPlanModelTargetIssues(_ *runtimeRoutingPlan, issues [
 	}
 	if strings.TrimSpace(target.TargetModelID) == "" {
 		issues = appendRuntimeRoutingPlanValidationIssue(issues, "model_target_id_empty", path+".target_model_id", fmt.Sprintf("model %q target %d has an empty target_model_id", compiled.Model.ModelID, target.ID))
-	}
-	return issues
-}
-
-func validateRuntimeRoutingPlanFallbackTargets(issues []runtimeRoutingPlanValidationIssue, path string, compiled runtimeRoutingPlanModel) []runtimeRoutingPlanValidationIssue {
-	if len(compiled.OrderedFallbackTargets) != len(compiled.OrderedEnabledTargets) {
-		return appendRuntimeRoutingPlanValidationIssue(issues, "fallback_target_count_mismatch", path+".ordered_fallback_targets", fmt.Sprintf("model %q fallback target count differs from ordered target count", compiled.Model.ModelID))
-	}
-	for index := range compiled.OrderedFallbackTargets {
-		if compiled.OrderedFallbackTargets[index] != compiled.OrderedEnabledTargets[index] {
-			issues = appendRuntimeRoutingPlanValidationIssue(issues, "fallback_target_mismatch", fmt.Sprintf("%s.ordered_fallback_targets[%d]", path, index), fmt.Sprintf("model %q fallback target %d does not match ordered enabled target", compiled.Model.ModelID, index))
-		}
 	}
 	return issues
 }

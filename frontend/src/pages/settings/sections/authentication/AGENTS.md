@@ -6,18 +6,16 @@
 ## STRUCTURE
 ```
 authentication/
-├── AuthenticationStatusCard.tsx
-├── AuthenticationSetupGrid.tsx
-├── AuthenticationFieldShell.tsx
-├── OperatorEmailCard.tsx
-└── types.ts
+├── OperatorAccountFields.tsx   # Operator account username, password, and field composition
+├── AuthenticationFieldShell.tsx # Shared field framing for operator-account inputs
+└── types.ts                    # Shared auth-section props
 ```
 
 ## WHERE TO LOOK
 
-- Authentication status and setup composition: `AuthenticationStatusCard.tsx`, `AuthenticationSetupGrid.tsx`
+- Authentication status and setup composition: `../AuthenticationSection.tsx` (the parent section owns the card and the save action)
 - Shared field framing for operator-account inputs: `AuthenticationFieldShell.tsx`
-- Operator account username, password, and save controls: `OperatorEmailCard.tsx`
+- Operator account username and password fields: `OperatorAccountFields.tsx`
 - Shared auth-section types: `types.ts`
 - E2E seam for auth session lifecycle and protected-shell auth behavior: `../../../../../tests/e2e/auth-session-lifecycle.spec.ts`
 

@@ -6,20 +6,32 @@
 ## STRUCTURE
 ```text
 stats/
+├── common.go                     # Package-internal query executor, shared records, time/percentile/label helpers
+├── classifier.go                 # Canonical outcome and pricing-status classifier reused by every read model
 ├── aggregates.go                 # Shared aggregate buckets and cost/usage helpers
-├── dashboard_health.go            # Dashboard freshness/coverage helper types
+├── types.go                      # JSON-facing read-model types
+├── dashboard_health.go           # Dashboard freshness/coverage helper types
 ├── dashboard_snapshot_builder.go # Overview dashboard aggregate snapshot
 ├── dashboard_recent_activity.go  # Bounded request-history activity feed
+├── observe_models.go             # Usage summary, report-currency preferences, dashboard-now aggregates
+├── observe_series.go             # Usage series, interval resolution, Top N + Other breakdowns
+├── observe_errors.go             # Usage errors summary/timeline/ranking with canonical deep-link filters
+├── observe_activity.go           # Finalized ingress activity feed (never rebuilt from attempt rows)
+├── observe_usage_summary_segments.go # Window-scoped cost-segment CTE fragment for the summary statement
+├── observe_query.go              # Query-context signing/verification and coverage resolution
+├── query_coverage.go             # Non-null Requests/Audit coverage union
 ├── request_logs.go               # Attempt-view list projections, scoped filters, and v2 slim rows
 ├── request_logs_chain.go         # Retained ingress-chain view: finalized summaries, cohort filters, signed cursors
 ├── request_logs_export.go        # Server-side full filtered CSV export (RR snapshot, bounds, digest)
 ├── request_logs_detail_v2.go     # Exact v2 detail: scoped statuses, failure projection, pricing layers
 ├── cost_segments.go              # Canonical cost-segment catalogue (e.N / l.AAA / l.__unknown__)
+├── cost_segment_cursor.go        # Signed cost-segment cursor payload and signing-key derivation
+├── cost_segment_symbols.go       # Bounded offset page of observed symbols per cost segment
 ├── snapshot.go                   # Usage snapshots
+├── terminal_targets.go           # Bounded Terminal Target drill-down statistics
+├── proxy_api_key_options.go      # Bounded proxy-key filter-option union
 ├── retention_source.go           # Retention source and actual-coverage owner projection
-├── observe_query.go              # Query-context signing/verification and coverage resolution
-├── query_coverage.go             # Non-null Requests/Audit coverage union
-└── types.go                      # JSON-facing read-model types
+└── *_test.go                     # Classifier, snapshot, cursor, and coverage coverage
 ```
 
 ## WHERE TO LOOK

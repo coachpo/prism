@@ -16,7 +16,7 @@ openai/
 - Supported OpenAI text operations and native upstream paths: `adapter.go`
 - Image audit-body redaction for both the JSON and event-stream shapes: `images.go`
 - Native response usage extraction and overflow classification: `response.go`
-- Runtime native-compatibility planning and hook coverage: `../../../httpapi/runtime/operation_translation.go`, `../../../httpapi/runtime/operation_response_hooks_test.go`, `../../../httpapi/runtime/operation_stream_hooks_test.go`
+- Runtime native-compatibility planning and hook coverage: `../../../httpapi/runtime/operation_translation.go`, `../../../httpapi/runtime/operation_response_hooks_test.go`, `../../../httpapi/runtime/operation_hook_residency_test.go`
 
 ## CONVENTIONS
 - Planning order and native operation-set compatibility are owned by runtime access-target resolution; this adapter must not reorder attempts or convert sibling OpenAI operations.

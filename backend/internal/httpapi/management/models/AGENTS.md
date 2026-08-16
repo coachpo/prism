@@ -10,6 +10,8 @@ models/
 ├── routes.go     # Model CRUD, access targets, and by-endpoint lookups
 ├── store.go      # Model, relation, access-target, vendor, and strategy SQL
 ├── types.go      # Model request and response shapes
+├── routing_diagnostics.go # Static routing-diagnostics endpoint and list routing_summary
+├── route_readiness.go     # Route-witness readiness projection for the model surfaces
 └── *_test.go     # Store and route regression coverage
 ```
 

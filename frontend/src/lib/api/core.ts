@@ -99,6 +99,63 @@ export interface RequestOptions {
   authReplayAttempted?: boolean;
   /** Internal: return a successful response as a Blob for download endpoints. */
   responseType?: "json" | "blob";
+  /** Internal: how many overload replays this request has already spent. */
+  overloadRetryAttempt?: number;
+}
+
+/**
+ * Management admission is a counter, not a queue: one request over the line is
+ * rejected immediately with 503 and `Retry-After`, even though the server is
+ * healthy a second later. Without a replay here every such moment turns a
+ * transient into a panel that stays failed until the operator clicks refresh.
+ * Bounded and idempotent-only, so a replay can never repeat a mutation or
+ * become the load that keeps the server over its limit.
+ */
+const OVERLOAD_RETRY_LIMIT = 2;
+const OVERLOAD_RETRY_MIN_MS = 250;
+const OVERLOAD_RETRY_MAX_MS = 2000;
+
+function isIdempotentRead(init?: RequestInit): boolean {
+  const method = (init?.method ?? "GET").toUpperCase();
+  return method === "GET" || method === "HEAD";
+}
+
+/** Milliseconds to wait before replaying, or null when this 503 is terminal. */
+export function overloadRetryDelayMs(
+  retryAfterMs: number | null,
+  attempt: number,
+  jitter: number = Math.random(),
+): number | null {
+  // No Retry-After means the server never said this was transient. Admission
+  // overload always sends one; an unqualified 503 is somebody else's outage
+  // and replaying it is a guess, not a recovery.
+  if (retryAfterMs === null || attempt >= OVERLOAD_RETRY_LIMIT) {
+    return null;
+  }
+  // The server's own floor is a full second, so the clamp only ever matters
+  // for an absurd header.
+  const base = Math.min(Math.max(retryAfterMs, OVERLOAD_RETRY_MIN_MS), OVERLOAD_RETRY_MAX_MS);
+  // Spread the replays: a page fans out several reads at once, and they all
+  // hit the ceiling in the same instant.
+  return Math.round(base * (1 + jitter * 0.5));
+}
+
+/** Resolves after `ms`, or as soon as the request is abandoned. */
+function waitBeforeReplay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      resolve();
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 export async function request<T>(
@@ -110,6 +167,7 @@ export async function request<T>(
   const allowAuthRefresh = options?.allowAuthRefresh ?? true;
   const authReplayAttempted = options?.authReplayAttempted ?? false;
   const responseType = options?.responseType ?? "json";
+  const overloadRetryAttempt = options?.overloadRetryAttempt ?? 0;
 
   const epochSignal = authSessionCoordinator.epochSignal();
   const mergedSignal = mergeSignals(epochSignal, init?.signal);
@@ -152,6 +210,19 @@ export async function request<T>(
       }
       // The phase/epoch was committed synchronously; waiters end silently.
       throw new AuthPhaseChangedError();
+    }
+
+    if (res.status === 503 && isIdempotentRead(init)) {
+      const delayMs = overloadRetryDelayMs(parseRetryAfter(res.headers.get("Retry-After")), overloadRetryAttempt);
+      if (delayMs !== null) {
+        await waitBeforeReplay(delayMs, mergedSignal);
+        return request<T>(path, init, {
+          allowAuthRefresh,
+          authReplayAttempted,
+          responseType,
+          overloadRetryAttempt: overloadRetryAttempt + 1,
+        });
+      }
     }
 
     if (responseType === "blob") {

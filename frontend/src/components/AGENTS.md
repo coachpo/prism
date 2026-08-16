@@ -6,11 +6,11 @@
 ## STRUCTURE
 ```text
 components/
-├── ApiFamilyIcon.tsx + ApiFamilySelect.tsx            # Shared API-family icon and picker helpers
+├── ApiFamilyIcon.tsx, ApiFamilySelect.tsx             # Shared API-family icon and picker helpers
 ├── CopyButton.tsx                                     # Shared copy affordance
 ├── IconActionGroup.tsx                                # Shared icon action cluster
+├── ThemeToggle.tsx                                    # Theme menu items and standalone theme toggle
 ├── layout/app-layout/AGENTS.md                        # Post-upgrade shell cluster behind the mounted page wrapper
-├── loadbalance/AGENTS.md                              # Retired loadbalance renderers (superseded by features/loadbalance + features/observe)
 └── ui/AGENTS.md                                       # shadcn/ui primitives and local wrappers
 ```
 
@@ -19,13 +19,12 @@ components/
 - Shell state cluster plus nav/version ownership: `layout/app-layout/AGENTS.md`
 - Shared theme control: `ThemeToggle.tsx`
 - Shared API-family, copy, and icon action widgets: `ApiFamilyIcon.tsx`, `ApiFamilySelect.tsx`, `CopyButton.tsx`, `IconActionGroup.tsx`
-- Shared loadbalance rendering is retired: the old badges/table/detail-sheet components were deleted; the routing-policy config surface and the Observe 路由健康 tab own the current renderers
+- Shared loadbalance rendering is retired. The old badges/table/detail-sheet components and the `loadbalance/` folder that held them are deleted; the routing-policy config surface (`../features/loadbalance/`) and the Observe 路由健康 tab (`../features/observe/`) own the current renderers, with event summary localization in `../features/observe/eventSummary.ts`
 - Design-system primitives and local wrappers: `ui/`
 - shadcn registry source of truth for `ui/`: `../../components.json`, `../index.css`
 
 ## CHILD DOCS
 - `layout/app-layout/AGENTS.md`: mounted shell chrome, sidebar navigation, user footer, and visible version-label ownership.
-- `loadbalance/AGENTS.md`: retired loadbalance renderer ownership (no active components).
 - `ui/AGENTS.md`: shadcn/ui primitives and local wrappers in `src/components/ui/`.
 
 ## CONVENTIONS
@@ -50,3 +49,4 @@ components/
 - Do not move nav-link or version-label logic out of `layout/app-layout/`.
 - Do not put page-specific fetches or route-state parsing in shared components.
 - Do not refer to deleted shell files or the old shell wrapper, header, or profile popover surfaces as live shared components.
+- Do not recreate a `loadbalance/` folder here. New loadbalance UI belongs to `../features/loadbalance/` or `../features/observe/`.

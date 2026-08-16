@@ -199,6 +199,15 @@ func (s *Service) handleCreateConnectionCopies(w http.ResponseWriter, r *http.Re
 					return terminalTargetCopyResponse{}, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: openAIImageUncoveredIssueCode}
 				}
 			}
+			if err := validateLimiter("qps_limit", source.QPSLimit); err != nil {
+				return terminalTargetCopyResponse{}, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: err.Error()}
+			}
+			if err := validateLimiter("max_in_flight_non_stream", source.MaxInFlightNonStream); err != nil {
+				return terminalTargetCopyResponse{}, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: err.Error()}
+			}
+			if err := validateLimiter("max_in_flight_stream", source.MaxInFlightStream); err != nil {
+				return terminalTargetCopyResponse{}, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: err.Error()}
+			}
 			position, err := nextModelAccessTargetPosition(r.Context(), tx, profile.ID, destinationID)
 			if err != nil {
 				return terminalTargetCopyResponse{}, err
@@ -216,11 +225,15 @@ func (s *Service) handleCreateConnectionCopies(w http.ResponseWriter, r *http.Re
 				OpenAITextCapability:    cloneString(source.OpenAITextCapability),
 				OpenAIImageCapability:   cloneString(source.OpenAIImageCapability),
 				PricingTemplateID:       cloneInt(source.PricingTemplateID),
-				QPSLimit:                cloneInt(source.QPSLimit),
-				MaxInFlightNonStream:    cloneInt(source.MaxInFlightNonStream),
-				MaxInFlightStream:       cloneInt(source.MaxInFlightStream),
-				CreatedAt:               now,
-				UpdatedAt:               now,
+				// Copying is the one write path that carries limiter values it
+				// did not validate. Every other path rejects a non-positive
+				// limiter, so without this a value that arrived around those
+				// checks would multiply across models on each copy.
+				QPSLimit:             cloneInt(source.QPSLimit),
+				MaxInFlightNonStream: cloneInt(source.MaxInFlightNonStream),
+				MaxInFlightStream:    cloneInt(source.MaxInFlightStream),
+				CreatedAt:            now,
+				UpdatedAt:            now,
 			}
 			copiedConnectionID, err := insertTerminalTarget(r.Context(), tx, terminalTargetRecordFromConnectionResponse(copied))
 			if err != nil {

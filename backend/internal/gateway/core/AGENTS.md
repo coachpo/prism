@@ -13,6 +13,7 @@ core/
 ├── errors.go          # Gateway/provider error contracts
 ├── classification.go  # Stream and response classification helpers
 ├── context.go         # Gateway context helpers
+├── helpers.go         # Package-internal map/slice/byte clone helpers backing clone-safe access
 └── *_test.go          # Core behavior and hook-safety tests
 ```
 

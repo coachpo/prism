@@ -595,7 +595,8 @@ export function ConnectionDialog({
                                   name={field.field}
                                   type="number"
                                   autoComplete="off"
-                                  min="0"
+                                  min="1"
+                                  step="1"
                                   value={field.value ?? ""}
                                   onChange={(e) => handleLimiterChange(field.field, e.target.value)}
                                 />

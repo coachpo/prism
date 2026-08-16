@@ -19,7 +19,6 @@ type runtimeRoutingPlanModel struct {
 	HasStrategy            bool
 	Strategy               loadbalance.RuntimeStrategy
 	OrderedEnabledTargets  []runtimeAccessTargetRecord
-	OrderedFallbackTargets []runtimeAccessTargetRecord
 	OrderedTerminalTargets []runtimeAccessTargetRecord
 }
 
@@ -50,73 +49,6 @@ func (plan *runtimeRoutingPlan) strategyForModel(model runtimeModelRecord) (load
 		return loadbalance.RuntimeStrategy{}, false
 	}
 	return compiled.Strategy, true
-}
-
-func (plan *runtimeRoutingPlan) orderedModelTargetsForStrategy(profileID int, model runtimeModelRecord, strategy loadbalance.RuntimeStrategy, cursor runtimeRoundRobinTargetCursor) []runtimeAccessTargetRecord {
-	if plan == nil {
-		return nil
-	}
-	compiled, ok := plan.ModelsByConfigID[model.ID]
-	if !ok {
-		return nil
-	}
-	ordered := make([]runtimeAccessTargetRecord, 0, len(compiled.OrderedEnabledTargets))
-	for _, target := range compiled.OrderedEnabledTargets {
-		if target.TargetType == runtimeAccessTargetTypeModel {
-			ordered = append(ordered, target)
-		}
-	}
-	return orderRuntimeRoutingPlanTargetsForStrategy(profileID, model.ID, strategy, ordered, cursor)
-}
-
-// orderedMixedTargetsForStrategy returns the single authored peer sequence for
-// a model. Model Targets and Terminal Targets share model_access_targets.position
-// and therefore participate in the same strategy order; there is no hidden
-// model-first/terminal-fallback tier in runtime routing.
-func (plan *runtimeRoutingPlan) orderedMixedTargetsForStrategy(profileID int, model runtimeModelRecord, strategy loadbalance.RuntimeStrategy, cursor runtimeRoundRobinTargetCursor) []runtimeAccessTargetRecord {
-	if plan == nil {
-		return nil
-	}
-	compiled, ok := plan.ModelsByConfigID[model.ID]
-	if !ok {
-		return nil
-	}
-	return orderRuntimeRoutingPlanTargetsForStrategy(profileID, model.ID, strategy, compiled.OrderedEnabledTargets, cursor)
-}
-
-func (plan *runtimeRoutingPlan) orderedTerminalTargetsForModel(model runtimeModelRecord) []runtimeAccessTargetRecord {
-	if plan == nil {
-		return nil
-	}
-	compiled, ok := plan.ModelsByConfigID[model.ID]
-	if !ok {
-		return nil
-	}
-	return cloneRuntimeAccessTargetRecords(compiled.OrderedTerminalTargets)
-}
-
-func (plan *runtimeRoutingPlan) orderedTerminalTargetsForStrategy(profileID int, model runtimeModelRecord, strategy loadbalance.RuntimeStrategy, cursor runtimeRoundRobinTargetCursor) []runtimeAccessTargetRecord {
-	ordered := plan.orderedTerminalTargetsForModel(model)
-	return orderRuntimeRoutingPlanTargetsForStrategy(profileID, model.ID, strategy, ordered, cursor)
-}
-
-func orderRuntimeRoutingPlanTargetsForStrategy(profileID int, sourceModelConfigID int, strategy loadbalance.RuntimeStrategy, ordered []runtimeAccessTargetRecord, cursor runtimeRoundRobinTargetCursor) []runtimeAccessTargetRecord {
-	if len(ordered) == 0 {
-		return nil
-	}
-	switch normalizedRuntimeLegacyStrategyType(strategy) {
-	case "single":
-		return ordered[:1]
-	case "round-robin":
-		if len(ordered) >= 2 && cursor != nil {
-			setHash := runtimeAccessTargetSetHash(ordered)
-			offset := cursor.ClaimRoundRobinTargetCursor(profileID, sourceModelConfigID, strategy.ID, setHash, len(ordered))
-			if offset != 0 {
-				ordered = append(ordered[offset:], ordered[:offset]...)
-			}
-		}
-	}
-	return ordered
 }
 
 func (plan *runtimeRoutingPlan) terminalConnectionForAccessTarget(sourceModel runtimeModelRecord, target runtimeAccessTargetRecord) (runtimeConnection, bool) {
