@@ -498,5 +498,3 @@ func canonicalCurrencySymbol(raw string) (string, bool) {
 	}
 	return canonical, true
 }
-
-func intPtr(value int) *int { return &value }

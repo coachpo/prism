@@ -6,27 +6,62 @@
 ## STRUCTURE
 ```text
 settings/
-├── routes.go           # Mounted routes and route registration
-├── service.go          # Service wiring, CORS snapshot, jobs store
-├── problems.go         # Flat problem envelope + code registry (Settings SPEC §4.1)
-├── types_v2.go         # Target DTOs (retention settings/preflight/jobs/audit)
-├── types.go            # Costing, timezone, retention, and audit request/response DTOs
-├── retention_service.go# log-retention GET/PUT CAS, destructive classifier, preflight,
-│                       #   manual job acceptance, owner-drift lineage/archive
-├── audit_service.go    # Three-state audit policy CAS + storage summary
-├── currency_inventory.go# Pricing-owner migration inventory pages
-├── currency_migration_drafts.go # Chunked draft, preview, and commit workflow
-├── currency_migration_archive.go# Unused-FX archive-only workflow
-├── store.go            # Legacy settings persistence (retention pre-v2 reads)
-└── routes_test.go      # Route-level contract coverage
+├── routes.go                         # Settings route dispatch
+├── service.go                        # Settings service lifecycle
+├── problems.go                       # Settings problem registry
+├── types_v2.go                       # Settings v2 wire types
+├── types.go                          # Settings wire types
+├── retention_service.go              # Retention service type
+├── retention_row.go                  # Retention persistence rows
+├── retention_policy_classifier.go   # Retention policy classification
+├── retention_cutoff_format.go       # Retention cutoff formatting
+├── settings_read_savepoint.go        # Settings read savepoints
+├── retention_settings_projection.go  # Retention settings projection
+├── retention_owner_snapshot.go       # Retention owner snapshot
+├── retention_impact_estimate.go      # Retention impact estimate
+├── retention_impact_preview.go       # Retention impact preview
+├── retention_preflight.go            # Retention destructive preflight
+├── retention_policy_routes.go        # Retention policy routes
+├── retention_policy_resource.go      # Retention policy resources
+├── retention_owner_drift.go          # Retention owner drift
+├── retention_manual_job.go           # Retention manual job
+├── settings_operations.go            # Settings mutation operations
+├── settings_request_identity.go      # Settings request identity
+├── settings_conflict_errors.go      # Settings conflict errors
+├── audit_service.go                  # Audit policy service
+├── currency_inventory.go             # Currency migration inventory
+├── currency_migration_drafts.go     # Currency migration wire types
+├── currency_migration_draft_routes.go # Currency draft routes
+├── currency_migration_commit_routes.go # Currency commit routes
+├── currency_migration_draft_store.go  # Currency draft persistence
+├── currency_migration_preview.go     # Currency migration preview
+├── currency_migration_cutover.go     # Currency migration cutover
+├── currency_migration_cursor.go      # Currency draft cursors
+├── currency_migration_values.go      # Currency migration value validation
+├── currency_migration_identity.go    # Currency migration identity
+├── currency_migration_errors.go      # Currency migration errors
+├── currency_migration_pages.go       # Currency migration pages
+├── currency_migration_archive.go     # Unused-FX archive workflow
+├── settings_values.go                # Settings scalar values
+├── store.go                          # Legacy settings persistence
+└── routes_test.go                    # Route-level contract coverage
 ```
 
 ## WHERE TO LOOK
-- Retention policy/preflight/jobs: `retention_service.go`, `types_v2.go`, `../../../platform/managementjobs/jobs_v2.go`
+- Retention policy classification and persistence: `retention_policy_classifier.go`, `retention_row.go`, `retention_policy_resource.go`
+- Retention settings reads and projections: `retention_settings_projection.go`, `retention_owner_snapshot.go`, `settings_read_savepoint.go`
+- Retention policy routes and destructive preflight: `retention_policy_routes.go`, `retention_preflight.go`, `retention_cutoff_format.go`
+- Retention impact analysis: `retention_impact_estimate.go`, `retention_impact_preview.go`
+- Retention owner drift and manual jobs: `retention_owner_drift.go`, `retention_manual_job.go`, `../../../platform/managementjobs/jobs_v2.go`
 - Retention source projections: `../../../domain/stats/retention_source.go` (single owner)
 - Auth settings v2: `../auth/settings_v2.go` (immutable config versions, readiness, acknowledgements)
 - Costing/timezone: `routes.go`, `store.go`, `types_v2.go`
-- Currency migration ownership handoff: `currency_inventory.go`, `currency_migration_drafts.go`, `currency_migration_archive.go`, and the bounded Pricing page in `../connections/pricing_list_page.go`
+- Settings operation identity and conflicts: `settings_request_identity.go`, `settings_operations.go`, `settings_conflict_errors.go`, `problems.go`
+- Currency migration wire types and routes: `currency_migration_drafts.go`, `currency_migration_draft_routes.go`, `currency_migration_commit_routes.go`
+- Currency migration persistence and preview: `currency_migration_draft_store.go`, `currency_migration_preview.go`, `currency_migration_cutover.go`
+- Currency migration cursors and values: `currency_migration_cursor.go`, `currency_migration_values.go`, `currency_migration_identity.go`, `currency_migration_pages.go`
+- Currency migration errors and archive: `currency_migration_errors.go`, `currency_migration_archive.go`, and the bounded Pricing page in `../connections/pricing_list_page.go`
+- Settings scalar value projections: `settings_values.go`
 - Frontend settings consumers: `../../../../../frontend/src/pages/settings/`
 
 ## CONVENTIONS

@@ -3,6 +3,7 @@ package settings
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -294,4 +295,11 @@ func problemf(code string, detail string, params map[string]any, details any) (S
 		return SettingsProblem{Code: code, Detail: detail, Params: params, Details: details}, http.StatusInternalServerError
 	}
 	return SettingsProblem{Code: code, Detail: detail, Params: params, Details: details}, registration.Status
+}
+
+func writeSettingsInternalError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
+	if err != nil {
+		slog.Error("settings internal error", "error", err)
+	}
+	writeProblem(w, r, corsSnapshot, SettingsProblem{Code: "internal_error", Detail: "Internal server error", Params: map[string]any{}}, http.StatusInternalServerError)
 }
