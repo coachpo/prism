@@ -35,22 +35,10 @@ type BootstrapConfigManager struct {
 }
 
 const (
-	BootstrapConfigSecretDatabaseURL                   = "database.url"
-	BootstrapConfigSecretRuntimeSecretEncryptionKey    = "runtime.secretEncryptionKey"
-	BootstrapConfigSecretAuthJWTSigningKey             = "auth.jwtSigningKey"
-	BootstrapConfigSecretTelemetryAuthorizationHeader  = "telemetry.exporter.auth.authorizationHeader"
-	BootstrapConfigConfirmationServerHostChange        = "server-host-change"
-	BootstrapConfigConfirmationServerPortChange        = "server-port-change"
-	BootstrapConfigConfirmationDatabaseURLChange       = "database-url-change"
-	BootstrapConfigConfirmationAuthJWTSigningKeyChange = "auth-jwt-signing-key-change"
-)
-
-type BootstrapConfigSecretAction string
-
-const (
-	BootstrapConfigSecretActionPreserve BootstrapConfigSecretAction = "preserve"
-	BootstrapConfigSecretActionReplace  BootstrapConfigSecretAction = "replace"
-	BootstrapConfigSecretActionClear    BootstrapConfigSecretAction = "clear"
+	BootstrapConfigSecretDatabaseURL                  = "database.url"
+	BootstrapConfigSecretRuntimeSecretEncryptionKey   = "runtime.secretEncryptionKey"
+	BootstrapConfigSecretAuthJWTSigningKey            = "auth.jwtSigningKey"
+	BootstrapConfigSecretTelemetryAuthorizationHeader = "telemetry.exporter.auth.authorizationHeader"
 )
 
 type BootstrapConfigSnapshot struct {
@@ -191,11 +179,6 @@ type BootstrapConfigSecretMetadata struct {
 	Configured bool   `json:"configured"`
 	Editable   bool   `json:"editable"`
 	Masked     string `json:"masked"`
-}
-
-type BootstrapConfigSecretUpdate struct {
-	Action BootstrapConfigSecretAction `json:"action"`
-	Value  *string                     `json:"value,omitempty"`
 }
 
 type bootstrapConfigDocument struct {

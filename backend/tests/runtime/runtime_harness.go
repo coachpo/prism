@@ -1078,6 +1078,14 @@ func (h *runtimeHarness) updateConnectionCustomRequestParameters(tb testing.TB, 
 	}
 }
 
+// closedWindowISODay returns today's ISO weekday (1=Monday .. 7=Sunday) in
+// UTC. Tests that need a routing window which is always closed at the request
+// instant derive the next-day mask from it: 1<<(iso%7) is the bit of the
+// following weekday, so the window can never be open on the run day.
+func closedWindowISODay() int {
+	return (int(time.Now().UTC().Weekday())+6)%7 + 1
+}
+
 // updateConnectionRoutingSchedule replaces the connection's routing schedule
 // (timezone column plus the full window row set) directly in the database.
 // Like updateConnectionCustomRequestParameters it does NOT refresh the

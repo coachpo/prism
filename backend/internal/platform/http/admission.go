@@ -46,13 +46,13 @@ type managementRouteSpec struct {
 	notes                       string             // notes column in the generated contract JSON
 }
 
-type hotAdmissionProvider interface {
-	AdmissionSnapshot() HotAdmissionSnapshot
+type admissionSnapshotProvider interface {
+	AdmissionSnapshot() StartupAdmissionSnapshot
 }
 
 type managementAdmissionController struct {
 	controller *admission.Controller
-	provider   hotAdmissionProvider
+	provider   admissionSnapshotProvider
 }
 
 type settingsSchemaTransitionReader interface {
@@ -204,9 +204,8 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "stats endpoint terminal target statistics", method: http.MethodGet, pattern: "/stats/endpoints/{endpoint_id}/terminal-targets", tier: priority.ManagementTierM3, profileScoped: true, cache: runtimeCacheEffect{}, notes: "Bounded Terminal Target drill-down per endpoint (lazy expansion)."},
 }
 
-// The clamp warning is emitted from buildHotAdmissionSnapshot, which runs on
-// both the startup path and every hot config apply; warning here as well
-// would log the same line twice per boot.
+// The clamp warning is emitted from buildStartupAdmissionSnapshot, which runs on
+// the startup path; warning here as well would log the same line twice per boot.
 func newHTTPAdmissionController(settings config.Settings) *admission.Controller {
 	managementBudget := settings.ManagementAdmissionBudget()
 	return admission.NewController(admission.Limits{
@@ -347,7 +346,7 @@ func writeSettingsSchemaStateUnavailable(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-func proxyAdmissionProviderMiddleware(provider hotAdmissionProvider, fallbackController *admission.Controller, next http.Handler) http.Handler {
+func proxyAdmissionProviderMiddleware(provider admissionSnapshotProvider, fallbackController *admission.Controller, next http.Handler) http.Handler {
 	if provider == nil && fallbackController == nil {
 		return next
 	}

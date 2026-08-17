@@ -11,13 +11,13 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
-func TestHotBootstrapConfigRuntimeInitializesSnapshotsFromSettings(t *testing.T) {
+func TestStartupConfigRuntimeInitializesSnapshotsFromSettings(t *testing.T) {
 	t.Parallel()
 
-	settings := hotBootstrapRuntimeTestSettings()
-	runtime, err := NewHotBootstrapConfigRuntime(settings)
+	settings := startupConfigRuntimeTestSettings()
+	runtime, err := NewStartupConfigRuntime(settings)
 	if err != nil {
-		t.Fatalf("create hot bootstrap runtime: %v", err)
+		t.Fatalf("create startup config runtime: %v", err)
 	}
 
 	snapshot := runtime.Snapshot()
@@ -39,7 +39,7 @@ func TestHotBootstrapConfigRuntimeInitializesSnapshotsFromSettings(t *testing.T)
 	if client == nil || client.Timeout != 0 {
 		t.Fatalf("unexpected runtime HTTP client: %+v", client)
 	}
-	transport := unwrapHotRuntimeTransport(t, client.Transport)
+	transport := unwrapStartupRuntimeTransport(t, client.Transport)
 	if !transport.DisableCompression || transport.MaxIdleConnsPerHost != math.MaxInt32 {
 		t.Fatalf("unexpected runtime transport: %+v", transport)
 	}
@@ -55,10 +55,10 @@ func TestHotBootstrapConfigRuntimeInitializesSnapshotsFromSettings(t *testing.T)
 	}
 }
 
-func TestHotBootstrapRuntimeSnapshotOmitsBufferingMode(t *testing.T) {
+func TestStartupRuntimeSnapshotOmitsBufferingMode(t *testing.T) {
 	t.Parallel()
 
-	assertSnapshotOmitsRuntimeBufferingMode(t, reflect.TypeFor[HotRuntimeProxySnapshot]())
+	assertSnapshotOmitsRuntimeBufferingMode(t, reflect.TypeFor[StartupRuntimeProxySnapshot]())
 	assertSnapshotOmitsRuntimeBufferingMode(t, reflect.TypeFor[runtimeapi.RuntimeProxyConfigSnapshot]())
 }
 
@@ -75,12 +75,12 @@ func assertSnapshotOmitsRuntimeBufferingMode(t *testing.T, snapshotType reflect.
 	}
 }
 
-func TestHotBootstrapConfigRuntimeSnapshotsProtectMutableValues(t *testing.T) {
+func TestStartupConfigRuntimeSnapshotsProtectMutableValues(t *testing.T) {
 	t.Parallel()
 
-	runtime, err := NewHotBootstrapConfigRuntime(hotBootstrapRuntimeTestSettings())
+	runtime, err := NewStartupConfigRuntime(startupConfigRuntimeTestSettings())
 	if err != nil {
-		t.Fatalf("create hot bootstrap runtime: %v", err)
+		t.Fatalf("create startup config runtime: %v", err)
 	}
 	snapshot := runtime.Snapshot()
 
@@ -105,58 +105,7 @@ func TestHotBootstrapConfigRuntimeSnapshotsProtectMutableValues(t *testing.T) {
 	}
 }
 
-func TestHotBootstrapConfigRuntimePublishUpdatesAtomicallyAndKeepsOldSnapshotStable(t *testing.T) {
-	t.Parallel()
-
-	initial := hotBootstrapRuntimeTestSettings()
-	runtime, err := NewHotBootstrapConfigRuntime(initial)
-	if err != nil {
-		t.Fatalf("create hot bootstrap runtime: %v", err)
-	}
-	oldSnapshot := runtime.Snapshot()
-	oldClient := oldSnapshot.RuntimeProxy().HTTPClient()
-
-	updated := hotBootstrapRuntimeUpdatedSettings()
-	retired, err := runtime.Publish(updated)
-	if err != nil {
-		t.Fatalf("publish hot bootstrap runtime: %v", err)
-	}
-	retired.CloseIdleConnections()
-
-	newSnapshot := runtime.Snapshot()
-	if got := newSnapshot.CORS().AllowedOrigins(); !reflect.DeepEqual(got, []string{"https://app.example.test"}) {
-		t.Fatalf("new CORS origins = %v", got)
-	}
-	if got := newSnapshot.Auth().AccessTokenTTL; got != 41*time.Second {
-		t.Fatalf("new auth access TTL = %s", got)
-	}
-	if got := newSnapshot.RuntimeProxy().HTTPClient().Timeout; got != 0 {
-		t.Fatalf("new runtime HTTP client timeout = %s", got)
-	}
-	if got := newSnapshot.Admission().Limits(); got.ManagementM1 != 4 || got.ManagementM2 != 5 || got.ManagementM3 != 4 {
-		t.Fatalf("new admission limits = %+v", got)
-	}
-
-	if got := oldSnapshot.CORS().AllowedOrigins(); !reflect.DeepEqual(got, []string{"http://localhost:5173", "http://127.0.0.1:5173"}) {
-		t.Fatalf("old CORS origins changed: %v", got)
-	}
-	if got := oldSnapshot.Auth().AccessTokenTTL; got != 17*time.Second {
-		t.Fatalf("old auth access TTL changed: %s", got)
-	}
-	if got := oldSnapshot.RuntimeProxy().HTTPClient().Timeout; got != 0 {
-		t.Fatalf("old runtime HTTP client timeout changed: %s", got)
-	}
-
-	newClient := newSnapshot.RuntimeProxy().HTTPClient()
-	if oldClient == newClient {
-		t.Fatal("expected publish to expose a distinct HTTP client")
-	}
-	if unwrapHotRuntimeTransport(t, oldClient.Transport) == unwrapHotRuntimeTransport(t, newClient.Transport) {
-		t.Fatal("expected publish to create a distinct runtime transport")
-	}
-}
-
-func hotBootstrapRuntimeTestSettings() config.Settings {
+func startupConfigRuntimeTestSettings() config.Settings {
 	return config.Settings{
 		CORSAllowedOrigins:               "http://localhost:5173, http://127.0.0.1:5173",
 		AuthAccessTokenTTLSeconds:        17,
@@ -169,24 +118,11 @@ func hotBootstrapRuntimeTestSettings() config.Settings {
 	}
 }
 
-func hotBootstrapRuntimeUpdatedSettings() config.Settings {
-	settings := hotBootstrapRuntimeTestSettings()
-	settings.CORSAllowedOrigins = "https://app.example.test"
-	settings.AuthAccessTokenTTLSeconds = 41
-	settings.AuthRefreshTokenTTLSeconds = 43
-	settings.AuthCookieName = "new_access_cookie"
-	settings.AuthRefreshCookieName = "new_refresh_cookie"
-	settings.AuthCookieSecure = false
-	settings.ManagementDatabasePoolBudget = config.DatabasePoolBudget{MaxConns: 9}
-	settings.ManagementAdmissionControlBudget = config.ManagementAdmissionBudget{M2MaxConcurrent: 5, M3MaxConcurrent: 4}
-	return settings
-}
-
-func unwrapHotRuntimeTransport(t *testing.T, roundTripper http.RoundTripper) *http.Transport {
+func unwrapStartupRuntimeTransport(t *testing.T, roundTripper http.RoundTripper) *http.Transport {
 	t.Helper()
-	wrapper, ok := roundTripper.(*hotRuntimeRoundTripper)
+	wrapper, ok := roundTripper.(*runtimeRoundTripper)
 	if !ok {
-		t.Fatalf("expected hot runtime round tripper, got %T", roundTripper)
+		t.Fatalf("expected startup runtime round tripper, got %T", roundTripper)
 	}
 	transport, ok := wrapper.transport.(*http.Transport)
 	if !ok {

@@ -21,7 +21,7 @@ prism/
 ## HIERARCHY
 - `backend/AGENTS.md`: Go runtime root, migrations, and regression boundaries.
 - `backend/internal/AGENTS.md`: backend source router for platform, domain, gateway, HTTP API, and small compatibility packages.
-- `backend/internal/platform/AGENTS.md`: process lifecycle, HTTP assembly, hot bootstrap runtime, DB lanes, scheduler, retention, side effects; `platform/startup/AGENTS.md` owns startup sequencing and seeds, `platform/config/AGENTS.md` the bootstrap contract, `platform/http/AGENTS.md` route mounting and admission, and `platform/managementjobs/AGENTS.md` the retention v2 job state.
+- `backend/internal/platform/AGENTS.md`: process lifecycle, HTTP assembly, startup config runtime, DB lanes, scheduler, retention, side effects; `platform/startup/AGENTS.md` owns startup sequencing and seeds, `platform/config/AGENTS.md` the bootstrap contract, `platform/http/AGENTS.md` route mounting and admission, and `platform/managementjobs/AGENTS.md` the retention v2 job state.
 - `backend/internal/domain/AGENTS.md`: HTTP-neutral audit, loadbalance, model-routing, stats, and terminal-target helpers; `domain/loadbalance/AGENTS.md` owns Ban Policy runtime state, `domain/stats/AGENTS.md` owns stats read models, and `domain/safediag/AGENTS.md` owns the safe-diagnostic bottom line.
 - `backend/internal/gateway/AGENTS.md`: provider-agnostic envelopes, hooks, routing, reservations, adapters, accounting; `gateway/core/AGENTS.md` owns shared gateway contracts, `gateway/provider/AGENTS.md` owns provider-native adapter rules, and `gateway/provider/openai/AGENTS.md` owns native OpenAI Chat/Responses handling.
 - `backend/internal/httpapi/AGENTS.md`: mounted management, runtime, proxy-key usage, and request-context seams.

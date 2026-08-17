@@ -48,7 +48,6 @@ type contractHarness struct {
 	service        *managementauth.Service
 	runtimeService *runtimeapi.Service
 	runtimeCache   *runtimeapi.SharedCache
-	hotRuntime     *platformhttp.HotBootstrapConfigRuntime
 	url            string
 }
 
@@ -237,13 +236,13 @@ func newContractHarnessWithDatabase(t *testing.T, dsn string) *contractHarness {
 				t.Fatalf("bootstrap published runtime snapshot: %v", err)
 			}
 			runtimeAuthCache := managementauth.NewRuntimeCacheFromShared(runtimeCache)
-			hotRuntime, err := platformhttp.NewHotBootstrapConfigRuntime(settings)
+			startupRuntime, err := platformhttp.NewStartupConfigRuntime(settings)
 			if err != nil {
-				t.Fatalf("build hot bootstrap runtime: %v", err)
+				t.Fatalf("build startup config runtime: %v", err)
 			}
 			authService, err := managementauth.NewService(settings, managementauth.Options{
-				CORSOriginProvider:        hotRuntime,
-				AuthRuntimeConfigProvider: hotRuntime,
+				CORSOriginProvider:        startupRuntime,
+				AuthRuntimeConfigProvider: startupRuntime,
 				Pool:                      pool,
 				RuntimeCache:              runtimeAuthCache,
 			})
@@ -253,12 +252,11 @@ func newContractHarnessWithDatabase(t *testing.T, dsn string) *contractHarness {
 			t.Cleanup(authService.Close)
 			harness.service = authService
 			harness.runtimeCache = runtimeCache
-			harness.hotRuntime = hotRuntime
 			return platformhttp.Dependencies{
-				AuthService:               authService,
-				RuntimeAuthService:        authService,
-				RuntimeCache:              runtimeCache,
-				HotBootstrapConfigRuntime: hotRuntime,
+				AuthService:          authService,
+				RuntimeAuthService:   authService,
+				RuntimeCache:         runtimeCache,
+				StartupConfigRuntime: startupRuntime,
 			}
 		},
 	})

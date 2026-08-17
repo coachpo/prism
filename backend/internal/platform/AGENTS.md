@@ -10,11 +10,11 @@ platform/
 ├── alerting/                # Webhook incident outbox store
 ├── background/              # Scheduler, worker specs, coalescing, drain behavior
 ├── bodylimits/              # Shared request body-size limits
-├── config/                  # Plaintext bootstrap config, validation, restart field classification
+├── config/                  # Plaintext bootstrap config, validation, startup snapshots
 │   └── AGENTS.md            # Bootstrap contract and restart-applied field rules
 ├── cors/                    # Runtime CORS snapshot matching
 ├── db/                      # Named PostgreSQL pool lanes
-├── http/                    # Server assembly, router mounting, hot bootstrap runtime
+├── http/                    # Server assembly, router mounting, startup config runtime
 │   └── AGENTS.md            # Route mounting, admission, and invalidation rules
 ├── lifecycle/               # Production dependency assembly and shutdown order
 ├── logretention/            # Partitioned log horizon, retention, and maintenance worker
@@ -30,7 +30,7 @@ platform/
 
 ## WHERE TO LOOK
 - Production dependency graph, service registration, runtime cache bootstrap, scheduler start, and shutdown order: `lifecycle/production.go`, `lifecycle/app.go`
-- Router mounting, middleware, `/health`, `/api`, `/v1`, `/v1beta`, and hot bootstrap runtime snapshots: `http/AGENTS.md`, `http/server.go`, `http/management_branch.go`, `http/runtime_branch.go`, `http/dependencies.go`, `http/hot_bootstrap_runtime.go`
+- Router mounting, middleware, `/health`, `/api`, `/v1`, `/v1beta`, and startup config runtime snapshots: `http/AGENTS.md`, `http/server.go`, `http/management_branch.go`, `http/runtime_branch.go`, `http/dependencies.go`, `http/startup_config_runtime.go`
 - Shared body-size limits used by management/runtime HTTP: `bodylimits/`, `http/management_body_limits.go`
 - Management route registry (tier, profile scope, runtime-cache effect): `http/admission.go` 的 managementRouteSpecs；`http/management_route_contract.json` 是由它生成的产物，供前端漂移测试消费
 - Plaintext bootstrap contract, restart-applied fields, and safe secret metadata: `config/AGENTS.md`, `config/`
@@ -47,9 +47,9 @@ platform/
 - For ordinary removal-only validation here, prefer manual confirmation over adding dedicated “proves not” tests unless the missing surface is itself a shipped contract or guardrail.
 - Keep `lifecycle/` as the production composition boundary. Feature services are wired there, while handlers and domain packages stay outside platform.
 - Keep steady-state startup settings in the plaintext bootstrap JSON selected by `PRISM_CONFIG_PATH`; `DATABASE_URL` is a bootstrap seeding override, not a general runtime config channel.
-- Keep bootstrap state behind `http.HotBootstrapConfigRuntime`; it provides CORS, auth, runtime proxy transport, and admission snapshots seeded at startup. After R2, external file edits require restart to refresh that snapshot.
-- Keep listener, database URL, pool budgets, runtime transport, runtime side-effect attempt timeout, runtime secret encryption key, JWT signing key, CORS, auth TTL/cookie metadata, management admission, and parse-compatible telemetry fields restart-applied.
-- Keep backend canonical defaults as the source of truth for fresh bootstrap seeds: server `0.0.0.0:8000`, standalone database URL `postgres://prism:prism@localhost:5432/prism?sslmode=disable` unless `DATABASE_URL` is set, CORS `5173`, PostgreSQL pools and admission derived from CPU count via `unit = clamp(GOMAXPROCS, 8, 16)` (management `unit+1`, execution `unit`, telemetry `unit/2`, feedback/cache/jobs `unit/4`, total = lane sum 27–53, admission m2 `unit` / m3 `unit/2`; see `config/config.go` `derivedPoolUnit`), transport `100/16/16/300s/90s/0s/10s/1s`, and side-effect timeout `10s`. Runtime buffering is automatic and internal.
+- Keep bootstrap state behind `http.StartupConfigRuntime`; it provides CORS, auth, runtime proxy transport, and admission snapshots seeded at startup. The snapshot is built once at startup and is not replaceable in the running process; external file edits take effect only on restart.
+- Keep listener, database URL, pool budgets, runtime side-effect attempt timeout, runtime secret encryption key, JWT signing key, CORS, auth TTL/cookie metadata, management admission, and parse-compatible telemetry fields restart-applied.
+- Keep backend canonical defaults as the source of truth for fresh bootstrap seeds: server `0.0.0.0:8000`, standalone database URL `postgres://prism:prism@localhost:5432/prism?sslmode=disable` unless `DATABASE_URL` is set, CORS `5173`, PostgreSQL pools and admission derived from CPU count via `unit = clamp(GOMAXPROCS, 8, 16)` (management `unit+1`, execution `unit`, telemetry `unit/2`, feedback/cache/jobs `unit/4`, total = lane sum 27–53, admission m2 `unit` / m3 `unit/2`; see `config/config.go` `derivedPoolUnit`), and side-effect timeout `10s`. The `runtime.transport` section was removed outright: outbound provider requests carry no connection or timeout limits, and a leftover `runtime.transport` block fails startup with a readable migration error. Runtime buffering is automatic and internal.
 - Preserve existing valid bootstrap files during startup. To reset defaults, stop Prism, remove or relocate the bootstrap file, then restart so the missing-file seed path runs.
 - Keep database capacity lane-specific. Runtime execution, telemetry, feedback, management, cache refresh, and background jobs must not borrow each other's protected budgets.
 - Keep request-path side effects on scheduler workers, durable outboxes, or after-commit wakeups.

@@ -1,23 +1,19 @@
 # BACKEND PLATFORM CONFIG KNOWLEDGE BASE
 
 ## OVERVIEW
-`platform/config/` owns Prism's plaintext bootstrap document contract: load, seed defaults, validate, restart-applied field classification, and secret metadata snapshots.
+`platform/config/` owns Prism's plaintext bootstrap document contract: load, seed defaults, validate, and secret metadata snapshots.
 
 ## STRUCTURE
 ```text
 config/
 ├── bootstrap.go             # Bootstrap document types, defaults, load/save helpers
-├── bootstrap_apply.go       # Startup field classification and diff helpers
 ├── config.go                # Runtime config loading helpers
-├── bootstrap_apply_test.go
 └── config_test.go
 ```
 
 ## WHERE TO LOOK
 - Bootstrap schema, canonical defaults, secret metadata, and file persistence: `bootstrap.go`
-- Startup field classification and diff helpers: `bootstrap_apply.go`
 - Startup/runtime config loading from `PRISM_CONFIG_PATH`, `DATABASE_URL`, and build metadata: `config.go`
-- HTTP hot runtime publisher: `../http/AGENTS.md`
 - Startup seed/default consumer: `../startup/`
 
 ## CONVENTIONS

@@ -52,7 +52,10 @@ func NewHandlerWithDependencies(settings config.Settings, deps Dependencies) (ht
 	router.Use(corsMiddleware(deps.CORSOriginProvider))
 
 	admissionController := newHTTPAdmissionController(settings)
-	admissionProvider := deps.HotBootstrapConfigRuntime
+	var admissionProvider admissionSnapshotProvider
+	if deps.StartupConfigRuntime != nil {
+		admissionProvider = deps.StartupConfigRuntime
+	}
 	router.Group(func(management chi.Router) {
 		mountManagementBranch(management, deps, admissionController, admissionProvider)
 	})

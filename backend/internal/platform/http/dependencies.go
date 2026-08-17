@@ -21,23 +21,23 @@ import (
 )
 
 type Dependencies struct {
-	Version                   string
-	HotBootstrapConfigRuntime *HotBootstrapConfigRuntime
-	CORSOriginProvider        platformcors.OriginProvider
-	AuditService              *managementaudit.Service
-	AuthService               *managementauth.Service
-	RuntimeAuthService        *managementauth.Service
-	ConfigRulesService        *managementconfigrules.Service
-	ConnectionsService        *managementconnections.Service
-	EndpointsService          *managementendpoints.Service
-	LoadbalanceService        *managementloadbalance.Service
-	ModelsService             *managementmodels.Service
-	RuntimeService            *runtimeapi.Service
-	RuntimeCache              *runtimeapi.SharedCache
-	RuntimeState              *loadbalancedomain.LocalRuntimeStateStore
-	DatabasePools             *platformdb.DatabasePools
-	SettingsService           *managementsettings.Service
-	StatsService              *managementstats.Service
+	Version              string
+	StartupConfigRuntime *StartupConfigRuntime
+	CORSOriginProvider   platformcors.OriginProvider
+	AuditService         *managementaudit.Service
+	AuthService          *managementauth.Service
+	RuntimeAuthService   *managementauth.Service
+	ConfigRulesService   *managementconfigrules.Service
+	ConnectionsService   *managementconnections.Service
+	EndpointsService     *managementendpoints.Service
+	LoadbalanceService   *managementloadbalance.Service
+	ModelsService        *managementmodels.Service
+	RuntimeService       *runtimeapi.Service
+	RuntimeCache         *runtimeapi.SharedCache
+	RuntimeState         *loadbalancedomain.LocalRuntimeStateStore
+	DatabasePools        *platformdb.DatabasePools
+	SettingsService      *managementsettings.Service
+	StatsService         *managementstats.Service
 }
 
 type ServerOptions struct {
@@ -53,14 +53,14 @@ func completeDependencies(settings config.Settings, options ServerOptions) (Depe
 			return Dependencies{}, err
 		}
 	}
-	if deps.HotBootstrapConfigRuntime == nil {
-		deps.HotBootstrapConfigRuntime, err = NewHotBootstrapConfigRuntime(settings)
+	if deps.StartupConfigRuntime == nil {
+		deps.StartupConfigRuntime, err = NewStartupConfigRuntime(settings)
 		if err != nil {
 			return Dependencies{}, err
 		}
 	}
-	if deps.CORSOriginProvider == nil && deps.HotBootstrapConfigRuntime != nil {
-		deps.CORSOriginProvider = deps.HotBootstrapConfigRuntime
+	if deps.CORSOriginProvider == nil && deps.StartupConfigRuntime != nil {
+		deps.CORSOriginProvider = deps.StartupConfigRuntime
 	}
 	return deps, nil
 }
@@ -72,8 +72,8 @@ func completeHandlerDependencies(settings config.Settings, deps Dependencies) (D
 	if deps.RuntimeState == nil && deps.RuntimeService != nil {
 		deps.RuntimeState = deps.RuntimeService.RuntimeState()
 	}
-	if deps.CORSOriginProvider == nil && deps.HotBootstrapConfigRuntime != nil {
-		deps.CORSOriginProvider = deps.HotBootstrapConfigRuntime
+	if deps.CORSOriginProvider == nil && deps.StartupConfigRuntime != nil {
+		deps.CORSOriginProvider = deps.StartupConfigRuntime
 	}
 	if deps.CORSOriginProvider == nil {
 		deps.CORSOriginProvider = platformcors.NewStaticOriginProvider(settings.CORSAllowedOriginsList())

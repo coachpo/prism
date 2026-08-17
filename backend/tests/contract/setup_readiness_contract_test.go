@@ -272,13 +272,13 @@ func newSetupReadinessHarness(t *testing.T) *contractHarness {
 				t.Fatalf("bootstrap published runtime snapshot: %v", err)
 			}
 			runtimeAuthCache := managementauth.NewRuntimeCacheFromShared(runtimeCache)
-			hotRuntime, err := platformhttp.NewHotBootstrapConfigRuntime(settings)
+			startupRuntime, err := platformhttp.NewStartupConfigRuntime(settings)
 			if err != nil {
-				t.Fatalf("build hot bootstrap runtime: %v", err)
+				t.Fatalf("build startup config runtime: %v", err)
 			}
 			authService, err := managementauth.NewService(settings, managementauth.Options{
-				CORSOriginProvider:        hotRuntime,
-				AuthRuntimeConfigProvider: hotRuntime,
+				CORSOriginProvider:        startupRuntime,
+				AuthRuntimeConfigProvider: startupRuntime,
 				Pool:                      pool,
 				RuntimeCache:              runtimeAuthCache,
 			})
@@ -303,13 +303,13 @@ func newSetupReadinessHarness(t *testing.T) *contractHarness {
 			t.Cleanup(modelsService.Close)
 			modelsService.SetTerminalTargetCreator(connectionsService)
 			return platformhttp.Dependencies{
-				AuthService:               authService,
-				RuntimeAuthService:        authService,
-				RuntimeCache:              runtimeCache,
-				HotBootstrapConfigRuntime: hotRuntime,
-				EndpointsService:          endpointsService,
-				ConnectionsService:        connectionsService,
-				ModelsService:             modelsService,
+				AuthService:          authService,
+				RuntimeAuthService:   authService,
+				RuntimeCache:         runtimeCache,
+				StartupConfigRuntime: startupRuntime,
+				EndpointsService:     endpointsService,
+				ConnectionsService:   connectionsService,
+				ModelsService:        modelsService,
 			}
 		},
 	})
