@@ -21,7 +21,12 @@ stats/
 ├── observe_query.go              # Query-context signing/verification and coverage resolution
 ├── query_coverage.go             # Non-null Requests/Audit coverage union
 ├── request_logs.go               # Attempt-view list projections, scoped filters, and v2 slim rows
-├── request_logs_chain.go         # Retained ingress-chain view: finalized summaries, cohort filters, signed cursors
+├── request_logs_chain.go         # Retained ingress-chain view
+├── request_logs_chain_cursor.go  # Ingress-chain cursor signing
+├── request_logs_chain_cohort.go  # Ingress-chain cohort predicates
+├── request_logs_chain_summary.go # Finalized ingress summaries
+├── request_logs_chain_coverage.go# Ingress-chain coverage projections
+├── request_logs_chain_rows.go    # Retained ingress rows
 ├── request_logs_export.go        # Server-side full filtered CSV export (RR snapshot, bounds, digest)
 ├── request_logs_detail_v2.go     # Exact v2 detail: scoped statuses, failure projection, pricing layers
 ├── cost_segments.go              # Canonical cost-segment catalogue (e.N / l.AAA / l.__unknown__)
@@ -38,6 +43,11 @@ stats/
 - Dashboard aggregate snapshot and routing health map: `dashboard_snapshot_builder.go`
 - Recent activity feed and watermarks: `dashboard_recent_activity.go`
 - Request-log attempt list/detail, chain view, CSV export, and cost segments: `request_logs.go`, `request_logs_chain.go`, `request_logs_export.go`, `request_logs_detail_v2.go`, `cost_segments.go`, `types.go`
+- Ingress-chain cursor signing: `request_logs_chain_cursor.go`
+- Ingress-chain cohort predicates: `request_logs_chain_cohort.go`
+- Finalized ingress summaries: `request_logs_chain_summary.go`
+- Ingress-chain coverage projections: `request_logs_chain_coverage.go`
+- Retained ingress rows: `request_logs_chain_rows.go`
 - Usage snapshot, spending, endpoint/model/proxy-key aggregates: `snapshot.go`, `aggregates.go`
 - Usage snapshot latency trends expose hourly/daily p50 and p95 `response_time_ms` buckets through `latency_trends` beside request and token trends.
 - HTTP management consumers: `../../httpapi/management/stats/`

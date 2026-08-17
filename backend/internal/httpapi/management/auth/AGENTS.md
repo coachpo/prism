@@ -8,7 +8,11 @@
 auth/
 ├── routes.go                  # Route mounting, management/runtime middleware, handlers
 ├── service.go                 # Auth settings load/update, publish proof, rollback transition
-├── store.go                   # Session, refresh-token, settings, proxy-key persistence
+├── login_throttle.go          # Login-throttle ledger
+├── session_store.go           # Session lifecycle persistence
+├── auth_settings_store.go     # Auth-settings persistence
+├── proxy_key_store.go         # Proxy-key persistence
+├── proxy_key_request.go       # Proxy-key request validation
 ├── tokens.go                  # Access/refresh token minting, rotation, revocation
 ├── cookies.go                 # Access/refresh cookie helpers
 ├── request_tokens.go          # Request-token helpers
@@ -28,7 +32,11 @@ auth/
 - Tagged PublicAuthStatus union and session payloads: `types.go`, `routes.go` (`buildPublicAuthStatus`, `buildAuthenticatedSession`)
 - Auth problem registry and flat envelope writer: `problems.go`, `../responseutil/problem_envelope.go`
 - Auth settings, publish proof (`validateAuthSettingsPublished`), rollback transition (`enterAuthRollbackRequired`), and route construction: `service.go`, `routes.go`, `runtime_config.go`, `runtime_cache.go`
-- Session persistence and refresh-token lifecycle: `store.go`, `types.go`, `tokens.go`, `routes_test.go`, `store_test.go`, `runtime_cache_test.go`
+- Session persistence and refresh-token lifecycle: `session_store.go`, `types.go`, `tokens.go`, `routes_test.go`, `store_test.go`, `runtime_cache_test.go`
+- Login-throttle ledger: `login_throttle.go`
+- Auth-settings persistence and transition rows: `auth_settings_store.go`
+- Proxy-key rows, capacity serialization, and expiry: `proxy_key_store.go`
+- Proxy-key request validation and usage handoff: `proxy_key_request.go`, `../../proxykeyusage/`
 - Cookie and request-token helpers: `cookies.go`, `request_tokens.go`
 - Transition operations and `GET /api/auth/operations/{operation_id}/status`: `operations.go`
 - Proxy API key capture and usage writer: `proxy_key_usage_writer.go`, `../../proxykeyusage/`

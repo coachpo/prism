@@ -6,13 +6,29 @@
 ## STRUCTURE
 ```text
 config/
-├── bootstrap.go             # Bootstrap document types, defaults, load/save helpers
-├── config.go                # Runtime config loading helpers
+├── bootstrap.go                    # Bootstrap manager lifecycle
+├── bootstrap_document.go           # Bootstrap document schema
+├── bootstrap_telemetry.go          # Bootstrap telemetry section
+├── bootstrap_snapshot.go           # Bootstrap safe snapshot
+├── bootstrap_secrets.go            # Bootstrap secret metadata
+├── bootstrap_seed.go               # Bootstrap default seed
+├── bootstrap_file.go               # Bootstrap file persistence
+├── bootstrap_legacy_format.go      # Bootstrap legacy-format rejection
+├── bootstrap_field_constraints.go  # Bootstrap field constraints
+├── config.go                       # Runtime config loading helpers
 └── config_test.go
 ```
 
 ## WHERE TO LOOK
-- Bootstrap schema, canonical defaults, secret metadata, and file persistence: `bootstrap.go`
+- Bootstrap manager lifecycle: `bootstrap.go`
+- Bootstrap document schema and section validation: `bootstrap_document.go`
+- Bootstrap telemetry compatibility section: `bootstrap_telemetry.go`
+- Bootstrap safe snapshot projection and canonical payload: `bootstrap_snapshot.go`
+- Bootstrap secret metadata and masking: `bootstrap_secrets.go`
+- Bootstrap default seed: `bootstrap_seed.go`
+- Bootstrap file persistence: `bootstrap_file.go`
+- Bootstrap legacy-format rejection: `bootstrap_legacy_format.go`
+- Bootstrap field constraints: `bootstrap_field_constraints.go`
 - Startup/runtime config loading from `PRISM_CONFIG_PATH`, `DATABASE_URL`, and build metadata: `config.go`
 - Startup seed/default consumer: `../startup/`
 

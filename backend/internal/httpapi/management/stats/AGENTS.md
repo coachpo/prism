@@ -6,16 +6,33 @@
 ## STRUCTURE
 ```text
 stats/
-├── service.go                   # Service construction, route mounting, snapshots, parsers, invalidation handler
+├── service.go                    # Stats service lifecycle
+├── routes.go                     # Stats management route dispatch
+├── dashboard_snapshot_cache.go  # Dashboard snapshot cache
+├── dashboard_handlers.go        # Dashboard HTTP handlers
+├── request_log_handlers.go      # Request-log HTTP handlers
+├── request_log_export.go        # Request-log CSV export
+├── request_log_query.go         # Request-log query parsing
+├── ingress_chain_query.go       # Ingress-chain query parsing
+├── usage_aggregate_handlers.go  # Usage aggregate HTTP handlers
+├── cost_segments_handlers.go    # Cost-segment HTTP handlers
+├── query_parameters.go          # Stats query parameter parsing
+├── errors.go                    # Stats error translation
 ├── observe_handlers.go          # Query-context issuing/resolution, usage summary/series, dashboard-now, retention floor
 └── observe_endpoint_handlers.go # Endpoint Terminal Target statistics and the Observe activity feed
 ```
 
 ## WHERE TO LOOK
-- Route list and mount contract: `service.go`
-- Dashboard aggregate snapshot reads plus side-effect invalidation handler: `service.go`, `../../../domain/stats/`
-- Dashboard recent activity and request-log list/detail routes: `service.go`, `../../../domain/stats/`
-- Spending, throughput, model metrics, and usage snapshot: `service.go`
+- Route list and mount contract: `routes.go`
+- Service construction and shared seams: `service.go`
+- Dashboard snapshot cache plus side-effect invalidation: `dashboard_snapshot_cache.go`, `../../../domain/stats/`
+- Dashboard reads: `dashboard_handlers.go`, `../../../domain/stats/`
+- Request-log attempts, details, and filter options: `request_log_handlers.go`, `request_log_query.go`, `../../../domain/stats/`
+- Server-side request-log CSV: `request_log_export.go`, `../../../domain/stats/`
+- Ingress-chain request parameters: `ingress_chain_query.go`
+- Spending, throughput, model metrics, and usage snapshot: `usage_aggregate_handlers.go`
+- Cost segments and endpoint model statistics: `cost_segments_handlers.go`
+- Shared query values and typed errors: `query_parameters.go`, `errors.go`
 - Observe query contexts, usage summary/series, and dashboard-now: `observe_handlers.go`
 - Endpoint Terminal Target statistics and the Observe activity feed: `observe_endpoint_handlers.go`
 - Invalidation event source outside the public stats routes: `../../../platform/managementsideeffects/`, `../../../platform/http/runtime_cache_invalidation.go`
