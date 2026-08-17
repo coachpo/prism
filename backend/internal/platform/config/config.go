@@ -83,14 +83,6 @@ const (
 )
 
 const (
-	defaultRuntimeTransportMaxIdleConns          = 100
-	defaultRuntimeTransportMaxIdleConnsPerHost   = 16
-	defaultRuntimeTransportMaxConnsPerHost       = 16
-	defaultRuntimeTransportRequestTimeout        = 300 * time.Second
-	defaultRuntimeTransportIdleConnTimeout       = 90 * time.Second
-	defaultRuntimeTransportResponseHeaderTimeout = 0
-	defaultRuntimeTransportTLSHandshakeTimeout   = 10 * time.Second
-	defaultRuntimeTransportExpectContinueTimeout = 1 * time.Second
 	defaultRuntimeSideEffectsAttemptTimeout      = 10 * time.Second
 )
 
@@ -168,17 +160,6 @@ type TelemetryTracesConfig struct {
 	SamplingRatio float64
 }
 
-type RuntimeTransportConfig struct {
-	MaxIdleConns          int
-	MaxIdleConnsPerHost   int
-	MaxConnsPerHost       int
-	RequestTimeout        time.Duration
-	IdleConnTimeout       time.Duration
-	ResponseHeaderTimeout time.Duration
-	TLSHandshakeTimeout   time.Duration
-	ExpectContinueTimeout time.Duration
-}
-
 type RuntimeSideEffectsConfig struct {
 	AttemptTimeout time.Duration
 }
@@ -215,7 +196,6 @@ type Settings struct {
 	DatabaseURL                      string
 	RuntimeTelemetryMode             RuntimeTelemetryMode
 	Telemetry                        TelemetryConfig
-	RuntimeTransportConfig           RuntimeTransportConfig
 	RuntimeSideEffectsConfig         RuntimeSideEffectsConfig
 	PostgresPoolsBudget              PostgresPoolsBudget
 	RuntimeDatabasePoolBudget        DatabasePoolBudget
@@ -252,7 +232,6 @@ func loadCanonicalDefaultSettings(databaseURL string) Settings {
 		DatabaseURL:                      resolvedDatabaseURL,
 		RuntimeTelemetryMode:             RuntimeTelemetryModeDurableOutbox,
 		Telemetry:                        defaultTelemetryConfig(),
-		RuntimeTransportConfig:           defaultRuntimeTransportConfig(),
 		RuntimeSideEffectsConfig:         defaultRuntimeSideEffectsConfig(),
 		PostgresPoolsBudget:              DefaultPostgresPoolsBudget(),
 		RuntimeDatabasePoolBudget:        defaultRuntimeExecutionDatabasePoolBudget(),
@@ -351,10 +330,6 @@ func (s Settings) ResolvedRuntimeTelemetryMode() RuntimeTelemetryMode {
 	return normalizeRuntimeTelemetryMode(s.RuntimeTelemetryMode)
 }
 
-func (s Settings) RuntimeTransport() RuntimeTransportConfig {
-	return normalizeRuntimeTransportConfig(s.RuntimeTransportConfig, defaultRuntimeTransportConfig())
-}
-
 func (s Settings) RuntimeSideEffects() RuntimeSideEffectsConfig {
 	return normalizeRuntimeSideEffectsConfig(s.RuntimeSideEffectsConfig, defaultRuntimeSideEffectsConfig())
 }
@@ -413,19 +388,6 @@ func (s Settings) CORSAllowedOriginsList() []string {
 		origins = append(origins, trimmed)
 	}
 	return origins
-}
-
-func defaultRuntimeTransportConfig() RuntimeTransportConfig {
-	return RuntimeTransportConfig{
-		MaxIdleConns:          defaultRuntimeTransportMaxIdleConns,
-		MaxIdleConnsPerHost:   defaultRuntimeTransportMaxIdleConnsPerHost,
-		MaxConnsPerHost:       defaultRuntimeTransportMaxConnsPerHost,
-		RequestTimeout:        defaultRuntimeTransportRequestTimeout,
-		IdleConnTimeout:       defaultRuntimeTransportIdleConnTimeout,
-		ResponseHeaderTimeout: defaultRuntimeTransportResponseHeaderTimeout,
-		TLSHandshakeTimeout:   defaultRuntimeTransportTLSHandshakeTimeout,
-		ExpectContinueTimeout: defaultRuntimeTransportExpectContinueTimeout,
-	}
 }
 
 func defaultRuntimeSideEffectsConfig() RuntimeSideEffectsConfig {
@@ -498,41 +460,6 @@ func (b PostgresPoolsBudget) Validate() error {
 		return fmt.Errorf("postgres pool budget exceeded: total_max_conns=%d lane_sum=%d", b.TotalMaxConns, laneSum)
 	}
 	return nil
-}
-
-func normalizeRuntimeTransportConfig(candidate RuntimeTransportConfig, defaults RuntimeTransportConfig) RuntimeTransportConfig {
-	normalized := candidate
-	if normalized.MaxIdleConns <= 0 {
-		normalized.MaxIdleConns = defaults.MaxIdleConns
-	}
-	if normalized.MaxIdleConnsPerHost <= 0 {
-		normalized.MaxIdleConnsPerHost = defaults.MaxIdleConnsPerHost
-	}
-	if normalized.MaxConnsPerHost < 0 {
-		normalized.MaxConnsPerHost = defaults.MaxConnsPerHost
-	}
-	if normalized.MaxConnsPerHost > 0 && normalized.MaxIdleConnsPerHost > normalized.MaxConnsPerHost {
-		normalized.MaxIdleConnsPerHost = normalized.MaxConnsPerHost
-	}
-	if normalized.MaxIdleConns < normalized.MaxIdleConnsPerHost {
-		normalized.MaxIdleConns = normalized.MaxIdleConnsPerHost
-	}
-	if normalized.RequestTimeout <= 0 {
-		normalized.RequestTimeout = defaults.RequestTimeout
-	}
-	if normalized.IdleConnTimeout <= 0 {
-		normalized.IdleConnTimeout = defaults.IdleConnTimeout
-	}
-	if normalized.ResponseHeaderTimeout < 0 {
-		normalized.ResponseHeaderTimeout = defaults.ResponseHeaderTimeout
-	}
-	if normalized.TLSHandshakeTimeout <= 0 {
-		normalized.TLSHandshakeTimeout = defaults.TLSHandshakeTimeout
-	}
-	if normalized.ExpectContinueTimeout <= 0 {
-		normalized.ExpectContinueTimeout = defaults.ExpectContinueTimeout
-	}
-	return normalized
 }
 
 func normalizeRuntimeSideEffectsConfig(candidate RuntimeSideEffectsConfig, defaults RuntimeSideEffectsConfig) RuntimeSideEffectsConfig {

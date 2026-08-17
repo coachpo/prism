@@ -48,7 +48,6 @@ type managementRouteSpec struct {
 
 type hotAdmissionProvider interface {
 	AdmissionSnapshot() HotAdmissionSnapshot
-	RuntimeProxySnapshot() HotRuntimeProxySnapshot
 }
 
 type managementAdmissionController struct {
@@ -348,22 +347,21 @@ func writeSettingsSchemaStateUnavailable(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-func proxyAdmissionProviderMiddleware(provider hotAdmissionProvider, fallbackController *admission.Controller, fallbackTimeout time.Duration, next http.Handler) http.Handler {
+func proxyAdmissionProviderMiddleware(provider hotAdmissionProvider, fallbackController *admission.Controller, next http.Handler) http.Handler {
 	if provider == nil && fallbackController == nil {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		controller := fallbackController
-		timeout := fallbackTimeout
 		if provider != nil {
-			runtimeProxy := provider.RuntimeProxySnapshot()
-			timeout = runtimeProxy.TransportConfig().RequestTimeout
 			controller = provider.AdmissionSnapshot().Controller()
 		}
 		spec := admission.Spec{
 			Name:     "runtime proxy",
 			Metadata: priority.Metadata{Priority: priority.PriorityProxy},
-			Timeout:  timeout,
+			// Timeout is deliberately zero (no deadline): runtime.transport.requestTimeout
+			// was removed with the transport config section.
+			Timeout: 0,
 		}
 		requestContext, release, err := controller.Admit(r.Context(), spec)
 		if err != nil {

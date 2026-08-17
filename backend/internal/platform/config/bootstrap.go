@@ -107,20 +107,8 @@ type BootstrapConfigManagementAdmissionValues struct {
 }
 
 type BootstrapConfigRuntimeValues struct {
-	Transport   *BootstrapConfigRuntimeTransportValues   `json:"transport"`
 	SideEffects *BootstrapConfigRuntimeSideEffectsValues `json:"side_effects"`
 	Routing     *BootstrapConfigRuntimeRoutingValues     `json:"routing"`
-}
-
-type BootstrapConfigRuntimeTransportValues struct {
-	MaxIdleConns          *int    `json:"max_idle_conns"`
-	MaxIdleConnsPerHost   *int    `json:"max_idle_conns_per_host"`
-	MaxConnsPerHost       *int    `json:"max_conns_per_host"`
-	RequestTimeout        *string `json:"request_timeout"`
-	IdleConnTimeout       *string `json:"idle_conn_timeout"`
-	ResponseHeaderTimeout *string `json:"response_header_timeout"`
-	TLSHandshakeTimeout   *string `json:"tls_handshake_timeout"`
-	ExpectContinueTimeout *string `json:"expect_continue_timeout"`
 }
 
 type BootstrapConfigRuntimeSideEffectsValues struct {
@@ -264,20 +252,8 @@ type bootstrapManagementAdmission struct {
 
 type bootstrapRuntime struct {
 	SecretEncryptionKey *string                      `json:"secretEncryptionKey"`
-	Transport           *bootstrapRuntimeTransport   `json:"transport"`
 	SideEffects         *bootstrapRuntimeSideEffects `json:"sideEffects"`
 	Routing             *bootstrapRuntimeRouting     `json:"routing,omitempty"`
-}
-
-type bootstrapRuntimeTransport struct {
-	MaxIdleConns          *int    `json:"maxIdleConns"`
-	MaxIdleConnsPerHost   *int    `json:"maxIdleConnsPerHost"`
-	MaxConnsPerHost       *int    `json:"maxConnsPerHost"`
-	RequestTimeout        *string `json:"requestTimeout"`
-	IdleConnTimeout       *string `json:"idleConnTimeout"`
-	ResponseHeaderTimeout *string `json:"responseHeaderTimeout"`
-	TLSHandshakeTimeout   *string `json:"tlsHandshakeTimeout"`
-	ExpectContinueTimeout *string `json:"expectContinueTimeout"`
 }
 
 type bootstrapRuntimeSideEffects struct {
@@ -585,7 +561,6 @@ func safeBootstrapConfigValues(document bootstrapConfigDocument) BootstrapConfig
 			},
 		},
 		Runtime: &BootstrapConfigRuntimeValues{
-			Transport:   safeBootstrapRuntimeTransportValues(document.Runtime.Transport),
 			SideEffects: safeBootstrapRuntimeSideEffectsValues(document.Runtime.SideEffects),
 			Routing:     safeBootstrapRuntimeRoutingValues(document.Runtime.Routing),
 		},
@@ -720,25 +695,8 @@ func bootstrapRuntimeFromSafeValues(values *BootstrapConfigRuntimeValues, secret
 	}
 	return &bootstrapRuntime{
 		SecretEncryptionKey: cloneStringPointer(secretEncryptionKey),
-		Transport:           bootstrapRuntimeTransportFromSafeValues(values.Transport),
 		SideEffects:         bootstrapRuntimeSideEffectsFromSafeValues(values.SideEffects),
 		Routing:             bootstrapRuntimeRoutingFromSafeValues(values.Routing),
-	}
-}
-
-func bootstrapRuntimeTransportFromSafeValues(values *BootstrapConfigRuntimeTransportValues) *bootstrapRuntimeTransport {
-	if values == nil {
-		return nil
-	}
-	return &bootstrapRuntimeTransport{
-		MaxIdleConns:          cloneIntPointer(values.MaxIdleConns),
-		MaxIdleConnsPerHost:   cloneIntPointer(values.MaxIdleConnsPerHost),
-		MaxConnsPerHost:       cloneIntPointer(values.MaxConnsPerHost),
-		RequestTimeout:        cloneStringPointer(values.RequestTimeout),
-		IdleConnTimeout:       cloneStringPointer(values.IdleConnTimeout),
-		ResponseHeaderTimeout: cloneStringPointer(values.ResponseHeaderTimeout),
-		TLSHandshakeTimeout:   cloneStringPointer(values.TLSHandshakeTimeout),
-		ExpectContinueTimeout: cloneStringPointer(values.ExpectContinueTimeout),
 	}
 }
 
@@ -1058,25 +1016,8 @@ func safeBootstrapRuntimeValues(runtimeConfig *bootstrapRuntime) *BootstrapConfi
 		return nil
 	}
 	return &BootstrapConfigRuntimeValues{
-		Transport:   safeBootstrapRuntimeTransportValues(runtimeConfig.Transport),
 		SideEffects: safeBootstrapRuntimeSideEffectsValues(runtimeConfig.SideEffects),
 		Routing:     safeBootstrapRuntimeRoutingValues(runtimeConfig.Routing),
-	}
-}
-
-func safeBootstrapRuntimeTransportValues(transport *bootstrapRuntimeTransport) *BootstrapConfigRuntimeTransportValues {
-	if transport == nil {
-		return nil
-	}
-	return &BootstrapConfigRuntimeTransportValues{
-		MaxIdleConns:          cloneIntPointer(transport.MaxIdleConns),
-		MaxIdleConnsPerHost:   cloneIntPointer(transport.MaxIdleConnsPerHost),
-		MaxConnsPerHost:       cloneIntPointer(transport.MaxConnsPerHost),
-		RequestTimeout:        cloneStringPointer(transport.RequestTimeout),
-		IdleConnTimeout:       cloneStringPointer(transport.IdleConnTimeout),
-		ResponseHeaderTimeout: cloneStringPointer(transport.ResponseHeaderTimeout),
-		TLSHandshakeTimeout:   cloneStringPointer(transport.TLSHandshakeTimeout),
-		ExpectContinueTimeout: cloneStringPointer(transport.ExpectContinueTimeout),
 	}
 }
 
@@ -1328,6 +1269,9 @@ func createBootstrapConfigTempFile(path string, payload []byte) (string, error) 
 }
 
 func decodeBootstrapConfig(raw []byte) (bootstrapConfigDocument, error) {
+	if err := rejectRemovedRuntimeTransportField(raw); err != nil {
+		return bootstrapConfigDocument{}, err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	var document bootstrapConfigDocument
@@ -1342,6 +1286,28 @@ func decodeBootstrapConfig(raw []byte) (bootstrapConfigDocument, error) {
 		return bootstrapConfigDocument{}, fmt.Errorf("decode bootstrap config JSON: %w", err)
 	}
 	return document, nil
+}
+
+// rejectRemovedRuntimeTransportField translates a legacy runtime.transport
+// block into a readable migration error instead of the bare unknown-field
+// error DisallowUnknownFields would otherwise produce. The runtime.transport
+// config section was removed outright (no compatibility shell), so existing
+// config.json files must delete the section as part of the same upgrade
+// window that deploys this build.
+func rejectRemovedRuntimeTransportField(raw []byte) error {
+	var document struct {
+		Runtime *struct {
+			Transport json.RawMessage `json:"transport"`
+		} `json:"runtime"`
+	}
+	if err := json.Unmarshal(raw, &document); err != nil {
+		// Malformed JSON is reported by the real decode path below.
+		return nil
+	}
+	if document.Runtime != nil && document.Runtime.Transport != nil {
+		return fmt.Errorf("bootstrap config field runtime.transport has been removed: the runtime.transport section (maxIdleConns, maxIdleConnsPerHost, maxConnsPerHost, requestTimeout, idleConnTimeout, responseHeaderTimeout, tlsHandshakeTimeout, expectContinueTimeout) no longer exists in this version; outbound provider requests are no longer limited. Delete the runtime.transport section from the config file before upgrading")
+	}
+	return nil
 }
 
 func (d bootstrapConfigDocument) validateSchema() error {
@@ -1531,14 +1497,8 @@ func (r bootstrapRuntime) validate() error {
 	if _, err := requiredTrimmedString("secretEncryptionKey", r.SecretEncryptionKey, 1, 0); err != nil {
 		return err
 	}
-	if r.Transport == nil {
-		return missingBootstrapFieldError("transport")
-	}
 	if r.SideEffects == nil {
 		return missingBootstrapFieldError("sideEffects")
-	}
-	if err := r.Transport.validate(); err != nil {
-		return err
 	}
 	if err := r.SideEffects.validate(); err != nil {
 		return err
@@ -1547,34 +1507,6 @@ func (r bootstrapRuntime) validate() error {
 		return nil
 	}
 	return r.Routing.validate()
-}
-
-func (t bootstrapRuntimeTransport) validate() error {
-	if _, err := requiredIntMin("transport.maxIdleConns", t.MaxIdleConns, 1); err != nil {
-		return err
-	}
-	if _, err := requiredIntMin("transport.maxIdleConnsPerHost", t.MaxIdleConnsPerHost, 1); err != nil {
-		return err
-	}
-	if _, err := requiredIntMin("transport.maxConnsPerHost", t.MaxConnsPerHost, 0); err != nil {
-		return err
-	}
-	if _, err := requiredTrimmedString("transport.requestTimeout", t.RequestTimeout, 1, 0); err != nil {
-		return err
-	}
-	if _, err := requiredTrimmedString("transport.idleConnTimeout", t.IdleConnTimeout, 1, 0); err != nil {
-		return err
-	}
-	if _, err := requiredTrimmedString("transport.responseHeaderTimeout", t.ResponseHeaderTimeout, 1, 0); err != nil {
-		return err
-	}
-	if _, err := requiredTrimmedString("transport.tlsHandshakeTimeout", t.TLSHandshakeTimeout, 1, 0); err != nil {
-		return err
-	}
-	if _, err := requiredTrimmedString("transport.expectContinueTimeout", t.ExpectContinueTimeout, 1, 0); err != nil {
-		return err
-	}
-	return nil
 }
 
 func (s bootstrapRuntimeSideEffects) validate() error {
@@ -1625,11 +1557,6 @@ func (d bootstrapConfigDocument) validateSemantics() error {
 		path  string
 		value *string
 	}{
-		{path: "transport.requestTimeout", value: d.Runtime.Transport.RequestTimeout},
-		{path: "transport.idleConnTimeout", value: d.Runtime.Transport.IdleConnTimeout},
-		{path: "transport.responseHeaderTimeout", value: d.Runtime.Transport.ResponseHeaderTimeout},
-		{path: "transport.tlsHandshakeTimeout", value: d.Runtime.Transport.TLSHandshakeTimeout},
-		{path: "transport.expectContinueTimeout", value: d.Runtime.Transport.ExpectContinueTimeout},
 		{path: "sideEffects.attemptTimeout", value: d.Runtime.SideEffects.AttemptTimeout},
 	} {
 		if _, err := parseDurationField(field.path, field.value); err != nil {
@@ -1661,10 +1588,6 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 		return Settings{}, err
 	}
 	runtimeSecretEncryptionKey, err := requiredTrimmedString("secretEncryptionKey", d.Runtime.SecretEncryptionKey, 1, 0)
-	if err != nil {
-		return Settings{}, err
-	}
-	runtimeTransport, err := d.Runtime.Transport.toRuntimeTransportConfig()
 	if err != nil {
 		return Settings{}, err
 	}
@@ -1711,7 +1634,6 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 		DatabaseURL:                      databaseURL,
 		RuntimeTelemetryMode:             RuntimeTelemetryModeDurableOutbox,
 		Telemetry:                        telemetryConfig,
-		RuntimeTransportConfig:           runtimeTransport,
 		RuntimeSideEffectsConfig:         runtimeSideEffects,
 		PostgresPoolsBudget:              postgresPoolsBudget,
 		RuntimeDatabasePoolBudget:        postgresPoolsBudget.RuntimeExecution,
@@ -1945,54 +1867,6 @@ func (t *bootstrapTelemetryTraces) toTelemetryTracesConfig(telemetryEnabled bool
 	return result, nil
 }
 
-func (t bootstrapRuntimeTransport) toRuntimeTransportConfig() (RuntimeTransportConfig, error) {
-	maxIdleConns, err := requiredIntMin("transport.maxIdleConns", t.MaxIdleConns, 1)
-	if err != nil {
-		return RuntimeTransportConfig{}, err
-	}
-	maxIdleConnsPerHost, err := requiredIntMin("transport.maxIdleConnsPerHost", t.MaxIdleConnsPerHost, 1)
-	if err != nil {
-		return RuntimeTransportConfig{}, err
-	}
-	maxConnsPerHost, err := requiredIntMin("transport.maxConnsPerHost", t.MaxConnsPerHost, 0)
-	if err != nil {
-		return RuntimeTransportConfig{}, err
-	}
-	requestTimeout, err := parseDurationField("transport.requestTimeout", t.RequestTimeout)
-	if err != nil {
-		return RuntimeTransportConfig{}, err
-	}
-	if requestTimeout <= 0 {
-		return RuntimeTransportConfig{}, fmt.Errorf("bootstrap config field transport.requestTimeout must be greater than zero")
-	}
-	idleConnTimeout, err := parseDurationField("transport.idleConnTimeout", t.IdleConnTimeout)
-	if err != nil {
-		return RuntimeTransportConfig{}, err
-	}
-	responseHeaderTimeout, err := parseDurationField("transport.responseHeaderTimeout", t.ResponseHeaderTimeout)
-	if err != nil {
-		return RuntimeTransportConfig{}, err
-	}
-	tlsHandshakeTimeout, err := parseDurationField("transport.tlsHandshakeTimeout", t.TLSHandshakeTimeout)
-	if err != nil {
-		return RuntimeTransportConfig{}, err
-	}
-	expectContinueTimeout, err := parseDurationField("transport.expectContinueTimeout", t.ExpectContinueTimeout)
-	if err != nil {
-		return RuntimeTransportConfig{}, err
-	}
-	return RuntimeTransportConfig{
-		MaxIdleConns:          maxIdleConns,
-		MaxIdleConnsPerHost:   maxIdleConnsPerHost,
-		MaxConnsPerHost:       maxConnsPerHost,
-		RequestTimeout:        requestTimeout,
-		IdleConnTimeout:       idleConnTimeout,
-		ResponseHeaderTimeout: responseHeaderTimeout,
-		TLSHandshakeTimeout:   tlsHandshakeTimeout,
-		ExpectContinueTimeout: expectContinueTimeout,
-	}, nil
-}
-
 func (s bootstrapRuntimeSideEffects) toRuntimeSideEffectsConfig() (RuntimeSideEffectsConfig, error) {
 	attemptTimeout, err := parseDurationField("sideEffects.attemptTimeout", s.AttemptTimeout)
 	if err != nil {
@@ -2007,7 +1881,6 @@ func (s bootstrapRuntimeSideEffects) toRuntimeSideEffectsConfig() (RuntimeSideEf
 func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapConfigDocument, error) {
 	postgresPoolsBudget := settings.PostgresPoolsBudgetOrDefault()
 	managementAdmissionBudget := settings.ManagementAdmissionBudget()
-	runtimeTransport := settings.RuntimeTransport()
 	runtimeSideEffects := settings.RuntimeSideEffects()
 	corsAllowedOrigins := settings.CORSAllowedOriginsList()
 	databaseURL := strings.TrimSpace(settings.DatabaseURL)
@@ -2053,16 +1926,6 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 		},
 		Runtime: &bootstrapRuntime{
 			SecretEncryptionKey: stringPointer(runtimeSecretEncryptionKey),
-			Transport: &bootstrapRuntimeTransport{
-				MaxIdleConns:          intPointer(runtimeTransport.MaxIdleConns),
-				MaxIdleConnsPerHost:   intPointer(runtimeTransport.MaxIdleConnsPerHost),
-				MaxConnsPerHost:       intPointer(runtimeTransport.MaxConnsPerHost),
-				RequestTimeout:        stringPointer(bootstrapRequestTimeoutString(runtimeTransport.RequestTimeout)),
-				IdleConnTimeout:       stringPointer(bootstrapDurationString(runtimeTransport.IdleConnTimeout)),
-				ResponseHeaderTimeout: stringPointer(bootstrapDurationString(runtimeTransport.ResponseHeaderTimeout)),
-				TLSHandshakeTimeout:   stringPointer(bootstrapDurationString(runtimeTransport.TLSHandshakeTimeout)),
-				ExpectContinueTimeout: stringPointer(bootstrapDurationString(runtimeTransport.ExpectContinueTimeout)),
-			},
 			SideEffects: &bootstrapRuntimeSideEffects{
 				AttemptTimeout: stringPointer(bootstrapDurationString(runtimeSideEffects.AttemptTimeout)),
 			},
@@ -2095,25 +1958,8 @@ func bootstrapDatabasePoolFromBudget(budget DatabasePoolBudget) *bootstrapDataba
 	return &bootstrapDatabasePool{MaxConns: intPointer(int(budget.MaxConns)), MinIdleConns: intPointer(int(budget.MinIdleConns))}
 }
 
-func bootstrapRequestTimeoutString(timeout time.Duration) string {
-	return bootstrapDurationString(timeout)
-}
-
 func bootstrapDurationString(duration time.Duration) string {
-	switch duration {
-	case defaultRuntimeTransportRequestTimeout:
-		return "300s"
-	case defaultRuntimeTransportIdleConnTimeout:
-		return "90s"
-	case defaultRuntimeTransportResponseHeaderTimeout:
-		return "0s"
-	case defaultRuntimeTransportTLSHandshakeTimeout:
-		return "10s"
-	case defaultRuntimeTransportExpectContinueTimeout:
-		return "1s"
-	default:
-		return duration.String()
-	}
+	return duration.String()
 }
 
 func intPointer(value int) *int {

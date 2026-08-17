@@ -2,6 +2,7 @@ package platformhttp
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -159,7 +160,7 @@ func buildHotBootstrapConfigRuntimeSnapshot(settings config.Settings) (*hotBoots
 	return &hotBootstrapConfigRuntimeSnapshot{
 		cors:         buildHotCORSSnapshot(settings),
 		auth:         buildHotAuthRuntimeSnapshot(settings),
-		runtimeProxy: buildHotRuntimeProxySnapshot(settings),
+		runtimeProxy: buildHotRuntimeProxySnapshot(),
 		admission:    buildHotAdmissionSnapshot(settings),
 		alerting:     buildHotAlertingSnapshot(settings),
 	}, nil
@@ -184,43 +185,35 @@ func buildHotAuthRuntimeSnapshot(settings config.Settings) HotAuthRuntimeSnapsho
 }
 
 type HotRuntimeProxySnapshot struct {
-	transportConfig config.RuntimeTransportConfig
-	transport       *http.Transport
-	roundTripper    http.RoundTripper
+	transport    *http.Transport
+	roundTripper http.RoundTripper
 }
 
 type hotRuntimeRoundTripper struct {
 	transport http.RoundTripper
 }
 
-func buildHotRuntimeProxySnapshot(settings config.Settings) HotRuntimeProxySnapshot {
-	transportConfig := settings.RuntimeTransport()
+// buildHotRuntimeProxySnapshot builds the outbound upstream transport. All
+// connection counts, idle lifetimes, and timeouts were removed with
+// runtime.transport: outbound requests are now subject to no connection or
+// deadline limits. MaxIdleConnsPerHost is explicitly unlimited instead of
+// leaving it at the Go default of 2 idle connections per host.
+func buildHotRuntimeProxySnapshot() HotRuntimeProxySnapshot {
 	transport := &http.Transport{
-		DisableCompression:    true,
-		MaxIdleConns:          transportConfig.MaxIdleConns,
-		MaxIdleConnsPerHost:   transportConfig.MaxIdleConnsPerHost,
-		MaxConnsPerHost:       transportConfig.MaxConnsPerHost,
-		IdleConnTimeout:       transportConfig.IdleConnTimeout,
-		ResponseHeaderTimeout: transportConfig.ResponseHeaderTimeout,
-		TLSHandshakeTimeout:   transportConfig.TLSHandshakeTimeout,
-		ExpectContinueTimeout: transportConfig.ExpectContinueTimeout,
+		DisableCompression:  true,
+		MaxIdleConnsPerHost: math.MaxInt32,
 	}
 	return HotRuntimeProxySnapshot{
-		transportConfig: transportConfig,
-		transport:       transport,
-		roundTripper:    &hotRuntimeRoundTripper{transport: transport},
+		transport:    transport,
+		roundTripper: &hotRuntimeRoundTripper{transport: transport},
 	}
-}
-
-func (s HotRuntimeProxySnapshot) TransportConfig() config.RuntimeTransportConfig {
-	return s.transportConfig
 }
 
 func (s HotRuntimeProxySnapshot) HTTPClient() *http.Client {
 	if s.roundTripper == nil {
 		return nil
 	}
-	return &http.Client{Timeout: s.transportConfig.RequestTimeout, Transport: s.roundTripper}
+	return &http.Client{Transport: s.roundTripper}
 }
 
 func (s HotRuntimeProxySnapshot) CloseIdleConnections() {

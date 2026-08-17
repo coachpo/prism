@@ -20,16 +20,6 @@ func TestLoadCanonicalDefaultSettings(t *testing.T) {
 		t.Fatalf("unexpected canonical runtime telemetry mode: %q", settings.RuntimeTelemetryMode)
 	}
 	assertTelemetryDefaults(t, settings.Telemetry)
-	assertRuntimeTransportConfig(t, settings.RuntimeTransport(), RuntimeTransportConfig{
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   16,
-		MaxConnsPerHost:       16,
-		RequestTimeout:        300 * time.Second,
-		IdleConnTimeout:       90 * time.Second,
-		ResponseHeaderTimeout: 0,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: time.Second,
-	})
 	if got := settings.RuntimeSideEffects(); got.AttemptTimeout != 10*time.Second {
 		t.Fatalf("unexpected canonical side-effects defaults: %+v", got)
 	}
@@ -118,12 +108,34 @@ func TestBootstrapConfigAcceptsStaleOpenAITerminalTranslationMode(t *testing.T) 
 	}
 	payload["runtime"].(map[string]any)["routing"] = map[string]any{"openaiTerminalTranslationMode": "safe_only"}
 
-	settings, err := NewBootstrapConfigManager(BootstrapConfigManagerOptions{}).Parse(mustMarshalBootstrapPayload(t, payload))
+	_, err := NewBootstrapConfigManager(BootstrapConfigManagerOptions{}).Parse(mustMarshalBootstrapPayload(t, payload))
 	if err != nil {
 		t.Fatalf("expected stale OpenAI terminal translation mode field to be ignored, got %v", err)
 	}
-	if settings.RuntimeTransportConfig.RequestTimeout != defaultRuntimeTransportRequestTimeout {
-		t.Fatalf("expected stale routing field to leave runtime settings unchanged, got %+v", settings.RuntimeTransportConfig)
+}
+
+func TestBootstrapConfigRejectsRemovedRuntimeTransportSection(t *testing.T) {
+	var payload map[string]any
+	if err := json.Unmarshal(seededBootstrapPayload(t), &payload); err != nil {
+		t.Fatalf("decode seeded bootstrap payload: %v", err)
+	}
+	payload["runtime"].(map[string]any)["transport"] = map[string]any{
+		"maxIdleConns":          100,
+		"maxIdleConnsPerHost":   16,
+		"maxConnsPerHost":       16,
+		"requestTimeout":        "60s",
+		"idleConnTimeout":       "90s",
+		"responseHeaderTimeout": "0s",
+		"tlsHandshakeTimeout":   "10s",
+		"expectContinueTimeout": "1s",
+	}
+
+	_, err := NewBootstrapConfigManager(BootstrapConfigManagerOptions{}).Parse(mustMarshalBootstrapPayload(t, payload))
+	if err == nil {
+		t.Fatal("expected removed runtime.transport section to be rejected")
+	}
+	if !strings.Contains(err.Error(), "runtime.transport has been removed") {
+		t.Fatalf("expected readable migration error, got: %v", err)
 	}
 }
 
@@ -233,47 +245,6 @@ func TestManagementAdmissionClamp(t *testing.T) {
 	}
 }
 
-func TestNormalizeRuntimeTransportConfig(t *testing.T) {
-	want := RuntimeTransportConfig{
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   16,
-		MaxConnsPerHost:       16,
-		RequestTimeout:        300 * time.Second,
-		IdleConnTimeout:       90 * time.Second,
-		ResponseHeaderTimeout: 0,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: time.Second,
-	}
-	if got := defaultRuntimeTransportConfig(); got.MaxConnsPerHost != 16 {
-		t.Fatalf("expected fresh canonical transport defaults to seed max conns per host 16, got %+v", got)
-	}
-	zeroPreserved := want
-	zeroPreserved.MaxConnsPerHost = 0
-	assertRuntimeTransportConfig(t, normalizeRuntimeTransportConfig(RuntimeTransportConfig{}, defaultRuntimeTransportConfig()), zeroPreserved)
-	assertRuntimeTransportConfig(t, normalizeRuntimeTransportConfig(defaultRuntimeTransportConfig(), defaultRuntimeTransportConfig()), want)
-
-	candidate := RuntimeTransportConfig{
-		MaxIdleConns:          4,
-		MaxIdleConnsPerHost:   32,
-		MaxConnsPerHost:       8,
-		RequestTimeout:        -time.Second,
-		IdleConnTimeout:       -time.Second,
-		ResponseHeaderTimeout: -time.Second,
-		TLSHandshakeTimeout:   0,
-		ExpectContinueTimeout: 0,
-	}
-	assertRuntimeTransportConfig(t, normalizeRuntimeTransportConfig(candidate, defaultRuntimeTransportConfig()), RuntimeTransportConfig{
-		MaxIdleConns:          8,
-		MaxIdleConnsPerHost:   8,
-		MaxConnsPerHost:       8,
-		RequestTimeout:        300 * time.Second,
-		IdleConnTimeout:       90 * time.Second,
-		ResponseHeaderTimeout: 0,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: time.Second,
-	})
-}
-
 func TestSeededBootstrapDocumentUsesDerivedPoolDefaults(t *testing.T) {
 	document, err := buildSeededBootstrapDocument(Load(), time.Date(2026, 7, 9, 0, 0, 0, 0, time.UTC))
 	if err != nil {
@@ -375,13 +346,6 @@ func assertTelemetryParseError(t *testing.T, document bootstrapConfigDocument, w
 	}
 	if !strings.Contains(err.Error(), want) {
 		t.Fatalf("expected telemetry parse error containing %q, got %v", want, err)
-	}
-}
-
-func assertRuntimeTransportConfig(t *testing.T, got RuntimeTransportConfig, want RuntimeTransportConfig) {
-	t.Helper()
-	if got != want {
-		t.Fatalf("unexpected runtime transport config:\n got: %+v\nwant: %+v", got, want)
 	}
 }
 

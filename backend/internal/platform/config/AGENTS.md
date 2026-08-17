@@ -23,8 +23,8 @@ config/
 ## CONVENTIONS
 - Keep steady-state Prism settings in the plaintext bootstrap JSON; avoid adding env knobs except bootstrap-critical process wiring.
 - Keep backend canonical defaults here. Fresh seeds inherit these values; existing valid bootstrap files are preserved until manual reset.
-- Keep `runtime.transport.requestTimeout` in the startup runtime transport snapshot.
 - Keep external bootstrap file edits restart-applied after R2.
+- Keep the `runtime.transport` section removed: outbound upstream requests carry no connection or timeout limits, and a leftover `runtime.transport` block is rejected with a readable migration error.
 - Keep secret metadata snapshots metadata-only; never expose stored secrets, hashes, or proxy-key hashes.
 - Keep mail bootstrap fields parse-compatible for live `config.json`; delivery behavior has been removed.
 

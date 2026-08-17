@@ -84,14 +84,6 @@ const (
 	bootstrapFieldAuthRefreshCookieName                  = "auth.refresh_cookie_name"
 	bootstrapFieldAuthCookieSecure                       = "auth.cookie_secure"
 	bootstrapFieldAlertingWebhookURL                     = "alerting.webhookUrl"
-	bootstrapFieldRuntimeTransportMaxIdleConns           = "transport.max_idle_conns"
-	bootstrapFieldRuntimeTransportMaxIdleConnsPerHost    = "transport.max_idle_conns_per_host"
-	bootstrapFieldRuntimeTransportMaxConnsPerHost        = "transport.max_conns_per_host"
-	bootstrapFieldRuntimeTransportIdleConnTimeout        = "transport.idle_conn_timeout"
-	bootstrapFieldRuntimeTransportRequestTimeout         = "transport.request_timeout"
-	bootstrapFieldRuntimeTransportResponseHeaderTimeout  = "transport.response_header_timeout"
-	bootstrapFieldRuntimeTransportTLSHandshakeTimeout    = "transport.tls_handshake_timeout"
-	bootstrapFieldRuntimeTransportExpectContinueTimeout  = "transport.expect_continue_timeout"
 	bootstrapFieldRuntimeSideEffectsAttemptTimeout       = "side_effects.attempt_timeout"
 	bootstrapFieldTelemetryEnabled                       = "telemetry.enabled"
 	bootstrapFieldTelemetryExporterEndpoint              = "telemetry.exporter.endpoint"
@@ -135,14 +127,6 @@ var bootstrapConfigFieldRegistry = []bootstrapConfigFieldRegistration{
 	hotApplyBootstrapField(bootstrapFieldAuthAccessCookieName),
 	hotApplyBootstrapField(bootstrapFieldAuthRefreshCookieName),
 	hotApplyBootstrapField(bootstrapFieldAuthCookieSecure),
-	hotApplyBootstrapField(bootstrapFieldRuntimeTransportMaxIdleConns),
-	hotApplyBootstrapField(bootstrapFieldRuntimeTransportMaxIdleConnsPerHost),
-	hotApplyBootstrapField(bootstrapFieldRuntimeTransportMaxConnsPerHost),
-	hotApplyBootstrapField(bootstrapFieldRuntimeTransportIdleConnTimeout),
-	hotApplyBootstrapField(bootstrapFieldRuntimeTransportRequestTimeout),
-	hotApplyBootstrapField(bootstrapFieldRuntimeTransportResponseHeaderTimeout),
-	hotApplyBootstrapField(bootstrapFieldRuntimeTransportTLSHandshakeTimeout),
-	hotApplyBootstrapField(bootstrapFieldRuntimeTransportExpectContinueTimeout),
 	hotApplyBootstrapField(bootstrapFieldDatabaseManagementAdmissionM2Max),
 	hotApplyBootstrapField(bootstrapFieldDatabaseManagementAdmissionM3Max),
 	hotApplyBootstrapField(bootstrapFieldAlertingWebhookURL),
@@ -373,12 +357,10 @@ func addBootstrapDatabasePoolLaneFieldValues(fields map[string]bootstrapConfigFi
 
 func addBootstrapRuntimeFieldValues(fields map[string]bootstrapConfigFieldValue, values *BootstrapConfigRuntimeValues) {
 	if values == nil {
-		addBootstrapRuntimeTransportFieldValues(fields, nil)
 		addBootstrapRuntimeSideEffectsFieldValues(fields, nil)
 		addBootstrapRuntimeRoutingFieldValues(fields, nil)
 		return
 	}
-	addBootstrapRuntimeTransportFieldValues(fields, values.Transport)
 	addBootstrapRuntimeSideEffectsFieldValues(fields, values.SideEffects)
 	addBootstrapRuntimeRoutingFieldValues(fields, values.Routing)
 }
@@ -392,28 +374,6 @@ func addBootstrapRuntimeSideEffectsFieldValues(fields map[string]bootstrapConfig
 }
 
 func addBootstrapRuntimeRoutingFieldValues(map[string]bootstrapConfigFieldValue, *BootstrapConfigRuntimeRoutingValues) {
-}
-
-func addBootstrapRuntimeTransportFieldValues(fields map[string]bootstrapConfigFieldValue, values *BootstrapConfigRuntimeTransportValues) {
-	if values == nil {
-		fields[bootstrapFieldRuntimeTransportMaxIdleConns] = bootstrapIntFieldValue(nil)
-		fields[bootstrapFieldRuntimeTransportMaxIdleConnsPerHost] = bootstrapIntFieldValue(nil)
-		fields[bootstrapFieldRuntimeTransportMaxConnsPerHost] = bootstrapIntFieldValue(nil)
-		fields[bootstrapFieldRuntimeTransportIdleConnTimeout] = bootstrapDurationFieldValue(nil)
-		fields[bootstrapFieldRuntimeTransportRequestTimeout] = bootstrapDurationFieldValue(nil)
-		fields[bootstrapFieldRuntimeTransportResponseHeaderTimeout] = bootstrapDurationFieldValue(nil)
-		fields[bootstrapFieldRuntimeTransportTLSHandshakeTimeout] = bootstrapDurationFieldValue(nil)
-		fields[bootstrapFieldRuntimeTransportExpectContinueTimeout] = bootstrapDurationFieldValue(nil)
-		return
-	}
-	fields[bootstrapFieldRuntimeTransportMaxIdleConns] = bootstrapIntFieldValue(values.MaxIdleConns)
-	fields[bootstrapFieldRuntimeTransportMaxIdleConnsPerHost] = bootstrapIntFieldValue(values.MaxIdleConnsPerHost)
-	fields[bootstrapFieldRuntimeTransportMaxConnsPerHost] = bootstrapIntFieldValue(values.MaxConnsPerHost)
-	fields[bootstrapFieldRuntimeTransportIdleConnTimeout] = bootstrapDurationFieldValue(values.IdleConnTimeout)
-	fields[bootstrapFieldRuntimeTransportRequestTimeout] = bootstrapDurationFieldValue(values.RequestTimeout)
-	fields[bootstrapFieldRuntimeTransportResponseHeaderTimeout] = bootstrapDurationFieldValue(values.ResponseHeaderTimeout)
-	fields[bootstrapFieldRuntimeTransportTLSHandshakeTimeout] = bootstrapDurationFieldValue(values.TLSHandshakeTimeout)
-	fields[bootstrapFieldRuntimeTransportExpectContinueTimeout] = bootstrapDurationFieldValue(values.ExpectContinueTimeout)
 }
 
 func addBootstrapHTTPFieldValues(fields map[string]bootstrapConfigFieldValue, values *BootstrapConfigHTTPValues) {
@@ -587,15 +547,9 @@ func bootstrapStringSliceSetFieldValue(value *[]string) bootstrapConfigFieldValu
 
 func bootstrapConfigValuesFromSettings(settings Settings) BootstrapConfigValues {
 	postgresPools := settings.PostgresPoolsBudgetOrDefault()
-	runtimeTransport := settings.RuntimeTransport()
 	runtimeSideEffects := settings.RuntimeSideEffects()
 	managementAdmission := settings.ManagementAdmissionBudget()
 	corsAllowedOrigins := settings.CORSAllowedOriginsList()
-	requestTimeout := bootstrapRequestTimeoutString(runtimeTransport.RequestTimeout)
-	idleConnTimeout := runtimeTransport.IdleConnTimeout.String()
-	responseHeaderTimeout := runtimeTransport.ResponseHeaderTimeout.String()
-	tlsHandshakeTimeout := runtimeTransport.TLSHandshakeTimeout.String()
-	expectContinueTimeout := runtimeTransport.ExpectContinueTimeout.String()
 	runtimeSideEffectsAttemptTimeout := runtimeSideEffects.AttemptTimeout.String()
 	return BootstrapConfigValues{
 		Server: &BootstrapConfigServerValues{
@@ -618,16 +572,6 @@ func bootstrapConfigValuesFromSettings(settings Settings) BootstrapConfigValues 
 			},
 		},
 		Runtime: &BootstrapConfigRuntimeValues{
-			Transport: &BootstrapConfigRuntimeTransportValues{
-				MaxIdleConns:          intPointer(runtimeTransport.MaxIdleConns),
-				MaxIdleConnsPerHost:   intPointer(runtimeTransport.MaxIdleConnsPerHost),
-				MaxConnsPerHost:       intPointer(runtimeTransport.MaxConnsPerHost),
-				RequestTimeout:        &requestTimeout,
-				IdleConnTimeout:       &idleConnTimeout,
-				ResponseHeaderTimeout: &responseHeaderTimeout,
-				TLSHandshakeTimeout:   &tlsHandshakeTimeout,
-				ExpectContinueTimeout: &expectContinueTimeout,
-			},
 			SideEffects: &BootstrapConfigRuntimeSideEffectsValues{
 				AttemptTimeout: &runtimeSideEffectsAttemptTimeout,
 			},

@@ -23,7 +23,7 @@ No external users. The single operator is the person running the home-LAN instan
 ## Data
 
 - PostgreSQL holds management state, request logs, audit logs, usage events, and loadbalance events (partitioned retained tables plus live management tables).
-- A plaintext bootstrap file (`config.json`, path set by `PRISM_CONFIG_PATH`) owns startup and runtime transport settings.
+- A plaintext bootstrap file (`config.json`, path set by `PRISM_CONFIG_PATH`) owns startup settings. The `runtime.transport` config section was removed outright (no compatibility shell) in v1.0.20: Prism no longer applies connection or timeout limits to outbound provider requests, and a leftover `runtime.transport` block fails startup with a readable migration error.
 - The running home-LAN instance holds real accumulated operating history. Backing up an instance means `pg_dump` plus a copy of the plaintext config. The database and bootstrap file hold retained product state and are not disposable without backup.
 
 ## Compatibility Policy

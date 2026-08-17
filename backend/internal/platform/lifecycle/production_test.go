@@ -90,10 +90,9 @@ func TestRuntimeSideEffectOptionsFromSettings(t *testing.T) {
 
 func TestNewProductionAppUsesPlatformHTTPServerAssemblyWithoutDatabaseOwnership(t *testing.T) {
 	settings := config.Settings{
-		Host:                   "127.0.0.1",
-		Port:                   18000,
-		AppEnv:                 config.EnvironmentDevelopment,
-		RuntimeTransportConfig: config.RuntimeTransportConfig{RequestTimeout: time.Second},
+		Host:     "127.0.0.1",
+		Port:     18000,
+		AppEnv:   config.EnvironmentDevelopment,
 	}
 	app, server, err := NewProductionApp(context.Background(), settings)
 	if err != nil {

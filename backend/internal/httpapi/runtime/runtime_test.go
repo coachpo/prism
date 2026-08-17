@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -16,7 +17,6 @@ import (
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/domain/safediag"
 	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
-	"github.com/coachpo/prism/backend/internal/platform/config"
 	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
@@ -1323,38 +1323,23 @@ func TestBuildRuntimePricingResultValidatesPricingOwnerCoherence(t *testing.T) {
 	}
 }
 
-func TestNewRuntimeHTTPClientUsesTransportDefaultsAndOverrides(t *testing.T) {
-	defaultClient := newRuntimeHTTPClient(config.Load())
-	if defaultClient.Timeout != 300*time.Second {
-		t.Fatalf("expected canonical runtime HTTP client timeout 300s, got %v", defaultClient.Timeout)
+func TestNewRuntimeHTTPClientAppliesNoTransportLimits(t *testing.T) {
+	client := newRuntimeHTTPClient()
+	if client.Timeout != 0 {
+		t.Fatalf("expected no client timeout, got %v", client.Timeout)
 	}
-	defaultTransport, ok := defaultClient.Transport.(*http.Transport)
+	transport, ok := client.Transport.(*http.Transport)
 	if !ok {
-		t.Fatalf("expected canonical runtime HTTP transport, got %T", defaultClient.Transport)
+		t.Fatalf("expected runtime HTTP transport, got %T", client.Transport)
 	}
-	if defaultTransport.MaxIdleConns != 100 || defaultTransport.MaxIdleConnsPerHost != 16 || defaultTransport.MaxConnsPerHost != 16 {
-		t.Fatalf("expected canonical runtime transport caps 100/16/16, got %+v", defaultTransport)
+	if !transport.DisableCompression {
+		t.Fatal("expected DisableCompression to stay enabled")
 	}
-	if defaultTransport.IdleConnTimeout != 90*time.Second || defaultTransport.ResponseHeaderTimeout != 0 || defaultTransport.TLSHandshakeTimeout != 10*time.Second || defaultTransport.ExpectContinueTimeout != time.Second {
-		t.Fatalf("unexpected canonical runtime transport timeouts: %+v", defaultTransport)
+	if transport.MaxIdleConnsPerHost != math.MaxInt32 {
+		t.Fatalf("expected explicit unlimited idle connections per host, got %d", transport.MaxIdleConnsPerHost)
 	}
-
-	zeroSettings := config.Load()
-	zeroSettings.RuntimeTransportConfig.MaxConnsPerHost = 0
-	zeroClient := newRuntimeHTTPClient(zeroSettings)
-	zeroTransport, ok := zeroClient.Transport.(*http.Transport)
-	if !ok {
-		t.Fatalf("expected explicit-zero runtime HTTP transport, got %T", zeroClient.Transport)
-	}
-	if zeroTransport.MaxConnsPerHost != 0 {
-		t.Fatalf("expected explicit maxConnsPerHost=0 to remain unlimited, got %+v", zeroTransport)
-	}
-
-	settings := config.Load()
-	settings.RuntimeTransportConfig.RequestTimeout = 17 * time.Second
-	configuredClient := newRuntimeHTTPClient(settings)
-	if configuredClient.Timeout != 17*time.Second {
-		t.Fatalf("expected configured runtime HTTP client timeout 17s, got %v", configuredClient.Timeout)
+	if transport.MaxIdleConns != 0 || transport.MaxConnsPerHost != 0 || transport.IdleConnTimeout != 0 || transport.ResponseHeaderTimeout != 0 || transport.TLSHandshakeTimeout != 0 || transport.ExpectContinueTimeout != 0 {
+		t.Fatalf("expected no connection or timeout limits, got %+v", transport)
 	}
 }
 

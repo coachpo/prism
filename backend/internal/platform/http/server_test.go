@@ -412,7 +412,7 @@ func TestProxyAdmissionAttachesServerSideWorkload(t *testing.T) {
 	t.Parallel()
 
 	controller := admission.NewController(admission.Limits{Proxy: 1})
-	handler := proxyAdmissionProviderMiddleware(nil, controller, time.Minute, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := proxyAdmissionProviderMiddleware(nil, controller, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		metadata, err := priority.RequireMetadata(r.Context())
 		if err != nil {
 			t.Fatalf("expected proxy priority metadata: %v", err)
@@ -427,8 +427,8 @@ func TestProxyAdmissionAttachesServerSideWorkload(t *testing.T) {
 		if workload.Name != "runtime proxy" {
 			t.Fatalf("expected runtime proxy workload, got %q", workload.Name)
 		}
-		if _, ok := r.Context().Deadline(); !ok {
-			t.Fatal("expected proxy request deadline")
+		if _, ok := r.Context().Deadline(); ok {
+			t.Fatal("expected no proxy request deadline after runtime.transport removal")
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -450,7 +450,6 @@ func TestNewHandlerWithDependenciesMountsBaselineRoutes(t *testing.T) {
 		Host:                             "127.0.0.1",
 		Port:                             8000,
 		AppEnv:                           config.EnvironmentDevelopment,
-		RuntimeTransportConfig:           config.RuntimeTransportConfig{RequestTimeout: time.Second},
 		ManagementDatabasePoolBudget:     config.DatabasePoolBudget{MaxConns: 4},
 		ManagementAdmissionControlBudget: config.ManagementAdmissionBudget{M2MaxConcurrent: 2, M3MaxConcurrent: 1},
 	}

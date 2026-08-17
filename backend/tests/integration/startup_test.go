@@ -137,8 +137,6 @@ func TestStartupPreservesExistingBootstrap(t *testing.T) {
 	runBackendPrintEffectiveStartupSettings(t, configPath, fileDatabaseURL)
 	mutateStartupBootstrapJSON(t, configPath, func(payload map[string]any) {
 		startupBootstrapObject(t, payload, "server")["port"] = 18000
-		runtimePayload := startupBootstrapObject(t, payload, "runtime")
-		startupBootstrapObject(t, runtimePayload, "transport")["requestTimeout"] = "60s"
 	})
 	before := setStartupBootstrapFileModTime(t, configPath, time.Date(2026, 5, 25, 13, 0, 0, 0, time.UTC))
 
@@ -696,7 +694,6 @@ func productionLifecycleSettings(databaseURL string) config.Settings {
 		Port:                     18000,
 		AppEnv:                   config.EnvironmentProduction,
 		DatabaseURL:              databaseURL,
-		RuntimeTransportConfig:   config.RuntimeTransportConfig{RequestTimeout: time.Second},
 		RuntimeSideEffectsConfig: config.RuntimeSideEffectsConfig{AttemptTimeout: time.Second},
 		SecretEncryptionKey:      "startup-test-secret",
 		AuthJWTSecret:            "startup-test-jwt-secret",

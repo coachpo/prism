@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"regexp"
 	"strings"
@@ -94,7 +95,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 	client := options.HTTPClient
 	ownsHTTPClient := false
 	if client == nil {
-		client = newRuntimeHTTPClient(settings)
+		client = newRuntimeHTTPClient()
 		ownsHTTPClient = true
 	}
 
@@ -169,19 +170,16 @@ func (s *Service) RegisterBackgroundWorkers(scheduler *background.Scheduler) err
 	return nil
 }
 
-func newRuntimeHTTPClient(settings config.Settings) *http.Client {
-	transportConfig := settings.RuntimeTransport()
+// newRuntimeHTTPClient builds the outbound upstream client. All connection
+// counts, idle lifetimes, and timeouts were removed with runtime.transport:
+// outbound requests are now subject to no connection or deadline limits.
+// MaxIdleConnsPerHost is explicitly unlimited instead of leaving it at the Go
+// default of 2 idle connections per host.
+func newRuntimeHTTPClient() *http.Client {
 	return &http.Client{
-		Timeout: transportConfig.RequestTimeout,
 		Transport: &http.Transport{
-			DisableCompression:    true,
-			MaxIdleConns:          transportConfig.MaxIdleConns,
-			MaxIdleConnsPerHost:   transportConfig.MaxIdleConnsPerHost,
-			MaxConnsPerHost:       transportConfig.MaxConnsPerHost,
-			IdleConnTimeout:       transportConfig.IdleConnTimeout,
-			ResponseHeaderTimeout: transportConfig.ResponseHeaderTimeout,
-			TLSHandshakeTimeout:   transportConfig.TLSHandshakeTimeout,
-			ExpectContinueTimeout: transportConfig.ExpectContinueTimeout,
+			DisableCompression:  true,
+			MaxIdleConnsPerHost: math.MaxInt32,
 		},
 	}
 }

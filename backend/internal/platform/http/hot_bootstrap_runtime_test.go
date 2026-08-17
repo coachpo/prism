@@ -1,6 +1,7 @@
 package platformhttp
 
 import (
+	"math"
 	"net/http"
 	"reflect"
 	"testing"
@@ -34,17 +35,16 @@ func TestHotBootstrapConfigRuntimeInitializesSnapshotsFromSettings(t *testing.T)
 		t.Fatalf("unexpected auth cookies: %+v", auth)
 	}
 	proxy := snapshot.RuntimeProxy()
-	transportConfig := proxy.TransportConfig()
-	if transportConfig.RequestTimeout != 17*time.Second || transportConfig.MaxIdleConns != 25 || transportConfig.MaxIdleConnsPerHost != 5 || transportConfig.MaxConnsPerHost != 9 {
-		t.Fatalf("unexpected runtime transport config: %+v", transportConfig)
-	}
 	client := proxy.HTTPClient()
-	if client == nil || client.Timeout != 17*time.Second {
+	if client == nil || client.Timeout != 0 {
 		t.Fatalf("unexpected runtime HTTP client: %+v", client)
 	}
 	transport := unwrapHotRuntimeTransport(t, client.Transport)
-	if !transport.DisableCompression || transport.ResponseHeaderTimeout != 7*time.Second || transport.TLSHandshakeTimeout != 11*time.Second {
+	if !transport.DisableCompression || transport.MaxIdleConnsPerHost != math.MaxInt32 {
 		t.Fatalf("unexpected runtime transport: %+v", transport)
+	}
+	if transport.MaxIdleConns != 0 || transport.MaxConnsPerHost != 0 || transport.IdleConnTimeout != 0 || transport.ResponseHeaderTimeout != 0 || transport.TLSHandshakeTimeout != 0 || transport.ExpectContinueTimeout != 0 {
+		t.Fatalf("expected runtime transport to impose no connection or timeout limits, got %+v", transport)
 	}
 	limits := snapshot.Admission().Limits()
 	if limits.ManagementM1 != 4 || limits.ManagementM2 != 3 || limits.ManagementM3 != 2 {
@@ -96,19 +96,11 @@ func TestHotBootstrapConfigRuntimeSnapshotsProtectMutableValues(t *testing.T) {
 		t.Fatal("caller mutated CORS origin set")
 	}
 
-	transportConfig := snapshot.RuntimeProxy().TransportConfig()
-	transportConfig.RequestTimeout = 99 * time.Second
-	if transportConfig.RequestTimeout != 99*time.Second {
-		t.Fatal("expected local runtime transport config copy to be mutable")
-	}
-	if snapshot.RuntimeProxy().TransportConfig().RequestTimeout == transportConfig.RequestTimeout {
-		t.Fatal("caller mutated runtime transport config")
-	}
 	client := snapshot.RuntimeProxy().HTTPClient()
 	client.Timeout = time.Nanosecond
 	client.Transport = nil
 	freshClient := snapshot.RuntimeProxy().HTTPClient()
-	if freshClient.Timeout != 17*time.Second || freshClient.Transport == nil {
+	if freshClient.Timeout != 0 || freshClient.Transport == nil {
 		t.Fatalf("caller mutated runtime HTTP client seam: %+v", freshClient)
 	}
 }
@@ -138,8 +130,8 @@ func TestHotBootstrapConfigRuntimePublishUpdatesAtomicallyAndKeepsOldSnapshotSta
 	if got := newSnapshot.Auth().AccessTokenTTL; got != 41*time.Second {
 		t.Fatalf("new auth access TTL = %s", got)
 	}
-	if got := newSnapshot.RuntimeProxy().TransportConfig().RequestTimeout; got != 23*time.Second {
-		t.Fatalf("new runtime request timeout = %s", got)
+	if got := newSnapshot.RuntimeProxy().HTTPClient().Timeout; got != 0 {
+		t.Fatalf("new runtime HTTP client timeout = %s", got)
 	}
 	if got := newSnapshot.Admission().Limits(); got.ManagementM1 != 4 || got.ManagementM2 != 5 || got.ManagementM3 != 4 {
 		t.Fatalf("new admission limits = %+v", got)
@@ -151,8 +143,8 @@ func TestHotBootstrapConfigRuntimePublishUpdatesAtomicallyAndKeepsOldSnapshotSta
 	if got := oldSnapshot.Auth().AccessTokenTTL; got != 17*time.Second {
 		t.Fatalf("old auth access TTL changed: %s", got)
 	}
-	if got := oldSnapshot.RuntimeProxy().TransportConfig().RequestTimeout; got != 17*time.Second {
-		t.Fatalf("old runtime request timeout changed: %s", got)
+	if got := oldSnapshot.RuntimeProxy().HTTPClient().Timeout; got != 0 {
+		t.Fatalf("old runtime HTTP client timeout changed: %s", got)
 	}
 
 	newClient := newSnapshot.RuntimeProxy().HTTPClient()
@@ -172,7 +164,6 @@ func hotBootstrapRuntimeTestSettings() config.Settings {
 		AuthCookieName:                   " access_cookie ",
 		AuthRefreshCookieName:            " refresh_cookie ",
 		AuthCookieSecure:                 true,
-		RuntimeTransportConfig:           hotBootstrapRuntimeTransportConfig(17 * time.Second),
 		ManagementDatabasePoolBudget:     config.DatabasePoolBudget{MaxConns: 7},
 		ManagementAdmissionControlBudget: config.ManagementAdmissionBudget{M2MaxConcurrent: 3, M3MaxConcurrent: 2},
 	}
@@ -186,23 +177,9 @@ func hotBootstrapRuntimeUpdatedSettings() config.Settings {
 	settings.AuthCookieName = "new_access_cookie"
 	settings.AuthRefreshCookieName = "new_refresh_cookie"
 	settings.AuthCookieSecure = false
-	settings.RuntimeTransportConfig = hotBootstrapRuntimeTransportConfig(23 * time.Second)
 	settings.ManagementDatabasePoolBudget = config.DatabasePoolBudget{MaxConns: 9}
 	settings.ManagementAdmissionControlBudget = config.ManagementAdmissionBudget{M2MaxConcurrent: 5, M3MaxConcurrent: 4}
 	return settings
-}
-
-func hotBootstrapRuntimeTransportConfig(requestTimeout time.Duration) config.RuntimeTransportConfig {
-	return config.RuntimeTransportConfig{
-		MaxIdleConns:          25,
-		MaxIdleConnsPerHost:   5,
-		MaxConnsPerHost:       9,
-		RequestTimeout:        requestTimeout,
-		IdleConnTimeout:       19 * time.Second,
-		ResponseHeaderTimeout: 7 * time.Second,
-		TLSHandshakeTimeout:   11 * time.Second,
-		ExpectContinueTimeout: 3 * time.Second,
-	}
 }
 
 func unwrapHotRuntimeTransport(t *testing.T, roundTripper http.RoundTripper) *http.Transport {

@@ -434,9 +434,6 @@ func assertLauncherBootstrapConfig(t *testing.T, configPath string) {
 			URL string `json:"url"`
 		} `json:"database"`
 		Runtime struct {
-			Transport struct {
-				RequestTimeout string `json:"requestTimeout"`
-			} `json:"transport"`
 			SideEffects struct {
 				AttemptTimeout string `json:"attemptTimeout"`
 			} `json:"sideEffects"`
@@ -451,8 +448,8 @@ func assertLauncherBootstrapConfig(t *testing.T, configPath string) {
 	if payload.Database.URL != launcherDatabaseURL {
 		t.Fatalf("expected launcher bootstrap database URL %q, got %q", launcherDatabaseURL, payload.Database.URL)
 	}
-	if payload.Runtime.Transport.RequestTimeout == "" {
-		t.Fatal("expected launcher bootstrap to include transport.requestTimeout")
+	if strings.Contains(string(raw), `"transport"`) {
+		t.Fatal("expected launcher bootstrap to omit the removed runtime.transport section")
 	}
 	if payload.Runtime.SideEffects.AttemptTimeout == "" {
 		t.Fatal("expected launcher bootstrap to include sideEffects.attemptTimeout")

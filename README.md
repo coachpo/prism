@@ -61,7 +61,7 @@ The launcher serves the frontend on port `5173`, runs PostgreSQL on `15432`, and
 
 Prism boots from a plaintext JSON file (default `config.json`, path set by `PRISM_CONFIG_PATH`). It is seeded with defaults on first start and owns the listen address, database URL, timeouts, and secrets from then on. `DATABASE_URL` only seeds the database connection initially; afterwards the file is the source of truth. There is no config UI or hot reload — edit the file and restart Prism.
 
-Two timeout fields are required and seeded automatically: `runtime.transport.requestTimeout` (`"300s"`, whole-request upstream timeout) and `runtime.sideEffects.attemptTimeout` (`"10s"`, per-attempt background side-effect budget).
+One timeout field is required and seeded automatically: `runtime.sideEffects.attemptTimeout` (`"10s"`, per-attempt background side-effect budget). The `runtime.transport` section was removed outright: outbound provider requests are no longer subject to any connection or timeout limits, and a leftover `runtime.transport` block is rejected with a readable migration error.
 
 Everything else — models, endpoints, load-balance strategies, pricing templates, proxy keys — is managed from the dashboard and stored in PostgreSQL. Schema migrations run automatically on startup.
 

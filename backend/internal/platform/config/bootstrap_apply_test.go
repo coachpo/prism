@@ -16,14 +16,6 @@ func TestBootstrapConfigApplyRegistryCoversPlanFields(t *testing.T) {
 		bootstrapFieldAuthAccessCookieName,
 		bootstrapFieldAuthRefreshCookieName,
 		bootstrapFieldAuthCookieSecure,
-		bootstrapFieldRuntimeTransportMaxIdleConns,
-		bootstrapFieldRuntimeTransportMaxIdleConnsPerHost,
-		bootstrapFieldRuntimeTransportMaxConnsPerHost,
-		bootstrapFieldRuntimeTransportIdleConnTimeout,
-		bootstrapFieldRuntimeTransportRequestTimeout,
-		bootstrapFieldRuntimeTransportResponseHeaderTimeout,
-		bootstrapFieldRuntimeTransportTLSHandshakeTimeout,
-		bootstrapFieldRuntimeTransportExpectContinueTimeout,
 		bootstrapFieldDatabaseManagementAdmissionM2Max,
 		bootstrapFieldDatabaseManagementAdmissionM3Max,
 		bootstrapFieldAlertingWebhookURL,
@@ -101,9 +93,7 @@ func TestBootstrapConfigFieldDiffDetectsHotOnlyChanges(t *testing.T) {
 	requested := cloneManagementValues(t, current)
 	requested.HTTP.CORSAllowedOrigins = &[]string{"https://console.example.test"}
 	nextAccessTokenTTL := *current.Auth.AccessTokenTTLSeconds + 60
-	nextRequestTimeout := "301s"
 	requested.Auth.AccessTokenTTLSeconds = &nextAccessTokenTTL
-	requested.Runtime.Transport.RequestTimeout = &nextRequestTimeout
 	diff, err := DiffBootstrapConfigFields(current, requested, preserveManagementSecretUpdates())
 	if err != nil {
 		t.Fatalf("diff hot-only bootstrap fields: %v", err)
@@ -111,7 +101,6 @@ func TestBootstrapConfigFieldDiffDetectsHotOnlyChanges(t *testing.T) {
 	assertBootstrapFieldsEqual(t, diff.ChangedHotApplyFields, []string{
 		bootstrapFieldHTTPCORSAllowedOrigins,
 		bootstrapFieldAuthAccessTokenTTLSeconds,
-		bootstrapFieldRuntimeTransportRequestTimeout,
 	})
 	assertBootstrapFieldsEqual(t, diff.ChangedRestartRequiredFields, nil)
 	if diff.RestartRequired() {
@@ -235,8 +224,6 @@ func TestBootstrapConfigFieldDiffEmitsSecretUpdatePaths(t *testing.T) {
 func TestBootstrapConfigFieldDiffReportsUnchangedFields(t *testing.T) {
 	current := bootstrapApplyTestValues(t)
 	requested := cloneManagementValues(t, current)
-	fiveMinutes := "5m"
-	requested.Runtime.Transport.RequestTimeout = &fiveMinutes
 	if current.HTTP.CORSAllowedOrigins != nil {
 		origins := make([]string, len(*current.HTTP.CORSAllowedOrigins))
 		for index, origin := range *current.HTTP.CORSAllowedOrigins {
