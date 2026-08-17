@@ -9,9 +9,28 @@ runtime/
 ├── operations.go                # Exact supported runtime operations, method/path matching, hook collection ids
 ├── operation_capability_gate.go # OpenAI text and image capability gates for ingress operations
 ├── operation_image_audit.go     # Image audit-body redaction dispatch before persistence
-├── service.go                   # Ingress rejection, shared executor wiring, transport, workers
-├── runtime.go                   # Request planning, model binding, rewrite rules, upstream proxy flow
+├── service.go                   # Runtime service lifecycle
+├── ingress.go                   # Runtime ingress admission
+├── response_write.go            # Downstream response writing
+├── response_capture.go          # Non-stream response capture
+├── response_usage_parser.go     # Streaming JSON usage parsing
+├── stream_response_capture.go   # SSE response capture
+├── stream_response_classification.go # SSE outcome classification
+├── stream_abort_frames.go       # Stream abort frames
 ├── runtime_planner.go           # Final plan assembly
+├── request_plan.go              # Request plan records
+├── runtime_planning.go          # Request plan construction
+├── runtime_request_body.go      # Replayable request bodies
+├── planning_snapshot_records.go # Planning snapshot records
+├── runtime_snapshot_queries.go  # Runtime snapshot queries
+├── runtime_operation_binding.go # Runtime operation binding
+├── runtime_model_rewrite.go     # Model path rewriting
+├── upstream_header_policy.go    # Upstream header policy
+├── request_execution.go         # Execution state records
+├── request_execution_loop.go    # Execution attempt loop
+├── upstream_attempt.go          # Upstream attempt transport
+├── failed_attempt_diagnostics.go # Failed-attempt diagnostics
+├── runtime_feedback.go          # Runtime feedback handoff
 ├── routing_plan*.go             # Routing plan compilation and validation helpers
 ├── planning_snapshot.go         # Access-target snapshot assembly and resolution ordering helpers
 ├── planning_snapshot_legacy.go  # Legacy snapshot compatibility helpers
@@ -32,9 +51,23 @@ runtime/
 ├── operation_translation.go     # OpenAI native operation-set compatibility and rejection boundary
 ├── openai_models.go             # Local OpenAI model-list filtering and response
 ├── generations.go               # Generation-request shaping and upstream helpers
-├── observability.go             # Request-log, usage-event, and audit shaping with v2 scoped/failure fields
-├── attempt_lifecycle.go         # Attempt triggers/results, launch-ordinal tracking, 64-attempt cap, failed-response sampler, safe transport/stream diagnostics
+├── observability.go             # Runtime observability failure entrypoints
+├── telemetry_activity_handoff.go # Runtime activity handoff
+├── telemetry_records.go         # Persisted telemetry records
+├── provider_usage_rules.go      # Provider usage normalization rules
+├── telemetry_envelope.go        # Telemetry envelope context
+├── telemetry_failure_envelopes.go # Telemetry failure envelopes
+├── request_log_rows.go          # Request-log row shaping
+├── audit_log_rows.go            # Audit-log row shaping
+├── audit_header_rows.go         # Audit-header row shaping
+├── usage_event_row.go           # Usage-event row shaping
+├── accounting_events.go         # Accounting event shaping
+├── telemetry_persistence.go     # Telemetry persistence
+├── telemetry_column_values.go   # Telemetry column values
+├── proxy_key_telemetry.go       # Proxy-key telemetry
+├── telemetry_request_helpers.go # Telemetry request helpers
 ├── bounded_audit_capture.go     # 4 MiB per-body / 12+4 MiB per-ingress bounded audit capture
+├── attempt_lifecycle.go         # Attempt triggers/results, launch-ordinal tracking, failed-response sampler, safe transport/stream diagnostics
 ├── telemetry_outbox_v2.go       # v2 metadata/artifact split, provisional→finalized streaming state machine
 ├── telemetry_outbox_poison.go   # Poison-row handling: permanent-vs-retryable materialization verdicts, safe SQLSTATE/constraint codes, backoff, and quarantine
 ├── log_partitions.go            # Runtime partition ensuring and cache
@@ -47,16 +80,22 @@ runtime/
 
 ## WHERE TO LOOK
 - Exact supported operations, hook collection ids, streaming flags, and model-binding sources: `operations.go`
-- Ingress rejection before body reads, wrong-method handling, shared executor wiring, and response branching: `service.go`
-- Request planning, model binding, request path rewrites, unified access-target resolution, final-target attribution, exact `planningSnapshot.ModelsByID` requested-model lookup, and shared upstream execution: `runtime.go`, `runtime_planner.go`, `routing_plan*.go`, `generations.go`, `planning_snapshot.go`, `planning_snapshot_legacy.go`, `proxy_selector_helpers.go`
+- Ingress rejection before body reads and response branching: `ingress.go`, `response_write.go`, `service.go`
+- Request planning and exact model binding: `request_plan.go`, `runtime_planning.go`, `runtime_operation_binding.go`, `runtime_model_rewrite.go`, `runtime_planner.go`, `routing_plan*.go`, `generations.go`, `planning_snapshot.go`, `planning_snapshot_legacy.go`, `proxy_selector_helpers.go`
+- Snapshot records and runtime database reads: `planning_snapshot_records.go`, `runtime_snapshot_queries.go`
+- Execution state and upstream attempts: `request_execution.go`, `request_execution_loop.go`, `upstream_attempt.go`, `failed_attempt_diagnostics.go`
+- Header policy: `upstream_header_policy.go`
 - Runtime-to-gateway adapter seams and usage normalization: `*_adapter_bridge.go`, `gateway_core_bridge.go`, `gateway_typed_hooks_bridge.go`, `provider_usage_conversion.go`
 - Automatic generation-param extraction and operation-directed request hooks: `request_generation_params.go`, `operation_request_hooks.go`
 - Non-stream response parsing for text generation and token count operations: `operation_response_hooks.go`
 - SSE terminal classification and usage merging for OpenAI, Anthropic, and Gemini stream operations: `operation_stream_hooks.go`
 - OpenAI native operation-set coverage, mismatched-target skipping, unsupported-wire rejection behavior, and planning diagnostics: `operation_translation.go`, `planning_snapshot.go`, `routing_plan*.go`, `runtime_test.go`
 - Local OpenAI model-list response: `openai_models.go`
-- Request-log and usage-event shaping plus `operation_name` persistence and v2 scoped/failure fields: `observability.go`, `attempt_lifecycle.go`, `../../../migrations/000001_initial_schema.sql`, `../../../migrations/000008_pricing_cost_trust_additive.sql`, `../../../migrations/000010_request_logs_audit_observability.sql`
-- Telemetry, feedback, and runtime side-effect ownership: `telemetry_outbox.go`, `telemetry_outbox_v2.go`, `telemetry_outbox_poison.go`, `feedback_pipeline.go`, `runtime_side_effects.go`
+- Request-log, usage-event, and audit shaping plus `operation_name` persistence: `observability.go`, `telemetry_activity_handoff.go`, `telemetry_records.go`, `request_log_rows.go`, `audit_log_rows.go`, `usage_event_row.go`, `telemetry_persistence.go`, `attempt_lifecycle.go`, `../../../migrations/000001_initial_schema.sql`, `../../../migrations/000008_pricing_cost_trust_additive.sql`, `../../../migrations/000010_request_logs_audit_observability.sql`
+- Provider usage normalization and response capture: `provider_usage_rules.go`, `response_capture.go`, `response_usage_parser.go`, `stream_response_capture.go`, `stream_response_classification.go`
+- Accounting and proxy-key telemetry: `accounting_events.go`, `proxy_key_telemetry.go`, `telemetry_column_values.go`
+- Telemetry, feedback, and runtime side-effect ownership: `telemetry_persistence.go`, `runtime_feedback.go`, `telemetry_outbox.go`, `telemetry_outbox_v2.go`, `telemetry_outbox_poison.go`, `feedback_pipeline.go`, `runtime_side_effects.go`
+- Stream abort frames: `stream_abort_frames.go`
 - Safe failure diagnostics bottom line: `../../domain/safediag/` (scrub/extract/codes/metadata/limits)
 - Partition ensuring and partition-cache behavior: `log_partitions.go`, `../../platform/logretention/`
 - Internal runtime regression coverage: `operations_test.go`, `service_ingress_test.go`, `request_generation_params_test.go`, `request_generation_params_runtime_test.go`, `operation_hook_residency_test.go`, `operation_response_hooks_test.go`, `operation_response_overflow_classifier_test.go`, `gateway_typed_hooks_bridge_test.go`, `planning_snapshot_contract_test.go`, `routing_plan_test.go`, `runtime_test.go`
@@ -74,7 +113,7 @@ runtime/
 - Keep the three strategies (`single`, `fill-first`, `round-robin`) applied once to that mixed peer sequence; a Model Target row recursively resolves through the child model's own strategy and stays one contiguous block. Reordering, add, remove, or enable-set changes must change the round-robin target-set hash.
 - Keep the `custom_request_parameters` overlay on the per-attempt materialized body: the shared `domain/terminaltarget` value applies a top-level shallow overlay after provider-native model/path rewrite, per-attempt generation-parameter snapshots are extracted from each attempt's final body, and any configured candidate forces the replayable-body path (Gemini probe planning stays two-phase: `rawBody == nil` never overlays or 400s).
 - Keep unsupported or wrong-method requests rejecting before body reads, runtime admission, provider transport, telemetry, audit, feedback, or runtime side effects.
-- Keep the shared execution core in `service.go` and `runtime.go`; provider-native differences belong in request, response, or stream hooks instead of forked executors.
+- Keep the shared execution core in `service.go`, `ingress.go`, `request_execution.go`, and `request_execution_loop.go`; provider-native differences belong in request, response, or stream hooks instead of forked executors.
 - Keep retired exact-facade and context-fit preflight behavior out of runtime planning; preserve requested/resolved model observability through the ordinary target plan.
 - Keep token-count operations out of generation-only parsing and usage assumptions.
 - Keep OpenAI text routing native-only: the model's accepted operation set and the connection capability must intersect for an ingress operation, otherwise planning skips or rejects the attempt; never translate Chat Completions and Responses.

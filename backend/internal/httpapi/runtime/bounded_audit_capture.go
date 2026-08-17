@@ -10,6 +10,11 @@ import (
 // copy, never at INSERT time.
 const auditBodyCapBytes = 4 * 1024 * 1024
 
+// ingressAuditRequestBudgetBytes is the aggregate request-body audit budget
+// per ingress (12 MiB) from Requests SPEC §3.1; the final response body has a
+// separate fixed 4 MiB reservation.
+const ingressAuditRequestBudgetBytes = int64(12 * 1024 * 1024)
+
 // boundedAuditBuffer is the bounded counting writer for audit body capture.
 // It counts every observed byte but retains only the first auditBodyCapBytes.
 // When audit capture is disabled no buffer is allocated and no false counts

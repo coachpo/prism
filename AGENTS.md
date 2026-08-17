@@ -43,7 +43,7 @@ prism/
 | HTTP mount | `backend/internal/platform/http/server.go` | Mounts `/health`, `/api`, `/v1`, `/v1beta`. |
 | Management mount | `backend/internal/platform/http/management_branch.go` | Mounts management services and mutation/runtime-cache middleware. |
 | Runtime allowlist | `backend/internal/httpapi/runtime/operations.go` | Exact supported method/path operations and hook collections. |
-| Runtime executor | `backend/internal/httpapi/runtime/service.go`, `backend/internal/httpapi/runtime/runtime.go` | Ingress rejection, planning, provider transport, telemetry side effects. |
+| Runtime executor | `backend/internal/httpapi/runtime/service.go`, `backend/internal/httpapi/runtime/ingress.go`, `backend/internal/httpapi/runtime/request_plan.go`, `backend/internal/httpapi/runtime/request_execution.go`, `backend/internal/httpapi/runtime/request_execution_loop.go`, `backend/internal/httpapi/runtime/upstream_attempt.go` | Ingress rejection, planning, provider transport, telemetry side effects. |
 | Frontend shell | `frontend/src/main.tsx`, `frontend/src/App.tsx` | Browser mount, providers, router, toasts. |
 | Routes | `frontend/src/app/router/appRouter.tsx`, `rewriteRoutes.ts` | Route tree, scopes, and search schemas. |
 | Frontend API | `frontend/src/lib/api/core.ts` | Typed HTTP client and same-origin request plumbing. |

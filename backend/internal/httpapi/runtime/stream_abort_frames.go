@@ -99,3 +99,14 @@ func operationStreamUsesNamedEvents(operation RuntimeOperation) bool {
 	}
 	return collectionID == "openai.responses"
 }
+
+func writeRuntimeObservabilityHandoffStreamError(w io.Writer) {
+	if w == nil {
+		return
+	}
+	_, _ = io.WriteString(w, "event: prism.error\n")
+	_, _ = io.WriteString(w, "data: {\"error\":\"runtime_observability_handoff_failed\",\"detail\":\"Runtime observability handoff failed\"}\n\n")
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
