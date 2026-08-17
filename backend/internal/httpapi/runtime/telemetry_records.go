@@ -356,12 +356,10 @@ const (
 
 	// request_logs row kinds (Observe SPEC §3.5): new writers never produce
 	// legacy_unknown.
-	requestLogRowKindPlanning      = "planning"
-	requestLogRowKindAdmission     = "admission"
-	requestLogRowKindUpstream      = "upstream"
-	requestLogRowKindLegacyUnknown = "legacy_unknown"
+	requestLogRowKindPlanning  = "planning"
+	requestLogRowKindAdmission = "admission"
+	requestLogRowKindUpstream  = "upstream"
 
 	// URL scrub provenance (Requests SPEC §4.4).
-	runtimeURLScrubProvenanceRuntime       = "runtime_scrubbed"
-	runtimeURLScrubProvenanceNotApplicable = "not_applicable"
+	runtimeURLScrubProvenanceRuntime = "runtime_scrubbed"
 )

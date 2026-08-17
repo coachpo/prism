@@ -6,7 +6,7 @@ import (
 )
 
 func TestAttemptBudgetExhaustedResultTypedCode(t *testing.T) {
-	state := requestExecutionState{launchedAttempts: maxUpstreamAttemptsPerIngress}
+	state := requestExecutionState{launchedAttempts: MaxLaunchedUpstreamAttempts}
 	plan := requestPlan{RequestedModelID: "budget-model"}
 	_, err := state.attemptBudgetExhaustedResult(plan)
 	domainErr, ok := err.(*domainError)
@@ -28,8 +28,8 @@ func TestAttemptBudgetExhaustedResultTypedCode(t *testing.T) {
 	}
 }
 
-func TestMaxUpstreamAttemptsPerIngressValue(t *testing.T) {
-	if maxUpstreamAttemptsPerIngress != 64 {
-		t.Fatalf("expected fixed 64-attempt safety cap, got %d", maxUpstreamAttemptsPerIngress)
+func TestMaxLaunchedUpstreamAttemptsValue(t *testing.T) {
+	if MaxLaunchedUpstreamAttempts != 64 {
+		t.Fatalf("expected fixed 64-attempt safety cap, got %d", MaxLaunchedUpstreamAttempts)
 	}
 }

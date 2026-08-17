@@ -13,12 +13,6 @@ import (
 
 const runtimeAdmissionExhaustedErrorCode = "admission_exhausted"
 
-// maxUpstreamAttemptsPerIngress is the fixed platform safety cap for launched
-// upstream attempts per ingress (SPEC §4.3/§5.1). The next launch beyond this
-// cap terminates with gateway 503 + typed attempt_budget_exhausted; the cap
-// never reorders or changes decisions within the limit.
-const maxUpstreamAttemptsPerIngress = 64
-
 const runtimeAttemptBudgetExhaustedErrorCode = "attempt_budget_exhausted"
 
 type executionAttempt struct {
@@ -142,7 +136,7 @@ const hedgeCanceledAttemptStatusCode = 499
 func newRequestExecutionState(plan requestPlan) requestExecutionState {
 	return requestExecutionState{
 		attempts:          make([]executionAttempt, 0, len(plan.orderedTerminalAttempts())),
-		routeReason:       runtimePlanRouteReason(plan),
+		routeReason:       gatewaycore.RouteReasonDirectMatch,
 		nextLaunchOrdinal: 1,
 	}
 }
@@ -166,10 +160,6 @@ func (state *requestExecutionState) nextLaunchTrigger(plan requestPlan, index in
 		}
 	}
 	return trigger
-}
-
-func runtimePlanRouteReason(plan requestPlan) gatewaycore.RouteReason {
-	return gatewaycore.RouteReasonDirectMatch
 }
 
 func requestExecutionLimitsForPlan(plan requestPlan) requestExecutionLimits {
@@ -351,8 +341,8 @@ func (state *requestExecutionState) attemptBudgetExhaustedResult(plan requestPla
 	return result, &domainError{
 		StatusCode:               http.StatusServiceUnavailable,
 		ErrorCode:                runtimeAttemptBudgetExhaustedErrorCode,
-		Detail:                   fmt.Sprintf("Model '%s' exceeded the maximum of %d launched upstream attempts for a single ingress request.", plan.RequestedModelID, maxUpstreamAttemptsPerIngress),
-		Fields:                   map[string]any{"route_reason": string(routeReason), "attempt_limit": maxUpstreamAttemptsPerIngress},
+		Detail:                   fmt.Sprintf("Model '%s' exceeded the maximum of %d launched upstream attempts for a single ingress request.", plan.RequestedModelID, MaxLaunchedUpstreamAttempts),
+		Fields:                   map[string]any{"route_reason": string(routeReason), "attempt_limit": MaxLaunchedUpstreamAttempts},
 		ResolvedTargetModelID:    cloneRuntimeStringPointer(plan.ResolvedTargetModelID),
 		SelectedTerminalTargetID: plan.selectedTerminalTargetID(),
 	}

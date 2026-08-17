@@ -26,7 +26,7 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 			break
 		}
 		// Fixed safety cap: never launch the 65th upstream attempt.
-		if state.launchedAttempts >= maxUpstreamAttemptsPerIngress {
+		if state.launchedAttempts >= MaxLaunchedUpstreamAttempts {
 			return state.attemptBudgetExhaustedResult(plan)
 		}
 		if limits.shouldHedge(plan, state, index) {
@@ -127,8 +127,8 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 	if totalCandidates > remainingConnections {
 		totalCandidates = remainingConnections
 	}
-	if totalCandidates > maxUpstreamAttemptsPerIngress {
-		totalCandidates = maxUpstreamAttemptsPerIngress
+	if totalCandidates > MaxLaunchedUpstreamAttempts {
+		totalCandidates = MaxLaunchedUpstreamAttempts
 	}
 	if totalCandidates <= 0 {
 		return hedgedExecutionResult{}, nil

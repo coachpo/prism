@@ -25,7 +25,6 @@ type responseUsage struct {
 type runtimeUsagePayloadShape string
 
 const (
-	runtimeUsagePayloadShapeStandard              runtimeUsagePayloadShape = "standard"
 	runtimeUsagePayloadShapeAnthropicMessages     runtimeUsagePayloadShape = "anthropic_messages"
 	runtimeUsagePayloadShapeOpenAIChatCompletions runtimeUsagePayloadShape = "openai_chat_completions"
 	runtimeUsagePayloadShapeOpenAIResponses       runtimeUsagePayloadShape = "openai_responses"
@@ -208,8 +207,6 @@ func (usage responseUsage) canonicalizedForRuntimeUsage(rule runtimeUsageNormali
 
 func parseRuntimeUsagePayload(shape runtimeUsagePayloadShape, usagePayload map[string]any) (responseUsage, bool) {
 	switch shape {
-	case runtimeUsagePayloadShapeStandard:
-		return parseStandardRuntimeUsagePayload(usagePayload)
 	case runtimeUsagePayloadShapeAnthropicMessages:
 		return parseAnthropicMessagesUsagePayload(usagePayload)
 	case runtimeUsagePayloadShapeOpenAIChatCompletions:
@@ -223,33 +220,6 @@ func parseRuntimeUsagePayload(shape runtimeUsagePayloadShape, usagePayload map[s
 	default:
 		return responseUsage{}, false
 	}
-}
-
-func parseStandardRuntimeUsagePayload(usagePayload map[string]any) (responseUsage, bool) {
-	usage := responseUsage{}
-	if inputTokens := intPointerFromAny(firstValue(usagePayload, "prompt_tokens", "input_tokens")); inputTokens != nil {
-		usage.InputTokens = inputTokens
-	}
-	if outputTokens := intPointerFromAny(firstValue(usagePayload, "completion_tokens", "output_tokens")); outputTokens != nil {
-		usage.OutputTokens = outputTokens
-	}
-	if totalTokens := intPointerFromAny(usagePayload["total_tokens"]); totalTokens != nil {
-		usage.TotalTokens = totalTokens
-	}
-	if cacheReadTokens := intPointerFromAny(usagePayload["cache_read_input_tokens"]); cacheReadTokens != nil {
-		usage.CacheReadInputTokens = cacheReadTokens
-	}
-	if cacheCreationTokens := intPointerFromAny(usagePayload["cache_creation_input_tokens"]); cacheCreationTokens != nil {
-		usage.CacheCreationInputTokens = cacheCreationTokens
-	}
-	reasoningTokens := intPointerFromAny(nestedValue(usagePayload, "completion_tokens_details", "reasoning_tokens"))
-	if reasoningTokens == nil {
-		reasoningTokens = intPointerFromAny(nestedValue(usagePayload, "output_tokens_details", "reasoning_tokens"))
-	}
-	if reasoningTokens != nil {
-		usage.ReasoningTokens = reasoningTokens
-	}
-	return usage, usage.hasValues()
 }
 
 func parseAnthropicMessagesUsagePayload(usagePayload map[string]any) (responseUsage, bool) {
