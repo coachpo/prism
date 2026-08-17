@@ -113,9 +113,10 @@ func TestRuntimeOpenAIPlanningRejectionCodesE2E(t *testing.T) {
 		endpointID := harness.seedEndpoint(t, profileID, "planning-schedule-close-endpoint-"+suffix, "https://planning-schedule-close.invalid", "planning-schedule-close-key")
 		connectionID := harness.seedConnectionWithOpenAITextCapability(t, profileID, modelConfigID, endpointID, "planning-schedule-close-connection-"+suffix, nil, nil, 0, runtimeStringPtr("dual_native"))
 
-		// Monday-only, all day: closed at the request instant (today is not a
-		// Monday in the running harness clock).
-		harness.updateConnectionRoutingSchedule(t, profileID, connectionID, "UTC", [][3]int{{1, 0, 1440}})
+		// Next-ISO-day window, all day: closed at the request instant on any
+		// weekday (the mask never includes today, so the request can never
+		// land inside the window).
+		harness.updateConnectionRoutingSchedule(t, profileID, connectionID, "UTC", [][3]int{{1 << (closedWindowISODay() % 7), 0, 1440}})
 		harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 
 		response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", chatCompletionsBody(publicModelID, "closed window"), nil)
