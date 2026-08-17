@@ -392,71 +392,6 @@ type chainIngressRef struct {
 	OrderAt          time.Time
 }
 
-func buildChainIngressWhere(params ChainQueryParams) (string, []any) {
-	clauses := []string{"profile_id = $1"}
-	args := []any{params.ProfileID}
-	add := func(value any, clause string) {
-		args = append(args, value)
-		clauses = append(clauses, fmt.Sprintf(clause, len(args)))
-	}
-	if params.IngressRequestID != nil && strings.TrimSpace(*params.IngressRequestID) != "" {
-		add(strings.TrimSpace(*params.IngressRequestID), "ingress_request_id = $%d")
-	}
-	if params.FromTime != nil {
-		add(params.FromTime.UTC(), "created_at >= $%d")
-	}
-	if params.ToTime != nil {
-		add(params.ToTime.UTC(), "created_at < $%d")
-	}
-	if params.IngressFinalResult != nil {
-		add(*params.IngressFinalResult, `CASE WHEN status_code NOT BETWEEN 200 AND 299 THEN 'failed'
-			WHEN stream_outcome = 'client_disconnected' THEN 'client_disconnected'
-			WHEN stream_outcome IN ('provider_incomplete','upstream_read_error','gateway_timeout','upstream_ended_without_terminal','unknown') THEN 'failed'
-			ELSE 'completed' END = $%d`)
-	}
-	if params.ConfirmedFailover != nil {
-		add(*params.ConfirmedFailover, "failover_occurred = $%d")
-	}
-	if params.PricingStatus != nil {
-		add(*params.PricingStatus, "pricing_status = $%d")
-	}
-	if len(params.UnpricedReasons) > 0 {
-		placeholders := make([]string, 0, len(params.UnpricedReasons))
-		for _, reason := range params.UnpricedReasons {
-			args = append(args, reason)
-			placeholders = append(placeholders, fmt.Sprintf("$%d", len(args)))
-		}
-		clauses = append(clauses, "unpriced_reason IN ("+strings.Join(placeholders, ",")+")")
-	}
-	if params.ReportingCurrencyEpoch != nil && strings.TrimSpace(*params.ReportingCurrencyEpoch) != "" {
-		if *params.ReportingCurrencyEpoch == "__legacy_unknown__" {
-			clauses = append(clauses, "reporting_currency_epoch IS NULL")
-		} else {
-			add(*params.ReportingCurrencyEpoch, "reporting_currency_epoch = $%d")
-		}
-	}
-	if params.IsStream != nil {
-		add(*params.IsStream, "is_stream = $%d")
-	}
-	if len(params.StreamOutcomes) > 0 {
-		placeholders := make([]string, 0, len(params.StreamOutcomes))
-		for _, outcome := range params.StreamOutcomes {
-			args = append(args, outcome)
-			placeholders = append(placeholders, fmt.Sprintf("$%d", len(args)))
-		}
-		clauses = append(clauses, "stream_outcome IN ("+strings.Join(placeholders, ",")+")")
-	}
-	if len(params.UpstreamStatusCodes) > 0 {
-		placeholders := make([]string, 0, len(params.UpstreamStatusCodes))
-		for _, code := range params.UpstreamStatusCodes {
-			args = append(args, code)
-			placeholders = append(placeholders, fmt.Sprintf("$%d", len(args)))
-		}
-		clauses = append(clauses, "upstream_status_code IN ("+strings.Join(placeholders, ",")+")")
-	}
-	return strings.Join(clauses, " AND "), args
-}
-
 // selectChainIngressSet resolves the ordered ingress set. With finalized
 // cohort selectors the authoritative finalized usage events are the ingress
 // set (Requests SPEC §6.4); in ordinary mode the set comes from the retained
@@ -665,24 +600,6 @@ func selectOrdinaryChainIngressSet(ctx context.Context, exec queryExecutor, para
 		return nil, fmt.Errorf("iterate ordinary chain ingress set: %w", err)
 	}
 	return ingresses, nil
-}
-
-// buildRowResultExists returns a parameterized EXISTS clause that selects
-// ingresses containing a retained request-log row with the given result.
-func buildRowResultExists(rowResult string, profileID int, startArg int) string {
-	statusExpr := scopedRequestLogStatusSQL
-	inner := fmt.Sprintf(`SELECT 1 FROM request_logs rl WHERE rl.profile_id = $%d AND rl.ingress_request_id = usage_request_events.ingress_request_id`, startArg)
-	switch rowResult {
-	case "failed":
-		inner += " AND (" + statusExpr + " IS NOT NULL AND NOT (" + statusExpr + " BETWEEN 200 AND 299))"
-	case "client_disconnected":
-		inner += " AND rl.attempt_result = 'client_disconnected'"
-	case "cancelled":
-		inner += " AND rl.attempt_result = 'cancelled'"
-	default:
-		inner += " AND FALSE"
-	}
-	return inner
 }
 
 // loadChainIngressItem loads one chain item: finalized summary, full-ingress

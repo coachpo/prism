@@ -1,8 +1,6 @@
 package stats
 
 import (
-	"context"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -260,31 +258,6 @@ func parseOptionalRFC3339(value string) *time.Time {
 		return nil
 	}
 	return &parsed
-}
-
-// loadStatsRetentionSource consumes the Observe-owned retention source. NULL
-// means no configured logical floor; it is not a hidden 30-day default.
-func loadStatsRetentionSource(ctx context.Context, tx pgx.Tx, referenceNow time.Time) (statsdomain.RetentionFloorEpochSource, error) {
-	source, err := statsdomain.LoadRetentionSourceProjection(ctx, tx, "usage_request_events", referenceNow)
-	if err != nil {
-		return statsdomain.RetentionFloorEpochSource{}, fmt.Errorf("load usage retention source: %w", err)
-	}
-	if source.PurgeState == "running" || source.PurgeState == "recovery_required" {
-		return statsdomain.RetentionFloorEpochSource{}, &statsdomain.HTTPError{StatusCode: http.StatusServiceUnavailable, Code: "usage_purge_in_progress", Detail: "usage data is temporarily unavailable while retention cleanup is publishing"}
-	}
-	return source, nil
-}
-
-func effectiveRetentionFloor(source statsdomain.RetentionFloorEpochSource) *time.Time {
-	floor := source.ConfiguredCutoff
-	if source.PublishedFloor != nil && (floor == nil || source.PublishedFloor.After(*floor)) {
-		floor = source.PublishedFloor
-	}
-	if floor == nil {
-		return nil
-	}
-	resolved := floor.UTC()
-	return &resolved
 }
 
 // observabilitySigningKey returns the domain-separated HMAC subkey used to

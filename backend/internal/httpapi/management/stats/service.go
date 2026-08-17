@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -79,17 +78,4 @@ func (s *Service) corsSnapshot() platformcors.Snapshot {
 		return platformcors.Snapshot{}
 	}
 	return s.corsOriginProvider.CORSSnapshot()
-}
-
-func parseOptionalUnpricedReason(r *http.Request, key string) (*string, error) {
-	value := strings.TrimSpace(r.URL.Query().Get(key))
-	if value == "" {
-		return nil, nil
-	}
-	switch value {
-	case "PRICING_DISABLED", "MISSING_TOKEN_USAGE", "STREAM_USAGE_UNAVAILABLE", "MISSING_PRICE_DATA":
-		return &value, nil
-	default:
-		return nil, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "invalid " + key}
-	}
 }

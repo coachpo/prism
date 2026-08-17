@@ -78,34 +78,6 @@ func isSensitiveDatabaseURLQueryKey(key string) bool {
 	return lower == "pass" || lower == "pwd" || lower == "passwd" || strings.Contains(lower, "password") || strings.Contains(lower, "passphrase") || strings.Contains(lower, "secret") || strings.Contains(lower, "token") || strings.Contains(lower, "key")
 }
 
-func currentBootstrapDatabaseURL(document *bootstrapConfigDocument) *string {
-	if document == nil || document.Database == nil {
-		return nil
-	}
-	return cloneStringPointer(document.Database.URL)
-}
-
-func currentBootstrapRuntimeSecret(document *bootstrapConfigDocument) *string {
-	if document == nil || document.Runtime == nil {
-		return nil
-	}
-	return cloneStringPointer(document.Runtime.SecretEncryptionKey)
-}
-
-func currentBootstrapAuthJWTSigningKey(document *bootstrapConfigDocument) *string {
-	if document == nil || document.Auth == nil {
-		return nil
-	}
-	return cloneStringPointer(document.Auth.JWTSigningKey)
-}
-
-func currentBootstrapTelemetryAuthorizationHeader(document *bootstrapConfigDocument) *string {
-	if document == nil {
-		return nil
-	}
-	return cloneStringPointer(bootstrapTelemetryAuthorizationHeader(document.Telemetry))
-}
-
 func bootstrapTelemetryAuthorizationHeader(telemetry *bootstrapTelemetry) *string {
 	if telemetry == nil || telemetry.Exporter == nil || telemetry.Exporter.Auth == nil {
 		return nil

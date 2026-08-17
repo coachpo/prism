@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"path/filepath"
-	"strings"
 )
 
 type BootstrapConfigTelemetryValues struct {
@@ -73,106 +72,6 @@ type bootstrapTelemetrySignal struct {
 type bootstrapTelemetryTraces struct {
 	Enabled       *bool    `json:"enabled"`
 	SamplingRatio *float64 `json:"samplingRatio,omitempty"`
-}
-
-func bootstrapTelemetryFromSafeValues(values *BootstrapConfigTelemetryValues, authorizationHeader *string) *bootstrapTelemetry {
-	if isDisabledSafeBootstrapTelemetry(values) {
-		return canonicalDisabledBootstrapTelemetryDocument()
-	}
-	return &bootstrapTelemetry{
-		Enabled:  cloneBoolPointer(values.Enabled),
-		Exporter: bootstrapTelemetryExporterFromSafeValues(values.Exporter, authorizationHeader),
-		Metrics:  bootstrapTelemetrySignalFromSafeValues(values.Metrics),
-		Traces:   bootstrapTelemetryTracesFromSafeValues(values.Traces),
-	}
-}
-
-func bootstrapTelemetryExporterFromSafeValues(values *BootstrapConfigTelemetryExporterValues, authorizationHeader *string) *bootstrapTelemetryExporter {
-	if values == nil {
-		return nil
-	}
-	return &bootstrapTelemetryExporter{
-		Endpoint:    cloneStringPointer(values.Endpoint),
-		Protocol:    cloneStringPointer(values.Protocol),
-		Compression: cloneStringPointer(values.Compression),
-		Timeout:     cloneStringPointer(values.Timeout),
-		Auth:        bootstrapTelemetryExporterAuthFromSafeValues(values.Auth, authorizationHeader),
-		TLS:         bootstrapTelemetryExporterTLSFromSafeValues(values.TLS),
-	}
-}
-
-func bootstrapTelemetryExporterAuthFromSafeValues(values *BootstrapConfigTelemetryExporterAuthValues, authorizationHeader *string) *bootstrapTelemetryExporterAuth {
-	if values == nil {
-		return nil
-	}
-	preservedHeader := cloneStringPointer(authorizationHeader)
-	if values.Mode == nil || strings.TrimSpace(*values.Mode) != string(TelemetryExporterAuthModeAuthorizationHeader) {
-		preservedHeader = nil
-	}
-	return &bootstrapTelemetryExporterAuth{
-		Mode:                cloneStringPointer(values.Mode),
-		AuthorizationHeader: preservedHeader,
-	}
-}
-
-func bootstrapTelemetryExporterTLSFromSafeValues(values *BootstrapConfigTelemetryExporterTLSValues) *bootstrapTelemetryExporterTLS {
-	if values == nil {
-		return nil
-	}
-	return &bootstrapTelemetryExporterTLS{
-		InsecureSkipVerify: cloneBoolPointer(values.InsecureSkipVerify),
-		CAFile:             cloneStringPointer(values.CAFile),
-	}
-}
-
-func bootstrapTelemetrySignalFromSafeValues(values *BootstrapConfigTelemetrySignalValues) *bootstrapTelemetrySignal {
-	if values == nil {
-		return nil
-	}
-	return &bootstrapTelemetrySignal{Enabled: cloneBoolPointer(values.Enabled)}
-}
-
-func bootstrapTelemetryTracesFromSafeValues(values *BootstrapConfigTelemetryTracesValues) *bootstrapTelemetryTraces {
-	if values == nil {
-		return nil
-	}
-	return &bootstrapTelemetryTraces{Enabled: cloneBoolPointer(values.Enabled), SamplingRatio: cloneFloat64Pointer(values.SamplingRatio)}
-}
-
-func cloneBootstrapTelemetry(telemetry *bootstrapTelemetry) *bootstrapTelemetry {
-	if telemetry == nil {
-		return nil
-	}
-	clone := &bootstrapTelemetry{
-		Enabled: cloneBoolPointer(telemetry.Enabled),
-	}
-	if telemetry.Exporter != nil {
-		clone.Exporter = &bootstrapTelemetryExporter{
-			Endpoint:    cloneStringPointer(telemetry.Exporter.Endpoint),
-			Protocol:    cloneStringPointer(telemetry.Exporter.Protocol),
-			Compression: cloneStringPointer(telemetry.Exporter.Compression),
-			Timeout:     cloneStringPointer(telemetry.Exporter.Timeout),
-		}
-		if telemetry.Exporter.Auth != nil {
-			clone.Exporter.Auth = &bootstrapTelemetryExporterAuth{
-				Mode:                cloneStringPointer(telemetry.Exporter.Auth.Mode),
-				AuthorizationHeader: cloneStringPointer(telemetry.Exporter.Auth.AuthorizationHeader),
-			}
-		}
-		if telemetry.Exporter.TLS != nil {
-			clone.Exporter.TLS = &bootstrapTelemetryExporterTLS{
-				InsecureSkipVerify: cloneBoolPointer(telemetry.Exporter.TLS.InsecureSkipVerify),
-				CAFile:             cloneStringPointer(telemetry.Exporter.TLS.CAFile),
-			}
-		}
-	}
-	if telemetry.Metrics != nil {
-		clone.Metrics = &bootstrapTelemetrySignal{Enabled: cloneBoolPointer(telemetry.Metrics.Enabled)}
-	}
-	if telemetry.Traces != nil {
-		clone.Traces = &bootstrapTelemetryTraces{Enabled: cloneBoolPointer(telemetry.Traces.Enabled), SamplingRatio: cloneFloat64Pointer(telemetry.Traces.SamplingRatio)}
-	}
-	return clone
 }
 
 func (t *bootstrapTelemetry) toTelemetryConfig() (TelemetryConfig, error) {
