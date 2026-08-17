@@ -1,5 +1,8 @@
 package settings
 
+// Retention policy classification owns policy-day semantics and dataset field
+// selection. It is clock-aware only for UTC day-boundary calculation.
+
 import "time"
 
 // isDestructiveTransition classifies a before/after policy change (SPEC §5.2).

@@ -1,5 +1,17 @@
 package settings
 
+// Currency draft cursors bind a page to one profile, draft, workflow kind, and
+// content identity. The cursor payload is authenticated with the service key;
+// route handlers reject a valid token whose scope or binding belongs to a
+// different page.
+//
+// Limits are fixed workflow values: chunk pages are broader than preview
+// pages, while both remain bounded. Empty cursors represent the first page and
+// never bypass draft state checks performed by the route.
+//
+// Cursor serialization is an internal wire contract. Keep version validation
+// and stale-scope failures stable when changing the page implementation.
+
 import (
 	"crypto/hmac"
 	"crypto/sha256"

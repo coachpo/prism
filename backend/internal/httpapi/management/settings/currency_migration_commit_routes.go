@@ -152,15 +152,7 @@ func (s *Service) handleCurrencyMigrationDraftCommit(w http.ResponseWriter, r *h
 		if computed.PreviewHash != strings.TrimSpace(request.PreviewHash) {
 			return currencyMigrationCommitResponse{}, currencyMigrationPreviewStale()
 		}
-		authoritative, err := loadCurrencyDraftAuthoritativeTemplates(r.Context(), tx, profile.ID, true)
-		if err != nil {
-			return currencyMigrationCommitResponse{}, err
-		}
-		items, err := loadCurrencyDraftItems(r.Context(), tx, draftID)
-		if err != nil {
-			return currencyMigrationCommitResponse{}, err
-		}
-		return applyCurrencyMigrationDraftCutover(r.Context(), tx, profile.ID, settingsRow, header, operationID, computed.PreviewHash, authoritative, items, s.nowUTC())
+		return applyCurrencyMigrationDraftCutover(r.Context(), tx, profile.ID, settingsRow, header, operationID, computed.PreviewHash, computed.AuthoritativeTemplates, computed.DraftItems, s.nowUTC())
 	})
 	if err != nil {
 		writeSettingsDomainError(w, r, s.corsSnapshot(), err)

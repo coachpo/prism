@@ -1,5 +1,26 @@
 package settings
 
+// Settings read savepoints isolate optional owner projections inside one
+// repeatable-read transaction. A missing or transient owner read rolls back
+// only its savepoint and becomes an explicit unavailable projection; later
+// settings reads remain usable.
+//
+// The protection deadline is evidence read from a durable automatic job. It is
+// never derived from a browser timestamp. Dataset indexes make savepoint names
+// deterministic while keeping the four dataset owners distinct.
+//
+// Savepoint names are generated only from package-owned dataset indexes; no
+// request value is interpolated into SQL. The callback runs inside the caller's
+// transaction and inherits its snapshot and admission boundary.
+//
+// A successful callback releases its savepoint. A failed callback rolls back
+// the local read before releasing it, leaving the outer transaction usable.
+// Savepoint ownership is local to settings reads; it never replaces the
+// transaction boundary of a mutation.
+//
+//
+// This seam keeps optional reads from poisoning the parent transaction.
+//
 import (
 	"context"
 	"fmt"

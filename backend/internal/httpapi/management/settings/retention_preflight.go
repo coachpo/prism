@@ -393,7 +393,7 @@ func (s *retentionService) buildPreflightImpact(ctx context.Context, tx pgx.Tx, 
 			ordered = append(ordered, dataset)
 		}
 	}
-	if len(ordered) == 0 {
+	if len(impactByDomain) == 0 {
 		return nil, nil, &settingsConflictError{code: "retention_preflight_required"}
 	}
 	return ordered, impactByDomain, nil

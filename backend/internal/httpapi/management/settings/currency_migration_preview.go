@@ -13,9 +13,11 @@ import (
 )
 
 type computedCurrencyPreview struct {
-	Response    currencyMigrationDraftPreviewResponse
-	Items       []currencyMigrationPreviewItem
-	PreviewHash string
+	Response               currencyMigrationDraftPreviewResponse
+	Items                  []currencyMigrationPreviewItem
+	PreviewHash            string
+	AuthoritativeTemplates []currencyDraftAuthoritativeTemplate
+	DraftItems             []currencyMigrationDraftItem
 }
 
 func buildCurrencyMigrationPreview(ctx context.Context, tx pgx.Tx, header currencyMigrationDraftHeaderRow, profileID int) (computedCurrencyPreview, error) {
@@ -85,7 +87,7 @@ func buildCurrencyMigrationPreviewWithSettings(ctx context.Context, tx pgx.Tx, h
 		TargetCurrencyCode: header.TargetCurrencyCode, TargetCurrencySymbol: header.TargetCurrencySymbol, CurrentCurrencyCode: nullableNonEmptyString(settingsRow.ReportCurrencyCode),
 		CurrentEpoch: currentEpoch, NextEpoch: &nextEpochValue, TemplateCount: len(previewItems), RevisionChangeCount: len(previewItems), Committable: true, ValidationErrors: []map[string]any{}, EpochChange: true,
 	}
-	return computedCurrencyPreview{Response: response, Items: previewItems, PreviewHash: previewHash}, nil
+	return computedCurrencyPreview{Response: response, Items: previewItems, PreviewHash: previewHash, AuthoritativeTemplates: authoritative, DraftItems: draftItems}, nil
 }
 
 func hashCurrencyMigrationPreview(header currencyMigrationDraftHeaderRow, settingsRow userSettingsRow, currentEpoch *int, items []currencyMigrationPreviewItem) string {
