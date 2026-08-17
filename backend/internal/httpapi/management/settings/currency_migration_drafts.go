@@ -5,8 +5,6 @@ package settings
 // Pricing spec; no full-list preview/commit compatibility path is mounted.
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 )
@@ -216,9 +214,4 @@ type currencyMigrationDraftPreviewResponse struct {
 type currencyMigrationPreviewItemsResponse struct {
 	PreviewHash string                       `json:"preview_hash"`
 	Page        currencyMigrationPreviewPage `json:"page"`
-}
-
-func currencyMigrationCommitPayloadHash(header currencyMigrationDraftHeaderRow, previewHash string) string {
-	sum := sha256.Sum256([]byte(header.NormalizedHeaderHash + ":" + stringValue(header.DraftHash) + ":" + previewHash))
-	return hex.EncodeToString(sum[:])
 }
