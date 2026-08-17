@@ -329,3 +329,23 @@ type endpointModelsBatchResponse struct {
 type deletedResponse struct {
 	Deleted bool `json:"deleted"`
 }
+
+type endpointModelsBatchRequest struct {
+	EndpointIDs []int `json:"endpoint_ids"`
+}
+
+type routingPlanValidationIssue struct {
+	Code    string `json:"code"`
+	Path    string `json:"path"`
+	Message string `json:"message"`
+}
+
+type modelMutationEnvelope struct {
+	Model                 *modelConfigResponse                `json:"model,omitempty"`
+	Connection            any                                 `json:"connection,omitempty"`
+	AccessTargets         []modelAccessTargetResponse         `json:"access_targets,omitempty"`
+	Deleted               *bool                               `json:"deleted,omitempty"`
+	SourceConnectionID    *int                                `json:"source_connection_id,omitempty"`
+	Items                 any                                 `json:"items,omitempty"`
+	ConfigurationWarnings []modelrouting.ConfigurationWarning `json:"configuration_warnings"`
+}

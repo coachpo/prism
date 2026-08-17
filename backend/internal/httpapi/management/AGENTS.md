@@ -21,7 +21,7 @@ management/
 ## WHERE TO LOOK
 - Router assembly and management middleware order: `../../../platform/http/management_branch.go`
 - Auth/session/proxy-key/runtime-auth cache seams: `auth/AGENTS.md`, `auth/`
-- Model graph authoring and validation: `models/AGENTS.md`, `models/routes.go`, `models/store.go`
+- Model graph authoring and validation: `models/AGENTS.md`, `models/routes.go`, `models/access_target_handlers.go`, `models/access_target_ordering.go`, `models/access_target_tx_steps.go`, `models/model_routing_validation.go`, `models/graph_integrity.go`, `models/store.go`
 - Endpoint, connection, load-balance, and config-rule CRUD leaves: `endpoints/AGENTS.md`, `connections/AGENTS.md`, `loadbalance/AGENTS.md`, `configrules/AGENTS.md`
 - Product observability and retention-job APIs: `stats/AGENTS.md`, `audit/AGENTS.md`, `settings/AGENTS.md`
 - Shared profile/error response shaping used across leaves: `responseutil/profile_errors.go`

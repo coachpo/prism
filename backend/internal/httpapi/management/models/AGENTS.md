@@ -6,20 +6,48 @@
 ## STRUCTURE
 ```text
 models/
-├── service.go    # Service construction and model route mounting
-├── routes.go     # Model CRUD, access targets, and by-endpoint lookups
-├── store.go      # Model, relation, access-target, vendor, and strategy SQL
-├── types.go      # Model request and response shapes
-├── routing_diagnostics.go # Static routing-diagnostics endpoint and list routing_summary
-├── route_readiness.go     # Route-witness readiness projection for the model surfaces
-└── *_test.go     # Store and route regression coverage
+├── service.go                    # Model service lifecycle
+├── routes.go                     # Model CRUD handlers
+├── access_target_handlers.go     # Access-target HTTP handlers
+├── access_target_ordering.go     # Ordered access-target editing
+├── access_target_tx_steps.go     # Access-target transaction steps
+├── composite_create.go           # Composite model creation
+├── endpoint_model_lookup.go      # Endpoint model lookup
+├── model_request_validation.go   # Model request validation
+├── model_request_decoding.go     # Model request decoding
+├── model_routing_validation.go   # Model routing validation
+├── store.go                      # pgx type boundary
+├── model_rows.go                 # Model SQL rows
+├── model_queries.go              # Model query composition
+├── strategy_queries.go           # Strategy read queries
+├── reachability_queries.go       # Reachability queries
+├── access_target_queries.go      # Access-target read queries
+├── connection_target_rows.go    # Connection target rows
+├── graph_integrity.go            # Access-target graph integrity
+├── access_target_rows.go         # Ordered access-target rows
+├── access_target_write.go        # Access-target writes
+├── model_response_projection.go  # Model response projection
+├── model_request_projection.go   # Model request projection
+├── types.go                      # Model request and response shapes
+├── routing_diagnostics.go        # Static routing-diagnostics endpoint and list routing_summary
+├── route_readiness.go            # Route-witness readiness projection for the model surfaces
+└── *_test.go                     # Store and route regression coverage
 ```
 
 ## WHERE TO LOOK
 - Route list and mount contract: `service.go`.
-- Model list/get/create/update/delete and obsolete create/update payload rejection: `routes.go`.
-- `/models/by-endpoint/{endpoint_id}` and `/models/by-endpoints`: `routes.go`.
-- Access-target validation, exact `target_model_id` model-target metadata (`position`, `is_enabled`), obsolete `weight` / `target_priority` rejection, private connection target preservation, vendor links, and strategy links: `routes.go`, `store.go`.
+- Model list/get/create/update/delete handlers: `routes.go`.
+- Access-target HTTP handlers: `access_target_handlers.go`.
+- Ordered access-target editing: `access_target_ordering.go`.
+- Access-target transaction steps and private-target preservation: `access_target_tx_steps.go`, `access_target_write.go`.
+- Composite model creation: `composite_create.go`.
+- `/models/by-endpoint/{endpoint_id}` and `/models/by-endpoints`: `endpoint_model_lookup.go`.
+- Model request validation and decoding: `model_request_validation.go`, `model_request_decoding.go`.
+- Model routing validation and graph rules: `model_routing_validation.go`, `graph_integrity.go`.
+- Model rows, query composition, reachability, and strategy reads: `model_rows.go`, `model_queries.go`, `reachability_queries.go`, `strategy_queries.go`.
+- Access-target rows, connection rows, and read queries: `access_target_rows.go`, `connection_target_rows.go`, `access_target_queries.go`.
+- Model request/response projections: `model_request_projection.go`, `model_response_projection.go`.
+- pgx query boundary conversions: `store.go`.
 - Model request/response fields and model-target metadata: `types.go`.
 
 ## CONVENTIONS

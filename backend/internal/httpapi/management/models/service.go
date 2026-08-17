@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,8 +15,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/coachpo/prism/backend/internal/httpapi/management/connections"
+	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
+	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
 type Options struct {
@@ -117,4 +121,45 @@ func isUniqueViolation(err error, constraint string) bool {
 		return false
 	}
 	return pgErr.Code == "23505" && strings.TrimSpace(pgErr.ConstraintName) == constraint
+}
+
+func resolveEffectiveProfile(ctx context.Context, tx pgx.Tx, r *http.Request) (profiledomain.Profile, error) {
+	return profiledomain.ResolveEffectiveProfile(ctx, tx, r.Header.Get(profiledomain.ProfileIDHeader))
+}
+
+func writeDecodeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
+	var modelErr *domainError
+	if errors.As(err, &modelErr) {
+		writeDomainError(w, r, corsSnapshot, err)
+		return
+	}
+	responseutil.WriteError(w, r, corsSnapshot, http.StatusBadRequest, "Invalid request body")
+}
+
+func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
+	var connectionErr *connections.DomainError
+	if errors.As(err, &connectionErr) {
+		responseutil.WriteErrorFields(w, r, corsSnapshot, connectionErr.StatusCode, connectionErr.Detail, connectionErr.Fields)
+		return
+	}
+	var modelErr *domainError
+	if errors.As(err, &modelErr) {
+		responseutil.WriteErrorFields(w, r, corsSnapshot, modelErr.StatusCode, modelErr.Detail, modelErr.Fields)
+		return
+	}
+	var profileErr *profiledomain.HTTPError
+	if errors.As(err, &profileErr) {
+		responseutil.WriteProfileHTTPError(w, r, corsSnapshot, profileErr)
+		return
+	}
+	responseutil.WriteError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
+}
+
+func routeInt(request *http.Request, name string) (int, error) {
+	value := strings.TrimSpace(chi.URLParam(request, name))
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return 0, fmt.Errorf("invalid %s", name)
+	}
+	return parsed, nil
 }
