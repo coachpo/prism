@@ -23,7 +23,7 @@ gateway/
 - Anthropic Messages/count-token path rewriting, usage extraction, and stream terminal classification: `provider/anthropic/`
 - Gemini model-path rewriting, GenerateContent variants, token counting, and stream parsing: `provider/gemini/`
 - Candidate ordering, reservation admission, retry-window policy, redirect narrowing, and route-reason canonicalization: `routing/planner.go`, `routing/reservation_manager.go`, `routing/retry_policy.go`, `routing/redirects.go`
-- Runtime integration and request-log/accounting use: `../httpapi/runtime/`, especially `runtime.go`, `service.go`, and `observability.go`
+- Runtime integration and request-log/accounting use: `../httpapi/runtime/`, especially `service.go`, `ingress.go`, `request_execution.go`, `upstream_attempt.go`, `telemetry_records.go`, and `observability.go`
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
