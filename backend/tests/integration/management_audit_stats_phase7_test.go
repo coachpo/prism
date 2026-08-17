@@ -150,7 +150,7 @@ func TestLogRetentionJobDropsExpiredPartitions(t *testing.T) {
 	}
 	jobStore := managementjobs.NewStore(managementjobs.Options{Pool: pool, LogRetention: retentionStore, Now: func() time.Time { return phase7Now }})
 	cutoff := dayOne.AddDate(0, 0, 1).Add(12 * time.Hour)
-	job, err := jobStore.CreateV2ManualJob(ctx, "request_logs", &cutoff, false, "phase7-drop-expired")
+	job, err := jobStore.CreateManualRetentionJob(ctx, "request_logs", &cutoff, false, "phase7-drop-expired")
 	if err != nil {
 		t.Fatalf("create log retention job: %v", err)
 	}
@@ -862,10 +862,10 @@ func phase7CreateDeleteJob(t *testing.T, ctx context.Context, store *managementj
 	return job
 }
 
-func phase7CreateLogRetentionJob(t *testing.T, ctx context.Context, store *managementjobs.Store, key string) managementjobs.V2RetentionJobSummaryDTO {
+func phase7CreateLogRetentionJob(t *testing.T, ctx context.Context, store *managementjobs.Store, key string) managementjobs.RetentionJobSummaryDTO {
 	t.Helper()
 	cutoff := phase7Now.Add(-24 * time.Hour)
-	job, err := store.CreateV2ManualJob(ctx, "request_logs", &cutoff, false, "phase7-"+key)
+	job, err := store.CreateManualRetentionJob(ctx, "request_logs", &cutoff, false, "phase7-"+key)
 	if err != nil {
 		t.Fatalf("create log retention job: %v", err)
 	}

@@ -127,7 +127,7 @@ func TestScheduledGlobalLogRetentionProcessesStoredSettings(t *testing.T) {
 	}
 	// v2 planning: UTC day-aligned logical cutoff (2026-02-18 00:00 UTC for a
 	// 2-day policy at 2026-02-20), one durable job per destructive dataset.
-	if err := jobStore.PlanScheduledRetentionV2(testContext); err != nil {
+	if err := jobStore.PlanScheduledRetention(testContext); err != nil {
 		t.Fatalf("plan v2 scheduled retention: %v", err)
 	}
 	// Physical reclaim waits for the 24h token TTL + 24h grace; process with a
@@ -138,7 +138,7 @@ func TestScheduledGlobalLogRetentionProcessesStoredSettings(t *testing.T) {
 			t.Fatalf("process scheduled global retention job: %v", err)
 		}
 	}
-	if err := jobStore.PlanScheduledRetentionV2(testContext); err != nil {
+	if err := jobStore.PlanScheduledRetention(testContext); err != nil {
 		t.Fatalf("replan global log retention: %v", err)
 	}
 	if got := task9CountScheduledRetentionJobs(t, testContext, pool); got != len(logretention.ManagedTables()) {
@@ -221,9 +221,9 @@ func task9InsertProfile(t *testing.T, ctx context.Context, exec task9QueryRower)
 	return profileID
 }
 
-func task9RunLogRetentionJob(t *testing.T, ctx context.Context, store *managementjobs.Store, tableName string, cutoff *time.Time, deleteAll bool, expectedRowsDeleted int64) managementjobs.V2RetentionJobSummaryDTO {
+func task9RunLogRetentionJob(t *testing.T, ctx context.Context, store *managementjobs.Store, tableName string, cutoff *time.Time, deleteAll bool, expectedRowsDeleted int64) managementjobs.RetentionJobSummaryDTO {
 	t.Helper()
-	job, err := store.CreateV2ManualJob(ctx, tableName, cutoff, deleteAll, "task9-"+randomTestSuffix())
+	job, err := store.CreateManualRetentionJob(ctx, tableName, cutoff, deleteAll, "task9-"+randomTestSuffix())
 	if err != nil {
 		t.Fatalf("create %s log retention job deleteAll=%v: %v", tableName, deleteAll, err)
 	}
