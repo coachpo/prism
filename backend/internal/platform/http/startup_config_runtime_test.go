@@ -16,7 +16,7 @@ func TestStartupConfigRuntimeInitializesSnapshotsFromSettings(t *testing.T) {
 	settings := startupConfigRuntimeTestSettings()
 	runtime, err := NewStartupConfigRuntime(settings)
 	if err != nil {
-		t.Fatalf("create hot bootstrap runtime: %v", err)
+		t.Fatalf("create startup config runtime: %v", err)
 	}
 
 	snapshot := runtime.Snapshot()
@@ -80,7 +80,7 @@ func TestStartupConfigRuntimeSnapshotsProtectMutableValues(t *testing.T) {
 
 	runtime, err := NewStartupConfigRuntime(startupConfigRuntimeTestSettings())
 	if err != nil {
-		t.Fatalf("create hot bootstrap runtime: %v", err)
+		t.Fatalf("create startup config runtime: %v", err)
 	}
 	snapshot := runtime.Snapshot()
 
@@ -144,7 +144,7 @@ func unwrapStartupRuntimeTransport(t *testing.T, roundTripper http.RoundTripper)
 	t.Helper()
 	wrapper, ok := roundTripper.(*runtimeRoundTripper)
 	if !ok {
-		t.Fatalf("expected hot runtime round tripper, got %T", roundTripper)
+		t.Fatalf("expected startup runtime round tripper, got %T", roundTripper)
 	}
 	transport, ok := wrapper.transport.(*http.Transport)
 	if !ok {

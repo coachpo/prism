@@ -117,7 +117,7 @@ frontend/
 
 The backend process loads the strict bootstrap file, then runs migrations and startup seeds under a 30-second startup timeout. The seed sequence establishes profile invariants, user settings, user-agent client rules, app-auth settings, endpoint-secret normalization, and header-blocklist rules before production services are built.
 
-Production construction creates the hot bootstrap runtime, opens six isolated PostgreSQL pools, creates the scheduler and durable background services, ensures the log partition horizon before serving traffic, creates the shared planning cache and a fresh process-local runtime-state store, builds management and runtime services, registers workers, assembles the HTTP server, and starts the scheduler before `App.Run` begins serving.
+Production construction creates the startup config runtime, opens six isolated PostgreSQL pools, creates the scheduler and durable background services, ensures the log partition horizon before serving traffic, creates the shared planning cache and a fresh process-local runtime-state store, builds management and runtime services, registers workers, assembles the HTTP server, and starts the scheduler before `App.Run` begins serving.
 
 On shutdown Prism runs these phases in order: HTTP server shutdown, side-effect drains, scheduler stop, registered service closes in reverse registration order, and database-pool close. This order stops ingress first while allowing already accepted side effects a bounded drain window before worker and database resources disappear.
 
@@ -229,7 +229,7 @@ For Gemini, `gemini.stream_generate_content` and the `:streamGenerateContent` pa
 
 Runtime upstream requests capture an immutable bootstrap runtime snapshot at request start. The snapshot includes an HTTP client built from startup bootstrap transport settings. Fresh seeds use transport `100/16/16/300s/90s/0s/10s/1s` and side-effect attempt timeout `10s`. Runtime buffering is automatic and not user-configurable. `runtime.transport.requestTimeout` is applied as `http.Client.Timeout`, making it the whole-request timeout for outbound provider calls; `runtime.sideEffects.attemptTimeout` is the per-attempt budget for scheduler-owned runtime activity handoff work. Strict v1 validation requires both durations and rejects zero or negative values.
 
-The hot bootstrap projection owns the in-process snapshot used by CORS origin checks, auth TTL and cookie metadata, runtime transport, and M2/M3 management admission limits. No file watcher republishes external edits, so changing any effective field still requires a process restart.
+The startup config projection is built once at process start and is read-only in process: the in-process snapshot used by CORS origin checks, auth TTL and cookie metadata, runtime transport, and M2/M3 management admission limits. Changing any effective field requires a process restart.
 
 Live startup resources include listener host and port, PostgreSQL URL and six-lane pool budgets, runtime transport, runtime side-effect attempt timeout, runtime secret encryption key, auth JWT signing key, CORS, auth TTL and cookie metadata, and management admission. Compatibility-only mail, telemetry, realtime-pool, reset-code, terminal-translation, and state-transfer fields do not create live services.
 

@@ -18,7 +18,7 @@ backend/
 
 ## CHILD DOCS
 - `internal/AGENTS.md`: source tree router for platform, domain, gateway, HTTP API, and small compatibility packages.
-- `internal/platform/AGENTS.md`: lifecycle, hot bootstrap runtime, DB lanes, scheduler, migrations, log retention, and side effects.
+- `internal/platform/AGENTS.md`: lifecycle, startup config runtime, DB lanes, scheduler, migrations, log retention, and side effects.
 - `internal/domain/AGENTS.md`: audit, loadbalance runtime state, model routing, stats snapshots, and terminal-target helpers.
 - `internal/gateway/AGENTS.md`: preserved gateway contracts, hooks, records, adapters, routing, reservations, and accounting.
 - `internal/httpapi/AGENTS.md`: mounted management, runtime, proxy-key usage, retention jobs, and request context.
@@ -29,7 +29,7 @@ backend/
 
 ## RUNTIME FACTS
 - `cmd/prism-backend/main.go` starts the backend and reseeds bootstrap files still carrying retired `docsEnabled`.
-- `internal/platform/` owns lifecycle assembly, startup/migrations, hot bootstrap runtime, DB lanes, scheduler, retention, and side-effect workers.
+- `internal/platform/` owns lifecycle assembly, startup/migrations, startup config runtime, DB lanes, scheduler, retention, and side-effect workers.
 - `internal/platform/http/server.go` mounts `/health`, `/api`, `/v1`, and `/v1beta`; exact runtime operations are allowlisted later by `internal/httpapi/runtime/operations.go`.
 - `internal/platform/config/` owns the plaintext bootstrap contract; steady-state startup settings live there, while `PRISM_CONFIG_PATH` and optional `DATABASE_URL` remain bootstrap-only env exceptions.
 - `internal/httpapi/management/` fans out into auth, configrules, connections, endpoints, loadbalance, models, settings, stats, and audit.
@@ -70,7 +70,7 @@ backend/
 - Do not point readers to retired backend runtime surfaces as current implementation paths.
 - Do not invent unsupported providers, routes, or CI jobs.
 - Do not describe mounted `/v1` and `/v1beta` prefixes as broad passthrough runtime support; the runtime allowlist lives in `internal/httpapi/runtime/operations.go`.
-- Do not describe bootstrap file edits as hot-applied. External `config.json` edits require restart after R2.
+- Do not describe bootstrap file edits as hot-applied or publishable; external `config.json` edits require a restart after R2.
 - Do not bypass `internal/platform/logretention/` with ad hoc log cleanup, retention SQL, or partition creation outside runtime partition ensuring.
 - Do not change container bootstrap defaults or writable ownership contracts without updating Dockerfile tests and docs.
 - Do not reintroduce SMTP delivery behavior behind parse-compatible mail bootstrap fields.
