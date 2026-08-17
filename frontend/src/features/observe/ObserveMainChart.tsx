@@ -23,6 +23,8 @@ import {
 } from "@/features/observe/observeChartRows";
 import type { UsageSeriesResponse } from "@/lib/api/observability";
 import type { FragmentState } from "@/features/observe/useObserveFragments";
+import { formatMoneyMicros } from "@/lib/costing";
+import { getActiveReportingCurrency } from "@/lib/reportingCurrency";
 import { cn } from "@/lib/utils";
 import { OperatorClippedBadge, OperatorEmptyState, OperatorErrorState, OperatorMissingValue, OperatorStalenessBadge } from "@/shared/design-system";
 
@@ -377,6 +379,15 @@ function SeriesTable({
             <TableHead className="text-right">
               {copy.windowTotalColumn} · {copy.requests}
             </TableHead>
+            {metric === "errors" ? (
+              <TableHead className="text-right">{copy.windowTotalColumn} · {copy.errorCount}</TableHead>
+            ) : null}
+            {metric === "tokens" ? (
+              <TableHead className="text-right">{copy.windowTotalColumn} · {copy.tokenCount}</TableHead>
+            ) : null}
+            {metric === "cost" ? (
+              <TableHead className="text-right">{copy.windowTotalColumn} · {copy.cost}</TableHead>
+            ) : null}
             {metric === "requests" ? (
               <>
                 <TableHead className="text-right">{lastBucketLabel} · {copy.httpSuccessShort}</TableHead>
@@ -400,6 +411,32 @@ function SeriesTable({
                 <TableCell className="text-right font-mono tabular-nums">
                   {formatNumber(item.request_count)}
                 </TableCell>
+                {metric === "errors" ? (
+                  <TableCell className="text-right font-mono tabular-nums">
+                    <Cell
+                      value={item.points.reduce(
+                        (total, point) => total + point.failed_count + point.client_disconnected_count,
+                        0,
+                      )}
+                    />
+                  </TableCell>
+                ) : null}
+                {metric === "tokens" ? (
+                  <TableCell className="text-right font-mono tabular-nums">
+                    <Cell value={sumWindowValues(item.points.map((point) => point.total_tokens))} />
+                  </TableCell>
+                ) : null}
+                {metric === "cost" ? (
+                  <TableCell className="text-right font-mono tabular-nums">
+                    <MoneyCell
+                      micros={sumWindowValues(
+                        item.points.map((point) =>
+                          point.known_cost_micros === null ? null : Number(point.known_cost_micros),
+                        ),
+                      )}
+                    />
+                  </TableCell>
+                ) : null}
                 {metric === "requests" ? (
                   <>
                     <TableCell className="text-right font-mono tabular-nums">
@@ -431,8 +468,35 @@ function SeriesTable({
 
 function Cell({ value }: { value: number | null | undefined }) {
   const { formatNumber, messages } = useLocale();
-  if (value === null || value === undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
     return <OperatorMissingValue reason={messages.honesty.noValue} />;
   }
   return <>{formatNumber(value)}</>;
+}
+
+/**
+ * Window totals mirror the read model: `request_count` is itself summed from
+ * the bucket rows, so a metric column sums the same points the chart draws and
+ * the two views cannot disagree. Null buckets keep SQL SUM semantics — missing
+ * usage does not zero the total, and an all-null window reads as missing
+ * rather than a fabricated zero.
+ */
+function sumWindowValues(values: readonly (number | null | undefined)[]): number | null {
+  let total = 0;
+  let sawValue = false;
+  for (const value of values) {
+    if (value === null || value === undefined || Number.isNaN(value)) continue;
+    total += value;
+    sawValue = true;
+  }
+  return sawValue ? total : null;
+}
+
+/** Cost column: trusted micros summed over the window, formatted like the KPI card. */
+function MoneyCell({ micros }: { micros: number | null }) {
+  const { messages } = useLocale();
+  if (micros === null) {
+    return <OperatorMissingValue reason={messages.honesty.noValue} />;
+  }
+  return <>{formatMoneyMicros(micros, getActiveReportingCurrency().symbol)}</>;
 }

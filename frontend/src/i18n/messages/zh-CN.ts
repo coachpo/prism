@@ -2936,6 +2936,9 @@ export const zhCNMessages = {
     chartTableSwitcherLabel: "图表或数据表",
     windowTotalColumn: "窗口合计",
     lastBucketColumn: (time: MessageArg) => `末桶 ${time}`,
+    // 窗口合计列的指标口径：数字型指标带「数」后缀，与 KPI 卡措辞一致。
+    errorCount: "错误数",
+    tokenCount: "令牌数",
     windowBasis: (preset: MessageArg) => `口径：${preset} 窗口`,
     terminalTargetWindowNote: (preset: MessageArg) => `跟随页面时间窗：${preset}`,
     pricingBreakdownLabel: "定价状态构成",
