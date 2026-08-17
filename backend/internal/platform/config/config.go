@@ -83,7 +83,7 @@ const (
 )
 
 const (
-	defaultRuntimeSideEffectsAttemptTimeout      = 10 * time.Second
+	defaultRuntimeSideEffectsAttemptTimeout = 10 * time.Second
 )
 
 type DatabasePoolBudget struct {

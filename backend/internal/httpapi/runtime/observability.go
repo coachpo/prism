@@ -600,18 +600,18 @@ type usageEventInsert struct {
 	// §3.6): expected request-log row count, routing evidence, final attempt
 	// identity, and the terminal error code for failed/client-disconnected
 	// final results.
-	ExpectedRequestLogRowCount  *int
-	FinalAttemptNumber          *int
-	FinalAttemptTrigger         *string
-	FinalTargetEntryTrigger     *string
-	SameTargetRetryOccurred     bool
-	HedgeOccurred               bool
-	FailoverOccurred            bool
-	RoutingEvidenceComplete     *bool
-	FinalErrorCode              *string
-	IngressStartedAt            *time.Time
-	IngressCompletedAt          *time.Time
-	ProxyAPIKeyIDSnapshot       *int
+	ExpectedRequestLogRowCount *int
+	FinalAttemptNumber         *int
+	FinalAttemptTrigger        *string
+	FinalTargetEntryTrigger    *string
+	SameTargetRetryOccurred    bool
+	HedgeOccurred              bool
+	FailoverOccurred           bool
+	RoutingEvidenceComplete    *bool
+	FinalErrorCode             *string
+	IngressStartedAt           *time.Time
+	IngressCompletedAt         *time.Time
+	ProxyAPIKeyIDSnapshot      *int
 }
 
 func (requestLog *requestLogInsert) applyRuntimePricingResult(pricingResult runtimePricingResult) {
@@ -1031,37 +1031,37 @@ func (s *Service) buildRuntimeBudgetExhaustionTelemetryEnvelope(plan requestPlan
 	}
 
 	usageEvent := usageEventInsert{
-		ProfileID:                   plan.ProfileID,
-		IngressRequestID:            ingressRequestID,
-		ModelID:                     plan.RequestedModelID,
-		ResolvedTargetModelID:       resolvedTargetModelID,
-		APIFamily:                   plan.APIFamily,
-		OperationName:               strings.TrimSpace(plan.RuntimeOperation.Name),
-		EndpointID:                  intPtr(result.Connection.Endpoint.ID),
-		EndpointLabelSnapshot:       runtimeEndpointLabelSnapshot(result.Connection.Endpoint),
-		ConnectionID:                intPtr(result.Connection.ID),
-		SelectedTerminalTargetID:    selectedTerminalTargetID,
-		ProxyAPIKeyIDSnapshot:       proxyKeyIDPointer(proxyKey),
-		ProxyAPIKeyNameSnapshot:     proxyKeyNamePointer(proxyKey),
-		StatusCode:                  runtimeErr.StatusCode,
-		SuccessFlag:                 false,
-		UnpricedReason:              nil,
-		ReportCurrencyCode:          reportCurrencyCode,
-		ReportCurrencySymbol:        reportCurrencySymbol,
-		AttemptCount:                len(requestLogs),
-		RequestPath:                 request.URL.Path,
-		CreatedAt:                   requestCompletedAt,
-		ResponseTimeMS:              intPtr(responseTimeMS),
-		CompletionDurationMS:        intPtr(responseTimeMS),
-		StreamOutcome:               runtimeStreamOutcomeNotStreaming,
-		PricingStatus:               runtimePricingStatusIneligible,
-		PricingEvidenceTrust:        runtimePricingEvidenceTrust,
-		CurrencyAttribution:         runtimeUsageCurrencyAttributionIdentified,
-		FinalErrorCode:              stringPtr(safediag.CodeAttemptBudgetExhausted),
-		FinalAttemptNumber:          nil,
-		FinalAttemptTrigger:         nil,
-		IngressStartedAt:            &startedAt,
-		IngressCompletedAt:          &requestCompletedAt,
+		ProfileID:                plan.ProfileID,
+		IngressRequestID:         ingressRequestID,
+		ModelID:                  plan.RequestedModelID,
+		ResolvedTargetModelID:    resolvedTargetModelID,
+		APIFamily:                plan.APIFamily,
+		OperationName:            strings.TrimSpace(plan.RuntimeOperation.Name),
+		EndpointID:               intPtr(result.Connection.Endpoint.ID),
+		EndpointLabelSnapshot:    runtimeEndpointLabelSnapshot(result.Connection.Endpoint),
+		ConnectionID:             intPtr(result.Connection.ID),
+		SelectedTerminalTargetID: selectedTerminalTargetID,
+		ProxyAPIKeyIDSnapshot:    proxyKeyIDPointer(proxyKey),
+		ProxyAPIKeyNameSnapshot:  proxyKeyNamePointer(proxyKey),
+		StatusCode:               runtimeErr.StatusCode,
+		SuccessFlag:              false,
+		UnpricedReason:           nil,
+		ReportCurrencyCode:       reportCurrencyCode,
+		ReportCurrencySymbol:     reportCurrencySymbol,
+		AttemptCount:             len(requestLogs),
+		RequestPath:              request.URL.Path,
+		CreatedAt:                requestCompletedAt,
+		ResponseTimeMS:           intPtr(responseTimeMS),
+		CompletionDurationMS:     intPtr(responseTimeMS),
+		StreamOutcome:            runtimeStreamOutcomeNotStreaming,
+		PricingStatus:            runtimePricingStatusIneligible,
+		PricingEvidenceTrust:     runtimePricingEvidenceTrust,
+		CurrencyAttribution:      runtimeUsageCurrencyAttributionIdentified,
+		FinalErrorCode:           stringPtr(safediag.CodeAttemptBudgetExhausted),
+		FinalAttemptNumber:       nil,
+		FinalAttemptTrigger:      nil,
+		IngressStartedAt:         &startedAt,
+		IngressCompletedAt:       &requestCompletedAt,
 	}
 	return runtimeTelemetryEnvelope{
 		RequestLogs:          requestLogs,
@@ -1273,37 +1273,37 @@ func (s *Service) buildRuntimePlanningFailureTelemetryEnvelope(failure runtimePl
 	applyRuntimeDiagnosticFailureFields(&requestLog, runtimeErr)
 	applyRuntimePlanningFailureMetadataScrub(&requestLog, request)
 	usageEvent := usageEventInsert{
-		ProfileID:                   failure.ProfileID,
-		IngressRequestID:            ingressRequestID,
-		ModelID:                     failure.RequestedModelID,
-		ResolvedTargetModelID:       resolvedTargetModelID,
-		APIFamily:                   failure.APIFamily,
-		OperationName:               strings.TrimSpace(failure.RuntimeOperation.Name),
-		UpstreamOperationName:       cloneRuntimeStringPointer(failure.UpstreamOperationName),
-		OperationTranslationMode:    cloneRuntimeStringPointer(failure.OperationTranslationMode),
-		EndpointID:                  nil,
-		EndpointLabelSnapshot:       "Unknown Endpoint",
-		ConnectionID:                nil,
-		SelectedTerminalTargetID:    selectedTerminalTargetID,
-		ProxyAPIKeyIDSnapshot:       proxyKeyIDPointer(proxyKey),
-		ProxyAPIKeyNameSnapshot:     proxyKeyNamePointer(proxyKey),
-		StatusCode:                  runtimeErr.StatusCode,
-		SuccessFlag:                 false,
-		UnpricedReason:              unpricedReason,
-		ReportCurrencyCode:          reportCurrencyCode,
-		ReportCurrencySymbol:        reportCurrencySymbol,
-		AttemptCount:                1,
-		RequestPath:                 failure.RequestPath,
-		UpstreamRequestPath:         cloneRuntimeStringPointer(failure.UpstreamRequestPath),
-		CreatedAt:                   requestCompletedAt,
-		ResponseTimeMS:              intPtr(responseTimeMS),
-		CompletionDurationMS:        completionDurationMS,
-		TTFTMS:                      nil,
-		StreamOutcome:               runtimeStreamOutcomeNotStreaming,
-		StreamErrorKind:             nil,
-		PricingStatus:               runtimePricingStatusIneligible,
-		PricingEvidenceTrust:        runtimePricingEvidenceTrust,
-		CurrencyAttribution:         runtimeUsageCurrencyAttributionIdentified,
+		ProfileID:                failure.ProfileID,
+		IngressRequestID:         ingressRequestID,
+		ModelID:                  failure.RequestedModelID,
+		ResolvedTargetModelID:    resolvedTargetModelID,
+		APIFamily:                failure.APIFamily,
+		OperationName:            strings.TrimSpace(failure.RuntimeOperation.Name),
+		UpstreamOperationName:    cloneRuntimeStringPointer(failure.UpstreamOperationName),
+		OperationTranslationMode: cloneRuntimeStringPointer(failure.OperationTranslationMode),
+		EndpointID:               nil,
+		EndpointLabelSnapshot:    "Unknown Endpoint",
+		ConnectionID:             nil,
+		SelectedTerminalTargetID: selectedTerminalTargetID,
+		ProxyAPIKeyIDSnapshot:    proxyKeyIDPointer(proxyKey),
+		ProxyAPIKeyNameSnapshot:  proxyKeyNamePointer(proxyKey),
+		StatusCode:               runtimeErr.StatusCode,
+		SuccessFlag:              false,
+		UnpricedReason:           unpricedReason,
+		ReportCurrencyCode:       reportCurrencyCode,
+		ReportCurrencySymbol:     reportCurrencySymbol,
+		AttemptCount:             1,
+		RequestPath:              failure.RequestPath,
+		UpstreamRequestPath:      cloneRuntimeStringPointer(failure.UpstreamRequestPath),
+		CreatedAt:                requestCompletedAt,
+		ResponseTimeMS:           intPtr(responseTimeMS),
+		CompletionDurationMS:     completionDurationMS,
+		TTFTMS:                   nil,
+		StreamOutcome:            runtimeStreamOutcomeNotStreaming,
+		StreamErrorKind:          nil,
+		PricingStatus:            runtimePricingStatusIneligible,
+		PricingEvidenceTrust:     runtimePricingEvidenceTrust,
+		CurrencyAttribution:      runtimeUsageCurrencyAttributionIdentified,
 	}
 	routeReason := runtimeExecutionRouteReason(gatewaycore.RouteReasonPolicyReject)
 	requestLogs := []requestLogInsert{requestLog}
@@ -1380,32 +1380,32 @@ func (s *Service) buildRuntimeExecutionFailureTelemetryEnvelope(plan requestPlan
 	applyRuntimeDiagnosticFailureFields(&requestLog, runtimeErr)
 	applyRuntimePlanningFailureMetadataScrub(&requestLog, request)
 	usageEvent := usageEventInsert{
-		ProfileID:                   plan.ProfileID,
-		IngressRequestID:            ingressRequestID,
-		ModelID:                     plan.RequestedModelID,
-		ResolvedTargetModelID:       resolvedTargetModelID,
-		APIFamily:                   plan.APIFamily,
-		OperationName:               strings.TrimSpace(plan.RuntimeOperation.Name),
-		EndpointID:                  nil,
-		EndpointLabelSnapshot:       "Unknown Endpoint",
-		ConnectionID:                nil,
-		SelectedTerminalTargetID:    selectedTerminalTargetID,
-		ProxyAPIKeyIDSnapshot:       proxyKeyIDPointer(proxyKey),
-		ProxyAPIKeyNameSnapshot:     proxyKeyNamePointer(proxyKey),
-		StatusCode:                  runtimeErr.StatusCode,
-		SuccessFlag:                 false,
-		UnpricedReason:              unpricedReason,
-		ReportCurrencyCode:          reportCurrencyCode,
-		ReportCurrencySymbol:        reportCurrencySymbol,
-		AttemptCount:                1,
-		RequestPath:                 request.URL.Path,
-		CreatedAt:                   requestCompletedAt,
-		ResponseTimeMS:              intPtr(responseTimeMS),
-		CompletionDurationMS:        completionDurationMS,
-		StreamOutcome:               runtimeStreamOutcomeNotStreaming,
-		PricingStatus:               runtimePricingStatusIneligible,
-		PricingEvidenceTrust:        runtimePricingEvidenceTrust,
-		CurrencyAttribution:         runtimeUsageCurrencyAttributionIdentified,
+		ProfileID:                plan.ProfileID,
+		IngressRequestID:         ingressRequestID,
+		ModelID:                  plan.RequestedModelID,
+		ResolvedTargetModelID:    resolvedTargetModelID,
+		APIFamily:                plan.APIFamily,
+		OperationName:            strings.TrimSpace(plan.RuntimeOperation.Name),
+		EndpointID:               nil,
+		EndpointLabelSnapshot:    "Unknown Endpoint",
+		ConnectionID:             nil,
+		SelectedTerminalTargetID: selectedTerminalTargetID,
+		ProxyAPIKeyIDSnapshot:    proxyKeyIDPointer(proxyKey),
+		ProxyAPIKeyNameSnapshot:  proxyKeyNamePointer(proxyKey),
+		StatusCode:               runtimeErr.StatusCode,
+		SuccessFlag:              false,
+		UnpricedReason:           unpricedReason,
+		ReportCurrencyCode:       reportCurrencyCode,
+		ReportCurrencySymbol:     reportCurrencySymbol,
+		AttemptCount:             1,
+		RequestPath:              request.URL.Path,
+		CreatedAt:                requestCompletedAt,
+		ResponseTimeMS:           intPtr(responseTimeMS),
+		CompletionDurationMS:     completionDurationMS,
+		StreamOutcome:            runtimeStreamOutcomeNotStreaming,
+		PricingStatus:            runtimePricingStatusIneligible,
+		PricingEvidenceTrust:     runtimePricingEvidenceTrust,
+		CurrencyAttribution:      runtimeUsageCurrencyAttributionIdentified,
 	}
 	requestLogs := []requestLogInsert{requestLog}
 	return runtimeTelemetryEnvelope{
