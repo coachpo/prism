@@ -20,6 +20,12 @@ import {
 import { operationalRowStripe } from "@/shared/table/operationalTable";
 import { cn } from "@/lib/utils";
 import { AuditCaptureLedger } from "./AuditCaptureLedger";
+import {
+  auditScopedDurationMs,
+  auditScopedStatusCode,
+  decodeAuditBodyBase64,
+  type AuditBodyText,
+} from "./auditLogView";
 import { RequestLogAuditWindowBar } from "./RequestLogAuditWindowBar";
 import {
   getAuditPagePath,
@@ -157,7 +163,9 @@ function AuditRecordsTable({
               {auditItems.map((item) => {
                 const captureMode = resolveRequestAuditCaptureMode(item);
                 const isSelected = item.id === selectedAuditId;
-                const tier = statusTier(item.response_status);
+                const statusCode = auditScopedStatusCode(item);
+                const durationMs = auditScopedDurationMs(item);
+                const tier = statusTier(statusCode);
                 return (
                   <TableRow
                     key={item.id}
@@ -181,20 +189,20 @@ function AuditRecordsTable({
                       )}
                     </TableCell>
                     <TableCell>
-                      {Number.isFinite(item.response_status) && item.response_status > 0 ? (
+                      {statusCode !== null && statusCode > 0 ? (
                         <OperatorValueBadge
-                          label={String(item.response_status)}
-                          intent={getStatusIntent(item.response_status)}
+                          label={String(statusCode)}
+                          intent={getStatusIntent(statusCode)}
                         />
                       ) : (
                         <OperatorMissingValue reason={messages.honesty.noValue} />
                       )}
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
-                      {item.duration_ms === null || item.duration_ms === undefined ? (
+                      {durationMs === null ? (
                         <OperatorMissingValue reason={messages.honesty.noValue} />
                       ) : (
-                        `${formatNumber(item.duration_ms)} ms`
+                        `${formatNumber(durationMs)} ms`
                       )}
                     </TableCell>
                     <TableCell>
@@ -234,19 +242,23 @@ function AuditRecordsTable({
   );
 }
 
-function statusTier(status: number): OperatorStatusTier {
-  if (!Number.isFinite(status) || status <= 0) return "idle";
+function statusTier(status: number | null): OperatorStatusTier {
+  if (status === null || status <= 0) return "idle";
   if (status >= 500) return "failing";
   if (status >= 400) return "degraded";
   return "healthy";
 }
 
 function getRequestBodyEmptyState(
-  detail: AuditLogDetail,
+  body: AuditBodyText,
   captureMode: RequestAuditCaptureMode | null,
   messages: ReturnType<typeof useLocale>["messages"],
 ): string {
-  if (detail.request_body_stored) {
+  if (body.binary) {
+    return messages.requestLogs.auditBinaryBodyNotShown;
+  }
+
+  if (body.text !== null) {
     return messages.requestLogs.noCaptured(messages.requestLogs.requestBody.toLowerCase());
   }
 
@@ -258,12 +270,18 @@ function getRequestBodyEmptyState(
 }
 
 function getResponseBodyEmptyState(
+  body: AuditBodyText,
   detail: AuditLogDetail,
   captureMode: RequestAuditCaptureMode | null,
+  statusCode: number | null,
   messages: ReturnType<typeof useLocale>["messages"],
 ): string {
-  if (detail.response_body_stored) {
-    return messages.requestLogs.noCaptured(messages.requestLogs.response(detail.response_status).toLowerCase());
+  if (body.binary) {
+    return messages.requestLogs.auditBinaryBodyNotShown;
+  }
+
+  if (body.text !== null) {
+    return messages.requestLogs.noCaptured(messages.requestLogs.response(statusCode ?? "—").toLowerCase());
   }
 
   if (captureMode === "metadata_only") {
@@ -291,13 +309,21 @@ function AuditDetailCard({
   formatTimestamp: (iso: string) => string;
 }) {
   const { formatNumber, messages } = useLocale();
+  const statusCode = auditScopedStatusCode(detail);
+  const durationMs = auditScopedDurationMs(detail);
+  const requestBody = decodeAuditBodyBase64(detail.request_body_base64);
+  const responseBody = decodeAuditBodyBase64(detail.response_body_base64);
 
   return (
     <Card className="overflow-hidden border-border" data-testid="dedicated-audit-detail">
       <div className="flex flex-col gap-3 border-b border-border bg-inset px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <OperatorValueBadge label={String(detail.response_status)} intent={getStatusIntent(detail.response_status)} className="px-1.5 py-0" />
+            {statusCode !== null ? (
+              <OperatorValueBadge label={String(statusCode)} intent={getStatusIntent(statusCode)} className="px-1.5 py-0" />
+            ) : (
+              <OperatorMissingValue reason={messages.honesty.noValue} />
+            )}
             <OperatorTypeBadge label={getCaptureLabel(captureMode, messages)} intent={captureBadgeIntent(captureMode)} />
             <OperatorValueBadge label={`#${detail.id}`} className="text-[11px]" />
           </div>
@@ -306,35 +332,32 @@ function AuditDetailCard({
           </p>
           <p className="text-xs text-muted-foreground">{formatTimestamp(detail.created_at)}</p>
         </div>
-        <OperatorValueBadge label={`${formatNumber(detail.duration_ms)}ms`} className="gap-1 px-2.5 py-1 text-[11px] font-medium" />
+        <OperatorValueBadge
+          label={durationMs === null ? "—" : `${formatNumber(durationMs)}ms`}
+          className="gap-1 px-2.5 py-1 text-[11px] font-medium"
+        />
       </div>
       <CardContent className="flex flex-col gap-4 p-4">
         {/* Every payload states what was observed, kept and dropped, so a
             truncated body is never mistaken for the whole body. */}
         <div className="flex flex-col gap-2">
           <RequestLogPayloadBlock title={messages.requestLogs.requestHeaders} content={detail.request_headers || ""} contentKind="headers" />
-          <AuditCaptureLedger
-            observed={detail.request_header_bytes_observed}
-            stored={detail.request_header_bytes_stored}
-            truncated={detail.request_header_bytes_truncated}
-            limitReason={detail.request_headers_limit_reason}
-          />
         </div>
         <Separator />
         <div className="flex flex-col gap-2">
           <RequestLogPayloadBlock
             title={messages.requestLogs.requestBody}
-            content={detail.request_body ?? ""}
-            emptyState={getRequestBodyEmptyState(detail, captureMode, messages)}
+            content={requestBody.text ?? ""}
+            emptyState={getRequestBodyEmptyState(requestBody, captureMode, messages)}
             apiFamily={apiFamily}
             bodyKind="request"
             operationName={operationName}
           />
           <AuditCaptureLedger
-            observed={detail.ingress_audit_bytes_observed}
-            stored={detail.ingress_audit_bytes_stored}
-            truncated={detail.ingress_audit_bytes_truncated}
-            limitReason={detail.request_capture_limit_reason}
+            bytesObserved={detail.request_body_bytes_observed}
+            bytesStored={detail.request_body_bytes_stored}
+            captureStatus={detail.request_body_capture_status}
+            truncated={detail.request_body_truncated}
           />
         </div>
         <Separator />
@@ -344,28 +367,22 @@ function AuditDetailCard({
             content={detail.response_headers ?? ""}
             contentKind="headers"
           />
-          <AuditCaptureLedger
-            observed={detail.response_header_bytes_observed}
-            stored={detail.response_header_bytes_stored}
-            truncated={detail.response_header_bytes_truncated}
-            limitReason={detail.response_headers_limit_reason}
-          />
         </div>
         <Separator />
         <div className="flex flex-col gap-2">
           <RequestLogPayloadBlock
-            title={messages.requestLogs.response(detail.response_status)}
-            content={detail.response_body ?? ""}
-            emptyState={getResponseBodyEmptyState(detail, captureMode, messages)}
+            title={messages.requestLogs.response(statusCode ?? "—")}
+            content={responseBody.text ?? ""}
+            emptyState={getResponseBodyEmptyState(responseBody, detail, captureMode, statusCode, messages)}
             apiFamily={apiFamily}
             bodyKind="response"
             operationName={operationName}
           />
           <AuditCaptureLedger
-            observed={detail.response_body_bytes_count}
-            stored={detail.response_body_stored ? detail.response_body_bytes_count : 0}
-            truncated={0}
-            limitReason={detail.response_capture_limit_reason}
+            bytesObserved={detail.response_body_bytes_observed}
+            bytesStored={detail.response_body_bytes_stored}
+            captureStatus={detail.response_body_capture_status}
+            truncated={detail.response_body_truncated}
           />
         </div>
       </CardContent>
