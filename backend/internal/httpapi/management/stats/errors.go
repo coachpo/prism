@@ -1,5 +1,9 @@
 package stats
 
+// Query failures use the typed domain envelope; transport failures use the
+// shared management response writer. This boundary keeps status and code shape
+// stable across the retained-read handlers.
+
 import (
 	"errors"
 	"fmt"

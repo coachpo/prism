@@ -1,5 +1,9 @@
 package auth
 
+// This file owns proxy-key request validation, expiry normalization, and the
+// transaction-bound usage handoff. Row scans, capacity locks, and secret
+// replacement remain in proxy_key_store.go.
+
 import (
 	"context"
 	"fmt"
@@ -11,6 +15,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// RecordProxyAPIKeyUsageTx is the transaction-bound usage handoff used by
+// runtime attribution.
 func RecordProxyAPIKeyUsageTx(ctx context.Context, tx pgx.Tx, keyID int, lastUsedAt time.Time, lastUsedIP string) error {
 	return proxykeyusage.RecordTx(ctx, tx, keyID, lastUsedAt, lastUsedIP)
 }
@@ -50,6 +56,7 @@ func validateProxyKeyName(value string) (string, error) {
 
 // resolveProxyKeyCreateExpiry validates a create expiry: omitted/null means
 // never expires; a value must be a strict future instant.
+// resolveProxyKeyCreateExpiry applies the create-request omission rule.
 func resolveProxyKeyCreateExpiry(expiresAt *time.Time, now time.Time) (*time.Time, error) {
 	if expiresAt == nil {
 		return nil, nil
@@ -59,6 +66,7 @@ func resolveProxyKeyCreateExpiry(expiresAt *time.Time, now time.Time) (*time.Tim
 
 // resolveProxyKeyFutureExpiry rejects non-future instants with a locatable
 // field error.
+// resolveProxyKeyFutureExpiry is shared by create and update validation.
 func resolveProxyKeyFutureExpiry(expiresAt *time.Time, now time.Time) (*time.Time, error) {
 	if expiresAt == nil {
 		return nil, nil

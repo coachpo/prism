@@ -85,8 +85,7 @@ func (m BootstrapConfigManager) LoadOrSeedFromEnv() (Settings, error) {
 }
 
 func (m BootstrapConfigManager) LoadBootstrapConfigDocument(path string) (BootstrapConfigSnapshot, Settings, error) {
-	_, snapshot, settings, _, err := m.loadBootstrapConfigDocument(path)
-	return snapshot, settings, err
+	return m.loadBootstrapConfigDocument(path)
 }
 
 func (m BootstrapConfigManager) Parse(raw []byte) (Settings, error) {
@@ -111,24 +110,24 @@ func (m BootstrapConfigManager) resolvedTimeNow() func() time.Time {
 	return time.Now
 }
 
-func (m BootstrapConfigManager) loadBootstrapConfigDocument(path string) (bootstrapConfigDocument, BootstrapConfigSnapshot, Settings, []byte, error) {
+func (m BootstrapConfigManager) loadBootstrapConfigDocument(path string) (BootstrapConfigSnapshot, Settings, error) {
 	normalizedPath := strings.TrimSpace(path)
 	if normalizedPath == "" {
-		return bootstrapConfigDocument{}, BootstrapConfigSnapshot{}, Settings{}, nil, fmt.Errorf("bootstrap config path is required")
+		return BootstrapConfigSnapshot{}, Settings{}, fmt.Errorf("bootstrap config path is required")
 	}
 	raw, err := m.resolvedReadFile()(normalizedPath)
 	if err != nil {
-		return bootstrapConfigDocument{}, BootstrapConfigSnapshot{}, Settings{}, nil, fmt.Errorf("read bootstrap config %q: %w", normalizedPath, err)
+		return BootstrapConfigSnapshot{}, Settings{}, fmt.Errorf("read bootstrap config %q: %w", normalizedPath, err)
 	}
 	document, err := parseBootstrapConfigDocument(raw)
 	if err != nil {
-		return bootstrapConfigDocument{}, BootstrapConfigSnapshot{}, Settings{}, nil, err
+		return BootstrapConfigSnapshot{}, Settings{}, err
 	}
-	snapshot, settings, canonicalPayload, err := buildBootstrapConfigSnapshot(normalizedPath, document)
+	snapshot, settings, _, err := buildBootstrapConfigSnapshot(normalizedPath, document)
 	if err != nil {
-		return bootstrapConfigDocument{}, BootstrapConfigSnapshot{}, Settings{}, nil, err
+		return BootstrapConfigSnapshot{}, Settings{}, err
 	}
-	return document, snapshot, settings, canonicalPayload, nil
+	return snapshot, settings, nil
 }
 
 func buildBootstrapConfigSnapshot(path string, document bootstrapConfigDocument) (BootstrapConfigSnapshot, Settings, []byte, error) {

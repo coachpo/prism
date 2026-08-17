@@ -1,5 +1,38 @@
 package stats
 
+// The stats route table is the management HTTP boundary for retained
+// observability reads. It registers every public path while keeping request
+// parsing in the query modules and persistence in the domain stats package.
+// Static export and filter paths precede parameterized request paths so the
+// mounted API remains deterministic.
+//
+// Dashboard routes expose the aggregate snapshot plus its activity feed.
+// Request routes expose attempts, ingress chains, details, and CSV export.
+// Aggregate routes cover summary, metrics, throughput, spending, and usage.
+// Observe routes issue signed contexts. Endpoint routes expose drilldowns.
+// Cost routes expose segment pages and symbol pages.
+//
+// This file owns dispatch only. It does not decide time ranges, coerce query
+// values, open transactions, write response bodies, or rebuild snapshots.
+// Those responsibilities stay in the handler, query, error, domain, and
+// snapshot owners. Keeping dispatch narrow makes additions visible without a
+// second implementation of the statistics contract.
+//
+// The profile header remains a compatibility input to the shared Service seam;
+// management resolution remains pinned to the Default profile. Runtime proxy
+// traffic never reaches this router, so provider behavior does not belong here.
+// Export remains server-side and cursor ownership stays in the domain package.
+// Filter-option routes retain their own bounded query grammar. Exact request
+// detail routes retain their private-cache headers. No route in this table
+// changes those response policies; each handler owns its boundary explicitly.
+// The resulting table is intentionally boring: its value is the complete
+// mounted contract rather than a layer of indirection around handlers.
+// Read-model names remain in the domain package and never become route keys.
+// This keeps HTTP assembly independent from SQL projection details.
+// The route file therefore remains the single navigation map for this package.
+// It is reviewed alongside the management mount rather than beside SQL code.
+// There is no catch-all route in the stats surface.
+//
 import (
 	"net/http"
 

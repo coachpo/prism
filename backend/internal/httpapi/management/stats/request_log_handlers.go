@@ -15,6 +15,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+var requestLogIDPattern = regexp.MustCompile(`^[0-9]+$`)
+
 func (s *Service) handleListRequestLogs(w http.ResponseWriter, r *http.Request) {
 	responseutil.SetPrivateNoStoreHeaders(w)
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (any, error) {
@@ -136,7 +138,7 @@ func parseProxyAPIKeyFilterOptionsParams(r *http.Request, profileID int) (statsd
 func (s *Service) handleGetRequestLog(w http.ResponseWriter, r *http.Request) {
 	responseutil.SetPrivateNoStoreHeaders(w)
 	rawRequestLogID := strings.TrimSpace(chi.URLParam(r, "request_id"))
-	if rawRequestLogID == "" || !regexp.MustCompile(`^[0-9]+$`).MatchString(rawRequestLogID) {
+	if rawRequestLogID == "" || !requestLogIDPattern.MatchString(rawRequestLogID) {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "request_id must be a positive decimal string")
 		return
 	}
