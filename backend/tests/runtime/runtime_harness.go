@@ -1083,7 +1083,7 @@ func (h *runtimeHarness) updateConnectionCustomRequestParameters(tb testing.TB, 
 // instant derive the next-day mask from it: 1<<(iso%7) is the bit of the
 // following weekday, so the window can never be open on the run day.
 func closedWindowISODay() int {
-	return (int(time.Now().UTC().Weekday()) + 6) % 7 + 1
+	return (int(time.Now().UTC().Weekday())+6)%7 + 1
 }
 
 // updateConnectionRoutingSchedule replaces the connection's routing schedule

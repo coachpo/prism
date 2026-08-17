@@ -303,13 +303,13 @@ func newSetupReadinessHarness(t *testing.T) *contractHarness {
 			t.Cleanup(modelsService.Close)
 			modelsService.SetTerminalTargetCreator(connectionsService)
 			return platformhttp.Dependencies{
-				AuthService:               authService,
-				RuntimeAuthService:        authService,
-				RuntimeCache:              runtimeCache,
+				AuthService:          authService,
+				RuntimeAuthService:   authService,
+				RuntimeCache:         runtimeCache,
 				StartupConfigRuntime: startupRuntime,
-				EndpointsService:          endpointsService,
-				ConnectionsService:        connectionsService,
-				ModelsService:             modelsService,
+				EndpointsService:     endpointsService,
+				ConnectionsService:   connectionsService,
+				ModelsService:        modelsService,
 			}
 		},
 	})

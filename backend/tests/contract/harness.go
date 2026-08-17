@@ -253,9 +253,9 @@ func newContractHarnessWithDatabase(t *testing.T, dsn string) *contractHarness {
 			harness.service = authService
 			harness.runtimeCache = runtimeCache
 			return platformhttp.Dependencies{
-				AuthService:               authService,
-				RuntimeAuthService:        authService,
-				RuntimeCache:              runtimeCache,
+				AuthService:          authService,
+				RuntimeAuthService:   authService,
+				RuntimeCache:         runtimeCache,
 				StartupConfigRuntime: startupRuntime,
 			}
 		},

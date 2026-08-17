@@ -21,23 +21,23 @@ import (
 )
 
 type Dependencies struct {
-	Version                   string
+	Version              string
 	StartupConfigRuntime *StartupConfigRuntime
-	CORSOriginProvider        platformcors.OriginProvider
-	AuditService              *managementaudit.Service
-	AuthService               *managementauth.Service
-	RuntimeAuthService        *managementauth.Service
-	ConfigRulesService        *managementconfigrules.Service
-	ConnectionsService        *managementconnections.Service
-	EndpointsService          *managementendpoints.Service
-	LoadbalanceService        *managementloadbalance.Service
-	ModelsService             *managementmodels.Service
-	RuntimeService            *runtimeapi.Service
-	RuntimeCache              *runtimeapi.SharedCache
-	RuntimeState              *loadbalancedomain.LocalRuntimeStateStore
-	DatabasePools             *platformdb.DatabasePools
-	SettingsService           *managementsettings.Service
-	StatsService              *managementstats.Service
+	CORSOriginProvider   platformcors.OriginProvider
+	AuditService         *managementaudit.Service
+	AuthService          *managementauth.Service
+	RuntimeAuthService   *managementauth.Service
+	ConfigRulesService   *managementconfigrules.Service
+	ConnectionsService   *managementconnections.Service
+	EndpointsService     *managementendpoints.Service
+	LoadbalanceService   *managementloadbalance.Service
+	ModelsService        *managementmodels.Service
+	RuntimeService       *runtimeapi.Service
+	RuntimeCache         *runtimeapi.SharedCache
+	RuntimeState         *loadbalancedomain.LocalRuntimeStateStore
+	DatabasePools        *platformdb.DatabasePools
+	SettingsService      *managementsettings.Service
+	StatsService         *managementstats.Service
 }
 
 type ServerOptions struct {

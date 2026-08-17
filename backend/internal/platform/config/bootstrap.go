@@ -35,10 +35,10 @@ type BootstrapConfigManager struct {
 }
 
 const (
-	BootstrapConfigSecretDatabaseURL                   = "database.url"
-	BootstrapConfigSecretRuntimeSecretEncryptionKey    = "runtime.secretEncryptionKey"
-	BootstrapConfigSecretAuthJWTSigningKey             = "auth.jwtSigningKey"
-	BootstrapConfigSecretTelemetryAuthorizationHeader  = "telemetry.exporter.auth.authorizationHeader"
+	BootstrapConfigSecretDatabaseURL                  = "database.url"
+	BootstrapConfigSecretRuntimeSecretEncryptionKey   = "runtime.secretEncryptionKey"
+	BootstrapConfigSecretAuthJWTSigningKey            = "auth.jwtSigningKey"
+	BootstrapConfigSecretTelemetryAuthorizationHeader = "telemetry.exporter.auth.authorizationHeader"
 )
 
 type BootstrapConfigSnapshot struct {

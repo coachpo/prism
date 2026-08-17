@@ -249,7 +249,6 @@ func TestAuthLoginThrottlePersistsAcrossServiceRestart(t *testing.T) {
 	assertLoginLockedProblem(t, lockedAfterRestart)
 }
 
-
 func TestCurrentSession(t *testing.T) {
 	harness := newContractHarness(t)
 	seedVerifiedAuthSettings(t, harness, "current-admin", "current-password-123", "current@example.com")
