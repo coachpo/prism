@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { zhCNMessages } from "@/i18n/messages";
 import type {
   Connection,
@@ -143,14 +144,16 @@ function renderEditor(props: Partial<Parameters<typeof AccessTargetsEditor>[0]> 
   };
   const utils = render(
     <LocaleProvider>
-      <AccessTargetsEditor
-        apiFamilyLabel="openai"
-        accessTargets={[terminalA, modelTarget, terminalB]}
-        modelOptions={modelOptions}
-        connectionOptions={[createConnection(901, "Terminal A"), createConnection(902, "Terminal B")]}
-        {...handlers}
-        {...props}
-      />
+      <TooltipProvider>
+        <AccessTargetsEditor
+          apiFamilyLabel="openai"
+          accessTargets={[terminalA, modelTarget, terminalB]}
+          modelOptions={modelOptions}
+          connectionOptions={[createConnection(901, "Terminal A"), createConnection(902, "Terminal B")]}
+          {...handlers}
+          {...props}
+        />
+      </TooltipProvider>
     </LocaleProvider>,
   );
   return { ...utils, handlers };
@@ -264,6 +267,29 @@ describe("AccessTargetsEditor mixed ordering", () => {
 
 describe("AccessTargetsEditor capability column keeps absence distinguishable", () => {
   const copy = zhCNMessages.modelsUi;
+
+  it("shows the capability basis explanation from the question-mark trigger", async () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+
+    try {
+      const user = userEvent.setup();
+      renderEditor({ accessTargets: [terminalA] });
+
+      await user.hover(screen.getByRole("button", { name: copy.targetColumnCapabilityBasis }));
+
+      const tooltip = await screen.findByRole("tooltip");
+      expect(tooltip.textContent).toContain(copy.targetColumnCapabilityBasis);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 
   it("gives every absent capability its own reason instead of one bare dash", () => {
     renderEditor({

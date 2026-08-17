@@ -12,6 +12,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -315,11 +316,23 @@ export function AccessTargetsEditor({
                   {/* DESIGN.md: a column whose values come from one basis says
                       so in the header. This column reads what each target
                       declares, never what the routing analyzer resolved. */}
-                  <TableHead title={copy.targetColumnCapabilityBasis}>
-                    <span className="inline-flex flex-wrap items-center gap-1">
+                  <TableHead>
+                    <span className="inline-flex items-center gap-1">
                       {copy.targetColumnCapability}
-                      <span aria-hidden="true" className="text-text-disabled">?</span>
-                      <span className="sr-only">{copy.targetColumnCapabilityBasis}</span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={copy.targetColumnCapabilityBasis}
+                            className="inline-flex size-7 items-center justify-center rounded-full text-text-disabled transition-colors hover:bg-primary-soft hover:text-on-primary-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                          >
+                            <span aria-hidden="true">?</span>
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" align="start" className="max-w-sm whitespace-normal text-left">
+                          {copy.targetColumnCapabilityBasis}
+                        </TooltipContent>
+                      </Tooltip>
                     </span>
                   </TableHead>
                   <TableHead>{copy.targetColumnLimits}</TableHead>
