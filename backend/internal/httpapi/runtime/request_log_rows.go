@@ -8,14 +8,6 @@ import (
 	"github.com/coachpo/prism/backend/internal/domain/safediag"
 )
 
-func selectedTerminalTargetIDForAttempt(plan requestPlan, attempt runtimeTelemetryAttemptContext) *int {
-	return plan.selectedTerminalTargetID()
-}
-
-func selectedTerminalTargetIDForUsageEvent(plan requestPlan) *int {
-	return plan.selectedTerminalTargetID()
-}
-
 func buildRuntimeRequestLogRows(plan requestPlan, request *http.Request, telemetry runtimeTelemetryEnvelopeContext) []requestLogInsert {
 	requestLogs := make([]requestLogInsert, 0, len(telemetry.attempts))
 	for index := range telemetry.attempts {
@@ -43,7 +35,7 @@ func buildRuntimeRequestLogRow(plan requestPlan, request *http.Request, telemetr
 		OperationTranslationMode:      runtimeTranslationModePointer(attempt.attempt.OperationTranslationMode),
 		EndpointID:                    intPtr(attempt.attempt.Connection.Endpoint.ID),
 		ConnectionID:                  intPtr(attempt.attempt.Connection.ID),
-		SelectedTerminalTargetID:      selectedTerminalTargetIDForAttempt(plan, attempt),
+		SelectedTerminalTargetID:      plan.selectedTerminalTargetID(),
 		ProxyAPIKeyID:                 proxyKeyIDPointer(telemetry.proxyKey),
 		ProxyAPIKeyNameSnapshot:       proxyKeyNamePointer(telemetry.proxyKey),
 		IngressRequestID:              telemetry.ingressRequestID,

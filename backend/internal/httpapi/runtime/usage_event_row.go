@@ -84,7 +84,7 @@ func buildRuntimeUsageEvent(plan requestPlan, result executionResult, request *h
 		EndpointID:               intPtr(result.Connection.Endpoint.ID),
 		EndpointLabelSnapshot:    runtimeEndpointLabelSnapshot(result.Connection.Endpoint),
 		ConnectionID:             intPtr(result.Connection.ID),
-		SelectedTerminalTargetID: selectedTerminalTargetIDForUsageEvent(plan),
+		SelectedTerminalTargetID: plan.selectedTerminalTargetID(),
 		ProxyAPIKeyIDSnapshot:    proxyKeyIDPointer(telemetry.proxyKey),
 		ProxyAPIKeyNameSnapshot:  proxyKeyNamePointer(telemetry.proxyKey),
 		StatusCode:               result.Response.StatusCode,
