@@ -28,7 +28,7 @@ type healthResponse struct {
 	Startup   string `json:"startup"`
 }
 
-func mountManagementBranch(router chi.Router, deps Dependencies, admissionController *admission.Controller, admissionProvider hotAdmissionProvider) {
+func mountManagementBranch(router chi.Router, deps Dependencies, admissionController *admission.Controller, admissionProvider admissionSnapshotProvider) {
 	router.Get("/health", healthHandler(deps.Version))
 
 	managementHandler := NewManagementRouter(deps.AuditService, deps.AuthService, deps.ConfigRulesService, deps.ConnectionsService, deps.EndpointsService, deps.LoadbalanceService, deps.ModelsService, deps.SettingsService, deps.StatsService)

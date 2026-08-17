@@ -95,13 +95,13 @@ func (resources *productionResources) configureHTTPAssembly(settings config.Sett
 	if err != nil {
 		return err
 	}
-	hotBootstrapConfigRuntime, err := platformhttp.NewHotBootstrapConfigRuntime(settings)
+	startupConfigRuntime, err := platformhttp.NewStartupConfigRuntime(settings)
 	if err != nil {
 		return err
 	}
 	resources.deps.Version = loadedVersion
-	resources.deps.HotBootstrapConfigRuntime = hotBootstrapConfigRuntime
-	resources.deps.CORSOriginProvider = hotBootstrapConfigRuntime
+	resources.deps.StartupConfigRuntime = startupConfigRuntime
+	resources.deps.CORSOriginProvider = startupConfigRuntime
 	return nil
 }
 
@@ -198,7 +198,7 @@ func (resources *productionResources) buildDatabaseBackgroundServices(ctx contex
 	managementSideEffects := managementsideeffects.NewDispatcher(managementsideeffects.Options{Pool: backgroundJobsPool, Scheduler: backgroundScheduler})
 	logRetentionStore := logretention.NewStore(logretention.Options{Pool: backgroundJobsPool})
 	managementJobs := managementjobs.NewStore(managementjobs.Options{Pool: backgroundJobsPool, Scheduler: backgroundScheduler, LogRetention: logRetentionStore})
-	alertWebhookOutbox := alerting.NewStore(alerting.Options{Pool: backgroundJobsPool, Scheduler: backgroundScheduler, WebhookURLProvider: resources.deps.HotBootstrapConfigRuntime})
+	alertWebhookOutbox := alerting.NewStore(alerting.Options{Pool: backgroundJobsPool, Scheduler: backgroundScheduler, WebhookURLProvider: resources.deps.StartupConfigRuntime})
 	services := databaseBackgroundServices{
 		scheduler:             backgroundScheduler,
 		managementSideEffects: managementSideEffects,
@@ -235,7 +235,7 @@ func (resources *productionResources) buildAuthServices(settings config.Settings
 	runtimeAuthCache := planning.authCache
 	backgroundScheduler := backgroundServices.scheduler
 	services := authServices{}
-	managementAuthService, err := managementauth.NewService(settings, managementauth.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, AuthRuntimeConfigProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool, ProxyKeyUsagePool: backgroundJobsPool, Scheduler: backgroundScheduler})
+	managementAuthService, err := managementauth.NewService(settings, managementauth.Options{CORSOriginProvider: resources.deps.StartupConfigRuntime, AuthRuntimeConfigProvider: resources.deps.StartupConfigRuntime, Pool: managementPool, ProxyKeyUsagePool: backgroundJobsPool, Scheduler: backgroundScheduler})
 	if err != nil {
 		return services, err
 	}
@@ -243,7 +243,7 @@ func (resources *productionResources) buildAuthServices(settings config.Settings
 	resources.registerSideEffectDrain(closeFuncHook(managementAuthService.DrainSideEffects))
 	resources.registerServiceClose(closeFuncHook(managementAuthService.Close))
 
-	runtimeAuthService, err := managementauth.NewService(settings, managementauth.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, AuthRuntimeConfigProvider: resources.deps.HotBootstrapConfigRuntime, Pool: runtimeExecutionPool, RuntimeCache: runtimeAuthCache})
+	runtimeAuthService, err := managementauth.NewService(settings, managementauth.Options{CORSOriginProvider: resources.deps.StartupConfigRuntime, AuthRuntimeConfigProvider: resources.deps.StartupConfigRuntime, Pool: runtimeExecutionPool, RuntimeCache: runtimeAuthCache})
 	if err != nil {
 		return services, err
 	}
@@ -260,21 +260,21 @@ func (resources *productionResources) buildManagementServices(settings config.Se
 	runtimeState := planning.state
 	dashboardSnapshots := statsdomain.NewDashboardAggregateStore()
 	services := managementServices{dashboardSnapshots: dashboardSnapshots}
-	modelsService, err := managementmodels.NewService(settings, managementmodels.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool, SecretEncryptionKey: settings.SecretEncryptionKey})
+	modelsService, err := managementmodels.NewService(settings, managementmodels.Options{CORSOriginProvider: resources.deps.StartupConfigRuntime, Pool: managementPool, SecretEncryptionKey: settings.SecretEncryptionKey})
 	if err != nil {
 		return services, err
 	}
 	services.models = modelsService
 	resources.registerServiceClose(closeFuncHook(modelsService.Close))
 
-	endpointsService, err := managementendpoints.NewService(settings, managementendpoints.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool})
+	endpointsService, err := managementendpoints.NewService(settings, managementendpoints.Options{CORSOriginProvider: resources.deps.StartupConfigRuntime, Pool: managementPool})
 	if err != nil {
 		return services, err
 	}
 	services.endpoints = endpointsService
 	resources.registerServiceClose(closeFuncHook(endpointsService.Close))
 
-	connectionsService, err := managementconnections.NewService(settings, managementconnections.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool})
+	connectionsService, err := managementconnections.NewService(settings, managementconnections.Options{CORSOriginProvider: resources.deps.StartupConfigRuntime, Pool: managementPool})
 	if err != nil {
 		return services, err
 	}
@@ -282,35 +282,35 @@ func (resources *productionResources) buildManagementServices(settings config.Se
 	resources.registerServiceClose(closeFuncHook(connectionsService.Close))
 	modelsService.SetTerminalTargetCreator(connectionsService)
 
-	settingsService, err := managementsettings.NewService(settings, managementsettings.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool, Jobs: managementJobs})
+	settingsService, err := managementsettings.NewService(settings, managementsettings.Options{CORSOriginProvider: resources.deps.StartupConfigRuntime, Pool: managementPool, Jobs: managementJobs})
 	if err != nil {
 		return services, err
 	}
 	services.settings = settingsService
 	resources.registerServiceClose(closeFuncHook(settingsService.Close))
 
-	loadbalanceService, err := managementloadbalance.NewService(settings, managementloadbalance.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool, RuntimeState: runtimeState})
+	loadbalanceService, err := managementloadbalance.NewService(settings, managementloadbalance.Options{CORSOriginProvider: resources.deps.StartupConfigRuntime, Pool: managementPool, RuntimeState: runtimeState})
 	if err != nil {
 		return services, err
 	}
 	services.loadbalance = loadbalanceService
 	resources.registerServiceClose(closeFuncHook(loadbalanceService.Close))
 
-	auditService, err := managementaudit.NewService(settings, managementaudit.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool, Jobs: managementJobs})
+	auditService, err := managementaudit.NewService(settings, managementaudit.Options{CORSOriginProvider: resources.deps.StartupConfigRuntime, Pool: managementPool, Jobs: managementJobs})
 	if err != nil {
 		return services, err
 	}
 	services.audit = auditService
 	resources.registerServiceClose(closeFuncHook(auditService.Close))
 
-	statsService, err := managementstats.NewService(settings, managementstats.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool, DashboardSnapshots: dashboardSnapshots, SideEffects: managementSideEffects, SecretEncryptionKey: settings.SecretEncryptionKey})
+	statsService, err := managementstats.NewService(settings, managementstats.Options{CORSOriginProvider: resources.deps.StartupConfigRuntime, Pool: managementPool, DashboardSnapshots: dashboardSnapshots, SideEffects: managementSideEffects, SecretEncryptionKey: settings.SecretEncryptionKey})
 	if err != nil {
 		return services, err
 	}
 	services.stats = statsService
 	resources.registerServiceClose(closeFuncHook(statsService.Close))
 
-	configRulesService, err := managementconfigrules.NewService(settings, managementconfigrules.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool})
+	configRulesService, err := managementconfigrules.NewService(settings, managementconfigrules.Options{CORSOriginProvider: resources.deps.StartupConfigRuntime, Pool: managementPool})
 	if err != nil {
 		return services, err
 	}
@@ -328,7 +328,7 @@ func (resources *productionResources) buildRuntimeService(settings config.Settin
 	alertWebhookOutbox := backgroundServices.alertWebhookOutbox
 	runtimePlanningCache := planning.cache
 	runtimeState := planning.state
-	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimeExecutionPool, TelemetryPool: runtimeTelemetryPool, FeedbackPool: runtimeFeedbackPool, RuntimeProxyConfigProvider: resources.deps.HotBootstrapConfigRuntime, Cache: runtimePlanningCache, RuntimeState: runtimeState, LogPartitionEnsurer: logRetentionStore, AssumeLogPartitionHorizon: true, Scheduler: backgroundScheduler, FeedbackPipeline: runtimeapi.RuntimeFeedbackPipelineOptions{AlertOutbox: alertWebhookOutbox}, SideEffects: runtimeSideEffectOptions(settings)})
+	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimeExecutionPool, TelemetryPool: runtimeTelemetryPool, FeedbackPool: runtimeFeedbackPool, RuntimeProxyConfigProvider: resources.deps.StartupConfigRuntime, Cache: runtimePlanningCache, RuntimeState: runtimeState, LogPartitionEnsurer: logRetentionStore, AssumeLogPartitionHorizon: true, Scheduler: backgroundScheduler, FeedbackPipeline: runtimeapi.RuntimeFeedbackPipelineOptions{AlertOutbox: alertWebhookOutbox}, SideEffects: runtimeSideEffectOptions(settings)})
 	if err != nil {
 		return nil, err
 	}

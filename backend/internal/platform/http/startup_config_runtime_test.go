@@ -10,11 +10,11 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
-func TestHotBootstrapConfigRuntimeInitializesSnapshotsFromSettings(t *testing.T) {
+func TestStartupConfigRuntimeInitializesSnapshotsFromSettings(t *testing.T) {
 	t.Parallel()
 
-	settings := hotBootstrapRuntimeTestSettings()
-	runtime, err := NewHotBootstrapConfigRuntime(settings)
+	settings := startupConfigRuntimeTestSettings()
+	runtime, err := NewStartupConfigRuntime(settings)
 	if err != nil {
 		t.Fatalf("create hot bootstrap runtime: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestHotBootstrapConfigRuntimeInitializesSnapshotsFromSettings(t *testing.T)
 	if client == nil || client.Timeout != 17*time.Second {
 		t.Fatalf("unexpected runtime HTTP client: %+v", client)
 	}
-	transport := unwrapHotRuntimeTransport(t, client.Transport)
+	transport := unwrapStartupRuntimeTransport(t, client.Transport)
 	if !transport.DisableCompression || transport.ResponseHeaderTimeout != 7*time.Second || transport.TLSHandshakeTimeout != 11*time.Second {
 		t.Fatalf("unexpected runtime transport: %+v", transport)
 	}
@@ -55,10 +55,10 @@ func TestHotBootstrapConfigRuntimeInitializesSnapshotsFromSettings(t *testing.T)
 	}
 }
 
-func TestHotBootstrapRuntimeSnapshotOmitsBufferingMode(t *testing.T) {
+func TestStartupRuntimeSnapshotOmitsBufferingMode(t *testing.T) {
 	t.Parallel()
 
-	assertSnapshotOmitsRuntimeBufferingMode(t, reflect.TypeFor[HotRuntimeProxySnapshot]())
+	assertSnapshotOmitsRuntimeBufferingMode(t, reflect.TypeFor[StartupRuntimeProxySnapshot]())
 	assertSnapshotOmitsRuntimeBufferingMode(t, reflect.TypeFor[runtimeapi.RuntimeProxyConfigSnapshot]())
 }
 
@@ -75,10 +75,10 @@ func assertSnapshotOmitsRuntimeBufferingMode(t *testing.T, snapshotType reflect.
 	}
 }
 
-func TestHotBootstrapConfigRuntimeSnapshotsProtectMutableValues(t *testing.T) {
+func TestStartupConfigRuntimeSnapshotsProtectMutableValues(t *testing.T) {
 	t.Parallel()
 
-	runtime, err := NewHotBootstrapConfigRuntime(hotBootstrapRuntimeTestSettings())
+	runtime, err := NewStartupConfigRuntime(startupConfigRuntimeTestSettings())
 	if err != nil {
 		t.Fatalf("create hot bootstrap runtime: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestHotBootstrapConfigRuntimeSnapshotsProtectMutableValues(t *testing.T) {
 	}
 }
 
-func hotBootstrapRuntimeTestSettings() config.Settings {
+func startupConfigRuntimeTestSettings() config.Settings {
 	return config.Settings{
 		CORSAllowedOrigins:               "http://localhost:5173, http://127.0.0.1:5173",
 		AuthAccessTokenTTLSeconds:        17,
@@ -121,13 +121,13 @@ func hotBootstrapRuntimeTestSettings() config.Settings {
 		AuthCookieName:                   " access_cookie ",
 		AuthRefreshCookieName:            " refresh_cookie ",
 		AuthCookieSecure:                 true,
-		RuntimeTransportConfig:           hotBootstrapRuntimeTransportConfig(17 * time.Second),
+		RuntimeTransportConfig:           startupConfigRuntimeTransportConfig(17 * time.Second),
 		ManagementDatabasePoolBudget:     config.DatabasePoolBudget{MaxConns: 7},
 		ManagementAdmissionControlBudget: config.ManagementAdmissionBudget{M2MaxConcurrent: 3, M3MaxConcurrent: 2},
 	}
 }
 
-func hotBootstrapRuntimeTransportConfig(requestTimeout time.Duration) config.RuntimeTransportConfig {
+func startupConfigRuntimeTransportConfig(requestTimeout time.Duration) config.RuntimeTransportConfig {
 	return config.RuntimeTransportConfig{
 		MaxIdleConns:          25,
 		MaxIdleConnsPerHost:   5,
@@ -140,9 +140,9 @@ func hotBootstrapRuntimeTransportConfig(requestTimeout time.Duration) config.Run
 	}
 }
 
-func unwrapHotRuntimeTransport(t *testing.T, roundTripper http.RoundTripper) *http.Transport {
+func unwrapStartupRuntimeTransport(t *testing.T, roundTripper http.RoundTripper) *http.Transport {
 	t.Helper()
-	wrapper, ok := roundTripper.(*hotRuntimeRoundTripper)
+	wrapper, ok := roundTripper.(*runtimeRoundTripper)
 	if !ok {
 		t.Fatalf("expected hot runtime round tripper, got %T", roundTripper)
 	}

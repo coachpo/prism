@@ -8,7 +8,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
-func mountRuntimeBranch(router chi.Router, settings config.Settings, deps Dependencies, admissionController *admission.Controller, admissionProvider hotAdmissionProvider) {
+func mountRuntimeBranch(router chi.Router, settings config.Settings, deps Dependencies, admissionController *admission.Controller, admissionProvider admissionSnapshotProvider) {
 	runtimeAuthService := deps.RuntimeAuthService
 	if runtimeAuthService == nil {
 		runtimeAuthService = deps.AuthService

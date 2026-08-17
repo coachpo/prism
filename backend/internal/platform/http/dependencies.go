@@ -22,7 +22,7 @@ import (
 
 type Dependencies struct {
 	Version                   string
-	HotBootstrapConfigRuntime *HotBootstrapConfigRuntime
+	StartupConfigRuntime *StartupConfigRuntime
 	CORSOriginProvider        platformcors.OriginProvider
 	AuditService              *managementaudit.Service
 	AuthService               *managementauth.Service
@@ -53,14 +53,14 @@ func completeDependencies(settings config.Settings, options ServerOptions) (Depe
 			return Dependencies{}, err
 		}
 	}
-	if deps.HotBootstrapConfigRuntime == nil {
-		deps.HotBootstrapConfigRuntime, err = NewHotBootstrapConfigRuntime(settings)
+	if deps.StartupConfigRuntime == nil {
+		deps.StartupConfigRuntime, err = NewStartupConfigRuntime(settings)
 		if err != nil {
 			return Dependencies{}, err
 		}
 	}
-	if deps.CORSOriginProvider == nil && deps.HotBootstrapConfigRuntime != nil {
-		deps.CORSOriginProvider = deps.HotBootstrapConfigRuntime
+	if deps.CORSOriginProvider == nil && deps.StartupConfigRuntime != nil {
+		deps.CORSOriginProvider = deps.StartupConfigRuntime
 	}
 	return deps, nil
 }
@@ -72,8 +72,8 @@ func completeHandlerDependencies(settings config.Settings, deps Dependencies) (D
 	if deps.RuntimeState == nil && deps.RuntimeService != nil {
 		deps.RuntimeState = deps.RuntimeService.RuntimeState()
 	}
-	if deps.CORSOriginProvider == nil && deps.HotBootstrapConfigRuntime != nil {
-		deps.CORSOriginProvider = deps.HotBootstrapConfigRuntime
+	if deps.CORSOriginProvider == nil && deps.StartupConfigRuntime != nil {
+		deps.CORSOriginProvider = deps.StartupConfigRuntime
 	}
 	if deps.CORSOriginProvider == nil {
 		deps.CORSOriginProvider = platformcors.NewStaticOriginProvider(settings.CORSAllowedOriginsList())
