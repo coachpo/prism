@@ -167,43 +167,10 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 		}
 		var connectionResult *connections.OwnerConnectionCreateResult
 		if hasInitialTarget {
-			if s.terminalTargetCreator == nil {
-				return modelMutationEnvelope{}, &domainError{StatusCode: http.StatusInternalServerError, Detail: "Terminal target creator is unavailable"}
-			}
-			initial := requestBody.InitialTerminalTarget
-			capability, err := resolveCompositeCapability(created, initial)
+			connectionResult, err = s.createCompositeConnection(r.Context(), tx, profile.ID, created, requestBody.InitialTerminalTarget)
 			if err != nil {
 				return modelMutationEnvelope{}, err
 			}
-			imageCapability, err := resolveCompositeImageCapability(created, initial)
-			if err != nil {
-				return modelMutationEnvelope{}, err
-			}
-			result, err := s.terminalTargetCreator.CreateOwnerScopedConnectionTx(r.Context(), tx, profile.ID, connections.OwnerScopedConnectionCreateInput{
-				OwnerModelID:               created.ID,
-				OwnerAPIFamily:             created.APIFamily,
-				OwnerOpenAIAcceptedFormat:  created.OpenAIAcceptedFormat,
-				OwnerOpenAIImageOperations: created.OpenAIImageOperations,
-				APIFamily:                  created.APIFamily,
-				EndpointID:                 initial.EndpointID,
-				EndpointCreate:             compositeEndpointCreate(initial.EndpointCreate),
-				Name:                       initial.Name,
-				IsActive:                   initial.IsActive,
-				AuthType:                   initial.AuthType,
-				CustomHeaders:              initial.CustomHeaders,
-				CustomRequestParameters:    connections.CustomRequestParametersInput{Set: initial.CustomRequestParameters.Set, Raw: initial.CustomRequestParameters.Raw},
-				RoutingSchedule:            connections.RoutingScheduleInput{Set: initial.RoutingSchedule.Set, Raw: initial.RoutingSchedule.Raw},
-				OpenAITextCapability:       capability,
-				OpenAIImageCapability:      imageCapability,
-				PricingTemplateID:          initial.PricingTemplateID,
-				QPSLimit:                   initial.QPSLimit,
-				MaxInFlightNonStream:       initial.MaxInFlightNonStream,
-				MaxInFlightStream:          initial.MaxInFlightStream,
-			})
-			if err != nil {
-				return modelMutationEnvelope{}, err
-			}
-			connectionResult = &result
 		}
 		strategies, accessTargets, _, err := loadModelRelations(r.Context(), tx, profile.ID, []modelRecord{created})
 		if err != nil {
@@ -219,20 +186,7 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 			ConfigurationWarnings: warnings,
 		}
 		if connectionResult != nil {
-			envelope.Connection = map[string]any{
-				"id":                             connectionResult.ConnectionID,
-				"position":                       connectionResult.Position,
-				"name":                           connectionResult.Name,
-				"endpoint_id":                    connectionResult.EndpointID,
-				"is_active":                      connectionResult.IsActive,
-				"openai_text_capability":         connectionResult.OpenAITextCapability,
-				"pricing_template_id":            connectionResult.PricingTemplateID,
-				"qps_limit":                      connectionResult.QPSLimit,
-				"max_in_flight_non_stream":       connectionResult.MaxInFlightNonStream,
-				"max_in_flight_stream":           connectionResult.MaxInFlightStream,
-				"custom_header_count":            connectionResult.CustomHeaderCount,
-				"custom_request_parameter_count": connectionResult.CustomRequestParameterCount,
-			}
+			envelope.Connection = compositeConnectionEnvelope(connectionResult)
 		}
 		return envelope, nil
 	})

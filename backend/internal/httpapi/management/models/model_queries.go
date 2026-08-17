@@ -1,5 +1,9 @@
 package models
 
+// Model query composition joins the model, strategy, access-target, and
+// retained-health read paths used by route handlers. It owns query fanout but
+// leaves row scanning and graph rules to their dedicated modules.
+
 import (
 	"context"
 	"fmt"

@@ -83,3 +83,59 @@ func resolvedBool(value *bool, fallback bool) bool {
 	}
 	return *value
 }
+
+func (s *Service) createCompositeConnection(ctx context.Context, tx pgx.Tx, profileID int, created modelRecord, initial *modelInitialTerminalTargetRequest) (*connections.OwnerConnectionCreateResult, error) {
+	if s.terminalTargetCreator == nil {
+		return nil, &domainError{StatusCode: http.StatusInternalServerError, Detail: "Terminal target creator is unavailable"}
+	}
+	capability, err := resolveCompositeCapability(created, initial)
+	if err != nil {
+		return nil, err
+	}
+	imageCapability, err := resolveCompositeImageCapability(created, initial)
+	if err != nil {
+		return nil, err
+	}
+	result, err := s.terminalTargetCreator.CreateOwnerScopedConnectionTx(ctx, tx, profileID, connections.OwnerScopedConnectionCreateInput{
+		OwnerModelID:               created.ID,
+		OwnerAPIFamily:             created.APIFamily,
+		OwnerOpenAIAcceptedFormat:  created.OpenAIAcceptedFormat,
+		OwnerOpenAIImageOperations: created.OpenAIImageOperations,
+		APIFamily:                  created.APIFamily,
+		EndpointID:                 initial.EndpointID,
+		EndpointCreate:             compositeEndpointCreate(initial.EndpointCreate),
+		Name:                       initial.Name,
+		IsActive:                   initial.IsActive,
+		AuthType:                   initial.AuthType,
+		CustomHeaders:              initial.CustomHeaders,
+		CustomRequestParameters:    connections.CustomRequestParametersInput{Set: initial.CustomRequestParameters.Set, Raw: initial.CustomRequestParameters.Raw},
+		RoutingSchedule:            connections.RoutingScheduleInput{Set: initial.RoutingSchedule.Set, Raw: initial.RoutingSchedule.Raw},
+		OpenAITextCapability:       capability,
+		OpenAIImageCapability:      imageCapability,
+		PricingTemplateID:          initial.PricingTemplateID,
+		QPSLimit:                   initial.QPSLimit,
+		MaxInFlightNonStream:       initial.MaxInFlightNonStream,
+		MaxInFlightStream:          initial.MaxInFlightStream,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func compositeConnectionEnvelope(result *connections.OwnerConnectionCreateResult) map[string]any {
+	return map[string]any{
+		"id":                             result.ConnectionID,
+		"position":                       result.Position,
+		"name":                           result.Name,
+		"endpoint_id":                    result.EndpointID,
+		"is_active":                      result.IsActive,
+		"openai_text_capability":         result.OpenAITextCapability,
+		"pricing_template_id":            result.PricingTemplateID,
+		"qps_limit":                      result.QPSLimit,
+		"max_in_flight_non_stream":       result.MaxInFlightNonStream,
+		"max_in_flight_stream":           result.MaxInFlightStream,
+		"custom_header_count":            result.CustomHeaderCount,
+		"custom_request_parameter_count": result.CustomRequestParameterCount,
+	}
+}

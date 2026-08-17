@@ -1,5 +1,23 @@
 package models
 
+// Ordered access-target rows are normalized at this boundary. The helpers
+// retain authored positions, use IDs as the stable tie-breaker, and return
+// copied slices when callers need a reordered view. The same rules serve
+// graph persistence, response projection, and endpoint lookup without adding
+// a second ordering policy.
+//
+// Model records use the same stable ID order for endpoint batch responses.
+// Integer slice conversions stay here because they preserve PostgreSQL array
+// values as ordered model-row data rather than as a generic conversion layer.
+// No transaction, HTTP request, clock, or provider dependency belongs here.
+// A caller can therefore inspect ordering behavior without constructing a
+// database handle or a management request. This is the row-level boundary
+// used by both authored mutation lists and persisted read projections.
+// Stable ordering is observable in every model detail response.
+// Position remains the primary key for authored order.
+// IDs remain the deterministic tie-breaker for stored rows.
+// No caller may infer a hidden target-type priority from these helpers.
+//
 import "sort"
 
 func cloneAccessTargetRecords(values []accessTargetRecord) []accessTargetRecord {
