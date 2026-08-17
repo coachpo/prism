@@ -34,9 +34,9 @@ type manualPreflightDomain struct {
 // running.  This closes the worker-side gap between route acceptance and the
 // irreversible execution fence: policy/floor/epoch/fence/materializer changes
 // require a new fresh preflight, while append-only evidence may advance.
-func (s *Store) validateManualPreflightBeforeFence(ctx context.Context, tx pgx.Tx, job v2RetentionJobRow) error {
+func (s *Store) validateManualPreflightBeforeFence(ctx context.Context, tx pgx.Tx, job retentionJobRow) error {
 	if job.PreflightID == nil || strings.TrimSpace(*job.PreflightID) == "" {
-		// Store-level compatibility callers and legacy tests can create a v2 job
+		// Store-level compatibility callers and legacy tests can create a job
 		// directly.  The Settings route always supplies a sealed preflight id.
 		return nil
 	}
@@ -302,7 +302,7 @@ func stripManualPreflightPreviewEvidence(value any) any {
 // failManualPreflightBeforeExecution is terminal by design.  Retrying a job
 // whose sealed owner state changed would turn a missing confirmation into a
 // moving destructive target; the operator must obtain a new preflight.
-func (s *Store) failManualPreflightBeforeExecution(ctx context.Context, job v2RetentionJobRow) error {
+func (s *Store) failManualPreflightBeforeExecution(ctx context.Context, job retentionJobRow) error {
 	_, err := s.pool.Exec(ctx, `UPDATE management_jobs SET
 		state = 'failed', terminal_disposition = 'failed', stage = 'finished',
 		error_code = 'preflight_stale_before_execution',

@@ -1,8 +1,18 @@
 # Management Jobs Ownership
 
-`managementjobs/` owns low-priority durable management work. `jobs.go` registers the scheduler and preserves the legacy audit-delete executor; `jobs_v2.go` owns global `log_retention` planning, claims, checkpoints, protection gates, fenced physical reclaim, recovery, and terminal publication; `retention_preflight.go` owns the worker-side sealed-preflight recheck.
+`managementjobs/` owns low-priority durable management work, split by responsibility:
+
+- `jobs.go` — package facade: `Store`, `Options`, construction, shared scope type and helpers.
+- `scheduler.go` — background worker registration and the dispatch loop.
+- `job_queries.go`, `audit_delete.go` — the profile-scoped `audit_delete` type and its job read/list/cancel API.
+- `retention_row.go`, `retention_planning.go`, `retention_create.go`, `retention_execute.go` — global `log_retention` planning, claims, checkpoints, protection gates, fenced physical reclaim, and terminal publication.
+- `retention_legacy.go` — the frozen `contract_version = 1` drain and supersede paths.
+- `retention_api.go`, `retention_dto.go`, `cursor.go`, `errors.go` — the settings job-center read/cancel contract.
+- `retention_preflight.go` — the worker-side sealed-preflight recheck.
 
 ## Local rules
+
+- Do not put a contract version in an identifier. `contract_version` on the row is the only version discriminator; code names describe behaviour (`claimRetentionJob`, `drainLegacyRetentionJob`), not a generation. Persisted values that already encode a version — `v2_exact`, `superseded_by_v2_planning`, the cursor key domain separator — are frozen and must not be renamed.
 
 - Keep `log_retention` global (`profile_id = 0`) and operation-registered through the Settings job-center list/read/cancel contract. Handlers enqueue durable work; this package is the only owner allowed to drop partitions or delete retention boundary rows.
 - Automatic jobs use UTC day-aligned policy cutoffs, per-dataset policy and semantic fence generations, the Observe protection contract or Requests/Audit-owned fence, and a final publication step. Do not derive a cutoff from `now - N*24h`, use a second coverage owner, or count dropped-partition rows as `rows_deleted`.

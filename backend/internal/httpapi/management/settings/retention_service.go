@@ -929,7 +929,7 @@ func utcDayCutoff(now time.Time, retentionDays int) time.Time {
 }
 
 func (s *retentionService) createScheduledJob(ctx context.Context, tx pgx.Tx, dataset string, cutoff time.Time, settingsRevision int64, policyGeneration int64, now time.Time) (string, error) {
-	jobID, err := s.jobs.CreateV2AutomaticJobTx(ctx, tx, dataset, cutoff, settingsRevision, policyGeneration, now)
+	jobID, err := s.jobs.CreateAutomaticRetentionJobTx(ctx, tx, dataset, cutoff, settingsRevision, policyGeneration, now)
 	if err != nil {
 		return "", err
 	}
@@ -2097,7 +2097,7 @@ func (s *retentionService) handleCreateManualRetentionJob(w http.ResponseWriter,
 		return
 	}
 
-	var summary managementjobs.V2RetentionJobSummaryDTO
+	var summary managementjobs.RetentionJobSummaryDTO
 	replayed := false
 	accepted := false
 	err := pgxutil.InTx(r.Context(), s.pool, "settings manual retention job", func(tx pgx.Tx) error {
@@ -2195,7 +2195,7 @@ func (s *retentionService) handleCreateManualRetentionJob(w http.ResponseWriter,
 		}
 		deleteAll := mode == "delete_all"
 
-		job, err := s.jobs.CreateV2ManualJobTx(r.Context(), tx, dataset, cutoff, deleteAll, request.OperationID, preflight.ID, s.now().UTC())
+		job, err := s.jobs.CreateManualRetentionJobTx(r.Context(), tx, dataset, cutoff, deleteAll, request.OperationID, preflight.ID, s.now().UTC())
 		if err != nil {
 			if isJobConflict(err) {
 				return &settingsConflictError{code: "retention_job_conflict"}
