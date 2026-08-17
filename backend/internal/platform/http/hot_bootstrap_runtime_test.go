@@ -113,57 +113,6 @@ func TestHotBootstrapConfigRuntimeSnapshotsProtectMutableValues(t *testing.T) {
 	}
 }
 
-func TestHotBootstrapConfigRuntimePublishUpdatesAtomicallyAndKeepsOldSnapshotStable(t *testing.T) {
-	t.Parallel()
-
-	initial := hotBootstrapRuntimeTestSettings()
-	runtime, err := NewHotBootstrapConfigRuntime(initial)
-	if err != nil {
-		t.Fatalf("create hot bootstrap runtime: %v", err)
-	}
-	oldSnapshot := runtime.Snapshot()
-	oldClient := oldSnapshot.RuntimeProxy().HTTPClient()
-
-	updated := hotBootstrapRuntimeUpdatedSettings()
-	retired, err := runtime.Publish(updated)
-	if err != nil {
-		t.Fatalf("publish hot bootstrap runtime: %v", err)
-	}
-	retired.CloseIdleConnections()
-
-	newSnapshot := runtime.Snapshot()
-	if got := newSnapshot.CORS().AllowedOrigins(); !reflect.DeepEqual(got, []string{"https://app.example.test"}) {
-		t.Fatalf("new CORS origins = %v", got)
-	}
-	if got := newSnapshot.Auth().AccessTokenTTL; got != 41*time.Second {
-		t.Fatalf("new auth access TTL = %s", got)
-	}
-	if got := newSnapshot.RuntimeProxy().TransportConfig().RequestTimeout; got != 23*time.Second {
-		t.Fatalf("new runtime request timeout = %s", got)
-	}
-	if got := newSnapshot.Admission().Limits(); got.ManagementM1 != 4 || got.ManagementM2 != 5 || got.ManagementM3 != 4 {
-		t.Fatalf("new admission limits = %+v", got)
-	}
-
-	if got := oldSnapshot.CORS().AllowedOrigins(); !reflect.DeepEqual(got, []string{"http://localhost:5173", "http://127.0.0.1:5173"}) {
-		t.Fatalf("old CORS origins changed: %v", got)
-	}
-	if got := oldSnapshot.Auth().AccessTokenTTL; got != 17*time.Second {
-		t.Fatalf("old auth access TTL changed: %s", got)
-	}
-	if got := oldSnapshot.RuntimeProxy().TransportConfig().RequestTimeout; got != 17*time.Second {
-		t.Fatalf("old runtime request timeout changed: %s", got)
-	}
-
-	newClient := newSnapshot.RuntimeProxy().HTTPClient()
-	if oldClient == newClient {
-		t.Fatal("expected publish to expose a distinct HTTP client")
-	}
-	if unwrapHotRuntimeTransport(t, oldClient.Transport) == unwrapHotRuntimeTransport(t, newClient.Transport) {
-		t.Fatal("expected publish to create a distinct runtime transport")
-	}
-}
-
 func hotBootstrapRuntimeTestSettings() config.Settings {
 	return config.Settings{
 		CORSAllowedOrigins:               "http://localhost:5173, http://127.0.0.1:5173",
@@ -176,20 +125,6 @@ func hotBootstrapRuntimeTestSettings() config.Settings {
 		ManagementDatabasePoolBudget:     config.DatabasePoolBudget{MaxConns: 7},
 		ManagementAdmissionControlBudget: config.ManagementAdmissionBudget{M2MaxConcurrent: 3, M3MaxConcurrent: 2},
 	}
-}
-
-func hotBootstrapRuntimeUpdatedSettings() config.Settings {
-	settings := hotBootstrapRuntimeTestSettings()
-	settings.CORSAllowedOrigins = "https://app.example.test"
-	settings.AuthAccessTokenTTLSeconds = 41
-	settings.AuthRefreshTokenTTLSeconds = 43
-	settings.AuthCookieName = "new_access_cookie"
-	settings.AuthRefreshCookieName = "new_refresh_cookie"
-	settings.AuthCookieSecure = false
-	settings.RuntimeTransportConfig = hotBootstrapRuntimeTransportConfig(23 * time.Second)
-	settings.ManagementDatabasePoolBudget = config.DatabasePoolBudget{MaxConns: 9}
-	settings.ManagementAdmissionControlBudget = config.ManagementAdmissionBudget{M2MaxConcurrent: 5, M3MaxConcurrent: 4}
-	return settings
 }
 
 func hotBootstrapRuntimeTransportConfig(requestTimeout time.Duration) config.RuntimeTransportConfig {

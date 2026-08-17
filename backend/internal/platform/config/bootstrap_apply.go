@@ -32,15 +32,6 @@ type BootstrapConfigFieldDiff struct {
 	UnknownFields                []string `json:"unknown_fields,omitempty"`
 }
 
-type BootstrapConfigHotApplyRetiredResources interface {
-	CloseIdleConnections()
-}
-
-type BootstrapConfigHotApplyRuntime interface {
-	Validate(Settings) error
-	Publish(Settings) (BootstrapConfigHotApplyRetiredResources, error)
-}
-
 func (d BootstrapConfigFieldDiff) RestartRequired() bool {
 	return len(d.ChangedRestartRequiredFields) > 0
 }

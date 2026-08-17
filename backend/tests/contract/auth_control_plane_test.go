@@ -249,59 +249,6 @@ func TestAuthLoginThrottlePersistsAcrossServiceRestart(t *testing.T) {
 	assertLoginLockedProblem(t, lockedAfterRestart)
 }
 
-func TestAuthHotBootstrapRuntimeConfigAppliesToNewOperations(t *testing.T) {
-	harness := newContractHarness(t)
-	seedVerifiedAuthSettings(t, harness, "hot-admin", "hot-password-123", "hot@example.com")
-
-	updated := contractAuthSettings()
-	updated.AuthJWTSecret = "hot-published-jwt-secret"
-	updated.AuthAccessTokenTTLSeconds = 37
-	updated.AuthRefreshTokenTTLSeconds = 43
-	updated.AuthCookieName = "hot_access_token"
-	updated.AuthRefreshCookieName = "hot_refresh_token"
-	updated.AuthCookieSecure = true
-	retired, err := harness.hotRuntime.Publish(updated)
-	if err != nil {
-		t.Fatalf("publish hot auth runtime config: %v", err)
-	}
-	retired.CloseIdleConnections()
-
-	loginResponse := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPost,
-		"/api/auth/login",
-		map[string]any{
-			"username":         "hot-admin",
-			"password":         "hot-password-123",
-			"session_duration": "session",
-		},
-		nil,
-	)
-	assertStatus(t, loginResponse, http.StatusOK)
-	accessCookie := responseCookie(t, loginResponse, "hot_access_token")
-	refreshCookie := responseCookie(t, loginResponse, "hot_refresh_token")
-	if !accessCookie.Secure || !refreshCookie.Secure {
-		t.Fatalf("expected hot cookie secure flag, got access=%v refresh=%v", accessCookie.Secure, refreshCookie.Secure)
-	}
-	assertNoResponseCookie(t, loginResponse, "prism_access_token")
-	assertNoResponseCookie(t, loginResponse, "prism_refresh_token")
-	claims := decodeAccessTokenClaims(t, accessCookie.Value)
-	if got := int(claims["exp"].(float64) - claims["iat"].(float64)); got != 37 {
-		t.Fatalf("expected hot access token TTL 37s, got %ds", got)
-	}
-	assertJWTSignature(t, accessCookie.Value, "contract-jwt-secret", true)
-	assertJWTSignature(t, accessCookie.Value, "hot-published-jwt-secret", false)
-
-	var refreshTTL int
-	if err := harness.conn.QueryRow(context.Background(), `SELECT ROUND(EXTRACT(EPOCH FROM expires_at - created_at))::int FROM refresh_tokens ORDER BY id DESC LIMIT 1`).Scan(&refreshTTL); err != nil {
-		t.Fatalf("query hot refresh token TTL: %v", err)
-	}
-	if refreshTTL != 43 {
-		t.Fatalf("expected hot refresh token TTL 43s, got %ds", refreshTTL)
-	}
-
-}
 
 func TestCurrentSession(t *testing.T) {
 	harness := newContractHarness(t)

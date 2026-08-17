@@ -48,7 +48,6 @@ type contractHarness struct {
 	service        *managementauth.Service
 	runtimeService *runtimeapi.Service
 	runtimeCache   *runtimeapi.SharedCache
-	hotRuntime     *platformhttp.HotBootstrapConfigRuntime
 	url            string
 }
 
@@ -253,7 +252,6 @@ func newContractHarnessWithDatabase(t *testing.T, dsn string) *contractHarness {
 			t.Cleanup(authService.Close)
 			harness.service = authService
 			harness.runtimeCache = runtimeCache
-			harness.hotRuntime = hotRuntime
 			return platformhttp.Dependencies{
 				AuthService:               authService,
 				RuntimeAuthService:        authService,

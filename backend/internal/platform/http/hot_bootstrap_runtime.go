@@ -1,7 +1,6 @@
 package platformhttp
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -19,10 +18,6 @@ type HotBootstrapConfigRuntime struct {
 }
 
 type HotBootstrapConfigSnapshot struct {
-	snapshot *hotBootstrapConfigRuntimeSnapshot
-}
-
-type HotBootstrapConfigRetiredResources struct {
 	snapshot *hotBootstrapConfigRuntimeSnapshot
 }
 
@@ -49,28 +44,6 @@ func (r *HotBootstrapConfigRuntime) Snapshot() HotBootstrapConfigSnapshot {
 		return HotBootstrapConfigSnapshot{}
 	}
 	return HotBootstrapConfigSnapshot{snapshot: r.snapshot.Load()}
-}
-
-func (r *HotBootstrapConfigRuntime) Validate(settings config.Settings) error {
-	candidate, err := buildHotBootstrapConfigRuntimeSnapshot(settings)
-	if err != nil {
-		return err
-	}
-	candidate.closeIdleConnections()
-	return nil
-}
-
-// ponytail: publish has no management API caller after R2; keep it until the hot runtime interface is pruned.
-func (r *HotBootstrapConfigRuntime) Publish(settings config.Settings) (config.BootstrapConfigHotApplyRetiredResources, error) {
-	if r == nil {
-		return HotBootstrapConfigRetiredResources{}, fmt.Errorf("hot bootstrap config runtime is nil")
-	}
-	nextSnapshot, err := buildHotBootstrapConfigRuntimeSnapshot(settings)
-	if err != nil {
-		return HotBootstrapConfigRetiredResources{}, err
-	}
-	previous := r.snapshot.Swap(nextSnapshot)
-	return HotBootstrapConfigRetiredResources{snapshot: previous}, nil
 }
 
 func (r *HotBootstrapConfigRuntime) CORSSnapshot() platformcors.Snapshot {
@@ -104,13 +77,6 @@ func (r *HotBootstrapConfigRuntime) AlertingSnapshot() HotAlertingSnapshot {
 
 func (r *HotBootstrapConfigRuntime) AlertingWebhookURL() string {
 	return r.AlertingSnapshot().WebhookURL()
-}
-
-func (r HotBootstrapConfigRetiredResources) CloseIdleConnections() {
-	if r.snapshot == nil {
-		return
-	}
-	r.snapshot.closeIdleConnections()
 }
 
 func (s HotBootstrapConfigSnapshot) CORS() platformcors.Snapshot {
@@ -148,13 +114,6 @@ func (s HotBootstrapConfigSnapshot) Alerting() HotAlertingSnapshot {
 	return s.snapshot.alerting
 }
 
-func (s *hotBootstrapConfigRuntimeSnapshot) closeIdleConnections() {
-	if s == nil {
-		return
-	}
-	s.runtimeProxy.closeIdleConnections()
-}
-
 func buildHotBootstrapConfigRuntimeSnapshot(settings config.Settings) (*hotBootstrapConfigRuntimeSnapshot, error) {
 	return &hotBootstrapConfigRuntimeSnapshot{
 		cors:         buildHotCORSSnapshot(settings),
@@ -164,8 +123,6 @@ func buildHotBootstrapConfigRuntimeSnapshot(settings config.Settings) (*hotBoots
 		alerting:     buildHotAlertingSnapshot(settings),
 	}, nil
 }
-
-type HotCORSSnapshot = platformcors.Snapshot
 
 func buildHotCORSSnapshot(settings config.Settings) platformcors.Snapshot {
 	return platformcors.NewSnapshot(settings.CORSAllowedOriginsList())
@@ -223,25 +180,8 @@ func (s HotRuntimeProxySnapshot) HTTPClient() *http.Client {
 	return &http.Client{Timeout: s.transportConfig.RequestTimeout, Transport: s.roundTripper}
 }
 
-func (s HotRuntimeProxySnapshot) CloseIdleConnections() {
-	s.closeIdleConnections()
-}
-
-func (s HotRuntimeProxySnapshot) closeIdleConnections() {
-	if s.transport == nil {
-		return
-	}
-	s.transport.CloseIdleConnections()
-}
-
 func (t *hotRuntimeRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
 	return t.transport.RoundTrip(request)
-}
-
-func (t *hotRuntimeRoundTripper) CloseIdleConnections() {
-	if closer, ok := t.transport.(interface{ CloseIdleConnections() }); ok {
-		closer.CloseIdleConnections()
-	}
 }
 
 type HotAdmissionSnapshot struct {
