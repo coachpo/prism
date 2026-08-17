@@ -3,7 +3,6 @@ package platformhttp
 import (
 	"net/http"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
@@ -14,7 +13,7 @@ import (
 )
 
 type HotBootstrapConfigRuntime struct {
-	snapshot atomic.Pointer[hotBootstrapConfigRuntimeSnapshot]
+	snapshot *hotBootstrapConfigRuntimeSnapshot // 构造后只读,进程内不再变更
 }
 
 type HotBootstrapConfigSnapshot struct {
@@ -34,16 +33,14 @@ func NewHotBootstrapConfigRuntime(settings config.Settings) (*HotBootstrapConfig
 	if err != nil {
 		return nil, err
 	}
-	runtime := &HotBootstrapConfigRuntime{}
-	runtime.snapshot.Store(snapshot)
-	return runtime, nil
+	return &HotBootstrapConfigRuntime{snapshot: snapshot}, nil
 }
 
 func (r *HotBootstrapConfigRuntime) Snapshot() HotBootstrapConfigSnapshot {
 	if r == nil {
 		return HotBootstrapConfigSnapshot{}
 	}
-	return HotBootstrapConfigSnapshot{snapshot: r.snapshot.Load()}
+	return HotBootstrapConfigSnapshot{snapshot: r.snapshot}
 }
 
 func (r *HotBootstrapConfigRuntime) CORSSnapshot() platformcors.Snapshot {
