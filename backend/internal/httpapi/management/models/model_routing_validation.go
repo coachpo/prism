@@ -1,25 +1,12 @@
 package models
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
-	"github.com/jackc/pgx/v5"
 )
-
-func loadModelRecordByModelID(ctx context.Context, exec queryExecutor, profileID int, modelID string) (modelRecord, bool, error) {
-	record, err := scanModelRecord(exec.QueryRow(ctx, `SELECT `+modelRecordSelectColumns+` FROM model_configs WHERE profile_id = $1 AND model_id = $2 LIMIT 1`, profileID, modelID))
-	if err == pgx.ErrNoRows {
-		return modelRecord{}, false, nil
-	}
-	if err != nil {
-		return modelRecord{}, false, fmt.Errorf("load model %q in profile %d: %w", modelID, profileID, err)
-	}
-	return record, true, nil
-}
 
 func routingPlanValidationIssueError(code string, path string, detail string) error {
 	return routingPlanValidationError(http.StatusBadRequest, detail, []routingPlanValidationIssue{{
@@ -56,18 +43,6 @@ func accessTargetIssuePath(index int, field string) string {
 		return path
 	}
 	return path + "." + strings.TrimSpace(field)
-}
-
-func validatePublicAccessTargets(accessTargets []modelAccessTargetRequest) error {
-	if err := validateAccessTargets(accessTargets); err != nil {
-		return err
-	}
-	for _, accessTarget := range accessTargets {
-		if err := validatePublicAccessTarget(accessTarget); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func validateAccessTargets(accessTargets []modelAccessTargetRequest) error {

@@ -1,7 +1,6 @@
 package models
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
@@ -34,17 +33,6 @@ func (s *Service) handleListModelTargets(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	responseutil.WriteJSON(w, http.StatusOK, response)
-}
-
-func (s *Service) accessTargetMutationEnvelopeFor(ctx context.Context, tx pgx.Tx, profileID int, modelConfigID int, targets []modelAccessTargetResponse) (accessTargetMutationEnvelope, error) {
-	warnings, err := modelMutationWarnings(ctx, tx, profileID, modelConfigID)
-	if err != nil {
-		return accessTargetMutationEnvelope{}, err
-	}
-	if targets == nil {
-		targets = []modelAccessTargetResponse{}
-	}
-	return accessTargetMutationEnvelope{AccessTargets: targets, ConfigurationWarnings: warnings}, nil
 }
 
 func (s *Service) handleCreateModelTarget(w http.ResponseWriter, r *http.Request) {

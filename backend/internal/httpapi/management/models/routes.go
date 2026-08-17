@@ -483,13 +483,6 @@ func hasEnabledResolvedOrPreservedAccessTarget(resolved []resolvedAccessTarget, 
 	return false
 }
 
-func resolveIsEnabled(value *bool) bool {
-	if value == nil {
-		return false
-	}
-	return *value
-}
-
 func hasEnabledResolvedAccessTarget(targets []resolvedAccessTarget) bool {
 	for _, target := range targets {
 		if target.IsEnabled {

@@ -82,10 +82,3 @@ func intPtr(value int) *int {
 	resolved := value
 	return &resolved
 }
-
-func nullableFloat64Value(value *float64) any {
-	if value == nil {
-		return nil
-	}
-	return *value
-}

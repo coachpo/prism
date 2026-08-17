@@ -8,10 +8,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func replaceAccessTargets(ctx context.Context, tx pgx.Tx, sourceProfileID int, sourceModelConfigID int, targets []resolvedAccessTarget, currentTime time.Time) error {
-	return replaceAccessTargetsPreservingConnections(ctx, tx, sourceProfileID, sourceModelConfigID, targets, nil, currentTime)
-}
-
 func replaceAccessTargetsPreservingConnections(ctx context.Context, tx pgx.Tx, sourceProfileID int, sourceModelConfigID int, targets []resolvedAccessTarget, preservedConnectionTargets []preservedConnectionAccessTarget, currentTime time.Time) error {
 	if _, err := tx.Exec(ctx, `DELETE FROM model_access_targets WHERE source_model_config_id = $1 AND target_model_config_id IS NOT NULL`, sourceModelConfigID); err != nil {
 		return fmt.Errorf("delete access targets for model %d: %w", sourceModelConfigID, err)
@@ -171,14 +167,6 @@ func deleteModelAccessTargetRow(ctx context.Context, exec queryExecutor, targetI
 func deleteConnectionRow(ctx context.Context, exec queryExecutor, connectionID int) error {
 	if _, err := exec.Exec(ctx, `DELETE FROM connections WHERE id = $1`, connectionID); err != nil {
 		return fmt.Errorf("delete connection %d: %w", connectionID, err)
-	}
-	return nil
-}
-
-func setModelEnabled(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, enabled bool, currentTime time.Time) error {
-	_, err := exec.Exec(ctx, `UPDATE model_configs SET is_enabled = $3, updated_at = $4 WHERE profile_id = $1 AND id = $2`, profileID, modelConfigID, enabled, currentTime)
-	if err != nil {
-		return fmt.Errorf("set model %d enabled=%t: %w", modelConfigID, enabled, err)
 	}
 	return nil
 }
