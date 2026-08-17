@@ -1,5 +1,13 @@
 package runtime
 
+// Runtime feedback translates execution transitions into the lossy worker
+// pipeline. It never blocks proxy execution on a feedback write.
+// State transitions remain process-local; durable history is owned by the
+// feedback worker and load-balance event path.
+//
+// This seam records observations; it never becomes a second routing planner.
+//
+//
 import (
 	"context"
 	"time"

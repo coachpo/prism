@@ -1,5 +1,31 @@
 package runtime
 
+// Failed-attempt diagnostics own sampler lifecycle for responses that will not
+// reach the caller. The sampler is bounded, asynchronous, and subordinate to
+// retry progress; the next upstream launch never waits for diagnostic bytes.
+//
+// Header-blocklist rules are converted at the request boundary so diagnostic
+// scrubbing is at least as strict as forwarding policy. Hedge loser detection
+// remains here because it controls sampler ownership for cancelled attempts.
+//
+// The sampler's body ownership is exclusive: once attached, the sampler
+// closes the intermediate response. Final selected responses never enter this
+// path and retain their body for downstream relay and audit capture.
+//
+// A sampler limit hit is not a transport failure. The executor continues with
+// the next attempt and the telemetry row falls back to a stable HTTP diagnostic.
+//
+// Diagnostic content is scrubbed and bounded before it can enter a request-log
+// record. The sampler never emits provider URLs, credentials, or arbitrary body
+// bytes to the caller.
+// The final response path remains outside this module.
+//
+//
+// The diagnostic path is best effort and fail-closed.
+//
+// A sampler cannot change retry eligibility or the downstream response.
+// Its only durable consumer is the telemetry sealer.
+//
 import (
 	"context"
 	"errors"

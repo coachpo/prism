@@ -1,5 +1,25 @@
 package runtime
 
+// Runtime operation binding validates the registry match against the incoming
+// method/path and resolves the operation's declared model-binding source.
+// It owns family compatibility errors but not model graph routing or body/path
+// rewriting.
+//
+// The operation registry remains the sole route allowlist. This module only
+// validates a match already returned by that registry.
+//
+// Wrong methods and missing path parameters remain typed ingress failures before
+// body buffering, planning, admission, provider transport, or telemetry.
+// Body model extraction is intentionally minimal; provider-native adapters own
+// richer payload parsing after the operation has been accepted.
+//
+// The error details remain provider-neutral at this layer. Native operation
+// compatibility diagnostics are attached later by the planning classifiers.
+//
+// This keeps ingress errors auditable without widening the route registry.
+// The source-of-truth catalog remains operations.go.
+// Binding never broadens the supported route set.
+//
 import (
 	"fmt"
 	"net/http"

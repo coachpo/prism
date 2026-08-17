@@ -1,5 +1,24 @@
 package runtime
 
+// Runtime request bodies provide the replay boundary between ingress planning
+// and upstream attempts. Buffered bodies can be reopened for failover;
+// streaming bodies can be opened once and may observe Gemini generation
+// parameters while they pass through.
+//
+// Consumption is serialized so a hedged or retried attempt cannot silently
+// reuse one-shot ingress bytes. Nil bodies remain http.NoBody for operations
+// whose provider contract permits an empty request.
+//
+// The observer is attached only to the streaming fast path and is not a second
+// body parser. Buffered planning extracts generation parameters from each
+// attempt's final materialized body.
+//
+// A body source is request-local and is never placed in a planning snapshot.
+// Closing a streaming source remains the caller's responsibility after the
+// upstream client has finished with it.
+// The source also records the one-shot consumption invariant.
+// It does not own request-size limits.
+//
 import (
 	"bytes"
 	"fmt"
