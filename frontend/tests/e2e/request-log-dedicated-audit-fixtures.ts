@@ -345,11 +345,19 @@ function createRequestLogDetail(scenario: Scenario) {
   };
 }
 
+function utf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
 function createAuditListItem(id: number, scenario: Scenario) {
   const config = scenarioConfig(scenario);
+  const isStreaming = scenario === "openai_stream" || scenario === "openai_stream_tools";
   return {
     id,
     request_log_id: "101",
+    request_log_created_at: timestamp,
+    ingress_request_id: "ingress-101",
+    request_log_missing: false,
     profile_id: 1,
     model_id: getScenarioModelId(scenario),
     endpoint_id: 1,
@@ -360,11 +368,27 @@ function createAuditListItem(id: number, scenario: Scenario) {
     request_url: `https://api.example.test/v1/responses?audit=${id}`,
     request_headers: scenario === "json_headers" ? jsonRequestHeaders : redactedHeaders,
     request_body_preview: config.requestBody,
+    request_body_preview_truncated: false,
+    request_body_preview_unavailable_reason: null,
     request_body_stored: config.requestBodyStored,
-    response_status: id === 202 ? 201 : 200,
+    request_body_encoding: config.requestBodyStored ? "utf8" : null,
+    request_body_capture_status: config.requestBodyStored ? "captured" : "not_requested",
+    request_body_capture_provenance: "runtime_captured",
+    request_body_capture_end_state: config.requestBodyStored ? "complete" : "",
+    request_body_truncated: false,
+    request_body_bytes_observed: config.requestBodyStored ? utf8ByteLength(config.requestBody as string) : null,
+    request_body_bytes_stored: config.requestBodyStored ? utf8ByteLength(config.requestBody as string) : null,
     response_body_stored: config.responseBodyStored,
-    is_stream: false,
-    duration_ms: id === 202 ? 225 : 125,
+    row_kind: "upstream",
+    attempt_number: 1,
+    attempt_duration_ms: id === 202 ? 225 : 125,
+    legacy_duration_ms: null,
+    upstream_status_code: id === 202 ? 201 : 200,
+    gateway_status_code: null,
+    legacy_status_code: null,
+    request_url_truncated: false,
+    endpoint_base_url_truncated: false,
+    is_stream: isStreaming,
     audit_enabled_at_request: config.auditEnabledAtRequest,
     audit_capture_bodies_at_request: config.auditCaptureBodiesAtRequest,
     created_at: timestamp,
@@ -373,11 +397,21 @@ function createAuditListItem(id: number, scenario: Scenario) {
 
 function createAuditDetail(id: number, scenario: Scenario) {
   const config = scenarioConfig(scenario);
+  const requestBody = id === 202 ? "selected audit request body" : config.requestBody;
+  const responseBody = id === 202 ? "selected audit response body" : config.responseBody;
+  const responseBodyStored = responseBody !== null;
   return {
     ...createAuditListItem(id, scenario),
-    request_body: id === 202 ? "selected audit request body" : config.requestBody,
+    request_body_base64: requestBody === null ? null : Buffer.from(requestBody, "utf8").toString("base64"),
     response_headers: scenario === "json_headers" ? jsonResponseHeaders : "content-type: application/json\nx-prism-audit: [REDACTED]",
-    response_body: id === 202 ? "selected audit response body" : config.responseBody,
+    response_body_base64: responseBody === null ? null : Buffer.from(responseBody, "utf8").toString("base64"),
+    response_body_encoding: responseBodyStored ? "utf8" : null,
+    response_body_capture_status: responseBodyStored ? "captured" : "not_requested",
+    response_body_capture_provenance: "runtime_captured",
+    response_body_capture_end_state: responseBodyStored ? "complete" : "",
+    response_body_truncated: false,
+    response_body_bytes_observed: responseBodyStored ? utf8ByteLength(responseBody as string) : null,
+    response_body_bytes_stored: responseBodyStored ? utf8ByteLength(responseBody as string) : null,
   };
 }
 

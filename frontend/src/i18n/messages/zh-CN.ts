@@ -2299,7 +2299,7 @@ export const zhCNMessages = {
     captureObserved: "观测",
     captureStored: "已存",
     captureTruncated: "截断",
-    captureLimitReason: (reason: MessageArg) => `原因 ${reason}`,
+    captureOmittedBudget: "因入口预算省略",
     payloadTruncated: "载荷已截断",
     payloadTruncatedReason: (bytes: MessageArg) => `后续 ${bytes} 字节未保留，正文不是完整内容。`,
     // 审计查询窗口：这个 ±12 小时边界是前端定的，必须写在界面上而不是藏在代码里。
@@ -2614,6 +2614,7 @@ export const zhCNMessages = {
     auditRequestBodyNotStored: "此审计记录未存储请求正文。",
     auditBodyNotStoredMetadataOnly: "仅元数据审计不会存储正文。",
     auditResponseBodyNotStored: "此审计记录未存储响应正文。",
+    auditBinaryBodyNotShown: "该正文为二进制内容，仅保留字节元数据。",
     invalidAuditTimestampDescription: "此请求的创建时间戳无效，Prism 无法推导审计查询窗口。",
     invalidAuditTimestampTitle: "请求时间戳无效",
     invalidRequestAuditRouteDescription: (id: MessageArg) => `请求 ID '${id}' 不是有效的请求日志标识符。`,
