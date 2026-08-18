@@ -595,3 +595,8 @@ func pricedStatusPointer(status string) *bool {
 	priced := status == "priced"
 	return &priced
 }
+
+func intPtr(value int) *int {
+	resolved := value
+	return &resolved
+}
