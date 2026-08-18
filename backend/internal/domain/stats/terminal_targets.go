@@ -387,11 +387,6 @@ func attachTerminalTargetEventCounts(ctx context.Context, exec queryExecutor, pr
 	return nil
 }
 
-type sqlNullString struct {
-	String string
-	Valid  bool
-}
-
 func nullableIntPointer(value sql.NullInt32) *int {
 	if !value.Valid {
 		return nil

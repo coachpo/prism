@@ -213,11 +213,6 @@ func usageSnapshotUncategorizedTokens(total, input, output, cached, reasoning in
 	return residual
 }
 
-func statsBoolPtr(value bool) *bool {
-	resolved := value
-	return &resolved
-}
-
 func buildRequestTrendSeries(events []snapshotEvent, startAt *time.Time, endAt time.Time, granularity string) []UsageRequestTrendSeries {
 	buckets := bucketRange(startAt, endAt, timeSliceFromEvents(events), granularity)
 	bucketMinuteValue := bucketMinutes(granularity)

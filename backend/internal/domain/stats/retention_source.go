@@ -527,26 +527,3 @@ func LoadRetentionSourceProjection(ctx context.Context, exec retentionSourceExec
 		GeneratedAt:          now.UTC(),
 	}, nil
 }
-
-// SourceRevocationEpoch returns the current revocation epoch for a domain so
-// stateless query contexts can be validated against manual-purge revocation
-// (SPEC §6.5: final publish revokes old snapshots with 410).
-func SourceRevocationEpoch(ctx context.Context, exec retentionSourceExecutor, domain string) (int64, error) {
-	var epoch int64
-	err := exec.QueryRow(ctx, `SELECT retention_revocation_epoch FROM log_retention_policy_resources WHERE dataset = $1`, domain).Scan(&epoch)
-	if err != nil {
-		return 0, fmt.Errorf("load revocation epoch %s: %w", domain, err)
-	}
-	return epoch, nil
-}
-
-// SourcePurgeState returns the current coordinated purge state; readers must
-// fail closed with the owning typed 503 while running/recovery_required.
-func SourcePurgeState(ctx context.Context, exec retentionSourceExecutor, domain string) (string, error) {
-	var state string
-	err := exec.QueryRow(ctx, `SELECT purge_state FROM log_retention_policy_resources WHERE dataset = $1`, domain).Scan(&state)
-	if err != nil {
-		return "", fmt.Errorf("load purge state %s: %w", domain, err)
-	}
-	return state, nil
-}

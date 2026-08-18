@@ -26,15 +26,6 @@ func NewDashboardAggregateStore() *DashboardAggregateStore {
 	return &DashboardAggregateStore{snapshots: map[int]DashboardAggregateSnapshot{}}
 }
 
-func (s *DashboardAggregateStore) RegisterInvalidationListener(listener DashboardAggregateInvalidationListener) {
-	if s == nil || listener == nil {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.listeners = append(s.listeners, listener)
-}
-
 func (s *DashboardAggregateStore) LoadProfile(profileID int) (DashboardAggregateSnapshot, bool) {
 	if s == nil || profileID <= 0 {
 		return DashboardAggregateSnapshot{}, false
@@ -147,16 +138,8 @@ func (s *DashboardAggregateStore) InvalidateProfile(profileID int) {
 	s.invalidateProfile(profileID, true)
 }
 
-func (s *DashboardAggregateStore) InvalidateProfileSilently(profileID int) {
-	s.invalidateProfile(profileID, false)
-}
-
 func (s *DashboardAggregateStore) InvalidateAll() {
 	s.invalidateAll(true)
-}
-
-func (s *DashboardAggregateStore) InvalidateAllSilently() {
-	s.invalidateAll(false)
 }
 
 func (s *DashboardAggregateStore) invalidateProfile(profileID int, notify bool) {

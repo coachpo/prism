@@ -53,14 +53,6 @@ type dashboardRoutingModelTotals struct {
 	ModelID string
 }
 
-func BuildDashboardSnapshot(ctx context.Context, exec queryExecutor, profileID int, referenceNow time.Time) (DashboardSnapshot, error) {
-	aggregate, err := BuildDashboardAggregateSnapshot(ctx, exec, profileID, referenceNow)
-	if err != nil {
-		return DashboardSnapshot{}, err
-	}
-	return NewDashboardSnapshot(aggregate, referenceNow), nil
-}
-
 func loadDashboardSnapshotModels(ctx context.Context, exec queryExecutor, profileID int) ([]dashboardSnapshotModel, error) {
 	rows, err := exec.Query(ctx, `SELECT id, model_id, display_name, is_enabled
 		FROM model_configs
