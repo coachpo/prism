@@ -6,7 +6,7 @@
 ## STRUCTURE
 ```
 auth/
-├── routes.go                      # Legacy v1 auth handlers, runtime probe, shared request/response helpers
+├── routes.go                      # Runtime probe, auth status projection, transition publish/rollback helpers
 ├── service.go                     # Auth settings load/update, publish proof, rollback transition
 ├── management_auth_middleware.go  # Management session enforcement middleware
 ├── runtime_middleware.go          # Runtime proxy-key attribution middleware
