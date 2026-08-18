@@ -775,4 +775,3 @@ func auditBodyPreview(value []byte) (*string, bool, *string) {
 	preview := string(runes)
 	return &preview, truncated, nil
 }
-
