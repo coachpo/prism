@@ -72,14 +72,6 @@ type listCursor struct {
 	RetentionGeneration string    `json:"retention_generation"`
 }
 
-type DeleteParams struct {
-	ProfileID     int
-	Before        *time.Time
-	OlderThanDays *int
-	DeleteAll     bool
-	ReferenceNow  time.Time
-}
-
 type AuditLogListItem struct {
 	ID                                  int        `json:"id"`
 	RequestLogID                        *string    `json:"request_log_id"`
@@ -578,69 +570,6 @@ func LoadAuditReadState(ctx context.Context, exec queryExecutor, profileID int, 
 	return loadAuditLogReadState(ctx, exec, profileID, logID)
 }
 
-// LoadRawBody returns the byte-exact stored prefix for the given direction
-// (request|response). The bytea column is authoritative; legacy TEXT rows fall
-// back to their UTF-8 bytes. Returns nil when nothing is stored.
-func LoadRawBody(ctx context.Context, exec queryExecutor, profileID int, logID int, direction string) ([]byte, string, error) {
-	column := "request_body_bytes"
-	if direction == "response" {
-		column = "response_body_bytes"
-	}
-	var stored bool
-	if err := exec.QueryRow(ctx, `SELECT `+column+` IS NOT NULL FROM audit_logs WHERE profile_id = $1 AND id = $2 ORDER BY created_at DESC LIMIT 1`, profileID, logID).Scan(&stored); err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, "", nil
-		}
-		return nil, "", fmt.Errorf("load audit raw body %d for profile %d: %w", logID, profileID, err)
-	}
-	if !stored {
-		return nil, "", nil
-	}
-	var body []byte
-	if err := exec.QueryRow(ctx, `SELECT `+column+` FROM audit_logs WHERE profile_id = $1 AND id = $2 ORDER BY created_at DESC LIMIT 1`, profileID, logID).Scan(&body); err != nil {
-		return nil, "", fmt.Errorf("scan audit raw body %d for profile %d: %w", logID, profileID, err)
-	}
-	if len(body) == 0 {
-		return nil, "", nil
-	}
-	return body, "", nil
-}
-
-// SafeContentTypeForDownload bounds the provider content type into a safe
-// metadata value: MIME-parsed, visible ASCII, at most 512 bytes. Invalid or
-// oversize values return ok=false (metadata omitted, download unaffected).
-func SafeContentTypeForDownload(contentType string) (string, bool) {
-	trimmed := strings.TrimSpace(contentType)
-	if trimmed == "" {
-		return "application/octet-stream", false
-	}
-	if len(trimmed) > 512 {
-		return "application/octet-stream", false
-	}
-	if !isVisibleASCII(trimmed) {
-		return "application/octet-stream", false
-	}
-	mediaType := strings.TrimSpace(strings.SplitN(trimmed, ";", 2)[0])
-	if mediaType == "" || !strings.Contains(mediaType, "/") {
-		return "application/octet-stream", false
-	}
-	for _, char := range mediaType {
-		if char <= 0x20 || char == 0x7f || strings.ContainsRune(`()<>@,;:"/[]?={} `, char) {
-			return "application/octet-stream", false
-		}
-	}
-	return mediaType, true
-}
-
-func isVisibleASCII(value string) bool {
-	for _, char := range value {
-		if char < 0x20 || char > 0x7e {
-			return false
-		}
-	}
-	return true
-}
-
 func loadAuditLogReadState(ctx context.Context, exec queryExecutor, profileID int, logID int) (auditLogReadState, bool, error) {
 	var requestLogID sql.NullString
 	var auditEnabledAtRequest bool
@@ -772,45 +701,6 @@ func scanDetail(scanner interface{ Scan(...any) error }) (AuditLogDetail, error)
 	item.LegacyStatusCode = nullableInt32(legacyStatusCode)
 	item.CreatedAt = item.CreatedAt.UTC()
 	return item, nil
-}
-
-// auditBodyText returns the valid-UTF-8 text view of a captured body (bytea
-// preferred, legacy TEXT fallback), the binary flag, and the stored byte
-// count. Binary bodies expose byte metadata only — no text view.
-func auditBodyText(bytes []byte, legacy sql.NullString) (*string, bool, int64) {
-	if bytes != nil {
-		if utf8.Valid(bytes) {
-			resolved := string(bytes)
-			return &resolved, false, int64(len(bytes))
-		}
-		return nil, true, int64(len(bytes))
-	}
-	if legacy.Valid {
-		resolved := legacy.String
-		return &resolved, false, int64(len(resolved))
-	}
-	return nil, false, 0
-}
-
-func stringPtr(value string) *string {
-	return &value
-}
-
-func trimmedPreview(value *string, length int) *string {
-	if value == nil {
-		return nil
-	}
-	if length <= 0 {
-		trimmed := ""
-		return &trimmed
-	}
-	runes := []rune(*value)
-	if len(runes) <= length {
-		resolved := *value
-		return &resolved
-	}
-	resolved := string(runes[:length])
-	return &resolved
 }
 
 func nullableString(value sql.NullString) *string {
