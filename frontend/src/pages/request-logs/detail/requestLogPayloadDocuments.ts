@@ -20,6 +20,17 @@ export interface RequestLogPayloadDocument {
   sections: RequestLogPayloadDocumentSection[];
 }
 
+export interface RequestLogHeaderEntry {
+  name: string;
+  value: string;
+}
+
+export type RequestLogHeaderView =
+  | { kind: "entries"; entries: RequestLogHeaderEntry[] }
+  | { kind: "empty" }
+  | { kind: "absent" }
+  | { kind: "malformed" };
+
 interface BuildPayloadDocumentParams {
   apiFamily: ApiFamily;
   bodyKind: RequestLogPayloadBodyKind;
@@ -112,32 +123,28 @@ function isSensitiveHeaderName(name: string): boolean {
     normalized.includes("credential");
 }
 
-function formatHeaderValue(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean" || value === null) return String(value);
-  return formatJson(value);
+function maskHeaderValue(name: string, value: string): string {
+  return isSensitiveHeaderName(name) ? "[REDACTED]" : value;
 }
 
-function maskHeaderValue(name: string, value: unknown): string {
-  return isSensitiveHeaderName(name) ? "[REDACTED]" : formatHeaderValue(value);
-}
+function parseRequestLogHeaderView(content: string): RequestLogHeaderView {
+  if (content.trim().length === 0) return { kind: "absent" };
 
-function buildHeaderLinesFromRecord(record: JsonRecord): RequestLogPayloadDocumentLine[] {
-  return Object.entries(record).flatMap(([name, value]) => {
-    const label = normalizeHeaderName(name);
-    if (label.length === 0) return [];
-    return [{ label, value: maskHeaderValue(label, value), mono: true }];
-  });
-}
+  const result = parseJsonValue(content);
+  if (!result.parsed || !Array.isArray(result.value)) return { kind: "malformed" };
+  if (result.value.length === 0) return { kind: "empty" };
 
-function buildHeaderLinesFromText(content: string): RequestLogPayloadDocumentLine[] {
-  return content.split(/\r?\n/).flatMap((line) => {
-    const separatorIndex = line.indexOf(":");
-    if (separatorIndex <= 0) return [];
-    const label = normalizeHeaderName(line.slice(0, separatorIndex));
-    if (label.length === 0) return [];
-    return [{ label, value: maskHeaderValue(label, line.slice(separatorIndex + 1).trim()), mono: true }];
-  });
+  const entries: RequestLogHeaderEntry[] = [];
+  for (const item of result.value) {
+    if (!isRecord(item) || typeof item.name !== "string" || typeof item.value !== "string") {
+      return { kind: "malformed" };
+    }
+    const name = normalizeHeaderName(item.name);
+    if (name.length === 0) return { kind: "malformed" };
+    entries.push({ name, value: maskHeaderValue(name, item.value) });
+  }
+
+  return { kind: "entries", entries };
 }
 
 function buildGenericJsonDocumentFromValue(value: unknown): RequestLogPayloadDocument | null {
@@ -172,28 +179,21 @@ export function formatRequestLogPayloadRaw(content: string): string {
 }
 
 export function formatRequestLogHeaderRaw(content: string): string {
-  const result = parseJsonValue(content);
-  if (result.parsed && isRecord(result.value)) {
-    const maskedHeaders = Object.fromEntries(
-      Object.entries(result.value).map(([name, value]) => {
-        const label = normalizeHeaderName(name);
-        return [label, isSensitiveHeaderName(label) ? "[REDACTED]" : value];
-      }),
-    );
-    return formatJson(maskedHeaders);
+  const view = parseRequestLogHeaderView(content);
+  switch (view.kind) {
+    case "entries":
+      return formatJson(view.entries);
+    case "empty":
+      return "[]";
+    case "absent":
+      return "";
+    case "malformed":
+      return content;
   }
-
-  const lines = buildHeaderLinesFromText(content);
-  return lines.length > 0 ? lines.map((line) => `${line.label}: ${line.value}`).join("\n") : formatRequestLogPayloadRaw(content);
 }
 
-export function buildRequestLogHeaderDocument(content: string): RequestLogPayloadDocument | null {
-  const result = parseJsonValue(content);
-  const lines = result.parsed && isRecord(result.value)
-    ? buildHeaderLinesFromRecord(result.value)
-    : buildHeaderLinesFromText(content);
-
-  return lines.length > 0 ? { sections: [{ title: "Headers", lines, kind: "fields" }] } : null;
+export function buildRequestLogHeaderDocument(content: string): RequestLogHeaderView {
+  return parseRequestLogHeaderView(content);
 }
 
 export function buildBestEffortPayloadDocument(content: string): RequestLogPayloadDocument | null {

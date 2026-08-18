@@ -132,7 +132,7 @@ test.describe("dedicated request-log audit page", () => {
     });
   }
 
-  test("renders JSON and newline headers as key-value rows with sensitive values masked", async ({ page }) => {
+  test("renders JSON array headers as key-value rows with sensitive values masked", async ({ page }) => {
     await mockPrismRoutes(page, "json_headers");
 
     await page.goto("/observe/requests/101/audit?audit_id=201");
@@ -150,7 +150,6 @@ test.describe("dedicated request-log audit page", () => {
     await expect(requestHeaders.locator("dd", { hasText: "prism-postdual-overflow-gpt55-deepseek-1781125557" })).toBeVisible();
     await expect(requestHeaders.getByText("Bearer live-secret-token")).toHaveCount(0);
     await expect(requestHeaders.getByText("session=live-cookie")).toHaveCount(0);
-    await expect(requestHeaders.getByText(/\{\s*"authorization"/)).toHaveCount(0);
 
     const responseHeaders = detail.getByRole("region", { name: "响应头" });
     await expectNoRedundantPayloadShell(responseHeaders);
@@ -158,22 +157,26 @@ test.describe("dedicated request-log audit page", () => {
     await expect(responseHeaders.locator("dd", { hasText: "true" })).toBeVisible();
     await expect(responseHeaders.locator("dt", { hasText: "strict-transport-security" })).toBeVisible();
     await expect(responseHeaders.locator("dd", { hasText: "max-age=31536000; includeSubDomains; preload" })).toBeVisible();
-    await expect(responseHeaders.locator("dt", { hasText: "set-cookie" })).toBeVisible();
+    await expect(responseHeaders.locator("dt", { hasText: "set-cookie" })).toHaveCount(2);
     await expect(responseHeaders.locator("dt", { hasText: "x-client-credential" })).toBeVisible();
     await expect(responseHeaders.locator("dd", { hasText: "[REDACTED]" }).first()).toBeVisible();
     await expect(responseHeaders.getByText("session=live-response-cookie")).toHaveCount(0);
     await expect(responseHeaders.getByText("live-client-credential")).toHaveCount(0);
 
     await requestHeaders.getByRole("button", { name: "原始 JSON" }).click();
-    await expect(requestHeaders.locator("pre")).toContainText('"authorization": "[REDACTED]"');
-    await expect(requestHeaders.locator("pre")).toContainText('"user-agent": "prism-postdual-overflow-gpt55-deepseek-1781125557"');
+    await expect(requestHeaders.locator("pre")).toContainText('"name": "authorization"');
+    await expect(requestHeaders.locator("pre")).toContainText('"value": "[REDACTED]"');
+    await expect(requestHeaders.locator("pre")).toContainText('"value": "prism-postdual-overflow-gpt55-deepseek-1781125557"');
     await expect(requestHeaders.locator("pre")).not.toContainText("Bearer live-secret-token");
 
     await responseHeaders.getByRole("button", { name: "原始 JSON" }).click();
-    await expect(responseHeaders.locator("pre")).toContainText('"access-control-allow-credentials": "true"');
-    await expect(responseHeaders.locator("pre")).toContainText('"set-cookie": "[REDACTED]"');
-    await expect(responseHeaders.locator("pre")).toContainText('"x-client-credential": "[REDACTED]"');
-    await expect(responseHeaders.locator("pre")).toContainText('"vary": "origin, access-control-request-method, access-control-request-headers"');
+    await expect(responseHeaders.locator("pre")).toContainText('"name": "access-control-allow-credentials"');
+    await expect(responseHeaders.locator("pre")).toContainText('"value": "true"');
+    await expect(responseHeaders.locator("pre")).toContainText('"name": "set-cookie"');
+    await expect(responseHeaders.locator("pre")).toContainText('"value": "[REDACTED]"');
+    await expect(responseHeaders.locator("pre")).toContainText('"name": "x-client-credential"');
+    await expect(responseHeaders.locator("pre")).toContainText('"name": "vary"');
+    await expect(responseHeaders.locator("pre")).toContainText('"value": "origin, access-control-request-method, access-control-request-headers"');
     await expect(responseHeaders.locator("pre")).not.toContainText("session=live-response-cookie");
     await expect(responseHeaders.locator("pre")).not.toContainText("live-client-credential");
   });

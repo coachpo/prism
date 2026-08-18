@@ -2,7 +2,7 @@ import { useId, useMemo, useState, type MouseEvent } from "react";
 import { AlertTriangle, Copy, Wrench } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import type { ApiFamily } from "@/lib/types";
-import type { RequestLogPayloadDocument } from "./requestLogPayloadDocuments";
+import type { RequestLogHeaderEntry, RequestLogPayloadDocument } from "./requestLogPayloadDocuments";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -251,7 +251,29 @@ export function RequestLogPayloadBlock({
 
   const renderRendered = () => {
     if (contentKind === "headers") {
-      return headerDocument ? <HeaderDocumentView document={headerDocument} /> : null;
+      if (!headerDocument) return null;
+      switch (headerDocument.kind) {
+        case "entries":
+          return <HeaderDocumentView entries={headerDocument.entries} />;
+        case "empty":
+          return (
+            <p className="text-sm text-muted-foreground">
+              <span aria-hidden="true">—</span> {messages.requestLogs.headerEmpty(title)}
+            </p>
+          );
+        case "absent":
+          return (
+            <p className="text-sm text-muted-foreground">
+              <span aria-hidden="true">—</span> {messages.requestLogs.noCaptured(title)}
+            </p>
+          );
+        case "malformed":
+          return (
+            <div className="flex flex-col gap-2 rounded-lg border border-degraded/25 bg-degraded/[0.06] p-3" data-testid="request-log-headers-malformed">
+              <p className="text-xs text-degraded">{messages.requestLogs.headerMalformed(title)}</p>
+            </div>
+          );
+      }
     }
     if (viewModel) {
       if (viewModel.availability.length === 0) {
@@ -391,30 +413,19 @@ function LegacyDocumentView({ document }: { document: RequestLogPayloadDocument 
   );
 }
 
-function HeaderDocumentView({ document }: { document: RequestLogPayloadDocument }) {
+function HeaderDocumentView({ entries }: { entries: RequestLogHeaderEntry[] }) {
   return (
-    <div className="flex flex-col gap-3">
-      {document.sections.map((section) => (
-        <section key={section.title} className="flex flex-col gap-3">
-          <dl className="divide-y divide-border/60 rounded-lg border border-border bg-inset">
-            {section.lines.map((line, index) => (
-              <div key={`${line.label}-${index}`} className="grid gap-1 p-3 sm:grid-cols-[minmax(8rem,14rem)_minmax(0,1fr)] sm:gap-4">
-                <dt className="min-w-0 break-words font-mono text-xs font-medium uppercase tracking-wide text-muted-foreground [overflow-wrap:anywhere]">
-                  {line.label}
-                </dt>
-                <dd
-                  className={cn(
-                    "min-w-0 whitespace-pre-wrap break-words text-sm leading-6 text-foreground [overflow-wrap:anywhere]",
-                    line.mono && "font-mono text-xs leading-5",
-                  )}
-                >
-                  {line.value}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </section>
+    <dl className="divide-y divide-border/60 rounded-lg border border-border bg-inset">
+      {entries.map((entry, index) => (
+        <div key={`${entry.name}-${index}`} className="grid gap-1 p-3 sm:grid-cols-[minmax(8rem,14rem)_minmax(0,1fr)] sm:gap-4">
+          <dt className="min-w-0 break-words font-mono text-xs font-medium uppercase tracking-wide text-muted-foreground [overflow-wrap:anywhere]">
+            {entry.name}
+          </dt>
+          <dd className="min-w-0 whitespace-pre-wrap break-words font-mono text-xs leading-5 text-foreground [overflow-wrap:anywhere]">
+            {entry.value}
+          </dd>
+        </div>
       ))}
-    </div>
+    </dl>
   );
 }

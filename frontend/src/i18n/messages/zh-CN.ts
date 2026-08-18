@@ -2548,6 +2548,8 @@ export const zhCNMessages = {
     proxyApiKey: "代理 API 密钥",
     proxyApiKeyNotRecorded: "未记录",
     noCaptured: (title: MessageArg) => `未捕获 ${title}。`,
+    headerEmpty: (title: MessageArg) => `${title}没有记录到任何条目。`,
+    headerMalformed: (title: MessageArg) => `${title}格式异常，已降级显示；请切换到原始 JSON 查看。`,
     noRequestLogsMatchSlice: "当前范围内没有匹配的请求日志",
     requestBody: "请求",
     requestHeaders: "请求头",

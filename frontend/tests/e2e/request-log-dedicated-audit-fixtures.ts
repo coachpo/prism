@@ -3,23 +3,27 @@ import { expect, type BrowserContext, type Locator, type Page } from "@playwrigh
 const timestamp = "2026-04-13T00:00:00Z";
 const expectedFromTime = "2026-04-12T12:00:00.000Z";
 const expectedToTime = "2026-04-13T12:00:00.000Z";
-export const redactedHeaders = "content-type: application/json\nauthorization: Bearer [REDACTED]";
-const jsonRequestHeaders = JSON.stringify({
-  authorization: "Bearer live-secret-token",
-  "content-type": "application/json",
-  cookie: "session=live-cookie",
-  "user-agent": "prism-postdual-overflow-gpt55-deepseek-1781125557",
-});
-const jsonResponseHeaders = JSON.stringify({
-  "access-control-allow-credentials": "true",
-  "content-type": "application/json",
-  date: "Wed, 10 Jun 2026 21:06:01 GMT",
-  server: "elb",
-  "set-cookie": "session=live-response-cookie",
-  "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
-  vary: "origin, access-control-request-method, access-control-request-headers",
-  "x-client-credential": "live-client-credential",
-});
+export const redactedHeaders = JSON.stringify([
+  { name: "content-type", value: "application/json" },
+  { name: "authorization", value: "[REDACTED]" },
+]);
+const jsonRequestHeaders = JSON.stringify([
+  { name: "authorization", value: "Bearer live-secret-token" },
+  { name: "content-type", value: "application/json" },
+  { name: "cookie", value: "session=live-cookie" },
+  { name: "user-agent", value: "prism-postdual-overflow-gpt55-deepseek-1781125557" },
+]);
+const jsonResponseHeaders = JSON.stringify([
+  { name: "access-control-allow-credentials", value: "true" },
+  { name: "content-type", value: "application/json" },
+  { name: "date", value: "Wed, 10 Jun 2026 21:06:01 GMT" },
+  { name: "server", value: "elb" },
+  { name: "set-cookie", value: "session=live-response-cookie" },
+  { name: "set-cookie", value: "session=live-response-cookie-2" },
+  { name: "strict-transport-security", value: "max-age=31536000; includeSubDomains; preload" },
+  { name: "vary", value: "origin, access-control-request-method, access-control-request-headers" },
+  { name: "x-client-credential", value: "live-client-credential" },
+]);
 const requestBody = "original request body\nline two";
 const responseBody = "original response body\nline two";
 export const openAiStreamSseBody = [
@@ -403,7 +407,12 @@ function createAuditDetail(id: number, scenario: Scenario) {
   return {
     ...createAuditListItem(id, scenario),
     request_body_base64: requestBody === null ? null : Buffer.from(requestBody, "utf8").toString("base64"),
-    response_headers: scenario === "json_headers" ? jsonResponseHeaders : "content-type: application/json\nx-prism-audit: [REDACTED]",
+    response_headers: scenario === "json_headers"
+      ? jsonResponseHeaders
+      : JSON.stringify([
+          { name: "content-type", value: "application/json" },
+          { name: "x-prism-audit", value: "[REDACTED]" },
+        ]),
     response_body_base64: responseBody === null ? null : Buffer.from(responseBody, "utf8").toString("base64"),
     response_body_encoding: responseBodyStored ? "utf8" : null,
     response_body_capture_status: responseBodyStored ? "captured" : "not_requested",
