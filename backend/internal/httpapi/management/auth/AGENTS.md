@@ -26,7 +26,7 @@ auth/
 ├── auth_settings_v2_read.go       # v2 auth settings read path
 ├── proxy_key_readiness_fence.go   # Proxy-owned readiness fence snapshot; every capture writes the generation
 ├── problems.go                    # Auth problem registry (flat envelope codes)
-├── types.go                       # Tagged PublicAuthStatus, session/proxy-key payloads
+├── types.go                       # Tagged status/session/proxy-key payloads plus shared domain/query seams
 ├── runtime_config.go              # Runtime auth config snapshot (cookie names, TTLs)
 ├── runtime_cache.go               # Published runtime-auth snapshot + invalidation
 ├── proxy_key_usage_writer.go      # Proxy-key usage persistence
@@ -43,7 +43,7 @@ auth/
 - Management session enforcement and runtime proxy-key attribution middleware: `management_auth_middleware.go`, `runtime_middleware.go`, `runtime_middleware_matrix_test.go`
 - Login-throttle ledger: `login_throttle.go`
 - Auth-settings persistence and transition rows: `auth_settings_store.go`
-- Proxy-key rows, capacity serialization, and expiry: `proxy_key_store.go`
+- Proxy-key rows, capacity serialization, and expiry: `proxy_key_store.go`; runtime credential verification: `runtime_middleware.go`
 - Proxy-key request validation and usage handoff: `proxy_key_request.go`, `../../proxykeyusage/`
 - Cookie and request-token helpers: `cookies.go`, `request_tokens.go`
 - Transition operations and `GET /api/auth/operations/{operation_id}/status`: `operations.go`

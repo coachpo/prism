@@ -19,12 +19,14 @@ stats/
 ├── dashboard_snapshot_builder.go # Overview dashboard aggregate snapshot
 ├── dashboard_aggregate_store.go  # Per-profile dashboard aggregate snapshot cache
 ├── dashboard_recent_activity.go  # Bounded request-history activity feed
-├── observe_models.go             # Usage summary, report-currency preferences, dashboard-now aggregates
+├── observe_models.go             # Report-currency preferences and dashboard-now aggregates
+├── observe_usage_summary.go      # Observe usage summary and cost sparkline read model
+├── observe_query.go              # Actual-coverage bounds resolution
+├── observe_query_context.go     # Opaque query-context signing and verification
 ├── observe_series.go             # Usage series, interval resolution, Top N + Other breakdowns
 ├── observe_errors.go             # Usage errors summary/timeline/ranking with canonical deep-link filters
 ├── observe_activity.go           # Finalized ingress activity feed (never rebuilt from attempt rows)
 ├── observe_usage_summary_segments.go # Window-scoped cost-segment CTE fragment for the summary statement
-├── observe_query.go              # Query-context signing/verification and coverage resolution
 ├── query_coverage.go             # Non-null Requests/Audit coverage union
 ├── request_logs.go               # Attempt-view list projections, scoped filters, and v2 slim rows
 ├── request_logs_chain.go         # Retained ingress-chain view
@@ -56,6 +58,8 @@ stats/
 - Ingress-chain coverage projections: `request_logs_chain_coverage.go`
 - Retained ingress rows: `request_logs_chain_rows.go`
 - Usage snapshot, spending, endpoint/model/proxy-key aggregates: `snapshot.go`, `spending.go`, `endpoint_model_statistics.go`, `model_metrics.go`
+- Observe usage summary and cost segments: `observe_usage_summary.go`, `observe_usage_summary_segments.go`
+- Observe query-context bounds/signing: `observe_query.go`, `observe_query_context.go`
 - Stats summary and throughput metrics: `aggregates.go`, `throughput.go`
 - Shared usage-event loading/scanning: `usage_event_records.go`
 - Usage snapshot latency trends expose hourly/daily p50 and p95 `response_time_ms` buckets through `latency_trends` beside request and token trends.
