@@ -112,3 +112,65 @@ func openAIImageOperationsServedByCapability(destinationImageOperations string, 
 // handlers in this package can report image coverage failures with the same
 // identity the routing domain uses.
 const openAIImageUncoveredIssueCode = modelrouting.OpenAIImageUncoveredIssueCode
+
+func ensureOpenAITextCapabilityMatchesOwnerModes(ownerAPIFamily string, ownerMode *string, capability *string) error {
+	if !providerauth.IsOpenAI(ownerAPIFamily) {
+		return nil
+	}
+	if !providerauth.OpenAITextModesMatch(ownerMode, capability) {
+		return &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability must equal the owner model openai_accepted_format"}
+	}
+	return nil
+}
+
+const (
+	openAITextCapabilityResponsesOnly       = "responses_only"
+	openAITextCapabilityChatCompletionsOnly = "chat_completions_only"
+	openAITextCapabilityDualNative          = "dual_native"
+)
+
+// resolveOpenAITextCapabilityCreate no longer requires a text capability on its
+// own: an image-only Terminal Target legitimately has none. The joint
+// requirement that at least one dimension be present is enforced by
+// ensureOpenAIConnectionDimensionsPresent.
+func resolveOpenAITextCapabilityCreate(apiFamily string, value *string) (*string, error) {
+	return normalizeOpenAITextCapability(apiFamily, value, false)
+}
+
+func resolveOpenAITextCapabilityUpdate(previousAPIFamily string, nextAPIFamily string, current *string, update optionalString) (*string, error) {
+	if !providerauth.IsOpenAI(nextAPIFamily) {
+		if update.Set && update.Value != nil && strings.TrimSpace(*update.Value) != "" {
+			return nil, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is only supported for OpenAI-family connections"}
+		}
+		return nil, nil
+	}
+	if update.Set {
+		return normalizeOpenAITextCapability(nextAPIFamily, update.Value, false)
+	}
+	if providerauth.IsOpenAI(previousAPIFamily) && current != nil && strings.TrimSpace(*current) != "" {
+		return normalizeOpenAITextCapability(nextAPIFamily, current, false)
+	}
+	return nil, nil
+}
+
+func normalizeOpenAITextCapability(apiFamily string, value *string, requiredForOpenAI bool) (*string, error) {
+	if !providerauth.IsOpenAI(apiFamily) {
+		if value != nil && strings.TrimSpace(*value) != "" {
+			return nil, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is only supported for OpenAI-family connections"}
+		}
+		return nil, nil
+	}
+	if value == nil || strings.TrimSpace(*value) == "" {
+		if requiredForOpenAI {
+			return nil, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is required for OpenAI-family connections"}
+		}
+		return nil, nil
+	}
+	capability := strings.ToLower(strings.TrimSpace(*value))
+	switch capability {
+	case openAITextCapabilityResponsesOnly, openAITextCapabilityChatCompletionsOnly, openAITextCapabilityDualNative:
+		return &capability, nil
+	default:
+		return nil, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability is invalid"}
+	}
+}
