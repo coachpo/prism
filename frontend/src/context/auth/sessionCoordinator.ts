@@ -1,5 +1,6 @@
 import type { AuthenticatedSession } from "@/lib/types/auth";
 import { classifyRefreshOutcome, type RefreshOutcome } from "./refreshOutcome";
+import { loadSharedSessionGeneration, persistSharedSessionGeneration, randomSessionGenerationId } from "./crossTab";
 
 // Process-local auth session coordinator (SPEC §4–§5). It owns the single
 // phase/epoch store, the typed event bridge, the singleflight refresh and
@@ -694,50 +695,9 @@ export class AuthSessionCoordinator {
   static readonly MAX_DISABLED_PROBE_WAITERS = MAX_DISABLED_PROBE_WAITERS;
 }
 
-function randomSessionGenerationId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-}
-
 function randomIncidentId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
   return `incident-${Date.now().toString(36)}`;
-}
-
-// The session generation is a non-secret random generation shared by all
-// tabs of the origin through localStorage (SPEC §11): login/bootstrap
-// rotates it and every tab reads the same value, so cross-tab expiry
-// payloads can be matched against the current generation.
-const SESSION_GENERATION_STORAGE_KEY = "prism.authSessionGeneration";
-
-function loadSharedSessionGeneration(): string {
-  if (typeof window === "undefined") {
-    return randomSessionGenerationId();
-  }
-  const existing = window.localStorage.getItem(SESSION_GENERATION_STORAGE_KEY);
-  if (existing && existing.length > 8 && existing.length <= 80) {
-    return existing;
-  }
-  const fresh = randomSessionGenerationId();
-  try {
-    window.localStorage.setItem(SESSION_GENERATION_STORAGE_KEY, fresh);
-  } catch {
-    // localStorage unavailable: generation stays process-local.
-  }
-  return fresh;
-}
-
-function persistSharedSessionGeneration(generation: string): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  try {
-    window.localStorage.setItem(SESSION_GENERATION_STORAGE_KEY, generation);
-  } catch {
-    // localStorage unavailable: the value stays process-local for this tab.
-  }
 }

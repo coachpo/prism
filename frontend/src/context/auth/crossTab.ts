@@ -139,3 +139,45 @@ export function sessionExpiredEventForCrossTab(observedEpoch: number): AuthClien
     typeof window !== "undefined" ? window.location.pathname + window.location.search + window.location.hash : "/";
   return { type: "SESSION_EXPIRED", observed_epoch: observedEpoch, evidence: "cross_tab", request_path: path };
 }
+
+function randomSessionGenerationId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+// The session generation is a non-secret random generation shared by all
+// tabs of the origin through localStorage (SPEC §11): login/bootstrap
+// rotates it and every tab reads the same value, so cross-tab expiry
+// payloads can be matched against the current generation.
+const SESSION_GENERATION_STORAGE_KEY = "prism.authSessionGeneration";
+
+function loadSharedSessionGeneration(): string {
+  if (typeof window === "undefined") {
+    return randomSessionGenerationId();
+  }
+  const existing = window.localStorage.getItem(SESSION_GENERATION_STORAGE_KEY);
+  if (existing && existing.length > 8 && existing.length <= 80) {
+    return existing;
+  }
+  const fresh = randomSessionGenerationId();
+  try {
+    window.localStorage.setItem(SESSION_GENERATION_STORAGE_KEY, fresh);
+  } catch {
+    // localStorage unavailable: generation stays process-local.
+  }
+  return fresh;
+}
+
+function persistSharedSessionGeneration(generation: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(SESSION_GENERATION_STORAGE_KEY, generation);
+  } catch {
+    // localStorage unavailable: the value stays process-local for this tab.
+  }
+}
+
+export { loadSharedSessionGeneration, persistSharedSessionGeneration, randomSessionGenerationId }
