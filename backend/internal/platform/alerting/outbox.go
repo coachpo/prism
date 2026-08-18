@@ -193,7 +193,11 @@ func (s *Store) handleScheduledPost(ctx context.Context, _ background.Job) backg
 		return background.JobResult{Status: background.JobFailed, Err: err, Retry: true}
 	}
 	for _, row := range rows {
-		s.processRow(ctx, webhookURL, row)
+		currentWebhookURL := strings.TrimSpace(s.alertingWebhookURL())
+		if currentWebhookURL == "" {
+			currentWebhookURL = webhookURL
+		}
+		s.processRow(ctx, currentWebhookURL, row)
 	}
 	return background.JobResult{Status: background.JobSucceeded}
 }
