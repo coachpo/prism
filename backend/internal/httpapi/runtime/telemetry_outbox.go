@@ -205,6 +205,22 @@ func (o *runtimeTelemetryOutbox) handleScheduledTelemetry(ctx context.Context, _
 }
 
 func (o *runtimeTelemetryOutbox) processNext(ctx context.Context) (bool, error) {
+	// Close may have already signalled the scheduler while a periodic job was
+	// queued. Do not count an empty post-close wake as in-flight work: otherwise
+	// Close can observe the database drained, race with this no-op job starting,
+	// and report a false timeout even though no telemetry remains.
+	o.mu.Lock()
+	closed := o.closed
+	o.mu.Unlock()
+	if closed {
+		state, err := o.drainState()
+		if err != nil {
+			return false, err
+		}
+		if state.PendingRows == 0 {
+			return false, nil
+		}
+	}
 	o.beginInflight()
 	// The claimed row has to escape the transaction as a Go value: when
 	// materialization aborts, any accounting written inside that transaction
