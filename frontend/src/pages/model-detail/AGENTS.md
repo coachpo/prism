@@ -23,6 +23,7 @@ model-detail/
 ├── useModelDetailBootstrap.ts
 ├── useModelDetailConnectionMutations.ts
 ├── useModelDetailDataSupport.ts
+├── connectionDataSupport.ts
 ├── useModelDetailDialogState.ts
 ├── useModelDetailModelForm.ts
 ├── useModelLoadbalanceCurrentState.ts
@@ -35,6 +36,7 @@ model-detail/
 - Connection create, edit, and delete flows with target-row-ID mutations: `useModelDetailConnectionMutations.ts`, `useModelDetailDialogState.ts`
 - Custom request parameters editor, client-side parser/validator mirroring the backend limits, and server 422 field mapping: `ConnectionCustomRequestParametersEditor.tsx`, `customRequestParameters.ts`, `useModelDetailConnectionMutations.ts`
 - Mixed access-target editor rendering and shared-order mutations: `../models/AccessTargetsEditor.tsx`
+- Connection draft/update payload and limiter/header normalization: `connectionDataSupport.ts`, `useModelDetailDataSupport.ts`
 - Default forms, access-target summary (single enabled authored-order first row), and model list patching helpers: `useModelDetailDataSupport.ts`, `useModelDetailModelForm.ts`
 - Spending-summary loading: `useModelDetailBootstrap.ts`, `ModelCostCards.tsx`
 - Retained Ban Policy current-state fetch/reset hook: `useModelLoadbalanceCurrentState.ts`
