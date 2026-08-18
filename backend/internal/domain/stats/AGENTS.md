@@ -12,6 +12,7 @@ stats/
 ├── types.go                      # JSON-facing read-model types
 ├── dashboard_health.go           # Dashboard freshness/coverage helper types
 ├── dashboard_snapshot_builder.go # Overview dashboard aggregate snapshot
+├── dashboard_aggregate_store.go  # Per-profile dashboard aggregate snapshot cache
 ├── dashboard_recent_activity.go  # Bounded request-history activity feed
 ├── observe_models.go             # Usage summary, report-currency preferences, dashboard-now aggregates
 ├── observe_series.go             # Usage series, interval resolution, Top N + Other breakdowns
@@ -32,7 +33,7 @@ stats/
 ├── cost_segments.go              # Canonical cost-segment catalogue (e.N / l.AAA / l.__unknown__)
 ├── cost_segment_cursor.go        # Signed cost-segment cursor payload and signing-key derivation
 ├── cost_segment_symbols.go       # Bounded offset page of observed symbols per cost segment
-├── snapshot.go                   # Usage snapshots
+├── snapshot.go                   # Usage snapshot read model
 ├── terminal_targets.go           # Bounded Terminal Target drill-down statistics
 ├── proxy_api_key_options.go      # Bounded proxy-key filter-option union
 ├── retention_source.go           # Retention source and actual-coverage owner projection
@@ -41,6 +42,7 @@ stats/
 
 ## WHERE TO LOOK
 - Dashboard aggregate snapshot and routing health map: `dashboard_snapshot_builder.go`
+- Dashboard aggregate snapshot cache and snapshot revision: `dashboard_aggregate_store.go`
 - Recent activity feed and watermarks: `dashboard_recent_activity.go`
 - Request-log attempt list/detail, chain view, CSV export, and cost segments: `request_logs.go`, `request_logs_chain.go`, `request_logs_export.go`, `request_logs_detail_v2.go`, `cost_segments.go`, `types.go`
 - Ingress-chain cursor signing: `request_logs_chain_cursor.go`

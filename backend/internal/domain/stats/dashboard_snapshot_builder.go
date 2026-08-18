@@ -516,3 +516,260 @@ func cloneDashboardRoutingHealthMap(value DashboardRoutingHealthMap) DashboardRo
 	}
 	return cloned
 }
+
+type DashboardAggregateSnapshot struct {
+	ProfileID                 int
+	GeneratedAt               time.Time
+	SnapshotRevision          string
+	SourceWatermark           DashboardSnapshotSourceWatermark
+	StatsSummary24H           StatsSummaryResponse
+	APIFamilySummary24H       StatsSummaryResponse
+	SpendingSummary30D        SpendingReportResponse
+	Throughput24H             ThroughputStatsResponse
+	UsageSnapshotPreset1      UsageSnapshotResponse
+	StreamRequestCount24H     int
+	UsageEventRequestCount24H int
+	RoutingHealthMap          DashboardRoutingHealthMap
+	TotalModelCount           int
+	ActiveModelCount          int
+}
+
+type DashboardSnapshot struct {
+	GeneratedAt       time.Time                        `json:"generated_at"`
+	SnapshotRevision  string                           `json:"snapshot_revision"`
+	SourceWatermark   DashboardSnapshotSourceWatermark `json:"source_watermark"`
+	Coverage24H       DashboardSnapshotCoverage        `json:"coverage_24h"`
+	Coverage30D       DashboardSnapshotCoverage        `json:"coverage_30d"`
+	Health            DashboardSnapshotHealth          `json:"health"`
+	MetricSnapshot    DashboardMetricSnapshot          `json:"metric_snapshot"`
+	APIFamilyRows     []StatGroup                      `json:"api_family_rows"`
+	TopSpendingModels []SpendingTopModel               `json:"top_spending_models"`
+	RoutingHealthMap  DashboardRoutingHealthMap        `json:"routing_health_map"`
+}
+
+type DashboardSnapshotSourceWatermark struct {
+	LatestUsageEventCreatedAt *time.Time `json:"latest_usage_event_created_at"`
+	LatestUsageEventID        *int       `json:"latest_usage_event_id"`
+}
+
+type DashboardMetricSnapshot struct {
+	ActiveModels           int      `json:"active_models"`
+	AverageRPM             float64  `json:"average_rpm"`
+	AverageRPMRequestTotal int      `json:"average_rpm_request_total"`
+	AvgLatency             *float64 `json:"avg_latency"`
+	ErrorRate              *float64 `json:"error_rate"`
+	P95Latency             *int     `json:"p95_latency"`
+	PricedRequestCount     int      `json:"priced_request_count"`
+	StreamShare            float64  `json:"stream_share"`
+	SuccessRate            *float64 `json:"success_rate"`
+	TotalCost              int64    `json:"total_cost"`
+	TotalModels            int      `json:"total_models"`
+	TotalRequests          int      `json:"total_requests"`
+	UnpricedRequestCount   int      `json:"unpriced_request_count"`
+}
+
+type DashboardRoutingHealthMap struct {
+	Nodes                     []DashboardRoutingNode `json:"nodes"`
+	Links                     []DashboardRoutingLink `json:"links"`
+	EndpointCount             int                    `json:"endpointCount"`
+	ModelCount                int                    `json:"modelCount"`
+	ActiveConnectionTotal     int                    `json:"activeConnectionTotal"`
+	ActiveTerminalTargetTotal int                    `json:"activeTerminalTargetTotal"`
+	TrafficRequestTotal24H    int                    `json:"trafficRequestTotal24h"`
+}
+
+type DashboardRoutingNode struct {
+	ID                        string   `json:"id"`
+	Name                      string   `json:"name"`
+	Kind                      string   `json:"kind"`
+	Label                     string   `json:"label"`
+	Sublabel                  *string  `json:"sublabel"`
+	EndpointID                *int     `json:"endpointId"`
+	ModelID                   *string  `json:"modelId"`
+	ModelConfigID             *int     `json:"modelConfigId"`
+	ActiveConnectionCount     int      `json:"activeConnectionCount"`
+	ActiveTerminalTargetCount int      `json:"activeTerminalTargetCount"`
+	TrafficRequestCount24H    int      `json:"trafficRequestCount24h"`
+	RequestCount24H           int      `json:"requestCount24h"`
+	SuccessCount24H           int      `json:"successCount24h"`
+	ErrorCount24H             int      `json:"errorCount24h"`
+	SuccessRate24H            *float64 `json:"successRate24h"`
+}
+
+type DashboardRoutingLink struct {
+	ID                        string   `json:"id"`
+	SourceNodeID              string   `json:"sourceNodeId"`
+	TargetNodeID              string   `json:"targetNodeId"`
+	ModelID                   string   `json:"modelId"`
+	ModelLabel                string   `json:"modelLabel"`
+	ModelConfigID             int      `json:"modelConfigId"`
+	EndpointID                int      `json:"endpointId"`
+	EndpointLabel             string   `json:"endpointLabel"`
+	ActiveConnectionCount     int      `json:"activeConnectionCount"`
+	ActiveTerminalTargetCount int      `json:"activeTerminalTargetCount"`
+	TrafficRequestCount24H    int      `json:"trafficRequestCount24h"`
+	RequestCount24H           int      `json:"requestCount24h"`
+	SuccessCount24H           int      `json:"successCount24h"`
+	ErrorCount24H             int      `json:"errorCount24h"`
+	SuccessRate24H            *float64 `json:"successRate24h"`
+}
+
+func cloneDashboardSnapshotSourceWatermark(value DashboardSnapshotSourceWatermark) DashboardSnapshotSourceWatermark {
+	clone := DashboardSnapshotSourceWatermark{}
+	if value.LatestUsageEventCreatedAt != nil {
+		createdAt := value.LatestUsageEventCreatedAt.UTC()
+		clone.LatestUsageEventCreatedAt = &createdAt
+	}
+	if value.LatestUsageEventID != nil {
+		latestID := *value.LatestUsageEventID
+		clone.LatestUsageEventID = &latestID
+	}
+	return clone
+}
+
+func NewDashboardSnapshot(aggregate DashboardAggregateSnapshot, referenceNow time.Time) DashboardSnapshot {
+	generatedAt := aggregate.GeneratedAt.UTC()
+	if generatedAt.IsZero() {
+		generatedAt = referenceNow.UTC()
+	}
+	apiFamilyRows := append([]StatGroup{}, aggregate.APIFamilySummary24H.Groups...)
+	topSpendingModels := append([]SpendingTopModel{}, aggregate.SpendingSummary30D.TopSpendingModels...)
+	return DashboardSnapshot{
+		GeneratedAt:       generatedAt,
+		SnapshotRevision:  aggregate.SnapshotRevision,
+		SourceWatermark:   cloneDashboardSnapshotSourceWatermark(aggregate.SourceWatermark),
+		Coverage24H:       DashboardSnapshotCoverage{From: generatedAt.Add(-24 * time.Hour), To: generatedAt},
+		Coverage30D:       DashboardSnapshotCoverage{From: generatedAt.Add(-30 * 24 * time.Hour), To: generatedAt},
+		Health:            NewDashboardSnapshotHealth(generatedAt, referenceNow),
+		MetricSnapshot:    newDashboardMetricSnapshot(aggregate),
+		APIFamilyRows:     apiFamilyRows,
+		TopSpendingModels: topSpendingModels,
+		RoutingHealthMap:  cloneDashboardRoutingHealthMap(aggregate.RoutingHealthMap),
+	}
+}
+
+func newDashboardMetricSnapshot(aggregate DashboardAggregateSnapshot) DashboardMetricSnapshot {
+	streamShare := 0.0
+	if aggregate.UsageEventRequestCount24H > 0 {
+		streamShare = roundFloat((float64(aggregate.StreamRequestCount24H)/float64(aggregate.UsageEventRequestCount24H))*100, 2)
+	}
+	snapshot := DashboardMetricSnapshot{
+		ActiveModels:           aggregate.ActiveModelCount,
+		AverageRPM:             aggregate.Throughput24H.AverageRPM,
+		AverageRPMRequestTotal: aggregate.Throughput24H.TotalRequests,
+		PricedRequestCount:     aggregate.SpendingSummary30D.Summary.PricedRequestCount,
+		StreamShare:            streamShare,
+		TotalCost:              aggregate.SpendingSummary30D.Summary.TotalCostMicros,
+		TotalModels:            aggregate.TotalModelCount,
+		TotalRequests:          aggregate.StatsSummary24H.TotalRequests,
+		UnpricedRequestCount:   aggregate.SpendingSummary30D.Summary.UnpricedRequestCount,
+	}
+	if total := aggregate.StatsSummary24H.TotalRequests; total > 0 {
+		successRate := aggregate.StatsSummary24H.SuccessRate
+		// Error rate comes straight from the counts instead of 100 minus
+		// success rate: the subtraction would turn "no samples" into "100%
+		// failed" and would carry the success-rate rounding drift.
+		errorRate := roundFloat(float64(aggregate.StatsSummary24H.ErrorCount)/float64(total)*100, 2)
+		avgLatency := aggregate.StatsSummary24H.AvgResponseTimeMS
+		p95 := aggregate.StatsSummary24H.P95ResponseTimeMS
+		snapshot.SuccessRate, snapshot.ErrorRate = &successRate, &errorRate
+		snapshot.AvgLatency, snapshot.P95Latency = &avgLatency, &p95
+	}
+	return snapshot
+}
+
+func BuildDashboardAggregateSnapshot(ctx context.Context, exec queryExecutor, profileID int, referenceNow time.Time) (DashboardAggregateSnapshot, error) {
+	generatedAt := referenceNow.UTC()
+	windowStart24H := generatedAt.Add(-24 * time.Hour)
+	apiFamilyGroupBy := "api_family"
+	models, err := loadDashboardSnapshotModels(ctx, exec, profileID)
+	if err != nil {
+		return DashboardAggregateSnapshot{}, err
+	}
+	statsSummary, err := GetStatsSummary(ctx, exec, StatsSummaryParams{ProfileID: profileID, FromTime: &windowStart24H, ToTime: &generatedAt})
+	if err != nil {
+		return DashboardAggregateSnapshot{}, err
+	}
+	apiFamilySummary, err := GetStatsSummary(ctx, exec, StatsSummaryParams{ProfileID: profileID, FromTime: &windowStart24H, ToTime: &generatedAt, GroupBy: &apiFamilyGroupBy})
+	if err != nil {
+		return DashboardAggregateSnapshot{}, err
+	}
+	spendingSummary, err := GetSpending(ctx, exec, SpendingParams{ProfileID: profileID, Preset: "last_30_days", ToTime: &generatedAt, GroupBy: "none", Limit: 50, Offset: 0, TopN: 5, ReferenceNow: generatedAt})
+	if err != nil {
+		return DashboardAggregateSnapshot{}, err
+	}
+	throughput, err := GetDashboardThroughput(ctx, exec, ThroughputParams{ProfileID: profileID, FromTime: &windowStart24H, ToTime: &generatedAt})
+	if err != nil {
+		return DashboardAggregateSnapshot{}, err
+	}
+	usageSnapshot, err := GetUsageSnapshot(ctx, exec, profileID, "1h", generatedAt)
+	if err != nil {
+		return DashboardAggregateSnapshot{}, err
+	}
+	streamRequestCount, usageEventRequestCount, err := loadDashboardStreamRequestCounts(ctx, exec, profileID, windowStart24H, generatedAt)
+	if err != nil {
+		return DashboardAggregateSnapshot{}, err
+	}
+	sourceWatermark, err := loadDashboardSnapshotSourceWatermark(ctx, exec, profileID, generatedAt)
+	if err != nil {
+		return DashboardAggregateSnapshot{}, err
+	}
+	routingHealthMap, err := buildDashboardRoutingHealthMap(ctx, exec, profileID, models, windowStart24H, generatedAt)
+	if err != nil {
+		return DashboardAggregateSnapshot{}, err
+	}
+	return DashboardAggregateSnapshot{
+		ProfileID:                 profileID,
+		GeneratedAt:               generatedAt,
+		SnapshotRevision:          newDashboardSnapshotRevision(generatedAt),
+		SourceWatermark:           sourceWatermark,
+		StatsSummary24H:           statsSummary,
+		APIFamilySummary24H:       apiFamilySummary,
+		SpendingSummary30D:        spendingSummary,
+		Throughput24H:             throughput,
+		UsageSnapshotPreset1:      usageSnapshot,
+		StreamRequestCount24H:     streamRequestCount,
+		UsageEventRequestCount24H: usageEventRequestCount,
+		RoutingHealthMap:          routingHealthMap,
+		TotalModelCount:           len(models),
+		ActiveModelCount:          countDashboardActiveModels(models),
+	}, nil
+}
+
+func loadDashboardStreamRequestCounts(ctx context.Context, exec queryExecutor, profileID int, fromTime time.Time, toTime time.Time) (int, int, error) {
+	var streamCount int64
+	var totalCount int64
+	if err := exec.QueryRow(ctx, `SELECT
+		COUNT(*) FILTER (WHERE COALESCE(NULLIF(stream_outcome, ''), 'not_streaming') <> 'not_streaming'),
+		COUNT(*)
+		FROM usage_request_events
+		WHERE profile_id = $1 AND created_at >= $2 AND created_at < $3`, profileID, fromTime.UTC(), toTime.UTC()).Scan(&streamCount, &totalCount); err != nil {
+		return 0, 0, fmt.Errorf("query dashboard usage-event stream request counts for profile %d: %w", profileID, err)
+	}
+	return int(streamCount), int(totalCount), nil
+}
+
+func loadDashboardSnapshotSourceWatermark(ctx context.Context, exec queryExecutor, profileID int, generatedAt time.Time) (DashboardSnapshotSourceWatermark, error) {
+	var createdAt sql.NullTime
+	var id sql.NullInt64
+	if err := exec.QueryRow(ctx, `SELECT
+		(SELECT created_at FROM usage_request_events WHERE profile_id = $1 AND created_at <= $2 ORDER BY created_at DESC, id DESC LIMIT 1),
+		(SELECT id FROM usage_request_events WHERE profile_id = $1 AND created_at <= $2 ORDER BY created_at DESC, id DESC LIMIT 1)`, profileID, generatedAt.UTC()).Scan(&createdAt, &id); err != nil {
+		return DashboardSnapshotSourceWatermark{}, fmt.Errorf("query dashboard source watermark for profile %d: %w", profileID, err)
+	}
+	watermark := DashboardSnapshotSourceWatermark{}
+	if createdAt.Valid {
+		latestUsageEventCreatedAt := createdAt.Time.UTC()
+		watermark.LatestUsageEventCreatedAt = &latestUsageEventCreatedAt
+	}
+	if id.Valid {
+		latestUsageEventID := int(id.Int64)
+		watermark.LatestUsageEventID = &latestUsageEventID
+	}
+	return watermark, nil
+}
+
+func statsStringPtr(value string) *string {
+	resolved := value
+	return &resolved
+}
