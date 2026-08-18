@@ -32,7 +32,8 @@ runtime/
 ├── failed_attempt_diagnostics.go # Failed-attempt diagnostics
 ├── runtime_feedback.go          # Runtime feedback handoff
 ├── routing_plan*.go             # Routing plan compilation and validation helpers
-├── planning_snapshot.go         # Access-target snapshot assembly and resolution ordering helpers
+├── planning_snapshot.go         # Runtime planning snapshot assembly and connection compilation
+├── planning_access_resolution.go # Mixed access-target resolution, compatibility, and schedule gates
 ├── planning_snapshot_legacy.go  # Legacy snapshot compatibility helpers
 ├── planning_classification.go   # Failed OpenAI text resolution → the stable OpenAI planning rejection codes
 ├── planning_schedule_codes.go   # Family-neutral routing-schedule planning codes and their attribution whitelist
@@ -83,8 +84,8 @@ runtime/
 ## WHERE TO LOOK
 - Exact supported operations, hook collection ids, streaming flags, and model-binding sources: `operations.go`
 - Ingress rejection before body reads and response branching: `ingress.go`, `response_write.go`, `service.go`
-- Request planning and exact model binding: `request_plan.go`, `runtime_planning.go`, `runtime_operation_binding.go`, `runtime_model_rewrite.go`, `runtime_planner.go`, `routing_plan*.go`, `generations.go`, `planning_snapshot.go`, `planning_snapshot_legacy.go`, `proxy_selector_helpers.go`
-- Snapshot records and runtime database reads: `planning_snapshot_records.go`, `runtime_snapshot_queries.go`
+- Request planning and exact model binding: `request_plan.go`, `runtime_planning.go`, `runtime_operation_binding.go`, `runtime_model_rewrite.go`, `runtime_planner.go`, `routing_plan*.go`, `generations.go`, `planning_snapshot.go`, `planning_access_resolution.go`, `planning_snapshot_legacy.go`, `proxy_selector_helpers.go`
+- Snapshot assembly, mixed access resolution, and runtime database reads: `planning_snapshot.go`, `planning_access_resolution.go`, `planning_snapshot_records.go`, `runtime_snapshot_queries.go`
 - Execution state and upstream attempts: `request_execution.go`, `request_execution_loop.go`, `upstream_attempt.go`, `failed_attempt_diagnostics.go`
 - Header policy: `upstream_header_policy.go`
 - Runtime-to-gateway adapter seams and usage normalization: `*_adapter_bridge.go`, `gateway_core_bridge.go`, `gateway_typed_hooks_bridge.go`, `provider_usage_conversion.go`
