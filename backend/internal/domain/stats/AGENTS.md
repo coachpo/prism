@@ -8,7 +8,12 @@
 stats/
 ├── common.go                     # Package-internal query executor, shared records, time/percentile/label helpers
 ├── classifier.go                 # Canonical outcome and pricing-status classifier reused by every read model
-├── aggregates.go                 # Shared aggregate buckets and cost/usage helpers
+├── aggregates.go                 # Stats summary aggregation
+├── throughput.go                 # Request and dashboard throughput metrics
+├── model_metrics.go              # Batch model metrics
+├── endpoint_model_statistics.go  # Endpoint model statistics
+├── spending.go                   # Spending report aggregation
+├── usage_event_records.go        # Shared usage-event loading and scanning
 ├── types.go                      # JSON-facing read-model types
 ├── dashboard_health.go           # Dashboard freshness/coverage helper types
 ├── dashboard_snapshot_builder.go # Overview dashboard aggregate snapshot
@@ -50,7 +55,9 @@ stats/
 - Finalized ingress summaries: `request_logs_chain_summary.go`
 - Ingress-chain coverage projections: `request_logs_chain_coverage.go`
 - Retained ingress rows: `request_logs_chain_rows.go`
-- Usage snapshot, spending, endpoint/model/proxy-key aggregates: `snapshot.go`, `aggregates.go`
+- Usage snapshot, spending, endpoint/model/proxy-key aggregates: `snapshot.go`, `spending.go`, `endpoint_model_statistics.go`, `model_metrics.go`
+- Stats summary and throughput metrics: `aggregates.go`, `throughput.go`
+- Shared usage-event loading/scanning: `usage_event_records.go`
 - Usage snapshot latency trends expose hourly/daily p50 and p95 `response_time_ms` buckets through `latency_trends` beside request and token trends.
 - HTTP management consumers: `../../httpapi/management/stats/`
 
