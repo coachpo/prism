@@ -7,7 +7,9 @@
 ```text
 endpoints/
 ├── EndpointsFeaturePage.tsx    # Page shell, toolbar (search + filter Select), dialog wiring
-├── EndpointTable.tsx           # Desktop compact table + mobile description-list cards + disclosure
+├── EndpointTable.tsx           # Endpoint table shell, sorting, and responsive composition
+├── EndpointRows.tsx             # Desktop/mobile endpoint row rendering
+├── EndpointReferenceDisclosure.tsx # Reference summary/detail disclosure rendering
 ├── EndpointDialog.tsx          # Create/edit form, key identity summary, URL preview, save/verify dual state
 ├── endpointSchemas.ts          # Form schema parity (128/512), canonical URL preview, payload builders
 ├── useEndpointsFeatureData.ts  # Page coordinator: list/references reconciliation, CRUD, verify, delete machine, orphan cleanup, attach
@@ -24,6 +26,7 @@ endpoints/
 ## CONVENTIONS
 - Follow `frontend/DESIGN.md` for all UI/UX work: prefer `@/shared/design-system` operator components, preserve the Material 3 operator direction, use semantic tokens and density variables.
 - Reference-derived filter/sort is disabled whenever any summary is unknown or stale; the filter normalizes to `all` with a visible explanation while text search keeps working.
+- Endpoint table shell, row rendering, and reference disclosure are split across `EndpointTable.tsx`, `EndpointRows.tsx`, and `EndpointReferenceDisclosure.tsx`; `useEndpointReferences.ts` owns `summaryFor` and all reference state transitions.
 - Detail succeeds atomically replace the batch summary for that Endpoint; generations discard superseded responses; stale/cursor errors restart pagination from page one.
 - No reducer or selector may coerce loading/error/stale reference state to an empty summary, and delete confirmation requires a fresh zero-reference preflight (lock-time `409 endpoint_in_use` replaces the dialog page).
 - Save-and-verify is two ordered phases: commit first, then verify against the committed `config_revision`/fingerprint; negative outcomes keep the saved state and render inline; late/stale results never claim currency.
