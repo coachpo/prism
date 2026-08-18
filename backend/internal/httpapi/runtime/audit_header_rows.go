@@ -22,10 +22,11 @@ func runtimeAuditRequestURL(requestURL string, request *http.Request) string {
 
 // marshalAuditHeaders serializes scrubbed canonical request header entries.
 // Every value is irreversibly scrubbed with the fixed-bottom-line matcher
-// (Requests SPEC §5.5) before it may enter telemetry; pre-scrub values never
-// reach the outbox, staging, DB, logs, or traces.
-func marshalAuditHeaders(headers map[string]string) string {
-	entries := scrubAuditHeaderMap(headers)
+// (Requests SPEC §5.5) and the request-time effective Header Blocklist before
+// it may enter telemetry; pre-scrub values never reach the outbox, staging, DB,
+// logs, or traces.
+func marshalAuditHeaders(headers map[string]string, extraRules []safediag.SensitiveNameRule) string {
+	entries := scrubAuditHeaderMap(headers, extraRules)
 	encoded, err := json.Marshal(entries)
 	if err != nil {
 		return "{}"
@@ -33,8 +34,8 @@ func marshalAuditHeaders(headers map[string]string) string {
 	return string(encoded)
 }
 
-func marshalAuditHTTPHeaders(headers http.Header) *string {
-	entries := scrubAuditHTTPHeaderEntries(headers)
+func marshalAuditHTTPHeaders(headers http.Header, extraRules []safediag.SensitiveNameRule) *string {
+	entries := scrubAuditHTTPHeaderEntries(headers, extraRules)
 	if entries == nil {
 		return nil
 	}
@@ -49,11 +50,11 @@ func marshalAuditHTTPHeaders(headers http.Header) *string {
 // scrubAuditHeaderMap returns canonical lowercased-name entries with every
 // value redacted when its name is sensitive; non-sensitive values keep their
 // original bytes (they were already sanitized by buildUpstreamHeaders).
-func scrubAuditHeaderMap(headers map[string]string) []auditHeaderEntry {
+func scrubAuditHeaderMap(headers map[string]string, extraRules []safediag.SensitiveNameRule) []auditHeaderEntry {
 	if len(headers) == 0 {
 		return []auditHeaderEntry{}
 	}
-	matcher := safediag.NewSensitiveNameMatcher()
+	matcher := safediag.NewSensitiveNameMatcher(extraRules...)
 	entries := make([]auditHeaderEntry, 0, len(headers))
 	for key, value := range headers {
 		normalizedKey := strings.ToLower(strings.TrimSpace(key))
@@ -77,11 +78,11 @@ func scrubAuditHeaderMap(headers map[string]string) []auditHeaderEntry {
 	return entries
 }
 
-func scrubAuditHTTPHeaderEntries(headers http.Header) []auditHeaderEntry {
+func scrubAuditHTTPHeaderEntries(headers http.Header, extraRules []safediag.SensitiveNameRule) []auditHeaderEntry {
 	if len(headers) == 0 {
 		return nil
 	}
-	matcher := safediag.NewSensitiveNameMatcher()
+	matcher := safediag.NewSensitiveNameMatcher(extraRules...)
 	entries := make([]auditHeaderEntry, 0, len(headers))
 	for key, values := range headers {
 		normalizedKey := strings.ToLower(strings.TrimSpace(key))

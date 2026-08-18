@@ -65,8 +65,8 @@ func (s *Service) startFailedResponseSampler(ctx context.Context, plan requestPl
 }
 
 // planBlocklistSensitiveRules converts the request-time effective Header
-// Blocklist into scrubber extra rules so diagnostics are at least as strict
-// as the outbound forwarding policy.
+// Blocklist into extra sensitive-name rules for runtime scrubbing. Every
+// consumer remains at least as strict as the outbound forwarding policy.
 func planBlocklistSensitiveRules(plan requestPlan) []safediag.SensitiveNameRule {
 	rules := make([]safediag.SensitiveNameRule, 0, len(plan.BlocklistRules))
 	for _, rule := range plan.BlocklistRules {

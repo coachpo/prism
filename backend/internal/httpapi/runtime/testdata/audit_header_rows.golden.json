@@ -1,0 +1,6 @@
+{
+  "request_source": "[{\"name\":\"Authorization\",\"value\":\"Bearer sk-live-golden-request-key\"},{\"name\":\"X-Forwarded-For\",\"value\":\"198.51.100.42\"},{\"name\":\"Set-Cookie\",\"value\":\"session=live-golden-cookie\"},{\"name\":\"X-Visible\",\"value\":\"visible\"}]",
+  "request_serialized": "[{\"name\":\"authorization\",\"value\":\"[REDACTED]\"},{\"name\":\"set-cookie\",\"value\":\"[REDACTED]\"},{\"name\":\"x-forwarded-for\",\"value\":\"[REDACTED]\"},{\"name\":\"x-visible\",\"value\":\"visible\"}]",
+  "response_source": "[{\"name\":\"Set-Cookie\",\"value\":\"live-response-cookie-1\"},{\"name\":\"Set-Cookie\",\"value\":\"live-response-cookie-2\"},{\"name\":\"CF-Connecting-IP\",\"value\":\"198.51.100.43\"},{\"name\":\"XCF-Connecting-IP\",\"value\":\"visible-xcf\"},{\"name\":\"Access-Control-Allow-Credentials\",\"value\":\"true\"}]",
+  "response_serialized": "[{\"name\":\"access-control-allow-credentials\",\"value\":\"true\"},{\"name\":\"cf-connecting-ip\",\"value\":\"[REDACTED]\"},{\"name\":\"set-cookie\",\"value\":\"[REDACTED]\"},{\"name\":\"set-cookie\",\"value\":\"[REDACTED]\"},{\"name\":\"xcf-connecting-ip\",\"value\":\"visible-xcf\"}]"
+}
