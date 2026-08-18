@@ -10,7 +10,12 @@ api/
 ├── profileScope.ts   # Management-route matcher for pinned Default-profile headers
 ├── authSettings.ts   # Auth bootstrap/session/login/logout, settings.auth, and proxy keys
 ├── management.ts     # Models, access targets, loadbalance strategies, endpoints, connections, pricing templates
-├── observability.ts  # Stats, usage snapshot, config rules, audit, loadbalance events/current-state, settings costing/timezone/retention
+├── observability.ts  # Compatibility barrel for split retained-observability clients
+├── stats.ts          # Retained statistics and request-log clients
+├── settings.ts       # Management settings and configuration-rule clients
+├── event_clients.ts  # Retained audit and loadbalance event clients
+├── observe.ts        # Observe analytics clients and response contracts
+├── model_routing.ts  # Model routing diagnostics and Terminal Target copies
 ├── endpointErrors.ts # Typed Endpoint error guards; never specializes `ApiError` globally
 └── *.test.ts         # Client core coverage
 ```
@@ -21,7 +26,12 @@ api/
 - Route allowlist for management calls that should receive `X-Profile-Id`: `profileScope.ts`; drift tests assert it against `../../../backend/internal/platform/http/management_route_contract.json`
 - Cookie-auth bootstrap/session flows, settings auth endpoints, and proxy-key endpoints: `authSettings.ts`
 - Default-profile model, access-target, loadbalance strategy, endpoint, connection, and pricing-template surfaces: `management.ts`
-- Observability, usage snapshot, throughput, header-blocklist and user-agent/client rules, audit logs, loadbalance current state/events, and settings costing/timezone/API-family audit/retention clients: `observability.ts`
+- Retained statistics, usage snapshot, throughput, and request-log clients: `stats.ts`
+- Settings costing/timezone/audit/retention and header-blocklist or User-Agent rule clients: `settings.ts`
+- Audit logs and loadbalance current-state/event clients: `event_clients.ts`
+- Observe analytics query-context, summary, series, errors, and activity clients: `observe.ts`
+- Model routing diagnostics and Terminal Target copy clients: `model_routing.ts`
+- Compatibility import barrel for existing direct callers: `observability.ts`
 - Runtime operation paths `/v1` and `/v1beta` stay outside this client split; launcher/Vite proxying passes them through and backend runtime owns allowlist enforcement.
 
 ## CONVENTIONS
