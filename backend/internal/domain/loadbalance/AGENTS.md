@@ -9,10 +9,15 @@ loadbalance/
 ├── service.go                  # Management-facing current-state, reset, event, incident, and delete helpers
 ├── runtime_strategy.go         # Ban Policy and routing strategy math
 ├── runtime_state.go            # Persisted runtime state projection helpers
-├── runtime_local_state.go      # In-process/runtime-local state provider behavior
+├── runtime_local_state.go      # Runtime-local state lifecycle
+├── runtime_local_admission.go  # Runtime-local admission and observations
+├── runtime_local_feedback.go   # Runtime-local feedback transitions
+├── runtime_local_round_robin.go # Runtime-local round-robin cursors
 ├── runtime_events.go           # Event creation, summaries, and payload snapshots
 ├── current_state_global.go     # Global current-state cohort, completeness and cursor paging
-├── event_query.go              # Event filter parsing and query construction
+├── event_query.go              # Event timeline query orchestration and filter validation
+├── event_cursor.go             # Event cursor scope binding and codec
+├── event_projection.go         # Event row loading and read projections
 ├── event_dto.go                # Event wire shapes shared with the management layer
 ├── canonical_strategies.go     # Canonical strategy definitions and defaults
 ├── retry_preview.go            # Retry/backoff preview math for the strategy UI
@@ -22,7 +27,8 @@ loadbalance/
 ## WHERE TO LOOK
 - Current-state list, reset, incident, and retention helpers: `service.go`
 - Retry windows, ban thresholds, ban modes, and route-state transitions: `runtime_strategy.go`, `runtime_state.go`
-- Runtime-local state provider and recovery behavior: `runtime_local_state.go`
+- Runtime-local state lifecycle, admission, feedback, and cursors: `runtime_local_state.go`, `runtime_local_admission.go`, `runtime_local_feedback.go`, `runtime_local_round_robin.go`
+- Event query orchestration, cursor binding, row loading, and operator projections: `event_query.go`, `event_cursor.go`, `event_projection.go`
 - Event types and operator summaries: `runtime_events.go`
 - Management routes consuming this domain: `../../httpapi/management/loadbalance/AGENTS.md`
 - Runtime feedback and planner consumers: `../../httpapi/runtime/AGENTS.md`
