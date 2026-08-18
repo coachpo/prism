@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
+	"github.com/go-chi/chi/v5"
 )
 
 // PublicAuthOperationStatus is the bounded, fixed-shape projection of an
@@ -134,4 +135,23 @@ func (s *Service) handleGetAuthOperationStatus(w http.ResponseWriter, r *http.Re
 
 func (s *Service) writeAuthOperationNotFound(w http.ResponseWriter, r *http.Request) {
 	responseutil.WriteProblem(w, r, s.corsSnapshot(), http.StatusNotFound, "auth_operation_not_found", "身份验证操作不存在", map[string]any{}, nil)
+}
+
+// handleGetAuthOperation: protected GET /api/settings/auth/operations/{id}.
+func (s *Service) handleGetAuthOperation(w http.ResponseWriter, r *http.Request) {
+	setNoStoreHeaders(w)
+	operationID := chi.URLParam(r, "operation_id")
+	var raw []byte
+	err := s.pool.QueryRow(r.Context(), `SELECT result_json FROM settings_mutation_operations
+		WHERE resource_kind = 'auth_settings' AND operation_id = $1`, operationID).Scan(&raw)
+	if err != nil {
+		writeAuthSettingsV2Problem(w, r, s.corsSnapshot(), http.StatusNotFound, "auth_operation_not_found", "Operation not found", nil)
+		return
+	}
+	var result authOperationResultV2
+	if err := json.Unmarshal(raw, &result); err != nil {
+		writeAuthSettingsV2Problem(w, r, s.corsSnapshot(), http.StatusInternalServerError, "auth_settings_unavailable", "Failed to decode authentication operation", nil)
+		return
+	}
+	responseutil.WriteJSON(w, http.StatusOK, result)
 }

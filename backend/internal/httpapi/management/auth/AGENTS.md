@@ -6,33 +6,41 @@
 ## STRUCTURE
 ```
 auth/
-├── routes.go                  # Route mounting, management/runtime middleware, handlers
-├── service.go                 # Auth settings load/update, publish proof, rollback transition
-├── login_throttle.go          # Login-throttle ledger
-├── session_store.go           # Session lifecycle persistence
-├── auth_settings_store.go     # Auth-settings persistence
-├── proxy_key_store.go         # Proxy-key persistence
-├── proxy_key_request.go       # Proxy-key request validation
-├── tokens.go                  # Access/refresh token minting, rotation, revocation
-├── cookies.go                 # Access/refresh cookie helpers
-├── request_tokens.go          # Request-token helpers
-├── operations.go              # Auth transition operations (operation id, status route)
-├── settings_v2.go             # Immutable desired/effective auth handoff and Proxy readiness fence
-├── problems.go                # Auth problem registry (flat envelope codes)
-├── types.go                   # Tagged PublicAuthStatus, session/proxy-key payloads
-├── runtime_config.go          # Runtime auth config snapshot (cookie names, TTLs)
-├── runtime_cache.go           # Published runtime-auth snapshot + invalidation
-├── proxy_key_usage_writer.go  # Proxy-key usage persistence
-├── proxy_setup_readiness.go   # Proxy-key setup readiness projection (sixth setup fact)
-└── *_test.go                  # Registry, middleware matrix, store, runtime-cache tests
+├── routes.go                      # Legacy v1 auth handlers, runtime probe, shared request/response helpers
+├── service.go                     # Auth settings load/update, publish proof, rollback transition
+├── management_auth_middleware.go  # Management session enforcement middleware
+├── runtime_middleware.go          # Runtime proxy-key attribution middleware
+├── session_routes.go              # Browser session endpoints
+├── proxy_key_routes.go            # Proxy API key endpoints
+├── problem_writers.go             # Auth problem envelope writers
+├── login_throttle.go              # Login-throttle ledger
+├── session_store.go               # Session lifecycle persistence
+├── auth_settings_store.go         # Auth-settings persistence
+├── proxy_key_store.go             # Proxy-key persistence
+├── proxy_key_request.go           # Proxy-key request validation
+├── tokens.go                      # Access/refresh token minting, rotation, revocation
+├── cookies.go                     # Access/refresh cookie helpers
+├── request_tokens.go              # Request-token helpers
+├── operations.go                  # Auth transition operations (operation id, status route)
+├── settings_v2.go                 # v2 auth settings transition mutation
+├── auth_settings_v2_read.go       # v2 auth settings read path
+├── proxy_key_readiness_fence.go   # Proxy-owned readiness fence snapshot; every capture writes the generation
+├── problems.go                    # Auth problem registry (flat envelope codes)
+├── types.go                       # Tagged PublicAuthStatus, session/proxy-key payloads
+├── runtime_config.go              # Runtime auth config snapshot (cookie names, TTLs)
+├── runtime_cache.go               # Published runtime-auth snapshot + invalidation
+├── proxy_key_usage_writer.go      # Proxy-key usage persistence
+├── proxy_setup_readiness.go       # Proxy-key setup readiness projection (sixth setup fact); reads the fence
+└── *_test.go                      # Registry, middleware matrix, store, runtime-cache tests
 ```
 
 ## WHERE TO LOOK
-- Route mounting and handlers: `routes.go`, `service.go`
-- Tagged PublicAuthStatus union and session payloads: `types.go`, `routes.go` (`buildPublicAuthStatus`, `buildAuthenticatedSession`)
-- Auth problem registry and flat envelope writer: `problems.go`, `../responseutil/problem_envelope.go`
+- Route mounting and handlers: `service.go`, `session_routes.go`, `proxy_key_routes.go`, `routes.go`
+- Tagged PublicAuthStatus union and session payloads: `types.go`, `routes.go` (`buildPublicAuthStatus`), `session_routes.go` (`buildAuthenticatedSession`)
+- Auth problem registry and flat envelope writer: `problems.go`, `problem_writers.go`, `../responseutil/problem_envelope.go`
 - Auth settings, publish proof (`validateAuthSettingsPublished`), rollback transition (`enterAuthRollbackRequired`), and route construction: `service.go`, `routes.go`, `runtime_config.go`, `runtime_cache.go`
 - Session persistence and refresh-token lifecycle: `session_store.go`, `types.go`, `tokens.go`, `routes_test.go`, `store_test.go`, `runtime_cache_test.go`
+- Management session enforcement and runtime proxy-key attribution middleware: `management_auth_middleware.go`, `runtime_middleware.go`, `runtime_middleware_matrix_test.go`
 - Login-throttle ledger: `login_throttle.go`
 - Auth-settings persistence and transition rows: `auth_settings_store.go`
 - Proxy-key rows, capacity serialization, and expiry: `proxy_key_store.go`
@@ -41,7 +49,7 @@ auth/
 - Transition operations and `GET /api/auth/operations/{operation_id}/status`: `operations.go`
 - Proxy API key capture and usage writer: `proxy_key_usage_writer.go`, `../../proxykeyusage/`
 - Proxy-key setup readiness projection: `proxy_setup_readiness.go`
-- v2 auth settings and Proxy readiness capture: `settings_v2.go`; the readiness count is one server-clock snapshot with a 30-second safe-active horizon and is the only source used by auth enablement and setup handoff.
+- v2 auth settings and Proxy readiness capture: `settings_v2.go` (transition mutation), `auth_settings_v2_read.go` (read path and response projection), `proxy_key_readiness_fence.go` (readiness capture); the readiness count is one server-clock snapshot with a 30-second safe-active horizon and is the only source used by auth enablement and setup handoff.
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
