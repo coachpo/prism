@@ -9,7 +9,8 @@ api/
 ├── core.ts           # API base, credentials, X-Profile-Id injection, refresh retry, query builder
 ├── profileScope.ts   # Management-route matcher for pinned Default-profile headers
 ├── authSettings.ts   # Auth bootstrap/session/login/logout, settings.auth, and proxy keys
-├── management.ts     # Models, access targets, loadbalance strategies, endpoints, connections, pricing templates
+├── management.ts     # Models, access targets, and loadbalance strategy clients
+├── management_resources.ts # Endpoint, connection, and pricing-template resource clients
 ├── observability.ts  # Compatibility barrel for split retained-observability clients
 ├── stats.ts          # Retained statistics and request-log clients
 ├── settings.ts       # Management settings and configuration-rule clients
@@ -25,7 +26,8 @@ api/
 - Shared request rules, cookie credentials, `ApiError`, auth-refresh retry, and pinned `X-Profile-Id: 1` injection for Default-profile management routes: `core.ts`
 - Route allowlist for management calls that should receive `X-Profile-Id`: `profileScope.ts`; drift tests assert it against `../../../backend/internal/platform/http/management_route_contract.json`
 - Cookie-auth bootstrap/session flows, settings auth endpoints, and proxy-key endpoints: `authSettings.ts`
-- Default-profile model, access-target, loadbalance strategy, endpoint, connection, and pricing-template surfaces: `management.ts`
+- Default-profile model, access-target, and loadbalance strategy surfaces: `management.ts`
+- Endpoint, connection, and pricing-template resource surfaces: `management_resources.ts`
 - Retained statistics, usage snapshot, throughput, and request-log clients: `stats.ts`
 - Settings costing/timezone/audit/retention and header-blocklist or User-Agent rule clients: `settings.ts`
 - Audit logs and loadbalance current-state/event clients: `event_clients.ts`
