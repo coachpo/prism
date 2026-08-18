@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
 	auditdomain "github.com/coachpo/prism/backend/internal/domain/audit"
@@ -725,34 +724,4 @@ func nextGenerationInt(current *string) int64 {
 	// monotonically increasing timestamp so the generation stays unique and
 	// strictly increasing.
 	return time.Now().UTC().UnixNano()
-}
-
-// handleGetPublicAuthOperationStatus: auth-exempt public transition status.
-func (s *Service) handleGetPublicAuthOperationStatus(w http.ResponseWriter, r *http.Request) {
-	setNoStoreHeaders(w)
-	operationID := chi.URLParam(r, "operation_id")
-	var raw []byte
-	err := s.pool.QueryRow(r.Context(), `SELECT result_json FROM settings_mutation_operations
-		WHERE resource_kind = 'auth_settings' AND operation_id = $1`, operationID).Scan(&raw)
-	if err != nil {
-		writeAuthSettingsV2Problem(w, r, s.corsSnapshot(), http.StatusNotFound, "auth_operation_not_found", "Not found", nil)
-		return
-	}
-	var result authOperationResultV2
-	if err := json.Unmarshal(raw, &result); err != nil {
-		writeAuthSettingsV2Problem(w, r, s.corsSnapshot(), http.StatusInternalServerError, "auth_settings_unavailable", "Failed to decode authentication operation", nil)
-		return
-	}
-	accessState := "disabled"
-	if mode, ok := result.Settings["auth_mode"].(map[string]any); ok {
-		if value, ok := mode["access_state"].(string); ok {
-			accessState = value
-		}
-	}
-	responseutil.WriteJSON(w, http.StatusOK, map[string]any{
-		"state":                result.State,
-		"access_state":         accessState,
-		"effective_generation": result.EffectiveGeneration,
-		"retry_after_seconds":  nil,
-	})
 }

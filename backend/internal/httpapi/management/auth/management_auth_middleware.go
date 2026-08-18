@@ -23,22 +23,6 @@ func isPublicManagementPath(path string) bool {
 	return ok
 }
 
-func (s *Service) Middleware(next http.Handler) http.Handler {
-	managementHandler := s.ManagementMiddleware(next)
-	runtimeHandler := s.RuntimeMiddleware(next)
-
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case requiresManagementAuthHandling(r.URL.Path):
-			managementHandler.ServeHTTP(w, r)
-		case requiresRuntimeAuthHandling(r.URL.Path):
-			runtimeHandler.ServeHTTP(w, r)
-		default:
-			next.ServeHTTP(w, r)
-		}
-	})
-}
-
 func (s *Service) managementMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodOptions || !requiresManagementAuthHandling(r.URL.Path) {

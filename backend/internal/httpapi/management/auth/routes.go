@@ -26,16 +26,6 @@ func requestIP(request *http.Request) string {
 	return strings.TrimSpace(request.RemoteAddr)
 }
 
-func (s *Service) handleGetAuthStatus(w http.ResponseWriter, r *http.Request) {
-	setNoStoreHeaders(w)
-	settingsRow, err := s.loadOrCreateAppAuthSettings(r.Context(), s.pool)
-	if err != nil {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
-		return
-	}
-	responseutil.WriteJSON(w, http.StatusOK, s.buildPublicAuthStatus(settingsRow))
-}
-
 // buildPublicAuthStatus renders the tagged PublicAuthStatus union. The only
 // legal combinations are enabled+null|disabling_enforced, disabled+null, and
 // transition_fail_closed+enabling_fail_closed|rollback_required; every
@@ -103,60 +93,6 @@ func newOperationID() string {
 		hex.EncodeToString(buf[8:10]),
 		hex.EncodeToString(buf[10:16]),
 	)
-}
-
-func (s *Service) handleGetAuthSettings(w http.ResponseWriter, r *http.Request) {
-	setNoStoreHeaders(w)
-	settingsRow, err := s.loadOrCreateAppAuthSettings(r.Context(), s.pool)
-	if err != nil {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Failed to load authentication settings")
-		return
-	}
-	responseutil.WriteJSON(w, http.StatusOK, s.buildAuthSettingsResponse(settingsRow))
-}
-
-func (s *Service) handlePutAuthSettings(w http.ResponseWriter, r *http.Request) {
-	setNoStoreHeaders(w)
-	authConfig := s.runtimeAuthConfigSnapshot()
-	var requestBody authSettingsUpdateRequest
-	if err := decodeJSONBody(r, &requestBody); err != nil {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
-		return
-	}
-	result, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (authSettingsMutationResult, error) {
-		settingsRow, loadErr := s.loadOrCreateAppAuthSettings(r.Context(), tx)
-		if loadErr != nil {
-			return authSettingsMutationResult{}, fmt.Errorf("load auth settings: %w", loadErr)
-		}
-		return s.updateAuthSettings(r.Context(), tx, settingsRow, requestBody)
-	})
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	s.invalidateAppAuthSettingsSnapshot()
-	if result.SessionInvalidated {
-		s.clearAuthCookies(w, authConfig)
-	}
-	// Publish proof: the just-written effective mode/generation must
-	// round-trip through a fresh DB read (the same source the management
-	// middleware consumes) before it is reported as effective. This check is
-	// available in every service shape and never probes the runtime cache,
-	// which the management service does not own; runtime adoption follows the
-	// invalidation middleware's generation bump, and a genuinely unavailable
-	// runtime snapshot is already fail-closed by the runtime middleware's
-	// typed 503. Persisted transition states stay real (crash-interrupted or
-	// explicitly seeded operations), never entered from a transient refresh
-	// race. A failed round-trip is a real persistence failure: the write is
-	// reverted and a durable rollback_required transition is persisted with
-	// the initiating browser's operation id (or a server fallback).
-	if err := s.validateAuthSettingsPublished(r.Context(), result.Row); err != nil {
-		slog.Warn("auth settings publish proof failed", "error", err)
-		s.enterAuthRollbackRequired(w, r, result, requestBody.OperationID, authConfig)
-		writeTransitionProblem(w, r, s.corsSnapshot(), "rollback_required", result.Previous.EffectiveAuthGeneration, nil)
-		return
-	}
-	responseutil.WriteJSON(w, http.StatusOK, s.buildAuthSettingsResponse(result.Row))
 }
 
 // validateAuthSettingsPublished proves the just-written settings row

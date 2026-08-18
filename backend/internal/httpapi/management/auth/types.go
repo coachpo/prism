@@ -46,10 +46,6 @@ type authSettingsUpdateRequest struct {
 	OperationID string `json:"operation_id,omitempty"`
 }
 
-type successResponse struct {
-	Success bool `json:"success"`
-}
-
 type proxyAPIKeyResponse struct {
 	ID            int        `json:"id"`
 	Name          string     `json:"name"`
