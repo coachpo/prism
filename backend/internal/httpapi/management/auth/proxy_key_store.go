@@ -312,20 +312,6 @@ func (s *Service) deleteProxyAPIKey(ctx context.Context, tx pgx.Tx, keyID int) (
 	return capacity, nil
 }
 
-func (s *Service) verifyProxyAPIKey(ctx context.Context, rawKey string) (*proxyAPIKeyRow, error) {
-	if s.runtimeCache == nil {
-		return nil, runtimeSnapshotUnavailableError()
-	}
-	decision, err := s.runtimeCache.LoadFreshRuntimeProxyKeyDecision(ctx, s.nowUTC(), rawKey)
-	if err != nil {
-		return nil, err
-	}
-	if !decision.Allowed {
-		return nil, nil
-	}
-	return &proxyAPIKeyRow{ID: decision.KeyID, Name: decision.KeyName}, nil
-}
-
 func (s *Service) serializeProxyAPIKey(row proxyAPIKeyRow) proxyAPIKeyResponse {
 	visiblePrefix := row.KeyPrefix
 	previewPrefixLength := len(proxyAPIKeyPrefix) + s.proxyKeyPreviewSize

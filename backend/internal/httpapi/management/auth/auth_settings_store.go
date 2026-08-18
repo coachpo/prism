@@ -10,26 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
-
-type domainError struct {
-	StatusCode int
-	Code       string
-	Detail     string
-	Details    any
-	Fields     map[string]any
-}
-
-func (err *domainError) Error() string {
-	return err.Detail
-}
-
-type queryExecutor interface {
-	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
-	Query(context.Context, string, ...any) (pgx.Rows, error)
-	QueryRow(context.Context, string, ...any) pgx.Row
-}
 
 type appAuthSettingsRow struct {
 	ID                      int

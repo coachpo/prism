@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -124,4 +125,18 @@ func extractProxyAPIKey(header http.Header) (string, string) {
 		}
 	}
 	return "", ""
+}
+
+func (s *Service) verifyProxyAPIKey(ctx context.Context, rawKey string) (*proxyAPIKeyRow, error) {
+	if s.runtimeCache == nil {
+		return nil, runtimeSnapshotUnavailableError()
+	}
+	decision, err := s.runtimeCache.LoadFreshRuntimeProxyKeyDecision(ctx, s.nowUTC(), rawKey)
+	if err != nil {
+		return nil, err
+	}
+	if !decision.Allowed {
+		return nil, nil
+	}
+	return &proxyAPIKeyRow{ID: decision.KeyID, Name: decision.KeyName}, nil
 }
