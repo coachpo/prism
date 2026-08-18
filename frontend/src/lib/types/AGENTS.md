@@ -7,7 +7,11 @@
 ```text
 types/
 ├── auth.ts
-├── config-audit-settings.ts
+├── config-audit-settings.ts  # Compatibility barrel for split management contracts
+├── management-settings.ts    # Audit, retention, and configuration policy settings
+├── audit-logs.ts              # Requests/Audit log and coverage contracts
+├── retention-jobs.ts          # Retention preflight, job, and impact contracts
+├── currency-migration.ts      # Costing and currency migration contracts
 ├── loadbalance.ts
 ├── model-stats.ts
 ├── request-logs-v2.ts       # Requests/Audit v2 discriminated DTOs; BIGINT/micros stay decimal strings
@@ -26,7 +30,11 @@ types/
 - `JsonValue`/`JsonObject` and the `custom_request_parameters` field on `Connection`, `ConnectionCreate`, `ConnectionUpdate`, and their aliases: `routing.ts`
 - Usage, analytics, and proxy-key stats payloads: `usage-statistics.ts`
 - Ban Policy and load-balance payloads: `loadbalance.ts`
-- Audit settings contract: `config-audit-settings.ts`
+- Management settings contracts: `management-settings.ts`
+- Audit log and coverage contracts: `audit-logs.ts`
+- Retention job and impact contracts: `retention-jobs.ts`
+- Costing and currency migration contracts: `currency-migration.ts`
+- Compatibility import barrel: `config-audit-settings.ts`
 
 ## CONVENTIONS
 - Keep server field names exactly as JSON uses them: snake_case stays snake_case.
