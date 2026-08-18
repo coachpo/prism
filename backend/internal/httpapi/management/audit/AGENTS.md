@@ -6,12 +6,14 @@
 ## STRUCTURE
 ```text
 audit/
-└── service.go    # Service construction, audit-log routes, management-job routes, filter parsing
+├── service.go      # Service construction, audit-log routes, and filter parsing
+└── job_routes.go   # Management-job list, detail, evidence, and cancellation routes
 ```
 
 ## WHERE TO LOOK
 - Route list and mount contract: `service.go`.
-- Audit-log list/detail routes and supported filters: `service.go`, `../../../domain/audit/`.
+- Audit-log list/detail/raw-body routes and supported filters: `service.go`, `../../../domain/audit/`.
+- Management job list/get/evidence/cancel routes: `job_routes.go`, `../../../platform/managementjobs/`.
 - Request-log audit-capture availability checks: `service.go`, `request_logs` lookup helpers.
 - Management job list/get/cancel flows: `service.go`, `../../../platform/managementjobs/`.
 
