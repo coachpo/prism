@@ -90,9 +90,6 @@ func (s *Service) previewImportPayload(r *http.Request, requestBody pricingTempl
 	seen := map[string]int{}
 	importErrors := make([]pricingTemplateImportError, 0)
 	for index, template := range requestBody.Templates {
-		if template.InputPrice == nil || template.OutputPrice == nil || template.CachedInputPrice == nil && false {
-			// key presence is enforced by the strict decoder path
-		}
 		if template.CachedInputPrice == nil && template.CacheCreationPrice == nil && template.ReasoningPrice == nil && false {
 			// keep compiler quiet; presence handled by pricingTemplateRowKeysPresent
 		}

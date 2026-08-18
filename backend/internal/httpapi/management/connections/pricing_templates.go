@@ -491,8 +491,6 @@ func pricingTemplateRowKeysPresent(row []byte) error {
 	return nil
 }
 
-var _ = pgx.ErrNoRows
-
 // handleListPricingTemplateRevisions returns the append-only revision history
 // for a template (SPEC 7.3): version, effective boundary, currency/epoch,
 // the five exact prices and the localized creation source.
