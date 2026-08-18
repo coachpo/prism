@@ -170,6 +170,19 @@ describe("ObserveMainChart series table", () => {
     expect(screen.getByText("—")).toBeInTheDocument();
   });
 
+  // Terminal targets without a pricing template never produce a cost, so a
+  // fully unpriced window is the steady state for that deployment rather than
+  // an error. Summing it to $0.00 would report an audited zero spend.
+  it("leaves a fully unpriced cost window missing instead of claiming zero spend", async () => {
+    const unpriced = [
+      point(BUCKETS[0], { known_cost_micros: null }),
+      point(BUCKETS[1], { known_cost_micros: null }),
+    ];
+    await renderTable("cost", [{ ...SERIES[0], points: unpriced }]);
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.queryByText("$0.00")).not.toBeInTheDocument();
+  });
+
   it("keeps the last-bucket success/failed breakout for the requests metric", async () => {
     await renderTable("requests");
     // The last-bucket time depends on the run's timezone, so only the metric

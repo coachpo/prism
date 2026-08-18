@@ -93,3 +93,99 @@ func insertLabelledConnection(t *testing.T, harness *contractHarness, profileID 
 	}
 	return connectionID
 }
+
+// A request that fails before routing settles records the outcome with no
+// endpoint and no connection. Those rows are real traffic, so the grouped main
+// chart has to keep counting them without letting a NULL become an entity: the
+// operator sees the same request total whichever grouping is selected.
+func TestObserveUsageSeriesFoldsUnattributedRequestsIntoOther(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+
+	endpointID := modelInsertEndpoint(t, harness, profileID, "Attributed Endpoint")
+	connectionID := insertLabelledConnection(t, harness, profileID, endpointID, "Attributed Target")
+
+	now := fixedS15Now.Add(-2 * time.Minute)
+	for index := 0; index < 3; index++ {
+		if _, err := harness.conn.Exec(context.Background(), `
+		INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, api_family, operation_name, status_code, success_flag,
+			attempt_count, request_path, endpoint_id, connection_id, endpoint_label_snapshot, pricing_status, pricing_evidence_trust, created_at)
+		VALUES ($1, $2, 'attributed-model', 'openai', 'openai.chat_completions', 200, true, 1, '/v1/chat/completions', $3, $4, 'Attributed Endpoint Label', 'ineligible', 'trusted', $5)`,
+			profileID, fmt.Sprintf("attributed-ingress-%d", index), endpointID, connectionID, now.Add(time.Duration(index)*time.Second),
+		); err != nil {
+			t.Fatalf("seed attributed usage row: %v", err)
+		}
+	}
+	// No exit was selected, so both grouping columns are NULL on these rows.
+	for index := 0; index < 2; index++ {
+		if _, err := harness.conn.Exec(context.Background(), `
+		INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, api_family, operation_name, status_code, success_flag,
+			attempt_count, request_path, endpoint_id, connection_id, endpoint_label_snapshot, pricing_status, pricing_evidence_trust, created_at)
+		VALUES ($1, $2, 'attributed-model', 'openai', 'openai.chat_completions', 502, false, 1, '/v1/chat/completions', NULL, NULL, '', 'ineligible', 'trusted', $3)`,
+			profileID, fmt.Sprintf("unattributed-ingress-%d", index), now.Add(time.Duration(index)*time.Second),
+		); err != nil {
+			t.Fatalf("seed unattributed usage row: %v", err)
+		}
+	}
+
+	contextPayload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/query-context?preset=24h", nil, http.StatusOK)
+	token := contextPayload["query_context"].(string)
+
+	for _, groupBy := range []string{"endpoint", "terminal_target"} {
+		entityKey := fmt.Sprintf("endpoint:%d", endpointID)
+		if groupBy == "terminal_target" {
+			entityKey = fmt.Sprintf("terminal_target:%d", connectionID)
+		}
+		series := seriesItems(t, harness, profileID, token, groupBy)
+
+		totalRequests := 0
+		byKey := map[string]map[string]any{}
+		for _, item := range series {
+			entry := asMap(t, item)
+			key, _ := entry["key"].(string)
+			byKey[key] = entry
+			totalRequests += int(entry["request_count"].(float64))
+			// A NULL group value must never be published as an entity: an
+			// empty id would render as a nameless exit in the legend.
+			if key != "other" {
+				if entityID, ok := entry["entity_id"].(string); !ok || entityID == "" {
+					t.Fatalf("group_by=%s produced an entity series without an id: %+v", groupBy, entry)
+				}
+			}
+		}
+		if totalRequests != 5 {
+			t.Fatalf("group_by=%s lost requests: want 5, got %d (%+v)", groupBy, totalRequests, series)
+		}
+		if byKey[entityKey] == nil {
+			t.Fatalf("group_by=%s dropped the attributed entity series %q, got %+v", groupBy, entityKey, series)
+		}
+		if got := int(byKey[entityKey]["request_count"].(float64)); got != 3 {
+			t.Fatalf("group_by=%s attributed series counted %d requests, want 3", groupBy, got)
+		}
+		other := byKey["other"]
+		if other == nil {
+			t.Fatalf("group_by=%s dropped the unattributed rows instead of folding them into Other, got %+v", groupBy, series)
+		}
+		if got := int(other["request_count"].(float64)); got != 2 {
+			t.Fatalf("group_by=%s Other counted %d requests, want the 2 unattributed rows", groupBy, got)
+		}
+		// Other is the re-aggregated remainder, not an entity.
+		if other["entity_id"] != nil {
+			t.Fatalf("group_by=%s gave Other an entity id: %+v", groupBy, other)
+		}
+		if other["label"] != "Other" {
+			t.Fatalf("group_by=%s mislabelled the remainder series: %+v", groupBy, other)
+		}
+	}
+}
+
+func seriesItems(t *testing.T, harness *contractHarness, profileID int, token string, groupBy string) []any {
+	t.Helper()
+	payload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet,
+		"/api/stats/usage-series?query_context="+token+"&metric=cost&group_by="+groupBy+"&interval=auto", nil, http.StatusOK)
+	items, ok := payload["series"].([]any)
+	if !ok || len(items) == 0 {
+		t.Fatalf("expected at least one %s series, got %+v", groupBy, payload)
+	}
+	return items
+}

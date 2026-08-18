@@ -41,9 +41,11 @@ func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platf
 		responseutil.WriteError(w, r, corsSnapshot, statsErr.StatusCode, statsErr.Detail)
 		return
 	}
-	if strings.Contains(r.URL.Path, "/stats/requests") {
-		slog.Error("stats requests handler error", "path", r.URL.Path, "error", err)
-	}
+	// Every unclassified failure on a retained-read handler becomes an opaque
+	// 500 for the client, so the server log is the only place the cause
+	// survives. `r.URL.Path` carries no query string: the signed
+	// `query_context` token stays out of the log.
+	slog.Error("stats handler error", "path", r.URL.Path, "error", err)
 	responseutil.WriteError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
 }
 

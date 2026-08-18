@@ -92,6 +92,28 @@ describe("observe chart rows", () => {
     expect(lastObservedBucket(series)).toBe(BUCKETS[2]);
   });
 
+  // A terminal target with no pricing template is a supported configuration,
+  // not a defect: those requests are recorded `PRICING_DISABLED` forever. The
+  // chart therefore has to keep "cost not computed" apart from "cost was zero",
+  // because a null drawn as 0 reads as a priced request that happened to be
+  // free.
+  it("separates an unpriced bucket from a genuinely zero-cost one", () => {
+    const series = [
+      entry("total", [
+        { ...point(BUCKETS[0], 500), known_cost_micros: null },
+        { ...point(BUCKETS[1], 400), known_cost_micros: "0" },
+        { ...point(BUCKETS[2], 120), known_cost_micros: "10470000" },
+      ]),
+    ];
+    const rows = buildObserveChartRows(series, "cost", "none");
+
+    // Unpriced stays null: the mark is absent, not a bar sitting on the axis.
+    expect(rows[0]["total"]).toBeNull();
+    // A priced request that cost nothing is an observation, and keeps its zero.
+    expect(rows[1]["total"]).toBe(0);
+    expect(rows[2]["total"]).toBe(10.47);
+  });
+
   it("keeps the ungrouped request stack on the success and failed segments", () => {
     const series = seriesFor("none");
     const marks = observeChartMarks(series, "requests", "none", { failed: "失败", success: "成功" });

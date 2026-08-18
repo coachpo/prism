@@ -123,10 +123,14 @@ func LoadUsageSeries(ctx context.Context, exec queryExecutor, profileID int, bou
 	groupColumn := groupColumnFor(groupBy)
 	topIDs := make([]string, 0)
 	if groupColumn != "" {
+		// `endpoint_id` and `connection_id` are nullable: a request that failed
+		// before routing settled records the outcome without an exit. Those rows
+		// are real traffic but not an entity, so they must not compete for a Top
+		// slot; the bucket aggregate below folds them into Other.
 		rows, err := exec.Query(ctx, fmt.Sprintf(`
 SELECT %[1]s::text AS entity_id, COUNT(*) AS request_count
 FROM usage_request_events
-WHERE `+usageWindowPredicate+`
+WHERE `+usageWindowPredicate+` AND %[1]s IS NOT NULL
 GROUP BY %[1]s
 ORDER BY request_count DESC, entity_id ASC
 LIMIT %d`, groupColumn, seriesLimit-1), profileID, bounds.UsageFrom, bounds.UsageTo)
