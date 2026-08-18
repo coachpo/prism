@@ -15,10 +15,13 @@ connections/
 ├── custom_request_parameters.go  # Presence-aware field parsing and 422 field-error envelope
 ├── openai_image_dimension.go     # OpenAI image-dimension authoring rules, independent of text capability
 ├── pricing_templates.go    # Pricing-template CRUD and validation
+├── pricing_template_store.go     # Pricing-template row shape, queries, revision/mutation ledger, scanners
+├── pricing_template_import.go    # Two-phase pricing-template JSON import (preview_hash / commit)
+├── pricing_template_prices.go    # Pricing-template price value object (canonical decimals, tier, equality)
 ├── pricing_list_page.go    # Bounded keyset pricing-template owner page
 ├── pricing_lookup.go       # Pricing-template connection usage lookup
 ├── pricing_setup_readiness.go    # Pricing/Proxy setup-readiness projection over the route witness
-├── store.go                # Profile-scoped connection, endpoint, model, rule, and pricing SQL
+├── store.go                # Profile-scoped connection, endpoint, model, and rule SQL, plus the connection→pricing-template reference guard
 ├── types.go                # Request and response shapes
 └── *_test.go               # Route-level regression coverage
 ```
@@ -28,7 +31,11 @@ connections/
 - Public connection list/get/reference flows plus rejection surfaces for direct mutations: `routes.go`
 - Owner-scoped create/update/delete, legacy priority read compatibility, pricing-template assignment, and inline endpoint creation helpers: `routes.go`, `store.go`
 - `custom_request_parameters` create/update semantics (missing/`null`/`{}` normalize, whole-value PATCH replace, 422 `field`/`path`/`reason`/`limit` envelope): `custom_request_parameters.go`, `routes.go`
-- Pricing-template CRUD, JSON import, connection assignment, and usage lookup: `pricing_templates.go`, `pricing_lookup.go`
+- Pricing-template CRUD and validation: `pricing_templates.go`
+- Pricing-template persistence (row shape, select query, revision/mutation ledger, row scanners): `pricing_template_store.go`
+- Two-phase pricing-template JSON import (`preview_hash` / commit): `pricing_template_import.go`
+- Pricing-template price value object (canonical decimals, tier normalization/equality): `pricing_template_prices.go`
+- Pricing-template connection assignment and usage lookup: `pricing_lookup.go`
 - Bounded keyset pricing-template owner pages used by Settings migration previews: `pricing_list_page.go`
 - Model target CRUD and ordering live in the separate model leaf: `../models/AGENTS.md`, `../models/service.go`
 

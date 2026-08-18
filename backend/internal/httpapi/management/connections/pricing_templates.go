@@ -3,12 +3,10 @@ package connections
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
@@ -16,10 +14,6 @@ import (
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/jackc/pgx/v5"
 )
-
-const pricingUnitPerMillion = "PER_1M"
-
-var pricingTemplateDecimalPattern = regexp.MustCompile(`^\d+(\.\d+)?$`)
 
 // pricingTemplateCreateRequest is the steady-state create schema (SPEC 4.1):
 // the five price keys are all required; input/output must be non-null decimal
@@ -230,225 +224,6 @@ func (s *Service) handleCreatePricingTemplate(w http.ResponseWriter, r *http.Req
 	responseutil.WriteJSON(w, http.StatusCreated, response)
 }
 
-func (s *Service) handleImportPricingTemplates(w http.ResponseWriter, r *http.Request) {
-	// Preview-only import (SPEC 7.6): validates every row and returns the
-	// per-row action, the summary and a preview hash binding the canonical
-	// payload; nothing is written until the commit endpoint replays the
-	// identical payload.
-	response, err := s.previewPricingTemplateImport(r)
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	responseutil.WriteJSON(w, http.StatusOK, response)
-}
-
-func (s *Service) handleCommitPricingTemplateImport(w http.ResponseWriter, r *http.Request) {
-	var requestBody pricingTemplateImportCommitRequest
-	if err := decodeJSONBody(r, &requestBody); err != nil {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
-		return
-	}
-	preview, err := s.previewImportPayload(r, pricingTemplateImportRequest{Mode: requestBody.Mode, Templates: requestBody.Templates})
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	if strings.TrimSpace(requestBody.PreviewHash) != preview.PreviewHash {
-		responseutil.WriteJSON(w, http.StatusConflict, pricingTemplateImportResponse{Skipped: []string{}, Errors: []pricingTemplateImportError{{Detail: "pricing_import_stale: the import preview no longer matches the submitted payload"}}})
-		return
-	}
-	if !preview.Committable {
-		responseutil.WriteJSON(w, http.StatusConflict, pricingTemplateImportResponse{Skipped: []string{}, Errors: []pricingTemplateImportError{{Detail: "pricing_import_preview_required: the import preview is not committable"}}})
-		return
-	}
-	commitResponse, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (pricingTemplateImportResponse, error) {
-		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
-		if err != nil {
-			return pricingTemplateImportResponse{}, err
-		}
-		if err := lockProfileRow(r.Context(), tx, profile.ID); err != nil {
-			return pricingTemplateImportResponse{}, err
-		}
-		return commitPricingTemplateImport(r.Context(), tx, profile.ID, s.nowUTC(), preview, requestBody.Mode)
-	})
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	responseutil.WriteJSON(w, http.StatusOK, commitResponse)
-}
-
-func (s *Service) previewPricingTemplateImport(r *http.Request) (pricingTemplateImportResponse, error) {
-	body, err := decodeJSONRawBody(r)
-	if err != nil {
-		return pricingTemplateImportResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "Invalid request body"}
-	}
-	if err := pricingTemplateImportKeysPresent(body); err != nil {
-		return pricingTemplateImportResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: err.Error()}
-	}
-	var requestBody pricingTemplateImportRequest
-	if err := json.Unmarshal(body, &requestBody); err != nil {
-		return pricingTemplateImportResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "Invalid request body"}
-	}
-	return s.previewImportPayload(r, requestBody)
-}
-
-func (s *Service) previewImportPayload(r *http.Request, requestBody pricingTemplateImportRequest) (pricingTemplateImportResponse, error) {
-	mode := strings.TrimSpace(requestBody.Mode)
-	if mode != "upsert_by_name" && mode != "create_only" {
-		return pricingTemplateImportResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "mode must be upsert_by_name or create_only"}
-	}
-	if len(requestBody.Templates) == 0 {
-		return pricingTemplateImportResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "templates must not be empty"}
-	}
-	rows := make([]pricingTemplateImportRow, 0, len(requestBody.Templates))
-	seen := map[string]int{}
-	importErrors := make([]pricingTemplateImportError, 0)
-	for index, template := range requestBody.Templates {
-		if template.InputPrice == nil || template.OutputPrice == nil || template.CachedInputPrice == nil && false {
-			// key presence is enforced by the strict decoder path
-		}
-		if template.CachedInputPrice == nil && template.CacheCreationPrice == nil && template.ReasoningPrice == nil && false {
-			// keep compiler quiet; presence handled by pricingTemplateRowKeysPresent
-		}
-		name, err := normalizePricingTemplateName(template.Name)
-		if err != nil {
-			importErrors = append(importErrors, pricingTemplateImportError{Index: index, Name: strings.TrimSpace(template.Name), Detail: err.Error()})
-			continue
-		}
-		if firstIndex, ok := seen[name]; ok {
-			importErrors = append(importErrors, pricingTemplateImportError{Index: index, Name: name, Detail: fmt.Sprintf("duplicate name also appears at index %d", firstIndex)})
-			continue
-		}
-		seen[name] = index
-		if err := rejectLegacyPricingTemplateFields(&template); err != nil {
-			importErrors = append(importErrors, pricingTemplateImportError{Index: index, Name: name, Detail: err.Error()})
-			continue
-		}
-		prices, err := normalizePricingTemplatePrices(template.InputPrice, template.OutputPrice, template.CachedInputPrice, template.CacheCreationPrice, template.ReasoningPrice)
-		if err != nil {
-			importErrors = append(importErrors, pricingTemplateImportError{Index: index, Name: name, Detail: err.Error()})
-			continue
-		}
-		tier, err := normalizePricingTemplateTier(template.Tier, prices)
-		if err != nil {
-			importErrors = append(importErrors, pricingTemplateImportError{Index: index, Name: name, Detail: err.Error()})
-			continue
-		}
-		prices.Tier = tier
-		rows = append(rows, pricingTemplateImportRow{Name: name, Description: normalizeOptionalTrimmedString(template.Description), Prices: prices})
-	}
-	if len(importErrors) > 0 {
-		return pricingTemplateImportResponse{Skipped: []string{}, Errors: importErrors}, nil
-	}
-
-	response, err := pgxutil.InReadOnlyTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (pricingTemplateImportResponse, error) {
-		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
-		if err != nil {
-			return pricingTemplateImportResponse{}, err
-		}
-		existingItems, err := listPricingTemplates(r.Context(), tx, profile.ID)
-		if err != nil {
-			return pricingTemplateImportResponse{}, err
-		}
-		existingByName := map[string]pricingTemplateResponse{}
-		for _, existing := range existingItems {
-			existingByName[existing.Name] = existing
-		}
-		result := pricingTemplateImportResponse{Skipped: []string{}, Errors: []pricingTemplateImportError{}, Mode: mode, Rows: rows}
-		for _, row := range rows {
-			current, exists := existingByName[row.Name]
-			if !exists {
-				result.Created++
-				result.Items = append(result.Items, pricingTemplateImportItem{Name: row.Name, Action: "create"})
-				continue
-			}
-			if mode == "create_only" {
-				result.Skipped = append(result.Skipped, row.Name)
-				result.Items = append(result.Items, pricingTemplateImportItem{Name: row.Name, Action: "skipped"})
-				continue
-			}
-			if pricingTemplatePricesEqual(current, row.Prices) {
-				result.Items = append(result.Items, pricingTemplateImportItem{Name: row.Name, Action: "no_op"})
-				continue
-			}
-			result.Updated++
-			result.Items = append(result.Items, pricingTemplateImportItem{Name: row.Name, Action: "update", CurrentVersion: current.Version, NextVersion: current.Version + 1})
-		}
-		hashInput, err := json.Marshal(map[string]any{"mode": mode, "profile_id": profile.ID, "rows": result.Items})
-		if err != nil {
-			return pricingTemplateImportResponse{}, err
-		}
-		sum := sha256.Sum256(hashInput)
-		result.PreviewHash = fmt.Sprintf("%x", sum[:])
-		result.Committable = true
-		return result, nil
-	})
-	if err != nil {
-		return pricingTemplateImportResponse{}, err
-	}
-	return response, nil
-}
-
-func commitPricingTemplateImport(ctx context.Context, tx pgx.Tx, profileID int, currentTime time.Time, preview pricingTemplateImportResponse, mode string) (pricingTemplateImportResponse, error) {
-	existingItems, err := listPricingTemplates(ctx, tx, profileID)
-	if err != nil {
-		return pricingTemplateImportResponse{}, err
-	}
-	existingByName := map[string]pricingTemplateResponse{}
-	for _, existing := range existingItems {
-		existingByName[existing.Name] = existing
-	}
-	result := pricingTemplateImportResponse{Skipped: []string{}, Errors: []pricingTemplateImportError{}, Rows: preview.Rows}
-	for _, item := range preview.Items {
-		switch item.Action {
-		case "create":
-			var row pricingTemplateImportRow
-			for _, candidate := range preview.Rows {
-				if candidate.Name == item.Name {
-					row = candidate
-					break
-				}
-			}
-			if _, err := createPricingTemplateWithPrices(ctx, tx, profileID, currentTime, row.Name, row.Description, row.Prices); err != nil {
-				return pricingTemplateImportResponse{}, err
-			}
-			result.Created++
-		case "update":
-			current, ok := existingByName[item.Name]
-			if !ok {
-				return pricingTemplateImportResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: fmt.Sprintf("pricing_import_stale: template %q disappeared", item.Name)}
-			}
-			var row pricingTemplateImportRow
-			for _, candidate := range preview.Rows {
-				if candidate.Name == item.Name {
-					row = candidate
-					break
-				}
-			}
-			if err := updatePricingTemplateWithPrices(ctx, tx, profileID, current, row.Name, row.Description, row.Prices, currentTime); err != nil {
-				return pricingTemplateImportResponse{}, err
-			}
-			result.Updated++
-		case "skipped":
-			result.Skipped = append(result.Skipped, item.Name)
-		default:
-			// no_op: nothing to write, nothing to report
-		}
-	}
-	return result, nil
-}
-
-func pricingTemplatePricesEqual(current pricingTemplateResponse, prices pricingTemplatePrices) bool {
-	return current.InputPrice == prices.InputPrice &&
-		current.OutputPrice == prices.OutputPrice &&
-		stringsEqualPointers(current.CachedInputPrice, prices.CachedInputPrice) &&
-		stringsEqualPointers(current.CacheCreationPrice, prices.CacheCreationPrice) &&
-		stringsEqualPointers(current.ReasoningPrice, prices.ReasoningPrice) &&
-		pricingTemplateTierEqual(current.Tier, prices.Tier)
-}
-
 func (s *Service) handleUpdatePricingTemplate(w http.ResponseWriter, r *http.Request) {
 	templateID, err := routeInt(r, "template_id")
 	if err != nil {
@@ -632,127 +407,6 @@ func (s *Service) handleDeletePricingTemplate(w http.ResponseWriter, r *http.Req
 // Canonical write helpers (SPEC 4.1/4.2/6.1/6.2)
 // ---------------------------------------------------------------------------
 
-type pricingTemplatePrices struct {
-	InputPrice         string
-	OutputPrice        string
-	CachedInputPrice   *string
-	CacheCreationPrice *string
-	ReasoningPrice     *string
-	Tier               *pricingTemplateTier
-}
-
-type pricingTemplateImportRow struct {
-	Name        string
-	Description *string
-	Prices      pricingTemplatePrices
-}
-
-func normalizePricingTemplateTier(input *pricingTemplateTierInput, base pricingTemplatePrices) (*pricingTemplateTier, error) {
-	if input == nil {
-		return nil, nil
-	}
-	if input.InputTokensAbove == nil {
-		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "tier.input_tokens_above is required"}
-	}
-	if *input.InputTokensAbove < 1 || int64(*input.InputTokensAbove) > int64(1<<31-1) {
-		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "tier.input_tokens_above must be a positive 32-bit integer"}
-	}
-	inputPrice, err := normalizeRequiredPricingDecimalString("tier.input_price", input.InputPrice)
-	if err != nil {
-		return nil, err
-	}
-	outputPrice, err := normalizeRequiredPricingDecimalString("tier.output_price", input.OutputPrice)
-	if err != nil {
-		return nil, err
-	}
-	cachedPrice, err := normalizeOptionalPricingDecimalString("tier.cached_input_price", input.CachedInputPrice)
-	if err != nil {
-		return nil, err
-	}
-	cacheCreationPrice, err := normalizeOptionalPricingDecimalString("tier.cache_creation_price", input.CacheCreationPrice)
-	if err != nil {
-		return nil, err
-	}
-	reasoningPrice, err := normalizeOptionalPricingDecimalString("tier.reasoning_price", input.ReasoningPrice)
-	if err != nil {
-		return nil, err
-	}
-	if (base.CachedInputPrice == nil) != (cachedPrice == nil) {
-		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "tier.cached_input_price must mirror the base price configuration"}
-	}
-	if (base.CacheCreationPrice == nil) != (cacheCreationPrice == nil) {
-		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "tier.cache_creation_price must mirror the base price configuration"}
-	}
-	if (base.ReasoningPrice == nil) != (reasoningPrice == nil) {
-		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "tier.reasoning_price must mirror the base price configuration"}
-	}
-	return &pricingTemplateTier{
-		InputTokensAbove:   *input.InputTokensAbove,
-		InputPrice:         inputPrice,
-		OutputPrice:        outputPrice,
-		CachedInputPrice:   cachedPrice,
-		CacheCreationPrice: cacheCreationPrice,
-		ReasoningPrice:     reasoningPrice,
-	}, nil
-}
-
-func pricingTemplateTierFromResponse(tier *pricingTemplateTier) *pricingTemplateTierInput {
-	if tier == nil {
-		return nil
-	}
-	return &pricingTemplateTierInput{
-		InputTokensAbove:   intPtr(tier.InputTokensAbove),
-		InputPrice:         stringPtr(tier.InputPrice),
-		OutputPrice:        stringPtr(tier.OutputPrice),
-		CachedInputPrice:   cloneString(tier.CachedInputPrice),
-		CacheCreationPrice: cloneString(tier.CacheCreationPrice),
-		ReasoningPrice:     cloneString(tier.ReasoningPrice),
-	}
-}
-
-func pricingTemplateTierEqual(left, right *pricingTemplateTier) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
-	}
-	return left.InputTokensAbove == right.InputTokensAbove &&
-		left.InputPrice == right.InputPrice &&
-		left.OutputPrice == right.OutputPrice &&
-		stringsEqualPointers(left.CachedInputPrice, right.CachedInputPrice) &&
-		stringsEqualPointers(left.CacheCreationPrice, right.CacheCreationPrice) &&
-		stringsEqualPointers(left.ReasoningPrice, right.ReasoningPrice)
-}
-
-func nullableTierThreshold(tier *pricingTemplateTier) any {
-	if tier == nil {
-		return nil
-	}
-	return tier.InputTokensAbove
-}
-
-func nullableTierPrice(tier *pricingTemplateTier, component string) any {
-	if tier == nil {
-		return nil
-	}
-	if component == "input" {
-		return tier.InputPrice
-	}
-	return tier.OutputPrice
-}
-
-func nullableTierSpecialtyPrice(tier *pricingTemplateTier, component string) any {
-	if tier == nil {
-		return nil
-	}
-	switch component {
-	case "cached_input":
-		return nullableString(tier.CachedInputPrice)
-	case "cache_creation":
-		return nullableString(tier.CacheCreationPrice)
-	default:
-		return nullableString(tier.ReasoningPrice)
-	}
-}
-
 // rejectLegacyPricingTemplateFields fails closed on the removed authoring
 // fields instead of silently ignoring them (SPEC 5.3 strict decoder).
 func rejectLegacyPricingTemplateFields(requestBody *pricingTemplateCreateRequest) error {
@@ -773,62 +427,6 @@ func rejectLegacyPricingTemplateUpdateFields(requestBody pricingTemplateUpdateRe
 		return &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "unknown_field: pricing_currency_code is not accepted; the active reporting-currency epoch owns the currency"}
 	}
 	return nil
-}
-
-func normalizePricingTemplatePrices(inputRaw *string, outputRaw *string, cachedRaw *string, cacheCreationRaw *string, reasoningRaw *string) (pricingTemplatePrices, error) {
-	input, err := normalizeRequiredPricingDecimalString("input_price", inputRaw)
-	if err != nil {
-		return pricingTemplatePrices{}, err
-	}
-	output, err := normalizeRequiredPricingDecimalString("output_price", outputRaw)
-	if err != nil {
-		return pricingTemplatePrices{}, err
-	}
-	cached, err := normalizeOptionalPricingDecimalString("cached_input_price", cachedRaw)
-	if err != nil {
-		return pricingTemplatePrices{}, err
-	}
-	cacheCreation, err := normalizeOptionalPricingDecimalString("cache_creation_price", cacheCreationRaw)
-	if err != nil {
-		return pricingTemplatePrices{}, err
-	}
-	reasoning, err := normalizeOptionalPricingDecimalString("reasoning_price", reasoningRaw)
-	if err != nil {
-		return pricingTemplatePrices{}, err
-	}
-	return pricingTemplatePrices{InputPrice: input, OutputPrice: output, CachedInputPrice: cached, CacheCreationPrice: cacheCreation, ReasoningPrice: reasoning}, nil
-}
-
-// normalizeRequiredPricingDecimalString: missing/null/blank is a field-level
-// 422 for base prices (SPEC 4.1); values are canonicalized per SPEC 4.2.
-func normalizeRequiredPricingDecimalString(fieldName string, raw *string) (string, error) {
-	if raw == nil {
-		return "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s is required", fieldName)}
-	}
-	canonical, err := canonicalPricingDecimal(*raw)
-	if err != nil {
-		return "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s %s", fieldName, err.Error())}
-	}
-	return canonical, nil
-}
-
-// normalizeOptionalPricingDecimalString: explicit JSON null means
-// "unconfigured"; missing or blank is a field-level 422 (SPEC 4.1). A null
-// pointer passed here represents an explicit JSON null (the decoder keeps
-// missing keys as nil too - the strict decoder covers presence separately).
-func normalizeOptionalPricingDecimalString(fieldName string, raw *string) (*string, error) {
-	if raw == nil {
-		return nil, nil
-	}
-	trimmed := strings.TrimSpace(*raw)
-	if trimmed == "" {
-		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s must not be empty; use null for unconfigured", fieldName)}
-	}
-	canonical, err := canonicalPricingDecimal(trimmed)
-	if err != nil {
-		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s %s", fieldName, err.Error())}
-	}
-	return stringPtr(canonical), nil
 }
 
 func normalizePricingTemplateName(raw string) (string, error) {
@@ -864,38 +462,6 @@ func derefString(value *string) string {
 	return *value
 }
 
-// canonicalPricingDecimal implements SPEC 4.2 canonicalization on the
-// wire: ^\d+(\.\d+)?$, 1..20 chars, leading/trailing zeros removed, all
-// numeric zeros collapse to "0".
-func canonicalPricingDecimal(raw string) (string, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return "", fmt.Errorf("must be a non-negative decimal string")
-	}
-	if len(trimmed) > 20 || !pricingTemplateDecimalPattern.MatchString(trimmed) {
-		return "", fmt.Errorf("must be a non-negative decimal string")
-	}
-	integral := trimmed
-	fractional := ""
-	if dot := strings.IndexByte(trimmed, '.'); dot >= 0 {
-		integral = trimmed[:dot]
-		fractional = trimmed[dot+1:]
-	}
-	integral = strings.TrimLeft(integral, "0")
-	if integral == "" {
-		integral = "0"
-	}
-	fractional = strings.TrimRight(fractional, "0")
-	canonical := integral
-	if fractional != "" {
-		canonical = integral + "." + fractional
-	}
-	if len(canonical) > 20 {
-		return "", fmt.Errorf("must be a non-negative decimal string")
-	}
-	return canonical, nil
-}
-
 func validatePricingTemplateExpectedUpdatedAt(current time.Time, expected optionalString) error {
 	if !expected.Set || expected.Value == nil {
 		return nil
@@ -906,27 +472,6 @@ func validatePricingTemplateExpectedUpdatedAt(current time.Time, expected option
 	}
 	if !current.UTC().Equal(parsed.UTC()) {
 		return &domainError{StatusCode: http.StatusConflict, Detail: "Pricing template has changed. Please refresh and retry."}
-	}
-	return nil
-}
-
-// pricingTemplateImportKeysPresent rejects unknown top-level keys and
-// requires the mode/templates keys (fail-closed strict decoder, SPEC 5.3).
-func pricingTemplateImportKeysPresent(body []byte) error {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return err
-	}
-	for key := range raw {
-		if key != "mode" && key != "templates" {
-			return fmt.Errorf("unknown field %q", key)
-		}
-	}
-	if _, ok := raw["mode"]; !ok {
-		return fmt.Errorf("mode is required")
-	}
-	if _, ok := raw["templates"]; !ok {
-		return fmt.Errorf("templates is required")
 	}
 	return nil
 }
