@@ -328,56 +328,6 @@ type connectionReferencesResponse struct {
 	Items        []connectionReferenceResponse `json:"items"`
 }
 
-type pricingTemplateConnectionUsageItem struct {
-	ConnectionID   int     `json:"connection_id"`
-	ConnectionName *string `json:"connection_name"`
-	ModelConfigID  int     `json:"model_config_id"`
-	ModelID        string  `json:"model_id"`
-	EndpointID     int     `json:"endpoint_id"`
-	EndpointName   string  `json:"endpoint_name"`
-}
-
-type pricingTemplateConnectionsResponse struct {
-	TemplateID int                                  `json:"template_id"`
-	Items      []pricingTemplateConnectionUsageItem `json:"items"`
-}
-
-type pricingTemplateImportRequest struct {
-	Mode      string                         `json:"mode"`
-	Templates []pricingTemplateCreateRequest `json:"templates"`
-}
-
-type pricingTemplateImportCommitRequest struct {
-	Mode        string                         `json:"mode"`
-	Templates   []pricingTemplateCreateRequest `json:"templates"`
-	PreviewHash string                         `json:"preview_hash"`
-}
-
-type pricingTemplateImportItem struct {
-	Name           string `json:"name"`
-	Action         string `json:"action"`
-	CurrentVersion int    `json:"current_version,omitempty"`
-	NextVersion    int    `json:"next_version,omitempty"`
-}
-
-type pricingTemplateImportError struct {
-	Index  int    `json:"index"`
-	Name   string `json:"name,omitempty"`
-	Detail string `json:"detail"`
-}
-
-type pricingTemplateImportResponse struct {
-	Created     int                          `json:"created"`
-	Updated     int                          `json:"updated"`
-	Skipped     []string                     `json:"skipped"`
-	Errors      []pricingTemplateImportError `json:"errors"`
-	Mode        string                       `json:"mode,omitempty"`
-	Items       []pricingTemplateImportItem  `json:"items,omitempty"`
-	PreviewHash string                       `json:"preview_hash,omitempty"`
-	Committable bool                         `json:"committable"`
-	Rows        []pricingTemplateImportRow   `json:"-"`
-}
-
 type modelConnectionsBatchItem struct {
 	ModelConfigID int                  `json:"model_config_id"`
 	Connections   []connectionResponse `json:"connections"`
@@ -417,33 +367,4 @@ type deletedConnectionMutationEnvelope struct {
 	Deleted               bool                                `json:"deleted"`
 	AccessTargets         []connectionMutationAccessTarget    `json:"access_targets"`
 	ConfigurationWarnings []modelrouting.ConfigurationWarning `json:"configuration_warnings"`
-}
-
-type pricingTemplateRevisionResponse struct {
-	RevisionID             int64                `json:"revision_id"`
-	Version                int                  `json:"version"`
-	PricingUnit            string               `json:"pricing_unit"`
-	CurrencyCode           string               `json:"currency_code"`
-	ReportingCurrencyEpoch *int                 `json:"reporting_currency_epoch"`
-	CurrencyAttribution    string               `json:"currency_attribution"`
-	InputPrice             string               `json:"input_price"`
-	OutputPrice            string               `json:"output_price"`
-	CachedInputPrice       *string              `json:"cached_input_price"`
-	CacheCreationPrice     *string              `json:"cache_creation_price"`
-	ReasoningPrice         *string              `json:"reasoning_price"`
-	Tier                   *pricingTemplateTier `json:"tier"`
-	EffectiveAt            *time.Time           `json:"effective_at"`
-	CreatedAt              time.Time            `json:"created_at"`
-	CreatedByKind          string               `json:"created_by_kind"`
-}
-
-type pricingTemplateImpactResponse struct {
-	TemplateID     int                                  `json:"template_id"`
-	Name           string                               `json:"name"`
-	CurrentVersion int                                  `json:"current_version"`
-	NextVersion    int                                  `json:"next_version"`
-	ReferenceCount int                                  `json:"reference_count"`
-	References     []pricingTemplateConnectionUsageItem `json:"references"`
-	RevisionCount  int64                                `json:"revision_count"`
-	DeletedAt      *time.Time                           `json:"deleted_at,omitempty"`
 }

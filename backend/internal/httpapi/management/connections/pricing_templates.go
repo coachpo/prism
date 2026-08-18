@@ -599,3 +599,32 @@ func listPricingTemplateRevisions(ctx context.Context, tx pgx.Tx, templateID int
 	}
 	return items, nil
 }
+
+type pricingTemplateRevisionResponse struct {
+	RevisionID             int64                `json:"revision_id"`
+	Version                int                  `json:"version"`
+	PricingUnit            string               `json:"pricing_unit"`
+	CurrencyCode           string               `json:"currency_code"`
+	ReportingCurrencyEpoch *int                 `json:"reporting_currency_epoch"`
+	CurrencyAttribution    string               `json:"currency_attribution"`
+	InputPrice             string               `json:"input_price"`
+	OutputPrice            string               `json:"output_price"`
+	CachedInputPrice       *string              `json:"cached_input_price"`
+	CacheCreationPrice     *string              `json:"cache_creation_price"`
+	ReasoningPrice         *string              `json:"reasoning_price"`
+	Tier                   *pricingTemplateTier `json:"tier"`
+	EffectiveAt            *time.Time           `json:"effective_at"`
+	CreatedAt              time.Time            `json:"created_at"`
+	CreatedByKind          string               `json:"created_by_kind"`
+}
+
+type pricingTemplateImpactResponse struct {
+	TemplateID     int                                  `json:"template_id"`
+	Name           string                               `json:"name"`
+	CurrentVersion int                                  `json:"current_version"`
+	NextVersion    int                                  `json:"next_version"`
+	ReferenceCount int                                  `json:"reference_count"`
+	References     []pricingTemplateConnectionUsageItem `json:"references"`
+	RevisionCount  int64                                `json:"revision_count"`
+	DeletedAt      *time.Time                           `json:"deleted_at,omitempty"`
+}

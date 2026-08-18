@@ -54,3 +54,17 @@ func (s *Service) handleListPricingTemplateConnections(w http.ResponseWriter, r 
 	}
 	responseutil.WriteJSON(w, http.StatusOK, response)
 }
+
+type pricingTemplateConnectionUsageItem struct {
+	ConnectionID   int     `json:"connection_id"`
+	ConnectionName *string `json:"connection_name"`
+	ModelConfigID  int     `json:"model_config_id"`
+	ModelID        string  `json:"model_id"`
+	EndpointID     int     `json:"endpoint_id"`
+	EndpointName   string  `json:"endpoint_name"`
+}
+
+type pricingTemplateConnectionsResponse struct {
+	TemplateID int                                  `json:"template_id"`
+	Items      []pricingTemplateConnectionUsageItem `json:"items"`
+}

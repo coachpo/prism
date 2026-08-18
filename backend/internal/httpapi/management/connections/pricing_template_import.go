@@ -253,3 +253,39 @@ func pricingTemplateImportKeysPresent(body []byte) error {
 	}
 	return nil
 }
+
+type pricingTemplateImportRequest struct {
+	Mode      string                         `json:"mode"`
+	Templates []pricingTemplateCreateRequest `json:"templates"`
+}
+
+type pricingTemplateImportCommitRequest struct {
+	Mode        string                         `json:"mode"`
+	Templates   []pricingTemplateCreateRequest `json:"templates"`
+	PreviewHash string                         `json:"preview_hash"`
+}
+
+type pricingTemplateImportItem struct {
+	Name           string `json:"name"`
+	Action         string `json:"action"`
+	CurrentVersion int    `json:"current_version,omitempty"`
+	NextVersion    int    `json:"next_version,omitempty"`
+}
+
+type pricingTemplateImportError struct {
+	Index  int    `json:"index"`
+	Name   string `json:"name,omitempty"`
+	Detail string `json:"detail"`
+}
+
+type pricingTemplateImportResponse struct {
+	Created     int                          `json:"created"`
+	Updated     int                          `json:"updated"`
+	Skipped     []string                     `json:"skipped"`
+	Errors      []pricingTemplateImportError `json:"errors"`
+	Mode        string                       `json:"mode,omitempty"`
+	Items       []pricingTemplateImportItem  `json:"items,omitempty"`
+	PreviewHash string                       `json:"preview_hash,omitempty"`
+	Committable bool                         `json:"committable"`
+	Rows        []pricingTemplateImportRow   `json:"-"`
+}
