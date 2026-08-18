@@ -90,9 +90,6 @@ func (s *Service) previewImportPayload(r *http.Request, requestBody pricingTempl
 	seen := map[string]int{}
 	importErrors := make([]pricingTemplateImportError, 0)
 	for index, template := range requestBody.Templates {
-		if template.CachedInputPrice == nil && template.CacheCreationPrice == nil && template.ReasoningPrice == nil && false {
-			// keep compiler quiet; presence handled by pricingTemplateRowKeysPresent
-		}
 		name, err := normalizePricingTemplateName(template.Name)
 		if err != nil {
 			importErrors = append(importErrors, pricingTemplateImportError{Index: index, Name: strings.TrimSpace(template.Name), Detail: err.Error()})
