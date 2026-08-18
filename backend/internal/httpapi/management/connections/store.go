@@ -53,16 +53,6 @@ type connectionReferenceRecord struct {
 	IsEnabled     bool
 }
 
-type connectionReferenceModeRecord struct {
-	ModelID              string
-	OpenAIAcceptedFormat *string
-}
-
-type headerBlocklistRuleRecord struct {
-	MatchType string
-	Pattern   string
-}
-
 func loadModelRecord(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, forUpdate bool) (modelRecord, bool, error) {
 	query := `SELECT id, profile_id, model_id, api_family, is_enabled, openai_accepted_format, openai_image_operations FROM model_configs WHERE profile_id = $1 AND id = $2`
 	if forUpdate {
@@ -150,28 +140,6 @@ func insertEndpoint(ctx context.Context, exec queryExecutor, record endpointReco
 		return endpointRecord{}, fmt.Errorf("insert inline endpoint %q: %w", record.Name, err)
 	}
 	return created, nil
-}
-
-func listEnabledHeaderBlocklistRules(ctx context.Context, exec queryExecutor, profileID int) ([]headerBlocklistRuleRecord, error) {
-	rows, err := exec.Query(ctx, `SELECT match_type, pattern FROM header_blocklist_rules WHERE enabled = TRUE AND (is_system = TRUE OR profile_id = $1) ORDER BY is_system DESC, id ASC`, profileID)
-	if err != nil {
-		return nil, fmt.Errorf("query header blocklist rules for profile %d: %w", profileID, err)
-	}
-	defer rows.Close()
-	items := make([]headerBlocklistRuleRecord, 0)
-	for rows.Next() {
-		var item headerBlocklistRuleRecord
-		if err := rows.Scan(&item.MatchType, &item.Pattern); err != nil {
-			return nil, fmt.Errorf("scan header blocklist rule: %w", err)
-		}
-		item.MatchType = strings.ToLower(strings.TrimSpace(item.MatchType))
-		item.Pattern = strings.ToLower(strings.TrimSpace(item.Pattern))
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate header blocklist rules for profile %d: %w", profileID, err)
-	}
-	return items, nil
 }
 
 func validatePricingTemplateID(ctx context.Context, exec queryExecutor, profileID int, pricingTemplateID *int) (*int, error) {
@@ -514,28 +482,6 @@ func listConnectionReferenceRows(ctx context.Context, exec queryExecutor, profil
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate connection %d references for profile %d: %w", connectionID, profileID, err)
-	}
-	return items, nil
-}
-
-func listConnectionReferenceModeRows(ctx context.Context, exec queryExecutor, profileID int, connectionID int) ([]connectionReferenceModeRecord, error) {
-	rows, err := exec.Query(ctx, `SELECT model_configs.model_id, model_configs.openai_accepted_format FROM model_access_targets JOIN model_configs ON model_configs.id = model_access_targets.source_model_config_id WHERE model_access_targets.profile_id = $1 AND model_access_targets.target_connection_id = $2 ORDER BY model_configs.model_id ASC`, profileID, connectionID)
-	if err != nil {
-		return nil, fmt.Errorf("query connection %d reference modes for profile %d: %w", connectionID, profileID, err)
-	}
-	defer rows.Close()
-	items := make([]connectionReferenceModeRecord, 0)
-	for rows.Next() {
-		var item connectionReferenceModeRecord
-		var mode sql.NullString
-		if err := rows.Scan(&item.ModelID, &mode); err != nil {
-			return nil, fmt.Errorf("scan connection %d reference mode: %w", connectionID, err)
-		}
-		item.OpenAIAcceptedFormat = nullableStringValue(mode)
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate connection %d reference modes: %w", connectionID, err)
 	}
 	return items, nil
 }

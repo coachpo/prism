@@ -640,19 +640,6 @@ func (s *Service) createInlineEndpoint(ctx context.Context, tx pgx.Tx, profileID
 	})
 }
 
-func normalizeConnectionPriorities(items []connectionResponse, currentTime time.Time) bool {
-	changed := false
-	for index := range items {
-		if items[index].Priority == index {
-			continue
-		}
-		items[index].Priority = index
-		items[index].UpdatedAt = currentTime
-		changed = true
-	}
-	return changed
-}
-
 func validateLimiter(fieldName string, value *int) error {
 	if value != nil && *value < 1 {
 		return &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s must be >= 1 when provided", fieldName)}
@@ -691,19 +678,6 @@ func ensureOpenAITextCapabilityMatchesOwnerModes(ownerAPIFamily string, ownerMod
 	}
 	if !providerauth.OpenAITextModesMatch(ownerMode, capability) {
 		return &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "openai_text_capability must equal the owner model openai_accepted_format"}
-	}
-	return nil
-}
-
-func ensureConnectionAPIFamilyUpdateAllowed(ctx context.Context, exec queryExecutor, profileID int, connectionID int, apiFamily string) error {
-	references, err := listConnectionReferenceRows(ctx, exec, profileID, connectionID)
-	if err != nil {
-		return err
-	}
-	for _, reference := range references {
-		if !providerauth.SameAPIFamily(reference.APIFamily, apiFamily) {
-			return &DomainError{StatusCode: http.StatusConflict, Detail: fmt.Sprintf("Cannot change api_family: models [%s] target this connection", joinConnectionReferenceModelIDs(references))}
-		}
 	}
 	return nil
 }
@@ -877,11 +851,4 @@ func equalOptionalInt(left *int, right *int) bool {
 		return left == nil && right == nil
 	}
 	return *left == *right
-}
-
-func convertEndpointCreateRequest(input *endpointCreateRequest) *EndpointCreateRequest {
-	if input == nil {
-		return nil
-	}
-	return &EndpointCreateRequest{Name: input.Name, BaseURL: input.BaseURL, APIKey: input.APIKey}
 }
