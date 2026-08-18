@@ -60,6 +60,12 @@ function pageToSnapshot(detail: EndpointReferenceDetail): EndpointReferencePaged
   }
 }
 
+function summaryFor(summary: EndpointReferenceSummaryState | undefined): EndpointReferenceSummary | null {
+  if (!summary) return null
+  if (summary.status === "ready" || summary.status === "stale") return summary.value
+  return null
+}
+
 export function useEndpointReferences(endpointIds: number[]) {
   const [state, setState] = useState<ReferencesState>({ summaries: {}, details: {} })
   const generationByEndpoint = useRef<Record<number, number>>({})
@@ -453,3 +459,5 @@ export function isReferenceSummaryFreshReady(summary: EndpointReferenceSummarySt
 export function isReferenceDetailReady(detail: EndpointReferenceDetailState | undefined): detail is { status: "ready"; value: EndpointReferencePagedSnapshot; generation: number; receivedAt: number } {
   return Boolean(detail && detail.status === "ready")
 }
+
+export { summaryFor }
