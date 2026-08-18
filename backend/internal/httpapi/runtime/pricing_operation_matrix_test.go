@@ -108,4 +108,106 @@ func TestPricingClassifierOperationalComponentIgnoring(t *testing.T) {
 	}
 }
 
+func tieredRuntimePricingTemplate(t *testing.T) *runtimePricingTemplateSnapshot {
+	t.Helper()
+	threshold := 272000
+	return runtimePricingTemplateForTest(func(snapshot *runtimePricingTemplateSnapshot) {
+		snapshot.TierInputTokensAbove = &threshold
+		snapshot.TierInputPrice = "4"
+		snapshot.TierOutputPrice = "18"
+		snapshot.TierCachedInputPrice = "2"
+		snapshot.TierCacheCreationPrice = "5"
+		snapshot.TierReasoningPrice = "20"
+	})
+}
+
+func TestPricingTierSelectionBoundariesUseWholeCard(t *testing.T) {
+	cases := []struct {
+		name           string
+		input          int
+		cacheRead      int
+		output         int
+		reasoning      int
+		wantTier       string
+		wantInputPrice string
+		wantOutputCost int64
+		wantReasonCost int64
+	}{
+		{name: "threshold stays base", input: 272000, output: 10, reasoning: 2, wantTier: runtimePricingTierBase, wantInputPrice: "2", wantOutputCost: 50, wantReasonCost: 6},
+		{name: "one token over switches all components", input: 272001, output: 10, reasoning: 2, wantTier: runtimePricingTierApplied, wantInputPrice: "4", wantOutputCost: 180, wantReasonCost: 40},
+		{name: "cache read contributes to basis", input: 272000, cacheRead: 1, output: 10, reasoning: 2, wantTier: runtimePricingTierApplied, wantInputPrice: "4", wantOutputCost: 180, wantReasonCost: 40},
+		{name: "large output does not affect tier basis", input: 1, output: 1000000, reasoning: 2, wantTier: runtimePricingTierBase, wantInputPrice: "2", wantOutputCost: 5000000, wantReasonCost: 6},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			template := tieredRuntimePricingTemplate(t)
+			usage := responseUsage{InputTokens: &tc.input, OutputTokens: &tc.output, ReasoningTokens: &tc.reasoning}
+			if tc.cacheRead != 0 {
+				usage.CacheReadInputTokens = &tc.cacheRead
+			}
+			selection := selectRuntimePricingTier(template, usage, "openai.chat_completions")
+			if selection.Kind != tc.wantTier || selection.Snapshot == nil || selection.Snapshot.InputPrice != tc.wantInputPrice {
+				t.Fatalf("expected tier=%s input_price=%s, got %+v", tc.wantTier, tc.wantInputPrice, selection)
+			}
+			result := buildRuntimePricingResultForOperation(runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$", Epoch: 1}, template, nil, usage, runtimeStreamOutcomeCompleted, "openai.chat_completions")
+			if result.PricingStatus != runtimePricingStatusPriced || result.OutputCostMicros == nil || *result.OutputCostMicros != tc.wantOutputCost || result.ReasoningCostMicros == nil || *result.ReasoningCostMicros != tc.wantReasonCost {
+				t.Fatalf("expected whole-card priced result, got %+v", result)
+			}
+			if result.PricingTierApplied == nil || *result.PricingTierApplied != tc.wantTier || result.PricingTierThresholdTokens == nil || *result.PricingTierThresholdTokens != 272000 || result.PricingTierBasisTokens == nil {
+				t.Fatalf("expected persisted tier evidence, got %+v", result)
+			}
+			wantBasis := int64(tc.input + tc.cacheRead)
+			if *result.PricingTierBasisTokens != wantBasis {
+				t.Fatalf("expected basis %d, got %d", wantBasis, *result.PricingTierBasisTokens)
+			}
+		})
+	}
+}
+
+func TestPricingTierStatesAndFailClosedBoundaries(t *testing.T) {
+	fullUsage := responseUsage{InputTokens: intPtr(272001), OutputTokens: intPtr(1), ReasoningTokens: intPtr(1)}
+	noTier := runtimePricingTemplateForTest(nil)
+	selection := selectRuntimePricingTier(noTier, fullUsage, "openai.chat_completions")
+	if selection.Kind != runtimePricingTierNotApplicable || selection.Threshold != nil || selection.Basis != nil {
+		t.Fatalf("expected no-tier not_applicable without evidence, got %+v", selection)
+	}
+
+	missingUsage := selectRuntimePricingTier(tieredRuntimePricingTemplate(t), responseUsage{}, "openai.chat_completions")
+	if missingUsage.Kind != runtimePricingTierNotEvaluated || missingUsage.Threshold != nil || missingUsage.Basis != nil {
+		t.Fatalf("expected missing usage not_evaluated without evidence, got %+v", missingUsage)
+	}
+	missingResult := buildRuntimePricingResultForOperation(runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$", Epoch: 1}, tieredRuntimePricingTemplate(t), nil, responseUsage{InputTokens: intPtr(1)}, runtimeStreamOutcomeCompleted, "openai.chat_completions")
+	if missingResult.PricingStatus != runtimePricingStatusUnpriced || missingResult.PricingTierApplied != nil {
+		t.Fatalf("expected 2xx missing usage to keep persisted tier columns NULL, got %+v", missingResult)
+	}
+
+	countTokens := selectRuntimePricingTier(tieredRuntimePricingTemplate(t), fullUsage, "anthropic.count_tokens")
+	if countTokens.Kind != runtimePricingTierNotApplicable || countTokens.Basis != nil {
+		t.Fatalf("expected count_tokens not_applicable even with tier, got %+v", countTokens)
+	}
+
+	missingTierPrice := tieredRuntimePricingTemplate(t)
+	missingTierPrice.TierReasoningPrice = ""
+	missingPrice := buildRuntimePricingResultForOperation(runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$", Epoch: 1}, missingTierPrice, nil, fullUsage, runtimeStreamOutcomeCompleted, "openai.chat_completions")
+	if missingPrice.PricingStatus != runtimePricingStatusUnpriced || missingPrice.PricingResolutionKind == nil || *missingPrice.PricingResolutionKind != runtimePricingResolutionMissingComponent || missingPrice.PricingTierApplied == nil || *missingPrice.PricingTierApplied != runtimePricingTierApplied || len(missingPrice.MissingPriceComponents) != 1 || missingPrice.MissingPriceComponents[0] != "reasoning_price" {
+		t.Fatalf("expected tier evidence with missing tier price, got %+v", missingPrice)
+	}
+
+	maxInt := int(^uint(0) >> 1)
+	overflow := responseUsage{InputTokens: &maxInt, CacheReadInputTokens: intPtr(1), OutputTokens: intPtr(1)}
+	overflowResult := buildRuntimePricingResultForOperation(runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$", Epoch: 1}, tieredRuntimePricingTemplate(t), nil, overflow, runtimeStreamOutcomeCompleted, "openai.chat_completions")
+	if overflowResult.PricingStatus != runtimePricingStatusUnpriced || overflowResult.PricingResolutionKind == nil || *overflowResult.PricingResolutionKind != runtimePricingResolutionSnapshotIncoherent {
+		t.Fatalf("expected tier basis overflow to fail closed as snapshot_incoherent, got %+v", overflowResult)
+	}
+
+	non2xx := selectRuntimePricingTier(tieredRuntimePricingTemplate(t), fullUsage, "openai.chat_completions")
+	if non2xx.Kind != runtimePricingTierApplied {
+		t.Fatalf("selector itself should still classify full usage; status gating belongs to pricing entrypoint, got %+v", non2xx)
+	}
+	ineligible := classifyRuntimePricingForOperation(503, runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$", Epoch: 1}, tieredRuntimePricingTemplate(t), fullUsage, runtimeStreamOutcomeNotStreaming, "openai.chat_completions")
+	if ineligible.PricingStatus != runtimePricingStatusIneligible || ineligible.PricingTierApplied == nil || *ineligible.PricingTierApplied != runtimePricingTierNotEvaluated || ineligible.PricingTierThresholdTokens != nil || ineligible.PricingTierBasisTokens != nil {
+		t.Fatalf("expected non-2xx tier evidence to remain unevaluated, got %+v", ineligible)
+	}
+}
+
 var _ = strings.TrimSpace

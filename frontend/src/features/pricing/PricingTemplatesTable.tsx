@@ -55,7 +55,7 @@ import { normalizeTemplatePrice } from "./pricingSchemas"
 import { isRecentlyChanged, totalReferences, type PricingListFacts } from "./usePricingListFacts"
 
 const PRICING_PAGE_SIZES = [10, 25, 50] as const
-const PRICING_COLUMN_COUNT = 12
+const PRICING_COLUMN_COUNT = 13
 
 type PricingSortColumn = "name" | "currency" | "input" | "output" | "version" | "updated"
 export type PricingFilter = "all" | "incomplete" | "unreferenced" | "recently_changed"
@@ -260,7 +260,7 @@ export function PricingTemplatesTable({
             {/* The per-1M-token unit is stated once, on the rate group. */}
             <TableRow>
               <TableHead className="w-8" />
-              <TableHead colSpan={3}>{copy.groupIdentity}</TableHead>
+              <TableHead colSpan={4}>{copy.groupIdentity}</TableHead>
               <TableHead colSpan={5} className="text-center">
                 <span className="inline-flex items-center gap-1">
                   {copy.groupRates}
@@ -281,6 +281,7 @@ export function PricingTemplatesTable({
               <SortableTableHead sortKey="version" sort={sort} onSort={updateSort}>
                 {copy.columnVersion}
               </SortableTableHead>
+              <TableHead>{copy.columnTier}</TableHead>
               <SortableTableHead sortKey="input" sort={sort} onSort={updateSort} align="right">
                 {copy.rateInput}
               </SortableTableHead>
@@ -335,6 +336,9 @@ export function PricingTemplatesTable({
                         </TableCell>
                         <TableCell className="align-top">
                           <OperatorValueBadge label={`v${template.version}`} className="text-xs" />
+                        </TableCell>
+                        <TableCell className="align-top">
+                          {template.tier ? <OperatorValueBadge label={copy.tierConfigured} className="text-xs" /> : <OperatorMissingValue className="text-xs" reason={copy.tierUnconfiguredReason} />}
                         </TableCell>
                         <TableCell className="align-top text-right">
                           <RateCell symbol={template.active_currency_symbol} value={template.input_price} />
@@ -434,6 +438,8 @@ export function PricingTemplatesTable({
                                   {copy.detailViewHistory}
                                 </Button>
                               </div>
+
+                              <TierPanel template={template} />
 
                               {detailView === "usage" ? (
                                 <UsagePanel
@@ -600,6 +606,30 @@ function UsagePanel({
           ))}
         </TableBody>
       </Table>
+    </OperatorInsetPanel>
+  )
+}
+
+function TierPanel({ template }: { template: PricingTemplate }) {
+  const { messages } = useLocale()
+  const copy = messages.pricingTemplatesUi
+  if (!template.tier) {
+    return <OperatorInsetPanel><p className="text-xs text-muted-foreground">{copy.tierUnconfiguredReason}</p></OperatorInsetPanel>
+  }
+  const tier = template.tier
+  return (
+    <OperatorInsetPanel>
+      <div className="flex flex-col gap-1">
+        <p className="text-sm font-medium text-foreground">{copy.tierDetailsTitle}</p>
+        <p className="text-xs text-muted-foreground">{copy.tierDetailsDescription(tier.input_tokens_above)}</p>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div><p className="text-xs text-muted-foreground">{copy.rateInput}</p><RateCell symbol={template.active_currency_symbol} value={tier.input_price} /></div>
+        <div><p className="text-xs text-muted-foreground">{copy.rateOutput}</p><RateCell symbol={template.active_currency_symbol} value={tier.output_price} /></div>
+        <div><p className="text-xs text-muted-foreground">{copy.rateCachedInput}</p><RateCell specialty symbol={template.active_currency_symbol} value={tier.cached_input_price} /></div>
+        <div><p className="text-xs text-muted-foreground">{copy.rateCacheCreation}</p><RateCell specialty symbol={template.active_currency_symbol} value={tier.cache_creation_price} /></div>
+        <div><p className="text-xs text-muted-foreground">{copy.rateReasoning}</p><RateCell specialty symbol={template.active_currency_symbol} value={tier.reasoning_price} /></div>
+      </div>
     </OperatorInsetPanel>
   )
 }

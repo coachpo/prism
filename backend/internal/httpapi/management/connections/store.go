@@ -73,26 +73,27 @@ type pricingTemplateConnectionUsageRecord struct {
 }
 
 type pricingTemplateResponse struct {
-	ID                     int        `json:"id"`
-	ProfileID              int        `json:"profile_id"`
-	Name                   string     `json:"name"`
-	Description            *string    `json:"description"`
-	PricingUnit            string     `json:"pricing_unit"`
-	PricingCurrencyCode    string     `json:"pricing_currency_code"`
-	InputPrice             string     `json:"input_price"`
-	OutputPrice            string     `json:"output_price"`
-	CachedInputPrice       *string    `json:"cached_input_price"`
-	CacheCreationPrice     *string    `json:"cache_creation_price"`
-	ReasoningPrice         *string    `json:"reasoning_price"`
-	Version                int        `json:"version"`
-	RevisionID             int64      `json:"revision_id"`
-	VersionEffectiveAt     *time.Time `json:"version_effective_at"`
-	ReportingCurrencyEpoch *int       `json:"reporting_currency_epoch"`
-	ActiveCurrencySymbol   string     `json:"active_currency_symbol"`
-	DeletedAt              *time.Time `json:"deleted_at,omitempty"`
-	RevisionCount          int64      `json:"revision_count"`
-	CreatedAt              time.Time  `json:"created_at"`
-	UpdatedAt              time.Time  `json:"updated_at"`
+	ID                     int                  `json:"id"`
+	ProfileID              int                  `json:"profile_id"`
+	Name                   string               `json:"name"`
+	Description            *string              `json:"description"`
+	PricingUnit            string               `json:"pricing_unit"`
+	PricingCurrencyCode    string               `json:"pricing_currency_code"`
+	InputPrice             string               `json:"input_price"`
+	OutputPrice            string               `json:"output_price"`
+	CachedInputPrice       *string              `json:"cached_input_price"`
+	CacheCreationPrice     *string              `json:"cache_creation_price"`
+	ReasoningPrice         *string              `json:"reasoning_price"`
+	Tier                   *pricingTemplateTier `json:"tier"`
+	Version                int                  `json:"version"`
+	RevisionID             int64                `json:"revision_id"`
+	VersionEffectiveAt     *time.Time           `json:"version_effective_at"`
+	ReportingCurrencyEpoch *int                 `json:"reporting_currency_epoch"`
+	ActiveCurrencySymbol   string               `json:"active_currency_symbol"`
+	DeletedAt              *time.Time           `json:"deleted_at,omitempty"`
+	RevisionCount          int64                `json:"revision_count"`
+	CreatedAt              time.Time            `json:"created_at"`
+	UpdatedAt              time.Time            `json:"updated_at"`
 }
 
 const pricingTemplateSelectQuery = `SELECT templates.id, templates.profile_id, templates.name, templates.description,
@@ -100,6 +101,8 @@ const pricingTemplateSelectQuery = `SELECT templates.id, templates.profile_id, t
 			revisions.id, revisions.version, revisions.pricing_unit, revisions.currency_code,
 			revisions.reporting_currency_epoch, revisions.input_price, revisions.output_price,
 			revisions.cached_input_price, revisions.cache_creation_price, revisions.reasoning_price,
+			revisions.tier_input_tokens_above, revisions.tier_input_price, revisions.tier_output_price,
+			revisions.tier_cached_input_price, revisions.tier_cache_creation_price, revisions.tier_reasoning_price,
 			revisions.effective_at,
 			epochs.currency_symbol,
 			(SELECT count(*) FROM pricing_template_revisions AS all_revisions WHERE all_revisions.template_id = templates.id) AS revision_count
@@ -292,6 +295,10 @@ func createPricingTemplateWithRevision(ctx context.Context, tx pgx.Tx, profileID
 	if err != nil {
 		return pricingTemplateResponse{}, err
 	}
+	prices.Tier, err = normalizePricingTemplateTier(requestBody.Tier, prices)
+	if err != nil {
+		return pricingTemplateResponse{}, err
+	}
 	return createPricingTemplateWithPrices(ctx, tx, profileID, currentTime, name, normalizeOptionalTrimmedString(requestBody.Description), prices)
 }
 
@@ -321,10 +328,12 @@ func createPricingTemplateWithPrices(ctx context.Context, tx pgx.Tx, profileID i
 		template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id,
 		reporting_currency_epoch, currency_attribution, input_price, output_price,
 		cached_input_price, cache_creation_price, reasoning_price,
+		tier_input_tokens_above, tier_input_price, tier_output_price, tier_cached_input_price, tier_cache_creation_price, tier_reasoning_price,
 		effective_at, created_at, created_by_kind, created_by_operation_id
-	) VALUES ($1, 1, 'PER_1M', $2, $3, $4, 'active_epoch', $5, $6, $7, $8, $9, $10, $10, 'manual_create', $11)
+	) VALUES ($1, 1, 'PER_1M', $2, $3, $4, 'active_epoch', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16, 'manual_create', $17)
 		RETURNING id`, templateID, epochCode, epochID, epochOrdinal, prices.InputPrice, prices.OutputPrice,
-		prices.CachedInputPrice, prices.CacheCreationPrice, prices.ReasoningPrice, currentTime, operationID).Scan(&revisionID); err != nil {
+		prices.CachedInputPrice, prices.CacheCreationPrice, prices.ReasoningPrice,
+		nullableTierThreshold(prices.Tier), nullableTierPrice(prices.Tier, "input"), nullableTierPrice(prices.Tier, "output"), nullableTierSpecialtyPrice(prices.Tier, "cached_input"), nullableTierSpecialtyPrice(prices.Tier, "cache_creation"), nullableTierSpecialtyPrice(prices.Tier, "reasoning"), currentTime, operationID).Scan(&revisionID); err != nil {
 		return pricingTemplateResponse{}, fmt.Errorf("insert pricing template v1 revision: %w", err)
 	}
 	if err := insertPricingMutationResultItem(ctx, tx, operationID, 1, templateID, "created", intPtr(1), &revisionID, currentTime, name); err != nil {
@@ -352,7 +361,8 @@ func updatePricingTemplateWithPrices(ctx context.Context, tx pgx.Tx, profileID i
 	pricesChanged := current.InputPrice != prices.InputPrice || current.OutputPrice != prices.OutputPrice ||
 		!stringsEqualPointers(current.CachedInputPrice, prices.CachedInputPrice) ||
 		!stringsEqualPointers(current.CacheCreationPrice, prices.CacheCreationPrice) ||
-		!stringsEqualPointers(current.ReasoningPrice, prices.ReasoningPrice)
+		!stringsEqualPointers(current.ReasoningPrice, prices.ReasoningPrice) ||
+		!pricingTemplateTierEqual(current.Tier, prices.Tier)
 	if !nameChanged && !descriptionChanged && !pricesChanged {
 		return nil
 	}
@@ -375,10 +385,12 @@ func updatePricingTemplateWithPrices(ctx context.Context, tx pgx.Tx, profileID i
 			template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id,
 			reporting_currency_epoch, currency_attribution, input_price, output_price,
 			cached_input_price, cache_creation_price, reasoning_price,
+			tier_input_tokens_above, tier_input_price, tier_output_price, tier_cached_input_price, tier_cache_creation_price, tier_reasoning_price,
 			effective_at, created_at, created_by_kind, created_by_operation_id
-		) VALUES ($1, $2, 'PER_1M', $3, $4, $5, 'active_epoch', $6, $7, $8, $9, $10, $11, $11, 'manual_edit', $12)
+		) VALUES ($1, $2, 'PER_1M', $3, $4, $5, 'active_epoch', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17, 'manual_edit', $18)
 		RETURNING id`, current.ID, current.Version+1, epochCode, epochID, current.ReportingCurrencyEpoch,
-			prices.InputPrice, prices.OutputPrice, prices.CachedInputPrice, prices.CacheCreationPrice, prices.ReasoningPrice, currentTime, operationID).Scan(&revisionID); err != nil {
+			prices.InputPrice, prices.OutputPrice, prices.CachedInputPrice, prices.CacheCreationPrice, prices.ReasoningPrice,
+			nullableTierThreshold(prices.Tier), nullableTierPrice(prices.Tier, "input"), nullableTierPrice(prices.Tier, "output"), nullableTierSpecialtyPrice(prices.Tier, "cached_input"), nullableTierSpecialtyPrice(prices.Tier, "cache_creation"), nullableTierSpecialtyPrice(prices.Tier, "reasoning"), currentTime, operationID).Scan(&revisionID); err != nil {
 			return fmt.Errorf("insert pricing template v%d revision: %w", current.Version+1, err)
 		}
 		action := "revision_created"
@@ -1017,6 +1029,12 @@ func scanPricingTemplateResponse(scanner interface{ Scan(...any) error }) (prici
 	var cachedInputPrice sql.NullString
 	var cacheCreationPrice sql.NullString
 	var reasoningPrice sql.NullString
+	var tierInputTokensAbove sql.NullInt32
+	var tierInputPrice sql.NullString
+	var tierOutputPrice sql.NullString
+	var tierCachedInputPrice sql.NullString
+	var tierCacheCreationPrice sql.NullString
+	var tierReasoningPrice sql.NullString
 	var epoch sql.NullInt32
 	var effectiveAt sql.NullTime
 	var deletedAt sql.NullTime
@@ -1041,6 +1059,12 @@ func scanPricingTemplateResponse(scanner interface{ Scan(...any) error }) (prici
 		&cachedInputPrice,
 		&cacheCreationPrice,
 		&reasoningPrice,
+		&tierInputTokensAbove,
+		&tierInputPrice,
+		&tierOutputPrice,
+		&tierCachedInputPrice,
+		&tierCacheCreationPrice,
+		&tierReasoningPrice,
 		&effectiveAt,
 		&symbol,
 		&revisionCount,
@@ -1051,6 +1075,16 @@ func scanPricingTemplateResponse(scanner interface{ Scan(...any) error }) (prici
 	item.CachedInputPrice = nullableStringValue(cachedInputPrice)
 	item.CacheCreationPrice = nullableStringValue(cacheCreationPrice)
 	item.ReasoningPrice = nullableStringValue(reasoningPrice)
+	if tierInputTokensAbove.Valid {
+		item.Tier = &pricingTemplateTier{
+			InputTokensAbove:   int(tierInputTokensAbove.Int32),
+			InputPrice:         tierInputPrice.String,
+			OutputPrice:        tierOutputPrice.String,
+			CachedInputPrice:   nullableStringValue(tierCachedInputPrice),
+			CacheCreationPrice: nullableStringValue(tierCacheCreationPrice),
+			ReasoningPrice:     nullableStringValue(tierReasoningPrice),
+		}
+	}
 	if epoch.Valid {
 		resolved := int(epoch.Int32)
 		item.ReportingCurrencyEpoch = &resolved

@@ -54,6 +54,9 @@ func (s *Service) handleCreateCurrencyMigrationDraft(w http.ResponseWriter, r *h
 		if err := validateCurrencyDraftRequestAgainstSettings(header, settingsRow, r.Context(), tx); err != nil {
 			return currencyMigrationDraftHeaderResponse{}, err
 		}
+		if err := rejectCurrencyMigrationWithTieredTemplates(r.Context(), tx, profile.ID); err != nil {
+			return currencyMigrationDraftHeaderResponse{}, err
+		}
 		if existing, ok, err := loadCurrencyDraftByOperation(r.Context(), tx, profile.ID, header.MigrationOperationID, false); err != nil {
 			return currencyMigrationDraftHeaderResponse{}, err
 		} else if ok {

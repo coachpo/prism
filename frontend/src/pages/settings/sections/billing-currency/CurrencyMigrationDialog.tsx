@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { ArrowRight, CheckCircle2 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -38,6 +38,20 @@ const STEP_REPAIR = "repair" as const;
 const STEP_COMMIT = "commit" as const;
 type Step = typeof STEP_PREVIEW | typeof STEP_REPAIR | typeof STEP_COMMIT;
 
+type TieredTemplateBlock = {
+  current_currency_code: string;
+  templates: Array<{
+    template_id: number;
+    name: string;
+    input_tokens_above: number;
+    input_price: string;
+    output_price: string;
+    cached_input_price: string | null;
+    cache_creation_price: string | null;
+    reasoning_price: string | null;
+  }>;
+};
+
 type PreparedMigration = {
   rows: CurrencyMigrationDraftChunkItem[];
   names: Record<number, string>;
@@ -46,6 +60,20 @@ type PreparedMigration = {
   inventoryGeneration: number | null;
   operationKind: "currency_cutover" | "repair_same_currency";
 };
+
+function tieredTemplateBlockFromError(error: unknown): TieredTemplateBlock | null {
+  if (!(error instanceof ApiError) || error.status !== 409 || error.code !== "currency_migration_blocked_by_tiered_templates") return null;
+  if (!error.details || typeof error.details !== "object") return null;
+  const details = error.details as { current_currency_code?: unknown; templates?: unknown };
+  if (typeof details.current_currency_code !== "string" || !Array.isArray(details.templates)) return null;
+  const templates = details.templates.filter((item): item is TieredTemplateBlock["templates"][number] => {
+    if (!item || typeof item !== "object") return false;
+    const row = item as Record<string, unknown>;
+    const optionalString = (value: unknown): value is string | null => value === null || typeof value === "string";
+    return typeof row.template_id === "number" && typeof row.name === "string" && typeof row.input_tokens_above === "number" && typeof row.input_price === "string" && typeof row.output_price === "string" && optionalString(row.cached_input_price) && optionalString(row.cache_creation_price) && optionalString(row.reasoning_price);
+  });
+  return { current_currency_code: details.current_currency_code, templates };
+}
 
 async function loadAllPricingTemplatePages(): Promise<PreparedMigration["rows"]> {
   const rows: CurrencyMigrationDraftChunkItem[] = [];
@@ -129,6 +157,7 @@ export function CurrencyMigrationDialog({
   const [preview, setPreview] = useState<CurrencyMigrationPreview | null>(null);
   const [draft, setDraft] = useState<CurrencyMigrationDraftHeader | null>(null);
   const [prepared, setPrepared] = useState<PreparedMigration | null>(null);
+  const [tieredTemplateBlock, setTieredTemplateBlock] = useState<TieredTemplateBlock | null>(null);
 
   const codeError = code.trim() ? (isValidCurrencyCode(code.trim()) ? null : copy.invalidCode) : null;
 
@@ -204,7 +233,9 @@ export function CurrencyMigrationDialog({
       }
       await submitMigration(migration);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : copy.previewFailed);
+      const blocked = tieredTemplateBlockFromError(error);
+      if (blocked) setTieredTemplateBlock(blocked);
+      else toast.error(error instanceof Error ? error.message : copy.previewFailed);
     } finally {
       setLoading(false);
     }
@@ -222,7 +253,9 @@ export function CurrencyMigrationDialog({
     try {
       await submitMigration(prepared);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : copy.previewFailed);
+      const blocked = tieredTemplateBlockFromError(error);
+      if (blocked) setTieredTemplateBlock(blocked);
+      else toast.error(error instanceof Error ? error.message : copy.previewFailed);
     } finally {
       setLoading(false);
     }
@@ -256,12 +289,15 @@ export function CurrencyMigrationDialog({
       toast.success(copy.commitSucceeded(preview.target_currency_code, preview.next_epoch));
       setPreview(null);
       setPrepared(null);
+      setTieredTemplateBlock(null);
       setStep(STEP_PREVIEW);
       setCode("");
       setSymbol("");
       onOpenChange(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : copy.commitFailed);
+      const blocked = tieredTemplateBlockFromError(error);
+      if (blocked) setTieredTemplateBlock(blocked);
+      else toast.error(error instanceof Error ? error.message : copy.commitFailed);
     } finally {
       setLoading(false);
     }
@@ -273,6 +309,7 @@ export function CurrencyMigrationDialog({
         setPreview(null);
         setDraft(null);
         setPrepared(null);
+        setTieredTemplateBlock(null);
         setStep(STEP_PREVIEW);
         setCode("");
         setSymbol("");
@@ -291,6 +328,26 @@ export function CurrencyMigrationDialog({
             {copy.description}
           </AlertDialogDescription>
         </AlertDialogHeader>
+
+        {tieredTemplateBlock ? (
+          <OperatorCallout
+            intent="danger"
+            title={copy.tieredTemplatesTitle}
+            description={
+              <div className="flex flex-col gap-2">
+                <p>{copy.tieredTemplatesDescription(tieredTemplateBlock.current_currency_code)}</p>
+                <ul className="list-disc space-y-1 pl-5 text-xs">
+                  {tieredTemplateBlock.templates.map((template) => (
+                    <li key={template.template_id}>
+                      <span className="font-medium">{copy.tieredTemplateRow(template.name, template.input_tokens_above)}</span>
+                      <span className="ml-2 text-muted-foreground">{copy.tieredTemplatePrices}{[template.input_price, template.output_price, template.cached_input_price ?? getStaticMessages().requestLogs.notConfigured, template.cache_creation_price ?? getStaticMessages().requestLogs.notConfigured, template.reasoning_price ?? getStaticMessages().requestLogs.notConfigured].join(" / ")}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            }
+          />
+        ) : null}
 
         {step === STEP_PREVIEW ? (
           <div className="flex flex-col gap-3">

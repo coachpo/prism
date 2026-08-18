@@ -1166,6 +1166,46 @@ func TestCurrencyMigrationAtomicCutover(t *testing.T) {
 	assertErrorResponse(t, duplicate, http.StatusConflict, "currency_migration_required: target currency must differ from the current reporting currency")
 }
 
+func TestCurrencyMigrationBlockedByTieredTemplate(t *testing.T) {
+	harness := newS11ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	templateID := insertContractPricingTemplateWithPrices(t, harness, profileID, "Tiered Currency Guard", "2", "5", "1", "2", "3")
+	now := time.Now().UTC()
+	var revisionID int64
+	if err := harness.conn.QueryRow(context.Background(), `WITH current_revision AS (SELECT revisions.* FROM pricing_templates AS templates JOIN pricing_template_revisions AS revisions ON revisions.id = templates.current_revision_id WHERE templates.id = $1), inserted AS (INSERT INTO pricing_template_revisions (template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, tier_input_tokens_above, tier_input_price, tier_output_price, tier_cached_input_price, tier_cache_creation_price, tier_reasoning_price, effective_at, created_at, created_by_kind, created_by_operation_id) SELECT template_id, version + 1, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, 272000, '4', '18', '2', '5', '20', $2, $2, 'legacy_backfill', NULL FROM current_revision RETURNING id) UPDATE pricing_templates SET current_revision_id = inserted.id, updated_at = $2 FROM inserted WHERE pricing_templates.id = $1 RETURNING inserted.id`, templateID, now).Scan(&revisionID); err != nil {
+		t.Fatalf("attach tiered revision for currency guard: %v", err)
+	}
+	if revisionID < 1 {
+		t.Fatalf("expected tiered revision identity, got %d", revisionID)
+	}
+	settings := requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/settings/costing", nil, modelHeader(profileID), http.StatusOK)
+	var draftID, operationID string
+	if err := harness.conn.QueryRow(context.Background(), `SELECT gen_random_uuid()::text, gen_random_uuid()::text`).Scan(&draftID, &operationID); err != nil {
+		t.Fatalf("generate currency guard identifiers: %v", err)
+	}
+	blocked := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/settings/costing/currency-migration-drafts", map[string]any{
+		"draft_id": draftID, "migration_operation_id": operationID, "operation_kind": "currency_cutover",
+		"target_currency_code": "EUR", "target_currency_symbol": "€", "expected_inventory_id": nil,
+		"expected_inventory_hash": nil, "expected_inventory_generation": nil, "expected_reporting_currency_epoch": 1,
+		"expected_settings_updated_at": settings["updated_at"],
+	}, modelHeader(profileID), http.StatusConflict)
+	if blocked["code"] != "currency_migration_blocked_by_tiered_templates" {
+		t.Fatalf("expected tiered-template currency guard code, got %+v", blocked)
+	}
+	details := asMap(t, blocked["details"])
+	if details["current_currency_code"] != "USD" {
+		t.Fatalf("expected current currency in tier guard details, got %+v", details)
+	}
+	items := details["templates"].([]any)
+	if len(items) != 1 || jsonInt(t, asMap(t, items[0])["template_id"]) != templateID || jsonInt(t, asMap(t, items[0])["input_tokens_above"]) != 272000 {
+		t.Fatalf("expected affected tiered template evidence, got %+v", details)
+	}
+	tier := asMap(t, items[0])
+	if tier["input_price"] != "4" || tier["output_price"] != "18" || tier["cached_input_price"] != "2" || tier["cache_creation_price"] != "5" || tier["reasoning_price"] != "20" {
+		t.Fatalf("expected all five tier prices in the currency guard details, got %+v", tier)
+	}
+}
+
 func assertTemplateRevisionAtEpoch(t *testing.T, harness *contractHarness, profileID int, templateID int, version int, currency string, input string, output string) {
 	t.Helper()
 	var gotVersion int

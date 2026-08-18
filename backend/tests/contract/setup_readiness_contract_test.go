@@ -153,6 +153,9 @@ func TestSetupReadinessPricingProjection(t *testing.T) {
 	var createdTemplate map[string]any
 	decodeJSONResponse(t, createTemplate, &createdTemplate)
 	templateID := intValue(createdTemplate["id"])
+	if createdTemplate["tier"] != nil {
+		t.Fatalf("expected setup-readiness template without tier to expose null tier, got %+v", createdTemplate["tier"])
+	}
 	if _, err := harness.conn.Exec(t.Context(), `UPDATE connections SET pricing_template_id = $1, updated_at = $2 WHERE id = $3`, templateID, createdTemplate["updated_at"], connectionID); err != nil {
 		t.Fatalf("attach pricing template: %v", err)
 	}

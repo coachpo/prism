@@ -3,6 +3,7 @@ package settings
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -12,7 +13,80 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+type currencyMigrationTieredTemplate struct {
+	TemplateID         int     `json:"template_id"`
+	Name               string  `json:"name"`
+	InputTokensAbove   int     `json:"input_tokens_above"`
+	InputPrice         string  `json:"input_price"`
+	OutputPrice        string  `json:"output_price"`
+	CachedInputPrice   *string `json:"cached_input_price"`
+	CacheCreationPrice *string `json:"cache_creation_price"`
+	ReasoningPrice     *string `json:"reasoning_price"`
+}
+
+type currencyMigrationTieredTemplatesDetail struct {
+	CurrentCurrencyCode string                            `json:"current_currency_code"`
+	Templates           []currencyMigrationTieredTemplate `json:"templates"`
+	Recovery            string                            `json:"recovery"`
+}
+
+func (detail currencyMigrationTieredTemplatesDetail) Error() string {
+	return "currency_migration_blocked_by_tiered_templates"
+}
+
+func rejectCurrencyMigrationWithTieredTemplates(ctx context.Context, tx pgx.Tx, profileID int) error {
+	var currentCurrencyCode sql.NullString
+	if err := tx.QueryRow(ctx, `SELECT report_currency_code FROM user_settings WHERE profile_id = $1`, profileID).Scan(&currentCurrencyCode); err != nil {
+		return fmt.Errorf("load current currency for tiered-template guard: %w", err)
+	}
+	rows, err := tx.Query(ctx, `SELECT templates.id, templates.name, revisions.tier_input_tokens_above,
+		revisions.tier_input_price, revisions.tier_output_price, revisions.tier_cached_input_price,
+		revisions.tier_cache_creation_price, revisions.tier_reasoning_price
+		FROM pricing_templates AS templates
+		JOIN pricing_template_revisions AS revisions ON revisions.id = templates.current_revision_id
+		WHERE templates.profile_id = $1 AND templates.deleted_at IS NULL
+		  AND revisions.tier_input_tokens_above IS NOT NULL
+		ORDER BY templates.id ASC`, profileID)
+	if err != nil {
+		return fmt.Errorf("query tiered pricing templates for currency guard: %w", err)
+	}
+	defer rows.Close()
+	items := make([]currencyMigrationTieredTemplate, 0)
+	for rows.Next() {
+		var item currencyMigrationTieredTemplate
+		var threshold sql.NullInt32
+		var input, output, cached, creation, reasoning sql.NullString
+		if err := rows.Scan(&item.TemplateID, &item.Name, &threshold, &input, &output, &cached, &creation, &reasoning); err != nil {
+			return fmt.Errorf("scan tiered pricing template for currency guard: %w", err)
+		}
+		if !threshold.Valid {
+			continue
+		}
+		item.InputTokensAbove = int(threshold.Int32)
+		item.InputPrice = input.String
+		item.OutputPrice = output.String
+		item.CachedInputPrice = nullableSQLString(cached)
+		item.CacheCreationPrice = nullableSQLString(creation)
+		item.ReasoningPrice = nullableSQLString(reasoning)
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate tiered pricing templates for currency guard: %w", err)
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	return &domainError{StatusCode: http.StatusConflict, Detail: currencyMigrationTieredTemplatesDetail{
+		CurrentCurrencyCode: currentCurrencyCode.String,
+		Templates:           items,
+		Recovery:            "clear_tiers_before_currency_migration",
+	}}
+}
+
 func applyCurrencyMigrationDraftCutover(ctx context.Context, tx pgx.Tx, profileID int, settingsRow userSettingsRow, header currencyMigrationDraftHeaderRow, operationID, previewHash string, templates []currencyDraftAuthoritativeTemplate, items []currencyMigrationDraftItem, currentTime time.Time) (currencyMigrationCommitResponse, error) {
+	if err := rejectCurrencyMigrationWithTieredTemplates(ctx, tx, profileID); err != nil {
+		return currencyMigrationCommitResponse{}, err
+	}
 	currentEpoch, err := loadCurrencyMigrationEpochOnly(ctx, tx, settingsRow)
 	if err != nil {
 		return currencyMigrationCommitResponse{}, err

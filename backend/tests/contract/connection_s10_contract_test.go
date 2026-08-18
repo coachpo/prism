@@ -70,6 +70,9 @@ func TestConnectionS10PricingTemplateCRUD(t *testing.T) {
 		t.Fatalf("expected pricing template list for effective profile only, got %+v", listed)
 	}
 	assertPricingTemplatePayloadPrices(t, listed[0], "1", "2", "0", "0", "0")
+	if listed[0]["tier"] != nil {
+		t.Fatalf("expected unconfigured template tier to be explicit null, got %+v", listed[0]["tier"])
+	}
 
 	getResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/pricing-templates/%d", existingTemplateID), nil, modelHeader(defaultProfileID))
 	assertStatus(t, getResponse, http.StatusOK)
@@ -79,6 +82,9 @@ func TestConnectionS10PricingTemplateCRUD(t *testing.T) {
 		t.Fatalf("expected pricing template payload for profile %d, got %+v", defaultProfileID, existing)
 	}
 	assertPricingTemplatePayloadPrices(t, existing, "1", "2", "0", "0", "0")
+	if existing["tier"] != nil {
+		t.Fatalf("expected unconfigured template tier to be explicit null, got %+v", existing["tier"])
+	}
 
 	// Blank specialty prices are field-level 422 (never normalized to zero);
 	// explicit JSON null means unconfigured (SPEC 4.1).
@@ -107,15 +113,33 @@ func TestConnectionS10PricingTemplateCRUD(t *testing.T) {
 	}
 	assertPricingTemplatePayloadPrices(t, updated, "3.75", "2.5", "0.1", "0", "0.5")
 
-	// Explicit null specials become unconfigured (NULL), not zero.
-	zeroPricesResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{"expected_updated_at": updated["updated_at"], "cached_input_price": nil, "cache_creation_price": nil, "reasoning_price": nil}, modelHeader(defaultProfileID))
+	// A tier is one singular, complete five-component mirror. Its threshold
+	// uses strict greater-than semantics at runtime; CRUD only stores the
+	// normalized immutable card.
+	tierUpdateResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{
+		"expected_updated_at": updated["updated_at"],
+		"tier":                map[string]any{"input_tokens_above": 272000, "input_price": "4", "output_price": "18", "cached_input_price": "0.2", "cache_creation_price": "5", "reasoning_price": "6"},
+	}, modelHeader(defaultProfileID))
+	assertStatus(t, tierUpdateResponse, http.StatusOK)
+	var tiered map[string]any
+	decodeJSONResponse(t, tierUpdateResponse, &tiered)
+	if tier := asMap(t, tiered["tier"]); jsonInt(t, tier["input_tokens_above"]) != 272000 || tier["input_price"] != "4" || tier["output_price"] != "18" || tier["reasoning_price"] != "6" {
+		t.Fatalf("expected normalized tier pricing card, got %+v", tiered)
+	}
+
+	// Explicit null specials become unconfigured (NULL), not zero. Clearing
+	// the tier in the same replacement keeps the parity invariant valid.
+	zeroPricesResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{"expected_updated_at": tiered["updated_at"], "cached_input_price": nil, "cache_creation_price": nil, "reasoning_price": nil, "tier": nil}, modelHeader(defaultProfileID))
 	assertStatus(t, zeroPricesResponse, http.StatusOK)
 	var zeroed map[string]any
 	decodeJSONResponse(t, zeroPricesResponse, &zeroed)
-	if zeroed["version"] != float64(3) {
-		t.Fatalf("expected null pricing fields to bump version, got %+v", zeroed)
+	if zeroed["version"] != float64(4) {
+		t.Fatalf("expected null pricing fields and tier clear to bump version, got %+v", zeroed)
 	}
 	assertPricingTemplatePayloadPrices(t, zeroed, "3.75", "2.5", nil, nil, nil)
+	if zeroed["tier"] != nil {
+		t.Fatalf("expected explicit null tier after clearing, got %+v", zeroed["tier"])
+	}
 	assertPricingTemplateStoredPrices(t, harness, defaultProfileID, "S10 Created Template", "3.75", "2.5", nil, nil, nil)
 
 	staleUpdate := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{"expected_updated_at": created["updated_at"], "name": "Stale Update"}, modelHeader(defaultProfileID))

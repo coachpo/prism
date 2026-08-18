@@ -147,6 +147,15 @@ export interface PricingTemplateListItem {
   updated_at: string;
 }
 
+export interface PricingTemplateTier {
+  input_tokens_above: number;
+  input_price: string;
+  output_price: string;
+  cached_input_price: PricingComponentPrice;
+  cache_creation_price: PricingComponentPrice;
+  reasoning_price: PricingComponentPrice;
+}
+
 export interface PricingTemplateListPageRevision {
   revision_id: string;
   version: number;
@@ -159,6 +168,7 @@ export interface PricingTemplateListPageRevision {
   cached_input_price: PricingComponentPrice;
   cache_creation_price: PricingComponentPrice;
   reasoning_price: PricingComponentPrice;
+  tier: PricingTemplateTier | null;
   effective_at: string | null;
   created_at: string;
   created_by_kind: string;
@@ -202,6 +212,7 @@ export interface PricingTemplate {
   cached_input_price: PricingComponentPrice;
   cache_creation_price: PricingComponentPrice;
   reasoning_price: PricingComponentPrice;
+  tier: PricingTemplateTier | null;
   version: number;
   revision_id: number;
   version_effective_at: string | null;
@@ -223,6 +234,7 @@ export interface PricingTemplateCreate {
   cached_input_price: PricingComponentPrice;
   cache_creation_price: PricingComponentPrice;
   reasoning_price: PricingComponentPrice;
+  tier?: PricingTemplateTier | null;
 }
 
 export type PricingTemplateImportMode = "upsert_by_name" | "create_only";
@@ -263,6 +275,8 @@ export interface PricingTemplateUpdate {
   cached_input_price?: PricingComponentPrice;
   cache_creation_price?: PricingComponentPrice;
   reasoning_price?: PricingComponentPrice;
+  /** Missing preserves the current tier; null clears it. */
+  tier?: PricingTemplateTier | null;
 }
 
 export interface PricingTemplateRevision {
@@ -277,6 +291,7 @@ export interface PricingTemplateRevision {
   cached_input_price: PricingComponentPrice;
   cache_creation_price: PricingComponentPrice;
   reasoning_price: PricingComponentPrice;
+  tier: PricingTemplateTier | null;
   effective_at: string | null;
   created_at: string;
   created_by_kind: string;

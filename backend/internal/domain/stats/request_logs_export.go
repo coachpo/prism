@@ -148,7 +148,8 @@ func buildExportRowQuery(params ExportParams) (string, []any) {
 		fx_rate_used, fx_rate_source, pricing_status, unpriced_reason, pricing_resolution_kind, missing_price_components,
 		pricing_evidence_trust, pricing_template_id_used, pricing_template_name_snapshot, pricing_template_revision_id_used,
 		pricing_config_version_used, pricing_version_effective_at, reporting_currency_epoch,
-		metadata_redacted_fields, metadata_truncated_fields, created_at
+		metadata_redacted_fields, metadata_truncated_fields, created_at,
+		pricing_tier_applied, pricing_tier_threshold_tokens, pricing_tier_basis_tokens
 		FROM request_logs WHERE ` + whereClause + ` ` + requestLogOrderBy(params.SortBy, params.SortOrder)
 	return query, args
 }
@@ -166,6 +167,7 @@ var exportHeader = []string{
 	"pricing_evidence_trust", "pricing_template_id_used", "pricing_template_name_snapshot", "pricing_template_revision_id_used",
 	"pricing_config_version_used", "pricing_version_effective_at", "reporting_currency_epoch",
 	"metadata_redacted_fields", "metadata_truncated_fields",
+	"pricing_tier_applied", "pricing_tier_threshold_tokens", "pricing_tier_basis_tokens",
 }
 
 type exportRowScanner struct {
@@ -192,7 +194,9 @@ func writeExportRows(ctx context.Context, writer *csv.Writer, rows interface {
 		default:
 		}
 		var record exportRowRecord
-		var resolvedTargetModelID, operationName, errorSource, errorCode, failureStage, errorDetail, streamErrorDetail, streamErrorKind, unpricedReason, resolutionKind, currencyCodeOriginal, reportCurrencyCode, reportCurrencySymbol, fxRateUsed, fxRateSource, templateNameSnapshot *string
+		var resolvedTargetModelID, operationName, errorSource, errorCode, failureStage, errorDetail, streamErrorDetail, streamErrorKind, unpricedReason, resolutionKind, currencyCodeOriginal, reportCurrencyCode, reportCurrencySymbol, fxRateUsed, fxRateSource, templateNameSnapshot, pricingTierApplied *string
+		var pricingTierThreshold *int
+		var pricingTierBasis *int64
 		if err := rows.Scan(
 			&record.ID, &record.RowKind, &record.IngressRequestID, &record.ModelID, &resolvedTargetModelID, &record.APIFamily, &operationName,
 			&record.AttemptNumber, &record.AttemptTrigger, &record.AttemptResult, &record.IsWinner, &record.AttemptDurationMS, &record.LegacyDurationMS, &record.TTFTMS, &record.CompletionDurationMS,
@@ -205,6 +209,7 @@ func writeExportRows(ctx context.Context, writer *csv.Writer, rows interface {
 			&record.PricingEvidenceTrust, &record.PricingTemplateIDUsed, &templateNameSnapshot, &record.PricingTemplateRevisionIDUsed,
 			&record.PricingConfigVersionUsed, &record.PricingVersionEffectiveAt, &record.ReportingCurrencyEpoch,
 			&record.MetadataRedactedFields, &record.MetadataTruncatedFields, &record.CreatedAt,
+			&pricingTierApplied, &pricingTierThreshold, &pricingTierBasis,
 		); err != nil {
 			return fmt.Errorf("scan export row: %w", err)
 		}
@@ -224,6 +229,9 @@ func writeExportRows(ctx context.Context, writer *csv.Writer, rows interface {
 		record.FXRateUsed = fxRateUsed
 		record.FXRateSource = fxRateSource
 		record.PricingTemplateNameSnapshot = templateNameSnapshot
+		record.PricingTierApplied = pricingTierApplied
+		record.PricingTierThresholdTokens = pricingTierThreshold
+		record.PricingTierBasisTokens = pricingTierBasis
 		cells := record.csvCells()
 		safeCells := make([]string, len(cells))
 		for index, cell := range cells {
@@ -311,6 +319,9 @@ type exportRowRecord struct {
 	PricingConfigVersionUsed      *int
 	PricingVersionEffectiveAt     *time.Time
 	ReportingCurrencyEpoch        *int
+	PricingTierApplied            *string
+	PricingTierThresholdTokens    *int
+	PricingTierBasisTokens        *int64
 	MetadataRedactedFields        []string
 	MetadataTruncatedFields       []string
 	CreatedAt                     time.Time
@@ -390,6 +401,9 @@ func (record exportRowRecord) csvCells() []string {
 		optionalIntString(record.ReportingCurrencyEpoch),
 		redacted,
 		truncated,
+		optionalString(record.PricingTierApplied),
+		optionalIntString(record.PricingTierThresholdTokens),
+		optionalInt64String(record.PricingTierBasisTokens),
 	}
 }
 

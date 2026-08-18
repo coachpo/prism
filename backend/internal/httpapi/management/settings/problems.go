@@ -116,49 +116,50 @@ type problemRegistration struct {
 }
 
 var settingsProblemRegistry = map[string]problemRegistration{
-	"validation_failed":                             {Code: "validation_failed", Status: http.StatusUnprocessableEntity, DetailsKind: "violations"},
-	"invalid_retention_policy":                      {Code: "invalid_retention_policy", Status: http.StatusUnprocessableEntity, DetailsKind: "violations"},
-	"invalid_retention_cutoff":                      {Code: "invalid_retention_cutoff", Status: http.StatusUnprocessableEntity, DetailsKind: "violations"},
-	"invalid_audit_policy":                          {Code: "invalid_audit_policy", Status: http.StatusUnprocessableEntity, DetailsKind: "violations"},
-	"invalid_operator_account":                      {Code: "invalid_operator_account", Status: http.StatusUnprocessableEntity, DetailsKind: "violations"},
-	"invalid_timezone":                              {Code: "invalid_timezone", Status: http.StatusUnprocessableEntity, DetailsKind: "violations"},
-	"unknown_field":                                 {Code: "unknown_field", Status: http.StatusUnprocessableEntity, DetailsKind: "violations"},
-	"costing_settings_changed":                      {Code: "costing_settings_changed", Status: http.StatusConflict, DetailsKind: "refresh"},
-	"retention_settings_changed":                    {Code: "retention_settings_changed", Status: http.StatusConflict, DetailsKind: "refresh"},
-	"audit_settings_changed":                        {Code: "audit_settings_changed", Status: http.StatusConflict, DetailsKind: "refresh"},
-	"auth_settings_changed":                         {Code: "auth_settings_changed", Status: http.StatusConflict, DetailsKind: "refresh"},
-	"retention_owner_drift_changed":                 {Code: "retention_owner_drift_changed", Status: http.StatusConflict, DetailsKind: "repreview"},
-	"retention_preflight_required":                  {Code: "retention_preflight_required", Status: http.StatusPreconditionRequired, DetailsKind: "repreview"},
-	"retention_preflight_stale":                     {Code: "retention_preflight_stale", Status: http.StatusConflict, DetailsKind: "repreview"},
-	"cutoff_unavailable_for_rollup":                 {Code: "cutoff_unavailable_for_rollup", Status: http.StatusUnprocessableEntity, DetailsKind: "cutoff_suggestion"},
-	"operation_id_conflict":                         {Code: "operation_id_conflict", Status: http.StatusConflict, DetailsKind: "operation"},
-	"retention_job_conflict":                        {Code: "retention_job_conflict", Status: http.StatusConflict, DetailsKind: "operation"},
-	"job_terminal":                                  {Code: "job_terminal", Status: http.StatusConflict, DetailsKind: "operation"},
-	"legacy_job_not_cancellable":                    {Code: "legacy_job_not_cancellable", Status: http.StatusConflict, DetailsKind: "operation"},
-	"purge_not_cancellable":                         {Code: "purge_not_cancellable", Status: http.StatusConflict, DetailsKind: "operation"},
-	"auth_readiness_changed":                        {Code: "auth_readiness_changed", Status: http.StatusConflict, DetailsKind: "auth_readiness"},
-	"auth_acknowledgement_required":                 {Code: "auth_acknowledgement_required", Status: http.StatusConflict, DetailsKind: "auth_readiness"},
-	"auth_readiness_unavailable":                    {Code: "auth_readiness_unavailable", Status: http.StatusServiceUnavailable, DetailsKind: "auth_readiness"},
-	"auth_transition_in_progress":                   {Code: "auth_transition_in_progress", Status: http.StatusConflict, DetailsKind: "auth_transition"},
-	"auth_transition_recovery_required":             {Code: "auth_transition_recovery_required", Status: http.StatusServiceUnavailable, DetailsKind: "auth_transition"},
-	"auth_transition_fail_closed":                   {Code: "auth_transition_fail_closed", Status: http.StatusServiceUnavailable, DetailsKind: "auth_transition"},
-	"CURRENCY_MIGRATION_REQUIRED":                   {Code: "CURRENCY_MIGRATION_REQUIRED", Status: http.StatusConflict, DetailsKind: "migration_entry"},
-	"currency_migration_required":                   {Code: "currency_migration_required", Status: http.StatusConflict, DetailsKind: "migration_entry"},
-	"currency_migration_stale":                      {Code: "currency_migration_stale", Status: http.StatusConflict, DetailsKind: "repreview"},
-	"currency_migration_operation_conflict":         {Code: "currency_migration_operation_conflict", Status: http.StatusConflict, DetailsKind: "operation"},
-	"currency_migration_draft_conflict":             {Code: "currency_migration_draft_conflict", Status: http.StatusConflict, DetailsKind: "operation"},
-	"currency_migration_draft_expired":              {Code: "currency_migration_draft_expired", Status: http.StatusConflict, DetailsKind: "operation"},
-	"currency_migration_draft_stale":                {Code: "currency_migration_draft_stale", Status: http.StatusConflict, DetailsKind: "repreview"},
-	"currency_migration_draft_corrupt":              {Code: "currency_migration_draft_corrupt", Status: http.StatusConflict, DetailsKind: "operation"},
-	"currency_migration_draft_duplicate_template":   {Code: "currency_migration_draft_duplicate_template", Status: http.StatusConflict, DetailsKind: "operation"},
-	"currency_migration_draft_template_set_changed": {Code: "currency_migration_draft_template_set_changed", Status: http.StatusConflict, DetailsKind: "repreview"},
-	"currency_migration_inventory_conflict":         {Code: "currency_migration_inventory_conflict", Status: http.StatusConflict, DetailsKind: "repreview"},
-	"currency_migration_inventory_stale":            {Code: "currency_migration_inventory_stale", Status: http.StatusConflict, DetailsKind: "repreview"},
-	"currency_migration_invalid_kind":               {Code: "currency_migration_invalid_kind", Status: http.StatusConflict, DetailsKind: "migration_entry"},
-	"currency_migration_owner_unavailable":          {Code: "currency_migration_owner_unavailable", Status: http.StatusServiceUnavailable, Retryable: true, DetailsKind: "retry"},
-	"settings_schema_finalizing":                    {Code: "settings_schema_finalizing", Status: http.StatusServiceUnavailable, DetailsKind: "schema_finalizing"},
-	"settings_owner_unavailable":                    {Code: "settings_owner_unavailable", Status: http.StatusServiceUnavailable, Retryable: true, DetailsKind: "retry"},
-	"internal_error":                                {Code: "internal_error", Status: http.StatusInternalServerError, DetailsKind: "empty_object"},
+	"validation_failed":                              {Code: "validation_failed", Status: http.StatusUnprocessableEntity, DetailsKind: "violations"},
+	"invalid_retention_policy":                       {Code: "invalid_retention_policy", Status: http.StatusUnprocessableEntity, DetailsKind: "violations"},
+	"invalid_retention_cutoff":                       {Code: "invalid_retention_cutoff", Status: http.StatusUnprocessableEntity, DetailsKind: "violations"},
+	"invalid_audit_policy":                           {Code: "invalid_audit_policy", Status: http.StatusUnprocessableEntity, DetailsKind: "violations"},
+	"invalid_operator_account":                       {Code: "invalid_operator_account", Status: http.StatusUnprocessableEntity, DetailsKind: "violations"},
+	"invalid_timezone":                               {Code: "invalid_timezone", Status: http.StatusUnprocessableEntity, DetailsKind: "violations"},
+	"unknown_field":                                  {Code: "unknown_field", Status: http.StatusUnprocessableEntity, DetailsKind: "violations"},
+	"costing_settings_changed":                       {Code: "costing_settings_changed", Status: http.StatusConflict, DetailsKind: "refresh"},
+	"retention_settings_changed":                     {Code: "retention_settings_changed", Status: http.StatusConflict, DetailsKind: "refresh"},
+	"audit_settings_changed":                         {Code: "audit_settings_changed", Status: http.StatusConflict, DetailsKind: "refresh"},
+	"auth_settings_changed":                          {Code: "auth_settings_changed", Status: http.StatusConflict, DetailsKind: "refresh"},
+	"retention_owner_drift_changed":                  {Code: "retention_owner_drift_changed", Status: http.StatusConflict, DetailsKind: "repreview"},
+	"retention_preflight_required":                   {Code: "retention_preflight_required", Status: http.StatusPreconditionRequired, DetailsKind: "repreview"},
+	"retention_preflight_stale":                      {Code: "retention_preflight_stale", Status: http.StatusConflict, DetailsKind: "repreview"},
+	"cutoff_unavailable_for_rollup":                  {Code: "cutoff_unavailable_for_rollup", Status: http.StatusUnprocessableEntity, DetailsKind: "cutoff_suggestion"},
+	"operation_id_conflict":                          {Code: "operation_id_conflict", Status: http.StatusConflict, DetailsKind: "operation"},
+	"retention_job_conflict":                         {Code: "retention_job_conflict", Status: http.StatusConflict, DetailsKind: "operation"},
+	"job_terminal":                                   {Code: "job_terminal", Status: http.StatusConflict, DetailsKind: "operation"},
+	"legacy_job_not_cancellable":                     {Code: "legacy_job_not_cancellable", Status: http.StatusConflict, DetailsKind: "operation"},
+	"purge_not_cancellable":                          {Code: "purge_not_cancellable", Status: http.StatusConflict, DetailsKind: "operation"},
+	"auth_readiness_changed":                         {Code: "auth_readiness_changed", Status: http.StatusConflict, DetailsKind: "auth_readiness"},
+	"auth_acknowledgement_required":                  {Code: "auth_acknowledgement_required", Status: http.StatusConflict, DetailsKind: "auth_readiness"},
+	"auth_readiness_unavailable":                     {Code: "auth_readiness_unavailable", Status: http.StatusServiceUnavailable, DetailsKind: "auth_readiness"},
+	"auth_transition_in_progress":                    {Code: "auth_transition_in_progress", Status: http.StatusConflict, DetailsKind: "auth_transition"},
+	"auth_transition_recovery_required":              {Code: "auth_transition_recovery_required", Status: http.StatusServiceUnavailable, DetailsKind: "auth_transition"},
+	"auth_transition_fail_closed":                    {Code: "auth_transition_fail_closed", Status: http.StatusServiceUnavailable, DetailsKind: "auth_transition"},
+	"CURRENCY_MIGRATION_REQUIRED":                    {Code: "CURRENCY_MIGRATION_REQUIRED", Status: http.StatusConflict, DetailsKind: "migration_entry"},
+	"currency_migration_required":                    {Code: "currency_migration_required", Status: http.StatusConflict, DetailsKind: "migration_entry"},
+	"currency_migration_stale":                       {Code: "currency_migration_stale", Status: http.StatusConflict, DetailsKind: "repreview"},
+	"currency_migration_operation_conflict":          {Code: "currency_migration_operation_conflict", Status: http.StatusConflict, DetailsKind: "operation"},
+	"currency_migration_draft_conflict":              {Code: "currency_migration_draft_conflict", Status: http.StatusConflict, DetailsKind: "operation"},
+	"currency_migration_draft_expired":               {Code: "currency_migration_draft_expired", Status: http.StatusConflict, DetailsKind: "operation"},
+	"currency_migration_draft_stale":                 {Code: "currency_migration_draft_stale", Status: http.StatusConflict, DetailsKind: "repreview"},
+	"currency_migration_draft_corrupt":               {Code: "currency_migration_draft_corrupt", Status: http.StatusConflict, DetailsKind: "operation"},
+	"currency_migration_draft_duplicate_template":    {Code: "currency_migration_draft_duplicate_template", Status: http.StatusConflict, DetailsKind: "operation"},
+	"currency_migration_draft_template_set_changed":  {Code: "currency_migration_draft_template_set_changed", Status: http.StatusConflict, DetailsKind: "repreview"},
+	"currency_migration_inventory_conflict":          {Code: "currency_migration_inventory_conflict", Status: http.StatusConflict, DetailsKind: "repreview"},
+	"currency_migration_blocked_by_tiered_templates": {Code: "currency_migration_blocked_by_tiered_templates", Status: http.StatusConflict, DetailsKind: "tiered_templates"},
+	"currency_migration_inventory_stale":             {Code: "currency_migration_inventory_stale", Status: http.StatusConflict, DetailsKind: "repreview"},
+	"currency_migration_invalid_kind":                {Code: "currency_migration_invalid_kind", Status: http.StatusConflict, DetailsKind: "migration_entry"},
+	"currency_migration_owner_unavailable":           {Code: "currency_migration_owner_unavailable", Status: http.StatusServiceUnavailable, Retryable: true, DetailsKind: "retry"},
+	"settings_schema_finalizing":                     {Code: "settings_schema_finalizing", Status: http.StatusServiceUnavailable, DetailsKind: "schema_finalizing"},
+	"settings_owner_unavailable":                     {Code: "settings_owner_unavailable", Status: http.StatusServiceUnavailable, Retryable: true, DetailsKind: "retry"},
+	"internal_error":                                 {Code: "internal_error", Status: http.StatusInternalServerError, DetailsKind: "empty_object"},
 }
 
 // settingsSchemaFinalizingProblem returns the exact ERR-08 problem for the
@@ -225,6 +226,10 @@ func writeSettingsDomainError(w http.ResponseWriter, r *http.Request, corsSnapsh
 	code := "validation_failed"
 	status := domainErr.StatusCode
 	var details any = map[string]any{"violations": []any{}}
+	if blocked, ok := domainErr.Detail.(currencyMigrationTieredTemplatesDetail); ok {
+		code = "currency_migration_blocked_by_tiered_templates"
+		details = blocked
+	}
 	switch {
 	case strings.Contains(detail, "currency_migration_operation_conflict"):
 		code = "currency_migration_operation_conflict"
@@ -244,6 +249,11 @@ func writeSettingsDomainError(w http.ResponseWriter, r *http.Request, corsSnapsh
 	case strings.Contains(detail, "currency_migration_inventory_conflict"):
 		code = "currency_migration_inventory_conflict"
 		details = map[string]any{"recovery": "refresh_inventory"}
+	case strings.Contains(detail, "currency_migration_blocked_by_tiered_templates"):
+		if _, ok := domainErr.Detail.(currencyMigrationTieredTemplatesDetail); !ok {
+			code = "currency_migration_blocked_by_tiered_templates"
+			details = map[string]any{"recovery": "clear_tiers_before_currency_migration"}
+		}
 	case strings.Contains(detail, "currency_migration_inventory_stale"):
 		code = "currency_migration_inventory_stale"
 		details = map[string]any{"recovery": "refresh_inventory"}

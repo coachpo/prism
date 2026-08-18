@@ -36,6 +36,12 @@ type RuntimePricingTemplateSnapshot struct {
 	CachedInputPrice       string
 	CacheCreationPrice     string
 	ReasoningPrice         string
+	TierInputTokensAbove   *int
+	TierInputPrice         string
+	TierOutputPrice        string
+	TierCachedInputPrice   string
+	TierCacheCreationPrice string
+	TierReasoningPrice     string
 	Version                int
 	VersionEffectiveAt     *time.Time
 }

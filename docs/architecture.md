@@ -153,6 +153,8 @@ OpenAI Chat Completions and Responses are operation-native and mode-strict. Plan
 
 Runtime observability stores canonical disjoint token components. Base input, cache-read input, cache-creation input, base output, and reasoning output are separate dimensions, while provider totals remain authoritative when supplied. Pricing uses five concrete pricing strings from the attached template snapshot, and explicit `"0"` component prices mean configured free pricing instead of a missing-price condition.
 
+Runtime pricing ownership is split by responsibility: `backend/internal/httpapi/runtime/runtime_pricing.go` owns the runtime pricing result and currency projection, `runtime_pricing_core.go` owns the shared five-component exact arithmetic, and `runtime_pricing_tier.go` owns the pure single-threshold tier selection. The tier selector uses the normalized disjoint input basis `InputTokens + CacheReadInputTokens + CacheCreationInputTokens`, applies the tier only when the basis is strictly greater than `tier_input_tokens_above`, and never changes aggregate read-model math. The additive PostgreSQL shape belongs to `backend/migrations/000022_pricing_input_tier.sql`; it adds tier revision columns and nullable request/usage evidence without changing partition indexes.
+
 Terminal Target `openai_text_capability` remains connection-owned metadata used by strict OpenAI text mode-equality checks. Model-owned capability authoring, context-window preflight filtering, overflow-promotion routing, and sibling-operation translation have been removed; ordinary strategy selection now uses explicit Ban Policy routing families.
 
 ### 3.1 Runtime Request With Private Connection Target
@@ -246,6 +248,8 @@ Runtime compatibility and redirect checks use each model's required `api_family`
 - Supported runtime operations always resolve against frozen Default profile id `1` and ignore override headers.
 
 The protected frontend shell derives sidebar destinations and breadcrumbs from the route metadata in `frontend/src/components/layout/app-layout/useShellNavigation.ts`, and persists only the desktop sidebar collapse preference in localStorage. Mobile drawer state remains transient browser UI state.
+
+The pricing feature owns tier form state and presentation in `frontend/src/features/pricing/pricingTierSchema.ts` and `PricingTierFields.tsx`; the existing pricing schema, dialog, table, and feature data hook remain the wire orchestration boundary. Request-log tier explanation stays in `frontend/src/pages/request-logs/pricingExplanation.ts` and the overview detail tab, while currency-migration blocking is rendered by the existing billing-currency dialog.
 
 The Settings shell uses canonical public URLs with `scope=global|instance` and a section allowlist (`billing-currency`, `timezone`, `audit-privacy`, `header-blocklist`, `client-rules`, `authentication`, `retention`, `manual-cleanup`, `retention-jobs`); the legacy `tab` query value is dropped during canonicalization. The visible `全局` scope keeps billing and reporting currency, timezone, audit & privacy, and config-rule flows; the visible `实例` scope owns authentication and operator account, automatic retention policy with actual coverage, manual cleanup, and the retention job center. Normal log retention applies across all profiles; list and detail APIs are pinned to Default id `1`.
 
@@ -1109,17 +1113,24 @@ Request:
 {
   "name": "GPT-4o Standard",
   "description": "Default OpenAI pricing",
-  "pricing_currency_code": "USD",
   "input_price": "5.00",
   "output_price": "15.00",
   "cached_input_price": "2.50",
   "cache_creation_price": "0",
-  "reasoning_price": "15.00"
+  "reasoning_price": "15.00",
+  "tier": {
+    "input_tokens_above": 272000,
+    "input_price": "4",
+    "output_price": "18",
+    "cached_input_price": "2",
+    "cache_creation_price": "5",
+    "reasoning_price": "20"
+  }
 }
 ```
 Response `201`: Created pricing template object.
 
-Pricing templates use five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Create and update ingress normalizes missing, `null`, empty, and whitespace-only values for any of those five fields to `"0"` before decimal validation. Explicit `"0"` is configured free pricing. It is not missing price data. `MISSING_PRICE_DATA` is reserved for absent, unusable, or invalid pricing snapshots, or for required FX data that cannot be applied.
+Pricing templates use five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. The base input/output fields are required; the three specialty fields use explicit JSON `null` to mean unconfigured, while an empty or whitespace-only string is rejected with `422` rather than silently converted. Explicit `"0"` is configured free pricing. It is not missing price data. `MISSING_PRICE_DATA` is reserved for absent, unusable, or invalid pricing snapshots, or for required FX data that cannot be applied. A revision may additionally carry one `tier` object: `tier_input_tokens_above` is a positive integer and the five tier prices are a complete parity mirror of the base card, including `reasoning_price`; all six tier columns being `NULL` is the only unconfigured representation.
 
 ##### Import Pricing Templates
 ```
@@ -1132,13 +1143,19 @@ Request:
   "templates": [
     {
       "name": "gpt-4o",
-      "pricing_unit": "PER_1M",
-      "pricing_currency_code": "USD",
       "input_price": "2.5",
       "output_price": "10",
       "cached_input_price": "1.25",
       "cache_creation_price": "0",
       "reasoning_price": "0",
+      "tier": {
+        "input_tokens_above": 272000,
+        "input_price": "4",
+        "output_price": "18",
+        "cached_input_price": "2",
+        "cache_creation_price": "5",
+        "reasoning_price": "20"
+      },
       "description": "OpenAI GPT-4o"
     }
   ]
@@ -1154,7 +1171,7 @@ Response `200`: `{ "created": 1, "updated": 0, "skipped": [], "errors": [] }`.
 ```
 PUT /api/pricing-templates/{id}
 ```
-Request: Full replacement for mutable pricing template fields. Missing, `null`, empty, and whitespace-only price component fields normalize to `"0"` before validation. Optional `expected_updated_at` is an RFC3339 optimistic-concurrency guard; when supplied, the backend returns `409` if it does not match the current row `updated_at`.
+Request: Full replacement for mutable pricing template fields. Explicit JSON `null` clears an optional specialty price or the whole `tier` object; empty and whitespace-only price strings are rejected with `422`. On update, a missing `tier` key preserves the current tier, `null` clears it, and an object replaces the complete threshold-plus-five-price card. Optional `expected_updated_at` is an RFC3339 optimistic-concurrency guard; when supplied, the backend returns `409` if it does not match the current row `updated_at`.
 Response `200`: Updated pricing template object.
 
 ##### Delete Pricing Template
@@ -3647,30 +3664,32 @@ Routing window invariants:
 - `ON DELETE CASCADE` is intentional and follows the runtime-state and lease tables: a window is part of a connection rather than a reference to one, so deleting the connection must take its windows with it.
 - Rows are rewritten whole on every schedule write. A wire window has no stable identity, the row count is bounded at 32, and the PATCH contract is whole-field replacement, so a delete-then-insert matches the contract exactly.
 
-#### 2.7 `pricing_templates` (profile-scoped reusable token pricing)
+#### 2.7 `pricing_templates` (profile-scoped reusable token pricing identity)
 
-Reusable token pricing definitions that can be attached to many Terminal Targets within a profile.
+`pricing_templates` is the logical, profile-scoped identity that can be attached to many Terminal Targets. It intentionally contains no price columns: the append-only `pricing_template_revisions` table below is the sole price source. The live logical row stores `id`, `profile_id`, `name`, `description`, `created_at`, `updated_at`, `current_revision_id`, `deleted_at`, and `name_identity`, with `UNIQUE(profile_id, name)` for active names. `current_revision_id` points at the current revision of the same template.
+
+#### 2.7A `pricing_template_revisions` (append-only price source)
+
+Every base and tier price used by management, runtime planning, currency guards, and historical snapshots is read from `pricing_template_revisions`; `pricing_templates` is never a fallback price source. The table is append-only and owned by `backend/internal/httpapi/management/connections/` for authoring/readback and by `backend/internal/httpapi/runtime/` for immutable runtime snapshots.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
-| id | INTEGER | PK, sequence-backed | Unique identifier |
-| profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
-| name | VARCHAR(200) | NOT NULL | Template name (profile-unique) |
-| description | TEXT | NULLABLE | Optional notes |
-| pricing_unit | VARCHAR(20) | NOT NULL | Billing unit; application writes `PER_1M` in current flows |
-| pricing_currency_code | VARCHAR(3) | NOT NULL | Template currency code |
-| input_price | VARCHAR(20) | NOT NULL | Base input token price string |
-| output_price | VARCHAR(20) | NOT NULL | Base output token price string |
-| cached_input_price | VARCHAR(20) | NOT NULL, DEFAULT '0' | Cache-read input token price string |
-| cache_creation_price | VARCHAR(20) | NOT NULL, DEFAULT '0' | Cache-creation input token price string |
-| reasoning_price | VARCHAR(20) | NOT NULL, DEFAULT '0' | Reasoning output token price string |
-| version | INTEGER | NOT NULL | Auto-incremented on pricing-impacting changes; application-managed value |
-| created_at | TIMESTAMPTZ | NOT NULL | Creation timestamp; application-managed |
-| updated_at | TIMESTAMPTZ | NOT NULL | Last update timestamp; application-managed |
+| id | BIGINT | PK, sequence-backed | Immutable revision identity |
+| template_id | INTEGER | FK -> `pricing_templates.id`, RESTRICT | Logical template identity |
+| version | INTEGER | NOT NULL, `>= 1`, unique per template | Revision version |
+| pricing_unit | VARCHAR(20) | NOT NULL, `PER_1M` | Fixed token pricing unit |
+| currency_code | VARCHAR(3) | NOT NULL, canonical | Source currency of all five base and tier prices |
+| input_price / output_price | VARCHAR(20) | NOT NULL, canonical decimal | Base input/output prices |
+| cached_input_price / cache_creation_price / reasoning_price | VARCHAR(20) | NULLABLE, canonical when present | Base specialty prices; explicit NULL means unconfigured |
+| tier_input_tokens_above | INTEGER | NULLABLE, `>= 1` when present | Strict threshold for the disjoint total input basis |
+| tier_input_price / tier_output_price | VARCHAR(20) | NULLABLE, canonical when present | Tier input/output prices |
+| tier_cached_input_price / tier_cache_creation_price / tier_reasoning_price | VARCHAR(20) | NULLABLE, canonical when present | Tier specialty prices; parity with the corresponding base specialty price is required |
+| reporting_currency_epoch_id / reporting_currency_epoch | BIGINT / INTEGER | NULLABLE, attribution-controlled | Currency epoch evidence |
+| currency_attribution | VARCHAR(24) | NOT NULL | `active_epoch`, `legacy_foreign`, or `pre_epoch_pending` |
+| effective_at / created_at | TIMESTAMPTZ | `created_at` NOT NULL | Immutable revision boundaries |
+| created_by_kind / created_by_operation_id | VARCHAR(32) / UUID | ownership-controlled | Mutation provenance |
 
-Constraint: `UNIQUE(profile_id, name)`.
-
-Pricing templates use five concrete pricing strings in steady state. Management API writes normalize missing, null, or blank pricing inputs for any of the five pricing fields to `"0"` before decimal validation. Explicit `"0"` means configured free pricing. `MISSING_PRICE_DATA` applies only when a pricing template or runtime pricing snapshot is absent, unusable, or invalid, or when required FX data cannot be applied.
+The six tier columns are all `NULL` for an unconfigured revision; that is the only no-tier encoding. Otherwise the threshold and both required tier base prices are present, and each optional tier specialty price is present exactly when its base specialty counterpart is present. This one-way schema validation is deliberately NULL-tolerant for upgrade-time and in-flight outbox rows. A configured tier is selected when the request's normalized disjoint basis (`input_tokens + cache_read_input_tokens + cache_creation_input_tokens`) is strictly greater than the threshold; the whole five-component price card is then replaced, not marginally blended. The basis is persisted on each new request row as `pricing_tier_basis_tokens BIGINT`, while the threshold is persisted as `pricing_tier_threshold_tokens INTEGER`.
 
 Token costing consumes canonical disjoint token components: base input, cache-read input, cache-creation input, base output, reasoning output, and provider or derived total. `cached_tokens` is derived-only for aggregate and presentation surfaces from cache-read plus cache-creation input tokens.
 
@@ -3798,10 +3817,13 @@ Telemetry rows have immutable profile attribution captured at request start. Cap
 | pricing_snapshot_unit | VARCHAR(10) | NULLABLE | Pricing unit snapshot |
 | pricing_snapshot_input | VARCHAR(20) | NULLABLE | Input price snapshot |
 | pricing_snapshot_output | VARCHAR(20) | NULLABLE | Output price snapshot |
-| pricing_snapshot_reasoning | VARCHAR(20) | NULLABLE | Reasoning price snapshot |
+| pricing_snapshot_reasoning | VARCHAR(20) | NULLABLE | Reasoning price snapshot; the actual card selected for this attempt |
 | pricing_snapshot_cache_read_input | VARCHAR(20) | NULLABLE | Cache-read price snapshot |
 | pricing_snapshot_cache_creation_input | VARCHAR(20) | NULLABLE | Cache-creation price snapshot |
 | pricing_config_version_used | INTEGER | NULLABLE | Pricing config version used for costing |
+| pricing_tier_applied | VARCHAR(20) | NULLABLE | `not_evaluated`, `not_applicable`, `base`, or `tier`; NULL is retained for pre-feature/legacy rows and usage gaps |
+| pricing_tier_threshold_tokens | INTEGER | NULLABLE | Threshold captured from the selected revision when a base/tier decision was made |
+| pricing_tier_basis_tokens | BIGINT | NULLABLE | Exact disjoint input basis used for the decision |
 | stream_outcome | VARCHAR(50) | NOT NULL, DEFAULT `not_streaming` | Stream classification: `not_streaming`, `completed`, `provider_incomplete`, `client_disconnected`, `upstream_read_error`, `upstream_ended_without_terminal`, or `unknown` |
 | stream_error_kind | VARCHAR(50) | NULLABLE | Stream diagnostic kind: `client_write_failed`, `request_context_canceled`, `upstream_read_failed`, or `missing_terminal_event` |
 | stream_error_detail | TEXT | NULLABLE | Sanitized request-log-detail-only diagnostic text for stream failures |
@@ -3833,7 +3855,7 @@ Request-log semantics:
 - `stream_error_detail` is exposed only by exact request-log detail reads. List and dashboard recent-activity payloads expose `stream_outcome` and `stream_error_kind` without detail text.
 - Prism prices only observed usage. `STREAM_USAGE_UNAVAILABLE` marks interrupted or no-terminal stream rows where required tokens are absent; completed streams missing required usage keep `MISSING_TOKEN_USAGE`.
 - Token usage fields are canonical disjoint components. `input_tokens` is base input only, `output_tokens` is base output only, and cache-read input, cache-creation input, and reasoning output stay in their split fields.
-- Pricing snapshots persist the five concrete pricing strings used for the attempt. Explicit `"0"` prices mean configured free pricing, while absent or invalid pricing snapshots and missing FX data stay unpriced with `MISSING_PRICE_DATA`.
+- Pricing snapshots persist the five concrete pricing strings actually used for the attempt, whether they came from the base card or the tier card. Explicit `"0"` prices mean configured free pricing, while absent or invalid pricing snapshots and missing FX data stay unpriced with `MISSING_PRICE_DATA`. Tier evidence is additive: aggregate/read-model surfaces SUM stored micros and never recompute cost from the token basis.
 
 #### 2.12 `usage_request_events` (partitioned immutable usage attribution)
 
@@ -3912,8 +3934,11 @@ Usage-event rows are the finalized source for the unified statistics snapshot. T
 | pricing_snapshot_output | VARCHAR(20) | NULLABLE | Output price snapshot |
 | pricing_snapshot_cache_read_input | VARCHAR(20) | NULLABLE | Cache-read price snapshot |
 | pricing_snapshot_cache_creation_input | VARCHAR(20) | NULLABLE | Cache-creation price snapshot |
-| pricing_snapshot_reasoning | VARCHAR(20) | NULLABLE | Reasoning price snapshot |
+| pricing_snapshot_reasoning | VARCHAR(20) | NULLABLE | Reasoning price snapshot; the actual card selected for this event |
 | pricing_config_version_used | INTEGER | NULLABLE | Pricing config version used for costing |
+| pricing_tier_applied | VARCHAR(20) | NULLABLE | Tier decision captured for the finalized event |
+| pricing_tier_threshold_tokens | INTEGER | NULLABLE | Threshold captured from the selected revision |
+| pricing_tier_basis_tokens | BIGINT | NULLABLE | Exact disjoint input basis used for the decision |
 | response_time_ms | INTEGER | NULLABLE | Final attempt latency in ms |
 | completion_duration_ms | INTEGER | NULLABLE | Completion duration after first token/byte when available |
 | ttft_ms | INTEGER | NULLABLE | Time to first token/byte when available |

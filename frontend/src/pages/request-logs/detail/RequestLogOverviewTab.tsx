@@ -14,7 +14,7 @@ import {
   formatTokens,
 } from "../columns";
 import { formatUnpricedReasonLabel } from "@/lib/costing";
-import { cacheReadShare, classifyTokenComponents, describeUnpricedCause } from "../pricingExplanation";
+import { cacheReadShare, classifyPricingTier, classifyTokenComponents, describeUnpricedCause } from "../pricingExplanation";
 import type { CacheReadShare } from "../pricingExplanation";
 import {
   OperatorCallout,
@@ -106,6 +106,19 @@ function scopedStatus(request: RequestLogDetailV2): number | null {
 function scopedDuration(request: RequestLogDetailV2): number | null {
   const summary = request.summary;
   return summary.row_kind === "upstream" ? summary.attempt_duration_ms : summary.legacy_duration_ms;
+}
+
+function pricingTierValue(pricing: PricingProjection, messages: ReturnType<typeof useLocale>["messages"]): React.ReactNode {
+  const tier = classifyPricingTier({ applied: pricing.pricing_tier_applied, threshold: pricing.pricing_tier_threshold_tokens, basis: pricing.pricing_tier_basis_tokens })
+  if (tier.kind === "legacy") return <OperatorMissingValue reason={messages.requestLogs.pricingTierLegacy} />
+  const label = tier.kind === "base"
+    ? messages.requestLogs.pricingTierBase
+    : tier.kind === "tier"
+      ? messages.requestLogs.pricingTierTier
+      : tier.kind === "not_applicable"
+        ? messages.requestLogs.pricingTierNotApplicable
+        : messages.requestLogs.pricingTierNotEvaluated
+  return <span>{label}</span>
 }
 
 function pricingStateLabel(pricing: PricingProjection, messages: ReturnType<typeof useLocale>["messages"]): string {
@@ -609,6 +622,16 @@ export function RequestLogOverviewTab({
               </DetailRow>
               <DetailRow label={messages.requestLogs.pricingConfigVersion}>
                 <span className="font-mono">{pricing.pricing_config_version_used ?? "—"}</span>
+              </DetailRow>
+              <DetailRow label={messages.requestLogs.pricingTier}>
+                <div className="flex flex-col gap-1">
+                  {pricingTierValue(pricing, messages)}
+                  {pricing.pricing_tier_threshold_tokens !== null && pricing.pricing_tier_basis_tokens !== null ? (
+                    <span className="text-[11px] text-muted-foreground">
+                      {messages.requestLogs.pricingTierThreshold}: <span className="font-mono">{pricing.pricing_tier_threshold_tokens}</span> · {messages.requestLogs.pricingTierBasis}: <span className="font-mono">{pricing.pricing_tier_basis_tokens}</span>
+                    </span>
+                  ) : null}
+                </div>
               </DetailRow>
               <DetailRow label={messages.requestLogs.pricingSnapshotInput}>
                 <span className="font-mono">{formatPricingSnapshotValue(pricing.pricing_snapshot_input)}</span>

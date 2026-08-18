@@ -74,7 +74,9 @@ runtime/
 ├── telemetry_outbox.go          # Durable telemetry enqueue and publisher wakeups
 ├── feedback_pipeline.go         # Runtime feedback persistence and worker handoff
 ├── runtime_side_effects.go      # Runtime side-effect manager and shutdown behavior
-├── runtime_pricing.go           # Runtime pricing snapshots and usage pricing helpers
+├── runtime_pricing.go           # Runtime pricing result and currency projection
+├── runtime_pricing_core.go      # Shared exact five-component pricing arithmetic
+├── runtime_pricing_tier.go      # Pure single-threshold tier selection and evidence
 └── *_test.go                    # Route matrix, hook residency, planning, and ingress regressions
 ```
 
@@ -91,11 +93,12 @@ runtime/
 - SSE terminal classification and usage merging for OpenAI, Anthropic, and Gemini stream operations: `operation_stream_hooks.go`
 - OpenAI native operation-set coverage, mismatched-target skipping, unsupported-wire rejection behavior, and planning diagnostics: `operation_translation.go`, `planning_snapshot.go`, `routing_plan*.go`, `runtime_test.go`
 - Local OpenAI model-list response: `openai_models.go`
-- Request-log, usage-event, and audit shaping plus `operation_name` persistence: `observability.go`, `telemetry_activity_handoff.go`, `telemetry_records.go`, `request_log_rows.go`, `audit_log_rows.go`, `usage_event_row.go`, `telemetry_persistence.go`, `attempt_lifecycle.go`, `../../../migrations/000001_initial_schema.sql`, `../../../migrations/000008_pricing_cost_trust_additive.sql`, `../../../migrations/000010_request_logs_audit_observability.sql`
+- Request-log, usage-event, and audit shaping plus `operation_name` persistence: `observability.go`, `telemetry_activity_handoff.go`, `telemetry_records.go`, `request_log_rows.go`, `audit_log_rows.go`, `usage_event_row.go`, `telemetry_persistence.go`, `attempt_lifecycle.go`, `../../../migrations/000001_initial_schema.sql`, `../../../migrations/000008_pricing_cost_trust_additive.sql`, `../../../migrations/000010_request_logs_audit_observability.sql`, `../../../migrations/000022_pricing_input_tier.sql`
 - Provider usage normalization and response capture: `provider_usage_rules.go`, `response_capture.go`, `response_usage_parser.go`, `stream_response_capture.go`, `stream_response_classification.go`
-- Accounting and proxy-key telemetry: `accounting_events.go`, `proxy_key_telemetry.go`, `telemetry_column_values.go`
+- Accounting and proxy-key telemetry: `accounting_events.go`, `proxy_key_telemetry.go`, `telemetry_column_values.go`; tier evidence is additive to the existing pricing fields and outbox Event contract.
 - Telemetry, feedback, and runtime side-effect ownership: `telemetry_persistence.go`, `runtime_feedback.go`, `telemetry_outbox.go`, `telemetry_outbox_v2.go`, `telemetry_outbox_poison.go`, `feedback_pipeline.go`, `runtime_side_effects.go`
 - Stream abort frames: `stream_abort_frames.go`
+- Runtime pricing and tier evidence: `runtime_pricing.go`, `runtime_pricing_core.go`, `runtime_pricing_tier.go`; the threshold basis is the normalized disjoint input sum and is selected before arithmetic/FX.
 - Safe failure diagnostics bottom line: `../../domain/safediag/` (scrub/extract/codes/metadata/limits)
 - Partition ensuring and partition-cache behavior: `log_partitions.go`, `../../platform/logretention/`
 - Internal runtime regression coverage: `operations_test.go`, `service_ingress_test.go`, `request_generation_params_test.go`, `request_generation_params_runtime_test.go`, `operation_hook_residency_test.go`, `operation_response_hooks_test.go`, `operation_response_overflow_classifier_test.go`, `gateway_typed_hooks_bridge_test.go`, `planning_snapshot_contract_test.go`, `routing_plan_test.go`, `runtime_test.go`

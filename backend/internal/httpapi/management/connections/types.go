@@ -420,20 +420,21 @@ type deletedConnectionMutationEnvelope struct {
 }
 
 type pricingTemplateRevisionResponse struct {
-	RevisionID             int64      `json:"revision_id"`
-	Version                int        `json:"version"`
-	PricingUnit            string     `json:"pricing_unit"`
-	CurrencyCode           string     `json:"currency_code"`
-	ReportingCurrencyEpoch *int       `json:"reporting_currency_epoch"`
-	CurrencyAttribution    string     `json:"currency_attribution"`
-	InputPrice             string     `json:"input_price"`
-	OutputPrice            string     `json:"output_price"`
-	CachedInputPrice       *string    `json:"cached_input_price"`
-	CacheCreationPrice     *string    `json:"cache_creation_price"`
-	ReasoningPrice         *string    `json:"reasoning_price"`
-	EffectiveAt            *time.Time `json:"effective_at"`
-	CreatedAt              time.Time  `json:"created_at"`
-	CreatedByKind          string     `json:"created_by_kind"`
+	RevisionID             int64                `json:"revision_id"`
+	Version                int                  `json:"version"`
+	PricingUnit            string               `json:"pricing_unit"`
+	CurrencyCode           string               `json:"currency_code"`
+	ReportingCurrencyEpoch *int                 `json:"reporting_currency_epoch"`
+	CurrencyAttribution    string               `json:"currency_attribution"`
+	InputPrice             string               `json:"input_price"`
+	OutputPrice            string               `json:"output_price"`
+	CachedInputPrice       *string              `json:"cached_input_price"`
+	CacheCreationPrice     *string              `json:"cache_creation_price"`
+	ReasoningPrice         *string              `json:"reasoning_price"`
+	Tier                   *pricingTemplateTier `json:"tier"`
+	EffectiveAt            *time.Time           `json:"effective_at"`
+	CreatedAt              time.Time            `json:"created_at"`
+	CreatedByKind          string               `json:"created_by_kind"`
 }
 
 type pricingTemplateImpactResponse struct {

@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { getStaticMessages } from "@/i18n/staticMessages"
 import type { PricingTemplate, PricingTemplateConnectionUsageItem, PricingTemplateCreate, PricingTemplateUpdate } from "@/lib/types"
+import { addPricingTierParityIssues, DEFAULT_PRICING_TIER_FORM, normalizePricingTierPayload, pricingTierFormSchema, pricingTierFormStateFromTemplate, type PricingTierFormState } from "./pricingTierSchema"
 
 export const priceFields = ["input_price", "output_price", "cached_input_price", "cache_creation_price", "reasoning_price"] as const
 export type PriceField = (typeof priceFields)[number]
@@ -10,6 +11,7 @@ export type PriceField = (typeof priceFields)[number]
 export type PricingTemplateFormState = {
   name: string
   description: string
+  tier: PricingTierFormState
 } & Record<PriceField, string>
 
 export type PricingTemplateFormValues = PricingTemplateFormState
@@ -24,6 +26,7 @@ export const DEFAULT_PRICING_TEMPLATE_FORM: PricingTemplateFormState = {
   cached_input_price: "",
   cache_creation_price: "",
   reasoning_price: "",
+  tier: { ...DEFAULT_PRICING_TIER_FORM },
 }
 
 // Display helper: null (unconfigured) renders as its own label by callers;
@@ -51,6 +54,9 @@ export const pricingTemplateFormSchema = z.object({
   cached_input_price: optionalDecimalSchema,
   cache_creation_price: optionalDecimalSchema,
   reasoning_price: optionalDecimalSchema,
+  tier: pricingTierFormSchema,
+}).superRefine((values, ctx) => {
+  addPricingTierParityIssues(values.tier, values, ctx)
 })
 
 export const isNonNegativeDecimalString = (value: string): boolean => /^\d+(\.\d+)?$/.test(value.trim()) && Number(value.trim()) >= 0
@@ -63,6 +69,7 @@ export const pricingTemplateFormStateFromTemplate = (template: PricingTemplate):
   cached_input_price: template.cached_input_price ?? "",
   cache_creation_price: template.cache_creation_price ?? "",
   reasoning_price: template.reasoning_price ?? "",
+  tier: pricingTierFormStateFromTemplate(template),
 })
 
 export const normalizePricingTemplateFormPrices = (parsed: PricingTemplateFormState) => ({
@@ -75,7 +82,7 @@ export const normalizePricingTemplateFormPrices = (parsed: PricingTemplateFormSt
 
 export function buildPricingTemplateCreatePayload(values: PricingTemplateFormState): PricingTemplateCreate {
   const parsed = pricingTemplateFormSchema.parse(values)
-  return { name: parsed.name, description: parsed.description.trim() || null, ...normalizePricingTemplateFormPrices(parsed) }
+  return { name: parsed.name, description: parsed.description.trim() || null, ...normalizePricingTemplateFormPrices(parsed), tier: normalizePricingTierPayload(parsed.tier) }
 }
 
 export function buildPricingTemplateUpdatePayload(template: PricingTemplate, values: PricingTemplateFormState): PricingTemplateUpdate {

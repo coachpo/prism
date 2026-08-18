@@ -11,6 +11,7 @@ import { useLocale } from "@/i18n/useLocale"
 import type { PricingTemplate } from "@/lib/types"
 import { OperatorInsetPanel } from "@/shared/design-system"
 import { DEFAULT_PRICING_TEMPLATE_FORM, pricingTemplateFormSchema, pricingTemplateFormStateFromTemplate, type PriceField, type PricingTemplateFormValues } from "./pricingSchemas"
+import { PricingTierFields } from "./PricingTierFields"
 
 interface PricingTemplateDialogProps {
   editingPricingTemplate: PricingTemplate | null
@@ -102,6 +103,7 @@ export function PricingTemplateDialog({ editingPricingTemplate, onClose, onOpenC
                       <PricingFieldCard control={form.control} name="reasoning_price" label={dialogMessages.reasoningPriceLabel} placeholder={dialogMessages.pricePlaceholder} />
                     </div>
                   </OperatorInsetPanel>
+                  <PricingTierFields control={form.control} />
                 </div>
               </div>
             </DialogBody>

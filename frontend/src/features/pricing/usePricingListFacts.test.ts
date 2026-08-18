@@ -27,6 +27,7 @@ function makeItem(id: number): PricingTemplateListPageItem {
       cached_input_price: "0",
       cache_creation_price: "0",
       reasoning_price: "0",
+      tier: null,
       effective_at: null,
       created_at: "2026-01-01T00:00:00Z",
       created_by_kind: "operator",

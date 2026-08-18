@@ -17,27 +17,30 @@ const (
 )
 
 type Event struct {
-	Phase                    EventPhase              `json:"phase"`
-	RequestID                string                  `json:"request_id,omitempty"`
-	ProfileID                int                     `json:"profile_id,omitempty"`
-	OperationName            string                  `json:"operation_name"`
-	APIFamily                string                  `json:"api_family,omitempty"`
-	RequestedModelID         string                  `json:"requested_model_id,omitempty"`
-	EffectiveModelID         *string                 `json:"effective_model_id,omitempty"`
-	EndpointID               *int                    `json:"endpoint_id,omitempty"`
-	ConnectionID             *int                    `json:"connection_id,omitempty"`
-	SelectedTerminalTargetID *int                    `json:"selected_terminal_target_id,omitempty"`
-	AttemptNumber            int                     `json:"attempt_number,omitempty"`
-	Final                    bool                    `json:"final"`
-	StatusCode               int                     `json:"status_code,omitempty"`
-	Success                  bool                    `json:"success"`
-	RouteReason              gatewaycore.RouteReason `json:"route_reason"`
-	UsageSource              gatewaycore.UsageSource `json:"usage_source"`
-	PricingConfigVersionUsed *int                    `json:"pricing_config_version_used,omitempty"`
-	StreamOutcome            string                  `json:"stream_outcome,omitempty"`
-	AuditEnabled             bool                    `json:"audit_enabled"`
-	AuditCaptureBodies       bool                    `json:"audit_capture_bodies"`
-	ObservedAt               time.Time               `json:"observed_at"`
+	Phase                      EventPhase              `json:"phase"`
+	RequestID                  string                  `json:"request_id,omitempty"`
+	ProfileID                  int                     `json:"profile_id,omitempty"`
+	OperationName              string                  `json:"operation_name"`
+	APIFamily                  string                  `json:"api_family,omitempty"`
+	RequestedModelID           string                  `json:"requested_model_id,omitempty"`
+	EffectiveModelID           *string                 `json:"effective_model_id,omitempty"`
+	EndpointID                 *int                    `json:"endpoint_id,omitempty"`
+	ConnectionID               *int                    `json:"connection_id,omitempty"`
+	SelectedTerminalTargetID   *int                    `json:"selected_terminal_target_id,omitempty"`
+	AttemptNumber              int                     `json:"attempt_number,omitempty"`
+	Final                      bool                    `json:"final"`
+	StatusCode                 int                     `json:"status_code,omitempty"`
+	Success                    bool                    `json:"success"`
+	RouteReason                gatewaycore.RouteReason `json:"route_reason"`
+	UsageSource                gatewaycore.UsageSource `json:"usage_source"`
+	PricingConfigVersionUsed   *int                    `json:"pricing_config_version_used,omitempty"`
+	PricingTierApplied         *string                 `json:"pricing_tier_applied,omitempty"`
+	PricingTierThresholdTokens *int                    `json:"pricing_tier_threshold_tokens,omitempty"`
+	PricingTierBasisTokens     *int64                  `json:"pricing_tier_basis_tokens,omitempty"`
+	StreamOutcome              string                  `json:"stream_outcome,omitempty"`
+	AuditEnabled               bool                    `json:"audit_enabled"`
+	AuditCaptureBodies         bool                    `json:"audit_capture_bodies"`
+	ObservedAt                 time.Time               `json:"observed_at"`
 }
 
 func NewEvent(event Event) (Event, error) {

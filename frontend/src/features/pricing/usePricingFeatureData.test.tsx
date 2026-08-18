@@ -160,6 +160,7 @@ function makeTemplate(id: number, name: string): PricingTemplate {
     cached_input_price: "0",
     cache_creation_price: "0",
     reasoning_price: "0",
+    tier: null,
     version: 1,
     revision_id: 1,
     version_effective_at: null,

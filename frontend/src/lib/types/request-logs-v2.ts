@@ -246,6 +246,9 @@ export interface PricingProjection {
   pricing_snapshot_cache_read_input: string | null;
   pricing_snapshot_cache_creation_input: string | null;
   pricing_snapshot_reasoning: string | null;
+  pricing_tier_applied: "not_evaluated" | "not_applicable" | "base" | "tier" | null;
+  pricing_tier_threshold_tokens: number | null;
+  pricing_tier_basis_tokens: number | null;
   evidence_state: "authoritative" | "unavailable";
 }
 

@@ -91,6 +91,9 @@ type PricingProjectionDetail struct {
 	PricingSnapshotCacheReadInput     *string    `json:"pricing_snapshot_cache_read_input"`
 	PricingSnapshotCacheCreationInput *string    `json:"pricing_snapshot_cache_creation_input"`
 	PricingSnapshotReasoning          *string    `json:"pricing_snapshot_reasoning"`
+	PricingTierApplied                *string    `json:"pricing_tier_applied"`
+	PricingTierThresholdTokens        *int       `json:"pricing_tier_threshold_tokens"`
+	PricingTierBasisTokens            *int64     `json:"pricing_tier_basis_tokens"`
 	EvidenceState                     string     `json:"evidence_state"`
 }
 
@@ -302,6 +305,9 @@ type requestLogDetailRowV2 struct {
 	PricingSnapshotCacheReadInput     *string
 	PricingSnapshotCacheCreationInput *string
 	PricingSnapshotReasoning          *string
+	PricingTierApplied                *string
+	PricingTierThresholdTokens        *int
+	PricingTierBasisTokens            *int64
 }
 
 // GetRequestLogDetailV2 loads the exact v2 detail for one request-log row.
@@ -535,6 +541,9 @@ func buildDetailPricing(row requestLogDetailRowV2) PricingProjectionDetail {
 		PricingSnapshotCacheReadInput:     row.PricingSnapshotCacheReadInput,
 		PricingSnapshotCacheCreationInput: row.PricingSnapshotCacheCreationInput,
 		PricingSnapshotReasoning:          row.PricingSnapshotReasoning,
+		PricingTierApplied:                row.PricingTierApplied,
+		PricingTierThresholdTokens:        row.PricingTierThresholdTokens,
+		PricingTierBasisTokens:            row.PricingTierBasisTokens,
 		EvidenceState:                     "authoritative",
 	}
 	if projection.PricingStatus == "" {
@@ -715,7 +724,8 @@ func loadRequestLogDetailRowV2(ctx context.Context, exec queryExecutor, profileI
 		 pricing_template_id_used, pricing_template_name_snapshot, pricing_template_revision_id_used, pricing_config_version_used,
 		 pricing_version_effective_at, reporting_currency_epoch,
 		 pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input,
-		 pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning
+		 pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning,
+		 pricing_tier_applied, pricing_tier_threshold_tokens, pricing_tier_basis_tokens
 		 FROM request_logs
 		 WHERE profile_id = $1 AND id = $2
 		 ORDER BY created_at DESC
@@ -763,6 +773,9 @@ func scanRequestLogDetailRowV2(scanner interface{ Scan(...any) error }) (request
 	var pricingTemplateRevisionIDUsed sql.NullInt64
 	var pricingVersionEffectiveAt *time.Time
 	var pricingSnapshotUnit, pricingSnapshotInput, pricingSnapshotOutput, pricingSnapshotCacheReadInput, pricingSnapshotCacheCreationInput, pricingSnapshotReasoning sql.NullString
+	var pricingTierApplied sql.NullString
+	var pricingTierThreshold sql.NullInt32
+	var pricingTierBasis sql.NullInt64
 
 	item := requestLogDetailRowV2{}
 	if err := scanner.Scan(
@@ -790,6 +803,7 @@ func scanRequestLogDetailRowV2(scanner interface{ Scan(...any) error }) (request
 		&pricingVersionEffectiveAt, &reportingCurrencyEpoch,
 		&pricingSnapshotUnit, &pricingSnapshotInput, &pricingSnapshotOutput, &pricingSnapshotCacheReadInput,
 		&pricingSnapshotCacheCreationInput, &pricingSnapshotReasoning,
+		&pricingTierApplied, &pricingTierThreshold, &pricingTierBasis,
 	); err != nil {
 		return requestLogDetailRowV2{}, err
 	}
@@ -879,6 +893,9 @@ func scanRequestLogDetailRowV2(scanner interface{ Scan(...any) error }) (request
 	item.PricingSnapshotCacheReadInput = nullableString(pricingSnapshotCacheReadInput)
 	item.PricingSnapshotCacheCreationInput = nullableString(pricingSnapshotCacheCreationInput)
 	item.PricingSnapshotReasoning = nullableString(pricingSnapshotReasoning)
+	item.PricingTierApplied = nullableString(pricingTierApplied)
+	item.PricingTierThresholdTokens = nullableInt32(pricingTierThreshold)
+	item.PricingTierBasisTokens = nullableInt64(pricingTierBasis)
 	return item, nil
 }
 

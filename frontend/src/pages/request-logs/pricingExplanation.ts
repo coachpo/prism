@@ -57,6 +57,28 @@ export function classifyTokenComponents(usage: TokenComponentInput): TokenCompon
   return residual === 0 ? { kind: "balanced" } : { kind: "residual", uncategorized: residual };
 }
 
+export type PricingTierCoverage =
+  | { kind: "legacy" }
+  | { kind: "not_evaluated" }
+  | { kind: "not_applicable" }
+  | { kind: "base"; threshold: number; basis: number }
+  | { kind: "tier"; threshold: number; basis: number }
+
+/** Keeps the five stored tier states distinct; null is historical/unevaluated
+ * evidence and must not be painted as a base-price decision. */
+export function classifyPricingTier(input: {
+  applied: "not_evaluated" | "not_applicable" | "base" | "tier" | null
+  threshold: number | null
+  basis: number | null
+}): PricingTierCoverage {
+  if (input.applied === null) return { kind: "legacy" }
+  if (input.applied === "base" || input.applied === "tier") {
+    if (input.threshold === null || input.basis === null) return { kind: "not_evaluated" }
+    return { kind: input.applied, threshold: input.threshold, basis: input.basis }
+  }
+  return { kind: input.applied }
+}
+
 export interface CacheReadShareInput {
   input: number | null;
   cacheRead: number | null;

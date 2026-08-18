@@ -129,8 +129,9 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 				completion_duration_ms, ttft_ms, stream_outcome, stream_error_kind,
 				audit_enabled_at_request, audit_capture_bodies_at_request,
 				request_generation_params, request_generation_params_status, upstream_operation_name, operation_translation_mode, upstream_request_path,
-				proxy_api_key_auth_enforced_at_request, pricing_version_effective_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, CASE WHEN $14::bigint IS NOT NULL AND $15::varchar IS NOT NULL THEN 'identified' WHEN $14::bigint IS NULL AND $15::varchar IS NULL THEN 'none' ELSE 'unknown' END, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $80, $81, $82, $83, $84, $85, $86, $87, $88, $89, $90, $91, $92, $93) RETURNING id`,
+				proxy_api_key_auth_enforced_at_request, pricing_version_effective_at,
+				pricing_tier_applied, pricing_tier_threshold_tokens, pricing_tier_basis_tokens
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, CASE WHEN $14::bigint IS NOT NULL AND $15::varchar IS NOT NULL THEN 'identified' WHEN $14::bigint IS NULL AND $15::varchar IS NULL THEN 'none' ELSE 'unknown' END, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $80, $81, $82, $83, $84, $85, $86, $87, $88, $89, $90, $91, $92, $93, $94, $95, $96) RETURNING id`,
 			requestLog.ProfileID,
 			requestLog.ModelID,
 			nullableStringArg(requestLog.ResolvedTargetModelID),
@@ -224,6 +225,9 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 			nullableStringArg(requestLog.UpstreamRequestPath),
 			nullableBoolArg(requestLog.ProxyAPIKeyAuthEnforcedAtRequest),
 			nullableTimeArg(requestLog.PricingVersionEffectiveAt),
+			nullableStringArg(requestLog.PricingTierApplied),
+			nullableIntArg(requestLog.PricingTierThresholdTokens),
+			nullableInt64Arg(requestLog.PricingTierBasisTokens),
 		).Scan(&requestLogID)
 		if err != nil {
 			return 0, fmt.Errorf("insert request log: %w (row_kind=%s pricing_status=%s reason=%v resolution=%v components=%v trust=%s)", err, requestLog.RowKind, requestLog.PricingStatus, dereferenceString(requestLog.UnpricedReason), dereferenceString(requestLog.PricingResolutionKind), requestLog.MissingPriceComponents, requestLog.PricingEvidenceTrust)
@@ -255,8 +259,9 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 			same_target_retry_occurred, hedge_occurred, failover_occurred, routing_evidence_complete, final_error_code,
 			ingress_started_at, ingress_completed_at, proxy_api_key_id_snapshot, proxy_api_key_attribution_state,
 			upstream_operation_name, operation_translation_mode, upstream_request_path, endpoint_label_snapshot,
-			proxy_api_key_auth_enforced_at_request, currency_attribution, pricing_version_effective_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, CASE WHEN $66::bigint IS NOT NULL AND $10::varchar IS NOT NULL THEN 'identified' WHEN $66::bigint IS NULL AND $10::varchar IS NULL THEN 'none' ELSE 'unknown' END, $67, $68, $69, $70, $71, $72, $73)`,
+			proxy_api_key_auth_enforced_at_request, currency_attribution, pricing_version_effective_at,
+			pricing_tier_applied, pricing_tier_threshold_tokens, pricing_tier_basis_tokens
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, CASE WHEN $66::bigint IS NOT NULL AND $10::varchar IS NOT NULL THEN 'identified' WHEN $66::bigint IS NULL AND $10::varchar IS NULL THEN 'none' ELSE 'unknown' END, $67, $68, $69, $70, $71, $72, $73, $74, $75, $76)`,
 		usageEvent.ProfileID,
 		usageEvent.IngressRequestID,
 		usageEvent.ModelID,
@@ -333,6 +338,9 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 		nullableBoolArg(usageEvent.ProxyAPIKeyAuthEnforcedAtRequest),
 		usageEvent.CurrencyAttribution,
 		nullableTimeArg(usageEvent.PricingVersionEffectiveAt),
+		nullableStringArg(usageEvent.PricingTierApplied),
+		nullableIntArg(usageEvent.PricingTierThresholdTokens),
+		nullableInt64Arg(usageEvent.PricingTierBasisTokens),
 	); err != nil {
 		return 0, fmt.Errorf("insert usage event: %w (ingress=%s status=%d pricing_status=%s trust=%s created=%s)", err, usageEvent.IngressRequestID, usageEvent.StatusCode, usageEvent.PricingStatus, usageEvent.PricingEvidenceTrust, usageEvent.CreatedAt.UTC().Format(time.RFC3339))
 	}

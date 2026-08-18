@@ -81,6 +81,9 @@ type requestLogInsert struct {
 	PricingTemplateRevisionIDUsed *int64
 	PricingVersionEffectiveAt     *time.Time
 	ReportingCurrencyEpoch        *int
+	PricingTierApplied            *string
+	PricingTierThresholdTokens    *int
+	PricingTierBasisTokens        *int64
 
 	// Requests/Audit v2 fields (Requests SPEC §3.2-§3.4/§4.4).
 	RowKind                    string
@@ -173,6 +176,9 @@ type usageEventInsert struct {
 	PricingTemplateRevisionIDUsed *int64
 	PricingVersionEffectiveAt     *time.Time
 	ReportingCurrencyEpoch        *int
+	PricingTierApplied            *string
+	PricingTierThresholdTokens    *int
+	PricingTierBasisTokens        *int64
 	CurrencyAttribution           string
 
 	// Observe finalized-ingress fields (Observe SPEC §3.5, Requests SPEC
@@ -223,6 +229,9 @@ func (requestLog *requestLogInsert) applyRuntimePricingResult(pricingResult runt
 	requestLog.PricingTemplateRevisionIDUsed = pricingResult.PricingTemplateRevisionIDUsed
 	requestLog.PricingVersionEffectiveAt = pricingResult.PricingVersionEffectiveAt
 	requestLog.ReportingCurrencyEpoch = pricingResult.ReportingCurrencyEpoch
+	requestLog.PricingTierApplied = pricingResult.PricingTierApplied
+	requestLog.PricingTierThresholdTokens = pricingResult.PricingTierThresholdTokens
+	requestLog.PricingTierBasisTokens = pricingResult.PricingTierBasisTokens
 }
 
 func (usageEvent *usageEventInsert) applyRuntimePricingResult(pricingResult runtimePricingResult) {
@@ -255,10 +264,19 @@ func (usageEvent *usageEventInsert) applyRuntimePricingResult(pricingResult runt
 	usageEvent.PricingTemplateRevisionIDUsed = pricingResult.PricingTemplateRevisionIDUsed
 	usageEvent.PricingVersionEffectiveAt = pricingResult.PricingVersionEffectiveAt
 	usageEvent.ReportingCurrencyEpoch = pricingResult.ReportingCurrencyEpoch
+	usageEvent.PricingTierApplied = pricingResult.PricingTierApplied
+	usageEvent.PricingTierThresholdTokens = pricingResult.PricingTierThresholdTokens
+	usageEvent.PricingTierBasisTokens = pricingResult.PricingTierBasisTokens
 }
 
 func withRuntimePricingSnapshotForPersistence(pricingResult runtimePricingResult, pricingTemplateSnapshot *runtimePricingTemplateSnapshot) runtimePricingResult {
 	if pricingTemplateSnapshot == nil {
+		return pricingResult
+	}
+	// A successful base/tier decision already carries the actual selected card.
+	// Missing-usage and other early exits have no tier evidence and retain the
+	// existing provenance behavior by copying the configured base snapshot.
+	if pricingResult.PricingSnapshotUnit != nil {
 		return pricingResult
 	}
 	pricingResult.PricingSnapshotUnit = runtimeOptionalTrimmedString(pricingTemplateSnapshot.PricingUnit)

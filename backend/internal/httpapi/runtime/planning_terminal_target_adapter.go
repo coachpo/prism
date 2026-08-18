@@ -50,6 +50,8 @@ func listActiveTerminalTargetRecordsForProfile(ctx context.Context, tx pgx.Tx, p
 			revisions.id, revisions.version, revisions.pricing_unit, revisions.currency_code,
 			revisions.reporting_currency_epoch, revisions.input_price, revisions.output_price,
 			revisions.cached_input_price, revisions.cache_creation_price, revisions.reasoning_price,
+			revisions.tier_input_tokens_above, revisions.tier_input_price, revisions.tier_output_price,
+			revisions.tier_cached_input_price, revisions.tier_cache_creation_price, revisions.tier_reasoning_price,
 			revisions.effective_at,
 			endpoints.id, endpoints.name, endpoints.base_url, endpoints.api_key
 		FROM connections
@@ -158,6 +160,12 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 	var templateCachedInputPrice sql.NullString
 	var templateCacheCreationPrice sql.NullString
 	var templateReasoningPrice sql.NullString
+	var templateTierInputTokensAbove sql.NullInt32
+	var templateTierInputPrice sql.NullString
+	var templateTierOutputPrice sql.NullString
+	var templateTierCachedInputPrice sql.NullString
+	var templateTierCacheCreationPrice sql.NullString
+	var templateTierReasoningPrice sql.NullString
 	var templateVersion sql.NullInt32
 	var templateEpoch sql.NullInt32
 	var templateEffectiveAt sql.NullTime
@@ -193,6 +201,12 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 		&templateCachedInputPrice,
 		&templateCacheCreationPrice,
 		&templateReasoningPrice,
+		&templateTierInputTokensAbove,
+		&templateTierInputPrice,
+		&templateTierOutputPrice,
+		&templateTierCachedInputPrice,
+		&templateTierCacheCreationPrice,
+		&templateTierReasoningPrice,
 		&templateEffectiveAt,
 		&record.Endpoint.ID,
 		&endpointName,
@@ -219,17 +233,23 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (t
 	record.Endpoint.Name = nullableString(endpointName)
 	if templateID.Valid {
 		record.PricingTemplate = &terminaltarget.RuntimePricingTemplateSnapshot{
-			ID:                  int(templateID.Int32),
-			Name:                strings.TrimSpace(templateName.String),
-			RevisionID:          revisionID.Int64,
-			PricingUnit:         strings.TrimSpace(templatePricingUnit.String),
-			PricingCurrencyCode: strings.TrimSpace(templatePricingCurrencyCode.String),
-			InputPrice:          strings.TrimSpace(templateInputPrice.String),
-			OutputPrice:         strings.TrimSpace(templateOutputPrice.String),
-			CachedInputPrice:    strings.TrimSpace(templateCachedInputPrice.String),
-			CacheCreationPrice:  strings.TrimSpace(templateCacheCreationPrice.String),
-			ReasoningPrice:      strings.TrimSpace(templateReasoningPrice.String),
-			Version:             int(templateVersion.Int32),
+			ID:                     int(templateID.Int32),
+			Name:                   strings.TrimSpace(templateName.String),
+			RevisionID:             revisionID.Int64,
+			PricingUnit:            strings.TrimSpace(templatePricingUnit.String),
+			PricingCurrencyCode:    strings.TrimSpace(templatePricingCurrencyCode.String),
+			InputPrice:             strings.TrimSpace(templateInputPrice.String),
+			OutputPrice:            strings.TrimSpace(templateOutputPrice.String),
+			CachedInputPrice:       strings.TrimSpace(templateCachedInputPrice.String),
+			CacheCreationPrice:     strings.TrimSpace(templateCacheCreationPrice.String),
+			ReasoningPrice:         strings.TrimSpace(templateReasoningPrice.String),
+			TierInputTokensAbove:   nullableInt32(templateTierInputTokensAbove),
+			TierInputPrice:         strings.TrimSpace(templateTierInputPrice.String),
+			TierOutputPrice:        strings.TrimSpace(templateTierOutputPrice.String),
+			TierCachedInputPrice:   strings.TrimSpace(templateTierCachedInputPrice.String),
+			TierCacheCreationPrice: strings.TrimSpace(templateTierCacheCreationPrice.String),
+			TierReasoningPrice:     strings.TrimSpace(templateTierReasoningPrice.String),
+			Version:                int(templateVersion.Int32),
 		}
 		if templateEpoch.Valid {
 			epoch := int(templateEpoch.Int32)
@@ -301,17 +321,23 @@ func runtimeConnectionFromTerminalTargetRecord(record terminaltarget.RuntimeReco
 	}
 	if record.PricingTemplate != nil {
 		item.PricingTemplateSnapshot = &runtimePricingTemplateSnapshot{
-			ID:                  record.PricingTemplate.ID,
-			Name:                record.PricingTemplate.Name,
-			RevisionID:          record.PricingTemplate.RevisionID,
-			PricingUnit:         record.PricingTemplate.PricingUnit,
-			PricingCurrencyCode: record.PricingTemplate.PricingCurrencyCode,
-			InputPrice:          record.PricingTemplate.InputPrice,
-			OutputPrice:         record.PricingTemplate.OutputPrice,
-			CachedInputPrice:    record.PricingTemplate.CachedInputPrice,
-			CacheCreationPrice:  record.PricingTemplate.CacheCreationPrice,
-			ReasoningPrice:      record.PricingTemplate.ReasoningPrice,
-			Version:             record.PricingTemplate.Version,
+			ID:                     record.PricingTemplate.ID,
+			Name:                   record.PricingTemplate.Name,
+			RevisionID:             record.PricingTemplate.RevisionID,
+			PricingUnit:            record.PricingTemplate.PricingUnit,
+			PricingCurrencyCode:    record.PricingTemplate.PricingCurrencyCode,
+			InputPrice:             record.PricingTemplate.InputPrice,
+			OutputPrice:            record.PricingTemplate.OutputPrice,
+			CachedInputPrice:       record.PricingTemplate.CachedInputPrice,
+			CacheCreationPrice:     record.PricingTemplate.CacheCreationPrice,
+			ReasoningPrice:         record.PricingTemplate.ReasoningPrice,
+			TierInputTokensAbove:   cloneRuntimeIntPointer(record.PricingTemplate.TierInputTokensAbove),
+			TierInputPrice:         record.PricingTemplate.TierInputPrice,
+			TierOutputPrice:        record.PricingTemplate.TierOutputPrice,
+			TierCachedInputPrice:   record.PricingTemplate.TierCachedInputPrice,
+			TierCacheCreationPrice: record.PricingTemplate.TierCacheCreationPrice,
+			TierReasoningPrice:     record.PricingTemplate.TierReasoningPrice,
+			Version:                record.PricingTemplate.Version,
 		}
 		if record.PricingTemplate.ReportingCurrencyEpoch != nil {
 			epoch := *record.PricingTemplate.ReportingCurrencyEpoch

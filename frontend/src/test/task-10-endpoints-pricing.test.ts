@@ -16,6 +16,7 @@ const pricingTemplate: PricingTemplate = {
   cached_input_price: "0",
   cache_creation_price: "0",
   reasoning_price: "0",
+  tier: null,
   version: 3,
   revision_id: 9,
   version_effective_at: null,
@@ -61,6 +62,7 @@ describe("Task 10 pricing feature contracts", () => {
       cached_input_price: " ",
       cache_creation_price: "\t",
       reasoning_price: "0.75",
+      tier: { enabled: false, input_tokens_above: "272000", input_price: "", output_price: "", cached_input_price: "", cache_creation_price: "", reasoning_price: "" },
     })
     expect(parsed.cached_input_price.trim()).toBe("")
     expect(parsed.cache_creation_price.trim()).toBe("")
@@ -68,8 +70,24 @@ describe("Task 10 pricing feature contracts", () => {
     expect(() => pricingTemplateFormSchema.parse({ ...parsed, input_price: " " })).toThrow()
   })
 
+  it("validates a complete tier card and keeps whole-card payload semantics", () => {
+    const values = {
+      name: "Tiered",
+      description: "",
+      input_price: "2",
+      output_price: "5",
+      cached_input_price: "1",
+      cache_creation_price: "2",
+      reasoning_price: "3",
+      tier: { enabled: true, input_tokens_above: "272000", input_price: "4", output_price: "18", cached_input_price: "2", cache_creation_price: "5", reasoning_price: "20" },
+    }
+    const payload = buildPricingTemplateCreatePayload(values)
+    expect(payload.tier).toEqual({ input_tokens_above: 272000, input_price: "4", output_price: "18", cached_input_price: "2", cache_creation_price: "5", reasoning_price: "20" })
+    expect(() => pricingTemplateFormSchema.parse({ ...values, tier: { ...values.tier, reasoning_price: "" } })).toThrow()
+  })
+
   it("builds create and CAS update payloads with backend snake_case fields", () => {
-    const values = { name: " Standard ", description: " optional ", input_price: "1", output_price: "2", cached_input_price: "0.1", cache_creation_price: " ", reasoning_price: "3" }
+    const values = { name: " Standard ", description: " optional ", input_price: "1", output_price: "2", cached_input_price: "0.1", cache_creation_price: " ", reasoning_price: "3", tier: { enabled: false, input_tokens_above: "272000", input_price: "", output_price: "", cached_input_price: "", cache_creation_price: "", reasoning_price: "" } }
     expect(buildPricingTemplateCreatePayload(values)).toEqual({
       name: "Standard",
       description: "optional",
@@ -78,6 +96,7 @@ describe("Task 10 pricing feature contracts", () => {
       cached_input_price: "0.1",
       cache_creation_price: null,
       reasoning_price: "3",
+      tier: null,
     })
     expect(buildPricingTemplateUpdatePayload(pricingTemplate, values).expected_updated_at).toBe(pricingTemplate.updated_at)
   })

@@ -49,21 +49,22 @@ type pricingTemplateListItem struct {
 }
 
 type pricingRevisionDTO struct {
-	RevisionID           string  `json:"revision_id"`
-	Version              int     `json:"version"`
-	PricingUnit          string  `json:"pricing_unit"`
-	CurrencyCode         string  `json:"currency_code"`
-	ReportingEpoch       *int    `json:"reporting_currency_epoch"`
-	CurrencyAttribution  string  `json:"currency_attribution"`
-	InputPrice           string  `json:"input_price"`
-	OutputPrice          string  `json:"output_price"`
-	CachedInputPrice     *string `json:"cached_input_price"`
-	CacheCreationPrice   *string `json:"cache_creation_price"`
-	ReasoningPrice       *string `json:"reasoning_price"`
-	EffectiveAt          *string `json:"effective_at"`
-	CreatedAt            string  `json:"created_at"`
-	CreatedByKind        string  `json:"created_by_kind"`
-	CreatedByOperationID *string `json:"created_by_operation_id"`
+	RevisionID           string               `json:"revision_id"`
+	Version              int                  `json:"version"`
+	PricingUnit          string               `json:"pricing_unit"`
+	CurrencyCode         string               `json:"currency_code"`
+	ReportingEpoch       *int                 `json:"reporting_currency_epoch"`
+	CurrencyAttribution  string               `json:"currency_attribution"`
+	InputPrice           string               `json:"input_price"`
+	OutputPrice          string               `json:"output_price"`
+	CachedInputPrice     *string              `json:"cached_input_price"`
+	CacheCreationPrice   *string              `json:"cache_creation_price"`
+	ReasoningPrice       *string              `json:"reasoning_price"`
+	Tier                 *pricingTemplateTier `json:"tier"`
+	EffectiveAt          *string              `json:"effective_at"`
+	CreatedAt            string               `json:"created_at"`
+	CreatedByKind        string               `json:"created_by_kind"`
+	CreatedByOperationID *string              `json:"created_by_operation_id"`
 }
 
 type pricingListCursor struct {
@@ -122,6 +123,8 @@ func (s *Service) handleListPricingTemplatePage(w http.ResponseWriter, r *http.R
 				revisions.id, revisions.version, revisions.pricing_unit, revisions.currency_code,
 				revisions.currency_attribution, revisions.reporting_currency_epoch, revisions.input_price, revisions.output_price,
 				revisions.cached_input_price, revisions.cache_creation_price, revisions.reasoning_price,
+				revisions.tier_input_tokens_above, revisions.tier_input_price, revisions.tier_output_price,
+				revisions.tier_cached_input_price, revisions.tier_cache_creation_price, revisions.tier_reasoning_price,
 				revisions.effective_at, revisions.created_at, revisions.created_by_kind, revisions.created_by_operation_id,
 				templates.name_identity,
 				(SELECT count(DISTINCT targets.source_model_config_id) FROM model_access_targets AS targets JOIN connections AS refs ON refs.id = targets.target_connection_id WHERE refs.profile_id = $1 AND refs.pricing_template_id = templates.id AND targets.profile_id = $1 AND targets.target_type = 'connection'),
@@ -254,9 +257,11 @@ func scanPricingTemplateListItem(scanner interface{ Scan(...any) error }) (prici
 	var revisionEpoch sql.NullInt32
 	var version sql.NullInt32
 	var createdByKind, createdByOperationID sql.NullString
+	var tierThreshold sql.NullInt32
+	var tierInput, tierOutput, tierCached, tierCreation, tierReasoning sql.NullString
 	var createdAt, updatedAt time.Time
 	var nameIdentity []byte
-	if err := scanner.Scan(&id, &profileID, &name, &description, &createdAt, &updatedAt, &deletedAt, &revisionID, &version, &pricingUnit, &currencyCode, &currencyAttribution, &revisionEpoch, &currentInput, &currentOutput, &currentCached, &currentCreation, &currentReasoning, &effectiveAt, &revisionCreatedAt, &createdByKind, &createdByOperationID, &nameIdentity, &item.ModelReferenceCount, &item.EndpointReferenceCount, &item.TerminalTargetReferenceCount); err != nil {
+	if err := scanner.Scan(&id, &profileID, &name, &description, &createdAt, &updatedAt, &deletedAt, &revisionID, &version, &pricingUnit, &currencyCode, &currencyAttribution, &revisionEpoch, &currentInput, &currentOutput, &currentCached, &currentCreation, &currentReasoning, &tierThreshold, &tierInput, &tierOutput, &tierCached, &tierCreation, &tierReasoning, &effectiveAt, &revisionCreatedAt, &createdByKind, &createdByOperationID, &nameIdentity, &item.ModelReferenceCount, &item.EndpointReferenceCount, &item.TerminalTargetReferenceCount); err != nil {
 		return pricingTemplateListItem{}, nil, err
 	}
 	if !revisionID.Valid || !version.Valid || !pricingUnit.Valid || !currencyCode.Valid || !currencyAttribution.Valid {
@@ -295,11 +300,14 @@ func scanPricingTemplateListItem(scanner interface{ Scan(...any) error }) (prici
 	if revisionCreatedAt.Valid {
 		revisionCreated = revisionCreatedAt.Time.UTC().Format(time.RFC3339Nano)
 	}
+	if tierThreshold.Valid {
+		item.CurrentRevision.Tier = &pricingTemplateTier{InputTokensAbove: int(tierThreshold.Int32), InputPrice: tierInput.String, OutputPrice: tierOutput.String, CachedInputPrice: nullableStringValue(tierCached), CacheCreationPrice: nullableStringValue(tierCreation), ReasoningPrice: nullableStringValue(tierReasoning)}
+	}
 	item.CurrentRevision = pricingRevisionDTO{
 		RevisionID: strconv.FormatInt(revisionID.Int64, 10), Version: int(version.Int32), PricingUnit: pricingUnit.String,
 		CurrencyCode: currencyCode.String, CurrencyAttribution: currencyAttribution.String, InputPrice: currentInput.String,
 		OutputPrice: currentOutput.String, CachedInputPrice: nullableStringValue(currentCached), CacheCreationPrice: nullableStringValue(currentCreation),
-		ReasoningPrice: nullableStringValue(currentReasoning), ReportingEpoch: nullableInt32Value(revisionEpoch), EffectiveAt: nullableTimeString(effective),
+		ReasoningPrice: nullableStringValue(currentReasoning), Tier: item.CurrentRevision.Tier, ReportingEpoch: nullableInt32Value(revisionEpoch), EffectiveAt: nullableTimeString(effective),
 		CreatedAt: revisionCreated, CreatedByKind: createdByKind.String, CreatedByOperationID: nullableStringValue(createdByOperationID),
 	}
 	return item, nameIdentity, nil

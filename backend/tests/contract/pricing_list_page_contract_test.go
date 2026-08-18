@@ -26,6 +26,11 @@ func TestPricingTemplateListPageWalksFromTheFirstPage(t *testing.T) {
 	if names := pricingPageNames(t, first); len(names) != 2 || names[0] != "Page Template A" || names[1] != "Page Template B" {
 		t.Fatalf("expected both templates on the first page in name order, got %+v", names)
 	}
+	for _, raw := range first["items"].([]any) {
+		if item := asMap(t, raw); asMap(t, item["current_revision"])["tier"] != nil {
+			t.Fatalf("expected unconfigured page revision tier to be null, got %+v", item)
+		}
+	}
 	if first["next_cursor"] != nil {
 		t.Fatalf("expected no next cursor when the page covers every template, got %+v", first["next_cursor"])
 	}

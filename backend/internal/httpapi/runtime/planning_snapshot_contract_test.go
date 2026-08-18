@@ -192,7 +192,8 @@ func (tx *runtimePlanningSnapshotFakeTx) connectionRows() pgx.Rows {
 		sql.NullString{String: providerauth.OpenAITextCapabilityChatCompletionsOnly, Valid: true}, sql.NullString{}, sql.NullString{String: "Asia/Shanghai", Valid: true},
 		sql.NullInt32{Int32: 701, Valid: true}, sql.NullString{String: "Contract Template", Valid: true}, sql.NullInt64{Int64: 99, Valid: true},
 		sql.NullInt64{Int64: 99, Valid: true}, sql.NullInt32{Int32: 3, Valid: true}, sql.NullString{String: runtimePricingUnitPerMillion, Valid: true}, sql.NullString{String: "USD", Valid: true}, sql.NullInt32{Int32: 1, Valid: true},
-		sql.NullString{String: "1", Valid: true}, sql.NullString{String: "2", Valid: true}, sql.NullString{String: "0.5", Valid: true}, sql.NullString{String: "0.25", Valid: true}, sql.NullString{String: "3", Valid: true}, sql.NullTime{},
+		sql.NullString{String: "1", Valid: true}, sql.NullString{String: "2", Valid: true}, sql.NullString{String: "0.5", Valid: true}, sql.NullString{String: "0.25", Valid: true}, sql.NullString{String: "3", Valid: true},
+		sql.NullInt32{}, sql.NullString{}, sql.NullString{}, sql.NullString{}, sql.NullString{}, sql.NullString{}, sql.NullTime{},
 
 		801, sql.NullString{String: "primary endpoint", Valid: true}, "https://api.example.test/v1", tx.encryptedAPIKey,
 	})

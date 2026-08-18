@@ -40,6 +40,7 @@ var expectedPrismMigrationVersions = []string{
 	"000019_routing_failover_defaults_credentials_and_cooldown",
 	"000020_stats_read_path_indexes",
 	"000021_connection_routing_schedule",
+	"000022_pricing_input_tier",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
@@ -1006,9 +1007,18 @@ func TestConnectionRoutingScheduleUpgradePath(t *testing.T) {
 	}
 
 	// Simulate a pre-upgrade database stamped through 000020 only: existing
-	// connection rows and no routing schedule surface.
-	if _, err := conn.Exec(testContext, `DELETE FROM prism_schema_migrations WHERE version = '000021_connection_routing_schedule'`); err != nil {
-		t.Fatalf("un-stamp 000021: %v", err)
+	// connection rows and no routing schedule or pricing-tier surface.
+	if _, err := conn.Exec(testContext, `DELETE FROM prism_schema_migrations WHERE version IN ('000021_connection_routing_schedule', '000022_pricing_input_tier')`); err != nil {
+		t.Fatalf("un-stamp 000021/000022: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `ALTER TABLE pricing_template_revisions DROP CONSTRAINT ck_ptr_tier_specialty_parity, DROP CONSTRAINT ck_ptr_tier_threshold_positive, DROP CONSTRAINT ck_ptr_tier_all_or_none, DROP CONSTRAINT ck_ptr_tier_reasoning_price, DROP CONSTRAINT ck_ptr_tier_cache_creation_price, DROP CONSTRAINT ck_ptr_tier_cached_input_price, DROP CONSTRAINT ck_ptr_tier_output_price, DROP CONSTRAINT ck_ptr_tier_input_price, DROP COLUMN tier_input_tokens_above, DROP COLUMN tier_input_price, DROP COLUMN tier_output_price, DROP COLUMN tier_cached_input_price, DROP COLUMN tier_cache_creation_price, DROP COLUMN tier_reasoning_price`); err != nil {
+		t.Fatalf("drop 000022 revision surface: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `ALTER TABLE request_logs DROP CONSTRAINT pricing_tier_evidence_check, DROP CONSTRAINT pricing_tier_applied_check, DROP COLUMN pricing_tier_applied, DROP COLUMN pricing_tier_threshold_tokens, DROP COLUMN pricing_tier_basis_tokens`); err != nil {
+		t.Fatalf("drop 000022 request-log surface: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `ALTER TABLE usage_request_events DROP CONSTRAINT pricing_tier_evidence_check, DROP CONSTRAINT pricing_tier_applied_check, DROP COLUMN pricing_tier_applied, DROP COLUMN pricing_tier_threshold_tokens, DROP COLUMN pricing_tier_basis_tokens`); err != nil {
+		t.Fatalf("drop 000022 usage-event surface: %v", err)
 	}
 	if _, err := conn.Exec(testContext, `DROP TABLE connection_routing_windows`); err != nil {
 		t.Fatalf("drop 000021 window table: %v", err)
