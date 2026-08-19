@@ -26,7 +26,8 @@ export const zhCNMessages = {
     hidePassword: "隐藏密码",
     capsLockOn: "大写锁定已开启",
     passwordClearedHint: "登录失败后密码框会被清空，需要重新输入。",
-    keepSignedInDescription: "选择 7 天或 30 天会在本设备保留登录状态；共享设备上请使用「当前浏览器会话」。",
+    keepSignedInDescription:
+      "选择 7 天或 30 天会在本设备保留登录状态；共享设备上请使用「当前浏览器会话」。",
     instanceStatusLabel: "鉴权状态",
     generationLabel: "generation",
     loginAvailableLabel: "可登录",
@@ -41,13 +42,15 @@ export const zhCNMessages = {
     username: "用户名",
     checkingAccess: "正在确认访问状态...",
     verifyingAccess: "正在验证开放访问",
-    verifyingAccessDescription: "管理接口返回了意外的身份验证错误，正在确认实例的鉴权状态。",
+    verifyingAccessDescription:
+      "管理接口返回了意外的身份验证错误，正在确认实例的鉴权状态。",
     refreshingSession: "正在刷新会话...",
     loggingOut: "正在退出...",
     loggingOutDescription: "正在安全地结束当前会话。",
     logoutUnconfirmed: "无法确认是否已退出",
     logoutUnconfirmedDescription: "退出请求没有获得明确结果。",
-    logoutUnconfirmedHint: "页面上的受保护数据已清除。请重试退出；如果仍然失败，可以关闭此页面。",
+    logoutUnconfirmedHint:
+      "页面上的受保护数据已清除。请重试退出；如果仍然失败，可以关闭此页面。",
     retryLogout: "重试退出",
     transitionEnabling: "正在安全启用身份验证",
     transitionRollbackRequired: "正在恢复上一份有效配置",
@@ -59,23 +62,29 @@ export const zhCNMessages = {
     unavailableHint: "受保护的数据已暂停显示，以避免给出不完整的结论。",
     retryAuthStatus: "重试认证状态",
     sessionExpired: "会话已过期",
-    sessionExpiredDescription: "你的登录状态已失效。为避免显示不完整或过期的数据，当前页面已暂停。",
+    sessionExpiredDescription:
+      "你的登录状态已失效。为避免显示不完整或过期的数据，当前页面已暂停。",
     signInAgain: "重新登录",
     disabledTitle: "本实例未启用身份验证",
     disabledDescription: "当前实例未启用身份验证。",
-    disabledWarning: "能够访问此 Prism 地址的客户端可以管理配置，并可在受支持的路由上发起代理请求。",
-    disabledWarningDetails: "代理 API 密钥当前不会被强制校验；active 且未过期的 key 仅用于可选归属。",
-    disabledProxyKeyNote: "如果你共享了这个地址，任何拿到地址的人都可以管理配置。建议在身份验证设置中启用身份验证。",
+    disabledWarning:
+      "能够访问此 Prism 地址的客户端可以管理配置，并可在受支持的路由上发起代理请求。",
+    disabledWarningDetails:
+      "代理 API 密钥当前不会被强制校验；active 且未过期的 key 仅用于可选归属。",
+    disabledProxyKeyNote:
+      "如果你共享了这个地址，任何拿到地址的人都可以管理配置。建议在身份验证设置中启用身份验证。",
     enterConsole: "进入控制台",
     goToAuthSettings: "前往身份验证设置",
     invalidCredentials: "用户名或密码不正确",
     loginTemporarilyUnavailable: "暂时无法登录，请稍后重试",
     lockedFallback: "登录尝试过多，请稍后重试",
-    lockedCountdown: (remaining: MessageArg) => `登录尝试过多，请在 ${remaining} 后重试`,
+    lockedCountdown: (remaining: MessageArg) =>
+      `登录尝试过多，请在 ${remaining} 后重试`,
   },
   setup: {
     title: "首次配置",
-    description: "按真实配置事实完成一条可验证的路由链路。读取失败不会被显示成零值或空态。",
+    description:
+      "按真实配置事实完成一条可验证的路由链路。读取失败不会被显示成零值或空态。",
     readyDescription: "核心路由配置已就绪；验证接入仍可随时打开。",
     checkingHeadline: "正在核对路由配置",
     checkingDescription: "正在读取端点、策略、模型和接入配置。",
@@ -98,7 +107,8 @@ export const zhCNMessages = {
     collapsedSummary: "路由配置就绪；价格、访问风险和验证接入仍可查看。",
     degradedTitle: "部分配置读取失败",
     unknownTitle: "配置状态暂不可确认",
-    unknownDescription: "当前没有足够的同一快照证据，不能判断路由配置是否完成。",
+    unknownDescription:
+      "当前没有足够的同一快照证据，不能判断路由配置是否完成。",
   },
   common: {
     apiFamily: "API 家族",
@@ -127,11 +137,13 @@ export const zhCNMessages = {
     notMeasured: "该指标此处不适用",
     notObservedInProcess: "本进程尚未观测",
     readFailed: "读取失败",
-    readFailedDescription: "这次读取没有成功，因此下面不显示任何数字；请重试或稍后再看。",
+    readFailedDescription:
+      "这次读取没有成功，因此下面不显示任何数字；请重试或稍后再看。",
     viewDetails: "查看详情",
     lastSuccessful: (time: MessageArg) => `数据为 ${time} 的上次成功刷新`,
     outsideRetention: "保留期外",
-    outsideRetentionReason: "该时间范围早于当前保留 cutoff，结果不会用零值填补已删除历史。",
+    outsideRetentionReason:
+      "该时间范围早于当前保留 cutoff，结果不会用零值填补已删除历史。",
     payloadTruncated: "载荷已截断",
     coverageIncomplete: "覆盖不完整",
     coverageIncompleteReason: "覆盖不完整，不能确认没有事件。",
@@ -146,13 +158,19 @@ export const zhCNMessages = {
     autoRefreshMinutes: (minutes: MessageArg) => `自动刷新 ${minutes} 分钟`,
     refresh: "刷新",
     cacheLag: (seconds: MessageArg) => `缓存滞后 ${seconds} 秒`,
-    cacheLagReason: "后端返回的读模型缓存滞后时间；数字越大，页面越可能落后于真实运行状态。",
+    cacheLagReason:
+      "后端返回的读模型缓存滞后时间；数字越大，页面越可能落后于真实运行状态。",
   },
   // 全站表格共享的分页与排序文案，避免每个列表页各造一套。
   operationalTable: {
     totalRows: (total: MessageArg) => `共 ${total} 条`,
-    resultsRange: (start: MessageArg, end: MessageArg, total: MessageArg) => `${start}-${end} / ${total}`,
-    resultsRangeAtLeast: (start: MessageArg, end: MessageArg, total: MessageArg) => `第 ${start}–${end} 条，共超过 ${total} 条`,
+    resultsRange: (start: MessageArg, end: MessageArg, total: MessageArg) =>
+      `${start}-${end} / ${total}`,
+    resultsRangeAtLeast: (
+      start: MessageArg,
+      end: MessageArg,
+      total: MessageArg,
+    ) => `第 ${start}–${end} 条，共超过 ${total} 条`,
     zeroResults: "0 条结果",
     previousPage: "上一页",
     nextPage: "下一页",
@@ -174,14 +192,16 @@ export const zhCNMessages = {
     inspectSpendingBreakdown: "查看支出明细",
     incidentActiveBans: (count: MessageArg) => `${count} 个活动封禁`,
     incidentBannerTitle: "故障转移事件",
-    incidentRecentFailovers: (count: MessageArg) => `${count} 个近期故障转移信号`,
+    incidentRecentFailovers: (count: MessageArg) =>
+      `${count} 个近期故障转移信号`,
     incidentViewEvents: "查看事件",
     noRecentActivity: "暂无近期活动",
     noRecentActivityDescription: "请求在处理后会显示在这里。",
     noSpendingData: "暂无支出数据",
     noSpendingDataDescription: "请求定价后，这里会显示费用数据。",
     noApiFamilyActivity: "暂无 API 家族活动",
-    noApiFamilyActivityDescription: "处理过流量后，这里会显示按 API 家族统计的请求分布。",
+    noApiFamilyActivityDescription:
+      "处理过流量后，这里会显示按 API 家族统计的请求分布。",
     overviewTab: "概览",
     performanceSnapshot: "性能概览",
     performanceSnapshotDescription: "当前运行配置概览（24 小时）",
@@ -225,18 +245,21 @@ export const zhCNMessages = {
     banCumulativeRetryAttemptThresholdDescription:
       "触发所选封禁模式的累计重试次数；仅在封禁模式关闭时使用 0。",
     banCumulativeRetryAttemptThresholdLabel: "封禁累计重试次数阈值",
-    banModeDescription: "选择累计重试次数是不触发封禁、触发临时封禁，还是封禁直到重置。",
+    banModeDescription:
+      "选择累计重试次数是不触发封禁、触发临时封禁，还是封禁直到重置。",
     banModeLabel: "封禁模式",
     banModeOffOption: "关闭",
     banModeTemporaryOption: "临时",
     banModeUntilResetOption: "直到重置",
-    backoffMultiplierDescription: "记录失败后，每个重试窗口延迟都会按此倍数退避。",
+    backoffMultiplierDescription:
+      "记录失败后，每个重试窗口延迟都会按此倍数退避。",
     backoffMultiplierLabel: "退避倍数",
     cancel: "取消",
     description: "配置可复用的终端目标路由族与 Ban Policy。",
     editTitle: "编辑路由策略",
     explainField: (label: MessageArg) => `查看${label}说明`,
-    failureStatusCodesDescription: "指定会启动重试窗口和封禁策略计数的 HTTP 状态码。",
+    failureStatusCodesDescription:
+      "指定会启动重试窗口和封禁策略计数的 HTTP 状态码。",
     failureStatusCodesLabel: "失败状态码",
     legacyStrategyTypeLabel: "传统路由",
     nameLabel: "名称",
@@ -244,9 +267,11 @@ export const zhCNMessages = {
     removeStatusCode: (code: MessageArg) => `移除状态码 ${code}`,
     retryBaseDelayDescription: "记录失败状态后使用的初始重试窗口延迟。",
     retryBaseDelayLabel: "重试基础延迟（毫秒）",
-    retryJitterRatioDescription: "应用于重试退避的随机延迟比例；0 表示无抖动，1 表示完整抖动。",
+    retryJitterRatioDescription:
+      "应用于重试退避的随机延迟比例；0 表示无抖动，1 表示完整抖动。",
     retryJitterRatioLabel: "重试抖动比例",
-    cycleRetryAttemptLimitDescription: "单个周期内允许的重试次数，超过后路由会切换到下一个可用连接。",
+    cycleRetryAttemptLimitDescription:
+      "单个周期内允许的重试次数，超过后路由会切换到下一个可用连接。",
     cycleRetryAttemptLimitLabel: "周期重试次数限制",
     retryMaxDelayDescription: "退避计算后的重试窗口延迟上限。",
     retryMaxDelayLabel: "重试最大延迟（毫秒）",
@@ -257,32 +282,40 @@ export const zhCNMessages = {
   },
   loadbalanceStrategyCopy: {
     fillFirstLabel: "优先顺序",
-    fillFirstSummary: "按顺序故障转移：每次优先第 1 个已启用目标，失败后按配置顺序尝试后续目标。",
+    fillFirstSummary:
+      "按顺序故障转移：每次优先第 1 个已启用目标，失败后按配置顺序尝试后续目标。",
     legacyFamilyLabel: "传统路由",
     roundRobinLabel: "轮询",
-    roundRobinSummary: "轮转起点并故障转移：每次请求轮换起始目标，失败后按本轮顺序尝试其余已启用目标。",
+    roundRobinSummary:
+      "轮转起点并故障转移：每次请求轮换起始目标，失败后按本轮顺序尝试其余已启用目标。",
     singleLabel: "单一",
-    singleSummary: "不做故障转移：只尝试第 1 个已启用目标，失败即返回错误。适合只有一个上游，或明确不允许自动切换的场景。",
-    singleTruncationWarning: (count: MessageArg) => `只会尝试第 1 个已启用目标；其余 ${count} 个不会用于故障转移。`,
+    singleSummary:
+      "不做故障转移：只尝试第 1 个已启用目标，失败即返回错误。适合只有一个上游，或明确不允许自动切换的场景。",
+    singleTruncationWarning: (count: MessageArg) =>
+      `只会尝试第 1 个已启用目标；其余 ${count} 个不会用于故障转移。`,
     singleFirstTargetMarked: "唯一会尝试",
     singleTruncatedTargetMarked: "被单一策略截断",
   },
   loadbalanceStrategiesPage: {
-    description: "配置路由策略：准确表达路由方式、显式默认与安全的修改；运行态调查请进入路由健康。",
+    description:
+      "配置路由策略：准确表达路由方式、显式默认与安全的修改；运行态调查请进入路由健康。",
     title: "路由策略",
     viewRoutingHealth: "查看路由健康",
-    viewRoutingHealthDescription: "进入 Observe 的“路由健康”，查看跨模型当前状态与已记录事件时间线。",
+    viewRoutingHealthDescription:
+      "进入 Observe 的“路由健康”，查看跨模型当前状态与已记录事件时间线。",
   },
   routingStrategyTable: {
     actions: "操作",
     addStrategy: "新建策略",
-    tableSummary: (total: MessageArg, banEnabled: MessageArg) => `共 ${total} 条策略 · ${banEnabled} 条开启封禁`,
+    tableSummary: (total: MessageArg, banEnabled: MessageArg) =>
+      `共 ${total} 条策略 · ${banEnabled} 条开启封禁`,
     tableSummaryDefault: (name: MessageArg) => `新模型默认 ${name}`,
     tableSummaryNoDefault: "尚未设置新模型默认",
     completeBuiltInStrategies: "补齐内置策略",
     builtInComplete: "内置策略已齐全",
     attachedModels: "已绑定模型",
-    attachedModelsExpand: (count: MessageArg) => `展开查看 ${count} 个已绑定模型`,
+    attachedModelsExpand: (count: MessageArg) =>
+      `展开查看 ${count} 个已绑定模型`,
     attachedModelsCollapse: "收起模型名单",
     // 表格行内版本：数量就在按钮旁边，无需在按钮里重复，否则这一列会被撑宽。
     attachedModelsExpandRow: "展开名单",
@@ -295,12 +328,21 @@ export const zhCNMessages = {
     setAsDefaultPending: "设置中...",
     defaultChangedConflict: "默认策略已变化，请重新确认",
     retrySummaryColumn: "重试摘要",
-    retrySummary: (base: MessageArg, max: MessageArg, multiplier: MessageArg, jitter: MessageArg, cycle: MessageArg) => `基础 ${base}ms，最大 ${max}ms，${multiplier} 倍退避，抖动 ${jitter}，每轮 ${cycle} 次`,
+    retrySummary: (
+      base: MessageArg,
+      max: MessageArg,
+      multiplier: MessageArg,
+      jitter: MessageArg,
+      cycle: MessageArg,
+    ) =>
+      `基础 ${base}ms，最大 ${max}ms，${multiplier} 倍退避，抖动 ${jitter}，每轮 ${cycle} 次`,
     retryBalancedDefault: "均衡默认值",
     banSummaryColumn: "封禁摘要",
     banOff: "不封禁",
-    banTemporary: (threshold: MessageArg, duration: MessageArg) => `累计 ${threshold} 次后临时封禁 ${duration} 秒`,
-    banUntilReset: (threshold: MessageArg) => `累计 ${threshold} 次后封禁直到重置`,
+    banTemporary: (threshold: MessageArg, duration: MessageArg) =>
+      `累计 ${threshold} 次后临时封禁 ${duration} 秒`,
+    banUntilReset: (threshold: MessageArg) =>
+      `累计 ${threshold} 次后封禁直到重置`,
     banBalancedDefault: "均衡默认值",
     routingBehaviorColumn: "策略与路由行为",
     nameLabel: "策略名称",
@@ -330,10 +372,12 @@ export const zhCNMessages = {
 
     // 效果预览：页内横向时间线，选中行即推演。
     previewTitle: "效果预览",
-    previewSubtitle: (name: MessageArg) => `按“${name}”的当前参数推演一轮连续失败。`,
+    previewSubtitle: (name: MessageArg) =>
+      `按“${name}”的当前参数推演一轮连续失败。`,
     previewSelectPrompt: "选择一条策略即可在这里推演它的重试与封禁节奏。",
     previewStepLabel: (ordinal: MessageArg) => `第 ${ordinal} 次失败`,
-    previewJitterBand: (min: MessageArg, max: MessageArg) => `抖动区间 ${min} — ${max}`,
+    previewJitterBand: (min: MessageArg, max: MessageArg) =>
+      `抖动区间 ${min} — ${max}`,
     previewCycleExhaustedNode: "本轮重试次数已用尽",
     previewBanTransitionNode: "触发临时封禁",
     previewLoading: "正在推演...",
@@ -346,24 +390,32 @@ export const zhCNMessages = {
     strategyTypeLabel: "路由方式",
     edit: "编辑",
     delete: "删除",
-    deleteInUse: (count: MessageArg) => `此策略已绑定 ${count} 个模型，无法删除。`,
-    deleteBindingsUnknown: "无法确认这条策略被哪些模型绑定，因此不能删除。请先刷新列表取得完整绑定信息。",
-    editImpactUnknown: "无法确认这条策略被哪些模型绑定；保存前请先确认影响范围。",
-    deleteDefaultBlocked: "默认策略不能直接删除；请先为其他策略设置“新模型默认”，或补齐内置策略。",
+    deleteInUse: (count: MessageArg) =>
+      `此策略已绑定 ${count} 个模型，无法删除。`,
+    deleteBindingsUnknown:
+      "无法确认这条策略被哪些模型绑定，因此不能删除。请先刷新列表取得完整绑定信息。",
+    editImpactUnknown:
+      "无法确认这条策略被哪些模型绑定；保存前请先确认影响范围。",
+    deleteDefaultBlocked:
+      "默认策略不能直接删除；请先为其他策略设置“新模型默认”，或补齐内置策略。",
     enabled: "已启用",
     disabled: "已禁用",
     emptyTitle: "还没有路由策略",
-    emptyDescription: "新建策略，或补齐内置策略以建立“Default fill-first routing”作为新模型默认。",
+    emptyDescription:
+      "新建策略，或补齐内置策略以建立“Default fill-first routing”作为新模型默认。",
     loadFailed: "加载路由策略失败",
     loadFailedStale: (time: MessageArg) => `刷新失败，以下为 ${time} 的旧数据`,
     retry: "重试",
-    editImpactCallout: (count: MessageArg) => `此策略被 ${count} 个模型使用；保存后将影响这些模型之后开始的新请求。`,
-    defaultOnlyAffectsNewModels: "设为“新模型默认”只影响以后打开/提交的新模型；已有模型绑定不会被改写。",
+    editImpactCallout: (count: MessageArg) =>
+      `此策略被 ${count} 个模型使用；保存后将影响这些模型之后开始的新请求。`,
+    defaultOnlyAffectsNewModels:
+      "设为“新模型默认”只影响以后打开/提交的新模型；已有模型绑定不会被改写。",
   },
   routingStrategyDialog: {
     addTitle: "新建路由策略",
     editTitle: "编辑路由策略",
-    description: "配置路由方式、失败判定、重试节奏、封禁条件，并在保存前预览连续失败反馈。",
+    description:
+      "配置路由方式、失败判定、重试节奏、封禁条件，并在保存前预览连续失败反馈。",
     cancel: "取消",
     save: "保存策略",
     saving: "保存中...",
@@ -377,17 +429,20 @@ export const zhCNMessages = {
     namePlaceholder: "例如：Default fill-first routing",
     routingTypeLabel: "路由方式",
     failureStatusCodesLabel: "失败状态码",
-    failureStatusCodesDescription: "指定会触发失败反馈（重试窗口与封禁计数）的 HTTP 状态码。",
+    failureStatusCodesDescription:
+      "指定会触发失败反馈（重试窗口与封禁计数）的 HTTP 状态码。",
     baseDelayLabel: "基础延迟（毫秒）",
     baseDelayDescription: "记录失败状态后使用的初始重试窗口延迟。",
     multiplierLabel: "退避倍数",
     multiplierDescription: "每个连续失败的重试窗口延迟按此倍数退避。",
     jitterLabel: "抖动比例",
-    jitterDescription: "应用于重试延迟的随机比例；0 表示无抖动，1 表示完整抖动。",
+    jitterDescription:
+      "应用于重试延迟的随机比例；0 表示无抖动，1 表示完整抖动。",
     maxDelayLabel: "最大延迟（毫秒）",
     maxDelayDescription: "退避计算后的重试窗口延迟上限。",
     cycleLimitLabel: "每轮重试次数上限",
-    cycleLimitDescription: "单个周期内允许的连续失败重试次数；超过后本周期结束。",
+    cycleLimitDescription:
+      "单个周期内允许的连续失败重试次数；超过后本周期结束。",
     banModeLabel: "封禁模式",
     banModeOff: "关闭",
     banModeTemporary: "临时",
@@ -395,40 +450,57 @@ export const zhCNMessages = {
     thresholdLabel: "累计重试次数阈值",
     thresholdDescription: "触发所选封禁模式的累计重试次数；关闭时使用 0。",
     durationLabel: "封禁时长（秒）",
-    durationDescription: "临时封禁持续多久，之后该目标可再次参与路由；直到重置时提交 0。",
+    durationDescription:
+      "临时封禁持续多久，之后该目标可再次参与路由；直到重置时提交 0。",
     presetsLabel: "预设",
     presetConservative: "保守（上游保护）",
-    presetConservativeDescription: "更慢重试并在累计失败后临时封禁；适合优先降低故障上游压力。",
+    presetConservativeDescription:
+      "更慢重试并在累计失败后临时封禁；适合优先降低故障上游压力。",
     presetBalanced: "均衡（推荐）",
-    presetBalancedDescription: "复用当前内置默认数值；保留重试窗口，不自动长期封禁。",
+    presetBalancedDescription:
+      "复用当前内置默认数值；保留重试窗口，不自动长期封禁。",
     presetAggressive: "激进（快速重试）",
-    presetAggressiveDescription: "更快且更多反馈，可能增加故障上游压力；仅建议在可接受时使用。",
+    presetAggressiveDescription:
+      "更快且更多反馈，可能增加故障上游压力；仅建议在可接受时使用。",
     presetAggressiveWarning: "激进预设会更快重试并增加故障上游压力。",
     presetCustomLabel: (preset: MessageArg) => `自定义（基于 ${preset}）`,
     presetReplaceConfirm: "将替换重试与封禁字段",
-    presetReplaceConfirmDescription: "应用预设会覆盖当前已编辑的重试与封禁字段。继续？",
+    presetReplaceConfirmDescription:
+      "应用预设会覆盖当前已编辑的重试与封禁字段。继续？",
     applyPreset: "应用预设",
     continue: "继续",
     cancelApply: "取消",
-    provenanceChange: (field: MessageArg, from: MessageArg, to: MessageArg, reason: MessageArg) => `已根据${reason}将${field}从“${from}”调整为“${to}”。`,
+    provenanceChange: (
+      field: MessageArg,
+      from: MessageArg,
+      to: MessageArg,
+      reason: MessageArg,
+    ) => `已根据${reason}将${field}从“${from}”调整为“${to}”。`,
     provenanceSystemAdjusted: "系统已调整字段值",
     previewLoading: "正在计算效果预览...",
     previewFailed: "效果预览计算失败",
     previewFailedRetry: "重试预览",
     previewTitle: "连续失败反馈预览",
     previewDescription: "模拟同一重试周期内连续失败的至多前五次反馈。",
-    previewDescriptionDetails: "从干净状态开始；期间没有成功或冷却到期。仅作配置推演，不预测真实请求时间或上游恢复。",
+    previewDescriptionDetails:
+      "从干净状态开始；期间没有成功或冷却到期。仅作配置推演，不预测真实请求时间或上游恢复。",
     previewStep: (ordinal: MessageArg) => `第 ${ordinal} 次失败`,
     previewNominal: (delay: MessageArg) => `固定延迟 ${delay}ms`,
-    previewJitterRange: (min: MessageArg, max: MessageArg) => `抖动范围 ${min}ms – ${max}ms`,
+    previewJitterRange: (min: MessageArg, max: MessageArg) =>
+      `抖动范围 ${min}ms – ${max}ms`,
     previewCycleExhausted: "本轮重试次数已用尽",
-    previewBanTransition: (mode: MessageArg, duration: MessageArg) => `触发${mode}封禁${duration === 0 ? "" : ` ${duration} 秒`}`,
+    previewBanTransition: (mode: MessageArg, duration: MessageArg) =>
+      `触发${mode}封禁${duration === 0 ? "" : ` ${duration} 秒`}`,
     previewHasMore: "后续步骤超出预览上限",
-    previewTerminationCycleExhausted: "在第 {attempt} 次失败后停止：本轮重试次数已用尽。",
-    previewTerminationBanTransition: "在第 {attempt} 次失败后停止：达到累计阈值，触发封禁。",
+    previewTerminationCycleExhausted:
+      "在第 {attempt} 次失败后停止：本轮重试次数已用尽。",
+    previewTerminationBanTransition:
+      "在第 {attempt} 次失败后停止：达到累计阈值，触发封禁。",
     previewTerminationFiveStepLimit: "仅展示前五次失败；后续反馈未显示。",
-    previewBanProjection: (mode: MessageArg, threshold: MessageArg) => `封禁投影：${mode}，累计阈值 ${threshold} 次`,
-    previewValidationNote: "预览与保存使用同一套后端校验；无效参数会在保存时被拒绝。",
+    previewBanProjection: (mode: MessageArg, threshold: MessageArg) =>
+      `封禁投影：${mode}，累计阈值 ${threshold} 次`,
+    previewValidationNote:
+      "预览与保存使用同一套后端校验；无效参数会在保存时被拒绝。",
     previewRetryCycleBadge: "同一重试周期模拟",
     validationFocusHint: "请修正标红的字段后再保存。",
     syncThresholdToLimitAction: (limit: MessageArg) => `一键同步为 ${limit}`,
@@ -472,7 +544,8 @@ export const zhCNMessages = {
     previous: "上一页",
     refresh: "刷新负载均衡事件",
     reason: "原因",
-    showingEvents: (start: MessageArg, end: MessageArg, total: MessageArg) => `显示第 ${start} 到 ${end} 条，共 ${total} 条事件`,
+    showingEvents: (start: MessageArg, end: MessageArg, total: MessageArg) =>
+      `显示第 ${start} 到 ${end} 条，共 ${total} 条事件`,
     summary: "摘要",
     tabDescription: "此模型最近的重试窗口、重试耗尽和封禁活动。",
     tabTitle: "负载均衡事件",
@@ -496,17 +569,27 @@ export const zhCNMessages = {
     banPolicy: "封禁策略",
     banTemporaryPolicy: (threshold: MessageArg, durationSeconds: MessageArg) =>
       `累计阈值 ${threshold} 次会触发 ${durationSeconds} 秒临时封禁`,
-    banUntilResetPolicy: (threshold: MessageArg) => `累计阈值 ${threshold} 次会封禁直到重置`,
-    description: "在多个模型之间复用终端目标选择族与 Ban Policy，而不是为每个入口模型重复定义路由与重试行为。",
+    banUntilResetPolicy: (threshold: MessageArg) =>
+      `累计阈值 ${threshold} 次会封禁直到重置`,
+    description:
+      "在多个模型之间复用终端目标选择族与 Ban Policy，而不是为每个入口模型重复定义路由与重试行为。",
     disabled: "已禁用",
     edit: "编辑",
     enabled: "已启用",
     deleteStrategy: "删除路由策略",
-    deleteStrategyDescription: (name: MessageArg) => `确定要删除策略“${name}”吗？`,
-    deleteStrategyInUse: (count: MessageArg) => `此策略已绑定到 ${count} 个模型，当前无法删除。`,
+    deleteStrategyDescription: (name: MessageArg) =>
+      `确定要删除策略“${name}”吗？`,
+    deleteStrategyInUse: (count: MessageArg) =>
+      `此策略已绑定到 ${count} 个模型，当前无法删除。`,
     name: "名称",
     noStrategiesConfigured: "当前没有配置路由策略。",
-    retryPolicySummary: (baseDelayMs: MessageArg, maxDelayMs: MessageArg, cycleRetryAttemptLimit: MessageArg, multiplier: MessageArg, jitterRatio: MessageArg) =>
+    retryPolicySummary: (
+      baseDelayMs: MessageArg,
+      maxDelayMs: MessageArg,
+      cycleRetryAttemptLimit: MessageArg,
+      multiplier: MessageArg,
+      jitterRatio: MessageArg,
+    ) =>
       `周期重试限制 ${cycleRetryAttemptLimit} 次 • 重试窗口基础 ${baseDelayMs} 毫秒，最大 ${maxDelayMs} 毫秒，${multiplier} 倍退避，抖动 ${jitterRatio}`,
     statusCodes: (codes: MessageArg) => `状态码 ${codes}`,
     title: "路由策略",
@@ -517,9 +600,13 @@ export const zhCNMessages = {
     currentStateDescription: "当前 · 本进程 · 不受下方事件时间范围影响。",
     eventsWindowIndependentNote: "事件窗口独立于上方当前状态。",
     // 卡头状态摘要：先给结论，再让运维决定要不要逐行读表。
-    currentStateSummary: (total: MessageArg, banned: MessageArg, retryWait: MessageArg) =>
-      `${total} 个终端目标 · ${banned} 个已封禁 · ${retryWait} 个等待重试`,
-    currentStateSummaryUnobserved: (count: MessageArg) => `${count} 个本进程尚未观测`,
+    currentStateSummary: (
+      total: MessageArg,
+      banned: MessageArg,
+      retryWait: MessageArg,
+    ) => `${total} 个终端目标 · ${banned} 个已封禁 · ${retryWait} 个等待重试`,
+    currentStateSummaryUnobserved: (count: MessageArg) =>
+      `${count} 个本进程尚未观测`,
     modelFilterSubmitPlaceholder: "输入模型 ID 后回车或离开输入框生效",
     previousPage: "上一页",
     nextPage: "下一页",
@@ -530,10 +617,13 @@ export const zhCNMessages = {
     resetCooldownDisabledUnobserved: "本进程尚未观测该目标，没有可重置的冷却",
     resetCooldownDisabledNoCooldown: "该目标当前无冷却限制，无需重置",
     cancel: "取消",
-    currentStateDescriptionDetails: "展示当前已配置启用终端目标的跨模型状态；尚未观测的行不会伪装成可用。",
+    currentStateDescriptionDetails:
+      "展示当前已配置启用终端目标的跨模型状态；尚未观测的行不会伪装成可用。",
     eventsTitle: "负载均衡事件",
-    eventsDescription: "已记录的路由事件（来源可能不完整）；按事件前后各 15 分钟可调查附近请求。",
-    sourceBoundaryNote: "“已记录的路由事件”为尽力交付，不保证为完整故障转移账本；本页不替代逐请求的故障转移记录。",
+    eventsDescription:
+      "已记录的路由事件（来源可能不完整）；按事件前后各 15 分钟可调查附近请求。",
+    sourceBoundaryNote:
+      "“已记录的路由事件”为尽力交付，不保证为完整故障转移账本；本页不替代逐请求的故障转移记录。",
     refresh: "刷新",
     retry: "重试",
     loadMore: "加载更多",
@@ -551,17 +641,21 @@ export const zhCNMessages = {
     completenessNoConfig: "未配置目标",
     completenessPartial: "观测部分",
     completenessUnobserved: "尚未观测",
-    completenessCounts: (observed: MessageArg, configured: MessageArg) => `已观测 ${observed} / 已配置 ${configured} 个目标`,
-    completenessPartialNote: "对象筛选后仍未观测的目标不参与状态计数；不能据此宣称没有封禁或重试。",
+    completenessCounts: (observed: MessageArg, configured: MessageArg) =>
+      `已观测 ${observed} / 已配置 ${configured} 个目标`,
+    completenessPartialNote:
+      "对象筛选后仍未观测的目标不参与状态计数；不能据此宣称没有封禁或重试。",
     currentStateLoading: "正在加载当前状态...",
     currentStateNoConfig: "当前没有可观测的终端目标",
-    currentStateNoConfigDescription: "该筛选范围内没有参与路由的终端目标，因此本进程没有可观测对象。这不代表观测失败。",
+    currentStateNoConfigDescription:
+      "该筛选范围内没有参与路由的终端目标，因此本进程没有可观测对象。这不代表观测失败。",
     currentStateEmpty: "当前没有可路由的目标",
     currentStateEmptyDescription: "所选范围内没有已配置且启用的终端目标。",
     resetCooldown: "重置冷却",
     resetFailed: "重置冷却失败",
     resetNothingToClear: "当前没有可清除的冷却",
-    resetNothingToClearDescription: "该目标没有待清除的重试或封禁等待；这不影响其他限制或历史成功时间。",
+    resetNothingToClearDescription:
+      "该目标没有待清除的重试或封禁等待；这不影响其他限制或历史成功时间。",
     modelColumn: "模型",
     targetColumn: "终端目标",
     stateColumn: "状态",
@@ -587,7 +681,8 @@ export const zhCNMessages = {
     eventsEmptyTitle: "所选时间没有已记录事件",
     eventsEmptyDescription: "覆盖完整且没有符合筛选的事件。",
     coverageIncompleteTitle: "覆盖不完整",
-    coverageIncompleteDescription: "事件来源覆盖不完整，不能确认没有事件；筛选结果可能缺失。",
+    coverageIncompleteDescription:
+      "事件来源覆盖不完整，不能确认没有事件；筛选结果可能缺失。",
     sourceCoverageTitle: "已记录事件，来源可能不完整",
     sourceCoverageDescription: "负载均衡事件为尽力交付；历史丢弃计数不可恢复。",
     retentionCoverageLink: "查看保留策略与实际覆盖",
@@ -620,8 +715,10 @@ export const zhCNMessages = {
     openModel: "打开模型",
     openTarget: "打开终端目标",
     investigateRequestsCta: "调查附近请求",
-    investigateRequestsNote: "按事件时间和对象筛选，可能包含无关请求，也可能因 retention 或事件来源不完整而缺少触发请求；并非精确关联。",
-    investigateRequestsUnavailable: "请求日志保留区间与事件时间无交集，调查窗口不可用。",
+    investigateRequestsNote:
+      "按事件时间和对象筛选，可能包含无关请求，也可能因 retention 或事件来源不完整而缺少触发请求；并非精确关联。",
+    investigateRequestsUnavailable:
+      "请求日志保留区间与事件时间无交集，调查窗口不可用。",
     linkUnavailable: "对象已删除或无法验证，链接不可用",
     unattributed: "未归因",
     eventSummary: {
@@ -633,9 +730,23 @@ export const zhCNMessages = {
       admissionRejected: "准入被拒绝",
       legacyIncompleteSuffix: "（历史证据不完整）",
       legacyReason: "历史事件缺少当时未持久化的证据。",
-      retryScheduledReason: (failure: MessageArg, cycle: MessageArg, cumulative: MessageArg) => `${failure} 使本轮达到 ${cycle} 次、累计 ${cumulative} 次。`,
-      retryExhaustedReason: (failure: MessageArg, cycle: MessageArg, limit: MessageArg) => `${failure} 用尽本轮 ${cycle} 次重试${limit != null ? `（上限 ${limit} 次）` : ""}。`,
-      bannedReason: (failure: MessageArg, cumulative: MessageArg, threshold: MessageArg) => `${failure} 使累计重试达到 ${cumulative} 次${threshold != null ? `，达到封禁阈值 ${threshold} 次` : ""}。`,
+      retryScheduledReason: (
+        failure: MessageArg,
+        cycle: MessageArg,
+        cumulative: MessageArg,
+      ) => `${failure} 使本轮达到 ${cycle} 次、累计 ${cumulative} 次。`,
+      retryExhaustedReason: (
+        failure: MessageArg,
+        cycle: MessageArg,
+        limit: MessageArg,
+      ) =>
+        `${failure} 用尽本轮 ${cycle} 次重试${limit != null ? `（上限 ${limit} 次）` : ""}。`,
+      bannedReason: (
+        failure: MessageArg,
+        cumulative: MessageArg,
+        threshold: MessageArg,
+      ) =>
+        `${failure} 使累计重试达到 ${cumulative} 次${threshold != null ? `，达到封禁阈值 ${threshold} 次` : ""}。`,
       unbannedReason: "临时封禁到期，目标重新参与路由。",
       recoveredReason: "一次成功响应清除了重试状态。",
       admissionReason: (reason: MessageArg) => `被准入限制拒绝：${reason}。`,
@@ -695,10 +806,13 @@ export const zhCNMessages = {
   },
   pricingTierFields: {
     enabledLabel: "启用输入阶梯计价",
-    enabledDescription: "总输入 token 超过阈值后，整单五个价格分量切换到档位价；不是边际计费。",
+    enabledDescription:
+      "总输入 token 超过阈值后，整单五个价格分量切换到档位价；不是边际计费。",
     thresholdLabel: "输入 token 阈值（超过才切换）",
-    thresholdDescription: "判定口径 = 输入 + 缓存读取 + 缓存创建；严格大于阈值才命中档位。",
-    parityDescription: "缓存读取、缓存创建和推理费率必须与基础卡保持同样的已配置/未配置状态。",
+    thresholdDescription:
+      "判定口径 = 输入 + 缓存读取 + 缓存创建；严格大于阈值才命中档位。",
+    parityDescription:
+      "缓存读取、缓存创建和推理费率必须与基础卡保持同样的已配置/未配置状态。",
     inputPriceLabel: "档位输入价格",
     outputPriceLabel: "档位输出价格",
     cachedInputPriceLabel: "档位缓存输入价格",
@@ -724,7 +838,8 @@ export const zhCNMessages = {
     inputPriceLabel: "输入价格",
     nameLabel: "名称",
     namePlaceholder: "例如：GPT-4o Standard",
-    componentRatesSectionDescription: "为缓存输入、缓存创建和推理令牌设置明确费率。不计费的令牌类别请使用 0。",
+    componentRatesSectionDescription:
+      "为缓存输入、缓存创建和推理令牌设置明确费率。不计费的令牌类别请使用 0。",
     componentRatesSectionTitle: "专项令牌费率",
     outputPriceLabel: "输出价格",
     pricePlaceholder: "0.00",
@@ -755,11 +870,13 @@ export const zhCNMessages = {
 
     // 报告货币与时区打的是同一个 PUT /api/settings/costing，因此合成一张卡。
     basisAndDisplay: "口径与显示",
-    basisAndDisplayDescription: "报告货币与时区决定全站金额与时间戳的呈现口径，两者一起保存。",
+    basisAndDisplayDescription:
+      "报告货币与时区决定全站金额与时间戳的呈现口径，两者一起保存。",
 
     // 页头统一保存：各卡不再各自持有保存按钮。
     saveChanges: "保存更改",
-    saveChangesWithCount: (count: MessageArg) => `保存更改（${count} 处未保存）`,
+    saveChangesWithCount: (count: MessageArg) =>
+      `保存更改（${count} 处未保存）`,
     saving: "保存中...",
     nothingToSave: "当前没有未保存的更改。",
     saveBlockedReason: (reason: MessageArg) => `暂时无法保存：${reason}`,
@@ -777,15 +894,17 @@ export const zhCNMessages = {
     cleanupTypeStatistics: "统计数据",
     dataType: "数据类型",
     delete: "删除",
-    deleteConfirmDescription: "这会创建实例级清理作业。匹配的数据可能跨整个实例移除，且无法恢复。",
+    deleteConfirmDescription:
+      "这会创建实例级清理作业。匹配的数据可能跨整个实例移除，且无法恢复。",
     deleteConfirmTitle: "确认删除",
-    deleteRuleDescription: (name: MessageArg) => `确定要删除规则“${name}”吗？此操作无法撤销。`,
+    deleteRuleDescription: (name: MessageArg) =>
+      `确定要删除规则“${name}”吗？此操作无法撤销。`,
     deleteRuleTitle: "删除规则",
     deletionSummary: "删除摘要",
     impactRows: "预计命中",
     retainedRows: "预计保留",
     previewTimestamp: (value: MessageArg) => `预检时间：${value}`,
-	    nonCascade: (dataset: MessageArg) => `${dataset} 不会被级联删除。`,
+    nonCascade: (dataset: MessageArg) => `${dataset} 不会被级联删除。`,
     countUnavailable: "数量不可用",
     estimatedCount: (value: MessageArg) => `约 ${value}`,
     deleting: "删除中...",
@@ -803,7 +922,8 @@ export const zhCNMessages = {
     regexPattern: "正则模式",
     regexPatternHelp: "规则会以不区分大小写的方式匹配已存储的原始 User-Agent。",
     regexPatternPlaceholder: "Codex|Claude\\sCode|curl/.*",
-    ruleDialogAddDescription: "创建自定义规则，在请求发送到上游之前屏蔽指定请求头。",
+    ruleDialogAddDescription:
+      "创建自定义规则，在请求发送到上游之前屏蔽指定请求头。",
     ruleDialogAddTitle: "新增规则",
     ruleDialogEditDescription: "修改现有的自定义请求头屏蔽规则。",
     ruleDialogEditTitle: "编辑规则",
@@ -815,15 +935,18 @@ export const zhCNMessages = {
     userAgentClientRuleDialogEditTitle: "编辑 User-Agent 客户端规则",
     userAgentClientRuleNamePlaceholder: "例如：Codex CLI",
     userAgentClientRulesExamples: "示例：Codex、Claude\\sCode、Gemini、curl/.*",
-    userAgentClientRulesTooltip: "规则匹配后端提供的调用方与上游 User-Agent 字符串，并为请求日志标注客户端标签。",
+    userAgentClientRulesTooltip:
+      "规则匹配后端提供的调用方与上游 User-Agent 字符串，并为请求日志标注客户端标签。",
     whyMatchUserAgentClients: "为何匹配 User-Agent 客户端",
   },
   settingsAuditRules: {
     addRule: "新增规则",
     customRules: "自定义规则",
-    description: "使用请求头规则屏蔽隐私、隧道和追踪元数据，避免其发送到提供商。",
+    description:
+      "使用请求头规则屏蔽隐私、隧道和追踪元数据，避免其发送到提供商。",
     loadingRules: "正在加载规则...",
-    noCustomRules: "当前没有自定义规则。新增一条规则即可在转发前移除隐私请求头。",
+    noCustomRules:
+      "当前没有自定义规则。新增一条规则即可在转发前移除隐私请求头。",
     noSystemRules: "未找到系统规则。",
     systemRulesLocked: "系统规则",
   },
@@ -831,7 +954,8 @@ export const zhCNMessages = {
     addRule: "新增规则",
     customRules: "自定义规则",
     loadingRules: "正在加载规则...",
-    noCustomRules: "当前没有自定义规则。新增一条规则即可按 User-Agent 分类请求日志客户端。",
+    noCustomRules:
+      "当前没有自定义规则。新增一条规则即可按 User-Agent 分类请求日志客户端。",
     noSystemRules: "未找到系统规则。",
     systemRulesLocked: "系统规则",
   },
@@ -840,7 +964,8 @@ export const zhCNMessages = {
     auditLogsPolicy: "审计日志保留期",
     dataType: "数据类型",
     deletionFailed: "删除失败",
-    deletionRequested: (label: MessageArg, jobId: MessageArg) => `已创建${label}清理作业 ${jobId}。请在“清理作业”中跟踪；目标数据已处理后，数据库卷大小不保证立即下降。`,
+    deletionRequested: (label: MessageArg, jobId: MessageArg) =>
+      `已创建${label}清理作业 ${jobId}。请在“清理作业”中跟踪；目标数据已处理后，数据库卷大小不保证立即下降。`,
     deleteData: "删除数据",
     deleteOlderThan: "删除早于以下时间的数据",
     description: "设置实例级数据保留期，并通过明确确认创建清理作业。",
@@ -849,7 +974,8 @@ export const zhCNMessages = {
     requestLogsPolicy: "请求日志保留期",
     retentionDays: (days: MessageArg) => `${days} 天`,
     retentionLoadedFailed: "加载保留设置失败",
-    retentionPolicyDescription: "选择请求日志、审计日志、统计数据和负载均衡事件在后台清理前应保留多久。",
+    retentionPolicyDescription:
+      "选择请求日志、审计日志、统计数据和负载均衡事件在后台清理前应保留多久。",
     retentionPolicyTitle: "保留策略",
     retentionUpdateFailed: "更新保留设置失败",
     retentionUpdated: "保留设置已更新",
@@ -860,21 +986,27 @@ export const zhCNMessages = {
     statisticsPolicy: "统计数据保留期",
     title: "保留与删除",
     manualCleanupDescription: "立即删除已保留的历史数据，不等待保留策略到期。",
-    manualCleanupPreamble: "此操作不可撤销。提交前会先做一次预检，给出将匹配和将保留的行数；确认时需要输入关键词。",
+    manualCleanupPreamble:
+      "此操作不可撤销。提交前会先做一次预检，给出将匹配和将保留的行数；确认时需要输入关键词。",
     manualCleanupDisabledReason: "先选择数据类型与保留期限，才能开始预检。",
     preflightAndDelete: "预检并删除数据",
     manualCleanupTitle: "手动清理",
     noAutomaticCleanup: "不自动清理",
-    noAutomaticCleanupDescription: "不施加 logical retention cutoff；不等于原始数据永久不变。",
-    logicalCutoffDescription: "新查询按 UTC 日界线应用逻辑 cutoff；物理回收由拥有方保护条件决定。",
+    noAutomaticCleanupDescription:
+      "不施加 logical retention cutoff；不等于原始数据永久不变。",
+    logicalCutoffDescription:
+      "新查询按 UTC 日界线应用逻辑 cutoff；物理回收由拥有方保护条件决定。",
     customRetention: "自定义天数",
     customRetentionValue: (label: MessageArg) => `${label}自定义天数`,
     retentionRangeInvalid: "请输入 1 到 36500 之间的整数。",
-    recommendationDescription: "平衡建议：请求 30 天、统计 90 天、审计 7 天、路由事件 30 天；只填入草稿，不会自动保存。",
+    recommendationDescription:
+      "平衡建议：请求 30 天、统计 90 天、审计 7 天、路由事件 30 天；只填入草稿，不会自动保存。",
     applyRecommendation: "应用建议",
-    coverageConsequence: "保留策略决定未来可见覆盖，不会恢复已经清理的历史；统计保留期不足时，分析与支出窗口只能显示实际保留范围。",
+    coverageConsequence:
+      "保留策略决定未来可见覆盖，不会恢复已经清理的历史；统计保留期不足时，分析与支出窗口只能显示实际保留范围。",
     actualCoverageTitle: "实际覆盖",
-    actualCoverageDescription: "以下边界来自各数据集的 owner source；它不是由策略天数推算的容量承诺。",
+    actualCoverageDescription:
+      "以下边界来自各数据集的 owner source；它不是由策略天数推算的容量承诺。",
     coverageFromLabel: "起点",
     coverageToLabel: "终点",
     coverageComplete: "当前 owner 覆盖可用",
@@ -882,12 +1014,16 @@ export const zhCNMessages = {
     coverageUnavailable: "owner coverage 暂不可用；请稍后重试。",
     noLogicalCutoff: "无逻辑 cutoff（NULL）",
     repairRequired: "需要修复保留策略",
-    repairRequiredDescription: "发现超出支持上限的历史值；不会静默改成默认值。请修复后再启用对应数据集的自动清理。",
+    repairRequiredDescription:
+      "发现超出支持上限的历史值；不会静默改成默认值。请修复后再启用对应数据集的自动清理。",
     preflightFailed: "无法生成新鲜的破坏性预检。",
-    preflightDiscarded: "本次预检已作废，服务端不会再接受它的确认。请关闭本对话框后重新发起预检。",
+    preflightDiscarded:
+      "本次预检已作废，服务端不会再接受它的确认。请关闭本对话框后重新发起预检。",
     policyPreflightTitle: "确认保留策略变更",
-    policyPreflightDescription: "此变更会缩短逻辑覆盖或开启自动清理。预检只在短时间内有效。",
-    policyPreflightWarning: "确认后，新查询会立即按新的逻辑 cutoff 排除更早历史；已清理的记录无法恢复。",
+    policyPreflightDescription:
+      "此变更会缩短逻辑覆盖或开启自动清理。预检只在短时间内有效。",
+    policyPreflightWarning:
+      "确认后，新查询会立即按新的逻辑 cutoff 排除更早历史；已清理的记录无法恢复。",
     expiration: (value: MessageArg) => `预检有效期至：${value}`,
     confirmPolicyChange: "确认并保存",
     previewing: "正在生成预检...",
@@ -897,11 +1033,13 @@ export const zhCNMessages = {
     retainedRows: "预检后仍保留",
     preflightCutoff: "执行 cutoff",
     coverageAfter: "逻辑覆盖（预检后）",
-	    physicalReclaimAt: "物理回收不早于",
-	    semanticFactsUnavailable: "服务端无法证明完整的影响范围或 owner 语义事实；为避免误删，确认暂不可用。请刷新后重新预检。",
+    physicalReclaimAt: "物理回收不早于",
+    semanticFactsUnavailable:
+      "服务端无法证明完整的影响范围或 owner 语义事实；为避免误删，确认暂不可用。请刷新后重新预检。",
     nonCascades: "不会级联删除",
     retentionJobsTitle: "清理作业",
-    retentionJobsDescription: "自动与手动作业均由服务端持久化，可在刷新或换页后继续发现。排队不等于数据已删除。",
+    retentionJobsDescription:
+      "自动与手动作业均由服务端持久化，可在刷新或换页后继续发现。排队不等于数据已删除。",
     jobOrigin: "来源",
     jobState: "状态",
     allJobs: "全部来源",
@@ -913,7 +1051,8 @@ export const zhCNMessages = {
     jobsEmptyDescription: "尚未发现实例级自动或手动清理作业。",
     jobsStale: "作业刷新失败，以下为最近一次已知状态。",
     jobsStaleBadge: "作业列表刷新失败",
-    jobsStaleReason: "这次刷新没有成功，下表仍是上次成功读取的结果，已加载的分页保持不变。",
+    jobsStaleReason:
+      "这次刷新没有成功，下表仍是上次成功读取的结果，已加载的分页保持不变。",
     loadMoreJobs: "加载更多",
     cancelJob: "取消作业",
 
@@ -930,7 +1069,8 @@ export const zhCNMessages = {
     coverageStateComplete: "覆盖完整",
     coverageStatePartial: "覆盖不完整",
     coverageStateUnknown: "覆盖未知",
-    coverageStateUnknownReason: "服务端未返回该数据集的 owner 覆盖，不能据此判断有没有数据。",
+    coverageStateUnknownReason:
+      "服务端未返回该数据集的 owner 覆盖，不能据此判断有没有数据。",
     coverageSpanAria: (dataset: MessageArg, from: MessageArg, to: MessageArg) =>
       `${dataset} 的实际覆盖区间：${from} 至 ${to}`,
     coverageSpanUnknown: "区间未知",
@@ -989,7 +1129,12 @@ export const zhCNMessages = {
     checkpoints: "检查点",
     partitionEvidence: "分区证据",
     jobDetailFailed: "加载清理作业详情失败",
-    jobTerminalNotice: (dataset: MessageArg, state: MessageArg, jobId: MessageArg) => `清理作业 ${jobId}（${dataset}）已进入终态：${state}。请打开作业中心查看结果。`,
+    jobTerminalNotice: (
+      dataset: MessageArg,
+      state: MessageArg,
+      jobId: MessageArg,
+    ) =>
+      `清理作业 ${jobId}（${dataset}）已进入终态：${state}。请打开作业中心查看结果。`,
   },
   settingsSaveState: {
     saved: "已保存",
@@ -1005,20 +1150,34 @@ export const zhCNMessages = {
     authenticationDisabledDescription: "配置操作员登录。",
     authenticationIsDisabled: "身份验证已禁用",
     authenticationStatus: "身份验证状态",
-    authenticationToggleDescription: "登录强制与代理密钥归属是两条独立轴；关闭时有效密钥仍可被识别，缺少密钥的请求会放行但不归属。",
-    disableConfirmation: "关闭身份验证会让管理面与已注册运行时操作进入 permissive 状态，并清除当前会话。确定继续吗？",
-    zeroKeyEnableConfirmation: "当前没有处于 30 秒安全窗口内的可用代理密钥。启用后没有有效密钥的运行时请求会被拒绝。仍要启用吗？",
-    accountUpdateConfirmation: "更新已启用身份验证的操作员账户会使现有操作员会话失效，需要重新登录。确定继续吗？",
-    authenticationReadiness: (active: MessageArg, safe: MessageArg, expired: MessageArg, disabled: MessageArg) => `代理密钥准备度：${active} 个有效、${safe} 个可安全用于切换、${expired} 个已过期、${disabled} 个已停用。`,
-    authenticationDisabledRisk: "身份验证关闭时，能访问实例的客户端可以免密调用已注册运行时操作；审计正文仍是敏感证据。",
-    attributionDescription: "关闭强制不等于关闭归属：valid key=identified，缺少或无效=none，验证器故障=unknown。",
+    authenticationToggleDescription:
+      "登录强制与代理密钥归属是两条独立轴；关闭时有效密钥仍可被识别，缺少密钥的请求会放行但不归属。",
+    disableConfirmation:
+      "关闭身份验证会让管理面与已注册运行时操作进入 permissive 状态，并清除当前会话。确定继续吗？",
+    zeroKeyEnableConfirmation:
+      "当前没有处于 30 秒安全窗口内的可用代理密钥。启用后没有有效密钥的运行时请求会被拒绝。仍要启用吗？",
+    accountUpdateConfirmation:
+      "更新已启用身份验证的操作员账户会使现有操作员会话失效，需要重新登录。确定继续吗？",
+    authenticationReadiness: (
+      active: MessageArg,
+      safe: MessageArg,
+      expired: MessageArg,
+      disabled: MessageArg,
+    ) =>
+      `代理密钥准备度：${active} 个有效、${safe} 个可安全用于切换、${expired} 个已过期、${disabled} 个已停用。`,
+    authenticationDisabledRisk:
+      "身份验证关闭时，能访问实例的客户端可以免密调用已注册运行时操作；审计正文仍是敏感证据。",
+    attributionDescription:
+      "关闭强制不等于关闭归属：valid key=identified，缺少或无效=none，验证器故障=unknown。",
     manageProxyKeys: "管理代理密钥",
-    readinessUnavailable: "代理密钥准备度暂时无法验证；启用操作会保持禁用，直到服务端返回新鲜快照。",
+    readinessUnavailable:
+      "代理密钥准备度暂时无法验证；启用操作会保持禁用，直到服务端返回新鲜快照。",
     attributionModeTitle: "强制与归属",
     continue: "继续",
     confirmationTitle: "确认敏感设置更改",
     created: (date: MessageArg) => `创建于 ${date}`,
-    enableAuthenticationToEnforceKeys: "当你准备好强制使用这些密钥时，请在设置中启用身份验证。",
+    enableAuthenticationToEnforceKeys:
+      "当你准备好强制使用这些密钥时，请在设置中启用身份验证。",
     operatorAccount: "操作员账户",
     operatorAccountDescription: "配置用于登录的唯一本地操作员身份。",
     password: "密码",
@@ -1045,17 +1204,20 @@ export const zhCNMessages = {
     anthropicFamily: "Anthropic",
     apiFamily: "API 家族",
     apiFamilyAuditControls: "API 家族审计控制",
-    apiFamilyAuditDescription: "为每个受支持的 API 家族设置审计日志与正文捕获。",
+    apiFamilyAuditDescription:
+      "为每个受支持的 API 家族设置审计日志与正文捕获。",
     storageSummaryBasis: "存储事实来自服务端快照，随刷新更新。",
     storageSummaryStaleBadge: "存储事实刷新失败",
-    storageSummaryStaleReason: "这次刷新没有成功，下面显示的仍是上次成功读取的快照；审计存储事实暂时不可用；不会用 0 代替未知值。",
+    storageSummaryStaleReason:
+      "这次刷新没有成功，下面显示的仍是上次成功读取的快照；审计存储事实暂时不可用；不会用 0 代替未知值。",
     audit: "审计",
     auditAndPrivacy: "审计与隐私",
     auditEnabled: "启用审计",
     bodies: "正文",
     captureAndPrivacyDefaults: "为每个供应商选择后续请求的捕获方式。",
     captureBodies: "捕获正文",
-    classifyClientsFromUserAgent: "根据调用方与上游 User-Agent 值分类请求日志客户端。",
+    classifyClientsFromUserAgent:
+      "根据调用方与上游 User-Agent 值分类请求日志客户端。",
     geminiFamily: "Gemini",
     headerBlocklist: "请求头屏蔽列表",
     loadingAPIFamilyAuditSettings: "正在加载 API 家族审计设置...",
@@ -1080,8 +1242,10 @@ export const zhCNMessages = {
     storagePartial: "部分可用",
     storageUnavailable: "不可用",
     storageSummaryUnavailable: "审计存储事实暂时不可用；不会用 0 代替未知值。",
-    captureLimitsDescription: "固定上限：每个请求正文 4 MiB、请求正文合计 12 MiB、最终响应 4 MiB。",
-    captureLimitsDescriptionDetails: "单次 ingress 原始正文最多 16 MiB。Header scrub 是不可关闭的底线，Header Blocklist 只能增加转发过滤；关闭捕获不会删除历史正文。",
+    captureLimitsDescription:
+      "固定上限：每个请求正文 4 MiB、请求正文合计 12 MiB、最终响应 4 MiB。",
+    captureLimitsDescriptionDetails:
+      "单次 ingress 原始正文最多 16 MiB。Header scrub 是不可关闭的底线，Header Blocklist 只能增加转发过滤；关闭捕获不会删除历史正文。",
   },
   settingsAuditData: {
     apiFamilySettingsSaved: "审计设置已保存",
@@ -1125,45 +1289,61 @@ export const zhCNMessages = {
     costApiUnavailable: "计费设置 API 当前不可用。",
     currencyCodePlaceholder: "USD",
     currencySymbolPlaceholder: "$",
-    exampleTimestamp: (timestamp: MessageArg, zone: MessageArg, offset?: MessageArg, utc?: MessageArg) => `当前示例：${timestamp}（${zone}${offset ? `，${offset}` : ""}）${utc ? `；UTC ${utc}` : ""}`,
+    exampleTimestamp: (
+      timestamp: MessageArg,
+      zone: MessageArg,
+      offset?: MessageArg,
+      utc?: MessageArg,
+    ) =>
+      `当前示例：${timestamp}（${zone}${offset ? `，${offset}` : ""}）${utc ? `；UTC ${utc}` : ""}`,
     reportingCurrency: "报告货币",
-    reportingCurrencySummary: (code: MessageArg, symbol: MessageArg) => `报告货币：${code} (${symbol})`,
+    reportingCurrencySummary: (code: MessageArg, symbol: MessageArg) =>
+      `报告货币：${code} (${symbol})`,
     saveTimezone: "保存时区",
     selectTimezone: "选择时区",
     settingsApiUnavailable: "设置 API 当前不可用。",
     symbol: "符号",
     timezone: "时区",
-    timezoneAffectsTimestamps: "只改变时间戳展示和 Custom 输入的解释；滚动时长与 UTC 日级分桶不随时区改变。" ,
+    timezoneAffectsTimestamps:
+      "只改变时间戳展示和 Custom 输入的解释；滚动时长与 UTC 日级分桶不随时区改变。",
     timezonePreference: "时区偏好",
     timezoneAuto: (zone: MessageArg) => `自动（浏览器：${zone})`,
-    usedForSpendingReports: "用于支出报表和仪表盘；历史请求按当时的币种、epoch 与价格快照读取，不会被追溯换算。",
+    usedForSpendingReports:
+      "用于支出报表和仪表盘；历史请求按当时的币种、epoch 与价格快照读取，不会被追溯换算。",
     activeEpoch: (epoch: MessageArg) => `当前报告货币 epoch：${epoch}`,
     migrateCurrency: "迁移报告货币",
     migrateCurrencyHint: "切换货币会为所有活跃模板生成不可变的新修订。",
-    migrationRequired: "当前配置需要先完成迁移证据中的货币修复；普通计费保存暂时关闭。",
+    migrationRequired:
+      "当前配置需要先完成迁移证据中的货币修复；普通计费保存暂时关闭。",
   },
   settingsCurrencyMigration: {
     archiveButton: "归档未使用的 FX 证据",
     archiveCommit: "确认归档",
-    archiveDescription: "归档只会记录已证明未使用的遗留 FX 证据，不改变报告货币、epoch、模板修订或真实 FX 源行。",
+    archiveDescription:
+      "归档只会记录已证明未使用的遗留 FX 证据，不改变报告货币、epoch、模板修订或真实 FX 源行。",
     archivePreview: "预览归档",
-    archiveSummary: (count: MessageArg, total: MessageArg) => `已证明 ${count}/${total} 条遗留 FX 证据未被使用。`,
+    archiveSummary: (count: MessageArg, total: MessageArg) =>
+      `已证明 ${count}/${total} 条遗留 FX 证据未被使用。`,
     archiveSucceeded: (count: MessageArg) => `已归档 ${count} 条遗留 FX 证据。`,
     cancel: "取消",
     code: "代码",
     commitButton: "确认迁移",
     commitFailed: "换币迁移提交失败。",
-    commitSucceeded: (code: MessageArg, epoch: MessageArg) => `已切换到 ${code}（epoch ${epoch}）。所有活跃模板已生成新修订。`,
+    commitSucceeded: (code: MessageArg, epoch: MessageArg) =>
+      `已切换到 ${code}（epoch ${epoch}）。所有活跃模板已生成新修订。`,
     committing: "正在提交迁移...",
-    description: "切换报告货币会为每个活跃价格模板生成不可变的新修订（vN+1），旧修订与历史数据保持不变。此操作不可撤销。",
-    frozenRevisions: (epoch: MessageArg) => `新修订冻结于 epoch ${epoch}，旧修订永不重算。`,
+    description:
+      "切换报告货币会为每个活跃价格模板生成不可变的新修订（vN+1），旧修订与历史数据保持不变。此操作不可撤销。",
+    frozenRevisions: (epoch: MessageArg) =>
+      `新修订冻结于 epoch ${epoch}，旧修订永不重算。`,
     invalidCode: "请输入有效的 3 位货币代码。",
     previewButton: "预览影响",
     previewFailed: "无法生成迁移预览。",
     previewing: "正在生成预览...",
     repairContinue: "填写缺失价格并继续预览",
     repairDescription: "迁移证据中存在没有可用 current revision 的模板。",
-    repairDescriptionDetails: "请逐项明确输入五个价格；系统不会把 legacy raw 值自动当作新价格。",
+    repairDescriptionDetails:
+      "请逐项明确输入五个价格；系统不会把 legacy raw 值自动当作新价格。",
     repairFieldInput: "输入价格",
     repairFieldOutput: "输出价格",
     repairFieldCached: "缓存输入",
@@ -1171,7 +1351,12 @@ export const zhCNMessages = {
     repairFieldReasoning: "推理",
     repairMissingRequired: "输入和输出价格不能为空。",
     repairTitle: "补齐迁移价格",
-    previewSummary: (from: MessageArg, to: MessageArg, templates: MessageArg, revisions: MessageArg) =>
+    previewSummary: (
+      from: MessageArg,
+      to: MessageArg,
+      templates: MessageArg,
+      revisions: MessageArg,
+    ) =>
       `将报告货币从 ${from} 切换为 ${to}：影响 ${templates} 个模板，生成 ${revisions} 个新修订。`,
     symbol: "符号",
     tableReferences: "关联数",
@@ -1179,8 +1364,10 @@ export const zhCNMessages = {
     tableVersion: "版本",
     title: "迁移报告货币",
     tieredTemplatesTitle: "暂不能换币：存在阶梯计价模板",
-    tieredTemplatesDescription: (currency: MessageArg) => `当前币种 ${currency} 下仍有阶梯费率。换币路线本期不会携带阶梯卡，请先清除这些模板的阶梯配置后再试。`,
-    tieredTemplateRow: (name: MessageArg, threshold: MessageArg) => `${name} · 阈值 ${threshold}`,
+    tieredTemplatesDescription: (currency: MessageArg) =>
+      `当前币种 ${currency} 下仍有阶梯费率。换币路线本期不会携带阶梯卡，请先清除这些模板的阶梯配置后再试。`,
+    tieredTemplateRow: (name: MessageArg, threshold: MessageArg) =>
+      `${name} · 阈值 ${threshold}`,
     tieredTemplatePrices: "档位五分量费率：",
     warning: (code: MessageArg, symbol: MessageArg) =>
       `当前报告货币为 ${code} (${symbol})。迁移后所有活跃模板价格将以新货币定价，旧货币与旧修订仅保留为历史证据。`,
@@ -1202,24 +1389,28 @@ export const zhCNMessages = {
     // 页头与路由就绪卡（三处重复的路由信息合并到这里）。
     routeReadinessTitle: "路由就绪",
     routeReadinessDescription: "这个模型现在能不能把请求送出去，以及送到哪里。",
-    targetsCount: (enabled: MessageArg, total: MessageArg) => `${enabled} 启用 / ${total} 总计`,
+    targetsCount: (enabled: MessageArg, total: MessageArg) =>
+      `${enabled} 启用 / ${total} 总计`,
     strategyLabel: "路由策略",
     strategyUnassignedReason: "该模型没有绑定路由策略。",
 
     // 路由诊断的四态。读失败必须与「后端确实没有诊断」区分开，
     // 否则一次失败的读取看起来就像一个干净的空结果。
     diagnosticsErrorTitle: "路由诊断读取失败",
-    diagnosticsErrorDescription: "这不代表该模型没有诊断结果，只表示本次没有读到。",
+    diagnosticsErrorDescription:
+      "这不代表该模型没有诊断结果，只表示本次没有读到。",
     diagnosticsErrorDetailsLabel: "错误详情",
     diagnosticsRetry: "重试",
 
     // 时段路由编辑器。时段决定这个终端目标在一周里的哪些时间参与路由，
     // 与「是否启用」正交：停用的连接根本不会被求值时段。
     routingScheduleEnableLabel: "限制该终端目标的可路由时段",
-    routingScheduleDescription: "不配置时段等于不限制。配置后，只有落在窗口内的请求才会把该终端目标算作候选。",
+    routingScheduleDescription:
+      "不配置时段等于不限制。配置后，只有落在窗口内的请求才会把该终端目标算作候选。",
     routingScheduleTimezoneLabel: "时段时区",
     routingScheduleTimezonePlaceholder: "选择时区",
-    routingScheduleTimezoneDescription: "这是该终端目标自己的路由时钟，与设置页的报表显示时区无关。",
+    routingScheduleTimezoneDescription:
+      "这是该终端目标自己的路由时钟，与设置页的报表显示时区无关。",
     routingScheduleWeekdaysLegend: "生效的星期",
     routingScheduleWeekdays: ["一", "二", "三", "四", "五", "六", "日"],
     routingScheduleStartLabel: "开始时间",
@@ -1257,7 +1448,8 @@ export const zhCNMessages = {
     costWindowToday: "今日",
     costWindow7d: "近 7 天",
     costWindowAll: "全部时间",
-    costWindowBasis: (window: MessageArg) => `口径：${window}内该模型的已知成本，未定价请求不计入金额。`,
+    costWindowBasis: (window: MessageArg) =>
+      `口径：${window}内该模型的已知成本，未定价请求不计入金额。`,
     kpiKnownCost: "已知成本",
     kpiSuccessfulRequests: "成功请求",
     kpiTotalTokens: "令牌总量",
@@ -1266,7 +1458,8 @@ export const zhCNMessages = {
     unpricedClippedReason: (count: MessageArg) =>
       `该窗口内有 ${count} 个成功请求未完成定价，金额不含这部分；这不是零成本。`,
     costUnavailable: "成本数据读取失败",
-    costUnavailableReason: "这次成本读取没有成功，因此不显示金额；这不代表该模型没有花费。",
+    costUnavailableReason:
+      "这次成本读取没有成功，因此不显示金额；这不代表该模型没有花费。",
 
     // 页顶新鲜度条。
     runtimeBasis: "运行态为本进程观测的封禁与在途快照，非上游探活结果。",
@@ -1282,29 +1475,42 @@ export const zhCNMessages = {
     connectionActions: "终端目标操作",
     connectionFallback: (id: MessageArg) => `终端目标 ${id}`,
     currentTargetLabel: (targetId: MessageArg) => `${targetId}（当前终端目标）`,
-    connectionDialogDescription: "配置这个模型私有终端目标要把请求发往哪里。路由优先级仍由终端目标列表中的拖拽排序负责。",
+    connectionDialogDescription:
+      "配置这个模型私有终端目标要把请求发往哪里。路由优先级仍由终端目标列表中的拖拽排序负责。",
     connectionDisplayNamePlaceholder: "终端目标显示名称",
     prefillFromExisting: "从已有终端目标填充",
-    prefillFromExistingPlaceholder: "选择同家族终端目标以预填字段（将创建独立副本）",
+    prefillFromExistingPlaceholder:
+      "选择同家族终端目标以预填字段（将创建独立副本）",
     connectionNameOptional: "终端目标名称（可选）",
     connectionNameSummaryLabel: "解析后的终端目标名称",
     configuration: "配置",
     connections: "终端目标",
-    connectionsLoadOnDemandDescription: "终端目标指标按需加载，以避免页面初次打开时产生过大的请求突发。",
+    connectionsLoadOnDemandDescription:
+      "终端目标指标按需加载，以避免页面初次打开时产生过大的请求突发。",
     consecutiveFailures: (count: MessageArg) => `${count} 次连续失败`,
     cooldownMinutes: (minutes: MessageArg) => `${minutes} 分钟`,
-    cooldownMinutesSeconds: (minutes: MessageArg, seconds: MessageArg) => `${minutes} 分 ${seconds} 秒`,
+    cooldownMinutesSeconds: (minutes: MessageArg, seconds: MessageArg) =>
+      `${minutes} 分 ${seconds} 秒`,
     cooldownSeconds: (seconds: MessageArg) => `${seconds} 秒`,
     copyModelIdAria: (modelId: MessageArg) => `复制模型 ID ${modelId}`,
     costOverview: "成本概览",
     createNew: "新建端点",
     created: "创建时间",
-    currentStateBlocked: (failureSummary: MessageArg, cooldown: MessageArg, failureKind: MessageArg, blockedUntil: MessageArg) =>
+    currentStateBlocked: (
+      failureSummary: MessageArg,
+      cooldown: MessageArg,
+      failureKind: MessageArg,
+      blockedUntil: MessageArg,
+    ) =>
       `${failureSummary} 在 ${failureKind} 后开启了 ${cooldown} 重试窗口。路由将保持暂停，直到 ${blockedUntil ?? "重试窗口关闭"}。`,
-    currentStateCounting: (failureSummary: MessageArg, failureKind: MessageArg) =>
+    currentStateCounting: (
+      failureSummary: MessageArg,
+      failureKind: MessageArg,
+    ) =>
       `正在记录 ${failureKind} 之后的${failureSummary}。当前没有打开的重试窗口，但封禁策略仍在统计这些信号。`,
     currentStateManualBan: "此终端目标已被封禁，直到操作员手动解除。",
-    currentStateTemporaryBan: (until: MessageArg) => `此终端目标已被封禁，直到 ${until ?? "临时封禁到期"}。`,
+    currentStateTemporaryBan: (until: MessageArg) =>
+      `此终端目标已被封禁，直到 ${until ?? "临时封禁到期"}。`,
     lastLiveFailure: (time: MessageArg) => `最近一次实时失败 ${time}`,
     lastLiveSuccess: (time: MessageArg) => `最近一次实时成功 ${time}`,
     liveP95Latency: (latency: MessageArg) => `实时 P95 ${latency}`,
@@ -1313,9 +1519,11 @@ export const zhCNMessages = {
     customHeadersDescription: "添加 Prism 应随此终端目标一起发送的可选请求头。",
     customHeaderRedactedHint: "已隐藏；重新输入以替换，留空不变",
     authType: "认证方式",
-    authTypeGeminiHint: "选择 Gemini 上游的凭据方案：Bearer 兼容网关或 Google 官方 API Key。",
+    authTypeGeminiHint:
+      "选择 Gemini 上游的凭据方案：Bearer 兼容网关或 Google 官方 API Key。",
     authTypeGeminiBearer: "gemini（Bearer 兼容网关 / OAuth 令牌）",
-    authTypeGeminiAPIKey: "gemini_api_key（x-goog-api-key，Google 官方 API Key）",
+    authTypeGeminiAPIKey:
+      "gemini_api_key（x-goog-api-key，Google 官方 API Key）",
     delete: "删除",
     disabled: "已禁用",
     displayName: "显示名称",
@@ -1333,7 +1541,8 @@ export const zhCNMessages = {
     endpointNamePlaceholder: "例如：OpenAI 主端点",
     endpointSource: "端点来源",
     endpointSummaryLabel: "端点",
-    endpointSourceCreateHint: "为这个模型私有终端目标选择现有端点，或直接在这里新建一个端点。",
+    endpointSourceCreateHint:
+      "为这个模型私有终端目标选择现有端点，或直接在这里新建一个端点。",
     endpointSourceEditHint: "切换到其他端点，或直接为此终端目标新建一个端点。",
     failoverEvents: (count: MessageArg) => `事件：${count}`,
     failoverLast: (value: MessageArg) => `最近：${value}`,
@@ -1355,16 +1564,20 @@ export const zhCNMessages = {
     loadbalanceStrategyLabel: "路由策略",
     maxInFlightNonStream: "最大并发（非流式）",
     maxInFlightStream: "最大并发（流式）",
-    modelConfigurationAndConnectionRouting: "为此入口模型选择失败重试与目标轮换方式。",
+    modelConfigurationAndConnectionRouting:
+      "为此入口模型选择失败重试与目标轮换方式。",
     modelIdLabel: "模型 ID",
-    modelRoutingAccessTargetsAndTerminalTargets: "入口模型路由覆盖分组后的访问目标、同家族模型目标，以及模型私有终端目标。",
-    modelSettingsDescription: "更新入口模型、路由默认值，以及它到达终端目标时使用的策略。",
+    modelRoutingAccessTargetsAndTerminalTargets:
+      "入口模型路由覆盖分组后的访问目标、同家族模型目标，以及模型私有终端目标。",
+    modelSettingsDescription:
+      "更新入口模型、路由默认值，以及它到达终端目标时使用的策略。",
     modelSettingsTitle: "模型设置",
     noConnectionsConfigured: "还没有配置终端目标",
     noConnectionsMatchFilter: "没有终端目标匹配你的筛选条件",
     noCustomHeadersConfigured: "尚未配置自定义请求头。",
     noCostDataAvailable: "暂无成本数据",
-    noLoadbalanceStrategiesAvailable: "没有可用的路由策略。请先在路由策略页面创建一个。",
+    noLoadbalanceStrategiesAvailable:
+      "没有可用的路由策略。请先在路由策略页面创建一个。",
     noEndpointsFound: "未找到可用端点。",
     notSet: "未设置",
     orderedPriorityRouting: "按优先级顺序路由",
@@ -1376,7 +1589,8 @@ export const zhCNMessages = {
     pricingSummaryLabel: "定价",
     openaiTextCapability: "OpenAI 运行时能力",
     openaiTextCapabilityChatCompletionsOnly: "仅 Chat Completions",
-    openaiTextCapabilityDescription: "选择此终端目标支持的 OpenAI 文本运行时操作。",
+    openaiTextCapabilityDescription:
+      "选择此终端目标支持的 OpenAI 文本运行时操作。",
     openaiTextCapabilityDualNative: "Responses + Chat Completions",
     openaiTextCapabilityResponsesOnly: "仅 Responses",
     openaiTextCapabilitySelector: "文本能力",
@@ -1388,7 +1602,8 @@ export const zhCNMessages = {
     resetBanPolicyState: "重置封禁策略状态",
     requests24h: "请求数（24 小时）",
     requestsLabel: "请求",
-    routingPriorityHint: "新终端目标会作为回退项追加。请在模型详情列表中拖动卡片以调整路由优先级。",
+    routingPriorityHint:
+      "新终端目标会作为回退项追加。请在模型详情列表中拖动卡片以调整路由优先级。",
     sampled5xxRate: "5xx 比率（采样）",
     saveConnection: "保存终端目标",
     saveChanges: "保存更改",
@@ -1400,7 +1615,8 @@ export const zhCNMessages = {
     selectStrategy: "选择策略",
     selectVendor: "选择供应商",
     setup: "设置",
-    setupDescription: "选择此终端目标发送请求的端点，并决定 Prism 应如何标记它。",
+    setupDescription:
+      "选择此终端目标发送请求的端点，并决定 Prism 应如何标记它。",
     spend24h: (currencyCode: MessageArg) => `支出（24 小时，${currencyCode}）`,
     summaryAndTest: "摘要",
     summaryAndTestDescription: "保存前查看当前生效的终端目标配置。",
@@ -1408,28 +1624,49 @@ export const zhCNMessages = {
     routingObjective: "策略类型",
     strategyRecovery: "策略恢复",
     advancedRequestSettings: "高级请求设置",
-    advancedRequestSettingsDescription: "调整此终端目标的可选请求限制、自定义请求头和自定义请求参数。",
+    advancedRequestSettingsDescription:
+      "调整此终端目标的可选请求限制、自定义请求头和自定义请求参数。",
     customRequestParameters: "自定义请求参数（JSON）",
-    customRequestParametersDescription: "添加 Prism 应随此终端目标一起发送的可选 JSON 请求体参数。",
-    customRequestParametersDescriptionDetails: "同名顶层字段会覆盖客户端值；模型、流式模式与请求内容字段不可设置。",
-    customRequestParametersSummary: (count: MessageArg) => `已配置 ${count} 个顶层参数`,
+    customRequestParametersDescription:
+      "添加 Prism 应随此终端目标一起发送的可选 JSON 请求体参数。",
+    customRequestParametersDescriptionDetails:
+      "同名顶层字段会覆盖客户端值；模型、流式模式与请求内容字段不可设置。",
+    customRequestParametersSummary: (count: MessageArg) =>
+      `已配置 ${count} 个顶层参数`,
     customRequestParametersNotConfigured: "未配置",
     customRequestParametersFormat: "格式化",
     customRequestParametersClear: "清空",
-    customRequestParametersPlaceholder: "{\n  \"provider\": {\n    \"only\": [\"deepinfra/turbo\"],\n    \"allow_fallbacks\": false\n  }\n}",
+    customRequestParametersPlaceholder:
+      '{\n  "provider": {\n    "only": ["deepinfra/turbo"],\n    "allow_fallbacks": false\n  }\n}',
     customRequestParametersProtectedHint: "部分请求字段受保护，不能设置。",
-    customRequestParametersProtectedDetails: "受保护字段：model、models、stream、messages、input、contents、instructions、system、systemInstruction。",
+    customRequestParametersProtectedDetails:
+      "受保护字段：model、models、stream、messages、input、contents、instructions、system、systemInstruction。",
     customRequestParametersNotSecretHint: "这里不是秘密存储。",
-    customRequestParametersNotSecretDetails: "配置会通过管理 API 明文返回；启用请求体审计时，最终上游请求体也可能被保存。不要填写 API key、令牌或个人数据。",
+    customRequestParametersNotSecretDetails:
+      "配置会通过管理 API 明文返回；启用请求体审计时，最终上游请求体也可能被保存。不要填写 API key、令牌或个人数据。",
     customRequestParametersErrorInvalid: "自定义请求参数无效。",
-    customRequestParametersErrorNotObject: (path: MessageArg) => `“${path}”必须是 JSON 对象。`,
-    customRequestParametersErrorDuplicateKey: (path: MessageArg) => `“${path}”存在重复键。`,
-    customRequestParametersErrorBlankKey: (path: MessageArg) => `“${path}”包含空白键名。`,
-    customRequestParametersErrorProtectedField: (path: MessageArg) => `“${path}”是受保护字段，不可设置。`,
-    customRequestParametersErrorTooLarge: (path: MessageArg, limit: MessageArg) => `“${path}”超出大小限制（${limit} 字节）。`,
-    customRequestParametersErrorTooDeep: (path: MessageArg, limit: MessageArg) => `“${path}”超出嵌套深度限制（${limit} 层）。`,
-    customRequestParametersErrorTooManyMembers: (path: MessageArg, limit: MessageArg) => `“${path}”超出字段数量限制（${limit} 个成员）。`,
-    customRequestParametersErrorNumberOutOfRange: (path: MessageArg) => `“${path}”的数字超出安全范围。`,
+    customRequestParametersErrorNotObject: (path: MessageArg) =>
+      `“${path}”必须是 JSON 对象。`,
+    customRequestParametersErrorDuplicateKey: (path: MessageArg) =>
+      `“${path}”存在重复键。`,
+    customRequestParametersErrorBlankKey: (path: MessageArg) =>
+      `“${path}”包含空白键名。`,
+    customRequestParametersErrorProtectedField: (path: MessageArg) =>
+      `“${path}”是受保护字段，不可设置。`,
+    customRequestParametersErrorTooLarge: (
+      path: MessageArg,
+      limit: MessageArg,
+    ) => `“${path}”超出大小限制（${limit} 字节）。`,
+    customRequestParametersErrorTooDeep: (
+      path: MessageArg,
+      limit: MessageArg,
+    ) => `“${path}”超出嵌套深度限制（${limit} 层）。`,
+    customRequestParametersErrorTooManyMembers: (
+      path: MessageArg,
+      limit: MessageArg,
+    ) => `“${path}”超出字段数量限制（${limit} 个成员）。`,
+    customRequestParametersErrorNumberOutOfRange: (path: MessageArg) =>
+      `“${path}”的数字超出安全范围。`,
     customRequestParametersSummaryLabel: "自定义请求参数",
     targets: (count: MessageArg) => `${count} 个目标`,
     totalCost: (currencyCode: MessageArg) => `总成本（${currencyCode}）`,
@@ -1438,7 +1675,8 @@ export const zhCNMessages = {
     unknownEndpoint: "未知端点",
     unassigned: "未分配",
     unpricedNoCostTracking: "未定价（不跟踪成本）",
-    useEndpointNameFallback: (name: MessageArg) => (name ? `留空则使用端点名称：${name}。` : "留空则使用端点名称。"),
+    useEndpointNameFallback: (name: MessageArg) =>
+      name ? `留空则使用端点名称：${name}。` : "留空则使用端点名称。",
     viewRequestLogs: "查看请求日志",
   },
   modelDetailData: {
@@ -1449,7 +1687,8 @@ export const zhCNMessages = {
     connectionUpdated: "终端目标已更新",
     fetchModelDetailsFailed: "加载模型详情失败",
     deleteConnectionFailed: "删除终端目标失败",
-    limiterMustBePositive: (label: MessageArg) => `${label} 需要填正整数；留空表示不限制。0 不会生效。`,
+    limiterMustBePositive: (label: MessageArg) =>
+      `${label} 需要填正整数；留空表示不限制。0 不会生效。`,
     fillEndpointFields: "请填写所有端点字段",
     loadBanPolicyStateFailed: "加载封禁策略状态失败",
     modelUpdated: "模型已更新",
@@ -1478,20 +1717,28 @@ export const zhCNMessages = {
     filterReferenced: "有直接引用",
     filterUnreferenced: "无直接引用",
     noEndpointsConfigured: "尚未创建端点",
-    noEndpointsConfiguredDescription: "新建端点以保存可复用的上游地址与凭证；创建后还需将它附加为某个模型的终端目标。",
+    noEndpointsConfiguredDescription:
+      "新建端点以保存可复用的上游地址与凭证；创建后还需将它附加为某个模型的终端目标。",
     noEndpointsMatchFilters: "没有匹配的端点",
     noEndpointsMatchFiltersDescription: "请尝试其他搜索词或清除筛选条件。",
-    referenceFilterDisabled: "部分端点的引用信息未知或可能过时，引用筛选和排序已停用；文本搜索仍然可用。",
+    referenceFilterDisabled:
+      "部分端点的引用信息未知或可能过时，引用筛选和排序已停用；文本搜索仍然可用。",
 
     // 逐行降级：整体筛选与排序永不停用，未知的那些行自己带标记。
     referenceUnknownOption: (count: MessageArg) => `引用信息未知（${count}）`,
     referenceUnknownRow: "引用未知",
-    referenceUnknownRowReason: "这一行的引用信息没有读到，不能确认它有没有被引用；它被排在结果末尾。",
+    referenceUnknownRowReason:
+      "这一行的引用信息没有读到，不能确认它有没有被引用；它被排在结果末尾。",
     referenceRetryRow: "重试本行",
     referenceStaleBadge: "引用信息未就绪",
-    referenceStaleReason: (count: MessageArg) => `${count} 个端点的引用信息未读到；筛选与排序仍然可用，这些行排在末尾并单独标记。`,
+    referenceStaleReason: (count: MessageArg) =>
+      `${count} 个端点的引用信息未读到；筛选与排序仍然可用，这些行排在末尾并单独标记。`,
     referenceRefetchAll: "重新获取引用",
-    overviewSummary: (total: MessageArg, referenced: MessageArg, inactive: MessageArg) =>
+    overviewSummary: (
+      total: MessageArg,
+      referenced: MessageArg,
+      inactive: MessageArg,
+    ) =>
       `${total} 个端点 · ${referenced} 个被引用 · ${inactive} 个引用全部停用`,
     saveChanges: "保存更改",
     searchEndpoints: "搜索端点...",
@@ -1510,7 +1757,8 @@ export const zhCNMessages = {
     referencesLoading: "引用信息加载中",
     referencesLoadFailed: "引用信息加载失败",
     referencesMayBeStale: "可能过时",
-    refsSummary: (targets: MessageArg, models: MessageArg) => `${targets} 个终端目标 / ${models} 个模型`,
+    refsSummary: (targets: MessageArg, models: MessageArg) =>
+      `${targets} 个终端目标 / ${models} 个模型`,
     refsEnabled: (count: MessageArg) => `${count} 个已启用`,
     refsZero: "无直接引用",
     updatedAt: "最后修改",
@@ -1527,20 +1775,27 @@ export const zhCNMessages = {
     baseUrlPreview: (value: MessageArg) => `将保存为 ${value}`,
     cancel: "取消",
     configureDetails: "配置端点详情。",
-    createDescription: "保存可复用的上游地址与凭证；创建后还需将它附加为某个模型的终端目标。",
+    createDescription:
+      "保存可复用的上游地址与凭证；创建后还需将它附加为某个模型的终端目标。",
     created: (date: MessageArg) => `创建于 ${date}`,
     deleteEndpoint: "删除端点",
-    deleteEndpointDescription: (name: MessageArg) => `确定要删除“${name}”吗？此操作无法撤销。`,
-    deleteBlockedDescription: (name: MessageArg) => `无法删除“${name}”：仍有终端目标直接引用此端点。请在对应模型中删除这些终端目标；停用引用也会阻止删除。`,
+    deleteEndpointDescription: (name: MessageArg) =>
+      `确定要删除“${name}”吗？此操作无法撤销。`,
+    deleteBlockedDescription: (name: MessageArg) =>
+      `无法删除“${name}”：仍有终端目标直接引用此端点。请在对应模型中删除这些终端目标；停用引用也会阻止删除。`,
     deleteBlockedHeading: "无法删除",
-    deleteBlockedTotal: (count: MessageArg) => `共有 ${count} 个终端目标直接引用此端点`,
+    deleteBlockedTotal: (count: MessageArg) =>
+      `共有 ${count} 个终端目标直接引用此端点`,
     deleteCheckError: "无法检查引用状态，请重试。",
     deleteChecking: "正在检查引用...",
-    deleteEligibleConfirm: "这会永久删除基础 URL 与已保存的 API 密钥。此操作无法撤销。",
-    deleteIntegrityError: "引用数据存在完整性错误，已停止删除以保护数据。请先在对应模型中检查终端目标。",
+    deleteEligibleConfirm:
+      "这会永久删除基础 URL 与已保存的 API 密钥。此操作无法撤销。",
+    deleteIntegrityError:
+      "引用数据存在完整性错误，已停止删除以保护数据。请先在对应模型中检查终端目标。",
     deleteRetry: "重试",
     duplicateEndpoint: (name: MessageArg) => `复制端点 ${name}`,
-    editDescription: (name: MessageArg) => `更新端点“${name}”的基础 URL 或 API 密钥。留空密钥将保留现值。`,
+    editDescription: (name: MessageArg) =>
+      `更新端点“${name}”的基础 URL 或 API 密钥。留空密钥将保留现值。`,
     editEndpoint: (name: MessageArg) => `编辑端点 ${name}`,
     editEndpointTitle: "编辑端点",
     enabled: "已启用",
@@ -1552,7 +1807,8 @@ export const zhCNMessages = {
     inactiveReasonIntegrityError: "配置完整性错误",
     keepStoredKey: "留空将保留现有密钥。",
     keyTimeUnknown: "更新时间未知",
-    loadedItemsOfTotal: (loaded: MessageArg, total: MessageArg) => `已加载 ${loaded} / 共 ${total} 条`,
+    loadedItemsOfTotal: (loaded: MessageArg, total: MessageArg) =>
+      `已加载 ${loaded} / 共 ${total} 条`,
     loadMore: "加载更多",
     modelLink: "打开模型",
     name: "名称",
@@ -1561,9 +1817,11 @@ export const zhCNMessages = {
     newEndpointTitle: "新建端点",
     none: "无",
     notSet: "未设置",
-    openReferences: (name: MessageArg, count: MessageArg) => `展开 ${name} 的直接引用（${count} 条）`,
+    openReferences: (name: MessageArg, count: MessageArg) =>
+      `展开 ${name} 的直接引用（${count} 条）`,
     orphanCleanup: "清理孤立配置",
-    orphanCleanupConfirm: (_name: MessageArg, id: MessageArg) => `确定清理孤立终端配置 #${id} 吗？仅删除此无所属模型的终端配置，不会删除端点。`,
+    orphanCleanupConfirm: (_name: MessageArg, id: MessageArg) =>
+      `确定清理孤立终端配置 #${id} 吗？仅删除此无所属模型的终端配置，不会删除端点。`,
     orphanCleanupDescription: "此终端配置没有所属模型，可安全清理。",
     referenceModelLabel: "模型",
     referenceTargetLabel: "终端目标",
@@ -1591,14 +1849,21 @@ export const zhCNMessages = {
     verifyFamilyRequired: "请选择验证协议",
     verifying: "验证中...",
     verifyResultVerified: "验证请求成功；这不保证具体模型请求一定可用。",
-    verifyResultAuthenticationFailed: "认证失败（HTTP 401/403）。请检查 API 密钥和所选协议。",
-    verifyResultProbeUnsupported: "上游不支持此验证请求；端点已保存，但尚未验证。",
-    verifyResultApiMismatch: "已连接上游，但响应不像所选协议；请检查基础 URL 和验证协议。",
-    verifyResultUpstreamRejected: (status: MessageArg) => `已连接上游，但验证请求被拒绝（HTTP ${status}）。`,
-    verifyResultUpstreamUnavailable: (status: MessageArg) => `上游暂时不可用（HTTP ${status}）；可稍后重试。`,
-    verifyResultUnreachable: (summary: MessageArg) => `无法连接上游：${summary}`,
+    verifyResultAuthenticationFailed:
+      "认证失败（HTTP 401/403）。请检查 API 密钥和所选协议。",
+    verifyResultProbeUnsupported:
+      "上游不支持此验证请求；端点已保存，但尚未验证。",
+    verifyResultApiMismatch:
+      "已连接上游，但响应不像所选协议；请检查基础 URL 和验证协议。",
+    verifyResultUpstreamRejected: (status: MessageArg) =>
+      `已连接上游，但验证请求被拒绝（HTTP ${status}）。`,
+    verifyResultUpstreamUnavailable: (status: MessageArg) =>
+      `上游暂时不可用（HTTP ${status}）；可稍后重试。`,
+    verifyResultUnreachable: (summary: MessageArg) =>
+      `无法连接上游：${summary}`,
     verifyResultTimeout: "验证请求超时；端点已保存，可稍后重试。",
-    verifyResultConfigChanged: "端点配置已变化，本次未发送验证请求；已刷新当前配置，请重试。",
+    verifyResultConfigChanged:
+      "端点配置已变化，本次未发送验证请求；已刷新当前配置，请重试。",
     verifyResultStale: "验证的是上一版配置，不能代表当前 URL 或凭证结果。",
     verifyResultSavedButFailed: "端点已保存，但验证未通过。",
     verifyRetry: "重试验证",
@@ -1675,10 +1940,12 @@ export const zhCNMessages = {
     requestsBasis: "口径：最近 24 小时内该模型的请求条数。",
     spendBasis: "口径：最近 30 天该模型的已知成本合计，未定价部分不计入。",
     metricsUnavailable: "指标读取失败",
-    metricsUnavailableReason: "这次指标读取没有成功，因此不显示数字；这不代表该模型没有流量。",
+    metricsUnavailableReason:
+      "这次指标读取没有成功，因此不显示数字；这不代表该模型没有流量。",
 
     // 终端目标列。
-    targetsCount: (enabled: MessageArg, total: MessageArg) => `${enabled} 启用 / ${total} 总计`,
+    targetsCount: (enabled: MessageArg, total: MessageArg) =>
+      `${enabled} 启用 / ${total} 总计`,
     targetsNone: "需要目标",
     targetsNoneReason: "该模型没有任何访问目标，请求无法路由。",
     targetsLinkAria: (name: MessageArg) => `打开模型 ${name} 的详情`,
@@ -1699,7 +1966,8 @@ export const zhCNMessages = {
     bulkEnable: "批量启用",
     bulkDisable: "批量停用",
     bulkClear: "取消选择",
-    bulkDone: (succeeded: MessageArg, failed: MessageArg) => `${succeeded} 个已更新，${failed} 个失败`,
+    bulkDone: (succeeded: MessageArg, failed: MessageArg) =>
+      `${succeeded} 个已更新，${failed} 个失败`,
   },
   routing: {
     banned: "冷却/封禁中",
@@ -1711,13 +1979,16 @@ export const zhCNMessages = {
     capabilityTitle: "文本能力",
     capabilityCoverageLabel: "能力覆盖",
     copyDestinationToggle: (name: MessageArg) => `复制到 ${name}`,
-    copyTargetDescription: "把该终端目标复制到多个同家族目标模型。每个目标模型都会得到独立私有的终端目标；默认不参与路由。",
+    copyTargetDescription:
+      "把该终端目标复制到多个同家族目标模型。每个目标模型都会得到独立私有的终端目标；默认不参与路由。",
     copyTargets: (count: MessageArg) => `复制到 ${count} 个模型`,
     copyTargetTitle: "复制终端目标到其他模型",
     destinationDisabled: "模型已停用（复制不会启用模型）",
     destinationEnabled: "模型已启用",
-    enableCopiesDescription: "将新目标设为参与路由。默认关闭，避免复制动作静默改变目标模型的流量。",
-    enableCopiesImpact: "开启后新目标会参与各目标模型的路由；模型自身停用状态不会被改变。",
+    enableCopiesDescription:
+      "将新目标设为参与路由。默认关闭，避免复制动作静默改变目标模型的流量。",
+    enableCopiesImpact:
+      "开启后新目标会参与各目标模型的路由；模型自身停用状态不会被改变。",
     enableCopiesLabel: "将新目标设为参与路由",
     noTrafficImpact: "当前无流量影响；启用目标后才会参与路由。",
     connectionInactive: "终端配置未激活",
@@ -1727,9 +1998,11 @@ export const zhCNMessages = {
     coverageNone: "不兼容",
     coveragePartial: "部分覆盖",
     customHeaders: "自定义请求头",
-    enableAccessTarget: (position: MessageArg) => `切换目标参与路由（${position}）`,
+    enableAccessTarget: (position: MessageArg) =>
+      `切换目标参与路由（${position}）`,
     endpointBaseUrl: "端点地址",
-    inFlight: (nonStream: MessageArg, stream: MessageArg) => `在途 ${nonStream} / ${stream}`,
+    inFlight: (nonStream: MessageArg, stream: MessageArg) =>
+      `在途 ${nonStream} / ${stream}`,
     limits: "请求限制",
     missingOperations: (operations: MessageArg) => `不会承接：${operations}`,
     noCooldown: "当前无冷却限制",
@@ -1737,17 +2010,23 @@ export const zhCNMessages = {
     // 运行态的四态区分：未观测、观测不完整、不在观测范围、读取失败。
     // 「未观测」只在本进程确实一次都没见过该目标时使用。
     runtimePartialObservation: "本进程观测不完整",
-    runtimePartialObservationReason: "本进程见过该终端目标，但这次快照缺少部分字段，因此不展示可能误导的数值。",
+    runtimePartialObservationReason:
+      "本进程见过该终端目标，但这次快照缺少部分字段，因此不展示可能误导的数值。",
     runtimeOutOfCohort: "不在观测范围",
-    runtimeOutOfCohortReason: "该访问目标未参与路由，因此不进入本进程的运行态观测集合。",
+    runtimeOutOfCohortReason:
+      "该访问目标未参与路由，因此不进入本进程的运行态观测集合。",
     runtimeReadFailed: "运行态读取失败",
-    runtimeReadFailedReason: (reason: MessageArg) => `未能读取运行态，因此这里既不是「无观测」也不是「正常」：${reason}`,
+    runtimeReadFailedReason: (reason: MessageArg) =>
+      `未能读取运行态，因此这里既不是「无观测」也不是「正常」：${reason}`,
     runtimeTruncated: "运行态已截断",
-    runtimeTruncatedReason: "运行态列表已被分页截断；未列出的目标不能据此判断为没有观测。",
+    runtimeTruncatedReason:
+      "运行态列表已被分页截断；未列出的目标不能据此判断为没有观测。",
     runtimeNotReadYet: "运行态尚未读取成功，因此这里还不能断定该目标没有观测。",
-    runtimeAbsentFromCohortReason: "本次读取成功，但返回的观测集合里没有这个终端目标；这与「本进程尚未观测」不是同一件事。",
+    runtimeAbsentFromCohortReason:
+      "本次读取成功，但返回的观测集合里没有这个终端目标；这与「本进程尚未观测」不是同一件事。",
     inFlightNotMetered: "未计量",
-    inFlightNotMeteredReason: "该终端目标没有配置在途上限，运行时因此不对在途请求计数；这里的空缺表示未计量，而不是实测为零。",
+    inFlightNotMeteredReason:
+      "该终端目标没有配置在途上限，运行时因此不对在途请求计数；这里的空缺表示未计量，而不是实测为零。",
     pricingTemplate: "价格模板",
     qpsLimit: (value: MessageArg) => `QPS ${value}`,
     qpsLimitLabel: "QPS 上限",
@@ -1775,14 +2054,16 @@ export const zhCNMessages = {
     routingScheduleStale: "时段状态已过期",
     routingScheduleStaleReason: "该结论的有效期已过，请刷新后再判断。",
     copyTargetTitle: "复制终端目标",
-    copyTargetDescription: (name: MessageArg) => `将终端目标「${name}」复制到选定的模型（单事务、各模型私有连接）。`,
+    copyTargetDescription: (name: MessageArg) =>
+      `将终端目标「${name}」复制到选定的模型（单事务、各模型私有连接）。`,
     copyDestinationModels: "目标模型（同家族；OpenAI 必须模式完全相同）",
     copyDestinationDisabled: "（模型已停用）",
     copyNoCandidates: "没有可复制的同模式目标模型。",
     copyModeMismatchNote: "以下模型模式不同，不可作为目标：",
     copyModeMismatchLabel: "模式必须完全相同",
     copyEnableLabel: "将新目标设为参与路由",
-    copyEnableDescription: "默认不参与路由（不改变目标模型现有流量）；开启后按各目标模型策略生效，但不会启用已停用的模型。",
+    copyEnableDescription:
+      "默认不参与路由（不改变目标模型现有流量）；开启后按各目标模型策略生效，但不会启用已停用的模型。",
     copySelectDestinationRequired: "请至少选择一个目标模型",
     copySubmit: "复制",
     copyFailed: "复制失败",
@@ -1800,9 +2081,11 @@ export const zhCNMessages = {
     terminalStateRetryWait: "重试等待中",
     terminalStateAvailable: "当前无冷却限制",
     createModelTitle: "新建模型",
-    createModelDescription: "一次提交创建模型与第一个终端目标（可选择现有端点或内联新建）。",
+    createModelDescription:
+      "一次提交创建模型与第一个终端目标（可选择现有端点或内联新建）。",
     configureLaterLabel: "稍后配置",
-    configureLaterDescription: "暂不创建首个终端目标；模型会以停用状态保存，稍后可在详情页配置。",
+    configureLaterDescription:
+      "暂不创建首个终端目标；模型会以停用状态保存，稍后可在详情页配置。",
     initialTargetTitle: "首个终端目标",
     initialTargetUseExisting: "选择现有端点",
     initialTargetCreateInline: "内联新建端点",
@@ -1824,18 +2107,22 @@ export const zhCNMessages = {
     displayNameLabel: "显示名称",
     openaiAcceptedFormatLabel: "OpenAI 接受格式",
     loadbalanceStrategyLabel: "路由策略",
-    canonicalDefaultStrategyMissing: "未找到默认的 fill-first 策略；请显式选择一个策略，或先创建默认策略。",
+    canonicalDefaultStrategyMissing:
+      "未找到默认的 fill-first 策略；请显式选择一个策略，或先创建默认策略。",
     configureLater: "稍后配置",
-    configureLaterSavedAsDisabled: "将创建为停用模型；保存后可在模型详情中添加终端目标并启用。",
+    configureLaterSavedAsDisabled:
+      "将创建为停用模型；保存后可在模型详情中添加终端目标并启用。",
     createAndEnable: "创建并启用",
     createDisabledModel: "创建为停用",
     selectStrategyRequired: "请选择路由策略",
     existingEndpoint: "选择已有端点",
     initialTerminalTarget: "首个终端目标",
-    initialTerminalTargetDescription: "模型与首个终端目标将在一次原子提交中一起创建；任一步失败都不会留下半成品。",
+    initialTerminalTargetDescription:
+      "模型与首个终端目标将在一次原子提交中一起创建；任一步失败都不会留下半成品。",
     removeHeader: "删除请求头",
     accessTargets: "访问目标",
-    accessTargetsDescription: "访问目标由同一条有序的混合列表组成；模型目标与终端目标按位置共同参与路由。",
+    accessTargetsDescription:
+      "访问目标由同一条有序的混合列表组成；模型目标与终端目标按位置共同参与路由。",
 
     // 访问目标表格：八列。
     targetColumnPosition: "位置",
@@ -1843,7 +2130,8 @@ export const zhCNMessages = {
     targetColumnName: "名称与地址",
     targetColumnCapability: "能力",
     // 口径标注：这一列读的是各目标自己声明的能力，不是路由分析器解析出的结果。
-    targetColumnCapabilityBasis: "口径：各目标自己声明的能力。模型目标不直接声明，实际能力取决于它解析到的终端目标；是否真的可路由请看上方的路由就绪。",
+    targetColumnCapabilityBasis:
+      "口径：各目标自己声明的能力。模型目标不直接声明，实际能力取决于它解析到的终端目标；是否真的可路由请看上方的路由就绪。",
     targetColumnLimits: "限流",
     targetColumnRuntime: "运行态",
     targetColumnEnabled: "参与路由",
@@ -1851,15 +2139,21 @@ export const zhCNMessages = {
     // 这两句只描述「这一行自身有没有对应配置/观测键」，不对流量作断言：
     // 准入判定发生在叶子终端目标上，运行态也按终端目标索引，所以经模型目标
     // 下去的请求照样受限流与封禁影响。
-    targetLimitsNotApplicable: "这一行不直接持有终端配置；限流配置在它解析到的终端目标上，按各终端目标分别生效。",
-    targetRuntimeNotApplicable: "这一行自身没有运行态观测键；可观测的是它解析到的终端目标的状态。",
-    targetCapabilityNotApplicableModel: "这一行不直接声明能力；实际能力取决于它解析到的终端目标。",
-    targetCapabilityNotApplicableFamily: (apiFamily: MessageArg) => `${apiFamily} 家族不使用 OpenAI 能力矩阵，因此这一列不适用。`,
+    targetLimitsNotApplicable:
+      "这一行不直接持有终端配置；限流配置在它解析到的终端目标上，按各终端目标分别生效。",
+    targetRuntimeNotApplicable:
+      "这一行自身没有运行态观测键；可观测的是它解析到的终端目标的状态。",
+    targetCapabilityNotApplicableModel:
+      "这一行不直接声明能力；实际能力取决于它解析到的终端目标。",
+    targetCapabilityNotApplicableFamily: (apiFamily: MessageArg) =>
+      `${apiFamily} 家族不使用 OpenAI 能力矩阵，因此这一列不适用。`,
     targetCapabilityUnknown: "该终端目标没有声明任何 OpenAI 文本或图像能力。",
-    targetConnectionOutOfScope: "该终端目标不在本模型的同族可选集合内，无法读取它的配置。",
+    targetConnectionOutOfScope:
+      "该终端目标不在本模型的同族可选集合内，无法读取它的配置。",
     targetMoreActions: (name: MessageArg) => `目标 ${name} 的更多操作`,
     targetDragHandle: (name: MessageArg) => `拖动以调整目标 ${name} 的顺序`,
-    targetOrderPending: (count: MessageArg) => `顺序已改动 ${count} 处，尚未保存`,
+    targetOrderPending: (count: MessageArg) =>
+      `顺序已改动 ${count} 处，尚未保存`,
     targetOrderSave: "保存顺序",
     targetOrderRevert: "撤销改动",
     targetOrderSaving: "保存中...",
@@ -1872,22 +2166,28 @@ export const zhCNMessages = {
     connectionTarget: "终端目标",
     currentApiFamily: (apiFamily: MessageArg) => `当前 API 家族：${apiFamily}`,
     deleteModel: "删除模型",
-    deleteModelDescription: (name: MessageArg) => `确定要删除“${name}”吗？这也会移除其拥有的终端目标。端点仍可复用。`,
+    deleteModelDescription: (name: MessageArg) =>
+      `确定要删除“${name}”吗？这也会移除其拥有的终端目标。端点仍可复用。`,
     displayNameOptional: "显示名称",
     editModel: "编辑模型",
-    editModelEnabledDescription: "当模型详情中已经有已启用的访问目标时，可启用此入口模型。",
+    editModelEnabledDescription:
+      "当模型详情中已经有已启用的访问目标时，可启用此入口模型。",
     enableAccessTarget: (value: MessageArg) => `启用访问目标 ${value}`,
     modelId: "模型 ID",
     modelIdPlaceholder: "例如：gpt-4o",
     modelTarget: "模型目标",
     needsTarget: "需要目标",
     newConnection: "新建终端目标",
-    newModelDescription: "定义入口模型、路由默认值，以及它将用来抵达终端目标的策略。",
-    newModelEnabledDescription: "新模型默认以禁用状态创建，稍后可从模型详情附加目标后再启用运行时流量。",
-    noAccessTargetsSelected: "尚未选择模型目标。现在可以先以禁用状态保存，或在启用前向某个目标层添加同家族模型目标。",
+    newModelDescription:
+      "定义入口模型、路由默认值，以及它将用来抵达终端目标的策略。",
+    newModelEnabledDescription:
+      "新模型默认以禁用状态创建，稍后可从模型详情附加目标后再启用运行时流量。",
+    noAccessTargetsSelected:
+      "尚未选择模型目标。现在可以先以禁用状态保存，或在启用前向某个目标层添加同家族模型目标。",
     noModelsMatchSearch: "没有匹配的模型",
     noModelsConfigured: "还没有配置模型",
-    noSameFamilyModelsAvailable: "没有其他可用的同家族模型。现在可以先以禁用状态保存，稍后在启用前再添加模型目标。",
+    noSameFamilyModelsAvailable:
+      "没有其他可用的同家族模型。现在可以先以禁用状态保存，稍后在启用前再添加模型目标。",
     noTerminalTargetsSelected: "还没有附加终端目标。请在此处添加终端目标。",
     openaiAcceptedFormat: "OpenAI 接受格式",
     openaiAcceptedFormatChatCompletionsOnly: "仅 Chat Completions",
@@ -1913,12 +2213,14 @@ export const zhCNMessages = {
     viewModelDetails: (name: MessageArg) => `查看模型 ${name} 的详情`,
     tryDifferentModelNameOrId: "请尝试不同的模型名称或模型 ID",
     createFirstModel: "创建你的第一个模型以开始使用",
-    activeConnections: (active: MessageArg, total: MessageArg) => `${active}/${total} 活跃`,
+    activeConnections: (active: MessageArg, total: MessageArg) =>
+      `${active}/${total} 活跃`,
     successLabel: "成功率",
     requestsShort: "请求",
     spendShort: "支出",
     unknownVendor: "未知供应商",
-    targetsFirst: (count: MessageArg, first: MessageArg) => `${count} 个目标 · 首选 ${first}`,
+    targetsFirst: (count: MessageArg, first: MessageArg) =>
+      `${count} 个目标 · 首选 ${first}`,
     modelCount: (count: MessageArg) => `${count} 个模型`,
   },
   modelsData: {
@@ -1926,8 +2228,10 @@ export const zhCNMessages = {
     deleted: "模型已删除",
     deleteFailed: "删除模型失败",
     fetchFailed: "获取数据失败",
-    openaiAcceptedFormatInvalid: "OpenAI 接受格式必须是仅 Responses、仅 Chat Completions 或双原生。",
-    openaiImageOperationsInvalid: "OpenAI 图片能力必须是仅生图、仅改图或生图 + 改图。",
+    openaiAcceptedFormatInvalid:
+      "OpenAI 接受格式必须是仅 Responses、仅 Chat Completions 或双原生。",
+    openaiImageOperationsInvalid:
+      "OpenAI 图片能力必须是仅生图、仅改图或生图 + 改图。",
     openaiCapabilityRequired: "OpenAI 模型至少需要选择一项文本格式或图片能力。",
     modelIdRequired: "模型 ID 为必填项。",
     saveFailed: "保存模型失败",
@@ -1943,7 +2247,12 @@ export const zhCNMessages = {
     importInvalidJson: "请输入包含 templates 数组的有效 JSON。",
     importModeCreateOnly: "仅创建",
     importModeUpsert: "按名称更新或创建",
-    importResultSummary: (created: MessageArg, updated: MessageArg, skipped: MessageArg) => `价格模板导入完成：创建 ${created} 个，更新 ${updated} 个，跳过 ${skipped} 个。`,
+    importResultSummary: (
+      created: MessageArg,
+      updated: MessageArg,
+      skipped: MessageArg,
+    ) =>
+      `价格模板导入完成：创建 ${created} 个，更新 ${updated} 个，跳过 ${skipped} 个。`,
     importTitle: "导入价格模板",
   },
   pricingTemplatesUi: {
@@ -1954,9 +2263,12 @@ export const zhCNMessages = {
     close: "关闭",
     currency: "货币",
     deletePricingTemplate: "删除价格模板",
-    deletePricingTemplateDescription: (name: MessageArg) => `确定要删除模板“${name}”吗？`,
-    deletePricingTemplateInUse: (count: MessageArg) => `无法删除此模板，因为它当前正被 ${count} 个终端目标使用。`,
-    description: "管理可在模型和端点间复用的价格模板；所有价格均按每 100 万令牌计",
+    deletePricingTemplateDescription: (name: MessageArg) =>
+      `确定要删除模板“${name}”吗？`,
+    deletePricingTemplateInUse: (count: MessageArg) =>
+      `无法删除此模板，因为它当前正被 ${count} 个终端目标使用。`,
+    description:
+      "管理可在模型和端点间复用的价格模板；所有价格均按每 100 万令牌计",
     endpoint: "端点",
     terminalTargetColumn: "终端目标",
     input: "输入",
@@ -1965,7 +2277,8 @@ export const zhCNMessages = {
     output: "输出",
     tableTitle: "价格模板",
     templateUsage: "模板使用情况",
-    templateUsageDescription: (name: MessageArg) => `当前使用“${name}”模板的终端目标。`,
+    templateUsageDescription: (name: MessageArg) =>
+      `当前使用“${name}”模板的终端目标。`,
     templateUnused: "此模板当前没有被任何终端目标使用。",
     title: "价格模板",
     unnamed: "未命名",
@@ -2006,19 +2319,26 @@ export const zhCNMessages = {
     columnVersion: "版本",
     columnTier: "阶梯",
     tierConfigured: "已配置",
-    tierUnconfiguredReason: "此模板未配置输入阶梯，所有请求沿用基础五分量费率。",
+    tierUnconfiguredReason:
+      "此模板未配置输入阶梯，所有请求沿用基础五分量费率。",
     tierDetailsTitle: "输入阶梯费率",
-    tierDetailsDescription: (threshold: MessageArg) => `总输入超过 ${threshold} token 后，整单切换到以下五分量费率。`,
+    tierDetailsDescription: (threshold: MessageArg) =>
+      `总输入超过 ${threshold} token 后，整单切换到以下五分量费率。`,
     columnUpdatedAt: "更新时间",
     columnReferences: "被引用",
     rateUnconfigured: "未配置",
-    rateUnconfiguredReason: "该专项费率没有配置值。它不等于 0：未配置时按基础费率计费口径处理。",
+    rateUnconfiguredReason:
+      "该专项费率没有配置值。它不等于 0：未配置时按基础费率计费口径处理。",
 
     // 引用计数（来自列表分页接口）。
     referencesUnavailable: "引用信息读取失败",
-    referencesUnavailableReason: "这次引用信息读取没有成功，因此不显示计数；这不代表该模板没有被引用。",
-    referencesSummary: (models: MessageArg, endpoints: MessageArg, targets: MessageArg) =>
-      `模型 ${models} · 端点 ${endpoints} · 终端目标 ${targets}`,
+    referencesUnavailableReason:
+      "这次引用信息读取没有成功，因此不显示计数；这不代表该模板没有被引用。",
+    referencesSummary: (
+      models: MessageArg,
+      endpoints: MessageArg,
+      targets: MessageArg,
+    ) => `模型 ${models} · 端点 ${endpoints} · 终端目标 ${targets}`,
     referencesNone: "未被引用",
 
     // 行展开：修订历史与使用情况共用一个切换器。
@@ -2039,7 +2359,8 @@ export const zhCNMessages = {
     importPreviewCreate: "创建",
     importPreviewUpdate: "更新",
     importPreviewSkip: "跳过",
-    importPreviewVersionChange: (from: MessageArg, to: MessageArg) => `v${from} → v${to}`,
+    importPreviewVersionChange: (from: MessageArg, to: MessageArg) =>
+      `v${from} → v${to}`,
     importPreviewCommit: "确认导入",
     importPreviewCancel: "放弃本次导入",
     importPreviewBlocked: "本次预览不可提交，导入已停止。",
@@ -2070,7 +2391,8 @@ export const zhCNMessages = {
   pricingTemplatesHistory: {
     empty: "该模板没有已记录的修订。",
     loading: "加载修订历史...",
-    subtitle: (name: MessageArg, version: MessageArg) => `${name}（当前 v${version}）——不可变修订记录，历史永不重算。`,
+    subtitle: (name: MessageArg, version: MessageArg) =>
+      `${name}（当前 v${version}）——不可变修订记录，历史永不重算。`,
     tableCurrency: "货币",
     tableEffectiveAt: "生效时间",
     tableInput: "输入价格",
@@ -2082,7 +2404,13 @@ export const zhCNMessages = {
     createdBy: "来源",
     // 来源在服务端是英文枚举；界面永远不泄露枚举键。
     createdByKind: (kind: MessageArg) =>
-      kind === "operator" ? "操作员" : kind === "import" ? "导入" : kind === "migration" ? "货币迁移" : "系统",
+      kind === "operator"
+        ? "操作员"
+        : kind === "import"
+          ? "导入"
+          : kind === "migration"
+            ? "货币迁移"
+            : "系统",
   },
   proxyApiKeys: {
     actions: "操作",
@@ -2102,13 +2430,16 @@ export const zhCNMessages = {
     created: "创建时间",
     deleteKey: "删除密钥",
     deleteProxyApiKey: "删除代理密钥",
-    deleteProxyApiKeyDescription: (name: MessageArg, prefix: MessageArg) => `确定要删除密钥“${name}”吗？使用此密钥的请求会立即失效；已保留的历史请求与用量不会被删除。继续前请确认前缀 ${prefix}。`,
+    deleteProxyApiKeyDescription: (name: MessageArg, prefix: MessageArg) =>
+      `确定要删除密钥“${name}”吗？使用此密钥的请求会立即失效；已保留的历史请求与用量不会被删除。继续前请确认前缀 ${prefix}。`,
     deleteProxyKeyAria: (name: MessageArg) => `删除代理密钥 ${name}`,
-    deleteTrafficWarningDescription: "身份验证已启用，删除成功后，仍使用此凭证的客户端会立即失去代理访问权限。",
+    deleteTrafficWarningDescription:
+      "身份验证已启用，删除成功后，仍使用此凭证的客户端会立即失去代理访问权限。",
     deleteTrafficWarningTitle: "在线代理流量可能中断",
     description: "管理上游客户端用于访问 Prism 代理的机器凭证。",
     disabled: "已禁用",
-    editDescription: "更新这个已发放密钥的名称、备注、过期时间和启用状态。轮换密钥是单独的操作。",
+    editDescription:
+      "更新这个已发放密钥的名称、备注、过期时间和启用状态。轮换密钥是单独的操作。",
     editProxyApiKey: "编辑代理密钥",
     editProxyKeyAria: (name: MessageArg) => `编辑代理密钥 ${name}`,
     expiresAt: "过期时间",
@@ -2119,7 +2450,8 @@ export const zhCNMessages = {
     keyLimitReached: "已达到密钥上限",
     keysPreparedDescription: "这些密钥已准备就绪，但在启用身份验证前不会生效。",
     keysProtectedDescription: "这些密钥已用于受保护的代理流量。",
-    keysUsed: (used: MessageArg, limit: MessageArg) => `${used} / ${limit} 个密钥已使用`,
+    keysUsed: (used: MessageArg, limit: MessageArg) =>
+      `${used} / ${limit} 个密钥已使用`,
     lastIp: "最后 IP",
     lastUsed: "最后使用",
     rotation: "轮换",
@@ -2131,7 +2463,8 @@ export const zhCNMessages = {
     newSecretDescription: "完整密钥只会显示一次。离开页面前请妥善保存。",
     noInternalNote: "没有内部备注。",
     noProxyKeysCreated: "还没有创建代理密钥。",
-    noProxyKeysDescription: "发放第一个客户端凭证，即可通过密钥库控制台开始约束代理访问。",
+    noProxyKeysDescription:
+      "发放第一个客户端凭证，即可通过密钥库控制台开始约束代理访问。",
     notes: "备注",
     notesPlaceholder: "供主站使用",
     operation: "操作",
@@ -2142,7 +2475,8 @@ export const zhCNMessages = {
     retired: "已退役",
     rotateAction: "轮换密钥",
     rotateProxyKeyAria: (name: MessageArg) => `轮换代理密钥 ${name}`,
-    rotatedTimes: (count: MessageArg, when: MessageArg) => `已轮换 ${count} 次 · 最近 ${when}`,
+    rotatedTimes: (count: MessageArg, when: MessageArg) =>
+      `已轮换 ${count} 次 · 最近 ${when}`,
     slotsRemaining: (remaining: MessageArg) => `${remaining} 个可用名额剩余。`,
     title: "代理密钥",
     never: "从未",
@@ -2158,7 +2492,8 @@ export const zhCNMessages = {
     accessModelsLoading: "正在加载模型…",
     accessModelsError: "模型列表加载失败",
     retry: "重试",
-    accessNoEligibleModels: "当前没有已启用的可用模型。请先在模型中启用一个模型，再生成调用样例。",
+    accessNoEligibleModels:
+      "当前没有已启用的可用模型。请先在模型中启用一个模型，再生成调用样例。",
     accessOperation: "OpenAI 操作",
     accessOperationResponses: "Responses API",
     accessOperationChatCompletions: "Chat Completions API",
@@ -2173,7 +2508,8 @@ export const zhCNMessages = {
     newSecretKeepEditing: "继续保存",
     newSecretAbandon: "放弃密钥并离开",
     selfTestTitle: "运行时自检",
-    selfTestDescription: "向 Prism 运行时发送一次真实的最小请求，验证密钥识别、模型路由、实际执行与定价状态。",
+    selfTestDescription:
+      "向 Prism 运行时发送一次真实的最小请求，验证密钥识别、模型路由、实际执行与定价状态。",
     selfTestRun: "发送测试请求",
     selfTestRunAgain: "再次发送",
     selfTestRunning: "正在发送请求…",
@@ -2193,30 +2529,39 @@ export const zhCNMessages = {
     selfTestRoutingNotReached: "未进入路由",
     selfTestEvidencePending: "证据待定",
     selfTestLayerExecution: "实际执行",
-    selfTestExecutionCompleted: (endpoint: MessageArg) => `已完成 · 实际目标 ${endpoint}`,
+    selfTestExecutionCompleted: (endpoint: MessageArg) =>
+      `已完成 · 实际目标 ${endpoint}`,
     selfTestExecutionFailed: "执行失败",
     selfTestExecutionNotReached: "未进入执行",
     selfTestExecutionUnknownTarget: "未知目标",
     selfTestLayerPricing: "定价状态",
-    selfTestPricingPriced: (cost: MessageArg, currency: MessageArg) => `已定价 · ${cost} ${currency}`,
+    selfTestPricingPriced: (cost: MessageArg, currency: MessageArg) =>
+      `已定价 · ${cost} ${currency}`,
     selfTestPricingUnpriced: "调用成功，定价未完成",
     selfTestPricingIneligible: "不参与定价",
-    selfTestDirectSucceeded: (status: MessageArg) => `调用成功（HTTP ${status}）`,
-    selfTestDirectHttpError: (status: MessageArg, summary: MessageArg) => `请求失败（HTTP ${status}）${summary}`,
+    selfTestDirectSucceeded: (status: MessageArg) =>
+      `调用成功（HTTP ${status}）`,
+    selfTestDirectHttpError: (status: MessageArg, summary: MessageArg) =>
+      `请求失败（HTTP ${status}）${summary}`,
     selfTestDirectNetworkError: "网络错误，未收到响应",
     selfTestDirectCancelled: "已取消",
     selfTestFailed: "自检失败",
     scopeTitle: "作用范围",
-    scopeDescription: "每把代理密钥可调用当前及未来启用的全部模型和已注册操作。",
-    scopeDescriptionDetails: "范围属于本实例 frozen Default runtime；后续启用模型会自动纳入；当前不支持按模型、Endpoint、API family、operation、速率、token 或金额限制单把密钥。",
+    scopeDescription:
+      "每把代理密钥可调用当前及未来启用的全部模型和已注册操作。",
+    scopeDescriptionDetails:
+      "范围属于本实例 frozen Default runtime；后续启用模型会自动纳入；当前不支持按模型、Endpoint、API family、operation、速率、token 或金额限制单把密钥。",
     expiryTimezoneLabel: "过期时间按 Settings 时区解析：",
-    expiryTimezoneUnavailable: "Settings 时区不可用，暂时无法设置过期时间（永不过期仍可提交）。",
+    expiryTimezoneUnavailable:
+      "Settings 时区不可用，暂时无法设置过期时间（永不过期仍可提交）。",
     expiryPreserve: "保留",
     expirySet: "设置",
     expiryInvalidFormat: "请输入有效的日期和时间。",
     expiryDstGap: "该时间在所选时区不存在（夏令时跳变），请选择其他时间。",
-    expiryDstOverlapNotice: "该时间在所选时区重复出现（夏令时重叠），已选择较早的一次。",
-    expiryEditDescription: "选择“保留”不修改当前过期时间；“设置”输入新的未来时刻；“清除”移除过期限制。",
+    expiryDstOverlapNotice:
+      "该时间在所选时区重复出现（夏令时重叠），已选择较早的一次。",
+    expiryEditDescription:
+      "选择“保留”不修改当前过期时间；“设置”输入新的未来时刻；“清除”移除过期限制。",
     expiryCurrentValue: "当前过期时间：",
     viewRequestsAria: (name: MessageArg) => `查看代理密钥 ${name} 的请求`,
     lifecycleComparisonTitle: "退役 / 轮换 / 删除对照",
@@ -2224,8 +2569,10 @@ export const zhCNMessages = {
     lifecycleOldCredential: "旧凭证",
     lifecycleHistory: "历史请求与用量",
     lifecycleWhen: "何时使用",
-    lifecycleRetireCredential: "立即不再被识别；auth-on 下拒绝，auth-off 下继续匿名放行",
-    lifecycleRotateCredential: "旧凭证立即失效，密钥 ID 与用量归属不变，新密钥只显示一次",
+    lifecycleRetireCredential:
+      "立即不再被识别；auth-on 下拒绝，auth-off 下继续匿名放行",
+    lifecycleRotateCredential:
+      "旧凭证立即失效，密钥 ID 与用量归属不变，新密钥只显示一次",
     lifecycleDeleteCredential: "被删凭证不再被识别",
     lifecycleHistoryKept: "保留",
     lifecycleDeleteHistory: "保留——删除台账不会删除历史请求",
@@ -2235,31 +2582,41 @@ export const zhCNMessages = {
 
     // 页头动作：发放走抽屉，验证接入不再只能从一次性密钥弹窗内进入。
     issueKey: "发放密钥",
-    issueKeyDescription: "填写名称与可选备注即可发放一把新的客户端凭证。明文只显示一次。",
+    issueKeyDescription:
+      "填写名称与可选备注即可发放一把新的客户端凭证。明文只显示一次。",
     verifyAccess: "验证接入",
-    verifyAccessDescription: "粘贴一把客户端持有的代理密钥，向运行时发送一次真实的最小请求，确认它现在能否通过网关。",
+    verifyAccessDescription:
+      "粘贴一把客户端持有的代理密钥，向运行时发送一次真实的最小请求，确认它现在能否通过网关。",
     verifyAccessKeyLabel: "代理密钥明文",
     verifyAccessKeyPlaceholder: "粘贴密钥",
-    verifyAccessKeyHelp: "台账不保存明文，这里粘贴的值只在本次验证中使用，不会被发送到管理接口。",
+    verifyAccessKeyHelp:
+      "台账不保存明文，这里粘贴的值只在本次验证中使用，不会被发送到管理接口。",
     verifyAccessNoKey: "不带密钥测试",
-    verifyAccessNoKeyHelp: "只在身份验证关闭时有意义：验证匿名请求是否仍被放行。",
+    verifyAccessNoKeyHelp:
+      "只在身份验证关闭时有意义：验证匿名请求是否仍被放行。",
     verifyAccessMissingKey: "请粘贴密钥，或选择不带密钥测试。",
     verifyAccessNoModel: "当前没有已启用的模型，无法构造验证请求。",
 
     // 容量：全页只在台账卡头出现一次。
-    capacitySnapshot: (used: MessageArg, limit: MessageArg, remaining: MessageArg) =>
-      `${used} / ${limit} · 剩余 ${remaining}`,
+    capacitySnapshot: (
+      used: MessageArg,
+      limit: MessageArg,
+      remaining: MessageArg,
+    ) => `${used} / ${limit} · 剩余 ${remaining}`,
     capacityCountedAt: (when: MessageArg) => `容量快照于 ${when}`,
-    capacityQuotaAria: (used: MessageArg, limit: MessageArg) => `已使用 ${used} / ${limit} 个密钥名额`,
+    capacityQuotaAria: (used: MessageArg, limit: MessageArg) =>
+      `已使用 ${used} / ${limit} 个密钥名额`,
     createBlockedCapacityUnknown: "服务端未返回容量快照，暂时无法发放密钥。",
-    createBlockedLimitReached: (limit: MessageArg) => `已用满 ${limit} 个名额，先退役或删除一把密钥再发放。`,
+    createBlockedLimitReached: (limit: MessageArg) =>
+      `已用满 ${limit} 个名额，先退役或删除一把密钥再发放。`,
     createBlockedAuthUnavailable: "身份验证设置不可用，暂时无法发放密钥。",
 
     // 台账列头。
     columnIdentity: "密钥",
     columnLifecycle: "生命周期",
     columnRequests7d: "近 7 天请求",
-    columnRequests7dBasis: "口径：最近 7 天归属到该密钥的请求条数，与本表其余列的时间窗不同。",
+    columnRequests7dBasis:
+      "口径：最近 7 天归属到该密钥的请求条数，与本表其余列的时间窗不同。",
     columnLastActivity: "最近活动",
     columnLedgerMeta: "台账元数据",
 
@@ -2274,12 +2631,15 @@ export const zhCNMessages = {
 
     // 近 7 天请求列的四种情形。
     requests7dFailed: "读取失败",
-    requests7dFailedReason: "这一列的用量读取没有成功，因此不显示数字；这不代表该密钥没有请求。",
+    requests7dFailedReason:
+      "这一列的用量读取没有成功，因此不显示数字；这不代表该密钥没有请求。",
     requests7dFailedBadge: "用量列读取失败",
     requests7dRetry: "重新获取用量",
     requests7dClipped: "含失效前请求",
-    requests7dClippedReason: "该密钥在这 7 天内已退役或过期，计数包含它仍然有效时产生的请求。",
-    requests7dLinkAria: (name: MessageArg) => `查看代理密钥 ${name} 近 7 天的请求`,
+    requests7dClippedReason:
+      "该密钥在这 7 天内已退役或过期，计数包含它仍然有效时产生的请求。",
+    requests7dLinkAria: (name: MessageArg) =>
+      `查看代理密钥 ${name} 近 7 天的请求`,
 
     // 行操作。
     viewRequests: "查看请求",
@@ -2287,7 +2647,8 @@ export const zhCNMessages = {
 
     // 轮换确认：轮换让旧凭证立即失效，必须与删除同级确认。
     rotateConfirmTitle: "轮换代理密钥",
-    rotateConfirmDescription: (name: MessageArg) => `确定要轮换密钥“${name}”吗？`,
+    rotateConfirmDescription: (name: MessageArg) =>
+      `确定要轮换密钥“${name}”吗？`,
     rotateConfirmSummary: "轮换影响",
     rotateConfirmAction: "轮换密钥",
     rotating: "轮换中...",
@@ -2310,7 +2671,8 @@ export const zhCNMessages = {
     keyNameRequired: "密钥名称为必填项",
     loadAuthStatusFailed: "加载身份验证状态失败",
     loadKeysFailed: "加载代理 API 密钥失败",
-    maxKeysReached: (limit: MessageArg) => `已达到 ${limit} 个代理 API 密钥上限`,
+    maxKeysReached: (limit: MessageArg) =>
+      `已达到 ${limit} 个代理 API 密钥上限`,
     rotated: "代理 API 密钥已轮换",
     rotateFailed: "轮换代理 API 密钥失败",
     settingsUnavailable: "身份验证设置不可用",
@@ -2319,18 +2681,26 @@ export const zhCNMessages = {
     selfTestFailed: "运行时自检失败",
   },
   requestLogs: {
-    chainCounts: (ingress: MessageArg, attempts: MessageArg, rows: MessageArg) => `本页 ${ingress} 个入口、${attempts} 次上游尝试、${rows} 行`,
+    chainCounts: (
+      ingress: MessageArg,
+      attempts: MessageArg,
+      rows: MessageArg,
+    ) => `本页 ${ingress} 个入口、${attempts} 次上游尝试、${rows} 行`,
+    chainPageSummary: (page: MessageArg, total: MessageArg) =>
+      `本页 ${page} 个入口 / 共 ${total} 个入口`,
     activeFiltersLabel: "生效筛选",
     captureObserved: "观测",
     captureStored: "已存",
     captureTruncated: "截断",
     captureOmittedBudget: "因入口预算省略",
     payloadTruncated: "载荷已截断",
-    payloadTruncatedReason: (bytes: MessageArg) => `后续 ${bytes} 字节未保留，正文不是完整内容。`,
+    payloadTruncatedReason: (bytes: MessageArg) =>
+      `后续 ${bytes} 字节未保留，正文不是完整内容。`,
     // 审计查询窗口：这个 ±12 小时边界是前端定的，必须写在界面上而不是藏在代码里。
     auditWindowLabel: "审计查询窗口",
     auditWindowRange: (from: MessageArg, to: MessageArg) => `${from} — ${to}`,
-    auditWindowBasis: "以请求时间为中心的 ±12 小时；超出该范围的审计记录不会出现在下表。",
+    auditWindowBasis:
+      "以请求时间为中心的 ±12 小时；超出该范围的审计记录不会出现在下表。",
     auditWindowUnavailable: "无法根据请求时间推算审计查询窗口",
     auditTableColumnAudit: "审计",
     auditTableColumnMethod: "方法",
@@ -2360,7 +2730,8 @@ export const zhCNMessages = {
     moreFiltersActive: (count: MessageArg) => `${count} 项生效`,
     locateRequest: "定位",
     locateRequestPlaceholder: "输入请求 ID 后点击定位",
-    chainEmptyDescription: "所选筛选条件下没有已保留的入口请求。请调整时间范围或筛选条件。",
+    chainEmptyDescription:
+      "所选筛选条件下没有已保留的入口请求。请调整时间范围或筛选条件。",
     chainColumnTime: "时间",
     chainColumnResult: "结果",
     chainColumnRequestedModel: "请求模型",
@@ -2371,8 +2742,10 @@ export const zhCNMessages = {
     chainColumnCost: "已知成本",
     chainColumnPricing: "定价状态",
     chainToggleAria: (id: MessageArg) => `展开或收起入口请求 ${id} 的尝试链`,
-    chainIncompleteReason: "该链的部分尝试行已超出保留期，结果不会用零值填补已删除历史。",
-    finalizedEvidenceUnavailable: "该请求的最终事实不可用，不能据此判断结果或成本",
+    chainIncompleteReason:
+      "该链的部分尝试行已超出保留期，结果不会用零值填补已删除历史。",
+    finalizedEvidenceUnavailable:
+      "该请求的最终事实不可用，不能据此判断结果或成本",
     finalizedEvidenceUnavailableShort: "最终事实不可用",
     chainEmpty: "没有保留的尝试链。",
     chainLegacyUnknown: (count: MessageArg) => `含 ${count} 行 legacy 未知`,
@@ -2387,7 +2760,8 @@ export const zhCNMessages = {
     chainIncomplete: "链不完整（保留/证据缺口）",
     saveViewAction: "保存当前筛选为视图",
     deleteSavedView: (name: MessageArg) => `删除视图 ${name}`,
-    terminalTargetLabel: (context: MessageArg, id: MessageArg) => `终端目标 ${context} · #${id}`,
+    terminalTargetLabel: (context: MessageArg, id: MessageArg) =>
+      `终端目标 ${context} · #${id}`,
     previousRequest: "上一条",
     nextRequest: "下一条",
     pricingTemplate: "价格模板",
@@ -2402,25 +2776,30 @@ export const zhCNMessages = {
     legacyReasoningCost: "推理成本",
     notConfigured: "未配置",
     pricingProvenanceFixed: "请求时快照是本请求成本依据；当前配置不重算历史。",
-    coverageLegacyUnknown: "部分历史数据超出当前保留范围，结果可能不完整（legacy_unknown）",
+    coverageLegacyUnknown:
+      "部分历史数据超出当前保留范围，结果可能不完整（legacy_unknown）",
     coveragePartial: "当前窗口仅部分被保留覆盖，结果可能不完整",
     retentionCoverageTitle: "请求日志实际覆盖受限",
-    retentionCoverageDescription: "列表已按 Requests owner 的当前 floor 裁剪；更早区间不会被零值填补。",
+    retentionCoverageDescription:
+      "列表已按 Requests owner 的当前 floor 裁剪；更早区间不会被零值填补。",
     retentionCoverageLink: "查看保留策略与实际覆盖",
-    auditCoverageLegacyUnknown: "审计历史超出保留范围，列表可能不完整（legacy_unknown）",
+    auditCoverageLegacyUnknown:
+      "审计历史超出保留范围，列表可能不完整（legacy_unknown）",
     headerBytesStored: (count: MessageArg) => `已存 ${count} 字节`,
     headerBytesTruncated: (count: MessageArg) => `截断 ${count} 字节`,
     downloadRaw: "下载原始",
     downloadStarted: "已开始下载",
     limitReasonBodyCap: "该 body 超过 4 MiB 单体上限，仅保留前缀",
-    limitReasonIngressBudget: "该 ingress 捕获预算（请求 12 MiB / 响应 4 MiB）耗尽前截断",
+    limitReasonIngressBudget:
+      "该 ingress 捕获预算（请求 12 MiB / 响应 4 MiB）耗尽前截断",
     limitReasonBoth: "同时命中单体上限与 ingress 预算",
     limitReasonHandoffBudget: "响应捕获预留（4 MiB）限制",
     limitReasonOmittedIngressBudget: "ingress 预算已耗尽，本 body 未存储",
     limitReasonOmittedHandoffBudget: "响应预留已耗尽，本 body 未存储",
     limitReasonBlockCap: "该 header 块超过 64 KiB，整块省略",
     limitReasonUnknown: (reason: MessageArg) => `捕获限制：${reason}`,
-    auditBinaryBodyNotPreviewable: (bytes: MessageArg) => `该 body 为二进制（${bytes} 字节），不可文本预览；请下载原始字节。`,
+    auditBinaryBodyNotPreviewable: (bytes: MessageArg) =>
+      `该 body 为二进制（${bytes} 字节），不可文本预览；请下载原始字节。`,
     allColumns: "全部列",
     allConnections: "全部连接",
     allEndpoints: "全部端点",
@@ -2434,10 +2813,12 @@ export const zhCNMessages = {
     auditDetailLoadFailedTitle: "审计记录加载失败",
     auditListLoadFailed: "无法加载此请求的审计记录列表。",
     auditListLoadFailedTitle: "审计记录加载失败",
-    auditPageDescription: "检查为此请求捕获的精确审计行、已脱敏请求头以及存储的请求/响应载荷。",
+    auditPageDescription:
+      "检查为此请求捕获的精确审计行、已脱敏请求头以及存储的请求/响应载荷。",
     auditPageTitle: (id: MessageArg) => `请求 #${id} 审计`,
     auditRecordList: "审计记录",
-    auditRecordListDescription: (count: MessageArg) => `${count} 条关联审计记录`,
+    auditRecordListDescription: (count: MessageArg) =>
+      `${count} 条关联审计记录`,
     auditStreamingResponseBodyNotStored: "此审计记录未存储该流式响应正文。",
     allClients: "所有客户端",
     allFinalTargetModels: "所有最终目标模型",
@@ -2447,13 +2828,16 @@ export const zhCNMessages = {
     cacheReadShare: "提示缓存读取占比",
     cacheReadShareIncomparable: "该操作的输入与缓存分量互相重叠，占比不可比。",
     cacheReadShareIndeterminate: "本条记录没有操作类型，无法判断占比是否可比。",
-    cacheReadShareComponentsMissing: "上游未上报输入或缓存读取分量，无法重建提示总量。",
-    cacheReadShareNoPromptTokens: "本次请求没有输入 token，没有可计算占比的提示总量。",
+    cacheReadShareComponentsMissing:
+      "上游未上报输入或缓存读取分量，无法重建提示总量。",
+    cacheReadShareNoPromptTokens:
+      "本次请求没有输入 token，没有可计算占比的提示总量。",
     callerClient: "调用方客户端",
     client: "客户端",
     compact: "紧凑",
     connection: "连接",
-    detailDescription: "查看请求模型、最终目标模型、已选择的终端目标，以及路由、令牌、费用和请求时审计来源。",
+    detailDescription:
+      "查看请求模型、最终目标模型、已选择的终端目标，以及路由、令牌、费用和请求时审计来源。",
     endpoint: "端点",
     errorTextFilterLabel: "错误文本",
     exportCsv: "导出 CSV",
@@ -2532,16 +2916,19 @@ export const zhCNMessages = {
     toolError: "工具错误",
     incompleteSseTail: "流在完整结束事件前中断，以下尾部保持未解析：",
     jsonEventBadJson: "该事件包含无法解析的 JSON",
-    streamIncompleteNote: "捕获在事件中间结束（body 截断），尾部未作为完整事件解析。",
+    streamIncompleteNote:
+      "捕获在事件中间结束（body 截断），尾部未作为完整事件解析。",
     reasoning: "推理",
     reasoningEffort: "推理强度",
     refreshRequestLogs: "刷新请求日志",
     requestId: "请求 ID",
     requestTitle: (id: MessageArg) => `请求 #${id}`,
     requestNotFound: "未找到请求",
-    investigationReturnDescription: "正在查看由路由事件定位的请求；返回后会恢复事件筛选。",
+    investigationReturnDescription:
+      "正在查看由路由事件定位的请求；返回后会恢复事件筛选。",
     returnToRoutingHealth: "返回路由健康",
-    requestNotFoundDescription: (id: MessageArg) => `找不到请求 #${id}。它可能已被删除，或者你无权访问它。`,
+    requestNotFoundDescription: (id: MessageArg) =>
+      `找不到请求 #${id}。它可能已被删除，或者你无权访问它。`,
     requestLogsAllTime: "全部时间",
     requestLogsDescription: "浏览并调查代理请求",
     requestLogsTitle: "请求日志",
@@ -2549,7 +2936,8 @@ export const zhCNMessages = {
     proxyApiKeyNotRecorded: "未记录",
     noCaptured: (title: MessageArg) => `未捕获 ${title}。`,
     headerEmpty: (title: MessageArg) => `${title}没有记录到任何条目。`,
-    headerMalformed: (title: MessageArg) => `${title}格式异常，已降级显示；请切换到原始 JSON 查看。`,
+    headerMalformed: (title: MessageArg) =>
+      `${title}格式异常，已降级显示；请切换到原始 JSON 查看。`,
     noRequestLogsMatchSlice: "当前范围内没有匹配的请求日志",
     requestBody: "请求",
     requestHeaders: "请求头",
@@ -2561,8 +2949,13 @@ export const zhCNMessages = {
     relaxScope: "请放宽筛选条件或清除本地细化，以扩大排查范围。",
     returnToRequestList: "返回请求列表",
     response: (status: MessageArg) => `响应（${status}）`,
-    resultsRange: (start: MessageArg, end: MessageArg, total: MessageArg) => `${start}-${end} / ${total}`,
-    resultsRangeAtLeast: (start: MessageArg, end: MessageArg, total: MessageArg) => `第 ${start}–${end} 条，共超过 ${total} 条`,
+    resultsRange: (start: MessageArg, end: MessageArg, total: MessageArg) =>
+      `${start}-${end} / ${total}`,
+    resultsRangeAtLeast: (
+      start: MessageArg,
+      end: MessageArg,
+      total: MessageArg,
+    ) => `第 ${start}–${end} 条，共超过 ${total} 条`,
     rowsPerPage: "每页行数",
     specialTokens: "特殊令牌",
     status: "状态",
@@ -2600,14 +2993,18 @@ export const zhCNMessages = {
     path: "路径",
     routingContext: "路由上下文",
     tokenUsage: "令牌用量",
-    tokenComponentBasisDisjoint: "分量为互斥口径：输入不含缓存读取／缓存创建，输出不含推理；总计以上游返回值为准。",
+    tokenComponentBasisDisjoint:
+      "分量为互斥口径：输入不含缓存读取／缓存创建，输出不含推理；总计以上游返回值为准。",
     tokenComponentsTotalOnly: "上游只返回了总令牌数，没有提供分量拆分。",
     uncategorizedTokens: "未归类",
-    unpricedCauseMissingPriceData: "该请求已取到令牌用量，但绑定的价格模板缺少可用价格数据。",
+    unpricedCauseMissingPriceData:
+      "该请求已取到令牌用量，但绑定的价格模板缺少可用价格数据。",
     unpricedCauseNonStreamNoUsage: "上游响应体里没有 usage 字段，无法计价。",
     unpricedCausePricingDisabled: "该连接未绑定价格模板，按不计费处理。",
-    unpricedCauseStreamNoUsage: "流式响应正常结束，但上游没有在流里返回令牌用量。Prism 已自动为 OpenAI 流式请求附加 stream_options.include_usage，该上游未按约定返回；也可能是客户端显式关闭了该字段。",
-    unpricedCauseStreamTruncated: "流未正常终止，用量在中断前没有到达，因此无法计价。",
+    unpricedCauseStreamNoUsage:
+      "流式响应正常结束，但上游没有在流里返回令牌用量。Prism 已自动为 OpenAI 流式请求附加 stream_options.include_usage，该上游未按约定返回；也可能是客户端显式关闭了该字段。",
+    unpricedCauseStreamTruncated:
+      "流未正常终止，用量在中断前没有到达，因此无法计价。",
     costBreakdown: "费用拆分",
     input: "输入",
     output: "输出",
@@ -2638,11 +3035,14 @@ export const zhCNMessages = {
     baseUrl: "基础 URL",
     auditCapture: "审计捕获",
     auditCaptureUnavailable: "请求开始时已禁用审计",
-    auditCaptureDisabledForVendor: "此请求执行时审计日志处于关闭状态，因此 Prism 没有存储单独的审计行。",
+    auditCaptureDisabledForVendor:
+      "此请求执行时审计日志处于关闭状态，因此 Prism 没有存储单独的审计行。",
     auditDisabledAtRequest: "请求开始时已禁用审计",
-    auditDisabledDescription: "由于该请求开始时审计日志处于关闭状态，因此这里只保留了请求日志元数据。",
+    auditDisabledDescription:
+      "由于该请求开始时审计日志处于关闭状态，因此这里只保留了请求日志元数据。",
     auditFullCapture: "完整捕获",
-    auditFullCaptureDescription: "该请求开始时审计日志和正文捕获都已开启。即使如此，流式响应仍可能没有可存储的响应正文。",
+    auditFullCaptureDescription:
+      "该请求开始时审计日志和正文捕获都已开启。即使如此，流式响应仍可能没有可存储的响应正文。",
     auditLoadFailedTitle: "审计详情加载失败",
     auditLoadFailed: "Prism 预期此请求存在审计记录，但多次尝试后仍无法加载。",
     auditMetadataOnly: "仅元数据",
@@ -2650,14 +3050,18 @@ export const zhCNMessages = {
     auditBodyNotStoredMetadataOnly: "仅元数据审计不会存储正文。",
     auditResponseBodyNotStored: "此审计记录未存储响应正文。",
     auditBinaryBodyNotShown: "该正文为二进制内容，仅保留字节元数据。",
-    invalidAuditTimestampDescription: "此请求的创建时间戳无效，Prism 无法推导审计查询窗口。",
+    invalidAuditTimestampDescription:
+      "此请求的创建时间戳无效，Prism 无法推导审计查询窗口。",
     invalidAuditTimestampTitle: "请求时间戳无效",
-    invalidRequestAuditRouteDescription: (id: MessageArg) => `请求 ID '${id}' 不是有效的请求日志标识符。`,
+    invalidRequestAuditRouteDescription: (id: MessageArg) =>
+      `请求 ID '${id}' 不是有效的请求日志标识符。`,
     invalidRequestAuditRouteTitle: "无效的请求审计路由",
-    missingAuditRecordDescription: (id: MessageArg) => `审计记录 #${id} 未在此请求的请求时审计窗口内关联到该请求。`,
+    missingAuditRecordDescription: (id: MessageArg) =>
+      `审计记录 #${id} 未在此请求的请求时审计窗口内关联到该请求。`,
     missingAuditRecordTitle: "此请求未找到该审计记录",
     noAuditRecords: "此请求未找到审计记录。",
-    noAuditRecordsDescription: "此请求开始时审计日志已开启，但其请求时窗口内未返回匹配的审计记录。",
+    noAuditRecordsDescription:
+      "此请求开始时审计日志已开启，但其请求时窗口内未返回匹配的审计记录。",
     openDedicatedAuditPage: "打开完整审计页",
     previousPage: "上一页",
     showDefaultAuditRecord: "显示默认审计记录",
@@ -2717,7 +3121,8 @@ export const zhCNMessages = {
     search: "搜索",
     searchPlaceholder: "搜索页面，或输入请求 ID 跳转",
     searchDialogTitle: "全局搜索",
-    searchDialogDescription: "跳转到某个页面，或按请求 ID 直接定位到请求日志与审计。",
+    searchDialogDescription:
+      "跳转到某个页面，或按请求 ID 直接定位到请求日志与审计。",
     searchShortcutHint: "⌘K",
     searchNoResults: "没有匹配的页面。输入纯数字可按请求 ID 跳转。",
     searchJumpToRequest: (id: MessageArg) => `打开请求 #${id}`,
@@ -2756,7 +3161,8 @@ export const zhCNMessages = {
     fourxxRate: "4xx 比率",
     fivexxRate: "5xx 比率",
     filters: "筛选条件",
-    filtersApplyToAllSpending: "这些筛选条件会作用于下方所有支出指标和拆分结果。",
+    filtersApplyToAllSpending:
+      "这些筛选条件会作用于下方所有支出指标和拆分结果。",
     from: "开始时间",
     group: "分组",
     groupBy: "分组方式",
@@ -2817,12 +3223,14 @@ export const zhCNMessages = {
     noEndpointStatisticsTitle: "当前时间范围内没有端点统计",
     noModelStatisticsDescription: "有流量后，这里会显示模型聚合统计。",
     noModelStatisticsTitle: "当前时间范围内没有模型统计",
-    noProxyApiKeyUsageDescription: "使用代理 API 密钥后，这里会显示运行时认证维度的聚合结果。",
+    noProxyApiKeyUsageDescription:
+      "使用代理 API 密钥后，这里会显示运行时认证维度的聚合结果。",
     noProxyApiKeyUsageTitle: "当前时间范围内没有代理 API 密钥用量",
     openPricingTemplates: "打开价格模板",
     overviewTitle: "总览",
     pricedRequests: (count: MessageArg) => `${count} 个已定价请求`,
-    pricingDataMissingDescription: "为终端目标绑定价格模板后，即可在仪表盘分析中解锁成本覆盖情况。",
+    pricingDataMissingDescription:
+      "为终端目标绑定价格模板后，即可在仪表盘分析中解锁成本覆盖情况。",
     pricingDataMissingTitle: "当前时间范围内缺少定价数据",
     proxyApiKey: "代理 API 密钥",
     proxyApiKeyStatisticsTitle: "代理 API 密钥统计",
@@ -2868,7 +3276,8 @@ export const zhCNMessages = {
     successOnly: "仅成功请求",
     successRate: "成功率",
     specialTokens: "特殊令牌",
-    statisticsDescription: "基于最终请求的一体化用量快照，覆盖请求、令牌、成本、端点、模型和代理 API 密钥。",
+    statisticsDescription:
+      "基于最终请求的一体化用量快照，覆盖请求、令牌、成本、端点、模型和代理 API 密钥。",
     tokenTypeBreakdownTitle: "令牌类型拆分",
     tokenUsageTrendsTitle: "令牌用量趋势",
     topHttpErrors: "HTTP 错误 Top 列表",
@@ -2878,7 +3287,8 @@ export const zhCNMessages = {
     totalInput: "总输入",
     totalSpend: "总支出",
     totalTokens: "总令牌数",
-    throughputExplanation: "每个数据点都表示 1 分钟时间桶。RPM 对应该分钟内记录的请求数，而平均 RPM 会把所选窗口归一化为每分钟请求数。",
+    throughputExplanation:
+      "每个数据点都表示 1 分钟时间桶。RPM 对应该分钟内记录的请求数，而平均 RPM 会把所选窗口归一化为每分钟请求数。",
     throughputTab: "吞吐量",
     tokens: "令牌数",
     tokenThroughput: "令牌吞吐量",
@@ -2896,7 +3306,8 @@ export const zhCNMessages = {
     requestOutcomeOverTime: "请求结果随时间变化",
     noIdentifiedProxyApiKey: "无已识别代理密钥",
     proxyKeyAttributionUnknown: "代理密钥归属未知",
-    proxyKeyAuthOffExplanation: "当前不强制凭证；携带有效代理密钥的请求仍会归属，其他请求显示为无已识别代理密钥。",
+    proxyKeyAuthOffExplanation:
+      "当前不强制凭证；携带有效代理密钥的请求仍会归属，其他请求显示为无已识别代理密钥。",
     proxyKeyCreateCta: "创建代理密钥",
     proxyKeyAuthSettingsCta: "前往设置",
     costHeader: "费用",
@@ -2908,7 +3319,8 @@ export const zhCNMessages = {
     system: "跟随系统",
   },
   observe: {
-    ttDrillDownDescription: "展开端点行才加载终端目标明细；未展开不发起高基数查询。",
+    ttDrillDownDescription:
+      "展开端点行才加载终端目标明细；未展开不发起高基数查询。",
     ttDrillDownTitle: "Endpoint 终端目标明细（展开懒加载）",
     seriesTruncatedLabel: "仅显示前若干项",
     seriesTruncatedReason: (limit: number) =>
@@ -2917,7 +3329,8 @@ export const zhCNMessages = {
     ttDrillDownEndpointsFailed: "端点列表加载失败，无法确认是否有可用端点。",
     ttDrillDownLoading: "正在加载终端目标明细…",
     ttDrillDownEmpty: "该窗口内没有终端目标统计。",
-    ttDrillDownMore: (shown: MessageArg, total: MessageArg) => `显示前 ${shown} 个，共 ${total} 个终端目标`,
+    ttDrillDownMore: (shown: MessageArg, total: MessageArg) =>
+      `显示前 ${shown} 个，共 ${total} 个终端目标`,
     retry: "重试",
     requestsShort: "请求",
     finalFailedShort: (count: MessageArg) => `最终失败 ${count}`,
@@ -2939,7 +3352,8 @@ export const zhCNMessages = {
     routingGeminiCountTokensLabel: "Gemini 计数令牌",
     routingUnknownOperationLabel: "未知操作",
     staleDataNote: "数据为上次成功刷新（本次刷新失败，已保留）",
-    retryAfterNotice: (seconds: MessageArg) => `服务暂不可用（过载保护），请在约 ${seconds} 秒后重试。`,
+    retryAfterNotice: (seconds: MessageArg) =>
+      `服务暂不可用（过载保护），请在约 ${seconds} 秒后重试。`,
     routingSummaryTitle: "OpenAI 模式与静态路由",
     routingStrategyLabel: "策略",
     routingNotAccepted: "入口不接受",
@@ -2950,14 +3364,16 @@ export const zhCNMessages = {
     imagesGenerations: "生图",
     imagesEdits: "改图",
     // 同组操作状态不一致时逐项展开，例如「生图：可路由」。
-    routingMemberState: (operation: MessageArg, state: MessageArg) => `${operation}：${state}`,
+    routingMemberState: (operation: MessageArg, state: MessageArg) =>
+      `${operation}：${state}`,
     modeChat: "仅 Chat Completions",
     modeResponses: "仅 Responses",
     strategySingle: "单一",
     strategyFillFirst: "优先填满",
     strategyRoundRobin: "轮询",
     pageTitle: "可观测性",
-    pageDescription: "系统总览与健康状态：先看此刻是否繁忙或受限，再用统一时间窗检查请求、延迟与花费。",
+    pageDescription:
+      "系统总览与健康状态：先看此刻是否繁忙或受限，再用统一时间窗检查请求、延迟与花费。",
     overviewTab: "概览",
     analyticsTab: "分析",
     eventsTab: "事件",
@@ -2976,7 +3392,8 @@ export const zhCNMessages = {
     errorCount: "错误数",
     tokenCount: "令牌数",
     windowBasis: (preset: MessageArg) => `口径：${preset} 窗口`,
-    terminalTargetWindowNote: (preset: MessageArg) => `跟随页面时间窗：${preset}`,
+    terminalTargetWindowNote: (preset: MessageArg) =>
+      `跟随页面时间窗：${preset}`,
     pricingBreakdownLabel: "定价状态构成",
     pricingPriced: "已计价",
     pricingUnpriced: "未计价",
@@ -2984,9 +3401,11 @@ export const zhCNMessages = {
     pricingUnknown: "无法确认",
     knownCostCaption: (state: MessageArg) => `覆盖：${state}`,
     routingHealthEntryTitle: "路由健康",
-    routingHealthEntryDescription: "当前冷却与封禁状态，以及已记录的路由事件时间线。",
+    routingHealthEntryDescription:
+      "当前冷却与封禁状态，以及已记录的路由事件时间线。",
     routingHealthEntryAction: "打开路由健康",
-    routingHealthBestEffortNote: "已记录的路由事件为尽力交付，不保证为完整故障转移账本。",
+    routingHealthBestEffortNote:
+      "已记录的路由事件为尽力交付，不保证为完整故障转移账本。",
     nowBasis: "本进程 · 30 分钟滚动 · 不受下方时间窗影响",
     timeRangeLabel: "时间范围",
     refresh: "刷新",
@@ -3004,12 +3423,16 @@ export const zhCNMessages = {
     outputRate: "输出速率",
     cost: "已知成本",
     cacheReadShare: "提示缓存读取占比",
-    cacheReadShareDetail: (comparable: MessageArg, total: MessageArg) => `可比 ${comparable} 个 / 共 ${total} 个请求`,
-    cacheReadShareNoComparable: (total: MessageArg) => `窗口内 ${total} 个请求均无可比的缓存分量`,
+    cacheReadShareDetail: (comparable: MessageArg, total: MessageArg) =>
+      `可比 ${comparable} 个 / 共 ${total} 个请求`,
+    cacheReadShareNoComparable: (total: MessageArg) =>
+      `窗口内 ${total} 个请求均无可比的缓存分量`,
     cacheReadShareEmptyWindow: "窗口内没有任何请求，因此没有提示缓存读取占比。",
-    cacheReadShareNoDenominator: "可比请求的输入与缓存分量合计为零，无法计算占比。",
+    cacheReadShareNoDenominator:
+      "可比请求的输入与缓存分量合计为零，无法计算占比。",
     cacheReadSharePartial: "部分覆盖",
-    cacheReadSharePartialReason: "仅部分请求计入可比缓存分量，其余请求不具备可比的缓存读取数据。",
+    cacheReadSharePartialReason:
+      "仅部分请求计入可比缓存分量，其余请求不具备可比的缓存读取数据。",
     cacheReadShareRead: "缓存读取",
     cacheReadShareCreation: "缓存创建",
     cacheReadShareUncached: "未缓存输入",
@@ -3023,51 +3446,77 @@ export const zhCNMessages = {
     mainChartDescription: "单一主图：切换指标与分组维度",
     metricLabel: "指标",
     metricName: (metric: string) =>
-      ({ requests: "请求数", errors: "错误", ttft: "TTFT", tokens: "令牌", cost: "花费" })[metric] ?? metric,
+      ({
+        requests: "请求数",
+        errors: "错误",
+        ttft: "TTFT",
+        tokens: "令牌",
+        cost: "花费",
+      })[metric] ?? metric,
     groupLabel: "分组",
     groupName: (group: string) =>
-      ({ none: "合计", model: "按模型", endpoint: "按端点", terminal_target: "按终端目标" })[group] ?? group,
+      ({
+        none: "合计",
+        model: "按模型",
+        endpoint: "按端点",
+        terminal_target: "按终端目标",
+      })[group] ?? group,
     metricUnit: (metric: string) =>
-      ({ requests: "次", errors: "次", ttft: "ms", tokens: "token", cost: "" })[metric] ?? "",
+      ({ requests: "次", errors: "次", ttft: "ms", tokens: "token", cost: "" })[
+        metric
+      ] ?? "",
     axisTimezone: (offset: MessageArg) => `时间（${offset}）`,
     seriesToggleHint: "点击图例可隐藏或显示该系列",
     adjustFiltersHint: "请尝试调整时间窗、指标或分组维度。",
     buckets: "个时间桶",
-    activityPageRange: (page: MessageArg, rows: MessageArg) => `第 ${page} 页 · ${rows} 条（服务端未返回总数）`,
+    activityPageRange: (page: MessageArg, rows: MessageArg) =>
+      `第 ${page} 页 · ${rows} 条（服务端未返回总数）`,
     httpSuccessShort: "成功",
     httpFailedShort: "失败",
     noData: "所选窗口内没有数据",
     semanticTable: "数据表",
     seriesLabel: "序列",
     coverageLabel: (state: string) =>
-      ({ complete: "完整", partial: "部分（已知成本小计）", no_trusted_cost: "无可信成本", no_eligible: "无可计价请求" })[state] ?? state,
+      ({
+        complete: "完整",
+        partial: "部分（已知成本小计）",
+        no_trusted_cost: "无可信成本",
+        no_eligible: "无可计价请求",
+      })[state] ?? state,
     retentionCoverageTitle: "实际保留覆盖受限",
-    retentionCoverageDescription: "所选窗口包含 owner 已发布 floor 之前的区间；结果不会用零值填补已删除历史。",
+    retentionCoverageDescription:
+      "所选窗口包含 owner 已发布 floor 之前的区间；结果不会用零值填补已删除历史。",
     retentionCoverageLink: "查看保留策略与实际覆盖",
     eventsTitle: "负载均衡事件",
     eventsDescription: "重试、封禁、恢复与准入拒绝时间线；配置页保留只读入口。",
     errorPanelTitle: "错误分析",
-    errorPanelDescription: "点击左侧任一条目，右侧流水立即按它过滤；不必离开本页。",
+    errorPanelDescription:
+      "点击左侧任一条目，右侧流水立即按它过滤；不必离开本页。",
 
     // 异常工作台：排名与流水并置。
     workbenchStreamTitle: "匹配的请求流水",
-    workbenchNoSelection: "尚未选择条目。选择左侧任一 HTTP 状态或流结果即可过滤。",
+    workbenchNoSelection:
+      "尚未选择条目。选择左侧任一 HTTP 状态或流结果即可过滤。",
     workbenchSelectionHttp: (status: MessageArg) => `HTTP ${status}`,
     workbenchSelectionStream: (outcome: MessageArg) => `流结果 ${outcome}`,
     workbenchSelectionKind: (kind: MessageArg) => `流错误类型 ${kind}`,
     workbenchClearSelection: "清除选择",
     workbenchOpenInRequests: "在请求日志中查看全部",
-    workbenchMatchedCount: (matched: MessageArg, scanned: MessageArg) => `本页 ${scanned} 条中匹配 ${matched} 条`,
+    workbenchMatchedCount: (matched: MessageArg, scanned: MessageArg) =>
+      `本页 ${scanned} 条中匹配 ${matched} 条`,
     // 口径必须写清：右栏只在已加载的这一页里匹配，不是窗口内的完整计数。
-    workbenchScopeBasis: "口径：只在已加载的最近一页流水中匹配，不是该条目在整个窗口内的总数；完整集合请用「在请求日志中查看全部」。",
-    workbenchNoMatches: "已加载的这一页里没有匹配的请求。窗口内可能仍有更早的匹配。",
+    workbenchScopeBasis:
+      "口径：只在已加载的最近一页流水中匹配，不是该条目在整个窗口内的总数；完整集合请用「在请求日志中查看全部」。",
+    workbenchNoMatches:
+      "已加载的这一页里没有匹配的请求。窗口内可能仍有更早的匹配。",
     streamFailures: "流失败",
     clientDisconnected: "客户端中断",
     httpFailuresTitle: "HTTP 失败",
     streamDiagnosticsTitle: "流诊断",
     noErrors: "窗口内没有错误。",
     activityTitle: "近期活动",
-    activityDescription: "每条已保留的最终请求一行；路由改变与失败结果内联可见。",
+    activityDescription:
+      "每条已保留的最终请求一行；路由改变与失败结果内联可见。",
     time: "时间",
     requestedModel: "请求模型",
     result: "结果",

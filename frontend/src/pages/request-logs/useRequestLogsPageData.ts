@@ -13,7 +13,11 @@ import {
   type StatsRequestParams,
 } from "@/lib/types";
 import type { StreamErrorKind, StreamOutcome } from "@/lib/types";
-import type { ChainIngressItem, ChainResponse, RequestLogRowV2 } from "@/lib/types/request-logs-v2";
+import type {
+  ChainIngressItem,
+  ChainResponse,
+  RequestLogRowV2,
+} from "@/lib/types/request-logs-v2";
 import type { RequestLogPageState } from "./queryParams";
 import { timeRangeToFromTime } from "./queryParams";
 
@@ -43,7 +47,16 @@ function flattenChainItems(response: ChainResponse): RequestLogListItem[] {
     for (const row of chain.retained_rows) {
       // Chain rows carry model_id only; when the source row also carries
       // display labels (fixtures/tests) keep them.
-      const withLabels = row as RequestLogRowV2 & { model_label?: string; resolved_target_model_label?: string | null; api_family?: string; output_tokens?: number | null; ttft_ms?: number | null; completion_duration_ms?: number | null; reasoning_effort?: string | null; report_currency_symbol?: string | null };
+      const withLabels = row as RequestLogRowV2 & {
+        model_label?: string;
+        resolved_target_model_label?: string | null;
+        api_family?: string;
+        output_tokens?: number | null;
+        ttft_ms?: number | null;
+        completion_duration_ms?: number | null;
+        reasoning_effort?: string | null;
+        report_currency_symbol?: string | null;
+      };
       rows.push({
         request_log_id: row.request_log_id,
         row_kind: row.row_kind,
@@ -56,17 +69,24 @@ function flattenChainItems(response: ChainResponse): RequestLogListItem[] {
         model_id: row.model_id,
         model_label: withLabels.model_label ?? row.model_id,
         resolved_target_model_id: row.resolved_target_model_id,
-        resolved_target_model_label: withLabels.resolved_target_model_label ?? row.resolved_target_model_id,
+        resolved_target_model_label:
+          withLabels.resolved_target_model_label ??
+          row.resolved_target_model_id,
         caller_client_display: null,
         upstream_client_display: null,
         user_agent_overridden: false,
-        api_family: (withLabels.api_family as RequestLogListItem["api_family"]) ?? "openai",
+        api_family:
+          (withLabels.api_family as RequestLogListItem["api_family"]) ??
+          "openai",
         endpoint_id: row.endpoint_id,
-        endpoint_label: row.terminal_target_label ?? `Terminal Target #${row.terminal_target_id ?? "?"}`,
+        endpoint_label:
+          row.terminal_target_label ??
+          `Terminal Target #${row.terminal_target_id ?? "?"}`,
         terminal_target_id: row.terminal_target_id,
         terminal_target_label: row.terminal_target_label,
         terminal_target_configured: row.terminal_target_configured,
-        terminal_target_owner_model_id: row.terminal_target_owner_model_id ?? null,
+        terminal_target_owner_model_id:
+          row.terminal_target_owner_model_id ?? null,
         ttft_ms: withLabels.ttft_ms ?? null,
         completion_duration_ms: withLabels.completion_duration_ms ?? null,
         upstream_status_code: row.upstream_status_code,
@@ -87,7 +107,10 @@ function flattenChainItems(response: ChainResponse): RequestLogListItem[] {
         reasoning_effort: withLabels.reasoning_effort ?? null,
         output_tokens: withLabels.output_tokens ?? null,
         total_tokens: row.total_tokens,
-        total_cost_user_currency_micros: row.total_cost_user_currency_micros !== null ? Number(row.total_cost_user_currency_micros) : null,
+        total_cost_user_currency_micros:
+          row.total_cost_user_currency_micros !== null
+            ? Number(row.total_cost_user_currency_micros)
+            : null,
         pricing_status: row.pricing_status,
         pricing_evidence_trust: row.pricing_evidence_trust,
         unpriced_reason: row.unpriced_reason,
@@ -117,7 +140,10 @@ function appendUniqueRequestItems(
   ];
 }
 
-function mergeChainRowPage(current: ChainIngressItem, page: ChainIngressItem): ChainIngressItem {
+function mergeChainRowPage(
+  current: ChainIngressItem,
+  page: ChainIngressItem,
+): ChainIngressItem {
   const seen = new Set(current.retained_rows.map((row) => row.request_log_id));
   const retainedRows = [
     ...current.retained_rows,
@@ -154,21 +180,30 @@ interface RequestLogsLoadFailure {
   stale: boolean;
 }
 
-export function useRequestLogsPageData({ revision, state, enabled = true }: UseRequestLogsPageDataParams) {
+export function useRequestLogsPageData({
+  revision,
+  state,
+  enabled = true,
+}: UseRequestLogsPageDataParams) {
   const messages = getStaticMessages();
   const [items, setItems] = useState<RequestLogListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(enabled);
   const [failure, setFailure] = useState<RequestLogsLoadFailure | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
-  const [filterOptions, setFilterOptions] = useState<FilterOptions>(EMPTY_FILTER_OPTIONS);
+  const [filterOptions, setFilterOptions] =
+    useState<FilterOptions>(EMPTY_FILTER_OPTIONS);
   const [endpointOptionsLoaded, setEndpointOptionsLoaded] = useState(false);
   const [nextChainCursor, setNextChainCursor] = useState<string | null>(null);
   const [hasMoreChains, setHasMoreChains] = useState(false);
-const [totalIsExact, setTotalIsExact] = useState(true);
+  const [totalIsExact, setTotalIsExact] = useState(true);
   const [hasMoreRows, setHasMoreRows] = useState(false);
   const [chains, setChains] = useState<ChainIngressItem[]>([]);
-  const [chainPageCounts, setChainPageCounts] = useState({ ingress: 0, attempts: 0, rows: 0 });
+  const [chainPageCounts, setChainPageCounts] = useState({
+    ingress: 0,
+    attempts: 0,
+    rows: 0,
+  });
   const [coverage, setCoverage] = useState<QueryCoverage | null>(null);
 
   const fetchIdRef = useRef(0);
@@ -177,6 +212,9 @@ const [totalIsExact, setTotalIsExact] = useState(true);
   const endpointOptionsLoadedOnceRef = useRef(false);
   const loadedSignatureRef = useRef<string | null>(null);
   const chainQueryParamsRef = useRef<StatsRequestParams | null>(null);
+  const chainCursorHistoryRef = useRef(new Map<string, string>());
+  const chainPageStartRef = useRef(new Map<string, number>());
+  const chainSignatureRef = useRef<string | null>(null);
   const rowLoadsInFlightRef = useRef(new Set<string>());
 
   useEffect(() => {
@@ -199,25 +237,42 @@ const [totalIsExact, setTotalIsExact] = useState(true);
     setLoading(true);
     setFailure(null);
 
-    const fromTime = state.from_time && state.to_time ? state.from_time : timeRangeToFromTime(state.time_range);
+    const fromTime =
+      state.from_time && state.to_time
+        ? state.from_time
+        : timeRangeToFromTime(state.time_range);
     const toTime = state.from_time && state.to_time ? state.to_time : undefined;
 
     const params: StatsRequestParams = {
-      time_range: state.from_time && state.to_time ? "custom" : state.time_range,
+      time_range:
+        state.from_time && state.to_time ? "custom" : state.time_range,
       ingress_final_result: state.ingress_final_result || undefined,
       confirmed_failover: state.confirmed_failover ? "true" : undefined,
       ingress_request_id: state.ingress_request_id || undefined,
       model_id: state.model_id || undefined,
-      proxy_api_key_id: state.proxy_api_key_id ? parseInt(state.proxy_api_key_id, 10) : undefined,
-      client_rule_id: state.client_rule_id ? parseInt(state.client_rule_id, 10) : undefined,
+      proxy_api_key_id: state.proxy_api_key_id
+        ? parseInt(state.proxy_api_key_id, 10)
+        : undefined,
+      client_rule_id: state.client_rule_id
+        ? parseInt(state.client_rule_id, 10)
+        : undefined,
       resolved_target_model_id: state.resolved_target_model_id || undefined,
-      status_family: state.status_family === "all" ? undefined : state.status_family,
+      status_family:
+        state.status_family === "all" ? undefined : state.status_family,
       status_code: parseOptionalStatusCode(state.status_code),
       error_text: state.error_text || undefined,
-      pricing_status: state.pricing_status === "all" ? undefined : state.pricing_status,
-      unpriced_reason: state.pricing_status === "unpriced" ? state.unpriced_reason || undefined : undefined,
-      endpoint_id: state.endpoint_id ? parseInt(state.endpoint_id, 10) : undefined,
-      terminal_target_id: state.terminal_target_id ? parseInt(state.terminal_target_id, 10) : undefined,
+      pricing_status:
+        state.pricing_status === "all" ? undefined : state.pricing_status,
+      unpriced_reason:
+        state.pricing_status === "unpriced"
+          ? state.unpriced_reason || undefined
+          : undefined,
+      endpoint_id: state.endpoint_id
+        ? parseInt(state.endpoint_id, 10)
+        : undefined,
+      terminal_target_id: state.terminal_target_id
+        ? parseInt(state.terminal_target_id, 10)
+        : undefined,
       [STATS_FROM_TIME_PARAM]: fromTime,
       to_time: toTime,
       limit: state.limit,
@@ -231,11 +286,11 @@ const [totalIsExact, setTotalIsExact] = useState(true);
     // Identifies which query the rows on screen describe, at the URL level
     // rather than the wire level: a relative window resolves to a fresh
     // `from_time` on every fetch, so the resolved bounds count only when the
-    // operator pinned them. The chain cursor is excluded on purpose — it only
-    // appends deeper pages of the same query, so a failed "load more" keeps the
-    // pages that did load. Any other change (filters, view, sort, page) makes
-    // the retained rows describe something else, and a failure has nothing to
-    // keep.
+    // operator pinned them. The chain cursor is excluded on purpose — it
+    // advances within the same query scope, while a page turn replaces the
+    // retained rows on screen. Any other change (filters, view, sort, page)
+    // makes the retained rows describe something else, and a failure has
+    // nothing to keep.
     const signature = JSON.stringify({
       ...params,
       chain_cursor: undefined,
@@ -243,17 +298,49 @@ const [totalIsExact, setTotalIsExact] = useState(true);
       to_time: state.to_time || undefined,
     });
 
-    const load = state.view === "ingress_chains"
-      ? api.stats.chains(params)
-      : api.stats.requests(params);
+    // A signed chain cursor only advances one query scope. Keep the small
+    // client-side predecessor map for the previous-page control, but discard
+    // it whenever filters, sorting, or the view changes.
+    if (
+      state.view !== "ingress_chains" ||
+      chainSignatureRef.current !== signature
+    ) {
+      chainCursorHistoryRef.current.clear();
+      chainPageStartRef.current.clear();
+      chainSignatureRef.current =
+        state.view === "ingress_chains" ? signature : null;
+    }
+
+    const load =
+      state.view === "ingress_chains"
+        ? api.stats.chains(params)
+        : api.stats.requests(params);
 
     load
       .then((res) => {
         if (id !== fetchIdRef.current) return;
         if (state.view === "ingress_chains") {
           const chain = res as unknown as ChainResponse;
+          const currentCursor = state.chain_cursor || "";
+          const currentPageStart = currentCursor
+            ? (chainPageStartRef.current.get(currentCursor) ?? null)
+            : 0;
+          if (chain.next_chain_cursor) {
+            chainCursorHistoryRef.current.set(
+              chain.next_chain_cursor,
+              currentCursor,
+            );
+            if (currentPageStart !== null) {
+              chainPageStartRef.current.set(
+                chain.next_chain_cursor,
+                currentPageStart + chain.page_ingress_count,
+              );
+            }
+          }
           setItems(flattenChainItems(chain));
-          setChains((current) => state.chain_cursor ? [...current, ...chain.items] : chain.items);
+          // Outer chain pages replace one another. Only the nested row cursor
+          // loads append, and only within their own ingress chain.
+          setChains(chain.items);
           setTotal(chain.retained_ingress_total);
           setNextChainCursor(chain.next_chain_cursor);
           setHasMoreChains(chain.has_more_chains);
@@ -262,11 +349,7 @@ const [totalIsExact, setTotalIsExact] = useState(true);
             chain_cursor: undefined,
             row_cursor: undefined,
           };
-          setChainPageCounts((current) => state.chain_cursor ? {
-            ingress: current.ingress + chain.page_ingress_count,
-            attempts: current.attempts + chain.page_upstream_attempt_count,
-            rows: current.rows + chain.page_request_log_row_count,
-          } : {
+          setChainPageCounts({
             ingress: chain.page_ingress_count,
             attempts: chain.page_upstream_attempt_count,
             rows: chain.page_request_log_row_count,
@@ -333,7 +416,10 @@ const [totalIsExact, setTotalIsExact] = useState(true);
           setLastLoadedAt(null);
         }
         setFailure({
-          message: err instanceof Error ? err.message : messages.requestLogs.loadFailed,
+          message:
+            err instanceof Error
+              ? err.message
+              : messages.requestLogs.loadFailed,
           stale,
         });
       })
@@ -402,51 +488,81 @@ const [totalIsExact, setTotalIsExact] = useState(true);
     fetchData();
   }, [enabled, fetchData]);
 
-  const loadMoreChainRows = useCallback(async (ingressRequestId: string, rowCursor: string) => {
-    const baseParams = chainQueryParamsRef.current;
-    const normalizedIngress = ingressRequestId.trim();
-    const normalizedCursor = rowCursor.trim();
-    if (!enabled || !baseParams || !normalizedIngress || !normalizedCursor) return;
+  const loadMoreChainRows = useCallback(
+    async (ingressRequestId: string, rowCursor: string) => {
+      const baseParams = chainQueryParamsRef.current;
+      const normalizedIngress = ingressRequestId.trim();
+      const normalizedCursor = rowCursor.trim();
+      if (!enabled || !baseParams || !normalizedIngress || !normalizedCursor)
+        return;
 
-    const loadKey = `${normalizedIngress}:${normalizedCursor}`;
-    if (rowLoadsInFlightRef.current.has(loadKey)) return;
-    rowLoadsInFlightRef.current.add(loadKey);
-    const querySignature = loadedSignatureRef.current;
-    setFailure(null);
+      const loadKey = `${normalizedIngress}:${normalizedCursor}`;
+      if (rowLoadsInFlightRef.current.has(loadKey)) return;
+      rowLoadsInFlightRef.current.add(loadKey);
+      const querySignature = loadedSignatureRef.current;
+      setFailure(null);
 
-    try {
-      const response = await api.stats.chains({
-        ...baseParams,
-        view: "ingress_chains",
-        ingress_request_id: normalizedIngress,
-        chain_limit: 1,
-        chain_cursor: undefined,
-        row_cursor: normalizedCursor,
-      });
-      if (loadedSignatureRef.current !== querySignature) return;
+      try {
+        const response = await api.stats.chains({
+          ...baseParams,
+          view: "ingress_chains",
+          ingress_request_id: normalizedIngress,
+          chain_limit: 1,
+          chain_cursor: undefined,
+          row_cursor: normalizedCursor,
+        });
+        if (loadedSignatureRef.current !== querySignature) return;
 
-      const page = response.items.find((item) => item.ingress_request_id === normalizedIngress);
-      if (!page || (!page.retained_rows_page_complete && page.next_row_cursor === normalizedCursor)) {
-        throw new Error(messages.requestLogs.loadFailed);
+        const page = response.items.find(
+          (item) => item.ingress_request_id === normalizedIngress,
+        );
+        if (
+          !page ||
+          (!page.retained_rows_page_complete &&
+            page.next_row_cursor === normalizedCursor)
+        ) {
+          throw new Error(messages.requestLogs.loadFailed);
+        }
+
+        setChains((current) =>
+          current.map((chain) =>
+            chain.ingress_request_id === normalizedIngress
+              ? mergeChainRowPage(chain, page)
+              : chain,
+          ),
+        );
+        setItems((current) =>
+          appendUniqueRequestItems(current, flattenChainItems(response)),
+        );
+        setLastLoadedAt(new Date().toISOString());
+      } catch (err) {
+        if (loadedSignatureRef.current !== querySignature) return;
+        setFailure({
+          message:
+            err instanceof Error
+              ? err.message
+              : messages.requestLogs.loadFailed,
+          stale: true,
+        });
+      } finally {
+        rowLoadsInFlightRef.current.delete(loadKey);
       }
-
-      setChains((current) => current.map((chain) => (
-        chain.ingress_request_id === normalizedIngress ? mergeChainRowPage(chain, page) : chain
-      )));
-      setItems((current) => appendUniqueRequestItems(current, flattenChainItems(response)));
-      setLastLoadedAt(new Date().toISOString());
-    } catch (err) {
-      if (loadedSignatureRef.current !== querySignature) return;
-      setFailure({
-        message: err instanceof Error ? err.message : messages.requestLogs.loadFailed,
-        stale: true,
-      });
-    } finally {
-      rowLoadsInFlightRef.current.delete(loadKey);
-    }
-  }, [enabled, messages.requestLogs.loadFailed]);
+    },
+    [enabled, messages.requestLogs.loadFailed],
+  );
 
   const filterOptionsLoaded = endpointOptionsLoaded;
+  const currentChainCursor = state.chain_cursor || "";
+  const previousChainCursor =
+    enabled && state.view === "ingress_chains" && currentChainCursor
+      ? (chainCursorHistoryRef.current.get(currentChainCursor) ?? "")
+      : null;
+  const chainPageStart =
+    enabled && state.view === "ingress_chains"
+      ? currentChainCursor
+        ? (chainPageStartRef.current.get(currentChainCursor) ?? null)
+        : 0
+      : null;
 
   return {
     items: enabled ? items : [],
@@ -454,16 +570,20 @@ const [totalIsExact, setTotalIsExact] = useState(true);
     totalIsExact: enabled ? totalIsExact : true,
     hasMoreRows: enabled ? hasMoreRows : false,
     loading: enabled ? loading : false,
-    error: enabled ? failure?.message ?? null : null,
+    error: enabled ? (failure?.message ?? null) : null,
     /** The read failed but the rows on screen are the last successful ones. */
-    stale: enabled ? failure?.stale ?? false : false,
+    stale: enabled ? (failure?.stale ?? false) : false,
     lastLoadedAt: enabled ? lastLoadedAt : null,
     filterOptions: enabled ? filterOptions : EMPTY_FILTER_OPTIONS,
     filterOptionsLoaded: enabled ? filterOptionsLoaded : false,
     nextChainCursor: enabled ? nextChainCursor : null,
+    previousChainCursor,
+    chainPageStart,
     hasMoreChains: enabled ? hasMoreChains : false,
     chains: enabled ? chains : [],
-    chainPageCounts: enabled ? chainPageCounts : { ingress: 0, attempts: 0, rows: 0 },
+    chainPageCounts: enabled
+      ? chainPageCounts
+      : { ingress: 0, attempts: 0, rows: 0 },
     coverage: enabled ? coverage : null,
     refresh,
     loadMoreChainRows,

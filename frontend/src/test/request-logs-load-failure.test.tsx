@@ -18,11 +18,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { ApiError } from "@/lib/api/core";
-import type { QueryCoverage, RequestLogListItem, RequestLogListResponse } from "@/lib/types";
-import type { ChainResponse, RequestLogRowV2 } from "@/lib/types/request-logs-v2";
+import type {
+  QueryCoverage,
+  RequestLogListItem,
+  RequestLogListResponse,
+} from "@/lib/types";
+import type {
+  ChainResponse,
+  RequestLogRowV2,
+} from "@/lib/types/request-logs-v2";
 import { RequestLogsPage } from "@/pages/RequestLogsPage";
 
-const listRequests = vi.fn<(params?: unknown) => Promise<RequestLogListResponse>>();
+const listRequests =
+  vi.fn<(params?: unknown) => Promise<RequestLogListResponse>>();
 const listChains = vi.fn<(params?: unknown) => Promise<unknown>>();
 const requestDetail = vi.fn<(requestId: string) => Promise<never>>();
 
@@ -31,9 +39,11 @@ vi.mock("@/lib/api", () => ({
     stats: {
       requests: (params?: unknown) => listRequests(params),
       chains: (params?: unknown) => listChains(params),
-      proxyApiKeyFilterOptions: () => Promise.resolve({ items: [], selected: null }),
+      proxyApiKeyFilterOptions: () =>
+        Promise.resolve({ items: [], selected: null }),
       requestDetail: (requestId: string) => requestDetail(requestId),
-      exportCsv: () => Promise.reject(new Error("export is not exercised here")),
+      exportCsv: () =>
+        Promise.reject(new Error("export is not exercised here")),
     },
     settings: {
       costing: { get: () => Promise.resolve({ timezone_preference: "UTC" }) },
@@ -71,7 +81,12 @@ function listResponse(items: RequestLogListItem[]): RequestLogListResponse {
     has_more: false,
     limit: 50,
     offset: 0,
-    filter_options: { endpoints: [], models: [], clients: [], resolved_target_models: [] },
+    filter_options: {
+      endpoints: [],
+      models: [],
+      clients: [],
+      resolved_target_models: [],
+    },
     coverage: coverage(),
   };
 }
@@ -132,7 +147,10 @@ function row(requestLogId: string): RequestLogListItem {
   };
 }
 
-function chainRow(requestLogId: string, attemptNumber: number): RequestLogRowV2 {
+function chainRow(
+  requestLogId: string,
+  attemptNumber: number,
+): RequestLogRowV2 {
   return {
     request_log_id: requestLogId,
     row_kind: "upstream",
@@ -172,7 +190,11 @@ function chainRow(requestLogId: string, attemptNumber: number): RequestLogRowV2 
   };
 }
 
-function chainResponse(row: RequestLogRowV2, pageComplete: boolean, nextRowCursor: string | null): ChainResponse {
+function chainResponse(
+  row: RequestLogRowV2,
+  pageComplete: boolean,
+  nextRowCursor: string | null,
+): ChainResponse {
   return {
     view: "ingress_chains",
     query_context: null,
@@ -184,33 +206,61 @@ function chainResponse(row: RequestLogRowV2, pageComplete: boolean, nextRowCurso
     page_ingress_count: 1,
     page_upstream_attempt_count: 2,
     page_request_log_row_count: 2,
-    items: [{
-      ingress_request_id: "ingress-row-pages",
-      started_at: null,
-      completed_at: null,
-      elapsed_ms: null,
-      elapsed_evidence_state: "unavailable",
-      finalized_evidence_state: "unavailable",
-      finalized_summary: null,
-      expected_attempt_count: null,
-      expected_request_log_row_count: null,
-      retained_upstream_attempt_count: 2,
-      retained_request_log_row_count: 2,
-      legacy_unknown_row_count: 0,
-      chain_complete: null,
-      same_target_retry_occurred: false,
-      hedge_occurred: false,
-      failover_occurred: true,
-      routing_evidence_complete: null,
-      retained_rows_loaded_count: 1,
-      retained_rows_page_complete: pageComplete,
-      retained_row_count: 2,
-      matched_row_count: 0,
-      next_row_cursor: nextRowCursor,
-      retained_rows: [row],
-    }],
+    items: [
+      {
+        ingress_request_id: "ingress-row-pages",
+        started_at: null,
+        completed_at: null,
+        elapsed_ms: null,
+        elapsed_evidence_state: "unavailable",
+        finalized_evidence_state: "unavailable",
+        finalized_summary: null,
+        expected_attempt_count: null,
+        expected_request_log_row_count: null,
+        retained_upstream_attempt_count: 2,
+        retained_request_log_row_count: 2,
+        legacy_unknown_row_count: 0,
+        chain_complete: null,
+        same_target_retry_occurred: false,
+        hedge_occurred: false,
+        failover_occurred: true,
+        routing_evidence_complete: null,
+        retained_rows_loaded_count: 1,
+        retained_rows_page_complete: pageComplete,
+        retained_row_count: 2,
+        matched_row_count: 0,
+        next_row_cursor: nextRowCursor,
+        retained_rows: [row],
+      },
+    ],
     has_more_chains: false,
     next_chain_cursor: null,
+  };
+}
+
+function outerChainResponse(
+  ingressRequestId: string,
+  requestLogId: string,
+  retainedIngressTotal: number,
+  nextChainCursor: string | null,
+): ChainResponse {
+  const response = chainResponse(chainRow(requestLogId, 1), true, null);
+  const item = response.items[0];
+  return {
+    ...response,
+    retained_ingress_total: retainedIngressTotal,
+    has_more_chains: nextChainCursor !== null,
+    next_chain_cursor: nextChainCursor,
+    items: [
+      {
+        ...item,
+        ingress_request_id: ingressRequestId,
+        retained_rows: item.retained_rows.map((row) => ({
+          ...row,
+          ingress_request_id: ingressRequestId,
+        })),
+      },
+    ],
   };
 }
 
@@ -223,9 +273,13 @@ function renderRequestLogsPage(search = "?view=attempts") {
   });
   const router = createRouter({
     routeTree: rootRoute.addChildren([requestsRoute]),
-    history: createMemoryHistory({ initialEntries: [`/observe/requests${search}`] }),
+    history: createMemoryHistory({
+      initialEntries: [`/observe/requests${search}`],
+    }),
   });
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
 
   return render(
     <QueryClientProvider client={queryClient}>
@@ -251,15 +305,23 @@ describe("request-log list read failure", () => {
 
     renderRequestLogsPage();
 
-    const failure = await screen.findByTestId("request-logs-load-error", undefined, { timeout: 3000 });
+    const failure = await screen.findByTestId(
+      "request-logs-load-error",
+      undefined,
+      { timeout: 3000 },
+    );
     expect(failure).toHaveTextContent(messages.loadFailed);
     expect(failure).toHaveTextContent(honesty.readFailedDescription);
 
     // The four situations must stay distinguishable: nothing here may claim a
     // real zero or a real empty result set.
     expect(screen.queryByTestId("request-logs-table")).not.toBeInTheDocument();
-    expect(screen.queryByText(messages.noRequestLogsMatchSlice)).not.toBeInTheDocument();
-    expect(screen.queryByText(messages.totalRowsSummary("0"))).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(messages.noRequestLogsMatchSlice),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(messages.totalRowsSummary("0")),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText(messages.zeroResults)).not.toBeInTheDocument();
   });
 
@@ -270,11 +332,19 @@ describe("request-log list read failure", () => {
 
     renderRequestLogsPage();
 
-    await screen.findByTestId("request-logs-load-error", undefined, { timeout: 3000 });
-    await user.click(screen.getByRole("button", { name: getStaticMessages().common.retry }));
+    await screen.findByTestId("request-logs-load-error", undefined, {
+      timeout: 3000,
+    });
+    await user.click(
+      screen.getByRole("button", { name: getStaticMessages().common.retry }),
+    );
 
-    expect(await screen.findByTestId("request-log-row-101")).toBeInTheDocument();
-    expect(screen.queryByTestId("request-logs-load-error")).not.toBeInTheDocument();
+    expect(
+      await screen.findByTestId("request-log-row-101"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("request-logs-load-error"),
+    ).not.toBeInTheDocument();
   });
 
   it("states no chain counts when the landing view's read fails", async () => {
@@ -282,10 +352,16 @@ describe("request-log list read failure", () => {
 
     renderRequestLogsPage("?view=ingress_chains");
 
-    await screen.findByTestId("request-logs-load-error", undefined, { timeout: 3000 });
-    expect(screen.queryByTestId("ingress-chains-table")).not.toBeInTheDocument();
+    await screen.findByTestId("request-logs-load-error", undefined, {
+      timeout: 3000,
+    });
+    expect(
+      screen.queryByTestId("ingress-chains-table"),
+    ).not.toBeInTheDocument();
     expect(screen.queryByTestId("chain-page-counts")).not.toBeInTheDocument();
-    expect(screen.queryByText(messages.chainCounts("0", "0", "0"))).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(messages.chainCounts("0", "0", "0")),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText(messages.chainEmpty)).not.toBeInTheDocument();
   });
 
@@ -294,9 +370,17 @@ describe("request-log list read failure", () => {
 
     renderRequestLogsPage();
 
-    expect(await screen.findByText(messages.noRequestLogsMatchSlice, undefined, { timeout: 3000 })).toBeInTheDocument();
-    expect(screen.getByText(messages.totalRowsSummary("0"))).toBeInTheDocument();
-    expect(screen.queryByTestId("request-logs-load-error")).not.toBeInTheDocument();
+    expect(
+      await screen.findByText(messages.noRequestLogsMatchSlice, undefined, {
+        timeout: 3000,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(messages.totalRowsSummary("0")),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("request-logs-load-error"),
+    ).not.toBeInTheDocument();
   });
 
   it("labels a failed refresh as stale instead of repainting the retained rows as fresh", async () => {
@@ -306,13 +390,26 @@ describe("request-log list read failure", () => {
 
     renderRequestLogsPage();
 
-    await screen.findByTestId("request-log-row-101", undefined, { timeout: 3000 });
-    await user.click(screen.getByRole("button", { name: messages.refreshRequestLogs }));
+    await screen.findByTestId("request-log-row-101", undefined, {
+      timeout: 3000,
+    });
+    await user.click(
+      screen.getByRole("button", { name: messages.refreshRequestLogs }),
+    );
 
-    await waitFor(() => expect(screen.getByTestId("request-logs-stale-badge")).toBeInTheDocument());
-    expect(screen.getByTestId("request-logs-stale-badge")).toHaveAttribute("title", "请求失败");
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("request-logs-stale-badge"),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("request-logs-stale-badge")).toHaveAttribute(
+      "title",
+      "请求失败",
+    );
     expect(screen.getByTestId("request-log-row-101")).toBeInTheDocument();
-    expect(screen.queryByTestId("request-logs-load-error")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("request-logs-load-error"),
+    ).not.toBeInTheDocument();
   });
 
   it("loads the next signed row page and preserves BIGINT request ids", async () => {
@@ -320,13 +417,21 @@ describe("request-log list read failure", () => {
     const firstId = "9007199254740995";
     const secondId = "9007199254740997";
     listChains
-      .mockResolvedValueOnce(chainResponse(chainRow(firstId, 1), false, "signed-row-cursor"))
+      .mockResolvedValueOnce(
+        chainResponse(chainRow(firstId, 1), false, "signed-row-cursor"),
+      )
       .mockResolvedValueOnce(chainResponse(chainRow(secondId, 2), true, null));
 
     renderRequestLogsPage("?view=ingress_chains");
 
-    await screen.findByTestId("chain-summary-ingress-row-pages", undefined, { timeout: 3000 });
-    await user.click(screen.getByRole("button", { name: messages.chainToggleAria("ingress-row-pages") }));
+    await screen.findByTestId("chain-summary-ingress-row-pages", undefined, {
+      timeout: 3000,
+    });
+    await user.click(
+      screen.getByRole("button", {
+        name: messages.chainToggleAria("ingress-row-pages"),
+      }),
+    );
     expect(screen.getByTestId(`chain-row-${firstId}`)).toBeInTheDocument();
 
     await user.click(screen.getByTestId("chain-rows-more-ingress-row-pages"));
@@ -340,11 +445,65 @@ describe("request-log list read failure", () => {
       chain_cursor: undefined,
     });
     expect(screen.getByTestId(`chain-row-${firstId}`)).toBeInTheDocument();
-    expect(await screen.findByTestId(`chain-row-${secondId}`)).toBeInTheDocument();
-    expect(screen.queryByTestId("chain-rows-more-ingress-row-pages")).not.toBeInTheDocument();
+    expect(
+      await screen.findByTestId(`chain-row-${secondId}`),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("chain-rows-more-ingress-row-pages"),
+    ).not.toBeInTheDocument();
 
     await user.click(screen.getByTestId(`chain-row-${secondId}`));
     await waitFor(() => expect(requestDetail).toHaveBeenCalledWith(secondId));
     expect(listChains).toHaveBeenCalledTimes(2);
+  });
+
+  it("replaces the outer chain page instead of appending it", async () => {
+    const user = userEvent.setup();
+    listChains
+      .mockResolvedValueOnce(
+        outerChainResponse("ingress-first", "101", 2, "signed-chain-cursor"),
+      )
+      .mockResolvedValueOnce(
+        outerChainResponse("ingress-second", "102", 2, null),
+      )
+      .mockResolvedValueOnce(
+        outerChainResponse("ingress-first", "101", 2, "signed-chain-cursor"),
+      );
+
+    renderRequestLogsPage("?view=ingress_chains");
+
+    await screen.findByTestId("chain-summary-ingress-first", undefined, {
+      timeout: 3000,
+    });
+    await user.click(screen.getByTestId("chain-more"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("chain-summary-ingress-second"),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByTestId("chain-summary-ingress-first"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("chain-previous")).toBeEnabled();
+    expect(screen.getByTestId("chain-page-range")).toHaveTextContent("2-2 / 2");
+    expect(listChains.mock.calls[1]?.[0]).toMatchObject({
+      view: "ingress_chains",
+      chain_cursor: "signed-chain-cursor",
+    });
+
+    await user.click(screen.getByTestId("chain-previous"));
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("chain-summary-ingress-first"),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByTestId("chain-summary-ingress-second"),
+    ).not.toBeInTheDocument();
+    expect(listChains.mock.calls[2]?.[0]).toMatchObject({
+      view: "ingress_chains",
+      chain_cursor: undefined,
+    });
   });
 });
