@@ -1,9 +1,11 @@
 # BACKEND PLATFORM KNOWLEDGE BASE
 
 ## OVERVIEW
+
 `backend/internal/platform/` owns backend process infrastructure beneath `cmd/prism-backend`: config loading, startup runtime snapshots, lifecycle assembly, HTTP server wiring, migrations and startup seeding, DB lane ownership, scheduler-backed work, partitioned log retention, side-effect dispatch, CORS, and version metadata.
 
 ## STRUCTURE
+
 ```text
 platform/
 ├── admission/               # Admission budgets and protected lane policy
@@ -29,6 +31,7 @@ platform/
 ```
 
 ## WHERE TO LOOK
+
 - Production dependency graph, service registration, runtime cache bootstrap, scheduler start, and shutdown order: `lifecycle/production.go`, `lifecycle/app.go`
 - Router mounting, middleware, `/health`, `/api`, `/v1`, `/v1beta`, and startup config runtime snapshots: `http/AGENTS.md`, `http/server.go`, `http/management_branch.go`, `http/runtime_branch.go`, `http/dependencies.go`, `http/startup_config_runtime.go`
 - Shared body-size limits used by management/runtime HTTP: `bodylimits/`, `http/management_body_limits.go`
@@ -37,11 +40,12 @@ platform/
 - Startup migration and seed flow: `startup/AGENTS.md`, `startup/`, `migrate/`, `../../migrations/`
 - DB lane budgets and pool handles: `db/`
 - Partitioned log retention, daily partition horizon, retention deletes, and low-priority maintenance worker: `logretention/`, `managementjobs/jobs.go`
-- Retention v2 planning/execution, separate policy/fence generations, manual purge fence and final publish, legacy drain, and global job DTOs: `managementjobs/jobs_v2.go`
+- Retention planning/execution, separate policy/fence generations, manual purge fence and final publish, legacy drain, and global job DTOs: `managementjobs/jobs.go`, `managementjobs/retention_planning.go`, `managementjobs/retention_execute.go`, `managementjobs/retention_legacy.go`, `managementjobs/retention_api.go`, `managementjobs/retention_dto.go`
 - Shared retention source projection (per-dataset cutoff/floor/epoch/purge state): `../../internal/domain/stats/retention_source.go`
 - Background worker contracts and side-effect stores: `background/`, `managementsideeffects/`, `managementjobs/`
 
 ## CONVENTIONS
+
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 
 - For ordinary removal-only validation here, prefer manual confirmation over adding dedicated “proves not” tests unless the missing surface is itself a shipped contract or guardrail.
@@ -63,9 +67,11 @@ platform/
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
 ## LLM UPSTREAM MATRIX
+
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
 
 ## ANTI-PATTERNS
+
 - Do not put provider sends, cache invalidations, or dashboard publishes inline on request paths.
 - Do not treat external bootstrap file edits as watched or hot-published state.
 - Do not run log cleanup, partition drops, or horizon creation outside `logretention/` and the scheduler/job ownership seams.

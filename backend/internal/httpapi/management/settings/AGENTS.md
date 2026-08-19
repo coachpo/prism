@@ -1,15 +1,17 @@
 # BACKEND MANAGEMENT SETTINGS KNOWLEDGE BASE
 
 ## OVERVIEW
+
 `management/settings/` owns Prism's management settings routes: instance-scope global log-retention (policy CAS, destructive preflight, sealed manual jobs, owner-drift archive), Default-profile costing + timezone (one CAS, reporting-currency epoch contract), API-family audit three-state policy + storage summary, and the flat settings problem envelope.
 
 ## STRUCTURE
+
 ```text
 settings/
 ├── routes.go                         # Settings route dispatch
 ├── service.go                        # Settings service lifecycle
 ├── problems.go                       # Settings problem registry
-├── types_v2.go                       # Settings v2 wire types
+├── settings_contracts.go                       # Retention, preflight, audit, and settings wire contracts
 ├── types.go                          # Settings wire types
 ├── retention_service.go              # Retention service type
 ├── retention_row.go                  # Retention persistence rows
@@ -48,14 +50,15 @@ settings/
 ```
 
 ## WHERE TO LOOK
+
 - Retention policy classification and persistence: `retention_policy_classifier.go`, `retention_row.go`, `retention_policy_resource.go`
 - Retention settings reads and projections: `retention_settings_projection.go`, `retention_owner_snapshot.go`, `settings_read_savepoint.go`
 - Retention policy routes and destructive preflight: `retention_policy_routes.go`, `retention_preflight.go`, `retention_cutoff_format.go`
 - Retention impact analysis: `retention_impact_estimate.go`, `retention_impact_preview.go`
-- Retention owner drift and manual jobs: `retention_owner_drift.go`, `retention_manual_job.go`, `../../../platform/managementjobs/jobs_v2.go`
+- Retention owner drift and manual jobs: `retention_owner_drift.go`, `retention_manual_job.go`, `../../../platform/managementjobs/jobs.go`, `../../../platform/managementjobs/retention_legacy.go`, `../../../platform/managementjobs/retention_api.go`
 - Retention source projections: `../../../domain/stats/retention_source.go` (single owner)
-- Auth settings v2: `../auth/settings_v2.go` (immutable config versions, readiness, acknowledgements)
-- Costing/timezone: `routes.go`, `store.go`, `types_v2.go`
+- Auth settings: `../auth/auth_settings_mutation.go` (immutable config versions, readiness, acknowledgements)
+- Costing/timezone: `routes.go`, `store.go`, `types.go`
 - Settings operation identity and conflicts: `settings_request_identity.go`, `settings_operations.go`, `settings_conflict_errors.go`, `problems.go`
 - Currency migration wire types and routes: `currency_migration_drafts.go`, `currency_migration_draft_routes.go`, `currency_migration_commit_routes.go`
 - Currency migration persistence and preview: `currency_migration_draft_store.go`, `currency_migration_preview.go`, `currency_migration_cutover.go`
@@ -65,6 +68,7 @@ settings/
 - Frontend settings consumers: `../../../../../frontend/src/pages/settings/`
 
 ## CONVENTIONS
+
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep costing, timezone, and API-family audit settings pinned to Default profile id `1`; `X-Profile-Id` may be accepted but is ignored. Keep storage `profile_id` columns untouched.
 - Keep `/api/settings/audit` as exactly three rows (`openai`, `anthropic`, `gemini`) using the three-state `disabled|metadata_only|body_capture` mode union with full replacement PUT semantics; body capture requires audit enabled.
@@ -73,14 +77,16 @@ settings/
 - Fresh installs keep all four retention fields `NULL`; existing values and legacy rows are classified without silent clamping or cleanup. `actual_coverage` is consumed from the Observe owner materialization cut, including source revision, coverage revision/hash, generation/fence, freshness, and gaps.
 - Auth enablement consumes the Proxy owner's counted readiness snapshot and 30-second safe-active horizon; key writes and affected Requests/Audit writers share the DB admission/fence lane before changing or reading the transition proof.
 - Log retention: every destructive change (enable `null -> N`, shorten, one-time cleanup) requires a fresh server preflight token plus keyword confirmation; manual job acceptance only seals a durable queued intent (202 / replay), never revokes coverage; final publish advances the domain revocation epoch/floor.
-- Keep log-retention settings global and trigger cleanup through the v2 management-jobs executor instead of request-path deletes.
+- Keep log-retention settings global and trigger cleanup through the management-jobs executor instead of request-path deletes.
 - Keep startup bootstrap config ownership separate; this package does not edit startup files.
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs.
 
 ## LLM UPSTREAM MATRIX
+
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
 
 ## ANTI-PATTERNS
+
 - Do not treat global log-retention settings as profile-scoped state.
 - Do not run partition cleanup or retention deletes inline in these handlers, and do not accept a manual job without a sealed preflight token.
 - Do not recompute a retention floor from policy days or `MIN(created_at)`; consume `LoadRetentionSourceProjection` from the stats domain.

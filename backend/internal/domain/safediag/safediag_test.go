@@ -1,6 +1,7 @@
 package safediag
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 )
@@ -90,9 +91,12 @@ func TestScrubValueCredentials(t *testing.T) {
 }
 
 func TestScrubValueJWT(t *testing.T) {
-	jwt := "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256"}`))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"1234567890"}`))
+	signature := base64.RawURLEncoding.EncodeToString([]byte("synthetic-signature"))
+	jwt := strings.Join([]string{header, payload, signature}, ".")
 	result := ScrubValue("token="+jwt, ScrubOptions{})
-	if strings.Contains(result.Value, "eyJhbGci") {
+	if strings.Contains(result.Value, header) {
 		t.Errorf("JWT fragment not redacted: %q", result.Value)
 	}
 	if !result.Redacted {

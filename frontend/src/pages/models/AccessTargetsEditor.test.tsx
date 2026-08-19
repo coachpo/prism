@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
@@ -30,7 +36,12 @@ const modelTarget: ModelAccessTarget = {
   updated_at: "2026-08-08T00:00:00Z",
 };
 
-function createTerminalTarget(rowId: number, connectionId: number, position: number, enabled = true): ModelAccessTarget {
+function createTerminalTarget(
+  rowId: number,
+  connectionId: number,
+  position: number,
+  enabled = true,
+): ModelAccessTarget {
   return {
     id: rowId,
     target_type: "connection",
@@ -62,7 +73,7 @@ function createConnection(id: number, name: string): Connection {
       name: `endpoint-${id}`,
       base_url: `https://upstream-${id}.example`,
       has_api_key: true,
-      api_key_fingerprint: "fp_v1_ab12cd34ef56",
+      api_key_fingerprint: "test-fingerprint-ab12cd34ef56",
       api_key_updated_at: "2026-08-08T00:00:00Z",
       config_revision: 1,
       created_at: "2026-08-08T00:00:00Z",
@@ -133,7 +144,9 @@ const modelOptions: ModelConfigListItem[] = [
   },
 ];
 
-function renderEditor(props: Partial<Parameters<typeof AccessTargetsEditor>[0]> = {}) {
+function renderEditor(
+  props: Partial<Parameters<typeof AccessTargetsEditor>[0]> = {},
+) {
   const handlers = {
     onAddTarget: vi.fn(),
     onCreateConnection: vi.fn(),
@@ -149,7 +162,10 @@ function renderEditor(props: Partial<Parameters<typeof AccessTargetsEditor>[0]> 
           apiFamilyLabel="openai"
           accessTargets={[terminalA, modelTarget, terminalB]}
           modelOptions={modelOptions}
-          connectionOptions={[createConnection(901, "Terminal A"), createConnection(902, "Terminal B")]}
+          connectionOptions={[
+            createConnection(901, "Terminal A"),
+            createConnection(902, "Terminal B"),
+          ]}
           {...handlers}
           {...props}
         />
@@ -187,11 +203,11 @@ describe("AccessTargetsEditor mixed ordering", () => {
     // Nothing is written until the operator commits: dragging must not fire a
     // request per hop.
     expect(handlers.onMoveTarget).not.toHaveBeenCalled();
-    expect(screen.getAllByTestId(/^access-target-\d+$/).map((row) => row.getAttribute("data-testid"))).toEqual([
-      "access-target-502",
-      "access-target-501",
-      "access-target-503",
-    ]);
+    expect(
+      screen
+        .getAllByTestId(/^access-target-\d+$/)
+        .map((row) => row.getAttribute("data-testid")),
+    ).toEqual(["access-target-502", "access-target-501", "access-target-503"]);
 
     await user.click(screen.getByRole("button", { name: "保存顺序" }));
     await waitFor(() => {
@@ -207,45 +223,71 @@ describe("AccessTargetsEditor mixed ordering", () => {
     fireEvent.click(screen.getByRole("button", { name: "撤销改动" }));
 
     expect(handlers.onMoveTarget).not.toHaveBeenCalled();
-    expect(screen.getAllByTestId(/^access-target-\d+$/).map((row) => row.getAttribute("data-testid"))).toEqual([
-      "access-target-502",
-      "access-target-503",
-      "access-target-501",
-    ]);
+    expect(
+      screen
+        .getAllByTestId(/^access-target-\d+$/)
+        .map((row) => row.getAttribute("data-testid")),
+    ).toEqual(["access-target-502", "access-target-503", "access-target-501"]);
   });
 
   it("toggles and deletes by target row id while connection edit passes the connection id", async () => {
     const user = userEvent.setup();
     const { handlers } = renderEditor();
-    await user.click(within(screen.getByTestId("access-target-502")).getByRole("switch"));
+    await user.click(
+      within(screen.getByTestId("access-target-502")).getByRole("switch"),
+    );
     expect(handlers.onToggleTarget).toHaveBeenCalledExactlyOnceWith(502, false);
 
-    await user.click(within(screen.getByTestId("access-target-503")).getByRole("button", { name: /更多操作/ }));
-    await user.click(await screen.findByRole("menuitem", { name: /移除目标 2/ }));
+    await user.click(
+      within(screen.getByTestId("access-target-503")).getByRole("button", {
+        name: /更多操作/,
+      }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: /移除目标 2/ }),
+    );
     expect(handlers.onDeleteTarget).toHaveBeenCalledExactlyOnceWith(503);
 
-    await user.click(within(screen.getByTestId("access-target-502")).getByRole("button", { name: /编辑 Terminal A/ }));
-    expect(handlers.onEditConnection).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: 901 }));
+    await user.click(
+      within(screen.getByTestId("access-target-502")).getByRole("button", {
+        name: /编辑 Terminal A/,
+      }),
+    );
+    expect(handlers.onEditConnection).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ id: 901 }),
+    );
   });
 
   it("keeps a read-only terminal row in the list but without connection-scoped actions", () => {
-    renderEditor({ isConnectionTargetMutable: (connectionId) => connectionId !== 901 });
+    renderEditor({
+      isConnectionTargetMutable: (connectionId) => connectionId !== 901,
+    });
     const firstRow = screen.getByTestId("access-target-502");
 
     expect(within(firstRow).queryByRole("switch")).toBeNull();
     expect(within(firstRow).queryByRole("button", { name: /编辑/ })).toBeNull();
-    expect(within(firstRow).queryByRole("button", { name: /更多操作/ })).toBeNull();
+    expect(
+      within(firstRow).queryByRole("button", { name: /更多操作/ }),
+    ).toBeNull();
     // It keeps its ordering affordance and its enabled state stays legible.
-    expect(within(firstRow).getByRole("button", { name: /拖动以调整目标/ })).toBeTruthy();
+    expect(
+      within(firstRow).getByRole("button", { name: /拖动以调整目标/ }),
+    ).toBeTruthy();
     expect(within(firstRow).getByText("已启用")).toBeTruthy();
 
     // The second terminal row stays fully editable.
-    expect(within(screen.getByTestId("access-target-503")).getByRole("switch")).toBeEnabled();
+    expect(
+      within(screen.getByTestId("access-target-503")).getByRole("switch"),
+    ).toBeEnabled();
   });
 
   it("keeps disabled rows in their authored position with their state legible", () => {
     renderEditor({
-      accessTargets: [createTerminalTarget(502, 901, 0, false), modelTarget, terminalB],
+      accessTargets: [
+        createTerminalTarget(502, 901, 0, false),
+        modelTarget,
+        terminalB,
+      ],
     });
     const rows = screen.getAllByTestId(/^access-target-\d+$/);
     expect(rows.map((row) => row.getAttribute("data-testid"))).toEqual([
@@ -282,7 +324,9 @@ describe("AccessTargetsEditor capability column keeps absence distinguishable", 
       const user = userEvent.setup();
       renderEditor({ accessTargets: [terminalA] });
 
-      await user.hover(screen.getByRole("button", { name: copy.targetColumnCapabilityBasis }));
+      await user.hover(
+        screen.getByRole("button", { name: copy.targetColumnCapabilityBasis }),
+      );
 
       const tooltip = await screen.findByRole("tooltip");
       expect(tooltip.textContent).toContain(copy.targetColumnCapabilityBasis);
@@ -297,21 +341,31 @@ describe("AccessTargetsEditor capability column keeps absence distinguishable", 
       // Terminal B's connection is withheld: it is not in this model's
       // same-family option set, which is not the same as "declares nothing".
       connectionOptions: [
-        { ...createConnection(901, "Terminal A"), openai_text_capability: null, openai_image_capability: null },
+        {
+          ...createConnection(901, "Terminal A"),
+          openai_text_capability: null,
+          openai_image_capability: null,
+        },
       ],
     });
 
     // A Model Target does not declare a capability of its own.
     expect(
-      within(screen.getByTestId("access-target-501")).getByText(copy.targetCapabilityNotApplicableModel),
+      within(screen.getByTestId("access-target-501")).getByText(
+        copy.targetCapabilityNotApplicableModel,
+      ),
     ).toBeTruthy();
     // A Terminal Target that declares neither text nor image capability.
     expect(
-      within(screen.getByTestId("access-target-502")).getByText(copy.targetCapabilityUnknown),
+      within(screen.getByTestId("access-target-502")).getByText(
+        copy.targetCapabilityUnknown,
+      ),
     ).toBeTruthy();
     // A Terminal Target whose connection could not be resolved in this scope.
     expect(
-      within(screen.getByTestId("access-target-503")).getAllByText(copy.targetConnectionOutOfScope).length,
+      within(screen.getByTestId("access-target-503")).getAllByText(
+        copy.targetConnectionOutOfScope,
+      ).length,
     ).toBeGreaterThan(0);
   });
 
@@ -328,7 +382,9 @@ describe("AccessTargetsEditor capability column keeps absence distinguishable", 
     });
 
     const row = screen.getByTestId("access-target-502");
-    expect(within(row).getByText(copy.openaiImageOperationsGenerationsAndEdits)).toBeTruthy();
+    expect(
+      within(row).getByText(copy.openaiImageOperationsGenerationsAndEdits),
+    ).toBeTruthy();
     expect(within(row).queryByText(copy.targetCapabilityUnknown)).toBeNull();
   });
 
@@ -347,7 +403,9 @@ describe("AccessTargetsEditor capability column keeps absence distinguishable", 
     });
 
     expect(
-      within(screen.getByTestId("access-target-502")).getByText(/不使用 OpenAI 能力矩阵/),
+      within(screen.getByTestId("access-target-502")).getByText(
+        /不使用 OpenAI 能力矩阵/,
+      ),
     ).toBeTruthy();
   });
 });
@@ -358,12 +416,17 @@ describe("AccessTargetsEditor runtime column keeps absence distinguishable", () 
   it("shows a read failure as a failure, not as an unobserved target", () => {
     renderEditor({
       accessTargets: [terminalA],
-      currentStateFailure: { message: "upstream unreachable", staleData: false },
+      currentStateFailure: {
+        message: "upstream unreachable",
+        staleData: false,
+      },
     });
 
     const row = screen.getByTestId("access-target-502");
     expect(within(row).getByText(routingCopy.runtimeReadFailed)).toBeTruthy();
-    expect(within(row).queryByText(routingCopy.noRuntimeObservation)).toBeNull();
+    expect(
+      within(row).queryByText(routingCopy.noRuntimeObservation),
+    ).toBeNull();
   });
 
   it("separates a partially observed row from a never-observed one", () => {
@@ -385,10 +448,14 @@ describe("AccessTargetsEditor runtime column keeps absence distinguishable", () 
     });
 
     expect(
-      within(screen.getByTestId("access-target-502")).getByText(new RegExp(routingCopy.runtimePartialObservation)),
+      within(screen.getByTestId("access-target-502")).getByText(
+        new RegExp(routingCopy.runtimePartialObservation),
+      ),
     ).toBeTruthy();
     expect(
-      within(screen.getByTestId("access-target-503")).getByText(routingCopy.noRuntimeObservation),
+      within(screen.getByTestId("access-target-503")).getByText(
+        routingCopy.noRuntimeObservation,
+      ),
     ).toBeTruthy();
   });
 
@@ -409,8 +476,12 @@ describe("AccessTargetsEditor runtime column keeps absence distinguishable", () 
     const row = screen.getByTestId("access-target-502");
     // The read model requires an enabled access-target edge, so this row is out
     // of scope for observation rather than never observed.
-    expect(within(row).getByText(routingCopy.runtimeOutOfCohortReason)).toBeTruthy();
-    expect(within(row).queryByText(routingCopy.noRuntimeObservation)).toBeNull();
+    expect(
+      within(row).getByText(routingCopy.runtimeOutOfCohortReason),
+    ).toBeTruthy();
+    expect(
+      within(row).queryByText(routingCopy.noRuntimeObservation),
+    ).toBeNull();
   });
 
   it("does not report an uncounted in-flight gauge as a measured zero", () => {
@@ -438,7 +509,9 @@ describe("AccessTargetsEditor runtime column keeps absence distinguishable", () 
 
   it("never presents per-type first labels or partition copy", () => {
     const modelsUi = zhCNMessages.modelsUi;
-    expect(modelsUi.accessTargetsDescription).not.toMatch(/模型目标阶段|终端目标阶段/);
+    expect(modelsUi.accessTargetsDescription).not.toMatch(
+      /模型目标阶段|终端目标阶段/,
+    );
     expect(modelsUi.accessTargetsDescription).toMatch(/混合列表/);
   });
 });

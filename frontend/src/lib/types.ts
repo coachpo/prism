@@ -2,6 +2,7 @@ export * from "./types/vendor";
 export * from "./types/target-compatibility";
 export * from "./types/routing";
 export * from "./types/model-stats";
+export * from "./types/request-logs";
 export * from "./types/usage-statistics";
 export * from "./types/config-audit-settings";
 export * from "./types/auth";

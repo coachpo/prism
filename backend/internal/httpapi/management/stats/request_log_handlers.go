@@ -148,7 +148,7 @@ func (s *Service) handleGetRequestLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type detailResult struct {
-		response *statsdomain.RequestLogDetailResponseV2
+		response *statsdomain.RequestLogDetailResponse
 		found    bool
 	}
 	result, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (detailResult, error) {
@@ -156,7 +156,7 @@ func (s *Service) handleGetRequestLog(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return detailResult{}, err
 		}
-		response, found, err := statsdomain.GetRequestLogDetailV2(r.Context(), tx, profile.ID, requestLogID)
+		response, found, err := statsdomain.GetRequestLogDetail(r.Context(), tx, profile.ID, requestLogID)
 		if err != nil {
 			return detailResult{}, err
 		}

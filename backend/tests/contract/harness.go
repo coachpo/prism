@@ -461,7 +461,7 @@ func (h *contractHarness) ensureOpenAIAcceptedFormat(t *testing.T, method string
 	}
 }
 
-func putAuthSettingsV2(t *testing.T, harness *contractHarness, desiredEnabled bool, accountChange map[string]any, acknowledgements map[string]any) *http.Response {
+func putAuthSettings(t *testing.T, harness *contractHarness, desiredEnabled bool, accountChange map[string]any, acknowledgements map[string]any) *http.Response {
 	t.Helper()
 	getResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/auth", nil, nil)
 	assertStatus(t, getResponse, http.StatusOK)

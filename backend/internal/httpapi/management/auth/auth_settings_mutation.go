@@ -19,7 +19,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 )
 
-// v2 auth settings contract (Settings SPEC §8): immutable staged config
+// Auth settings contract (Settings SPEC §8): immutable staged config
 // versions, desired/effective pointers, Proxy-owned key readiness with a
 // single counted_at instant and the fixed 30-second activation safety
 // horizon, three conditional acknowledgements and durable operation recovery.
@@ -31,8 +31,8 @@ const (
 	authMaxPasswordLength               = 512
 )
 
-// putAuthSettingsRequestV2 mirrors the target PUT body (SPEC §8.2).
-type putAuthSettingsRequestV2 struct {
+// putAuthSettingsRequest mirrors the target PUT body (SPEC §8.2).
+type putAuthSettingsRequest struct {
 	OperationID                         string  `json:"operation_id"`
 	ExpectedRevision                    string  `json:"expected_revision"`
 	ExpectedProxyKeyReadinessGeneration *string `json:"expected_proxy_key_readiness_generation"`
@@ -49,7 +49,7 @@ type putAuthSettingsRequestV2 struct {
 	} `json:"acknowledgements"`
 }
 
-type authOperationResultV2 struct {
+type authOperationResult struct {
 	OperationID         string `json:"operation_id"`
 	State               string `json:"state"`
 	DesiredGeneration   string `json:"desired_generation"`
@@ -59,12 +59,12 @@ type authOperationResultV2 struct {
 		Code              string `json:"code"`
 		RetryAfterSeconds *int   `json:"retry_after_seconds"`
 	} `json:"safe_error"`
-	ReadinessConflict *authReadinessConflictResultV2 `json:"readiness_conflict"`
-	SessionAction     string                         `json:"session_action"`
-	Settings          map[string]any                 `json:"settings"`
+	ReadinessConflict *authReadinessConflictResult `json:"readiness_conflict"`
+	SessionAction     string                       `json:"session_action"`
+	Settings          map[string]any               `json:"settings"`
 }
 
-type authReadinessConflictResultV2 struct {
+type authReadinessConflictResult struct {
 	Code                     string               `json:"code"`
 	CurrentProxyKeyReadiness proxyKeyReadinessDTO `json:"current_proxy_key_readiness"`
 	RequiredAcknowledgements []string             `json:"required_acknowledgements"`
@@ -74,13 +74,13 @@ type authReadinessConflictResultV2 struct {
 type authReadinessConflictError struct {
 	*domainError
 	OperationID string
-	Request     putAuthSettingsRequestV2
+	Request     putAuthSettingsRequest
 	Readiness   proxyKeyReadinessSnapshot
 }
 
 func (err *authReadinessConflictError) Unwrap() error { return err.domainError }
 
-type authPutSettingsResponseV2 struct {
+type authPutSettingsResponse struct {
 	OperationID        string         `json:"operation_id"`
 	Replayed           bool           `json:"replayed"`
 	EffectState        string         `json:"effect_state"`
@@ -89,28 +89,28 @@ type authPutSettingsResponseV2 struct {
 	OperationStatusURL string         `json:"operation_status_url"`
 }
 
-// handlePutAuthSettingsV2: PUT /api/settings/auth (target contract). One
+// handlePutAuthSettings: PUT /api/settings/auth (target contract). One
 // transaction stages the immutable config version, rechecks Proxy readiness,
 // validates acknowledgements and atomically flips the effective pointer with
 // a final clock_timestamp() guard. The legacy credential columns are kept as
 // a transitional mirror so existing login/session consumers stay consistent;
 // the explicit finalizer removes them only after every consumer uses the
 // pointer.
-func (s *Service) handlePutAuthSettingsV2(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handlePutAuthSettings(w http.ResponseWriter, r *http.Request) {
 	setNoStoreHeaders(w)
-	var request putAuthSettingsRequestV2
+	var request putAuthSettingsRequest
 	if err := decodeStrictJSONBody(r, &request); err != nil {
-		writeAuthSettingsV2Problem(w, r, s.corsSnapshot(), http.StatusBadRequest, "validation_failed", "Invalid request body", map[string]any{"violations": []any{}})
+		writeAuthSettingsProblem(w, r, s.corsSnapshot(), http.StatusBadRequest, "validation_failed", "Invalid request body", map[string]any{"violations": []any{}})
 		return
 	}
 	if strings.TrimSpace(request.OperationID) == "" {
-		writeAuthSettingsV2Problem(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, "validation_failed", "operation_id is required", map[string]any{
+		writeAuthSettingsProblem(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, "validation_failed", "operation_id is required", map[string]any{
 			"violations": []map[string]any{{"path": "operation_id", "reason": "required"}},
 		})
 		return
 	}
 
-	var result authOperationResultV2
+	var result authOperationResult
 	replayed := false
 	activationCtx, cancel := context.WithTimeout(r.Context(), authActivationCommitDeadlineSeconds*time.Second)
 	defer cancel()
@@ -162,7 +162,7 @@ func (s *Service) handlePutAuthSettingsV2(w http.ResponseWriter, r *http.Request
 			return err
 		}
 
-		row, err := s.loadAuthSettingsV2(txCtx, tx, true)
+		row, err := s.readAuthSettings(txCtx, tx, true)
 		if err != nil {
 			return err
 		}
@@ -439,14 +439,14 @@ func (s *Service) handlePutAuthSettingsV2(w http.ResponseWriter, r *http.Request
 		effectiveRow.TransitionOperationID = nil
 		effectiveRow.TransitionKind = nil
 		effectiveRow.TransitionState = nil
-		settingsResponse := buildAuthSettingsResponseV2FromState(effectiveRow, &config, readiness, false)
+		settingsResponse := buildAuthSettingsResponseFromState(effectiveRow, &config, readiness, false)
 		sessionAction := "none"
 		if enabling || (accountUpdate && row.LegacyAuthEnabled) {
 			sessionAction = "clear_and_login"
 		} else if disabling && row.LegacyAuthEnabled {
 			sessionAction = "clear_and_continue"
 		}
-		result = authOperationResultV2{
+		result = authOperationResult{
 			OperationID:         request.OperationID,
 			State:               "effective",
 			DesiredGeneration:   newGeneration,
@@ -540,7 +540,7 @@ func (s *Service) handlePutAuthSettingsV2(w http.ResponseWriter, r *http.Request
 				// the outcome record itself could not be committed. The safe
 				// fallback is a bounded unavailable response; the caller may
 				// re-read and submit a new operation identity.
-				writeAuthSettingsV2Problem(w, r, s.corsSnapshot(), http.StatusServiceUnavailable, "auth_settings_unavailable", "Failed to record authentication readiness outcome", map[string]any{
+				writeAuthSettingsProblem(w, r, s.corsSnapshot(), http.StatusServiceUnavailable, "auth_settings_unavailable", "Failed to record authentication readiness outcome", map[string]any{
 					"recovery":            "retry",
 					"retry_after_seconds": 5,
 				})
@@ -555,7 +555,7 @@ func (s *Service) handlePutAuthSettingsV2(w http.ResponseWriter, r *http.Request
 			writeDomainError(w, r, s.corsSnapshot(), err)
 		} else {
 			slog.Error("authentication settings mutation failed", "error", err)
-			writeAuthSettingsV2Problem(w, r, s.corsSnapshot(), http.StatusInternalServerError, "auth_settings_unavailable", "Failed to apply authentication settings", nil)
+			writeAuthSettingsProblem(w, r, s.corsSnapshot(), http.StatusInternalServerError, "auth_settings_unavailable", "Failed to apply authentication settings", nil)
 		}
 		return
 	}
@@ -571,7 +571,7 @@ func (s *Service) handlePutAuthSettingsV2(w http.ResponseWriter, r *http.Request
 		// session and makes replay behavior deterministic.
 		s.clearAuthCookies(w, s.runtimeAuthConfigSnapshot())
 	}
-	responseutil.WriteJSON(w, http.StatusOK, authPutSettingsResponseV2{
+	responseutil.WriteJSON(w, http.StatusOK, authPutSettingsResponse{
 		OperationID:        result.OperationID,
 		Replayed:           replayed,
 		EffectState:        result.State,
@@ -593,7 +593,7 @@ func (s *Service) recordAuthReadinessConflict(ctx context.Context, conflict *aut
 		if err := lockProxyKeyReadiness(ctx, tx); err != nil {
 			return err
 		}
-		row, err := s.loadAuthSettingsV2(ctx, tx, true)
+		row, err := s.readAuthSettings(ctx, tx, true)
 		if err != nil {
 			return err
 		}
@@ -626,7 +626,7 @@ func (s *Service) recordAuthReadinessConflict(ctx context.Context, conflict *aut
 				return err
 			}
 		}
-		settingsResponse, err := s.buildAuthSettingsResponseV2(ctx, tx)
+		settingsResponse, err := s.buildAuthSettingsResponse(ctx, tx)
 		if err != nil {
 			return err
 		}
@@ -638,7 +638,7 @@ func (s *Service) recordAuthReadinessConflict(ctx context.Context, conflict *aut
 		if row.EffectiveGeneration != nil {
 			effectiveGeneration = *row.EffectiveGeneration
 		}
-		result := authOperationResultV2{
+		result := authOperationResult{
 			OperationID:         conflict.OperationID,
 			State:               "rolled_back",
 			DesiredGeneration:   desiredGeneration,
@@ -648,7 +648,7 @@ func (s *Service) recordAuthReadinessConflict(ctx context.Context, conflict *aut
 				Code              string `json:"code"`
 				RetryAfterSeconds *int   `json:"retry_after_seconds"`
 			}{Code: conflict.domainError.Code, RetryAfterSeconds: nil},
-			ReadinessConflict: &authReadinessConflictResultV2{
+			ReadinessConflict: &authReadinessConflictResult{
 				Code:                     conflict.domainError.Code,
 				CurrentProxyKeyReadiness: readinessDTO(conflict.Readiness),
 				RequiredAcknowledgements: []string{"enable_without_active_proxy_keys"},
@@ -685,7 +685,7 @@ func readinessConflictProblem(readiness proxyKeyReadinessSnapshot, code string, 
 	}
 }
 
-func canonicalAuthRequestHash(request putAuthSettingsRequestV2) string {
+func canonicalAuthRequestHash(request putAuthSettingsRequest) string {
 	account := request.AccountChange.Kind
 	username := ""
 	if request.AccountChange.Username != nil {

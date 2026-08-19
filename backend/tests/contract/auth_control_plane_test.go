@@ -279,7 +279,7 @@ func TestAuthDisableInvalidatesCurrentSession(t *testing.T) {
 	harness := newContractHarness(t)
 	loginWithVerifiedAuth(t, harness, "disable-admin", "disable-password-123", "disable@example.com")
 
-	disableResponse := putAuthSettingsV2(t, harness, false, map[string]any{"kind": "preserve"}, map[string]any{"disable_to_permissive_access": true})
+	disableResponse := putAuthSettings(t, harness, false, map[string]any{"kind": "preserve"}, map[string]any{"disable_to_permissive_access": true})
 	assertStatus(t, disableResponse, http.StatusOK)
 	if cookieValue(t, harness.client, harness.url, "prism_access_token") != "" {
 		t.Fatal("expected access cookie to be cleared after disabling auth")
@@ -303,7 +303,7 @@ func TestAuthUsernameChangeInvalidatesCurrentSession(t *testing.T) {
 	harness := newContractHarness(t)
 	loginWithVerifiedAuth(t, harness, "rename-admin", "rename-password-123", "rename@example.com")
 
-	updateResponse := putAuthSettingsV2(t, harness, true, map[string]any{"kind": "update", "username": "rename-admin-v2", "new_password": nil}, map[string]any{"invalidate_operator_sessions": true})
+	updateResponse := putAuthSettings(t, harness, true, map[string]any{"kind": "update", "username": "rename-admin-v2", "new_password": nil}, map[string]any{"invalidate_operator_sessions": true})
 	assertStatus(t, updateResponse, http.StatusOK)
 	if cookieValue(t, harness.client, harness.url, "prism_access_token") != "" {
 		t.Fatal("expected access cookie to be cleared after username change")
@@ -817,7 +817,7 @@ func TestAuthRefreshThreeStateMatrix(t *testing.T) {
 	// A second mutation cannot be used as an implicit recovery path. The
 	// existing transition remains the only operation identity until its
 	// publisher/rollback worker proves a terminal state.
-	recovery := putAuthSettingsV2(t, harness, true, map[string]any{"kind": "preserve"}, nil)
+	recovery := putAuthSettings(t, harness, true, map[string]any{"kind": "preserve"}, nil)
 	assertAuthProblemResponse(t, recovery, http.StatusConflict, "auth_transition_in_progress")
 	clearAuthTransition(t, harness)
 	harness.service.InvalidateAppAuthSettingsSnapshot()

@@ -329,15 +329,15 @@ func canonicalAuditHash(request putAuditSettingsRequest) string {
 // handleGetAuditStorageSummary: bounded logical storage facts + owner
 // projections in one shared-fence RR snapshot (SPEC §9.4).
 func (s *Service) handleGetAuditStorageSummary(w http.ResponseWriter, r *http.Request) {
-	response, err := pgxutil.InRepeatableReadTxValue(r.Context(), s.pool, "settings audit storage summary", func(tx pgx.Tx) (map[string]any, error) {
+	response, err := pgxutil.InRepeatableReadTxValue(r.Context(), s.pool, "settings audit storage summary", func(tx pgx.Tx) (auditStorageSummary, error) {
 		now := s.now().UTC()
 		source, err := statsdomain.LoadRetentionSourceProjection(r.Context(), tx, "audit_logs", now)
 		if err != nil {
-			return nil, err
+			return auditStorageSummary{}, err
 		}
 		protection, err := auditdomain.LoadAuditFenceMaterializerProjection(r.Context(), tx, now)
 		if err != nil {
-			return nil, err
+			return auditStorageSummary{}, err
 		}
 		var factState struct {
 			CurrentGeneration *string
@@ -348,22 +348,17 @@ func (s *Service) handleGetAuditStorageSummary(w http.ResponseWriter, r *http.Re
 		if err := tx.QueryRow(r.Context(), `SELECT current_generation, facts_complete, last_fact_day, generated_at
 			FROM audit_storage_fact_state WHERE id = 1`).Scan(
 			&factState.CurrentGeneration, &factState.FactsComplete, &factState.LastFactDay, &factState.GeneratedAt); err != nil {
-			return nil, err
+			return auditStorageSummary{}, err
 		}
 
-		response := map[string]any{
-			"source_revision":             source.SourceRevision,
-			"generated_at":                now.Format(time.RFC3339),
-			"retention_source":            retentionSourceProjectionMap(source),
-			"audit_protection":            protection,
-			"retained_rows":               nil,
-			"logical_header_bytes":        nil,
-			"logical_body_bytes":          nil,
-			"last_7d_logical_bytes_added": nil,
-			"sampled_days":                0,
-			"daily_average_logical_bytes": nil,
-			"precision":                   "unavailable",
-			"freshness":                   "partial",
+		response := auditStorageSummary{
+			SourceRevision:  source.SourceRevision,
+			GeneratedAt:     now.Format(time.RFC3339),
+			RetentionSource: retentionSourceProjectionMap(source),
+			AuditProtection: protection,
+			SampledDays:     0,
+			Precision:       "unavailable",
+			Freshness:       "partial",
 		}
 
 		if factState.CurrentGeneration != nil && factState.FactsComplete {
@@ -372,14 +367,14 @@ func (s *Service) handleGetAuditStorageSummary(w http.ResponseWriter, r *http.Re
 			if err := tx.QueryRow(r.Context(), `SELECT COUNT(*), COALESCE(bool_or(observe_source_revision <> $2), FALSE)
 				FROM audit_storage_daily_facts WHERE storage_fact_generation = $1`,
 				*factState.CurrentGeneration, source.SourceRevision).Scan(&factCount, &factRevisionMismatch); err != nil {
-				return nil, err
+				return auditStorageSummary{}, err
 			}
 			if factCount == 0 || factRevisionMismatch {
 				reason := "facts_not_ready"
 				if factRevisionMismatch {
 					reason = "source_revision_mismatch"
 				}
-				response["storage_fact_evidence"] = map[string]any{"state": "unavailable", "reason_code": reason}
+				response.StorageFactEvidence = map[string]any{"state": "unavailable", "reason_code": reason}
 				return response, nil
 			}
 			var facts struct {
@@ -403,24 +398,24 @@ func (s *Service) handleGetAuditStorageSummary(w http.ResponseWriter, r *http.Re
 				total := fmt.Sprintf("%d", facts.TotalRows)
 				header := fmt.Sprintf("%d", facts.HeaderBytes)
 				body := fmt.Sprintf("%d", facts.BodyBytes)
-				response["retained_rows"] = &total
-				response["logical_header_bytes"] = &header
-				response["logical_body_bytes"] = &body
-				response["sampled_days"] = facts.DayCount
+				response.RetainedRows = &total
+				response.LogicalHeaderBytes = &header
+				response.LogicalBodyBytes = &body
+				response.SampledDays = facts.DayCount
 				if facts.SevenDayCount == 7 {
 					sevenDay := fmt.Sprintf("%d", facts.SevenDayBytes)
 					average := fmt.Sprintf("%d", facts.SevenDayBytes/7)
-					response["last_7d_logical_bytes_added"] = &sevenDay
-					response["daily_average_logical_bytes"] = &average
+					response.Last7dLogicalBytesAdded = &sevenDay
+					response.DailyAverageLogicalBytes = &average
 				}
-				response["precision"] = "exact"
-				response["freshness"] = "fresh"
-				response["storage_fact_evidence"] = map[string]any{"state": "bound", "generation": *factState.CurrentGeneration}
+				response.Precision = "exact"
+				response.Freshness = "fresh"
+				response.StorageFactEvidence = map[string]any{"state": "bound", "generation": *factState.CurrentGeneration}
 			} else {
-				response["storage_fact_evidence"] = map[string]any{"state": "unavailable", "reason_code": "bounded_read_unavailable"}
+				response.StorageFactEvidence = map[string]any{"state": "unavailable", "reason_code": "bounded_read_unavailable"}
 			}
 		} else {
-			response["storage_fact_evidence"] = map[string]any{"state": "unavailable", "reason_code": "facts_not_ready"}
+			response.StorageFactEvidence = map[string]any{"state": "unavailable", "reason_code": "facts_not_ready"}
 		}
 		return response, nil
 	})

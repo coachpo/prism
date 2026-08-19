@@ -83,7 +83,7 @@ func runMatrixRequest(t *testing.T, service *Service, headers map[string]string)
 
 func TestRuntimeMiddlewareDecisionMatrix(t *testing.T) {
 	validDecision := RuntimeProxyKeyDecision{Allowed: true, KeyID: 42, KeyName: "production-client"}
-	validKey := "pm-1234567890abcdef1234567890abcdef"
+	validKey := "pm-" + strings.Repeat("a", 32)
 
 	tests := []struct {
 		name         string

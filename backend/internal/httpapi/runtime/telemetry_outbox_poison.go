@@ -95,7 +95,7 @@ func poisonBackoffFor(attempt int) time.Duration {
 // It deliberately takes a context that is not the failed attempt's: during
 // shutdown that one may already be cancelled, and losing the accounting is how
 // a row becomes immortal.
-func (o *runtimeTelemetryOutbox) recordMaterializationFailure(ctx context.Context, row v2MetadataRow, cause error) error {
+func (o *runtimeTelemetryOutbox) recordMaterializationFailure(ctx context.Context, row outboxMetadataRow, cause error) error {
 	verdict := classifyMaterializationFailure(cause)
 
 	var attemptCount int

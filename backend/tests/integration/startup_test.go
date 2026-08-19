@@ -738,9 +738,9 @@ func assertObservedStepOrder(t *testing.T, steps []startup.Step) {
 	want := []startup.Step{
 		startup.StepMigrations,
 		startup.StepPricingSchemaTransitionCheck,
-		startup.StepObservabilityV2Upgrade,
+		startup.StepObservabilityUpgrade,
 		startup.StepOpenAITextModeCheck,
-		startup.StepSettingsV2Cutover,
+		startup.StepLegacyRetentionCutover,
 		startup.StepProfileInvariantSeed,
 		startup.StepProfileAuditSettingsSeed,
 		startup.StepStrategyDefaultSeed,

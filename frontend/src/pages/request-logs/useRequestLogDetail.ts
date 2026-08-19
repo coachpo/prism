@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { api } from "@/lib/api";
 import { ApiError } from "@/lib/api/core";
-import type { RequestLogDetailV2 } from "@/lib/types/request-logs-v2";
+import type { RequestLogDetail } from "@/lib/types/request-logs";
 
 interface UseRequestLogDetailParams {
   requestId: string | null;
@@ -11,7 +11,7 @@ interface UseRequestLogDetailParams {
 
 export function useRequestLogDetail({ requestId, enabled }: UseRequestLogDetailParams) {
   const messages = getStaticMessages();
-  const [request, setRequest] = useState<RequestLogDetailV2 | null>(null);
+  const [request, setRequest] = useState<RequestLogDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);

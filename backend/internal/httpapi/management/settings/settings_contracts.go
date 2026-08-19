@@ -9,11 +9,10 @@ import (
 	auditdomain "github.com/coachpo/prism/backend/internal/domain/audit"
 )
 
-// Target settings DTOs (Settings SPEC §3/§5/§6/§7/§8/§9). Counts/revisions
-// that may exceed JavaScript safe integer are decimal strings. `null`
-// retention means "no logical retention cutoff", never "permanent raw rows".
-
-type retentionPolicyDays = *int
+// Settings contracts for retention, preflight, and audit policy/storage flows
+// (Settings SPEC §3/§5/§6/§9). Counts/revisions that may exceed JavaScript
+// safe integer are decimal strings. `null` retention means "no logical
+// retention cutoff", never "permanent raw rows".
 
 type retentionPolicyReadValue struct {
 	State string `json:"state"` // "valid" | "repair_required"
@@ -223,6 +222,8 @@ type putLogRetentionSettingsResult struct {
 
 // ---- preflight (SPEC §6) ----
 
+// These request contracts remain named because the live preflight handlers
+// decode them as part of the destructive-retention boundary.
 type policyChangePreflightRequest struct {
 	Kind                     string            `json:"kind"`
 	OperationID              string            `json:"operation_id"`
@@ -397,136 +398,6 @@ type createManualRetentionJobRequest struct {
 	} `json:"confirmation"`
 }
 
-// ---- global retention jobs (SPEC §7) ----
-
-type retentionJobProgress struct {
-	AccountingProvenance            string   `json:"accounting_provenance"` // v2_exact | legacy_boundary_only
-	Stage                           string   `json:"stage"`
-	VisibilityState                 string   `json:"visibility_state"`
-	PurgeState                      string   `json:"purge_state"`
-	Protection                      any      `json:"protection"`
-	RowsMatchedEstimate             *string  `json:"rows_matched_estimate"`
-	RowsMatchedAccuracy             string   `json:"rows_matched_accuracy"`
-	BoundaryRowsDeleted             string   `json:"boundary_rows_deleted"`
-	BoundaryBatchesCompleted        string   `json:"boundary_batches_completed"`
-	DroppedPartitionCount           *string  `json:"dropped_partition_count"`
-	DroppedPartitionCountAccuracy   string   `json:"dropped_partition_count_accuracy"`
-	DroppedPartitionNamesPreview    []string `json:"dropped_partition_names_preview"`
-	DroppedPartitionNamesTotalCount *string  `json:"dropped_partition_names_total_count"`
-	DroppedPartitionNamesTruncated  bool     `json:"dropped_partition_names_truncated"`
-	DroppedRowsEstimate             *string  `json:"dropped_rows_estimate"`
-	DroppedRowsAccuracy             string   `json:"dropped_rows_accuracy"`
-	StagedItemsTombstoned           *string  `json:"staged_items_tombstoned"`
-	SensitiveArtifactBytesDeleted   *string  `json:"sensitive_artifact_bytes_deleted"`
-	LastCheckpointAt                *string  `json:"last_checkpoint_at"`
-}
-
-type globalRetentionJobSummary struct {
-	ID                        string               `json:"id"`
-	ContractVersion           int                  `json:"contract_version"`
-	Type                      string               `json:"type"`
-	JobScope                  string               `json:"job_scope"`
-	Origin                    string               `json:"origin"`
-	LegacyOriginProvenance    *string              `json:"legacy_origin_provenance"`
-	LegacyExecutionProvenance *string              `json:"legacy_execution_provenance"`
-	Dataset                   string               `json:"dataset"`
-	State                     string               `json:"state"`
-	TerminalDisposition       *string              `json:"terminal_disposition"`
-	LegacyOriginalState       *string              `json:"legacy_original_state"`
-	Mode                      string               `json:"mode"` // cutoff | delete_all
-	Cutoff                    *string              `json:"cutoff"`
-	PurgeToTime               *string              `json:"purge_to_time"`
-	PolicyRevision            *string              `json:"policy_revision"`
-	PreflightID               *string              `json:"preflight_id"`
-	OperationID               *string              `json:"operation_id"`
-	RequestedAt               string               `json:"requested_at"`
-	StartedAt                 *string              `json:"started_at"`
-	FinishedAt                *string              `json:"finished_at"`
-	LastHeartbeatAt           *string              `json:"last_heartbeat_at"`
-	AttemptCount              int                  `json:"attempt_count"`
-	CancelAllowed             bool                 `json:"cancel_allowed"`
-	Progress                  retentionJobProgress `json:"progress"`
-	Error                     *jobSafeError        `json:"error"`
-}
-
-type jobSafeError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
-
-type globalRetentionJobList struct {
-	Items       []globalRetentionJobSummary `json:"items"`
-	HasMore     bool                        `json:"has_more"`
-	NextCursor  *string                     `json:"next_cursor"`
-	GeneratedAt string                      `json:"generated_at"`
-}
-
-type retentionJobCheckpoint struct {
-	Sequence              string  `json:"sequence"`
-	RecordedAt            string  `json:"recorded_at"`
-	Stage                 string  `json:"stage"`
-	Kind                  string  `json:"kind"`
-	BoundaryRowsDelta     string  `json:"boundary_rows_delta"`
-	DroppedPartitionDelta string  `json:"dropped_partition_delta"`
-	SafeDetailCode        *string `json:"safe_detail_code"`
-}
-
-type retentionJobPartitionEvidence struct {
-	Sequence            string  `json:"sequence"`
-	PartitionName       string  `json:"partition_name"`
-	Action              string  `json:"action"`
-	EvidenceAt          string  `json:"evidence_at"`
-	BoundaryRowsDeleted string  `json:"boundary_rows_deleted"`
-	DroppedRowsEstimate *string `json:"dropped_rows_estimate"`
-	DroppedRowsAccuracy string  `json:"dropped_rows_accuracy"`
-}
-
-type retentionJobCheckpointPage struct {
-	Items       []retentionJobCheckpoint `json:"items"`
-	HasMore     bool                     `json:"has_more"`
-	NextCursor  *string                  `json:"next_cursor"`
-	GeneratedAt string                   `json:"generated_at"`
-}
-
-type retentionJobPartitionPage struct {
-	Items       []retentionJobPartitionEvidence `json:"items"`
-	HasMore     bool                            `json:"has_more"`
-	NextCursor  *string                         `json:"next_cursor"`
-	GeneratedAt string                          `json:"generated_at"`
-}
-
-type retentionJobTerminalResult struct {
-	Kind                 string        `json:"kind"` // succeeded | cancelled | failed | superseded
-	FinishedAt           string        `json:"finished_at"`
-	VisibilityState      *string       `json:"visibility_state,omitempty"`
-	PublishedEpoch       *string       `json:"published_epoch,omitempty"`
-	PublishedFloor       *string       `json:"published_floor,omitempty"`
-	AccountingProvenance string        `json:"accounting_provenance"`
-	CancellationScope    *string       `json:"cancellation_scope,omitempty"`
-	CoherentOutcome      *string       `json:"coherent_outcome,omitempty"`
-	SafeError            *jobSafeError `json:"safe_error,omitempty"`
-	Disposition          *string       `json:"disposition,omitempty"`
-	LegacyOriginalState  *string       `json:"legacy_original_state,omitempty"`
-	ReplacementJobID     *string       `json:"replacement_job_id,omitempty"`
-}
-
-type globalRetentionJobDetail struct {
-	Job            globalRetentionJobSummary   `json:"job"`
-	TerminalResult *retentionJobTerminalResult `json:"terminal_result"`
-	Checkpoints    retentionJobCheckpointPage  `json:"checkpoints"`
-	Partitions     retentionJobPartitionPage   `json:"partitions"`
-}
-
-type cancelRetentionJobRequest struct {
-	OperationID string `json:"operation_id"`
-}
-
-type cancelRetentionJobResponse struct {
-	OperationID string                    `json:"operation_id"`
-	Replayed    bool                      `json:"replayed"`
-	Job         globalRetentionJobSummary `json:"job"`
-}
-
 // ---- audit settings (SPEC §9) ----
 
 type auditPolicyRow struct {
@@ -569,91 +440,6 @@ type auditStorageSummary struct {
 	Freshness                string  `json:"freshness"`
 }
 
-// ---- auth settings (SPEC §8) ----
-
-type proxyKeyReadiness struct {
-	State               string  `json:"state"` // ready | unavailable
-	ReadinessGeneration string  `json:"readiness_generation,omitempty"`
-	CountedAt           string  `json:"counted_at,omitempty"`
-	Active              string  `json:"active,omitempty"`
-	Expired             string  `json:"expired,omitempty"`
-	Disabled            string  `json:"disabled,omitempty"`
-	ActivationGuard     *any    `json:"activation_guard,omitempty"`
-	ReasonCode          *string `json:"reason_code,omitempty"`
-	RetryAfterSeconds   *int    `json:"retry_after_seconds,omitempty"`
-	LastReadyGeneration *string `json:"last_ready_generation,omitempty"`
-}
-
-type authOperatorAccount struct {
-	State          string  `json:"state"` // unconfigured | ready | repair_required
-	Username       *string `json:"username"`
-	HasPassword    bool    `json:"has_password"`
-	SessionVersion string  `json:"session_version"`
-	UpdatedAt      *string `json:"updated_at"`
-}
-
-type authModeState struct {
-	Desired             string `json:"desired"`
-	Effective           string `json:"effective"`
-	AccessState         string `json:"access_state"`
-	DesiredGeneration   string `json:"desired_generation"`
-	EffectiveGeneration string `json:"effective_generation"`
-}
-
-type authSettingsResponse struct {
-	Revision        string        `json:"revision"`
-	AuthMode        authModeState `json:"auth_mode"`
-	OperatorAccount struct {
-		Effective authOperatorAccount  `json:"effective"`
-		Desired   *authOperatorAccount `json:"desired"`
-	} `json:"operator_account"`
-	Transition                  *any              `json:"transition"`
-	ProxyKeyReadiness           proxyKeyReadiness `json:"proxy_key_readiness"`
-	AttributionModeWhenDisabled string            `json:"attribution_mode_when_disabled"`
-	UpdatedAt                   string            `json:"updated_at"`
-}
-
-type putAuthSettingsRequest struct {
-	OperationID                         string  `json:"operation_id"`
-	ExpectedRevision                    string  `json:"expected_revision"`
-	ExpectedProxyKeyReadinessGeneration *string `json:"expected_proxy_key_readiness_generation"`
-	DesiredAuthEnabled                  bool    `json:"desired_auth_enabled"`
-	AccountChange                       struct {
-		Kind        string  `json:"kind"` // preserve | update
-		Username    *string `json:"username,omitempty"`
-		NewPassword *string `json:"new_password,omitempty"`
-	} `json:"account_change"`
-	Acknowledgements struct {
-		EnableWithoutActiveProxyKeys *bool `json:"enable_without_active_proxy_keys,omitempty"`
-		DisableToPermissiveAccess    *bool `json:"disable_to_permissive_access,omitempty"`
-		InvalidateOperatorSessions   *bool `json:"invalidate_operator_sessions,omitempty"`
-	} `json:"acknowledgements"`
-}
-
-type putAuthSettingsResponse struct {
-	OperationID        string               `json:"operation_id"`
-	Replayed           bool                 `json:"replayed"`
-	EffectState        string               `json:"effect_state"`
-	Settings           authSettingsResponse `json:"settings"`
-	SessionAction      string               `json:"session_action"` // none | clear_and_login | clear_and_continue
-	OperationStatusURL string               `json:"operation_status_url"`
-}
-
-type publicAuthOperationStatus struct {
-	State               string `json:"state"`
-	AccessState         string `json:"access_state"`
-	EffectiveGeneration string `json:"effective_generation"`
-	RetryAfterSeconds   *int   `json:"retry_after_seconds"`
-}
-
-type publicAuthStatus struct {
-	State               string  `json:"state"` // enabled | disabled | transition_fail_closed
-	TransitionState     *string `json:"transition_state"`
-	EffectiveGeneration string  `json:"effective_generation"`
-	LoginAvailable      bool    `json:"login_available"`
-	RetryAfterSeconds   *int    `json:"retry_after_seconds"`
-}
-
 // Canonical constants shared by handlers and golden tests.
 const (
 	retentionDatasetRequestLogs        = "request_logs"
@@ -678,13 +464,11 @@ func balancedV1Recommendation() retentionRecommendation {
 	return retentionRecommendation{
 		ID: "balanced-v1",
 		Policies: retentionPolicies{
-			RequestLogsRetentionDays:       intPtrValue(30),
-			AuditLogsRetentionDays:         intPtrValue(7),
-			StatisticsRetentionDays:        intPtrValue(90),
-			LoadbalanceEventsRetentionDays: intPtrValue(30),
+			RequestLogsRetentionDays:       intPtr(30),
+			AuditLogsRetentionDays:         intPtr(7),
+			StatisticsRetentionDays:        intPtr(90),
+			LoadbalanceEventsRetentionDays: intPtr(30),
 		},
 		RationaleCodes: []string{"investigation_window", "statistics_window", "audit_sensitivity", "storage_growth"},
 	}
 }
-
-func intPtrValue(value int) *int { return &value }

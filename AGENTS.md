@@ -2,9 +2,11 @@
 # PRISM REPO KNOWLEDGE BASE
 
 ## OVERVIEW
+
 Prism is a self-hosted LLM proxy gateway. The repo root owns the local launcher, release helper, CI wiring, durable docs, local run artifacts, and the checked-in `backend/` and `frontend/` trees.
 
 ## STRUCTURE
+
 ```text
 prism/
 ├── README.md, VERSION, CONTRIBUTING.md
@@ -19,6 +21,7 @@ prism/
 ```
 
 ## HIERARCHY
+
 - `backend/AGENTS.md`: Go runtime root, migrations, and regression boundaries.
 - `backend/internal/AGENTS.md`: backend source router for platform, domain, gateway, HTTP API, and small compatibility packages.
 - `backend/internal/platform/AGENTS.md`: process lifecycle, HTTP assembly, startup config runtime, DB lanes, scheduler, retention, side effects; `platform/startup/AGENTS.md` owns startup sequencing and seeds, `platform/config/AGENTS.md` the bootstrap contract, `platform/http/AGENTS.md` route mounting and admission, and `platform/managementjobs/AGENTS.md` the retention v2 job state.
@@ -35,8 +38,9 @@ prism/
 - `docs/AGENTS.md`: durable docs ownership and local artifact handoff rules.
 
 ## CODE MAP
+
 | Surface | Location | Role |
-|---|---|---|
+| --- | --- | --- |
 | Launcher | `start.sh` | Seeds/validates local bootstrap config, starts PostgreSQL/backend/Vite proxy. |
 | Backend entry | `backend/cmd/prism-backend/main.go` | Loads bootstrap config, telemetry, startup, and production app. |
 | Composition | `backend/internal/platform/lifecycle/production.go` | Wires services, pools, workers, shutdown hooks. |
@@ -49,6 +53,7 @@ prism/
 | Frontend API | `frontend/src/lib/api/core.ts` | Typed HTTP client and same-origin request plumbing. |
 
 ## SHARED FACTS
+
 - `start.sh` reads the root `.env`, supports `headless` and `full`, defaults `PRISM_CONFIG_PATH` to repo-local `config.json`, keeps frontend `5173` and PostgreSQL `15432`, and follows the selected bootstrap file's backend port; fresh seeds default that port to `8000`.
 - `start.sh` keeps a local launcher contract by using plaintext bootstrap ownership and the local PostgreSQL DSN, and in `full` mode keeping browser traffic same-origin by unsetting `VITE_API_BASE` and starting Vite with `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET` pointed at the effective backend port from the selected bootstrap file.
 - Local scratch plans and execution artifacts live under ignored `artifacts/`; run evidence uses `artifacts/evidence/`. `artifacts/tools/` is the one tracked exception: checked-in workflow-case tooling with its own tests, plus `artifacts/tools/gateway_chain/`, a live end-to-end suite that boots the real stack with `start.sh` and sends real upstream requests. It is deliberately outside CI because it spends real upstream quota; `backend/tests/` stays the hermetic regression surface.
@@ -72,6 +77,7 @@ prism/
 - `.github/workflows/cleanup.yml` handles cleanup only, pruning untagged single-image container versions.
 
 ## WHERE TO LOOK
+
 - Operator-facing launcher, release, and local bundle helpers: `README.md`, `start.sh`, `release.sh`, `docker-compose.yml`, `Dockerfile`, `docker/`, `frontend/.env.example`
 - Local scratch plans and retained execution evidence: `artifacts/plans/`, `artifacts/evidence/`
 - Backend/frontend version surfaces: `backend/VERSION`, `frontend/VERSION`, `frontend/package.json`
@@ -79,7 +85,7 @@ prism/
 - Runtime operation registry, hook residency, rejection semantics, and `operation_name` persistence: `backend/internal/httpapi/runtime/`, `backend/tests/runtime/`, `docs/architecture.md` (§14 API Reference, §15 Data Model Reference)
 - Startup bootstrap loading/parsing contract: `backend/internal/platform/config/`
 - Partitioned log retention: `backend/internal/platform/logretention/`, `backend/internal/httpapi/runtime/log_partitions.go`, `backend/migrations/000001_initial_schema.sql`
-- Pricing/observability v2 migrations 000008–000011: additive pricing-trust fields (000008) and requests/audit v2 columns plus outbox-v2 artifacts (000010), each closed by a fail-closed finalize guard (000009; 000011 requires drained v1 outbox + ready backfill domains); the startup owner (`backend/internal/platform/startup/observability_v2_upgrade.go`) runs v1 drain and three-domain backfill
+- Pricing/observability v2 migrations 000008–000011: additive pricing-trust fields (000008) and requests/audit v2 columns plus outbox-v2 artifacts (000010), each closed by a fail-closed finalize guard (000009; 000011 requires drained v1 outbox + ready backfill domains); the startup owner (`backend/internal/platform/startup/observability_upgrade.go`) runs v1 drain and three-domain backfill
 - Requests/Audit v2 read surfaces: scoped statuses (`upstream/gateway/legacy_status_code`), unified failure projection, retained ingress-chain view, server-side CSV export, and cost segments — all in `backend/internal/domain/stats/`, with the `safediag` safe-diagnostic bottom line in `backend/internal/domain/safediag/`
 - Runtime proxy planning, telemetry, request-log detail, final-target attribution, and partition ensuring: `backend/internal/httpapi/runtime/`, `backend/tests/runtime/`, `frontend/src/pages/request-logs/`
 - Model access-target authoring and removed exact-facade guards: `backend/internal/httpapi/management/models/`, `frontend/src/pages/models/`
@@ -92,6 +98,7 @@ prism/
 - Docs provenance, scratch-plan handoff, and live evidence routing: `docs/AGENTS.md`, `artifacts/plans/`, `artifacts/evidence/`
 
 ## COMMANDS
+
 ```bash
 ./start.sh headless
 ./start.sh full
@@ -107,6 +114,7 @@ cd frontend && pnpm run test:e2e
 ```
 
 ## CONVENTIONS
+
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep this file focused on repo-wide boundaries instead of repeating design-system rules.
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project has no external users and iterates continuously on the operator's own home-LAN instance, so preserve legacy shapes only when explicitly requested.
 - That convention governs code, API, and schema shape, not data. The running instance holds retained PostgreSQL history and a plaintext `config.json`, so a change that cannot carry existing data forward needs explicit authorization and a verified backup first; see `STATUS.md`.
@@ -125,9 +133,11 @@ cd frontend && pnpm run test:e2e
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
 ## LLM UPSTREAM MATRIX
+
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
 
 ## ANTI-PATTERNS
+
 - Do not describe `backend/` or `frontend/` as external repos, gitlinks, or separately released submodules. They are root-owned monorepo directories.
 - Do not invent CI jobs, extra compose files, unsupported routes, or unsupported providers.
 - Do not imply `start.sh full` sets a browser-visible backend base URL; it now keeps browser traffic same-origin through the local Vite proxy.
@@ -137,6 +147,7 @@ cd frontend && pnpm run test:e2e
 - Do not bypass partitioned log-retention ownership with direct cleanup or partition creation outside `backend/internal/platform/logretention/` and runtime partition ensuring.
 - Do not change backend container execution or bootstrap-path ownership contracts without updating Dockerfile contract tests and docs.
 - Do not strand upgrade guidance in transient run notes or compatibility layers when the live docs or owning AGENTS tree can state the target contract directly.
+- Do not use v1/v2 generation markers in hand-written source-file names or Go/TypeScript symbols as a shortcut for splitting implementations; follow the whole-set refactor rule in `docs/development-rules.md`.
 
 <!-- write-project-docs:document-navigation:start -->
 ## Project Documentation Navigation
@@ -150,8 +161,6 @@ Before starting related work, read the authoritative documents that cover the sc
 - [Development Rules](docs/development-rules.md)
 - [Source Code Size and Responsibility Rules](docs/source-code-size-and-responsibility-rules.md)
 - [Contributing Guide](CONTRIBUTING.md)
-
-When implementing, reviewing, or verifying an engineering change, use `STATUS.md` and the product overview for current facts and delivery intent, then read the [Current Iteration Strategy](CONTRIBUTING.md#current-iteration-strategy) when that derived section exists. Consume only the required-now items, non-negotiable boundaries, and re-derivation triggers relevant to the task; do not independently expand explicitly deferred or currently untriggered work. A new user requirement, active Goal, reachable risk, hard project rule or invariant, or evidence-backed review finding overrides a conflicting deferred description. The strategy does not expand user authorization, and the MVP Fast Validation switch neither defines nor overrides it; do not reuse a stale strategy after source facts or its digest change.
 
 ## Project Documentation Content Boundaries
 

@@ -3,7 +3,7 @@ import { getStaticMessages } from "@/i18n/staticMessages";
 import { api } from "@/lib/api";
 import { ApiError } from "@/lib/api/core";
 import type { AuditLogDetail, AuditLogListItem } from "@/lib/types";
-import type { RequestLogDetailV2 } from "@/lib/types/request-logs-v2";
+import type { RequestLogDetail } from "@/lib/types/request-logs";
 import { deriveRequestLogAuditWindow } from "./requestLogAuditWindow";
 import {
   resolveRequestAuditCaptureMode,
@@ -41,7 +41,7 @@ interface DedicatedRequestLogAuditState {
   loadKey: string | null;
   missingAuditLabel: string | null;
   nextCursor: string | null;
-  request: RequestLogDetailV2 | null;
+  request: RequestLogDetail | null;
   selectedAuditId: number | null;
   status: DedicatedRequestLogAuditStatus;
 }
@@ -119,7 +119,7 @@ export function useDedicatedRequestLogAudit({
 
     const isCurrent = () => activeLoadIdRef.current === loadId;
     const load = async () => {
-      let request: RequestLogDetailV2;
+      let request: RequestLogDetail;
 
       try {
         request = await api.stats.requestDetail(requestId);

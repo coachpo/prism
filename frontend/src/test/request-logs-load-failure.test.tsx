@@ -25,8 +25,8 @@ import type {
 } from "@/lib/types";
 import type {
   ChainResponse,
-  RequestLogRowV2,
-} from "@/lib/types/request-logs-v2";
+  RequestLogChainRow,
+} from "@/lib/types/request-logs";
 import { RequestLogsPage } from "@/pages/RequestLogsPage";
 
 const listRequests =
@@ -150,7 +150,7 @@ function row(requestLogId: string): RequestLogListItem {
 function chainRow(
   requestLogId: string,
   attemptNumber: number,
-): RequestLogRowV2 {
+): RequestLogChainRow {
   return {
     request_log_id: requestLogId,
     row_kind: "upstream",
@@ -182,7 +182,7 @@ function chainRow(
     terminal_target_configured: true,
     terminal_target_owner_model_id: "gpt-4o",
     total_tokens: 30,
-    total_cost_user_currency_micros: "1000",
+    total_cost_user_currency_micros: 1000,
     pricing_status: "priced",
     unpriced_reason: null,
     pricing_evidence_trust: "trusted",
@@ -191,7 +191,7 @@ function chainRow(
 }
 
 function chainResponse(
-  row: RequestLogRowV2,
+  row: RequestLogChainRow,
   pageComplete: boolean,
   nextRowCursor: string | null,
 ): ChainResponse {

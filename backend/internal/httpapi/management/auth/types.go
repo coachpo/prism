@@ -33,23 +33,6 @@ type loginRequest struct {
 	SessionDuration string `json:"session_duration"`
 }
 
-type authSettingsResponse struct {
-	AuthEnabled   bool    `json:"auth_enabled"`
-	Username      *string `json:"username"`
-	HasPassword   bool    `json:"has_password"`
-	ProxyKeyLimit int     `json:"proxy_key_limit"`
-}
-
-type authSettingsUpdateRequest struct {
-	AuthEnabled bool    `json:"auth_enabled"`
-	Username    *string `json:"username"`
-	Password    *string `json:"password"`
-	// OperationID is the optional browser-generated RFC 4122 UUID intent for
-	// this auth-control write. It is a lookup selector, not an authorization
-	// secret, and is never echoed by public status.
-	OperationID string `json:"operation_id,omitempty"`
-}
-
 type proxyAPIKeyResponse struct {
 	ID            int        `json:"id"`
 	Name          string     `json:"name"`

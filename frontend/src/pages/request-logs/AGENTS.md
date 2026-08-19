@@ -1,15 +1,17 @@
 # FRONTEND REQUEST LOGS DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
+
 `pages/request-logs/` owns the investigation flow for runtime traffic: retained browse filtering, exact-request focus mode, requested-model and final-target observability, request-time audit provenance, Default-profile spend rendering, stream telemetry, and detailed payload inspection. This parent also covers the local `detail/` cluster, while URL-state, exact-request behavior, and sheet-scoped clipboard fallback stay local here.
 
 ## STRUCTURE
+
 ```
 request-logs/
 ├── queryParams.ts               # URL-state contract for retained browse filters, view, sort, and pagination
 ├── useRequestLogPageState.ts    # Search-param orchestration and exact-request mode
 ├── useRequestLogsPageData.ts    # Server fetches, chain-view flattening, and retained filter-option bootstrap
-├── useRequestLogDetail.ts       # Exact-request v2 detail fetch, not-found handling, and refresh
+├── useRequestLogDetail.ts       # Exact-request detail fetch, not-found handling, and refresh
 ├── useRequestLogChain.ts        # Retained ingress chain fetch for the detail sheet
 ├── requestLogSavedViews.ts      # Versioned saved canonical views (localStorage)
 ├── requestLogColumnPreferences.ts # Versioned column-visibility preferences (localStorage)
@@ -47,6 +49,7 @@ request-logs/
 ```
 
 ## WHERE TO LOOK
+
 - Investigation flow and state, including URL-state and exact-request mode: `useRequestLogsPageData.ts`, `useRequestLogPageState.ts`
 - Route-shell copy, empty-state messaging, and locale-aware detail labels: `../RequestLogsPage.tsx`, `@/i18n/useLocale`, `@/i18n/AGENTS.md`
 - Retained browse-filter contract and defaults: `queryParams.ts`
@@ -60,6 +63,7 @@ request-logs/
 - Reporting-currency trust and spend display coupling: `../../context/ReportingCurrencyContext.tsx`, `../../lib/reportingCurrency.ts`, `detail/RequestLogOverviewTab.tsx`
 
 ## CONVENTIONS
+
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
 - Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 
@@ -92,9 +96,11 @@ request-logs/
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
 ## LLM UPSTREAM MATRIX
+
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
 
 ## ANTI-PATTERNS
+
 - Do not stale-claim that request logs are missing from the route map.
 - Do not duplicate filter parsing outside `queryParams.ts`.
 - Do not fetch audit payloads during normal table browsing or from the overview drawer.

@@ -304,14 +304,14 @@ func assertFinalizationGates(ctx context.Context, tx pgx.Tx) error {
 	if auditProvenanceMissing > 0 {
 		return fmt.Errorf("finalization gate: %d audit family row(s) missing provenance", auditProvenanceMissing)
 	}
-	// 6. Worker fence converged: no unclassified origin state on v2 rows.
-	var v2Unclassified int
+	// 6. Worker fence converged: no unclassified origin state on current rows.
+	var currentGenerationUnclassified int
 	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM management_jobs
-		WHERE type = 'log_retention' AND contract_version = 2 AND origin IS NULL`).Scan(&v2Unclassified); err != nil {
+		WHERE type = 'log_retention' AND contract_version = 2 AND origin IS NULL`).Scan(&currentGenerationUnclassified); err != nil {
 		return err
 	}
-	if v2Unclassified > 0 {
-		return fmt.Errorf("finalization gate: %d v2 job(s) lack origin", v2Unclassified)
+	if currentGenerationUnclassified > 0 {
+		return fmt.Errorf("finalization gate: %d current-generation job(s) lack origin", currentGenerationUnclassified)
 	}
 	return nil
 }

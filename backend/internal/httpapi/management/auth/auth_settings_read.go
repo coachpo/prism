@@ -27,7 +27,7 @@ type authConfigVersionRow struct {
 	UpdatedAt      time.Time
 }
 
-type authSettingsV2Row struct {
+type authSettingsReadRow struct {
 	ID                    int64
 	Revision              int64
 	DesiredConfigID       *int64
@@ -47,26 +47,26 @@ type authSettingsV2Row struct {
 	UpdatedAt             time.Time
 }
 
-func (s *Service) loadAuthSettingsV2(ctx context.Context, exec interface {
+func (s *Service) readAuthSettings(ctx context.Context, exec interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
-}, forUpdate bool) (authSettingsV2Row, error) {
+}, forUpdate bool) (authSettingsReadRow, error) {
 	// The transitional in-place credential columns exist only while the schema
 	// is additive; the finalizer drops them once every verifier consumes the
 	// pointer, so the row projection follows the schema.
 	var legacyColumnsExist bool
 	if err := exec.QueryRow(ctx, `SELECT COUNT(*) > 0 FROM information_schema.columns
 		WHERE table_schema = 'public' AND table_name = 'app_auth_settings' AND column_name = 'auth_enabled'`).Scan(&legacyColumnsExist); err != nil {
-		return authSettingsV2Row{}, err
+		return authSettingsReadRow{}, err
 	}
 	if legacyColumnsExist {
-		return s.loadAuthSettingsV2Legacy(ctx, exec, forUpdate)
+		return s.readAuthSettingsFromLegacyColumns(ctx, exec, forUpdate)
 	}
-	return s.loadAuthSettingsV2Pointer(ctx, exec, forUpdate)
+	return s.readAuthSettingsFromPointer(ctx, exec, forUpdate)
 }
 
-func (s *Service) loadAuthSettingsV2Pointer(ctx context.Context, exec interface {
+func (s *Service) readAuthSettingsFromPointer(ctx context.Context, exec interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
-}, forUpdate bool) (authSettingsV2Row, error) {
+}, forUpdate bool) (authSettingsReadRow, error) {
 	query := `SELECT a.id, a.auth_revision, a.desired_config_version_id, a.effective_config_version_id,
 		a.desired_generation, a.effective_generation, a.transition_operation_id, a.transition_kind, a.transition_state,
 		v.desired_mode, v.username, v.password_hash, v.session_version, a.updated_at
@@ -77,7 +77,7 @@ func (s *Service) loadAuthSettingsV2Pointer(ctx context.Context, exec interface 
 		query += ` FOR UPDATE OF a`
 	}
 	query += ` LIMIT 1`
-	var row authSettingsV2Row
+	var row authSettingsReadRow
 	var desiredID, effectiveID *int64
 	var desiredGen, effectiveGen, transitionOp, transitionKind, transitionState *string
 	var configMode, configUsername, configPasswordHash *string
@@ -85,7 +85,7 @@ func (s *Service) loadAuthSettingsV2Pointer(ctx context.Context, exec interface 
 	if err := exec.QueryRow(ctx, query).Scan(&row.ID, &row.Revision, &desiredID, &effectiveID,
 		&desiredGen, &effectiveGen, &transitionOp, &transitionKind, &transitionState,
 		&configMode, &configUsername, &configPasswordHash, &configSessionVersion, &row.UpdatedAt); err != nil {
-		return authSettingsV2Row{}, err
+		return authSettingsReadRow{}, err
 	}
 	row.DesiredConfigID = desiredID
 	row.EffectiveConfigID = effectiveID
@@ -113,7 +113,7 @@ func (s *Service) loadAuthSettingsV2Pointer(ctx context.Context, exec interface 
 		var desiredUsername, desiredPasswordHash *string
 		if err := exec.QueryRow(ctx, `SELECT desired_mode, username, password_hash
 			FROM auth_config_versions WHERE id = $1`, *desiredID).Scan(&desiredMode, &desiredUsername, &desiredPasswordHash); err != nil {
-			return authSettingsV2Row{}, err
+			return authSettingsReadRow{}, err
 		}
 		row.DesiredAuthEnabled = desiredMode == "enabled"
 		row.DesiredUsername = desiredUsername
@@ -122,9 +122,9 @@ func (s *Service) loadAuthSettingsV2Pointer(ctx context.Context, exec interface 
 	return row, nil
 }
 
-func (s *Service) loadAuthSettingsV2Legacy(ctx context.Context, exec interface {
+func (s *Service) readAuthSettingsFromLegacyColumns(ctx context.Context, exec interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
-}, forUpdate bool) (authSettingsV2Row, error) {
+}, forUpdate bool) (authSettingsReadRow, error) {
 	query := `SELECT id, auth_revision, desired_config_version_id, effective_config_version_id,
 		desired_generation, effective_generation, transition_operation_id, transition_kind, transition_state,
 		auth_enabled, username, password_hash, token_version, updated_at
@@ -133,7 +133,7 @@ func (s *Service) loadAuthSettingsV2Legacy(ctx context.Context, exec interface {
 		query += ` FOR UPDATE`
 	}
 	query += ` LIMIT 1`
-	var row authSettingsV2Row
+	var row authSettingsReadRow
 	var desiredID, effectiveID *int64
 	var desiredGen, effectiveGen, transitionOp, transitionKind, transitionState *string
 	var legacyUsername, legacyHash *string
@@ -142,7 +142,7 @@ func (s *Service) loadAuthSettingsV2Legacy(ctx context.Context, exec interface {
 	if err := exec.QueryRow(ctx, query).Scan(&row.ID, &row.Revision, &desiredID, &effectiveID,
 		&desiredGen, &effectiveGen, &transitionOp, &transitionKind, &transitionState,
 		&legacyEnabled, &legacyUsername, &legacyHash, &legacyTokenVersion, &row.UpdatedAt); err != nil {
-		return authSettingsV2Row{}, err
+		return authSettingsReadRow{}, err
 	}
 	row.DesiredConfigID = desiredID
 	row.EffectiveConfigID = effectiveID
@@ -215,15 +215,15 @@ func readinessUnavailableDTO(snapshot proxyKeyReadinessSnapshot) proxyKeyReadine
 	retryAfter := 5
 	return proxyKeyReadinessDTO{
 		State:               "unavailable",
-		ReasonCode:          stringPtrV2("storage_unavailable"),
+		ReasonCode:          stringPtr("storage_unavailable"),
 		RetryAfterSeconds:   &retryAfter,
 		LastReadyGeneration: lastReady,
 	}
 }
 
 // buildAuthSettingsResponse assembles the target AuthSettingsResponse.
-func (s *Service) buildAuthSettingsResponseV2(ctx context.Context, tx pgx.Tx) (map[string]any, error) {
-	row, err := s.loadAuthSettingsV2(ctx, tx, false)
+func (s *Service) buildAuthSettingsResponse(ctx context.Context, tx pgx.Tx) (map[string]any, error) {
+	row, err := s.readAuthSettings(ctx, tx, false)
 	if err != nil {
 		return nil, err
 	}
@@ -237,13 +237,13 @@ func (s *Service) buildAuthSettingsResponseV2(ctx context.Context, tx pgx.Tx) (m
 		}
 		config = &loaded
 	}
-	return buildAuthSettingsResponseV2FromState(row, config, readiness, readinessUnavailable), nil
+	return buildAuthSettingsResponseFromState(row, config, readiness, readinessUnavailable), nil
 }
 
-// buildAuthSettingsResponseV2FromState is intentionally query-free. Auth
+// buildAuthSettingsResponseFromState is intentionally query-free. Auth
 // activation uses it before the final effective-pointer UPDATE so that the
 // pointer flip remains the final database statement in the transaction.
-func buildAuthSettingsResponseV2FromState(row authSettingsV2Row, config *authConfigVersionRow, readiness proxyKeyReadinessSnapshot, readinessUnavailable bool) map[string]any {
+func buildAuthSettingsResponseFromState(row authSettingsReadRow, config *authConfigVersionRow, readiness proxyKeyReadinessSnapshot, readinessUnavailable bool) map[string]any {
 	accessState := "enabled"
 	effectiveMode := "enabled"
 	desiredMode := "disabled"
@@ -291,7 +291,7 @@ func buildAuthSettingsResponseV2FromState(row authSettingsV2Row, config *authCon
 		username = config.Username
 		hasPassword = config.PasswordHash != nil
 		sessionVersion = fmt.Sprintf("%d", config.SessionVersion)
-		updatedAt = stringPtrV2(config.UpdatedAt.UTC().Format(time.RFC3339))
+		updatedAt = stringPtr(config.UpdatedAt.UTC().Format(time.RFC3339))
 		if config.DesiredMode != "" {
 			if config.DesiredMode == "enabled" && (config.Username == nil || config.PasswordHash == nil) {
 				accountState = "repair_required"
@@ -353,10 +353,10 @@ func buildAuthSettingsResponseV2FromState(row authSettingsV2Row, config *authCon
 	return response
 }
 
-func stringPtrV2(value string) *string { return &value }
+func stringPtr(value string) *string { return &value }
 
-// handleGetAuthSettingsV2: GET /api/settings/auth (target contract).
-func (s *Service) handleGetAuthSettingsV2(w http.ResponseWriter, r *http.Request) {
+// handleGetAuthSettings: GET /api/settings/auth (target contract).
+func (s *Service) handleGetAuthSettings(w http.ResponseWriter, r *http.Request) {
 	setNoStoreHeaders(w)
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "settings auth read", func(tx pgx.Tx) (map[string]any, error) {
 		if err := auditdomain.AcquireAffectedWriterAdmission(r.Context(), tx); err != nil {
@@ -364,58 +364,58 @@ func (s *Service) handleGetAuthSettingsV2(w http.ResponseWriter, r *http.Request
 				"details": map[string]any{"recovery": "retry", "retry_after_seconds": 5},
 			})
 		}
-		return s.buildAuthSettingsResponseV2(r.Context(), tx)
+		return s.buildAuthSettingsResponse(r.Context(), tx)
 	})
 	if err != nil {
 		var authErr *domainError
 		if errors.As(err, &authErr) {
 			writeDomainError(w, r, s.corsSnapshot(), err)
 		} else {
-			writeAuthSettingsV2Problem(w, r, s.corsSnapshot(), http.StatusInternalServerError, "auth_settings_unavailable", "Failed to load authentication settings", nil)
+			writeAuthSettingsProblem(w, r, s.corsSnapshot(), http.StatusInternalServerError, "auth_settings_unavailable", "Failed to load authentication settings", nil)
 		}
 		return
 	}
 	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
-// handleGetPublicAuthStatusV2: GET /api/auth/status strict union (SPEC §8.2).
-func (s *Service) handleGetPublicAuthStatusV2(w http.ResponseWriter, r *http.Request) {
+// handleGetPublicAuthStatus: GET /api/auth/status strict union (SPEC §8.2).
+func (s *Service) handleGetPublicAuthStatus(w http.ResponseWriter, r *http.Request) {
 	setNoStoreHeaders(w)
-	row, err := s.loadAuthSettingsV2(r.Context(), s.pool, false)
+	row, err := s.readAuthSettings(r.Context(), s.pool, false)
 	if err != nil {
-		writeAuthSettingsV2Problem(w, r, s.corsSnapshot(), http.StatusInternalServerError, "auth_settings_unavailable", "Failed to load authentication settings", nil)
+		writeAuthSettingsProblem(w, r, s.corsSnapshot(), http.StatusInternalServerError, "auth_settings_unavailable", "Failed to load authentication settings", nil)
 		return
 	}
 	effectiveGeneration := "1"
 	if row.EffectiveGeneration != nil {
 		effectiveGeneration = *row.EffectiveGeneration
 	}
-	response := map[string]any{
-		"state":                "disabled",
-		"transition_state":     nil,
-		"effective_generation": effectiveGeneration,
-		"login_available":      false,
-		"retry_after_seconds":  nil,
+	response := authStatusResponse{
+		State:               "disabled",
+		TransitionState:     nil,
+		EffectiveGeneration: effectiveGeneration,
+		LoginAvailable:      false,
+		RetryAfterSeconds:   nil,
 	}
 	if row.LegacyAuthEnabled {
-		response["state"] = "enabled"
-		response["login_available"] = true
+		response.State = "enabled"
+		response.LoginAvailable = true
 	}
 	if row.TransitionState != nil {
 		switch *row.TransitionState {
 		case "rollback_required":
-			response["state"] = "transition_fail_closed"
-			response["transition_state"] = "rollback_required"
-			response["login_available"] = false
+			response.State = "transition_fail_closed"
+			response.TransitionState = "rollback_required"
+			response.LoginAvailable = false
 		case "staged", "publishing", "retrying":
 			if row.TransitionKind != nil && *row.TransitionKind == "disable" {
-				response["state"] = "enabled"
-				response["transition_state"] = "disabling_enforced"
-				response["login_available"] = true
+				response.State = "enabled"
+				response.TransitionState = "disabling_enforced"
+				response.LoginAvailable = true
 			} else {
-				response["state"] = "transition_fail_closed"
-				response["transition_state"] = "enabling_fail_closed"
-				response["login_available"] = false
+				response.State = "transition_fail_closed"
+				response.TransitionState = "enabling_fail_closed"
+				response.LoginAvailable = false
 			}
 		}
 	}

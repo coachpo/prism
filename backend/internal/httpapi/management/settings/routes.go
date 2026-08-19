@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"regexp"
-	"slices"
 	"strings"
 	"time"
 
@@ -16,16 +15,9 @@ import (
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
-	"github.com/coachpo/prism/backend/internal/providerauth"
 )
 
 var currencyCodeRE = regexp.MustCompile(`^[A-Z]{3}$`)
-
-var auditAPIFamilies = []string{
-	providerauth.APIFamilyOpenAI,
-	providerauth.APIFamilyAnthropic,
-	providerauth.APIFamilyGemini,
-}
 
 func (s *Service) handleGetCostingSettings(w http.ResponseWriter, r *http.Request) {
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "settings", func(tx pgx.Tx) (costingSettingsResponse, error) {
@@ -141,53 +133,6 @@ func (s *Service) handlePutTimezonePreference(w http.ResponseWriter, r *http.Req
 	writeSettingsJSON(w, http.StatusOK, response)
 }
 
-func (s *Service) handleGetRetentionSettings(w http.ResponseWriter, r *http.Request) {
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "settings", func(tx pgx.Tx) (retentionSettingsResponse, error) {
-		settingsRow, err := loadOrCreateLogRetentionSettings(r.Context(), tx, s.nowUTC())
-		if err != nil {
-			return retentionSettingsResponse{}, err
-		}
-		return buildRetentionSettingsResponse(settingsRow), nil
-	})
-	if err != nil {
-		writeSettingsDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	writeSettingsJSON(w, http.StatusOK, response)
-}
-
-func (s *Service) handlePutRetentionSettings(w http.ResponseWriter, r *http.Request) {
-	var requestBody retentionSettingsUpdateRequest
-	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeProblem(w, r, s.corsSnapshot(), SettingsProblem{Code: "validation_failed", Detail: "Invalid request body", Params: map[string]any{}, Details: map[string]any{"violations": []any{}}}, http.StatusBadRequest)
-		return
-	}
-	if err := normalizeAndValidateRetentionRequest(&requestBody); err != nil {
-		writeSettingsDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "settings", func(tx pgx.Tx) (retentionSettingsResponse, error) {
-		settingsRow, err := loadOrCreateLogRetentionSettings(r.Context(), tx, s.nowUTC())
-		if err != nil {
-			return retentionSettingsResponse{}, err
-		}
-		settingsRow.RequestLogsRetentionDays = requestBody.RequestLogsRetentionDays
-		settingsRow.AuditLogsRetentionDays = requestBody.AuditLogsRetentionDays
-		settingsRow.StatisticsRetentionDays = requestBody.StatisticsRetentionDays
-		settingsRow.LoadbalanceEventsRetentionDays = requestBody.LoadbalanceEventsRetentionDays
-		settingsRow.UpdatedAt = s.nowUTC()
-		if err := updateLogRetentionSettings(r.Context(), tx, settingsRow); err != nil {
-			return retentionSettingsResponse{}, err
-		}
-		return buildRetentionSettingsResponse(settingsRow), nil
-	})
-	if err != nil {
-		writeSettingsDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	writeSettingsJSON(w, http.StatusOK, response)
-}
-
 func buildCostingSettingsResponse(ctx context.Context, tx pgx.Tx, settingsRow userSettingsRow) (costingSettingsResponse, error) {
 	var epoch int
 	var effectiveAt *time.Time
@@ -244,32 +189,6 @@ func buildCostingSettingsResponse(ctx context.Context, tx pgx.Tx, settingsRow us
 
 func buildTimezonePreferenceResponse(settingsRow userSettingsRow) timezonePreferenceResponse {
 	return timezonePreferenceResponse{ProfileID: settingsRow.ProfileID, TimezonePreference: settingsRow.TimezonePreference}
-}
-
-func buildRetentionSettingsResponse(settingsRow logRetentionSettingsRow) retentionSettingsResponse {
-	return retentionSettingsResponse{
-		RequestLogsRetentionDays:       settingsRow.RequestLogsRetentionDays,
-		AuditLogsRetentionDays:         settingsRow.AuditLogsRetentionDays,
-		StatisticsRetentionDays:        settingsRow.StatisticsRetentionDays,
-		LoadbalanceEventsRetentionDays: settingsRow.LoadbalanceEventsRetentionDays,
-	}
-}
-
-func buildAuditSettingsResponse(profileID int, rows []auditSettingsRow) auditSettingsResponse {
-	byFamily := make(map[string]auditSetting, len(rows))
-	for _, row := range rows {
-		family := providerauth.NormalizeAPIFamily(row.APIFamily)
-		byFamily[family] = auditSetting{APIFamily: family, AuditEnabled: row.AuditEnabled, AuditCaptureBodies: row.AuditCaptureBodies}
-	}
-	settings := make([]auditSetting, 0, len(auditAPIFamilies))
-	for _, family := range auditAPIFamilies {
-		setting, ok := byFamily[family]
-		if !ok {
-			setting = auditSetting{APIFamily: family}
-		}
-		settings = append(settings, setting)
-	}
-	return auditSettingsResponse{ProfileID: profileID, Settings: settings}
 }
 
 func normalizeAndValidateCostingRequest(requestBody *costingSettingsUpdateRequest) error {
@@ -358,60 +277,6 @@ func normalizeAndValidateTimezoneRequest(requestBody *timezonePreferenceUpdateRe
 	return nil
 }
 
-func normalizeAndValidateRetentionRequest(requestBody *retentionSettingsUpdateRequest) error {
-	if err := validateRetentionDays(requestBody.RequestLogsRetentionDays, "request_logs_retention_days"); err != nil {
-		return err
-	}
-	if err := validateRetentionDays(requestBody.StatisticsRetentionDays, "statistics_retention_days"); err != nil {
-		return err
-	}
-	if err := validateRetentionDays(requestBody.AuditLogsRetentionDays, "audit_logs_retention_days"); err != nil {
-		return err
-	}
-	return nil
-}
-
-func normalizeAndValidateAuditSettingsRequest(requestBody *auditSettingsUpdateRequest) error {
-	if len(requestBody.Settings) != len(auditAPIFamilies) {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: "settings must include exactly openai, anthropic, and gemini"}
-	}
-
-	seen := make(map[string]auditSetting, len(auditAPIFamilies))
-	for index := range requestBody.Settings {
-		setting := requestBody.Settings[index]
-		family := providerauth.NormalizeAPIFamily(setting.APIFamily)
-		if !isAuditAPIFamily(family) {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("api_family %q is not supported", setting.APIFamily)}
-		}
-		if _, ok := seen[family]; ok {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate audit setting for api_family=%s", family)}
-		}
-		if !setting.AuditEnabled && setting.AuditCaptureBodies {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: "audit_capture_bodies requires audit_enabled"}
-		}
-		setting.APIFamily = family
-		seen[family] = setting
-	}
-
-	normalized := make([]auditSetting, 0, len(auditAPIFamilies))
-	for _, family := range auditAPIFamilies {
-		setting, ok := seen[family]
-		if !ok {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("settings must include api_family=%s", family)}
-		}
-		normalized = append(normalized, setting)
-	}
-	requestBody.Settings = normalized
-	return nil
-}
-
-func isAuditAPIFamily(value string) bool {
-	if !providerauth.IsSupportedAPIFamily(value) {
-		return false
-	}
-	return slices.Contains(auditAPIFamilies, value)
-}
-
 func normalizeTimezonePreference(value *string) (*string, error) {
 	if value == nil {
 		return nil, nil
@@ -427,21 +292,6 @@ func normalizeTimezonePreference(value *string) (*string, error) {
 		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "timezone_preference must be a valid IANA timezone"}
 	}
 	return &trimmed, nil
-}
-
-func validateRetentionDays(value *int, fieldName string) error {
-	if value == nil {
-		return nil
-	}
-	if *value < 1 {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("%s must be >= 1 when provided", fieldName)}
-	}
-	return nil
-}
-
-func decodeJSONBody(request *http.Request, target any) error {
-	defer func() { _ = request.Body.Close() }()
-	return json.NewDecoder(request.Body).Decode(target)
 }
 
 func decodeStrictJSONBody(request *http.Request, target any) error {

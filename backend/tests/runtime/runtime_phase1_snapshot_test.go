@@ -4,12 +4,17 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 )
+
+func testEndpointCredential(label string) string {
+	return label + "-" + strings.Repeat("x", 24)
+}
 
 func TestRuntimePhase1Snapshot_HotPathUsesPublishedPlanningSnapshotOnly(t *testing.T) {
 	harness := newRuntimePhase0Harness(t)
@@ -22,7 +27,7 @@ func TestRuntimePhase1Snapshot_HotPathUsesPublishedPlanningSnapshotOnly(t *testi
 		PublicModelID:   "phase1-planning-public-" + suffix,
 		TargetModelID:   "phase1-planning-target-" + suffix,
 		EndpointBaseURL: upstream.baseURL("/phase1/planning"),
-		EndpointAPIKey:  "phase1-planning-key",
+		EndpointAPIKey:  testEndpointCredential("phase1-planning"),
 	})
 
 	response, observed := harness.captureJSONRequest(t, http.MethodPost, "/v1/chat/completions", map[string]any{
@@ -57,7 +62,7 @@ func TestRuntimePhase1Snapshot_PinsPlanningToDefaultProfile(t *testing.T) {
 		PublicModelID:   "phase1-default-public-" + suffix,
 		TargetModelID:   "phase1-default-target-" + suffix,
 		EndpointBaseURL: upstream.baseURL("/phase1/default-profile"),
-		EndpointAPIKey:  "phase1-default-key",
+		EndpointAPIKey:  testEndpointCredential("phase1-default"),
 	})
 
 	harness.forceActiveProfile(t, shadowProfileID)
@@ -105,7 +110,7 @@ func TestRuntimeHotPathUsesPublishedAuthStateOnly(t *testing.T) {
 		PublicModelID:   "phase1-auth-public-" + suffix,
 		TargetModelID:   "phase1-auth-target-" + suffix,
 		EndpointBaseURL: upstream.baseURL("/phase1/auth"),
-		EndpointAPIKey:  "phase1-auth-key",
+		EndpointAPIKey:  testEndpointCredential("phase1-auth"),
 	})
 	proxyAPIKey := harness.enableRuntimeProxyAPIKeyAuth(t)
 
@@ -144,7 +149,7 @@ func TestRuntimeManagementMutationPublishesNewSnapshotGeneration(t *testing.T) {
 		PublicModelID:   "phase1-mutation-public-" + suffix,
 		TargetModelID:   "phase1-mutation-target-" + suffix,
 		EndpointBaseURL: harness.upstream.baseURL("/phase1/mutation"),
-		EndpointAPIKey:  "phase1-mutation-key",
+		EndpointAPIKey:  testEndpointCredential("phase1-mutation"),
 		// Probes ride on connection custom headers: client headers outside the
 		// protocol allowlist never reach an upstream, so they cannot observe a
 		// snapshot refresh. Custom headers cross and stay subject to the
@@ -222,7 +227,7 @@ func TestRuntimeRefreshFailureKeepsLastGoodSnapshot(t *testing.T) {
 		PublicModelID:   "phase1-failure-public-" + suffix,
 		TargetModelID:   "phase1-failure-target-" + suffix,
 		EndpointBaseURL: harness.upstream.baseURL("/phase1/failure"),
-		EndpointAPIKey:  "phase1-failure-key",
+		EndpointAPIKey:  testEndpointCredential("phase1-failure"),
 		// Probes ride on connection custom headers: client headers outside the
 		// protocol allowlist never reach an upstream, so they cannot observe a
 		// snapshot refresh. Custom headers cross and stay subject to the
@@ -291,7 +296,7 @@ func TestRuntimeCompiledSnapshotPublishesAuthAndRoutingTogether(t *testing.T) {
 		PublicModelID:   "phase1-compiled-public-" + suffix,
 		TargetModelID:   "phase1-compiled-target-" + suffix,
 		EndpointBaseURL: harness.upstream.baseURL("/phase1/compiled"),
-		EndpointAPIKey:  "phase1-compiled-key",
+		EndpointAPIKey:  testEndpointCredential("phase1-compiled"),
 		// Probe rides on a connection custom header: client headers outside the
 		// protocol allowlist never reach an upstream, so they cannot observe a
 		// compiled-snapshot publish. Custom headers cross and stay subject to

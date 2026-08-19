@@ -33,8 +33,8 @@ const (
 	StepEndpointSecretNormalization  Step = "endpoint_secret_normalization"
 	StepHeaderBlocklistRuleSeed      Step = "header_blocklist_rule_seed"
 	StepOpenAITextModeCheck          Step = "openai_text_mode_check"
-	StepObservabilityV2Upgrade       Step = "observability_v2_upgrade"
-	StepSettingsV2Cutover            Step = "settings_v2_cutover"
+	StepObservabilityUpgrade         Step = "observability_v2_upgrade"
+	StepLegacyRetentionCutover       Step = "legacy_retention_cutover"
 	StepProfileAuditSettingsSeed     Step = "profile_audit_settings_seed"
 	StepSettingsSchemaFinalize       Step = "settings_schema_finalize"
 )
@@ -125,8 +125,8 @@ func (s Service) RunWithConn(ctx context.Context, conn *pgx.Conn) (Result, error
 	}); err != nil {
 		return result, err
 	}
-	if err := s.runStep(ctx, &result, StepObservabilityV2Upgrade, func() error {
-		return s.runObservabilityV2Upgrade(ctx, conn)
+	if err := s.runStep(ctx, &result, StepObservabilityUpgrade, func() error {
+		return s.runObservabilityUpgrade(ctx, conn)
 	}); err != nil {
 		return result, err
 	}
@@ -135,8 +135,8 @@ func (s Service) RunWithConn(ctx context.Context, conn *pgx.Conn) (Result, error
 	}); err != nil {
 		return result, err
 	}
-	if err := s.runStep(ctx, &result, StepSettingsV2Cutover, func() error {
-		return s.runSettingsV2Cutover(ctx, conn)
+	if err := s.runStep(ctx, &result, StepLegacyRetentionCutover, func() error {
+		return s.runLegacyRetentionCutover(ctx, conn)
 	}); err != nil {
 		return result, err
 	}
@@ -164,9 +164,9 @@ func (s Service) RunWithConn(ctx context.Context, conn *pgx.Conn) (Result, error
 	// finalizer validate the complete fresh audit/auth population before it
 	// retires the duplicated legacy columns.
 	if err := s.runStep(ctx, &result, StepSettingsSchemaFinalize, func() error {
-		// Staged migration-dir tests apply prefixes without 000012; the
-		// settings transition table simply does not exist there and both
-		// steps are no-ops.
+		// Staged migration-dir tests apply prefixes without 000015; the
+		// settings transition table simply does not exist there and the
+		// legacy retention cutover and finalizer steps are both no-ops.
 		var transitionExists bool
 		if err := conn.QueryRow(ctx, `SELECT to_regclass('public.settings_schema_transition') IS NOT NULL`).Scan(&transitionExists); err != nil {
 			return err

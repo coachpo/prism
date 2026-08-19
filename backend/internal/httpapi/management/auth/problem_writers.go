@@ -106,7 +106,7 @@ func authSettingsProblem(status int, code, detail string, fields map[string]any)
 	return &domainError{StatusCode: status, Code: code, Detail: detail, Fields: fields}
 }
 
-func writeAuthSettingsV2Problem(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, status int, code, detail string, details any) {
+func writeAuthSettingsProblem(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, status int, code, detail string, details any) {
 	setNoStoreHeaders(w)
 	responseutil.WriteProblem(w, r, corsSnapshot, status, code, detail, map[string]any{}, details)
 }

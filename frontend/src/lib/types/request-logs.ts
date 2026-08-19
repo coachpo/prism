@@ -1,12 +1,184 @@
-// Requests/Audit v2 discriminated DTOs (Requests SPEC §3.4/§6.4/§6.5).
-// BIGINT/micros fields stay decimal strings; never convert to JS number.
+// Requests/Audit request-log DTOs (Requests SPEC §3.4/§6.4/§6.5).
+// Backend emits the request-log BIGINT/micros fields as JSON numbers.
 
-import type { RequestGenerationParams } from "./model-stats";
+import type { ApiFamily } from "./vendor";
 import type { QueryCoverage } from "./config-audit-settings";
+
+export type StreamOutcome =
+  | "not_streaming"
+  | "completed"
+  | "provider_incomplete"
+  | "client_disconnected"
+  | "upstream_read_error"
+  | "upstream_ended_without_terminal"
+  | "unknown";
+
+export type StreamErrorKind =
+  | "client_write_failed"
+  | "request_context_canceled"
+  | "upstream_read_failed"
+  | "missing_terminal_event";
+
+export interface RequestLogFilterModelOption {
+  model_id: string;
+  model_label: string;
+}
+
+export interface RequestLogFilterClientOption {
+  client_rule_id: number;
+  client_label: string;
+}
+
+export interface RequestLogFilterResolvedTargetModelOption {
+  resolved_target_model_id: string;
+  model_label: string;
+}
+
+export interface RequestLogListItem {
+  request_log_id: string;
+  row_kind: RowKind;
+  ingress_request_id: string | null;
+  attempt_number: number | null;
+  attempt_trigger: string | null;
+  attempt_result: string | null;
+  is_winner: boolean | null;
+  created_at: string;
+  model_id: string;
+  model_label: string;
+  resolved_target_model_id: string | null;
+  resolved_target_model_label: string | null;
+  caller_client_display: string | null;
+  upstream_client_display: string | null;
+  user_agent_overridden: boolean;
+  api_family: ApiFamily;
+  endpoint_id: number | null;
+  endpoint_label: string;
+  terminal_target_id: number | null;
+  terminal_target_label: string | null;
+  terminal_target_configured: boolean;
+  terminal_target_owner_model_id: string | null;
+  ttft_ms: number | null;
+  completion_duration_ms: number | null;
+  upstream_status_code: number | null;
+  gateway_status_code: number | null;
+  legacy_status_code: number | null;
+  attempt_duration_ms: number | null;
+  legacy_duration_ms: number | null;
+  is_stream: boolean;
+  stream_outcome: StreamOutcome;
+  stream_error_kind: StreamErrorKind | null;
+  error_source: string | null;
+  error_code: string | null;
+  failure_stage: string | null;
+  failure_detail_preview: string | null;
+  failure_detail_source: "error_detail" | "stream_error_detail";
+  failure_detail_preview_truncated: boolean;
+  failure_detail_redacted: boolean;
+  reasoning_effort: string | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
+  total_cost_user_currency_micros: number | null;
+  pricing_status: "priced" | "unpriced" | "ineligible" | "unknown";
+  pricing_evidence_trust: "trusted" | "legacy_untrusted";
+  unpriced_reason: string | null;
+  report_currency_symbol: string | null;
+  proxy_api_key_id: number | null;
+  proxy_api_key_name_snapshot: string | null;
+  proxy_api_key_attribution_state: "identified" | "none" | "unknown";
+  proxy_api_key_auth_enforced_at_request: boolean | null;
+  id?: number;
+  connection_id?: number | null;
+  status_code?: number | null;
+  response_time_ms?: number | null;
+}
+
+export interface RequestGenerationParamsReasoning {
+  effort?: string | null;
+  mode?: string | null;
+  budget_tokens?: number | null;
+  include_thoughts?: boolean | null;
+  source_field?: string | null;
+}
+
+export interface RequestGenerationParams {
+  provider?: string | null;
+  temperature?: number | null;
+  top_p?: number | null;
+  top_k?: number | null;
+  max_output_tokens?: number | null;
+  max_output_tokens_source?: string | null;
+  reasoning?: RequestGenerationParamsReasoning | null;
+}
+
+export interface RequestLogFilterEndpointOption {
+  endpoint_id: number;
+  endpoint_label: string;
+}
+
+export interface RequestLogListResponse {
+  items: RequestLogListItem[];
+  total: number;
+  total_is_exact: boolean;
+  has_more: boolean;
+  limit: number;
+  offset: number;
+  filter_options: {
+    endpoints: RequestLogFilterEndpointOption[];
+    models: RequestLogFilterModelOption[];
+    clients: RequestLogFilterClientOption[];
+    resolved_target_models: RequestLogFilterResolvedTargetModelOption[];
+  };
+  coverage: QueryCoverage;
+}
+
+export type RequestStatusFamily = "2xx" | "4xx" | "5xx";
+
+export const STATS_FROM_TIME_PARAM = "from_time" as const;
+export const STATS_TO_TIME_PARAM = "to_time" as const;
+
+export interface StatsRequestParams {
+  time_range?: "1h" | "6h" | "24h" | "7d" | "30d" | "all" | "custom";
+  ingress_request_id?: string;
+  proxy_api_key_id?: number;
+  model_id?: string;
+  client_rule_id?: number;
+  resolved_target_model_id?: string;
+  status_family?: RequestStatusFamily;
+  status_code?: number;
+  error_text?: string;
+  pricing_status?: "priced" | "unpriced" | "ineligible" | "unknown";
+  unpriced_reason?: string;
+  from_time?: string;
+  to_time?: string;
+  endpoint_id?: number;
+  terminal_target_id?: number;
+  limit?: number;
+  offset?: number;
+  view?: "attempts" | "ingress_chains";
+  chain_cursor?: string;
+  row_cursor?: string;
+  chain_limit?: number;
+  chain_row_limit?: number;
+  anchor_request_log_id?: string;
+  ingress_final_result?: "completed" | "failed" | "client_disconnected";
+  confirmed_failover?: string;
+  is_stream?: boolean;
+  stream_outcome?: string;
+  stream_error_kind?: string;
+  currency_code?: string;
+  reporting_currency_epoch?: number;
+  cost_segment_key?: string;
+  sort_by?: string;
+  sort_order?: "asc" | "desc";
+}
 
 export type RowKind = "planning" | "admission" | "upstream" | "legacy_unknown";
 
-export type AttemptTrigger = "initial" | "retry_same_target" | "hedge" | "failover";
+export type AttemptTrigger =
+  | "initial"
+  | "retry_same_target"
+  | "hedge"
+  | "failover";
 
 export type AttemptResult =
   | "completed"
@@ -17,7 +189,12 @@ export type AttemptResult =
   | "client_disconnected"
   | "unknown";
 
-export type ErrorSource = "prism" | "upstream" | "transport" | "client" | "unknown";
+export type ErrorSource =
+  | "prism"
+  | "upstream"
+  | "transport"
+  | "client"
+  | "unknown";
 
 export type FailureStage =
   | "routing"
@@ -45,8 +222,8 @@ export type PricingResolutionKind =
 
 export type FinalResult = "completed" | "failed" | "client_disconnected";
 
-// v2 slim row (Requests SPEC §6.4).
-export interface RequestLogRowV2 {
+// Request-log chain row (Requests SPEC §6.4).
+export interface RequestLogChainRow {
   request_log_id: string;
   row_kind: RowKind;
   ingress_request_id: string | null;
@@ -77,7 +254,7 @@ export interface RequestLogRowV2 {
   terminal_target_configured: boolean;
   terminal_target_owner_model_id: string | null;
   total_tokens: number | null;
-  total_cost_user_currency_micros: string | null;
+  total_cost_user_currency_micros: number | null;
   pricing_status: PricingStatus;
   unpriced_reason: UnpricedReason | null;
   pricing_evidence_trust: PricingEvidenceTrust;
@@ -102,7 +279,7 @@ export interface FinalizedSummary {
   ttft_ms: number | null;
   output_rate_tps: number | null;
   total_tokens: number | null;
-  total_cost_user_currency_micros: string | null;
+  total_cost_user_currency_micros: number | null;
   report_currency_code: string | null;
   report_currency_symbol: string | null;
   reporting_currency_epoch: number | null;
@@ -115,7 +292,7 @@ export interface FinalizedSummary {
   final_pricing_evidence_trust: PricingEvidenceTrust;
   pricing_template_id_used: number | null;
   pricing_template_name_snapshot: string | null;
-  pricing_template_revision_id_used: string | null;
+  pricing_template_revision_id_used: number | null;
   pricing_config_version_used: number | null;
   pricing_version_effective_at: string | null;
   pricing_snapshot_unit: string | null;
@@ -127,7 +304,12 @@ export interface FinalizedSummary {
   attempt_count: number;
   final_attempt_number: number | null;
   final_attempt_trigger: AttemptTrigger | null;
-  final_target_entry_trigger: "initial" | "failover" | "hedge" | "unknown" | null;
+  final_target_entry_trigger:
+    | "initial"
+    | "failover"
+    | "hedge"
+    | "unknown"
+    | null;
 }
 
 export interface ChainIngressItem {
@@ -153,7 +335,7 @@ export interface ChainIngressItem {
   retained_row_count: number;
   matched_row_count: number;
   next_row_cursor: string | null;
-  retained_rows: RequestLogRowV2[];
+  retained_rows: RequestLogChainRow[];
   order_evidence_state?: string;
 }
 
@@ -173,14 +355,37 @@ export interface ChainResponse {
     endpoints: Array<{ endpoint_id: number; endpoint_label: string }>;
     models: Array<{ model_id: string; model_label: string }>;
     clients: Array<{ client_rule_id: number; client_label: string }>;
-    resolved_target_models: Array<{ resolved_target_model_id: string; model_label: string }>;
+    resolved_target_models: Array<{
+      resolved_target_model_id: string;
+      model_label: string;
+    }>;
   };
   has_more_chains: boolean;
   next_chain_cursor: string | null;
-  source_coverage?: QueryCoverage & { domain?: string; actual_coverage?: Record<string, unknown> } | null;
-  raw_finalized_coverage?: QueryCoverage & { domain?: string; actual_coverage?: Record<string, unknown> } | null;
-  attempt_coverage?: QueryCoverage & { domain?: string; actual_coverage?: Record<string, unknown> } | null;
-  drilldown_coverage?: QueryCoverage & { domain?: string; actual_coverage?: Record<string, unknown> } | null;
+  source_coverage?:
+    | (QueryCoverage & {
+        domain?: string;
+        actual_coverage?: Record<string, unknown>;
+      })
+    | null;
+  raw_finalized_coverage?:
+    | (QueryCoverage & {
+        domain?: string;
+        actual_coverage?: Record<string, unknown>;
+      })
+    | null;
+  attempt_coverage?:
+    | (QueryCoverage & {
+        domain?: string;
+        actual_coverage?: Record<string, unknown>;
+      })
+    | null;
+  drilldown_coverage?:
+    | (QueryCoverage & {
+        domain?: string;
+        actual_coverage?: Record<string, unknown>;
+      })
+    | null;
   order_evidence_state?: string;
 }
 
@@ -211,21 +416,13 @@ export interface FailureProjection {
   stream_error_detail: string | null;
 }
 
-export interface TerminalTargetProjection {
-  id: number;
-  label: string;
-  owner_model_id: string | null;
-  endpoint_id: number | null;
-  endpoint_label: string | null;
-}
-
 export interface PricingProjection {
   pricing_status: PricingStatus;
   unpriced_reason: UnpricedReason | null;
   pricing_resolution_kind: PricingResolutionKind | null;
   missing_price_components: string[] | null;
   pricing_evidence_trust: PricingEvidenceTrust;
-  total_cost_user_currency_micros: string | null;
+  total_cost_user_currency_micros: number | null;
   total_cost_original_micros: string | null;
   currency_code_original: string | null;
   fx_rate_used: string | null;
@@ -237,7 +434,7 @@ export interface PricingProjection {
   cost_segment_key: string | null;
   pricing_template_id_used: number | null;
   pricing_template_name_snapshot: string | null;
-  pricing_template_revision_id_used: string | null;
+  pricing_template_revision_id_used: number | null;
   pricing_config_version_used: number | null;
   pricing_version_effective_at: string | null;
   pricing_snapshot_unit: string | null;
@@ -246,7 +443,12 @@ export interface PricingProjection {
   pricing_snapshot_cache_read_input: string | null;
   pricing_snapshot_cache_creation_input: string | null;
   pricing_snapshot_reasoning: string | null;
-  pricing_tier_applied: "not_evaluated" | "not_applicable" | "base" | "tier" | null;
+  pricing_tier_applied:
+    | "not_evaluated"
+    | "not_applicable"
+    | "base"
+    | "tier"
+    | null;
   pricing_tier_threshold_tokens: number | null;
   pricing_tier_basis_tokens: number | null;
   evidence_state: "authoritative" | "unavailable";
@@ -262,7 +464,7 @@ export interface LegacyPricingEvidence {
   warning_code: "historical_unverified";
 }
 
-export interface RequestLogDetailV2 {
+export interface RequestLogDetail {
   summary: {
     request_log_id: string;
     created_at: string;

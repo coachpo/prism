@@ -233,7 +233,7 @@ func (s *Service) corsSnapshot() platformcors.Snapshot {
 
 func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Route("/auth", func(router chi.Router) {
-		router.Get("/status", s.handleGetPublicAuthStatusV2)
+		router.Get("/status", s.handleGetPublicAuthStatus)
 		router.Get("/public-bootstrap", s.handleGetPublicBootstrap)
 		router.Post("/login", s.handleLogin)
 		router.Post("/logout", s.handleLogout)
@@ -246,8 +246,8 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	})
 
 	api.Route("/settings", func(router chi.Router) {
-		router.Get("/auth", s.handleGetAuthSettingsV2)
-		router.Put("/auth", s.handlePutAuthSettingsV2)
+		router.Get("/auth", s.handleGetAuthSettings)
+		router.Put("/auth", s.handlePutAuthSettings)
 		router.Get("/auth/operations/{operation_id}", s.handleGetAuthOperation)
 		router.Get("/auth/proxy-keys", s.handleListProxyKeys)
 		router.Post("/auth/proxy-keys", s.handleCreateProxyKey)
