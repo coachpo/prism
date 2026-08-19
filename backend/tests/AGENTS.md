@@ -13,7 +13,7 @@
 - Integration coverage for migrations, startup sequencing, launcher/bootstrap preservation, canonical seeding, partitioned log retention, runtime route-matrix forwarding, audit or stats persistence, and Dockerfile ownership.
 - Runtime coverage for operation route matrices, rejected-route isolation, hook residency, profile scoping, request-log contracts, request-generation params, runtime-created log partitions, published runtime snapshots, cache invalidation, telemetry outboxes, streaming buffering, responses parity, and `operation_name` persistence.
 - Priority coverage for admission budgets, physical DB lane isolation, scheduler ownership, async side effects, outboxes, failure semantics, and no-inline-fallback regressions.
-- CI runs `go test ./internal/... ./cmd/...`, `go test ./internal/platform/lifecycle ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...`, and `go build ./cmd/prism-backend`.
+- CI runs `go test ./internal/... ./cmd/...`, `go test -timeout 30m ./internal/platform/lifecycle ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...`, and `go build ./cmd/prism-backend`.
 
 ## WHERE TO LOOK
 - Contract packages for observability or partition-helper coverage: `contract/`, `contract/log_partition_helpers_test.go`

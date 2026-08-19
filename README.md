@@ -73,7 +73,7 @@ To back up an instance, `pg_dump` the database and copy `config.json`.
 # Backend
 cd backend
 go build ./cmd/prism-backend
-go test ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...
+go test -timeout 30m ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...
 
 # Frontend
 cd frontend

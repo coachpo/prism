@@ -235,16 +235,3 @@ func (s Service) seedAppAuthSettings(ctx context.Context, conn *pgx.Conn) error 
 		return nil
 	})
 }
-
-// normalizeEndpointSecrets is the migration-era secret metadata backfill. It
-// runs before management/runtime open, must never lose data, and follows the
-// endpoint reference contract:
-//
-//   - empty keys: fingerprint/time stay null, revision stays 1;
-//   - pre-migration non-empty keys: verify/decrypt, derive the display
-//     fingerprint from the plaintext, and re-encrypt legacy plaintext values;
-//   - api_key_updated_at always stays null (no independent identity evidence
-//     exists for historical rows);
-//   - the original updated_at is preserved and config_revision is left at its
-//     default 1, so backfill never masquerades as an Endpoint mutation;
-//   - decrypt/auth failure fails fast instead of pretending completion.

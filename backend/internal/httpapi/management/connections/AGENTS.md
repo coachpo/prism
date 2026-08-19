@@ -13,7 +13,10 @@ connections/
 ├── copies.go               # Transactional batch copy route and redacted copy summaries
 ├── access_targets.go       # Flat access-target summary carried in mutation envelopes
 ├── custom_request_parameters.go  # Presence-aware field parsing and 422 field-error envelope
+├── custom_header_redaction.go    # Custom-header masking against the safediag bottom line and write resolution
 ├── openai_image_dimension.go     # OpenAI target-dimension authoring rules (text equality and image containment)
+├── routing_schedule.go     # Routing-schedule field parsing, validation errors, and payload conversion
+├── routing_schedule_state.go     # Routing-schedule open/closed/not_evaluated state projection
 ├── pricing_templates.go    # Pricing-template CRUD and validation
 ├── pricing_template_store.go     # Pricing-template row shape, queries, revision/mutation ledger, scanners
 ├── pricing_template_import.go    # Two-phase pricing-template JSON import (preview_hash / commit)

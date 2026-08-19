@@ -33,7 +33,7 @@ startup/
 - Integration coverage: `../../../tests/integration/startup_test.go`, `../../../tests/integration/launcher_startup_contract_test.go`
 
 ## CONVENTIONS
-- Keep backend canonical defaults aligned with `../config/`: fresh seeds use backend `0.0.0.0:8000`, frontend CORS `5173`, launcher PostgreSQL host port `15432`, CPU-derived pool/admission sizing, transport `100/16/16/300s/90s/0s/10s/1s`, and side-effect timeout `10s`.
+- Keep backend canonical defaults aligned with `../config/`: fresh seeds use backend `0.0.0.0:8000`, frontend CORS `5173`, launcher PostgreSQL host port `15432`, CPU-derived pool/admission sizing, and side-effect timeout `10s`.
 - Preserve existing valid bootstrap files. Reset defaults by stopping Prism, removing or relocating the bootstrap file, then restarting.
 - Keep startup config file edits restart-applied; do not reintroduce a management API that hot-publishes external bootstrap edits.
 - Keep parse-compatible legacy mail and telemetry fields out of runtime behavior.
