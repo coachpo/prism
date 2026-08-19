@@ -7,23 +7,26 @@
 ```text
 startup/
 ├── service.go    # Startup orchestration entrypoint and step sequencing
-├── seeds.go      # Database seed rows, default product state, endpoint secret normalization
+├── seeds.go      # Endpoint secret metadata normalization (migration-era backfill)
 ├── profiles.go   # Default profile creation and invariants
 ├── defaults.go   # Canonical default values
 ├── strategies.go             # Canonical loadbalance strategy defaults
 ├── audit_settings_seed.go    # Per-profile audit settings seed
+├── settings_seeds.go         # Per-profile user settings and app auth settings seeds
+├── rule_seeds.go             # System User-Agent Client Rule and Header Blocklist seeds
 ├── retention_coverage_seed.go # Retention coverage resource seed
 ├── settings_v2_cutover.go    # Settings v2 cutover step
 ├── settings_schema_finalizer.go  # Settings schema finalization run under the startup connection
 ├── observability_v2_upgrade.go   # v2 upgrade state machine (v1_drained → backfill_ready)
 ├── runtime_telemetry_v1_drain.go # Exclusive offline v1 outbox drain (scrub/cap/split, orphan tombstones)
+├── legacy_telemetry_sanitization.go # Legacy body/header scrub, cap, and encoding helpers used by the v1 drain
 ├── request_audit_v2_backfill.go  # Three-domain backfill owner (request_urls/request_metadata/audit_headers_urls)
 └── *_test.go     # Startup service coverage
 ```
 
 ## WHERE TO LOOK
 - Startup orchestration and migration handoff: `service.go`
-- Canonical product-state seeds: `seeds.go`
+- Canonical product-state seeds: `settings_seeds.go`, `rule_seeds.go`, `strategies.go`, `audit_settings_seed.go`, `retention_coverage_seed.go`
 - Default profile id `1` invariants: `profiles.go`
 - Fresh bootstrap defaults and startup constants: `defaults.go`
 - Secret normalization boundaries: `seeds.go` (`normalizeEndpointSecrets`); the encrypt/decrypt/fingerprint primitives it calls live in `../../endpointdomain/`

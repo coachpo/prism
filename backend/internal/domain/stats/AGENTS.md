@@ -6,7 +6,10 @@
 ## STRUCTURE
 ```text
 stats/
-├── common.go                     # Package-internal query executor, shared records, time/percentile/label helpers
+├── common.go                     # Package-internal query executor, shared records, and nullable/currency helpers
+├── read_model_math.go            # Shared time-preset, bucketing, percentile, and rate math
+├── stats_catalog.go              # Current endpoint/connection catalog and Terminal Target label resolution
+├── user_agent_rules.go           # Compiled User-Agent Client Rule loading and caller display classification
 ├── classifier.go                 # Canonical outcome and pricing-status classifier reused by every read model
 ├── aggregates.go                 # Stats summary aggregation
 ├── throughput.go                 # Request and dashboard throughput metrics

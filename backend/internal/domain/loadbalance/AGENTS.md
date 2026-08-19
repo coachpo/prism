@@ -19,6 +19,7 @@ loadbalance/
 ├── event_cursor.go             # Event cursor scope binding and codec
 ├── event_projection.go         # Event row loading and read projections
 ├── event_dto.go                # Event wire shapes shared with the management layer
+├── event_service.go            # Legacy event list query, keyset paging, and operator reason text
 ├── canonical_strategies.go     # Canonical strategy definitions and defaults
 ├── retry_preview.go            # Retry/backoff preview math for the strategy UI
 └── *_test.go                   # Strategy and local-state tests
