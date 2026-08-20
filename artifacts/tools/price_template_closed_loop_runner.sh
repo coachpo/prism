@@ -4,6 +4,12 @@ set -eu
 runner_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 project_root=$(CDPATH= cd -- "$runner_dir/../.." && pwd)
 case_id=${1:-}
+PRISM_GO_WORKSPACE=/Users/qingli/go
+PRISM_GO_BUILD_CACHE=/Users/qingli/Library/Caches/go-build
+export GOPATH="$PRISM_GO_WORKSPACE"
+export GOMODCACHE="$PRISM_GO_WORKSPACE/pkg/mod"
+export GOCACHE="$PRISM_GO_BUILD_CACHE"
+export PLAYWRIGHT_BROWSERS_PATH=/Users/qingli/Library/Caches/ms-playwright
 
 case "$case_id" in
   backend-build)
