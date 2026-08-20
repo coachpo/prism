@@ -13,7 +13,10 @@ import type {
   PricingTemplateImportRequest,
   PricingTemplateRevision,
 } from "@/lib/types";
-import { extractServerValidation } from "@/shared/forms/serverValidation";
+import {
+  extractServerValidation,
+  type ServerValidationResult,
+} from "@/shared/forms/serverValidation";
 import {
   buildPricingTemplateCreatePayload,
   buildPricingTemplateUpdatePayload,
@@ -37,9 +40,7 @@ export function usePricingFeatureData(revision: number) {
   const [pricingTemplatePreparingEditId, setPricingTemplatePreparingEditId] =
     useState<number | null>(null);
   const [pricingTemplateSaving, setPricingTemplateSaving] = useState(false);
-  const [pricingTemplateServerError, setPricingTemplateServerError] = useState<
-    string | null
-  >(null);
+  const [pricingTemplateServerError, setPricingTemplateServerError] = useState<ServerValidationResult | null>(null);
   const [pricingTemplateUsageRows, setPricingTemplateUsageRows] = useState<
     PricingTemplateConnectionUsageItem[]
   >([]);
@@ -164,12 +165,14 @@ export function usePricingFeatureData(revision: number) {
             template.id === editingPricingTemplate.id ? updated : template,
           ),
         );
+        closePricingTemplateDialog();
         toast.success(messages.pricingTemplatesData.updated);
       } else {
         const created = await api.pricingTemplates.create(
           buildPricingTemplateCreatePayload(values),
         );
         commitPricingTemplates((current) => [created, ...current]);
+        closePricingTemplateDialog();
         toast.success(messages.pricingTemplatesData.created, {
           action: {
             label: messages.pricingTemplatesData.continueToTarget,
@@ -177,13 +180,9 @@ export function usePricingFeatureData(revision: number) {
           },
         });
       }
-      closePricingTemplateDialog();
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
-        setPricingTemplateServerError(
-          messages.pricingTemplatesData.changedWhileEditing,
-        );
-        toast.error(messages.pricingTemplatesData.changedWhileEditing);
+        setPricingTemplateServerError({ issues: [], summary: messages.pricingTemplatesData.changedWhileEditing });
         await fetchPricingTemplates();
         return;
       }
@@ -191,8 +190,7 @@ export function usePricingFeatureData(revision: number) {
         error,
         messages.pricingTemplatesData.saveFailed,
       );
-      setPricingTemplateServerError(validation.summary);
-      toast.error(validation.summary);
+      setPricingTemplateServerError(validation);
     } finally {
       setPricingTemplateSaving(false);
     }

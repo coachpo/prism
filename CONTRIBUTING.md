@@ -46,7 +46,7 @@ pnpm run build
 - Follow the project- and technology-specific rules in [docs/development-rules.md](docs/development-rules.md), the architecture facts in [docs/architecture.md](docs/architecture.md), and the unified size and responsibility policy in [docs/source-code-size-and-responsibility-rules.md](docs/source-code-size-and-responsibility-rules.md), together with the shared principles below.
 
 <!-- write-project-docs:derived-iteration-strategy:start -->
-<!-- write-project-docs:derived-iteration-strategy:metadata {"contentSha256":"sha256:1f28b294605df454e5a840d54cc200783c529201ba2c8a20cf8539c3b062cc5f","schemaVersion":1,"sources":[{"normalization":"without-visible-exact-mvp-control-line-terminal-lf-v2","path":"STATUS.md","sha256":"sha256:72fdc93b9e46ab9d81eb3148f72763805c53eee2656992b43770ec87886e4e5d"},{"path":"docs/product.md","sha256":"sha256:7d7fefab7c2f4d40566542b31c5e6cca77d328e9d9fd8caff70593097db4f731"},{"path":"docs/architecture.md","sha256":"sha256:e23451487259a795497297f32364948ad898fe21217c903245274985590a76d0"},{"path":"docs/development-rules.md","sha256":"sha256:c654dedd88097c8434d6e4cf8a7cf09463b0ea063ac9b8d36135698adf8e4d49"}]} -->
+<!-- write-project-docs:derived-iteration-strategy:metadata {"contentSha256":"sha256:15b7d81e6c1f340965919944b7722ed06bdbae80f52cbabf534a762da416956e","schemaVersion":1,"sources":[{"normalization":"without-visible-exact-mvp-control-line-terminal-lf-v2","path":"STATUS.md","sha256":"sha256:79e8c8875e8415f0bc53c51fdf0a62224aef7ebe8cad59b81da3dee82173c51b"},{"path":"docs/product.md","sha256":"sha256:e2c29705dce6de2acf20b7a3f03fe644ffc6c1c298e4c666e9f34b18d5d872aa"},{"path":"docs/architecture.md","sha256":"sha256:9ea161b7366b1ea41888f7c623e1d806c3f57b0f22534cfc553ad11c5ed5f20f"},{"path":"docs/development-rules.md","sha256":"sha256:c654dedd88097c8434d6e4cf8a7cf09463b0ea063ac9b8d36135698adf8e4d49"}]} -->
 ## Current Iteration Strategy
 
 Convenience-first active development on the operator's personal home-LAN instance: work is prioritized from gaps observed in day-to-day use of the running instance, and where a change trades off against data-security hardening the convenient path wins. Keep the local dev/deploy loop (launcher full|headless, root Compose bundle, same-origin Vite proxying) fast, easy, and accurately documented.
@@ -62,7 +62,7 @@ Derived from (the source documents remain authoritative): [`STATUS.md`](STATUS.m
 
 ### Not Pursued This Iteration
 
-- Data-security hardening beyond the shipped controls (TLS termination, external secret-manager integration, mandatory operator/query auth, global rate limiting, proxy-key scoping): no positive trigger on a personal home-LAN deployment without external exposure; re-evaluate when the instance gains public exposure, additional operators or tooling, or the operator's convenience-vs-security priority changes.
+- Data-security hardening beyond the shipped controls (TLS termination, external secret-manager integration, mandatory operator/query auth, global rate limiting, proxy-key scoping): basis: no positive trigger on a personal home-LAN deployment without external exposure; re-evaluate when the instance gains public exposure, additional operators or tooling, or the operator's convenience-vs-security priority changes.
 
 ### Non-negotiable Boundaries
 

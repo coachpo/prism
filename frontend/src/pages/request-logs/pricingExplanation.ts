@@ -85,7 +85,7 @@ export type PricingSelectionCoverage =
     kind: "selected";
     role: "standard" | "tier_base" | "tier_above" | "peak" | "offpeak";
     threshold: number | null;
-    basis: string | null;
+    basis: number | null;
    }
  | { kind: "unresolved" };
 
@@ -95,7 +95,7 @@ export function classifyPricingSelection(input: {
  state: "not_evaluated" | "not_applicable" | "selected" | "unresolved" | null;
  role: "standard" | "tier_base" | "tier_above" | "peak" | "offpeak" | null;
  threshold: number | null;
- basis: string | null;
+ basis: number | null;
 }): PricingSelectionCoverage {
  if (input.state === null) return { kind: "unavailable" };
  if (input.state === "not_applicable") {

@@ -56,7 +56,7 @@ type routeMatrixPersistedAttributionExpectation struct {
 	upstreamRequestPath   string
 }
 
-func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
+func TestRuntimeTypedPricingOperationMatrix(t *testing.T) {
 	tests := []runtimeOperationRouteMatrixCase{
 		{
 			name:          "OpenAIChatCompletions",
@@ -322,6 +322,9 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 				OpenAITextCapability:  routeMatrixOpenAITextCapability(test.operationName),
 				OpenAIImageOperations: routeMatrixOpenAIImageOperations(test.operationName),
 			})
+			pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "route-matrix-pricing-"+slug+"-"+randomSuffix(), "", "2", "5", "1", "3", "4")
+			advanceRuntimePricingTemplateRevisionWithTier(t, harness.conn, pricingTemplateID)
+			attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
 			ignoredBodyModel := "route-matrix-body-model-" + slug
 			requestPath := test.requestPath(route)
 
@@ -344,11 +347,50 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			assertRouteMatrixGoldenUpstreamRequest(t, test.operationName, upstreamRequest, route)
 			assertRouteMatrixSharedCorePersistence(t, harness, profileID, route, test.operationName, requestPath)
 			assertRouteMatrixUsage(t, harness, profileID, test.usage)
+			assertRouteMatrixTypedPricing(t, harness, profileID, test.operationName)
 			assertRouteMatrixGenerationParams(t, harness, profileID, test.generationParams)
 			if test.persistedAttribution != nil {
 				assertRouteMatrixPersistedAttribution(t, harness, profileID, route.ConnectionID, test.operationName, *test.persistedAttribution)
 			}
 		})
+	}
+}
+
+func assertRouteMatrixTypedPricing(t *testing.T, harness *runtimeHarness, profileID int, operationName string) {
+	t.Helper()
+	wantState := "selected"
+	if operationName == "openai.responses.input_tokens" || operationName == "anthropic.count_tokens" || operationName == "gemini.count_tokens" {
+		wantState = "not_applicable"
+	}
+	type evidence struct {
+		Status, Kind, State, Role, Snapshot string
+		Threshold, Basis                    sql.NullInt64
+		DecidedAt                           sql.NullTime
+		Timezone, Digest                    sql.NullString
+		LocalWeekday, LocalMinute           sql.NullInt64
+	}
+	load := func(table string) evidence {
+		var value evidence
+		query := `SELECT pricing_status, pricing_template_kind, pricing_selection_state, pricing_card_role, pricing_snapshot_input,
+			pricing_selector_threshold_tokens, pricing_selector_basis_tokens, pricing_schedule_decided_at,
+			pricing_schedule_timezone, pricing_schedule_digest, pricing_schedule_local_weekday, pricing_schedule_local_minute
+			FROM ` + table + ` WHERE profile_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1`
+		if err := harness.conn.QueryRow(context.Background(), query, profileID).Scan(
+			&value.Status, &value.Kind, &value.State, &value.Role, &value.Snapshot,
+			&value.Threshold, &value.Basis, &value.DecidedAt, &value.Timezone, &value.Digest,
+			&value.LocalWeekday, &value.LocalMinute,
+		); err != nil {
+			t.Fatalf("load typed route-matrix pricing from %s: %v", table, err)
+		}
+		return value
+	}
+	requestEvidence := load("request_logs")
+	usageEvidence := load("usage_request_events")
+	if requestEvidence.Status != "priced" || requestEvidence.Kind != "tiered" || requestEvidence.State != wantState || requestEvidence.Role != "tier_base" || requestEvidence.Snapshot != "2" {
+		t.Fatalf("unexpected request pricing evidence: %+v", requestEvidence)
+	}
+	if requestEvidence != usageEvidence {
+		t.Fatalf("typed pricing evidence is asymmetric: request=%+v usage=%+v", requestEvidence, usageEvidence)
 	}
 }
 

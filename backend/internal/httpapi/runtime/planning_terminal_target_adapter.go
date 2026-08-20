@@ -11,13 +11,6 @@ import (
 	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 )
 
-type runtimeTerminalTargetRecord struct {
-	Record                  terminaltarget.RuntimeRecord
-	TemplateKind            string
-	PricingScheduleTimezone *string
-	PricingScheduleDigest   string
-}
-
 func listActiveConnectionsForProfile(ctx context.Context, tx pgx.Tx, profileID int) (map[int]runtimeConnection, error) {
 	records, err := listActiveTerminalTargetRecordsForProfile(ctx, tx, profileID)
 	if err != nil {
@@ -25,7 +18,7 @@ func listActiveConnectionsForProfile(ctx context.Context, tx pgx.Tx, profileID i
 	}
 	connectionIDs := make([]int, 0, len(records))
 	for _, record := range records {
-		connectionIDs = append(connectionIDs, record.Record.ID)
+		connectionIDs = append(connectionIDs, record.ID)
 	}
 	windowsByConnectionID, err := listRoutingWindowsForConnections(ctx, tx, profileID, connectionIDs)
 	if err != nil {
@@ -33,8 +26,8 @@ func listActiveConnectionsForProfile(ctx context.Context, tx pgx.Tx, profileID i
 	}
 	revisionIDs := make([]int64, 0, len(records))
 	for _, record := range records {
-		if record.Record.PricingTemplate != nil && record.Record.PricingTemplate.RevisionID > 0 {
-			revisionIDs = append(revisionIDs, record.Record.PricingTemplate.RevisionID)
+		if record.PricingTemplate != nil && record.PricingTemplate.RevisionID > 0 {
+			revisionIDs = append(revisionIDs, record.PricingTemplate.RevisionID)
 		}
 	}
 	cardsByRevision, err := listPricingTemplateCardsForRevisions(ctx, tx, revisionIDs)
@@ -47,21 +40,13 @@ func listActiveConnectionsForProfile(ctx context.Context, tx pgx.Tx, profileID i
 	}
 	items := make(map[int]runtimeConnection, len(records))
 	for _, record := range records {
-		base := record.Record
+		base := record
 		base.RoutingWindows = windowsByConnectionID[base.ID]
-		item := runtimeConnectionFromTerminalTargetRecord(base)
-		if item.PricingTemplateSnapshot != nil {
-			item.PricingTemplateSnapshot.TemplateKind = record.TemplateKind
-			loadedCards := cardsByRevision[base.PricingTemplate.RevisionID]
-			item.PricingTemplateSnapshot.Cards = loadedCards
-			item.PricingTemplateSnapshot.PricingScheduleTimezone = cloneRuntimeStringPointer(record.PricingScheduleTimezone)
-			item.PricingTemplateSnapshot.PricingScheduleDigest = record.PricingScheduleDigest
-			if record.TemplateKind == "peak_valley" {
-				item.PricingTemplateSnapshot.PricingSchedule = compileRuntimePricingSchedule(
-					dereferenceString(record.PricingScheduleTimezone), pricingWindowsByRevision[base.PricingTemplate.RevisionID])
-			}
-			copyLegacyPricingCardAliases(item.PricingTemplateSnapshot)
+		if base.PricingTemplate != nil {
+			base.PricingTemplate.Cards = cardsByRevision[base.PricingTemplate.RevisionID]
+			base.PricingTemplate.PricingWindows = append([]terminaltarget.Window(nil), pricingWindowsByRevision[base.PricingTemplate.RevisionID]...)
 		}
+		item := runtimeConnectionFromTerminalTargetRecord(base)
 		items[item.ID] = item
 	}
 	return items, nil
@@ -73,7 +58,7 @@ func listActiveConnectionsForProfile(ctx context.Context, tx pgx.Tx, profileID i
 // transactions report conn-busy when a second query starts while the first
 // result rows are still open, and correctness must not depend on the
 // rows-exhaustion auto-close implementation detail.
-func listActiveTerminalTargetRecordsForProfile(ctx context.Context, tx pgx.Tx, profileID int) ([]runtimeTerminalTargetRecord, error) {
+func listActiveTerminalTargetRecordsForProfile(ctx context.Context, tx pgx.Tx, profileID int) ([]terminaltarget.RuntimeRecord, error) {
 	rows, err := tx.Query(
 		ctx,
 		`SELECT connections.id, connections.profile_id, connections.api_family, connections.endpoint_id,
@@ -98,7 +83,7 @@ func listActiveTerminalTargetRecordsForProfile(ctx context.Context, tx pgx.Tx, p
 	}
 	defer rows.Close()
 
-	records := make([]runtimeTerminalTargetRecord, 0)
+	records := make([]terminaltarget.RuntimeRecord, 0)
 	for rows.Next() {
 		record, scanErr := scanRuntimeTerminalTargetRecord(rows)
 		if scanErr != nil {
@@ -168,7 +153,7 @@ func int32ArrayArg(values []int) []int32 {
 	return items
 }
 
-func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (runtimeTerminalTargetRecord, error) {
+func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminaltarget.RuntimeRecord, error) {
 	var qpsLimit sql.NullInt32
 	var maxInFlightNonStream sql.NullInt32
 	var maxInFlightStream sql.NullInt32
@@ -230,7 +215,7 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (r
 		&record.Endpoint.BaseURL,
 		&record.Endpoint.EncryptedAPIKey,
 	); err != nil {
-		return runtimeTerminalTargetRecord{}, err
+		return terminaltarget.RuntimeRecord{}, err
 	}
 	record.QPSLimit = nullableInt32(qpsLimit)
 	record.MaxInFlightNonStream = nullableInt32(maxInFlightNonStream)
@@ -240,7 +225,7 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (r
 	record.CustomHeaders = parseCustomHeaders(customHeaders)
 	customRequestParametersValue, parseErr := parseRuntimeCustomRequestParameters(customRequestParameters)
 	if parseErr != nil {
-		return runtimeTerminalTargetRecord{}, fmt.Errorf("invalid custom request parameters for connection %d: %w", record.ID, parseErr)
+		return terminaltarget.RuntimeRecord{}, fmt.Errorf("invalid custom request parameters for connection %d: %w", record.ID, parseErr)
 	}
 	record.CustomRequestParameters = customRequestParametersValue
 	record.PricingTemplateID = nullableInt32(pricingTemplateID)
@@ -250,13 +235,16 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (r
 	record.Endpoint.Name = nullableString(endpointName)
 	if templateID.Valid {
 		record.PricingTemplate = &terminaltarget.RuntimePricingTemplateSnapshot{
-			ID:                   int(templateID.Int32),
-			Name:                 strings.TrimSpace(templateName.String),
-			RevisionID:           revisionID.Int64,
-			PricingUnit:          strings.TrimSpace(templatePricingUnit.String),
-			PricingCurrencyCode:  strings.TrimSpace(templatePricingCurrencyCode.String),
-			TierInputTokensAbove: nullableInt32(templateTierInputTokensAbove),
-			Version:              int(templateVersion.Int32),
+			ID:                      int(templateID.Int32),
+			Name:                    strings.TrimSpace(templateName.String),
+			RevisionID:              revisionID.Int64,
+			PricingUnit:             strings.TrimSpace(templatePricingUnit.String),
+			PricingCurrencyCode:     strings.TrimSpace(templatePricingCurrencyCode.String),
+			TemplateKind:            strings.TrimSpace(templateKind.String),
+			TierInputTokensAbove:    nullableInt32(templateTierInputTokensAbove),
+			PricingScheduleTimezone: nullableString(templateScheduleTimezone),
+			PricingScheduleDigest:   strings.TrimSpace(templateScheduleDigest.String),
+			Version:                 int(templateVersion.Int32),
 		}
 		if templateEpoch.Valid {
 			epoch := int(templateEpoch.Int32)
@@ -267,12 +255,7 @@ func scanRuntimeTerminalTargetRecord(scanner interface{ Scan(...any) error }) (r
 			record.PricingTemplate.VersionEffectiveAt = &effectiveAt
 		}
 	}
-	return runtimeTerminalTargetRecord{
-		Record:                  record,
-		TemplateKind:            strings.TrimSpace(templateKind.String),
-		PricingScheduleTimezone: nullableString(templateScheduleTimezone),
-		PricingScheduleDigest:   strings.TrimSpace(templateScheduleDigest.String),
-	}, nil
+	return record, nil
 }
 
 // parseRuntimeCustomRequestParameters parses the JSONB column text with the
@@ -332,24 +315,23 @@ func runtimeConnectionFromTerminalTargetRecord(record terminaltarget.RuntimeReco
 		},
 	}
 	if record.PricingTemplate != nil {
+		cards := make(map[string]runtimePricingCard, len(record.PricingTemplate.Cards))
+		for role, card := range record.PricingTemplate.Cards {
+			cards[role] = card
+		}
+		timezone := dereferenceString(record.PricingTemplate.PricingScheduleTimezone)
 		item.PricingTemplateSnapshot = &runtimePricingTemplateSnapshot{
-			ID:                     record.PricingTemplate.ID,
-			Name:                   record.PricingTemplate.Name,
-			RevisionID:             record.PricingTemplate.RevisionID,
-			PricingUnit:            record.PricingTemplate.PricingUnit,
-			PricingCurrencyCode:    record.PricingTemplate.PricingCurrencyCode,
-			InputPrice:             record.PricingTemplate.InputPrice,
-			OutputPrice:            record.PricingTemplate.OutputPrice,
-			CachedInputPrice:       record.PricingTemplate.CachedInputPrice,
-			CacheCreationPrice:     record.PricingTemplate.CacheCreationPrice,
-			ReasoningPrice:         record.PricingTemplate.ReasoningPrice,
-			TierInputTokensAbove:   cloneRuntimeIntPointer(record.PricingTemplate.TierInputTokensAbove),
-			TierInputPrice:         record.PricingTemplate.TierInputPrice,
-			TierOutputPrice:        record.PricingTemplate.TierOutputPrice,
-			TierCachedInputPrice:   record.PricingTemplate.TierCachedInputPrice,
-			TierCacheCreationPrice: record.PricingTemplate.TierCacheCreationPrice,
-			TierReasoningPrice:     record.PricingTemplate.TierReasoningPrice,
-			Version:                record.PricingTemplate.Version,
+			ID:                    record.PricingTemplate.ID,
+			Name:                  record.PricingTemplate.Name,
+			RevisionID:            record.PricingTemplate.RevisionID,
+			PricingUnit:           record.PricingTemplate.PricingUnit,
+			PricingCurrencyCode:   record.PricingTemplate.PricingCurrencyCode,
+			TemplateKind:          record.PricingTemplate.TemplateKind,
+			Cards:                 cards,
+			TierInputTokensAbove:  cloneRuntimeIntPointer(record.PricingTemplate.TierInputTokensAbove),
+			PricingSchedule:       terminaltarget.CompilePricingSchedule(timezone, record.PricingTemplate.PricingWindows),
+			PricingScheduleDigest: record.PricingTemplate.PricingScheduleDigest,
+			Version:               record.PricingTemplate.Version,
 		}
 		if record.PricingTemplate.ReportingCurrencyEpoch != nil {
 			epoch := *record.PricingTemplate.ReportingCurrencyEpoch

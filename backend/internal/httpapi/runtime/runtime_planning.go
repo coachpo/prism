@@ -32,12 +32,6 @@ func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, r
 }
 
 func (s *Service) buildRequestPlanFromSnapshot(request *http.Request, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot, operationMatch RuntimeOperationMatch, activeProfileID int, snapshot *planningSnapshot) (requestPlan, error) {
-	// This direct snapshot helper is also used by unit tests outside the HTTP
-	// ingress. Give that helper an explicit captured clock; production ingress
-	// already carries its immutable context and is never replaced here.
-	if _, ok := runtimePlanningReferenceNowFromContext(request.Context()); !ok {
-		request = request.WithContext(withRuntimeIngressContext(request.Context(), newRuntimeIngressContext(s.nowUTC())))
-	}
 	plan, err := s.buildRequestPlanFromSnapshotCore(request, rawBody, runtimeConfig, operationMatch, activeProfileID, snapshot)
 	if err != nil {
 		return requestPlan{}, err

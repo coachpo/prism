@@ -200,7 +200,13 @@ type ChainRowItem struct {
 	TotalCostUserCurrencyMicros       *int64    `json:"total_cost_user_currency_micros"`
 	PricingStatus                     string    `json:"pricing_status"`
 	UnpricedReason                    *string   `json:"unpriced_reason"`
+	PricingResolutionKind             *string   `json:"pricing_resolution_kind"`
 	PricingEvidenceTrust              string    `json:"pricing_evidence_trust"`
+	PricingTemplateKind               *string   `json:"pricing_template_kind"`
+	PricingSelectionState             *string   `json:"pricing_selection_state"`
+	PricingCardRole                   *string   `json:"pricing_card_role"`
+	PricingSelectorThresholdTokens    *int      `json:"pricing_selector_threshold_tokens"`
+	PricingSelectorBasisTokens        *int64    `json:"pricing_selector_basis_tokens"`
 	CreatedAt                         time.Time `json:"created_at"`
 	IsCurrent                         bool      `json:"is_current,omitempty"`
 }

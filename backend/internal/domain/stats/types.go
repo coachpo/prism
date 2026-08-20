@@ -155,6 +155,7 @@ type RequestLogListItem struct {
 	TotalCostUserCurrencyMicros   *int64    `json:"total_cost_user_currency_micros"`
 	PricingStatus                 string    `json:"pricing_status"`
 	UnpricedReason                *string   `json:"unpriced_reason"`
+	PricingResolutionKind         *string   `json:"pricing_resolution_kind"`
 	PricingEvidenceTrust          string    `json:"pricing_evidence_trust"`
 	// Typed pricing evidence deliberately stays on the list DTO so the table
 	// can distinguish family, selector state, and selected role without reading

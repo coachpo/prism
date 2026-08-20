@@ -219,7 +219,7 @@ export interface PricingTemplateListPage {
  next_cursor: string | null;
 }
 
-export interface PricingTemplate {
+interface PricingTemplateBase {
  id: number;
  profile_id: number;
  name: string;
@@ -227,13 +227,6 @@ export interface PricingTemplate {
  pricing_unit: "PER_1M";
  pricing_currency_code: string;
  active_currency_symbol: string;
- template_kind: PricingTemplateKind;
- card?: PricingCard;
- base_card?: PricingCard;
- tier?: PricingTemplateTier | null;
- peak_card?: PricingCard;
- offpeak_card?: PricingCard;
- schedule?: PricingTemplateSchedule;
  version: number;
  revision_id: number;
  version_effective_at: string | null;
@@ -243,21 +236,47 @@ export interface PricingTemplate {
  updated_at: string;
 }
 
+export type PricingTemplateVariant =
+ | {
+    template_kind: "standard";
+    card: PricingCard;
+    base_card?: never;
+    tier?: never;
+    peak_card?: never;
+    offpeak_card?: never;
+    schedule?: never;
+   }
+ | {
+    template_kind: "tiered";
+    card?: never;
+    base_card: PricingCard;
+    tier: PricingTemplateTier;
+    peak_card?: never;
+    offpeak_card?: never;
+    schedule?: never;
+   }
+ | {
+    template_kind: "peak_valley";
+    card?: never;
+    base_card?: never;
+    tier?: never;
+    peak_card: PricingCard;
+    offpeak_card: PricingCard;
+    schedule: PricingTemplateSchedule;
+   };
+
+export type PricingTemplate = PricingTemplateBase & PricingTemplateVariant;
+
 // PricingComponentPrice is `string` for base prices and `string | null` for
 // the three specialty prices (explicit null = unconfigured, never "0").
 export type PricingComponentPrice = string | null;
 
-export interface PricingTemplateCreate {
+interface PricingTemplateWriteBase {
  name: string;
  description?: string | null;
- template_kind: PricingTemplateKind;
- card?: PricingCard;
- base_card?: PricingCard;
- tier?: PricingTemplateTier | null;
- peak_card?: PricingCard;
- offpeak_card?: PricingCard;
- schedule?: PricingTemplateSchedule;
 }
+
+export type PricingTemplateCreate = PricingTemplateWriteBase & PricingTemplateVariant;
 
 export type PricingTemplateImportMode = "upsert_by_name" | "create_only";
 
@@ -280,12 +299,14 @@ export interface PricingTemplateImportResponse {
  errors: PricingTemplateImportError[];
  preview_hash?: string;
  committable?: boolean;
- items?: Array<{
+  items?: Array<{
   name: string;
   action: string;
   template_kind?: PricingTemplateKind;
   current_version?: number;
   next_version?: number;
+  template_kind_changed: boolean;
+  pricing_structure_changed: boolean;
  }>;
 }
 
@@ -296,18 +317,22 @@ export interface PricingTemplateImportCommitRequest {
  preview_hash: string;
 }
 
-export interface PricingTemplateUpdate {
+interface PricingTemplateUpdateBase {
  expected_updated_at: string;
  name?: string;
  description?: string | null;
- template_kind?: PricingTemplateKind;
- card?: PricingCard;
- base_card?: PricingCard;
- tier?: PricingTemplateTier | null;
- peak_card?: PricingCard;
- offpeak_card?: PricingCard;
- schedule?: PricingTemplateSchedule;
 }
+
+export type PricingTemplateUpdate = PricingTemplateUpdateBase &
+ (PricingTemplateVariant | {
+   template_kind?: never;
+   card?: never;
+   base_card?: never;
+   tier?: never;
+   peak_card?: never;
+   offpeak_card?: never;
+   schedule?: never;
+  });
 
 export interface PricingTemplateRevision {
  revision_id: number;

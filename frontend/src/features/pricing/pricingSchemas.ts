@@ -177,6 +177,25 @@ export const pricingTemplateFormSchema = z
           path: ["schedule_windows"],
           message: "at least one peak window is required",
         });
+      if (values.schedule_windows.length > 32)
+        ctx.addIssue({
+          code: "custom",
+          path: ["schedule_windows"],
+          message: "at most 32 peak windows are allowed",
+        });
+      const seenWindows = new Set<string>();
+      values.schedule_windows.forEach((window, index) => {
+        if (!Number.isInteger(window.weekday_mask) || window.weekday_mask < 1 || window.weekday_mask > 127)
+          ctx.addIssue({ code: "custom", path: ["schedule_windows", index, "weekday_mask"], message: "select at least one weekday" });
+        if (!Number.isInteger(window.start_minute) || window.start_minute < 0 || window.start_minute > 1439)
+          ctx.addIssue({ code: "custom", path: ["schedule_windows", index, "start_minute"], message: "choose a valid start time" });
+        if (!Number.isInteger(window.end_minute) || window.end_minute < 1 || window.end_minute > 2880 || window.end_minute <= window.start_minute || window.end_minute - window.start_minute > 1440)
+          ctx.addIssue({ code: "custom", path: ["schedule_windows", index, "end_minute"], message: "end must be later than start and no more than one day away" });
+        const key = `${window.weekday_mask}:${window.start_minute}:${window.end_minute}`;
+        if (seenWindows.has(key))
+          ctx.addIssue({ code: "custom", path: ["schedule_windows", index], message: "duplicate peak window" });
+        seenWindows.add(key);
+      });
       for (const field of [
         "cached_input_price",
         "cache_creation_price",

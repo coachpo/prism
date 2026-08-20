@@ -2,7 +2,6 @@ package connections
 
 import (
 	"fmt"
-	"net/http"
 	"regexp"
 	"strings"
 )
@@ -13,11 +12,11 @@ var pricingTemplateDecimalPattern = regexp.MustCompile(`^\d+(\.\d+)?$`)
 // 422 for base prices (SPEC 4.1); values are canonicalized per SPEC 4.2.
 func normalizeRequiredPricingDecimalString(fieldName string, raw *string) (string, error) {
 	if raw == nil {
-		return "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s is required", fieldName)}
+		return "", pricingTemplateFieldError(fieldName, "required", "price is required and must not be null")
 	}
 	canonical, err := canonicalPricingDecimal(*raw)
 	if err != nil {
-		return "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s %s", fieldName, err.Error())}
+		return "", pricingTemplateFieldError(fieldName, "invalid_decimal", err.Error())
 	}
 	return canonical, nil
 }
@@ -32,11 +31,11 @@ func normalizeOptionalPricingDecimalString(fieldName string, raw *string) (*stri
 	}
 	trimmed := strings.TrimSpace(*raw)
 	if trimmed == "" {
-		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s must not be empty; use null for unconfigured", fieldName)}
+		return nil, pricingTemplateFieldError(fieldName, "empty", "must not be empty; use null for unconfigured")
 	}
 	canonical, err := canonicalPricingDecimal(trimmed)
 	if err != nil {
-		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s %s", fieldName, err.Error())}
+		return nil, pricingTemplateFieldError(fieldName, "invalid_decimal", err.Error())
 	}
 	return stringPtr(canonical), nil
 }

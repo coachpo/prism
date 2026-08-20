@@ -37,6 +37,7 @@ request-logs/
 ├── RequestFocusBanner.tsx       # Exact-request mode banner and exit action
 ├── detail/                      # Parent-covered overview, payload, and shared detail helpers
 │   ├── RequestLogOverviewTab.tsx   # Overview tab: routing, timing, usage, spend
+│   ├── RequestLogPricingEvidence.tsx # Typed kind/state/role/resolution and schedule evidence
 │   ├── RequestLogPayloadBlock.tsx  # Payload viewer block with the content-aware view switch
 │   ├── requestLogPayloadDocuments.ts # Payload document model shared by the viewer
 │   ├── payloadDocumentViewModel.ts # Content-aware payload views (消息/JSON 事件/原始 SSE/JSON/原始文本/不可解析)

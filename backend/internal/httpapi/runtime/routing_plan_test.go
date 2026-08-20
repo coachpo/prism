@@ -148,7 +148,7 @@ func TestBuildRequestPlanFromSnapshotCompilesRoutingPlanLazily(t *testing.T) {
 	if snapshot.routingPlan != nil {
 		t.Fatal("expected routing plan to compile lazily")
 	}
-	firstPlan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	firstPlan, err := service.buildTestRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 	if err != nil {
 		t.Fatalf("build first request plan: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestBuildRequestPlanFromSnapshotCompilesRoutingPlanLazily(t *testing.T) {
 	snapshot.TerminalTargetsByID = map[int]runtimeConnection{}
 	snapshot.StrategiesByModelID = map[int]loadbalance.RuntimeStrategy{}
 
-	secondPlan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	secondPlan, err := service.buildTestRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 	if err != nil {
 		t.Fatalf("build second request plan from compiled routing plan: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestBuildRequestPlanFromSnapshotReturnsRoutingPlanValidationDomainError(t *
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
 
-	_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"actual-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	_, err := service.buildTestRequestPlanFromSnapshot(request, []byte(`{"model":"actual-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 	assertPlanDomainError(t, err, http.StatusServiceUnavailable, "Invalid runtime routing plan")
 	var domainErr *domainError
 	if !errors.As(err, &domainErr) {
@@ -210,7 +210,7 @@ func TestBuildRequestPlanFromSnapshotModelPeersPreserveStrategyOrder(t *testing.
 
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	plan, err := service.buildTestRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 	if err != nil {
 		t.Fatalf("build strategy-ordered peer request plan: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestBuildRequestPlanFromSnapshotModelPeersExcludeIneligibleTargets(t *testi
 
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	plan, err := service.buildTestRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 	if err != nil {
 		t.Fatalf("build eligible-only peer request plan: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestBuildRequestPlanFromSnapshotZeroLeafModelPeerKeepsFollowingTerminalPeer
 
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	plan, err := service.buildTestRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 	if err != nil {
 		t.Fatalf("build mixed-order request plan: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestBuildRequestPlanFromSnapshotZeroLeafModelPeerKeepsFollowingTerminalPeer
 	addRequestPlanConnectionTarget(reverse, reverse.ModelsByID["router-openai"], 1_001, 9_001, 1)
 	addRequestPlanModelTargetWithMetadata(reverse, "router-openai", "empty-peer-openai", 0)
 
-	plan, err = service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, reverse)
+	plan, err = service.buildTestRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, reverse)
 	if err != nil {
 		t.Fatalf("build reversed mixed-order request plan: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestBuildRequestPlanFromSnapshotSingleUsesFirstAuthoredMixedPeer(t *testing
 	strategyType := "single"
 	snapshot.StrategiesByModelID[1] = loadbalance.RuntimeStrategy{ID: requestPlanTestStrategyID, Name: "single", LegacyStrategyType: &strategyType}
 
-	_, err := service.buildRequestPlanFromSnapshot(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil), []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions"), requestPlanTestProfileID, snapshot)
+	_, err := service.buildTestRequestPlanFromSnapshot(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil), []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions"), requestPlanTestProfileID, snapshot)
 	if err == nil {
 		t.Fatal("expected single to keep the first zero-leaf mixed peer and fail closed")
 	}
@@ -518,7 +518,7 @@ func TestBuildRequestPlanFromSnapshotRoutingScheduleGate(t *testing.T) {
 				rawBody = requestBody(routerModelID)
 			}
 			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-			plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+			plan, err := service.buildTestRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 			if tc.wantModels != nil {
 				if err != nil {
 					t.Fatalf("expected plan to succeed, got %v", err)
@@ -558,7 +558,7 @@ func TestRoutingSchedulePartialExclusionDetail(t *testing.T) {
 
 	t.Run("closed hint", func(t *testing.T) {
 		service, snapshot := buildFixture()
-		_, err := service.buildRequestPlanFromSnapshot(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil), []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions"), requestPlanTestProfileID, snapshot)
+		_, err := service.buildTestRequestPlanFromSnapshot(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil), []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions"), requestPlanTestProfileID, snapshot)
 		if err == nil {
 			t.Fatalf("expected mixed-cause routing failure")
 		}
@@ -577,7 +577,7 @@ func TestRoutingSchedulePartialExclusionDetail(t *testing.T) {
 	t.Run("unresolvable hint", func(t *testing.T) {
 		service, snapshot := buildFixture()
 		withRoutingSchedule(snapshot, 1002, terminaltarget.CompileRoutingSchedule("Not/AZone", []terminaltarget.Window{{WeekdayMask: 1, StartMinute: 0, EndMinute: 60}}))
-		_, err := service.buildRequestPlanFromSnapshot(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil), []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions"), requestPlanTestProfileID, snapshot)
+		_, err := service.buildTestRequestPlanFromSnapshot(httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil), []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions"), requestPlanTestProfileID, snapshot)
 		if err == nil {
 			t.Fatalf("expected mixed-cause routing failure")
 		}
@@ -629,7 +629,7 @@ func TestRoutingSchedulePreferredSelectionSkew(t *testing.T) {
 		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
 		preferred := map[string]int{}
 		for i := 0; i < 6; i++ {
-			plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+			plan, err := service.buildTestRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 			if err != nil {
 				t.Fatalf("build round %d: %v", i, err)
 			}
@@ -665,7 +665,7 @@ func TestRoutingSchedulePreferredSelectionSkew(t *testing.T) {
 		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
 		preferred := map[string]int{}
 		for i := 0; i < 10; i++ {
-			plan, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+			plan, err := service.buildTestRequestPlanFromSnapshot(request, []byte(`{"model":"router-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 			if err != nil {
 				t.Fatalf("build round %d: %v", i, err)
 			}

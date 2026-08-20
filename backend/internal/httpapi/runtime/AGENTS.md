@@ -80,8 +80,7 @@ runtime/
 ├── runtime_pricing.go           # Runtime pricing result and currency projection
 ├── runtime_pricing_core.go      # Shared exact five-component pricing arithmetic over the selected card
 ├── runtime_pricing_card.go      # standard/tiered/peak_valley card selector and schedule evidence
-├── runtime_pricing_legacy*.go   # Scalar compatibility helpers retained only for old pure fixtures
-├── runtime_pricing_tier.go      # Legacy scalar tier fixture selector
+├── runtime_pricing_tier.go      # Typed tier basis and token-count operation helpers
 └── *_test.go                    # Route matrix, hook residency, planning, and ingress regressions
 ```
 

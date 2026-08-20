@@ -90,6 +90,13 @@ func TestConnectionS10PricingTemplateCRUD(t *testing.T) {
 	// explicit JSON null means unconfigured (SPEC 4.1).
 	blankResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates", map[string]any{"name": "S10 Blank Price Rejected", "template_kind": "standard", "card": map[string]any{"input_price": "1.25", "output_price": "2.50", "cached_input_price": "0.10", "cache_creation_price": "   ", "reasoning_price": "0"}}, modelHeader(defaultProfileID))
 	assertStatus(t, blankResponse, http.StatusUnprocessableEntity)
+	missingKeyResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates", map[string]any{"name": "S10 Missing Price Key", "template_kind": "standard", "card": map[string]any{"input_price": "1.25", "output_price": "2.50", "cached_input_price": nil, "cache_creation_price": nil}}, modelHeader(defaultProfileID))
+	assertStatus(t, missingKeyResponse, http.StatusUnprocessableEntity)
+	var missingKeyPayload map[string]any
+	decodeJSONResponse(t, missingKeyResponse, &missingKeyPayload)
+	if missingKeyPayload["path"] != "card.reasoning_price" || missingKeyPayload["reason"] != "required" {
+		t.Fatalf("expected field-level missing card key error, got %+v", missingKeyPayload)
+	}
 
 	legacyFieldResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates", map[string]any{"name": "S10 Legacy Field Rejected", "template_kind": "standard", "pricing_currency_code": "usd", "card": map[string]any{"input_price": "1.25", "output_price": "2.50", "cached_input_price": "0.10", "cache_creation_price": "0", "reasoning_price": "0"}}, modelHeader(defaultProfileID))
 	assertStatus(t, legacyFieldResponse, http.StatusUnprocessableEntity)
@@ -150,6 +157,13 @@ func TestConnectionS10PricingTemplateCRUD(t *testing.T) {
 		t.Fatalf("expected explicit null tier after clearing, got %+v", zeroed["tier"])
 	}
 	assertPricingTemplateStoredPrices(t, harness, defaultProfileID, "S10 Created Template", "3.75", "2.5", nil, nil, nil)
+	historyResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/pricing-templates/%d/revisions", createdID), nil, modelHeader(defaultProfileID))
+	assertStatus(t, historyResponse, http.StatusOK)
+	var history []map[string]any
+	decodeJSONResponse(t, historyResponse, &history)
+	if len(history) != 4 || history[1]["template_kind"] != "standard" || history[2]["template_kind"] != "tiered" || history[3]["template_kind"] != "standard" {
+		t.Fatalf("expected batched typed revision history, got %+v", history)
+	}
 
 	staleUpdate := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{"expected_updated_at": created["updated_at"], "name": "Stale Update"}, modelHeader(defaultProfileID))
 	assertErrorResponse(t, staleUpdate, http.StatusConflict, "Pricing template has changed. Please refresh and retry.")
@@ -350,6 +364,32 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 		t.Fatalf("unexpected no-op import commit: %+v", imported)
 	}
 	assertPricingTemplateCount(t, harness, profileID, 2)
+	metadataPayload := map[string]any{
+		"schema_version": 2,
+		"mode":           "upsert_by_name",
+		"templates": []map[string]any{
+			{"name": "gpt-4o", "template_kind": "standard", "card": map[string]any{"input_price": "2.5", "output_price": "10", "cached_input_price": "1.25", "cache_creation_price": "0", "reasoning_price": "0"}, "description": "metadata refreshed"},
+			{"name": "gpt-4o-mini", "template_kind": "standard", "card": map[string]any{"input_price": "0.15", "output_price": "0.60", "cached_input_price": "0", "cache_creation_price": "0", "reasoning_price": "0"}},
+		},
+	}
+	metadataPreviewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import", metadataPayload, modelHeader(profileID))
+	assertStatus(t, metadataPreviewResponse, http.StatusOK)
+	var metadataPreview map[string]any
+	decodeJSONResponse(t, metadataPreviewResponse, &metadataPreview)
+	metadataItems := metadataPreview["items"].([]any)
+	metadataItem := asMap(t, metadataItems[0])
+	if metadataPreview["updated"] != float64(1) || metadataItem["pricing_structure_changed"] != false || metadataItem["template_kind_changed"] != false || metadataItem["current_version"] != metadataItem["next_version"] {
+		t.Fatalf("metadata-only import must update without a revision bump, got %+v", metadataPreview)
+	}
+	metadataCommit := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import/commit", map[string]any{"schema_version": 2, "mode": "upsert_by_name", "templates": metadataPayload["templates"], "preview_hash": metadataPreview["preview_hash"]}, modelHeader(profileID))
+	assertStatus(t, metadataCommit, http.StatusOK)
+	var metadataVersion int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT revisions.version FROM pricing_templates templates JOIN pricing_template_revisions revisions ON revisions.id = templates.current_revision_id WHERE templates.profile_id = $1 AND templates.name = 'gpt-4o'`, profileID).Scan(&metadataVersion); err != nil {
+		t.Fatalf("load metadata-only import version: %v", err)
+	}
+	if metadataVersion != 1 {
+		t.Fatalf("metadata-only import created a pricing revision: version=%d", metadataVersion)
+	}
 
 	// A real price change through the two-phase flow bumps the version.
 	changedPayload := map[string]any{
@@ -366,6 +406,28 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 	if imported.Created != 0 || imported.Updated != 1 {
 		t.Fatalf("expected one update in change preview (gpt-4o-mini is a no-op), got %+v", imported)
 	}
+	firstChangeHash := imported.PreviewHash
+	alternateChangedPayload := map[string]any{
+		"schema_version": 2,
+		"mode":           "upsert_by_name",
+		"templates": []map[string]any{
+			{"name": "gpt-4o", "template_kind": "standard", "card": map[string]any{"input_price": "2.5", "output_price": "12", "cached_input_price": "1.25", "cache_creation_price": "0", "reasoning_price": "0"}, "description": " flagship "},
+			{"name": "gpt-4o-mini", "template_kind": "standard", "card": map[string]any{"input_price": "0.15", "output_price": "0.60", "cached_input_price": "0", "cache_creation_price": "0", "reasoning_price": "0"}},
+		},
+	}
+	alternatePreview := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import", alternateChangedPayload, modelHeader(profileID))
+	assertStatus(t, alternatePreview, http.StatusOK)
+	var alternateImported struct {
+		Updated     int    `json:"updated"`
+		PreviewHash string `json:"preview_hash"`
+	}
+	decodeJSONResponse(t, alternatePreview, &alternateImported)
+	if alternateImported.Updated != 1 || alternateImported.PreviewHash == "" || alternateImported.PreviewHash == firstChangeHash {
+		t.Fatalf("same action/version with different card content must produce a different preview hash: first=%q alternate=%+v", firstChangeHash, alternateImported)
+	}
+	changedPayloadCommitWithAlternateBody := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import/commit", map[string]any{"schema_version": 2, "mode": "upsert_by_name", "templates": alternateChangedPayload["templates"], "preview_hash": firstChangeHash}, modelHeader(profileID))
+	assertStatus(t, changedPayloadCommitWithAlternateBody, http.StatusConflict)
+	imported.PreviewHash = firstChangeHash
 	changeCommit := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import/commit", map[string]any{"schema_version": 2, "mode": "upsert_by_name", "templates": changedPayload["templates"], "preview_hash": imported.PreviewHash}, modelHeader(profileID))
 	assertStatus(t, changeCommit, http.StatusOK)
 	decodeJSONResponse(t, changeCommit, &imported)

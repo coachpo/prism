@@ -1,8 +1,6 @@
 import { useEffect } from "react";
-import { useForm, useWatch } from "react-hook-form";
+import { useForm, useWatch, type FieldPath } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AlertCircle } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -25,20 +23,25 @@ import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import { useLocale } from "@/i18n/useLocale";
 import type { PricingTemplate } from "@/lib/types";
-import { OperatorInsetPanel } from "@/shared/design-system";
+import { OperatorCallout, OperatorInsetPanel } from "@/shared/design-system";
+import {
+  fieldErrorsFromServerValidation,
+  type ServerValidationResult,
+} from "@/shared/forms/serverValidation";
 import {
   DEFAULT_PRICING_TEMPLATE_FORM,
   pricingTemplateFormSchema,
   pricingTemplateFormStateFromTemplate,
-  type PriceField,
   type PricingTemplateFormValues,
 } from "./pricingSchemas";
+import { PricingCardFields } from "./PricingCardFields";
 import { PricingPeakValleyFields } from "./PricingPeakValleyFields";
 import { PricingTierFields } from "./PricingTierFields";
 
@@ -49,39 +52,26 @@ interface PricingTemplateDialogProps {
   onSave: (values: PricingTemplateFormValues) => Promise<void>;
   open: boolean;
   pricingTemplateSaving: boolean;
-  serverError?: string | null;
+  serverValidation?: ServerValidationResult | null;
 }
 
-type PricingFieldCardProps = {
-  control: ReturnType<typeof useForm<PricingTemplateFormValues>>["control"];
-  label: string;
-  name: PriceField;
-  placeholder: string;
-};
+const staticPricingWireFields = [
+  "name", "template_kind", "card.input_price", "card.output_price", "card.cached_input_price", "card.cache_creation_price", "card.reasoning_price",
+  "base_card.input_price", "base_card.output_price", "base_card.cached_input_price", "base_card.cache_creation_price", "base_card.reasoning_price",
+  "tier.input_tokens_above", "tier.card.input_price", "tier.card.output_price", "tier.card.cached_input_price", "tier.card.cache_creation_price", "tier.card.reasoning_price",
+  "peak_card.input_price", "peak_card.output_price", "peak_card.cached_input_price", "peak_card.cache_creation_price", "peak_card.reasoning_price",
+  "offpeak_card.input_price", "offpeak_card.output_price", "offpeak_card.cached_input_price", "offpeak_card.cache_creation_price", "offpeak_card.reasoning_price", "schedule.timezone",
+] as const;
 
-function PricingFieldCard({
-  control,
-  label,
-  name,
-  placeholder,
-}: PricingFieldCardProps) {
-  return (
-    <div className="rounded-lg border border-border bg-panel p-3">
-      <FormField
-        control={control}
-        name={name}
-        render={({ field }) => (
-          <FormItem>
-            <FormLabel>{label}</FormLabel>
-            <FormControl>
-              <Input autoComplete="off" placeholder={placeholder} {...field} />
-            </FormControl>
-            <FormMessage />
-          </FormItem>
-        )}
-      />
-    </div>
-  );
+function pricingFormPath(path: string): FieldPath<PricingTemplateFormValues> | null {
+  if (path === "schedule.timezone") return "schedule_timezone";
+  const window = /^schedule\.windows\[(\d+)]\.(weekday_mask|start_minute|end_minute)$/.exec(path);
+  if (window) return `schedule_windows.${window[1]}.${window[2]}` as FieldPath<PricingTemplateFormValues>;
+  if (path.startsWith("tier.card.")) return `tier.${path.slice("tier.card.".length)}` as FieldPath<PricingTemplateFormValues>;
+  if (path.startsWith("base_card.")) return path.slice("base_card.".length) as FieldPath<PricingTemplateFormValues>;
+  if (path.startsWith("card.")) return path.slice("card.".length) as FieldPath<PricingTemplateFormValues>;
+  if (path.startsWith("peak_card.") || path.startsWith("offpeak_card.") || path === "tier.input_tokens_above" || path === "name" || path === "template_kind") return path as FieldPath<PricingTemplateFormValues>;
+  return null;
 }
 
 export function PricingTemplateDialog({
@@ -91,7 +81,7 @@ export function PricingTemplateDialog({
   onSave,
   open,
   pricingTemplateSaving,
-  serverError,
+  serverValidation,
 }: PricingTemplateDialogProps) {
   const { messages } = useLocale();
   const dialogMessages = messages.pricingTemplateDialog;
@@ -114,6 +104,19 @@ export function PricingTemplateDialog({
     );
   }, [editingPricingTemplate, form, open]);
 
+  useEffect(() => {
+    if (!serverValidation) return;
+    const staticErrors = fieldErrorsFromServerValidation(serverValidation, staticPricingWireFields);
+    for (const [wirePath, message] of Object.entries(staticErrors)) {
+      const path = pricingFormPath(wirePath);
+      if (path && message) form.setError(path, { type: "server", message });
+    }
+    for (const issue of serverValidation.issues) {
+      const path = pricingFormPath(issue.field);
+      if (path) form.setError(path, { type: "server", message: issue.message });
+    }
+  }, [form, serverValidation]);
+
   return (
     <Dialog
       open={open}
@@ -131,14 +134,10 @@ export function PricingTemplateDialog({
           </DialogTitle>
           <DialogDescription>{dialogMessages.description}</DialogDescription>
         </DialogHeader>
-        {serverError ? (
-          <Alert variant="destructive" data-testid="pricing-form-server-error">
-            <AlertCircle />
-            <AlertTitle>{messages.pricingTemplatesData.saveFailed}</AlertTitle>
-            <AlertDescription className="whitespace-pre-line">
-              {serverError}
-            </AlertDescription>
-          </Alert>
+        {serverValidation ? (
+          <OperatorCallout intent="danger" data-testid="pricing-form-server-error">
+            <span className="whitespace-pre-line">{serverValidation.summary}</span>
+          </OperatorCallout>
         ) : null}
         <Form {...form}>
           <form
@@ -208,15 +207,17 @@ export function PricingTemplateDialog({
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value="standard">
-                                {dialogMessages.standardKindLabel}
-                              </SelectItem>
-                              <SelectItem value="tiered">
-                                {dialogMessages.tieredKindLabel}
-                              </SelectItem>
-                              <SelectItem value="peak_valley">
-                                {dialogMessages.peakValleyKindLabel}
-                              </SelectItem>
+                              <SelectGroup>
+                                <SelectItem value="standard">
+                                  {dialogMessages.standardKindLabel}
+                                </SelectItem>
+                                <SelectItem value="tiered">
+                                  {dialogMessages.tieredKindLabel}
+                                </SelectItem>
+                                <SelectItem value="peak_valley">
+                                  {dialogMessages.peakValleyKindLabel}
+                                </SelectItem>
+                              </SelectGroup>
                             </SelectContent>
                           </Select>
                           <FormMessage />
@@ -233,62 +234,15 @@ export function PricingTemplateDialog({
                           messages.costingUi.per1mTokens,
                         )}
                       </p>
-                      <OperatorInsetPanel className="bg-panel">
-                        <p className="text-sm font-medium text-foreground">
-                          {dialogMessages.baseRatesSectionTitle}
-                        </p>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <PricingFieldCard
-                            control={form.control}
-                            name="input_price"
-                            label={dialogMessages.inputPriceLabel}
-                            placeholder={dialogMessages.pricePlaceholder}
-                          />
-                          <PricingFieldCard
-                            control={form.control}
-                            name="output_price"
-                            label={dialogMessages.outputPriceLabel}
-                            placeholder={dialogMessages.pricePlaceholder}
-                          />
-                        </div>
-                      </OperatorInsetPanel>
-                      <OperatorInsetPanel>
-                        <div className="flex flex-col gap-1">
-                          <p className="text-sm font-medium text-foreground">
-                            {dialogMessages.componentRatesSectionTitle}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {dialogMessages.componentRatesSectionDescription}
-                          </p>
-                        </div>
-                        <div className="grid gap-3 md:grid-cols-3">
-                          <PricingFieldCard
-                            control={form.control}
-                            name="cached_input_price"
-                            label={dialogMessages.cachedInputPriceLabel}
-                            placeholder={dialogMessages.pricePlaceholder}
-                          />
-                          <PricingFieldCard
-                            control={form.control}
-                            name="cache_creation_price"
-                            label={dialogMessages.cacheCreationPriceLabel}
-                            placeholder={dialogMessages.pricePlaceholder}
-                          />
-                          <PricingFieldCard
-                            control={form.control}
-                            name="reasoning_price"
-                            label={dialogMessages.reasoningPriceLabel}
-                            placeholder={dialogMessages.pricePlaceholder}
-                          />
-                        </div>
-                      </OperatorInsetPanel>
+                      <PricingCardFields
+                        control={form.control}
+                        path="base"
+                        title={dialogMessages.baseRatesSectionTitle}
+                      />
                       <PricingTierFields control={form.control} />
                     </>
                   ) : (
-                    <PricingPeakValleyFields
-                      control={form.control}
-                      register={form.register}
-                    />
+                    <PricingPeakValleyFields control={form.control} />
                   )}
                 </div>
               </div>

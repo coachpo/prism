@@ -21,14 +21,14 @@ BEGIN
         'pricing_migration_legacy_reporting_currency_evidence',
         'pricing_telemetry_quarantine',
         'pricing_telemetry_quarantine_resolutions',
-        'pricing_mutation_operation_reservations',
-        'pricing_mutation_operations',
-        'pricing_mutation_result_items',
         'pricing_currency_migration_drafts',
         'pricing_currency_migration_draft_chunks',
         'pricing_currency_migration_draft_items',
         'currency_migration_ledger',
-        'currency_migration_ledger_items'
+        'currency_migration_ledger_items',
+        'pricing_mutation_operation_reservations',
+        'pricing_mutation_operations',
+        'pricing_mutation_result_items'
     ] LOOP
         EXECUTE format('SELECT count(*) FROM public.%I', table_name) INTO row_count;
         IF row_count > 0 THEN
@@ -456,20 +456,32 @@ ALTER TABLE public.request_logs
             AND pricing_selector_basis_tokens IS NULL)
     ) NOT VALID,
     ADD CONSTRAINT pricing_schedule_evidence_check CHECK (
-        pricing_template_kind IS NULL
-        OR pricing_template_kind <> 'peak_valley'
-        OR pricing_selection_state IS NULL
-        OR pricing_selection_state NOT IN ('selected', 'unresolved')
-        OR (pricing_schedule_decided_at IS NOT NULL
-            AND pricing_schedule_timezone IS NOT NULL
+        (pricing_template_kind IS DISTINCT FROM 'peak_valley'
+            AND pricing_schedule_decided_at IS NULL
+            AND pricing_schedule_timezone IS NULL
             AND pricing_schedule_local_weekday IS NULL
             AND pricing_schedule_local_minute IS NULL
-            AND pricing_schedule_digest IS NOT NULL)
-        OR (pricing_schedule_decided_at IS NOT NULL
-            AND pricing_schedule_timezone IS NOT NULL
-            AND pricing_schedule_local_weekday IS NOT NULL
-            AND pricing_schedule_local_minute IS NOT NULL
-            AND pricing_schedule_digest IS NOT NULL)
+            AND pricing_schedule_digest IS NULL)
+        OR (pricing_template_kind = 'peak_valley' AND (
+            ((pricing_selection_state IS NULL OR pricing_selection_state = 'not_evaluated')
+                AND pricing_schedule_decided_at IS NULL
+                AND pricing_schedule_timezone IS NULL
+                AND pricing_schedule_local_weekday IS NULL
+                AND pricing_schedule_local_minute IS NULL
+                AND pricing_schedule_digest IS NULL)
+            OR (pricing_selection_state = 'selected'
+                AND pricing_schedule_decided_at IS NOT NULL
+                AND pricing_schedule_timezone IS NOT NULL
+                AND pricing_schedule_local_weekday IS NOT NULL
+                AND pricing_schedule_local_minute IS NOT NULL
+                AND pricing_schedule_digest IS NOT NULL)
+            OR (pricing_selection_state = 'unresolved'
+                AND pricing_schedule_decided_at IS NOT NULL
+                AND pricing_schedule_timezone IS NOT NULL
+                AND pricing_schedule_digest IS NOT NULL
+                AND ((pricing_schedule_local_weekday IS NULL AND pricing_schedule_local_minute IS NULL)
+                    OR (pricing_schedule_local_weekday IS NOT NULL AND pricing_schedule_local_minute IS NOT NULL)))
+        ))
     ) NOT VALID,
     ADD CONSTRAINT pricing_schedule_local_weekday_check CHECK (pricing_schedule_local_weekday IS NULL OR pricing_schedule_local_weekday BETWEEN 1 AND 7) NOT VALID,
     ADD CONSTRAINT pricing_schedule_local_minute_check CHECK (pricing_schedule_local_minute IS NULL OR pricing_schedule_local_minute BETWEEN 0 AND 1439) NOT VALID;
@@ -514,20 +526,32 @@ ALTER TABLE public.usage_request_events
             AND pricing_selector_basis_tokens IS NULL)
     ) NOT VALID,
     ADD CONSTRAINT pricing_schedule_evidence_check CHECK (
-        pricing_template_kind IS NULL
-        OR pricing_template_kind <> 'peak_valley'
-        OR pricing_selection_state IS NULL
-        OR pricing_selection_state NOT IN ('selected', 'unresolved')
-        OR (pricing_schedule_decided_at IS NOT NULL
-            AND pricing_schedule_timezone IS NOT NULL
+        (pricing_template_kind IS DISTINCT FROM 'peak_valley'
+            AND pricing_schedule_decided_at IS NULL
+            AND pricing_schedule_timezone IS NULL
             AND pricing_schedule_local_weekday IS NULL
             AND pricing_schedule_local_minute IS NULL
-            AND pricing_schedule_digest IS NOT NULL)
-        OR (pricing_schedule_decided_at IS NOT NULL
-            AND pricing_schedule_timezone IS NOT NULL
-            AND pricing_schedule_local_weekday IS NOT NULL
-            AND pricing_schedule_local_minute IS NOT NULL
-            AND pricing_schedule_digest IS NOT NULL)
+            AND pricing_schedule_digest IS NULL)
+        OR (pricing_template_kind = 'peak_valley' AND (
+            ((pricing_selection_state IS NULL OR pricing_selection_state = 'not_evaluated')
+                AND pricing_schedule_decided_at IS NULL
+                AND pricing_schedule_timezone IS NULL
+                AND pricing_schedule_local_weekday IS NULL
+                AND pricing_schedule_local_minute IS NULL
+                AND pricing_schedule_digest IS NULL)
+            OR (pricing_selection_state = 'selected'
+                AND pricing_schedule_decided_at IS NOT NULL
+                AND pricing_schedule_timezone IS NOT NULL
+                AND pricing_schedule_local_weekday IS NOT NULL
+                AND pricing_schedule_local_minute IS NOT NULL
+                AND pricing_schedule_digest IS NOT NULL)
+            OR (pricing_selection_state = 'unresolved'
+                AND pricing_schedule_decided_at IS NOT NULL
+                AND pricing_schedule_timezone IS NOT NULL
+                AND pricing_schedule_digest IS NOT NULL
+                AND ((pricing_schedule_local_weekday IS NULL AND pricing_schedule_local_minute IS NULL)
+                    OR (pricing_schedule_local_weekday IS NOT NULL AND pricing_schedule_local_minute IS NOT NULL)))
+        ))
     ) NOT VALID,
     ADD CONSTRAINT pricing_schedule_local_weekday_check CHECK (pricing_schedule_local_weekday IS NULL OR pricing_schedule_local_weekday BETWEEN 1 AND 7) NOT VALID,
     ADD CONSTRAINT pricing_schedule_local_minute_check CHECK (pricing_schedule_local_minute IS NULL OR pricing_schedule_local_minute BETWEEN 0 AND 1439) NOT VALID;

@@ -29,21 +29,9 @@ type runtimeEndpoint struct {
 	BaseURL string
 }
 
-// runtimePricingCard is the immutable five-component card copied out of the published snapshot.
-type runtimePricingCard struct {
-	InputPrice         string
-	OutputPrice        string
-	CachedInputPrice   string
-	CacheCreationPrice string
-	ReasoningPrice     string
-}
-
-type runtimePricingScheduleSnapshot struct {
-	Timezone string
-	Location *time.Location
-	Windows  []terminaltarget.Window
-	State    runtimePricingScheduleDecision
-}
+// runtimePricingCard aliases the HTTP-neutral immutable card carried by the
+// planning record so the terminal-target and runtime mirrors cannot drift.
+type runtimePricingCard = terminaltarget.RuntimePricingCard
 
 type runtimePricingTemplateSnapshot struct {
 	ID                     int
@@ -54,23 +42,11 @@ type runtimePricingTemplateSnapshot struct {
 	ReportingCurrencyEpoch *int
 	TemplateKind           string
 	Cards                  map[string]runtimePricingCard
-	// Deprecated internal aliases used only by transitional tests/helpers.
-	InputPrice              string
-	OutputPrice             string
-	CachedInputPrice        string
-	CacheCreationPrice      string
-	ReasoningPrice          string
-	TierInputPrice          string
-	TierOutputPrice         string
-	TierCachedInputPrice    string
-	TierCacheCreationPrice  string
-	TierReasoningPrice      string
-	TierInputTokensAbove    *int
-	PricingSchedule         runtimePricingScheduleSnapshot
-	PricingScheduleTimezone *string
-	PricingScheduleDigest   string
-	Version                 int
-	VersionEffectiveAt      *time.Time
+	TierInputTokensAbove   *int
+	PricingSchedule        terminaltarget.CompiledPricingSchedule
+	PricingScheduleDigest  string
+	Version                int
+	VersionEffectiveAt     *time.Time
 }
 
 func (snapshot *runtimePricingTemplateSnapshot) card(role string) (runtimePricingCard, bool) {

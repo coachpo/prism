@@ -9,22 +9,16 @@ import {
 } from "@/features/runtime-self-test/selfTestRunner";
 import type { SelfTestEntryContext } from "@/features/runtime-self-test/selfTestTypes";
 import { INGRESS_REQUEST_ID_HEADER } from "@/features/runtime-self-test/selfTestTypes";
-import {
-  __setApiBaseForTest,
-  resetEffectiveBackendOriginCache,
-} from "@/features/runtime-self-test/effectiveOrigin";
+import { __setApiBaseForTest, resetEffectiveBackendOriginCache } from "@/features/runtime-self-test/effectiveOrigin";
 
 const RUNTIME_ORIGIN = "http://backend.local:8000";
 const RUNTIME_URL = `${RUNTIME_ORIGIN}/v1/chat/completions`;
-const fixtureProxyValue = "test-proxy-value";
 
-function context(
-  overrides: Partial<SelfTestEntryContext> = {},
-): SelfTestEntryContext {
+function context(overrides: Partial<SelfTestEntryContext> = {}): SelfTestEntryContext {
   return {
     source: "generated_secret",
     requestedModelId: "gpt-5.6-luna",
-    proxyKey: fixtureProxyValue,
+    proxyKey: "pm-1a2b3c4d5e6f7a8b9c0d1e2f9f3e",
     explicitNoKey: false,
     expectedProxyApiKeyId: 42,
     ...overrides,
@@ -46,10 +40,7 @@ describe("runRuntimeSelfTestDirect", () => {
         receivedHeaders = Object.fromEntries(request.headers.entries());
         return HttpResponse.json(
           { id: "resp-1", output: ["ok"] },
-          {
-            status: 200,
-            headers: { [INGRESS_REQUEST_ID_HEADER]: "ingress-abc-123" },
-          },
+          { status: 200, headers: { [INGRESS_REQUEST_ID_HEADER]: "ingress-abc-123" } },
         );
       }),
     );
@@ -57,17 +48,14 @@ describe("runRuntimeSelfTestDirect", () => {
       {
         url: RUNTIME_URL,
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${fixtureProxyValue}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: "Bearer pm-1a2b3c4d5e6f7a8b9c0d1e2f9f3e" },
         body: "{}",
       },
       context(),
     );
     expect(result.ingressRequestId).toBe("ingress-abc-123");
     expect(result.statusCode).toBe(200);
-    expect(receivedHeaders.authorization).toBe(`Bearer ${fixtureProxyValue}`);
+    expect(receivedHeaders.authorization).toBe("Bearer pm-1a2b3c4d5e6f7a8b9c0d1e2f9f3e");
   });
 
   it("omits the credential header for an explicit no-key permissive test", async () => {
@@ -76,22 +64,11 @@ describe("runRuntimeSelfTestDirect", () => {
     rewriteTestServer.use(
       http.post(RUNTIME_URL, ({ request }) => {
         receivedHeaders = Object.fromEntries(request.headers.entries());
-        return HttpResponse.json(
-          { id: "resp-2" },
-          {
-            status: 200,
-            headers: { [INGRESS_REQUEST_ID_HEADER]: "ingress-2" },
-          },
-        );
+        return HttpResponse.json({ id: "resp-2" }, { status: 200, headers: { [INGRESS_REQUEST_ID_HEADER]: "ingress-2" } });
       }),
     );
     await runRuntimeSelfTestDirect(
-      {
-        url: RUNTIME_URL,
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-      },
+      { url: RUNTIME_URL, method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
       context({ proxyKey: null, explicitNoKey: true }),
     );
     expect(receivedHeaders.Authorization).toBeUndefined();
@@ -101,13 +78,7 @@ describe("runRuntimeSelfTestDirect", () => {
     __setApiBaseForTest(RUNTIME_ORIGIN + "/");
     rewriteTestServer.use(
       http.post(RUNTIME_URL, () =>
-        HttpResponse.json(
-          { error: { message: "model not found" } },
-          {
-            status: 404,
-            headers: { [INGRESS_REQUEST_ID_HEADER]: "ingress-3" },
-          },
-        ),
+        HttpResponse.json({ error: { message: "model not found" } }, { status: 404, headers: { [INGRESS_REQUEST_ID_HEADER]: "ingress-3" } }),
       ),
     );
     const result = await runRuntimeSelfTestDirect(
@@ -126,13 +97,7 @@ describe("reconcileSelfTestTelemetry", () => {
       http.get("*/api/stats/requests", () => {
         calls += 1;
         if (calls < 2) {
-          return HttpResponse.json({
-            items: [],
-            total: 0,
-            limit: 5,
-            offset: 0,
-            filter_options: {},
-          });
+          return HttpResponse.json({ items: [], total: 0, limit: 5, offset: 0, filter_options: {} });
         }
         return HttpResponse.json({
           items: [{ request_log_id: "101" }],
@@ -144,28 +109,10 @@ describe("reconcileSelfTestTelemetry", () => {
       }),
       http.get("*/api/stats/requests/101", () =>
         HttpResponse.json({
-          summary: {
-            id: 101,
-            status_code: 200,
-            gateway_status_code: 200,
-            resolved_target_model_id: "gpt-5.6-native",
-          },
-          request: {
-            proxy_api_key_id: 42,
-            proxy_api_key_attribution_state: "identified",
-            proxy_api_key_auth_enforced_at_request: false,
-          },
-          routing: {
-            terminal_target_id: 7,
-            endpoint_id: 3,
-            endpoint_label: "Primary OpenAI",
-          },
-          pricing: {
-            pricing_status: "priced",
-            unpriced_reason: null,
-            total_cost_user_currency_micros: 1250,
-            report_currency_symbol: "$",
-          },
+          summary: { id: 101, status_code: 200, gateway_status_code: 200, resolved_target_model_id: "gpt-5.6-native" },
+          request: { proxy_api_key_id: 42, proxy_api_key_attribution_state: "identified", proxy_api_key_auth_enforced_at_request: false },
+          routing: { terminal_target_id: 7, endpoint_id: 3, endpoint_label: "Primary OpenAI" },
+          pricing: { pricing_status: "priced", unpriced_reason: null, total_cost_user_currency_micros: 1250, report_currency_symbol: "$" },
         }),
       ),
     );
@@ -175,20 +122,12 @@ describe("reconcileSelfTestTelemetry", () => {
     expect(calls).toBeGreaterThanOrEqual(2);
   });
 
-  it("stops after the bounded attempt budget instead of polling forever", {
-    timeout: 20000,
-  }, async () => {
+  it("stops after the bounded attempt budget instead of polling forever", { timeout: 20000 }, async () => {
     let calls = 0;
     rewriteTestServer.use(
       http.get("*/api/stats/requests", () => {
         calls += 1;
-        return HttpResponse.json({
-          items: [],
-          total: 0,
-          limit: 5,
-          offset: 0,
-          filter_options: {},
-        });
+        return HttpResponse.json({ items: [], total: 0, limit: 5, offset: 0, filter_options: {} });
       }),
     );
     const result = await reconcileSelfTestTelemetry("ingress-never", undefined);
@@ -198,21 +137,10 @@ describe("reconcileSelfTestTelemetry", () => {
 
   it("honors abort and throws SelfTestAbortedError", async () => {
     rewriteTestServer.use(
-      http.get("*/api/stats/requests", () =>
-        HttpResponse.json({
-          items: [],
-          total: 0,
-          limit: 5,
-          offset: 0,
-          filter_options: {},
-        }),
-      ),
+      http.get("*/api/stats/requests", () => HttpResponse.json({ items: [], total: 0, limit: 5, offset: 0, filter_options: {} })),
     );
     const controller = new AbortController();
-    const pending = reconcileSelfTestTelemetry(
-      "ingress-abort",
-      controller.signal,
-    );
+    const pending = reconcileSelfTestTelemetry("ingress-abort", controller.signal);
     controller.abort();
     await expect(pending).rejects.toBeInstanceOf(SelfTestAbortedError);
   });
@@ -220,32 +148,11 @@ describe("reconcileSelfTestTelemetry", () => {
 
 describe("buildSelfTestResult four-layer projection", () => {
   const telemetryDetail = {
-    summary: {
-      id: 101,
-      status_code: 200,
-      gateway_status_code: 200,
-      resolved_target_model_id: "gpt-5.6-native",
-    },
-    request: {
-      proxy_api_key_id: 42,
-      proxy_api_key_attribution_state: "identified",
-      proxy_api_key_auth_enforced_at_request: false,
-    },
-    routing: {
-      terminal_target_id: 7,
-      endpoint_id: 3,
-      endpoint_label: "Primary OpenAI",
-    },
-    pricing: {
-      pricing_status: "priced",
-      unpriced_reason: null,
-      total_cost_user_currency_micros: 1250,
-      report_currency_symbol: "$",
-    },
-    costing: {
-      total_cost_user_currency_micros: 1250,
-      report_currency_symbol: "$",
-    },
+    summary: { id: 101, status_code: 200, gateway_status_code: 200, resolved_target_model_id: "gpt-5.6-native" },
+    request: { proxy_api_key_id: 42, proxy_api_key_attribution_state: "identified", proxy_api_key_auth_enforced_at_request: false },
+    routing: { terminal_target_id: 7, endpoint_id: 3, endpoint_label: "Primary OpenAI" },
+    pricing: { pricing_status: "priced", unpriced_reason: null, total_cost_user_currency_micros: 1250, report_currency_symbol: "$" },
+    costing: { total_cost_user_currency_micros: 1250, report_currency_symbol: "$" },
   };
 
   it("projects a fully evidenced success: all four layers", () => {
@@ -274,15 +181,8 @@ describe("buildSelfTestResult four-layer projection", () => {
       {
         detail: {
           ...telemetryDetail,
-          pricing: {
-            pricing_status: "unpriced",
-            unpriced_reason: "MISSING_PRICE_DATA",
-            total_cost_user_currency_micros: null,
-          },
-          costing: {
-            total_cost_user_currency_micros: null,
-            report_currency_symbol: null,
-          },
+          pricing: { pricing_status: "unpriced", unpriced_reason: "MISSING_PRICE_DATA", total_cost_user_currency_micros: null },
+          costing: { total_cost_user_currency_micros: null, report_currency_symbol: null },
         } as never,
         state: "ready",
       },
@@ -294,15 +194,7 @@ describe("buildSelfTestResult four-layer projection", () => {
   });
 
   it("maps 401 to credential failure with routing/execution not reached", () => {
-    const result = buildSelfTestResult(
-      {
-        ingressRequestId: null,
-        statusCode: 401,
-        safeSummary: "Proxy API key required",
-      },
-      context(),
-      null,
-    );
+    const result = buildSelfTestResult({ ingressRequestId: null, statusCode: 401, safeSummary: "Proxy API key required" }, context(), null);
     expect(result.credential.attributionState).toBe("none");
     expect(result.routing.state).toBe("not_reached");
     expect(result.execution.state).toBe("not_reached");

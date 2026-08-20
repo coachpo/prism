@@ -162,6 +162,8 @@ Before starting related work, read the authoritative documents that cover the sc
 - [Source Code Size and Responsibility Rules](docs/source-code-size-and-responsibility-rules.md)
 - [Contributing Guide](CONTRIBUTING.md)
 
+When implementing, reviewing, or verifying an engineering change, use `STATUS.md` and the product overview for current facts and delivery intent, then read the [Current Iteration Strategy](CONTRIBUTING.md#current-iteration-strategy) when that derived section exists. Consume only the required-now items, non-negotiable boundaries, and re-derivation triggers relevant to the task; do not independently expand explicitly deferred or currently untriggered work. A new user requirement, active Goal, reachable risk, hard project rule or invariant, or evidence-backed review finding overrides a conflicting deferred description. The strategy does not expand user authorization, and the MVP Fast Validation switch neither defines nor overrides it; do not reuse a stale strategy after source facts or its digest change.
+
 ## Project Documentation Content Boundaries
 
 This project does not add process or administrative management for the sake of documentation completeness.

@@ -57,12 +57,9 @@ import {
   type OperationalSortValue,
 } from "@/shared/table/operationalTable";
 import { normalizeTemplatePrice } from "./pricingSchemas";
-import {
-  HistoryPanel,
-  RateCell,
-  TierPanel,
-  UsagePanel,
-} from "./PricingTemplateDetailPanels";
+import { PricingTemplateHistoryPanel } from "./PricingTemplateHistoryPanel";
+import { PricingTemplateRatePanel, RateCell } from "./PricingTemplateRatePanel";
+import { PricingTemplateUsagePanel } from "./PricingTemplateUsagePanel";
 import {
   isRecentlyChanged,
   totalReferences,
@@ -600,17 +597,17 @@ export function PricingTemplatesTable({
                                 </Button>
                               </div>
 
-                              <TierPanel template={template} />
+                              <PricingTemplateRatePanel template={template} />
 
                               {detailView === "usage" ? (
-                                <UsagePanel
+                                <PricingTemplateUsagePanel
                                   error={detailUsageError}
                                   loading={detailUsageLoading}
                                   rows={detailUsage}
                                   onRetry={() => void onLoadUsage(template)}
                                 />
                               ) : (
-                                <HistoryPanel
+                                <PricingTemplateHistoryPanel
                                   loading={detailHistoryLoading}
                                   revisions={detailHistory}
                                 />

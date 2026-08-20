@@ -1209,7 +1209,7 @@ Explicit JSON `null` means an unconfigured specialty component; explicit `"0"` m
 POST /api/pricing-templates/import
 ```
 
-The import envelope is schema-versioned (`schema_version: 2`) and contains the same typed template shapes as create. Unknown fields and legacy flat price fields are rejected. Preview returns each row's `template_kind`, action, current/next version, and a hash; commit accepts only the exact preview hash and writes the whole batch atomically. Failed rows do not advance the planning generation.
+The import envelope is schema-versioned (`schema_version: 2`) and contains the same typed template shapes as create. Unknown fields, missing card keys, blank prices, and legacy flat price fields are rejected. Preview returns each row's `template_kind`, action, current/next version, `template_kind_changed`, `pricing_structure_changed`, and a hash over the complete normalized payload plus current revision/CAS identity. Commit locks the profile, recomputes that same preview inside the write transaction, and accepts only the exact hash before writing the whole batch atomically. Failed or drifted rows do not advance the planning generation.
 
 ##### Update Pricing Template
 
@@ -4041,7 +4041,7 @@ Telemetry rows have immutable profile attribution captured at request start. Cap
 | success_flag | BOOLEAN | NULLABLE | Success classification |
 | pricing_status | VARCHAR(20) | NULLABLE | Four-state pricing classifier: `priced`, `unpriced`, `ineligible`, or `unknown` |
 | unpriced_reason | VARCHAR(50) | NULLABLE | Missing price or token-usage reason (`PRICING_DISABLED`, `MISSING_TOKEN_USAGE`, `STREAM_USAGE_UNAVAILABLE`, `MISSING_PRICE_DATA`) |
-| pricing_resolution_kind | VARCHAR(50) | NULLABLE | `missing_component`, `currency_migration_required`, `unsupported_unit`, or `snapshot_incoherent` |
+| pricing_resolution_kind | VARCHAR(50) | NULLABLE | `missing_component`, `currency_migration_required`, `unsupported_unit`, `snapshot_incoherent`, or `schedule_unresolved` |
 | missing_price_components | TEXT[] | NULLABLE | Canonical component list missing from the pricing snapshot |
 | pricing_evidence_trust | VARCHAR(24) | NULLABLE | `trusted` (new writer) or `legacy_untrusted` (pre-migration rows) |
 | pricing_template_id_used | INTEGER | NULLABLE | Pricing template ID snapshot used for the attempt |
@@ -4157,7 +4157,7 @@ Usage-event rows are the finalized source for the unified statistics snapshot. T
 | error_code | VARCHAR(120) | NULLABLE | Final failure code |
 | failure_stage | VARCHAR(32) | NULLABLE | Final failure stage |
 | pricing_status | VARCHAR(20) | NULLABLE | Four-state pricing classifier (`priced`, `unpriced`, `ineligible`, `unknown`) |
-| pricing_resolution_kind | VARCHAR(50) | NULLABLE | `missing_component`, `currency_migration_required`, `unsupported_unit`, or `snapshot_incoherent` |
+| pricing_resolution_kind | VARCHAR(50) | NULLABLE | `missing_component`, `currency_migration_required`, `unsupported_unit`, `snapshot_incoherent`, or `schedule_unresolved` |
 | missing_price_components | TEXT[] | NULLABLE | Canonical missing-component list |
 | pricing_evidence_trust | VARCHAR(24) | NULLABLE | `trusted` or `legacy_untrusted` |
 | pricing_template_id_used | INTEGER | NULLABLE | Pricing template snapshot |

@@ -54,7 +54,8 @@ func loadRetainedRows(ctx context.Context, exec queryExecutor, params ChainQuery
 			error_source, error_code, failure_stage, error_detail, error_detail_redacted, error_detail_truncated,
 			stream_error_detail, stream_error_detail_redacted, stream_error_detail_truncated,
 			stream_outcome, stream_error_kind, model_id, resolved_target_model_id, endpoint_id, connection_id,
-			total_tokens, total_cost_user_currency_micros, pricing_status, unpriced_reason, pricing_evidence_trust, created_at,
+			total_tokens, total_cost_user_currency_micros, pricing_status, unpriced_reason, pricing_resolution_kind, pricing_evidence_trust,
+			pricing_template_kind, pricing_selection_state, pricing_card_role, pricing_selector_threshold_tokens, pricing_selector_basis_tokens, created_at,
 			endpoint_base_url, endpoint_description,
 			(` + matchPredicate + `) AS matched_by_filter
 		FROM request_logs
@@ -93,7 +94,8 @@ func loadRetainedRows(ctx context.Context, exec queryExecutor, params ChainQuery
 			&item.ErrorSource, &item.ErrorCode, &item.FailureStage, &errorDetail, &errorDetailRedacted, &errorDetailTruncated,
 			&streamErrorDetail, &streamErrorDetailRedacted, &streamErrorDetailTruncated,
 			&item.StreamOutcome, &item.StreamErrorKind, &item.ModelID, &item.ResolvedTargetModelID, &item.EndpointID, &item.TerminalTargetID,
-			&item.TotalTokens, &item.TotalCostUserCurrencyMicros, &item.PricingStatus, &item.UnpricedReason, &item.PricingEvidenceTrust, &item.CreatedAt,
+			&item.TotalTokens, &item.TotalCostUserCurrencyMicros, &item.PricingStatus, &item.UnpricedReason, &item.PricingResolutionKind, &item.PricingEvidenceTrust,
+			&item.PricingTemplateKind, &item.PricingSelectionState, &item.PricingCardRole, &item.PricingSelectorThresholdTokens, &item.PricingSelectorBasisTokens, &item.CreatedAt,
 			&endpointBaseURL, &endpointDescription, &item.MatchedByFilter,
 		); err != nil {
 			return retainedRowsPage{}, fmt.Errorf("scan retained row: %w", err)

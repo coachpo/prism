@@ -77,17 +77,26 @@ export function PricingImportPreview({ committing, onCancel, onCommit, preview }
               <TableRow key={`${item.name}-${item.action}`}>
                 <TableCell className="text-sm font-medium">{item.name}</TableCell>
                 <TableCell>
-                  <OperatorTypeBadge
-                    preserveLabel
-                    intent={item.action === "create" ? "healthy" : item.action === "update" ? "accent" : "muted"}
-                    label={
-                      item.action === "create"
-                        ? copy.importPreviewCreate
-                        : item.action === "update"
-                          ? copy.importPreviewUpdate
-                          : copy.importPreviewSkip
-                    }
-                  />
+                  <div className="flex flex-col gap-1">
+                    <OperatorTypeBadge
+                      preserveLabel
+                      intent={item.action === "create" ? "healthy" : item.action === "update" ? "accent" : "muted"}
+                      label={
+                        item.action === "create"
+                          ? copy.importPreviewCreate
+                          : item.action === "update"
+                            ? copy.importPreviewUpdate
+                            : copy.importPreviewSkip
+                      }
+                    />
+                    {item.template_kind_changed ? (
+                      <span className="text-[11px] text-muted-foreground">{copy.importPreviewKindChanged}</span>
+                    ) : item.pricing_structure_changed ? (
+                      <span className="text-[11px] text-muted-foreground">{copy.importPreviewStructureChanged}</span>
+                    ) : item.action === "update" ? (
+                      <span className="text-[11px] text-muted-foreground">{copy.importPreviewMetadataOnly}</span>
+                    ) : null}
+                  </div>
                 </TableCell>
                 <TableCell className="font-mono text-xs tabular-nums">
                   {item.current_version != null && item.next_version != null ? (

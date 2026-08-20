@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coachpo/prism/backend/internal/domain/pricingkind"
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/jackc/pgx/v5"
@@ -27,6 +28,36 @@ type pricingTemplateCardInput struct {
 	CachedInputPrice   *string `json:"cached_input_price"`
 	CacheCreationPrice *string `json:"cache_creation_price"`
 	ReasoningPrice     *string `json:"reasoning_price"`
+	present            map[string]bool
+}
+
+func (card *pricingTemplateCardInput) UnmarshalJSON(data []byte) error {
+	type wireCard struct {
+		InputPrice         *string `json:"input_price"`
+		OutputPrice        *string `json:"output_price"`
+		CachedInputPrice   *string `json:"cached_input_price"`
+		CacheCreationPrice *string `json:"cache_creation_price"`
+		ReasoningPrice     *string `json:"reasoning_price"`
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var decoded wireCard
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	*card = pricingTemplateCardInput{
+		InputPrice: decoded.InputPrice, OutputPrice: decoded.OutputPrice,
+		CachedInputPrice: decoded.CachedInputPrice, CacheCreationPrice: decoded.CacheCreationPrice,
+		ReasoningPrice: decoded.ReasoningPrice, present: make(map[string]bool, len(raw)),
+	}
+	for key := range raw {
+		card.present[key] = true
+	}
+	return nil
 }
 
 type pricingTemplateWindowInput struct {
@@ -582,8 +613,9 @@ func listPricingTemplateRevisions(ctx context.Context, tx pgx.Tx, templateID int
 	if err != nil {
 		return nil, fmt.Errorf("query pricing template revisions: %w", err)
 	}
-	defer rows.Close()
 	items := make([]pricingTemplateRevisionResponse, 0)
+	itemIndex := make(map[int64]int)
+	revisionIDs := make([]int64, 0)
 	for rows.Next() {
 		var item pricingTemplateRevisionResponse
 		var kind, timezone, digest sql.NullString
@@ -597,56 +629,85 @@ func listPricingTemplateRevisions(ctx context.Context, tx pgx.Tx, templateID int
 		if threshold.Valid {
 			item.Tier = &pricingTemplateTier{InputTokensAbove: int(threshold.Int32)}
 		}
-		cardRows, queryErr := tx.Query(ctx, `SELECT card_role, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price FROM pricing_template_cards WHERE revision_id = $1 ORDER BY card_role`, item.RevisionID)
-		if queryErr != nil {
-			return nil, queryErr
-		}
-		for cardRows.Next() {
-			var role, input, output string
-			var cached, creation, reasoning sql.NullString
-			if scanErr := cardRows.Scan(&role, &input, &output, &cached, &creation, &reasoning); scanErr != nil {
-				cardRows.Close()
-				return nil, scanErr
-			}
-			card := &pricingTemplateCard{InputPrice: input, OutputPrice: output, CachedInputPrice: nullableStringValue(cached), CacheCreationPrice: nullableStringValue(creation), ReasoningPrice: nullableStringValue(reasoning)}
-			switch role {
-			case "standard":
-				item.Card = card
-			case "tier_base":
-				item.BaseCard = card
-			case "tier_above":
-				if item.Tier == nil {
-					item.Tier = &pricingTemplateTier{}
-				}
-				item.Tier.Card = card
-			case "peak":
-				item.PeakCard = card
-			case "offpeak":
-				item.OffpeakCard = card
-			}
-		}
-		cardRows.Close()
 		if item.TemplateKind == "peak_valley" {
 			item.Schedule = &pricingTemplateSchedule{Timezone: timezone.String}
-			windowRows, queryErr := tx.Query(ctx, `SELECT weekday_mask, start_minute, end_minute FROM pricing_template_windows WHERE revision_id = $1 ORDER BY weekday_mask, start_minute, end_minute`, item.RevisionID)
-			if queryErr != nil {
-				return nil, queryErr
-			}
-			for windowRows.Next() {
-				var mask, start, end int
-				if scanErr := windowRows.Scan(&mask, &start, &end); scanErr != nil {
-					windowRows.Close()
-					return nil, scanErr
-				}
-				item.Schedule.Windows = append(item.Schedule.Windows, pricingTemplateWindow{WeekdayMask: mask, StartMinute: start, EndMinute: end})
-			}
-			windowRows.Close()
 		}
+		itemIndex[item.RevisionID] = len(items)
+		revisionIDs = append(revisionIDs, item.RevisionID)
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return nil, fmt.Errorf("iterate pricing template revisions: %w", err)
 	}
+	rows.Close()
+
+	if len(revisionIDs) == 0 {
+		return items, nil
+	}
+	cardRows, err := tx.Query(ctx, `SELECT revision_id, card_role, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price FROM pricing_template_cards WHERE revision_id = ANY($1) ORDER BY revision_id, card_role`, revisionIDs)
+	if err != nil {
+		return nil, fmt.Errorf("query pricing template revision cards: %w", err)
+	}
+	for cardRows.Next() {
+		var revisionID int64
+		var role, input, output string
+		var cached, creation, reasoning sql.NullString
+		if err := cardRows.Scan(&revisionID, &role, &input, &output, &cached, &creation, &reasoning); err != nil {
+			cardRows.Close()
+			return nil, fmt.Errorf("scan pricing template revision card: %w", err)
+		}
+		index, ok := itemIndex[revisionID]
+		if !ok {
+			cardRows.Close()
+			return nil, fmt.Errorf("pricing template revision card references unknown revision %d", revisionID)
+		}
+		card := &pricingTemplateCard{InputPrice: input, OutputPrice: output, CachedInputPrice: nullableStringValue(cached), CacheCreationPrice: nullableStringValue(creation), ReasoningPrice: nullableStringValue(reasoning)}
+		switch role {
+		case pricingkind.RoleStandard:
+			items[index].Card = card
+		case pricingkind.RoleTierBase:
+			items[index].BaseCard = card
+		case pricingkind.RoleTierAbove:
+			if items[index].Tier == nil {
+				items[index].Tier = &pricingTemplateTier{}
+			}
+			items[index].Tier.Card = card
+		case pricingkind.RolePeak:
+			items[index].PeakCard = card
+		case pricingkind.RoleOffpeak:
+			items[index].OffpeakCard = card
+		}
+	}
+	if err := cardRows.Err(); err != nil {
+		cardRows.Close()
+		return nil, fmt.Errorf("iterate pricing template revision cards: %w", err)
+	}
+	cardRows.Close()
+
+	windowRows, err := tx.Query(ctx, `SELECT revision_id, weekday_mask, start_minute, end_minute FROM pricing_template_windows WHERE revision_id = ANY($1) ORDER BY revision_id, weekday_mask, start_minute, end_minute`, revisionIDs)
+	if err != nil {
+		return nil, fmt.Errorf("query pricing template revision windows: %w", err)
+	}
+	for windowRows.Next() {
+		var revisionID int64
+		var mask, start, end int
+		if err := windowRows.Scan(&revisionID, &mask, &start, &end); err != nil {
+			windowRows.Close()
+			return nil, fmt.Errorf("scan pricing template revision window: %w", err)
+		}
+		index, ok := itemIndex[revisionID]
+		if !ok || items[index].Schedule == nil {
+			windowRows.Close()
+			return nil, fmt.Errorf("pricing template window references non-peak revision %d", revisionID)
+		}
+		items[index].Schedule.Windows = append(items[index].Schedule.Windows, pricingTemplateWindow{WeekdayMask: mask, StartMinute: start, EndMinute: end})
+	}
+	if err := windowRows.Err(); err != nil {
+		windowRows.Close()
+		return nil, fmt.Errorf("iterate pricing template revision windows: %w", err)
+	}
+	windowRows.Close()
 	return items, nil
 }
 

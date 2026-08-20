@@ -18,7 +18,6 @@ func hydratePricingTemplateResponse(ctx context.Context, exec queryExecutor, ite
 	if err != nil {
 		return fmt.Errorf("load pricing template %d cards: %w", item.ID, err)
 	}
-	defer rows.Close()
 	item.cards = make(map[string]pricingTemplateCard)
 	for rows.Next() {
 		var role, input, output string
@@ -29,8 +28,10 @@ func hydratePricingTemplateResponse(ctx context.Context, exec queryExecutor, ite
 		item.cards[role] = pricingTemplateCard{InputPrice: input, OutputPrice: output, CachedInputPrice: nullableStringValue(cached), CacheCreationPrice: nullableStringValue(creation), ReasoningPrice: nullableStringValue(reasoning)}
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return fmt.Errorf("iterate pricing template %d cards: %w", item.ID, err)
 	}
+	rows.Close()
 	windowRows, err := exec.Query(ctx, `
 		SELECT weekday_mask, start_minute, end_minute
 		FROM pricing_template_windows WHERE revision_id = $1
@@ -38,7 +39,6 @@ func hydratePricingTemplateResponse(ctx context.Context, exec queryExecutor, ite
 	if err != nil {
 		return fmt.Errorf("load pricing template %d windows: %w", item.ID, err)
 	}
-	defer windowRows.Close()
 	item.windows = make([]terminaltarget.Window, 0)
 	for windowRows.Next() {
 		var mask, start, end int
@@ -48,8 +48,10 @@ func hydratePricingTemplateResponse(ctx context.Context, exec queryExecutor, ite
 		item.windows = append(item.windows, terminaltarget.Window{WeekdayMask: mask, StartMinute: start, EndMinute: end})
 	}
 	if err := windowRows.Err(); err != nil {
+		windowRows.Close()
 		return fmt.Errorf("iterate pricing template %d windows: %w", item.ID, err)
 	}
+	windowRows.Close()
 	item.projectCards()
 	return nil
 }

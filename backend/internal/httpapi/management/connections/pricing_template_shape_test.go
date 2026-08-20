@@ -1,13 +1,39 @@
 package connections
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 )
+
+func TestPricingTemplateDecodedCardRequiresAllFiveKeys(t *testing.T) {
+	decode := func(raw string) pricingTemplateCreateRequest {
+		t.Helper()
+		decoder := json.NewDecoder(bytes.NewBufferString(raw))
+		decoder.DisallowUnknownFields()
+		var request pricingTemplateCreateRequest
+		if err := decoder.Decode(&request); err != nil {
+			t.Fatalf("decode pricing template: %v", err)
+		}
+		return request
+	}
+	missing := decode(`{"name":"missing","template_kind":"standard","card":{"input_price":"1","output_price":"2","cached_input_price":null,"cache_creation_price":null}}`)
+	_, err := normalizePricingTemplateShape(missing)
+	var domainErr *DomainError
+	if !errors.As(err, &domainErr) || domainErr.StatusCode != 422 || domainErr.Fields["path"] != "card.reasoning_price" {
+		t.Fatalf("expected field-level missing-key error, got %#v", err)
+	}
+	explicitNull := decode(`{"name":"explicit-null","template_kind":"standard","card":{"input_price":"1","output_price":"2","cached_input_price":null,"cache_creation_price":null,"reasoning_price":null}}`)
+	if _, err := normalizePricingTemplateShape(explicitNull); err != nil {
+		t.Fatalf("explicit null specialty fields must remain valid: %v", err)
+	}
+}
 
 func TestPricingTemplateWindowsDigestMatchesCanonicalSQLBytes(t *testing.T) {
 	windows := []terminaltarget.Window{

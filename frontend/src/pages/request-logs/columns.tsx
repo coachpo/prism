@@ -26,6 +26,46 @@ function formatTokens(tokens: number | null): string {
   return formatNumber(tokens, getCurrentLocale());
 }
 
+function pricingRoleLabel(
+  role: RequestLogListItem["pricing_card_role"],
+  copy: ReturnType<typeof getStaticMessages>["requestLogs"],
+) {
+  switch (role) {
+    case "standard":
+      return copy.pricingCardStandard;
+    case "tier_base":
+      return copy.pricingCardTierBase;
+    case "tier_above":
+      return copy.pricingCardTierAbove;
+    case "peak":
+      return copy.pricingCardPeak;
+    case "offpeak":
+      return copy.pricingCardOffpeak;
+    default:
+      return null;
+  }
+}
+
+function pricingSelectionListLabel(
+  row: RequestLogListItem,
+  copy: ReturnType<typeof getStaticMessages>["requestLogs"],
+) {
+  switch (row.pricing_selection_state) {
+    case "selected":
+      return `${copy.pricingSelectionSelected} · ${pricingRoleLabel(row.pricing_card_role, copy) ?? copy.pricingSelectionUnavailable}`;
+    case "not_applicable":
+      return `${copy.pricingSelectionNotApplicable} · ${pricingRoleLabel(row.pricing_card_role, copy) ?? copy.pricingSelectionUnavailable}`;
+    case "not_evaluated":
+      return copy.pricingSelectionNotEvaluated;
+    case "unresolved":
+      return row.pricing_resolution_kind === "schedule_unresolved"
+        ? copy.pricingResolutionScheduleUnresolved
+        : copy.pricingSelectionUnresolved;
+    default:
+      return copy.pricingSelectionUnavailable;
+  }
+}
+
 function formatTtft(ttftMs: number | null | undefined): string {
   if (ttftMs === null || ttftMs === undefined || !Number.isFinite(ttftMs)) {
     return "—";
@@ -363,7 +403,14 @@ export function getColumns(): ColumnDef[] {
           unpricedReason: row.unpriced_reason,
           streamOutcome: row.stream_outcome,
         });
-        return <span className="block truncate text-xs font-medium" title={cause ?? undefined}>{label}</span>;
+        return (
+          <div className="min-w-0" title={cause ?? undefined}>
+            <span className="block truncate text-xs font-medium">{label}</span>
+            <span className="block truncate text-[10px] text-muted-foreground">
+              {pricingSelectionListLabel(row, copy)}
+            </span>
+          </div>
+        );
       },
     },
     {

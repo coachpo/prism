@@ -33,25 +33,32 @@ func (summary *PricingTemplateSummary) SetTemplateKind(kind string) {
 }
 
 type RuntimePricingTemplateSnapshot struct {
-	ID                     int
-	Name                   string
-	RevisionID             int64
-	PricingUnit            string
-	PricingCurrencyCode    string
-	ReportingCurrencyEpoch *int
-	InputPrice             string
-	OutputPrice            string
-	CachedInputPrice       string
-	CacheCreationPrice     string
-	ReasoningPrice         string
-	TierInputTokensAbove   *int
-	TierInputPrice         string
-	TierOutputPrice        string
-	TierCachedInputPrice   string
-	TierCacheCreationPrice string
-	TierReasoningPrice     string
-	Version                int
-	VersionEffectiveAt     *time.Time
+	ID                      int
+	Name                    string
+	RevisionID              int64
+	PricingUnit             string
+	PricingCurrencyCode     string
+	ReportingCurrencyEpoch  *int
+	TemplateKind            string
+	Cards                   map[string]RuntimePricingCard
+	TierInputTokensAbove    *int
+	PricingScheduleTimezone *string
+	PricingScheduleDigest   string
+	PricingWindows          []Window
+	Version                 int
+	VersionEffectiveAt      *time.Time
+}
+
+// RuntimePricingCard is one immutable five-component price card in a
+// published planning snapshot. A missing specialty component remains the
+// empty string after SQL NULL scanning and is interpreted only by the pricing
+// pipeline when matching it to observed usage.
+type RuntimePricingCard struct {
+	InputPrice         string
+	OutputPrice        string
+	CachedInputPrice   string
+	CacheCreationPrice string
+	ReasoningPrice     string
 }
 
 type Record struct {

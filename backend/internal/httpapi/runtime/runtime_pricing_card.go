@@ -8,57 +8,6 @@ import (
 	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 )
 
-type runtimePricingScheduleDecision int
-
-const (
-	runtimePricingScheduleUnconfigured runtimePricingScheduleDecision = iota
-	runtimePricingScheduleUnresolved
-	runtimePricingScheduleInWindow
-	runtimePricingScheduleOutOfWindow
-)
-
-type runtimePricingWallClock struct {
-	Weekday int
-	Minute  int
-	Valid   bool
-}
-
-func compileRuntimePricingSchedule(timezone string, windows []terminaltarget.Window) runtimePricingScheduleSnapshot {
-	tz := strings.TrimSpace(timezone)
-	if len(windows) == 0 {
-		return runtimePricingScheduleSnapshot{Timezone: tz, State: runtimePricingScheduleUnconfigured}
-	}
-	compiled := terminaltarget.CompileRoutingSchedule(tz, windows)
-	if compiled.Unresolved || compiled.Location == nil {
-		return runtimePricingScheduleSnapshot{Timezone: tz, Location: compiled.Location, Windows: append([]terminaltarget.Window(nil), compiled.Windows...), State: runtimePricingScheduleUnresolved}
-	}
-	return runtimePricingScheduleSnapshot{Timezone: tz, Location: compiled.Location, Windows: append([]terminaltarget.Window(nil), compiled.Windows...), State: runtimePricingScheduleOutOfWindow}
-}
-
-func (s runtimePricingScheduleSnapshot) decideAt(referenceNow time.Time) (runtimePricingScheduleDecision, runtimePricingWallClock) {
-	if s.State == runtimePricingScheduleUnconfigured || s.State == runtimePricingScheduleUnresolved || s.Location == nil {
-		return s.State, runtimePricingWallClock{}
-	}
-	if referenceNow.IsZero() {
-		return runtimePricingScheduleUnresolved, runtimePricingWallClock{}
-	}
-	local := referenceNow.In(s.Location)
-	// terminaltarget.Window uses ISO weekdays (Monday=1..Sunday=7), while
-	// time.Weekday uses Sunday=0. Keep the evidence in the same coordinate
-	// system as the stored window rows.
-	isoWeekday := ((int(local.Weekday()) + 6) % 7) + 1
-	wall := runtimePricingWallClock{Weekday: isoWeekday, Minute: local.Hour()*60 + local.Minute(), Valid: true}
-	compiled := terminaltarget.CompiledRoutingSchedule{Timezone: s.Timezone, Location: s.Location, Windows: s.Windows}
-	switch compiled.DecideAt(referenceNow) {
-	case terminaltarget.RoutingScheduleOpen:
-		return runtimePricingScheduleInWindow, wall
-	case terminaltarget.RoutingScheduleClosed:
-		return runtimePricingScheduleOutOfWindow, wall
-	default:
-		return runtimePricingScheduleUnresolved, runtimePricingWallClock{}
-	}
-}
-
 func runtimePricingWindowsDigest(windows []terminaltarget.Window) string {
 	return terminaltarget.PricingWindowsDigest(windows)
 }
@@ -75,6 +24,7 @@ type runtimePricingCardSelection struct {
 	LocalMinute         *int
 	ScheduleDigest      string
 	Incoherent          bool
+	ScheduleUnresolved  bool
 }
 
 func selectRuntimePricingCard(snapshot *runtimePricingTemplateSnapshot, usage responseUsage, operation string, referenceNow time.Time) runtimePricingCardSelection {
@@ -88,14 +38,22 @@ func selectRuntimePricingCard(snapshot *runtimePricingTemplateSnapshot, usage re
 	selection := runtimePricingCardSelection{}
 	switch kind {
 	case pricingkind.Standard:
+		card, ok := snapshot.card(pricingkind.RoleStandard)
+		if !ok {
+			return runtimePricingCardSelection{State: pricingkind.SelectionUnresolved, Incoherent: true}
+		}
 		selection.State = pricingkind.SelectionSelected
 		selection.Role = pricingkind.RoleStandard
-		selection.Card, selection.Incoherent = snapshotCardForRole(snapshot, selection.Role)
+		selection.Card = card
 	case pricingkind.Tiered:
 		if runtimePricingTierOperationIsTokenCount(operation) {
+			card, ok := snapshot.card(pricingkind.RoleTierBase)
+			if !ok {
+				return runtimePricingCardSelection{State: pricingkind.SelectionUnresolved, Incoherent: true}
+			}
 			selection.State = pricingkind.SelectionNotApplicable
 			selection.Role = pricingkind.RoleTierBase
-			selection.Card, selection.Incoherent = snapshotCardForRole(snapshot, selection.Role)
+			selection.Card = card
 			return selection
 		}
 		if usage.InputTokens == nil || usage.OutputTokens == nil {
@@ -116,12 +74,17 @@ func selectRuntimePricingCard(snapshot *runtimePricingTemplateSnapshot, usage re
 		threshold := *snapshot.TierInputTokensAbove
 		selection.TierThresholdTokens = intPtr(threshold)
 		selection.TierBasisTokens = int64Ptr(basis)
-		selection.Role = pricingkind.RoleTierBase
+		role := pricingkind.RoleTierBase
 		if basis > int64(threshold) {
-			selection.Role = pricingkind.RoleTierAbove
+			role = pricingkind.RoleTierAbove
+		}
+		card, ok := snapshot.card(role)
+		if !ok {
+			return runtimePricingCardSelection{State: pricingkind.SelectionUnresolved, Incoherent: true}
 		}
 		selection.State = pricingkind.SelectionSelected
-		selection.Card, selection.Incoherent = snapshotCardForRole(snapshot, selection.Role)
+		selection.Role = role
+		selection.Card = card
 	case pricingkind.PeakValley:
 		selection.Timezone = snapshot.PricingSchedule.Timezone
 		selection.ScheduleDigest = snapshot.PricingScheduleDigest
@@ -131,16 +94,18 @@ func selectRuntimePricingCard(snapshot *runtimePricingTemplateSnapshot, usage re
 			referenceNow.IsZero() {
 			selection.State = pricingkind.SelectionUnresolved
 			selection.Incoherent = true
+			selection.ScheduleUnresolved = true
 			if !referenceNow.IsZero() {
 				at := referenceNow.UTC()
 				selection.DecidedAt = &at
 			}
 			return selection
 		}
-		decision, wall := snapshot.PricingSchedule.decideAt(referenceNow)
-		if decision == runtimePricingScheduleUnconfigured || decision == runtimePricingScheduleUnresolved {
+		decision, wall := snapshot.PricingSchedule.DecideAt(referenceNow)
+		if decision == terminaltarget.PricingScheduleUnconfigured || decision == terminaltarget.PricingScheduleUnresolved {
 			selection.State = pricingkind.SelectionUnresolved
 			selection.Incoherent = true
+			selection.ScheduleUnresolved = true
 			if !referenceNow.IsZero() {
 				at := referenceNow.UTC()
 				selection.DecidedAt = &at
@@ -153,50 +118,28 @@ func selectRuntimePricingCard(snapshot *runtimePricingTemplateSnapshot, usage re
 			selection.LocalWeekday = intPtr(wall.Weekday)
 			selection.LocalMinute = intPtr(wall.Minute)
 		}
-		selection.State = pricingkind.SelectionSelected
-		if decision == runtimePricingScheduleInWindow {
-			selection.Role = pricingkind.RolePeak
+		role := pricingkind.RoleOffpeak
+		if decision == terminaltarget.PricingScheduleInWindow {
+			role = pricingkind.RolePeak
 		} else {
-			selection.Role = pricingkind.RoleOffpeak
+			role = pricingkind.RoleOffpeak
 		}
-		selection.Card, selection.Incoherent = snapshotCardForRole(snapshot, selection.Role)
+		card, ok := snapshot.card(role)
+		if !ok {
+			selection.State = pricingkind.SelectionUnresolved
+			selection.Incoherent = true
+			selection.LocalWeekday = nil
+			selection.LocalMinute = nil
+			return selection
+		}
+		selection.State = pricingkind.SelectionSelected
+		selection.Role = role
+		selection.Card = card
 	default:
 		selection.State = pricingkind.SelectionUnresolved
 		selection.Incoherent = true
 	}
 	return selection
-}
-
-func snapshotCardForRole(snapshot *runtimePricingTemplateSnapshot, role string) (runtimePricingCard, bool) {
-	if snapshot == nil {
-		return runtimePricingCard{}, true
-	}
-	if card, ok := snapshot.card(role); ok {
-		return card, false
-	}
-	// Transitional test fixtures and status-only callers still construct the
-	// old scalar aliases. Keep them readable while production snapshots use
-	// role-keyed cards loaded from pricing_template_cards.
-	if role == pricingkind.RoleStandard || role == pricingkind.RoleTierBase {
-		return runtimePricingCard{InputPrice: snapshot.InputPrice, OutputPrice: snapshot.OutputPrice, CachedInputPrice: snapshot.CachedInputPrice, CacheCreationPrice: snapshot.CacheCreationPrice, ReasoningPrice: snapshot.ReasoningPrice}, false
-	}
-	if role == pricingkind.RoleTierAbove {
-		return runtimePricingCard{InputPrice: snapshot.TierInputPrice, OutputPrice: snapshot.TierOutputPrice, CachedInputPrice: snapshot.TierCachedInputPrice, CacheCreationPrice: snapshot.TierCacheCreationPrice, ReasoningPrice: snapshot.TierReasoningPrice}, false
-	}
-	return runtimePricingCard{}, true
-}
-
-func snapshotWithPricingCard(snapshot *runtimePricingTemplateSnapshot, card runtimePricingCard) *runtimePricingTemplateSnapshot {
-	if snapshot == nil {
-		return nil
-	}
-	copy := *snapshot
-	copy.InputPrice = card.InputPrice
-	copy.OutputPrice = card.OutputPrice
-	copy.CachedInputPrice = card.CachedInputPrice
-	copy.CacheCreationPrice = card.CacheCreationPrice
-	copy.ReasoningPrice = card.ReasoningPrice
-	return &copy
 }
 
 func cloneRuntimeTimePointer(source *time.Time) *time.Time {

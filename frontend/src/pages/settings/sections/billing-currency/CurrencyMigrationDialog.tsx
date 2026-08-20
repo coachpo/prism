@@ -16,17 +16,20 @@ import { Input } from "@/components/ui/input";
 import { isValidCurrencyCode } from "@/lib/costing";
 import type {
   CostingSettingsUpdate,
-  CurrencyMigrationDraftHeader,
   CurrencyMigrationCard,
+  CurrencyMigrationDraftHeader,
   CurrencyMigrationDraftChunkItem,
   CurrencyMigrationPreview,
-  PricingMigrationInventoryTemplate,
-  PricingTemplateListPageRevision,
 } from "@/lib/types";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { OperatorCallout } from "@/shared/design-system";
 import { formatNumber } from "@/i18n/format";
 import { toast } from "sonner";
+import {
+  currencyMigrationCardsForRevision,
+  currencyMigrationCardSetHasMissingRequiredPrice,
+  currencyMigrationInventoryRowToDraftItem,
+} from "./currencyMigrationCards";
 
 interface CurrencyMigrationDialogProps {
   open: boolean;
@@ -49,44 +52,6 @@ type PreparedMigration = {
   operationKind: "currency_cutover" | "repair_same_currency";
 };
 
-function cardForRole(
-  role: CurrencyMigrationCard["card_role"],
-  card: Omit<CurrencyMigrationCard, "card_role"> | undefined,
-): CurrencyMigrationCard {
-  if (!card)
-    throw new Error(
-      `Pricing template is missing the ${role} card; rebuild the pricing instance before migrating currency.`,
-    );
-  return {
-    card_role: role,
-    input_price: card.input_price,
-    output_price: card.output_price,
-    cached_input_price: card.cached_input_price,
-    cache_creation_price: card.cache_creation_price,
-    reasoning_price: card.reasoning_price,
-  };
-}
-
-function cardsForRevision(
-  revision: PricingTemplateListPageRevision,
-): CurrencyMigrationCard[] {
-  const kind = revision.template_kind;
-  if (kind === "standard") return [cardForRole("standard", revision.card)];
-  if (kind === "tiered")
-    return [
-      cardForRole("tier_base", revision.base_card),
-      cardForRole("tier_above", revision.tier?.card),
-    ];
-  if (kind === "peak_valley")
-    return [
-      cardForRole("peak", revision.peak_card),
-      cardForRole("offpeak", revision.offpeak_card),
-    ];
-  throw new Error(
-    "Pricing template has no typed kind; rebuild the pricing instance before migrating currency.",
-  );
-}
-
 async function loadAllPricingTemplatePages(): Promise<
   PreparedMigration["rows"]
 > {
@@ -101,7 +66,7 @@ async function loadAllPricingTemplatePages(): Promise<
         expected_version: item.current_revision.version,
         expected_updated_at: item.updated_at,
         template_kind: item.current_revision.template_kind,
-        cards: cardsForRevision(item.current_revision),
+        cards: currencyMigrationCardsForRevision(item.current_revision),
       });
     }
     if (!page.next_cursor) break;
@@ -113,30 +78,6 @@ async function loadAllPricingTemplatePages(): Promise<
     cursor = page.next_cursor;
   }
   return rows;
-}
-
-function hasMissingRequiredCardPrice(
-  row: CurrencyMigrationDraftChunkItem,
-): boolean {
-  return row.cards.some(
-    (card) => !card.input_price.trim() || !card.output_price.trim(),
-  );
-}
-
-function inventoryRowToDraftItem(
-  item: PricingMigrationInventoryTemplate,
-): CurrencyMigrationDraftChunkItem {
-  if (!item.template_kind || item.current_cards.length === 0)
-    throw new Error(
-      `Pricing template ${item.template_id} has no complete current card set; rebuild the pricing instance before migrating currency.`,
-    );
-  return {
-    template_id: item.template_id,
-    expected_version: item.base_version,
-    expected_updated_at: item.updated_at,
-    template_kind: item.template_kind,
-    cards: item.current_cards,
-  };
 }
 
 async function loadAllInventoryTemplatePages(inventoryId: string): Promise<{
@@ -153,7 +94,7 @@ async function loadAllInventoryTemplatePages(inventoryId: string): Promise<{
       { limit: 100, cursor },
     );
     for (const item of page.items) {
-      rows.push(inventoryRowToDraftItem(item));
+      rows.push(currencyMigrationInventoryRowToDraftItem(item));
       names[item.template_id] = item.name;
     }
     if (!page.next_cursor) {
@@ -306,7 +247,7 @@ export function CurrencyMigrationDialog({
         operationKind,
       };
       setPrepared(migration);
-      if (rows.some(hasMissingRequiredCardPrice)) {
+      if (rows.some(currencyMigrationCardSetHasMissingRequiredPrice)) {
         setStep(STEP_REPAIR);
         return;
       }
@@ -331,7 +272,7 @@ export function CurrencyMigrationDialog({
     if (!prepared) {
       return;
     }
-    if (prepared.rows.some(hasMissingRequiredCardPrice)) {
+    if (prepared.rows.some(currencyMigrationCardSetHasMissingRequiredPrice)) {
       toast.error(copy.repairMissingRequired);
       return;
     }
@@ -501,7 +442,7 @@ export function CurrencyMigrationDialog({
                 </>
               }
             />
-            {prepared.rows.filter(hasMissingRequiredCardPrice).map((row) => (
+            {prepared.rows.filter(currencyMigrationCardSetHasMissingRequiredPrice).map((row) => (
               <div
                 key={row.template_id}
                 className="rounded-md border border-border p-3"

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
+	"github.com/coachpo/prism/backend/internal/domain/pricingkind"
 	"github.com/coachpo/prism/backend/internal/domain/safediag"
 	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 	"github.com/coachpo/prism/backend/internal/providerauth"
@@ -56,7 +57,7 @@ func TestBuildRequestPlanCarriesOperation(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-public:generateContent", nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
 
-	plan, err := service.buildRequestPlanFromSnapshot(request, nil, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	plan, err := service.buildTestRequestPlanFromSnapshot(request, nil, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 	if err != nil {
 		t.Fatalf("build request plan: %v", err)
 	}
@@ -311,7 +312,7 @@ func TestBuildRequestPlanAppliesOperationRewriteRules(t *testing.T) {
 			ModelBindingSource: RuntimeOperationModelBindingSource("header"),
 		}}
 
-		_, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+		_, err := service.buildTestRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 		assertPlanDomainError(t, err, http.StatusBadRequest, "unsupported model binding source")
 	})
 
@@ -322,7 +323,7 @@ func TestBuildRequestPlanAppliesOperationRewriteRules(t *testing.T) {
 		request := httptest.NewRequest(http.MethodPost, "/v1/models", nil)
 		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions")
 
-		_, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+		_, err := service.buildTestRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
 		assertPlanDomainError(t, err, http.StatusNotFound, runtimeOperationNotFoundDetail)
 	})
 }
@@ -657,6 +658,22 @@ func TestPlanningReferenceNowIsSharedAcrossProbeAndFinalPlan(t *testing.T) {
 	}
 }
 
+func TestPlanningReferenceNowMissingOrZeroFailsClosed(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "clock-required-openai"})
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions")
+	for _, request := range []*http.Request{
+		httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil),
+		httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(withRuntimeIngressContext(context.Background(), newRuntimeIngressContext(time.Time{}))),
+	} {
+		_, err := service.buildRequestPlanFromSnapshot(request, []byte(`{"model":"clock-required-openai","messages":[]}`), RuntimeProxyConfigSnapshot{}, operation, requestPlanTestProfileID, snapshot)
+		var domainErr *domainError
+		if !errors.As(err, &domainErr) || domainErr.StatusCode != http.StatusServiceUnavailable || !strings.Contains(domainErr.Detail, "reference clock") {
+			t.Fatalf("missing planning clock must fail closed, got %v", err)
+		}
+	}
+}
+
 func TestHeaderHelpers(t *testing.T) {
 	if got, ok := normalizeHeaderValue("  keep  "); !ok || got != "keep" {
 		t.Fatalf("expected normalized header value, got value=%q ok=%v", got, ok)
@@ -794,7 +811,11 @@ func TestProxyEventStreamPreservesTerminalTimingWhenTransportOutranksTerminal(t 
 
 func TestProxyEventStreamRecognizesOpenAIDONESentinel(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
-	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{RevisionID: 1, PricingUnit: runtimePricingUnitPerMillion, PricingCurrencyCode: "USD", ReportingCurrencyEpoch: intPtr(1), InputPrice: "2", OutputPrice: "5", CachedInputPrice: "0", CacheCreationPrice: "0", ReasoningPrice: "0", Version: 1}
+	pricingTemplateSnapshot := runtimePricingTemplateForTest(func(snapshot *runtimePricingTemplateSnapshot) {
+		card := snapshot.Cards[pricingkind.RoleStandard]
+		card.CachedInputPrice, card.CacheCreationPrice, card.ReasoningPrice = "0", "0", "0"
+		snapshot.Cards[pricingkind.RoleStandard] = card
+	})
 	reportCurrencySnapshot := runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$", Epoch: 1}
 
 	t.Run("completed without usage", func(t *testing.T) {
@@ -812,7 +833,7 @@ func TestProxyEventStreamRecognizesOpenAIDONESentinel(t *testing.T) {
 			t.Fatalf("expected completed [DONE] capture without usage, got %+v", capture)
 		}
 
-		pricing := buildRuntimePricingResult(reportCurrencySnapshot, pricingTemplateSnapshot, nil, capture.Usage, capture.StreamOutcome)
+		pricing := buildRuntimePricingResultForTest(reportCurrencySnapshot, pricingTemplateSnapshot, nil, capture.Usage, capture.StreamOutcome)
 		if pricing.UnpricedReason == nil || *pricing.UnpricedReason != runtimeUnpricedReasonMissingUsage {
 			t.Fatalf("expected completed [DONE] stream without usage to keep missing-token reason, got %+v", pricing)
 		}
@@ -848,8 +869,12 @@ func TestProxyEventStreamMergesUsageBeforeOpenAIDONESentinel(t *testing.T) {
 		t.Fatalf("expected final include_usage chunk to be preserved: want %+v got %+v", wantUsage, capture.Usage)
 	}
 
-	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{RevisionID: 1, PricingUnit: runtimePricingUnitPerMillion, PricingCurrencyCode: "USD", ReportingCurrencyEpoch: intPtr(1), InputPrice: "2", OutputPrice: "5", CachedInputPrice: "0", CacheCreationPrice: "0", ReasoningPrice: "0", Version: 1}
-	pricing := buildRuntimePricingResult(runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$", Epoch: 1}, pricingTemplateSnapshot, nil, capture.Usage, capture.StreamOutcome)
+	pricingTemplateSnapshot := runtimePricingTemplateForTest(func(snapshot *runtimePricingTemplateSnapshot) {
+		card := snapshot.Cards[pricingkind.RoleStandard]
+		card.CachedInputPrice, card.CacheCreationPrice, card.ReasoningPrice = "0", "0", "0"
+		snapshot.Cards[pricingkind.RoleStandard] = card
+	})
+	pricing := buildRuntimePricingResultForTest(runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$", Epoch: 1}, pricingTemplateSnapshot, nil, capture.Usage, capture.StreamOutcome)
 	if !pricing.Billable || !pricing.Priced || pricing.UnpricedReason != nil {
 		t.Fatalf("expected observed usage before [DONE] to price normally, got %+v", pricing)
 	}
@@ -1200,7 +1225,7 @@ func TestBuildRuntimePricingResultUsesStreamUsageUnavailableOnlyForInterruptedSt
 	inputTokens := 7
 	outputTokens := 13
 
-	priced := buildRuntimePricingResult(reportCurrencySnapshot, pricingTemplateSnapshot, nil, responseUsage{InputTokens: &inputTokens, OutputTokens: &outputTokens}, runtimeStreamOutcomeCompleted)
+	priced := buildRuntimePricingResultForTest(reportCurrencySnapshot, pricingTemplateSnapshot, nil, responseUsage{InputTokens: &inputTokens, OutputTokens: &outputTokens}, runtimeStreamOutcomeCompleted)
 	if !priced.Billable || !priced.Priced || priced.UnpricedReason != nil || priced.TotalCostUserCurrencyMicros == nil || *priced.TotalCostUserCurrencyMicros != 79 {
 		t.Fatalf("expected completed stream with observed usage to price normally, got %+v", priced)
 	}
@@ -1221,7 +1246,7 @@ func TestBuildRuntimePricingResultUsesStreamUsageUnavailableOnlyForInterruptedSt
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := buildRuntimePricingResult(reportCurrencySnapshot, pricingTemplateSnapshot, nil, responseUsage{}, test.outcome)
+			got := buildRuntimePricingResultForTest(reportCurrencySnapshot, pricingTemplateSnapshot, nil, responseUsage{}, test.outcome)
 			if got.UnpricedReason == nil || *got.UnpricedReason != test.wantReason {
 				t.Fatalf("expected missing usage with outcome %q to use %q, got %+v", test.outcome, test.wantReason, got)
 			}
@@ -1248,7 +1273,9 @@ func TestBuildRuntimePricingResultRequiresUsageBeforePriceData(t *testing.T) {
 			name:                   "interrupted missing usage beats invalid input price",
 			reportCurrencySnapshot: runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$", Epoch: 1},
 			pricingTemplateSnapshot: runtimePricingTemplateForTest(func(snapshot *runtimePricingTemplateSnapshot) {
-				snapshot.InputPrice = "not-a-decimal"
+				card := snapshot.Cards[pricingkind.RoleStandard]
+				card.InputPrice = "not-a-decimal"
+				snapshot.Cards[pricingkind.RoleStandard] = card
 			}),
 			streamOutcome: runtimeStreamOutcomeUpstreamReadError,
 			wantReason:    runtimeUnpricedReasonStreamUsageUnavailable,
@@ -1257,7 +1284,9 @@ func TestBuildRuntimePricingResultRequiresUsageBeforePriceData(t *testing.T) {
 			name:                   "completed missing usage beats invalid output price",
 			reportCurrencySnapshot: runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$", Epoch: 1},
 			pricingTemplateSnapshot: runtimePricingTemplateForTest(func(snapshot *runtimePricingTemplateSnapshot) {
-				snapshot.OutputPrice = "not-a-decimal"
+				card := snapshot.Cards[pricingkind.RoleStandard]
+				card.OutputPrice = "not-a-decimal"
+				snapshot.Cards[pricingkind.RoleStandard] = card
 			}),
 			streamOutcome: runtimeStreamOutcomeCompleted,
 			wantReason:    runtimeUnpricedReasonMissingUsage,
@@ -1281,7 +1310,7 @@ func TestBuildRuntimePricingResultRequiresUsageBeforePriceData(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := buildRuntimePricingResult(test.reportCurrencySnapshot, test.pricingTemplateSnapshot, test.endpointFXSnapshot, responseUsage{}, test.streamOutcome)
+			got := buildRuntimePricingResultForTest(test.reportCurrencySnapshot, test.pricingTemplateSnapshot, test.endpointFXSnapshot, responseUsage{}, test.streamOutcome)
 			if got.UnpricedReason == nil || *got.UnpricedReason != test.wantReason {
 				t.Fatalf("expected reason %q, got %+v", test.wantReason, got)
 			}
@@ -1309,7 +1338,7 @@ func TestBuildRuntimePricingResultValidatesPricingOwnerCoherence(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := buildRuntimePricingResult(test.report, runtimePricingTemplateForTest(test.mutate), nil, test.usage, runtimeStreamOutcomeCompleted)
+			got := buildRuntimePricingResultForTest(test.report, runtimePricingTemplateForTest(test.mutate), nil, test.usage, runtimeStreamOutcomeCompleted)
 			if got.PricingStatus != test.wantStatus || got.Priced != (test.wantStatus == runtimePricingStatusPriced) || dereferenceString(got.PricingResolutionKind) != test.wantResolution {
 				t.Fatalf("expected status=%q resolution=%q, got %+v", test.wantStatus, test.wantResolution, got)
 			}
@@ -1424,6 +1453,9 @@ func TestBuildRuntimePricingResult(t *testing.T) {
 				PricingTemplateIDUsed:         intPtr(42),
 				PricingTemplateRevisionIDUsed: int64Ptr(7),
 				ReportingCurrencyEpoch:        intPtr(1),
+				PricingTemplateKind:           stringPtr(string(pricingkind.Standard)),
+				PricingSelectionState:         stringPtr(pricingkind.SelectionSelected),
+				PricingCardRole:               stringPtr(pricingkind.RoleStandard),
 			},
 		},
 		{
@@ -1459,9 +1491,9 @@ func TestBuildRuntimePricingResult(t *testing.T) {
 		{
 			name: "prices positive component counters with concrete zero prices as free",
 			template: runtimePricingTemplateForTest(func(snapshot *runtimePricingTemplateSnapshot) {
-				snapshot.CachedInputPrice = "0"
-				snapshot.CacheCreationPrice = "0"
-				snapshot.ReasoningPrice = "0"
+				card := snapshot.Cards[pricingkind.RoleStandard]
+				card.CachedInputPrice, card.CacheCreationPrice, card.ReasoningPrice = "0", "0", "0"
+				snapshot.Cards[pricingkind.RoleStandard] = card
 			}),
 			usage: responseUsage{
 				InputTokens:              &inputTokens,
@@ -1485,7 +1517,7 @@ func TestBuildRuntimePricingResult(t *testing.T) {
 			if test.template != nil {
 				template = test.template
 			}
-			got := buildRuntimePricingResult(reportCurrencySnapshot, template, nil, test.usage, runtimeStreamOutcomeCompleted)
+			got := buildRuntimePricingResultForTest(reportCurrencySnapshot, template, nil, test.usage, runtimeStreamOutcomeCompleted)
 			if !reflect.DeepEqual(got, test.want) {
 				t.Fatalf("expected pricing result %+v, got %+v", test.want, got)
 			}
@@ -1534,12 +1566,14 @@ func TestBuildRuntimePricingResultRejectsInvalidConcretePriceWhenComponentIsUsed
 	totalTokens := 20
 	reasoningTokens := 3
 	pricingTemplateSnapshot := runtimePricingTemplateForTest(func(snapshot *runtimePricingTemplateSnapshot) {
-		snapshot.CachedInputPrice = "0"
-		snapshot.CacheCreationPrice = "0"
-		snapshot.ReasoningPrice = "not-a-decimal"
+		card := snapshot.Cards[pricingkind.RoleStandard]
+		card.CachedInputPrice = "0"
+		card.CacheCreationPrice = "0"
+		card.ReasoningPrice = "not-a-decimal"
+		snapshot.Cards[pricingkind.RoleStandard] = card
 	})
 
-	got := buildRuntimePricingResult(runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$", Epoch: 1}, pricingTemplateSnapshot, nil, responseUsage{
+	got := buildRuntimePricingResultForTest(runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$", Epoch: 1}, pricingTemplateSnapshot, nil, responseUsage{
 		InputTokens:     &inputTokens,
 		OutputTokens:    &outputTokens,
 		TotalTokens:     &totalTokens,
@@ -1556,6 +1590,9 @@ func TestBuildRuntimePricingResultRejectsInvalidConcretePriceWhenComponentIsUsed
 		PricingTemplateIDUsed:         intPtr(42),
 		PricingTemplateRevisionIDUsed: int64Ptr(7),
 		ReportingCurrencyEpoch:        intPtr(1),
+		PricingTemplateKind:           stringPtr(string(pricingkind.Standard)),
+		PricingSelectionState:         stringPtr(pricingkind.SelectionSelected),
+		PricingCardRole:               stringPtr(pricingkind.RoleStandard),
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected invalid used concrete component price to degrade pricing: want %+v got %+v", want, got)
@@ -1569,17 +1606,23 @@ func runtimePricingTemplateForTest(mutate func(*runtimePricingTemplateSnapshot))
 		PricingUnit:            runtimePricingUnitPerMillion,
 		PricingCurrencyCode:    "USD",
 		ReportingCurrencyEpoch: intPtr(1),
-		InputPrice:             "2",
-		OutputPrice:            "5",
-		CachedInputPrice:       "1",
-		CacheCreationPrice:     "2",
-		ReasoningPrice:         "3",
-		Version:                7,
+		TemplateKind:           string(pricingkind.Standard),
+		Cards: map[string]runtimePricingCard{
+			pricingkind.RoleStandard: {
+				InputPrice: "2", OutputPrice: "5", CachedInputPrice: "1",
+				CacheCreationPrice: "2", ReasoningPrice: "3",
+			},
+		},
+		Version: 7,
 	}
 	if mutate != nil {
 		mutate(snapshot)
 	}
 	return snapshot
+}
+
+func buildRuntimePricingResultForTest(report runtimeReportCurrencySnapshot, snapshot *runtimePricingTemplateSnapshot, fx *runtimeEndpointFXSnapshot, usage responseUsage, streamOutcome string) runtimePricingResult {
+	return buildRuntimePricingResultForOperationAt(report, snapshot, fx, usage, streamOutcome, "openai.chat_completions", time.Date(2026, 8, 10, 10, 0, 0, 0, time.UTC))
 }
 
 func basePricedResult(mutate func(*runtimePricingResult)) runtimePricingResult {
@@ -1591,6 +1634,9 @@ func basePricedResult(mutate func(*runtimePricingResult)) runtimePricingResult {
 		PricingTemplateIDUsed:             intPtr(42),
 		PricingTemplateRevisionIDUsed:     int64Ptr(7),
 		ReportingCurrencyEpoch:            intPtr(1),
+		PricingTemplateKind:               stringPtr(string(pricingkind.Standard)),
+		PricingSelectionState:             stringPtr(pricingkind.SelectionSelected),
+		PricingCardRole:                   stringPtr(pricingkind.RoleStandard),
 		InputCostMicros:                   int64Ptr(20),
 		OutputCostMicros:                  int64Ptr(50),
 		CacheReadInputCostMicros:          int64Ptr(0),
@@ -1719,7 +1765,7 @@ func buildRequestPlanForTest(t *testing.T, service *Service, snapshot *planningS
 	t.Helper()
 	request := httptest.NewRequest(http.MethodPost, path, nil)
 	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
-	return service.buildRequestPlanFromSnapshot(request, rawBody, runtimeConfig, operationMatch, requestPlanTestProfileID, snapshot)
+	return service.buildTestRequestPlanFromSnapshot(request, rawBody, runtimeConfig, operationMatch, requestPlanTestProfileID, snapshot)
 }
 
 func newRequestPlanUnitService() *Service {

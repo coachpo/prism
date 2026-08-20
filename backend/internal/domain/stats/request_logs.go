@@ -50,6 +50,7 @@ type requestLogListRow struct {
 	TotalCostUserCurrencyMicros    *int64
 	PricingStatus                  string
 	UnpricedReason                 *string
+	PricingResolutionKind          *string
 	PricingEvidenceTrust           string
 	PricingTemplateKind            *string
 	PricingSelectionState          *string
@@ -175,7 +176,7 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 		 ttft_ms, completion_duration_ms, is_stream, stream_outcome, stream_error_kind,
 		 attempt_number, attempt_trigger, attempt_result, is_winner, error_source, error_code, failure_stage,
 		 error_detail, error_detail_redacted, error_detail_truncated, stream_error_detail, stream_error_detail_redacted, stream_error_detail_truncated,
-		 output_tokens, total_tokens, total_cost_user_currency_micros, pricing_status, unpriced_reason, pricing_evidence_trust,
+		 output_tokens, total_tokens, total_cost_user_currency_micros, pricing_status, unpriced_reason, pricing_resolution_kind, pricing_evidence_trust,
 		 pricing_template_kind, pricing_selection_state, pricing_card_role, pricing_selector_threshold_tokens, pricing_selector_basis_tokens,
 		 request_generation_params #>> '{reasoning,effort}', report_currency_symbol, caller_user_agent, upstream_user_agent, endpoint_base_url
 		 FROM request_logs
@@ -243,6 +244,7 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 			TotalCostUserCurrencyMicros:   item.TotalCostUserCurrencyMicros,
 			PricingStatus:                 item.PricingStatus,
 			UnpricedReason:                item.UnpricedReason,
+			PricingResolutionKind:         item.PricingResolutionKind,
 			PricingEvidenceTrust:          item.PricingEvidenceTrust,
 			ReasoningEffort:               item.ReasoningEffort,
 			ReportCurrencySymbol:          item.ReportCurrencySymbol,
@@ -637,6 +639,7 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 	var totalCostUserCurrencyMicros sql.NullInt64
 	var pricingStatus sql.NullString
 	var unpricedReason sql.NullString
+	var pricingResolutionKind sql.NullString
 	var pricingEvidenceTrust sql.NullString
 	var pricingTemplateKind, pricingSelectionState, pricingCardRole sql.NullString
 	var pricingSelectorThreshold sql.NullInt32
@@ -653,7 +656,7 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 		&ttftMS, &completionDurationMS, &item.IsStream, &streamOutcome, &streamErrorKind,
 		&attemptNumber, &attemptTrigger, &attemptResult, &isWinner, &errorSource, &errorCode, &failureStage,
 		&errorDetail, &errorDetailRedacted, &errorDetailTruncated, &streamErrorDetail, &streamErrorDetailRedacted, &streamErrorDetailTruncated,
-		&outputTokens, &totalTokens, &totalCostUserCurrencyMicros, &pricingStatus, &unpricedReason, &pricingEvidenceTrust,
+		&outputTokens, &totalTokens, &totalCostUserCurrencyMicros, &pricingStatus, &unpricedReason, &pricingResolutionKind, &pricingEvidenceTrust,
 		&pricingTemplateKind, &pricingSelectionState, &pricingCardRole, &pricingSelectorThreshold, &pricingSelectorBasis,
 		&reasoningEffort, &reportCurrencySymbol, &callerUserAgent, &upstreamUserAgent, &endpointBaseURL); err != nil {
 		return requestLogListRow{}, err
@@ -707,6 +710,7 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 	item.TotalCostUserCurrencyMicros = nullableInt64(totalCostUserCurrencyMicros)
 	item.PricingStatus = stringValue(nullableString(pricingStatus))
 	item.UnpricedReason = nullableString(unpricedReason)
+	item.PricingResolutionKind = nullableString(pricingResolutionKind)
 	item.PricingEvidenceTrust = stringValue(nullableString(pricingEvidenceTrust))
 	item.PricingTemplateKind = nullableString(pricingTemplateKind)
 	item.PricingSelectionState = nullableString(pricingSelectionState)

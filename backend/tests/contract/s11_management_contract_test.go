@@ -1202,6 +1202,12 @@ func TestCurrencyMigrationAllowsTypedTieredTemplate(t *testing.T) {
 	if createdTemplate["template_kind"] != "tiered" {
 		t.Fatalf("expected tiered template, got %+v", createdTemplate)
 	}
+	createdPeakTemplate := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/pricing-templates", map[string]any{
+		"name": "Peak Currency Cards", "template_kind": "peak_valley",
+		"peak_card":    map[string]any{"input_price": "10", "output_price": "20", "cached_input_price": "1", "cache_creation_price": "2", "reasoning_price": "3"},
+		"offpeak_card": map[string]any{"input_price": "1", "output_price": "2", "cached_input_price": "1", "cache_creation_price": "2", "reasoning_price": "3"},
+		"schedule":     map[string]any{"timezone": "Europe/Helsinki", "windows": []map[string]any{{"weekday_mask": 31, "start_minute": 540, "end_minute": 720}}},
+	}, modelHeader(profileID), http.StatusCreated)
 	settings := requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/settings/costing", nil, modelHeader(profileID), http.StatusOK)
 	var draftID, operationID string
 	if err := harness.conn.QueryRow(context.Background(), `SELECT gen_random_uuid()::text, gen_random_uuid()::text`).Scan(&draftID, &operationID); err != nil {
@@ -1212,16 +1218,19 @@ func TestCurrencyMigrationAllowsTypedTieredTemplate(t *testing.T) {
 		"expected_inventory_id": nil, "expected_inventory_hash": nil, "expected_inventory_generation": nil, "expected_reporting_currency_epoch": 1, "expected_settings_updated_at": settings["updated_at"],
 	}, modelHeader(profileID), http.StatusCreated)
 	templates := requestJSONStatus[[]map[string]any](t, harness, http.MethodGet, "/api/pricing-templates", nil, modelHeader(profileID), http.StatusOK)
-	if len(templates) != 1 {
-		t.Fatalf("expected one typed tiered template, got %+v", templates)
+	if len(templates) != 2 {
+		t.Fatalf("expected tiered and peak typed templates, got %+v", templates)
 	}
-	chunk := map[string]any{"template_id": templates[0]["id"], "expected_version": templates[0]["version"], "expected_updated_at": templates[0]["updated_at"], "template_kind": templates[0]["template_kind"], "cards": currencyMigrationCardsForTemplate(t, templates[0])}
-	requestJSONStatus[map[string]any](t, harness, http.MethodPut, "/api/settings/costing/currency-migration-drafts/"+draftID+"/chunks/1", map[string]any{"items": []map[string]any{chunk}}, modelHeader(profileID), http.StatusOK)
+	chunks := make([]map[string]any, 0, len(templates))
+	for _, template := range templates {
+		chunks = append(chunks, map[string]any{"template_id": template["id"], "expected_version": template["version"], "expected_updated_at": template["updated_at"], "template_kind": template["template_kind"], "cards": currencyMigrationCardsForTemplate(t, template)})
+	}
+	requestJSONStatus[map[string]any](t, harness, http.MethodPut, "/api/settings/costing/currency-migration-drafts/"+draftID+"/chunks/1", map[string]any{"items": chunks}, modelHeader(profileID), http.StatusOK)
 	sealed := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/settings/costing/currency-migration-drafts/"+draftID+"/seal", nil, modelHeader(profileID), http.StatusOK)
 	preview := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/settings/costing/currency-migrations/preview", map[string]any{"operation_kind": "currency_cutover", "migration_operation_id": operationID, "draft_id": draftID, "draft_hash": sealed["draft_hash"]}, modelHeader(profileID), http.StatusOK)
 	commit := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/settings/costing/currency-migrations/commit", map[string]any{"operation_kind": "currency_cutover", "migration_operation_id": operationID, "draft_id": draftID, "draft_hash": sealed["draft_hash"], "preview_hash": preview["preview_hash"]}, modelHeader(profileID), http.StatusOK)
-	if commit["revision_change_count"] != float64(1) {
-		t.Fatalf("expected one typed revision change, got %+v", commit)
+	if commit["revision_change_count"] != float64(2) {
+		t.Fatalf("expected two typed revision changes, got %+v", commit)
 	}
 	var kind, roles string
 	if err := harness.conn.QueryRow(context.Background(), `SELECT revisions.template_kind, string_agg(cards.card_role, ',' ORDER BY cards.card_role) FROM pricing_template_revisions revisions JOIN pricing_templates templates ON templates.current_revision_id = revisions.id JOIN pricing_template_cards cards ON cards.revision_id = revisions.id WHERE templates.id = $1 GROUP BY revisions.template_kind`, intValue(createdTemplate["id"])).Scan(&kind, &roles); err != nil {
@@ -1229,6 +1238,14 @@ func TestCurrencyMigrationAllowsTypedTieredTemplate(t *testing.T) {
 	}
 	if kind != "tiered" || roles != "tier_above,tier_base" {
 		t.Fatalf("expected complete tiered card set after migration, got kind=%q roles=%q", kind, roles)
+	}
+	var peakKind, peakRoles, timezone, digest string
+	var windowCount int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT revisions.template_kind, string_agg(cards.card_role, ',' ORDER BY cards.card_role), revisions.pricing_schedule_timezone, revisions.pricing_schedule_digest, (SELECT count(*) FROM pricing_template_windows windows WHERE windows.revision_id = revisions.id) FROM pricing_template_revisions revisions JOIN pricing_templates templates ON templates.current_revision_id = revisions.id JOIN pricing_template_cards cards ON cards.revision_id = revisions.id WHERE templates.id = $1 GROUP BY revisions.id`, intValue(createdPeakTemplate["id"])).Scan(&peakKind, &peakRoles, &timezone, &digest, &windowCount); err != nil {
+		t.Fatalf("load migrated peak typed cards: %v", err)
+	}
+	if peakKind != "peak_valley" || peakRoles != "offpeak,peak" || timezone != "Europe/Helsinki" || digest == "" || windowCount != 1 {
+		t.Fatalf("expected peak selector and windows after migration, got kind=%q roles=%q timezone=%q digest=%q windows=%d", peakKind, peakRoles, timezone, digest, windowCount)
 	}
 }
 

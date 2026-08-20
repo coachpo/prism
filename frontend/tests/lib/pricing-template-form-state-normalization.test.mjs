@@ -31,6 +31,12 @@ const {
   normalizeTemplatePrice,
   pricingTemplateFormStateFromTemplate,
 } = load(path.join(frontendDir, "src/features/pricing/pricingSchemas.ts"));
+const {
+  pricingMinuteToTime,
+  pricingTimeToMinute,
+  pricingWindowEndMinute,
+  togglePricingWeekday,
+} = load(path.join(frontendDir, "src/features/pricing/pricingWindowDraft.ts"));
 
 const priceFields = [
   "input_price",
@@ -40,7 +46,7 @@ const priceFields = [
   "reasoning_price",
 ];
 
-test("new pricing template forms default base prices to zero and specials to unconfigured", () => {
+test("new pricing template forms keep required prices empty and specialties unconfigured", () => {
   assert.equal(
     DEFAULT_PRICING_TEMPLATE_FORM.input_price,
     "",
@@ -64,7 +70,7 @@ test("new pricing template forms default base prices to zero and specials to unc
   }
 });
 
-test("template edit hydration converts legacy null and blank prices to empty form strings", () => {
+test("template edit hydration converts typed null prices to empty form strings", () => {
   const hydrated = pricingTemplateFormStateFromTemplate({
     id: 1,
     profile_id: 1,
@@ -132,4 +138,14 @@ test("price normalizer keeps blank strings blank (unconfigured is explicit)", ()
   assert.equal(normalizeTemplatePrice("  "), "");
   assert.equal(isNonNegativeDecimalString("1"), true);
   assert.equal(isNonNegativeDecimalString("-1"), false);
+});
+
+test("pricing window draft converts weekday and cross-midnight values without presets", () => {
+  assert.equal(pricingMinuteToTime(-1), "");
+  assert.equal(pricingMinuteToTime(1_530), "01:30");
+  assert.equal(pricingTimeToMinute("23:45"), 1_425);
+  assert.equal(pricingWindowEndMinute("01:30", true), 1_530);
+  assert.equal(togglePricingWeekday(0, 0, true), 1);
+  assert.equal(togglePricingWeekday(1, 6, true), 65);
+  assert.equal(togglePricingWeekday(65, 0, false), 64);
 });

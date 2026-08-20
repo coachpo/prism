@@ -19,7 +19,6 @@ import {
 import { formatUnpricedReasonLabel } from "@/lib/costing";
 import {
   cacheReadShare,
-  classifyPricingTier,
   classifyTokenComponents,
   describeUnpricedCause,
 } from "../pricingExplanation";
@@ -49,6 +48,7 @@ import {
   isStreamUsageUnavailableReason,
   shouldShowStreamStatus,
 } from "../streamTelemetry";
+import { RequestLogPricingEvidence } from "./RequestLogPricingEvidence";
 
 interface RequestLogOverviewTabProps {
   request: RequestLogDetail;
@@ -102,10 +102,6 @@ function renderClientDetailValue(
   );
 }
 
-function formatPricingSnapshotValue(value: string | null): string {
-  return value ?? "—";
-}
-
 // Scoped row status: upstream rows use the upstream HTTP status, planning/
 // admission rows the gateway status, legacy rows the legacy projection.
 function scopedStatus(request: RequestLogDetail): number | null {
@@ -126,30 +122,6 @@ function scopedDuration(request: RequestLogDetail): number | null {
   return summary.row_kind === "upstream"
     ? summary.attempt_duration_ms
     : summary.legacy_duration_ms;
-}
-
-function pricingTierValue(
-  pricing: PricingProjection,
-  messages: ReturnType<typeof useLocale>["messages"],
-): React.ReactNode {
-  const tier = classifyPricingTier({
-    applied: pricing.pricing_tier_applied,
-    threshold: pricing.pricing_tier_threshold_tokens,
-    basis: pricing.pricing_tier_basis_tokens,
-  });
-  if (tier.kind === "legacy")
-    return (
-      <OperatorMissingValue reason={messages.requestLogs.pricingTierLegacy} />
-    );
-  const label =
-    tier.kind === "base"
-      ? messages.requestLogs.pricingTierBase
-      : tier.kind === "tier"
-        ? messages.requestLogs.pricingTierTier
-        : tier.kind === "not_applicable"
-          ? messages.requestLogs.pricingTierNotApplicable
-          : messages.requestLogs.pricingTierNotEvaluated;
-  return <span>{label}</span>;
 }
 
 function pricingStateLabel(
@@ -800,57 +772,10 @@ export function RequestLogOverviewTab({
                   {pricing.pricing_config_version_used ?? "—"}
                 </span>
               </DetailRow>
-              <DetailRow label={messages.requestLogs.pricingTier}>
-                <div className="flex flex-col gap-1">
-                  {pricingTierValue(pricing, messages)}
-                  {pricing.pricing_tier_threshold_tokens !== null &&
-                  pricing.pricing_tier_basis_tokens !== null ? (
-                    <span className="text-[11px] text-muted-foreground">
-                      {messages.requestLogs.pricingTierThreshold}:{" "}
-                      <span className="font-mono">
-                        {pricing.pricing_tier_threshold_tokens}
-                      </span>{" "}
-                      · {messages.requestLogs.pricingTierBasis}:{" "}
-                      <span className="font-mono">
-                        {pricing.pricing_tier_basis_tokens}
-                      </span>
-                    </span>
-                  ) : null}
-                </div>
-              </DetailRow>
-              <DetailRow label={messages.requestLogs.pricingSnapshotInput}>
-                <span className="font-mono">
-                  {formatPricingSnapshotValue(pricing.pricing_snapshot_input)}
-                </span>
-              </DetailRow>
-              <DetailRow label={messages.requestLogs.pricingSnapshotOutput}>
-                <span className="font-mono">
-                  {formatPricingSnapshotValue(pricing.pricing_snapshot_output)}
-                </span>
-              </DetailRow>
-              <DetailRow label={messages.requestLogs.pricingSnapshotCacheRead}>
-                <span className="font-mono">
-                  {formatPricingSnapshotValue(
-                    pricing.pricing_snapshot_cache_read_input,
-                  )}
-                </span>
-              </DetailRow>
-              <DetailRow
-                label={messages.requestLogs.pricingSnapshotCacheCreation}
-              >
-                <span className="font-mono">
-                  {formatPricingSnapshotValue(
-                    pricing.pricing_snapshot_cache_creation_input,
-                  )}
-                </span>
-              </DetailRow>
-              <DetailRow label={messages.requestLogs.pricingSnapshotReasoning}>
-                <span className="font-mono">
-                  {formatPricingSnapshotValue(
-                    pricing.pricing_snapshot_reasoning,
-                  )}
-                </span>
-              </DetailRow>
+              <RequestLogPricingEvidence
+                pricing={pricing}
+                formatTimestamp={formatTimestamp}
+              />
             </div>
           </div>
         </SectionCard>

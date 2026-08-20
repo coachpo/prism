@@ -14,6 +14,10 @@ func (s *Service) buildRequestPlanFromSnapshotCoreWithProbe(request *http.Reques
 	if err != nil {
 		return requestPlan{}, err
 	}
+	referenceNow := s.planningReferenceNow(request)
+	if referenceNow.IsZero() {
+		return requestPlan{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: "Runtime planning reference clock unavailable"}
+	}
 	input := requestPlanningInput{
 		Request:         request,
 		RawBody:         rawBody,
@@ -22,7 +26,7 @@ func (s *Service) buildRequestPlanFromSnapshotCoreWithProbe(request *http.Reques
 		ActiveProfileID: activeProfileID,
 		Snapshot:        snapshot,
 		RoutingPlan:     routingPlan,
-		ReferenceNow:    s.planningReferenceNow(request),
+		ReferenceNow:    referenceNow,
 		ProbePlanning:   probePlanning,
 	}
 	operation, err := resolveRequestOperation(input)

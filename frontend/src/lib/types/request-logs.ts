@@ -3,6 +3,7 @@
 
 import type { ApiFamily } from "./vendor";
 import type { QueryCoverage } from "./config-audit-settings";
+import type { PricingTemplateKind } from "./routing";
 
 export type StreamOutcome =
   | "not_streaming"
@@ -79,8 +80,14 @@ export interface RequestLogListItem {
   total_tokens: number | null;
   total_cost_user_currency_micros: number | null;
   pricing_status: "priced" | "unpriced" | "ineligible" | "unknown";
+  pricing_resolution_kind: PricingResolutionKind | null;
   pricing_evidence_trust: "trusted" | "legacy_untrusted";
   unpriced_reason: string | null;
+  pricing_template_kind: PricingTemplateKind | null;
+  pricing_selection_state: PricingSelectionState | null;
+  pricing_card_role: PricingCardRole | null;
+  pricing_selector_threshold_tokens: number | null;
+  pricing_selector_basis_tokens: number | null;
   report_currency_symbol: string | null;
   proxy_api_key_id: number | null;
   proxy_api_key_name_snapshot: string | null;
@@ -218,7 +225,20 @@ export type PricingResolutionKind =
   | "missing_component"
   | "currency_migration_required"
   | "unsupported_unit"
-  | "snapshot_incoherent";
+  | "snapshot_incoherent"
+  | "schedule_unresolved";
+
+export type PricingSelectionState =
+  | "not_evaluated"
+  | "not_applicable"
+  | "selected"
+  | "unresolved";
+export type PricingCardRole =
+  | "standard"
+  | "tier_base"
+  | "tier_above"
+  | "peak"
+  | "offpeak";
 
 export type FinalResult = "completed" | "failed" | "client_disconnected";
 
@@ -257,7 +277,13 @@ export interface RequestLogChainRow {
   total_cost_user_currency_micros: number | null;
   pricing_status: PricingStatus;
   unpriced_reason: UnpricedReason | null;
+  pricing_resolution_kind: PricingResolutionKind | null;
   pricing_evidence_trust: PricingEvidenceTrust;
+  pricing_template_kind: PricingTemplateKind | null;
+  pricing_selection_state: PricingSelectionState | null;
+  pricing_card_role: PricingCardRole | null;
+  pricing_selector_threshold_tokens: number | null;
+  pricing_selector_basis_tokens: number | null;
   created_at: string;
   is_current?: boolean;
 }
@@ -443,14 +469,16 @@ export interface PricingProjection {
   pricing_snapshot_cache_read_input: string | null;
   pricing_snapshot_cache_creation_input: string | null;
   pricing_snapshot_reasoning: string | null;
-  pricing_tier_applied:
-    | "not_evaluated"
-    | "not_applicable"
-    | "base"
-    | "tier"
-    | null;
-  pricing_tier_threshold_tokens: number | null;
-  pricing_tier_basis_tokens: number | null;
+  pricing_template_kind: PricingTemplateKind | null;
+  pricing_selection_state: PricingSelectionState | null;
+  pricing_card_role: PricingCardRole | null;
+  pricing_selector_threshold_tokens: number | null;
+  pricing_selector_basis_tokens: number | null;
+  pricing_schedule_decided_at: string | null;
+  pricing_schedule_timezone: string | null;
+  pricing_schedule_local_weekday: number | null;
+  pricing_schedule_local_minute: number | null;
+  pricing_schedule_digest: string | null;
   evidence_state: "authoritative" | "unavailable";
 }
 
