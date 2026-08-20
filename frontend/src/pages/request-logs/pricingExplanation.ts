@@ -1,89 +1,125 @@
 import { getStaticMessages } from "@/i18n/staticMessages";
 
 export interface UnpricedCauseInput {
-  pricingStatus: string | null | undefined;
-  unpricedReason: string | null | undefined;
-  streamOutcome: string | null | undefined;
+ pricingStatus: string | null | undefined;
+ unpricedReason: string | null | undefined;
+ streamOutcome: string | null | undefined;
 }
 
 function isStreamRow(outcome: string | null | undefined): boolean {
-  return outcome !== null && outcome !== undefined && outcome !== "" && outcome !== "not_streaming";
+ return (
+  outcome !== null &&
+  outcome !== undefined &&
+  outcome !== "" &&
+  outcome !== "not_streaming"
+ );
 }
 
 /** Returns the causal sentence for an unpriced row, or null when the row is
  *  not unpriced or the reason carries no additional explanation. */
-export function describeUnpricedCause(input: UnpricedCauseInput): string | null {
-  if (input.pricingStatus !== "unpriced") return null;
-  const m = getStaticMessages().requestLogs;
-  switch (input.unpricedReason) {
-    case "MISSING_TOKEN_USAGE":
-      return isStreamRow(input.streamOutcome) ? m.unpricedCauseStreamNoUsage : m.unpricedCauseNonStreamNoUsage;
-    case "STREAM_USAGE_UNAVAILABLE":
-      return m.unpricedCauseStreamTruncated;
-    case "PRICING_DISABLED":
-      return m.unpricedCausePricingDisabled;
-    case "MISSING_PRICE_DATA":
-      return m.unpricedCauseMissingPriceData;
-    default:
-      return null;
-  }
+export function describeUnpricedCause(
+ input: UnpricedCauseInput,
+): string | null {
+ if (input.pricingStatus !== "unpriced") return null;
+ const m = getStaticMessages().requestLogs;
+ switch (input.unpricedReason) {
+  case "MISSING_TOKEN_USAGE":
+   return isStreamRow(input.streamOutcome)
+    ? m.unpricedCauseStreamNoUsage
+    : m.unpricedCauseNonStreamNoUsage;
+  case "STREAM_USAGE_UNAVAILABLE":
+   return m.unpricedCauseStreamTruncated;
+  case "PRICING_DISABLED":
+   return m.unpricedCausePricingDisabled;
+  case "MISSING_PRICE_DATA":
+   return m.unpricedCauseMissingPriceData;
+  default:
+   return null;
+ }
 }
 
 export interface TokenComponentInput {
-  input: number | null;
-  output: number | null;
-  total: number | null;
-  cacheRead: number | null;
-  cacheCreation: number | null;
-  reasoning: number | null;
+ input: number | null;
+ output: number | null;
+ total: number | null;
+ cacheRead: number | null;
+ cacheCreation: number | null;
+ reasoning: number | null;
 }
 
 export type TokenComponentCoverage =
-  | { kind: "unavailable" }
-  | { kind: "total_only"; uncategorized: number }
-  | { kind: "balanced" }
-  | { kind: "residual"; uncategorized: number };
+ | { kind: "unavailable" }
+ | { kind: "total_only"; uncategorized: number }
+ | { kind: "balanced" }
+ | { kind: "residual"; uncategorized: number };
 
 /** Classifies how well the disjoint components reconstruct the provider total.
  *  "total_only" means every component is NULL while a total exists (upstream
  *  reported a bare total); "residual" means the components sum to something
  *  other than the total. */
-export function classifyTokenComponents(usage: TokenComponentInput): TokenComponentCoverage {
-  if (usage.total === null) return { kind: "unavailable" };
-  const parts = [usage.input, usage.output, usage.cacheRead, usage.cacheCreation, usage.reasoning];
-  if (parts.every((value) => value === null)) return { kind: "total_only", uncategorized: usage.total };
-  const sum = parts.reduce<number>((acc, value) => acc + (value ?? 0), 0);
-  const residual = usage.total - sum;
-  return residual === 0 ? { kind: "balanced" } : { kind: "residual", uncategorized: residual };
+export function classifyTokenComponents(
+ usage: TokenComponentInput,
+): TokenComponentCoverage {
+ if (usage.total === null) return { kind: "unavailable" };
+ const parts = [
+  usage.input,
+  usage.output,
+  usage.cacheRead,
+  usage.cacheCreation,
+  usage.reasoning,
+ ];
+ if (parts.every((value) => value === null))
+  return { kind: "total_only", uncategorized: usage.total };
+ const sum = parts.reduce<number>((acc, value) => acc + (value ?? 0), 0);
+ const residual = usage.total - sum;
+ return residual === 0
+  ? { kind: "balanced" }
+  : { kind: "residual", uncategorized: residual };
 }
 
-export type PricingTierCoverage =
-  | { kind: "legacy" }
-  | { kind: "not_evaluated" }
-  | { kind: "not_applicable" }
-  | { kind: "base"; threshold: number; basis: number }
-  | { kind: "tier"; threshold: number; basis: number }
+export type PricingSelectionCoverage =
+ | { kind: "unavailable" }
+ | { kind: "not_evaluated" }
+ | { kind: "not_applicable"; role: "tier_base" }
+ | {
+    kind: "selected";
+    role: "standard" | "tier_base" | "tier_above" | "peak" | "offpeak";
+    threshold: number | null;
+    basis: string | null;
+   }
+ | { kind: "unresolved" };
 
-/** Keeps the five stored tier states distinct; null is historical/unevaluated
- * evidence and must not be painted as a base-price decision. */
-export function classifyPricingTier(input: {
-  applied: "not_evaluated" | "not_applicable" | "base" | "tier" | null
-  threshold: number | null
-  basis: number | null
-}): PricingTierCoverage {
-  if (input.applied === null) return { kind: "legacy" }
-  if (input.applied === "base" || input.applied === "tier") {
-    if (input.threshold === null || input.basis === null) return { kind: "not_evaluated" }
-    return { kind: input.applied, threshold: input.threshold, basis: input.basis }
-  }
-  return { kind: input.applied }
+/** Classifies the orthogonal selector state and card role. Missing state is
+ * unavailable evidence, never an implied base or zero-rate decision. */
+export function classifyPricingSelection(input: {
+ state: "not_evaluated" | "not_applicable" | "selected" | "unresolved" | null;
+ role: "standard" | "tier_base" | "tier_above" | "peak" | "offpeak" | null;
+ threshold: number | null;
+ basis: string | null;
+}): PricingSelectionCoverage {
+ if (input.state === null) return { kind: "unavailable" };
+ if (input.state === "not_applicable") {
+  return input.role === "tier_base"
+   ? { kind: "not_applicable", role: "tier_base" }
+   : { kind: "unresolved" };
+ }
+ if (input.state === "selected" && input.role !== null) {
+  return {
+   kind: "selected",
+   role: input.role,
+   threshold: input.threshold,
+   basis: input.basis,
+  };
+ }
+ if (input.state === "unresolved") return { kind: "unresolved" };
+ return { kind: "not_evaluated" };
 }
 
 export interface CacheReadShareInput {
-  input: number | null;
-  cacheRead: number | null;
-  cacheCreation: number | null;
-  operationName: string | null;
+ input: number | null;
+ cacheRead: number | null;
+ cacheCreation: number | null;
+ operationName: string | null;
 }
 
 /** Operations whose cache components are not comparable under the disjoint
@@ -91,10 +127,10 @@ export interface CacheReadShareInput {
  *  cache_read (double counting), image operations never report cache
  *  components. */
 const CACHE_BASIS_INELIGIBLE_OPERATIONS = new Set([
-  "anthropic.count_tokens",
-  "gemini.count_tokens",
-  "openai.images.generations",
-  "openai.images.edits",
+ "anthropic.count_tokens",
+ "gemini.count_tokens",
+ "openai.images.generations",
+ "openai.images.edits",
 ]);
 
 /** The reasons a share cannot be shown stay separate: "we know this operation
@@ -103,11 +139,11 @@ const CACHE_BASIS_INELIGIBLE_OPERATIONS = new Set([
  *  different facts about the request, and collapsing them into one em dash
  *  would leave the reader unable to tell them apart. */
 export type CacheReadShare =
-  | { kind: "value"; share: number }
-  | { kind: "incomparable_operation" }
-  | { kind: "indeterminate_operation" }
-  | { kind: "components_missing" }
-  | { kind: "no_prompt_tokens" };
+ | { kind: "value"; share: number }
+ | { kind: "incomparable_operation" }
+ | { kind: "indeterminate_operation" }
+ | { kind: "components_missing" }
+ | { kind: "no_prompt_tokens" };
 
 /** Single-request share of prompt tokens served from cache:
  *  cacheRead / (input + cacheRead + cacheCreation). input and cacheRead must
@@ -121,12 +157,13 @@ export type CacheReadShare =
  *  A null operation_name is indeterminate and excluded the same way, which is
  *  a deliberate tradeoff rather than a pass-through. */
 export function cacheReadShare(usage: CacheReadShareInput): CacheReadShare {
-  if (usage.operationName === null) return { kind: "indeterminate_operation" };
-  if (CACHE_BASIS_INELIGIBLE_OPERATIONS.has(usage.operationName)) {
-    return { kind: "incomparable_operation" };
-  }
-  if (usage.input === null || usage.cacheRead === null) return { kind: "components_missing" };
-  const denominator = usage.input + usage.cacheRead + (usage.cacheCreation ?? 0);
-  if (denominator <= 0) return { kind: "no_prompt_tokens" };
-  return { kind: "value", share: usage.cacheRead / denominator };
+ if (usage.operationName === null) return { kind: "indeterminate_operation" };
+ if (CACHE_BASIS_INELIGIBLE_OPERATIONS.has(usage.operationName)) {
+  return { kind: "incomparable_operation" };
+ }
+ if (usage.input === null || usage.cacheRead === null)
+  return { kind: "components_missing" };
+ const denominator = usage.input + usage.cacheRead + (usage.cacheCreation ?? 0);
+ if (denominator <= 0) return { kind: "no_prompt_tokens" };
+ return { kind: "value", share: usage.cacheRead / denominator };
 }

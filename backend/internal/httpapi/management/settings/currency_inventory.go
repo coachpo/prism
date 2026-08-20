@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -57,28 +58,25 @@ type pricingMigrationInventoryPage struct {
 }
 
 type pricingMigrationInventoryTemplate struct {
-	TemplateID                   int      `json:"template_id"`
-	Name                         string   `json:"name"`
-	UpdatedAt                    string   `json:"updated_at"`
-	BaseVersion                  int      `json:"base_version"`
-	CurrentRevisionID            *string  `json:"current_revision_id"`
-	CurrentInputPrice            *string  `json:"current_input_price"`
-	CurrentOutputPrice           *string  `json:"current_output_price"`
-	CurrentCachedInputPrice      *string  `json:"current_cached_input_price"`
-	CurrentCacheCreationPrice    *string  `json:"current_cache_creation_price"`
-	CurrentReasoningPrice        *string  `json:"current_reasoning_price"`
-	LegacyEvidenceID             *string  `json:"legacy_template_evidence_id"`
-	RawPricingUnit               *string  `json:"raw_pricing_unit"`
-	RawCurrencyCode              *string  `json:"raw_currency_code"`
-	RawInputPrice                *string  `json:"raw_input_price"`
-	RawOutputPrice               *string  `json:"raw_output_price"`
-	RawCachedInputPrice          *string  `json:"raw_cached_input_price"`
-	RawCacheCreationPrice        *string  `json:"raw_cache_creation_price"`
-	RawReasoningPrice            *string  `json:"raw_reasoning_price"`
-	IssueCodes                   []string `json:"issue_codes"`
-	ModelReferenceCount          int      `json:"model_reference_count"`
-	EndpointReferenceCount       int      `json:"endpoint_reference_count"`
-	TerminalTargetReferenceCount int      `json:"terminal_target_reference_count"`
+	TemplateID                   int                     `json:"template_id"`
+	Name                         string                  `json:"name"`
+	UpdatedAt                    string                  `json:"updated_at"`
+	BaseVersion                  int                     `json:"base_version"`
+	CurrentRevisionID            *string                 `json:"current_revision_id"`
+	TemplateKind                 *string                 `json:"template_kind"`
+	CurrentCards                 []currencyMigrationCard `json:"current_cards"`
+	LegacyEvidenceID             *string                 `json:"legacy_template_evidence_id"`
+	RawPricingUnit               *string                 `json:"raw_pricing_unit"`
+	RawCurrencyCode              *string                 `json:"raw_currency_code"`
+	RawInputPrice                *string                 `json:"raw_input_price"`
+	RawOutputPrice               *string                 `json:"raw_output_price"`
+	RawCachedInputPrice          *string                 `json:"raw_cached_input_price"`
+	RawCacheCreationPrice        *string                 `json:"raw_cache_creation_price"`
+	RawReasoningPrice            *string                 `json:"raw_reasoning_price"`
+	IssueCodes                   []string                `json:"issue_codes"`
+	ModelReferenceCount          int                     `json:"model_reference_count"`
+	EndpointReferenceCount       int                     `json:"endpoint_reference_count"`
+	TerminalTargetReferenceCount int                     `json:"terminal_target_reference_count"`
 }
 
 type pricingMigrationFXEvidencePage struct {
@@ -175,8 +173,8 @@ func (s *Service) loadCurrencyMigrationInventoryTemplatePage(r *http.Request) (p
 		}
 		rows, err := tx.Query(r.Context(), `
 			SELECT templates.id, templates.name, templates.updated_at, templates.current_revision_id,
-				revisions.id, revisions.version, revisions.input_price, revisions.output_price,
-				revisions.cached_input_price, revisions.cache_creation_price, revisions.reasoning_price,
+				revisions.id, revisions.version, revisions.template_kind,
+				COALESCE((SELECT jsonb_agg(jsonb_build_object('card_role', cards.card_role, 'input_price', cards.input_price, 'output_price', cards.output_price, 'cached_input_price', cards.cached_input_price, 'cache_creation_price', cards.cache_creation_price, 'reasoning_price', cards.reasoning_price) ORDER BY cards.card_role) FROM pricing_template_cards cards WHERE cards.revision_id = revisions.id), '[]'::jsonb),
 				evidence.legacy_template_evidence_id, evidence.public_version, evidence.pricing_unit, evidence.currency_code,
 				evidence.input_price, evidence.output_price, evidence.cached_input_price,
 				evidence.cache_creation_price, evidence.reasoning_price, evidence.issue_codes,
@@ -304,11 +302,12 @@ func scanCurrencyMigrationInventoryTemplate(row pgx.Row) (pricingMigrationInvent
 	var item pricingMigrationInventoryTemplate
 	var updatedAt time.Time
 	var currentRevisionID, revisionID, version sql.NullInt64
-	var currentInput, currentOutput, currentCached, currentCreation, currentReasoning sql.NullString
+	var templateKind sql.NullString
+	var currentCardsJSON []byte
 	var evidenceID, evidenceVersion sql.NullInt64
 	var rawUnit, rawCode, rawInput, rawOutput, rawCached, rawCreation, rawReasoning sql.NullString
 	var issueCodes []string
-	if err := row.Scan(&item.TemplateID, &item.Name, &updatedAt, &currentRevisionID, &revisionID, &version, &currentInput, &currentOutput, &currentCached, &currentCreation, &currentReasoning, &evidenceID, &evidenceVersion, &rawUnit, &rawCode, &rawInput, &rawOutput, &rawCached, &rawCreation, &rawReasoning, &issueCodes, &item.ModelReferenceCount, &item.EndpointReferenceCount, &item.TerminalTargetReferenceCount); err != nil {
+	if err := row.Scan(&item.TemplateID, &item.Name, &updatedAt, &currentRevisionID, &revisionID, &version, &templateKind, &currentCardsJSON, &evidenceID, &evidenceVersion, &rawUnit, &rawCode, &rawInput, &rawOutput, &rawCached, &rawCreation, &rawReasoning, &issueCodes, &item.ModelReferenceCount, &item.EndpointReferenceCount, &item.TerminalTargetReferenceCount); err != nil {
 		return pricingMigrationInventoryTemplate{}, err
 	}
 	item.UpdatedAt = updatedAt.UTC().Format(time.RFC3339Nano)
@@ -323,11 +322,15 @@ func scanCurrencyMigrationInventoryTemplate(row pgx.Row) (pricingMigrationInvent
 	if revisionID.Valid {
 		item.BaseVersion = int(version.Int64)
 	}
-	item.CurrentInputPrice = nullableSQLString(currentInput)
-	item.CurrentOutputPrice = nullableSQLString(currentOutput)
-	item.CurrentCachedInputPrice = nullableSQLString(currentCached)
-	item.CurrentCacheCreationPrice = nullableSQLString(currentCreation)
-	item.CurrentReasoningPrice = nullableSQLString(currentReasoning)
+	if templateKind.Valid {
+		value := templateKind.String
+		item.TemplateKind = &value
+	}
+	if len(currentCardsJSON) > 0 {
+		if err := json.Unmarshal(currentCardsJSON, &item.CurrentCards); err != nil {
+			return pricingMigrationInventoryTemplate{}, fmt.Errorf("decode current pricing cards: %w", err)
+		}
+	}
 	if evidenceID.Valid {
 		value := strconv.FormatInt(evidenceID.Int64, 10)
 		item.LegacyEvidenceID = &value

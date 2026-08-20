@@ -41,10 +41,26 @@ const priceFields = [
 ];
 
 test("new pricing template forms default base prices to zero and specials to unconfigured", () => {
-  assert.equal(DEFAULT_PRICING_TEMPLATE_FORM.input_price, "", "input_price should default to empty (required)");
-  assert.equal(DEFAULT_PRICING_TEMPLATE_FORM.output_price, "", "output_price should default to empty (required)");
-  for (const field of ["cached_input_price", "cache_creation_price", "reasoning_price"]) {
-    assert.equal(DEFAULT_PRICING_TEMPLATE_FORM[field], "", `${field} should default to unconfigured`);
+  assert.equal(
+    DEFAULT_PRICING_TEMPLATE_FORM.input_price,
+    "",
+    "input_price should default to empty (required)",
+  );
+  assert.equal(
+    DEFAULT_PRICING_TEMPLATE_FORM.output_price,
+    "",
+    "output_price should default to empty (required)",
+  );
+  for (const field of [
+    "cached_input_price",
+    "cache_creation_price",
+    "reasoning_price",
+  ]) {
+    assert.equal(
+      DEFAULT_PRICING_TEMPLATE_FORM[field],
+      "",
+      `${field} should default to unconfigured`,
+    );
   }
 });
 
@@ -57,11 +73,14 @@ test("template edit hydration converts legacy null and blank prices to empty for
     pricing_unit: "PER_1M",
     pricing_currency_code: "USD",
     active_currency_symbol: "$",
-    input_price: "1",
-    output_price: "2",
-    cached_input_price: null,
-    cache_creation_price: null,
-    reasoning_price: null,
+    template_kind: "standard",
+    card: {
+      input_price: "1",
+      output_price: "2",
+      cached_input_price: null,
+      cache_creation_price: null,
+      reasoning_price: null,
+    },
     version: 1,
     revision_id: 1,
     version_effective_at: null,
@@ -73,8 +92,16 @@ test("template edit hydration converts legacy null and blank prices to empty for
 
   assert.equal(hydrated.input_price, "1");
   assert.equal(hydrated.output_price, "2");
-  for (const field of ["cached_input_price", "cache_creation_price", "reasoning_price"]) {
-    assert.equal(hydrated[field], "", `${field} should hydrate to unconfigured`);
+  for (const field of [
+    "cached_input_price",
+    "cache_creation_price",
+    "reasoning_price",
+  ]) {
+    assert.equal(
+      hydrated[field],
+      "",
+      `${field} should hydrate to unconfigured`,
+    );
   }
 });
 

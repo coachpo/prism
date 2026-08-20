@@ -35,7 +35,11 @@ export type ObserveCostSegment = {
     STREAM_USAGE_UNAVAILABLE: number;
     MISSING_PRICE_DATA: number;
   };
-  pricing_coverage_state: "complete" | "partial" | "no_trusted_cost" | "no_eligible";
+  pricing_coverage_state:
+    | "complete"
+    | "partial"
+    | "no_trusted_cost"
+    | "no_eligible";
   known_cost_micros: string | null;
 };
 
@@ -73,6 +77,7 @@ export type UsageSummaryResponse = {
   cache_basis_input_tokens: number | null;
   cache_basis_cache_read_tokens: number | null;
   cache_basis_cache_creation_tokens: number | null;
+  pricing_selector_unresolved_count: number;
   pricing_reconciliation: {
     pricing_eligible_request_count: number;
     pricing_ineligible_request_count: number;
@@ -85,7 +90,11 @@ export type UsageSummaryResponse = {
       STREAM_USAGE_UNAVAILABLE: number;
       MISSING_PRICE_DATA: number;
     };
-    pricing_coverage_state: "complete" | "partial" | "no_trusted_cost" | "no_eligible";
+    pricing_coverage_state:
+      | "complete"
+      | "partial"
+      | "no_trusted_cost"
+      | "no_eligible";
   };
   window_average_rpm: number | null;
   window_average_tpm: number | null;
@@ -140,25 +149,56 @@ export type DashboardNowResponse = {
 };
 
 export const observe = {
-  observeActivity: (queryContext: string, params: { limit?: number; before?: string }, signal?: AbortSignal) => {
+  observeActivity: (
+    queryContext: string,
+    params: { limit?: number; before?: string },
+    signal?: AbortSignal,
+  ) => {
     const query = buildQuery({ ...params, query_context: queryContext });
-    return request<ObserveActivityResponse>(`/api/stats/observe-activity${query ? `?${query}` : ""}`, { signal });
+    return request<ObserveActivityResponse>(
+      `/api/stats/observe-activity${query ? `?${query}` : ""}`,
+      { signal },
+    );
   },
-  usageErrors: (queryContext: string, params: { group_by?: string; limit?: number }, signal?: AbortSignal) => {
+  usageErrors: (
+    queryContext: string,
+    params: { group_by?: string; limit?: number },
+    signal?: AbortSignal,
+  ) => {
     const query = buildQuery({ ...params, query_context: queryContext });
-    return request<UsageErrorsResponse>(`/api/stats/usage-errors${query ? `?${query}` : ""}`, { signal });
+    return request<UsageErrorsResponse>(
+      `/api/stats/usage-errors${query ? `?${query}` : ""}`,
+      { signal },
+    );
   },
-  queryContext: (params: { preset: string; from_time?: string; to_time?: string }, signal?: AbortSignal) => {
+  queryContext: (
+    params: { preset: string; from_time?: string; to_time?: string },
+    signal?: AbortSignal,
+  ) => {
     const query = buildQuery(params);
-    return request<QueryContextResponse>(`/api/stats/query-context${query ? `?${query}` : ""}`, { signal });
+    return request<QueryContextResponse>(
+      `/api/stats/query-context${query ? `?${query}` : ""}`,
+      { signal },
+    );
   },
   usageSummary: (queryContext: string, signal?: AbortSignal) =>
-    request<UsageSummaryResponse>(`/api/stats/usage-summary?query_context=${encodeURIComponent(queryContext)}`, { signal }),
-  usageSeries: (queryContext: string, params: { metric?: string; group_by?: string; interval?: string }, signal?: AbortSignal) => {
+    request<UsageSummaryResponse>(
+      `/api/stats/usage-summary?query_context=${encodeURIComponent(queryContext)}`,
+      { signal },
+    ),
+  usageSeries: (
+    queryContext: string,
+    params: { metric?: string; group_by?: string; interval?: string },
+    signal?: AbortSignal,
+  ) => {
     const query = buildQuery({ ...params, query_context: queryContext });
-    return request<UsageSeriesResponse>(`/api/stats/usage-series${query ? `?${query}` : ""}`, { signal });
+    return request<UsageSeriesResponse>(
+      `/api/stats/usage-series${query ? `?${query}` : ""}`,
+      { signal },
+    );
   },
-  dashboardNow: (signal?: AbortSignal) => request<DashboardNowResponse>("/api/stats/dashboard/now", { signal }),
+  dashboardNow: (signal?: AbortSignal) =>
+    request<DashboardNowResponse>("/api/stats/dashboard/now", { signal }),
 };
 
 export type UsageErrorsResponse = {
@@ -201,8 +241,19 @@ export type UsageErrorsResponse = {
     percentage: number | null;
     last_seen_at: string;
     request_filters: Record<string, string[]>;
-    error_kinds: { stream_error_kind: string | null; count: number; denominator: number; percentage: number | null; request_filters: Record<string, string[]> }[];
-    other_error_kinds: { count: number; denominator: number; percentage: number | null; request_filters: Record<string, string[]> | null };
+    error_kinds: {
+      stream_error_kind: string | null;
+      count: number;
+      denominator: number;
+      percentage: number | null;
+      request_filters: Record<string, string[]>;
+    }[];
+    other_error_kinds: {
+      count: number;
+      denominator: number;
+      percentage: number | null;
+      request_filters: Record<string, string[]> | null;
+    };
   }[];
   groups: {
     entity_type: string;
@@ -218,9 +269,24 @@ export type UsageErrorsResponse = {
     request_filters: Record<string, string[]>;
   }[];
   other: {
-    http_statuses: { count: number; denominator: number; percentage: number | null; request_filters: Record<string, string[]> | null };
-    stream_outcomes: { count: number; denominator: number; percentage: number | null; request_filters: Record<string, string[]> | null };
-    groups: { count: number; denominator: number; percentage: number | null; request_filters: Record<string, string[]> | null };
+    http_statuses: {
+      count: number;
+      denominator: number;
+      percentage: number | null;
+      request_filters: Record<string, string[]> | null;
+    };
+    stream_outcomes: {
+      count: number;
+      denominator: number;
+      percentage: number | null;
+      request_filters: Record<string, string[]> | null;
+    };
+    groups: {
+      count: number;
+      denominator: number;
+      percentage: number | null;
+      request_filters: Record<string, string[]> | null;
+    };
   };
 };
 
@@ -240,7 +306,11 @@ export type ObserveActivityItem = {
   terminal_target_id: number | null;
   status_code: number;
   final_result: "completed" | "failed" | "client_disconnected";
-  outcome_detail: "completed" | "http_error" | "stream_error" | "client_disconnected";
+  outcome_detail:
+    | "completed"
+    | "http_error"
+    | "stream_error"
+    | "client_disconnected";
   is_stream: boolean | null;
   stream_outcome: string;
   stream_error_kind: string | null;

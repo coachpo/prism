@@ -92,6 +92,7 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 	var templateID sql.NullInt32
 	var templateName sql.NullString
 	var templateCurrencyCode sql.NullString
+	var templateKind sql.NullString
 	var templateVersion sql.NullInt32
 	item := connectionTargetSummary{}
 	endpoint := endpointResponse{}
@@ -126,6 +127,7 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 		&templateName,
 		&templateVersion,
 		&templateCurrencyCode,
+		&templateKind,
 		&item.CreatedAt,
 		&item.UpdatedAt,
 	)
@@ -149,7 +151,7 @@ func scanConnectionTargetSummaryWithPrefix(scanner interface{ Scan(...any) error
 	item.MaxInFlightNonStream = nullableInt32(maxInFlightNonStream)
 	item.MaxInFlightStream = nullableInt32(maxInFlightStream)
 	if templateID.Valid {
-		item.PricingTemplate = &connectionPricingTemplateSummary{ID: int(templateID.Int32), Name: templateName.String, PricingUnit: "PER_1M", PricingCurrencyCode: templateCurrencyCode.String, Version: int(templateVersion.Int32)}
+		item.PricingTemplate = &connectionPricingTemplateSummary{ID: int(templateID.Int32), Name: templateName.String, PricingUnit: "PER_1M", PricingCurrencyCode: templateCurrencyCode.String, TemplateKind: templateKind.String, Version: int(templateVersion.Int32)}
 	}
 	return item, nil
 }

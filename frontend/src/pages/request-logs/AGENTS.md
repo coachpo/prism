@@ -1,9 +1,11 @@
 # FRONTEND REQUEST LOGS DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
+
 `pages/request-logs/` owns the investigation flow for runtime traffic: retained browse filtering, exact-request focus mode, requested-model and final-target observability, request-time audit provenance, Default-profile spend rendering, stream telemetry, and detailed payload inspection. This parent also covers the local `detail/` cluster, while URL-state, exact-request behavior, and sheet-scoped clipboard fallback stay local here.
 
 ## STRUCTURE
+
 ```
 request-logs/
 ├── queryParams.ts               # URL-state contract for retained browse filters, view, sort, and pagination
@@ -22,7 +24,7 @@ request-logs/
 ├── requestLogAuditState.ts      # Audit capture mode and request-detail audit state helpers
 ├── streamTelemetry.ts           # Stream-outcome, TTFT, and rate helpers for request-log views
 ├── columns.tsx                  # Table column definitions (nine core + pricing state) and scoped status/duration helpers
-├── pricingExplanation.ts        # Unpriced-cause description and token-component coverage classification for rows and detail
+├── pricingExplanation.ts        # Unpriced-cause, token-component, and typed selection-state/card-role classification for rows and detail
 ├── RequestLogsViewToolbar.tsx   # View switcher plus the controls both views share (columns, page size, export)
 ├── FiltersBar.tsx               # UI shell for retained browse filters plus refresh/clear actions
 ├── FiltersBar.constants.ts      # Filter option constants and shared filter presentation helpers
@@ -47,6 +49,7 @@ request-logs/
 ```
 
 ## WHERE TO LOOK
+
 - Investigation flow and state, including URL-state and exact-request mode: `useRequestLogsPageData.ts`, `useRequestLogPageState.ts`
 - Route-shell copy, empty-state messaging, and locale-aware detail labels: `../RequestLogsPage.tsx`, `@/i18n/useLocale`, `@/i18n/AGENTS.md`
 - Retained browse-filter contract and defaults: `queryParams.ts`
@@ -60,6 +63,7 @@ request-logs/
 - Reporting-currency trust and spend display coupling: `../../context/ReportingCurrencyContext.tsx`, `../../lib/reportingCurrency.ts`, `detail/RequestLogOverviewTab.tsx`
 
 ## CONVENTIONS
+
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
 - Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 
@@ -87,14 +91,17 @@ request-logs/
 - Keep stream telemetry in `streamTelemetry.ts` and parent detail helpers instead of recomputing TTFT or request-rate state in shared widgets.
 - Keep copy actions on shared clipboard helpers. `RequestLogDetailSheet.tsx` intentionally provides `[data-clipboard-fallback-root]` so browser fallback UI stays inside the sheet instead of triggering downloads.
 - Keep request-log cost labels tied to `useReportingCurrencyContext()` so fallback or verified Default-profile reporting-currency trust is visible in detail views.
+- Render pricing evidence through `pricing_selection_state` and `pricing_card_role` independently. `unresolved` is a failure surface with `pricing_resolution_kind`; missing evidence is not a base-card decision. Peak/valley detail may show timezone, frozen decision time, local weekday/minute, and digest only when present. CSV column order must match the backend generic evidence columns.
 - Keep `detail/` parent-covered here. Those helpers support the request-log sheet only and should not get a separate AGENTS file.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
 ## LLM UPSTREAM MATRIX
+
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
 
 ## ANTI-PATTERNS
+
 - Do not stale-claim that request logs are missing from the route map.
 - Do not duplicate filter parsing outside `queryParams.ts`.
 - Do not fetch audit payloads during normal table browsing or from the overview drawer.

@@ -2,7 +2,9 @@ package settings
 
 import (
 	"encoding/hex"
+
 	"fmt"
+	"github.com/coachpo/prism/backend/internal/domain/pricingkind"
 	"net/http"
 	"strconv"
 	"strings"
@@ -37,34 +39,97 @@ func normalizeCurrencyDraftChunk(rows []currencyMigrationDraftChunkRowRequest) (
 			return nil, "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("duplicate template_id %d in chunk", row.TemplateID)}
 		}
 		seen[row.TemplateID] = struct{}{}
+		kind := pricingkind.Kind(strings.TrimSpace(row.TemplateKind))
+		if !kind.Valid() {
+			return nil, "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "template_kind must be standard, tiered, or peak_valley"}
+		}
 		expected, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(row.ExpectedUpdatedAt))
 		if err != nil {
 			return nil, "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "expected_updated_at must be a valid RFC3339 timestamp"}
 		}
-		input, err := canonicalCurrencyMigrationPrice("input_price", row.InputPrice, false)
-		if err != nil {
-			return nil, "", err
+		requiredRoles := pricingkind.RolesFor(kind)
+		if len(row.Cards) != len(requiredRoles) {
+			return nil, "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("template %d requires the complete %s card set", row.TemplateID, kind)}
 		}
-		output, err := canonicalCurrencyMigrationPrice("output_price", row.OutputPrice, false)
-		if err != nil {
-			return nil, "", err
+		required := make(map[string]struct{}, len(requiredRoles))
+		for _, role := range requiredRoles {
+			required[role] = struct{}{}
 		}
-		cached, err := canonicalCurrencyMigrationPrice("cached_input_price", row.CachedInputPrice, true)
-		if err != nil {
-			return nil, "", err
+		cards := make([]currencyMigrationCard, 0, len(row.Cards))
+		roles := make(map[string]struct{}, len(row.Cards))
+		var specialtyShape *[3]bool
+		for _, input := range row.Cards {
+			role := strings.TrimSpace(input.CardRole)
+			if _, ok := required[role]; !ok {
+				return nil, "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("template %d has invalid card role %q", row.TemplateID, role)}
+			}
+			if _, ok := roles[role]; ok {
+				return nil, "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("template %d has duplicate card role %q", row.TemplateID, role)}
+			}
+			roles[role] = struct{}{}
+			inputPrice, priceErr := canonicalCurrencyMigrationPrice(role+".input_price", input.InputPrice, false)
+			if priceErr != nil {
+				return nil, "", priceErr
+			}
+			outputPrice, priceErr := canonicalCurrencyMigrationPrice(role+".output_price", input.OutputPrice, false)
+			if priceErr != nil {
+				return nil, "", priceErr
+			}
+			cached, priceErr := canonicalCurrencyMigrationPrice(role+".cached_input_price", input.CachedInputPrice, true)
+			if priceErr != nil {
+				return nil, "", priceErr
+			}
+			creation, priceErr := canonicalCurrencyMigrationPrice(role+".cache_creation_price", input.CacheCreationPrice, true)
+			if priceErr != nil {
+				return nil, "", priceErr
+			}
+			reasoning, priceErr := canonicalCurrencyMigrationPrice(role+".reasoning_price", input.ReasoningPrice, true)
+			if priceErr != nil {
+				return nil, "", priceErr
+			}
+			shape := [3]bool{cached != "", creation != "", reasoning != ""}
+			if specialtyShape == nil {
+				specialtyShape = &shape
+			} else if *specialtyShape != shape {
+				return nil, "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("template %d cards must mirror specialty price configuration", row.TemplateID)}
+			}
+			cards = append(cards, currencyMigrationCard{CardRole: role, InputPrice: inputPrice, OutputPrice: outputPrice, CachedInputPrice: nullableCurrencyPricePtr(cached), CacheCreationPrice: nullableCurrencyPricePtr(creation), ReasoningPrice: nullableCurrencyPricePtr(reasoning)})
 		}
-		cacheCreation, err := canonicalCurrencyMigrationPrice("cache_creation_price", row.CacheCreationPrice, true)
-		if err != nil {
-			return nil, "", err
+		for _, role := range requiredRoles {
+			if _, ok := roles[role]; !ok {
+				return nil, "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("template %d is missing card role %q", row.TemplateID, role)}
+			}
 		}
-		reasoning, err := canonicalCurrencyMigrationPrice("reasoning_price", row.ReasoningPrice, true)
-		if err != nil {
-			return nil, "", err
-		}
-		items = append(items, currencyMigrationDraftItem{TemplateID: row.TemplateID, ExpectedVersion: row.ExpectedVersion, ExpectedUpdatedAt: expected.UTC().Format(time.RFC3339Nano), InputPrice: input, OutputPrice: output, CachedInputPrice: nullableCurrencyPricePtr(cached), CacheCreationPrice: nullableCurrencyPricePtr(cacheCreation), ReasoningPrice: nullableCurrencyPricePtr(reasoning)})
+		sortCurrencyMigrationCards(cards)
+		items = append(items, currencyMigrationDraftItem{TemplateID: row.TemplateID, ExpectedVersion: row.ExpectedVersion, ExpectedUpdatedAt: expected.UTC().Format(time.RFC3339Nano), TemplateKind: kind, Cards: cards})
 	}
 	sortCurrencyDraftItems(items)
 	return items, currencyDraftItemsHash(items), nil
+}
+
+func sortCurrencyMigrationCards(cards []currencyMigrationCard) {
+	for i := 1; i < len(cards); i++ {
+		for j := i; j > 0 && cards[j].CardRole < cards[j-1].CardRole; j-- {
+			cards[j], cards[j-1] = cards[j-1], cards[j]
+		}
+	}
+}
+
+func currencyMigrationCardsHaveRoles(cards []currencyMigrationCard, kind pricingkind.Kind) bool {
+	required := pricingkind.RolesFor(kind)
+	if len(cards) != len(required) {
+		return false
+	}
+	seen := make(map[string]struct{}, len(cards))
+	for _, card := range cards {
+		seen[card.CardRole] = struct{}{}
+	}
+	for _, role := range required {
+		if _, ok := seen[role]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func nullableCurrencyPricePtr(value string) *string {

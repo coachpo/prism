@@ -55,12 +55,14 @@ type pricingRevisionDTO struct {
 	CurrencyCode         string               `json:"currency_code"`
 	ReportingEpoch       *int                 `json:"reporting_currency_epoch"`
 	CurrencyAttribution  string               `json:"currency_attribution"`
-	InputPrice           string               `json:"input_price"`
-	OutputPrice          string               `json:"output_price"`
-	CachedInputPrice     *string              `json:"cached_input_price"`
-	CacheCreationPrice   *string              `json:"cache_creation_price"`
-	ReasoningPrice       *string              `json:"reasoning_price"`
-	Tier                 *pricingTemplateTier `json:"tier"`
+	Tier                 *pricingTemplateTier `json:"tier,omitempty"`
+	TemplateKind         string               `json:"template_kind"`
+	Card                 *pricingTemplateCard `json:"card,omitempty"`
+	BaseCard             *pricingTemplateCard `json:"base_card,omitempty"`
+	PeakCard             *pricingTemplateCard `json:"peak_card,omitempty"`
+	OffpeakCard          *pricingTemplateCard `json:"offpeak_card,omitempty"`
+	ScheduleTimezone     *string              `json:"schedule_timezone,omitempty"`
+	ScheduleDigest       *string              `json:"schedule_digest,omitempty"`
 	EffectiveAt          *string              `json:"effective_at"`
 	CreatedAt            string               `json:"created_at"`
 	CreatedByKind        string               `json:"created_by_kind"`
@@ -121,10 +123,8 @@ func (s *Service) handleListPricingTemplatePage(w http.ResponseWriter, r *http.R
 			SELECT templates.id, templates.profile_id, templates.name, templates.description,
 				templates.created_at, templates.updated_at, templates.deleted_at,
 				revisions.id, revisions.version, revisions.pricing_unit, revisions.currency_code,
-				revisions.currency_attribution, revisions.reporting_currency_epoch, revisions.input_price, revisions.output_price,
-				revisions.cached_input_price, revisions.cache_creation_price, revisions.reasoning_price,
-				revisions.tier_input_tokens_above, revisions.tier_input_price, revisions.tier_output_price,
-				revisions.tier_cached_input_price, revisions.tier_cache_creation_price, revisions.tier_reasoning_price,
+				revisions.currency_attribution, revisions.reporting_currency_epoch, revisions.template_kind,
+				revisions.tier_input_tokens_above, revisions.pricing_schedule_timezone, revisions.pricing_schedule_digest,
 				revisions.effective_at, revisions.created_at, revisions.created_by_kind, revisions.created_by_operation_id,
 				templates.name_identity,
 				(SELECT count(DISTINCT targets.source_model_config_id) FROM model_access_targets AS targets JOIN connections AS refs ON refs.id = targets.target_connection_id WHERE refs.profile_id = $1 AND refs.pricing_template_id = templates.id AND targets.profile_id = $1 AND targets.target_type = 'connection'),
@@ -152,6 +152,11 @@ func (s *Service) handleListPricingTemplatePage(w http.ResponseWriter, r *http.R
 		}
 		if err := rows.Err(); err != nil {
 			return pricingTemplateListPage{}, err
+		}
+		for index := range items {
+			if err := hydratePricingListRevision(r.Context(), tx, &items[index].CurrentRevision); err != nil {
+				return pricingTemplateListPage{}, err
+			}
 		}
 		consumed := cursor.ConsumedCount + len(items)
 		page := pricingTemplateListPage{Items: items, TotalCount: total, ConsumedCount: consumed, ListSnapshotHash: snapshotHash}
@@ -251,21 +256,18 @@ func scanPricingTemplateListItem(scanner interface{ Scan(...any) error }) (prici
 	var item pricingTemplateListItem
 	var id, profileID int
 	var name string
-	var description, pricingUnit, currencyCode, currencyAttribution, currentInput, currentOutput, currentCached, currentCreation, currentReasoning sql.NullString
+	var description, pricingUnit, currencyCode, currencyAttribution, templateKind, scheduleTimezone, scheduleDigest, createdByKind, createdByOperationID sql.NullString
 	var deletedAt, effectiveAt, revisionCreatedAt sql.NullTime
 	var revisionID sql.NullInt64
-	var revisionEpoch sql.NullInt32
-	var version sql.NullInt32
-	var createdByKind, createdByOperationID sql.NullString
-	var tierThreshold sql.NullInt32
-	var tierInput, tierOutput, tierCached, tierCreation, tierReasoning sql.NullString
+	var revisionEpoch, tierThreshold sql.NullInt32
+	var version int
 	var createdAt, updatedAt time.Time
 	var nameIdentity []byte
-	if err := scanner.Scan(&id, &profileID, &name, &description, &createdAt, &updatedAt, &deletedAt, &revisionID, &version, &pricingUnit, &currencyCode, &currencyAttribution, &revisionEpoch, &currentInput, &currentOutput, &currentCached, &currentCreation, &currentReasoning, &tierThreshold, &tierInput, &tierOutput, &tierCached, &tierCreation, &tierReasoning, &effectiveAt, &revisionCreatedAt, &createdByKind, &createdByOperationID, &nameIdentity, &item.ModelReferenceCount, &item.EndpointReferenceCount, &item.TerminalTargetReferenceCount); err != nil {
+	if err := scanner.Scan(&id, &profileID, &name, &description, &createdAt, &updatedAt, &deletedAt, &revisionID, &version, &pricingUnit, &currencyCode, &currencyAttribution, &revisionEpoch, &templateKind, &tierThreshold, &scheduleTimezone, &scheduleDigest, &effectiveAt, &revisionCreatedAt, &createdByKind, &createdByOperationID, &nameIdentity, &item.ModelReferenceCount, &item.EndpointReferenceCount, &item.TerminalTargetReferenceCount); err != nil {
 		return pricingTemplateListItem{}, nil, err
 	}
-	if !revisionID.Valid || !version.Valid || !pricingUnit.Valid || !currencyCode.Valid || !currencyAttribution.Valid {
-		return pricingTemplateListItem{}, nil, &DomainError{StatusCode: http.StatusConflict, Detail: "legacy_pricing_migration_required: pricing template list is unavailable until migration evidence is repaired"}
+	if !revisionID.Valid || !pricingUnit.Valid || !currencyCode.Valid || !currencyAttribution.Valid || !templateKind.Valid {
+		return pricingTemplateListItem{}, nil, &DomainError{StatusCode: http.StatusConflict, Detail: "pricing_template_shape_unavailable"}
 	}
 	item.ID = strconv.Itoa(id)
 	item.ProfileID = strconv.Itoa(profileID)
@@ -277,22 +279,6 @@ func scanPricingTemplateListItem(scanner interface{ Scan(...any) error }) (prici
 		value := deletedAt.Time.UTC().Format(time.RFC3339Nano)
 		item.DeletedAt = &value
 	}
-	missing := make([]string, 0, 3)
-	if !currentCached.Valid {
-		missing = append(missing, "cached_input_price")
-	}
-	if !currentCreation.Valid {
-		missing = append(missing, "cache_creation_price")
-	}
-	if !currentReasoning.Valid {
-		missing = append(missing, "reasoning_price")
-	}
-	item.MissingSpecialtyComponents = missing
-	if len(missing) == 0 {
-		item.ConfigurationStatus = "complete"
-	} else {
-		item.ConfigurationStatus = "incomplete"
-	}
 	var effective, revisionCreated string
 	if effectiveAt.Valid {
 		effective = effectiveAt.Time.UTC().Format(time.RFC3339Nano)
@@ -300,17 +286,55 @@ func scanPricingTemplateListItem(scanner interface{ Scan(...any) error }) (prici
 	if revisionCreatedAt.Valid {
 		revisionCreated = revisionCreatedAt.Time.UTC().Format(time.RFC3339Nano)
 	}
+	item.CurrentRevision = pricingRevisionDTO{RevisionID: strconv.FormatInt(revisionID.Int64, 10), Version: version, PricingUnit: pricingUnit.String, CurrencyCode: currencyCode.String, CurrencyAttribution: currencyAttribution.String, ReportingEpoch: nullableInt32Value(revisionEpoch), EffectiveAt: nullableTimeString(effective), CreatedAt: revisionCreated, CreatedByKind: createdByKind.String, CreatedByOperationID: nullableStringValue(createdByOperationID), TemplateKind: templateKind.String, ScheduleTimezone: nullableStringValue(scheduleTimezone), ScheduleDigest: nullableStringValue(scheduleDigest)}
 	if tierThreshold.Valid {
-		item.CurrentRevision.Tier = &pricingTemplateTier{InputTokensAbove: int(tierThreshold.Int32), InputPrice: tierInput.String, OutputPrice: tierOutput.String, CachedInputPrice: nullableStringValue(tierCached), CacheCreationPrice: nullableStringValue(tierCreation), ReasoningPrice: nullableStringValue(tierReasoning)}
+		item.CurrentRevision.Tier = &pricingTemplateTier{InputTokensAbove: int(tierThreshold.Int32)}
 	}
-	item.CurrentRevision = pricingRevisionDTO{
-		RevisionID: strconv.FormatInt(revisionID.Int64, 10), Version: int(version.Int32), PricingUnit: pricingUnit.String,
-		CurrencyCode: currencyCode.String, CurrencyAttribution: currencyAttribution.String, InputPrice: currentInput.String,
-		OutputPrice: currentOutput.String, CachedInputPrice: nullableStringValue(currentCached), CacheCreationPrice: nullableStringValue(currentCreation),
-		ReasoningPrice: nullableStringValue(currentReasoning), Tier: item.CurrentRevision.Tier, ReportingEpoch: nullableInt32Value(revisionEpoch), EffectiveAt: nullableTimeString(effective),
-		CreatedAt: revisionCreated, CreatedByKind: createdByKind.String, CreatedByOperationID: nullableStringValue(createdByOperationID),
-	}
+	item.ConfigurationStatus = "complete"
+	item.MissingSpecialtyComponents = []string{}
 	return item, nameIdentity, nil
+}
+
+func hydratePricingListRevision(ctx context.Context, tx pgx.Tx, revision *pricingRevisionDTO) error {
+	if revision == nil || revision.RevisionID == "" {
+		return nil
+	}
+	revisionID, err := strconv.ParseInt(revision.RevisionID, 10, 64)
+	if err != nil || revisionID < 1 {
+		return fmt.Errorf("invalid pricing revision id %q", revision.RevisionID)
+	}
+	rows, err := tx.Query(ctx, `SELECT card_role, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price FROM pricing_template_cards WHERE revision_id = $1 ORDER BY card_role`, revisionID)
+	if err != nil {
+		return fmt.Errorf("load pricing list revision cards: %w", err)
+	}
+	defer rows.Close()
+	if revision.Tier != nil {
+		revision.Tier.Card = nil
+	}
+	for rows.Next() {
+		var role, input, output string
+		var cached, creation, reasoning sql.NullString
+		if err := rows.Scan(&role, &input, &output, &cached, &creation, &reasoning); err != nil {
+			return err
+		}
+		card := &pricingTemplateCard{InputPrice: input, OutputPrice: output, CachedInputPrice: nullableStringValue(cached), CacheCreationPrice: nullableStringValue(creation), ReasoningPrice: nullableStringValue(reasoning)}
+		switch role {
+		case "standard":
+			revision.Card = card
+		case "tier_base":
+			revision.BaseCard = card
+		case "tier_above":
+			if revision.Tier == nil {
+				revision.Tier = &pricingTemplateTier{}
+			}
+			revision.Tier.Card = card
+		case "peak":
+			revision.PeakCard = card
+		case "offpeak":
+			revision.OffpeakCard = card
+		}
+	}
+	return rows.Err()
 }
 
 func parseDecimalID(value string) int64 {

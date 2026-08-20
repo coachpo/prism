@@ -17,30 +17,56 @@ const (
 )
 
 type Event struct {
-	Phase                      EventPhase              `json:"phase"`
-	RequestID                  string                  `json:"request_id,omitempty"`
-	ProfileID                  int                     `json:"profile_id,omitempty"`
-	OperationName              string                  `json:"operation_name"`
-	APIFamily                  string                  `json:"api_family,omitempty"`
-	RequestedModelID           string                  `json:"requested_model_id,omitempty"`
-	EffectiveModelID           *string                 `json:"effective_model_id,omitempty"`
-	EndpointID                 *int                    `json:"endpoint_id,omitempty"`
-	ConnectionID               *int                    `json:"connection_id,omitempty"`
-	SelectedTerminalTargetID   *int                    `json:"selected_terminal_target_id,omitempty"`
-	AttemptNumber              int                     `json:"attempt_number,omitempty"`
-	Final                      bool                    `json:"final"`
-	StatusCode                 int                     `json:"status_code,omitempty"`
-	Success                    bool                    `json:"success"`
-	RouteReason                gatewaycore.RouteReason `json:"route_reason"`
-	UsageSource                gatewaycore.UsageSource `json:"usage_source"`
-	PricingConfigVersionUsed   *int                    `json:"pricing_config_version_used,omitempty"`
-	PricingTierApplied         *string                 `json:"pricing_tier_applied,omitempty"`
-	PricingTierThresholdTokens *int                    `json:"pricing_tier_threshold_tokens,omitempty"`
-	PricingTierBasisTokens     *int64                  `json:"pricing_tier_basis_tokens,omitempty"`
-	StreamOutcome              string                  `json:"stream_outcome,omitempty"`
-	AuditEnabled               bool                    `json:"audit_enabled"`
-	AuditCaptureBodies         bool                    `json:"audit_capture_bodies"`
-	ObservedAt                 time.Time               `json:"observed_at"`
+	Phase                    EventPhase              `json:"phase"`
+	RequestID                string                  `json:"request_id,omitempty"`
+	ProfileID                int                     `json:"profile_id,omitempty"`
+	OperationName            string                  `json:"operation_name"`
+	APIFamily                string                  `json:"api_family,omitempty"`
+	RequestedModelID         string                  `json:"requested_model_id,omitempty"`
+	EffectiveModelID         *string                 `json:"effective_model_id,omitempty"`
+	EndpointID               *int                    `json:"endpoint_id,omitempty"`
+	ConnectionID             *int                    `json:"connection_id,omitempty"`
+	SelectedTerminalTargetID *int                    `json:"selected_terminal_target_id,omitempty"`
+	AttemptNumber            int                     `json:"attempt_number,omitempty"`
+	Final                    bool                    `json:"final"`
+	StatusCode               int                     `json:"status_code,omitempty"`
+	Success                  bool                    `json:"success"`
+	RouteReason              gatewaycore.RouteReason `json:"route_reason"`
+	UsageSource              gatewaycore.UsageSource `json:"usage_source"`
+	PricingConfigVersionUsed *int                    `json:"pricing_config_version_used,omitempty"`
+	// Pricing evidence is orthogonal: kind identifies the template family,
+	// state identifies selector evaluation, and role identifies the card used.
+	PricingTemplateKind            *string    `json:"pricing_template_kind,omitempty"`
+	PricingSelectionState          *string    `json:"pricing_selection_state,omitempty"`
+	PricingCardRole                *string    `json:"pricing_card_role,omitempty"`
+	PricingSelectorThresholdTokens *int       `json:"pricing_selector_threshold_tokens,omitempty"`
+	PricingSelectorBasisTokens     *int64     `json:"pricing_selector_basis_tokens,omitempty"`
+	PricingScheduleDecidedAt       *time.Time `json:"pricing_schedule_decided_at,omitempty"`
+	PricingScheduleTimezone        *string    `json:"pricing_schedule_timezone,omitempty"`
+	PricingScheduleLocalWeekday    *int       `json:"pricing_schedule_local_weekday,omitempty"`
+	PricingScheduleLocalMinute     *int       `json:"pricing_schedule_local_minute,omitempty"`
+	PricingScheduleDigest          *string    `json:"pricing_schedule_digest,omitempty"`
+	StreamOutcome                  string     `json:"stream_outcome,omitempty"`
+	AuditEnabled                   bool       `json:"audit_enabled"`
+	AuditCaptureBodies             bool       `json:"audit_capture_bodies"`
+	ObservedAt                     time.Time  `json:"observed_at"`
+}
+
+// SetPricingEvidence copies the orthogonal selector evidence into an event.
+func (event *Event) SetPricingEvidence(kind, state, role *string, threshold *int, basis *int64, decidedAt *time.Time, timezone *string, weekday, minute *int, digest *string) {
+	if event == nil {
+		return
+	}
+	event.PricingTemplateKind = kind
+	event.PricingSelectionState = state
+	event.PricingCardRole = role
+	event.PricingSelectorThresholdTokens = threshold
+	event.PricingSelectorBasisTokens = basis
+	event.PricingScheduleDecidedAt = decidedAt
+	event.PricingScheduleTimezone = timezone
+	event.PricingScheduleLocalWeekday = weekday
+	event.PricingScheduleLocalMinute = minute
+	event.PricingScheduleDigest = digest
 }
 
 func NewEvent(event Event) (Event, error) {
@@ -61,6 +87,15 @@ func (event Event) Normalize() Event {
 		event.EffectiveModelID = nil
 		if trimmed != "" {
 			event.EffectiveModelID = &trimmed
+		}
+	}
+	if event.PricingScheduleDecidedAt != nil {
+		value := event.PricingScheduleDecidedAt.UTC()
+		event.PricingScheduleDecidedAt = &value
+	}
+	for _, value := range []*string{event.PricingTemplateKind, event.PricingSelectionState, event.PricingCardRole, event.PricingScheduleTimezone, event.PricingScheduleDigest} {
+		if value != nil {
+			*value = strings.TrimSpace(*value)
 		}
 	}
 	event.RouteReason = NormalizeRouteReason(event.RouteReason)

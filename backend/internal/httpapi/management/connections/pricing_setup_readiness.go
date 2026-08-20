@@ -168,11 +168,44 @@ func hasCompleteActivePricingTemplate(ctx context.Context, exec queryExecutor, p
 		SELECT 1 FROM pricing_templates templates
 		JOIN pricing_template_revisions revisions ON revisions.id = templates.current_revision_id
 		WHERE templates.profile_id = $1 AND templates.deleted_at IS NULL
-		AND revisions.input_price IS NOT NULL AND revisions.output_price IS NOT NULL
+		AND revisions.template_kind IN ('standard','tiered','peak_valley')
+		AND (revisions.template_kind <> 'peak_valley' OR (revisions.pricing_schedule_timezone IS NOT NULL AND revisions.pricing_schedule_digest IS NOT NULL AND EXISTS (SELECT 1 FROM pricing_template_windows windows WHERE windows.revision_id = revisions.id)))
+		AND NOT EXISTS (
+			SELECT 1 FROM unnest(CASE revisions.template_kind
+				WHEN 'standard' THEN ARRAY['standard']::text[]
+				WHEN 'tiered' THEN ARRAY['tier_base','tier_above']::text[]
+				ELSE ARRAY['peak','offpeak']::text[] END) AS required(role)
+			WHERE NOT EXISTS (
+				SELECT 1 FROM pricing_template_cards cards
+				WHERE cards.revision_id = revisions.id AND cards.card_role = required.role
+				AND cards.input_price IS NOT NULL AND cards.output_price IS NOT NULL
+				AND cards.cached_input_price IS NOT NULL AND cards.cache_creation_price IS NOT NULL AND cards.reasoning_price IS NOT NULL
+			)
+		)
 	)`, profileID).Scan(&found); err != nil {
 		return false, fmt.Errorf("check complete pricing template for profile %d: %w", profileID, err)
 	}
-	return found, nil
+	if !found {
+		return false, nil
+	}
+	rows, err := exec.Query(ctx, `SELECT revisions.pricing_schedule_timezone FROM pricing_templates templates JOIN pricing_template_revisions revisions ON revisions.id = templates.current_revision_id WHERE templates.profile_id = $1 AND templates.deleted_at IS NULL AND revisions.template_kind = 'peak_valley'`, profileID)
+	if err != nil {
+		return false, fmt.Errorf("check pricing template schedule timezones for profile %d: %w", profileID, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var timezone string
+		if err := rows.Scan(&timezone); err != nil {
+			return false, err
+		}
+		if _, err := time.LoadLocation(strings.TrimSpace(timezone)); err != nil {
+			return false, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // resolvePricingSetupReadinessState batches the per-witness pricing facts:
@@ -203,8 +236,21 @@ func resolvePricingSetupReadinessState(ctx context.Context, exec queryExecutor, 
 	for id := range terminalIDs {
 		terminalIDList = append(terminalIDList, id)
 	}
-	rows, err := exec.Query(ctx, `SELECT c.id, c.pricing_template_id, t.current_revision_id, r.reporting_currency_epoch,
-		r.input_price, r.output_price, r.cached_input_price, r.cache_creation_price, r.reasoning_price
+	rows, err := exec.Query(ctx, `SELECT c.id, c.pricing_template_id, t.current_revision_id, r.reporting_currency_epoch, r.template_kind, r.pricing_schedule_timezone, r.pricing_schedule_digest,
+		EXISTS (SELECT 1 FROM pricing_template_windows windows WHERE windows.revision_id = r.id) AS has_schedule_windows,
+		NOT EXISTS (
+			SELECT 1 FROM unnest(CASE r.template_kind
+				WHEN 'standard' THEN ARRAY['standard']::text[]
+				WHEN 'tiered' THEN ARRAY['tier_base','tier_above']::text[]
+				WHEN 'peak_valley' THEN ARRAY['peak','offpeak']::text[]
+				ELSE ARRAY[]::text[] END) AS required(role)
+			WHERE NOT EXISTS (
+				SELECT 1 FROM pricing_template_cards cards
+				WHERE cards.revision_id = r.id AND cards.card_role = required.role
+				AND cards.input_price IS NOT NULL AND cards.output_price IS NOT NULL
+				AND cards.cached_input_price IS NOT NULL AND cards.cache_creation_price IS NOT NULL AND cards.reasoning_price IS NOT NULL
+			)
+		) AS cards_ready
 		FROM connections c
 		LEFT JOIN pricing_templates t ON t.id = c.pricing_template_id AND t.deleted_at IS NULL
 		LEFT JOIN pricing_template_revisions r ON r.id = t.current_revision_id
@@ -217,15 +263,16 @@ func resolvePricingSetupReadinessState(ctx context.Context, exec queryExecutor, 
 		var connectionID int
 		var pricingTemplateID, currentRevisionID *int
 		var revisionEpoch *int
-		var inputPrice, outputPrice, cachedInputPrice, cacheCreationPrice, reasoningPrice *string
-		if err := rows.Scan(&connectionID, &pricingTemplateID, &currentRevisionID, &revisionEpoch, &inputPrice, &outputPrice, &cachedInputPrice, &cacheCreationPrice, &reasoningPrice); err != nil {
+		var templateKind, scheduleTimezone, scheduleDigest *string
+		var hasScheduleWindows, cardsReady bool
+		if err := rows.Scan(&connectionID, &pricingTemplateID, &currentRevisionID, &revisionEpoch, &templateKind, &scheduleTimezone, &scheduleDigest, &hasScheduleWindows, &cardsReady); err != nil {
 			return state, fmt.Errorf("scan witness connection pricing for profile %d: %w", profileID, err)
 		}
 		if pricingTemplateID == nil || currentRevisionID == nil {
 			continue
 		}
 		state.appliedTerminalTargetIDs[connectionID] = true
-		if isCostReadyPricingRow(currentEpoch, revisionEpoch, inputPrice, outputPrice, cachedInputPrice, cacheCreationPrice, reasoningPrice) {
+		if isCostReadyPricingRow(currentEpoch, revisionEpoch, templateKind, cardsReady, scheduleTimezone, scheduleDigest, hasScheduleWindows) {
 			state.costReadyTerminalTargetIDs[connectionID] = true
 		}
 	}
@@ -239,17 +286,18 @@ func resolvePricingSetupReadinessState(ctx context.Context, exec queryExecutor, 
 // reference is the current revision of an active template on the current
 // currency epoch with all five prices canonical (rate or explicit "0" free;
 // null optional components mean unconfigured and are not cost-ready).
-func isCostReadyPricingRow(currentEpoch *int, revisionEpoch *int, inputPrice *string, outputPrice *string, cachedInputPrice *string, cacheCreationPrice *string, reasoningPrice *string) bool {
-	if currentEpoch == nil || revisionEpoch == nil || *revisionEpoch != *currentEpoch {
+func isCostReadyPricingRow(currentEpoch *int, revisionEpoch *int, templateKind *string, cardsReady bool, scheduleTimezone, scheduleDigest *string, hasScheduleWindows bool) bool {
+	if currentEpoch == nil || revisionEpoch == nil || *revisionEpoch != *currentEpoch || templateKind == nil || strings.TrimSpace(*templateKind) == "" || !cardsReady {
 		return false
 	}
-	if !canonicalPricingPrice(inputPrice) || !canonicalPricingPrice(outputPrice) {
+	if strings.TrimSpace(*templateKind) != "peak_valley" {
+		return scheduleTimezone == nil && scheduleDigest == nil && !hasScheduleWindows
+	}
+	if scheduleTimezone == nil || strings.TrimSpace(*scheduleTimezone) == "" || scheduleDigest == nil || strings.TrimSpace(*scheduleDigest) == "" || !hasScheduleWindows {
 		return false
 	}
-	if !canonicalPricingPrice(cachedInputPrice) || !canonicalPricingPrice(cacheCreationPrice) || !canonicalPricingPrice(reasoningPrice) {
-		return false
-	}
-	return true
+	_, err := time.LoadLocation(strings.TrimSpace(*scheduleTimezone))
+	return err == nil
 }
 
 // canonicalPricingPrice accepts an explicit decimal price (rate) or "0"

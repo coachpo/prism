@@ -108,7 +108,7 @@ func ExportCSV(ctx context.Context, tx pgx.Tx, params ExportParams) (ExportResul
 	// RFC 4180 CSV uses CRLF record terminators; consumers (including the
 	// server-side export contract) split on \r\n.
 	writer.UseCRLF = true
-	writeErr := writeExportRows(ctx, writer, rows, params)
+	writeErr := writeExportRows(ctx, writer, rows)
 	rows.Close()
 	if writeErr != nil {
 		return ExportResult{}, writeErr
@@ -149,7 +149,10 @@ func buildExportRowQuery(params ExportParams) (string, []any) {
 		pricing_evidence_trust, pricing_template_id_used, pricing_template_name_snapshot, pricing_template_revision_id_used,
 		pricing_config_version_used, pricing_version_effective_at, reporting_currency_epoch,
 		metadata_redacted_fields, metadata_truncated_fields, created_at,
-		pricing_tier_applied, pricing_tier_threshold_tokens, pricing_tier_basis_tokens
+		pricing_template_kind, pricing_selection_state, pricing_card_role,
+		pricing_selector_threshold_tokens, pricing_selector_basis_tokens,
+		pricing_schedule_decided_at, pricing_schedule_timezone,
+		pricing_schedule_local_weekday, pricing_schedule_local_minute, pricing_schedule_digest
 		FROM request_logs WHERE ` + whereClause + ` ` + requestLogOrderBy(params.SortBy, params.SortOrder)
 	return query, args
 }
@@ -167,18 +170,17 @@ var exportHeader = []string{
 	"pricing_evidence_trust", "pricing_template_id_used", "pricing_template_name_snapshot", "pricing_template_revision_id_used",
 	"pricing_config_version_used", "pricing_version_effective_at", "reporting_currency_epoch",
 	"metadata_redacted_fields", "metadata_truncated_fields",
-	"pricing_tier_applied", "pricing_tier_threshold_tokens", "pricing_tier_basis_tokens",
-}
-
-type exportRowScanner struct {
-	values []string
+	"pricing_template_kind", "pricing_selection_state", "pricing_card_role",
+	"pricing_selector_threshold_tokens", "pricing_selector_basis_tokens",
+	"pricing_schedule_decided_at", "pricing_schedule_timezone",
+	"pricing_schedule_local_weekday", "pricing_schedule_local_minute", "pricing_schedule_digest",
 }
 
 func writeExportRows(ctx context.Context, writer *csv.Writer, rows interface {
 	Next() bool
 	Scan(...any) error
 	Err() error
-}, params ExportParams) error {
+}) error {
 	if err := writer.Write(exportHeader); err != nil {
 		return fmt.Errorf("write export header: %w", err)
 	}
@@ -194,9 +196,10 @@ func writeExportRows(ctx context.Context, writer *csv.Writer, rows interface {
 		default:
 		}
 		var record exportRowRecord
-		var resolvedTargetModelID, operationName, errorSource, errorCode, failureStage, errorDetail, streamErrorDetail, streamErrorKind, unpricedReason, resolutionKind, currencyCodeOriginal, reportCurrencyCode, reportCurrencySymbol, fxRateUsed, fxRateSource, templateNameSnapshot, pricingTierApplied *string
-		var pricingTierThreshold *int
-		var pricingTierBasis *int64
+		var resolvedTargetModelID, operationName, errorSource, errorCode, failureStage, errorDetail, streamErrorDetail, streamErrorKind, unpricedReason, resolutionKind, currencyCodeOriginal, reportCurrencyCode, reportCurrencySymbol, fxRateUsed, fxRateSource, templateNameSnapshot, pricingTemplateKind, pricingSelectionState, pricingCardRole, pricingScheduleTimezone, pricingScheduleDigest *string
+		var pricingSelectorThreshold, pricingScheduleLocalWeekday, pricingScheduleLocalMinute *int
+		var pricingSelectorBasis *int64
+		var pricingScheduleDecidedAt *time.Time
 		if err := rows.Scan(
 			&record.ID, &record.RowKind, &record.IngressRequestID, &record.ModelID, &resolvedTargetModelID, &record.APIFamily, &operationName,
 			&record.AttemptNumber, &record.AttemptTrigger, &record.AttemptResult, &record.IsWinner, &record.AttemptDurationMS, &record.LegacyDurationMS, &record.TTFTMS, &record.CompletionDurationMS,
@@ -209,7 +212,10 @@ func writeExportRows(ctx context.Context, writer *csv.Writer, rows interface {
 			&record.PricingEvidenceTrust, &record.PricingTemplateIDUsed, &templateNameSnapshot, &record.PricingTemplateRevisionIDUsed,
 			&record.PricingConfigVersionUsed, &record.PricingVersionEffectiveAt, &record.ReportingCurrencyEpoch,
 			&record.MetadataRedactedFields, &record.MetadataTruncatedFields, &record.CreatedAt,
-			&pricingTierApplied, &pricingTierThreshold, &pricingTierBasis,
+			&pricingTemplateKind, &pricingSelectionState, &pricingCardRole,
+			&pricingSelectorThreshold, &pricingSelectorBasis,
+			&pricingScheduleDecidedAt, &pricingScheduleTimezone,
+			&pricingScheduleLocalWeekday, &pricingScheduleLocalMinute, &pricingScheduleDigest,
 		); err != nil {
 			return fmt.Errorf("scan export row: %w", err)
 		}
@@ -229,9 +235,16 @@ func writeExportRows(ctx context.Context, writer *csv.Writer, rows interface {
 		record.FXRateUsed = fxRateUsed
 		record.FXRateSource = fxRateSource
 		record.PricingTemplateNameSnapshot = templateNameSnapshot
-		record.PricingTierApplied = pricingTierApplied
-		record.PricingTierThresholdTokens = pricingTierThreshold
-		record.PricingTierBasisTokens = pricingTierBasis
+		record.PricingTemplateKind = pricingTemplateKind
+		record.PricingSelectionState = pricingSelectionState
+		record.PricingCardRole = pricingCardRole
+		record.PricingSelectorThresholdTokens = pricingSelectorThreshold
+		record.PricingSelectorBasisTokens = pricingSelectorBasis
+		record.PricingScheduleDecidedAt = pricingScheduleDecidedAt
+		record.PricingScheduleTimezone = pricingScheduleTimezone
+		record.PricingScheduleLocalWeekday = pricingScheduleLocalWeekday
+		record.PricingScheduleLocalMinute = pricingScheduleLocalMinute
+		record.PricingScheduleDigest = pricingScheduleDigest
 		cells := record.csvCells()
 		safeCells := make([]string, len(cells))
 		for index, cell := range cells {
@@ -269,62 +282,69 @@ func neutraliseCSVFormula(cell string) string {
 }
 
 type exportRowRecord struct {
-	ID                            int64
-	RowKind                       string
-	IngressRequestID              string
-	ModelID                       string
-	ResolvedTargetModelID         *string
-	APIFamily                     string
-	OperationName                 string
-	AttemptNumber                 *int
-	AttemptTrigger                *string
-	AttemptResult                 *string
-	IsWinner                      *bool
-	AttemptDurationMS             *int
-	LegacyDurationMS              *int
-	TTFTMS                        *int
-	CompletionDurationMS          *int
-	UpstreamStatusCode            *int
-	GatewayStatusCode             *int
-	LegacyStatusCode              *int
-	ErrorSource                   *string
-	ErrorCode                     *string
-	FailureStage                  *string
-	ErrorDetail                   *string
-	StreamErrorDetail             *string
-	StreamOutcome                 string
-	StreamErrorKind               *string
-	EndpointID                    *int
-	ConnectionID                  *int
-	InputTokens                   *int
-	OutputTokens                  *int
-	TotalTokens                   *int
-	CacheReadInputTokens          *int
-	CacheCreationInputTokens      *int
-	ReasoningTokens               *int
-	TotalCostUserCurrencyMicros   *int64
-	CurrencyCodeOriginal          *string
-	ReportCurrencyCode            *string
-	ReportCurrencySymbol          *string
-	FXRateUsed                    *string
-	FXRateSource                  *string
-	PricingStatus                 string
-	UnpricedReason                *string
-	PricingResolutionKind         *string
-	MissingPriceComponents        []string
-	PricingEvidenceTrust          string
-	PricingTemplateIDUsed         *int
-	PricingTemplateNameSnapshot   *string
-	PricingTemplateRevisionIDUsed *int64
-	PricingConfigVersionUsed      *int
-	PricingVersionEffectiveAt     *time.Time
-	ReportingCurrencyEpoch        *int
-	PricingTierApplied            *string
-	PricingTierThresholdTokens    *int
-	PricingTierBasisTokens        *int64
-	MetadataRedactedFields        []string
-	MetadataTruncatedFields       []string
-	CreatedAt                     time.Time
+	ID                             int64
+	RowKind                        string
+	IngressRequestID               string
+	ModelID                        string
+	ResolvedTargetModelID          *string
+	APIFamily                      string
+	OperationName                  string
+	AttemptNumber                  *int
+	AttemptTrigger                 *string
+	AttemptResult                  *string
+	IsWinner                       *bool
+	AttemptDurationMS              *int
+	LegacyDurationMS               *int
+	TTFTMS                         *int
+	CompletionDurationMS           *int
+	UpstreamStatusCode             *int
+	GatewayStatusCode              *int
+	LegacyStatusCode               *int
+	ErrorSource                    *string
+	ErrorCode                      *string
+	FailureStage                   *string
+	ErrorDetail                    *string
+	StreamErrorDetail              *string
+	StreamOutcome                  string
+	StreamErrorKind                *string
+	EndpointID                     *int
+	ConnectionID                   *int
+	InputTokens                    *int
+	OutputTokens                   *int
+	TotalTokens                    *int
+	CacheReadInputTokens           *int
+	CacheCreationInputTokens       *int
+	ReasoningTokens                *int
+	TotalCostUserCurrencyMicros    *int64
+	CurrencyCodeOriginal           *string
+	ReportCurrencyCode             *string
+	ReportCurrencySymbol           *string
+	FXRateUsed                     *string
+	FXRateSource                   *string
+	PricingStatus                  string
+	UnpricedReason                 *string
+	PricingResolutionKind          *string
+	MissingPriceComponents         []string
+	PricingEvidenceTrust           string
+	PricingTemplateIDUsed          *int
+	PricingTemplateNameSnapshot    *string
+	PricingTemplateRevisionIDUsed  *int64
+	PricingConfigVersionUsed       *int
+	PricingVersionEffectiveAt      *time.Time
+	ReportingCurrencyEpoch         *int
+	PricingTemplateKind            *string
+	PricingSelectionState          *string
+	PricingCardRole                *string
+	PricingSelectorThresholdTokens *int
+	PricingSelectorBasisTokens     *int64
+	PricingScheduleDecidedAt       *time.Time
+	PricingScheduleTimezone        *string
+	PricingScheduleLocalWeekday    *int
+	PricingScheduleLocalMinute     *int
+	PricingScheduleDigest          *string
+	MetadataRedactedFields         []string
+	MetadataTruncatedFields        []string
+	CreatedAt                      time.Time
 }
 
 func (record exportRowRecord) csvCells() []string {
@@ -401,9 +421,16 @@ func (record exportRowRecord) csvCells() []string {
 		optionalIntString(record.ReportingCurrencyEpoch),
 		redacted,
 		truncated,
-		optionalString(record.PricingTierApplied),
-		optionalIntString(record.PricingTierThresholdTokens),
-		optionalInt64String(record.PricingTierBasisTokens),
+		optionalString(record.PricingTemplateKind),
+		optionalString(record.PricingSelectionState),
+		optionalString(record.PricingCardRole),
+		optionalIntString(record.PricingSelectorThresholdTokens),
+		optionalInt64String(record.PricingSelectorBasisTokens),
+		optionalTimeString(record.PricingScheduleDecidedAt),
+		optionalString(record.PricingScheduleTimezone),
+		optionalIntString(record.PricingScheduleLocalWeekday),
+		optionalIntString(record.PricingScheduleLocalMinute),
+		optionalString(record.PricingScheduleDigest),
 	}
 }
 
@@ -428,6 +455,13 @@ func optionalInt64String(value *int64) string {
 		return ""
 	}
 	return fmt.Sprintf("%d", *value)
+}
+
+func optionalTimeString(value *time.Time) string {
+	if value == nil {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
 }
 
 func optionalString(value *string) string {

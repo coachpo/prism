@@ -258,6 +258,7 @@ func TestPricingCostTrustFreshInstallFinalState(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestPricingCostTrustUpgradeSeededProfile(t *testing.T) {
+	t.Skip("000023 is fresh-only; legacy pricing upgrade path is intentionally removed")
 	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
@@ -306,6 +307,7 @@ func TestPricingCostTrustUpgradeSeededProfile(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestPricingCostTrustUpgradeWithDataRetained(t *testing.T) {
+	t.Skip("000023 is fresh-only; legacy pricing upgrade path is intentionally removed")
 	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
@@ -637,13 +639,15 @@ func TestPricingCostTrustFinalSchemaInvariants(t *testing.T) {
 	if err := tx.QueryRow(testContext, `
 		INSERT INTO pricing_template_revisions (
 			template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id,
-			reporting_currency_epoch, currency_attribution, input_price, output_price,
-			cached_input_price, cache_creation_price, reasoning_price,
+			reporting_currency_epoch, currency_attribution, template_kind,
 			effective_at, created_at, created_by_kind, created_by_operation_id
 		) VALUES ($1, 1, 'PER_1M', 'USD', (SELECT current_reporting_currency_epoch_id FROM user_settings WHERE profile_id = $2),
-			1, 'active_epoch', '1', '2', NULL, NULL, NULL, $3, $3, 'manual_create', $4)
+			1, 'active_epoch', 'standard', $3, $3, 'manual_create', $4)
 		RETURNING id`, templateID, profileID, now, operationID).Scan(&revisionID); err != nil {
 		t.Fatalf("insert v1 revision: %v", err)
+	}
+	if _, err := tx.Exec(testContext, `INSERT INTO pricing_template_cards (revision_id, template_kind, card_role, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price) VALUES ($1, 'standard', 'standard', '1', '2', NULL, NULL, NULL)`, revisionID); err != nil {
+		t.Fatalf("insert invariant standard card: %v", err)
 	}
 	if _, err := tx.Exec(testContext, `
 		INSERT INTO pricing_mutation_result_items (

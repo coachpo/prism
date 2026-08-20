@@ -54,9 +54,6 @@ func (s *Service) handleCreateCurrencyMigrationDraft(w http.ResponseWriter, r *h
 		if err := validateCurrencyDraftRequestAgainstSettings(header, settingsRow, r.Context(), tx); err != nil {
 			return currencyMigrationDraftHeaderResponse{}, err
 		}
-		if err := rejectCurrencyMigrationWithTieredTemplates(r.Context(), tx, profile.ID); err != nil {
-			return currencyMigrationDraftHeaderResponse{}, err
-		}
 		if existing, ok, err := loadCurrencyDraftByOperation(r.Context(), tx, profile.ID, header.MigrationOperationID, false); err != nil {
 			return currencyMigrationDraftHeaderResponse{}, err
 		} else if ok {
@@ -376,8 +373,13 @@ func (s *Service) handleSealCurrencyMigrationDraft(w http.ResponseWriter, r *htt
 			if parseErr != nil {
 				return currencyMigrationDraftHeaderResponse{}, parseErr
 			}
-			if _, err := tx.Exec(r.Context(), `INSERT INTO pricing_currency_migration_draft_items (draft_id, template_id, expected_version, expected_updated_at, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, template_name, reference_count) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`, draftID, item.TemplateID, item.ExpectedVersion, parsed, item.InputPrice, item.OutputPrice, item.CachedInputPrice, item.CacheCreationPrice, item.ReasoningPrice, item.TemplateName, item.ReferenceCount); err != nil {
+			if _, err := tx.Exec(r.Context(), `INSERT INTO pricing_currency_migration_draft_items (draft_id, template_id, expected_version, expected_updated_at, template_kind, template_name, reference_count) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)`, draftID, item.TemplateID, item.ExpectedVersion, parsed, string(item.TemplateKind), item.TemplateName, item.ReferenceCount); err != nil {
 				return currencyMigrationDraftHeaderResponse{}, fmt.Errorf("store sealed currency migration item: %w", err)
+			}
+			for _, card := range item.Cards {
+				if _, err := tx.Exec(r.Context(), `INSERT INTO pricing_currency_migration_draft_cards (draft_id, template_id, card_role, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)`, draftID, item.TemplateID, card.CardRole, card.InputPrice, card.OutputPrice, card.CachedInputPrice, card.CacheCreationPrice, card.ReasoningPrice); err != nil {
+					return currencyMigrationDraftHeaderResponse{}, fmt.Errorf("store sealed currency migration card: %w", err)
+				}
 			}
 		}
 		draftHash := hashCanonicalCurrencyDraft(header.NormalizedHeaderHash, items)

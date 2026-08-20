@@ -29,6 +29,22 @@ type runtimeEndpoint struct {
 	BaseURL string
 }
 
+// runtimePricingCard is the immutable five-component card copied out of the published snapshot.
+type runtimePricingCard struct {
+	InputPrice         string
+	OutputPrice        string
+	CachedInputPrice   string
+	CacheCreationPrice string
+	ReasoningPrice     string
+}
+
+type runtimePricingScheduleSnapshot struct {
+	Timezone string
+	Location *time.Location
+	Windows  []terminaltarget.Window
+	State    runtimePricingScheduleDecision
+}
+
 type runtimePricingTemplateSnapshot struct {
 	ID                     int
 	Name                   string
@@ -36,19 +52,33 @@ type runtimePricingTemplateSnapshot struct {
 	PricingUnit            string
 	PricingCurrencyCode    string
 	ReportingCurrencyEpoch *int
-	InputPrice             string
-	OutputPrice            string
-	CachedInputPrice       string
-	CacheCreationPrice     string
-	ReasoningPrice         string
-	TierInputTokensAbove   *int
-	TierInputPrice         string
-	TierOutputPrice        string
-	TierCachedInputPrice   string
-	TierCacheCreationPrice string
-	TierReasoningPrice     string
-	Version                int
-	VersionEffectiveAt     *time.Time
+	TemplateKind           string
+	Cards                  map[string]runtimePricingCard
+	// Deprecated internal aliases used only by transitional tests/helpers.
+	InputPrice              string
+	OutputPrice             string
+	CachedInputPrice        string
+	CacheCreationPrice      string
+	ReasoningPrice          string
+	TierInputPrice          string
+	TierOutputPrice         string
+	TierCachedInputPrice    string
+	TierCacheCreationPrice  string
+	TierReasoningPrice      string
+	TierInputTokensAbove    *int
+	PricingSchedule         runtimePricingScheduleSnapshot
+	PricingScheduleTimezone *string
+	PricingScheduleDigest   string
+	Version                 int
+	VersionEffectiveAt      *time.Time
+}
+
+func (snapshot *runtimePricingTemplateSnapshot) card(role string) (runtimePricingCard, bool) {
+	if snapshot == nil || snapshot.Cards == nil {
+		return runtimePricingCard{}, false
+	}
+	card, ok := snapshot.Cards[role]
+	return card, ok
 }
 
 type runtimeEndpointFXSnapshot struct {

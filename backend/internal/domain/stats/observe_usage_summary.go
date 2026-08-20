@@ -41,6 +41,7 @@ type UsageSummaryResult struct {
 	CacheBasisCacheReadTokens          *int64                `json:"cache_basis_cache_read_tokens"`
 	CacheBasisCacheCreationTokens      *int64                `json:"cache_basis_cache_creation_tokens"`
 	PricingReconciliation              PricingReconciliation `json:"pricing_reconciliation"`
+	PricingSelectorUnresolvedCount     int                   `json:"pricing_selector_unresolved_count"`
 	WindowAverageRPM                   *float64              `json:"window_average_rpm"`
 	WindowAverageTPM                   *float64              `json:"window_average_tpm"`
 }
@@ -122,6 +123,7 @@ WITH classified AS (
 		pricing_status,
 		unpriced_reason,
 		pricing_evidence_trust,
+		pricing_selection_state,
 		ttft_ms,
 		CASE WHEN output_tokens IS NOT NULL AND ttft_ms IS NOT NULL AND completion_duration_ms IS NOT NULL
 		          AND completion_duration_ms - ttft_ms > 0
@@ -177,6 +179,7 @@ SELECT
 	(SELECT SUM(cache_read_input_tokens) FROM classified WHERE cache_basis_eligible),
 	(SELECT SUM(COALESCE(cache_creation_input_tokens, 0)) FROM classified WHERE cache_basis_eligible),
 	(SELECT value FROM segments),
+	(SELECT COUNT(*) FROM classified WHERE pricing_selection_state = 'unresolved')::int,
 	(SELECT COALESCE(COUNT(DISTINCT bucket_start), 0) FROM bucketed)::int
 `, profileID, bounds.UsageFrom, bounds.UsageTo)
 	var requestCount, httpErrorCount, streamErrorCount, clientDisconnectedCount, completedCount int
@@ -217,6 +220,7 @@ SELECT
 		&result.CacheBasisCacheReadTokens,
 		&result.CacheBasisCacheCreationTokens,
 		&segmentsJSON,
+		&result.PricingSelectorUnresolvedCount,
 		&bucketCount,
 	); err != nil {
 		return result, fmt.Errorf("load usage summary for profile %d: %w", profileID, err)

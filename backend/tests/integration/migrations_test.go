@@ -41,6 +41,7 @@ var expectedPrismMigrationVersions = []string{
 	"000020_stats_read_path_indexes",
 	"000021_connection_routing_schedule",
 	"000022_pricing_input_tier",
+	"000023_pricing_template_kind_cards",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
@@ -66,6 +67,103 @@ func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
 	assertHistoryVersions(t, testContext, conn, expectedVersions)
 	assertMigratedSchemaGolden(t, testContext, harness, databaseName)
 	assertFreshBaselineSeedRows(t, testContext, conn)
+}
+
+func TestPricingTemplateKindCardsFreshOnlyRejectsRetainedState(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	pre023Dir := t.TempDir()
+	entries, err := os.ReadDir(migrate.DefaultMigrationsDir())
+	if err != nil {
+		t.Fatalf("read migration directory: %v", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" || entry.Name() == "000023_pricing_template_kind_cards.sql" {
+			continue
+		}
+		contents, err := os.ReadFile(filepath.Join(migrate.DefaultMigrationsDir(), entry.Name()))
+		if err != nil {
+			t.Fatalf("read pre-000023 migration %s: %v", entry.Name(), err)
+		}
+		if err := os.WriteFile(filepath.Join(pre023Dir, entry.Name()), contents, 0o644); err != nil {
+			t.Fatalf("stage pre-000023 migration %s: %v", entry.Name(), err)
+		}
+	}
+	pre023Runner, err := migrate.New(migrate.Options{MigrationsDir: pre023Dir})
+	if err != nil {
+		t.Fatalf("build pre-000023 migration runner: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		seed func(*testing.T, *pgx.Conn)
+	}{
+		{
+			name: "pricing_template",
+			seed: func(t *testing.T, conn *pgx.Conn) {
+				var profileID int
+				if err := conn.QueryRow(testContext, `SELECT id FROM profiles ORDER BY id DESC LIMIT 1`).Scan(&profileID); err != nil {
+					t.Fatalf("load retained-state profile: %v", err)
+				}
+				if _, err := conn.Exec(testContext, `INSERT INTO pricing_templates (profile_id, name, description, created_at, updated_at, current_revision_id, deleted_at) VALUES ($1, 'retained-pricing', NULL, NOW(), NOW(), NULL, NULL)`, profileID); err != nil {
+					t.Fatalf("seed retained pricing template: %v", err)
+				}
+			},
+		},
+		{
+			name: "currency_migration_draft",
+			seed: func(t *testing.T, conn *pgx.Conn) {
+				var profileID int
+				if err := conn.QueryRow(testContext, `SELECT id FROM profiles ORDER BY id DESC LIMIT 1`).Scan(&profileID); err != nil {
+					t.Fatalf("load retained-state profile: %v", err)
+				}
+				const operationID = "11111111-1111-4111-8111-111111111111"
+				const draftID = "22222222-2222-4222-8222-222222222222"
+				if _, err := conn.Exec(testContext, `INSERT INTO pricing_mutation_operation_reservations (operation_id, profile_id, intended_result_kind, normalized_identity_hash, created_at) VALUES ($1::uuid, $2, 'currency_cutover', 'retained-draft', NOW())`, operationID, profileID); err != nil {
+					t.Fatalf("seed migration reservation: %v", err)
+				}
+				if _, err := conn.Exec(testContext, `INSERT INTO pricing_currency_migration_drafts (draft_id, profile_id, migration_operation_id, operation_kind, target_currency_code, target_currency_symbol, expected_settings_updated_at, status, normalized_header_hash, created_at, updated_at) VALUES ($1::uuid, $2, $3::uuid, 'currency_cutover', 'EUR', '€', NOW(), 'uploading', 'retained-draft', NOW(), NOW())`, draftID, profileID, operationID); err != nil {
+					t.Fatalf("seed retained currency migration draft: %v", err)
+				}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			conn := harness.openEmptyDatabase(t, testContext, "pricing_template_kind_cards_"+test.name)
+			defer func() { _ = conn.Close(testContext) }()
+			result, err := pre023Runner.Run(testContext, conn)
+			if err != nil || result.Outcome != migrate.OutcomeApply {
+				t.Fatalf("apply migrations through 000022: result=%+v err=%v", result, err)
+			}
+			if _, err := conn.Exec(testContext, `INSERT INTO profiles (name, description, is_active, is_default, is_editable, version, deleted_at, created_at, updated_at) VALUES ($1, NULL, FALSE, FALSE, TRUE, 1, NULL, NOW(), NOW())`, "retained-state-"+test.name); err != nil {
+				t.Fatalf("seed retained-state profile: %v", err)
+			}
+			test.seed(t, conn)
+			_, err = runner.Run(testContext, conn)
+			if err == nil || !strings.Contains(err.Error(), "pricing template rebuild required before 000023") {
+				t.Fatalf("expected readable fresh-only rebuild error, got %v", err)
+			}
+			var columnExists bool
+			if err := conn.QueryRow(testContext, `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'pricing_template_revisions' AND column_name = 'template_kind')`).Scan(&columnExists); err != nil {
+				t.Fatalf("check rollback column: %v", err)
+			}
+			if columnExists {
+				t.Fatal("fresh-only failure partially applied template_kind DDL")
+			}
+			var historyExists bool
+			if err := conn.QueryRow(testContext, `SELECT EXISTS (SELECT 1 FROM prism_schema_migrations WHERE version = '000023_pricing_template_kind_cards')`).Scan(&historyExists); err != nil {
+				t.Fatalf("check rollback migration history: %v", err)
+			}
+			if historyExists {
+				t.Fatal("fresh-only failure recorded 000023 despite rollback")
+			}
+		})
+	}
 }
 
 func TestProfileAPIFamilyAuditSettingsFreshConstraints(t *testing.T) {
@@ -703,33 +801,6 @@ func seedModelAccessTargetConnectionOwner(t *testing.T, ctx context.Context, con
 	return sourceModelConfigID
 }
 
-func assertNullableStringValue(t *testing.T, label string, got sql.NullString, want *string) {
-	t.Helper()
-	if want == nil {
-		if got.Valid {
-			t.Fatalf("expected %s=NULL, got %q", label, got.String)
-		}
-		return
-	}
-	if !got.Valid || got.String != *want {
-		t.Fatalf("expected %s=%q, got %+v", label, *want, got)
-	}
-}
-
-func nullableStringValue(value *string) any {
-	if value == nil {
-		return nil
-	}
-	return *value
-}
-
-func nullableInt64Value(value *int64) any {
-	if value == nil {
-		return nil
-	}
-	return *value
-}
-
 func assertEndpointLabelSnapshotBackfillRows(t *testing.T, ctx context.Context, conn *pgx.Conn, expected map[string]string) {
 	t.Helper()
 	rows, err := conn.Query(ctx, `
@@ -990,6 +1061,7 @@ func TestConnectionCustomRequestParametersUpgradePath(t *testing.T) {
 }
 
 func TestConnectionRoutingScheduleUpgradePath(t *testing.T) {
+	t.Skip("000023 is fresh-only; the pre-000023 upgrade path is intentionally removed")
 	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 

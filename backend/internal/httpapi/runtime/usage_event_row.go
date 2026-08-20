@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/coachpo/prism/backend/internal/domain/pricingkind"
 	"github.com/coachpo/prism/backend/internal/domain/safediag"
 )
 
@@ -125,6 +126,18 @@ func applyRuntimeUsageEventPricingScope(usageEvent *usageEventInsert, statusCode
 	usageEvent.UnpricedReason = nil
 	usageEvent.PricingResolutionKind = nil
 	usageEvent.MissingPriceComponents = nil
+	// A failed ingress is not a pricing decision. Keep template kind as
+	// provenance, but clear the selector/card/schedule axis symmetrically with
+	// request_logs so no attempt or non-2xx row claims a card was used.
+	usageEvent.PricingSelectionState = stringPtr(pricingkind.SelectionNotEvaluated)
+	usageEvent.PricingCardRole = nil
+	usageEvent.PricingSelectorThresholdTokens = nil
+	usageEvent.PricingSelectorBasisTokens = nil
+	usageEvent.PricingScheduleDecidedAt = nil
+	usageEvent.PricingScheduleTimezone = nil
+	usageEvent.PricingScheduleLocalWeekday = nil
+	usageEvent.PricingScheduleLocalMinute = nil
+	usageEvent.PricingScheduleDigest = nil
 }
 
 // upstreamAttemptCount counts only real launched upstream rows; diagnostic

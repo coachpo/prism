@@ -6,7 +6,7 @@ const (
 	runtimePricingTierNotEvaluated  = "not_evaluated"
 	runtimePricingTierNotApplicable = "not_applicable"
 	runtimePricingTierBase          = "base"
-	runtimePricingTierApplied       = "tier"
+	runtimePricingTierAbove         = "tier"
 
 	// The persisted basis is BIGINT. Keep the bound explicit even though the
 	// normal provider token fields are INTEGER: malformed or synthetic usage
@@ -49,7 +49,7 @@ func selectRuntimePricingTier(snapshot *runtimePricingTemplateSnapshot, usage re
 		Basis:     int64Ptr(basis),
 	}
 	if basis > int64(threshold) {
-		selection.Kind = runtimePricingTierApplied
+		selection.Kind = runtimePricingTierAbove
 		selection.Snapshot = runtimePricingTierSnapshot(snapshot)
 		selection.Snapshot.InputPrice = snapshot.TierInputPrice
 		selection.Snapshot.OutputPrice = snapshot.TierOutputPrice
@@ -105,16 +105,4 @@ func runtimePricingTierSnapshot(snapshot *runtimePricingTemplateSnapshot) *runti
 	}
 	copy.TierInputTokensAbove = cloneRuntimeIntPointer(snapshot.TierInputTokensAbove)
 	return &copy
-}
-
-func applyRuntimePricingTierSelection(result *runtimePricingResult, selection runtimePricingTierSelection) {
-	// Missing usage is intentionally left NULL in persisted telemetry. The
-	// pure selector still exposes not_evaluated to its callers, but a row with
-	// no basis must remain distinguishable from a base/tier decision.
-	if selection.Kind == runtimePricingTierNotEvaluated {
-		return
-	}
-	result.PricingTierApplied = stringPtr(selection.Kind)
-	result.PricingTierThresholdTokens = cloneRuntimeIntPointer(selection.Threshold)
-	result.PricingTierBasisTokens = cloneRuntimeInt64Pointer(selection.Basis)
 }

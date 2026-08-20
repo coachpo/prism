@@ -45,6 +45,9 @@ func runtimeUpstreamRequestPath(operation RuntimeOperation, mode TranslationMode
 }
 
 type requestPlan struct {
+	// ReferenceNow is captured once at ingress and is shared by routing and
+	// pricing selectors. It must never be replaced with a live clock later.
+	ReferenceNow                time.Time
 	RequestedModelID            string
 	ResolvedTargetModelID       *string
 	ResolvedPricingModelID      string

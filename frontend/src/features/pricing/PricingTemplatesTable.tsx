@@ -1,16 +1,23 @@
-import { Fragment, useMemo, useState } from "react"
-import { ChevronDown, ChevronRight, Coins, MoreHorizontal, Pencil, Trash2 } from "lucide-react"
+import { Fragment, useMemo, useState } from "react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Coins,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Skeleton } from "@/components/ui/skeleton"
+} from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -18,11 +25,16 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table"
-import { useLocale } from "@/i18n/useLocale"
-import { useTimezone } from "@/hooks/useTimezone"
-import type { PricingTemplate, PricingTemplateConnectionUsageItem, PricingTemplateRevision } from "@/lib/types"
-import { cn } from "@/lib/utils"
+} from "@/components/ui/table";
+import { useLocale } from "@/i18n/useLocale";
+import { useTimezone } from "@/hooks/useTimezone";
+import type {
+  PricingCard,
+  PricingTemplate,
+  PricingTemplateConnectionUsageItem,
+  PricingTemplateRevision,
+} from "@/lib/types";
+import { cn } from "@/lib/utils";
 import {
   OperatorEmptyState,
   OperatorCallout,
@@ -32,7 +44,7 @@ import {
   OperatorStalenessBadge,
   OperatorSearchInput,
   OperatorValueBadge,
-} from "@/shared/design-system"
+} from "@/shared/design-system";
 import {
   OperationalTablePagination,
   OperationalTableSkeletonRows,
@@ -43,58 +55,102 @@ import {
   sortOperationalRows,
   type OperationalSortState,
   type OperationalSortValue,
-} from "@/shared/table/operationalTable"
-import { normalizeTemplatePrice } from "./pricingSchemas"
-import { HistoryPanel, RateCell, TierPanel, UsagePanel } from "./PricingTemplateDetailPanels"
-import { isRecentlyChanged, totalReferences, type PricingListFacts } from "./usePricingListFacts"
+} from "@/shared/table/operationalTable";
+import { normalizeTemplatePrice } from "./pricingSchemas";
+import {
+  HistoryPanel,
+  RateCell,
+  TierPanel,
+  UsagePanel,
+} from "./PricingTemplateDetailPanels";
+import {
+  isRecentlyChanged,
+  totalReferences,
+  type PricingListFacts,
+} from "./usePricingListFacts";
 
-const PRICING_PAGE_SIZES = [10, 25, 50] as const
-const PRICING_COLUMN_COUNT = 13
+const PRICING_PAGE_SIZES = [10, 25, 50] as const;
+const PRICING_COLUMN_COUNT = 13;
 
-type PricingSortColumn = "name" | "currency" | "input" | "output" | "version" | "updated"
-export type PricingFilter = "all" | "incomplete" | "unreferenced" | "recently_changed"
-type DetailView = "usage" | "history"
+type PricingSortColumn =
+  | "name"
+  | "currency"
+  | "input"
+  | "output"
+  | "version"
+  | "updated";
+export type PricingFilter =
+  | "all"
+  | "incomplete"
+  | "unreferenced"
+  | "recently_changed";
+type DetailView = "usage" | "history";
 
 interface PricingTemplatesTableProps {
-  detailHistory: PricingTemplateRevision[]
-  detailHistoryLoading: boolean
-  detailUsage: PricingTemplateConnectionUsageItem[]
-  detailUsageError: string | null
-  detailUsageLoading: boolean
-  facts: PricingListFacts
-  filter: PricingFilter
-  onDelete: (template: PricingTemplate) => Promise<void>
-  onEdit: (template: PricingTemplate) => Promise<void>
-  onFilterChange: (filter: PricingFilter) => void
-  onLoadHistory: (template: PricingTemplate) => Promise<void>
-  onLoadUsage: (template: PricingTemplate) => Promise<void>
-  onRetry: () => void
-  pricingTemplateError: string | null
-  pricingTemplatePreparingEditId: number | null
-  pricingTemplates: PricingTemplate[]
-  pricingTemplatesLoading: boolean
+  detailHistory: PricingTemplateRevision[];
+  detailHistoryLoading: boolean;
+  detailUsage: PricingTemplateConnectionUsageItem[];
+  detailUsageError: string | null;
+  detailUsageLoading: boolean;
+  facts: PricingListFacts;
+  filter: PricingFilter;
+  onDelete: (template: PricingTemplate) => Promise<void>;
+  onEdit: (template: PricingTemplate) => Promise<void>;
+  onFilterChange: (filter: PricingFilter) => void;
+  onLoadHistory: (template: PricingTemplate) => Promise<void>;
+  onLoadUsage: (template: PricingTemplate) => Promise<void>;
+  onRetry: () => void;
+  pricingTemplateError: string | null;
+  pricingTemplatePreparingEditId: number | null;
+  pricingTemplates: PricingTemplate[];
+  pricingTemplatesLoading: boolean;
 }
 
 function priceSortValue(value: string | null | undefined) {
-  const parsed = Number(normalizeTemplatePrice(value))
-  return Number.isFinite(parsed) ? parsed : null
+  const parsed = Number(normalizeTemplatePrice(value));
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
-function getSortValue(template: PricingTemplate, column: PricingSortColumn): OperationalSortValue {
-  if (column === "name") return template.name
-  if (column === "currency") return template.pricing_currency_code
-  if (column === "input") return priceSortValue(template.input_price)
-  if (column === "output") return priceSortValue(template.output_price)
-  if (column === "version") return template.version
-  return template.updated_at
+function representativeCard(template: PricingTemplate): PricingCard | null {
+  if (template.template_kind === "standard") return template.card ?? null;
+  if (template.template_kind === "tiered") return template.base_card ?? null;
+  return null;
+}
+
+function kindLabel(
+  template: PricingTemplate,
+  copy: ReturnType<typeof useLocale>["messages"]["pricingTemplatesUi"],
+): string {
+  if (template.template_kind === "standard") return copy.kindStandard;
+  if (template.template_kind === "tiered") return copy.kindTiered;
+  return copy.kindPeakValley;
+}
+
+function getSortValue(
+  template: PricingTemplate,
+  column: PricingSortColumn,
+): OperationalSortValue {
+  if (column === "name") return template.name;
+  if (column === "currency") return template.pricing_currency_code;
+  const card = representativeCard(template);
+  if (column === "input") return priceSortValue(card?.input_price);
+  if (column === "output") return priceSortValue(card?.output_price);
+  if (column === "version") return template.version;
+  return template.updated_at;
 }
 
 function matchesPricingFilter(template: PricingTemplate, query: string) {
-  const normalized = query.trim().toLowerCase()
-  if (!normalized) return true
-  return [template.name, template.description, template.pricing_currency_code, template.pricing_unit]
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+  return [
+    template.name,
+    template.description,
+    template.pricing_currency_code,
+    template.pricing_unit,
+    template.template_kind,
+  ]
     .filter((value): value is string => Boolean(value))
-    .some((value) => value.toLowerCase().includes(normalized))
+    .some((value) => value.toLowerCase().includes(normalized));
 }
 
 /**
@@ -122,57 +178,68 @@ export function PricingTemplatesTable({
   pricingTemplates,
   pricingTemplatesLoading,
 }: PricingTemplatesTableProps) {
-  const { formatNumber, locale, messages } = useLocale()
-  const { format: formatTime } = useTimezone()
-  const copy = messages.pricingTemplatesUi
-  const tableCopy = messages.operationalTable
-  const [query, setQuery] = useState("")
+  const { formatNumber, locale, messages } = useLocale();
+  const { format: formatTime } = useTimezone();
+  const copy = messages.pricingTemplatesUi;
+  const tableCopy = messages.operationalTable;
+  const [query, setQuery] = useState("");
   // Newest change first: on a pricing table the question is almost always
   // "what moved recently".
-  const [sort, setSort] = useState<OperationalSortState<PricingSortColumn>>({ column: "updated", direction: "desc" })
-  const [pageIndex, setPageIndex] = useState(0)
-  const [pageSize, setPageSize] = useState<number>(PRICING_PAGE_SIZES[0])
-  const [expandedId, setExpandedId] = useState<number | null>(null)
-  const [detailView, setDetailView] = useState<DetailView>("usage")
+  const [sort, setSort] = useState<OperationalSortState<PricingSortColumn>>({
+    column: "updated",
+    direction: "desc",
+  });
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(PRICING_PAGE_SIZES[0]);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [detailView, setDetailView] = useState<DetailView>("usage");
 
   const filteredTemplates = useMemo(
     () =>
       pricingTemplates.filter((template) => {
-        if (!matchesPricingFilter(template, query)) return false
-        const item = facts.byId.get(template.id)
-        if (filter === "incomplete") return item?.configuration_status === "incomplete"
-        if (filter === "unreferenced") return totalReferences(item) === 0
-        if (filter === "recently_changed") return isRecentlyChanged(template.updated_at)
-        return true
+        if (!matchesPricingFilter(template, query)) return false;
+        const item = facts.byId.get(template.id);
+        if (filter === "incomplete")
+          return item?.configuration_status === "incomplete";
+        if (filter === "unreferenced") return totalReferences(item) === 0;
+        if (filter === "recently_changed")
+          return isRecentlyChanged(template.updated_at);
+        return true;
       }),
     [facts.byId, filter, pricingTemplates, query],
-  )
+  );
   const sortedTemplates = useMemo(
     () => sortOperationalRows(filteredTemplates, sort, getSortValue, locale),
     [filteredTemplates, locale, sort],
-  )
-  const page = paginateOperationalRows(sortedTemplates, pageIndex, pageSize)
+  );
+  const page = paginateOperationalRows(sortedTemplates, pageIndex, pageSize);
   const updateSort = (column: PricingSortColumn) => {
-    setSort((current) => getNextOperationalSort(current, column))
-    setPageIndex(0)
-  }
+    setSort((current) => getNextOperationalSort(current, column));
+    setPageIndex(0);
+  };
 
   const toggleRow = async (template: PricingTemplate, view: DetailView) => {
     if (expandedId === template.id && detailView === view) {
-      setExpandedId(null)
-      return
+      setExpandedId(null);
+      return;
     }
-    setExpandedId(template.id)
-    setDetailView(view)
-    if (view === "usage") await onLoadUsage(template)
-    else await onLoadHistory(template)
-  }
+    setExpandedId(template.id);
+    setDetailView(view);
+    if (view === "usage") await onLoadUsage(template);
+    else await onLoadHistory(template);
+  };
 
   return (
-    <Card className="operator-table-shell gap-0 overflow-hidden" data-testid="pricing-templates-table">
+    <Card
+      className="operator-table-shell gap-0 overflow-hidden"
+      data-testid="pricing-templates-table"
+    >
       <CardHeader className="border-b pb-3">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="flex items-center gap-2 text-xs text-muted-foreground" data-testid="pricing-templates-summary">
+          <p
+            className="flex items-center gap-2 text-xs text-muted-foreground"
+            data-testid="pricing-templates-summary"
+          >
             <Coins aria-hidden="true" className="size-3.5" />
             {copy.tableSummary(formatNumber(pricingTemplates.length))}
             {facts.failed ? (
@@ -184,7 +251,12 @@ export function PricingTemplatesTable({
           </p>
           <div className="flex items-center gap-2">
             {filter !== "all" ? (
-              <Button type="button" variant="outline" size="sm" onClick={() => onFilterChange("all")}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => onFilterChange("all")}
+              >
                 {copy.clearFilters}
               </Button>
             ) : null}
@@ -194,8 +266,8 @@ export function PricingTemplatesTable({
               placeholder={copy.filterTemplates}
               value={query}
               onChange={(event) => {
-                setQuery(event.target.value)
-                setPageIndex(0)
+                setQuery(event.target.value);
+                setPageIndex(0);
               }}
               wrapperClassName="sm:w-64"
             />
@@ -208,7 +280,11 @@ export function PricingTemplatesTable({
             intent="warning"
             title={messages.pricingTemplatesData.loadFailed}
             description={pricingTemplateError}
-            action={<OperatorRetryButton onClick={onRetry}>{messages.common.retry}</OperatorRetryButton>}
+            action={
+              <OperatorRetryButton onClick={onRetry}>
+                {messages.common.retry}
+              </OperatorRetryButton>
+            }
             className="m-3"
           />
         ) : null}
@@ -224,7 +300,9 @@ export function PricingTemplatesTable({
               <TableHead colSpan={5} className="text-center">
                 <span className="inline-flex items-center gap-1">
                   {copy.groupRates}
-                  <span className="font-normal text-muted-foreground">{copy.rateUnitPerMillion}</span>
+                  <span className="font-normal text-muted-foreground">
+                    {copy.rateUnitPerMillion}
+                  </span>
                 </span>
               </TableHead>
               <TableHead colSpan={2}>{copy.groupUsage}</TableHead>
@@ -235,49 +313,89 @@ export function PricingTemplatesTable({
               <SortableTableHead sortKey="name" sort={sort} onSort={updateSort}>
                 {messages.settingsDialogs.name}
               </SortableTableHead>
-              <SortableTableHead sortKey="currency" sort={sort} onSort={updateSort}>
+              <SortableTableHead
+                sortKey="currency"
+                sort={sort}
+                onSort={updateSort}
+              >
                 {copy.columnCurrency}
               </SortableTableHead>
-              <SortableTableHead sortKey="version" sort={sort} onSort={updateSort}>
+              <SortableTableHead
+                sortKey="version"
+                sort={sort}
+                onSort={updateSort}
+              >
                 {copy.columnVersion}
               </SortableTableHead>
               <TableHead>{copy.columnTier}</TableHead>
-              <SortableTableHead sortKey="input" sort={sort} onSort={updateSort} align="right">
+              <SortableTableHead
+                sortKey="input"
+                sort={sort}
+                onSort={updateSort}
+                align="right"
+              >
                 {copy.rateInput}
               </SortableTableHead>
-              <SortableTableHead sortKey="output" sort={sort} onSort={updateSort} align="right">
+              <SortableTableHead
+                sortKey="output"
+                sort={sort}
+                onSort={updateSort}
+                align="right"
+              >
                 {copy.rateOutput}
               </SortableTableHead>
-              <TableHead className="text-right">{copy.rateCachedInput}</TableHead>
-              <TableHead className="text-right">{copy.rateCacheCreation}</TableHead>
+              <TableHead className="text-right">
+                {copy.rateCachedInput}
+              </TableHead>
+              <TableHead className="text-right">
+                {copy.rateCacheCreation}
+              </TableHead>
               <TableHead className="text-right">{copy.rateReasoning}</TableHead>
               <TableHead>{copy.columnReferences}</TableHead>
-              <SortableTableHead sortKey="updated" sort={sort} onSort={updateSort}>
+              <SortableTableHead
+                sortKey="updated"
+                sort={sort}
+                onSort={updateSort}
+              >
                 {copy.columnUpdatedAt}
               </SortableTableHead>
               <TableHead className="text-right">{copy.actions}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {pricingTemplatesLoading ? <OperationalTableSkeletonRows columns={PRICING_COLUMN_COUNT} rows={4} /> : null}
+            {pricingTemplatesLoading ? (
+              <OperationalTableSkeletonRows
+                columns={PRICING_COLUMN_COUNT}
+                rows={4}
+              />
+            ) : null}
 
             {!pricingTemplatesLoading
               ? page.pageRows.map((template) => {
-                  const isPreparingEdit = pricingTemplatePreparingEditId === template.id
-                  const item = facts.byId.get(template.id)
-                  const references = totalReferences(item)
-                  const expanded = expandedId === template.id
+                  const isPreparingEdit =
+                    pricingTemplatePreparingEditId === template.id;
+                  const item = facts.byId.get(template.id);
+                  const references = totalReferences(item);
+                  const expanded = expandedId === template.id;
+                  const card = representativeCard(template);
 
                   return (
                     <Fragment key={template.id}>
-                      <TableRow className="group/row" data-testid={`pricing-template-row-${template.id}`}>
+                      <TableRow
+                        className="group/row"
+                        data-testid={`pricing-template-row-${template.id}`}
+                      >
                         <TableCell className="align-top">
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon-sm"
                             aria-expanded={expanded}
-                            aria-label={expanded ? copy.collapseRow(template.name) : copy.expandRow(template.name)}
+                            aria-label={
+                              expanded
+                                ? copy.collapseRow(template.name)
+                                : copy.expandRow(template.name)
+                            }
                             onClick={() => void toggleRow(template, detailView)}
                           >
                             {expanded ? <ChevronDown /> : <ChevronRight />}
@@ -287,39 +405,82 @@ export function PricingTemplatesTable({
                           <div className="flex min-w-48 flex-col gap-0.5">
                             <span className="font-medium">{template.name}</span>
                             {template.description ? (
-                              <span className="truncate text-xs text-muted-foreground">{template.description}</span>
+                              <span className="truncate text-xs text-muted-foreground">
+                                {template.description}
+                              </span>
                             ) : null}
                           </div>
                         </TableCell>
                         <TableCell className="align-top">
-                          <OperatorValueBadge label={template.pricing_currency_code} className="text-xs" />
+                          <OperatorValueBadge
+                            label={template.pricing_currency_code}
+                            className="text-xs"
+                          />
                         </TableCell>
                         <TableCell className="align-top">
-                          <OperatorValueBadge label={`v${template.version}`} className="text-xs" />
+                          <OperatorValueBadge
+                            label={`v${template.version}`}
+                            className="text-xs"
+                          />
                         </TableCell>
                         <TableCell className="align-top">
-                          {template.tier ? <OperatorValueBadge label={copy.tierConfigured} className="text-xs" /> : <OperatorMissingValue className="text-xs" reason={copy.tierUnconfiguredReason} />}
+                          <OperatorValueBadge
+                            label={kindLabel(template, copy)}
+                            className="text-xs"
+                          />
                         </TableCell>
-                        <TableCell className="align-top text-right">
-                          <RateCell symbol={template.active_currency_symbol} value={template.input_price} />
-                        </TableCell>
-                        <TableCell className="align-top text-right">
-                          <RateCell symbol={template.active_currency_symbol} value={template.output_price} />
-                        </TableCell>
-                        <TableCell className="align-top text-right">
-                          <RateCell specialty symbol={template.active_currency_symbol} value={template.cached_input_price} />
-                        </TableCell>
-                        <TableCell className="align-top text-right">
-                          <RateCell specialty symbol={template.active_currency_symbol} value={template.cache_creation_price} />
-                        </TableCell>
-                        <TableCell className="align-top text-right">
-                          <RateCell specialty symbol={template.active_currency_symbol} value={template.reasoning_price} />
-                        </TableCell>
+                        {template.template_kind === "peak_valley" ? (
+                          <TableCell colSpan={5} className="align-top">
+                            <OperatorValueBadge
+                              label={copy.multiCardSummary(2)}
+                              className="text-xs"
+                            />
+                          </TableCell>
+                        ) : (
+                          <>
+                            <TableCell className="align-top text-right">
+                              <RateCell
+                                symbol={template.active_currency_symbol}
+                                value={card?.input_price}
+                              />
+                            </TableCell>
+                            <TableCell className="align-top text-right">
+                              <RateCell
+                                symbol={template.active_currency_symbol}
+                                value={card?.output_price}
+                              />
+                            </TableCell>
+                            <TableCell className="align-top text-right">
+                              <RateCell
+                                specialty
+                                symbol={template.active_currency_symbol}
+                                value={card?.cached_input_price}
+                              />
+                            </TableCell>
+                            <TableCell className="align-top text-right">
+                              <RateCell
+                                specialty
+                                symbol={template.active_currency_symbol}
+                                value={card?.cache_creation_price}
+                              />
+                            </TableCell>
+                            <TableCell className="align-top text-right">
+                              <RateCell
+                                specialty
+                                symbol={template.active_currency_symbol}
+                                value={card?.reasoning_price}
+                              />
+                            </TableCell>
+                          </>
+                        )}
                         <TableCell className="align-top">
                           {facts.loading && !item ? (
                             <Skeleton className="h-4 w-24" />
                           ) : facts.failed && !item ? (
-                            <span className="text-xs font-medium text-failing" title={copy.referencesUnavailableReason}>
+                            <span
+                              className="text-xs font-medium text-failing"
+                              title={copy.referencesUnavailableReason}
+                            >
                               {copy.referencesUnavailable}
                             </span>
                           ) : item ? (
@@ -329,7 +490,9 @@ export function PricingTemplatesTable({
                                 : copy.referencesSummary(
                                     formatNumber(item.model_reference_count),
                                     formatNumber(item.endpoint_reference_count),
-                                    formatNumber(item.terminal_target_reference_count),
+                                    formatNumber(
+                                      item.terminal_target_reference_count,
+                                    ),
                                   )}
                             </span>
                           ) : (
@@ -337,10 +500,17 @@ export function PricingTemplatesTable({
                           )}
                         </TableCell>
                         <TableCell className="align-top">
-                          <span className="font-mono text-xs tabular-nums">{formatTime(template.updated_at)}</span>
+                          <span className="font-mono text-xs tabular-nums">
+                            {formatTime(template.updated_at)}
+                          </span>
                         </TableCell>
                         <TableCell className="align-top text-right">
-                          <div className={cn(operationalRowActionsClassName, "gap-1")}>
+                          <div
+                            className={cn(
+                              operationalRowActionsClassName,
+                              "gap-1",
+                            )}
+                          >
                             <Button
                               type="button"
                               variant="outline"
@@ -354,19 +524,35 @@ export function PricingTemplatesTable({
                             </Button>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button type="button" variant="outline" size="icon-sm" aria-label={copy.actions}>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon-sm"
+                                  aria-label={copy.actions}
+                                >
                                   <MoreHorizontal />
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                <DropdownMenuItem onSelect={() => void toggleRow(template, "usage")}>
+                                <DropdownMenuItem
+                                  onSelect={() =>
+                                    void toggleRow(template, "usage")
+                                  }
+                                >
                                   {copy.detailViewUsage}
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => void toggleRow(template, "history")}>
+                                <DropdownMenuItem
+                                  onSelect={() =>
+                                    void toggleRow(template, "history")
+                                  }
+                                >
                                   {copy.detailViewHistory}
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem variant="destructive" onSelect={() => void onDelete(template)}>
+                                <DropdownMenuItem
+                                  variant="destructive"
+                                  onSelect={() => void onDelete(template)}
+                                >
                                   <Trash2 />
                                   {messages.settingsDialogs.delete}
                                 </DropdownMenuItem>
@@ -378,22 +564,37 @@ export function PricingTemplatesTable({
 
                       {expanded ? (
                         <TableRow>
-                          <TableCell colSpan={PRICING_COLUMN_COUNT} className="bg-inset">
+                          <TableCell
+                            colSpan={PRICING_COLUMN_COUNT}
+                            className="bg-inset"
+                          >
                             <div className="flex flex-col gap-3">
                               <div className="flex items-center gap-1">
                                 <Button
                                   type="button"
                                   size="sm"
-                                  variant={detailView === "usage" ? "secondary" : "ghost"}
-                                  onClick={() => void toggleRow(template, "usage")}
+                                  variant={
+                                    detailView === "usage"
+                                      ? "secondary"
+                                      : "ghost"
+                                  }
+                                  onClick={() =>
+                                    void toggleRow(template, "usage")
+                                  }
                                 >
                                   {copy.detailViewUsage}
                                 </Button>
                                 <Button
                                   type="button"
                                   size="sm"
-                                  variant={detailView === "history" ? "secondary" : "ghost"}
-                                  onClick={() => void toggleRow(template, "history")}
+                                  variant={
+                                    detailView === "history"
+                                      ? "secondary"
+                                      : "ghost"
+                                  }
+                                  onClick={() =>
+                                    void toggleRow(template, "history")
+                                  }
                                 >
                                   {copy.detailViewHistory}
                                 </Button>
@@ -409,36 +610,52 @@ export function PricingTemplatesTable({
                                   onRetry={() => void onLoadUsage(template)}
                                 />
                               ) : (
-                                <HistoryPanel loading={detailHistoryLoading} revisions={detailHistory} />
+                                <HistoryPanel
+                                  loading={detailHistoryLoading}
+                                  revisions={detailHistory}
+                                />
                               )}
                             </div>
                           </TableCell>
                         </TableRow>
                       ) : null}
                     </Fragment>
-                  )
+                  );
                 })
               : null}
           </TableBody>
         </Table>
 
-        {!pricingTemplatesLoading && pricingTemplateError && pricingTemplates.length === 0 ? (
+        {!pricingTemplatesLoading &&
+        pricingTemplateError &&
+        pricingTemplates.length === 0 ? (
           <div className="p-3">
             <OperatorErrorState
               title={messages.pricingTemplatesData.loadFailed}
               description={pricingTemplateError}
-              action={<OperatorRetryButton onClick={onRetry}>{messages.common.retry}</OperatorRetryButton>}
+              action={
+                <OperatorRetryButton onClick={onRetry}>
+                  {messages.common.retry}
+                </OperatorRetryButton>
+              }
             />
           </div>
         ) : null}
 
-        {!pricingTemplatesLoading && !pricingTemplateError && pricingTemplates.length === 0 ? (
+        {!pricingTemplatesLoading &&
+        !pricingTemplateError &&
+        pricingTemplates.length === 0 ? (
           <div className="p-3">
-            <OperatorEmptyState title={copy.noTemplatesConfigured} description={copy.description} />
+            <OperatorEmptyState
+              title={copy.noTemplatesConfigured}
+              description={copy.description}
+            />
           </div>
         ) : null}
 
-        {!pricingTemplatesLoading && pricingTemplates.length > 0 && sortedTemplates.length === 0 ? (
+        {!pricingTemplatesLoading &&
+        pricingTemplates.length > 0 &&
+        sortedTemplates.length === 0 ? (
           <div className="p-3">
             <OperatorEmptyState
               title={copy.noTemplatesMatchFilters}
@@ -447,8 +664,8 @@ export function PricingTemplatesTable({
                 <Button
                   variant="outline"
                   onClick={() => {
-                    setQuery("")
-                    onFilterChange("all")
+                    setQuery("");
+                    onFilterChange("all");
                   }}
                 >
                   {copy.clearFilters}
@@ -474,8 +691,8 @@ export function PricingTemplatesTable({
             pageSize={{
               ariaLabel: tableCopy.pageSize,
               onChange: (value) => {
-                setPageSize(value)
-                setPageIndex(0)
+                setPageSize(value);
+                setPageIndex(0);
               },
               options: PRICING_PAGE_SIZES,
               value: pageSize,
@@ -490,5 +707,5 @@ export function PricingTemplatesTable({
         ) : null}
       </CardContent>
     </Card>
-  )
+  );
 }

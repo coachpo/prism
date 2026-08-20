@@ -142,12 +142,8 @@ func TestSetupReadinessPricingProjection(t *testing.T) {
 
 	// Create a complete template and attach it to the witness connection.
 	createTemplate := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates", map[string]any{
-		"name":                 "Setup Pricing Template",
-		"input_price":          "2",
-		"output_price":         "5",
-		"cached_input_price":   "0",
-		"cache_creation_price": "0",
-		"reasoning_price":      "0",
+		"name": "Setup Pricing Template", "template_kind": "standard",
+		"card": map[string]any{"input_price": "2", "output_price": "5", "cached_input_price": "0", "cache_creation_price": "0", "reasoning_price": "0"},
 	}, modelHeader(profileID))
 	assertStatus(t, createTemplate, http.StatusCreated)
 	var createdTemplate map[string]any

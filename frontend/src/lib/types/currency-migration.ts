@@ -22,7 +22,10 @@ export interface PricingMigrationInventorySummary {
   template_issue_count: number;
   legacy_fx_row_count: number;
   live_fx_dependency_count: number;
-  recommended_operation_kind: "currency_cutover" | "repair_same_currency" | "archive_unused_fx";
+  recommended_operation_kind:
+    | "currency_cutover"
+    | "repair_same_currency"
+    | "archive_unused_fx";
   archive_only_available: boolean;
   template_scaffold_url: string;
   fx_evidence_url: string;
@@ -35,17 +38,24 @@ export interface PricingMigrationInventorySummary {
   } | null;
 }
 
+export interface CurrencyMigrationCard {
+  card_role: "standard" | "tier_base" | "tier_above" | "peak" | "offpeak";
+  input_price: string;
+  output_price: string;
+  cached_input_price: string | null;
+  cache_creation_price: string | null;
+  reasoning_price: string | null;
+}
+
 export interface PricingMigrationInventoryTemplate {
   template_id: number;
   name: string;
   updated_at: string;
   base_version: number;
   current_revision_id: string | null;
-  current_input_price: string | null;
-  current_output_price: string | null;
-  current_cached_input_price: string | null;
-  current_cache_creation_price: string | null;
-  current_reasoning_price: string | null;
+  template_kind: "standard" | "tiered" | "peak_valley" | null;
+  current_cards: CurrencyMigrationCard[];
+
   legacy_template_evidence_id: string | null;
   raw_pricing_unit: string | null;
   raw_currency_code: string | null;
@@ -100,8 +110,14 @@ export interface TimezonePreferenceUpdate {
   timezone_preference?: string | null;
 }
 
-export type CurrencyMigrationOperationKind = "currency_cutover" | "repair_same_currency" | "archive_unused_fx";
-export type CurrencyMigrationDraftOperationKind = Exclude<CurrencyMigrationOperationKind, "archive_unused_fx">;
+export type CurrencyMigrationOperationKind =
+  | "currency_cutover"
+  | "repair_same_currency"
+  | "archive_unused_fx";
+export type CurrencyMigrationDraftOperationKind = Exclude<
+  CurrencyMigrationOperationKind,
+  "archive_unused_fx"
+>;
 
 export interface CurrencyMigrationDraftChunkSummary {
   ordinal: number;
@@ -142,11 +158,8 @@ export interface CurrencyMigrationDraftChunkItem {
   template_id: number;
   expected_version: number;
   expected_updated_at: string;
-  input_price: string;
-  output_price: string;
-  cached_input_price: string | null;
-  cache_creation_price: string | null;
-  reasoning_price: string | null;
+  template_kind: "standard" | "tiered" | "peak_valley";
+  cards: CurrencyMigrationCard[];
 }
 
 export interface CurrencyMigrationDraftItem {
@@ -154,11 +167,8 @@ export interface CurrencyMigrationDraftItem {
   template_name: string;
   expected_version: number;
   expected_updated_at: string;
-  input_price: string;
-  output_price: string;
-  cached_input_price: string | null;
-  cache_creation_price: string | null;
-  reasoning_price: string | null;
+  template_kind: "standard" | "tiered" | "peak_valley";
+  cards: CurrencyMigrationCard[];
   reference_count: number;
 }
 
@@ -175,16 +185,9 @@ export interface CurrencyMigrationPreviewItem {
   name: string;
   current_version: number;
   next_version: number;
-  current_input_price: string | null;
-  current_output_price: string | null;
-  current_cached_input_price: string | null;
-  current_cache_creation_price: string | null;
-  current_reasoning_price: string | null;
-  new_input_price: string;
-  new_output_price: string;
-  new_cached_input_price: string | null;
-  new_cache_creation_price: string | null;
-  new_reasoning_price: string | null;
+  template_kind: "standard" | "tiered" | "peak_valley";
+  current_cards: CurrencyMigrationCard[];
+  new_cards: CurrencyMigrationCard[];
   reference_count: number;
 }
 

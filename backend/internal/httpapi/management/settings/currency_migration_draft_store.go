@@ -3,8 +3,10 @@ package settings
 import (
 	"context"
 	"database/sql"
+
 	"encoding/json"
 	"fmt"
+	"github.com/coachpo/prism/backend/internal/domain/pricingkind"
 	"net/http"
 	"strconv"
 	"strings"
@@ -37,18 +39,18 @@ type currencyMigrationDraftHeaderRow struct {
 }
 
 type currencyDraftAuthoritativeTemplate struct {
-	ID                 int
-	Name               string
-	Version            int
-	RevisionID         *int64
-	LegacyEvidenceID   *int64
-	UpdatedAt          time.Time
-	InputPrice         *string
-	OutputPrice        *string
-	CachedInputPrice   *string
-	CacheCreationPrice *string
-	ReasoningPrice     *string
-	ReferenceCount     int64
+	ID               int
+	Name             string
+	Version          int
+	RevisionID       *int64
+	UpdatedAt        time.Time
+	TemplateKind     pricingkind.Kind
+	TierThreshold    *int
+	ScheduleTimezone *string
+	ScheduleDigest   *string
+	Cards            []currencyMigrationCard
+	Windows          []currencyMigrationWindow
+	ReferenceCount   int64
 }
 
 func loadCurrencyDraftByID(ctx context.Context, tx pgx.Tx, profileID int, draftID string, forUpdate bool) (currencyMigrationDraftHeaderRow, bool, error) {
@@ -153,7 +155,10 @@ func (s *Service) loadCurrencyDraftItemPage(ctx context.Context, tx pgx.Tx, head
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM pricing_currency_migration_draft_items WHERE draft_id = $1::uuid`, header.DraftID).Scan(&total); err != nil {
 		return currencyMigrationDraftItemPage{}, err
 	}
-	rows, err := tx.Query(ctx, `SELECT template_id, template_name, expected_version, expected_updated_at, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, reference_count FROM pricing_currency_migration_draft_items WHERE draft_id = $1::uuid AND template_id > $2 ORDER BY template_id ASC LIMIT $3`, header.DraftID, lastID, limit)
+	rows, err := tx.Query(ctx, `SELECT items.template_id, items.template_name, items.expected_version, items.expected_updated_at, items.template_kind,
+		COALESCE((SELECT jsonb_agg(jsonb_build_object('card_role', cards.card_role, 'input_price', cards.input_price, 'output_price', cards.output_price, 'cached_input_price', cards.cached_input_price, 'cache_creation_price', cards.cache_creation_price, 'reasoning_price', cards.reasoning_price) ORDER BY cards.card_role) FROM pricing_currency_migration_draft_cards cards WHERE cards.draft_id = items.draft_id AND cards.template_id = items.template_id), '[]'::jsonb),
+		items.reference_count
+		FROM pricing_currency_migration_draft_items items WHERE items.draft_id = $1::uuid AND items.template_id > $2 ORDER BY items.template_id ASC LIMIT $3`, header.DraftID, lastID, limit)
 	if err != nil {
 		return currencyMigrationDraftItemPage{}, err
 	}
@@ -163,10 +168,16 @@ func (s *Service) loadCurrencyDraftItemPage(ctx context.Context, tx pgx.Tx, head
 	for rows.Next() {
 		var item currencyMigrationDraftItemResponse
 		var expected time.Time
-		if err := rows.Scan(&item.TemplateID, &item.TemplateName, &item.ExpectedVersion, &expected, &item.InputPrice, &item.OutputPrice, &item.CachedInputPrice, &item.CacheCreationPrice, &item.ReasoningPrice, &item.ReferenceCount); err != nil {
+		var kind string
+		var cardsJSON []byte
+		if err := rows.Scan(&item.TemplateID, &item.TemplateName, &item.ExpectedVersion, &expected, &kind, &cardsJSON, &item.ReferenceCount); err != nil {
 			return currencyMigrationDraftItemPage{}, err
 		}
 		item.ExpectedUpdatedAt = expected.UTC().Format(time.RFC3339Nano)
+		item.TemplateKind = pricingkind.Kind(kind)
+		if err := json.Unmarshal(cardsJSON, &item.Cards); err != nil {
+			return currencyMigrationDraftItemPage{}, fmt.Errorf("decode currency migration draft cards: %w", err)
+		}
 		items = append(items, item)
 		last = item.TemplateID
 	}
@@ -224,7 +235,10 @@ func loadCurrencyDraftPayloadRows(ctx context.Context, tx pgx.Tx, draftID string
 }
 
 func loadCurrencyDraftItems(ctx context.Context, tx pgx.Tx, draftID string) ([]currencyMigrationDraftItem, error) {
-	rows, err := tx.Query(ctx, `SELECT template_id, expected_version, expected_updated_at, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, template_name, reference_count FROM pricing_currency_migration_draft_items WHERE draft_id = $1::uuid ORDER BY template_id ASC`, draftID)
+	rows, err := tx.Query(ctx, `SELECT items.template_id, items.expected_version, items.expected_updated_at, items.template_kind,
+		COALESCE((SELECT jsonb_agg(jsonb_build_object('card_role', cards.card_role, 'input_price', cards.input_price, 'output_price', cards.output_price, 'cached_input_price', cards.cached_input_price, 'cache_creation_price', cards.cache_creation_price, 'reasoning_price', cards.reasoning_price) ORDER BY cards.card_role) FROM pricing_currency_migration_draft_cards cards WHERE cards.draft_id = items.draft_id AND cards.template_id = items.template_id), '[]'::jsonb),
+		items.template_name, items.reference_count
+		FROM pricing_currency_migration_draft_items items WHERE items.draft_id = $1::uuid ORDER BY items.template_id ASC`, draftID)
 	if err != nil {
 		return nil, err
 	}
@@ -233,10 +247,16 @@ func loadCurrencyDraftItems(ctx context.Context, tx pgx.Tx, draftID string) ([]c
 	for rows.Next() {
 		var item currencyMigrationDraftItem
 		var expected time.Time
-		if err := rows.Scan(&item.TemplateID, &item.ExpectedVersion, &expected, &item.InputPrice, &item.OutputPrice, &item.CachedInputPrice, &item.CacheCreationPrice, &item.ReasoningPrice, &item.TemplateName, &item.ReferenceCount); err != nil {
+		var kind string
+		var cardsJSON []byte
+		if err := rows.Scan(&item.TemplateID, &item.ExpectedVersion, &expected, &kind, &cardsJSON, &item.TemplateName, &item.ReferenceCount); err != nil {
 			return nil, err
 		}
 		item.ExpectedUpdatedAt = expected.UTC().Format(time.RFC3339Nano)
+		item.TemplateKind = pricingkind.Kind(kind)
+		if err := json.Unmarshal(cardsJSON, &item.Cards); err != nil {
+			return nil, fmt.Errorf("decode currency migration draft cards: %w", err)
+		}
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -249,11 +269,7 @@ func loadCurrencyDraftAuthoritativeTemplates(ctx context.Context, tx pgx.Tx, pro
 	}
 	var inventoryID int64
 	if currentEpochID == nil {
-		if err := tx.QueryRow(ctx, `SELECT inventory.inventory_id
-			FROM pricing_migration_inventories AS inventory
-			WHERE inventory.profile_id = $1
-			  AND NOT EXISTS (SELECT 1 FROM pricing_migration_inventories AS successor WHERE successor.supersedes_inventory_id = inventory.inventory_id)
-			ORDER BY inventory.generation DESC LIMIT 1`, profileID).Scan(&inventoryID); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT inventory.inventory_id FROM pricing_migration_inventories inventory WHERE inventory.profile_id = $1 AND NOT EXISTS (SELECT 1 FROM pricing_migration_inventories successor WHERE successor.supersedes_inventory_id = inventory.inventory_id) ORDER BY inventory.generation DESC LIMIT 1`, profileID).Scan(&inventoryID); err != nil {
 			if err == pgx.ErrNoRows {
 				return nil, &domainError{StatusCode: http.StatusConflict, Detail: "currency_migration_inventory_stale: pending pricing profile has no authoritative inventory"}
 			}
@@ -261,19 +277,18 @@ func loadCurrencyDraftAuthoritativeTemplates(ctx context.Context, tx pgx.Tx, pro
 		}
 	}
 	query := `SELECT templates.id, templates.name, templates.updated_at,
-		revisions.id, revisions.version, revisions.input_price, revisions.output_price,
-		revisions.cached_input_price, revisions.cache_creation_price, revisions.reasoning_price,
-		evidence.legacy_template_evidence_id, evidence.public_version, evidence.input_price, evidence.output_price,
-		evidence.cached_input_price, evidence.cache_creation_price, evidence.reasoning_price,
-		(SELECT count(*) FROM connections AS c WHERE c.profile_id = templates.profile_id AND c.pricing_template_id = templates.id)
-		FROM pricing_templates AS templates
-		LEFT JOIN pricing_template_revisions AS revisions ON revisions.id = templates.current_revision_id
-		LEFT JOIN pricing_migration_legacy_template_evidence AS evidence ON evidence.inventory_id = $2 AND evidence.template_id = templates.id
+		revisions.id, revisions.version, revisions.template_kind, revisions.tier_input_tokens_above,
+		revisions.pricing_schedule_timezone, revisions.pricing_schedule_digest,
+		COALESCE((SELECT jsonb_agg(jsonb_build_object('card_role', cards.card_role, 'input_price', cards.input_price, 'output_price', cards.output_price, 'cached_input_price', cards.cached_input_price, 'cache_creation_price', cards.cache_creation_price, 'reasoning_price', cards.reasoning_price) ORDER BY cards.card_role) FROM pricing_template_cards cards WHERE cards.revision_id = revisions.id), '[]'::jsonb),
+		COALESCE((SELECT jsonb_agg(jsonb_build_object('weekday_mask', windows.weekday_mask, 'start_minute', windows.start_minute, 'end_minute', windows.end_minute) ORDER BY windows.weekday_mask, windows.start_minute, windows.end_minute) FROM pricing_template_windows windows WHERE windows.revision_id = revisions.id), '[]'::jsonb),
+		(SELECT count(*) FROM connections c WHERE c.profile_id = templates.profile_id AND c.pricing_template_id = templates.id)
+		FROM pricing_templates templates
+		LEFT JOIN pricing_template_revisions revisions ON revisions.id = templates.current_revision_id
 		WHERE templates.profile_id = $1 AND templates.deleted_at IS NULL ORDER BY templates.id ASC`
 	if forUpdate {
 		query += ` FOR UPDATE OF templates`
 	}
-	rows, err := tx.Query(ctx, query, profileID, inventoryID)
+	rows, err := tx.Query(ctx, query, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("load active currency migration templates: %w", err)
 	}
@@ -281,36 +296,41 @@ func loadCurrencyDraftAuthoritativeTemplates(ctx context.Context, tx pgx.Tx, pro
 	items := make([]currencyDraftAuthoritativeTemplate, 0)
 	for rows.Next() {
 		var item currencyDraftAuthoritativeTemplate
-		var revisionID, revisionVersion, evidenceID, evidenceVersion sql.NullInt64
-		var revisionInput, revisionOutput, revisionCached, revisionCreation, revisionReasoning sql.NullString
-		var evidenceInput, evidenceOutput, evidenceCached, evidenceCreation, evidenceReasoning sql.NullString
-		if err := rows.Scan(&item.ID, &item.Name, &item.UpdatedAt, &revisionID, &revisionVersion, &revisionInput, &revisionOutput, &revisionCached, &revisionCreation, &revisionReasoning, &evidenceID, &evidenceVersion, &evidenceInput, &evidenceOutput, &evidenceCached, &evidenceCreation, &evidenceReasoning, &item.ReferenceCount); err != nil {
+		var revisionID, revisionVersion, threshold sql.NullInt64
+		var kind, timezone, digest sql.NullString
+		var cardsJSON, windowsJSON []byte
+		if err := rows.Scan(&item.ID, &item.Name, &item.UpdatedAt, &revisionID, &revisionVersion, &kind, &threshold, &timezone, &digest, &cardsJSON, &windowsJSON, &item.ReferenceCount); err != nil {
 			return nil, err
 		}
-		if revisionID.Valid {
-			value := revisionID.Int64
-			item.RevisionID = &value
-			item.Version = int(revisionVersion.Int64)
-			item.InputPrice = nullableStringValue(revisionInput)
-			item.OutputPrice = nullableStringValue(revisionOutput)
-			item.CachedInputPrice = nullableStringValue(revisionCached)
-			item.CacheCreationPrice = nullableStringValue(revisionCreation)
-			item.ReasoningPrice = nullableStringValue(revisionReasoning)
-		} else if evidenceID.Valid {
-			value := evidenceID.Int64
-			item.LegacyEvidenceID = &value
-			if !evidenceVersion.Valid {
-				return nil, &domainError{StatusCode: http.StatusConflict, Detail: "currency_migration_draft_corrupt: legacy template evidence has no public version"}
-			}
-			item.Version = int(evidenceVersion.Int64)
-			item.InputPrice = nullableStringValue(evidenceInput)
-			item.OutputPrice = nullableStringValue(evidenceOutput)
-			item.CachedInputPrice = nullableStringValue(evidenceCached)
-			item.CacheCreationPrice = nullableStringValue(evidenceCreation)
-			item.ReasoningPrice = nullableStringValue(evidenceReasoning)
-		} else {
-			return nil, &domainError{StatusCode: http.StatusConflict, Detail: "currency_migration_inventory_stale: active template has no current revision or matching legacy evidence"}
+		if !revisionID.Valid || !kind.Valid || !pricingkind.Kind(kind.String).Valid() {
+			return nil, &domainError{StatusCode: http.StatusConflict, Detail: fmt.Sprintf("currency_migration_inventory_stale: template %d has no typed current revision", item.ID)}
 		}
+		revisionValue := revisionID.Int64
+		item.RevisionID = &revisionValue
+		item.Version = int(revisionVersion.Int64)
+		item.TemplateKind = pricingkind.Kind(kind.String)
+		if threshold.Valid {
+			value := int(threshold.Int64)
+			item.TierThreshold = &value
+		}
+		if timezone.Valid {
+			value := timezone.String
+			item.ScheduleTimezone = &value
+		}
+		if digest.Valid {
+			value := digest.String
+			item.ScheduleDigest = &value
+		}
+		if err := json.Unmarshal(cardsJSON, &item.Cards); err != nil {
+			return nil, fmt.Errorf("decode current pricing cards for template %d: %w", item.ID, err)
+		}
+		if err := json.Unmarshal(windowsJSON, &item.Windows); err != nil {
+			return nil, fmt.Errorf("decode current pricing windows for template %d: %w", item.ID, err)
+		}
+		if len(item.Cards) != len(pricingkind.RolesFor(item.TemplateKind)) {
+			return nil, &domainError{StatusCode: http.StatusConflict, Detail: fmt.Sprintf("currency_migration_draft_corrupt: template %d has incomplete current cards", item.ID)}
+		}
+		sortCurrencyMigrationCards(item.Cards)
 		items = append(items, item)
 	}
 	return items, rows.Err()

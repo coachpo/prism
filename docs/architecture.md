@@ -151,7 +151,7 @@ Global CORS handling runs before the runtime branch. The runtime branch then app
 
 OpenAI Chat Completions and Responses are operation-native and mode-strict. Planning requires the model's `openai_accepted_format` and the selected connection's `openai_text_capability` (`responses_only`, `chat_completions_only`, or `dual_native`) to be exactly equal: `dual_native`, `chat_completions_only`, and `responses_only` may connect only to the identical mode (3×3 equality matrix, diagonal only). Incompatible terminal attempts are skipped in authored order so the next target can be tried; if every otherwise eligible attempt is mode-incompatible, Prism returns the typed `400 openai_request_translation_unsupported` response before provider transport. Current native attempts record `operation_translation_mode = "none"`; the columns and stats reads remain readable for historical rows. Responses adjunct operations (`openai.responses.input_tokens`, `openai.responses.compact`) require responses-capable targets, which mode equality guarantees for `responses_only` and `dual_native`. Management write paths enforce the same equality: authoring a cross-mode relation returns `422 target_openai_mode_mismatch` (including disabled/inactive relations), and changing a persisted model mode or connection capability that would break an existing relation returns `409`. A read-only preflight entrypoint (`PRISM_OPENAI_MODE_PREFLIGHT=1`) reports persisted violations with deterministic exit codes, and startup runs the same read-only check immediately after migrations and before any writable seed or normalization step, failing fast on violations.
 
-Runtime observability stores canonical disjoint token components. Base input, cache-read input, cache-creation input, base output, and reasoning output are separate dimensions, while provider totals remain authoritative when supplied. Pricing uses five concrete pricing strings from the attached template snapshot, and explicit `"0"` component prices mean configured free pricing instead of a missing-price condition.
+Runtime observability stores canonical disjoint token components. Base input, cache-read input, cache-creation input, base output, and reasoning output are separate dimensions, while provider totals remain authoritative when supplied. Pricing selects one complete typed card (`standard`, `tier_base`/`tier_above`, or `peak`/`offpeak`) from the frozen ingress planning clock before FX and arithmetic. Explicit `"0"` component prices mean configured free pricing instead of a missing-price condition.
 
 Runtime pricing ownership is split by responsibility: `backend/internal/httpapi/runtime/runtime_pricing.go` owns the runtime pricing result and currency projection, `runtime_pricing_core.go` owns the shared five-component exact arithmetic, and `runtime_pricing_tier.go` owns the pure single-threshold tier selection. The tier selector uses the normalized disjoint input basis `InputTokens + CacheReadInputTokens + CacheCreationInputTokens`, applies the tier only when the basis is strictly greater than `tier_input_tokens_above`, and never changes aggregate read-model math. The additive PostgreSQL shape belongs to `backend/migrations/000022_pricing_input_tier.sql`; it adds tier revision columns and nullable request/usage evidence without changing partition indexes.
 
@@ -238,6 +238,7 @@ Live startup resources include listener host and port, PostgreSQL URL and six-la
 Runtime compatibility and redirect checks use each model's required `api_family`. Model rows do not depend on catalog metadata for routing, validation, or display. The Models page renders each row's `api_family` metadata directly.
 
 ### 3.5 Management API Profile Scoping
+
 - Prism keeps one route-class matrix:
   - Global management routes omit `X-Profile-Id`.
   - Profile-scoped management routes accept `X-Profile-Id`, but the backend ignores its value and resolves against Default profile id `1`.
@@ -303,6 +304,7 @@ The overlay runs after adapter body construction, so a Connection that configure
 Body-dependent headers (`Content-Encoding`, `Content-MD5`, `Digest`, `Content-Digest`) are stripped from client headers, provider auth extras, and Connection `custom_headers` whenever an overlay re-encodes the body; `Content-Length` is recomputed from the merged body. Non-identity `Content-Encoding` cannot be re-encoded: Gemini path-bound operations with a configured candidate reject it with `415`, while body-bound OpenAI/Anthropic operations keep the existing `400` malformed-body path.
 
 Buffering decisions:
+
 - If any candidate has non-empty parameters, `requiresReplayableRequestBody` becomes true and `canStreamIncomingRequestBody` returns false; Gemini `streamGenerateContent` then uses the two-phase planning boundary (probe with `rawBody == nil` only decides the replayable requirement, never overlays or 400s; the second full plan reads the body and materializes the merged body).
 - With no configured parameters anywhere, the existing request-body streaming fast path is preserved unchanged.
 - Each attempt owns an immutable merged body; failover, retry, or hedge candidates never share mutable maps, slices, or buffers.
@@ -644,7 +646,6 @@ See section 15 (Data Model Reference) for the complete schema.
 
 See section 14 (API Reference) for the complete API documentation.
 
-
 ## 12. Security Considerations
 
 - **Operator Authentication**: Optional cookie-backed authentication for management APIs (`/api/*`). Supports username/password.
@@ -672,7 +673,6 @@ Models always carry required `api_family`; runtime compatibility does not depend
 
 ## 14. API Reference
 
-
 Local `./start.sh` backend base URL follows the selected bootstrap file's `server.port`; fresh repo-local bootstrap seeds use `http://localhost:8000`.
 
 Container and custom deployments use the listener configured in the plaintext bootstrap file. The root single-image Docker bundle publishes Nginx on `http://localhost:8080` by default and proxies to the private backend upstream on port `8000`.
@@ -680,6 +680,7 @@ Container and custom deployments use the listener configured in the plaintext bo
 Prism does not expose a backend-local `/metrics` operations endpoint or start telemetry exporters. The startup `telemetry` block is parsed for existing `config.json` compatibility only. The retained `/api/stats/*` routes remain product-facing request-history and aggregate APIs.
 
 ### 0. Profile Context Semantics
+
 - Prism has three route classes:
   - Global management routes, which omit `X-Profile-Id`.
   - Profile-scoped management routes, which accept `X-Profile-Id` but ignore its value and resolve against Default profile id `1`.
@@ -691,7 +692,6 @@ Prism does not expose a backend-local `/metrics` operations endpoint or start te
 - Detail endpoints return `404` when a resource exists outside Default profile id `1`.
 - Scope-control failures return structured JSON with `code` and `detail`, where `code` is stable for machine handling and `detail` is safe to show to operators.
 
-
 ### 1. Management API (`/api/*`)
 
 #### 1.0 Request Boundary
@@ -701,6 +701,7 @@ Global CORS handling runs before both management and runtime branches and answer
 The mounted request path applies the management browser-write guard, runtime-cache invalidation handling, management admission, request-body limits, management-session authentication, and then the mounted management router. For non-GET/HEAD/OPTIONS `/api/*` requests, a cross-origin `Origin` (neither same-origin with the request host nor in the CORS allowlist) returns `403 management_cross_origin_write_blocked`; a body-bearing write whose `Content-Type` is not `application/json` returns `415 management_unsupported_media_type`. The guard is independent of operator auth and applies when auth is off.
 
 For management routes, the mounted request path applies runtime-cache invalidation handling, management admission, request-body limits, management-session authentication, and then the mounted management router. `POST`, `PUT`, and `PATCH` requests under `/api/auth/*` are limited to `64 KiB`; other mutating management requests are limited to `1 MiB`. The limit wrapper observes reads from the request body. If a downstream handler reads past the limit, Prism replaces its response with `413`:
+
 ```json
 {
   "error": "request_body_too_large",
@@ -732,40 +733,53 @@ Prism no longer exposes a catalog management product surface. Model compatibilit
 #### 1.3 Model Configurations
 
 ##### List Models
+
 ```
 GET /api/models
 ```
+
 Response `200`: Array of model objects.
 
 ##### Get Model
+
 ```
 GET /api/models/{id}
 ```
+
 Response `200`: Full model object with required `api_family`, optional `loadbalance_strategy_id`, ordered `access_targets` (Model Target and Terminal Target rows share one global `position` order), and attached Terminal Target summaries in the effective profile scope. Model create/update does not author access targets; use `/api/models/{id}/targets` for mixed access-target authoring and model-owned Terminal Target ownership edges.
 
 ##### Get Models by Endpoints (Batch)
+
 ```
 POST /api/models/by-endpoints
 ```
+
 Request:
+
 ```json
 {
   "endpoint_ids": [1, 2, 3]
 }
 ```
+
 Response `200`: `items[]`, where each item contains an `endpoint_id` and the models that can reach that endpoint through Terminal Targets. Endpoints are reusable and may be referenced by Terminal Targets owned by different models.
 
 ##### Get Models by Endpoint
+
 ```
 GET /api/models/by-endpoint/{endpoint_id}
 ```
+
 Response `200`: Array of models that can reach the endpoint through Terminal Targets within the effective profile scope.
 
 ##### Create Model
+
 ```
 POST /api/models
 ```
+
 Request:
+
 ```json
 {
   "api_family": "openai",
@@ -776,9 +790,11 @@ Request:
   "is_enabled": false
 }
 ```
+
 Response `201`: Created model object.
 
 Validation rules:
+
 - `model_id` must be unique within the effective profile scope.
 - `api_family` is required on every model contract and remains the authoritative runtime compatibility field.
 - `is_enabled` defaults to `false` when omitted. Enabling a model still requires at least one enabled access target in the stored graph.
@@ -788,10 +804,13 @@ Validation rules:
 - Deleting a model referenced by another model target returns `409` until the target rows are removed or updated. Deleting an owner model deletes its Terminal Targets with the owning target rows.
 
 ##### Update Model
+
 ```
 PUT /api/models/{id}
 ```
+
 Request (all fields optional):
+
 ```json
 {
   "api_family": "openai",
@@ -801,12 +820,15 @@ Request (all fields optional):
   "is_enabled": true
 }
 ```
+
 Update payloads use the same field contract as create and do not mutate access targets. Existing access targets and private Terminal Targets are preserved and remain managed by model-scoped target and connection routes. Response `200`: Updated model object. Returns `409` if `model_id` conflicts within the effective profile. Changing `openai_accepted_format` that would break an existing mode-equal relation (own connection targets, outbound model targets, or inbound referrers) also returns `409`.
 
 ##### Delete Model
+
 ```
 DELETE /api/models/{id}
 ```
+
 Response `200`: `{ "deleted": true }`. Returns `409` if other models still reference this model through model targets. When deletion succeeds, the owner model's private connection rows and their internal owning access-target rows are removed in the same operation.
 
 ---
@@ -814,15 +836,19 @@ Response `200`: `{ "deleted": true }`. Returns `409` if other models still refer
 #### 1.4 Endpoints (Profile-Scoped Credentials)
 
 ##### List Endpoints
+
 ```
 GET /api/endpoints
 ```
+
 Response `200`: Array of endpoint objects in the effective profile scope, ordered by `lower(name) ASC, name ASC, id ASC`.
 
 ##### List All Connections (Dropdown)
+
 ```
 GET /api/endpoints/connections
 ```
+
 Response `200`: `{ "items": [...] }` containing connection summary rows for dropdown consumers.
 
 ##### Create Endpoint
@@ -830,7 +856,9 @@ Response `200`: `{ "items": [...] }` containing connection summary rows for drop
 ```
 POST /api/endpoints
 ```
+
 Request:
+
 ```json
 {
   "name": "Primary OpenAI",
@@ -838,19 +866,25 @@ Request:
   "api_key": "sk-abc123..."
 }
 ```
+
 Response `201`: Created endpoint object.
 
 ##### Duplicate Endpoint
+
 ```
 POST /api/endpoints/{id}/duplicate
 ```
+
 Response `201`: Created endpoint copy with a generated duplicate-safe name.
 
 ##### Update Endpoint
+
 ```
 PUT /api/endpoints/{id}
 ```
+
 Request:
+
 ```json
 {
   "name": "Updated OpenAI",
@@ -858,13 +892,16 @@ Request:
   "api_key": "sk-new-key..."
 }
 ```
+
 Optional `expected_updated_at` is an RFC3339 optimistic-concurrency guard mirroring the pricing-template contract: when supplied and different from the stored row `updated_at`, the backend returns `409` with detail `endpoint_stale` and the current endpoint state for immediate refresh. When omitted, behavior is unchanged (last write wins).
 Response `200`: Updated endpoint object.
 
 ##### Delete Endpoint
+
 ```
 DELETE /api/endpoints/{id}
 ```
+
 Response `200`: `{ "deleted": true }`.
 Returns `409` if any connections still reference this endpoint.
 
@@ -873,40 +910,53 @@ Returns `409` if any connections still reference this endpoint.
 Terminal Targets are Prism's product term for model-private endpoint bindings within one profile. Terminal Targets are represented as `connections` / `connection_id` in the compatibility API and database schema. A compatibility connection carries its owner model's `api_family`, endpoint reference or inline endpoint create payload, pricing template, and optional admission limits. Endpoints remain reusable, so many Terminal Targets may point at the same endpoint. `model_access_targets.target_type="connection"` is an internal ownership and runtime routing edge, not a public assignment surface for connection IDs.
 
 ##### List Terminal Targets Through `/api/connections`
+
 ```
 GET /api/connections
 ```
+
 Response `200`: Array of compatibility connection objects in the effective profile. This is a read surface for Terminal Targets. Public `/api/connections` mutation routes reject writes and direct operators to model detail.
 
 ##### Get Terminal Target Through `/api/connections/{connection_id}`
+
 ```
 GET /api/connections/{connection_id}
 ```
+
 Response `200`: Single compatibility connection object in the effective profile. Returns `404` when the connection does not exist in that profile.
 
 ##### List Terminal Targets Attached to Models
+
 ```
 POST /api/models/connections/batch
 ```
+
 Request:
+
 ```json
 {
   "model_config_ids": [1, 2, 3]
 }
 ```
+
 Response `200`: `items[]`, where each item contains a `model_config_id` and the Terminal Targets owned by that model's enabled or disabled internal connection targets, ordered by target position.
 
 ##### List Terminal Targets For One Model
+
 ```
 GET /api/models/{model_config_id}/connections
 ```
+
 Response `200`: Ordered array of Terminal Targets owned by the given model in the effective profile.
 
 ##### Create Terminal Target
+
 ```
 POST /api/models/{model_config_id}/connections
 ```
+
 Request (using existing endpoint):
+
 ```json
 {
   "endpoint_id": 1,
@@ -928,7 +978,9 @@ Request (using existing endpoint):
   "max_in_flight_stream": 2
 }
 ```
+
 Request (inline endpoint creation):
+
 ```json
 {
   "endpoint_create": {
@@ -945,9 +997,11 @@ Request (inline endpoint creation):
   "max_in_flight_stream": null
 }
 ```
+
 Response `201`: Created Terminal Target object, represented as a compatibility connection, plus its owner routing edge for the model.
 
 Create semantics:
+
 - Exactly one of `endpoint_id` or `endpoint_create` is required.
 - The connection `api_family` is derived from the owner model. A conflicting request value is rejected.
 - `priority` is rejected with `422`; Terminal Target ordering for a model is owned by `/api/models/{model_config_id}/targets` positions.
@@ -957,9 +1011,11 @@ Create semantics:
 - `routing_schedule` is an optional `{timezone, windows[]}` object (`object | null`). Missing and `null` both persist as unconfigured, which means no time restriction and byte-for-byte the pre-feature routing behaviour. A supplied object is validated and normalized before write: at most 32 windows, each with an ISO weekday bitmap (bit0 = Monday, 1–127), a `start_minute` in 0–1439 and an `end_minute` in 1–2880 that is greater than `start_minute` by at most 1440. An `end_minute` above 1440 continues into the next day, and `weekday_mask` names the day the window opens on, not every day it covers. A configuration whose windows together cover the whole week is rejected, because "always available" is expressed by having no schedule at all. Invalid values return `422` with `{"detail":"Invalid routing schedule","field":"routing_schedule","path":...,"reason":...,"index":...}`; an over-length timezone returns `400` and a server without a resolvable timezone database returns `503`, since that is a deployment gap rather than caller input.
 
 ##### Update Terminal Target
+
 ```
 PATCH /api/models/{model_config_id}/connections/{connection_id}
 ```
+
 Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `custom_request_parameters`, `routing_schedule`, `openai_text_capability`, `pricing_template_id`, `qps_limit`, `max_in_flight_non_stream`, `max_in_flight_stream`. `auth_type` accepts `openai`, `anthropic`, `gemini`, or `gemini_api_key`; it is independent of `api_family` and selects only the upstream credential scheme.
 
 `custom_request_parameters` is a presence-aware whole-value replace: omitting the field keeps the current value, `null`/`{}` clears it to `NULL`, and a non-empty valid object replaces it wholesale; any violation fails the whole PATCH atomically.
@@ -973,10 +1029,13 @@ Request: Mutable compatibility connection metadata: `endpoint_id`, `endpoint_cre
 Response `200`: Updated Terminal Target object, represented as a compatibility connection. Public `PUT` or `PATCH /api/connections/{connection_id}` rejects mutation requests.
 
 ##### List Terminal Target References
+
 ```
 GET /api/connections/{connection_id}/references
 ```
+
 Response `200`: Owner references for the Terminal Target, wrapped with the requested compatibility `connection_id`. A valid connection has one owner:
+
 ```json
 {
   "connection_id": 15,
@@ -998,9 +1057,11 @@ Response `200`: Owner references for the Terminal Target, wrapped with the reque
 Pricing templates are assigned through the Terminal Target update route by setting `pricing_template_id` together with its two CAS fields. Public connection-level pricing-template mutation routes reject writes.
 
 ##### Delete Terminal Target
+
 ```
 DELETE /api/models/{model_config_id}/connections/{connection_id}
 ```
+
 Response `200`: `{ "deleted": true }`.
 
 Deletes the Terminal Target and its internal owner access-target row together, subject to enabled-model target validation. Public `DELETE /api/connections/{connection_id}` rejects mutation requests.
@@ -1008,6 +1069,7 @@ Deletes the Terminal Target and its internal owner access-target row together, s
 Rejected legacy mutation routes return `400` with guidance to use model-scoped Terminal Target routes instead: `POST /api/connections`, `PUT/PATCH/DELETE /api/connections/{connection_id}`, `PUT /api/models/{model_config_id}/connections/{connection_id}`, and `PATCH /api/models/{model_config_id}/connections/{connection_id}/priority`. None of these 400 stubs ever advances a runtime-cache generation, because they never return `2xx`.
 
 ##### Model Target Routes
+
 ```
 GET /api/models/{model_config_id}/targets
 POST /api/models/{model_config_id}/targets
@@ -1018,6 +1080,7 @@ DELETE /api/models/{model_config_id}/targets/{target_id}
 ```
 
 Model target rows define a model's ordered access graph. Public authoring creates same-family model targets only; internal connection rows (Terminal Targets) share the same global mixed list and position space:
+
 ```json
 {
   "target_type": "model",
@@ -1028,6 +1091,7 @@ Model target rows define a model's ordered access graph. Public authoring create
 ```
 
 Target semantics:
+
 - Public `POST /api/models/{model_config_id}/targets` accepts `target_type="model"` with exact `target_model_id`, `position`, and `is_enabled`. Obsolete `weight` and `target_priority` keys reject on create, update, and patch payloads.
 - Runtime routing consumes exact target-model IDs only. Target payloads do not accept regex matcher fields, capability-metadata expansion, weighted policy names, or hidden priority fields.
 - Public target authoring rejects submitted `target_type="connection"`, `connection_id`, or `target_connection_id` values. Private connections are created and managed through `/api/models/{model_config_id}/connections`.
@@ -1040,11 +1104,13 @@ Target semantics:
 ##### Base URL Validation
 
 On endpoint create (`POST`) and update (`PUT`), the `base_url` is:
+
 1. **Normalized**: Trailing slashes are stripped (e.g., `https://api.example.com/` → `https://api.example.com`)
 2. **Validated**: Rejected with HTTP 422 if scheme/host is missing or the URL includes a query string or fragment.
 3. **Joined at runtime**: Path prefixes are allowed. Runtime appends the allowlisted operation path to the normalized endpoint path without version-segment de-duplication.
 
 Valid examples:
+
 - ✅ `https://api.openai.com`
 - ✅ `https://api.openai.com/v1`
 - ✅ `https://generativelanguage.googleapis.com`
@@ -1092,115 +1158,104 @@ under CI; this section describes intent rather than restating the payload.
 #### 1.6 Pricing Templates
 
 ##### List Pricing Templates
+
 ```
 GET /api/pricing-templates
 ```
+
 Response `200`: Array of pricing template list items in the effective profile scope.
 
 ##### Get Pricing Template
+
 ```
 GET /api/pricing-templates/{id}
 ```
+
 Response `200`: Pricing template object in the effective profile scope.
 Returns `404` when the template does not exist in the effective profile.
 
 ##### Create Pricing Template
+
 ```
 POST /api/pricing-templates
 ```
-Request:
+
+Request uses a strict discriminated shape. `template_kind` is required and the three variants are mutually exclusive:
+
 ```json
 {
   "name": "GPT-4o Standard",
-  "description": "Default OpenAI pricing",
-  "input_price": "5.00",
-  "output_price": "15.00",
-  "cached_input_price": "2.50",
-  "cache_creation_price": "0",
-  "reasoning_price": "15.00",
-  "tier": {
-    "input_tokens_above": 272000,
-    "input_price": "4",
-    "output_price": "18",
-    "cached_input_price": "2",
-    "cache_creation_price": "5",
-    "reasoning_price": "20"
+  "description": "Operator-authored pricing",
+  "template_kind": "standard",
+  "card": {
+    "input_price": "5",
+    "output_price": "15",
+    "cached_input_price": null,
+    "cache_creation_price": "0",
+    "reasoning_price": "15"
   }
 }
 ```
-Response `201`: Created pricing template object.
 
-Pricing templates use five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. The base input/output fields are required; the three specialty fields use explicit JSON `null` to mean unconfigured, while an empty or whitespace-only string is rejected with `422` rather than silently converted. Explicit `"0"` is configured free pricing. It is not missing price data. `MISSING_PRICE_DATA` is reserved for absent, unusable, or invalid pricing snapshots, or for required FX data that cannot be applied. A revision may additionally carry one `tier` object: `tier_input_tokens_above` is a positive integer and the five tier prices are a complete parity mirror of the base card, including `reasoning_price`; all six tier columns being `NULL` is the only unconfigured representation.
+`tiered` uses `base_card` and `tier.input_tokens_above` plus `tier.card`; `peak_valley` uses `peak_card`, `offpeak_card`, and `schedule` (`timezone` is an IANA name and `windows` are `[start_minute,end_minute)` rows). Every card requires input/output and preserves the same configured/NULL specialty shape across the complete card set. `peak` and `offpeak` are role labels, not a price ordering. Zero windows are rejected; an all-week window is valid and means the peak card is always selected. Standard and tiered revisions cannot carry schedule fields or window rows.
+
+Response `201`: Created typed pricing template object. The database source of truth is `pricing_template_cards` keyed by `(revision_id, card_role)` and `pricing_template_windows`; old revision price columns are removed by destructive migration `000023_pricing_template_kind_cards.sql`. `000023` is fresh-only: any retained pricing or currency-migration rows fail before DDL with a readable rebuild error and the transaction rolls back.
+
+Explicit JSON `null` means an unconfigured specialty component; explicit `"0"` means configured free pricing. `MISSING_PRICE_DATA` never means zero. A kind change is a complete retype, requires the full target shape and `expected_updated_at`, and creates a new immutable revision.
 
 ##### Import Pricing Templates
+
 ```
 POST /api/pricing-templates/import
 ```
-Request:
-```json
-{
-  "mode": "upsert_by_name",
-  "templates": [
-    {
-      "name": "gpt-4o",
-      "input_price": "2.5",
-      "output_price": "10",
-      "cached_input_price": "1.25",
-      "cache_creation_price": "0",
-      "reasoning_price": "0",
-      "tier": {
-        "input_tokens_above": 272000,
-        "input_price": "4",
-        "output_price": "18",
-        "cached_input_price": "2",
-        "cache_creation_price": "5",
-        "reasoning_price": "20"
-      },
-      "description": "OpenAI GPT-4o"
-    }
-  ]
-}
-```
-Response `200`: `{ "created": 1, "updated": 0, "skipped": [], "errors": [] }`.
 
-`mode` is either `upsert_by_name` or `create_only`. Imports are Default-profile scoped and use one transaction: validation errors return `400` with row-level `errors[]`, and no templates are created or updated.
-
-`POST /api/pricing-templates/import` is a pure preview: it validates every row and returns the per-row action, summary, and preview hash without writing anything, so it never advances a runtime-cache generation. `POST /api/pricing-templates/import/commit` replays the identical previewed payload and is the only write path; it advances the Default-profile planning generation in the same transaction as the write.
+The import envelope is schema-versioned (`schema_version: 2`) and contains the same typed template shapes as create. Unknown fields and legacy flat price fields are rejected. Preview returns each row's `template_kind`, action, current/next version, and a hash; commit accepts only the exact preview hash and writes the whole batch atomically. Failed rows do not advance the planning generation.
 
 ##### Update Pricing Template
+
 ```
 PUT /api/pricing-templates/{id}
 ```
-Request: Full replacement for mutable pricing template fields. Explicit JSON `null` clears an optional specialty price or the whole `tier` object; empty and whitespace-only price strings are rejected with `422`. On update, a missing `tier` key preserves the current tier, `null` clears it, and an object replaces the complete threshold-plus-five-price card. Optional `expected_updated_at` is an RFC3339 optimistic-concurrency guard; when supplied, the backend returns `409` if it does not match the current row `updated_at`.
-Response `200`: Updated pricing template object.
+
+Update preserves the current kind when `template_kind` is omitted. A same-kind shape edit or a retype replaces the complete normalized card/window shape; omitted kind-specific fields are not silently merged into another kind. Retyping requires `expected_updated_at`; stale CAS returns `409`. Any kind/card/threshold/timezone/window change creates an append-only revision and bumps the pricing generation. Metadata-only name/description changes do not create a price revision.
+Response `200`: Updated typed pricing template object.
 
 ##### Delete Pricing Template
+
 ```
 DELETE /api/pricing-templates/{id}
 ```
+
 Response `200`: `{ "deleted": true }`.
 Returns `409` when the template is still referenced by Terminal Targets; response `detail` includes a compatibility `connections` array with dependency details.
 
 ##### List Terminal Targets Using Template
+
 ```
 GET /api/pricing-templates/{id}/connections
 ```
-Response `200`: Usage payload with `template_id` and `items[]` (`connection_id`, `connection_name`, `model_config_id`, `model_id`, `endpoint_id`, `endpoint_name`).
+
+Response `200`: Usage payload with `template_id` and `items[]` (`connection_id`, `connection_name`, `model_config_id`, `model_id`, `endpoint_id`, `endpoint_name`)
 ---
 
 #### 1.7 Settings API
 
 ##### Get Auth Settings
+
 ```
 GET /api/settings/auth
 ```
+
 Response `200` is the v2 control-plane projection: `revision`, `auth_mode` (`desired`, `effective`, `access_state`, and monotonic generations), effective/desired operator-account state, `transition`, `proxy_key_readiness` (server-clock `counted_at`, active/expired/disabled counts, and a 30-second `safe_active` guard), attribution mode, and `updated_at`. Passwords and one-time proxy-key secrets are never returned.
 
 ##### Update Auth Settings
+
 ```
 PUT /api/settings/auth
 ```
+
 Request fields:
+
 - `operation_id` (RFC 4122 UUIDv4 intent; replay identity, never a secret)
 - `expected_revision`
 - `desired_auth_enabled`
@@ -1209,12 +1264,14 @@ Request fields:
 - `acknowledgements` for zero safe keys, permissive disable, and operator-session invalidation
 
 Lifecycle contract:
+
 - Disabling auth clears the current browser cookies in the response and invalidates stale management sessions immediately.
 - Changing the operator username or password invalidates stale management sessions immediately, even when auth remains enabled.
 - After invalidation, `GET /api/auth/session` returns `401`, while `GET /api/auth/status` continues to report the live global auth mode.
 - The write stages an immutable config version and returns an operation status URL; the effective pointer is flipped only after the final conditional proof. Exact operation replay returns the durable result. Persisted fail-closed transitions (`enabling_fail_closed`, `rollback_required`) block ordinary management with the registered typed `503` and are settled through the operation status endpoint; `disabling_enforced` keeps the old enabled gate until the runtime snapshot adopts the change. Auth staging and proxy-key mutation share the Proxy readiness fence and the affected Requests/Audit writer admission.
 
 ##### Proxy API Keys
+
 ```
 GET /api/settings/auth/proxy-keys
 POST /api/settings/auth/proxy-keys
@@ -1224,6 +1281,7 @@ DELETE /api/settings/auth/proxy-keys/{id}
 ```
 
 Proxy-key lifecycle contract:
+
 - List responses are arrays of proxy-key items with `id`, `name`, `key_prefix`, `key_preview`, `is_active`, `expires_at`, `last_used_at`, `last_used_ip`, `notes`, `rotated_at`, `rotation_count`, `created_at`, and `updated_at`.
 - Create accepts `name`, optional `notes`, and optional RFC3339 `expires_at`. Response `201` is `{ "key": "<one-time-secret>", "item": { ... } }`.
 - Update requires a non-empty `name` and accepts optional `notes`, `is_active`, and RFC3339 `expires_at`. Response `200` is the updated item. Omitted or JSON `null` `expires_at` preserves the current expiry; update does not expose a clear-expiry operation.
@@ -1233,10 +1291,13 @@ Proxy-key lifecycle contract:
 `GET ...?include=setup_readiness&expected_route_witness_generation=<generation>` uses the same Proxy-owner counted readiness snapshot and 30-second safe-active horizon as auth enablement, then joins it with the route-witness owner snapshot. It is a read-only handoff and returns a typed conflict when the requested witness generation is stale.
 
 ##### Get Costing Settings
+
 ```
 GET /api/settings/costing
 ```
+
 Response `200`:
+
 ```json
 {
   "profile_id": 1,
@@ -1256,10 +1317,13 @@ Response `200`:
 `/api/settings/auth*` routes are global management endpoints. `/api/settings/costing` (including timezone preference) and `/api/settings/audit` are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored. There is no standalone `/api/settings/timezone` route.
 
 ##### Update Costing Settings
+
 ```
 PUT /api/settings/costing
 ```
+
 Request:
+
 ```json
 {
   "report_currency_symbol": "€",
@@ -1267,6 +1331,7 @@ Request:
   "expected_updated_at": "2026-08-09T12:00:00Z"
 }
 ```
+
 Response `200`: Updated settings object. A report-currency change with an existing epoch is rejected unless it uses the currency migration preview/commit workflow. `endpoint_fx_mappings` is retired and rejected; historical FX is read-only evidence.
 
 Timezone is not a standalone route. It is saved in the costing CAS and changes only timestamp display and `Custom` input interpretation; stored UTC instants, retention cutoffs, and scheduled UTC-day semantics do not change.
@@ -1282,13 +1347,17 @@ There is no standalone `/api/settings/monitoring` route, `/api/monitoring/*` fam
 #### 1.9 User-Agent Client Rules (System Global + User Profile-Scoped)
 
 ##### List User-Agent Client Rules
+
 ```
 GET /api/config/user-agent-client-rules
 ```
+
 Query parameters:
+
 - `include_disabled` (boolean, default `true`): Whether to include disabled rules in the list.
 
 Response `200`:
+
 ```json
 [
   {
@@ -1307,16 +1376,21 @@ Response `200`:
 The list returns system rules plus any user rules in the effective profile.
 
 ##### Get User-Agent Client Rule
+
 ```
 GET /api/config/user-agent-client-rules/{rule_id}
 ```
+
 Response `200`: Single rule object.
 
 ##### Create User-Agent Client Rule
+
 ```
 POST /api/config/user-agent-client-rules
 ```
+
 Request:
+
 ```json
 {
   "name": "My SDK",
@@ -1324,25 +1398,32 @@ Request:
   "enabled": true
 }
 ```
+
 Response `201`: Created rule object. `pattern` must be a valid regular expression.
 
 ##### Update User-Agent Client Rule
+
 ```
 PATCH /api/config/user-agent-client-rules/{rule_id}
 ```
+
 Request (all fields optional):
+
 ```json
 {
   "enabled": false
 }
 ```
+
 Response `200`: Updated rule object.
 Note: For system rules (`is_system: true`), only `enabled` is mutable. Attempting to change `name` or `pattern` returns `400`.
 
 ##### Delete User-Agent Client Rule
+
 ```
 DELETE /api/config/user-agent-client-rules/{rule_id}
 ```
+
 Response `200`: `{ "deleted": true }`.
 Note: Delete is only available for effective-profile user rules. Attempting to delete a system rule through this route returns `404` because system rows are not in the profile-owned delete scope.
 
@@ -1351,13 +1432,17 @@ Note: Delete is only available for effective-profile user rules. Attempting to d
 #### 1.10 Header Blocklist Rules (System Global + User Profile-Scoped)
 
 ##### List Header Blocklist Rules
+
 ```
 GET /api/config/header-blocklist-rules
 ```
+
 Query parameters:
+
 - `include_disabled` (boolean, default `true`): Whether to include disabled rules in the list.
 
 Response `200`:
+
 ```json
 [
   {
@@ -1375,16 +1460,21 @@ Response `200`:
 ```
 
 ##### Get Header Blocklist Rule
+
 ```
 GET /api/config/header-blocklist-rules/{id}
 ```
+
 Response `200`: Single rule object.
 
 ##### Create Header Blocklist Rule
+
 ```
 POST /api/config/header-blocklist-rules
 ```
+
 Request:
+
 ```json
 {
   "name": "My Custom Header",
@@ -1393,26 +1483,33 @@ Request:
   "enabled": true
 }
 ```
+
 Response `201`: Created rule object. Returns `409` if a user rule with the same `match_type` and `pattern` already exists in the effective profile. Prefix patterns must end with `-`.
 
 ##### Update Header Blocklist Rule
+
 ```
 PATCH /api/config/header-blocklist-rules/{id}
 ```
+
 Request (all fields optional):
+
 ```json
 {
   "name": "Updated Name",
   "enabled": false
 }
 ```
+
 Response `200`: Updated rule object.
 Note: For system rules (`is_system: true`), only the `enabled` field can be modified. Attempting to change other fields returns `400`.
 
 ##### Delete Header Blocklist Rule
+
 ```
 DELETE /api/config/header-blocklist-rules/{id}
 ```
+
 Response `200`: `{ "deleted": true }`.
 Note: Delete is only available for effective-profile user rules. Attempting to delete a system rule through this route returns `404` because system rows are not in the profile-owned delete scope.
 
@@ -1437,7 +1534,7 @@ When operator auth is enabled, runtime proxy routes require a valid active, unex
 #### 2.1 Supported Runtime Operations
 
 | Operation | Canonical operation name | Supported request |
-|---|---|---|
+| --- | --- | --- |
 | OpenAI models list | `openai.models` | `GET /v1/models` |
 | OpenAI chat completions | `openai.chat_completions` | `POST /v1/chat/completions` |
 | OpenAI Responses | `openai.responses` | `POST /v1/responses` |
@@ -1478,6 +1575,7 @@ OpenAI text routing is native-only and mode-strict. The requested model's `opena
 Management enforcement mirrors the runtime contract. Authoring any OpenAI relation (model to model, model to Terminal Target, including references to shared connections) whose source mode differs from the target mode is rejected with `422 Unprocessable` and issue code `target_openai_mode_mismatch` inside `routing_plan_issues`; disabled or inactive relations are not exempt. Changing a persisted model `openai_accepted_format` or connection `openai_text_capability` that would break an existing relation returns `409 Conflict`. Non-OpenAI families keep the existing api-family validation channels unchanged.
 
 Upgrade and startup guards are read-only and deterministic:
+
 - `PRISM_OPENAI_MODE_PREFLIGHT=1` runs the same persisted-relation scan before startup/migrations: exit `0` = compliant, `1` = violations found, `2` = connection/check failure; the stdout report lists each violation (`model_target`/`connection_target`, source, target, both modes) in stable order. It writes no management state and never contacts an upstream provider.
 - Startup runs the scan as `openai_text_mode_check` immediately after migrations and before any writable seed or normalization step; any violation fails startup with `openai text mode equality check failed` and a violation summary.
 
@@ -1486,6 +1584,7 @@ Prism does not convert requests, non-stream responses, or streams between Chat C
 ##### 2.2B.1 Application capability matrix
 
 The following application-spec example assumes these OpenAI text capabilities and matching access-target order:
+
 - `gpt-5.5`: `dual_native`
 - `gpt-5.4`: `dual_native`
 - `deepseek-v4-flash`: `chat_completions_only`
@@ -1493,7 +1592,7 @@ The following application-spec example assumes these OpenAI text capabilities an
 Native request behavior (strict mode equality: each target shown is authored with the same mode as the requested model):
 
 | Requested model | Ingress path | Target capability | Upstream path | `operation_translation_mode` | Client-visible shape |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | `gpt-5.5` | `/v1/responses` | `dual_native` | `/v1/responses` | `none` | Responses |
 | `gpt-5.5` | `/v1/chat/completions` | `dual_native` | `/v1/chat/completions` | `none` | Chat Completions |
 | `gpt-5.4` | `/v1/responses` | `dual_native` | `/v1/responses` | `none` | Responses |
@@ -1526,16 +1625,21 @@ Model-scoped overflow replay and its authoring fields are retired. Runtime plann
 #### 2.3 OpenAI Operations
 
 ##### Models
+
 ```
 GET /v1/models
 ```
+
 Local OpenAI-shaped `{"object":"list","data":[...]}` list of enabled `api_family="openai"` models for frozen Default profile id `1`. Query parameters, including the retired `client_version`, do not select an alternate response shape. Prism does not contact configured model providers for this local operation.
 
 ##### Chat Completions
+
 ```
 POST /v1/chat/completions
 ```
+
 Request (standard OpenAI format):
+
 ```json
 {
   "model": "gpt-4o",
@@ -1547,13 +1651,17 @@ Request (standard OpenAI format):
   "stream": false
 }
 ```
+
 Response: Native attempts are proxied from an upstream Chat Completions-capable OpenAI endpoint. Canonical operation name: `openai.chat_completions`.
 
 ##### Responses
+
 ```
 POST /v1/responses
 ```
+
 Request (OpenAI Responses generation format):
+
 ```json
 {
   "model": "gpt-4o",
@@ -1561,43 +1669,55 @@ Request (OpenAI Responses generation format):
   "stream": false
 }
 ```
+
 Response: Native attempts are proxied from an upstream Responses-capable OpenAI endpoint. Canonical operation name: `openai.responses`.
 
 ##### Image Generations
+
 ```
 POST /v1/images/generations
 ```
+
 Request uses the upstream OpenAI-compatible image generation body, including body-bound `model`. `stream: true` opts into a server-sent event stream of `image_generation.partial_image` events terminated by `image_generation.completed`; the non-stream response is the ordinary `ImagesResponse` JSON body. Canonical operation name: `openai.images.generations`.
 
 ##### Image Edits
+
 ```
 POST /v1/images/edits
 ```
+
 Request uses the upstream OpenAI-compatible JSON image edit body, whose `images` array references inputs by URL, data URL, or uploaded file id. `stream: true` opts into `image_edit.partial_image` events terminated by `image_edit.completed`. Canonical operation name: `openai.images.edits`.
 
 `multipart/form-data` image edits are **not** part of this runtime contract. Only the JSON channel is registered, and the ordinary `20 MiB` request body limit applies. Because the operation binds its model from the JSON body, a multipart edit body cannot be routed and is rejected with `400 Cannot determine model for routing. Operation 'openai.images.edits' binds models from the body.` before provider transport; it is never proxied unrouted.
 
 ##### Responses Input Tokens
+
 ```
 POST /v1/responses/input_tokens
 ```
+
 Request uses the OpenAI Responses input-token counting format, including body-bound `model` and `input`.
 Response: Proxied directly from the upstream OpenAI-compatible endpoint. Canonical operation name: `openai.responses.input_tokens`.
 
 ##### Responses Compact
+
 ```
 POST /v1/responses/compact
 ```
+
 Request uses the OpenAI Responses compaction format, including body-bound `model` and `input`.
 Response: Proxied directly from the upstream OpenAI-compatible endpoint. Canonical operation name: `openai.responses.compact`.
 
 #### 2.4 Anthropic Operations
 
 ##### Messages
+
 ```
 POST /v1/messages
 ```
+
 Request (standard Anthropic format):
+
 ```json
 {
   "model": "claude-sonnet-4-20250514",
@@ -1607,22 +1727,28 @@ Request (standard Anthropic format):
   ]
 }
 ```
+
 Response: Proxied directly from the upstream Anthropic-compatible endpoint. Canonical operation name: `anthropic.messages`.
 
 ##### Token Count
+
 ```
 POST /v1/messages/count_tokens
 ```
+
 Request uses the upstream Anthropic-compatible token-count body, including body-bound `model`.
 Response: Proxied directly from the upstream Anthropic-compatible endpoint. Canonical operation name: `anthropic.count_tokens`.
 
 #### 2.5 Gemini Operations
 
 ##### Generate Content
+
 ```
 POST /v1beta/models/{model}:generateContent
 ```
+
 Request (standard Gemini native format):
+
 ```json
 {
   "contents": [
@@ -1633,20 +1759,25 @@ Request (standard Gemini native format):
   ]
 }
 ```
+
 Response: Proxied directly from the upstream Gemini-compatible endpoint. Canonical operation name: `gemini.generate_content`.
 
 ##### Stream Generate Content
+
 ```
 POST /v1beta/models/{model}:streamGenerateContent
 ```
+
 Request uses the upstream Gemini native generate-content body with the model bound from the path.
 Response: Proxied directly from the upstream Gemini-compatible endpoint. Canonical operation name: `gemini.stream_generate_content`.
 The `{model}` binding must be one non-empty path segment and cannot contain `/` or `:`.
 
 ##### Count Tokens
+
 ```
 POST /v1beta/models/{model}:countTokens
 ```
+
 Request uses the upstream Gemini native token-count body with the model bound from the path.
 Response: Proxied directly from the upstream Gemini-compatible endpoint. Canonical operation name: `gemini.count_tokens`.
 For all Gemini runtime paths in this section, the `{model}` binding must be one non-empty path segment and cannot contain `/` or `:`.
@@ -1661,21 +1792,23 @@ For Gemini, the `gemini.stream_generate_content` path is authoritative: `POST /v
 The gateway extracts token usage from upstream responses and logs canonical disjoint token components to `request_logs`. Extraction is selected by the resolved canonical operation name and its hook collection. `input_tokens` is base input only, `output_tokens` is base output only, cache-read input, cache-creation input, and reasoning output are separate fields, and `total_tokens` uses the provider total when one is supplied.
 
 **Non-streaming responses:**
+
 | Canonical operation name | Response format | Extraction path |
-|---|---|---|
+| --- | --- | --- |
 | `openai.chat_completions` | `{"usage": {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}}` plus detail objects when present | Base input and output subtract cached and reasoning detail counts; provider `total_tokens` stays authoritative |
 | `openai.responses`, `openai.responses.compact` | `{"usage": {"input_tokens": N, "output_tokens": N, "total_tokens": N}}` plus detail objects when present | Base input and output subtract cached and reasoning detail counts; provider `total_tokens` stays authoritative |
-| `openai.responses.input_tokens` | `{"input_tokens": N, "total_tokens": N}` | Top-level count as base `input_tokens` and `total_tokens`; `output_tokens` = null |
+| `openai.responses.input_tokens` | `{"input_tokens": N, "total_tokens": N}` | Top-level count as base `input_tokens` and `total_tokens`; `output_tokens` = null. Pricing selects the applicable input card and charges observed input/cache components only; absent output is zero for this operation. |
 | `openai.images.generations`, `openai.images.edits` | `{"usage": {"input_tokens": N, "output_tokens": N, "total_tokens": N, "input_tokens_details": {...}}}` | Base input and output are taken whole with no subtraction; there is no cache or reasoning component, and `input_tokens_details` is a breakdown rather than a separate billing component, so its `text_tokens`/`image_tokens` split is not persisted |
 | `anthropic.messages` | `{"usage": {"input_tokens": N, "cache_read_input_tokens": N, "cache_creation_input_tokens": N, "output_tokens": N}}` | Base input, cache-read input, cache-creation input, and base output stay separate; total is derived when upstream omits it |
-| `anthropic.count_tokens` | `{"input_tokens": N}` | Top-level count as base `input_tokens` and `total_tokens`; `output_tokens` = null |
+| `anthropic.count_tokens` | `{"input_tokens": N}` | Top-level count as base `input_tokens` and `total_tokens`; `output_tokens` = null. Pricing selects the applicable input card and charges observed input/cache components only; absent output is zero for this operation. |
 | `gemini.generate_content`, `gemini.stream_generate_content` when handled as non-stream JSON | `{"usageMetadata": {"promptTokenCount": N, "cachedContentTokenCount": N, "candidatesTokenCount": N, "thoughtsTokenCount": N, "totalTokenCount": N}}` | Base input subtracts cache-read input because `cachedContentTokenCount` is part of `promptTokenCount`; base output is `candidatesTokenCount` as reported and reasoning output is `thoughtsTokenCount` as reported, because Google defines `totalTokenCount` as prompt + thoughts + response candidates (three parallel terms); provider `totalTokenCount` stays authoritative |
-| `gemini.count_tokens` | `{"totalTokens": N}` or `{"total_tokens": N}` | Top-level count as base `input_tokens` and `total_tokens`; `output_tokens` = null |
+| `gemini.count_tokens` | `{"totalTokens": N}` or `{"total_tokens": N}` | Top-level count as base `input_tokens` and `total_tokens`; `output_tokens` = null. Pricing selects the applicable input card and charges observed input/cache components only; absent output is zero for this operation. |
 
 **Streaming responses:**
 The gateway accumulates SSE chunks during streaming and extracts usage from operation-specific terminal events:
+
 | Canonical operation name | Usage events | Extraction |
-|---|---|---|
+| --- | --- | --- |
 | `openai.chat_completions` | Final usage chunk before `[DONE]` | Same canonical disjoint fields as non-streaming usage |
 | `openai.responses` | `response.completed` event with a `usage` object when provided by upstream | Same canonical disjoint fields as non-streaming usage |
 | `openai.images.generations` | `image_generation.completed` event with a `usage` object | Same canonical disjoint fields as non-streaming image usage; `image_generation.partial_image` events carry no usage |
@@ -1696,7 +1829,9 @@ A Gemini `usageMetadata` payload whose provider total falls below the canonical 
 ```
 GET /health
 ```
+
 Response `200` returns liveness, readiness, and startup state together with the current backend release version:
+
 ```json
 {
   "status": "ok",
@@ -1716,14 +1851,17 @@ The health contract is not version only. It is the operator-facing target for ba
 Stats APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
 
 #### 4.0 Dashboard Stats
+
 ```
 GET /api/stats/dashboard
 ```
+
 This is the canonical overview dashboard read path. It returns one backend-computed, stats-only aggregate snapshot for the effective profile, including overview metrics, API-family rows, top-spending models, and a `routing_health_map` response field. It does not include recent request rows, request-log IDs, or request-log cursor data. Recent activity is served by `GET /api/stats/dashboard/recent-activity`. The current production dashboard does not render `routing_health_map`.
 
 Query parameters: none. Legacy `window` query values are ignored. The endpoint always returns the canonical aggregate snapshot and does not expose the old top-level `window`, `covers`, `freshness`, or `metrics` shape. Snapshot freshness is ordered by lexicographic `snapshot_revision`; `source_watermark` is diagnostic only.
 
 Response `200`:
+
 ```json
 {
   "generated_at": "2026-04-19T12:00:00Z",
@@ -1782,12 +1920,15 @@ Response `200`:
 In `metric_snapshot`, `avg_latency`, `error_rate`, `p95_latency`, and `success_rate` are `null` when the window has zero traffic; the counts (`total_requests` etc.) stay numeric. Recent-activity items carry nullable `status_code` / `response_time_ms` (null for rows without a resolved duration), and `response_time_ms` is the end-to-end duration including stream finalization.
 
 #### 4.0A Dashboard Recent Activity
+
 ```
 GET /api/stats/dashboard/recent-activity?limit=N
 ```
+
 This endpoint is the separate request-history-backed activity feed for dashboard bootstrap and repair. It is not embedded in the dashboard snapshot. The default limit is `12`; the maximum limit is `50`. Rows are ordered by `(created_at DESC, request_log_id DESC)`.
 
 Response `200`:
+
 ```json
 {
   "generated_at": "2026-04-19T12:00:00Z",
@@ -1822,12 +1963,15 @@ Response `200`:
 Recent activity links into request-log investigation by `request_log_id`. It does not define snapshot freshness, and activity publication does not force a dashboard snapshot rebuild.
 
 #### 4.1 Usage Snapshot
+
 ```
 GET /api/stats/usage-snapshot
 ```
+
 This is the REST analytics snapshot contract for API callers, debugging, and the `/observe?tab=analytics` UI polling path.
 
 Query parameters:
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `preset` | string | `1h` | Snapshot range preset. Supported values: `1h`, `6h`, `24h`, `7d`, `30d`, `all` |
@@ -1843,12 +1987,15 @@ Response `200` includes `latency_trends` alongside `request_trends`, `token_usag
 `GET /api/stats/requests/operations` is not part of the current management API.
 
 #### 4.1A Endpoint Model Statistics
+
 ```
 GET /api/stats/endpoints/{endpoint_id}/models
 ```
+
 Query parameters:
+
 | Parameter | Type | Default | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `preset` | string | `1h` | Time preset: `1h`, `6h`, `24h`, `7d`, `30d`, `all` |
 | `from_time` | datetime | — | Optional explicit start time |
 | `to_time` | datetime | — | Optional explicit end time |
@@ -1856,15 +2003,18 @@ Query parameters:
 Response `200`: Array of per-model endpoint statistics. Each item includes `model_id`, `model_label`, request counts, success rates, TTFT percentiles, token totals, total cost, and average output rate for the selected endpoint scope.
 
 #### 4.2 List Request Logs / Ingress Chains
+
 ```
 GET /api/stats/requests?view=attempts
 GET /api/stats/requests?view=ingress_chains
 ```
+
 `view=ingress_chains` is the default when `view` is omitted.
 
 Attempt-view query parameters:
+
 | Parameter | Type | Default | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `ingress_request_id` | string | — | Exact incoming-request grouping ID shared by per-attempt rows |
 | `model_id` | string | — | Filter by requested model ID |
 | `resolved_target_model_id` | string | — | Filter by final target model selected for the attempt |
@@ -1883,8 +2033,9 @@ Attempt-view query parameters:
 | `sort_order` | string | `desc` | `asc` or `desc`; any other value is rejected with `422 sort_unsupported` |
 
 Chain-view query parameters (`view=ingress_chains`):
+
 | Parameter | Type | Default | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `chain_limit` | integer | 20 | Ingress count per outer page (max 50) |
 | `chain_row_limit` | integer | 50 | Retained-row inner page per ingress (max 200) |
 | `chain_cursor` | string | — | Signed opaque outer cursor; never splits an ingress across pages |
@@ -1897,6 +2048,7 @@ Chain-view query parameters (`view=ingress_chains`):
 The `/observe/requests` route uses these signed chain cursors and derives its default 24-hour window in the page state. The request attempts, ingress-chain list, and CSV export send the selected `time_range` to the server; the server resolves it against the Requests actual-coverage owner rather than trusting a browser-generated timestamp. CSV export is server-side over the selected bounded result set at `GET /api/stats/requests/export`; responses include the digest, exact content length and coverage callout rather than treating an incomplete retained window as true-empty.
 
 Attempt-view response `200`:
+
 ```json
 {
   "filter_options": {
@@ -1975,6 +2127,7 @@ Attempt-view response `200`:
 `terminal_target_label` is resolved from the current connection catalog: `null` means the connection row no longer exists; a label with `terminal_target_configured=false` means the connection exists but is inactive; a catalog read failure always returns `5xx` and never downgrades to `configured=false`. `total` is capped at 10000 with `total_is_exact=false` above the cap (`has_more` is then also true), so the UI can render "10,000+".
 
 Chain-view response `200`:
+
 ```json
 {
   "query_context": null,
@@ -2087,9 +2240,11 @@ The list route is the slim browse contract used by `/observe/requests` and other
 Exact single-request investigation now lives on `GET /api/stats/requests/{request_id}` (v2 detail) instead of the paginated list-query surface.
 
 #### 4.2A Full Filtered CSV Export
+
 ```
 GET /api/stats/requests/export
 ```
+
 Server-side full filtered CSV export (Requests SPEC §6.8). Query parameters mirror the attempt-view filters above (`view`, `from_time`/`to_time`, `pricing_status`, `unpriced_reason`, `status_family`, `status_code`, `error_text`, `ingress_request_id`, `model_id`, `endpoint_id`, `client_rule_id`, `resolved_target_model_id`) plus optional `exact_request_log_ids`. The export:
 
 - Reads rows and counts in one `READ ONLY REPEATABLE READ` snapshot (with exact-ID exemption); concurrent inserts cannot change the exported row count.
@@ -2099,11 +2254,13 @@ Server-side full filtered CSV export (Requests SPEC §6.8). Query parameters mir
 - Responds `422` when pagination keys (`limit`/`offset`/`cursor`/`chain_cursor`) are present.
 
 #### 4.3 Get Request Log Detail
+
 ```
 GET /api/stats/requests/{request_id}
 ```
 
 Response `200` (v2 exact detail; old un-scoped `status_code`/`response_time_ms` and `priced_flag`/`billable_flag` are not part of this contract):
+
 ```json
 {
   "summary": {
@@ -2258,7 +2415,7 @@ Failure projection semantics:
 - `legacy_pricing_evidence` is non-null only when `pricing_evidence_trust=legacy_untrusted` (shape `{raw_total_cost_original_micros, raw_total_cost_report_micros, raw_component_cost_micros, raw_price_snapshots, original_currency_code, report_currency_code, warning_code:"historical_unverified"}`); canonical cost stays null for those rows.
 - `current_pricing_template` is an optional read-only comparison; deleted/out-of-scope templates return `deleted=true` with the availability state, never a current-configuration substitute.
 
-Request-log detail uses the same canonical disjoint token components as runtime persistence: base input, base output, cache-read input, cache-creation input, reasoning output, and provider or derived total. Pricing snapshots store the five concrete pricing strings used for the attempt. Explicit `"0"` prices are configured free pricing and produce zero component cost without marking the row unpriced. Public request-log detail routing exposes `terminal_target_id` and `selected_terminal_target_id`; it does not expose `routing.connection_id` on the detail surface.
+Request-log detail uses the same canonical disjoint token components as runtime persistence: base input, base output, cache-read input, cache-creation input, reasoning output, and provider or derived total. Pricing snapshots store the five strings from the selected card only. Detail also exposes independent template kind, selection state, card role, generic tier evidence, and peak/valley decision-time evidence. Explicit `"0"` prices are configured free pricing and produce zero component cost without marking the row unpriced. Public request-log detail routing exposes `terminal_target_id` and `selected_terminal_target_id`; it does not expose `routing.connection_id` on the detail surface.
 
 Request-log detail keeps ingress and upstream attribution separate. `request.operation_name` and `request.request_path` are ingress-led. `request.upstream_operation_name`, `request.operation_translation_mode`, and `request.upstream_request_path` describe the provider-facing operation selected for the attempt. Current OpenAI attempts use `operation_translation_mode = "none"` and keep ingress and upstream operation shapes equal. Historical rows retain and expose any translation mode recorded before sibling conversion was removed.
 
@@ -2273,12 +2430,15 @@ The request-log sheet consumes this grouped detail contract as overview-only dat
 The request-history, spending, throughput, usage-snapshot, model-metrics, connection-success-rate, and dashboard aggregate APIs in this section remain product-facing PostgreSQL-backed surfaces. Prism no longer starts metrics or tracing exporters and does not surface a backend-local `/metrics` compatibility route.
 
 #### 4.4 Get Aggregated Statistics
+
 ```
 GET /api/stats/summary
 ```
+
 Query parameters:
+
 | Parameter | Type | Default | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `from_time` | datetime | — | Start of time range. If omitted, returns all historical data. |
 | `to_time` | datetime | now | End of time range |
 | `group_by` | string | — | Group results by: `model`, `api_family`, `endpoint` |
@@ -2288,6 +2448,7 @@ Query parameters:
 | `connection_id` | integer | — | Filter by connection ID |
 
 Response `200`:
+
 ```json
 {
   "total_requests": 1500,
@@ -2315,10 +2476,13 @@ Response `200`:
 Caliber declaration: the summary is built from `usage_request_events` (one row per ingress), carries `granularity: "request"` and `latency_basis: "end_to_end"`, and is deliberately different from the attempt-level caliber of `models/metrics`.
 
 #### 4.5 Model Metrics (Batch)
+
 ```
 POST /api/stats/models/metrics
 ```
+
 Request:
+
 ```json
 {
   "model_ids": ["gpt-4o", "claude-3-5-sonnet"],
@@ -2326,21 +2490,26 @@ Request:
   "spending_preset": "last_30_days"
 }
 ```
+
 Response `200`: `items[]`, where each item contains `model_id`, `success_rate`, `request_count_24h`, `p95_latency_ms`, and `spend_30d_micros`. `success_rate` is `null` when the window has no samples for the model, `p95_latency_ms` is `null` without latency samples, and `spend_30d_micros` is `null` without trusted pricing evidence.
 
 #### 4.6 Get Connection Success Rates
+
 ```
 GET /api/stats/connection-success-rates
 ```
+
 Returns success rate data for all connections, computed from `request_logs`.
 
 Query parameters:
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `from_time` | datetime | — | Start of time range. If omitted, returns all historical data. |
 | `to_time` | datetime | now | End of time range |
 
 Response `200`:
+
 ```json
 [
   {
@@ -2361,6 +2530,7 @@ Response `200`:
 ```
 
 Fields:
+
 - `connection_id` (int): The connection ID
 - `total_requests` (int): Total requests routed through this connection
 - `success_count` (int): Requests with 2xx status codes
@@ -2368,12 +2538,15 @@ Fields:
 - `success_rate` (float | null): Success percentage (0-100), `null` if no requests
 
 #### 4.7 Get Throughput Report
+
 ```
 GET /api/stats/throughput
 ```
+
 Query parameters:
+
 | Parameter | Type | Default | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `from_time` | datetime | — | Start of time range |
 | `to_time` | datetime | now | End of time range |
 | `model_id` | string | — | Filter by model ID |
@@ -2384,6 +2557,7 @@ Query parameters:
 Response `200`: Throughput summary plus time buckets (`average_rpm`, `peak_rpm`, `current_rpm`, `total_requests`, `time_window_seconds`, `buckets[]`).
 
 #### 4.8 Global Log Retention Settings
+
 ```
 GET /api/settings/log-retention
 PUT /api/settings/log-retention
@@ -2398,6 +2572,7 @@ These routes are global and do not use `X-Profile-Id`. They store the instance-w
 The policy uses a monotonic `revision` for CAS. `GET` returns the tagged current state; `PUT` is a full four-field replacement requiring `operation_id` and `expected_revision`. Destructive changes (enabling `null -> N` or shortening `M -> N, N < M`) require a fresh server preflight token plus keyword `DELETE` confirmation; extensions and `N -> null` are plain CAS. Legacy values above `36500` enter a `repair_required` tagged union and are never silently clamped or defaulted.
 
 `GET` response (v2):
+
 ```json
 {
   "state": "ready",
@@ -2445,12 +2620,15 @@ Retention drops whole daily child partitions whose upper bound is `<= cutoff/pur
 Scheduled request/usage/loadbalance protection uses the Observe 24h token TTL + 24h grace; audit retention uses its own fence projection and never inherits a fixed 48h claim.
 
 #### 4.9 Get Spending Reports
+
 ```
 GET /api/stats/spending
 ```
+
 Query parameters:
+
 | Parameter | Type | Default | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `preset` | string | — | Time preset: `today`, `24h`, `last_7_days`, `7d`, `last_30_days`, `30d`, `custom`, `all` |
 | `from_time` | datetime | — | Start of time range (ISO 8601) |
 | `to_time` | datetime | — | End of time range (ISO 8601) |
@@ -2464,6 +2642,7 @@ Query parameters:
 | `top_n` | integer | 5 | Number of top spenders to return; must be positive |
 
 Response `200`:
+
 ```json
 {
   "summary": {
@@ -2527,6 +2706,7 @@ Unpriced reasons distinguish pricing configuration gaps from observed usage gaps
 Audit APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
 
 #### 5.0 API-Family Audit Settings
+
 ```
 GET /api/settings/audit
 PUT /api/settings/audit
@@ -2535,6 +2715,7 @@ PUT /api/settings/audit
 `/api/settings/audit` is pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored. `GET` returns exactly three rows in stable order: `openai`, `anthropic`, `gemini`. Missing persisted rows default to `audit_enabled=false` and `audit_capture_bodies=false`.
 
 Response `200`:
+
 ```json
 {
   "profile_id": 1,
@@ -2549,6 +2730,7 @@ Response `200`:
 `PUT` is a full replacement. The request must contain exactly one row for each supported family. Unknown families, duplicates, missing families, and `audit_enabled=false` with `audit_capture_bodies=true` reject before persistence.
 
 Request:
+
 ```json
 {
   "settings": [
@@ -2562,12 +2744,15 @@ Request:
 Body capture is valid only when audit is enabled for that API family. Runtime loads the selected policy by profile and model `api_family` into request planning snapshots, then persists the request-time booleans in existing `audit_enabled_at_request` and `audit_capture_bodies_at_request` fields.
 
 #### 5.1 List Audit Logs
+
 ```
 GET /api/audit/logs
 ```
+
 Query parameters:
+
 | Parameter | Type | Default | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `request_log_id` | decimal string | none | Filter audit rows linked to one request log |
 | `model_id` | string | none | Filter by model ID |
 | `status_code` | integer | none | Filter by response status code |
@@ -2583,6 +2768,7 @@ Query parameters:
 The list API returns one row per upstream attempt. If a proxy request fails over across connections, each attempt has its own audit row. The `from` and `to` window is required and may not exceed 7 days, including when `request_log_id` is supplied. The backend has no fallback, default audit window, or legacy time-window aliases for request-log lookups. When `request_log_id` identifies an existing request whose request-time audit flag is disabled, the list returns `409` with `Audit capture unavailable for this request`. Unsupported query keys return `400` with `audit_filter_unsupported`.
 
 Response `200`:
+
 ```json
 {
   "items": [
@@ -2641,10 +2827,13 @@ If body capture was off at request time, `request_body_preview` is `null` even t
 Rows are ordered by `(created_at DESC, id DESC)`. Pagination is keyset-based: when `has_more=true`, pass the returned `next_cursor` with the same window, sort, and filters. The audit list response does not include `total` or `offset`.
 
 #### 5.2 Get Audit Log Detail
+
 ```
 GET /api/audit/logs/{id}
 ```
+
 Response `200`:
+
 ```json
 {
   "id": 1,
@@ -2685,10 +2874,12 @@ Response `404`: Audit log not found.
 Response `409`: `Audit capture unavailable for this request` when the requested audit detail has audit disabled at request time.
 
 #### 5.2A Raw Body Downloads
+
 ```
 GET /api/audit/logs/{log_id}/body/request
 GET /api/audit/logs/{log_id}/body/response
 ```
+
 Returns the exact stored BYTEA prefix byte-for-byte with `Content-Length`, `Content-Disposition: attachment; filename=<safe-name>`, `Content-Type: application/octet-stream`, `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store`, `Content-Security-Policy: sandbox`, and the `X-Prism-Body-Truncated`/`X-Prism-Body-Bytes-Observed`/`X-Prism-Body-Bytes-Stored`/`X-Prism-Body-Capture-End-State` headers. An optional `X-Prism-Original-Content-Type` carries the provider content type only when `mime.ParseMediaType` succeeds, the canonical value is visible ASCII within 512 UTF-8 bytes, and it contains no CTL/obs-text. Invalid UTF-8, NUL, and mid-codepoint truncation round-trip byte-for-byte. Absent bodies return `404` with a typed body-state reason.
 
 #### 5.3 Audit Log Retention
@@ -2700,6 +2891,7 @@ The retired audit cleanup endpoints are not part of the current API. Retention j
 Audit rows retain weak request metadata in `request_log_id`, `request_log_created_at`, and `ingress_request_id`; retention does not clear those fields. `request_log_missing=true` requires both request-log link fields and reports that the `(profile_id, request_log_id, request_log_created_at)` tuple no longer resolves, so a request detail link can be unavailable after request-log retention expires before audit-log retention.
 
 #### 5.3A Management Job Status and Cancel
+
 ```
 GET /api/management/jobs
 GET /api/management/jobs/{job_id}
@@ -2707,6 +2899,7 @@ POST /api/management/jobs/{job_id}/cancel
 ```
 
 `GET /api/management/jobs?scope=global&type=log_retention` is the canonical durable job-center list for instance-wide v2 retention work. It resolves only `profile_id = 0` log-retention jobs and returns bounded keyset pages; the Settings UI does not infer job truth from browser state or a `status_url`. The general management-job routes may still resolve profile-owned audit-delete history, but they do not broaden the global retention list:
+
 ```json
 {
   "items": [
@@ -2761,20 +2954,25 @@ Body capture is bounded: the per-body cap is 4 MiB enforced during the copy (obs
 Loadbalance APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
 
 #### 6.1 List Loadbalance Strategies
+
 ```
 GET /api/loadbalance/strategies
 ```
+
 Response `200`: Array of strategy objects in the effective profile scope.
 
 #### 6.2 Create Loadbalance Strategy Defaults
+
 ```
 POST /api/loadbalance/strategies/defaults
 ```
+
 No request body.
 
 This endpoint is pinned to Default profile id `1` and creates the canonical explicit Ban Policy defaults for that profile only: `Default single routing`, `Default fill-first routing`, and `Default round-robin routing`.
 
 Response `200`:
+
 ```json
 {
   "items": [
@@ -2805,10 +3003,13 @@ The response includes the full current strategy list in `items` plus creation me
 Returns `409` when one or more canonical default names are already occupied by non-canonical strategies in Default profile id `1`. In that case, `detail` is an object with `message` and `conflicting_names`.
 
 #### 6.3 Create Loadbalance Strategy
+
 ```
 POST /api/loadbalance/strategies
 ```
+
 Request:
+
 ```json
 {
   "name": "round-robin-primary",
@@ -2824,9 +3025,11 @@ Request:
   "ban_duration_seconds": 1800
 }
 ```
+
 Response `201`: Created strategy object.
 
 Validation rules:
+
 - `name` must be unique within the effective profile scope.
 - `legacy_strategy_type` must be `single`, `fill-first`, or `round-robin`.
 - `failure_status_codes` values must be unique valid HTTP status integers (`100..599`); the backend sorts them before persistence and response serialization.
@@ -2841,16 +3044,20 @@ Validation rules:
 - Upstream request timing is controlled by the shared backend timeout settings rather than per-strategy fields.
 
 #### 6.4 Get Loadbalance Strategy
+
 ```
 GET /api/loadbalance/strategies/{strategy_id}
 ```
+
 Response `200`: Strategy object in the effective profile scope.
 Returns `404` when the strategy does not exist in the effective profile.
 
 #### 6.5 Update Loadbalance Strategy
+
 ```
 PUT /api/loadbalance/strategies/{strategy_id}
 ```
+
 Request: Full replacement of mutable strategy fields using the same shape as create.
 Response `200`: Updated strategy object.
 
@@ -2878,13 +3085,16 @@ Strategy responses include the persisted explicit Ban Policy strategy document:
 ```
 
 #### 6.6 Delete Loadbalance Strategy
+
 ```
 DELETE /api/loadbalance/strategies/{strategy_id}
 ```
+
 Response `200`: `{ "deleted": true }`.
 Returns `409` when the strategy is still attached to one or more models; the response detail includes `attached_model_count`.
 
 #### 6.7 List Current Loadbalance State for a Model
+
 ```
 GET /api/loadbalance/current-state
 ```
@@ -2919,6 +3129,7 @@ The exact field set is fixed by the contract tests in
 this section describes intent and does not restate the payload.
 
 #### 6.8 Reset Current Loadbalance State for a Connection
+
 ```
 POST /api/loadbalance/current-state/{connection_id}/reset
 ```
@@ -2934,17 +3145,21 @@ retained SQL runtime-state tables are compatibility schema, not the production
 hot path.
 
 #### 6.9 List Loadbalance Events
+
 ```
 GET /api/loadbalance/events
 ```
+
 Query parameters:
+
 | Parameter | Type | Default | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `model_id` | string | — | Filter by model ID (required) |
 | `limit` | integer | 50 | Max results (1-200) |
 | `offset` | integer | 0 | Pagination offset |
 
 Response `200`:
+
 ```json
 {
   "items": [
@@ -2983,17 +3198,20 @@ Response `200`:
 Loadbalance event types are `retry_scheduled`, `retry_exhausted`, `banned`, `unbanned`, `recovered`, and `admission_rejected`. They record retry-cycle attempts, cumulative attempts, next retry timing, last retry delay, optional ban metadata, optional success time, and the model, endpoint, and vendor snapshots for operator review. Events produced by Ban Policy evaluation also expose immutable policy snapshots as `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold`, so historical event detail explains the threshold that was active when the event was written.
 
 #### 6.10 List Loadbalance Incidents
+
 ```
 GET /api/loadbalance/incidents
 ```
 
 Query parameters:
+
 | Parameter | Type | Default | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `limit` | integer | 50 | Max recent incident events |
 | `since_hours` | integer | 24 | Recent event lookback window |
 
 Response `200`:
+
 ```json
 {
   "active_bans": [
@@ -3032,9 +3250,11 @@ Response `200`:
 `active_bans` is the current Ban Policy runtime state for the effective profile. `recent_events` uses the loadbalance event item shape and includes recent `banned`, `unbanned`, `recovered`, and `retry_exhausted` rows without requiring a `model_id` filter.
 
 #### 6.11 Get Loadbalance Event Detail
+
 ```
 GET /api/loadbalance/events/{id}
 ```
+
 Response `200`: Single event object with the same Ban Policy retry-window metadata, policy snapshot fields, and summary fields as the list item.
 
 #### 6.12 Loadbalance Event Retention
@@ -3050,10 +3270,13 @@ The retired load-balance cleanup endpoint is not part of the current API. Retent
 Auth APIs are global and do not require `X-Profile-Id`. Session enforcement is cookie-based: a valid access-token cookie passes the management pre-handler; `POST /api/auth/refresh` rotates the refresh-token family. The runtime proxy-key 401 on `/v1` and `/v1beta` is a separate credential surface and never triggers management session expiry.
 
 #### 7.1 Auth Status
+
 ```
 GET /api/auth/status
 ```
+
 Returns the tagged `PublicAuthStatus` union. The only legal shapes are `enabled` (with optional `disabling_enforced`), `disabled`, and `transition_fail_closed` (with `enabling_fail_closed` or `rollback_required`). Every branch carries the canonical positive decimal `effective_generation`; `transition_fail_closed` adds `retry_after_seconds`.
+
 ```json
 {
   "state": "enabled",
@@ -3065,10 +3288,13 @@ Returns the tagged `PublicAuthStatus` union. The only legal shapes are `enabled`
 ```
 
 #### 7.2 Public Bootstrap
+
 ```
 GET /api/auth/public-bootstrap
 ```
+
 Initializes session and returns basic auth state for the login page. A persisted fail-closed/rollback transition is a typed `503` (see §8), never reported as disabled or unauthenticated. Response `200` uses the strict session shape:
+
 ```json
 {
   "authenticated": false,
@@ -3076,13 +3302,17 @@ Initializes session and returns basic auth state for the login page. A persisted
   "username": null
 }
 ```
+
 Authenticated responses add the server-authored `subject_key` (e.g. `auth:subject:1`); it never appears in public status or anonymous/disabled payloads.
 
 #### 7.3 Login
+
 ```
 POST /api/auth/login
 ```
+
 Request:
+
 ```json
 {
   "username": "admin",
@@ -3090,40 +3320,52 @@ Request:
   "session_duration": "7_days"
 }
 ```
+
 Response `200` returns the authenticated session shape and sets the configured access-token and refresh-token cookies. Errors use the registered flat envelope: `401 auth_invalid_credentials` (generalized, never distinguishes unknown user from wrong password) and `429 auth_login_locked` with `details.retry_at` / `details.retry_after_seconds` plus a same-source `Retry-After` header; no failure counts or subject existence are exposed. A persisted fail-closed transition is the registered typed `503`.
 
 #### 7.4 Logout
+
 ```
 POST /api/auth/logout
 ```
+
 Idempotent strict `204`: valid, missing, expired and revoked cookies all revoke nothing new, always send the canonical clear-cookie headers, and never go through the management pre-handler. Auth-disabled race is a registered typed `400 auth_not_enabled` so the client re-bootstraps to the open-access explainer. A persisted fail-closed transition blocks logout with the typed `503`.
 
 #### 7.5 Refresh Session
+
 ```
 POST /api/auth/refresh
 ```
+
 Uses the `refresh_token` cookie to issue a new session. Implements token family rotation. Response `200` uses the same authenticated session shape as login; auth-disabled is a live `200 {auth_enabled:false, authenticated:false}` (never a stale `true,false`); a persisted fail-closed transition is the typed `503`; an invalid/revoked refresh token is a `200 {authenticated:false, auth_enabled:true}` with cleared cookies.
 
 #### 7.6 Get Session
+
 ```
 GET /api/auth/session
 ```
+
 Protected route. Returns the current authenticated session state with the strict authenticated shape (including `subject_key`) or `401 auth_not_authenticated`.
 
 #### 7.7 Transition Operation Status
+
 ```
 GET /api/auth/operations/{operation_id}/status
 ```
+
 Public auth-operation status used by the coordinator to settle transition waits. The operation id is a lookup selector, not authorization; the fixed bounded projection carries no username, mode, operation id, secret or settings.
 
 #### 7.8 Auth Settings
+
 ```
 GET /api/settings/auth
 PUT /api/settings/auth
 ```
+
 Read/write the operator authentication settings through the v2 desired/effective pointer contract. The auth-control settings surface stays reachable during fail-closed transitions as the repair path. PUT stages an immutable config version, binds the Proxy-owner readiness generation/count at one server-clock instant, and flips the effective pointer only after a fresh conditional publish proof; exact operation replay returns the durable result. Passwords are only slow-hashed at rest and are never included in a response or operation projection. A failed publish proof persists a durable `rollback_required` transition with the initiating operation id.
 
 #### 7.9 Proxy API Keys
+
 ```
 GET    /api/settings/auth/proxy-keys
 POST   /api/settings/auth/proxy-keys
@@ -3131,6 +3373,7 @@ PATCH  /api/settings/auth/proxy-keys/{key_id}
 POST   /api/settings/auth/proxy-keys/{key_id}/rotate
 DELETE /api/settings/auth/proxy-keys/{key_id}
 ```
+
 Proxy keys are global rather than profile-scoped. `GET ...?include=setup_readiness&expected_route_witness_generation=<generation>` returns the setup-readiness projection for the sixth setup fact (key-policy configuration and scope application on a specified witness generation). Create/rotate responses carry the one-time raw key with `private, no-store` headers.
 
 ---
@@ -3138,6 +3381,7 @@ Proxy keys are global rather than profile-scoped. `GET ...?include=setup_readine
 ### 8. Error Responses
 
 Prism does not have one universal error envelope. Management handlers normally return:
+
 ```json
 {
   "detail": "human-readable detail"
@@ -3147,6 +3391,7 @@ Prism does not have one universal error envelope. Management handlers normally r
 Field-scoped validation failures flatten their locator onto the same top level rather than nesting it, so `field`, `path`, `reason`, and where applicable `index` and `limit` appear as siblings of `detail`. Clients discriminate on `field` rather than on the detail text, which is not a stable contract.
 
 The auth control plane (and any surface converging on it) uses the canonical flat management problem envelope owned by `internal/httpapi/management/responseutil`:
+
 ```json
 {
   "code": "auth_login_locked",
@@ -3159,10 +3404,11 @@ The auth control plane (and any surface converging on it) uses the canonical fla
   "request_id": "a1b2c3d4e5f60718"
 }
 ```
+
 Registered auth problem codes (registry in `internal/httpapi/management/auth/problems.go`):
 
 | Code | Status | Route matcher | Retry/recovery semantics |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `auth_not_authenticated` | 401 | protected management pre-handler | coordinator refresh then replay once; recovery `session_refresh` |
 | `auth_not_enabled` | 400 | `POST /api/auth/login \| POST /api/auth/logout` | never retry; recovery `public_auth_bootstrap` |
 | `auth_invalid_credentials` | 401 | `POST /api/auth/login` | correct credentials; recovery `correct_credentials` |
@@ -3173,6 +3419,7 @@ Registered auth problem codes (registry in `internal/httpapi/management/auth/pro
 `params` is the exact registered empty object for every auth code; `details` is the registered typed payload (empty object, `AuthLoginLockedDetails`, or `AuthTransitionProblemDetails`); no password, cookie, Authorization, subject existence, failure count, throttle key, username or session identity is ever exposed.
 
 Profile-resolution failures add a stable `code`:
+
 ```json
 {
   "code": "profile_scope_profile_not_found",
@@ -3181,6 +3428,7 @@ Profile-resolution failures add a stable `code`:
 ```
 
 Audit and statistics domain-validation errors use the flat management problem envelope (`code`, `detail`, `params`, `details`, `request_id`). `details` is present only when the domain error includes structured detail:
+
 ```json
 {
   "code": "audit_window_too_large",
@@ -3192,9 +3440,11 @@ Audit and statistics domain-validation errors use the flat management problem en
   "request_id": "..."
 }
 ```
+
 Unregistered management paths and wrong-method management writes return the same flat problem envelope (`management_route_not_found` / `management_method_not_allowed`). `request_id` comes from the chi `RequestID` middleware when present, so it can be aligned with server-side logs.
 
 Runtime handlers return `detail`, and include `error` only when the runtime error has a machine-readable code:
+
 ```json
 {
   "error": "admission_exhausted",
@@ -3203,6 +3453,7 @@ Runtime handlers return `detail`, and include `error` only when the runtime erro
 ```
 
 Transport exhaustion returns the fixed `transport_error` shape with a normalized `last_failure` classification label:
+
 ```json
 {
   "error": "transport_error",
@@ -3211,12 +3462,13 @@ Transport exhaustion returns the fixed `transport_error` shape with a normalized
   "last_failure": "upstream_connect_failed"
 }
 ```
+
 `last_failure` takes one of `upstream_connect_failed` / `upstream_tls_failed` / `upstream_dns_failed` / `upstream_timeout` / `client_disconnected` / `upstream_http_<status>` / `unknown_upstream_failure` and never contains an upstream address.
 
 The request-size guard is a separate envelope with `error`, `message`, and `limit_bytes`, as documented above.
 
 | Status Code | Meaning |
-|---|---|
+| --- | --- |
 | 400 | Bad request (invalid input) |
 | 401 | Management session or runtime proxy key is missing or invalid |
 | 405 | Wrong method for an allowlisted runtime path |
@@ -3234,7 +3486,6 @@ The request-size guard is a separate envelope with `error`, `message`, and `limi
 This markdown document is the source of truth for current runtime and management API semantics.
 
 ## 15. Data Model Reference
-
 
 Scope: profile-isolated runtime and management model with pricing templates, profile-scoped explicit Ban Policy routing, retained compatibility hot-state schema, process-local runtime state, endpoint label snapshots, and user-agent client rules.
 
@@ -3473,7 +3724,7 @@ proxy_api_keys
 Profiles are retained storage namespaces. Multi-profile management is frozen: management reads and writes are pinned to Default profile id `1`, while runtime loads the published Default profile id `1` snapshot.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | id | INTEGER | PK, sequence-backed | Unique identifier |
 | name | VARCHAR(200) | NOT NULL, UNIQUE | Profile name |
 | description | TEXT | NULLABLE | Optional description |
@@ -3486,6 +3737,7 @@ Profiles are retained storage namespaces. Multi-profile management is frozen: ma
 | updated_at | TIMESTAMPTZ | NOT NULL | Last update timestamp; application-managed |
 
 Constraints and lifecycle rules:
+
 - At most one row can have `is_active = true`; the partial unique index is not scoped by `deleted_at`.
 - Startup invariants ensure Default profile id `1` exists and remains editable.
 - Profile create, update, activate, and delete management routes are not exposed while multi-profile management is frozen.
@@ -3495,7 +3747,7 @@ Constraints and lifecycle rules:
 Maps a model ID to fixed api family and routing behavior within one profile.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | id | INTEGER | PK, sequence-backed | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
 | api_family | VARCHAR(50) | NOT NULL | Fixed runtime compatibility family |
@@ -3508,6 +3760,7 @@ Maps a model ID to fixed api family and routing behavior within one profile.
 | updated_at | TIMESTAMPTZ | NOT NULL | Last update timestamp; application-managed |
 
 Constraints:
+
 - `UNIQUE(profile_id, model_id)`.
 - OpenAI models require `openai_accepted_format` in `responses_only`, `chat_completions_only`, or `dual_native`; non-OpenAI models must keep it `NULL`.
 - Strict mode equality: every persisted OpenAI relation (model to model, model to Terminal Target) must connect identical modes only; the management API rejects cross-mode authoring with `422 target_openai_mode_mismatch` and blocks mode changes that would break existing relations with `409`. The read-only preflight (`PRISM_OPENAI_MODE_PREFLIGHT=1`) and the startup `openai_text_mode_check` step enforce the same invariant over persisted rows, including disabled/inactive relations.
@@ -3520,7 +3773,7 @@ Constraints:
 Ordered access targets. Public authoring creates same-family model targets only. Internal connection targets are terminal ownership and routing edges from one source model to one Terminal Target, while model targets may chain until a Terminal Target is reached.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | id | INTEGER | PK, sequence-backed | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
 | source_model_config_id | INTEGER | FK -> model_configs.id, NOT NULL, ON DELETE CASCADE | Model owning the target list |
@@ -3533,6 +3786,7 @@ Ordered access targets. Public authoring creates same-family model targets only.
 | updated_at | TIMESTAMPTZ | NOT NULL | Last update timestamp; application-managed |
 
 Constraints:
+
 - `UNIQUE(source_model_config_id, position)` is the deferrable `uq_model_access_targets_source_position` constraint.
 - `target_type` is `model` or `connection`, and each row references exactly one matching target model or target connection.
 - Source and target rows must stay in the same profile and same `api_family`.
@@ -3547,7 +3801,7 @@ Constraints:
 Reusable explicit Ban Policy strategy objects attached by models within one profile.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | id | INTEGER | PK, sequence-backed | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
 | name | VARCHAR(200) | NOT NULL | Strategy name (profile-unique) |
@@ -3565,6 +3819,7 @@ Reusable explicit Ban Policy strategy objects attached by models within one prof
 | updated_at | TIMESTAMPTZ | NOT NULL | Last update timestamp; application-managed |
 
 Constraints and lifecycle rules:
+
 - `UNIQUE(profile_id, name)`.
 - Effective runtime policy resolves once per request from the attached strategy row.
 - Supported routing families are `single`, `fill-first`, and `round-robin`.
@@ -3580,7 +3835,7 @@ Constraints and lifecycle rules:
 Reusable credential objects scoped to one profile.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | id | INTEGER | PK, sequence-backed | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
 | name | VARCHAR(200) | NOT NULL | Endpoint label |
@@ -3591,6 +3846,7 @@ Reusable credential objects scoped to one profile.
 | updated_at | TIMESTAMPTZ | NOT NULL | Last update timestamp; application-managed |
 
 Constraints and indexes:
+
 - `UNIQUE(profile_id, name)`.
 - `INDEX(profile_id, position)` for ordered reads.
 
@@ -3599,7 +3855,7 @@ Constraints and indexes:
 Terminal Targets are represented as `connections` / `connection_id` in the compatibility API and database schema. Each compatibility connection row is owned by exactly one model through `model_access_targets.target_connection_id`, while endpoints remain reusable across many Terminal Targets.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | id | INTEGER | PK, sequence-backed | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
 | api_family | VARCHAR(50) | NOT NULL | Runtime compatibility family used for same-family target validation |
@@ -3630,6 +3886,7 @@ Management read APIs mask values whose header name matches the fixed `safediag` 
 Indexes include `idx_connections_profile_family_active_priority` for family-scoped active candidate reads, `idx_connections_endpoint_id` for endpoint dependency checks, and `idx_connections_pricing_template_id` for template dependency checks.
 
 Connection invariants:
+
 - `api_family` is the compatibility source for access-target validation and runtime planning.
 - Product-facing routing surfaces present these rows as Terminal Targets while persisted compatibility remains `connections` and `target_type = "connection"`.
 - A connection can be referenced by exactly one model access target in the same profile.
@@ -3648,7 +3905,7 @@ Connection invariants:
 Half-open `[start_minute, end_minute)` intervals during which a Terminal Target may be selected. Appended as 2.6A rather than renumbering the sections that follow.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | id | BIGINT | PK, GENERATED ALWAYS AS IDENTITY | Unique identifier; carries no inbound foreign key and never reaches the wire |
 | connection_id | INTEGER | NOT NULL, FK → connections(id, profile_id) ON DELETE CASCADE | Owning Terminal Target |
 | profile_id | INTEGER | NOT NULL | Profile scope, part of the composite foreign key |
@@ -3661,6 +3918,7 @@ Half-open `[start_minute, end_minute)` intervals during which a Terminal Target 
 Index `idx_crw_profile_connection` on `(profile_id, connection_id)` serves the batch reads, which are always profile-scoped.
 
 Routing window invariants:
+
 - `ON DELETE CASCADE` is intentional and follows the runtime-state and lease tables: a window is part of a connection rather than a reference to one, so deleting the connection must take its windows with it.
 - Rows are rewritten whole on every schedule write. A wire window has no stable identity, the row count is bounded at 32, and the PATCH contract is whole-field replacement, so a delete-then-insert matches the contract exactly.
 
@@ -3668,38 +3926,29 @@ Routing window invariants:
 
 `pricing_templates` is the logical, profile-scoped identity that can be attached to many Terminal Targets. It intentionally contains no price columns: the append-only `pricing_template_revisions` table below is the sole price source. The live logical row stores `id`, `profile_id`, `name`, `description`, `created_at`, `updated_at`, `current_revision_id`, `deleted_at`, and `name_identity`, with `UNIQUE(profile_id, name)` for active names. `current_revision_id` points at the current revision of the same template.
 
-#### 2.7A `pricing_template_revisions` (append-only price source)
+#### 2.7A `pricing_template_revisions` (append-only typed revision)
 
-Every base and tier price used by management, runtime planning, currency guards, and historical snapshots is read from `pricing_template_revisions`; `pricing_templates` is never a fallback price source. The table is append-only and owned by `backend/internal/httpapi/management/connections/` for authoring/readback and by `backend/internal/httpapi/runtime/` for immutable runtime snapshots.
+A revision is the immutable metadata and selector boundary. `template_kind` is `standard`, `tiered`, or `peak_valley` and is never combined with another kind. Price values live only in `pricing_template_cards`; schedule rows live only in `pricing_template_windows`.
 
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | BIGINT | PK, sequence-backed | Immutable revision identity |
-| template_id | INTEGER | FK -> `pricing_templates.id`, RESTRICT | Logical template identity |
-| version | INTEGER | NOT NULL, `>= 1`, unique per template | Revision version |
-| pricing_unit | VARCHAR(20) | NOT NULL, `PER_1M` | Fixed token pricing unit |
-| currency_code | VARCHAR(3) | NOT NULL, canonical | Source currency of all five base and tier prices |
-| input_price / output_price | VARCHAR(20) | NOT NULL, canonical decimal | Base input/output prices |
-| cached_input_price / cache_creation_price / reasoning_price | VARCHAR(20) | NULLABLE, canonical when present | Base specialty prices; explicit NULL means unconfigured |
-| tier_input_tokens_above | INTEGER | NULLABLE, `>= 1` when present | Strict threshold for the disjoint total input basis |
-| tier_input_price / tier_output_price | VARCHAR(20) | NULLABLE, canonical when present | Tier input/output prices |
-| tier_cached_input_price / tier_cache_creation_price / tier_reasoning_price | VARCHAR(20) | NULLABLE, canonical when present | Tier specialty prices; parity with the corresponding base specialty price is required |
-| reporting_currency_epoch_id / reporting_currency_epoch | BIGINT / INTEGER | NULLABLE, attribution-controlled | Currency epoch evidence |
-| currency_attribution | VARCHAR(24) | NOT NULL | `active_epoch`, `legacy_foreign`, or `pre_epoch_pending` |
-| effective_at / created_at | TIMESTAMPTZ | `created_at` NOT NULL | Immutable revision boundaries |
-| created_by_kind / created_by_operation_id | VARCHAR(32) / UUID | ownership-controlled | Mutation provenance |
+| Revision field | Meaning |
+| --- | --- |
+| `template_kind` | Explicit mutually-exclusive discriminator; `NOT NULL` |
+| `tier_input_tokens_above` | Positive threshold only for `tiered`; selection is strict `basis > threshold` |
+| `pricing_schedule_timezone` / `pricing_schedule_digest` | Required only for `peak_valley`; digest is SHA-256 of sorted duplicate-free `mask,start,end` LF rows |
+| currency/revision fields | Existing epoch attribution, effective boundary, append-only provenance and version identity |
 
-The six tier columns are all `NULL` for an unconfigured revision; that is the only no-tier encoding. Otherwise the threshold and both required tier base prices are present, and each optional tier specialty price is present exactly when its base specialty counterpart is present. This one-way schema validation is deliberately NULL-tolerant for upgrade-time and in-flight outbox rows. A configured tier is selected when the request's normalized disjoint basis (`input_tokens + cache_read_input_tokens + cache_creation_input_tokens`) is strictly greater than the threshold; the whole five-component price card is then replaced, not marginally blended. The basis is persisted on each new request row as `pricing_tier_basis_tokens BIGINT`, while the threshold is persisted as `pricing_tier_threshold_tokens INTEGER`.
+`pricing_template_cards(revision_id, template_kind, card_role, ...)` has one complete five-component card for `standard`; `tier_base` and `tier_above` for `tiered`; or `peak` and `offpeak` for `peak_valley`. Composite foreign keys and deferred revision shape guards enforce the role set and specialty NULL/configured parity. Child rows are append-only and a post-commit digest mismatch fails closed.
 
-Token costing consumes canonical disjoint token components: base input, cache-read input, cache-creation input, base output, reasoning output, and provider or derived total. `cached_tokens` is derived-only for aggregate and presentation surfaces from cache-read plus cache-creation input tokens.
+`pricing_template_windows(revision_id, weekday_mask, start_minute, end_minute)` uses ISO weekdays, half-open wall-clock intervals, and `end_minute > 1440` for cross-midnight windows. The union of windows selects `peak`; the complement selects `offpeak`; full-week coverage is valid and zero windows are invalid for `peak_valley`. Window evaluation uses the user-authored IANA timezone and the frozen ingress `planningReferenceNow`, never completion time. Runtime selects the complete card before usage/FX/missing-component checks and never proportionally splits a request at a boundary.
 
+Token costing consumes canonical disjoint token components: input, cache-read input, cache-creation input, output, and reasoning. The selected card is the only price source for all five component calculations.
 
 #### 2.8 `header_blocklist_rules` (mixed scope)
 
 Header blocklist is split between global system rules and profile-scoped user rules.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | id | INTEGER | PK, sequence-backed | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NULLABLE | NULL for system rules; profile FK for user rules |
 | name | VARCHAR(200) | NOT NULL | Rule label |
@@ -3711,6 +3960,7 @@ Header blocklist is split between global system rules and profile-scoped user ru
 | updated_at | TIMESTAMPTZ | NOT NULL | Last update timestamp; application-managed |
 
 Constraints:
+
 - System rule: `is_system = TRUE` implies `profile_id IS NULL`.
 - User rule: `is_system = FALSE` implies `profile_id IS NOT NULL`.
 - User rule uniqueness: `UNIQUE(profile_id, match_type, pattern)`.
@@ -3720,7 +3970,7 @@ Constraints:
 Per-profile costing/report display preferences.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | id | INTEGER | PK, sequence-backed | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL, UNIQUE | One row per profile |
 | report_currency_code | VARCHAR(3) | NOT NULL | Spending report currency; application-managed seed value |
@@ -3741,7 +3991,7 @@ Per-profile costing/report display preferences.
 Telemetry rows have immutable profile attribution captured at request start. Captured upstream attempts in materialized execution envelopes produce one row each. Telemetry-eligible target-resolution or native-compatibility planning failures carrying `PlanningFailure`, plus execution failures accepted by the runtime telemetry path, produce synthetic failure rows without an endpoint or connection. The table is range-partitioned by UTC `created_at` day. The partition-compatible primary key is `(created_at, id)`, with `id` still sequence-backed for lookup convenience.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | id | BIGINT | NOT NULL, sequence-backed, part of PK `(created_at, id)` | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Immutable profile attribution |
 | model_id | VARCHAR(200) | NOT NULL | Model ID used for attempt |
@@ -3821,9 +4071,15 @@ Telemetry rows have immutable profile attribution captured at request start. Cap
 | pricing_snapshot_cache_read_input | VARCHAR(20) | NULLABLE | Cache-read price snapshot |
 | pricing_snapshot_cache_creation_input | VARCHAR(20) | NULLABLE | Cache-creation price snapshot |
 | pricing_config_version_used | INTEGER | NULLABLE | Pricing config version used for costing |
-| pricing_tier_applied | VARCHAR(20) | NULLABLE | `not_evaluated`, `not_applicable`, `base`, or `tier`; NULL is retained for pre-feature/legacy rows and usage gaps |
-| pricing_tier_threshold_tokens | INTEGER | NULLABLE | Threshold captured from the selected revision when a base/tier decision was made |
-| pricing_tier_basis_tokens | BIGINT | NULLABLE | Exact disjoint input basis used for the decision |
+| pricing_template_kind | VARCHAR(16) | NULLABLE | Template-family provenance |
+| pricing_selection_state | VARCHAR(20) | NULLABLE | Selector evaluation state; independent from card role |
+| pricing_card_role | VARCHAR(16) | NULLABLE | Card role used for costing, if any |
+| pricing_selector_threshold_tokens | INTEGER | NULLABLE | Tier threshold evidence |
+| pricing_selector_basis_tokens | BIGINT | NULLABLE | Exact disjoint tier basis evidence |
+| pricing_schedule_decided_at | TIMESTAMPTZ | NULLABLE | Frozen planning clock instant |
+| pricing_schedule_timezone | VARCHAR(100) | NULLABLE | User-authored IANA timezone |
+| pricing_schedule_local_weekday / pricing_schedule_local_minute | SMALLINT | NULLABLE | Local schedule evidence |
+| pricing_schedule_digest | VARCHAR(64) | NULLABLE | Canonical window digest |
 | stream_outcome | VARCHAR(50) | NOT NULL, DEFAULT `not_streaming` | Stream classification: `not_streaming`, `completed`, `provider_incomplete`, `client_disconnected`, `upstream_read_error`, `upstream_ended_without_terminal`, or `unknown` |
 | stream_error_kind | VARCHAR(50) | NULLABLE | Stream diagnostic kind: `client_write_failed`, `request_context_canceled`, `upstream_read_failed`, or `missing_terminal_event` |
 | stream_error_detail | TEXT | NULLABLE | Sanitized request-log-detail-only diagnostic text for stream failures |
@@ -3840,6 +4096,7 @@ Telemetry rows have immutable profile attribution captured at request start. Cap
 | created_at | TIMESTAMPTZ | NOT NULL, part of PK `(created_at, id)` | Attempt timestamp and partition key |
 
 Request-log semantics:
+
 - Each captured upstream attempt in a materialized execution envelope writes one row, not one row per incoming runtime request.
 - Target-resolution/admission failures write a synthetic row with `row_kind=planning|admission` and `gateway_status_code`; runtime planning/admission failures are persisted through the telemetry path with a `prism_<stage>_failure` code.
 - Earlier errors such as malformed request bodies, unknown models, and API-family mismatches do not carry `PlanningFailure` and do not write synthetic history.
@@ -3855,14 +4112,14 @@ Request-log semantics:
 - `stream_error_detail` is exposed only by exact request-log detail reads. List and dashboard recent-activity payloads expose `stream_outcome` and `stream_error_kind` without detail text.
 - Prism prices only observed usage. `STREAM_USAGE_UNAVAILABLE` marks interrupted or no-terminal stream rows where required tokens are absent; completed streams missing required usage keep `MISSING_TOKEN_USAGE`.
 - Token usage fields are canonical disjoint components. `input_tokens` is base input only, `output_tokens` is base output only, and cache-read input, cache-creation input, and reasoning output stay in their split fields.
-- Pricing snapshots persist the five concrete pricing strings actually used for the attempt, whether they came from the base card or the tier card. Explicit `"0"` prices mean configured free pricing, while absent or invalid pricing snapshots and missing FX data stay unpriced with `MISSING_PRICE_DATA`. Tier evidence is additive: aggregate/read-model surfaces SUM stored micros and never recompute cost from the token basis.
+- A successful priced row persists the five concrete strings from exactly one selected card. Attempt, non-2xx, unresolved, missing-usage, and unpriced rows do not copy any card's prices. Explicit `"0"` is configured free pricing; absent/invalid card data or missing FX stays unpriced with `MISSING_PRICE_DATA`.
 
 #### 2.12 `usage_request_events` (partitioned immutable usage attribution)
 
 Usage-event rows are the finalized source for the unified statistics snapshot. The table is range-partitioned by UTC `created_at` day and uses `(created_at, id)` as its partition-compatible primary key.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | id | BIGINT | NOT NULL, sequence-backed, part of PK `(created_at, id)` | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Immutable profile attribution |
 | ingress_request_id | VARCHAR(36) | NOT NULL, indexed with `profile_id` | Incoming request grouping ID preserved for aggregate attribution and cross-table correlation |
@@ -3936,9 +4193,15 @@ Usage-event rows are the finalized source for the unified statistics snapshot. T
 | pricing_snapshot_cache_creation_input | VARCHAR(20) | NULLABLE | Cache-creation price snapshot |
 | pricing_snapshot_reasoning | VARCHAR(20) | NULLABLE | Reasoning price snapshot; the actual card selected for this event |
 | pricing_config_version_used | INTEGER | NULLABLE | Pricing config version used for costing |
-| pricing_tier_applied | VARCHAR(20) | NULLABLE | Tier decision captured for the finalized event |
-| pricing_tier_threshold_tokens | INTEGER | NULLABLE | Threshold captured from the selected revision |
-| pricing_tier_basis_tokens | BIGINT | NULLABLE | Exact disjoint input basis used for the decision |
+| pricing_template_kind | VARCHAR(16) | NULLABLE | Template-family provenance: `standard`, `tiered`, or `peak_valley` |
+| pricing_selection_state | VARCHAR(20) | NULLABLE | `not_evaluated`, `not_applicable`, `selected`, or `unresolved` |
+| pricing_card_role | VARCHAR(16) | NULLABLE | Selected role: `standard`, `tier_base`, `tier_above`, `peak`, or `offpeak` |
+| pricing_selector_threshold_tokens | INTEGER | NULLABLE | Tier threshold only when a tier selector was evaluated |
+| pricing_selector_basis_tokens | BIGINT | NULLABLE | Exact disjoint input basis for tier selection |
+| pricing_schedule_decided_at | TIMESTAMPTZ | NULLABLE | Frozen ingress planning instant used by peak/valley selection |
+| pricing_schedule_timezone | VARCHAR(100) | NULLABLE | User-authored IANA timezone |
+| pricing_schedule_local_weekday / pricing_schedule_local_minute | SMALLINT | NULLABLE | ISO local wall-clock evidence |
+| pricing_schedule_digest | VARCHAR(64) | NULLABLE | Canonical window digest used for the selector decision |
 | response_time_ms | INTEGER | NULLABLE | Final attempt latency in ms |
 | completion_duration_ms | INTEGER | NULLABLE | Completion duration after first token/byte when available |
 | ttft_ms | INTEGER | NULLABLE | Time to first token/byte when available |
@@ -3947,6 +4210,7 @@ Usage-event rows are the finalized source for the unified statistics snapshot. T
 | created_at | TIMESTAMPTZ | NOT NULL, part of PK `(created_at, id)` | Event timestamp and partition key |
 
 Usage-event semantics:
+
 - One row captures the finalized usage event for each materialized telemetry envelope and feeds the statistics snapshot.
 - `ingress_request_id` preserves the stable request-group identifier shared with the attempt-level `request_logs` rows for the same incoming runtime request.
 - `operation_name` is nullable in the schema for compatibility, but registered-operation envelopes materialize a non-empty canonical operation name. Operation-registry rejection creates no usage event.
@@ -3961,6 +4225,7 @@ Usage-event semantics:
 - Explicit `"0"` pricing contributes zero-cost component micros on priced events. Rows with absent or invalid pricing snapshots, or missing FX data, remain unpriced with `MISSING_PRICE_DATA`.
 
 Telemetry materialization:
+
 - Runtime handlers hand telemetry to `runtime_telemetry_outbox` for durable or scheduled background processing; the request path does not directly insert the historical tables.
 - The materializer transaction inserts `request_logs`, matching `audit_logs`, one `usage_request_events` row, and proxy-key usage together, then deletes the processed outbox row.
 - Each audit row receives its linked request-log timestamp. The usage event timestamp aligns with the last request-log attempt timestamp; proxy-key `last_used_at` and `last_used_ip` updates are monotonic within that transaction.
@@ -3970,7 +4235,7 @@ Telemetry materialization:
 Audit rows for upstream attempts with immutable profile attribution. The table is range-partitioned by UTC `created_at` day and uses `(created_at, id)` as its partition-compatible primary key. Audit-to-request linkage is weak so audit rows can outlive request-log partitions.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | id | BIGINT | NOT NULL, sequence-backed, part of PK `(created_at, id)` | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Immutable profile attribution |
 | request_log_id | BIGINT | NULLABLE | Weak request-log identifier retained for historical linking |
@@ -3997,6 +4262,7 @@ Audit rows for upstream attempts with immutable profile attribution. The table i
 | created_at | TIMESTAMPTZ | NOT NULL, part of PK `(created_at, id)` | Audit timestamp and partition key |
 
 Audit-link semantics:
+
 - `request_log_id`, `request_log_created_at`, and `ingress_request_id` are retained as weak metadata.
 - Request-log retention does not clear weak-link metadata. Audit list/detail responses expose `request_log_missing=true` only when `request_log_id` and `request_log_created_at` are both non-null and the `(profile_id, request_log_id, request_log_created_at)` tuple no longer resolves.
 - Audit retention and request-log retention are independent global jobs.
@@ -4009,7 +4275,7 @@ Audit-link semantics:
 One row per profile and API family controls whether runtime attempts create audit metadata and whether bodies may be stored.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | id | INTEGER | PK, sequence-backed | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL, ON DELETE CASCADE | Owning profile |
 | api_family | VARCHAR(50) | NOT NULL, CHECK IN (`openai`, `anthropic`, `gemini`) | Runtime compatibility family |
@@ -4019,6 +4285,7 @@ One row per profile and API family controls whether runtime attempts create audi
 | updated_at | TIMESTAMPTZ | NOT NULL | Last update timestamp; application-managed |
 
 Constraints:
+
 - `UNIQUE(profile_id, api_family)`.
 - `audit_capture_bodies` requires `audit_enabled`.
 - Management `PUT /api/settings/audit` full-replaces the three supported family rows for Default profile id `1`.
@@ -4029,7 +4296,7 @@ Constraints:
 Persistent record of retry-window, ban, recovery, and admission transitions. The table is range-partitioned by UTC `created_at` day and uses `(created_at, id)` as its partition-compatible primary key.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | id | BIGINT | NOT NULL, sequence-backed, part of PK `(created_at, id)` | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Immutable profile attribution |
 | connection_id | INTEGER | NOT NULL | Private connection ID |
@@ -4049,6 +4316,7 @@ Persistent record of retry-window, ban, recovery, and admission transitions. The
 | created_at | TIMESTAMPTZ | NOT NULL, part of PK `(created_at, id)` | Event timestamp and partition key |
 
 Event snapshot semantics:
+
 - Ban Policy event rows keep immutable SQL storage snapshots in `policy_cycle_retry_attempt_limit` and `policy_ban_cumulative_retry_attempt_threshold` from the strategy evaluated at event time.
 - Event list/detail APIs expose those snapshots as `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold` so the public payload matches the strategy contract.
 - `cycle_retry_attempts`, `cumulative_retry_attempts`, and `last_retry_delay_ms` are constrained non-negative. A policy cycle limit is `1..50`; a policy ban threshold is `0..500` and, when nonzero alongside a cycle limit, is not lower than that limit.
@@ -4062,7 +4330,7 @@ Event snapshot semantics:
 Global normal-retention policy for partitioned log tables.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | singleton_key | VARCHAR(20) | PK, CHECK = `global` | Singleton row key |
 | request_logs_retention_days | INTEGER | NULLABLE, CHECK >= 1 | Global request-log retention window |
 | audit_logs_retention_days | INTEGER | NULLABLE, CHECK >= 1 | Global audit-log retention window |
@@ -4072,6 +4340,7 @@ Global normal-retention policy for partitioned log tables.
 | updated_at | TIMESTAMPTZ | NOT NULL, DEFAULT now() | Last update timestamp |
 
 Retention semantics:
+
 - Normal retention is global across all profiles and implemented by durable `log_retention` jobs with `profile_id = 0`.
 - `PUT /api/settings/log-retention` is a full replacement: omitted nullable policy fields are written as `NULL`. The database constrains all four day values to `NULL` or at least `1`; the current Go-layer request validator explicitly checks the request, statistics, and audit values.
 - `backend/internal/platform/logretention` maintains exactly 15 UTC daily partitions for each managed table: today through today plus 14 days. Startup ensures the horizon, and the low-priority maintenance worker refreshes it hourly.
@@ -4128,7 +4397,7 @@ VACUUM (ANALYZE, PROCESS_TOAST TRUE) public.request_logs_pYYYYMMDD;
 Durable queue for broad management operations. Log-retention jobs are global and use `profile_id = 0`. Audit-delete jobs retain the requesting profile ID for ownership and API lookup, but execution delegates to global `audit_logs` partition retention without a profile predicate.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | id | TEXT | PK | Job identifier |
 | type | TEXT | NOT NULL, CHECK IN (`audit_delete`, `log_retention`) | Job kind |
 | state | TEXT | NOT NULL, CHECK IN (`queued`, `running`, `cancel_requested`, `cancelled`, `succeeded`, `failed`) | Job lifecycle state |
@@ -4158,6 +4427,7 @@ Durable queue for broad management operations. Log-retention jobs are global and
 | updated_at | TIMESTAMPTZ | NOT NULL, DEFAULT now() | Last update timestamp |
 
 Job execution semantics:
+
 - The low-priority management-jobs worker checks configured retention policies every five seconds and creates table/day-idempotent global retention jobs.
 - `audit_delete` stores a requesting profile ID but rewrites its execution scope to `audit_logs` partition retention without applying that profile ID as a row predicate.
 - `rows_deleted` and `management_job_events.rows_deleted` count only rows removed from the cutoff-overlapping boundary partition. Rows removed by dropping whole partitions are represented in `progress_json.dropped_partitions`, not in the row count.
@@ -4167,7 +4437,7 @@ Job execution semantics:
 Append-only event stream for management job status and progress.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | id | BIGINT | PK, sequence-backed | Unique identifier |
 | job_id | TEXT | FK -> management_jobs.id, NOT NULL, ON DELETE CASCADE | Owning job |
 | event_type | TEXT | NOT NULL | Event kind such as `created` or `cancel_requested` |
@@ -4180,7 +4450,7 @@ Append-only event stream for management job status and progress.
 Retained compatibility schema for historical runtime-state rows. The production hot path does not read or write this table. It remains `UNLOGGED` in the baseline migration, but live admission, retry, ban, and latency state is held by `LocalRuntimeStateStore` in the backend process.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | id | INTEGER | PK, sequence-backed | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
 | connection_id | INTEGER | FK -> connections.id, NOT NULL | Private connection under Ban Policy tracking |
@@ -4212,6 +4482,7 @@ Retained compatibility schema for historical runtime-state rows. The production 
 | updated_at | TIMESTAMPTZ | NOT NULL | Last mutation timestamp; application-managed |
 
 Constraints:
+
 - `UNIQUE(profile_id, connection_id)`.
 - Admission and retry counters are non-negative.
 - `ban_mode` is restricted to `off`, `temporary`, or `until_reset`.
@@ -4224,7 +4495,7 @@ The columns document the retained schema only. They do not describe the current 
 Retained compatibility schema for historical runtime leases. The production hot path does not read or write lease rows; live in-flight accounting is process-local.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | lease_token | VARCHAR(64) | PK | Lease identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
 | connection_id | INTEGER | FK -> connections.id, NOT NULL | Private connection under Ban Policy tracking |
@@ -4235,6 +4506,7 @@ Retained compatibility schema for historical runtime leases. The production hot 
 | updated_at | TIMESTAMPTZ | NOT NULL | Last mutation timestamp; application-managed |
 
 Constraints:
+
 - `lease_kind` is restricted to `stream` or `non_stream`.
 
 #### 2.21 `app_auth_settings` (singleton)
@@ -4242,7 +4514,7 @@ Constraints:
 Global operator authentication settings and credentials.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | id | INTEGER | PK, sequence-backed | Unique identifier |
 | singleton_key | VARCHAR(20) | NOT NULL, UNIQUE | `app` |
 | auth_enabled | BOOLEAN | NOT NULL | Auth toggle; application-managed value |
@@ -4265,7 +4537,7 @@ Global operator authentication settings and credentials.
 Cookie-backed management sessions with family rotation and revocation.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | id | INTEGER | PK, sequence-backed | Unique identifier |
 | auth_subject_id | INTEGER | FK -> app_auth_settings.id, NOT NULL | Singleton operator auth subject |
 | token_hash | VARCHAR(64) | NOT NULL, UNIQUE | SHA-256 hash of the refresh token |
@@ -4283,7 +4555,7 @@ Cookie-backed management sessions with family rotation and revocation.
 Runtime data-plane credentials.
 
 | Column | Type | Constraints | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | id | INTEGER | PK, sequence-backed | Unique identifier |
 | name | VARCHAR(200) | NOT NULL | Key label |
 | key_prefix | VARCHAR(200) | NOT NULL, UNIQUE | Public prefix |
@@ -4301,6 +4573,7 @@ Runtime data-plane credentials.
 | rotation_count | INTEGER | NOT NULL, DEFAULT 0 | How many times the secret has been replaced in place |
 
 Rotation and expiry semantics:
+
 - Creation is limited to 100 unexpired rows. Inactive but unexpired rows still count; expired rows do not.
 - Rotation replaces the secret on the same row. The row id is the stable identity of a logical key, so retained request and usage attribution stays continuous across rotations. It preserves name, notes, creator, active state, expiry, and `created_at`; increments `rotation_count`; stamps `rotated_at`; and clears `last_used_at`/`last_used_ip`. The counted key set never changes, so rotation at the 100-row limit needs no headroom. An inactive or already expired key cannot rotate.
 - Update can disable a key or set its expiry. Runtime publication includes only keys that are both active and unexpired.
@@ -4312,13 +4585,13 @@ Rotation and expiry semantics:
 These live tables are internal platform state rather than primary product configuration surfaces. They remain part of the active schema and are owned by their platform packages.
 
 | Table | Scope | Key columns and purpose |
-|---|---|---|
+| --- | --- | --- |
 | `user_agent_client_rules` | system global or profile-scoped | `id`, nullable `profile_id`, `name`, `pattern`, `enabled`, `is_system`, `created_at`, `updated_at`; scope is constrained so system rows have `profile_id IS NULL` and user rows have `profile_id IS NOT NULL`. User patterns may repeat; system patterns are unique. Patterns are validated regular expressions and evaluated case-insensitively. Enabled user rules sort before enabled system rules, then by id, for display classification. System rules may only change `enabled` and cannot be deleted; user rules are mutable and deletable. `client_rule_id` resolves an enabled in-scope rule and filters only non-empty caller User-Agent values, never upstream User-Agent values. |
 | `login_throttle_ledger` | auth singleton support | Composite PK `(subject_key, remote_address)`, `failure_count`, failure timestamps, `locked_until`, timestamps; tracks login throttling state |
-| `management_outbox` | management side effects | `id`, `operation_id`, `event_type`, aggregate identity/version, unique `dedupe_key`, `payload`, status `pending|processing|retry|succeeded|failed_permanent`, attempt/lock fields, actor/trace metadata, timestamps |
+| `management_outbox` | management side effects | `id`, `operation_id`, `event_type`, aggregate identity/version, unique `dedupe_key`, `payload`, status `pending | processing | retry | succeeded | failed_permanent`, attempt/lock fields, actor/trace metadata, timestamps |
 | `runtime_cache_generations` | runtime cache freshness | Composite PK `(domain, scope_type, scope_id)`, `version >= 0`, `updated_at`, `updated_by`, and `reason`; generation vectors make runtime snapshots fail closed or refresh when management mutations advance cache state |
 | `runtime_telemetry_outbox` | profile-scoped runtime side-effect handoff | `id`, `profile_id`, `ingress_request_id`, `payload`, `created_at`; durable runtime telemetry handoff rows are materialized by background workers and then deleted |
-| `alert_webhook_outbox` | durable failover incident webhook delivery | `id`, `event_type`, `payload_json`, unique `idempotency_key`, status `queued|sending|sent|dead`, attempt count, max attempts, next attempt, lock fields, sent/dead-letter timestamps, last error, timestamps; payloads carry `event_type`, `connection_id`, `endpoint_id`, `model_id`, optional `banned_until_at`, and `occurred_at` |
+| `alert_webhook_outbox` | durable failover incident webhook delivery | `id`, `event_type`, `payload_json`, unique `idempotency_key`, status `queued | sending | sent | dead`, attempt count, max attempts, next attempt, lock fields, sent/dead-letter timestamps, last error, timestamps; payloads carry`event_type`,`connection_id`,`endpoint_id`,`model_id`, optional`banned_until_at`, and`occurred_at` |
 | `loadbalance_round_robin_state` | retained compatibility schema | `id`, `profile_id`, `model_config_id`, `next_cursor`, timestamps, `next_cursor >= 0`, and unique `(profile_id, model_config_id)`. Production round-robin cursors are process-local and this table is not used by the hot path. |
 
 ### 3. Selected Indexes, Constraints, and Foreign Keys
@@ -4396,7 +4669,7 @@ CREATE INDEX idx_proxy_api_keys_is_active ON proxy_api_keys(is_active);
 Selected foreign-key deletion boundaries:
 
 | Child reference | Parent | `ON DELETE` behavior |
-|---|---|---|
+| --- | --- | --- |
 | profile-owned configuration rows | `profiles(id)` | Generally `CASCADE`; historical `request_logs`, `usage_request_events`, `audit_logs`, and `loadbalance_events` use `RESTRICT` |
 | `connections.endpoint_id`, `connections.pricing_template_id` | `endpoints(id)`, `pricing_templates(id)` | `RESTRICT` |
 | `model_access_targets(source_model_config_id, profile_id)` | `model_configs(id, profile_id)` | `CASCADE` |

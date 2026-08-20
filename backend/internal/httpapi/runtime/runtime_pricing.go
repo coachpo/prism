@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/coachpo/prism/backend/internal/domain/pricingkind"
 )
 
 const (
@@ -45,18 +47,25 @@ type runtimePricingResult struct {
 	// classifier, resolution kind, canonical missing components, evidence
 	// trust (new writer always trusted), and immutable template/revision
 	// identity snapshots.
-	PricingStatus                 string
-	PricingResolutionKind         *string
-	MissingPriceComponents        []string
-	PricingEvidenceTrust          string
-	PricingTemplateIDUsed         *int
-	PricingTemplateNameSnapshot   *string
-	PricingTemplateRevisionIDUsed *int64
-	PricingVersionEffectiveAt     *time.Time
-	ReportingCurrencyEpoch        *int
-	PricingTierApplied            *string
-	PricingTierThresholdTokens    *int
-	PricingTierBasisTokens        *int64
+	PricingStatus                  string
+	PricingResolutionKind          *string
+	MissingPriceComponents         []string
+	PricingEvidenceTrust           string
+	PricingTemplateIDUsed          *int
+	PricingTemplateNameSnapshot    *string
+	PricingTemplateRevisionIDUsed  *int64
+	PricingVersionEffectiveAt      *time.Time
+	ReportingCurrencyEpoch         *int
+	PricingTemplateKind            *string
+	PricingSelectionState          *string
+	PricingCardRole                *string
+	PricingSelectorThresholdTokens *int
+	PricingSelectorBasisTokens     *int64
+	PricingScheduleDecidedAt       *time.Time
+	PricingScheduleTimezone        *string
+	PricingScheduleLocalWeekday    *int
+	PricingScheduleLocalMinute     *int
+	PricingScheduleDigest          *string
 }
 
 // classifyRuntimePricing is the status-only entry point used by the pricing
@@ -81,7 +90,12 @@ func classifyRuntimePricingForOperation(finalHTTPStatus int, reportCurrency runt
 	if finalHTTPStatus < http.StatusOK || finalHTTPStatus >= http.StatusMultipleChoices {
 		result.PricingStatus = runtimePricingStatusIneligible
 		result.Priced = false
-		result.PricingTierApplied = stringPtr(runtimePricingTierNotEvaluated)
+		if pricingTemplateSnapshot != nil && strings.TrimSpace(pricingTemplateSnapshot.TemplateKind) != "" {
+			result.PricingTemplateKind = runtimeOptionalTrimmedString(pricingTemplateSnapshot.TemplateKind)
+			result.PricingSelectionState = stringPtr(pricingkind.SelectionNotEvaluated)
+		} else {
+			result.PricingSelectionState = stringPtr(pricingkind.SelectionNotEvaluated)
+		}
 		return result
 	}
 	if pricingTemplateSnapshot == nil {
@@ -89,13 +103,42 @@ func classifyRuntimePricingForOperation(finalHTTPStatus int, reportCurrency runt
 		result.UnpricedReason = stringPtr(runtimeUnpricedReasonPricingOff)
 		return result
 	}
+	result.PricingTemplateKind = runtimeOptionalTrimmedString(pricingTemplateSnapshot.TemplateKind)
 	if !runtimePricingSnapshotUsableForReady(pricingTemplateSnapshot) {
 		result.PricingStatus = runtimePricingStatusUnpriced
 		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
 		result.PricingResolutionKind = stringPtr(runtimePricingResolutionCurrencyMigrationRequired)
 		return result
 	}
-	if usage.InputTokens == nil || usage.OutputTokens == nil {
+	// Existing pure classifier fixtures use the pre-card scalar snapshot. Keep
+	// that status-only path deterministic while all published snapshots take
+	// the typed selector below; no management/runtime database reader emits
+	// this shape after 000023.
+	if strings.TrimSpace(pricingTemplateSnapshot.TemplateKind) == "" {
+		legacy := buildLegacyRuntimePricingResult(reportCurrency, pricingTemplateSnapshot, nil, usage, streamOutcome, operation)
+		legacy.ReportCurrencyCode = runtimeOptionalTrimmedString(reportCurrency.Code)
+		legacy.ReportCurrencySymbol = runtimeOptionalTrimmedString(reportCurrency.Symbol)
+		return legacy
+	}
+	if strings.TrimSpace(pricingTemplateSnapshot.PricingUnit) != runtimePricingUnitPerMillion {
+		result.PricingStatus = runtimePricingStatusUnpriced
+		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
+		result.PricingResolutionKind = stringPtr(runtimePricingResolutionUnsupportedUnit)
+		return result
+	}
+	selection := selectRuntimePricingCard(pricingTemplateSnapshot, usage, operation, time.Time{})
+	applyRuntimePricingCardSelection(&result, selection)
+	if selection.Incoherent {
+		if selection.State == pricingkind.SelectionUnresolved && selection.Timezone != "" {
+			result.PricingStatus = runtimePricingStatusUnpriced
+			result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
+			result.PricingResolutionKind = stringPtr(runtimePricingResolutionScheduleUnresolved)
+			result.clearRuntimePricingCosts()
+			return result
+		}
+		return runtimeSnapshotIncoherentPricingResult(result)
+	}
+	if !runtimePricingUsageCompleteForOperation(usage, operation) {
 		if runtimeStreamOutcomeMakesUsageUnavailable(streamOutcome) {
 			result.PricingStatus = runtimePricingStatusUnpriced
 			result.UnpricedReason = stringPtr(runtimeUnpricedReasonStreamUsageUnavailable)
@@ -105,22 +148,8 @@ func classifyRuntimePricingForOperation(finalHTTPStatus int, reportCurrency runt
 		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingUsage)
 		return result
 	}
-	if strings.TrimSpace(pricingTemplateSnapshot.PricingUnit) != runtimePricingUnitPerMillion {
-		result.PricingStatus = runtimePricingStatusUnpriced
-		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
-		result.PricingResolutionKind = stringPtr(runtimePricingResolutionUnsupportedUnit)
-		return result
-	}
-	selection := selectRuntimePricingTier(pricingTemplateSnapshot, usage, operation)
-	applyRuntimePricingTierSelection(&result, selection)
-	if selection.Incoherent {
-		return runtimeSnapshotIncoherentPricingResult(result)
-	}
-	pricingCard := selection.Snapshot
-	if pricingCard == nil {
-		pricingCard = pricingTemplateSnapshot
-	}
-	if !runtimePricingEpochCurrencyCoherent(reportCurrency, pricingCard) {
+	pricingCard := selection.Card
+	if !runtimePricingEpochCurrencyCoherent(reportCurrency, pricingTemplateSnapshot) {
 		result.PricingStatus = runtimePricingStatusUnpriced
 		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
 		result.PricingResolutionKind = stringPtr(runtimePricingResolutionSnapshotIncoherent)
@@ -173,6 +202,7 @@ const (
 	runtimePricingResolutionCurrencyMigrationRequired = "currency_migration_required"
 	runtimePricingResolutionUnsupportedUnit           = "unsupported_unit"
 	runtimePricingResolutionSnapshotIncoherent        = "snapshot_incoherent"
+	runtimePricingResolutionScheduleUnresolved        = "schedule_unresolved"
 )
 
 // runtimePricingEvidenceTrust values (Pricing SPEC §6.4); new writer only
@@ -180,7 +210,25 @@ const (
 const runtimePricingEvidenceTrust = "trusted"
 
 func runtimePricingSnapshotUsableForReady(snapshot *runtimePricingTemplateSnapshot) bool {
-	return snapshot != nil && snapshot.RevisionID > 0 && snapshot.ReportingCurrencyEpoch != nil
+	if snapshot == nil || snapshot.RevisionID <= 0 || snapshot.ReportingCurrencyEpoch == nil {
+		return false
+	}
+	if snapshot.TemplateKind == "" {
+		return true
+	}
+	kind := pricingkind.Kind(strings.TrimSpace(snapshot.TemplateKind))
+	if !kind.Valid() {
+		return false
+	}
+	for _, role := range pricingkind.RolesFor(kind) {
+		if _, ok := snapshot.card(role); !ok {
+			return false
+		}
+	}
+	if kind == pricingkind.PeakValley && snapshot.PricingSchedule.State == runtimePricingScheduleUnconfigured {
+		return false
+	}
+	return true
 }
 
 func runtimePricingEpochCurrencyCoherent(reportCurrency runtimeReportCurrencySnapshot, snapshot *runtimePricingTemplateSnapshot) bool {
@@ -190,10 +238,17 @@ func runtimePricingEpochCurrencyCoherent(reportCurrency runtimeReportCurrencySna
 	return strings.TrimSpace(reportCurrency.Code) != "" && strings.TrimSpace(reportCurrency.Code) == strings.TrimSpace(snapshot.PricingCurrencyCode) && *snapshot.ReportingCurrencyEpoch == reportCurrency.Epoch
 }
 
-func runtimePricingMissingComponents(snapshot *runtimePricingTemplateSnapshot, usage responseUsage) []string {
-	if snapshot == nil {
-		return nil
+func runtimePricingUsageCompleteForOperation(usage responseUsage, operation string) bool {
+	if usage.InputTokens == nil {
+		return false
 	}
+	if runtimePricingTierOperationIsTokenCount(operation) {
+		return true
+	}
+	return usage.OutputTokens != nil
+}
+
+func runtimePricingMissingComponents(card runtimePricingCard, usage responseUsage) []string {
 	missing := make([]string, 0, 5)
 	appendMissing := func(component string, tokens *int, price string) {
 		if tokens != nil && *tokens > 0 {
@@ -202,11 +257,11 @@ func runtimePricingMissingComponents(snapshot *runtimePricingTemplateSnapshot, u
 			}
 		}
 	}
-	appendMissing("input_price", usage.InputTokens, snapshot.InputPrice)
-	appendMissing("output_price", usage.OutputTokens, snapshot.OutputPrice)
-	appendMissing("cached_input_price", usage.CacheReadInputTokens, snapshot.CachedInputPrice)
-	appendMissing("cache_creation_price", usage.CacheCreationInputTokens, snapshot.CacheCreationPrice)
-	appendMissing("reasoning_price", usage.ReasoningTokens, snapshot.ReasoningPrice)
+	appendMissing("input_price", usage.InputTokens, card.InputPrice)
+	appendMissing("output_price", usage.OutputTokens, card.OutputPrice)
+	appendMissing("cached_input_price", usage.CacheReadInputTokens, card.CachedInputPrice)
+	appendMissing("cache_creation_price", usage.CacheCreationInputTokens, card.CacheCreationPrice)
+	appendMissing("reasoning_price", usage.ReasoningTokens, card.ReasoningPrice)
 	return missing
 }
 
@@ -234,7 +289,7 @@ func buildRuntimePricingProvenance(reportCurrencySnapshot runtimeReportCurrencyS
 	result := runtimePricingResult{
 		PricingStatus:          runtimePricingStatusIneligible,
 		PricingEvidenceTrust:   runtimePricingEvidenceTrust,
-		PricingTierApplied:     stringPtr(runtimePricingTierNotEvaluated),
+		PricingSelectionState:  stringPtr(pricingkind.SelectionNotEvaluated),
 		ReportCurrencyCode:     runtimeOptionalTrimmedString(reportCurrencySnapshot.Code),
 		ReportCurrencySymbol:   runtimeOptionalTrimmedString(reportCurrencySnapshot.Symbol),
 		ReportingCurrencyEpoch: nonZeroIntPointer(reportCurrencySnapshot.Epoch),
@@ -249,22 +304,22 @@ func buildRuntimePricingProvenance(reportCurrencySnapshot runtimeReportCurrencyS
 		effective := pricingTemplateSnapshot.VersionEffectiveAt.UTC()
 		result.PricingVersionEffectiveAt = &effective
 	}
+	result.PricingTemplateKind = runtimeOptionalTrimmedString(pricingTemplateSnapshot.TemplateKind)
+	// Provenance rows describe the template, never a card that was not selected.
+	// Price snapshots are reserved for the final priced path below.
 	result.CurrencyCodeOriginal = runtimeOptionalTrimmedString(pricingTemplateSnapshot.PricingCurrencyCode)
-	result.PricingSnapshotUnit = runtimeOptionalTrimmedString(pricingTemplateSnapshot.PricingUnit)
-	result.PricingSnapshotInput = runtimeOptionalTrimmedString(pricingTemplateSnapshot.InputPrice)
-	result.PricingSnapshotOutput = runtimeOptionalTrimmedString(pricingTemplateSnapshot.OutputPrice)
-	result.PricingSnapshotCacheReadInput = runtimeOptionalTrimmedString(pricingTemplateSnapshot.CachedInputPrice)
-	result.PricingSnapshotCacheCreationInput = runtimeOptionalTrimmedString(pricingTemplateSnapshot.CacheCreationPrice)
-	result.PricingSnapshotReasoning = runtimeOptionalTrimmedString(pricingTemplateSnapshot.ReasoningPrice)
-	result.PricingConfigVersionUsed = intPtr(pricingTemplateSnapshot.Version)
 	return result
 }
 
 func buildRuntimePricingResult(reportCurrencySnapshot runtimeReportCurrencySnapshot, pricingTemplateSnapshot *runtimePricingTemplateSnapshot, endpointFXSnapshot *runtimeEndpointFXSnapshot, usage responseUsage, streamOutcome string) runtimePricingResult {
-	return buildRuntimePricingResultForOperation(reportCurrencySnapshot, pricingTemplateSnapshot, endpointFXSnapshot, usage, streamOutcome, "")
+	return buildRuntimePricingResultForOperationAt(reportCurrencySnapshot, pricingTemplateSnapshot, endpointFXSnapshot, usage, streamOutcome, "", time.Time{})
 }
 
 func buildRuntimePricingResultForOperation(reportCurrencySnapshot runtimeReportCurrencySnapshot, pricingTemplateSnapshot *runtimePricingTemplateSnapshot, endpointFXSnapshot *runtimeEndpointFXSnapshot, usage responseUsage, streamOutcome string, operation string) runtimePricingResult {
+	return buildRuntimePricingResultForOperationAt(reportCurrencySnapshot, pricingTemplateSnapshot, endpointFXSnapshot, usage, streamOutcome, operation, time.Time{})
+}
+
+func buildRuntimePricingResultForOperationAt(reportCurrencySnapshot runtimeReportCurrencySnapshot, pricingTemplateSnapshot *runtimePricingTemplateSnapshot, endpointFXSnapshot *runtimeEndpointFXSnapshot, usage responseUsage, streamOutcome string, operation string, referenceNow time.Time) runtimePricingResult {
 	result := runtimePricingResult{Billable: true, PricingEvidenceTrust: runtimePricingEvidenceTrust}
 	result.PricingTemplateIDUsed = templateIDPointer(pricingTemplateSnapshot)
 	result.PricingTemplateNameSnapshot = templateNamePointer(pricingTemplateSnapshot)
@@ -285,25 +340,29 @@ func buildRuntimePricingResultForOperation(reportCurrencySnapshot runtimeReportC
 		result.PricingStatus = runtimePricingStatusUnpriced
 		return result
 	}
-	selection := selectRuntimePricingTier(pricingTemplateSnapshot, usage, operation)
-	applyRuntimePricingTierSelection(&result, selection)
+	if strings.TrimSpace(pricingTemplateSnapshot.TemplateKind) == "" {
+		return buildLegacyRuntimePricingResult(reportCurrencySnapshot, pricingTemplateSnapshot, endpointFXSnapshot, usage, streamOutcome, operation)
+	}
+	result.PricingTemplateKind = runtimeOptionalTrimmedString(pricingTemplateSnapshot.TemplateKind)
+	selection := selectRuntimePricingCard(pricingTemplateSnapshot, usage, operation, referenceNow)
+	applyRuntimePricingCardSelection(&result, selection)
 	if selection.Incoherent {
+		if selection.State == "unresolved" && selection.Timezone != "" {
+			result.PricingStatus = runtimePricingStatusUnpriced
+			result.Priced = false
+			result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
+			result.PricingResolutionKind = stringPtr(runtimePricingResolutionScheduleUnresolved)
+			result.clearRuntimePricingCosts()
+			return result
+		}
 		return runtimeSnapshotIncoherentPricingResult(result)
 	}
-	pricingCard := selection.Snapshot
-	if pricingCard == nil {
-		pricingCard = pricingTemplateSnapshot
+	selectedCard := selection.Card
+	pricingCardSnapshot := pricingTemplateSnapshot
+	if selection.Role != "" {
+		pricingCardSnapshot = snapshotWithPricingCard(pricingTemplateSnapshot, selection.Card)
 	}
-	if selection.Kind == runtimePricingTierApplied && usage.InputTokens != nil && usage.OutputTokens != nil {
-		result.PricingSnapshotUnit = runtimeOptionalTrimmedString(pricingCard.PricingUnit)
-		result.PricingSnapshotInput = runtimeOptionalTrimmedString(pricingCard.InputPrice)
-		result.PricingSnapshotOutput = runtimeOptionalTrimmedString(pricingCard.OutputPrice)
-		result.PricingSnapshotCacheReadInput = runtimeOptionalTrimmedString(pricingCard.CachedInputPrice)
-		result.PricingSnapshotCacheCreationInput = runtimeOptionalTrimmedString(pricingCard.CacheCreationPrice)
-		result.PricingSnapshotReasoning = runtimeOptionalTrimmedString(pricingCard.ReasoningPrice)
-		result.PricingConfigVersionUsed = intPtr(pricingCard.Version)
-	}
-	if usage.InputTokens == nil || usage.OutputTokens == nil {
+	if !runtimePricingUsageCompleteForOperation(usage, operation) {
 		if runtimeStreamOutcomeMakesUsageUnavailable(streamOutcome) {
 			result.UnpricedReason = stringPtr(runtimeUnpricedReasonStreamUsageUnavailable)
 			result.PricingStatus = runtimePricingStatusUnpriced
@@ -314,18 +373,18 @@ func buildRuntimePricingResultForOperation(reportCurrencySnapshot runtimeReportC
 		return result
 	}
 
-	pricingUnit := strings.TrimSpace(pricingCard.PricingUnit)
+	pricingUnit := strings.TrimSpace(pricingCardSnapshot.PricingUnit)
 	if pricingUnit != runtimePricingUnitPerMillion {
 		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
 		result.PricingResolutionKind = stringPtr(runtimePricingResolutionUnsupportedUnit)
 		result.PricingStatus = runtimePricingStatusUnpriced
 		return result
 	}
-	if !runtimePricingEpochCurrencyCoherent(reportCurrencySnapshot, pricingCard) {
+	if !runtimePricingEpochCurrencyCoherent(reportCurrencySnapshot, pricingCardSnapshot) {
 		return runtimeSnapshotIncoherentPricingResult(result)
 	}
 
-	fxRate, fxSource, ok := resolveRuntimeFXRate(reportCurrencySnapshot, pricingCard, endpointFXSnapshot)
+	fxRate, fxSource, ok := resolveRuntimeFXRate(reportCurrencySnapshot, pricingCardSnapshot, endpointFXSnapshot)
 	if !ok {
 		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
 		result.PricingResolutionKind = stringPtr(runtimePricingResolutionCurrencyMigrationRequired)
@@ -333,7 +392,7 @@ func buildRuntimePricingResultForOperation(reportCurrencySnapshot runtimeReportC
 		return result
 	}
 
-	missingComponents := missingPriceComponents(pricingCard, usage)
+	missingComponents := missingPriceComponents(selectedCard, usage)
 	if len(missingComponents) > 0 {
 		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
 		result.PricingResolutionKind = stringPtr(runtimePricingResolutionMissingComponent)
@@ -342,7 +401,7 @@ func buildRuntimePricingResultForOperation(reportCurrencySnapshot runtimeReportC
 		return result
 	}
 
-	costs, ok := calculateRuntimePricingComponentCosts(pricingCard, usage)
+	costs, ok := calculateRuntimePricingComponentCosts(selectedCard, usage)
 	if !ok {
 		return runtimeSnapshotIncoherentPricingResult(result)
 	}
@@ -369,18 +428,18 @@ func buildRuntimePricingResultForOperation(reportCurrencySnapshot runtimeReportC
 	result.ReasoningCostMicros = int64Ptr(reasoningCostMicros)
 	result.TotalCostOriginalMicros = int64Ptr(totalOriginalMicros)
 	result.TotalCostUserCurrencyMicros = int64Ptr(totalReportMicros)
-	result.CurrencyCodeOriginal = runtimeOptionalTrimmedString(pricingCard.PricingCurrencyCode)
+	result.CurrencyCodeOriginal = runtimeOptionalTrimmedString(pricingCardSnapshot.PricingCurrencyCode)
 	result.ReportCurrencyCode = runtimeOptionalTrimmedString(reportCurrencySnapshot.Code)
 	result.ReportCurrencySymbol = runtimeOptionalTrimmedString(reportCurrencySnapshot.Symbol)
 	result.FXRateUsed = runtimeOptionalTrimmedString(fxRate)
 	result.FXRateSource = runtimeOptionalTrimmedString(fxSource)
-	result.PricingSnapshotUnit = runtimeOptionalTrimmedString(pricingCard.PricingUnit)
-	result.PricingSnapshotInput = runtimeOptionalTrimmedString(pricingCard.InputPrice)
-	result.PricingSnapshotOutput = runtimeOptionalTrimmedString(pricingCard.OutputPrice)
-	result.PricingSnapshotCacheReadInput = runtimeOptionalTrimmedString(pricingCard.CachedInputPrice)
-	result.PricingSnapshotCacheCreationInput = runtimeOptionalTrimmedString(pricingCard.CacheCreationPrice)
-	result.PricingSnapshotReasoning = runtimeOptionalTrimmedString(pricingCard.ReasoningPrice)
-	result.PricingConfigVersionUsed = intPtr(pricingCard.Version)
+	result.PricingSnapshotUnit = runtimeOptionalTrimmedString(pricingCardSnapshot.PricingUnit)
+	result.PricingSnapshotInput = runtimeOptionalTrimmedString(selectedCard.InputPrice)
+	result.PricingSnapshotOutput = runtimeOptionalTrimmedString(selectedCard.OutputPrice)
+	result.PricingSnapshotCacheReadInput = runtimeOptionalTrimmedString(selectedCard.CachedInputPrice)
+	result.PricingSnapshotCacheCreationInput = runtimeOptionalTrimmedString(selectedCard.CacheCreationPrice)
+	result.PricingSnapshotReasoning = runtimeOptionalTrimmedString(selectedCard.ReasoningPrice)
+	result.PricingConfigVersionUsed = intPtr(pricingCardSnapshot.Version)
 	return result
 }
 
@@ -389,24 +448,21 @@ func buildRuntimePricingResultForOperation(reportCurrencySnapshot runtimeReportC
 // positive tokens and an unparseable/absent price count as missing; a null
 // specialty price (not configured) is not a missing component unless tokens
 // were observed for it.
-func missingPriceComponents(pricingTemplateSnapshot *runtimePricingTemplateSnapshot, usage responseUsage) []string {
-	if pricingTemplateSnapshot == nil {
-		return nil
-	}
+func missingPriceComponents(card runtimePricingCard, usage responseUsage) []string {
 	components := make([]string, 0, 5)
-	if usage.InputTokens != nil && *usage.InputTokens > 0 && !runtimePriceComponentConcrete(pricingTemplateSnapshot.InputPrice) {
+	if usage.InputTokens != nil && *usage.InputTokens > 0 && !runtimePriceComponentConcrete(card.InputPrice) {
 		components = append(components, "input_price")
 	}
-	if usage.OutputTokens != nil && *usage.OutputTokens > 0 && !runtimePriceComponentConcrete(pricingTemplateSnapshot.OutputPrice) {
+	if usage.OutputTokens != nil && *usage.OutputTokens > 0 && !runtimePriceComponentConcrete(card.OutputPrice) {
 		components = append(components, "output_price")
 	}
-	if usage.CacheReadInputTokens != nil && *usage.CacheReadInputTokens > 0 && !runtimePriceComponentConcrete(pricingTemplateSnapshot.CachedInputPrice) {
+	if usage.CacheReadInputTokens != nil && *usage.CacheReadInputTokens > 0 && !runtimePriceComponentConcrete(card.CachedInputPrice) {
 		components = append(components, "cached_input_price")
 	}
-	if usage.CacheCreationInputTokens != nil && *usage.CacheCreationInputTokens > 0 && !runtimePriceComponentConcrete(pricingTemplateSnapshot.CacheCreationPrice) {
+	if usage.CacheCreationInputTokens != nil && *usage.CacheCreationInputTokens > 0 && !runtimePriceComponentConcrete(card.CacheCreationPrice) {
 		components = append(components, "cache_creation_price")
 	}
-	if usage.ReasoningTokens != nil && *usage.ReasoningTokens > 0 && !runtimePriceComponentConcrete(pricingTemplateSnapshot.ReasoningPrice) {
+	if usage.ReasoningTokens != nil && *usage.ReasoningTokens > 0 && !runtimePriceComponentConcrete(card.ReasoningPrice) {
 		components = append(components, "reasoning_price")
 	}
 	return components

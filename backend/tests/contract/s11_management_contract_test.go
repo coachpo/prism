@@ -1058,8 +1058,7 @@ func TestCurrencyMigrationAtomicCutover(t *testing.T) {
 	for _, template := range templates {
 		chunkItems = append(chunkItems, map[string]any{
 			"template_id": template["id"], "expected_version": template["version"], "expected_updated_at": template["updated_at"],
-			"input_price": template["input_price"], "output_price": template["output_price"], "cached_input_price": template["cached_input_price"],
-			"cache_creation_price": template["cache_creation_price"], "reasoning_price": template["reasoning_price"],
+			"template_kind": template["template_kind"], "cards": currencyMigrationCardsForTemplate(t, template),
 		})
 	}
 	requestJSONStatus[map[string]any](t, harness, http.MethodPut, "/api/settings/costing/currency-migration-drafts/"+draftID+"/chunks/1", map[string]any{"items": chunkItems}, modelHeader(profileID), http.StatusOK)
@@ -1166,43 +1165,70 @@ func TestCurrencyMigrationAtomicCutover(t *testing.T) {
 	assertErrorResponse(t, duplicate, http.StatusConflict, "currency_migration_required: target currency must differ from the current reporting currency")
 }
 
-func TestCurrencyMigrationBlockedByTieredTemplate(t *testing.T) {
+func currencyMigrationCardsForTemplate(t *testing.T, template map[string]any) []map[string]any {
+	t.Helper()
+	card := func(role string, raw any) map[string]any {
+		value, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("expected %s card object, got %T %+v", role, raw, raw)
+		}
+		return map[string]any{"card_role": role, "input_price": value["input_price"], "output_price": value["output_price"], "cached_input_price": value["cached_input_price"], "cache_creation_price": value["cache_creation_price"], "reasoning_price": value["reasoning_price"]}
+	}
+	kind, _ := template["template_kind"].(string)
+	switch kind {
+	case "standard":
+		return []map[string]any{card("standard", template["card"])}
+	case "tiered":
+		tier, ok := template["tier"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected tier object, got %T %+v", template["tier"], template["tier"])
+		}
+		return []map[string]any{card("tier_base", template["base_card"]), card("tier_above", tier["card"])}
+	case "peak_valley":
+		return []map[string]any{card("peak", template["peak_card"]), card("offpeak", template["offpeak_card"])}
+	default:
+		t.Fatalf("unsupported template kind %q", kind)
+		return nil
+	}
+}
+
+func TestCurrencyMigrationAllowsTypedTieredTemplate(t *testing.T) {
 	harness := newS11ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
-	templateID := insertContractPricingTemplateWithPrices(t, harness, profileID, "Tiered Currency Guard", "2", "5", "1", "2", "3")
-	now := time.Now().UTC()
-	var revisionID int64
-	if err := harness.conn.QueryRow(context.Background(), `WITH current_revision AS (SELECT revisions.* FROM pricing_templates AS templates JOIN pricing_template_revisions AS revisions ON revisions.id = templates.current_revision_id WHERE templates.id = $1), inserted AS (INSERT INTO pricing_template_revisions (template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, tier_input_tokens_above, tier_input_price, tier_output_price, tier_cached_input_price, tier_cache_creation_price, tier_reasoning_price, effective_at, created_at, created_by_kind, created_by_operation_id) SELECT template_id, version + 1, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, 272000, '4', '18', '2', '5', '20', $2, $2, 'legacy_backfill', NULL FROM current_revision RETURNING id) UPDATE pricing_templates SET current_revision_id = inserted.id, updated_at = $2 FROM inserted WHERE pricing_templates.id = $1 RETURNING inserted.id`, templateID, now).Scan(&revisionID); err != nil {
-		t.Fatalf("attach tiered revision for currency guard: %v", err)
-	}
-	if revisionID < 1 {
-		t.Fatalf("expected tiered revision identity, got %d", revisionID)
+	createdTemplate := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/pricing-templates", map[string]any{
+		"name": "Tiered Currency Cards", "template_kind": "tiered", "base_card": map[string]any{"input_price": "2", "output_price": "5", "cached_input_price": "1", "cache_creation_price": "2", "reasoning_price": "3"},
+		"tier": map[string]any{"input_tokens_above": 100, "card": map[string]any{"input_price": "4", "output_price": "18", "cached_input_price": "1", "cache_creation_price": "2", "reasoning_price": "3"}},
+	}, modelHeader(profileID), http.StatusCreated)
+	if createdTemplate["template_kind"] != "tiered" {
+		t.Fatalf("expected tiered template, got %+v", createdTemplate)
 	}
 	settings := requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/settings/costing", nil, modelHeader(profileID), http.StatusOK)
 	var draftID, operationID string
 	if err := harness.conn.QueryRow(context.Background(), `SELECT gen_random_uuid()::text, gen_random_uuid()::text`).Scan(&draftID, &operationID); err != nil {
-		t.Fatalf("generate currency guard identifiers: %v", err)
+		t.Fatalf("generate currency card identifiers: %v", err)
 	}
-	blocked := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/settings/costing/currency-migration-drafts", map[string]any{
-		"draft_id": draftID, "migration_operation_id": operationID, "operation_kind": "currency_cutover",
-		"target_currency_code": "EUR", "target_currency_symbol": "€", "expected_inventory_id": nil,
-		"expected_inventory_hash": nil, "expected_inventory_generation": nil, "expected_reporting_currency_epoch": 1,
-		"expected_settings_updated_at": settings["updated_at"],
-	}, modelHeader(profileID), http.StatusConflict)
-	if blocked["code"] != "currency_migration_blocked_by_tiered_templates" {
-		t.Fatalf("expected tiered-template currency guard code, got %+v", blocked)
+	requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/settings/costing/currency-migration-drafts", map[string]any{
+		"draft_id": draftID, "migration_operation_id": operationID, "operation_kind": "currency_cutover", "target_currency_code": "EUR", "target_currency_symbol": "€",
+		"expected_inventory_id": nil, "expected_inventory_hash": nil, "expected_inventory_generation": nil, "expected_reporting_currency_epoch": 1, "expected_settings_updated_at": settings["updated_at"],
+	}, modelHeader(profileID), http.StatusCreated)
+	templates := requestJSONStatus[[]map[string]any](t, harness, http.MethodGet, "/api/pricing-templates", nil, modelHeader(profileID), http.StatusOK)
+	if len(templates) != 1 {
+		t.Fatalf("expected one typed tiered template, got %+v", templates)
 	}
-	details := asMap(t, blocked["details"])
-	if details["current_currency_code"] != "USD" {
-		t.Fatalf("expected current currency in tier guard details, got %+v", details)
+	chunk := map[string]any{"template_id": templates[0]["id"], "expected_version": templates[0]["version"], "expected_updated_at": templates[0]["updated_at"], "template_kind": templates[0]["template_kind"], "cards": currencyMigrationCardsForTemplate(t, templates[0])}
+	requestJSONStatus[map[string]any](t, harness, http.MethodPut, "/api/settings/costing/currency-migration-drafts/"+draftID+"/chunks/1", map[string]any{"items": []map[string]any{chunk}}, modelHeader(profileID), http.StatusOK)
+	sealed := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/settings/costing/currency-migration-drafts/"+draftID+"/seal", nil, modelHeader(profileID), http.StatusOK)
+	preview := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/settings/costing/currency-migrations/preview", map[string]any{"operation_kind": "currency_cutover", "migration_operation_id": operationID, "draft_id": draftID, "draft_hash": sealed["draft_hash"]}, modelHeader(profileID), http.StatusOK)
+	commit := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/settings/costing/currency-migrations/commit", map[string]any{"operation_kind": "currency_cutover", "migration_operation_id": operationID, "draft_id": draftID, "draft_hash": sealed["draft_hash"], "preview_hash": preview["preview_hash"]}, modelHeader(profileID), http.StatusOK)
+	if commit["revision_change_count"] != float64(1) {
+		t.Fatalf("expected one typed revision change, got %+v", commit)
 	}
-	items := details["templates"].([]any)
-	if len(items) != 1 || jsonInt(t, asMap(t, items[0])["template_id"]) != templateID || jsonInt(t, asMap(t, items[0])["input_tokens_above"]) != 272000 {
-		t.Fatalf("expected affected tiered template evidence, got %+v", details)
+	var kind, roles string
+	if err := harness.conn.QueryRow(context.Background(), `SELECT revisions.template_kind, string_agg(cards.card_role, ',' ORDER BY cards.card_role) FROM pricing_template_revisions revisions JOIN pricing_templates templates ON templates.current_revision_id = revisions.id JOIN pricing_template_cards cards ON cards.revision_id = revisions.id WHERE templates.id = $1 GROUP BY revisions.template_kind`, intValue(createdTemplate["id"])).Scan(&kind, &roles); err != nil {
+		t.Fatalf("load migrated typed cards: %v", err)
 	}
-	tier := asMap(t, items[0])
-	if tier["input_price"] != "4" || tier["output_price"] != "18" || tier["cached_input_price"] != "2" || tier["cache_creation_price"] != "5" || tier["reasoning_price"] != "20" {
-		t.Fatalf("expected all five tier prices in the currency guard details, got %+v", tier)
+	if kind != "tiered" || roles != "tier_above,tier_base" {
+		t.Fatalf("expected complete tiered card set after migration, got kind=%q roles=%q", kind, roles)
 	}
 }
 
@@ -1213,7 +1239,7 @@ func assertTemplateRevisionAtEpoch(t *testing.T, harness *contractHarness, profi
 	var gotInput string
 	var gotOutput string
 	var gotEpoch int
-	if err := harness.conn.QueryRow(context.Background(), `SELECT revisions.version, revisions.currency_code, revisions.input_price, revisions.output_price, revisions.reporting_currency_epoch FROM pricing_template_revisions AS revisions JOIN pricing_templates AS templates ON templates.current_revision_id = revisions.id WHERE templates.id = $1`, templateID).Scan(&gotVersion, &gotCurrency, &gotInput, &gotOutput, &gotEpoch); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `SELECT revisions.version, revisions.currency_code, cards.input_price, cards.output_price, revisions.reporting_currency_epoch FROM pricing_template_revisions AS revisions JOIN pricing_templates AS templates ON templates.current_revision_id = revisions.id JOIN pricing_template_cards AS cards ON cards.revision_id = revisions.id AND cards.card_role = 'standard' WHERE templates.id = $1`, templateID).Scan(&gotVersion, &gotCurrency, &gotInput, &gotOutput, &gotEpoch); err != nil {
 		t.Fatalf("load migrated template %d revision: %v", templateID, err)
 	}
 	if gotVersion != version || gotCurrency != currency || gotInput != input || gotOutput != output || gotEpoch != 2 {

@@ -103,8 +103,7 @@ func (s *Service) buildRuntimeTelemetryPricingTimingContext(plan requestPlan, re
 		if strings.TrimSpace(hookCollectionID) == "" {
 			hookCollectionID = plan.RuntimeOperation.Name
 		}
-		pricingResult = buildRuntimePricingResultForOperation(plan.ReportCurrencySnapshot, result.Connection.PricingTemplateSnapshot, result.Connection.EndpointFXSnapshot, usage, streamOutcome, hookCollectionID)
-		pricingResult = withRuntimePricingSnapshotForPersistence(pricingResult, result.Connection.PricingTemplateSnapshot)
+		pricingResult = buildRuntimePricingResultForOperationAt(plan.ReportCurrencySnapshot, result.Connection.PricingTemplateSnapshot, result.Connection.EndpointFXSnapshot, usage, streamOutcome, hookCollectionID, plan.ReferenceNow)
 		pricingResult = enforceRuntimeSpendCoherence(successFlag, pricingResult)
 	}
 	return runtimeTelemetryPricingTimingContext{

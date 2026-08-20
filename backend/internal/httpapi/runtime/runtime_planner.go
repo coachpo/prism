@@ -40,19 +40,13 @@ func (s *Service) buildRequestPlanFromSnapshotCoreWithProbe(request *http.Reques
 	return assembleRequestPlan(input, operation, target)
 }
 
-// planningReferenceNow returns the single planning clock of this ingress, or
-// the live clock when the request carries no ingress context (tests and
-// non-runtime callers). It is the only allowed second read of the clock on
-// the planning path: routing eligibility must never re-read the live clock
-// mid-ingress, while execution-phase admission and Ban re-checks
-// deliberately keep reading it.
+// planningReferenceNow returns only the clock captured by the runtime
+// ingress context. A missing or zero value remains zero so schedule/card
+// selection fails closed; it must never silently substitute a later live clock.
 func (s *Service) planningReferenceNow(request *http.Request) time.Time {
 	if request == nil {
-		return s.nowUTC()
+		return time.Time{}
 	}
-	referenceNow, ok := runtimePlanningReferenceNowFromContext(request.Context())
-	if !ok || referenceNow.IsZero() {
-		return s.nowUTC()
-	}
+	referenceNow, _ := runtimePlanningReferenceNowFromContext(request.Context())
 	return referenceNow
 }

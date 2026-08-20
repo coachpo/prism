@@ -6,7 +6,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn, formatApiFamily } from "@/lib/utils";
 import type { MouseEvent } from "react";
-import type { RequestLogDetailV2, PricingProjection } from "@/lib/types/request-logs-v2";
+import type {
+  RequestLogDetailV2,
+  PricingProjection,
+} from "@/lib/types/request-logs-v2";
 import {
   formatCost,
   formatTokenRate,
@@ -14,7 +17,12 @@ import {
   formatTokens,
 } from "../columns";
 import { formatUnpricedReasonLabel } from "@/lib/costing";
-import { cacheReadShare, classifyPricingTier, classifyTokenComponents, describeUnpricedCause } from "../pricingExplanation";
+import {
+  cacheReadShare,
+  classifyPricingSelection,
+  classifyTokenComponents,
+  describeUnpricedCause,
+} from "../pricingExplanation";
 import type { CacheReadShare } from "../pricingExplanation";
 import {
   OperatorCallout,
@@ -28,7 +36,11 @@ import {
   SectionCard,
   SummaryStat,
 } from "./requestLogDetailShared";
-import { copyRequestLogText, getStatusIntent, getStatusTone } from "./requestLogDetailUtils";
+import {
+  copyRequestLogText,
+  getStatusIntent,
+  getStatusTone,
+} from "./requestLogDetailUtils";
 import { resolveRequestAuditCaptureMode } from "../requestLogAuditState";
 import {
   getStreamOutcomeIntent,
@@ -64,11 +76,17 @@ function SectionSubheading({ children }: { children: React.ReactNode }) {
   );
 }
 
-function getClientPrimaryValue(display: string | null, rawUserAgent: string | null): string {
+function getClientPrimaryValue(
+  display: string | null,
+  rawUserAgent: string | null,
+): string {
   return display ?? rawUserAgent ?? "—";
 }
 
-function renderClientDetailValue(display: string | null, rawUserAgent: string | null) {
+function renderClientDetailValue(
+  display: string | null,
+  rawUserAgent: string | null,
+) {
   const primaryValue = getClientPrimaryValue(display, rawUserAgent);
   const showRawValue = rawUserAgent !== null && rawUserAgent !== primaryValue;
 
@@ -105,23 +123,83 @@ function scopedStatus(request: RequestLogDetailV2): number | null {
 
 function scopedDuration(request: RequestLogDetailV2): number | null {
   const summary = request.summary;
-  return summary.row_kind === "upstream" ? summary.attempt_duration_ms : summary.legacy_duration_ms;
+  return summary.row_kind === "upstream"
+    ? summary.attempt_duration_ms
+    : summary.legacy_duration_ms;
 }
 
-function pricingTierValue(pricing: PricingProjection, messages: ReturnType<typeof useLocale>["messages"]): React.ReactNode {
-  const tier = classifyPricingTier({ applied: pricing.pricing_tier_applied, threshold: pricing.pricing_tier_threshold_tokens, basis: pricing.pricing_tier_basis_tokens })
-  if (tier.kind === "legacy") return <OperatorMissingValue reason={messages.requestLogs.pricingTierLegacy} />
-  const label = tier.kind === "base"
-    ? messages.requestLogs.pricingTierBase
-    : tier.kind === "tier"
-      ? messages.requestLogs.pricingTierTier
-      : tier.kind === "not_applicable"
-        ? messages.requestLogs.pricingTierNotApplicable
-        : messages.requestLogs.pricingTierNotEvaluated
-  return <span>{label}</span>
+function pricingSelectionValue(
+  pricing: PricingProjection,
+  messages: ReturnType<typeof useLocale>["messages"],
+): React.ReactNode {
+  const selection = classifyPricingSelection({
+    state: pricing.pricing_selection_state,
+    role: pricing.pricing_card_role,
+    threshold: pricing.pricing_selector_threshold_tokens,
+    basis: pricing.pricing_selector_basis_tokens,
+  });
+  switch (selection.kind) {
+    case "unavailable":
+      return (
+        <OperatorMissingValue
+          reason={messages.requestLogs.pricingSelectionUnavailable}
+        />
+      );
+    case "not_evaluated":
+      return <span>{messages.requestLogs.pricingSelectionNotEvaluated}</span>;
+    case "not_applicable":
+      return <span>{messages.requestLogs.pricingSelectionNotApplicable}</span>;
+    case "unresolved":
+      return (
+        <OperatorCallout intent="warning">
+          {messages.requestLogs.pricingSelectionUnresolved}
+        </OperatorCallout>
+      );
+    case "selected":
+      return <span>{messages.requestLogs.pricingSelectionSelected}</span>;
+  }
 }
 
-function pricingStateLabel(pricing: PricingProjection, messages: ReturnType<typeof useLocale>["messages"]): string {
+function pricingKindLabel(
+  kind: PricingProjection["pricing_template_kind"],
+  messages: ReturnType<typeof useLocale>["messages"],
+): string {
+  switch (kind) {
+    case "standard":
+      return messages.requestLogs.pricingKindStandard;
+    case "tiered":
+      return messages.requestLogs.pricingKindTiered;
+    case "peak_valley":
+      return messages.requestLogs.pricingKindPeakValley;
+    default:
+      return "—";
+  }
+}
+
+function pricingCardRoleLabel(
+  role: PricingProjection["pricing_card_role"],
+  messages: ReturnType<typeof useLocale>["messages"],
+): string {
+  switch (role) {
+    case "standard":
+      return messages.requestLogs.pricingCardStandard;
+    case "tier_base":
+      return messages.requestLogs.pricingCardTierBase;
+    case "tier_above":
+      return messages.requestLogs.pricingCardTierAbove;
+    case "peak":
+      return messages.requestLogs.pricingCardPeak;
+    case "offpeak":
+      return messages.requestLogs.pricingCardOffpeak;
+    default:
+      return "—";
+  }
+}
+
+function pricingStateLabel(
+  pricing: PricingProjection,
+  messages: ReturnType<typeof useLocale>["messages"],
+): string {
   switch (pricing.pricing_status) {
     case "priced":
       return messages.requestLogs.priced;
@@ -143,7 +221,9 @@ function renderCacheReadShare(
   messages: ReturnType<typeof useLocale>["messages"],
 ) {
   if (share.kind === "value") {
-    return <span className="font-mono tabular-nums">{`${(share.share * 100).toFixed(1)}%`}</span>;
+    return (
+      <span className="font-mono tabular-nums">{`${(share.share * 100).toFixed(1)}%`}</span>
+    );
   }
   const copy = messages.requestLogs;
   const reason = {
@@ -163,11 +243,26 @@ function renderAuditCaptureState(
 
   switch (captureMode) {
     case "disabled":
-      return <OperatorTypeBadge label={messages.requestLogs.auditDisabledAtRequest} intent="muted" />;
+      return (
+        <OperatorTypeBadge
+          label={messages.requestLogs.auditDisabledAtRequest}
+          intent="muted"
+        />
+      );
     case "metadata_only":
-      return <OperatorTypeBadge label={messages.requestLogs.auditMetadataOnly} intent="accent" />;
+      return (
+        <OperatorTypeBadge
+          label={messages.requestLogs.auditMetadataOnly}
+          intent="accent"
+        />
+      );
     case "full":
-      return <OperatorTypeBadge label={messages.requestLogs.auditFullCapture} intent="healthy" />;
+      return (
+        <OperatorTypeBadge
+          label={messages.requestLogs.auditFullCapture}
+          intent="healthy"
+        />
+      );
   }
 }
 
@@ -187,14 +282,23 @@ export function RequestLogOverviewTab({
   const durationMs = scopedDuration(request);
   // No scoped status means no tone to imply; a missing status must not read as
   // a server error.
-  const tone = statusCode === null ? { card: "border-l-border" } : getStatusTone(statusCode);
+  const tone =
+    statusCode === null
+      ? { card: "border-l-border" }
+      : getStatusTone(statusCode);
   const requestedModelLabel = summary.model_label;
-  const finalTargetModelId = summary.resolved_target_model_id ?? summary.model_id;
-  const finalTargetLabel = summary.resolved_target_model_label ?? requestedModelLabel;
+  const finalTargetModelId =
+    summary.resolved_target_model_id ?? summary.model_id;
+  const finalTargetLabel =
+    summary.resolved_target_model_label ?? requestedModelLabel;
   const failureDetail = failure?.detail ?? null;
-  const formattedErrorDetail = failureDetail ? formatErrorDetail(failureDetail) : null;
-  const hasFormattedErrorDetail = formattedErrorDetail !== null && formattedErrorDetail !== failureDetail;
-  const requestReasoningEffort = requestInfo.request_generation_params?.reasoning?.effort ?? null;
+  const formattedErrorDetail = failureDetail
+    ? formatErrorDetail(failureDetail)
+    : null;
+  const hasFormattedErrorDetail =
+    formattedErrorDetail !== null && formattedErrorDetail !== failureDetail;
+  const requestReasoningEffort =
+    requestInfo.request_generation_params?.reasoning?.effort ?? null;
   const apiFamily = summary.api_family;
   const callerClientPrimaryValue = getClientPrimaryValue(
     requestInfo.caller_client_display,
@@ -205,14 +309,16 @@ export function RequestLogOverviewTab({
     requestInfo.upstream_user_agent,
   );
   const showUpstreamClient =
-    requestInfo.user_agent_overridden
-    || requestInfo.upstream_client_display !== null
-    || requestInfo.upstream_user_agent !== null;
+    requestInfo.user_agent_overridden ||
+    requestInfo.upstream_client_display !== null ||
+    requestInfo.upstream_user_agent !== null;
   const showCallerClient =
-    requestInfo.caller_client_display !== null
-    || requestInfo.caller_user_agent !== null
-    || requestInfo.user_agent_overridden;
-  const streamUsageUnavailable = isStreamUsageUnavailableReason(pricing.unpriced_reason);
+    requestInfo.caller_client_display !== null ||
+    requestInfo.caller_user_agent !== null ||
+    requestInfo.user_agent_overridden;
+  const streamUsageUnavailable = isStreamUsageUnavailableReason(
+    pricing.unpriced_reason,
+  );
   const unpricedCause = describeUnpricedCause({
     pricingStatus: pricing.pricing_status,
     unpricedReason: pricing.unpriced_reason,
@@ -232,28 +338,42 @@ export function RequestLogOverviewTab({
     cacheCreation: usage.cache_creation_input_tokens,
     operationName: request.request.operation_name,
   });
-  const streamOutcome = summary.stream_outcome as import("@/lib/types").StreamOutcome;
-  const streamStatusLabel = getStreamOutcomeLabel(streamOutcome, messages.requestLogs);
+  const streamOutcome =
+    summary.stream_outcome as import("@/lib/types").StreamOutcome;
+  const streamStatusLabel = getStreamOutcomeLabel(
+    streamOutcome,
+    messages.requestLogs,
+  );
   const hasStreamTelemetry = hasStreamTelemetryOutcome(streamOutcome);
   const showStreamStatus = shouldShowStreamStatus(streamOutcome);
-  const totalTokensValue = streamUsageUnavailable && usage.total_tokens === null
-    ? messages.requestLogs.streamUsageUnavailable
-    : formatTokens(usage.total_tokens);
+  const totalTokensValue =
+    streamUsageUnavailable && usage.total_tokens === null
+      ? messages.requestLogs.streamUsageUnavailable
+      : formatTokens(usage.total_tokens);
   const isPriced = pricing.pricing_status === "priced";
-  const totalCostMicros = pricing.total_cost_user_currency_micros !== null && pricing.total_cost_user_currency_micros !== undefined
-    ? Number(pricing.total_cost_user_currency_micros)
-    : null;
-  const totalCostValue = streamUsageUnavailable && totalCostMicros === null
-    ? messages.requestLogs.streamUsageUnavailable
-    : !isPriced
-      ? messages.spendTrust.unpriced
-      : formatCost(totalCostMicros, pricing.report_currency_symbol);
+  const totalCostMicros =
+    pricing.total_cost_user_currency_micros !== null &&
+    pricing.total_cost_user_currency_micros !== undefined
+      ? Number(pricing.total_cost_user_currency_micros)
+      : null;
+  const totalCostValue =
+    streamUsageUnavailable && totalCostMicros === null
+      ? messages.requestLogs.streamUsageUnavailable
+      : !isPriced
+        ? messages.spendTrust.unpriced
+        : formatCost(totalCostMicros, pricing.report_currency_symbol);
 
   const handleCopyErrorDetail = (event: MouseEvent<HTMLButtonElement>) => {
     if (!formattedErrorDetail) return;
 
-    const container = event.currentTarget.closest("[data-clipboard-fallback-root]") as HTMLElement | null;
-    void copyRequestLogText(formattedErrorDetail, messages.requestLogs.errorDetail, container);
+    const container = event.currentTarget.closest(
+      "[data-clipboard-fallback-root]",
+    ) as HTMLElement | null;
+    void copyRequestLogText(
+      formattedErrorDetail,
+      messages.requestLogs.errorDetail,
+      container,
+    );
   };
 
   return (
@@ -264,11 +384,21 @@ export function RequestLogOverviewTab({
             <div className="flex min-w-0 flex-col gap-3">
               <div className="flex flex-wrap items-center gap-2">
                 {statusCode !== null ? (
-                  <OperatorValueBadge label={String(statusCode)} intent={getStatusIntent(statusCode)} className="px-1.5 py-0 font-mono" />
+                  <OperatorValueBadge
+                    label={String(statusCode)}
+                    intent={getStatusIntent(statusCode)}
+                    className="px-1.5 py-0 font-mono"
+                  />
                 ) : null}
                 <OperatorTypeBadge
                   label={pricingStateLabel(pricing, messages)}
-                  intent={isPriced ? "healthy" : pricing.pricing_status === "ineligible" ? "idle" : "degraded"}
+                  intent={
+                    isPriced
+                      ? "healthy"
+                      : pricing.pricing_status === "ineligible"
+                        ? "idle"
+                        : "degraded"
+                  }
                   className="px-2 py-0.5"
                   preserveLabel
                 />
@@ -285,7 +415,9 @@ export function RequestLogOverviewTab({
 
               <div className="flex min-w-0 flex-col gap-1.5">
                 <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                  <h3 className="truncate text-lg font-semibold tracking-tight sm:text-xl">{requestedModelLabel}</h3>
+                  <h3 className="truncate text-lg font-semibold tracking-tight sm:text-xl">
+                    {requestedModelLabel}
+                  </h3>
                 </div>
                 {requestedModelLabel !== summary.model_id ? (
                   <p className="font-mono text-[11px] text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
@@ -301,10 +433,19 @@ export function RequestLogOverviewTab({
               </div>
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-3 xl:w-[540px]" data-testid="request-log-summary-strip">
+            <div
+              className="grid gap-2 sm:grid-cols-3 xl:w-[540px]"
+              data-testid="request-log-summary-strip"
+            >
               <SummaryStat
                 label={messages.requestLogs.latency}
-                value={durationMs === null ? <OperatorMissingValue reason={messages.honesty.noValue} /> : `${formatNumber(durationMs)} ms`}
+                value={
+                  durationMs === null ? (
+                    <OperatorMissingValue reason={messages.honesty.noValue} />
+                  ) : (
+                    `${formatNumber(durationMs)} ms`
+                  )
+                }
                 valueClassName="font-mono"
               />
               <SummaryStat
@@ -314,7 +455,11 @@ export function RequestLogOverviewTab({
               />
               <SummaryStat
                 label={messages.requestLogs.tokenRate}
-                value={formatTokenRate(usage.output_tokens, summary.ttft_ms, summary.completion_duration_ms)}
+                value={formatTokenRate(
+                  usage.output_tokens,
+                  summary.ttft_ms,
+                  summary.completion_duration_ms,
+                )}
                 valueClassName="font-mono"
               />
               <SummaryStat
@@ -324,13 +469,11 @@ export function RequestLogOverviewTab({
               />
               <SummaryStat
                 label={messages.requestLogs.totalCost}
-                value={(
+                value={
                   <div className="flex flex-col items-start gap-1">
-                    <span className="font-mono">
-                      {totalCostValue}
-                    </span>
+                    <span className="font-mono">{totalCostValue}</span>
                   </div>
-                )}
+                }
               />
               <SummaryStat
                 label={messages.requestLogs.timestamp}
@@ -346,11 +489,17 @@ export function RequestLogOverviewTab({
         <OperatorCallout intent="danger" icon={<AlertTriangle />} className="">
           <div className="flex min-w-0 flex-col gap-3">
             {statusCode !== null ? (
-              <OperatorValueBadge label={String(statusCode)} intent={getStatusIntent(statusCode)} className="px-1.5 py-0 font-mono" />
+              <OperatorValueBadge
+                label={String(statusCode)}
+                intent={getStatusIntent(statusCode)}
+                className="px-1.5 py-0 font-mono"
+              />
             ) : null}
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="flex flex-col gap-1">
-                <p className="text-xs font-medium uppercase tracking-[0.16em]">{messages.requestLogs.errorDetail}</p>
+                <p className="text-xs font-medium uppercase tracking-[0.16em]">
+                  {messages.requestLogs.errorDetail}
+                </p>
                 <p className="text-xs">
                   {hasFormattedErrorDetail
                     ? messages.requestLogs.formattedForReadability
@@ -377,12 +526,24 @@ export function RequestLogOverviewTab({
         </OperatorCallout>
       ) : null}
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]" data-testid="request-log-overview-grid">
-        <SectionCard icon={FileText} title={messages.requestLogs.requestDetails}>
+      <div
+        className="grid gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]"
+        data-testid="request-log-overview-grid"
+      >
+        <SectionCard
+          icon={FileText}
+          title={messages.requestLogs.requestDetails}
+        >
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1">
-              <DetailRow label={messages.requestLogs.requestId}><span className="font-mono">#{summary.request_log_id}</span></DetailRow>
-              <DetailRow label={messages.requestLogs.time}><span className="font-mono text-xs">{formatTimestamp(summary.created_at)}</span></DetailRow>
+              <DetailRow label={messages.requestLogs.requestId}>
+                <span className="font-mono">#{summary.request_log_id}</span>
+              </DetailRow>
+              <DetailRow label={messages.requestLogs.time}>
+                <span className="font-mono text-xs">
+                  {formatTimestamp(summary.created_at)}
+                </span>
+              </DetailRow>
               {requestInfo.ingress_request_id ? (
                 <DetailRow label={messages.requestLogs.ingressRequestId}>
                   <span className="font-mono text-[12px] whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
@@ -392,11 +553,15 @@ export function RequestLogOverviewTab({
               ) : null}
               {summary.attempt_number !== null ? (
                 <DetailRow label={messages.requestLogs.attemptNumber}>
-                  <span className="font-mono">{formatNumber(summary.attempt_number)}</span>
+                  <span className="font-mono">
+                    {formatNumber(summary.attempt_number)}
+                  </span>
                 </DetailRow>
               ) : null}
               {summary.attempt_trigger ? (
-                <DetailRow label={messages.requestLogs.attemptTrigger ?? "尝试触发"}>
+                <DetailRow
+                  label={messages.requestLogs.attemptTrigger ?? "尝试触发"}
+                >
                   <span className="font-mono">{summary.attempt_trigger}</span>
                 </DetailRow>
               ) : null}
@@ -409,7 +574,8 @@ export function RequestLogOverviewTab({
               ) : null}
               <DetailRow label={messages.requestLogs.proxyApiKey}>
                 <span className="font-mono text-[12px] whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                  {requestInfo.proxy_api_key_name_snapshot ?? messages.requestLogs.proxyApiKeyNotRecorded}
+                  {requestInfo.proxy_api_key_name_snapshot ??
+                    messages.requestLogs.proxyApiKeyNotRecorded}
                 </span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.requestedModel}>
@@ -433,10 +599,17 @@ export function RequestLogOverviewTab({
                 </div>
               </DetailRow>
               {request.terminal_target ? (
-                <DetailRow label={messages.requestLogs.terminalTarget ?? "终端目标"}>
+                <DetailRow
+                  label={messages.requestLogs.terminalTarget ?? "终端目标"}
+                >
                   <div className="flex flex-col gap-1">
-                    <p>{request.terminal_target.name ?? `#${request.terminal_target.terminal_target_id}`}</p>
-                    <p className="font-mono text-[11px] text-muted-foreground">#{request.terminal_target.terminal_target_id}</p>
+                    <p>
+                      {request.terminal_target.name ??
+                        `#${request.terminal_target.terminal_target_id}`}
+                    </p>
+                    <p className="font-mono text-[11px] text-muted-foreground">
+                      #{request.terminal_target.terminal_target_id}
+                    </p>
                   </div>
                 </DetailRow>
               ) : null}
@@ -448,10 +621,11 @@ export function RequestLogOverviewTab({
                   )}
                 </DetailRow>
               ) : null}
-              {showUpstreamClient
-                && (requestInfo.user_agent_overridden
-                  || upstreamClientPrimaryValue !== callerClientPrimaryValue
-                  || requestInfo.upstream_user_agent !== requestInfo.caller_user_agent) ? (
+              {showUpstreamClient &&
+              (requestInfo.user_agent_overridden ||
+                upstreamClientPrimaryValue !== callerClientPrimaryValue ||
+                requestInfo.upstream_user_agent !==
+                  requestInfo.caller_user_agent) ? (
                 <DetailRow label={messages.requestLogs.upstreamClient}>
                   {renderClientDetailValue(
                     requestInfo.upstream_client_display,
@@ -477,13 +651,19 @@ export function RequestLogOverviewTab({
                     intent={getStreamOutcomeIntent(streamOutcome)}
                     preserveLabel
                   />
-                ) : messages.requestLogs.no}
+                ) : (
+                  messages.requestLogs.no
+                )}
               </DetailRow>
               {showStreamStatus ? (
-                <DetailRow label={messages.requestLogs.streamStatus}>{streamStatusLabel}</DetailRow>
+                <DetailRow label={messages.requestLogs.streamStatus}>
+                  {streamStatusLabel}
+                </DetailRow>
               ) : null}
               {summary.stream_error_kind ? (
-                <DetailRow label={messages.requestLogs.streamErrorKind ?? "流式错误类型"}>
+                <DetailRow
+                  label={messages.requestLogs.streamErrorKind ?? "流式错误类型"}
+                >
                   <span className="font-mono text-[12px] whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                     {summary.stream_error_kind}
                   </span>
@@ -497,7 +677,9 @@ export function RequestLogOverviewTab({
             </div>
 
             <div className="flex flex-col gap-1 border-t border-border pt-3">
-              <SectionSubheading>{messages.requestLogs.routingContext}</SectionSubheading>
+              <SectionSubheading>
+                {messages.requestLogs.routingContext}
+              </SectionSubheading>
               <DetailRow label={messages.requestLogs.endpoint}>
                 <div className="flex flex-col gap-1">
                   <p>{routing.endpoint_label}</p>
@@ -513,7 +695,9 @@ export function RequestLogOverviewTab({
                   <span className="font-mono text-[12px] whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                     #{selectedTerminalTargetId}
                   </span>
-                ) : messages.requestLogs.noTerminalTargetSelected}
+                ) : (
+                  messages.requestLogs.noTerminalTargetSelected
+                )}
               </DetailRow>
               {routing.endpoint_base_url ? (
                 <DetailRow label={messages.requestLogs.baseUrl}>
@@ -529,46 +713,71 @@ export function RequestLogOverviewTab({
           </div>
         </SectionCard>
 
-        <SectionCard icon={Coins} title={`${messages.requestLogs.tokenUsage} / ${messages.requestLogs.costBreakdown}`}>
+        <SectionCard
+          icon={Coins}
+          title={`${messages.requestLogs.tokenUsage} / ${messages.requestLogs.costBreakdown}`}
+        >
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1">
-              <SectionSubheading>{messages.requestLogs.tokenUsage}</SectionSubheading>
+              <SectionSubheading>
+                {messages.requestLogs.tokenUsage}
+              </SectionSubheading>
               <DetailRow label={messages.requestLogs.input}>
                 <span className="font-mono">
-                  {streamUsageUnavailable && usage.input_tokens === null ? messages.requestLogs.streamUsageUnavailable : formatTokens(usage.input_tokens)}
+                  {streamUsageUnavailable && usage.input_tokens === null
+                    ? messages.requestLogs.streamUsageUnavailable
+                    : formatTokens(usage.input_tokens)}
                 </span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.output}>
                 <span className="font-mono">
-                  {streamUsageUnavailable && usage.output_tokens === null ? messages.requestLogs.streamUsageUnavailable : formatTokens(usage.output_tokens)}
+                  {streamUsageUnavailable && usage.output_tokens === null
+                    ? messages.requestLogs.streamUsageUnavailable
+                    : formatTokens(usage.output_tokens)}
                 </span>
               </DetailRow>
-              <DetailRow label={messages.requestLogs.total}><span className="font-mono">{totalTokensValue}</span></DetailRow>
+              <DetailRow label={messages.requestLogs.total}>
+                <span className="font-mono">{totalTokensValue}</span>
+              </DetailRow>
               <DetailRow label={messages.requestLogs.cacheRead}>
                 <span className="font-mono">
-                  {streamUsageUnavailable && usage.cache_read_input_tokens === null ? messages.requestLogs.streamUsageUnavailable : formatTokens(usage.cache_read_input_tokens)}
+                  {streamUsageUnavailable &&
+                  usage.cache_read_input_tokens === null
+                    ? messages.requestLogs.streamUsageUnavailable
+                    : formatTokens(usage.cache_read_input_tokens)}
                 </span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.cacheCreation}>
                 <span className="font-mono">
-                  {streamUsageUnavailable && usage.cache_creation_input_tokens === null ? messages.requestLogs.streamUsageUnavailable : formatTokens(usage.cache_creation_input_tokens)}
+                  {streamUsageUnavailable &&
+                  usage.cache_creation_input_tokens === null
+                    ? messages.requestLogs.streamUsageUnavailable
+                    : formatTokens(usage.cache_creation_input_tokens)}
                 </span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.cacheReadShare}>
-                {streamUsageUnavailable && usage.cache_read_input_tokens === null ? (
-                  <span className="font-mono">{messages.requestLogs.streamUsageUnavailable}</span>
+                {streamUsageUnavailable &&
+                usage.cache_read_input_tokens === null ? (
+                  <span className="font-mono">
+                    {messages.requestLogs.streamUsageUnavailable}
+                  </span>
                 ) : (
                   renderCacheReadShare(cacheReadShareResult, messages)
                 )}
               </DetailRow>
               <DetailRow label={messages.requestLogs.reasoning}>
                 <span className="font-mono">
-                  {streamUsageUnavailable && usage.reasoning_tokens === null ? messages.requestLogs.streamUsageUnavailable : formatTokens(usage.reasoning_tokens)}
+                  {streamUsageUnavailable && usage.reasoning_tokens === null
+                    ? messages.requestLogs.streamUsageUnavailable
+                    : formatTokens(usage.reasoning_tokens)}
                 </span>
               </DetailRow>
-              {tokenCoverage.kind === "residual" || tokenCoverage.kind === "total_only" ? (
+              {tokenCoverage.kind === "residual" ||
+              tokenCoverage.kind === "total_only" ? (
                 <DetailRow label={messages.requestLogs.uncategorizedTokens}>
-                  <span className="font-mono">{formatTokens(tokenCoverage.uncategorized)}</span>
+                  <span className="font-mono">
+                    {formatTokens(tokenCoverage.uncategorized)}
+                  </span>
                 </DetailRow>
               ) : null}
               <span className="text-[11px] text-muted-foreground">
@@ -579,18 +788,20 @@ export function RequestLogOverviewTab({
             </div>
 
             <div className="flex flex-col gap-1 border-t border-border pt-3">
-              <SectionSubheading>{messages.requestLogs.costBreakdown}</SectionSubheading>
+              <SectionSubheading>
+                {messages.requestLogs.costBreakdown}
+              </SectionSubheading>
               <DetailRow label={messages.requestLogs.totalCost}>
                 <div className="flex flex-col gap-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono">
-                      {totalCostValue}
-                    </span>
+                    <span className="font-mono">{totalCostValue}</span>
                   </div>
                   {!isPriced && !streamUsageUnavailable ? (
                     <span className="text-[11px] text-muted-foreground">
                       {messages.spendTrust.unpriced}
-                      {pricing.unpriced_reason ? ` · ${formatUnpricedReasonLabel(pricing.unpriced_reason)}` : ""}
+                      {pricing.unpriced_reason
+                        ? ` · ${formatUnpricedReasonLabel(pricing.unpriced_reason)}`
+                        : ""}
                     </span>
                   ) : null}
                 </div>
@@ -598,55 +809,142 @@ export function RequestLogOverviewTab({
               {pricing.unpriced_reason ? (
                 <DetailRow label={messages.requestLogs.whyUnpriced}>
                   <div className="flex flex-col gap-1">
-                    <span>{formatUnpricedReasonLabel(pricing.unpriced_reason)}</span>
+                    <span>
+                      {formatUnpricedReasonLabel(pricing.unpriced_reason)}
+                    </span>
                     {unpricedCause ? (
-                      <span className="text-[11px] text-muted-foreground">{unpricedCause}</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {unpricedCause}
+                      </span>
                     ) : null}
                   </div>
                 </DetailRow>
               ) : null}
               <DetailRow label={messages.requestLogs.reportCurrency}>
-                <span className="font-mono">{pricing.report_currency_code ?? "—"}</span>
+                <span className="font-mono">
+                  {pricing.report_currency_code ?? "—"}
+                </span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.sourceCurrency}>
-                <span className="font-mono">{pricing.currency_code_original ?? "—"}</span>
+                <span className="font-mono">
+                  {pricing.currency_code_original ?? "—"}
+                </span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.fxRateUsed}>
                 <span className="font-mono">{pricing.fx_rate_used ?? "—"}</span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.fxRateSource}>
-                <span className="font-mono">{pricing.fx_rate_source ?? "—"}</span>
+                <span className="font-mono">
+                  {pricing.fx_rate_source ?? "—"}
+                </span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.pricingUnit}>
-                <span className="font-mono">{pricing.pricing_snapshot_unit ?? "—"}</span>
+                <span className="font-mono">
+                  {pricing.pricing_snapshot_unit ?? "—"}
+                </span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.pricingConfigVersion}>
-                <span className="font-mono">{pricing.pricing_config_version_used ?? "—"}</span>
+                <span className="font-mono">
+                  {pricing.pricing_config_version_used ?? "—"}
+                </span>
               </DetailRow>
-              <DetailRow label={messages.requestLogs.pricingTier}>
+              <DetailRow label={messages.requestLogs.pricingTemplateKind}>
+                <span>
+                  {pricingKindLabel(pricing.pricing_template_kind, messages)}
+                </span>
+              </DetailRow>
+              <DetailRow label={messages.requestLogs.pricingSelection}>
                 <div className="flex flex-col gap-1">
-                  {pricingTierValue(pricing, messages)}
-                  {pricing.pricing_tier_threshold_tokens !== null && pricing.pricing_tier_basis_tokens !== null ? (
+                  {pricingSelectionValue(pricing, messages)}
+                  {pricing.pricing_selection_state === "selected" &&
+                  pricing.pricing_card_role !== null ? (
                     <span className="text-[11px] text-muted-foreground">
-                      {messages.requestLogs.pricingTierThreshold}: <span className="font-mono">{pricing.pricing_tier_threshold_tokens}</span> · {messages.requestLogs.pricingTierBasis}: <span className="font-mono">{pricing.pricing_tier_basis_tokens}</span>
+                      {messages.requestLogs.pricingCardRole}:{" "}
+                      <span>
+                        {pricingCardRoleLabel(
+                          pricing.pricing_card_role,
+                          messages,
+                        )}
+                      </span>
+                    </span>
+                  ) : null}
+                  {pricing.pricing_selector_threshold_tokens !== null &&
+                  pricing.pricing_selector_basis_tokens !== null ? (
+                    <span className="text-[11px] text-muted-foreground">
+                      {messages.requestLogs.pricingSelectorThreshold}:{" "}
+                      <span className="font-mono">
+                        {pricing.pricing_selector_threshold_tokens}
+                      </span>{" "}
+                      · {messages.requestLogs.pricingSelectorBasis}:{" "}
+                      <span className="font-mono">
+                        {pricing.pricing_selector_basis_tokens}
+                      </span>
                     </span>
                   ) : null}
                 </div>
               </DetailRow>
+              {pricing.pricing_schedule_timezone !== null ? (
+                <DetailRow label={messages.requestLogs.pricingScheduleTimezone}>
+                  <span className="font-mono">
+                    {pricing.pricing_schedule_timezone}
+                  </span>
+                </DetailRow>
+              ) : null}
+              {pricing.pricing_schedule_decided_at !== null ? (
+                <DetailRow
+                  label={messages.requestLogs.pricingScheduleDecidedAt}
+                >
+                  <span className="font-mono">
+                    {formatTimestamp(pricing.pricing_schedule_decided_at)}
+                  </span>
+                </DetailRow>
+              ) : null}
+              {pricing.pricing_schedule_local_weekday !== null &&
+              pricing.pricing_schedule_local_minute !== null ? (
+                <DetailRow
+                  label={messages.requestLogs.pricingScheduleLocalTime}
+                >
+                  <span className="font-mono">
+                    {pricing.pricing_schedule_local_weekday}:
+                    {String(pricing.pricing_schedule_local_minute).padStart(
+                      3,
+                      "0",
+                    )}
+                  </span>
+                </DetailRow>
+              ) : null}
               <DetailRow label={messages.requestLogs.pricingSnapshotInput}>
-                <span className="font-mono">{formatPricingSnapshotValue(pricing.pricing_snapshot_input)}</span>
+                <span className="font-mono">
+                  {formatPricingSnapshotValue(pricing.pricing_snapshot_input)}
+                </span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.pricingSnapshotOutput}>
-                <span className="font-mono">{formatPricingSnapshotValue(pricing.pricing_snapshot_output)}</span>
+                <span className="font-mono">
+                  {formatPricingSnapshotValue(pricing.pricing_snapshot_output)}
+                </span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.pricingSnapshotCacheRead}>
-                <span className="font-mono">{formatPricingSnapshotValue(pricing.pricing_snapshot_cache_read_input)}</span>
+                <span className="font-mono">
+                  {formatPricingSnapshotValue(
+                    pricing.pricing_snapshot_cache_read_input,
+                  )}
+                </span>
               </DetailRow>
-              <DetailRow label={messages.requestLogs.pricingSnapshotCacheCreation}>
-                <span className="font-mono">{formatPricingSnapshotValue(pricing.pricing_snapshot_cache_creation_input)}</span>
+              <DetailRow
+                label={messages.requestLogs.pricingSnapshotCacheCreation}
+              >
+                <span className="font-mono">
+                  {formatPricingSnapshotValue(
+                    pricing.pricing_snapshot_cache_creation_input,
+                  )}
+                </span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.pricingSnapshotReasoning}>
-                <span className="font-mono">{formatPricingSnapshotValue(pricing.pricing_snapshot_reasoning)}</span>
+                <span className="font-mono">
+                  {formatPricingSnapshotValue(
+                    pricing.pricing_snapshot_reasoning,
+                  )}
+                </span>
               </DetailRow>
             </div>
           </div>

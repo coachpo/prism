@@ -91,9 +91,16 @@ type PricingProjectionDetail struct {
 	PricingSnapshotCacheReadInput     *string    `json:"pricing_snapshot_cache_read_input"`
 	PricingSnapshotCacheCreationInput *string    `json:"pricing_snapshot_cache_creation_input"`
 	PricingSnapshotReasoning          *string    `json:"pricing_snapshot_reasoning"`
-	PricingTierApplied                *string    `json:"pricing_tier_applied"`
-	PricingTierThresholdTokens        *int       `json:"pricing_tier_threshold_tokens"`
-	PricingTierBasisTokens            *int64     `json:"pricing_tier_basis_tokens"`
+	PricingTemplateKind               *string    `json:"pricing_template_kind"`
+	PricingSelectionState             *string    `json:"pricing_selection_state"`
+	PricingCardRole                   *string    `json:"pricing_card_role"`
+	PricingSelectorThresholdTokens    *int       `json:"pricing_selector_threshold_tokens"`
+	PricingSelectorBasisTokens        *int64     `json:"pricing_selector_basis_tokens"`
+	PricingScheduleDecidedAt          *time.Time `json:"pricing_schedule_decided_at"`
+	PricingScheduleTimezone           *string    `json:"pricing_schedule_timezone"`
+	PricingScheduleLocalWeekday       *int       `json:"pricing_schedule_local_weekday"`
+	PricingScheduleLocalMinute        *int       `json:"pricing_schedule_local_minute"`
+	PricingScheduleDigest             *string    `json:"pricing_schedule_digest"`
 	EvidenceState                     string     `json:"evidence_state"`
 }
 
@@ -305,9 +312,16 @@ type requestLogDetailRowV2 struct {
 	PricingSnapshotCacheReadInput     *string
 	PricingSnapshotCacheCreationInput *string
 	PricingSnapshotReasoning          *string
-	PricingTierApplied                *string
-	PricingTierThresholdTokens        *int
-	PricingTierBasisTokens            *int64
+	PricingTemplateKind               *string
+	PricingSelectionState             *string
+	PricingCardRole                   *string
+	PricingSelectorThresholdTokens    *int
+	PricingSelectorBasisTokens        *int64
+	PricingScheduleDecidedAt          *time.Time
+	PricingScheduleTimezone           *string
+	PricingScheduleLocalWeekday       *int
+	PricingScheduleLocalMinute        *int
+	PricingScheduleDigest             *string
 }
 
 // GetRequestLogDetailV2 loads the exact v2 detail for one request-log row.
@@ -541,9 +555,16 @@ func buildDetailPricing(row requestLogDetailRowV2) PricingProjectionDetail {
 		PricingSnapshotCacheReadInput:     row.PricingSnapshotCacheReadInput,
 		PricingSnapshotCacheCreationInput: row.PricingSnapshotCacheCreationInput,
 		PricingSnapshotReasoning:          row.PricingSnapshotReasoning,
-		PricingTierApplied:                row.PricingTierApplied,
-		PricingTierThresholdTokens:        row.PricingTierThresholdTokens,
-		PricingTierBasisTokens:            row.PricingTierBasisTokens,
+		PricingTemplateKind:               row.PricingTemplateKind,
+		PricingSelectionState:             row.PricingSelectionState,
+		PricingCardRole:                   row.PricingCardRole,
+		PricingSelectorThresholdTokens:    row.PricingSelectorThresholdTokens,
+		PricingSelectorBasisTokens:        row.PricingSelectorBasisTokens,
+		PricingScheduleDecidedAt:          row.PricingScheduleDecidedAt,
+		PricingScheduleTimezone:           row.PricingScheduleTimezone,
+		PricingScheduleLocalWeekday:       row.PricingScheduleLocalWeekday,
+		PricingScheduleLocalMinute:        row.PricingScheduleLocalMinute,
+		PricingScheduleDigest:             row.PricingScheduleDigest,
 		EvidenceState:                     "authoritative",
 	}
 	if projection.PricingStatus == "" {
@@ -725,7 +746,8 @@ func loadRequestLogDetailRowV2(ctx context.Context, exec queryExecutor, profileI
 		 pricing_version_effective_at, reporting_currency_epoch,
 		 pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input,
 		 pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning,
-		 pricing_tier_applied, pricing_tier_threshold_tokens, pricing_tier_basis_tokens
+		 pricing_template_kind, pricing_selection_state, pricing_card_role, pricing_selector_threshold_tokens, pricing_selector_basis_tokens,
+		 pricing_schedule_decided_at, pricing_schedule_timezone, pricing_schedule_local_weekday, pricing_schedule_local_minute, pricing_schedule_digest
 		 FROM request_logs
 		 WHERE profile_id = $1 AND id = $2
 		 ORDER BY created_at DESC
@@ -773,9 +795,10 @@ func scanRequestLogDetailRowV2(scanner interface{ Scan(...any) error }) (request
 	var pricingTemplateRevisionIDUsed sql.NullInt64
 	var pricingVersionEffectiveAt *time.Time
 	var pricingSnapshotUnit, pricingSnapshotInput, pricingSnapshotOutput, pricingSnapshotCacheReadInput, pricingSnapshotCacheCreationInput, pricingSnapshotReasoning sql.NullString
-	var pricingTierApplied sql.NullString
-	var pricingTierThreshold sql.NullInt32
-	var pricingTierBasis sql.NullInt64
+	var pricingTemplateKind, pricingSelectionState, pricingCardRole, pricingScheduleTimezone, pricingScheduleDigest sql.NullString
+	var pricingSelectorThreshold, pricingScheduleLocalWeekday, pricingScheduleLocalMinute sql.NullInt32
+	var pricingSelectorBasis sql.NullInt64
+	var pricingScheduleDecidedAt sql.NullTime
 
 	item := requestLogDetailRowV2{}
 	if err := scanner.Scan(
@@ -803,7 +826,8 @@ func scanRequestLogDetailRowV2(scanner interface{ Scan(...any) error }) (request
 		&pricingVersionEffectiveAt, &reportingCurrencyEpoch,
 		&pricingSnapshotUnit, &pricingSnapshotInput, &pricingSnapshotOutput, &pricingSnapshotCacheReadInput,
 		&pricingSnapshotCacheCreationInput, &pricingSnapshotReasoning,
-		&pricingTierApplied, &pricingTierThreshold, &pricingTierBasis,
+		&pricingTemplateKind, &pricingSelectionState, &pricingCardRole, &pricingSelectorThreshold, &pricingSelectorBasis,
+		&pricingScheduleDecidedAt, &pricingScheduleTimezone, &pricingScheduleLocalWeekday, &pricingScheduleLocalMinute, &pricingScheduleDigest,
 	); err != nil {
 		return requestLogDetailRowV2{}, err
 	}
@@ -893,9 +917,19 @@ func scanRequestLogDetailRowV2(scanner interface{ Scan(...any) error }) (request
 	item.PricingSnapshotCacheReadInput = nullableString(pricingSnapshotCacheReadInput)
 	item.PricingSnapshotCacheCreationInput = nullableString(pricingSnapshotCacheCreationInput)
 	item.PricingSnapshotReasoning = nullableString(pricingSnapshotReasoning)
-	item.PricingTierApplied = nullableString(pricingTierApplied)
-	item.PricingTierThresholdTokens = nullableInt32(pricingTierThreshold)
-	item.PricingTierBasisTokens = nullableInt64(pricingTierBasis)
+	item.PricingTemplateKind = nullableString(pricingTemplateKind)
+	item.PricingSelectionState = nullableString(pricingSelectionState)
+	item.PricingCardRole = nullableString(pricingCardRole)
+	item.PricingSelectorThresholdTokens = nullableInt32(pricingSelectorThreshold)
+	item.PricingSelectorBasisTokens = nullableInt64(pricingSelectorBasis)
+	if pricingScheduleDecidedAt.Valid {
+		value := pricingScheduleDecidedAt.Time.UTC()
+		item.PricingScheduleDecidedAt = &value
+	}
+	item.PricingScheduleTimezone = nullableString(pricingScheduleTimezone)
+	item.PricingScheduleLocalWeekday = nullableInt32(pricingScheduleLocalWeekday)
+	item.PricingScheduleLocalMinute = nullableInt32(pricingScheduleLocalMinute)
+	item.PricingScheduleDigest = nullableString(pricingScheduleDigest)
 	return item, nil
 }
 

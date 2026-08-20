@@ -1,9 +1,11 @@
 # BACKEND RUNTIME HTTPAPI KNOWLEDGE BASE
 
 ## OVERVIEW
+
 `runtime/` owns Prism's operation-registered runtime proxy contract behind the mounted `/v1` and `/v1beta` prefixes. It resolves exact supported operations at ingress, carries operation metadata through request planning, resolves requested models by exact `planningSnapshot.ModelsByID` lookup, routes provider-native differences through hook collections, persists `operation_name`, and keeps shared execution, durable request-history telemetry, feedback, side effects, and partition ensuring inside one backend-owned runtime surface.
 
 ## STRUCTURE
+
 ```text
 runtime/
 ├── operations.go                # Exact supported runtime operations, method/path matching, hook collection ids
@@ -76,12 +78,15 @@ runtime/
 ├── feedback_pipeline.go         # Runtime feedback persistence and worker handoff
 ├── runtime_side_effects.go      # Runtime side-effect manager and shutdown behavior
 ├── runtime_pricing.go           # Runtime pricing result and currency projection
-├── runtime_pricing_core.go      # Shared exact five-component pricing arithmetic
-├── runtime_pricing_tier.go      # Pure single-threshold tier selection and evidence
+├── runtime_pricing_core.go      # Shared exact five-component pricing arithmetic over the selected card
+├── runtime_pricing_card.go      # standard/tiered/peak_valley card selector and schedule evidence
+├── runtime_pricing_legacy*.go   # Scalar compatibility helpers retained only for old pure fixtures
+├── runtime_pricing_tier.go      # Legacy scalar tier fixture selector
 └── *_test.go                    # Route matrix, hook residency, planning, and ingress regressions
 ```
 
 ## WHERE TO LOOK
+
 - Exact supported operations, hook collection ids, streaming flags, and model-binding sources: `operations.go`
 - Ingress rejection before body reads and response branching: `ingress.go`, `response_write.go`, `service.go`
 - Request planning and exact model binding: `request_plan.go`, `runtime_planning.go`, `runtime_operation_binding.go`, `runtime_model_rewrite.go`, `runtime_planner.go`, `routing_plan*.go`, `generations.go`, `planning_snapshot.go`, `planning_access_resolution.go`, `planning_snapshot_legacy.go`, `proxy_selector_helpers.go`
@@ -106,6 +111,7 @@ runtime/
 - Route-matrix, native compatibility, streaming, body-limit, and rejected-route coverage: `../../../tests/runtime/body_limits_test.go`, `../../../tests/runtime/operation_route_matrix_test.go`, `../../../tests/runtime/operation_route_matrix_openai_compatibility_test.go`, `../../../tests/runtime/runtime_streaming_buffering_test.go`, `../../../tests/runtime/rejected_route_isolation_test.go`, `../../../tests/runtime/request_generation_params_contract_test.go`, `../../../tests/integration/runtime_route_matrix_test.go`
 
 ## CONVENTIONS
+
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep `operations.go` as the single source of truth for supported runtime method/path pairs, hook collection ids, streaming flags, and model-binding sources.
@@ -113,17 +119,17 @@ runtime/
 - Keep requested-model resolution exact. Runtime planning starts from `planningSnapshot.ModelsByID` using the client-supplied model ID exactly, then evaluates one mixed peer sequence in which Model Target and Terminal Target rows share authored `(position, id)` ordering — there is no model-first tier and no terminal fallback tier (see `docs/architecture.md`). Do not add regex matching or capability-metadata expansion in this package.
 - Keep the routing-window gate in `resolveTerminalTargetFromRoutingPlan`, after the Ban early exit and never before it: placed earlier, an out-of-window connection never reads its ban state and the reopen instant promised to the operator can be one that is still dark. Always go through `DecideAt`, never `IsOpenAt` directly, which is false for every unconfigured connection and would fail all existing rows closed.
 - Keep the two routing-schedule planning codes family-neutral and out of `operation_translation.go`, whose doc comment scopes that file to the OpenAI code family. They fire only when the whole failure is attributable to schedules; a mixed-cause failure keeps the ordinary response and records the count in the detail instead. Attribution is a whitelist over deduplicated connection ids, not a monotonic "saw one" flag.
-- Keep one planning clock per ingress. `newRuntimeIngressContext` captures `planningReferenceNow` once at the runtime-operation boundary and `resolveRequestPlanTarget` must never re-read the clock: Gemini path-bound operations plan twice (probe then final) with an upstream body read in between, and the two plans must agree on candidate eligibility. Execution-phase admission and Ban re-checks deliberately keep reading the live clock and must not be frozen.
+- Keep one planning clock per ingress. `newRuntimeIngressContext` captures `planningReferenceNow` once at the runtime-operation boundary and `resolveRequestPlanTarget` must never re-read the clock: Gemini path-bound operations plan twice (probe then final) with an upstream body read in between, and the two plans must agree on candidate eligibility. Pricing card selection and routing schedule eligibility consume this same explicit `requestPlan.ReferenceNow`; there is no silent selector fallback. Execution-phase admission and Ban re-checks deliberately keep reading the live clock and must not be frozen.
 - Keep the three strategies (`single`, `fill-first`, `round-robin`) applied once to that mixed peer sequence; a Model Target row recursively resolves through the child model's own strategy and stays one contiguous block. Reordering, add, remove, or enable-set changes must change the round-robin target-set hash.
 - Keep the `custom_request_parameters` overlay on the per-attempt materialized body: the shared `domain/terminaltarget` value applies a top-level shallow overlay after provider-native model/path rewrite, per-attempt generation-parameter snapshots are extracted from each attempt's final body, and any configured candidate forces the replayable-body path (Gemini probe planning stays two-phase: `rawBody == nil` never overlays or 400s).
 - Keep unsupported or wrong-method requests rejecting before body reads, runtime admission, provider transport, telemetry, audit, feedback, or runtime side effects.
 - Keep the shared execution core in `service.go`, `ingress.go`, `request_execution.go`, and `request_execution_loop.go`; provider-native differences belong in request, response, or stream hooks instead of forked executors.
 - Keep retired exact-facade and context-fit preflight behavior out of runtime planning; preserve requested/resolved model observability through the ordinary target plan.
-- Keep token-count operations out of generation-only parsing and usage assumptions.
+- Keep token-count operations out of generation-only parsing and usage assumptions. Tiered count-token selection is `not_applicable + tier_base` without threshold/basis evidence.
 - Keep OpenAI text routing native-only: the model's accepted operation set and the connection capability must intersect for an ingress operation, otherwise planning skips or rejects the attempt; never translate Chat Completions and Responses.
 - Keep the OpenAI image dimension independent of the text dimension: image operations resolve against `openai_image_operations`/`openai_image_capability` with containment (target ⊇ model), text operations keep strict mode equality, and neither gate may answer for the other. `operation_capability_gate.go` is the single seam for both.
 - Keep `GET /v1/models` local. It returns the OpenAI `object`/`data` list for enabled OpenAI models; query parameters do not select an alternate response shape.
-- Keep telemetry, feedback, and runtime side-effect work on durable outboxes or worker seams instead of the hot request path.
+- Keep telemetry, feedback, and runtime side-effect work on durable outboxes or worker seams instead of the hot request path. Persist `pricing_selection_state` and `pricing_card_role` as separate axes on both telemetry parents; schedule resolution failure is `MISSING_PRICE_DATA + schedule_unresolved`, has no price snapshot, and is not quarantined.
 - Keep failure diagnostics safe and bounded: persist scrubbed `error_detail`/`stream_error_detail` (4 KiB cap via `safediag`) with typed source/code/stage and lifecycle facts; launch ordinals and triggers freeze at launch site; the 64-launch cap is a gateway terminal code, never a data loss.
 - Keep the v2 outbox identity contract: one metadata row per `{profile_id, ingress_request_id}` with idempotent enqueue retry, artifact rows keyed `{profile_id, ingress_request_id, component_key, artifact_kind}` with `ON CONFLICT` convergence, and metadata+artifacts ACKed together.
 - Keep runtime partition ensuring here plus `../../platform/logretention/`; handlers must not create or drop partitions ad hoc.
@@ -131,9 +137,11 @@ runtime/
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
 ## LLM UPSTREAM MATRIX
+
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`), Responses (`/v1/responses`), and image generations/edits (`/v1/images/generations`, `/v1/images/edits`), Gemini, and Anthropic.
 
 ## ANTI-PATTERNS
+
 - Do not describe mounted `/v1` and `/v1beta` prefixes as broad passthrough support.
 - Do not add generic OpenAI or vendor fallback behavior outside the allowlist in `operations.go`.
 - Do not inject management-only `X-Profile-Id` logic or auth-session state into runtime proxy handlers.

@@ -850,18 +850,16 @@ func TestRuntimeRequestLogPreservesUnpricedPricingPathways(t *testing.T) {
 			attachTemplate: func(t *testing.T, harness *runtimeHarness, profileID int, reportCurrency runtimeReportCurrencySnapshot, route seededRuntimeRoute, suffix string) {
 				t.Helper()
 				createResponse := harness.requestJSON(t, http.MethodPost, "/api/pricing-templates", map[string]any{
-					"name":                 "Runtime Management Normalized Components " + suffix,
-					"input_price":          "2",
-					"output_price":         "5",
-					"cached_input_price":   "0",
-					"cache_creation_price": "0",
-					"reasoning_price":      "0",
+					"name":          "Runtime Management Normalized Components " + suffix,
+					"template_kind": "standard",
+					"card":          map[string]any{"input_price": "2", "output_price": "5", "cached_input_price": "0", "cache_creation_price": "0", "reasoning_price": "0"},
 				}, runtimeModelHeader(profileID))
 				assertStatus(t, createResponse, http.StatusCreated)
 				var createdTemplate map[string]any
 				decodeJSONResponse(t, createResponse, &createdTemplate)
 				pricingTemplateID := jsonInt(t, createdTemplate["id"])
-				if createdTemplate["cached_input_price"] != "0" || createdTemplate["cache_creation_price"] != "0" || createdTemplate["reasoning_price"] != "0" {
+				createdCard := asMapRuntime(t, createdTemplate["card"])
+				if createdCard["cached_input_price"] != "0" || createdCard["cache_creation_price"] != "0" || createdCard["reasoning_price"] != "0" {
 					t.Fatalf("expected management-created zero component prices to round-trip as explicit free pricing, got %+v", createdTemplate)
 				}
 				attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
@@ -913,13 +911,13 @@ func TestRuntimeRequestLogPreservesUnpricedPricingPathways(t *testing.T) {
 					row.InputTokens = runtimeNullInt64(10)
 					row.OutputTokens = runtimeNullInt64(6)
 					row.TotalTokens = runtimeNullInt64(16)
-					row.PricingSnapshotUnit = runtimeNullString("PER_1M")
-					row.PricingSnapshotInput = runtimeNullString("not-a-decimal")
-					row.PricingSnapshotOutput = runtimeNullString("5")
-					row.PricingSnapshotCacheReadInput = runtimeNullString("0")
-					row.PricingSnapshotCacheCreationInput = runtimeNullString("0")
-					row.PricingSnapshotReasoning = runtimeNullString("0")
-					row.PricingConfigVersionUsed = runtimeNullInt64(1)
+					row.PricingSnapshotUnit = sql.NullString{}
+					row.PricingSnapshotInput = sql.NullString{}
+					row.PricingSnapshotOutput = sql.NullString{}
+					row.PricingSnapshotCacheReadInput = sql.NullString{}
+					row.PricingSnapshotCacheCreationInput = sql.NullString{}
+					row.PricingSnapshotReasoning = sql.NullString{}
+					row.PricingConfigVersionUsed = sql.NullInt64{}
 				})
 			},
 		},
@@ -938,13 +936,13 @@ func TestRuntimeRequestLogPreservesUnpricedPricingPathways(t *testing.T) {
 					row.InputTokens = runtimeNullInt64(10)
 					row.OutputTokens = runtimeNullInt64(6)
 					row.TotalTokens = runtimeNullInt64(16)
-					row.PricingSnapshotUnit = runtimeNullString("PER_1M")
-					row.PricingSnapshotInput = runtimeNullString("2")
-					row.PricingSnapshotOutput = runtimeNullString("5")
-					row.PricingSnapshotCacheReadInput = runtimeNullString("0")
-					row.PricingSnapshotCacheCreationInput = runtimeNullString("0")
-					row.PricingSnapshotReasoning = runtimeNullString("0")
-					row.PricingConfigVersionUsed = runtimeNullInt64(1)
+					row.PricingSnapshotUnit = sql.NullString{}
+					row.PricingSnapshotInput = sql.NullString{}
+					row.PricingSnapshotOutput = sql.NullString{}
+					row.PricingSnapshotCacheReadInput = sql.NullString{}
+					row.PricingSnapshotCacheCreationInput = sql.NullString{}
+					row.PricingSnapshotReasoning = sql.NullString{}
+					row.PricingConfigVersionUsed = sql.NullInt64{}
 				})
 			},
 		},
@@ -955,20 +953,20 @@ func TestRuntimeRequestLogPreservesUnpricedPricingPathways(t *testing.T) {
 			},
 			want: func(reportCurrency runtimeReportCurrencySnapshot) runtimePersistedPricingRow {
 				return wantUnpricedRow("MISSING_TOKEN_USAGE", func(row *runtimePersistedPricingRow) {
-					row.PricingSnapshotUnit = runtimeNullString("PER_1M")
-					row.PricingSnapshotInput = runtimeNullString("2")
-					row.PricingSnapshotOutput = runtimeNullString("5")
-					row.PricingSnapshotCacheReadInput = runtimeNullString("0")
-					row.PricingSnapshotCacheCreationInput = runtimeNullString("0")
-					row.PricingSnapshotReasoning = runtimeNullString("0")
-					row.PricingConfigVersionUsed = runtimeNullInt64(1)
+					row.PricingSnapshotUnit = sql.NullString{}
+					row.PricingSnapshotInput = sql.NullString{}
+					row.PricingSnapshotOutput = sql.NullString{}
+					row.PricingSnapshotCacheReadInput = sql.NullString{}
+					row.PricingSnapshotCacheCreationInput = sql.NullString{}
+					row.PricingSnapshotReasoning = sql.NullString{}
+					row.PricingConfigVersionUsed = sql.NullInt64{}
 				})
 			},
 			assert: func(t *testing.T, harness *runtimeHarness, profileID int) {
 				t.Helper()
 				pricing := asMapRuntime(t, loadLatestRuntimeRequestLogDetailPayload(t, harness, profileID)["pricing"])
-				if pricing["pricing_tier_applied"] != nil || pricing["pricing_tier_threshold_tokens"] != nil || pricing["pricing_tier_basis_tokens"] != nil {
-					t.Fatalf("expected missing-usage request-log tier evidence to remain NULL, got %+v", pricing)
+				if pricing["pricing_template_kind"] != "standard" || pricing["pricing_selection_state"] != "selected" || pricing["pricing_card_role"] != "standard" || pricing["pricing_selector_threshold_tokens"] != nil || pricing["pricing_selector_basis_tokens"] != nil {
+					t.Fatalf("expected typed standard selector evidence without a price snapshot, got %+v", pricing)
 				}
 			},
 		},
@@ -992,13 +990,13 @@ func TestRuntimeRequestLogPreservesUnpricedPricingPathways(t *testing.T) {
 					row.OutputTokens = runtimeNullInt64(3)
 					row.TotalTokens = runtimeNullInt64(16)
 					row.ReasoningTokens = runtimeNullInt64(3)
-					row.PricingSnapshotUnit = runtimeNullString("PER_1M")
-					row.PricingSnapshotInput = runtimeNullString("2")
-					row.PricingSnapshotOutput = runtimeNullString("5")
-					row.PricingSnapshotCacheReadInput = runtimeNullString("11")
-					row.PricingSnapshotCacheCreationInput = runtimeNullString("13")
-					row.PricingSnapshotReasoning = runtimeNullString("not-a-decimal")
-					row.PricingConfigVersionUsed = runtimeNullInt64(1)
+					row.PricingSnapshotUnit = sql.NullString{}
+					row.PricingSnapshotInput = sql.NullString{}
+					row.PricingSnapshotOutput = sql.NullString{}
+					row.PricingSnapshotCacheReadInput = sql.NullString{}
+					row.PricingSnapshotCacheCreationInput = sql.NullString{}
+					row.PricingSnapshotReasoning = sql.NullString{}
+					row.PricingConfigVersionUsed = sql.NullInt64{}
 				})
 			},
 			assert: func(t *testing.T, harness *runtimeHarness, profileID int) {
@@ -1151,32 +1149,32 @@ func TestRuntimePricingTierPersistsWholeCardEvidence(t *testing.T) {
 	assertStatus(t, response, http.StatusOK)
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
 
-	var applied string
+	var kind, state, role string
 	var threshold int
 	var basis int64
 	var snapshotInput, snapshotOutput, snapshotReasoning string
 	var inputCost, outputCost, reasoningCost, totalCost int64
-	if err := harness.conn.QueryRow(context.Background(), `SELECT pricing_tier_applied, pricing_tier_threshold_tokens, pricing_tier_basis_tokens, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_reasoning, input_cost_micros, output_cost_micros, reasoning_cost_micros, total_cost_original_micros FROM request_logs WHERE profile_id = $1 AND ingress_request_id = (SELECT ingress_request_id FROM request_logs WHERE profile_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1) ORDER BY created_at DESC, id DESC LIMIT 1`, profileID).Scan(&applied, &threshold, &basis, &snapshotInput, &snapshotOutput, &snapshotReasoning, &inputCost, &outputCost, &reasoningCost, &totalCost); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `SELECT pricing_template_kind, pricing_selection_state, pricing_card_role, pricing_selector_threshold_tokens, pricing_selector_basis_tokens, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_reasoning, input_cost_micros, output_cost_micros, reasoning_cost_micros, total_cost_original_micros FROM request_logs WHERE profile_id = $1 AND ingress_request_id = (SELECT ingress_request_id FROM request_logs WHERE profile_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1) ORDER BY created_at DESC, id DESC LIMIT 1`, profileID).Scan(&kind, &state, &role, &threshold, &basis, &snapshotInput, &snapshotOutput, &snapshotReasoning, &inputCost, &outputCost, &reasoningCost, &totalCost); err != nil {
 		t.Fatalf("load tiered request-log pricing evidence: %v", err)
 	}
-	if applied != "tier" || threshold != 272000 || basis != 272001 || snapshotInput != "4" || snapshotOutput != "18" || snapshotReasoning != "20" {
-		t.Fatalf("expected tier evidence and all five selected rates, got applied=%q threshold=%d basis=%d snapshots=%q/%q/%q", applied, threshold, basis, snapshotInput, snapshotOutput, snapshotReasoning)
+	if kind != "tiered" || state != "selected" || role != "tier_above" || threshold != 272000 || basis != 272001 || snapshotInput != "4" || snapshotOutput != "18" || snapshotReasoning != "20" {
+		t.Fatalf("expected typed card evidence and all five selected rates, got kind=%q state=%q role=%q threshold=%d basis=%d snapshots=%q/%q/%q", kind, state, role, threshold, basis, snapshotInput, snapshotOutput, snapshotReasoning)
 	}
 	if inputCost != 1088004 || outputCost != 144 || reasoningCost != 40 || totalCost != 1088188 {
 		t.Fatalf("expected whole-card non-marginal costs, got input=%d output=%d reasoning=%d total=%d", inputCost, outputCost, reasoningCost, totalCost)
 	}
 
-	var usageApplied string
+	var usageKind, usageState, usageRole string
 	var usageThreshold int
 	var usageBasis int64
-	if err := harness.conn.QueryRow(context.Background(), `SELECT pricing_tier_applied, pricing_tier_threshold_tokens, pricing_tier_basis_tokens FROM usage_request_events WHERE profile_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1`, profileID).Scan(&usageApplied, &usageThreshold, &usageBasis); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `SELECT pricing_template_kind, pricing_selection_state, pricing_card_role, pricing_selector_threshold_tokens, pricing_selector_basis_tokens FROM usage_request_events WHERE profile_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1`, profileID).Scan(&usageKind, &usageState, &usageRole, &usageThreshold, &usageBasis); err != nil {
 		t.Fatalf("load tiered usage-event evidence: %v", err)
 	}
-	if usageApplied != "tier" || usageThreshold != 272000 || usageBasis != 272001 {
-		t.Fatalf("expected usage-event tier evidence, got applied=%q threshold=%d basis=%d", usageApplied, usageThreshold, usageBasis)
+	if usageKind != "tiered" || usageState != "selected" || usageRole != "tier_above" || usageThreshold != 272000 || usageBasis != 272001 {
+		t.Fatalf("expected usage-event typed card evidence, got kind=%q state=%q role=%q threshold=%d basis=%d", usageKind, usageState, usageRole, usageThreshold, usageBasis)
 	}
 	pricing := asMapRuntime(t, loadLatestRuntimeRequestLogDetailPayload(t, harness, profileID)["pricing"])
-	if pricing["pricing_tier_applied"] != "tier" || jsonInt(t, pricing["pricing_tier_threshold_tokens"]) != 272000 || jsonInt(t, pricing["pricing_tier_basis_tokens"]) != 272001 {
+	if pricing["pricing_template_kind"] != "tiered" || pricing["pricing_selection_state"] != "selected" || pricing["pricing_card_role"] != "tier_above" || jsonInt(t, pricing["pricing_selector_threshold_tokens"]) != 272000 || jsonInt(t, pricing["pricing_selector_basis_tokens"]) != 272001 {
 		t.Fatalf("expected request-log detail tier projection, got %+v", pricing)
 	}
 }
@@ -1334,7 +1332,7 @@ func loadRuntimePricingOwnerFixture(t *testing.T, conn *pgx.Conn, templateID int
 	t.Helper()
 	var owner runtimePricingOwnerFixture
 	var revisionEpoch int
-	if err := conn.QueryRow(context.Background(), `SELECT templates.id, templates.name, revisions.id, revisions.version, revisions.effective_at, revisions.reporting_currency_epoch, revisions.pricing_unit, revisions.currency_code, revisions.input_price, revisions.output_price, revisions.cached_input_price, revisions.cache_creation_price, revisions.reasoning_price FROM pricing_templates AS templates JOIN pricing_template_revisions AS revisions ON revisions.id = templates.current_revision_id WHERE templates.id = $1`, templateID).Scan(&owner.templateID, &owner.templateName, &owner.revisionID, &owner.configVersion, &owner.effectiveAt, &revisionEpoch, &owner.unit, &owner.currency, &owner.inputPrice, &owner.outputPrice, &owner.cachedInputPrice, &owner.cacheCreationPrice, &owner.reasoningPrice); err != nil {
+	if err := conn.QueryRow(context.Background(), `SELECT templates.id, templates.name, revisions.id, revisions.version, revisions.effective_at, revisions.reporting_currency_epoch, revisions.pricing_unit, revisions.currency_code, cards.input_price, cards.output_price, cards.cached_input_price, cards.cache_creation_price, cards.reasoning_price FROM pricing_templates AS templates JOIN pricing_template_revisions AS revisions ON revisions.id = templates.current_revision_id LEFT JOIN pricing_template_cards AS cards ON cards.revision_id = revisions.id AND cards.card_role = 'standard' WHERE templates.id = $1`, templateID).Scan(&owner.templateID, &owner.templateName, &owner.revisionID, &owner.configVersion, &owner.effectiveAt, &revisionEpoch, &owner.unit, &owner.currency, &owner.inputPrice, &owner.outputPrice, &owner.cachedInputPrice, &owner.cacheCreationPrice, &owner.reasoningPrice); err != nil {
 		t.Fatalf("load request-time pricing owner for template %d: %v", templateID, err)
 	}
 	owner.reportingEpoch, owner.reportCode, owner.reportSymbol = reportCurrency.Epoch, reportCurrency.Code, reportCurrency.Symbol
@@ -1352,7 +1350,7 @@ type runtimePersistedPricingOwnerFixture struct {
 
 func loadRuntimePersistedPricingOwnerFixture(t *testing.T, conn *pgx.Conn, profileID int, ingressRequestID string, tableName string, connectionID *int) runtimePersistedPricingOwnerFixture {
 	t.Helper()
-	const columns = `pricing_template_id_used, COALESCE(pricing_template_name_snapshot, ''), pricing_template_revision_id_used, pricing_version_effective_at, reporting_currency_epoch, pricing_config_version_used, COALESCE(pricing_snapshot_unit, ''), COALESCE(currency_code_original, ''), COALESCE(pricing_snapshot_input, ''), COALESCE(pricing_snapshot_output, ''), COALESCE(pricing_snapshot_cache_read_input, ''), COALESCE(pricing_snapshot_cache_creation_input, ''), COALESCE(pricing_snapshot_reasoning, ''), COALESCE(report_currency_code, ''), COALESCE(report_currency_symbol, ''), pricing_status, input_cost_micros IS NOT NULL OR output_cost_micros IS NOT NULL OR cache_read_input_cost_micros IS NOT NULL OR cache_creation_input_cost_micros IS NOT NULL OR reasoning_cost_micros IS NOT NULL OR total_cost_original_micros IS NOT NULL OR total_cost_user_currency_micros IS NOT NULL`
+	const columns = `pricing_template_id_used, COALESCE(pricing_template_name_snapshot, ''), pricing_template_revision_id_used, COALESCE(pricing_version_effective_at, '0001-01-01T00:00:00Z'::timestamptz), COALESCE(reporting_currency_epoch, 0), COALESCE(pricing_config_version_used, 0), COALESCE(pricing_snapshot_unit, ''), COALESCE(currency_code_original, ''), COALESCE(pricing_snapshot_input, ''), COALESCE(pricing_snapshot_output, ''), COALESCE(pricing_snapshot_cache_read_input, ''), COALESCE(pricing_snapshot_cache_creation_input, ''), COALESCE(pricing_snapshot_reasoning, ''), COALESCE(report_currency_code, ''), COALESCE(report_currency_symbol, ''), pricing_status, input_cost_micros IS NOT NULL OR output_cost_micros IS NOT NULL OR cache_read_input_cost_micros IS NOT NULL OR cache_creation_input_cost_micros IS NOT NULL OR reasoning_cost_micros IS NOT NULL OR total_cost_original_micros IS NOT NULL OR total_cost_user_currency_micros IS NOT NULL`
 	query, args := "", []any{profileID, ingressRequestID}
 	switch tableName {
 	case "request_logs":
@@ -1426,7 +1424,9 @@ func TestRuntimeRequestLogPersistsFailoverAttemptRowsAndSingleUsageEvent(t *test
 	}})
 	ingressRequestID := loadLatestRuntimeIngressRequestID(t, fixture.harness.conn, fixture.profileID)
 	primaryPersisted := loadRuntimePersistedPricingOwnerFixture(t, fixture.harness.conn, fixture.profileID, ingressRequestID, "request_logs", &fixture.primaryConnectionID)
-	assertRuntimePricingOwnerFixture(t, "failed primary request log", primaryPersisted.owner, fixture.primaryOwner)
+	if primaryPersisted.owner.templateID != fixture.primaryOwner.templateID || primaryPersisted.owner.revisionID != fixture.primaryOwner.revisionID || primaryPersisted.owner.inputPrice != "" || primaryPersisted.owner.configVersion != 0 {
+		t.Fatalf("expected failed primary attempt to retain identity but no selected-card snapshot, got %+v", primaryPersisted.owner)
+	}
 	if primaryPersisted.pricingStatus != "ineligible" || primaryPersisted.hasCosts {
 		t.Fatalf("expected failed primary attempt to remain ineligible without costs, got %+v", primaryPersisted)
 	}
@@ -1756,13 +1756,6 @@ func TestRuntimeRequestLogPersistsGeminiStreamGenerateContentUsage(t *testing.T)
 	})
 }
 
-type runtimeDurableHistoryCounts struct {
-	RequestLogs       int
-	UsageEvents       int
-	AuditLogs         int
-	LoadbalanceEvents int
-}
-
 type runtimeUsageEndpointLabelSnapshotRow struct {
 	EndpointID            sql.NullInt64
 	ConnectionID          sql.NullInt64
@@ -1781,81 +1774,6 @@ func loadLatestRuntimeUsageEndpointLabelSnapshot(t *testing.T, conn *pgx.Conn, p
 		t.Fatalf("load latest runtime usage endpoint label snapshot: %v", err)
 	}
 	return row
-}
-
-func assertRuntimeDurableHistoryCounts(t *testing.T, conn *pgx.Conn, profileID int, want runtimeDurableHistoryCounts) {
-	t.Helper()
-	var got runtimeDurableHistoryCounts
-	if err := conn.QueryRow(
-		context.Background(),
-		`SELECT
-			(SELECT COUNT(*) FROM request_logs WHERE profile_id = $1),
-			(SELECT COUNT(*) FROM usage_request_events WHERE profile_id = $1),
-			(SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1),
-			(SELECT COUNT(*) FROM loadbalance_events WHERE profile_id = $1)`,
-		profileID,
-	).Scan(&got.RequestLogs, &got.UsageEvents, &got.AuditLogs, &got.LoadbalanceEvents); err != nil {
-		t.Fatalf("load durable history counts: %v", err)
-	}
-	if got != want {
-		t.Fatalf("expected durable history counts %+v, got %+v", want, got)
-	}
-}
-
-func assertRuntimeRetainedStatsAPIs(t *testing.T, harness *runtimeHarness, profileID int) {
-	t.Helper()
-	tests := []struct {
-		name   string
-		path   string
-		assert func(map[string]any)
-	}{
-		{
-			name: "request history",
-			path: "/api/stats/requests?limit=50&offset=0",
-			assert: func(payload map[string]any) {
-				items, ok := payload["items"].([]any)
-				if !ok || len(items) != 2 {
-					t.Fatalf("expected retained request history to return two durable rows, got %+v", payload)
-				}
-			},
-		},
-		{
-			name: "spending",
-			path: "/api/stats/spending?preset=1h&group_by=none&limit=50&offset=0",
-			assert: func(payload map[string]any) {
-				if _, ok := payload["summary"].(map[string]any); !ok {
-					t.Fatalf("expected retained spending API summary, got %+v", payload)
-				}
-			},
-		},
-		{
-			name: "usage snapshot",
-			path: "/api/stats/usage-snapshot?preset=1h",
-			assert: func(payload map[string]any) {
-				if _, ok := payload["overview"].(map[string]any); !ok {
-					t.Fatalf("expected retained usage snapshot overview, got %+v", payload)
-				}
-			},
-		},
-		{
-			name: "dashboard aggregate",
-			path: "/api/stats/dashboard?window=24h",
-			assert: func(payload map[string]any) {
-				if _, ok := payload["metric_snapshot"].(map[string]any); !ok {
-					t.Fatalf("expected retained dashboard metric snapshot, got %+v", payload)
-				}
-			},
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			response := harness.requestJSON(t, http.MethodGet, test.path, nil, runtimeModelHeader(profileID))
-			assertStatus(t, response, http.StatusOK)
-			var payload map[string]any
-			decodeJSONResponse(t, response, &payload)
-			test.assert(payload)
-		})
-	}
 }
 
 type runtimePersistedStreamTelemetryRow struct {
@@ -1978,10 +1896,6 @@ func assertLatestRuntimeUsageRows(t *testing.T, conn *pgx.Conn, profileID int, e
 
 func runtimeNullInt64(value int64) sql.NullInt64 {
 	return sql.NullInt64{Int64: value, Valid: true}
-}
-
-func runtimeNullBool(value bool) sql.NullBool {
-	return sql.NullBool{Bool: value, Valid: true}
 }
 
 func runtimeNullString(value string) sql.NullString {
@@ -2264,11 +2178,6 @@ func assertLatestRuntimeAttemptCounts(t *testing.T, conn *pgx.Conn, profileID in
 func assertLatestRuntimeModelIdentity(t *testing.T, conn *pgx.Conn, profileID int, wantModelID string, wantResolvedTargetModelID string) {
 	t.Helper()
 	assertLatestRuntimeModelIdentityState(t, conn, profileID, wantModelID, sql.NullString{String: wantResolvedTargetModelID, Valid: true})
-}
-
-func assertLatestRuntimeModelIdentityNull(t *testing.T, conn *pgx.Conn, profileID int, wantModelID string) {
-	t.Helper()
-	assertLatestRuntimeModelIdentityState(t, conn, profileID, wantModelID, sql.NullString{})
 }
 
 func assertLatestRuntimeModelIdentityState(t *testing.T, conn *pgx.Conn, profileID int, wantModelID string, wantResolvedTargetModelID sql.NullString) {
@@ -2656,37 +2565,33 @@ func seedFixtureRequestLog(t *testing.T, harness *requestLogContractHarness, pro
 
 func attachRequestLogCurrentPricingTemplate(t *testing.T, harness *requestLogContractHarness, profileID int, requestLogID int, templateID int, effectiveAt time.Time) {
 	t.Helper()
-	result, err := harness.conn.Exec(context.Background(), `WITH current_revision AS (
-		SELECT revisions.* FROM pricing_templates AS templates
-		JOIN pricing_template_revisions AS revisions ON revisions.id = templates.current_revision_id
-		WHERE templates.profile_id = $1 AND templates.id = $3
-	), next_revision AS (
-		INSERT INTO pricing_template_revisions (
-			template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id,
-			reporting_currency_epoch, currency_attribution, input_price, output_price,
-			cached_input_price, cache_creation_price, reasoning_price, effective_at,
-			created_at, created_by_kind, created_by_operation_id
-		)
-		SELECT template_id, version + 1, pricing_unit, currency_code, reporting_currency_epoch_id,
-			reporting_currency_epoch, currency_attribution, input_price, output_price,
-			cached_input_price, cache_creation_price, reasoning_price, $4, $4, 'legacy_backfill', NULL
-		FROM current_revision RETURNING id, template_id
-	), current_template AS (
-		UPDATE pricing_templates AS templates
-		SET current_revision_id = revisions.id, updated_at = $4
-		FROM next_revision AS revisions WHERE templates.id = revisions.template_id
-		RETURNING templates.id, revisions.id AS revision_id
-	)
-	UPDATE request_logs AS logs
-	SET pricing_template_id_used = templates.id,
-		pricing_template_revision_id_used = templates.revision_id
-	FROM current_template AS templates
-	WHERE logs.profile_id = $1 AND logs.id = $2`, profileID, requestLogID, templateID, effectiveAt)
+	tx, err := harness.conn.Begin(context.Background())
+	if err != nil {
+		t.Fatalf("begin attach pricing template: %v", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	var oldRevisionID, revisionID int64
+	if err := tx.QueryRow(context.Background(), `SELECT current_revision_id FROM pricing_templates WHERE profile_id = $1 AND id = $2 FOR UPDATE`, profileID, templateID).Scan(&oldRevisionID); err != nil {
+		t.Fatalf("load pricing revision: %v", err)
+	}
+	if err := tx.QueryRow(context.Background(), `INSERT INTO pricing_template_revisions (template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, template_kind, effective_at, created_at, created_by_kind, created_by_operation_id) SELECT template_id, version + 1, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, 'standard', $2, $2, 'legacy_backfill', NULL FROM pricing_template_revisions WHERE id = $1 RETURNING id`, oldRevisionID, effectiveAt).Scan(&revisionID); err != nil {
+		t.Fatalf("insert pricing revision: %v", err)
+	}
+	if _, err := tx.Exec(context.Background(), `INSERT INTO pricing_template_cards (revision_id, template_kind, card_role, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price) SELECT $1, 'standard', 'standard', input_price, output_price, cached_input_price, cache_creation_price, reasoning_price FROM pricing_template_cards WHERE revision_id = $2`, revisionID, oldRevisionID); err != nil {
+		t.Fatalf("copy pricing card: %v", err)
+	}
+	if _, err := tx.Exec(context.Background(), `UPDATE pricing_templates SET current_revision_id = $1, updated_at = $2 WHERE id = $3`, revisionID, effectiveAt, templateID); err != nil {
+		t.Fatalf("update pricing pointer: %v", err)
+	}
+	result, err := tx.Exec(context.Background(), `UPDATE request_logs SET pricing_template_id_used = $1, pricing_template_revision_id_used = $2 WHERE profile_id = $3 AND id = $4`, templateID, revisionID, profileID, requestLogID)
 	if err != nil {
 		t.Fatalf("attach current pricing template to request log %d: %v", requestLogID, err)
 	}
 	if result.RowsAffected() != 1 {
 		t.Fatalf("expected to attach one current pricing template to request log %d, got %d", requestLogID, result.RowsAffected())
+	}
+	if err := tx.Commit(context.Background()); err != nil {
+		t.Fatalf("commit attached pricing template: %v", err)
 	}
 }
 
@@ -2697,7 +2602,8 @@ func seedSimpleRequestLog(t *testing.T, harness *requestLogContractHarness, prof
 	if endpointBaseURL != nil {
 		historicalBaseURL = *endpointBaseURL
 	}
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, row_kind, url_scrub_provenance, upstream_status_code, attempt_duration_ms, is_stream, success_flag, pricing_status, pricing_evidence_trust, unpriced_reason, pricing_resolution_kind, request_path, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, 'gpt-4o', 'gpt-4o', 'openai', $3, NULL, $4, 1, $5, 'upstream', 'runtime_scrubbed', 200, 120, FALSE, TRUE, 'unpriced', 'trusted', 'MISSING_PRICE_DATA', 'unsupported_unit', '/v1/chat/completions', $6, $7, FALSE)`, id, profileID, endpointID, fmt.Sprintf("req-%d", id), historicalBaseURL, createdAt, auditEnabledAtRequest); err != nil {
+	requestID := fmt.Sprintf("req-%d", id)
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, row_kind, url_scrub_provenance, upstream_status_code, attempt_duration_ms, is_stream, success_flag, pricing_status, pricing_evidence_trust, unpriced_reason, pricing_resolution_kind, request_path, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, 'gpt-4o', 'gpt-4o', 'openai', $3, NULL, $4, 1, $5, 'upstream', 'runtime_scrubbed', 200, 120, FALSE, TRUE, 'unpriced', 'trusted', 'MISSING_PRICE_DATA', 'unsupported_unit', '/v1/chat/completions', $6, $7, FALSE)`, id, profileID, endpointID, requestID, historicalBaseURL, createdAt, auditEnabledAtRequest); err != nil {
 		t.Fatalf("seed simple request log %d: %v", id, err)
 	}
 }
@@ -2706,12 +2612,13 @@ func seedFilteredRequestLog(t *testing.T, harness *requestLogContractHarness, pr
 	t.Helper()
 	ensureRuntimeTestLogPartitions(t, harness.databaseName, runtimeTestLogPartitionFor("request_logs", createdAt))
 	success := statusCode >= 200 && statusCode < 300
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, row_kind, url_scrub_provenance, upstream_status_code, attempt_duration_ms, is_stream, success_flag, pricing_status, pricing_evidence_trust, request_path, error_detail, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, 'gpt-4o', 'gpt-4o', 'openai', 12, NULL, $3, 1, 'https://api.openai.com', 'upstream', 'runtime_scrubbed', $4, 120, FALSE, $5, 'unknown', 'legacy_untrusted', '/v1/chat/completions', $6, $7, FALSE, FALSE)`, id, profileID, fmt.Sprintf("filtered-req-%d", id), statusCode, success, nullableTestString(errorDetail), createdAt); err != nil {
+	requestID := fmt.Sprintf("filtered-req-%d", id)
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, row_kind, url_scrub_provenance, upstream_status_code, attempt_duration_ms, is_stream, success_flag, pricing_status, pricing_evidence_trust, request_path, error_detail, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, 'gpt-4o', 'gpt-4o', 'openai', 12, NULL, $3, 1, 'https://api.openai.com', 'upstream', 'runtime_scrubbed', $4, 120, FALSE, $5, 'unknown', 'legacy_untrusted', '/v1/chat/completions', $6, $7, FALSE, FALSE)`, id, profileID, requestID, statusCode, success, nullableTestString(errorDetail), createdAt); err != nil {
 		t.Fatalf("seed filtered request log %d: %v", id, err)
 	}
 }
 
-func seedPricingFilteredRequestLog(t *testing.T, harness *requestLogContractHarness, profileID int, id int, priced bool, unpricedReason *string, hasCost bool, createdAt time.Time) {
+func seedPricingFilteredRequestLog(t *testing.T, harness *requestLogContractHarness, profileID int, id int, priced bool, unpricedReason *string, _ bool, createdAt time.Time) {
 	t.Helper()
 	ensureRuntimeTestLogPartitions(t, harness.databaseName, runtimeTestLogPartitionFor("request_logs", createdAt))
 	var componentCost, originalCost, userCost any
@@ -2721,7 +2628,8 @@ func seedPricingFilteredRequestLog(t *testing.T, harness *requestLogContractHarn
 		originalCost = int64(1000)
 		userCost = int64(1000)
 	}
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, row_kind, url_scrub_provenance, upstream_status_code, attempt_duration_ms, is_stream, success_flag, pricing_status, pricing_evidence_trust, unpriced_reason, pricing_resolution_kind, input_cost_micros, output_cost_micros, reasoning_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, request_path, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, 'gpt-4o', 'gpt-4o', 'openai', 12, NULL, $3, 1, 'https://api.openai.com', 'upstream', 'runtime_scrubbed', 200, 120, FALSE, TRUE, $4, $5, $6, $7, $8, $8, $8, $8, $8, $9, $10, '/v1/chat/completions', $11, FALSE, FALSE)`, id, profileID, fmt.Sprintf("pricing-filtered-req-%d", id), runtimePricingStatusForSeed(priced), pricingTrust, nullableTestString(unpricedReason), runtimeResolutionKindForSeed(unpricedReason), componentCost, originalCost, userCost, createdAt); err != nil {
+	requestID := fmt.Sprintf("pricing-filtered-req-%d", id)
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, row_kind, url_scrub_provenance, upstream_status_code, attempt_duration_ms, is_stream, success_flag, pricing_status, pricing_evidence_trust, unpriced_reason, pricing_resolution_kind, input_cost_micros, output_cost_micros, reasoning_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, request_path, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, 'gpt-4o', 'gpt-4o', 'openai', 12, NULL, $3, 1, 'https://api.openai.com', 'upstream', 'runtime_scrubbed', 200, 120, FALSE, TRUE, $4, $5, $6, $7, $8, $8, $8, $8, $8, $9, $10, '/v1/chat/completions', $11, FALSE, FALSE)`, id, profileID, requestID, runtimePricingStatusForSeed(priced), pricingTrust, nullableTestString(unpricedReason), runtimeResolutionKindForSeed(unpricedReason), componentCost, originalCost, userCost, createdAt); err != nil {
 		t.Fatalf("seed pricing-filtered request log %d: %v", id, err)
 	}
 }
@@ -2859,8 +2767,11 @@ func insertRuntimePricingTemplate(t *testing.T, conn *pgx.Conn, profileID int, n
 		t.Fatalf("insert runtime pricing template %q: %v", name, err)
 	}
 	var revisionID int64
-	if err := tx.QueryRow(context.Background(), `WITH first_identity AS (SELECT nextval('public.pricing_template_revisions_id_seq'::regclass) AS id), identity AS (SELECT CASE WHEN id = 1 THEN nextval('public.pricing_template_revisions_id_seq'::regclass) ELSE id END AS id FROM first_identity) INSERT INTO pricing_template_revisions (id, template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, effective_at, created_at, created_by_kind, created_by_operation_id) SELECT id, $1, 1, 'PER_1M', $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, $11, 'legacy_backfill', NULL FROM identity RETURNING id`, templateID, pricingCurrencyCode, epochID, epoch, attribution, nilPrice(inputPrice), nilPrice(outputPrice), nilPrice(cachedInputPrice), nilPrice(cacheCreationPrice), nilPrice(reasoningPrice), now).Scan(&revisionID); err != nil {
+	if err := tx.QueryRow(context.Background(), `INSERT INTO pricing_template_revisions (template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, template_kind, effective_at, created_at, created_by_kind, created_by_operation_id) VALUES ($1, 1, 'PER_1M', $2, $3, $4, $5, 'standard', NULL, $6, 'legacy_backfill', NULL) RETURNING id`, templateID, pricingCurrencyCode, epochID, epoch, attribution, now).Scan(&revisionID); err != nil {
 		t.Fatalf("insert runtime pricing revision %q: %v", name, err)
+	}
+	if _, err := tx.Exec(context.Background(), `INSERT INTO pricing_template_cards (revision_id, template_kind, card_role, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price) VALUES ($1, 'standard', 'standard', $2, $3, $4, $5, $6)`, revisionID, inputPrice, outputPrice, nilPrice(cachedInputPrice), nilPrice(cacheCreationPrice), nilPrice(reasoningPrice)); err != nil {
+		t.Fatalf("insert runtime pricing card %q: %v", name, err)
 	}
 	if _, err := tx.Exec(context.Background(), `UPDATE pricing_templates SET current_revision_id = $1, updated_at = $2 WHERE id = $3`, revisionID, now, templateID); err != nil {
 		t.Fatalf("close runtime pricing template pointer %q: %v", name, err)
@@ -2873,18 +2784,57 @@ func insertRuntimePricingTemplate(t *testing.T, conn *pgx.Conn, profileID int, n
 
 func advanceRuntimePricingTemplateRevisionWithTier(t *testing.T, conn *pgx.Conn, templateID int) int64 {
 	t.Helper()
-	var revisionID int64
-	if err := conn.QueryRow(context.Background(), `WITH current_revision AS (SELECT revisions.* FROM pricing_templates AS templates JOIN pricing_template_revisions AS revisions ON revisions.id = templates.current_revision_id WHERE templates.id = $1), inserted AS (INSERT INTO pricing_template_revisions (template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, tier_input_tokens_above, tier_input_price, tier_output_price, tier_cached_input_price, tier_cache_creation_price, tier_reasoning_price, effective_at, created_at, created_by_kind, created_by_operation_id) SELECT template_id, version + 1, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, 272000, '4', '18', '2', '5', '20', $2, $2, 'legacy_backfill', NULL FROM current_revision RETURNING id) UPDATE pricing_templates AS templates SET current_revision_id = inserted.id, updated_at = $2 FROM inserted WHERE templates.id = $1 RETURNING inserted.id`, templateID, time.Now().UTC()).Scan(&revisionID); err != nil {
-		t.Fatalf("advance runtime pricing template %d with tier: %v", templateID, err)
+	tx, err := conn.Begin(context.Background())
+	if err != nil {
+		t.Fatalf("begin tier revision: %v", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	now := time.Now().UTC()
+	var oldRevisionID, revisionID int64
+	if err := tx.QueryRow(context.Background(), `SELECT current_revision_id FROM pricing_templates WHERE id = $1 FOR UPDATE`, templateID).Scan(&oldRevisionID); err != nil {
+		t.Fatalf("load old revision: %v", err)
+	}
+	if err := tx.QueryRow(context.Background(), `INSERT INTO pricing_template_revisions (template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, template_kind, tier_input_tokens_above, effective_at, created_at, created_by_kind, created_by_operation_id) SELECT template_id, version + 1, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, 'tiered', 272000, $2, $2, 'legacy_backfill', NULL FROM pricing_template_revisions WHERE id = $1 RETURNING id`, oldRevisionID, now).Scan(&revisionID); err != nil {
+		t.Fatalf("insert tier revision: %v", err)
+	}
+	if _, err := tx.Exec(context.Background(), `INSERT INTO pricing_template_cards (revision_id, template_kind, card_role, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price) SELECT $1, 'tiered', 'tier_base', input_price, output_price, cached_input_price, cache_creation_price, reasoning_price FROM pricing_template_cards WHERE revision_id = $2`, revisionID, oldRevisionID); err != nil {
+		t.Fatalf("copy tier base card: %v", err)
+	}
+	if _, err := tx.Exec(context.Background(), `INSERT INTO pricing_template_cards (revision_id, template_kind, card_role, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price) VALUES ($1, 'tiered', 'tier_above', '4', '18', '2', '5', '20')`, revisionID); err != nil {
+		t.Fatalf("insert tier above card: %v", err)
+	}
+	if _, err := tx.Exec(context.Background(), `UPDATE pricing_templates SET current_revision_id = $1, updated_at = $2 WHERE id = $3`, revisionID, now, templateID); err != nil {
+		t.Fatalf("update tier template pointer: %v", err)
+	}
+	if err := tx.Commit(context.Background()); err != nil {
+		t.Fatalf("commit tier revision: %v", err)
 	}
 	return revisionID
 }
 
 func advanceRuntimePricingTemplateRevision(t *testing.T, conn *pgx.Conn, templateID int) int64 {
 	t.Helper()
-	var revisionID int64
-	if err := conn.QueryRow(context.Background(), `WITH current_revision AS (SELECT revisions.* FROM pricing_templates AS templates JOIN pricing_template_revisions AS revisions ON revisions.id = templates.current_revision_id WHERE templates.id = $1), inserted AS (INSERT INTO pricing_template_revisions (template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, effective_at, created_at, created_by_kind, created_by_operation_id) SELECT template_id, version + 1, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, $2, $2, 'legacy_backfill', NULL FROM current_revision RETURNING id) UPDATE pricing_templates AS templates SET current_revision_id = inserted.id, updated_at = $2 FROM inserted WHERE templates.id = $1 RETURNING inserted.id`, templateID, time.Now().UTC()).Scan(&revisionID); err != nil {
-		t.Fatalf("advance runtime pricing template %d revision: %v", templateID, err)
+	tx, err := conn.Begin(context.Background())
+	if err != nil {
+		t.Fatalf("begin standard revision: %v", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	now := time.Now().UTC()
+	var oldRevisionID, revisionID int64
+	if err := tx.QueryRow(context.Background(), `SELECT current_revision_id FROM pricing_templates WHERE id = $1 FOR UPDATE`, templateID).Scan(&oldRevisionID); err != nil {
+		t.Fatalf("load old revision: %v", err)
+	}
+	if err := tx.QueryRow(context.Background(), `INSERT INTO pricing_template_revisions (template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, template_kind, effective_at, created_at, created_by_kind, created_by_operation_id) SELECT template_id, version + 1, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, 'standard', $2, $2, 'legacy_backfill', NULL FROM pricing_template_revisions WHERE id = $1 RETURNING id`, oldRevisionID, now).Scan(&revisionID); err != nil {
+		t.Fatalf("insert standard revision: %v", err)
+	}
+	if _, err := tx.Exec(context.Background(), `INSERT INTO pricing_template_cards (revision_id, template_kind, card_role, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price) SELECT $1, 'standard', 'standard', input_price, output_price, cached_input_price, cache_creation_price, reasoning_price FROM pricing_template_cards WHERE revision_id = $2`, revisionID, oldRevisionID); err != nil {
+		t.Fatalf("copy standard card: %v", err)
+	}
+	if _, err := tx.Exec(context.Background(), `UPDATE pricing_templates SET current_revision_id = $1, updated_at = $2 WHERE id = $3`, revisionID, now, templateID); err != nil {
+		t.Fatalf("update standard pointer: %v", err)
+	}
+	if err := tx.Commit(context.Background()); err != nil {
+		t.Fatalf("commit standard revision: %v", err)
 	}
 	return revisionID
 }
@@ -3274,11 +3224,4 @@ func TestRuntimeAuditHeaderScrubPersistsRedactedOnly(t *testing.T) {
 	if requestValues["x-project"] != "prism" {
 		t.Errorf("non-sensitive header x-project should be preserved verbatim: %q", requestHeaders)
 	}
-}
-
-func nullableRuntimePrice(price string) any {
-	if strings.TrimSpace(price) == "" {
-		return nil
-	}
-	return price
 }

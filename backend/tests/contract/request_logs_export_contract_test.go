@@ -43,8 +43,8 @@ func TestRequestLogCSVExportContract(t *testing.T) {
 			t.Fatalf("seed export row %d: %v", index, err)
 		}
 	}
-	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET pricing_tier_applied = 'tier', pricing_tier_threshold_tokens = 272000, pricing_tier_basis_tokens = 272001 WHERE profile_id = $1 AND ingress_request_id = 'export-failover' AND attempt_number = 2`, profileID); err != nil {
-		t.Fatalf("seed CSV tier evidence: %v", err)
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET pricing_template_kind = 'tiered', pricing_selection_state = 'selected', pricing_card_role = 'tier_above', pricing_selector_threshold_tokens = 272000, pricing_selector_basis_tokens = 272001 WHERE profile_id = $1 AND ingress_request_id = 'export-failover' AND attempt_number = 2`, profileID); err != nil {
+		t.Fatalf("seed CSV card evidence: %v", err)
 	}
 
 	from := now.Add(-time.Hour).UTC().Format("2006-01-02T15:04:05Z")
@@ -94,7 +94,7 @@ func TestRequestLogCSVExportContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse export CSV: %v", err)
 	}
-	wantHeader := "row_kind,request_log_id,ingress_request_id,attempt_number,attempt_trigger,attempt_result,is_winner,created_at,model_id,resolved_target_model_id,api_family,operation_name,endpoint_id,terminal_target_id,upstream_status_code,gateway_status_code,legacy_status_code,error_source,error_code,failure_stage,error_detail,stream_error_detail,stream_outcome,stream_error_kind,attempt_duration_ms,legacy_duration_ms,ttft_ms,total_duration_ms,input_tokens,output_tokens,total_tokens,cache_read_input_tokens,cache_creation_input_tokens,reasoning_tokens,total_cost_user_currency_micros,currency_code_original,report_currency_code,report_currency_symbol,fx_rate_used,fx_rate_source,pricing_status,unpriced_reason,pricing_resolution_kind,missing_price_components,pricing_evidence_trust,pricing_template_id_used,pricing_template_name_snapshot,pricing_template_revision_id_used,pricing_config_version_used,pricing_version_effective_at,reporting_currency_epoch,metadata_redacted_fields,metadata_truncated_fields,pricing_tier_applied,pricing_tier_threshold_tokens,pricing_tier_basis_tokens"
+	wantHeader := "row_kind,request_log_id,ingress_request_id,attempt_number,attempt_trigger,attempt_result,is_winner,created_at,model_id,resolved_target_model_id,api_family,operation_name,endpoint_id,terminal_target_id,upstream_status_code,gateway_status_code,legacy_status_code,error_source,error_code,failure_stage,error_detail,stream_error_detail,stream_outcome,stream_error_kind,attempt_duration_ms,legacy_duration_ms,ttft_ms,total_duration_ms,input_tokens,output_tokens,total_tokens,cache_read_input_tokens,cache_creation_input_tokens,reasoning_tokens,total_cost_user_currency_micros,currency_code_original,report_currency_code,report_currency_symbol,fx_rate_used,fx_rate_source,pricing_status,unpriced_reason,pricing_resolution_kind,missing_price_components,pricing_evidence_trust,pricing_template_id_used,pricing_template_name_snapshot,pricing_template_revision_id_used,pricing_config_version_used,pricing_version_effective_at,reporting_currency_epoch,metadata_redacted_fields,metadata_truncated_fields,pricing_template_kind,pricing_selection_state,pricing_card_role,pricing_selector_threshold_tokens,pricing_selector_basis_tokens,pricing_schedule_decided_at,pricing_schedule_timezone,pricing_schedule_local_weekday,pricing_schedule_local_minute,pricing_schedule_digest"
 	if strings.Join(records[0], ",") != wantHeader {
 		t.Fatalf("CSV header drifted: %q", strings.Join(records[0], ","))
 	}
@@ -108,7 +108,7 @@ func TestRequestLogCSVExportContract(t *testing.T) {
 			failover = record
 		}
 	}
-	if failover == nil || failover[columns["ttft_ms"]] != "7" || failover[columns["total_duration_ms"]] != "19" || failover[columns["currency_code_original"]] != "EUR" || failover[columns["report_currency_code"]] != "USD" || failover[columns["report_currency_symbol"]] != "$" || failover[columns["pricing_tier_applied"]] != "tier" || failover[columns["pricing_tier_threshold_tokens"]] != "272000" || failover[columns["pricing_tier_basis_tokens"]] != "272001" {
+	if failover == nil || failover[columns["ttft_ms"]] != "7" || failover[columns["total_duration_ms"]] != "19" || failover[columns["currency_code_original"]] != "EUR" || failover[columns["report_currency_code"]] != "USD" || failover[columns["report_currency_symbol"]] != "$" || failover[columns["pricing_template_kind"]] != "tiered" || failover[columns["pricing_selection_state"]] != "selected" || failover[columns["pricing_card_role"]] != "tier_above" || failover[columns["pricing_selector_threshold_tokens"]] != "272000" || failover[columns["pricing_selector_basis_tokens"]] != "272001" {
 		t.Fatalf("expected exact stream/failover database fields in CSV, got %+v", failover)
 	}
 	base, combined := fmt.Sprintf("view=attempts&from_time=%s&to_time=%s", from, to), fmt.Sprintf("client_rule_id=%d&model_id=export-model&resolved_target_model_id=export-target&endpoint_id=9911&terminal_target_id=7711&status_family=2xx&status_code=200&pricing_status=ineligible&error_text=HYPERLINK", clientRuleID)

@@ -13,27 +13,24 @@ type runtimePricingComponentCosts struct {
 // classifier and the production currency-aware builder. It keeps all five
 // component calculations on the exact big.Rat path and sums only after each
 // component has been rounded, matching the existing pricing contract.
-func calculateRuntimePricingComponentCosts(snapshot *runtimePricingTemplateSnapshot, usage responseUsage) (runtimePricingComponentCosts, bool) {
-	if snapshot == nil {
-		return runtimePricingComponentCosts{}, false
-	}
-	input, ok := runtimePriceConcreteComponentMicros(usage.InputTokens, snapshot.InputPrice)
+func calculateRuntimePricingComponentCosts(card runtimePricingCard, usage responseUsage) (runtimePricingComponentCosts, bool) {
+	input, ok := runtimePriceConcreteComponentMicros(usage.InputTokens, card.InputPrice)
 	if !ok {
 		return runtimePricingComponentCosts{}, false
 	}
-	output, ok := runtimePriceConcreteComponentMicros(usage.OutputTokens, snapshot.OutputPrice)
+	output, ok := runtimePriceConcreteComponentMicros(usage.OutputTokens, card.OutputPrice)
 	if !ok {
 		return runtimePricingComponentCosts{}, false
 	}
-	cacheReadInput, ok := runtimePriceConcreteComponentMicros(usage.CacheReadInputTokens, snapshot.CachedInputPrice)
+	cacheReadInput, ok := runtimePriceConcreteComponentMicros(usage.CacheReadInputTokens, card.CachedInputPrice)
 	if !ok {
 		return runtimePricingComponentCosts{}, false
 	}
-	cacheCreationInput, ok := runtimePriceConcreteComponentMicros(usage.CacheCreationInputTokens, snapshot.CacheCreationPrice)
+	cacheCreationInput, ok := runtimePriceConcreteComponentMicros(usage.CacheCreationInputTokens, card.CacheCreationPrice)
 	if !ok {
 		return runtimePricingComponentCosts{}, false
 	}
-	reasoning, ok := runtimePriceConcreteComponentMicros(usage.ReasoningTokens, snapshot.ReasoningPrice)
+	reasoning, ok := runtimePriceConcreteComponentMicros(usage.ReasoningTokens, card.ReasoningPrice)
 	if !ok {
 		return runtimePricingComponentCosts{}, false
 	}

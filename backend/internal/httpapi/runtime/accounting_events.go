@@ -10,32 +10,40 @@ import (
 
 func buildRuntimeAccountingFinalEvent(event usageEventInsert, requestLogs []requestLogInsert, routeReason gatewaycore.RouteReason, usageSource gatewaycore.UsageSource) gatewayaccounting.Event {
 	finalAuditEnabled, finalAuditCaptureBodies := runtimeAccountingFinalAuditState(requestLogs)
-	accountingEvent, err := gatewayaccounting.NewEvent(gatewayaccounting.Event{
-		Phase:                      gatewayaccounting.EventPhaseFinal,
-		RequestID:                  event.IngressRequestID,
-		ProfileID:                  event.ProfileID,
-		OperationName:              event.OperationName,
-		APIFamily:                  event.APIFamily,
-		RequestedModelID:           event.ModelID,
-		EffectiveModelID:           cloneRuntimeStringPointer(event.ResolvedTargetModelID),
-		EndpointID:                 cloneRuntimeIntPointer(event.EndpointID),
-		ConnectionID:               cloneRuntimeIntPointer(event.ConnectionID),
-		SelectedTerminalTargetID:   cloneRuntimeIntPointer(event.SelectedTerminalTargetID),
-		AttemptNumber:              event.AttemptCount,
-		Final:                      true,
-		StatusCode:                 event.StatusCode,
-		Success:                    event.SuccessFlag,
-		RouteReason:                routeReason,
-		UsageSource:                usageSource,
-		PricingConfigVersionUsed:   cloneRuntimeIntPointer(event.PricingConfigVersionUsed),
-		PricingTierApplied:         cloneRuntimeStringPointer(event.PricingTierApplied),
-		PricingTierThresholdTokens: cloneRuntimeIntPointer(event.PricingTierThresholdTokens),
-		PricingTierBasisTokens:     cloneRuntimeInt64Pointer(event.PricingTierBasisTokens),
-		StreamOutcome:              event.StreamOutcome,
-		AuditEnabled:               finalAuditEnabled,
-		AuditCaptureBodies:         finalAuditCaptureBodies,
-		ObservedAt:                 event.CreatedAt,
-	})
+	core := gatewayaccounting.Event{
+		Phase:                    gatewayaccounting.EventPhaseFinal,
+		RequestID:                event.IngressRequestID,
+		ProfileID:                event.ProfileID,
+		OperationName:            event.OperationName,
+		APIFamily:                event.APIFamily,
+		RequestedModelID:         event.ModelID,
+		EffectiveModelID:         cloneRuntimeStringPointer(event.ResolvedTargetModelID),
+		EndpointID:               cloneRuntimeIntPointer(event.EndpointID),
+		ConnectionID:             cloneRuntimeIntPointer(event.ConnectionID),
+		SelectedTerminalTargetID: cloneRuntimeIntPointer(event.SelectedTerminalTargetID),
+		AttemptNumber:            event.AttemptCount,
+		Final:                    true,
+		StatusCode:               event.StatusCode,
+		Success:                  event.SuccessFlag,
+		RouteReason:              routeReason,
+		UsageSource:              usageSource,
+		PricingConfigVersionUsed: cloneRuntimeIntPointer(event.PricingConfigVersionUsed),
+		StreamOutcome:            event.StreamOutcome,
+		AuditEnabled:             finalAuditEnabled,
+		AuditCaptureBodies:       finalAuditCaptureBodies,
+		ObservedAt:               event.CreatedAt,
+	}
+	core.PricingTemplateKind = cloneRuntimeStringPointer(event.PricingTemplateKind)
+	core.PricingSelectionState = cloneRuntimeStringPointer(event.PricingSelectionState)
+	core.PricingCardRole = cloneRuntimeStringPointer(event.PricingCardRole)
+	core.PricingSelectorThresholdTokens = cloneRuntimeIntPointer(event.PricingSelectorThresholdTokens)
+	core.PricingSelectorBasisTokens = cloneRuntimeInt64Pointer(event.PricingSelectorBasisTokens)
+	core.PricingScheduleDecidedAt = cloneRuntimeTimePointer(event.PricingScheduleDecidedAt)
+	core.PricingScheduleTimezone = cloneRuntimeStringPointer(event.PricingScheduleTimezone)
+	core.PricingScheduleLocalWeekday = cloneRuntimeIntPointer(event.PricingScheduleLocalWeekday)
+	core.PricingScheduleLocalMinute = cloneRuntimeIntPointer(event.PricingScheduleLocalMinute)
+	core.PricingScheduleDigest = cloneRuntimeStringPointer(event.PricingScheduleDigest)
+	accountingEvent, err := gatewayaccounting.NewEvent(core)
 	if err != nil {
 		return gatewayaccounting.Event{}
 	}
@@ -57,32 +65,40 @@ func buildRuntimeAccountingAttemptEvents(requestLogs []requestLogInsert, routeRe
 		if index == len(requestLogs)-1 {
 			attemptUsageSource = usageSource
 		}
-		accountingEvent, err := gatewayaccounting.NewEvent(gatewayaccounting.Event{
-			Phase:                      gatewayaccounting.EventPhaseAttempt,
-			RequestID:                  requestLog.IngressRequestID,
-			ProfileID:                  requestLog.ProfileID,
-			OperationName:              requestLog.OperationName,
-			APIFamily:                  requestLog.APIFamily,
-			RequestedModelID:           requestLog.ModelID,
-			EffectiveModelID:           cloneRuntimeStringPointer(requestLog.ResolvedTargetModelID),
-			EndpointID:                 cloneRuntimeIntPointer(requestLog.EndpointID),
-			ConnectionID:               cloneRuntimeIntPointer(requestLog.ConnectionID),
-			SelectedTerminalTargetID:   cloneRuntimeIntPointer(requestLog.SelectedTerminalTargetID),
-			AttemptNumber:              requestLog.AttemptNumber,
-			Final:                      index == len(requestLogs)-1,
-			StatusCode:                 requestLog.StatusCode,
-			Success:                    requestLog.SuccessFlag,
-			RouteReason:                routeReason,
-			UsageSource:                attemptUsageSource,
-			PricingConfigVersionUsed:   cloneRuntimeIntPointer(requestLog.PricingConfigVersionUsed),
-			PricingTierApplied:         cloneRuntimeStringPointer(requestLog.PricingTierApplied),
-			PricingTierThresholdTokens: cloneRuntimeIntPointer(requestLog.PricingTierThresholdTokens),
-			PricingTierBasisTokens:     cloneRuntimeInt64Pointer(requestLog.PricingTierBasisTokens),
-			StreamOutcome:              requestLog.StreamOutcome,
-			AuditEnabled:               requestLog.AuditEnabledAtRequest,
-			AuditCaptureBodies:         requestLog.AuditCaptureBodiesAtRequest,
-			ObservedAt:                 requestLog.CreatedAt,
-		})
+		core := gatewayaccounting.Event{
+			Phase:                    gatewayaccounting.EventPhaseAttempt,
+			RequestID:                requestLog.IngressRequestID,
+			ProfileID:                requestLog.ProfileID,
+			OperationName:            requestLog.OperationName,
+			APIFamily:                requestLog.APIFamily,
+			RequestedModelID:         requestLog.ModelID,
+			EffectiveModelID:         cloneRuntimeStringPointer(requestLog.ResolvedTargetModelID),
+			EndpointID:               cloneRuntimeIntPointer(requestLog.EndpointID),
+			ConnectionID:             cloneRuntimeIntPointer(requestLog.ConnectionID),
+			SelectedTerminalTargetID: cloneRuntimeIntPointer(requestLog.SelectedTerminalTargetID),
+			AttemptNumber:            requestLog.AttemptNumber,
+			Final:                    index == len(requestLogs)-1,
+			StatusCode:               requestLog.StatusCode,
+			Success:                  requestLog.SuccessFlag,
+			RouteReason:              routeReason,
+			UsageSource:              attemptUsageSource,
+			PricingConfigVersionUsed: cloneRuntimeIntPointer(requestLog.PricingConfigVersionUsed),
+			StreamOutcome:            requestLog.StreamOutcome,
+			AuditEnabled:             requestLog.AuditEnabledAtRequest,
+			AuditCaptureBodies:       requestLog.AuditCaptureBodiesAtRequest,
+			ObservedAt:               requestLog.CreatedAt,
+		}
+		core.PricingTemplateKind = cloneRuntimeStringPointer(requestLog.PricingTemplateKind)
+		core.PricingSelectionState = cloneRuntimeStringPointer(requestLog.PricingSelectionState)
+		core.PricingCardRole = cloneRuntimeStringPointer(requestLog.PricingCardRole)
+		core.PricingSelectorThresholdTokens = cloneRuntimeIntPointer(requestLog.PricingSelectorThresholdTokens)
+		core.PricingSelectorBasisTokens = cloneRuntimeInt64Pointer(requestLog.PricingSelectorBasisTokens)
+		core.PricingScheduleDecidedAt = cloneRuntimeTimePointer(requestLog.PricingScheduleDecidedAt)
+		core.PricingScheduleTimezone = cloneRuntimeStringPointer(requestLog.PricingScheduleTimezone)
+		core.PricingScheduleLocalWeekday = cloneRuntimeIntPointer(requestLog.PricingScheduleLocalWeekday)
+		core.PricingScheduleLocalMinute = cloneRuntimeIntPointer(requestLog.PricingScheduleLocalMinute)
+		core.PricingScheduleDigest = cloneRuntimeStringPointer(requestLog.PricingScheduleDigest)
+		accountingEvent, err := gatewayaccounting.NewEvent(core)
 		if err != nil {
 			continue
 		}

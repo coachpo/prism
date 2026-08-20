@@ -30,6 +30,7 @@ type endpointReferencePricingTemplate struct {
 	Name              string  `json:"name"`
 	CurrentRevisionID *string `json:"current_revision_id"`
 	CurrentVersion    int     `json:"current_version"`
+	TemplateKind      string  `json:"template_kind"`
 }
 
 type endpointReferenceOwnerModel struct {

@@ -1,9 +1,11 @@
 # FRONTEND TEST BOUNDARY
 
 ## OVERVIEW
+
 `frontend/tests/` is Prism's frontend regression surface. It splits browser flows from seam-contract suites and keeps the tree aligned with the current route, provider, typed-client, observe, and model/access-target authoring structure.
 
 ## TEST SPLIT
+
 - `e2e/` holds the Playwright browser journey and evidence specs; see `e2e/AGENTS.md` for the scenario inventory and capture scripts.
 - `lib/` holds high-centrality Node seam contracts; see `lib/AGENTS.md`.
 - The historical `server/` and `model-detail/` node-test roots are absent; production serving is owned by the root single-image Nginx contract.
@@ -11,6 +13,7 @@
 - `../src/test/` holds Vitest/jsdom seams plus shared MSW setup; it is a separate frontend test layer outside this tree.
 
 ## CURRENT FACTS
+
 - `../package.json` exposes `pnpm exec vitest run`, `pnpm run test:lib`, and the browser regression entrypoint `pnpm run test:e2e`.
 - CI runs frontend `pnpm exec vitest run`, `test:lib`, `build`, `lint`, and the Playwright browser specs under `e2e/`.
 - `pnpm test` runs the same Vitest layer in watch mode over `../src/**/*.test.{ts,tsx}` through `../vitest.config.ts`; use `pnpm exec vitest run` for the CI-equivalent gate.
@@ -22,10 +25,12 @@
 - Observe and request-log API seam coverage lives in the corresponding `lib/*_contract.test.mjs` suites.
 
 ## CHILD DOCS
+
 - `e2e/AGENTS.md`: Playwright route-flow conventions, browser fixtures, mocked backend ownership, and canonical route expectations.
 - `lib/AGENTS.md`: Node `--test` seam-contract conventions, `loadTsModule` use, and `test:lib` glob boundaries.
 
 ## WHERE TO LOOK
+
 - Statistics and analytics browser coverage: `e2e/shared-chart-statistics.spec.ts`
 - Model/access-target seam coverage: `lib/model_form_state_contract.test.mjs`
 - Observe route and query seam coverage: `lib/observability_api_contract.test.mjs`
@@ -34,6 +39,7 @@
 - Vitest/MSW seams outside this tree: `../src/test/setup.ts`, `../src/test/msw/server.ts`, `../src/test/msw/handlers.ts`
 
 ## CONVENTIONS
+
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
 - Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
@@ -45,7 +51,7 @@
 - Do not invent extra test roots or child AGENTS files unless a subtree has a distinct runner or command boundary like `e2e/` and `lib/`.
 - Keep test ownership single-layer: backend unit tests own process-local pricing, planning, and stream classification without DB; DB contract suites own one API surface; frontend Vitest/lib owns pure frontend logic. Do not duplicate one behavior across layers or add INSERT-then-SELECT mirror tests.
 - Keep one Playwright spec per owned journey or evidence scenario; additions must remain bounded, reuse existing fixtures, and update the `e2e/` inventory doc. Browser specs must not assert table-cell text or i18n fallback behavior.
-- Keep setup before the first act within 10 lines; use defaulted builders when it grows, reject e2e leading mocks over 50 lines, and keep container/build commands out of test functions.
+- Keep setup compact before the first act; use defaulted builders when it grows, bound e2e leading mocks according to the shared source-size rules, and keep container/build commands out of test functions.
 - Use baseline-plus-override helpers or golden files when expectations exceed eight fields. Use golden files for large shapes and inline assertions only for the fields the test cares about.
 - Table-drive three or more cases that share the same act/assert shape, and keep at most one narrative story test per resource.
 - Test Prism behavior, not platform internals or dependency output: do not grep production Go or TS source text, test Postgres internals, assert chart/graph library rendering, or manually recalculate aggregation internals.
@@ -56,4 +62,5 @@
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
 ## LLM UPSTREAM MATRIX
+
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.

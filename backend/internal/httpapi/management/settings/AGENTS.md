@@ -1,9 +1,11 @@
 # BACKEND MANAGEMENT SETTINGS KNOWLEDGE BASE
 
 ## OVERVIEW
+
 `management/settings/` owns Prism's management settings routes: instance-scope global log-retention (policy CAS, destructive preflight, sealed manual jobs, owner-drift archive), Default-profile costing + timezone (one CAS, reporting-currency epoch contract), API-family audit three-state policy + storage summary, and the flat settings problem envelope.
 
 ## STRUCTURE
+
 ```text
 settings/
 ├── routes.go                         # Settings route dispatch
@@ -48,6 +50,7 @@ settings/
 ```
 
 ## WHERE TO LOOK
+
 - Retention policy classification and persistence: `retention_policy_classifier.go`, `retention_row.go`, `retention_policy_resource.go`
 - Retention settings reads and projections: `retention_settings_projection.go`, `retention_owner_snapshot.go`, `settings_read_savepoint.go`
 - Retention policy routes and destructive preflight: `retention_policy_routes.go`, `retention_preflight.go`, `retention_cutoff_format.go`
@@ -65,11 +68,12 @@ settings/
 - Frontend settings consumers: `../../../../../frontend/src/pages/settings/`
 
 ## CONVENTIONS
+
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep costing, timezone, and API-family audit settings pinned to Default profile id `1`; `X-Profile-Id` may be accepted but is ignored. Keep storage `profile_id` columns untouched.
 - Keep `/api/settings/audit` as exactly three rows (`openai`, `anthropic`, `gemini`) using the three-state `disabled|metadata_only|body_capture` mode union with full replacement PUT semantics; body capture requires audit enabled.
 - Timezone is part of the costing CAS (`GET/PUT /api/settings/costing`); there is no standalone timezone route. Reporting currency has a single active epoch; currency-code change with an existing epoch requires the migration preview/commit flow.
-- Currency migrations use bounded owner snapshots, chunked drafts, signed cursors, immutable template/evidence identities, and one atomic active-epoch cutover. `archive_unused_fx` is the only archive path: it records an archive ledger and clears unused FX evidence without changing the active epoch, templates, or source FX authoring.
+- Currency migrations use bounded owner snapshots, chunked drafts, signed cursors, immutable template/evidence identities, and one atomic active-epoch cutover. Draft/chunk/preview/ledger payloads carry `template_kind` plus the complete role-keyed card set; missing/extra roles fail closed. `pricing_migration_legacy_template_evidence` remains legacy-only and is never used as the current card source. `archive_unused_fx` is the only archive path: it records an archive ledger and clears unused FX evidence without changing the active epoch, templates, or source FX authoring.
 - Fresh installs keep all four retention fields `NULL`; existing values and legacy rows are classified without silent clamping or cleanup. `actual_coverage` is consumed from the Observe owner materialization cut, including source revision, coverage revision/hash, generation/fence, freshness, and gaps.
 - Auth enablement consumes the Proxy owner's counted readiness snapshot and 30-second safe-active horizon; key writes and affected Requests/Audit writers share the DB admission/fence lane before changing or reading the transition proof.
 - Log retention: every destructive change (enable `null -> N`, shorten, one-time cleanup) requires a fresh server preflight token plus keyword confirmation; manual job acceptance only seals a durable queued intent (202 / replay), never revokes coverage; final publish advances the domain revocation epoch/floor.
@@ -78,9 +82,11 @@ settings/
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs.
 
 ## LLM UPSTREAM MATRIX
+
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
 
 ## ANTI-PATTERNS
+
 - Do not treat global log-retention settings as profile-scoped state.
 - Do not run partition cleanup or retention deletes inline in these handlers, and do not accept a manual job without a sealed preflight token.
 - Do not recompute a retention floor from policy days or `MIN(created_at)`; consume `LoadRetentionSourceProjection` from the stats domain.

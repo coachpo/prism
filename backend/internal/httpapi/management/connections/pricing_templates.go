@@ -21,13 +21,33 @@ import (
 // "unconfigured". pricing_unit and pricing_currency_code are never accepted:
 // the active reporting-currency epoch owns the currency, and the unit is
 // fixed to PER_1M.
-type pricingTemplateTierInput struct {
-	InputTokensAbove   *int    `json:"input_tokens_above"`
+type pricingTemplateCardInput struct {
 	InputPrice         *string `json:"input_price"`
 	OutputPrice        *string `json:"output_price"`
 	CachedInputPrice   *string `json:"cached_input_price"`
 	CacheCreationPrice *string `json:"cache_creation_price"`
 	ReasoningPrice     *string `json:"reasoning_price"`
+}
+
+type pricingTemplateWindowInput struct {
+	WeekdayMask int `json:"weekday_mask"`
+	StartMinute int `json:"start_minute"`
+	EndMinute   int `json:"end_minute"`
+}
+
+type pricingTemplateScheduleInput struct {
+	Timezone string                       `json:"timezone"`
+	Windows  []pricingTemplateWindowInput `json:"windows"`
+}
+
+type pricingTemplateTierInput struct {
+	InputTokensAbove   *int                      `json:"input_tokens_above"`
+	InputPrice         *string                   `json:"input_price,omitempty"`
+	OutputPrice        *string                   `json:"output_price,omitempty"`
+	CachedInputPrice   *string                   `json:"cached_input_price,omitempty"`
+	CacheCreationPrice *string                   `json:"cache_creation_price,omitempty"`
+	ReasoningPrice     *string                   `json:"reasoning_price,omitempty"`
+	Card               *pricingTemplateCardInput `json:"card,omitempty"`
 }
 
 // UnmarshalJSON keeps tier object validation strict even when it is nested in
@@ -64,17 +84,20 @@ func (tier *optionalPricingTemplateTier) UnmarshalJSON(data []byte) error {
 }
 
 type pricingTemplateTier struct {
-	InputTokensAbove   int     `json:"input_tokens_above"`
-	InputPrice         string  `json:"input_price"`
-	OutputPrice        string  `json:"output_price"`
-	CachedInputPrice   *string `json:"cached_input_price"`
-	CacheCreationPrice *string `json:"cache_creation_price"`
-	ReasoningPrice     *string `json:"reasoning_price"`
+	InputTokensAbove int                  `json:"input_tokens_above"`
+	Card             *pricingTemplateCard `json:"card,omitempty"`
 }
 
 type pricingTemplateCreateRequest struct {
-	Name                string                    `json:"name"`
-	Description         *string                   `json:"description"`
+	Name         string                        `json:"name"`
+	Description  *string                       `json:"description"`
+	TemplateKind string                        `json:"template_kind"`
+	Card         *pricingTemplateCardInput     `json:"card"`
+	BaseCard     *pricingTemplateCardInput     `json:"base_card"`
+	PeakCard     *pricingTemplateCardInput     `json:"peak_card"`
+	OffpeakCard  *pricingTemplateCardInput     `json:"offpeak_card"`
+	Schedule     *pricingTemplateScheduleInput `json:"schedule"`
+	// Legacy fields remain decoded only to return a precise unknown-shape error.
 	InputPrice          *string                   `json:"input_price"`
 	OutputPrice         *string                   `json:"output_price"`
 	CachedInputPrice    *string                   `json:"cached_input_price"`
@@ -89,6 +112,12 @@ type pricingTemplateUpdateRequest struct {
 	ExpectedUpdatedAt   optionalString              `json:"expected_updated_at"`
 	Name                optionalString              `json:"name"`
 	Description         optionalString              `json:"description"`
+	TemplateKind        optionalString              `json:"template_kind"`
+	Card                optionalRawPricingShape     `json:"card"`
+	BaseCard            optionalRawPricingShape     `json:"base_card"`
+	PeakCard            optionalRawPricingShape     `json:"peak_card"`
+	OffpeakCard         optionalRawPricingShape     `json:"offpeak_card"`
+	Schedule            optionalRawPricingShape     `json:"schedule"`
 	InputPrice          optionalString              `json:"input_price"`
 	OutputPrice         optionalString              `json:"output_price"`
 	CachedInputPrice    optionalString              `json:"cached_input_price"`
@@ -97,6 +126,17 @@ type pricingTemplateUpdateRequest struct {
 	Tier                optionalPricingTemplateTier `json:"tier"`
 	PricingUnit         optionalString              `json:"pricing_unit"`
 	PricingCurrencyCode optionalString              `json:"pricing_currency_code"`
+}
+
+type optionalRawPricingShape struct {
+	Set bool
+	Raw json.RawMessage
+}
+
+func (value *optionalRawPricingShape) UnmarshalJSON(data []byte) error {
+	value.Set = true
+	value.Raw = append(json.RawMessage(nil), data...)
+	return nil
 }
 
 func (s *Service) handleListPricingTemplates(w http.ResponseWriter, r *http.Request) {
@@ -190,13 +230,17 @@ func (s *Service) handleCreatePricingTemplate(w http.ResponseWriter, r *http.Req
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	for _, fieldName := range []string{"name", "input_price", "output_price", "cached_input_price", "cache_creation_price", "reasoning_price"} {
+	for _, fieldName := range []string{"name", "template_kind"} {
 		if _, ok := fields[fieldName]; !ok {
 			writeDomainError(w, r, s.corsSnapshot(), &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s is required", fieldName)})
 			return
 		}
 	}
 	if err := rejectLegacyPricingTemplateFields(&requestBody); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	if _, err := normalizePricingTemplateShape(requestBody); err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
@@ -250,6 +294,12 @@ func (s *Service) handleUpdatePricingTemplate(w http.ResponseWriter, r *http.Req
 		if !found {
 			return pricingTemplateResponse{}, &DomainError{StatusCode: http.StatusNotFound, Detail: "Pricing template not found"}
 		}
+		if requestBody.TemplateKind.Set && requestBody.TemplateKind.Value == nil {
+			return pricingTemplateResponse{}, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "template_kind cannot be null"}
+		}
+		if requestBody.TemplateKind.Set && requestBody.TemplateKind.Value != nil && strings.TrimSpace(*requestBody.TemplateKind.Value) != current.TemplateKind && (!requestBody.ExpectedUpdatedAt.Set || requestBody.ExpectedUpdatedAt.Value == nil) {
+			return pricingTemplateResponse{}, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "expected_updated_at is required when changing template_kind"}
+		}
 		if err := validatePricingTemplateExpectedUpdatedAt(current.UpdatedAt, requestBody.ExpectedUpdatedAt); err != nil {
 			return pricingTemplateResponse{}, err
 		}
@@ -271,64 +321,15 @@ func (s *Service) handleUpdatePricingTemplate(w http.ResponseWriter, r *http.Req
 		if requestBody.Description.Set {
 			nextDescription = normalizeOptionalTrimmedString(requestBody.Description.Value)
 		}
-		prices := pricingTemplatePrices{
-			InputPrice:         current.InputPrice,
-			OutputPrice:        current.OutputPrice,
-			CachedInputPrice:   current.CachedInputPrice,
-			CacheCreationPrice: current.CacheCreationPrice,
-			ReasoningPrice:     current.ReasoningPrice,
-			Tier:               current.Tier,
+		createShape, err := pricingTemplateCreateRequestFromUpdate(current, requestBody)
+		if err != nil {
+			return pricingTemplateResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: err.Error()}
 		}
-		if requestBody.InputPrice.Set {
-			input, err := normalizeRequiredPricingDecimalString("input_price", requestBody.InputPrice.Value)
-			if err != nil {
-				return pricingTemplateResponse{}, err
-			}
-			prices.InputPrice = input
+		shape, err := normalizePricingTemplateShape(createShape)
+		if err != nil {
+			return pricingTemplateResponse{}, err
 		}
-		if requestBody.OutputPrice.Set {
-			output, err := normalizeRequiredPricingDecimalString("output_price", requestBody.OutputPrice.Value)
-			if err != nil {
-				return pricingTemplateResponse{}, err
-			}
-			prices.OutputPrice = output
-		}
-		if requestBody.CachedInputPrice.Set {
-			cached, err := normalizeOptionalPricingDecimalString("cached_input_price", requestBody.CachedInputPrice.Value)
-			if err != nil {
-				return pricingTemplateResponse{}, err
-			}
-			prices.CachedInputPrice = cached
-		}
-		if requestBody.CacheCreationPrice.Set {
-			created, err := normalizeOptionalPricingDecimalString("cache_creation_price", requestBody.CacheCreationPrice.Value)
-			if err != nil {
-				return pricingTemplateResponse{}, err
-			}
-			prices.CacheCreationPrice = created
-		}
-		if requestBody.ReasoningPrice.Set {
-			reasoning, err := normalizeOptionalPricingDecimalString("reasoning_price", requestBody.ReasoningPrice.Value)
-			if err != nil {
-				return pricingTemplateResponse{}, err
-			}
-			prices.ReasoningPrice = reasoning
-		}
-		if requestBody.Tier.Set {
-			prices.Tier, err = normalizePricingTemplateTier(requestBody.Tier.Value, prices)
-			if err != nil {
-				return pricingTemplateResponse{}, err
-			}
-		} else if prices.Tier != nil {
-			// A base-card edit must keep tier specialty parity even when the
-			// caller omitted tier (omitted means preserve on PUT).
-			preservedTier := pricingTemplateTierFromResponse(prices.Tier)
-			prices.Tier, err = normalizePricingTemplateTier(preservedTier, prices)
-			if err != nil {
-				return pricingTemplateResponse{}, err
-			}
-		}
-		if err := updatePricingTemplateWithPrices(r.Context(), tx, profile.ID, current, nextName, nextDescription, prices, s.nowUTC()); err != nil {
+		if err := updatePricingTemplateWithShape(r.Context(), tx, profile.ID, current, nextName, nextDescription, shape, s.nowUTC()); err != nil {
 			return pricingTemplateResponse{}, err
 		}
 		updated, found, err := loadPricingTemplate(r.Context(), tx, profile.ID, templateID, false)
@@ -420,6 +421,9 @@ func rejectLegacyPricingTemplateFields(requestBody *pricingTemplateCreateRequest
 }
 
 func rejectLegacyPricingTemplateUpdateFields(requestBody pricingTemplateUpdateRequest) error {
+	if requestBody.InputPrice.Set || requestBody.OutputPrice.Set || requestBody.CachedInputPrice.Set || requestBody.CacheCreationPrice.Set || requestBody.ReasoningPrice.Set {
+		return &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "legacy pricing fields are not accepted; use the typed template shape"}
+	}
 	if requestBody.PricingUnit.Set {
 		return &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "unknown_field: pricing_unit is not accepted; the unit is fixed to PER_1M"}
 	}
@@ -483,10 +487,8 @@ func pricingTemplateRowKeysPresent(row []byte) error {
 	if err := json.Unmarshal(row, &raw); err != nil {
 		return err
 	}
-	for _, key := range []string{"input_price", "output_price", "cached_input_price", "cache_creation_price", "reasoning_price"} {
-		if _, ok := raw[key]; !ok {
-			return fmt.Errorf("%s is required", key)
-		}
+	if _, ok := raw["template_kind"]; !ok {
+		return fmt.Errorf("template_kind is required")
 	}
 	return nil
 }
@@ -576,7 +578,7 @@ func (s *Service) handleGetPricingTemplateImpact(w http.ResponseWriter, r *http.
 }
 
 func listPricingTemplateRevisions(ctx context.Context, tx pgx.Tx, templateID int) ([]pricingTemplateRevisionResponse, error) {
-	rows, err := tx.Query(ctx, `SELECT id, version, pricing_unit, currency_code, reporting_currency_epoch, currency_attribution, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, tier_input_tokens_above, tier_input_price, tier_output_price, tier_cached_input_price, tier_cache_creation_price, tier_reasoning_price, effective_at, created_at, created_by_kind FROM pricing_template_revisions WHERE template_id = $1 ORDER BY version ASC`, templateID)
+	rows, err := tx.Query(ctx, `SELECT id, version, pricing_unit, currency_code, reporting_currency_epoch, currency_attribution, template_kind, tier_input_tokens_above, pricing_schedule_timezone, pricing_schedule_digest, effective_at, created_at, created_by_kind FROM pricing_template_revisions WHERE template_id = $1 ORDER BY version ASC`, templateID)
 	if err != nil {
 		return nil, fmt.Errorf("query pricing template revisions: %w", err)
 	}
@@ -584,13 +586,61 @@ func listPricingTemplateRevisions(ctx context.Context, tx pgx.Tx, templateID int
 	items := make([]pricingTemplateRevisionResponse, 0)
 	for rows.Next() {
 		var item pricingTemplateRevisionResponse
-		var tierThreshold sql.NullInt32
-		var tierInput, tierOutput, tierCached, tierCreation, tierReasoning sql.NullString
-		if err := rows.Scan(&item.RevisionID, &item.Version, &item.PricingUnit, &item.CurrencyCode, &item.ReportingCurrencyEpoch, &item.CurrencyAttribution, &item.InputPrice, &item.OutputPrice, &item.CachedInputPrice, &item.CacheCreationPrice, &item.ReasoningPrice, &tierThreshold, &tierInput, &tierOutput, &tierCached, &tierCreation, &tierReasoning, &item.EffectiveAt, &item.CreatedAt, &item.CreatedByKind); err != nil {
+		var kind, timezone, digest sql.NullString
+		var threshold sql.NullInt32
+		if err := rows.Scan(&item.RevisionID, &item.Version, &item.PricingUnit, &item.CurrencyCode, &item.ReportingCurrencyEpoch, &item.CurrencyAttribution, &kind, &threshold, &timezone, &digest, &item.EffectiveAt, &item.CreatedAt, &item.CreatedByKind); err != nil {
 			return nil, fmt.Errorf("scan pricing template revision: %w", err)
 		}
-		if tierThreshold.Valid {
-			item.Tier = &pricingTemplateTier{InputTokensAbove: int(tierThreshold.Int32), InputPrice: tierInput.String, OutputPrice: tierOutput.String, CachedInputPrice: nullableStringValue(tierCached), CacheCreationPrice: nullableStringValue(tierCreation), ReasoningPrice: nullableStringValue(tierReasoning)}
+		item.TemplateKind = kind.String
+		item.ScheduleTimezone = nullableStringValue(timezone)
+		item.ScheduleDigest = nullableStringValue(digest)
+		if threshold.Valid {
+			item.Tier = &pricingTemplateTier{InputTokensAbove: int(threshold.Int32)}
+		}
+		cardRows, queryErr := tx.Query(ctx, `SELECT card_role, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price FROM pricing_template_cards WHERE revision_id = $1 ORDER BY card_role`, item.RevisionID)
+		if queryErr != nil {
+			return nil, queryErr
+		}
+		for cardRows.Next() {
+			var role, input, output string
+			var cached, creation, reasoning sql.NullString
+			if scanErr := cardRows.Scan(&role, &input, &output, &cached, &creation, &reasoning); scanErr != nil {
+				cardRows.Close()
+				return nil, scanErr
+			}
+			card := &pricingTemplateCard{InputPrice: input, OutputPrice: output, CachedInputPrice: nullableStringValue(cached), CacheCreationPrice: nullableStringValue(creation), ReasoningPrice: nullableStringValue(reasoning)}
+			switch role {
+			case "standard":
+				item.Card = card
+			case "tier_base":
+				item.BaseCard = card
+			case "tier_above":
+				if item.Tier == nil {
+					item.Tier = &pricingTemplateTier{}
+				}
+				item.Tier.Card = card
+			case "peak":
+				item.PeakCard = card
+			case "offpeak":
+				item.OffpeakCard = card
+			}
+		}
+		cardRows.Close()
+		if item.TemplateKind == "peak_valley" {
+			item.Schedule = &pricingTemplateSchedule{Timezone: timezone.String}
+			windowRows, queryErr := tx.Query(ctx, `SELECT weekday_mask, start_minute, end_minute FROM pricing_template_windows WHERE revision_id = $1 ORDER BY weekday_mask, start_minute, end_minute`, item.RevisionID)
+			if queryErr != nil {
+				return nil, queryErr
+			}
+			for windowRows.Next() {
+				var mask, start, end int
+				if scanErr := windowRows.Scan(&mask, &start, &end); scanErr != nil {
+					windowRows.Close()
+					return nil, scanErr
+				}
+				item.Schedule.Windows = append(item.Schedule.Windows, pricingTemplateWindow{WeekdayMask: mask, StartMinute: start, EndMinute: end})
+			}
+			windowRows.Close()
 		}
 		items = append(items, item)
 	}
@@ -601,21 +651,24 @@ func listPricingTemplateRevisions(ctx context.Context, tx pgx.Tx, templateID int
 }
 
 type pricingTemplateRevisionResponse struct {
-	RevisionID             int64                `json:"revision_id"`
-	Version                int                  `json:"version"`
-	PricingUnit            string               `json:"pricing_unit"`
-	CurrencyCode           string               `json:"currency_code"`
-	ReportingCurrencyEpoch *int                 `json:"reporting_currency_epoch"`
-	CurrencyAttribution    string               `json:"currency_attribution"`
-	InputPrice             string               `json:"input_price"`
-	OutputPrice            string               `json:"output_price"`
-	CachedInputPrice       *string              `json:"cached_input_price"`
-	CacheCreationPrice     *string              `json:"cache_creation_price"`
-	ReasoningPrice         *string              `json:"reasoning_price"`
-	Tier                   *pricingTemplateTier `json:"tier"`
-	EffectiveAt            *time.Time           `json:"effective_at"`
-	CreatedAt              time.Time            `json:"created_at"`
-	CreatedByKind          string               `json:"created_by_kind"`
+	RevisionID             int64                    `json:"revision_id"`
+	Version                int                      `json:"version"`
+	PricingUnit            string                   `json:"pricing_unit"`
+	CurrencyCode           string                   `json:"currency_code"`
+	ReportingCurrencyEpoch *int                     `json:"reporting_currency_epoch"`
+	CurrencyAttribution    string                   `json:"currency_attribution"`
+	TemplateKind           string                   `json:"template_kind"`
+	Card                   *pricingTemplateCard     `json:"card,omitempty"`
+	BaseCard               *pricingTemplateCard     `json:"base_card,omitempty"`
+	Tier                   *pricingTemplateTier     `json:"tier,omitempty"`
+	PeakCard               *pricingTemplateCard     `json:"peak_card,omitempty"`
+	OffpeakCard            *pricingTemplateCard     `json:"offpeak_card,omitempty"`
+	Schedule               *pricingTemplateSchedule `json:"schedule,omitempty"`
+	ScheduleTimezone       *string                  `json:"schedule_timezone,omitempty"`
+	ScheduleDigest         *string                  `json:"schedule_digest,omitempty"`
+	EffectiveAt            *time.Time               `json:"effective_at"`
+	CreatedAt              time.Time                `json:"created_at"`
+	CreatedByKind          string                   `json:"created_by_kind"`
 }
 
 type pricingTemplateImpactResponse struct {

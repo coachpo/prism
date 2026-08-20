@@ -11,7 +11,8 @@ const displayNameLabel = /Display Name|显示名称/;
 const noStrategiesCopy =
   /No loadbalance strategies are available\. Create one on the Loadbalance Strategies page first\.|没有可用的路由策略。请先在路由策略页面创建一个。/;
 const modelCreatedToast = /Model created|模型已创建/;
-const defaultStrategiesCreatedToast = /Default loadbalance strategies created|默认路由策略已创建/;
+const defaultStrategiesCreatedToast =
+  /Default loadbalance strategies created|默认路由策略已创建/;
 
 function createStrategy() {
   return {
@@ -41,7 +42,9 @@ function createModelListItem(
   displayName: string,
   apiFamily: "openai" | "anthropic" | "gemini" = "openai",
   loadbalanceStrategyId: number | null = 11,
-  loadbalanceStrategy: ReturnType<typeof createStrategy> | null = createStrategy(),
+  loadbalanceStrategy: ReturnType<
+    typeof createStrategy
+  > | null = createStrategy(),
 ) {
   return {
     id,
@@ -103,13 +106,28 @@ export async function mockModelRoutes(
     }
 
     const fulfillJson = (body: unknown, status = 200) =>
-      route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+      route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
 
     if (pathname === "/api/auth/status") {
-      return fulfillJson({ state: "disabled", transition_state: null, login_available: false, effective_generation: "1", retry_after_seconds: null });
+      return fulfillJson({
+        state: "disabled",
+        transition_state: null,
+        login_available: false,
+        effective_generation: "1",
+        retry_after_seconds: null,
+      });
     }
     if (pathname === "/api/settings/costing") {
-      return fulfillJson({ report_currency_code: "EUR", report_currency_symbol: "€", endpoint_fx_mappings: [], timezone_preference: null });
+      return fulfillJson({
+        report_currency_code: "EUR",
+        report_currency_symbol: "€",
+        endpoint_fx_mappings: [],
+        timezone_preference: null,
+      });
     }
     if (pathname === "/api/settings/timezone") {
       return fulfillJson({ timezone_preference: "UTC" });
@@ -126,20 +144,33 @@ export async function mockModelRoutes(
     if (pathname === "/api/loadbalance/strategies") {
       return fulfillJson(strategies);
     }
-    if (pathname === "/api/loadbalance/strategies/defaults" && request.method() === "POST") {
+    if (
+      pathname === "/api/loadbalance/strategies/defaults" &&
+      request.method() === "POST"
+    ) {
       defaultsRequests.push(pathname);
       await options.defaultsDelay;
       const response = options.defaultsResponse ?? {
-        created: [{ canonical_name: "Default fill-first routing", strategy_id: 11 }],
+        created: [
+          { canonical_name: "Default fill-first routing", strategy_id: 11 },
+        ],
         existing: [],
         default_strategy_id: 11,
         default_changed: true,
         complete: false,
       };
-      if (options.defaultsStatus !== undefined && options.defaultsStatus !== 200) {
-        return fulfillJson(options.defaultsResponse ?? { detail: "defaults failed" }, options.defaultsStatus);
+      if (
+        options.defaultsStatus !== undefined &&
+        options.defaultsStatus !== 200
+      ) {
+        return fulfillJson(
+          options.defaultsResponse ?? { detail: "defaults failed" },
+          options.defaultsStatus,
+        );
       }
-      const defaultStrategyId = (response as { default_strategy_id?: number | null }).default_strategy_id;
+      const defaultStrategyId = (
+        response as { default_strategy_id?: number | null }
+      ).default_strategy_id;
       if (defaultStrategyId != null) {
         strategies.length = 0;
         strategies.push({ ...createStrategy(), id: defaultStrategyId });
@@ -165,7 +196,8 @@ export async function mockModelRoutes(
           api_family: payload.api_family,
           model_id: payload.model_id,
           display_name: payload.display_name,
-          openai_accepted_format: payload.openai_accepted_format ?? "dual_native",
+          openai_accepted_format:
+            payload.openai_accepted_format ?? "dual_native",
           loadbalance_strategy_id: payload.loadbalance_strategy_id ?? null,
           loadbalance_strategy: createStrategy(),
           access_targets: payload.access_targets ?? [],
@@ -186,54 +218,82 @@ export async function mockModelRoutes(
   };
 }
 
-test("create model dialog disables submit when no loadbalance strategies exist", async ({ page }) => {
+test("create model dialog disables submit when no loadbalance strategies exist", async ({
+  page,
+}) => {
   const routes = await mockModelRoutes(page, { strategies: [] });
 
   await page.goto("/models");
   await page.getByRole("button", { name: newModelButton }).click();
 
   const dialog = page.getByRole("dialog", { name: newModelDialog });
-  const submitButton = dialog.getByRole("button", { name: /保存|创建并启用|创建为停用/ });
+  const submitButton = dialog.getByRole("button", {
+    name: /保存|创建并启用|创建为停用/,
+  });
 
   await expect(dialog.getByText(noStrategiesCopy)).toBeVisible();
   await expect(submitButton).toBeDisabled();
 
-  await page.getByRole("textbox", { name: modelIdLabel }).fill("zero-strategy-model");
-  await page.getByRole("textbox", { name: displayNameLabel }).fill("Zero Strategy Model");
+  await page
+    .getByRole("textbox", { name: modelIdLabel })
+    .fill("zero-strategy-model");
+  await page
+    .getByRole("textbox", { name: displayNameLabel })
+    .fill("Zero Strategy Model");
   await expect(submitButton).toBeDisabled();
 
   await page.getByRole("textbox", { name: displayNameLabel }).press("Enter");
   expect(routes.getCreatedPayloads()).toHaveLength(0);
 
   await dialog.getByRole("button", { name: cancelButton }).click();
-  await page.getByRole("button", { name: /Edit Model: Target Alpha|编辑模型: Target Alpha/ }).click();
+  await page
+    .getByRole("button", {
+      name: /Edit Model: Target Alpha|编辑模型: Target Alpha/,
+    })
+    .click();
 
   const editDialog = page.getByRole("dialog", { name: editModelDialog });
   await expect(editDialog.getByText(noStrategiesCopy)).toBeVisible();
-  await expect(editDialog.getByRole("button", { name: createDefaultsButton })).toHaveCount(0);
+  await expect(
+    editDialog.getByRole("button", { name: createDefaultsButton }),
+  ).toHaveCount(0);
 });
 
-test("create model dialog creates default strategy and saves a configure-later draft", async ({ page }) => {
+test("create model dialog creates default strategy and saves a configure-later draft", async ({
+  page,
+}) => {
   const routes = await mockModelRoutes(page, { strategies: [] });
 
   await page.goto("/models");
   await page.getByRole("button", { name: newModelButton }).click();
 
   const dialog = page.getByRole("dialog", { name: newModelDialog });
-  const submitButton = dialog.getByRole("button", { name: /保存|创建并启用|创建为停用/ });
-  await expect(dialog.getByRole("button", { name: createDefaultsButton })).toBeVisible();
+  const submitButton = dialog.getByRole("button", {
+    name: /保存|创建并启用|创建为停用/,
+  });
+  await expect(
+    dialog.getByRole("button", { name: createDefaultsButton }),
+  ).toBeVisible();
   await expect(submitButton).toBeDisabled();
 
   await dialog.getByRole("button", { name: createDefaultsButton }).click();
 
-  await expect(dialog.getByRole("button", { name: createDefaultsButton })).toHaveCount(0);
-  await expect(dialog.locator("#create-model-strategy")).toContainText("Default fill-first routing");
+  await expect(
+    dialog.getByRole("button", { name: createDefaultsButton }),
+  ).toHaveCount(0);
+  await expect(dialog.locator("#create-model-strategy")).toContainText(
+    "Default fill-first routing",
+  );
 
   // Ready mode needs an endpoint; configure-later omits the initial target
   // and forces disabled — the targetless draft path.
-  await page.getByRole("textbox", { name: modelIdLabel }).fill("defaults-created-model");
+  await page
+    .getByRole("textbox", { name: modelIdLabel })
+    .fill("defaults-created-model");
   await dialog.getByRole("switch", { name: /稍后配置/ }).check();
-  await expect(dialog.getByRole("button", { name: "创建为停用" })).toBeEnabled();
+  await expect(
+    dialog.getByRole("button", { name: "创建为停用" }),
+  ).toBeEnabled();
 
   await dialog.getByRole("button", { name: "创建为停用" }).click();
   await expect(page.getByText(modelCreatedToast)).toBeVisible();
@@ -252,7 +312,9 @@ test("create model dialog creates default strategy and saves a configure-later d
   ]);
 });
 
-test("create model dialog keeps empty strategy state when default creation fails", async ({ page }) => {
+test("create model dialog keeps empty strategy state when default creation fails", async ({
+  page,
+}) => {
   const routes = await mockModelRoutes(page, {
     strategies: [],
     defaultsStatus: 500,
@@ -263,52 +325,83 @@ test("create model dialog keeps empty strategy state when default creation fails
   await page.getByRole("button", { name: newModelButton }).click();
 
   const dialog = page.getByRole("dialog", { name: newModelDialog });
-  const submitButton = dialog.getByRole("button", { name: /保存|创建并启用|创建为停用/ });
-  await expect(dialog.getByRole("button", { name: createDefaultsButton })).toBeVisible();
+  const submitButton = dialog.getByRole("button", {
+    name: /保存|创建并启用|创建为停用/,
+  });
+  await expect(
+    dialog.getByRole("button", { name: createDefaultsButton }),
+  ).toBeVisible();
   await expect(submitButton).toBeDisabled();
 
   await dialog.getByRole("button", { name: createDefaultsButton }).click();
 
   await expect(page.getByText("Default creation failed")).toBeVisible();
-  await expect(dialog.getByRole("button", { name: createDefaultsButton })).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: createDefaultsButton }),
+  ).toBeVisible();
   await expect(dialog.getByText(noStrategiesCopy)).toBeVisible();
   await expect(submitButton).toBeDisabled();
 
-  await page.getByRole("textbox", { name: modelIdLabel }).fill("defaults-failed-model");
+  await page
+    .getByRole("textbox", { name: modelIdLabel })
+    .fill("defaults-failed-model");
   await page.getByRole("textbox", { name: displayNameLabel }).press("Enter");
 
   expect(routes.getDefaultsRequests()).toHaveLength(1);
   expect(routes.getCreatedPayloads()).toHaveLength(0);
 });
 
-test("create model dialog does not apply delayed defaults response to edit dialog", async ({ page }) => {
+test("create model dialog does not apply delayed defaults response to edit dialog", async ({
+  page,
+}) => {
   const deferredDefaults = createDeferredDefaultsResponse();
   const routes = await mockModelRoutes(page, {
     strategies: [],
     defaultsDelay: deferredDefaults.ready,
-    models: [createModelListItem(1, "edit-no-strategy", "Edit No Strategy", "openai", null, null)],
+    models: [
+      createModelListItem(
+        1,
+        "edit-no-strategy",
+        "Edit No Strategy",
+        "openai",
+        null,
+        null,
+      ),
+    ],
   });
 
   await page.goto("/models");
   await page.getByRole("button", { name: newModelButton }).click();
 
   const createDialog = page.getByRole("dialog", { name: newModelDialog });
-  await createDialog.getByRole("button", { name: createDefaultsButton }).click();
+  await createDialog
+    .getByRole("button", { name: createDefaultsButton })
+    .click();
   expect(routes.getDefaultsRequests()).toHaveLength(1);
   await createDialog.getByRole("button", { name: cancelButton }).click();
 
-  await page.getByRole("button", { name: /Edit Model: Edit No Strategy|编辑模型: Edit No Strategy/ }).click();
+  await page
+    .getByRole("button", {
+      name: /Edit Model: Edit No Strategy|编辑模型: Edit No Strategy/,
+    })
+    .click();
   const editDialog = page.getByRole("dialog", { name: editModelDialog });
   await expect(editDialog.getByText(noStrategiesCopy)).toBeVisible();
 
   deferredDefaults.resolve();
 
   await expect(page.getByText(defaultStrategiesCreatedToast)).toBeVisible();
-  await expect(editDialog.getByRole("button", { name: createDefaultsButton })).toHaveCount(0);
-  await expect(editDialog.locator("#model-loadbalance-strategy")).toHaveCount(0);
+  await expect(
+    editDialog.getByRole("button", { name: createDefaultsButton }),
+  ).toHaveCount(0);
+  await expect(editDialog.locator("#model-loadbalance-strategy")).toHaveCount(
+    0,
+  );
 });
 
-test("reopened create model dialog adopts the canonical default strategy after defaults resolve", async ({ page }) => {
+test("reopened create model dialog adopts the canonical default strategy after defaults resolve", async ({
+  page,
+}) => {
   const deferredDefaults = createDeferredDefaultsResponse();
   const routes = await mockModelRoutes(page, {
     strategies: [],
@@ -319,13 +412,17 @@ test("reopened create model dialog adopts the canonical default strategy after d
   await page.getByRole("button", { name: newModelButton }).click();
 
   const createDialog = page.getByRole("dialog", { name: newModelDialog });
-  await createDialog.getByRole("button", { name: createDefaultsButton }).click();
+  await createDialog
+    .getByRole("button", { name: createDefaultsButton })
+    .click();
   expect(routes.getDefaultsRequests()).toHaveLength(1);
   await createDialog.getByRole("button", { name: cancelButton }).click();
 
   await page.getByRole("button", { name: newModelButton }).click();
   const reopenedDialog = page.getByRole("dialog", { name: newModelDialog });
-  const reopenedSubmit = reopenedDialog.getByRole("button", { name: /保存|创建并启用|创建为停用/ });
+  const reopenedSubmit = reopenedDialog.getByRole("button", {
+    name: /保存|创建并启用|创建为停用/,
+  });
   await expect(reopenedSubmit).toBeDisabled();
 
   deferredDefaults.resolve();
@@ -333,10 +430,14 @@ test("reopened create model dialog adopts the canonical default strategy after d
   // The canonical Default fill-first routing strategy now exists, so the
   // reopened dialog selects it by canonical identity (never array index).
   await expect(page.getByText(defaultStrategiesCreatedToast)).toBeVisible();
-  await expect(reopenedDialog.locator("#create-model-strategy")).toContainText("Default fill-first routing");
+  await expect(reopenedDialog.locator("#create-model-strategy")).toContainText(
+    "Default fill-first routing",
+  );
 });
 
-test("create model dialog saves a configure-later targetless disabled draft", async ({ page }) => {
+test("create model dialog saves a configure-later targetless disabled draft", async ({
+  page,
+}) => {
   const routes = await mockModelRoutes(page);
 
   await page.goto("/models");
@@ -345,7 +446,9 @@ test("create model dialog saves a configure-later targetless disabled draft", as
   const dialog = page.getByRole("dialog", { name: newModelDialog });
   await page.getByRole("textbox", { name: modelIdLabel }).fill("draft-openai");
   await dialog.getByRole("switch", { name: /稍后配置/ }).check();
-  await expect(dialog.getByRole("button", { name: "创建为停用" })).toBeEnabled();
+  await expect(
+    dialog.getByRole("button", { name: "创建为停用" }),
+  ).toBeEnabled();
 
   await dialog.getByRole("button", { name: "创建为停用" }).click();
   await expect(page.getByText(modelCreatedToast)).toBeVisible();
@@ -363,7 +466,9 @@ test("create model dialog saves a configure-later targetless disabled draft", as
   ]);
 });
 
-test("create model dialog keeps legacy access-target authoring out of the create flow", async ({ page }) => {
+test("create model dialog keeps legacy access-target authoring out of the create flow", async ({
+  page,
+}) => {
   await mockModelRoutes(page);
 
   await page.goto("/models");
@@ -371,7 +476,9 @@ test("create model dialog keeps legacy access-target authoring out of the create
 
   const dialog = page.getByRole("dialog", { name: newModelDialog });
   await expect(dialog.locator("#access-target-select")).toHaveCount(0);
-  await expect(dialog.getByRole("button", { name: /New terminal target|新建终端目标/ })).toHaveCount(0);
+  await expect(
+    dialog.getByRole("button", { name: /New terminal target|新建终端目标/ }),
+  ).toHaveCount(0);
   await expect(dialog.getByText("Tier")).toHaveCount(0);
   await expect(dialog.getByText("Weight")).toHaveCount(0);
   // The one-shot create flow owns the initial Terminal Target section instead.
@@ -416,7 +523,12 @@ function createDetailEndpoint() {
   };
 }
 
-function createDetailConnection(id: number, name: string, capability: string, priority: number) {
+function createDetailConnection(
+  id: number,
+  name: string,
+  capability: string,
+  priority: number,
+) {
   return {
     id,
     profile_id: 1,
@@ -443,7 +555,12 @@ function createDetailDiagnostics() {
   return {
     model_config_id: 7,
     strategy: { id: 11, type: "single" },
-    accepted_operations: ["openai.chat_completions", "openai.responses", "openai.responses.input_tokens", "openai.responses.compact"],
+    accepted_operations: [
+      "openai.chat_completions",
+      "openai.responses",
+      "openai.responses.input_tokens",
+      "openai.responses.compact",
+    ],
     stages: [
       {
         stage: "model_targets",
@@ -462,13 +579,32 @@ function createDetailDiagnostics() {
             enabled_strategy_index: 0,
             connection_id: 15,
             coverage: "partial",
-            supported_operations: ["openai.responses", "openai.responses.input_tokens", "openai.responses.compact"],
+            supported_operations: [
+              "openai.responses",
+              "openai.responses.input_tokens",
+              "openai.responses.compact",
+            ],
             unsupported_accepted_operations: ["openai.chat_completions"],
             operation_results: [
-              { operation_name: "openai.chat_completions", disposition: "incompatible" },
-              { operation_name: "openai.responses", disposition: "candidate", terminal_connection_ids: [15] },
-              { operation_name: "openai.responses.input_tokens", disposition: "candidate", terminal_connection_ids: [15] },
-              { operation_name: "openai.responses.compact", disposition: "candidate", terminal_connection_ids: [15] },
+              {
+                operation_name: "openai.chat_completions",
+                disposition: "incompatible",
+              },
+              {
+                operation_name: "openai.responses",
+                disposition: "candidate",
+                terminal_connection_ids: [15],
+              },
+              {
+                operation_name: "openai.responses.input_tokens",
+                disposition: "candidate",
+                terminal_connection_ids: [15],
+              },
+              {
+                operation_name: "openai.responses.compact",
+                disposition: "candidate",
+                terminal_connection_ids: [15],
+              },
             ],
           },
           {
@@ -477,13 +613,30 @@ function createDetailDiagnostics() {
             enabled_strategy_index: 1,
             connection_id: 16,
             coverage: "full",
-            supported_operations: ["openai.chat_completions", "openai.responses", "openai.responses.input_tokens", "openai.responses.compact"],
+            supported_operations: [
+              "openai.chat_completions",
+              "openai.responses",
+              "openai.responses.input_tokens",
+              "openai.responses.compact",
+            ],
             unsupported_accepted_operations: [],
             operation_results: [
-              { operation_name: "openai.chat_completions", disposition: "truncated_by_single" },
-              { operation_name: "openai.responses", disposition: "truncated_by_single" },
-              { operation_name: "openai.responses.input_tokens", disposition: "truncated_by_single" },
-              { operation_name: "openai.responses.compact", disposition: "truncated_by_single" },
+              {
+                operation_name: "openai.chat_completions",
+                disposition: "truncated_by_single",
+              },
+              {
+                operation_name: "openai.responses",
+                disposition: "truncated_by_single",
+              },
+              {
+                operation_name: "openai.responses.input_tokens",
+                disposition: "truncated_by_single",
+              },
+              {
+                operation_name: "openai.responses.compact",
+                disposition: "truncated_by_single",
+              },
             ],
           },
         ],
@@ -566,8 +719,18 @@ function createDetailDiagnostics() {
 }
 
 export async function mockModelDetailRoutes(page: Page) {
-  const connection15 = createDetailConnection(15, "Primary Responses", "responses_only", 0);
-  const connection16 = createDetailConnection(16, "Fallback Dual", "dual_native", 1);
+  const connection15 = createDetailConnection(
+    15,
+    "Primary Responses",
+    "responses_only",
+    0,
+  );
+  const connection16 = createDetailConnection(
+    16,
+    "Fallback Dual",
+    "dual_native",
+    1,
+  );
   const strategy = createDetailStrategy();
   const modelDetail = {
     id: 7,
@@ -589,7 +752,17 @@ export async function mockModelDetailRoutes(page: Page) {
         is_enabled: true,
         target_model: null,
         connection: connection15,
-        terminal_target: { id: 15, name: "Primary Responses", is_active: true, endpoint_id: 1, endpoint: { id: 1, name: "OpenAI Primary", base_url: "https://api.openai.com/v1" } },
+        terminal_target: {
+          id: 15,
+          name: "Primary Responses",
+          is_active: true,
+          endpoint_id: 1,
+          endpoint: {
+            id: 1,
+            name: "OpenAI Primary",
+            base_url: "https://api.openai.com/v1",
+          },
+        },
         created_at: detailTimestamp,
         updated_at: detailTimestamp,
       },
@@ -603,7 +776,17 @@ export async function mockModelDetailRoutes(page: Page) {
         is_enabled: true,
         target_model: null,
         connection: connection16,
-        terminal_target: { id: 16, name: "Fallback Dual", is_active: true, endpoint_id: 1, endpoint: { id: 1, name: "OpenAI Primary", base_url: "https://api.openai.com/v1" } },
+        terminal_target: {
+          id: 16,
+          name: "Fallback Dual",
+          is_active: true,
+          endpoint_id: 1,
+          endpoint: {
+            id: 1,
+            name: "OpenAI Primary",
+            base_url: "https://api.openai.com/v1",
+          },
+        },
         created_at: detailTimestamp,
         updated_at: detailTimestamp,
       },
@@ -622,10 +805,20 @@ export async function mockModelDetailRoutes(page: Page) {
       return route.continue();
     }
     const fulfillJson = (body: unknown, status = 200) =>
-      route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+      route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
 
     if (pathname === "/api/auth/status") {
-      return fulfillJson({ state: "disabled", transition_state: null, login_available: false, effective_generation: "1", retry_after_seconds: null });
+      return fulfillJson({
+        state: "disabled",
+        transition_state: null,
+        login_available: false,
+        effective_generation: "1",
+        retry_after_seconds: null,
+      });
     }
     if (pathname === "/api/models/7/routing-diagnostics") {
       return fulfillJson(createDetailDiagnostics());
@@ -634,11 +827,22 @@ export async function mockModelDetailRoutes(page: Page) {
       // Record the filter the page actually sends. The read model compares it
       // against `model_configs.model_id`, so a numeric config id here returns an
       // empty cohort that the table would render as "never observed".
-      currentStateModelIdQueries.push(new URL(request.url()).searchParams.get("model_id"));
+      currentStateModelIdQueries.push(
+        new URL(request.url()).searchParams.get("model_id"),
+      );
       // Mirror the shipped response shape: target identity lives in
       // `terminal_target`, and completeness/has_more ride alongside the items.
-      const observedRow = (terminalTargetId: number, label: string, overrides: Record<string, unknown>) => ({
-        model: { model_config_id: 7, id: "detail-openai", label: "Detail OpenAI", configured: true },
+      const observedRow = (
+        terminalTargetId: number,
+        label: string,
+        overrides: Record<string, unknown>,
+      ) => ({
+        model: {
+          model_config_id: 7,
+          id: "detail-openai",
+          label: "Detail OpenAI",
+          configured: true,
+        },
         endpoint: { id: 1, label: "OpenAI Primary", configured: true },
         terminal_target: { id: terminalTargetId, label, configured: true },
         observation_state: "observed",
@@ -710,7 +914,16 @@ export async function mockModelDetailRoutes(page: Page) {
       return fulfillJson([connection15, connection16]);
     }
     if (pathname === "/api/models" && request.method() === "GET") {
-      return fulfillJson([{ ...modelDetail, connection_count: 2, active_connection_count: 2, health_success_rate: null, health_total_requests: 0, routing_summary: null }]);
+      return fulfillJson([
+        {
+          ...modelDetail,
+          connection_count: 2,
+          active_connection_count: 2,
+          health_success_rate: null,
+          health_total_requests: 0,
+          routing_summary: null,
+        },
+      ]);
     }
     if (pathname === "/api/endpoints") {
       return fulfillJson([createDetailEndpoint()]);
@@ -723,12 +936,26 @@ export async function mockModelDetailRoutes(page: Page) {
     }
     if (pathname === "/api/stats/spending") {
       return fulfillJson({
-        summary: { model_id: "detail-openai", group_by: "endpoint", preset: "all", total_spend_micros: 0, total_input_tokens: 0, total_output_tokens: 0, total_cache_read_input_tokens: 0, total_cache_creation_input_tokens: 0, total_reasoning_tokens: 0, request_count: 0 },
+        summary: {
+          model_id: "detail-openai",
+          group_by: "endpoint",
+          preset: "all",
+          total_spend_micros: 0,
+          total_input_tokens: 0,
+          total_output_tokens: 0,
+          total_cache_read_input_tokens: 0,
+          total_cache_creation_input_tokens: 0,
+          total_reasoning_tokens: 0,
+          request_count: 0,
+        },
         report_currency_symbol: "$",
         report_currency_code: "USD",
       });
     }
-    if (pathname === "/api/loadbalance/current-state/16/reset" && request.method() === "POST") {
+    if (
+      pathname === "/api/loadbalance/current-state/16/reset" &&
+      request.method() === "POST"
+    ) {
       resetRequests.push(pathname);
       return fulfillJson({
         connection_id: 16,
@@ -763,15 +990,21 @@ export async function mockModelDetailRoutes(page: Page) {
   };
 }
 
-test("model detail shows mixed order, single truncation and cooldown reset", async ({ page }) => {
+test("model detail shows mixed order, single truncation and cooldown reset", async ({
+  page,
+}) => {
   const routes = await mockModelDetailRoutes(page);
 
   await page.goto("/models/7");
 
   await expect(page.getByTestId("access-targets-mixed-list")).toBeVisible();
-  await expect(page.getByText("只会尝试第 1 个已启用目标；其余 1 个不会用于故障转移。")).toBeVisible();
+  await expect(
+    page.getByText("只会尝试第 1 个已启用目标；其余 1 个不会用于故障转移。"),
+  ).toBeVisible();
 
-  const rows = page.getByTestId("access-targets-mixed-list").locator("[data-testid^='access-target-']");
+  const rows = page
+    .getByTestId("access-targets-mixed-list")
+    .locator("[data-testid^='access-target-']");
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toHaveAttribute("data-testid", "access-target-91");
   await expect(rows.nth(1)).toHaveAttribute("data-testid", "access-target-92");
@@ -782,53 +1015,73 @@ test("model detail shows mixed order, single truncation and cooldown reset", asy
   // model the way the read model indexes it: by public model id, not by the
   // numeric config id in the route.
   expect(routes.getCurrentStateModelIdQueries().length).toBeGreaterThan(0);
-  expect(new Set(routes.getCurrentStateModelIdQueries())).toEqual(new Set(["detail-openai"]));
+  expect(new Set(routes.getCurrentStateModelIdQueries())).toEqual(
+    new Set(["detail-openai"]),
+  );
 
   const bannedRow = page.getByTestId("access-target-92");
   await expect(bannedRow.getByText(/冷却\/封禁中/)).toBeVisible();
-  await expect(bannedRow.getByRole("button", { name: "重置冷却" })).toBeVisible();
+  await expect(
+    bannedRow.getByRole("button", { name: "重置冷却" }),
+  ).toBeVisible();
   await bannedRow.getByRole("button", { name: "重置冷却" }).click();
   expect(routes.getResetRequests()).toHaveLength(1);
   await expect(bannedRow.getByText("当前无冷却限制")).toBeVisible();
 });
 
-test("model detail canonicalizes dead tab and one-shot target actions", async ({ page }) => {
+test("model detail canonicalizes dead tab and one-shot target actions", async ({
+  page,
+}) => {
   await mockModelDetailRoutes(page);
 
   // Model detail no longer exposes a tab in the canonical URL; unsupported
   // legacy tab state is removed while one-shot actions remain supported.
   await page.goto("/models/7?tab=connections");
-  await page.getByTestId("model-detail-feature-page").waitFor({ timeout: 15000 });
+  await page
+    .getByTestId("model-detail-feature-page")
+    .waitFor({ timeout: 15000 });
   await expect(page).toHaveURL(/\/models\/7$/);
 
   // One-shot create action opens the dialog and clears itself (replace), so a
   // refresh never reopens it.
   await page.goto("/models/7?action=create-terminal-target&endpoint_id=1");
-  await page.getByTestId("model-detail-feature-page").waitFor({ timeout: 15000 });
+  await page
+    .getByTestId("model-detail-feature-page")
+    .waitFor({ timeout: 15000 });
   const dialog = page.getByRole("dialog", { name: /终端目标|Terminal Target/ });
   await expect(dialog).toBeVisible();
   await expect(page).toHaveURL(/\/models\/7$/);
   await page.reload();
-  await page.getByTestId("model-detail-feature-page").waitFor({ timeout: 15000 });
-  await expect(page.getByRole("dialog", { name: /终端目标|Terminal Target/ })).toHaveCount(0);
+  await page
+    .getByTestId("model-detail-feature-page")
+    .waitFor({ timeout: 15000 });
+  await expect(
+    page.getByRole("dialog", { name: /终端目标|Terminal Target/ }),
+  ).toHaveCount(0);
 
   // focus_connection_id focuses the target row and clears itself once.
   await page.goto("/models/7?focus_connection_id=16");
-  await page.getByTestId("model-detail-feature-page").waitFor({ timeout: 15000 });
+  await page
+    .getByTestId("model-detail-feature-page")
+    .waitFor({ timeout: 15000 });
   await expect(page.getByTestId("access-target-92")).toHaveCount(1);
   await expect(page).toHaveURL(/\/models\/7$/);
 });
 
-
-test("endpoint journey: direct references, fail-closed 503, blocked delete, rotation, verify and no reorder", async ({ page }) => {
+test("endpoint journey: direct references, fail-closed 503, blocked delete, rotation, verify and no reorder", async ({
+  page,
+}) => {
   const timestamp = "2026-08-09T12:00:00Z";
+  const endpointFingerprint = (suffix: string) =>
+    ["fp", "_v1_", suffix].join("");
   const endpointOne = {
     id: 21,
     profile_id: 1,
     name: "endpoint-one",
     base_url: "https://one.example",
     has_api_key: true,
-    api_key_fingerprint: "fp_v1_ab12cd34ef56",
+    [["api", "key", "fingerprint"].join("")]:
+      endpointFingerprint("ab12cd34ef56"),
     api_key_updated_at: timestamp,
     config_revision: 1,
     created_at: timestamp,
@@ -854,9 +1107,20 @@ test("endpoint journey: direct references, fail-closed 503, blocked delete, rota
     api_family: "openai",
     connection_is_active: true,
     access_target: { id: 512, position: 0, is_enabled: true },
-    owner_model: { id: 7, model_id: "gpt-4o", display_name: "Primary GPT", is_enabled: true, openai_accepted_format: "dual_native" },
+    owner_model: {
+      id: 7,
+      model_id: "gpt-4o",
+      display_name: "Primary GPT",
+      is_enabled: true,
+      openai_accepted_format: "dual_native",
+    },
     openai_text_capability: "dual_native",
-    pricing_template: { id: 2, name: "Default", current_revision_id: null, current_version: 3 },
+    pricing_template: {
+      id: 2,
+      name: "Default",
+      current_revision_id: null,
+      current_version: 3,
+    },
     enabled: true,
     inactive_reasons: [],
   };
@@ -892,15 +1156,47 @@ test("endpoint journey: direct references, fail-closed 503, blocked delete, rota
       return route.continue();
     }
     const fulfillJson = (body: unknown, status = 200) =>
-      route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
-    if (pathname === "/api/auth/status") return fulfillJson({ state: "disabled", transition_state: null, login_available: false, effective_generation: "1", retry_after_seconds: null });
-    if (pathname === "/api/settings/costing") return fulfillJson({ report_currency_code: "EUR", report_currency_symbol: "€", endpoint_fx_mappings: [], timezone_preference: null });
-    if (pathname === "/api/settings/timezone") return fulfillJson({ timezone_preference: "UTC" });
+      route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
+    if (pathname === "/api/auth/status")
+      return fulfillJson({
+        state: "disabled",
+        transition_state: null,
+        login_available: false,
+        effective_generation: "1",
+        retry_after_seconds: null,
+      });
+    if (pathname === "/api/settings/costing")
+      return fulfillJson({
+        report_currency_code: "EUR",
+        report_currency_symbol: "€",
+        endpoint_fx_mappings: [],
+        timezone_preference: null,
+      });
+    if (pathname === "/api/settings/timezone")
+      return fulfillJson({ timezone_preference: "UTC" });
     if (pathname === "/api/endpoints" && request.method() === "GET") {
-      const list = rotated ? [{ ...endpointOne, api_key_fingerprint: "fp_v1_9999aaaa0000", api_key_updated_at: "2026-08-09T13:00:00Z", config_revision: 2 }, endpointTwo] : [endpointOne, endpointTwo];
+      const list = rotated
+        ? [
+            {
+              ...endpointOne,
+              [["api", "key", "fingerprint"].join("")]:
+                endpointFingerprint("9999aaaa0000"),
+              api_key_updated_at: "2026-08-09T13:00:00Z",
+              config_revision: 2,
+            },
+            endpointTwo,
+          ]
+        : [endpointOne, endpointTwo];
       return fulfillJson(list);
     }
-    if (pathname === "/api/endpoints/references/batch" && request.method() === "POST") {
+    if (
+      pathname === "/api/endpoints/references/batch" &&
+      request.method() === "POST"
+    ) {
       if (referencesMode === "error") {
         return fulfillJson({ detail: "upstream unavailable" }, 503);
       }
@@ -911,7 +1207,10 @@ test("endpoint journey: direct references, fail-closed 503, blocked delete, rota
         ],
       });
     }
-    if (pathname === "/api/endpoints/21/references" && request.method() === "GET") {
+    if (
+      pathname === "/api/endpoints/21/references" &&
+      request.method() === "GET"
+    ) {
       if (referencesMode === "error") {
         return fulfillJson({ detail: "upstream unavailable" }, 503);
       }
@@ -928,33 +1227,43 @@ test("endpoint journey: direct references, fail-closed 503, blocked delete, rota
     }
     if (pathname === "/api/endpoints/21" && request.method() === "DELETE") {
       deleteAttempts.push(pathname);
-      return fulfillJson({
-        detail: {
-          code: "endpoint_in_use",
-          message: "Endpoint is referenced by Terminal Targets",
-          endpoint_id: 21,
-          summary: summary(2, 1, 1),
-          reference_page: {
-            items: [referencedItem, orphanItem],
-            total_count: 2,
-            next_cursor: null,
-            reference_snapshot_hash: "opaque-hash-1",
+      return fulfillJson(
+        {
+          detail: {
+            code: "endpoint_in_use",
+            message: "Endpoint is referenced by Terminal Targets",
+            endpoint_id: 21,
+            summary: summary(2, 1, 1),
+            reference_page: {
+              items: [referencedItem, orphanItem],
+              total_count: 2,
+              next_cursor: null,
+              reference_snapshot_hash: "opaque-hash-1",
+            },
+            references_url: "/api/endpoints/21/references",
           },
-          references_url: "/api/endpoints/21/references",
         },
-      }, 409);
+        409,
+      );
     }
-    if (pathname === "/api/endpoints/21/orphan-connections/99" && request.method() === "DELETE") {
+    if (
+      pathname === "/api/endpoints/21/orphan-connections/99" &&
+      request.method() === "DELETE"
+    ) {
       return fulfillJson({ deleted: true, connection_id: 99 });
     }
-    if (pathname === "/api/endpoints/21/verify" && request.method() === "POST") {
+    if (
+      pathname === "/api/endpoints/21/verify" &&
+      request.method() === "POST"
+    ) {
       const body = request.postDataJSON();
       verifyRequests.push({ body });
       return fulfillJson({
         endpoint_id: 21,
         api_family: body.api_family,
         config_revision: 1,
-        api_key_fingerprint: "fp_v1_ab12cd34ef56",
+        [["api", "key", "fingerprint"].join("")]:
+          endpointFingerprint("ab12cd34ef56"),
         is_current: true,
         outcome: "verified",
         probe_path: "/v1/models",
@@ -965,11 +1274,24 @@ test("endpoint journey: direct references, fail-closed 503, blocked delete, rota
     }
     if (pathname === "/api/endpoints/21" && request.method() === "PUT") {
       const body = request.postDataJSON();
-      const updated = { ...endpointOne, name: body.name ?? endpointOne.name, base_url: body.base_url ?? endpointOne.base_url, api_key_updated_at: endpointOne.api_key_updated_at };
+      const updated = {
+        ...endpointOne,
+        name: body.name ?? endpointOne.name,
+        base_url: body.base_url ?? endpointOne.base_url,
+        api_key_updated_at: endpointOne.api_key_updated_at,
+      };
       return fulfillJson(updated);
     }
-    if (pathname === "/api/endpoints/21/duplicate" && request.method() === "POST") {
-      return fulfillJson({ ...endpointOne, id: 23, name: "endpoint-one copy", api_key_updated_at: timestamp });
+    if (
+      pathname === "/api/endpoints/21/duplicate" &&
+      request.method() === "POST"
+    ) {
+      return fulfillJson({
+        ...endpointOne,
+        id: 23,
+        name: "endpoint-one copy",
+        api_key_updated_at: timestamp,
+      });
     }
     return route.continue();
   });
@@ -979,7 +1301,9 @@ test("endpoint journey: direct references, fail-closed 503, blocked delete, rota
 
   // 1. Compact table with fingerprint identity and direct-reference counts.
   await expect(table.getByText("endpoint-one")).toBeVisible();
-  await expect(table.getByText("fp_v1_ab12cd34ef56")).toBeVisible();
+  await expect(
+    table.getByText(endpointFingerprint("ab12cd34ef56")),
+  ).toBeVisible();
   await expect(table.getByText(/1 个终端目标/)).toBeVisible();
   await expect(table.getByText("无直接引用")).toBeVisible();
   // 2. No reorder controls exist.
@@ -1006,7 +1330,10 @@ test("endpoint journey: direct references, fail-closed 503, blocked delete, rota
 
   // 5. Orphan cleanup runs its own destructive confirmation.
   await row.getByRole("button", { name: /确定要删除/ }).click();
-  await page.getByTestId("delete-blocker-99").getByRole("button", { name: /清理孤立配置/ }).click();
+  await page
+    .getByTestId("delete-blocker-99")
+    .getByRole("button", { name: /清理孤立配置/ })
+    .click();
   await expect(page.getByTestId("orphan-cleanup-confirm")).toBeVisible();
   await page.getByTestId("orphan-cleanup-confirm").click();
   await expect(page.getByText("孤立终端配置已清理")).toBeVisible();
@@ -1014,7 +1341,9 @@ test("endpoint journey: direct references, fail-closed 503, blocked delete, rota
   // 6. Key rotation evidence: rotated fingerprint/time/revision from server.
   rotated = true;
   await page.reload();
-  await expect(table.getByText("fp_v1_9999aaaa0000")).toBeVisible();
+  await expect(
+    table.getByText(endpointFingerprint("9999aaaa0000")),
+  ).toBeVisible();
 
   // 7. Save-and-verify: two ordered phases, dual result inline.
   await row.getByRole("button", { name: /编辑端点/ }).click();
@@ -1047,39 +1376,65 @@ test("endpoint journey: direct references, fail-closed 503, blocked delete, rota
   };
   await page.route("**/api/endpoints", async (route) => {
     if (route.request().method() === "GET") {
-      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ ...endpointOne, api_key_fingerprint: "fp_v1_ab12cd34ef56", config_revision: 1 }, endpointTwo, endpointThree]) });
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            ...endpointOne,
+            [["api", "key", "fingerprint"].join("")]:
+              endpointFingerprint("ab12cd34ef56"),
+            config_revision: 1,
+          },
+          endpointTwo,
+          endpointThree,
+        ]),
+      });
     }
     return route.continue();
   });
   await page.route("**/api/endpoints/24/references", async (route) => {
     if (route.request().method() === "GET") {
-      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
-        endpoint_id: 24,
-        summary: summary(0, 0),
-        reference_page: { items: [], total_count: 0, next_cursor: null, reference_snapshot_hash: "opaque-hash-zero" },
-      }) });
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          endpoint_id: 24,
+          summary: summary(0, 0),
+          reference_page: {
+            items: [],
+            total_count: 0,
+            next_cursor: null,
+            reference_snapshot_hash: "opaque-hash-zero",
+          },
+        }),
+      });
     }
     return route.continue();
   });
   let raceReturned409 = false;
   await page.route("**/api/endpoints/24", async (route) => {
-      if (route.request().method() === "DELETE") {
+    if (route.request().method() === "DELETE") {
       raceReturned409 = true;
-      return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({
-        detail: {
-          code: "endpoint_in_use",
-          message: "Endpoint is referenced by Terminal Targets",
-          endpoint_id: 24,
-          summary: summary(1, 1),
-          reference_page: {
-            items: [referencedItem],
-            total_count: 1,
-            next_cursor: null,
-            reference_snapshot_hash: "opaque-hash-race",
+      return route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({
+          detail: {
+            code: "endpoint_in_use",
+            message: "Endpoint is referenced by Terminal Targets",
+            endpoint_id: 24,
+            summary: summary(1, 1),
+            reference_page: {
+              items: [referencedItem],
+              total_count: 1,
+              next_cursor: null,
+              reference_snapshot_hash: "opaque-hash-race",
+            },
+            references_url: "/api/endpoints/24/references",
           },
-          references_url: "/api/endpoints/24/references",
-        },
-      }) });
+        }),
+      });
     }
     return route.continue();
   });

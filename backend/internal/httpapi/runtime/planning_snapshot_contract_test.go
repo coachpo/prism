@@ -176,6 +176,10 @@ func (tx *runtimePlanningSnapshotFakeTx) Query(_ context.Context, query string, 
 			[]any{901, 62, 540, 1080},
 			[]any{901, 64, 1320, 1800}, // cross-midnight row: end_minute > 1440
 		), nil
+	case strings.Contains(query, "FROM pricing_template_cards"):
+		return newRuntimePlanningRows([]any{int64(99), "standard", "1", "2", sql.NullString{String: "0.5", Valid: true}, sql.NullString{String: "0.25", Valid: true}, sql.NullString{String: "3", Valid: true}}), nil
+	case strings.Contains(query, "FROM pricing_template_windows"):
+		return newRuntimePlanningRows(), nil
 	case strings.Contains(query, "FROM header_blocklist_rules"):
 		return newRuntimePlanningRows([]any{"prefix", "x-blocked"}), nil
 	default:
@@ -192,8 +196,7 @@ func (tx *runtimePlanningSnapshotFakeTx) connectionRows() pgx.Rows {
 		sql.NullString{String: providerauth.OpenAITextCapabilityChatCompletionsOnly, Valid: true}, sql.NullString{}, sql.NullString{String: "Asia/Shanghai", Valid: true},
 		sql.NullInt32{Int32: 701, Valid: true}, sql.NullString{String: "Contract Template", Valid: true}, sql.NullInt64{Int64: 99, Valid: true},
 		sql.NullInt64{Int64: 99, Valid: true}, sql.NullInt32{Int32: 3, Valid: true}, sql.NullString{String: runtimePricingUnitPerMillion, Valid: true}, sql.NullString{String: "USD", Valid: true}, sql.NullInt32{Int32: 1, Valid: true},
-		sql.NullString{String: "1", Valid: true}, sql.NullString{String: "2", Valid: true}, sql.NullString{String: "0.5", Valid: true}, sql.NullString{String: "0.25", Valid: true}, sql.NullString{String: "3", Valid: true},
-		sql.NullInt32{}, sql.NullString{}, sql.NullString{}, sql.NullString{}, sql.NullString{}, sql.NullString{}, sql.NullTime{},
+		sql.NullString{String: "standard", Valid: true}, sql.NullInt32{}, sql.NullString{}, sql.NullString{}, sql.NullTime{},
 
 		801, sql.NullString{String: "primary endpoint", Valid: true}, "https://api.example.test/v1", tx.encryptedAPIKey,
 	})
@@ -291,6 +294,13 @@ func assignRuntimePlanningValue(destination any, value any) error {
 		resolved, ok := value.(int)
 		if !ok {
 			return fmt.Errorf("expected int, got %T", value)
+		}
+		*dest = resolved
+		return nil
+	case *int64:
+		resolved, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("expected int64, got %T", value)
 		}
 		*dest = resolved
 		return nil

@@ -64,12 +64,12 @@ func buildCurrencyMigrationPreviewWithSettings(ctx context.Context, tx pgx.Tx, h
 		if parseErr != nil || expected.UTC() != template.UpdatedAt.UTC() || item.ExpectedVersion != template.Version {
 			return computedCurrencyPreview{}, &domainError{StatusCode: http.StatusConflict, Detail: fmt.Sprintf("currency_migration_stale: template_id=%d", template.ID)}
 		}
+		if item.TemplateKind != template.TemplateKind || !currencyMigrationCardsHaveRoles(template.Cards, template.TemplateKind) || !currencyMigrationCardsHaveRoles(item.Cards, template.TemplateKind) {
+			return computedCurrencyPreview{}, &domainError{StatusCode: http.StatusConflict, Detail: fmt.Sprintf("currency_migration_draft_shape_changed: template_id=%d", template.ID)}
+		}
 		previewItems = append(previewItems, currencyMigrationPreviewItem{
 			TemplateID: template.ID, Name: template.Name, CurrentVersion: template.Version, NextVersion: template.Version + 1,
-			CurrentInputPrice: template.InputPrice, CurrentOutputPrice: template.OutputPrice, CurrentCachedInputPrice: template.CachedInputPrice,
-			CurrentCacheCreationPrice: template.CacheCreationPrice, CurrentReasoningPrice: template.ReasoningPrice,
-			NewInputPrice: item.InputPrice, NewOutputPrice: item.OutputPrice, NewCachedInputPrice: item.CachedInputPrice,
-			NewCacheCreationPrice: item.CacheCreationPrice, NewReasoningPrice: item.ReasoningPrice, ReferenceCount: template.ReferenceCount,
+			TemplateKind: template.TemplateKind, CurrentCards: template.Cards, NewCards: item.Cards, ReferenceCount: template.ReferenceCount,
 		})
 		delete(byID, template.ID)
 	}

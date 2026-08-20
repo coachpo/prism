@@ -7,6 +7,8 @@ package settings
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/coachpo/prism/backend/internal/domain/pricingkind"
 )
 
 type currencyMigrationDraftCreateRequest struct {
@@ -22,10 +24,8 @@ type currencyMigrationDraftCreateRequest struct {
 	ExpectedSettingsUpdatedAt      string  `json:"expected_settings_updated_at"`
 }
 
-type currencyMigrationDraftChunkRowRequest struct {
-	TemplateID         int     `json:"template_id"`
-	ExpectedVersion    int     `json:"expected_version"`
-	ExpectedUpdatedAt  string  `json:"expected_updated_at"`
+type currencyMigrationDraftCardRequest struct {
+	CardRole           string  `json:"card_role"`
 	InputPrice         *string `json:"input_price"`
 	OutputPrice        *string `json:"output_price"`
 	CachedInputPrice   *string `json:"cached_input_price"`
@@ -33,24 +33,28 @@ type currencyMigrationDraftChunkRowRequest struct {
 	ReasoningPrice     *string `json:"reasoning_price"`
 }
 
-// UnmarshalJSON makes the five price keys explicit. In particular, a
-// specialty price may be JSON null, but it may not be silently omitted.
+type currencyMigrationDraftChunkRowRequest struct {
+	TemplateID        int                                 `json:"template_id"`
+	ExpectedVersion   int                                 `json:"expected_version"`
+	ExpectedUpdatedAt string                              `json:"expected_updated_at"`
+	TemplateKind      string                              `json:"template_kind"`
+	Cards             []currencyMigrationDraftCardRequest `json:"cards"`
+}
+
+// UnmarshalJSON makes the card set explicit. Currency migration must carry a
+// complete role set; a single legacy/base card is never a valid payload.
 func (row *currencyMigrationDraftChunkRowRequest) UnmarshalJSON(raw []byte) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return err
 	}
-	allowed := map[string]struct{}{
-		"template_id": {}, "expected_version": {}, "expected_updated_at": {},
-		"input_price": {}, "output_price": {}, "cached_input_price": {},
-		"cache_creation_price": {}, "reasoning_price": {},
-	}
+	allowed := map[string]struct{}{"template_id": {}, "expected_version": {}, "expected_updated_at": {}, "template_kind": {}, "cards": {}}
 	for key := range fields {
 		if _, ok := allowed[key]; !ok {
 			return fmt.Errorf("unknown field %q", key)
 		}
 	}
-	for _, key := range []string{"template_id", "expected_version", "expected_updated_at", "input_price", "output_price", "cached_input_price", "cache_creation_price", "reasoning_price"} {
+	for _, key := range []string{"template_id", "expected_version", "expected_updated_at", "template_kind", "cards"} {
 		if _, ok := fields[key]; !ok {
 			return fmt.Errorf("%s is required", key)
 		}
@@ -61,6 +65,31 @@ func (row *currencyMigrationDraftChunkRowRequest) UnmarshalJSON(raw []byte) erro
 		return err
 	}
 	*row = currencyMigrationDraftChunkRowRequest(decoded)
+	return nil
+}
+
+func (card *currencyMigrationDraftCardRequest) UnmarshalJSON(raw []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	allowed := map[string]struct{}{"card_role": {}, "input_price": {}, "output_price": {}, "cached_input_price": {}, "cache_creation_price": {}, "reasoning_price": {}}
+	for key := range fields {
+		if _, ok := allowed[key]; !ok {
+			return fmt.Errorf("unknown field %q", key)
+		}
+	}
+	for _, key := range []string{"card_role", "input_price", "output_price", "cached_input_price", "cache_creation_price", "reasoning_price"} {
+		if _, ok := fields[key]; !ok {
+			return fmt.Errorf("%s is required", key)
+		}
+	}
+	type plain currencyMigrationDraftCardRequest
+	var decoded plain
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return err
+	}
+	*card = currencyMigrationDraftCardRequest(decoded)
 	return nil
 }
 
@@ -128,30 +157,39 @@ type currencyMigrationDraftHeaderResponse struct {
 	UpdatedAt                      string                          `json:"updated_at"`
 }
 
-type currencyMigrationDraftItem struct {
-	TemplateID         int     `json:"template_id"`
-	ExpectedVersion    int     `json:"expected_version"`
-	ExpectedUpdatedAt  string  `json:"expected_updated_at"`
+type currencyMigrationCard struct {
+	CardRole           string  `json:"card_role"`
 	InputPrice         string  `json:"input_price"`
 	OutputPrice        string  `json:"output_price"`
 	CachedInputPrice   *string `json:"cached_input_price"`
 	CacheCreationPrice *string `json:"cache_creation_price"`
 	ReasoningPrice     *string `json:"reasoning_price"`
-	TemplateName       string  `json:"template_name,omitempty"`
-	ReferenceCount     int64   `json:"reference_count,omitempty"`
+}
+
+type currencyMigrationWindow struct {
+	WeekdayMask int `json:"weekday_mask"`
+	StartMinute int `json:"start_minute"`
+	EndMinute   int `json:"end_minute"`
+}
+
+type currencyMigrationDraftItem struct {
+	TemplateID        int                     `json:"template_id"`
+	ExpectedVersion   int                     `json:"expected_version"`
+	ExpectedUpdatedAt string                  `json:"expected_updated_at"`
+	TemplateKind      pricingkind.Kind        `json:"template_kind"`
+	Cards             []currencyMigrationCard `json:"cards"`
+	TemplateName      string                  `json:"template_name,omitempty"`
+	ReferenceCount    int64                   `json:"reference_count,omitempty"`
 }
 
 type currencyMigrationDraftItemResponse struct {
-	TemplateID         int     `json:"template_id"`
-	TemplateName       string  `json:"template_name"`
-	ExpectedVersion    int     `json:"expected_version"`
-	ExpectedUpdatedAt  string  `json:"expected_updated_at"`
-	InputPrice         string  `json:"input_price"`
-	OutputPrice        string  `json:"output_price"`
-	CachedInputPrice   *string `json:"cached_input_price"`
-	CacheCreationPrice *string `json:"cache_creation_price"`
-	ReasoningPrice     *string `json:"reasoning_price"`
-	ReferenceCount     int64   `json:"reference_count"`
+	TemplateID        int                     `json:"template_id"`
+	TemplateName      string                  `json:"template_name"`
+	ExpectedVersion   int                     `json:"expected_version"`
+	ExpectedUpdatedAt string                  `json:"expected_updated_at"`
+	TemplateKind      pricingkind.Kind        `json:"template_kind"`
+	Cards             []currencyMigrationCard `json:"cards"`
+	ReferenceCount    int64                   `json:"reference_count"`
 }
 
 type currencyMigrationDraftItemPage struct {
@@ -163,21 +201,14 @@ type currencyMigrationDraftItemPage struct {
 }
 
 type currencyMigrationPreviewItem struct {
-	TemplateID                int     `json:"template_id"`
-	Name                      string  `json:"name"`
-	CurrentVersion            int     `json:"current_version"`
-	NextVersion               int     `json:"next_version"`
-	CurrentInputPrice         *string `json:"current_input_price"`
-	CurrentOutputPrice        *string `json:"current_output_price"`
-	CurrentCachedInputPrice   *string `json:"current_cached_input_price"`
-	CurrentCacheCreationPrice *string `json:"current_cache_creation_price"`
-	CurrentReasoningPrice     *string `json:"current_reasoning_price"`
-	NewInputPrice             string  `json:"new_input_price"`
-	NewOutputPrice            string  `json:"new_output_price"`
-	NewCachedInputPrice       *string `json:"new_cached_input_price"`
-	NewCacheCreationPrice     *string `json:"new_cache_creation_price"`
-	NewReasoningPrice         *string `json:"new_reasoning_price"`
-	ReferenceCount            int64   `json:"reference_count"`
+	TemplateID     int                     `json:"template_id"`
+	Name           string                  `json:"name"`
+	CurrentVersion int                     `json:"current_version"`
+	NextVersion    int                     `json:"next_version"`
+	TemplateKind   pricingkind.Kind        `json:"template_kind"`
+	CurrentCards   []currencyMigrationCard `json:"current_cards"`
+	NewCards       []currencyMigrationCard `json:"new_cards"`
+	ReferenceCount int64                   `json:"reference_count"`
 }
 
 type currencyMigrationPreviewPage struct {

@@ -200,6 +200,7 @@ type connectionPricingTemplateSummary struct {
 	Name                string `json:"name"`
 	PricingUnit         string `json:"pricing_unit"`
 	PricingCurrencyCode string `json:"pricing_currency_code"`
+	TemplateKind        string `json:"template_kind"`
 	Version             int    `json:"version"`
 }
 

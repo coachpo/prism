@@ -6,7 +6,11 @@ import type { QueryCoverage } from "./config-audit-settings";
 
 export type RowKind = "planning" | "admission" | "upstream" | "legacy_unknown";
 
-export type AttemptTrigger = "initial" | "retry_same_target" | "hedge" | "failover";
+export type AttemptTrigger =
+  | "initial"
+  | "retry_same_target"
+  | "hedge"
+  | "failover";
 
 export type AttemptResult =
   | "completed"
@@ -17,7 +21,12 @@ export type AttemptResult =
   | "client_disconnected"
   | "unknown";
 
-export type ErrorSource = "prism" | "upstream" | "transport" | "client" | "unknown";
+export type ErrorSource =
+  | "prism"
+  | "upstream"
+  | "transport"
+  | "client"
+  | "unknown";
 
 export type FailureStage =
   | "routing"
@@ -41,7 +50,20 @@ export type PricingResolutionKind =
   | "missing_component"
   | "currency_migration_required"
   | "unsupported_unit"
-  | "snapshot_incoherent";
+  | "snapshot_incoherent"
+  | "schedule_unresolved";
+
+export type PricingSelectionState =
+  | "not_evaluated"
+  | "not_applicable"
+  | "selected"
+  | "unresolved";
+export type PricingCardRole =
+  | "standard"
+  | "tier_base"
+  | "tier_above"
+  | "peak"
+  | "offpeak";
 
 export type FinalResult = "completed" | "failed" | "client_disconnected";
 
@@ -127,7 +149,12 @@ export interface FinalizedSummary {
   attempt_count: number;
   final_attempt_number: number | null;
   final_attempt_trigger: AttemptTrigger | null;
-  final_target_entry_trigger: "initial" | "failover" | "hedge" | "unknown" | null;
+  final_target_entry_trigger:
+    | "initial"
+    | "failover"
+    | "hedge"
+    | "unknown"
+    | null;
 }
 
 export interface ChainIngressItem {
@@ -173,14 +200,37 @@ export interface ChainResponse {
     endpoints: Array<{ endpoint_id: number; endpoint_label: string }>;
     models: Array<{ model_id: string; model_label: string }>;
     clients: Array<{ client_rule_id: number; client_label: string }>;
-    resolved_target_models: Array<{ resolved_target_model_id: string; model_label: string }>;
+    resolved_target_models: Array<{
+      resolved_target_model_id: string;
+      model_label: string;
+    }>;
   };
   has_more_chains: boolean;
   next_chain_cursor: string | null;
-  source_coverage?: QueryCoverage & { domain?: string; actual_coverage?: Record<string, unknown> } | null;
-  raw_finalized_coverage?: QueryCoverage & { domain?: string; actual_coverage?: Record<string, unknown> } | null;
-  attempt_coverage?: QueryCoverage & { domain?: string; actual_coverage?: Record<string, unknown> } | null;
-  drilldown_coverage?: QueryCoverage & { domain?: string; actual_coverage?: Record<string, unknown> } | null;
+  source_coverage?:
+    | (QueryCoverage & {
+        domain?: string;
+        actual_coverage?: Record<string, unknown>;
+      })
+    | null;
+  raw_finalized_coverage?:
+    | (QueryCoverage & {
+        domain?: string;
+        actual_coverage?: Record<string, unknown>;
+      })
+    | null;
+  attempt_coverage?:
+    | (QueryCoverage & {
+        domain?: string;
+        actual_coverage?: Record<string, unknown>;
+      })
+    | null;
+  drilldown_coverage?:
+    | (QueryCoverage & {
+        domain?: string;
+        actual_coverage?: Record<string, unknown>;
+      })
+    | null;
   order_evidence_state?: string;
 }
 
@@ -246,9 +296,16 @@ export interface PricingProjection {
   pricing_snapshot_cache_read_input: string | null;
   pricing_snapshot_cache_creation_input: string | null;
   pricing_snapshot_reasoning: string | null;
-  pricing_tier_applied: "not_evaluated" | "not_applicable" | "base" | "tier" | null;
-  pricing_tier_threshold_tokens: number | null;
-  pricing_tier_basis_tokens: number | null;
+  pricing_template_kind: "standard" | "tiered" | "peak_valley" | null;
+  pricing_selection_state: PricingSelectionState | null;
+  pricing_card_role: PricingCardRole | null;
+  pricing_selector_threshold_tokens: number | null;
+  pricing_selector_basis_tokens: string | null;
+  pricing_schedule_decided_at: string | null;
+  pricing_schedule_timezone: string | null;
+  pricing_schedule_local_weekday: number | null;
+  pricing_schedule_local_minute: number | null;
+  pricing_schedule_digest: string | null;
   evidence_state: "authoritative" | "unavailable";
 }
 

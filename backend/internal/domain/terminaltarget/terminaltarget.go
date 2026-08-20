@@ -21,7 +21,15 @@ type PricingTemplateSummary struct {
 	Name                string
 	PricingUnit         string
 	PricingCurrencyCode string
-	Version             int
+	// TemplateKind is the explicit standard/tiered/peak_valley wire identity.
+	TemplateKind string
+	Version      int
+}
+
+func (summary *PricingTemplateSummary) SetTemplateKind(kind string) {
+	if summary != nil {
+		summary.TemplateKind = kind
+	}
 }
 
 type RuntimePricingTemplateSnapshot struct {

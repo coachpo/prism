@@ -1,21 +1,26 @@
 # PRICING FEATURE KNOWLEDGE BASE
 
 ## OVERVIEW
-`features/pricing/` owns the protected `/route/pricing` route, pricing-template form/list orchestration, import preview handoff, and the single-threshold two-card pricing UI. The backend remains the source of truth for tier validation, CAS, revision persistence, and currency-migration blocking.
+
+`features/pricing/` owns the protected `/route/pricing` route, typed standard/tiered/peak_valley pricing-template form/list orchestration, import preview handoff, and card/window detail rendering. The backend remains the source of truth for kind validation, schedule geometry, CAS, revision persistence, and currency-migration blocking.
 
 ## STRUCTURE
-- `PricingTemplatesTable.tsx`: pricing-template list table shell, sorting/filtering, pagination, and row expansion orchestration.
-- `PricingTemplateDetailPanels.tsx`: expanded usage, tier, and revision-history panels plus shared rate rendering.
-- `pricingTierSchema.ts` / `PricingTierFields.tsx`: tier form state and field composition.
+
+- `PricingTemplatesTable.tsx`: pricing-template list table shell, type/card-count display, sorting/filtering, pagination, and row expansion orchestration.
+- `PricingTemplateDetailPanels.tsx`: expanded usage, complete role-keyed card panels, schedule summary, and revision-history structure markers.
+- `PricingPeakValleyFields.tsx`: two complete peak/offpeak cards and user-authored timezone/window fields.
+- `pricingSchemas.ts` / `pricingTierSchema.ts`: discriminated form state and payload normalization.
 
 ## CONVENTIONS
-- Keep the wire shape aligned with `backend/internal/httpapi/management/connections/`: the nested object is singular `tier`; reads return `tier: null` when unconfigured. Create/import may omit it, and update omission preserves while `null` clears.
-- Keep tier form state in `pricingTierSchema.ts` and field composition in `PricingTierFields.tsx`; the parent pricing schema owns base/tier parity and payload normalization.
-- A configured tier is a complete five-component mirror, including reasoning. The UI must explain strict `>` threshold selection and whole-request switching, never marginal billing.
+
+- Keep the wire shape aligned with `backend/internal/httpapi/management/connections/`: `template_kind` is explicit; standard uses `card`, tiered uses `base_card` plus `tier.card`, and peak_valley uses `peak_card`, `offpeak_card`, and `schedule`. Legacy flat fields and provider presets are never authored.
+- Keep tier form state in `pricingTierSchema.ts` and peak/valley form state in `PricingPeakValleyFields.tsx`; the parent pricing schema owns branch validation, specialty parity, and payload normalization. Browser validation normalizes input only; backend owns DST/window evaluation.
+- Every configured card is complete for input/output and mirrors specialty configured/NULL shape across the role set. The UI must explain strict `>` tier selection and whole-request switching, and must not imply peak is numerically higher than offpeak.
 - Use `@/shared/design-system` before primitive-only UI imports and route all visible copy through the locale messages. Missing tier evidence renders as an honest absent/unconfigured state, not zero.
-- Keep request-log tier explanations in `../../pages/request-logs/` and currency-migration conflict rendering in the billing-currency settings leaf; do not duplicate those domain rules here.
+- Keep request-log selection-state/card-role explanations in `../../pages/request-logs/` and currency-migration complete-card handling in the billing-currency settings leaf; do not duplicate those domain rules here.
 - Keep the pricing table shell in `PricingTemplatesTable.tsx` and expanded detail rendering in `PricingTemplateDetailPanels.tsx`; neither surface owns the backend pricing/CAS rules.
 
 ## VALIDATION
+
 - Run `cd frontend && pnpm exec vitest run && pnpm run test:lib && pnpm run lint && pnpm run build` for the frontend gate.
 - Pure tier form and payload cases belong in the existing Vitest/lib seam suites; do not add a Playwright spec for this feature.

@@ -1556,7 +1556,6 @@ func TestBuildRuntimePricingResultRejectsInvalidConcretePriceWhenComponentIsUsed
 		PricingTemplateIDUsed:         intPtr(42),
 		PricingTemplateRevisionIDUsed: int64Ptr(7),
 		ReportingCurrencyEpoch:        intPtr(1),
-		PricingTierApplied:            stringPtr(runtimePricingTierNotApplicable),
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected invalid used concrete component price to degrade pricing: want %+v got %+v", want, got)
@@ -1611,7 +1610,6 @@ func basePricedResult(mutate func(*runtimePricingResult)) runtimePricingResult {
 		PricingSnapshotCacheCreationInput: stringPtr("2"),
 		PricingSnapshotReasoning:          stringPtr("3"),
 		PricingConfigVersionUsed:          intPtr(7),
-		PricingTierApplied:                stringPtr(runtimePricingTierNotApplicable),
 	}
 	if mutate != nil {
 		mutate(&result)

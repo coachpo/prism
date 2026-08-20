@@ -46,6 +46,7 @@ type referencePricingRow struct {
 	ID      int
 	Name    string
 	Version int
+	Kind    string
 }
 
 // canonicalReferenceSet is the full ordered direct-reference projection for
@@ -126,6 +127,7 @@ func loadCanonicalReferenceSets(ctx context.Context, exec queryExecutor, profile
 		var templateID sql.NullInt32
 		var templateName sql.NullString
 		var templateVersion sql.NullInt32
+		var templateKind sql.NullString
 		if err := rows.Scan(
 			&endpointID,
 			&row.ConnectionID,
@@ -147,6 +149,7 @@ func loadCanonicalReferenceSets(ctx context.Context, exec queryExecutor, profile
 			&templateID,
 			&templateName,
 			&templateVersion,
+			&templateKind,
 		); err != nil {
 			return nil, fmt.Errorf("scan endpoint reference row: %w", err)
 		}
@@ -169,7 +172,7 @@ func loadCanonicalReferenceSets(ctx context.Context, exec queryExecutor, profile
 		}
 		row.OwnerOpenAIAcceptedFormat = nullableStringValue(openAIAcceptedFormat)
 		if templateID.Valid {
-			row.PricingTemplate = &referencePricingRow{ID: int(templateID.Int32), Name: templateName.String, Version: int(templateVersion.Int32)}
+			row.PricingTemplate = &referencePricingRow{ID: int(templateID.Int32), Name: templateName.String, Version: int(templateVersion.Int32), Kind: templateKind.String}
 		}
 		scanned = append(scanned, scannedRow{endpointID: endpointID, row: row})
 	}
@@ -232,7 +235,8 @@ SELECT
 	m.openai_accepted_format,
 	p.id,
 	p.name,
-	revisions.version
+	revisions.version,
+	revisions.template_kind
 FROM connections c
 LEFT JOIN model_access_targets mat
 	ON mat.profile_id = c.profile_id
@@ -319,6 +323,7 @@ func deriveCanonicalSet(endpointID int, rows []referenceRow) canonicalReferenceS
 				ID:             row.PricingTemplate.ID,
 				Name:           row.PricingTemplate.Name,
 				CurrentVersion: row.PricingTemplate.Version,
+				TemplateKind:   row.PricingTemplate.Kind,
 			}
 		}
 		item.Enabled = item.Kind == referenceKindOwned && len(reasons) == 0
@@ -463,7 +468,7 @@ func snapshotHash(endpointID int, summary endpointReferenceSummary, items []endp
 		fmt.Fprintf(hasher, "oi:%s;", nullableStringForHash(item.OpenAIImageCapability))
 		fmt.Fprintf(hasher, "rs:%d;", boolInt(item.HasRoutingSchedule))
 		if item.PricingTemplate != nil {
-			fmt.Fprintf(hasher, "p:%d:%s:%d;", item.PricingTemplate.ID, item.PricingTemplate.Name, item.PricingTemplate.CurrentVersion)
+			fmt.Fprintf(hasher, "p:%d:%s:%d:%s;", item.PricingTemplate.ID, item.PricingTemplate.Name, item.PricingTemplate.CurrentVersion, item.PricingTemplate.TemplateKind)
 		} else {
 			hasher.Write([]byte("p:;"))
 		}

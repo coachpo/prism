@@ -37,7 +37,11 @@ import {
   parseCustomRequestParametersDraft,
   type CustomRequestParametersParseError,
 } from "./customRequestParameters";
-import { OperatorStatusBadge, OperatorSwitchField, OperatorTypeBadge } from "@/shared/design-system";
+import {
+  OperatorStatusBadge,
+  OperatorSwitchField,
+  OperatorTypeBadge,
+} from "@/shared/design-system";
 import type {
   ApiFamily,
   Connection,
@@ -76,7 +80,9 @@ interface ConnectionDialogProps {
   routingScheduleError: RoutingScheduleDraftError | null;
   setCustomRequestParametersDraft: (draft: string) => void;
   customRequestParametersError: CustomRequestParametersParseError | null;
-  setCustomRequestParametersError: (error: CustomRequestParametersParseError | null) => void;
+  setCustomRequestParametersError: (
+    error: CustomRequestParametersParseError | null,
+  ) => void;
   handleConnectionSubmit: (e: FormEvent<HTMLFormElement>) => Promise<void>;
   endpointSourceDefaultName: string | null;
   pricingTemplates: PricingTemplate[];
@@ -101,12 +107,19 @@ function ConnectionDialogSection({
 }: ConnectionDialogSectionProps) {
   return (
     <section
-      className={cn("flex flex-col gap-3 border-b pb-4 last:border-b-0 last:pb-0", className)}
+      className={cn(
+        "flex flex-col gap-3 border-b pb-4 last:border-b-0 last:pb-0",
+        className,
+      )}
       data-testid={dataTestId}
     >
       <div className="flex flex-col gap-0.5">
-        <h2 className="text-sm font-semibold tracking-tight text-foreground">{title}</h2>
-        {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
+        <h2 className="text-sm font-semibold tracking-tight text-foreground">
+          {title}
+        </h2>
+        {description ? (
+          <p className="text-sm text-muted-foreground">{description}</p>
+        ) : null}
       </div>
       {children}
     </section>
@@ -131,10 +144,21 @@ function ConnectionDialogField({
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
       <Label htmlFor={id}>{label}</Label>
-      {description ? <p className="text-xs text-muted-foreground">{description}</p> : null}
+      {description ? (
+        <p className="text-xs text-muted-foreground">{description}</p>
+      ) : null}
       {children}
     </div>
   );
+}
+
+function pricingTemplateKindLabel(
+  kind: PricingTemplate["template_kind"],
+  copy: ReturnType<typeof useLocale>["messages"]["modelDetail"],
+): string {
+  if (kind === "standard") return copy.pricingTemplateKindStandard;
+  if (kind === "tiered") return copy.pricingTemplateKindTiered;
+  return copy.pricingTemplateKindPeakValley;
 }
 
 export function ConnectionDialog({
@@ -174,7 +198,7 @@ export function ConnectionDialog({
   const isOpenAI = apiFamily === "openai";
   const capabilityLockedToOwner = isOpenAI && ownerOpenAIAcceptedFormat != null;
   const resolvedTextCapability = isOpenAI
-    ? connectionForm.openai_text_capability ?? "responses_only"
+    ? (connectionForm.openai_text_capability ?? "responses_only")
     : null;
   const isEndpointLocked = lockedEndpointId != null;
   const textCapabilityOptions: Array<{
@@ -195,7 +219,9 @@ export function ConnectionDialog({
     },
   ];
   const visibleTextCapabilityOptions = capabilityLockedToOwner
-    ? textCapabilityOptions.filter((option) => option.value === ownerOpenAIAcceptedFormat)
+    ? textCapabilityOptions.filter(
+        (option) => option.value === ownerOpenAIAcceptedFormat,
+      )
     : textCapabilityOptions;
   const limiterFields: Array<{
     field: "qps_limit" | "max_in_flight_non_stream" | "max_in_flight_stream";
@@ -246,10 +272,14 @@ export function ConnectionDialog({
       max_in_flight_non_stream: source.max_in_flight_non_stream ?? null,
       max_in_flight_stream: source.max_in_flight_stream ?? null,
     });
-    setCustomRequestParametersDraft(customRequestParametersDraftFromValue(source.custom_request_parameters));
+    setCustomRequestParametersDraft(
+      customRequestParametersDraftFromValue(source.custom_request_parameters),
+    );
     // The copy source's schedule must be carried too: without this, "copy into
     // a new connection" silently drops the windows the operator was copying.
-    setRoutingScheduleDraft(routingScheduleDraftFromSchedule(source.routing_schedule));
+    setRoutingScheduleDraft(
+      routingScheduleDraftFromSchedule(source.routing_schedule),
+    );
     setCustomRequestParametersError(null);
     setHeaderRows(
       Object.entries(source.custom_headers ?? {}).map(([key, value]) => ({
@@ -273,7 +303,9 @@ export function ConnectionDialog({
 
   const handleCustomRequestParametersDraftChange = (nextDraft: string) => {
     setCustomRequestParametersDraft(nextDraft);
-    setCustomRequestParametersError(parseCustomRequestParametersDraft(nextDraft).error);
+    setCustomRequestParametersError(
+      parseCustomRequestParametersDraft(nextDraft).error,
+    );
   };
 
   const handleLimiterChange = (
@@ -299,52 +331,96 @@ export function ConnectionDialog({
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[min(92vh,64rem)] max-h-[92vh] max-w-6xl flex-col overflow-hidden p-0 sm:max-w-6xl">
         <DialogHeader className="shrink-0 border-b bg-background px-5 py-3.5 sm:px-6">
-          <DialogTitle>{editingConnection ? copy.editConnection : copy.addConnection}</DialogTitle>
-          <DialogDescription>{copy.connectionDialogDescription}</DialogDescription>
+          <DialogTitle>
+            {editingConnection ? copy.editConnection : copy.addConnection}
+          </DialogTitle>
+          <DialogDescription>
+            {copy.connectionDialogDescription}
+          </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleConnectionSubmit} className="flex min-h-0 flex-1 flex-col" noValidate>
+        <form
+          onSubmit={handleConnectionSubmit}
+          className="flex min-h-0 flex-1 flex-col"
+          noValidate
+        >
           <input type="hidden" name="create_mode" value={createMode} />
           <input
             type="hidden"
             name="selected_endpoint_id"
             value={createMode === "select" ? selectedEndpointId : ""}
           />
-          <input type="hidden" name="is_active" value={String(connectionForm.is_active ?? true)} />
+          <input
+            type="hidden"
+            name="is_active"
+            value={String(connectionForm.is_active ?? true)}
+          />
           <input
             type="hidden"
             name="pricing_template_id"
-            value={connectionForm.pricing_template_id === null ? "" : String(connectionForm.pricing_template_id)}
+            value={
+              connectionForm.pricing_template_id === null
+                ? ""
+                : String(connectionForm.pricing_template_id)
+            }
           />
 
           <DialogBody className="min-h-0 flex-1 p-0">
             <ScrollArea className="min-h-0 flex-1">
-              <div className="px-5 py-4 sm:px-6" data-testid="connection-dialog-scroll-body">
-                <div className="flex min-h-0 flex-col gap-4" data-testid="connection-dialog-main-grid">
-                  <div className="flex min-h-0 flex-col gap-4" data-testid="connection-dialog-left-column">
+              <div
+                className="px-5 py-4 sm:px-6"
+                data-testid="connection-dialog-scroll-body"
+              >
+                <div
+                  className="flex min-h-0 flex-col gap-4"
+                  data-testid="connection-dialog-main-grid"
+                >
+                  <div
+                    className="flex min-h-0 flex-col gap-4"
+                    data-testid="connection-dialog-left-column"
+                  >
                     <ConnectionDialogSection
                       title={copy.setup}
                       description={copy.setupDescription}
                       dataTestId="connection-dialog-setup-section"
                     >
                       {!editingConnection && prefillConnections.length > 0 ? (
-                        <div className="flex flex-col gap-2" data-testid="connection-dialog-prefill">
-                          <Label htmlFor="conn-prefill-source">{copy.prefillFromExisting}</Label>
+                        <div
+                          className="flex flex-col gap-2"
+                          data-testid="connection-dialog-prefill"
+                        >
+                          <Label htmlFor="conn-prefill-source">
+                            {copy.prefillFromExisting}
+                          </Label>
                           <Select
                             value=""
                             onValueChange={(value) => {
-                              const source = prefillConnections.find((candidate) => String(candidate.id) === value)
-                              if (source) handlePrefillConnection(source)
+                              const source = prefillConnections.find(
+                                (candidate) => String(candidate.id) === value,
+                              );
+                              if (source) handlePrefillConnection(source);
                             }}
                           >
-                            <SelectTrigger id="conn-prefill-source" className="w-full">
-                              <SelectValue placeholder={copy.prefillFromExistingPlaceholder} />
+                            <SelectTrigger
+                              id="conn-prefill-source"
+                              className="w-full"
+                            >
+                              <SelectValue
+                                placeholder={
+                                  copy.prefillFromExistingPlaceholder
+                                }
+                              />
                             </SelectTrigger>
                             <SelectContent>
                               <SelectGroup>
                                 {prefillConnections.map((candidate) => (
-                                  <SelectItem key={candidate.id} value={String(candidate.id)}>
-                                    {candidate.name || candidate.endpoint?.name || `终端目标 ${candidate.id}`}
+                                  <SelectItem
+                                    key={candidate.id}
+                                    value={String(candidate.id)}
+                                  >
+                                    {candidate.name ||
+                                      candidate.endpoint?.name ||
+                                      `终端目标 ${candidate.id}`}
                                   </SelectItem>
                                 ))}
                               </SelectGroup>
@@ -358,14 +434,30 @@ export function ConnectionDialog({
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <Label className="text-sm font-medium">{copy.endpointSource}</Label>
+                            <Label className="text-sm font-medium">
+                              {copy.endpointSource}
+                            </Label>
                             <p className="mt-1 text-xs text-muted-foreground">
-                              {editingConnection ? copy.endpointSourceEditHint : copy.endpointSourceCreateHint}
+                              {editingConnection
+                                ? copy.endpointSourceEditHint
+                                : copy.endpointSourceCreateHint}
                             </p>
                           </div>
                           <div className="flex items-center gap-2">
-                            <OperatorTypeBadge label={createMode === "select" ? copy.selectExisting : copy.createNew} preserveLabel />
-                            {editingConnection ? <OperatorStatusBadge label={copy.editable} intent="accent" /> : null}
+                            <OperatorTypeBadge
+                              label={
+                                createMode === "select"
+                                  ? copy.selectExisting
+                                  : copy.createNew
+                              }
+                              preserveLabel
+                            />
+                            {editingConnection ? (
+                              <OperatorStatusBadge
+                                label={copy.editable}
+                                intent="accent"
+                              />
+                            ) : null}
                           </div>
                         </div>
 
@@ -378,22 +470,52 @@ export function ConnectionDialog({
                           className="gap-3"
                         >
                           <TabsList className="grid w-full grid-cols-2 md:max-w-md">
-                            <TabsTrigger value="select" disabled={isEndpointLocked && createMode !== "select"}>{copy.selectExisting}</TabsTrigger>
-                            <TabsTrigger value="new" disabled={isEndpointLocked}>{copy.createNew}</TabsTrigger>
+                            <TabsTrigger
+                              value="select"
+                              disabled={
+                                isEndpointLocked && createMode !== "select"
+                              }
+                            >
+                              {copy.selectExisting}
+                            </TabsTrigger>
+                            <TabsTrigger
+                              value="new"
+                              disabled={isEndpointLocked}
+                            >
+                              {copy.createNew}
+                            </TabsTrigger>
                           </TabsList>
 
-                          <TabsContent value="select" className="flex flex-col gap-2">
-                            <ConnectionDialogField id="conn-selected-endpoint" label={copy.selectEndpoint}>
-                              <Select value={selectedEndpointId} disabled={isEndpointLocked} onValueChange={(value) => {
-                                setSelectedEndpointId(value);
-                              }}>
-                                <SelectTrigger id="conn-selected-endpoint" disabled={isEndpointLocked}>
-                                  <SelectValue placeholder={copy.selectEndpointPlaceholder} />
+                          <TabsContent
+                            value="select"
+                            className="flex flex-col gap-2"
+                          >
+                            <ConnectionDialogField
+                              id="conn-selected-endpoint"
+                              label={copy.selectEndpoint}
+                            >
+                              <Select
+                                value={selectedEndpointId}
+                                disabled={isEndpointLocked}
+                                onValueChange={(value) => {
+                                  setSelectedEndpointId(value);
+                                }}
+                              >
+                                <SelectTrigger
+                                  id="conn-selected-endpoint"
+                                  disabled={isEndpointLocked}
+                                >
+                                  <SelectValue
+                                    placeholder={copy.selectEndpointPlaceholder}
+                                  />
                                 </SelectTrigger>
                                 <SelectContent>
                                   <SelectGroup>
                                     {globalEndpoints.map((endpoint) => (
-                                      <SelectItem key={endpoint.id} value={String(endpoint.id)}>
+                                      <SelectItem
+                                        key={endpoint.id}
+                                        value={String(endpoint.id)}
+                                      >
                                         {endpoint.name} ({endpoint.base_url})
                                       </SelectItem>
                                     ))}
@@ -403,7 +525,9 @@ export function ConnectionDialog({
                             </ConnectionDialogField>
 
                             {globalEndpoints.length === 0 ? (
-                              <p className="text-xs text-muted-foreground">{copy.noEndpointsFound}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {copy.noEndpointsFound}
+                              </p>
                             ) : null}
                           </TabsContent>
 
@@ -412,7 +536,10 @@ export function ConnectionDialog({
                             className="grid gap-2.5 md:grid-cols-2"
                             data-testid="connection-dialog-create-new-grid"
                           >
-                            <ConnectionDialogField id="endpoint-name" label={copy.endpointName}>
+                            <ConnectionDialogField
+                              id="endpoint-name"
+                              label={copy.endpointName}
+                            >
                               <Input
                                 id="endpoint-name"
                                 name="endpoint_name"
@@ -420,13 +547,19 @@ export function ConnectionDialog({
                                 placeholder={copy.endpointNamePlaceholder}
                                 value={newEndpointForm.name}
                                 onChange={(e) =>
-                                  updateNewEndpointForm({ ...newEndpointForm, name: e.target.value })
+                                  updateNewEndpointForm({
+                                    ...newEndpointForm,
+                                    name: e.target.value,
+                                  })
                                 }
                                 required={createMode === "new"}
                               />
                             </ConnectionDialogField>
 
-                            <ConnectionDialogField id="endpoint-base-url" label={copy.endpointBaseUrl}>
+                            <ConnectionDialogField
+                              id="endpoint-base-url"
+                              label={copy.endpointBaseUrl}
+                            >
                               <Input
                                 id="endpoint-base-url"
                                 name="endpoint_base_url"
@@ -434,7 +567,10 @@ export function ConnectionDialog({
                                 placeholder={copy.endpointBaseUrlPlaceholder}
                                 value={newEndpointForm.base_url}
                                 onChange={(e) =>
-                                  updateNewEndpointForm({ ...newEndpointForm, base_url: e.target.value })
+                                  updateNewEndpointForm({
+                                    ...newEndpointForm,
+                                    base_url: e.target.value,
+                                  })
                                 }
                                 required={createMode === "new"}
                               />
@@ -453,7 +589,10 @@ export function ConnectionDialog({
                                 placeholder={copy.endpointApiKeyPlaceholder}
                                 value={newEndpointForm.api_key}
                                 onChange={(e) =>
-                                  updateNewEndpointForm({ ...newEndpointForm, api_key: e.target.value })
+                                  updateNewEndpointForm({
+                                    ...newEndpointForm,
+                                    api_key: e.target.value,
+                                  })
                                 }
                                 required={createMode === "new"}
                               />
@@ -469,7 +608,9 @@ export function ConnectionDialog({
                         <ConnectionDialogField
                           id="conn-name"
                           label={copy.connectionNameOptional}
-                          description={copy.useEndpointNameFallback(endpointSourceDefaultName)}
+                          description={copy.useEndpointNameFallback(
+                            endpointSourceDefaultName,
+                          )}
                           className="md:col-span-2"
                         >
                           <Input
@@ -479,7 +620,10 @@ export function ConnectionDialog({
                             placeholder={copy.connectionDisplayNamePlaceholder}
                             value={connectionForm.name || ""}
                             onChange={(e) =>
-                              updateConnectionForm({ ...connectionForm, name: e.target.value })
+                              updateConnectionForm({
+                                ...connectionForm,
+                                name: e.target.value,
+                              })
                             }
                           />
                         </ConnectionDialogField>
@@ -489,7 +633,10 @@ export function ConnectionDialog({
                           description={copy.includeInLoadBalancing}
                           checked={connectionForm.is_active ?? true}
                           onCheckedChange={(checked) =>
-                            updateConnectionForm({ ...connectionForm, is_active: checked })
+                            updateConnectionForm({
+                              ...connectionForm,
+                              is_active: checked,
+                            })
                           }
                         />
 
@@ -502,15 +649,22 @@ export function ConnectionDialog({
                             <Select
                               value={connectionForm.auth_type ?? "gemini"}
                               onValueChange={(value) =>
-                                updateConnectionForm({ ...connectionForm, auth_type: value })
+                                updateConnectionForm({
+                                  ...connectionForm,
+                                  auth_type: value,
+                                })
                               }
                             >
                               <SelectTrigger id="conn-auth-type">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="gemini">{copy.authTypeGeminiBearer}</SelectItem>
-                                <SelectItem value="gemini_api_key">{copy.authTypeGeminiAPIKey}</SelectItem>
+                                <SelectItem value="gemini">
+                                  {copy.authTypeGeminiBearer}
+                                </SelectItem>
+                                <SelectItem value="gemini_api_key">
+                                  {copy.authTypeGeminiAPIKey}
+                                </SelectItem>
                               </SelectContent>
                             </Select>
                           </ConnectionDialogField>
@@ -530,19 +684,34 @@ export function ConnectionDialog({
                             onValueChange={(value) => {
                               updateConnectionForm({
                                 ...connectionForm,
-                                pricing_template_id: value === "unpriced" ? null : parseInt(value, 10),
+                                pricing_template_id:
+                                  value === "unpriced"
+                                    ? null
+                                    : parseInt(value, 10),
                               });
                             }}
                           >
                             <SelectTrigger id="conn-pricing-template">
-                              <SelectValue placeholder={copy.pricingTemplatePlaceholder} />
+                              <SelectValue
+                                placeholder={copy.pricingTemplatePlaceholder}
+                              />
                             </SelectTrigger>
                             <SelectContent>
                               <SelectGroup>
-                                <SelectItem value="unpriced">{copy.unpricedNoCostTracking}</SelectItem>
+                                <SelectItem value="unpriced">
+                                  {copy.unpricedNoCostTracking}
+                                </SelectItem>
                                 {pricingTemplates.map((template) => (
-                                  <SelectItem key={template.id} value={String(template.id)}>
-                                    {template.name} v{template.version}
+                                  <SelectItem
+                                    key={template.id}
+                                    value={String(template.id)}
+                                  >
+                                    {template.name} ·{" "}
+                                    {pricingTemplateKindLabel(
+                                      template.template_kind,
+                                      copy,
+                                    )}{" "}
+                                    · v{template.version}
                                   </SelectItem>
                                 ))}
                               </SelectGroup>
@@ -551,7 +720,9 @@ export function ConnectionDialog({
                         </ConnectionDialogField>
                       </div>
 
-                      <p className="text-xs text-muted-foreground">{copy.routingPriorityHint}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {copy.routingPriorityHint}
+                      </p>
                     </ConnectionDialogSection>
 
                     {isOpenAI ? (
@@ -575,34 +746,64 @@ export function ConnectionDialog({
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectGroup>
-                                  {visibleTextCapabilityOptions.map((option) => (
-                                    <SelectItem key={option.value} value={option.value}>
-                                      {option.label}
-                                    </SelectItem>
-                                  ))}
+                                  {visibleTextCapabilityOptions.map(
+                                    (option) => (
+                                      <SelectItem
+                                        key={option.value}
+                                        value={option.value}
+                                      >
+                                        {option.label}
+                                      </SelectItem>
+                                    ),
+                                  )}
                                 </SelectGroup>
                               </SelectContent>
                             </Select>
                           </ConnectionDialogField>
 
-                          <div className="flex flex-col gap-1.5 border-l pl-3" data-testid="connection-dialog-capability-preview">
-                            <p className="text-xs font-medium text-muted-foreground">{routingCopy.capabilityCoverageLabel}</p>
+                          <div
+                            className="flex flex-col gap-1.5 border-l pl-3"
+                            data-testid="connection-dialog-capability-preview"
+                          >
+                            <p className="text-xs font-medium text-muted-foreground">
+                              {routingCopy.capabilityCoverageLabel}
+                            </p>
                             {(() => {
-                              const preview = classifyOpenAICoverage(ownerOpenAIAcceptedFormat, resolvedTextCapability ?? null)
-                              const badgeLabel = preview.coverage === "full"
-                                ? routingCopy.coverageFull
-                                : preview.coverage === "partial"
-                                  ? routingCopy.coveragePartial
-                                  : routingCopy.coverageNone
-                              const badgeIntent = preview.coverage === "full" ? "healthy" : preview.coverage === "partial" ? "degraded" : "danger"
+                              const preview = classifyOpenAICoverage(
+                                ownerOpenAIAcceptedFormat,
+                                resolvedTextCapability ?? null,
+                              );
+                              const badgeLabel =
+                                preview.coverage === "full"
+                                  ? routingCopy.coverageFull
+                                  : preview.coverage === "partial"
+                                    ? routingCopy.coveragePartial
+                                    : routingCopy.coverageNone;
+                              const badgeIntent =
+                                preview.coverage === "full"
+                                  ? "healthy"
+                                  : preview.coverage === "partial"
+                                    ? "degraded"
+                                    : "danger";
                               return (
                                 <div className="flex flex-col gap-1">
-                                  <OperatorStatusBadge intent={badgeIntent} label={badgeLabel} preserveLabel />
-                                  {preview.unsupportedAcceptedOperations.length > 0 ? (
-                                    <p className="text-xs text-muted-foreground">{routingCopy.missingOperations(preview.unsupportedAcceptedOperations.join("、"))}</p>
+                                  <OperatorStatusBadge
+                                    intent={badgeIntent}
+                                    label={badgeLabel}
+                                    preserveLabel
+                                  />
+                                  {preview.unsupportedAcceptedOperations
+                                    .length > 0 ? (
+                                    <p className="text-xs text-muted-foreground">
+                                      {routingCopy.missingOperations(
+                                        preview.unsupportedAcceptedOperations.join(
+                                          "、",
+                                        ),
+                                      )}
+                                    </p>
                                   ) : null}
                                 </div>
-                              )
+                              );
                             })()}
                           </div>
                         </div>
@@ -623,12 +824,18 @@ export function ConnectionDialog({
                             <h3 className="text-sm font-semibold tracking-tight text-foreground">
                               {copy.qpsLimit}
                             </h3>
-                            <p className="text-sm text-muted-foreground">{copy.leaveBlankForUnlimited}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {copy.leaveBlankForUnlimited}
+                            </p>
                           </div>
 
                           <div className="grid gap-2.5 sm:grid-cols-3 xl:grid-cols-1">
                             {limiterFields.map((field) => (
-                              <ConnectionDialogField key={field.field} id={field.id} label={field.label}>
+                              <ConnectionDialogField
+                                key={field.field}
+                                id={field.id}
+                                label={field.label}
+                              >
                                 <Input
                                   id={field.id}
                                   name={field.field}
@@ -637,7 +844,12 @@ export function ConnectionDialog({
                                   min="1"
                                   step="1"
                                   value={field.value ?? ""}
-                                  onChange={(e) => handleLimiterChange(field.field, e.target.value)}
+                                  onChange={(e) =>
+                                    handleLimiterChange(
+                                      field.field,
+                                      e.target.value,
+                                    )
+                                  }
                                 />
                               </ConnectionDialogField>
                             ))}
@@ -661,7 +873,12 @@ export function ConnectionDialog({
                               type="button"
                               variant="outline"
                               size="sm"
-                              onClick={() => updateHeaderRows([...headerRows, createHeaderRow()])}
+                              onClick={() =>
+                                updateHeaderRows([
+                                  ...headerRows,
+                                  createHeaderRow(),
+                                ])
+                              }
                             >
                               <Plus data-icon="inline-start" />
                               {copy.addHeader}
@@ -702,7 +919,11 @@ export function ConnectionDialog({
                                     aria-label={copy.headerValue}
                                     placeholder={copy.headerValue}
                                     type={row.redacted ? "password" : undefined}
-                                    value={row.redacted && !row.value ? "" : row.value}
+                                    value={
+                                      row.redacted && !row.value
+                                        ? ""
+                                        : row.value
+                                    }
                                     onChange={(e) => {
                                       const nextRows = [...headerRows];
                                       nextRows[index].value = e.target.value;
@@ -712,7 +933,9 @@ export function ConnectionDialog({
                                     className="flex-1"
                                   />
                                   {row.redacted ? (
-                                    <span className="text-[11px] text-muted-foreground">{copy.customHeaderRedactedHint}</span>
+                                    <span className="text-[11px] text-muted-foreground">
+                                      {copy.customHeaderRedactedHint}
+                                    </span>
                                   ) : null}
                                   <Button
                                     type="button"
@@ -754,7 +977,6 @@ export function ConnectionDialog({
                       error={routingScheduleError}
                     />
                   </div>
-
                 </div>
               </div>
             </ScrollArea>
@@ -763,7 +985,11 @@ export function ConnectionDialog({
           <div className="shrink-0 border-t bg-background px-5 py-3 sm:px-6">
             <DialogFooter className="pt-0">
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => onOpenChange(false)}
+                >
                   {copy.cancel}
                 </Button>
                 <Button type="submit">{copy.saveConnection}</Button>

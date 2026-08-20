@@ -3,7 +3,6 @@ package settings
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -13,80 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type currencyMigrationTieredTemplate struct {
-	TemplateID         int     `json:"template_id"`
-	Name               string  `json:"name"`
-	InputTokensAbove   int     `json:"input_tokens_above"`
-	InputPrice         string  `json:"input_price"`
-	OutputPrice        string  `json:"output_price"`
-	CachedInputPrice   *string `json:"cached_input_price"`
-	CacheCreationPrice *string `json:"cache_creation_price"`
-	ReasoningPrice     *string `json:"reasoning_price"`
-}
-
-type currencyMigrationTieredTemplatesDetail struct {
-	CurrentCurrencyCode string                            `json:"current_currency_code"`
-	Templates           []currencyMigrationTieredTemplate `json:"templates"`
-	Recovery            string                            `json:"recovery"`
-}
-
-func (detail currencyMigrationTieredTemplatesDetail) Error() string {
-	return "currency_migration_blocked_by_tiered_templates"
-}
-
-func rejectCurrencyMigrationWithTieredTemplates(ctx context.Context, tx pgx.Tx, profileID int) error {
-	var currentCurrencyCode sql.NullString
-	if err := tx.QueryRow(ctx, `SELECT report_currency_code FROM user_settings WHERE profile_id = $1`, profileID).Scan(&currentCurrencyCode); err != nil {
-		return fmt.Errorf("load current currency for tiered-template guard: %w", err)
-	}
-	rows, err := tx.Query(ctx, `SELECT templates.id, templates.name, revisions.tier_input_tokens_above,
-		revisions.tier_input_price, revisions.tier_output_price, revisions.tier_cached_input_price,
-		revisions.tier_cache_creation_price, revisions.tier_reasoning_price
-		FROM pricing_templates AS templates
-		JOIN pricing_template_revisions AS revisions ON revisions.id = templates.current_revision_id
-		WHERE templates.profile_id = $1 AND templates.deleted_at IS NULL
-		  AND revisions.tier_input_tokens_above IS NOT NULL
-		ORDER BY templates.id ASC`, profileID)
-	if err != nil {
-		return fmt.Errorf("query tiered pricing templates for currency guard: %w", err)
-	}
-	defer rows.Close()
-	items := make([]currencyMigrationTieredTemplate, 0)
-	for rows.Next() {
-		var item currencyMigrationTieredTemplate
-		var threshold sql.NullInt32
-		var input, output, cached, creation, reasoning sql.NullString
-		if err := rows.Scan(&item.TemplateID, &item.Name, &threshold, &input, &output, &cached, &creation, &reasoning); err != nil {
-			return fmt.Errorf("scan tiered pricing template for currency guard: %w", err)
-		}
-		if !threshold.Valid {
-			continue
-		}
-		item.InputTokensAbove = int(threshold.Int32)
-		item.InputPrice = input.String
-		item.OutputPrice = output.String
-		item.CachedInputPrice = nullableSQLString(cached)
-		item.CacheCreationPrice = nullableSQLString(creation)
-		item.ReasoningPrice = nullableSQLString(reasoning)
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate tiered pricing templates for currency guard: %w", err)
-	}
-	if len(items) == 0 {
-		return nil
-	}
-	return &domainError{StatusCode: http.StatusConflict, Detail: currencyMigrationTieredTemplatesDetail{
-		CurrentCurrencyCode: currentCurrencyCode.String,
-		Templates:           items,
-		Recovery:            "clear_tiers_before_currency_migration",
-	}}
-}
-
 func applyCurrencyMigrationDraftCutover(ctx context.Context, tx pgx.Tx, profileID int, settingsRow userSettingsRow, header currencyMigrationDraftHeaderRow, operationID, previewHash string, templates []currencyDraftAuthoritativeTemplate, items []currencyMigrationDraftItem, currentTime time.Time) (currencyMigrationCommitResponse, error) {
-	if err := rejectCurrencyMigrationWithTieredTemplates(ctx, tx, profileID); err != nil {
-		return currencyMigrationCommitResponse{}, err
-	}
 	currentEpoch, err := loadCurrencyMigrationEpochOnly(ctx, tx, settingsRow)
 	if err != nil {
 		return currencyMigrationCommitResponse{}, err
@@ -161,9 +87,22 @@ func applyCurrencyMigrationDraftCutover(ctx context.Context, tx pgx.Tx, profileI
 		if !ok {
 			return currencyMigrationCommitResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: "currency_migration_draft_template_set_changed"}
 		}
+		if item.TemplateKind != template.TemplateKind || !currencyMigrationCardsHaveRoles(item.Cards, template.TemplateKind) {
+			return currencyMigrationCommitResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: fmt.Sprintf("currency_migration_draft_shape_changed: template_id=%d", template.ID)}
+		}
 		var revisionID int64
-		if err := tx.QueryRow(ctx, `INSERT INTO pricing_template_revisions (template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, effective_at, created_at, created_by_kind, created_by_operation_id) VALUES ($1, $2, 'PER_1M', $3, $4, $5, 'active_epoch', $6, $7, $8, $9, $10, $11, $11, 'currency_migration', $12::uuid) RETURNING id`, template.ID, template.Version+1, header.TargetCurrencyCode, newEpochID, nextEpoch, item.InputPrice, item.OutputPrice, item.CachedInputPrice, item.CacheCreationPrice, item.ReasoningPrice, cutoverAt, operationID).Scan(&revisionID); err != nil {
+		if err := tx.QueryRow(ctx, `INSERT INTO pricing_template_revisions (template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, template_kind, tier_input_tokens_above, pricing_schedule_timezone, pricing_schedule_digest, effective_at, created_at, created_by_kind, created_by_operation_id) VALUES ($1, $2, 'PER_1M', $3, $4, $5, 'active_epoch', $6, $7, $8, $9, $10, $10, 'currency_migration', $11::uuid) RETURNING id`, template.ID, template.Version+1, header.TargetCurrencyCode, newEpochID, nextEpoch, string(template.TemplateKind), template.TierThreshold, template.ScheduleTimezone, template.ScheduleDigest, cutoverAt, operationID).Scan(&revisionID); err != nil {
 			return currencyMigrationCommitResponse{}, err
+		}
+		for _, card := range item.Cards {
+			if _, err := tx.Exec(ctx, `INSERT INTO pricing_template_cards (revision_id, template_kind, card_role, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, revisionID, string(template.TemplateKind), card.CardRole, card.InputPrice, card.OutputPrice, card.CachedInputPrice, card.CacheCreationPrice, card.ReasoningPrice); err != nil {
+				return currencyMigrationCommitResponse{}, err
+			}
+		}
+		for _, window := range template.Windows {
+			if _, err := tx.Exec(ctx, `INSERT INTO pricing_template_windows (revision_id, weekday_mask, start_minute, end_minute, created_at) VALUES ($1, $2, $3, $4, $5)`, revisionID, window.WeekdayMask, window.StartMinute, window.EndMinute, cutoverAt); err != nil {
+				return currencyMigrationCommitResponse{}, err
+			}
 		}
 		if _, err := tx.Exec(ctx, `UPDATE pricing_templates SET current_revision_id = $1, updated_at = $2 WHERE id = $3 AND profile_id = $4 AND deleted_at IS NULL`, revisionID, cutoverAt, template.ID, profileID); err != nil {
 			return currencyMigrationCommitResponse{}, err
@@ -171,10 +110,15 @@ func applyCurrencyMigrationDraftCutover(ctx context.Context, tx pgx.Tx, profileI
 		if err := insertPricingMutationResultItemSettings(ctx, tx, operationID, index+1, template.ID, template.Version+1, revisionID, cutoverAt, template.Name); err != nil {
 			return currencyMigrationCommitResponse{}, err
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO currency_migration_ledger_items (operation_id, ordinal, template_id, template_name_snapshot, old_version, new_version, old_revision_id, old_template_evidence_id, new_revision_id, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`, operationID, index+1, template.ID, template.Name, template.Version, template.Version+1, template.RevisionID, template.LegacyEvidenceID, revisionID, item.InputPrice, item.OutputPrice, item.CachedInputPrice, item.CacheCreationPrice, item.ReasoningPrice); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO currency_migration_ledger_items (operation_id, ordinal, template_id, template_name_snapshot, old_version, new_version, old_revision_id, old_template_evidence_id, template_kind, new_revision_id) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, NULL, $8, $9)`, operationID, index+1, template.ID, template.Name, template.Version, template.Version+1, template.RevisionID, string(template.TemplateKind), revisionID); err != nil {
 			return currencyMigrationCommitResponse{}, err
 		}
-		ledgerItemsHashInput = append(ledgerItemsHashInput, map[string]any{"template_id": template.ID, "old_version": template.Version, "new_version": template.Version + 1, "revision_id": revisionID})
+		for _, card := range item.Cards {
+			if _, err := tx.Exec(ctx, `INSERT INTO currency_migration_ledger_cards (operation_id, ordinal, card_role, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)`, operationID, index+1, card.CardRole, card.InputPrice, card.OutputPrice, card.CachedInputPrice, card.CacheCreationPrice, card.ReasoningPrice); err != nil {
+				return currencyMigrationCommitResponse{}, err
+			}
+		}
+		ledgerItemsHashInput = append(ledgerItemsHashInput, map[string]any{"template_id": template.ID, "template_kind": template.TemplateKind, "card_roles": currencyMigrationCardRoleNames(item.Cards), "old_version": template.Version, "new_version": template.Version + 1, "revision_id": revisionID})
 	}
 	itemsRaw, _ := json.Marshal(ledgerItemsHashInput)
 	itemsHash := sha256.Sum256(itemsRaw)
@@ -200,6 +144,14 @@ func applyCurrencyMigrationDraftCutover(ctx context.Context, tx pgx.Tx, profileI
 		return currencyMigrationCommitResponse{}, err
 	}
 	return response, nil
+}
+
+func currencyMigrationCardRoleNames(cards []currencyMigrationCard) []string {
+	roles := make([]string, 0, len(cards))
+	for _, card := range cards {
+		roles = append(roles, card.CardRole)
+	}
+	return roles
 }
 
 func insertPricingMutationResultItemSettings(ctx context.Context, tx pgx.Tx, operationID string, ordinal, templateID, version int, revisionID int64, effectiveAt time.Time, name string) error {

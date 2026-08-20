@@ -1,6 +1,7 @@
 package connections
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -33,7 +34,11 @@ func (s *Service) handleCommitPricingTemplateImport(w http.ResponseWriter, r *ht
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	preview, err := s.previewImportPayload(r, pricingTemplateImportRequest{Mode: requestBody.Mode, Templates: requestBody.Templates})
+	if requestBody.SchemaVersion != 2 {
+		writeDomainError(w, r, s.corsSnapshot(), &domainError{StatusCode: http.StatusBadRequest, Detail: "schema_version must be 2"})
+		return
+	}
+	preview, err := s.previewImportPayload(r, pricingTemplateImportRequest{SchemaVersion: requestBody.SchemaVersion, Mode: requestBody.Mode, Templates: requestBody.Templates})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
@@ -54,7 +59,7 @@ func (s *Service) handleCommitPricingTemplateImport(w http.ResponseWriter, r *ht
 		if err := lockProfileRow(r.Context(), tx, profile.ID); err != nil {
 			return pricingTemplateImportResponse{}, err
 		}
-		return commitPricingTemplateImport(r.Context(), tx, profile.ID, s.nowUTC(), preview, requestBody.Mode)
+		return commitPricingTemplateImport(r.Context(), tx, profile.ID, s.nowUTC(), preview)
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -72,13 +77,18 @@ func (s *Service) previewPricingTemplateImport(r *http.Request) (pricingTemplate
 		return pricingTemplateImportResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: err.Error()}
 	}
 	var requestBody pricingTemplateImportRequest
-	if err := json.Unmarshal(body, &requestBody); err != nil {
-		return pricingTemplateImportResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "Invalid request body"}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&requestBody); err != nil {
+		return pricingTemplateImportResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: responseutil.SanitizeDecodeError(err).Error()}
 	}
 	return s.previewImportPayload(r, requestBody)
 }
 
 func (s *Service) previewImportPayload(r *http.Request, requestBody pricingTemplateImportRequest) (pricingTemplateImportResponse, error) {
+	if requestBody.SchemaVersion != 2 {
+		return pricingTemplateImportResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "schema_version must be 2"}
+	}
 	mode := strings.TrimSpace(requestBody.Mode)
 	if mode != "upsert_by_name" && mode != "create_only" {
 		return pricingTemplateImportResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "mode must be upsert_by_name or create_only"}
@@ -100,22 +110,12 @@ func (s *Service) previewImportPayload(r *http.Request, requestBody pricingTempl
 			continue
 		}
 		seen[name] = index
-		if err := rejectLegacyPricingTemplateFields(&template); err != nil {
-			importErrors = append(importErrors, pricingTemplateImportError{Index: index, Name: name, Detail: err.Error()})
-			continue
-		}
-		prices, err := normalizePricingTemplatePrices(template.InputPrice, template.OutputPrice, template.CachedInputPrice, template.CacheCreationPrice, template.ReasoningPrice)
+		shape, err := normalizePricingTemplateShape(template)
 		if err != nil {
 			importErrors = append(importErrors, pricingTemplateImportError{Index: index, Name: name, Detail: err.Error()})
 			continue
 		}
-		tier, err := normalizePricingTemplateTier(template.Tier, prices)
-		if err != nil {
-			importErrors = append(importErrors, pricingTemplateImportError{Index: index, Name: name, Detail: err.Error()})
-			continue
-		}
-		prices.Tier = tier
-		rows = append(rows, pricingTemplateImportRow{Name: name, Description: normalizeOptionalTrimmedString(template.Description), Prices: prices})
+		rows = append(rows, pricingTemplateImportRow{Name: name, Description: normalizeOptionalTrimmedString(template.Description), Shape: shape})
 	}
 	if len(importErrors) > 0 {
 		return pricingTemplateImportResponse{Skipped: []string{}, Errors: importErrors}, nil
@@ -139,22 +139,22 @@ func (s *Service) previewImportPayload(r *http.Request, requestBody pricingTempl
 			current, exists := existingByName[row.Name]
 			if !exists {
 				result.Created++
-				result.Items = append(result.Items, pricingTemplateImportItem{Name: row.Name, Action: "create"})
+				result.Items = append(result.Items, pricingTemplateImportItem{Name: row.Name, Action: "create", TemplateKind: string(row.Shape.Kind)})
 				continue
 			}
 			if mode == "create_only" {
 				result.Skipped = append(result.Skipped, row.Name)
-				result.Items = append(result.Items, pricingTemplateImportItem{Name: row.Name, Action: "skipped"})
+				result.Items = append(result.Items, pricingTemplateImportItem{Name: row.Name, Action: "skipped", TemplateKind: string(row.Shape.Kind)})
 				continue
 			}
-			if pricingTemplatePricesEqual(current, row.Prices) {
-				result.Items = append(result.Items, pricingTemplateImportItem{Name: row.Name, Action: "no_op"})
+			if pricingTemplateShapesEqual(pricingTemplateShapeFromResponse(current), row.Shape) {
+				result.Items = append(result.Items, pricingTemplateImportItem{Name: row.Name, Action: "no_op", TemplateKind: string(row.Shape.Kind)})
 				continue
 			}
 			result.Updated++
-			result.Items = append(result.Items, pricingTemplateImportItem{Name: row.Name, Action: "update", CurrentVersion: current.Version, NextVersion: current.Version + 1})
+			result.Items = append(result.Items, pricingTemplateImportItem{Name: row.Name, Action: "update", TemplateKind: string(row.Shape.Kind), CurrentVersion: current.Version, NextVersion: current.Version + 1})
 		}
-		hashInput, err := json.Marshal(map[string]any{"mode": mode, "profile_id": profile.ID, "rows": result.Items})
+		hashInput, err := json.Marshal(map[string]any{"schema_version": requestBody.SchemaVersion, "mode": mode, "profile_id": profile.ID, "rows": result.Items})
 		if err != nil {
 			return pricingTemplateImportResponse{}, err
 		}
@@ -169,7 +169,7 @@ func (s *Service) previewImportPayload(r *http.Request, requestBody pricingTempl
 	return response, nil
 }
 
-func commitPricingTemplateImport(ctx context.Context, tx pgx.Tx, profileID int, currentTime time.Time, preview pricingTemplateImportResponse, mode string) (pricingTemplateImportResponse, error) {
+func commitPricingTemplateImport(ctx context.Context, tx pgx.Tx, profileID int, currentTime time.Time, preview pricingTemplateImportResponse) (pricingTemplateImportResponse, error) {
 	existingItems, err := listPricingTemplates(ctx, tx, profileID)
 	if err != nil {
 		return pricingTemplateImportResponse{}, err
@@ -189,7 +189,7 @@ func commitPricingTemplateImport(ctx context.Context, tx pgx.Tx, profileID int, 
 					break
 				}
 			}
-			if _, err := createPricingTemplateWithPrices(ctx, tx, profileID, currentTime, row.Name, row.Description, row.Prices); err != nil {
+			if _, err := createPricingTemplateWithShape(ctx, tx, profileID, currentTime, row.Name, row.Description, row.Shape); err != nil {
 				return pricingTemplateImportResponse{}, err
 			}
 			result.Created++
@@ -205,7 +205,7 @@ func commitPricingTemplateImport(ctx context.Context, tx pgx.Tx, profileID int, 
 					break
 				}
 			}
-			if err := updatePricingTemplateWithPrices(ctx, tx, profileID, current, row.Name, row.Description, row.Prices, currentTime); err != nil {
+			if err := updatePricingTemplateWithShape(ctx, tx, profileID, current, row.Name, row.Description, row.Shape, currentTime); err != nil {
 				return pricingTemplateImportResponse{}, err
 			}
 			result.Updated++
@@ -218,19 +218,10 @@ func commitPricingTemplateImport(ctx context.Context, tx pgx.Tx, profileID int, 
 	return result, nil
 }
 
-func pricingTemplatePricesEqual(current pricingTemplateResponse, prices pricingTemplatePrices) bool {
-	return current.InputPrice == prices.InputPrice &&
-		current.OutputPrice == prices.OutputPrice &&
-		stringsEqualPointers(current.CachedInputPrice, prices.CachedInputPrice) &&
-		stringsEqualPointers(current.CacheCreationPrice, prices.CacheCreationPrice) &&
-		stringsEqualPointers(current.ReasoningPrice, prices.ReasoningPrice) &&
-		pricingTemplateTierEqual(current.Tier, prices.Tier)
-}
-
 type pricingTemplateImportRow struct {
 	Name        string
 	Description *string
-	Prices      pricingTemplatePrices
+	Shape       pricingTemplateShape
 }
 
 // pricingTemplateImportKeysPresent rejects unknown top-level keys and
@@ -241,33 +232,54 @@ func pricingTemplateImportKeysPresent(body []byte) error {
 		return err
 	}
 	for key := range raw {
-		if key != "mode" && key != "templates" {
+		if key != "schema_version" && key != "mode" && key != "templates" {
 			return fmt.Errorf("unknown field %q", key)
 		}
+	}
+	version, ok := raw["schema_version"]
+	if !ok {
+		return fmt.Errorf("schema_version is required")
+	}
+	var schemaVersion int
+	if err := json.Unmarshal(version, &schemaVersion); err != nil || schemaVersion != 2 {
+		return fmt.Errorf("schema_version must be 2")
 	}
 	if _, ok := raw["mode"]; !ok {
 		return fmt.Errorf("mode is required")
 	}
-	if _, ok := raw["templates"]; !ok {
+	templatesRaw, ok := raw["templates"]
+	if !ok {
 		return fmt.Errorf("templates is required")
+	}
+	var rows []json.RawMessage
+	if err := json.Unmarshal(templatesRaw, &rows); err != nil {
+		return fmt.Errorf("templates must be an array")
+	}
+	for index, row := range rows {
+		if err := pricingTemplateRowKeysPresent(row); err != nil {
+			return fmt.Errorf("templates[%d]: %w", index, err)
+		}
 	}
 	return nil
 }
 
 type pricingTemplateImportRequest struct {
-	Mode      string                         `json:"mode"`
-	Templates []pricingTemplateCreateRequest `json:"templates"`
+	SchemaVersion int                            `json:"schema_version"`
+	Mode          string                         `json:"mode"`
+	Templates     []pricingTemplateCreateRequest `json:"templates"`
 }
 
 type pricingTemplateImportCommitRequest struct {
-	Mode        string                         `json:"mode"`
-	Templates   []pricingTemplateCreateRequest `json:"templates"`
-	PreviewHash string                         `json:"preview_hash"`
+	SchemaVersion int                            `json:"schema_version"`
+	Mode          string                         `json:"mode"`
+	Templates     []pricingTemplateCreateRequest `json:"templates"`
+	PreviewHash   string                         `json:"preview_hash"`
 }
 
 type pricingTemplateImportItem struct {
 	Name           string `json:"name"`
 	Action         string `json:"action"`
+	TemplateKind   string `json:"template_kind,omitempty"`
 	CurrentVersion int    `json:"current_version,omitempty"`
 	NextVersion    int    `json:"next_version,omitempty"`
 }

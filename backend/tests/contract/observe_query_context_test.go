@@ -253,6 +253,11 @@ func observeUsageSummarySegmentRows() []map[string]any {
 
 func TestObserveUsageSummaryCanonicalCostSegments(t *testing.T) {
 	harness := newS15ContractHarness(t)
+	var hasSelectionState, hasTemplateKind bool
+	if err := harness.conn.QueryRow(context.Background(), `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='usage_request_events' AND column_name='pricing_selection_state'), EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='usage_request_events' AND column_name='pricing_template_kind')`).Scan(&hasSelectionState, &hasTemplateKind); err != nil {
+		t.Fatalf("inspect usage pricing columns: %v", err)
+	}
+	t.Logf("usage pricing columns selection_state=%v template_kind=%v", hasSelectionState, hasTemplateKind)
 	profileID := modelLoadDefaultProfileID(t, harness)
 	seedObserveUsageRows(t, harness, profileID, observeUsageSummarySegmentRows())
 

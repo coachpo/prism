@@ -10,52 +10,57 @@ import (
 )
 
 type requestLogListRow struct {
-	ID                            int64
-	CreatedAt                     time.Time
-	ModelID                       string
-	ResolvedTargetModelID         *string
-	APIFamily                     string
-	EndpointID                    *int
-	ConnectionID                  *int
-	ProxyAPIKeyID                 *int
-	ProxyAPIKeyNameSnapshot       *string
-	ProxyAPIKeyAttributionState   string
-	ProxyAPIKeyAuthEnforced       *bool
-	IngressRequestID              *string
-	RowKind                       string
-	StatusCode                    *int
-	UpstreamStatusCode            *int
-	GatewayStatusCode             *int
-	LegacyStatusCode              *int
-	AttemptDurationMS             *int
-	LegacyDurationMS              *int
-	TTFTMS                        *int
-	CompletionDurationMS          *int
-	IsStream                      bool
-	StreamOutcome                 string
-	StreamErrorKind               *string
-	AttemptNumber                 *int
-	AttemptTrigger                *string
-	AttemptResult                 *string
-	IsWinner                      *bool
-	ErrorSource                   *string
-	ErrorCode                     *string
-	FailureStage                  *string
-	FailureDetailPreview          *string
-	FailureDetailSource           string
-	FailureDetailPreviewTruncated bool
-	FailureDetailRedacted         bool
-	OutputTokens                  *int
-	TotalTokens                   *int
-	TotalCostUserCurrencyMicros   *int64
-	PricingStatus                 string
-	UnpricedReason                *string
-	PricingEvidenceTrust          string
-	ReasoningEffort               *string
-	ReportCurrencySymbol          *string
-	CallerUserAgent               *string
-	UpstreamUserAgent             *string
-	EndpointBaseURL               *string
+	ID                             int64
+	CreatedAt                      time.Time
+	ModelID                        string
+	ResolvedTargetModelID          *string
+	APIFamily                      string
+	EndpointID                     *int
+	ConnectionID                   *int
+	ProxyAPIKeyID                  *int
+	ProxyAPIKeyNameSnapshot        *string
+	ProxyAPIKeyAttributionState    string
+	ProxyAPIKeyAuthEnforced        *bool
+	IngressRequestID               *string
+	RowKind                        string
+	StatusCode                     *int
+	UpstreamStatusCode             *int
+	GatewayStatusCode              *int
+	LegacyStatusCode               *int
+	AttemptDurationMS              *int
+	LegacyDurationMS               *int
+	TTFTMS                         *int
+	CompletionDurationMS           *int
+	IsStream                       bool
+	StreamOutcome                  string
+	StreamErrorKind                *string
+	AttemptNumber                  *int
+	AttemptTrigger                 *string
+	AttemptResult                  *string
+	IsWinner                       *bool
+	ErrorSource                    *string
+	ErrorCode                      *string
+	FailureStage                   *string
+	FailureDetailPreview           *string
+	FailureDetailSource            string
+	FailureDetailPreviewTruncated  bool
+	FailureDetailRedacted          bool
+	OutputTokens                   *int
+	TotalTokens                    *int
+	TotalCostUserCurrencyMicros    *int64
+	PricingStatus                  string
+	UnpricedReason                 *string
+	PricingEvidenceTrust           string
+	PricingTemplateKind            *string
+	PricingSelectionState          *string
+	PricingCardRole                *string
+	PricingSelectorThresholdTokens *int
+	PricingSelectorBasisTokens     *int64
+	ReasoningEffort                *string
+	ReportCurrencySymbol           *string
+	CallerUserAgent                *string
+	UpstreamUserAgent              *string
+	EndpointBaseURL                *string
 }
 
 type requestLogModelRecord struct {
@@ -171,6 +176,7 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 		 attempt_number, attempt_trigger, attempt_result, is_winner, error_source, error_code, failure_stage,
 		 error_detail, error_detail_redacted, error_detail_truncated, stream_error_detail, stream_error_detail_redacted, stream_error_detail_truncated,
 		 output_tokens, total_tokens, total_cost_user_currency_micros, pricing_status, unpriced_reason, pricing_evidence_trust,
+		 pricing_template_kind, pricing_selection_state, pricing_card_role, pricing_selector_threshold_tokens, pricing_selector_basis_tokens,
 		 request_generation_params #>> '{reasoning,effort}', report_currency_symbol, caller_user_agent, upstream_user_agent, endpoint_base_url
 		 FROM request_logs
 		 WHERE `+whereClause+`
@@ -244,6 +250,14 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 			UpstreamClientDisplay:         classifyUserAgentDisplay(item.UpstreamUserAgent, rules),
 			UserAgentOverridden:           userAgentOverridden(item.CallerUserAgent, item.UpstreamUserAgent),
 		}
+		// Attach typed selector evidence after the stable list projection is
+		// assembled so the generic list and detail projections share columns
+		// without conflating selection state with card role.
+		listItem.PricingTemplateKind = item.PricingTemplateKind
+		listItem.PricingSelectionState = item.PricingSelectionState
+		listItem.PricingCardRole = item.PricingCardRole
+		listItem.PricingSelectorThresholdTokens = item.PricingSelectorThresholdTokens
+		listItem.PricingSelectorBasisTokens = item.PricingSelectorBasisTokens
 		items = append(items, listItem)
 	}
 	if err := rows.Err(); err != nil {
@@ -624,6 +638,9 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 	var pricingStatus sql.NullString
 	var unpricedReason sql.NullString
 	var pricingEvidenceTrust sql.NullString
+	var pricingTemplateKind, pricingSelectionState, pricingCardRole sql.NullString
+	var pricingSelectorThreshold sql.NullInt32
+	var pricingSelectorBasis sql.NullInt64
 	var reasoningEffort sql.NullString
 	var reportCurrencySymbol sql.NullString
 	var callerUserAgent sql.NullString
@@ -637,6 +654,7 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 		&attemptNumber, &attemptTrigger, &attemptResult, &isWinner, &errorSource, &errorCode, &failureStage,
 		&errorDetail, &errorDetailRedacted, &errorDetailTruncated, &streamErrorDetail, &streamErrorDetailRedacted, &streamErrorDetailTruncated,
 		&outputTokens, &totalTokens, &totalCostUserCurrencyMicros, &pricingStatus, &unpricedReason, &pricingEvidenceTrust,
+		&pricingTemplateKind, &pricingSelectionState, &pricingCardRole, &pricingSelectorThreshold, &pricingSelectorBasis,
 		&reasoningEffort, &reportCurrencySymbol, &callerUserAgent, &upstreamUserAgent, &endpointBaseURL); err != nil {
 		return requestLogListRow{}, err
 	}
@@ -690,6 +708,11 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 	item.PricingStatus = stringValue(nullableString(pricingStatus))
 	item.UnpricedReason = nullableString(unpricedReason)
 	item.PricingEvidenceTrust = stringValue(nullableString(pricingEvidenceTrust))
+	item.PricingTemplateKind = nullableString(pricingTemplateKind)
+	item.PricingSelectionState = nullableString(pricingSelectionState)
+	item.PricingCardRole = nullableString(pricingCardRole)
+	item.PricingSelectorThresholdTokens = nullableInt32(pricingSelectorThreshold)
+	item.PricingSelectorBasisTokens = nullableInt64(pricingSelectorBasis)
 	item.ReasoningEffort = nullableString(reasoningEffort)
 	item.ReportCurrencySymbol = nullableString(reportCurrencySymbol)
 	item.CallerUserAgent = nullableString(callerUserAgent)

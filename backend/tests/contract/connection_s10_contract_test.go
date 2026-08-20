@@ -88,13 +88,13 @@ func TestConnectionS10PricingTemplateCRUD(t *testing.T) {
 
 	// Blank specialty prices are field-level 422 (never normalized to zero);
 	// explicit JSON null means unconfigured (SPEC 4.1).
-	blankResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates", map[string]any{"name": "S10 Blank Price Rejected", "input_price": "1.25", "output_price": "2.50", "cached_input_price": "0.10", "cache_creation_price": "   ", "reasoning_price": "0"}, modelHeader(defaultProfileID))
+	blankResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates", map[string]any{"name": "S10 Blank Price Rejected", "template_kind": "standard", "card": map[string]any{"input_price": "1.25", "output_price": "2.50", "cached_input_price": "0.10", "cache_creation_price": "   ", "reasoning_price": "0"}}, modelHeader(defaultProfileID))
 	assertStatus(t, blankResponse, http.StatusUnprocessableEntity)
 
-	legacyFieldResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates", map[string]any{"name": "S10 Legacy Field Rejected", "pricing_currency_code": "usd", "input_price": "1.25", "output_price": "2.50", "cached_input_price": "0.10", "cache_creation_price": "0", "reasoning_price": "0"}, modelHeader(defaultProfileID))
+	legacyFieldResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates", map[string]any{"name": "S10 Legacy Field Rejected", "template_kind": "standard", "pricing_currency_code": "usd", "card": map[string]any{"input_price": "1.25", "output_price": "2.50", "cached_input_price": "0.10", "cache_creation_price": "0", "reasoning_price": "0"}}, modelHeader(defaultProfileID))
 	assertStatus(t, legacyFieldResponse, http.StatusUnprocessableEntity)
 
-	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates", map[string]any{"name": "S10 Created Template", "description": "created via contract", "input_price": "1.25", "output_price": "2.50", "cached_input_price": "0.10", "cache_creation_price": "0", "reasoning_price": nil}, modelHeader(defaultProfileID))
+	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates", map[string]any{"name": "S10 Created Template", "description": "created via contract", "template_kind": "standard", "card": map[string]any{"input_price": "1.25", "output_price": "2.50", "cached_input_price": "0.10", "cache_creation_price": "0", "reasoning_price": nil}}, modelHeader(defaultProfileID))
 	assertStatus(t, createResponse, http.StatusCreated)
 	var created map[string]any
 	decodeJSONResponse(t, createResponse, &created)
@@ -104,7 +104,7 @@ func TestConnectionS10PricingTemplateCRUD(t *testing.T) {
 	}
 	assertPricingTemplatePayloadPrices(t, created, "1.25", "2.5", "0.1", "0", nil)
 
-	updateResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{"expected_updated_at": created["updated_at"], "description": "updated via contract", "input_price": "3.75", "reasoning_price": "0.50"}, modelHeader(defaultProfileID))
+	updateResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{"expected_updated_at": created["updated_at"], "description": "updated via contract", "template_kind": "standard", "card": map[string]any{"input_price": "3.75", "output_price": "2.5", "cached_input_price": "0.1", "cache_creation_price": "0", "reasoning_price": "0.50"}}, modelHeader(defaultProfileID))
 	assertStatus(t, updateResponse, http.StatusOK)
 	var updated map[string]any
 	decodeJSONResponse(t, updateResponse, &updated)
@@ -113,23 +113,32 @@ func TestConnectionS10PricingTemplateCRUD(t *testing.T) {
 	}
 	assertPricingTemplatePayloadPrices(t, updated, "3.75", "2.5", "0.1", "0", "0.5")
 
+	nullKindResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{"expected_updated_at": updated["updated_at"], "template_kind": nil}, modelHeader(defaultProfileID))
+	assertStatus(t, nullKindResponse, http.StatusUnprocessableEntity)
+	nullCASResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{"expected_updated_at": nil, "template_kind": "tiered", "base_card": map[string]any{"input_price": "3.75", "output_price": "2.5", "cached_input_price": "0.1", "cache_creation_price": "0", "reasoning_price": "0.5"}, "tier": map[string]any{"input_tokens_above": 1, "card": map[string]any{"input_price": "4", "output_price": "18", "cached_input_price": "0.2", "cache_creation_price": "5", "reasoning_price": "6"}}}, modelHeader(defaultProfileID))
+	assertStatus(t, nullCASResponse, http.StatusUnprocessableEntity)
+
 	// A tier is one singular, complete five-component mirror. Its threshold
 	// uses strict greater-than semantics at runtime; CRUD only stores the
 	// normalized immutable card.
 	tierUpdateResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{
 		"expected_updated_at": updated["updated_at"],
-		"tier":                map[string]any{"input_tokens_above": 272000, "input_price": "4", "output_price": "18", "cached_input_price": "0.2", "cache_creation_price": "5", "reasoning_price": "6"},
+		"template_kind":       "tiered",
+		"base_card":           map[string]any{"input_price": "3.75", "output_price": "2.5", "cached_input_price": "0.1", "cache_creation_price": "0", "reasoning_price": "0.50"},
+		"tier":                map[string]any{"input_tokens_above": 272000, "card": map[string]any{"input_price": "4", "output_price": "18", "cached_input_price": "0.2", "cache_creation_price": "5", "reasoning_price": "6"}},
 	}, modelHeader(defaultProfileID))
 	assertStatus(t, tierUpdateResponse, http.StatusOK)
 	var tiered map[string]any
 	decodeJSONResponse(t, tierUpdateResponse, &tiered)
-	if tier := asMap(t, tiered["tier"]); jsonInt(t, tier["input_tokens_above"]) != 272000 || tier["input_price"] != "4" || tier["output_price"] != "18" || tier["reasoning_price"] != "6" {
-		t.Fatalf("expected normalized tier pricing card, got %+v", tiered)
+	tier := asMap(t, tiered["tier"])
+	tierCard := asMap(t, tier["card"])
+	if jsonInt(t, tier["input_tokens_above"]) != 272000 || tierCard["input_price"] != "4" || tierCard["output_price"] != "18" || tierCard["reasoning_price"] != "6" {
+		t.Fatalf("expected normalized typed tier pricing card, got %+v", tiered)
 	}
 
 	// Explicit null specials become unconfigured (NULL), not zero. Clearing
 	// the tier in the same replacement keeps the parity invariant valid.
-	zeroPricesResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{"expected_updated_at": tiered["updated_at"], "cached_input_price": nil, "cache_creation_price": nil, "reasoning_price": nil, "tier": nil}, modelHeader(defaultProfileID))
+	zeroPricesResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{"expected_updated_at": tiered["updated_at"], "template_kind": "standard", "card": map[string]any{"input_price": "3.75", "output_price": "2.5", "cached_input_price": nil, "cache_creation_price": nil, "reasoning_price": nil}}, modelHeader(defaultProfileID))
 	assertStatus(t, zeroPricesResponse, http.StatusOK)
 	var zeroed map[string]any
 	decodeJSONResponse(t, zeroPricesResponse, &zeroed)
@@ -156,12 +165,9 @@ func TestConnectionS10PricingTemplateCRUD(t *testing.T) {
 	// Tombstones stay addressable by ID but do not occupy the active authoring
 	// namespace: the same canonical name can be recreated with a new revision.
 	recreatedResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates", map[string]any{
-		"name":                 "S10 Created Template",
-		"input_price":          "1",
-		"output_price":         "2",
-		"cached_input_price":   "0",
-		"cache_creation_price": "0",
-		"reasoning_price":      "0",
+		"name":          "S10 Created Template",
+		"template_kind": "standard",
+		"card":          map[string]any{"input_price": "1", "output_price": "2", "cached_input_price": "0", "cache_creation_price": "0", "reasoning_price": "0"},
 	}, modelHeader(defaultProfileID))
 	assertStatus(t, recreatedResponse, http.StatusCreated)
 	var recreated map[string]any
@@ -171,11 +177,37 @@ func TestConnectionS10PricingTemplateCRUD(t *testing.T) {
 	}
 }
 
+func TestConnectionS10PeakValleyPricingTemplateCRUD(t *testing.T) {
+	harness := newEndpointConnectionContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	create := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates", map[string]any{
+		"name": "S10 Peak Valley Template", "template_kind": "peak_valley",
+		"peak_card":    map[string]any{"input_price": "10", "output_price": "20", "cached_input_price": "1", "cache_creation_price": "2", "reasoning_price": "3"},
+		"offpeak_card": map[string]any{"input_price": "1", "output_price": "2", "cached_input_price": "1", "cache_creation_price": "2", "reasoning_price": "3"},
+		"schedule":     map[string]any{"timezone": "Asia/Shanghai", "windows": []map[string]any{{"weekday_mask": 127, "start_minute": 0, "end_minute": 1440}}},
+	}, modelHeader(profileID))
+	assertStatus(t, create, http.StatusCreated)
+	var created map[string]any
+	decodeJSONResponse(t, create, &created)
+	if created["template_kind"] != "peak_valley" || created["card"] != nil || created["base_card"] != nil {
+		t.Fatalf("expected mutually exclusive peak_valley response, got %+v", created)
+	}
+	if asMap(t, created["peak_card"])["input_price"] != "10" || asMap(t, created["offpeak_card"])["input_price"] != "1" {
+		t.Fatalf("expected complete peak/offpeak cards, got %+v", created)
+	}
+	schedule := asMap(t, created["schedule"])
+	if schedule["timezone"] != "Asia/Shanghai" || len(schedule["windows"].([]any)) != 1 {
+		t.Fatalf("expected authored schedule, got %+v", created)
+	}
+	bad := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates", map[string]any{"name": "S10 Peak Empty", "template_kind": "peak_valley", "peak_card": map[string]any{"input_price": "1", "output_price": "2", "cached_input_price": "0", "cache_creation_price": "0", "reasoning_price": "0"}, "offpeak_card": map[string]any{"input_price": "1", "output_price": "2", "cached_input_price": "0", "cache_creation_price": "0", "reasoning_price": "0"}, "schedule": map[string]any{"timezone": "UTC", "windows": []any{}}}, modelHeader(profileID))
+	assertStatus(t, bad, http.StatusUnprocessableEntity)
+}
+
 func TestConnectionS10PricingTemplateMetadataOnlyUpdateKeepsVersion(t *testing.T) {
 	harness := newEndpointConnectionContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
 
-	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates", map[string]any{"name": "S10 Metadata Only Update", "input_price": "1.10", "output_price": "2.20", "cached_input_price": "3.30", "cache_creation_price": "4.40", "reasoning_price": "5.50"}, modelHeader(defaultProfileID))
+	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates", map[string]any{"name": "S10 Metadata Only Update", "template_kind": "standard", "card": map[string]any{"input_price": "1.10", "output_price": "2.20", "cached_input_price": "3.30", "cache_creation_price": "4.40", "reasoning_price": "5.50"}}, modelHeader(defaultProfileID))
 	assertStatus(t, createResponse, http.StatusCreated)
 	var created map[string]any
 	decodeJSONResponse(t, createResponse, &created)
@@ -195,7 +227,7 @@ func TestConnectionS10PricingTemplateMetadataOnlyUpdateKeepsVersion(t *testing.T
 
 	// Canonicalization: "2.20" (equivalent to stored "2.2") is a no-op
 	// (SPEC 4.2) and must not create a revision.
-	canonicalResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{"expected_updated_at": updated["updated_at"], "output_price": "2.20"}, modelHeader(defaultProfileID))
+	canonicalResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{"expected_updated_at": updated["updated_at"], "template_kind": "standard", "card": map[string]any{"input_price": "1.1", "output_price": "2.20", "cached_input_price": "3.3", "cache_creation_price": "4.4", "reasoning_price": "5.5"}}, modelHeader(defaultProfileID))
 	assertStatus(t, canonicalResponse, http.StatusOK)
 	var canonical map[string]any
 	decodeJSONResponse(t, canonicalResponse, &canonical)
@@ -266,10 +298,11 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 	profileID := modelLoadDefaultProfileID(t, harness)
 
 	payload := map[string]any{
-		"mode": "upsert_by_name",
+		"schema_version": 2,
+		"mode":           "upsert_by_name",
 		"templates": []map[string]any{
-			{"name": " gpt-4o ", "input_price": "2.5", "output_price": "10", "cached_input_price": "1.25", "cache_creation_price": "0", "reasoning_price": "0", "description": " flagship "},
-			{"name": "gpt-4o-mini", "input_price": "0.15", "output_price": "0.60", "cached_input_price": "0", "cache_creation_price": "0", "reasoning_price": "0"},
+			{"name": " gpt-4o ", "template_kind": "standard", "card": map[string]any{"input_price": "2.5", "output_price": "10", "cached_input_price": "1.25", "cache_creation_price": "0", "reasoning_price": "0"}, "description": " flagship "},
+			{"name": "gpt-4o-mini", "template_kind": "standard", "card": map[string]any{"input_price": "0.15", "output_price": "0.60", "cached_input_price": "0", "cache_creation_price": "0", "reasoning_price": "0"}},
 		},
 	}
 
@@ -292,7 +325,7 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 	assertPricingTemplateCount(t, harness, profileID, 0)
 
 	// Commit with the preview hash writes the batch atomically.
-	commitBody := map[string]any{"mode": payload["mode"], "templates": payload["templates"], "preview_hash": imported.PreviewHash}
+	commitBody := map[string]any{"schema_version": 2, "mode": payload["mode"], "templates": payload["templates"], "preview_hash": imported.PreviewHash}
 	commitResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import/commit", commitBody, modelHeader(profileID))
 	assertStatus(t, commitResponse, http.StatusOK)
 	decodeJSONResponse(t, commitResponse, &imported)
@@ -309,7 +342,7 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 	if imported.Created != 0 || imported.Updated != 0 || imported.PreviewHash == "" {
 		t.Fatalf("unexpected no-op import preview: %+v", imported)
 	}
-	commitBody2 := map[string]any{"mode": payload["mode"], "templates": payload["templates"], "preview_hash": imported.PreviewHash}
+	commitBody2 := map[string]any{"schema_version": 2, "mode": payload["mode"], "templates": payload["templates"], "preview_hash": imported.PreviewHash}
 	updatedResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import/commit", commitBody2, modelHeader(profileID))
 	assertStatus(t, updatedResponse, http.StatusOK)
 	decodeJSONResponse(t, updatedResponse, &imported)
@@ -320,10 +353,11 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 
 	// A real price change through the two-phase flow bumps the version.
 	changedPayload := map[string]any{
-		"mode": "upsert_by_name",
+		"schema_version": 2,
+		"mode":           "upsert_by_name",
 		"templates": []map[string]any{
-			{"name": "gpt-4o", "input_price": "2.5", "output_price": "11", "cached_input_price": "1.25", "cache_creation_price": "0", "reasoning_price": "0", "description": " flagship "},
-			{"name": "gpt-4o-mini", "input_price": "0.15", "output_price": "0.60", "cached_input_price": "0", "cache_creation_price": "0", "reasoning_price": "0"},
+			{"name": "gpt-4o", "template_kind": "standard", "card": map[string]any{"input_price": "2.5", "output_price": "11", "cached_input_price": "1.25", "cache_creation_price": "0", "reasoning_price": "0"}, "description": " flagship "},
+			{"name": "gpt-4o-mini", "template_kind": "standard", "card": map[string]any{"input_price": "0.15", "output_price": "0.60", "cached_input_price": "0", "cache_creation_price": "0", "reasoning_price": "0"}},
 		},
 	}
 	changePreview := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import", changedPayload, modelHeader(profileID))
@@ -332,7 +366,7 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 	if imported.Created != 0 || imported.Updated != 1 {
 		t.Fatalf("expected one update in change preview (gpt-4o-mini is a no-op), got %+v", imported)
 	}
-	changeCommit := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import/commit", map[string]any{"mode": "upsert_by_name", "templates": changedPayload["templates"], "preview_hash": imported.PreviewHash}, modelHeader(profileID))
+	changeCommit := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import/commit", map[string]any{"schema_version": 2, "mode": "upsert_by_name", "templates": changedPayload["templates"], "preview_hash": imported.PreviewHash}, modelHeader(profileID))
 	assertStatus(t, changeCommit, http.StatusOK)
 	decodeJSONResponse(t, changeCommit, &imported)
 	if imported.Created != 0 || imported.Updated != 1 {
@@ -341,15 +375,16 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 	assertPricingTemplateCount(t, harness, profileID, 2)
 
 	// A stale commit (wrong hash) fails closed without writing.
-	staleCommit := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import/commit", map[string]any{"mode": payload["mode"], "templates": payload["templates"], "preview_hash": "not-the-hash"}, modelHeader(profileID))
+	staleCommit := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import/commit", map[string]any{"schema_version": 2, "mode": payload["mode"], "templates": payload["templates"], "preview_hash": "not-the-hash"}, modelHeader(profileID))
 	assertStatus(t, staleCommit, http.StatusConflict)
 	assertPricingTemplateCount(t, harness, profileID, 2)
 
 	invalid := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import", map[string]any{
-		"mode": "upsert_by_name",
+		"schema_version": 2,
+		"mode":           "upsert_by_name",
 		"templates": []map[string]any{
-			{"name": "bad-row-kept-out", "input_price": "1", "output_price": "2", "cached_input_price": "1.2.3", "cache_creation_price": "0", "reasoning_price": "0"},
-			{"name": "bad-price", "input_price": "-1", "output_price": "2", "cached_input_price": "0", "cache_creation_price": "0", "reasoning_price": "0"},
+			{"name": "bad-row-kept-out", "template_kind": "standard", "card": map[string]any{"input_price": "1", "output_price": "2", "cached_input_price": "1.2.3", "cache_creation_price": "0", "reasoning_price": "0"}},
+			{"name": "bad-price", "template_kind": "standard", "card": map[string]any{"input_price": "-1", "output_price": "2", "cached_input_price": "0", "cache_creation_price": "0", "reasoning_price": "0"}},
 		},
 	}, modelHeader(profileID))
 	assertStatus(t, invalid, http.StatusOK)
@@ -361,9 +396,10 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 
 	// Legacy authoring fields inside import rows fail closed per row.
 	legacyRow := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import", map[string]any{
-		"mode": "upsert_by_name",
+		"schema_version": 2,
+		"mode":           "upsert_by_name",
 		"templates": []map[string]any{
-			{"name": "legacy-row", "pricing_currency_code": "USD", "input_price": "1", "output_price": "2", "cached_input_price": "0", "cache_creation_price": "0", "reasoning_price": "0"},
+			{"name": "legacy-row", "template_kind": "standard", "pricing_currency_code": "USD", "card": map[string]any{"input_price": "1", "output_price": "2", "cached_input_price": "0", "cache_creation_price": "0", "reasoning_price": "0"}},
 		},
 	}, modelHeader(profileID))
 	assertStatus(t, legacyRow, http.StatusOK)
@@ -374,9 +410,10 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 	assertPricingTemplateCount(t, harness, profileID, 2)
 
 	unknown := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import", map[string]any{
-		"mode":      "upsert_by_name",
-		"templates": []map[string]any{},
-		"surprise":  true,
+		"schema_version": 2,
+		"mode":           "upsert_by_name",
+		"templates":      []map[string]any{},
+		"surprise":       true,
 	}, modelHeader(profileID))
 	assertStatus(t, unknown, http.StatusBadRequest)
 }

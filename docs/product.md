@@ -7,6 +7,7 @@ Prism is a lightweight, self-hosted application that acts as a unified proxy for
 ## 2. Problem Statement
 
 Developers and power users working with multiple LLM API families face:
+
 - Managing multiple API keys and base URLs across different tools
 - No unified endpoint for switching between API families
 - No automatic failover when an API family is down or rate-limited
@@ -19,6 +20,7 @@ Single operator (developer/power user) running the application locally or on a l
 ## 4. Core Features
 
 ### 4.1 Multi-Family Proxy
+
 - Operation-registered proxy support for explicit OpenAI Chat Completions, Responses, Anthropic Messages/count-token, and Gemini generate/stream/count-token operations
 - Supports both streaming (SSE) and non-streaming responses
 - Preserves native request/response formats per API family
@@ -26,6 +28,7 @@ Single operator (developer/power user) running the application locally or on a l
 - `GET /v1/models` is local and returns the OpenAI `object`/`data` list for enabled OpenAI models; query parameters do not select an alternate response shape
 
 ### 4.2 Model Configuration
+
 - Map each model to a fixed runtime `api_family`
 - OpenAI models also carry an `openai_accepted_format` of `responses_only`, `chat_completions_only`, or `dual_native`; strict mode equality requires every access target (model or Terminal Target) to use the identical mode
 - OpenAI models independently carry an `openai_image_operations` of `generations`, `edits`, or `generations_and_edits`; an OpenAI model must declare at least one of the two dimensions, so a pure image model such as `gpt-image-2` carries no text mode at all
@@ -35,6 +38,7 @@ Single operator (developer/power user) running the application locally or on a l
 - CRUD operations for all configurations are available via REST API
 
 ### 4.3 Unified Model Access Routing
+
 - Model Target rows and Terminal Target rows are type-neutral peers of the same authored mixed order; `single`, `fill-first`, and `round-robin` run once over the enabled mixed rows, and no target type holds a hidden priority tier
 - Model-target entries must stay within the same `api_family`, cannot target themselves, and cannot introduce cycles
 - A Model Target row is an atomic parent peer: entering it recursively resolves the child model with the child's own strategy, and the child's attempts stay one contiguous block in the parent result
@@ -47,6 +51,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Once one final target path is selected for an attempt, retries stay inside that target path's Terminal Target plan for that attempt.
 
 ### 4.4 Load Balancing & Failover
+
 - For models with multiple reachable Terminal Targets:
   - **Automatic failover** when an attempt returns a failover-triggering status (`403`, `422`, `429`, `500`, `502`, `503`, `504`, `529` by default) or raises connection/timeout errors
   - Models attach one reusable explicit Ban Policy strategy using `single`, `fill-first`, or `round-robin` routing
@@ -65,6 +70,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Retry scheduling, retry exhaustion, bans, unbans, recovery, and admission-rejection transitions are persisted as `loadbalance_events` for audit and observability.
 
 ### 4.5 Default-Profile Endpoints & Terminal Targets
+
 - **Endpoints** are profile-scoped credential objects containing a name, base URL, and API key.
 - **Models** carry fixed `api_family` metadata.
 - **Terminal Targets** are profile-scoped model routing, costing, and health configurations that reference endpoints in the same profile. They can also carry per-target custom HTTP headers, an optional static JSON request-body parameter overlay, and an optional routing schedule that limits which parts of the week the target may be selected (see §4.12, §4.13, and §4.17).
@@ -72,6 +78,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Deleting an endpoint is blocked if any Terminal Targets in that profile still reference it.
 
 ### 4.6 Terminal Target Request Health
+
 - Manual Terminal Target test actions are removed from the management API and UI.
 - Backend request-derived stats can expose Terminal Target success-rate and routing-health read models for real runtime traffic. These are API/read-model capabilities, not a current per-target health-badge workflow.
 - The Models page renders plain telemetry text for each model: 24-hour success rate, P95 latency, and 24-hour request count, plus a 30-day spend value. Missing success data is shown as `- Success`; there are no colored success-rate thresholds or health badges.
@@ -80,6 +87,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Cooldown reset (`POST /api/loadbalance/current-state/{connection_id}/reset`) clears only retry/ban cooldown fields (cycle/cumulative attempts, next-retry time, last retry delay, ban mode/expiry, last failure kind) and preserves QPS window, in-flight counts, last success facts, response-headers latency and round-robin cursors; the response returns the full post-reset state DTO and `cleared=false` when there is nothing to clear.
 
 ### 4.7 Web UI (Management Dashboard)
+
 - View all configured models and their reachable Terminal Targets
 - Add/edit/delete model configurations with ordered access targets
 - Add/edit/delete profile-scoped endpoints
@@ -98,18 +106,23 @@ Single operator (developer/power user) running the application locally or on a l
 - Settings uses canonical public URLs with **全局** (`scope=global`) and **实例** (`scope=instance`) scopes and a section allowlist; the legacy `tab` query value is dropped during canonicalization. `scope=global` contains billing/reporting currency, timezone, audit/privacy, and config rules; `scope=instance` contains authentication and operator account, automatic retention policy with owner actual coverage, manual cleanup, and the retention job center.
 
 ### 4.8 Configuration Persistence
+
 - Runtime and management configuration is stored in PostgreSQL with Go-backend-managed schema migrations applied at startup
 - Startup/bootstrap process settings are owned by the plaintext `config.json` bootstrap file; external edits require a Prism restart after R2
 - The default profile exists from the first startup and remains editable after initialization
 - Database setup is managed by the Go backend runtime and applies the checked-in fresh-install baseline on startup
+
 ### 4.9 Request Statistics & Analytics
+
 - Local `GET /v1/models` produces no runtime telemetry. Provider-forwarded operations create retained history only when activity reaches a telemetry handoff: successful `2xx` responses use the durable response-path handoff, captured non-`2xx` responses use scheduled activity handoff, and the narrow `PlanningFailure`/`admission_exhausted` classes use synthetic failure handoff. Registry rejections and the earlier planning errors listed above do not create request history.
 - Each retained request-log row captures: profile ID attribution, requested `model_id`, final `resolved_target_model_id` when an access-target path is selected, `api_family`, Terminal Target used through connection attribution (ID, endpoint base URL, description), Prism `ingress_request_id` (UUIDv4), `attempt_number`/`attempt_trigger`/`attempt_result`/`is_winner`, best-effort `provider_correlation_id`, caller and upstream client display, scoped HTTP status (`upstream_status_code`/`gateway_status_code`/`legacy_status_code`), `attempt_duration_ms`/`legacy_duration_ms`, token usage when available from upstream response, whether the request was streamed, selected Terminal Target, operation names, translation mode, timestamp, and a unified failure projection (`error_source`/`error_code`/`failure_stage`/scrubbed `error_detail` plus independent `stream_error_kind`/`stream_error_detail` with redacted/truncated flags). Old un-scoped `status_code` and mixed `response_time_ms` are only retained as nullable legacy projections and are never written by the current runtime writer.
 - A normal upstream attempt is represented by one request-log row; telemetry-eligible planning/admission activity adds a diagnostic row with `row_kind=planning|admission` and a gateway status. `ingress_request_id` groups retained rows from one incoming runtime request; the default Requests view is the server-side retained ingress chain (`view=ingress_chains`) with finalized usage evidence, expected/retained counts, routing evidence flags, and signed outer/row cursors. The current detail sheet shows the request path and routing fields, while operation names, translation mode, and upstream path are persisted and returned by the detail API but are not rendered in that sheet.
 - A normal upstream attempt is represented by one request-log row; telemetry-eligible `PlanningFailure` or `admission_exhausted` activity may add a synthetic row without endpoint/connection. `ingress_request_id` groups retained attempt rows from one incoming runtime request. The current detail sheet shows the request path and routing fields, while operation names, translation mode, and upstream path are persisted and returned by the detail API but are not rendered in that sheet.
 
 #### 4.9.1 Token Usage Extraction
+
 Token usage is extracted from upstream responses using api-family-aware parsing:
+
 - **OpenAI Chat Completions (non-streaming)**: Extracts from `usage.prompt_tokens`, `usage.completion_tokens`, and detail objects
 - **OpenAI Responses and Responses compact (non-streaming)**: Extracts from `usage.input_tokens`, `usage.output_tokens`, `usage.total_tokens`, and detail objects
 - **OpenAI Responses input_tokens (non-streaming)**: Extracts `input_tokens` and `total_tokens` from top-level token-count payloads
@@ -123,10 +136,12 @@ Token usage is extracted from upstream responses using api-family-aware parsing:
   - Usage block present but special fields absent: special fields logged as `0`
 
 #### 4.9.2 Token Costing
+
 The gateway computes the cost of each request based on the extracted token usage and the connection's assigned pricing template.
+
 - **Pricing Templates**: Pricing is profile-scoped and reusable. Connections reference templates via `pricing_template_id` instead of storing inline price fields.
-- **Pricing behavior**: Pricing templates use five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Explicit JSON `null` means an unconfigured specialty price; empty or whitespace-only strings are rejected with `422`. An optional single `tier` card uses the same five components and switches the whole request when disjoint total input strictly exceeds its threshold.
-- **Semantic Note**: Explicit `"0"` means configured free pricing. `MISSING_PRICE_DATA` is reserved for absent, unusable, or invalid pricing snapshots, or missing FX data. Token costing uses canonical disjoint components: base input, cache-read input, cache-creation input, base output, and reasoning output; aggregate `cached_tokens` is derived-only for presentation.
+- **Pricing behavior**: Every pricing template has exactly one user-selected kind: `standard`, `tiered`, or `peak_valley`. Each kind owns complete five-component price cards. `tiered` switches the entire request from `tier_base` to `tier_above` only when the disjoint input basis is strictly above the configured threshold. `peak_valley` owns independent `peak` and `offpeak` cards plus user-authored half-open windows and an IANA timezone; the window union selects peak and its complement selects offpeak. `peak` is a role label, not a promise that the rate is higher. Explicit JSON `null` means an unconfigured specialty price; explicit `"0"` means configured free pricing.
+- **Semantic Note**: Explicit `"0"` means configured free pricing. `MISSING_PRICE_DATA` is reserved for absent, unusable, or invalid pricing snapshots, or missing FX data. Token costing uses canonical disjoint components: base input, cache-read input, cache-creation input, base output, and reasoning output; aggregate `cached_tokens` is derived-only for presentation. Token-count operations have no generation output usage, so they select the applicable input card and charge only observed input/cache components; the absent output component contributes zero and is not treated as missing usage.
 - **Cache-read share**: The Window KPI card and the per-request detail row report prompt tokens served from cache as `cache_read / (input + cache_read + cache_creation)`, computed once in the frontend over the disjoint components without re-deriving totals. Upstream ingestion already normalizes to disjoint semantics, so `input_tokens` never includes cache components; `cache_creation` is structurally absent for OpenAI/Gemini and coalesces to zero, while a null `input` or `cache_read` excludes the row (the two are not interchangeable). The window aggregate is computed backend-side in one SQL statement under a single `cache_basis_eligible` predicate that also requires a non-null `operation_name` outside `anthropic.count_tokens`, `gemini.count_tokens`, `openai.images.generations`, and `openai.images.edits` — count_tokens duplicates the total into cache_read and image operations never report cache components, and a null operation name is indeterminate. Real zero, no comparable rows, an empty window, a failed read, and partial coverage are presented as mutually distinguishable states; none is shown as a fabricated `0%`.
 - **Historical costing provenance**: Request-log details retain and display report currency, original/source currency, FX rate and source, pricing unit, pricing configuration version, template identity snapshots, reporting-currency epoch, `cost_segment_key`, and all five pricing snapshot components. Lists and CSV use each row's stored report-currency symbol rather than recomputing historical requests from the current settings. Pricing is a four-state classifier (`priced|unpriced|ineligible|unknown`) with canonical `missing_price_components` and `pricing_evidence_trust`; the old `priced_flag`/`billable_flag` boolean surfaces are not part of the current contract. Non-2xx rows are `ineligible`. Legacy-untrusted rows keep canonical cost null and expose raw values only through the exact detail `legacy_pricing_evidence` block.
 
@@ -160,36 +175,45 @@ The analysis window presets and the retention policies are independent surfaces.
 - Consequence, and the expected behavior: on an instance that keeps one day of statistics, the `7d`, `30d`, and `all` windows legitimately show only the retained range. This is not a defect and not a reason to remove the presets; the retention settings page states the same consequence, namely that a retention policy governs future visible coverage and never restores history that has already been cleaned up.
 
 ### 4.10 Request Audit Logging
+
 Full HTTP request/response recording for proxied requests, stored in the database for auditing and debugging.
 
 #### 4.10.1 Request-Time Audit Flags
+
 - Audit rows store `audit_enabled_at_request` and `audit_capture_bodies_at_request` as request-time provenance
 - Audit behavior does not derive runtime compatibility from catalog metadata
 - Toggling audit settings affects new requests only
 
 #### 4.10.2 What Gets Recorded
+
 For each audited upstream attempt that is materialized:
+
 - **Request**: HTTP method, scrubbed upstream URL, canonical sorted scrubbed request-header entries with provenance, and a BYTEA byte-exact stored request-body prefix.
 - **Response**: Scoped HTTP status and response-header snapshot with provenance; captured response bytes when enabled. For a multi-attempt request, response body capture is associated with the final attempt rather than every failed attempt.
 - **Metadata**: model and API family, connection identity (connection ID, endpoint base URL, description), scoped status/duration, stream flag, timestamp, link to `request_log`, `row_kind`, attempt facts, ingress byte counters and capture-limit reasons.
 
 #### 4.10.3 Sensitive Data Redaction
+
 Audit redaction applies the fixed safe-diagnostic bottom line (Bearer/Basic/JWT/API-key-like/key=value/URL-secret redaction from `safediag`) plus request-time Header Blocklist additions before the ordinary backend outbox. Sensitive header names and credential-shaped values are stored as `[REDACTED]`; legacy rows are marked `legacy_all_values_redacted`/`legacy_rescrubbed`. Captured request or response bodies are the authorized raw-body exception and may contain prompt/PII/secrets; that exception never extends to failure diagnostics, ordinary telemetry, or headers. Body capture is bounded at 4 MiB per body, with a 12 MiB shared request budget and 4 MiB response reservation per ingress, and raw downloads serve exact stored bytes with typed capture/truncation callouts.
 
 Failure diagnostics reuse the same redaction rules without the raw-body exception. The persisted `error_detail` and the independent `stream_error_detail` are produced by scrubbing upstream failure text through the shared `safediag` rules plus the request-time Header Blocklist, then truncating on UTF-8 code-point boundaries; each row records whether the value was redacted and whether it was truncated. Routing failures and admission failures persist the same scrubbed projection, so a diagnostic row never carries unscrubbed upstream text. Provider-supplied error codes are adopted only after they survive the same trim/scrub pass and match the stable code grammar.
 
 #### 4.10.4 Routing And Delivery Boundaries
+
 Audit policy does not change model selection, Terminal Target selection, or client-facing response handling:
+
 - A successful provider-forwarded `2xx` response requires the applicable durable telemetry handoff before Prism commits or first flushes the response. If that handoff fails before client-visible output, Prism returns a runtime observability error instead of the successful response.
 - After handoff, background materialization and non-required side-effect failures are isolated from the proxied response path.
 - Unsupported or wrong-method runtime registry rejections do not enter telemetry or audit handling.
 
 #### 4.10.5 Audit Inspection (Frontend)
+
 - Audit detail is opened from the request investigation flow on `/observe/requests/:requestId/audit` rather than a standalone `/audit` page
 - Every successfully loaded request detail sheet provides an entry point to the dedicated audit page; the sheet itself remains overview-only and does not fetch audit payloads
 - The dedicated page first loads the request detail, then shows request-time audit state as disabled, metadata-only, or full capture and resolves audit rows with `request_log_id`
 
 #### 4.10.6 Body Size Limits And Raw Download
+
 - When body capture is enabled, Prism stores captured request bodies for audited attempts and the captured response body for the final attempt only.
 - Capture is bounded: per-body 4 MiB cap; per ingress request copies 12 MiB and final response 4 MiB; scrubbed header blocks 64 KiB with 1 MiB per direction (response reserves 64 KiB for the final winner). Allocation follows immutable launch order; budget exhaustion only stops extra audit storage, never proxy traffic.
 - Failure diagnostics are bounded independently of body capture and apply whether or not audit is enabled: the raw upstream error sample is capped at 32 KiB per attempt and stays in memory for diagnosis only — it never enters the outbox or any table — while the persisted `error_detail` and `stream_error_detail` are capped at 4 KiB each after scrubbing. These caps are code-fixed constants rather than settings; changing one requires syncing this document, the API metadata, and the runtime tests.
@@ -198,20 +222,26 @@ Audit policy does not change model selection, Terminal Target selection, or clie
 - Audit list/detail/preview responses are `private, no-store`; the audit list also carries a non-null `known|legacy_unknown` coverage projection, and an anchored row outside the first page arrives exactly once as `anchor_item`.
 
 ### 4.11 Batch Data Deletion
+
 Provide flexible bulk deletion of historical logs and statistics data to manage database growth.
+
 - Supported Data Types: `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`
 - The Settings UI offers only `1`, `7`, `30`, `90` days, or all data. The management API accepts an explicit cutoff timestamp for callers that need a custom range.
 - Deletion requests create durable management jobs; the Settings retention job center lists and polls the global v2 queue, opens durable checkpoint details, and cancels only queued manual jobs. The same list/get/cancel routes remain available as API contracts.
 - Deleting `request_logs` does NOT delete linked `audit_logs`; audit rows retain weak request-log metadata, and audit reads expose `request_log_missing=true` only when both `request_log_id` and `request_log_created_at` are present but their profile-scoped tuple no longer resolves
 
 ### 4.12 Custom HTTP Headers per Terminal Target
+
 Allow users to configure custom HTTP headers on individual Terminal Targets. These headers are appended to upstream proxy requests.
+
 - Custom headers are configured during Terminal Target creation or editing
 - Headers are stored as a JSON object
 - Custom headers can override ordinary forwarded headers, but they cannot override Prism-controlled authentication or provider-version headers and cannot bypass the final Header Blocklist
 
 ### 4.13 Custom Request Parameters per Terminal Target
+
 Allow operators to attach an optional static top-level JSON object (`custom_request_parameters`) to each Terminal Target. Prism applies the object as a top-level shallow overlay on the provider-native upstream request body of every actual attempt that selects that Connection, after the provider adapter completes model/path rewrite.
+
 - Configured during Terminal Target creation or editing under “高级请求设置 → 自定义请求参数（JSON）”, with a full-width JSON editor, format/clear actions, a top-level count summary, and field-level validation that mirrors the backend validator
 - Overlay rules: non-conflicting client top-level fields are preserved; matching top-level keys are replaced wholesale (nested objects are never recursively merged); configured `null` values are sent as literal JSON null; there is no delete-member syntax
 - The same Connection configuration applies to all nine provider-forwarded POST operations (OpenAI Chat Completions/Responses/input-tokens/compact, Anthropic Messages/count_tokens, Gemini generateContent/streamGenerateContent/countTokens); local `GET /v1/models` never applies it
@@ -225,19 +255,21 @@ Allow operators to attach an optional static top-level JSON object (`custom_requ
 - Prism does not guess vendors, download provider catalogs, or verify provider slugs; whether an upstream accepts or honors a parameter is the operator's and upstream's responsibility (for example OpenRouter `provider.only` / `provider.order` / `allow_fallbacks`)
 
 ### 4.14 Supported API Families
+
 - The application exclusively supports the shipped OpenAI, Anthropic, and Gemini `api_family` values
 
 ### 4.15 Configurable Header Blocklist
+
 Database-backed header blocklist with CRUD API. Supports exact and prefix match types. System defaults for Cloudflare tunnel metadata, tracing headers, and standard proxy headers. Applied by the Go runtime on every request.
 
 ### 4.16 Frozen Profile Scope
+
 - Prism preserves the `profiles` table and all `profile_id` storage columns for historical attribution and a future unfreeze path.
 - Profile-scoped management APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
 - Global management routes stay outside profile scoping. Global routes include auth, auth-setting flows, `GET/PUT /api/settings/log-retention`, destructive preflights and manual jobs under `/api/maintenance/log-retention/*`, and global retention job list/detail/cancel under `/api/management/jobs*`.
 - Profile lifecycle APIs are not exposed in the current management surface.
 - Runtime proxy traffic on `/v1/*` and `/v1beta/*` ignores management profile headers and always resolves against frozen Default profile id `1`; `X-Profile-Id` and profile fields remain compatibility/storage attribution only.
 - Observability rows (`request_logs`, `audit_logs`) carry immutable `profile_id` attribution for historical correctness.
-
 
 ### 4.17 Routing Schedule per Terminal Target
 
@@ -258,7 +290,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 ## 5. Non-Functional Requirements
 
 | Requirement | Target |
-|---|---|
+| --- | --- |
 | Deployment | Root Compose self-hosted bundle uses one Prism app image plus PostgreSQL; the app image runs the Go backend behind Nginx, and the local launcher runs PostgreSQL, backend, and optional Vite frontend. The runtime image must provide `/usr/share/zoneinfo`: the backend builds with `CGO_ENABLED=0`, so `time.LoadLocation` reads that directory only and has no libc fallback, and a missing database would push every connection with a routing schedule into `terminal_target_schedule_unresolvable`. The current base image ships tzdata, which makes this an implicit dependency that must be re-verified whenever the base image changes |
 | Authentication | Optional operator auth for `/api/*`; optional proxy API keys for `/v1/*` and `/v1beta/*` |
 | Latency overhead | < 50ms added to proxy requests |
@@ -270,7 +302,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 ## 6. Tech Stack
 
 | Component | Technology |
-|---|---|
+| --- | --- |
 | Backend | Go 1.26.6, chi, pgx |
 | HTTP Client | Go `net/http` streaming transport |
 | Database | PostgreSQL via pgx |
@@ -543,10 +575,10 @@ The Requests page must remain compatible with the following backend-facing and s
 
 ## 9. Workflows Reference
 
-
 This document maps Prism's current operator workflows from mounted frontend routes to the backend APIs they drive. It is grounded in `frontend/src/app/router/appRouter.tsx`, `frontend/src/app/router/rewriteRoutes.ts`, the live Go backend API surface, and the markdown API reference.
 
 Validated again against current repo surfaces on 2026-08-13:
+
 - `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` are the four version surfaces and are always equal; `release.sh` is what keeps them aligned. The value itself is not restated here, because a copy of it in prose drifts the moment a release moves the files.
 - The protected frontend route shell mounts observe, request-log, model, route, settings, proxy-key, and pricing workflows; analytics lives under `/observe`.
 
@@ -696,7 +728,7 @@ Validated again against current repo surfaces on 2026-08-13:
 
 1. Endpoints define reusable upstream credentials and base URLs that Terminal Targets can share.
 2. The Ban Policies page exposes only `Strategies`, `Current State`, and `Events`; it does not render incidents. The dashboard consumes `/api/loadbalance/incidents` for its incident banner and recent-event alerts.
-3. Pricing templates define reusable cost models attached to Terminal Targets with five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. A template may additionally define one threshold-plus-five-price `tier` card; a request that exceeds the threshold uses that complete card for all five components rather than marginal billing.
+3. Pricing templates define reusable cost models attached to Terminal Targets as typed, mutually-exclusive cards. Standard has one `standard` card; tiered has `tier_base` and `tier_above` plus a positive threshold; peak/valley has `peak` and `offpeak` plus at least one user-authored window and IANA timezone. A request chooses one complete card before FX and arithmetic; Prism never proportionally splits a request across a window boundary. Invalid/missing schedule evaluation is visibly unresolved and fail-closed, never silently priced with the valley card.
 4. Pricing-template management saves explicit strings for every component. Missing/null/blank inputs normalize to `"0"`; explicit `"0"` is configured free pricing, not missing pricing data.
 5. Pricing supports JSON file or pasted-text import with `upsert_by_name` or `create_only`, a connection-usage lookup, and delete protection when Terminal Targets still depend on a template.
 6. Request logs and cost math consume canonical disjoint token components: base input, cache-read input, cache-creation input, base output, and reasoning output. Aggregate `cached_tokens` is derived-only for presentation.
@@ -724,6 +756,7 @@ Validated again against current repo surfaces on 2026-08-13:
 `GET /api/endpoints/connections` remains a shared API-client/reference-data catalog surface without a current production frontend consumer.
 
 The loadbalance strategy routes are pinned to Default profile id `1`, and the defaults action is a no-body POST that returns the created/current canonical rows plus creation metadata.
+
 - `GET /api/pricing-templates`
 - `POST /api/pricing-templates`
 - `POST /api/pricing-templates/import`

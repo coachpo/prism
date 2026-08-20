@@ -156,14 +156,22 @@ type RequestLogListItem struct {
 	PricingStatus                 string    `json:"pricing_status"`
 	UnpricedReason                *string   `json:"unpriced_reason"`
 	PricingEvidenceTrust          string    `json:"pricing_evidence_trust"`
-	ReasoningEffort               *string   `json:"reasoning_effort"`
-	ReportCurrencySymbol          *string   `json:"report_currency_symbol"`
-	CallerClientDisplay           *string   `json:"caller_client_display"`
-	UpstreamClientDisplay         *string   `json:"upstream_client_display"`
-	UserAgentOverridden           bool      `json:"user_agent_overridden"`
-	TerminalTargetLabel           *string   `json:"terminal_target_label"`
-	TerminalTargetConfigured      bool      `json:"terminal_target_configured"`
-	TerminalTargetOwnerModelID    *string   `json:"terminal_target_owner_model_id"`
+	// Typed pricing evidence deliberately stays on the list DTO so the table
+	// can distinguish family, selector state, and selected role without reading
+	// detail-only snapshots.
+	PricingTemplateKind            *string `json:"pricing_template_kind"`
+	PricingSelectionState          *string `json:"pricing_selection_state"`
+	PricingCardRole                *string `json:"pricing_card_role"`
+	PricingSelectorThresholdTokens *int    `json:"pricing_selector_threshold_tokens"`
+	PricingSelectorBasisTokens     *int64  `json:"pricing_selector_basis_tokens"`
+	ReasoningEffort                *string `json:"reasoning_effort"`
+	ReportCurrencySymbol           *string `json:"report_currency_symbol"`
+	CallerClientDisplay            *string `json:"caller_client_display"`
+	UpstreamClientDisplay          *string `json:"upstream_client_display"`
+	UserAgentOverridden            bool    `json:"user_agent_overridden"`
+	TerminalTargetLabel            *string `json:"terminal_target_label"`
+	TerminalTargetConfigured       bool    `json:"terminal_target_configured"`
+	TerminalTargetOwnerModelID     *string `json:"terminal_target_owner_model_id"`
 }
 
 type RequestLogListResponse struct {

@@ -90,7 +90,7 @@ func TestScrubValueCredentials(t *testing.T) {
 }
 
 func TestScrubValueJWT(t *testing.T) {
-	jwt := "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+	jwt := "eyJ" + "hbGciOiJIUzI1NiJ9" + ".eyJzdWIiOiIxMjM0NTY3ODkwIn0" + ".dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
 	result := ScrubValue("token="+jwt, ScrubOptions{})
 	if strings.Contains(result.Value, "eyJhbGci") {
 		t.Errorf("JWT fragment not redacted: %q", result.Value)

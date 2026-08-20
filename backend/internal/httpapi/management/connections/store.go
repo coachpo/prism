@@ -486,7 +486,7 @@ func listConnectionReferenceRows(ctx context.Context, exec queryExecutor, profil
 	return items, nil
 }
 
-const connectionSelectQuery = `SELECT connections.id, connections.profile_id, model_access_targets.source_model_config_id, connections.api_family, connections.endpoint_id, endpoints.id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.api_key_fingerprint, endpoints.api_key_updated_at, endpoints.config_revision, endpoints.created_at, endpoints.updated_at, connections.is_active, model_access_targets.position, connections.name, connections.auth_type, connections.custom_headers, connections.custom_request_parameters, connections.openai_text_capability, connections.openai_image_capability, connections.routing_schedule_timezone, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, revisions.version, revisions.currency_code, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id LEFT JOIN pricing_template_revisions AS revisions ON revisions.id = pricing_templates.current_revision_id`
+const connectionSelectQuery = `SELECT connections.id, connections.profile_id, model_access_targets.source_model_config_id, connections.api_family, connections.endpoint_id, endpoints.id, endpoints.profile_id, endpoints.name, endpoints.base_url, endpoints.api_key, endpoints.api_key_fingerprint, endpoints.api_key_updated_at, endpoints.config_revision, endpoints.created_at, endpoints.updated_at, connections.is_active, model_access_targets.position, connections.name, connections.auth_type, connections.custom_headers, connections.custom_request_parameters, connections.openai_text_capability, connections.openai_image_capability, connections.routing_schedule_timezone, connections.pricing_template_id, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream, pricing_templates.id, pricing_templates.name, revisions.version, revisions.currency_code, revisions.template_kind, connections.created_at, connections.updated_at FROM model_access_targets JOIN connections ON connections.id = model_access_targets.target_connection_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id LEFT JOIN pricing_template_revisions AS revisions ON revisions.id = pricing_templates.current_revision_id`
 
 func scanConnectionRows(rows pgx.Rows, iterateContext string) ([]connectionResponse, error) {
 	items := make([]connectionResponse, 0)
@@ -559,9 +559,10 @@ func scanTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminal
 	var templateID sql.NullInt32
 	var templateName sql.NullString
 	var templateCurrencyCode sql.NullString
+	var templateKind sql.NullString
 	var templateVersion sql.NullInt32
 	record := terminaltarget.Record{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &modelConfigID, &record.APIFamily, &record.EndpointID, &joinedEndpointID, &endpointProfileID, &endpointName, &endpointBaseURL, &endpointAPIKey, &endpointFingerprint, &endpointKeyUpdatedAt, &endpointConfigRevision, &endpointCreatedAt, &endpointUpdatedAt, &record.IsActive, &record.Priority, &connectionName, &authType, &customHeaders, &customRequestParameters, &openAITextCapability, &openAIImageCapability, &routingScheduleTimezone, &pricingTemplateID, &qpsLimit, &maxInFlightNonStream, &maxInFlightStream, &templateID, &templateName, &templateVersion, &templateCurrencyCode, &record.CreatedAt, &record.UpdatedAt); err != nil {
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &modelConfigID, &record.APIFamily, &record.EndpointID, &joinedEndpointID, &endpointProfileID, &endpointName, &endpointBaseURL, &endpointAPIKey, &endpointFingerprint, &endpointKeyUpdatedAt, &endpointConfigRevision, &endpointCreatedAt, &endpointUpdatedAt, &record.IsActive, &record.Priority, &connectionName, &authType, &customHeaders, &customRequestParameters, &openAITextCapability, &openAIImageCapability, &routingScheduleTimezone, &pricingTemplateID, &qpsLimit, &maxInFlightNonStream, &maxInFlightStream, &templateID, &templateName, &templateVersion, &templateCurrencyCode, &templateKind, &record.CreatedAt, &record.UpdatedAt); err != nil {
 		return terminaltarget.Record{}, err
 	}
 	record.RoutingScheduleTimezone = nullableStringValue(routingScheduleTimezone)
@@ -591,7 +592,9 @@ func scanTerminalTargetRecord(scanner interface{ Scan(...any) error }) (terminal
 		}
 	}
 	if templateID.Valid {
-		record.PricingTemplate = &terminaltarget.PricingTemplateSummary{ID: int(templateID.Int32), Name: templateName.String, PricingUnit: pricingUnitPerMillion, PricingCurrencyCode: templateCurrencyCode.String, Version: int(templateVersion.Int32)}
+		summary := &terminaltarget.PricingTemplateSummary{ID: int(templateID.Int32), Name: templateName.String, PricingUnit: pricingUnitPerMillion, PricingCurrencyCode: templateCurrencyCode.String, Version: int(templateVersion.Int32)}
+		summary.SetTemplateKind(templateKind.String)
+		record.PricingTemplate = summary
 	}
 	return record, nil
 }
@@ -632,7 +635,7 @@ func terminalTargetRecordFromConnectionResponse(item connectionResponse) termina
 		}
 	}
 	if item.PricingTemplate != nil {
-		record.PricingTemplate = &terminaltarget.PricingTemplateSummary{ID: item.PricingTemplate.ID, Name: item.PricingTemplate.Name, PricingUnit: item.PricingTemplate.PricingUnit, PricingCurrencyCode: item.PricingTemplate.PricingCurrencyCode, Version: item.PricingTemplate.Version}
+		record.PricingTemplate = &terminaltarget.PricingTemplateSummary{ID: item.PricingTemplate.ID, Name: item.PricingTemplate.Name, PricingUnit: item.PricingTemplate.PricingUnit, PricingCurrencyCode: item.PricingTemplate.PricingCurrencyCode, TemplateKind: item.PricingTemplate.TemplateKind, Version: item.PricingTemplate.Version}
 	}
 	// RoutingScheduleState is deliberately not carried across: it is a clock
 	// derived projection computed at response assembly, not stored state.
@@ -670,7 +673,7 @@ func connectionResponseFromTerminalTargetRecord(record terminaltarget.Record) co
 		item.Endpoint = &endpointResponse{ID: record.Endpoint.ID, ProfileID: record.Endpoint.ProfileID, Name: record.Endpoint.Name, BaseURL: record.Endpoint.BaseURL, HasAPIKey: endpointdomain.HasAPIKey(record.Endpoint.APIKey), APIKeyFingerprint: record.Endpoint.APIKeyFingerprint, APIKeyUpdatedAt: record.Endpoint.APIKeyUpdatedAt, ConfigRevision: record.Endpoint.ConfigRevision, CreatedAt: record.Endpoint.CreatedAt, UpdatedAt: record.Endpoint.UpdatedAt}
 	}
 	if record.PricingTemplate != nil {
-		item.PricingTemplate = &connectionPricingTemplateSummary{ID: record.PricingTemplate.ID, Name: record.PricingTemplate.Name, PricingUnit: record.PricingTemplate.PricingUnit, PricingCurrencyCode: record.PricingTemplate.PricingCurrencyCode, Version: record.PricingTemplate.Version}
+		item.PricingTemplate = &connectionPricingTemplateSummary{ID: record.PricingTemplate.ID, Name: record.PricingTemplate.Name, PricingUnit: record.PricingTemplate.PricingUnit, PricingCurrencyCode: record.PricingTemplate.PricingCurrencyCode, TemplateKind: record.PricingTemplate.TemplateKind, Version: record.PricingTemplate.Version}
 	}
 	item.RoutingSchedule = routingSchedulePayloadFromRecord(record.RoutingScheduleTimezone, record.RoutingWindows)
 	return item

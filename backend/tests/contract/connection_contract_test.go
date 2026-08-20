@@ -767,8 +767,11 @@ func insertContractPricingTemplateWithPrices(t *testing.T, harness *contractHarn
 		t.Fatalf("insert logical pricing template %q: %v", name, err)
 	}
 	var revisionID int64
-	if err := tx.QueryRow(context.Background(), `INSERT INTO pricing_template_revisions (template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, effective_at, created_at, created_by_kind, created_by_operation_id) SELECT $1, 1, 'PER_1M', 'USD', settings.current_reporting_currency_epoch_id, 1, 'active_epoch', $2, $3, $4, $5, $6, NULL, $7, 'legacy_backfill', NULL FROM user_settings AS settings WHERE settings.profile_id = $8 RETURNING id`, templateID, inputPrice, outputPrice, cachedInputPrice, cacheCreationPrice, reasoningPrice, now, profileID).Scan(&revisionID); err != nil {
+	if err := tx.QueryRow(context.Background(), `INSERT INTO pricing_template_revisions (template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, template_kind, effective_at, created_at, created_by_kind, created_by_operation_id) SELECT $1, 1, 'PER_1M', 'USD', settings.current_reporting_currency_epoch_id, 1, 'active_epoch', 'standard', NULL, $2, 'legacy_backfill', NULL FROM user_settings AS settings WHERE settings.profile_id = $3 RETURNING id`, templateID, now, profileID).Scan(&revisionID); err != nil {
 		t.Fatalf("insert pricing template v1 revision %q: %v", name, err)
+	}
+	if _, err := tx.Exec(context.Background(), `INSERT INTO pricing_template_cards (revision_id, template_kind, card_role, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price) VALUES ($1, 'standard', 'standard', $2, $3, $4, $5, $6)`, revisionID, inputPrice, outputPrice, cachedInputPrice, cacheCreationPrice, reasoningPrice); err != nil {
+		t.Fatalf("insert pricing template card %q: %v", name, err)
 	}
 	if _, err := tx.Exec(context.Background(), `UPDATE pricing_templates SET current_revision_id = $1, updated_at = $2 WHERE id = $3`, revisionID, now, templateID); err != nil {
 		t.Fatalf("close pricing template pointer %q: %v", name, err)
@@ -781,8 +784,17 @@ func insertContractPricingTemplateWithPrices(t *testing.T, harness *contractHarn
 
 func assertPricingTemplatePayloadPrices(t *testing.T, payload map[string]any, inputPrice string, outputPrice string, cachedInputPrice any, cacheCreationPrice any, reasoningPrice any) {
 	t.Helper()
-	if payload["input_price"] != inputPrice || payload["output_price"] != outputPrice || payload["cached_input_price"] != cachedInputPrice || payload["cache_creation_price"] != cacheCreationPrice || payload["reasoning_price"] != reasoningPrice {
-		t.Fatalf("expected pricing fields input=%q output=%q cached_input=%q cache_creation=%q reasoning=%q, got %+v", inputPrice, outputPrice, cachedInputPrice, cacheCreationPrice, reasoningPrice, payload)
+	card, ok := payload["card"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected typed standard card in pricing payload, got %+v", payload)
+	}
+	if card["input_price"] != inputPrice || card["output_price"] != outputPrice || card["cached_input_price"] != cachedInputPrice || card["cache_creation_price"] != cacheCreationPrice || card["reasoning_price"] != reasoningPrice {
+		t.Fatalf("expected standard card prices input=%q output=%q cached_input=%q cache_creation=%q reasoning=%q, got %+v", inputPrice, outputPrice, cachedInputPrice, cacheCreationPrice, reasoningPrice, card)
+	}
+	for _, legacy := range []string{"input_price", "output_price", "cached_input_price", "cache_creation_price", "reasoning_price"} {
+		if _, present := payload[legacy]; present {
+			t.Fatalf("typed pricing payload must not expose legacy field %q: %+v", legacy, payload)
+		}
 	}
 }
 
@@ -793,7 +805,7 @@ func assertPricingTemplateStoredPrices(t *testing.T, harness *contractHarness, p
 	var gotCachedInputPrice *string
 	var gotCacheCreationPrice *string
 	var gotReasoningPrice *string
-	if err := harness.conn.QueryRow(context.Background(), `SELECT revisions.input_price, revisions.output_price, revisions.cached_input_price, revisions.cache_creation_price, revisions.reasoning_price FROM pricing_templates AS templates JOIN pricing_template_revisions AS revisions ON revisions.id = templates.current_revision_id WHERE templates.profile_id = $1 AND templates.name = $2`, profileID, name).Scan(&gotInputPrice, &gotOutputPrice, &gotCachedInputPrice, &gotCacheCreationPrice, &gotReasoningPrice); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `SELECT cards.input_price, cards.output_price, cards.cached_input_price, cards.cache_creation_price, cards.reasoning_price FROM pricing_templates AS templates JOIN pricing_template_revisions AS revisions ON revisions.id = templates.current_revision_id JOIN pricing_template_cards AS cards ON cards.revision_id = revisions.id AND cards.card_role = 'standard' WHERE templates.profile_id = $1 AND templates.name = $2`, profileID, name).Scan(&gotInputPrice, &gotOutputPrice, &gotCachedInputPrice, &gotCacheCreationPrice, &gotReasoningPrice); err != nil {
 		t.Fatalf("load pricing template %q prices: %v", name, err)
 	}
 	if gotInputPrice != inputPrice || gotOutputPrice != outputPrice || !nullableTestStringEqual(gotCachedInputPrice, cachedInputPrice) || !nullableTestStringEqual(gotCacheCreationPrice, cacheCreationPrice) || !nullableTestStringEqual(gotReasoningPrice, reasoningPrice) {

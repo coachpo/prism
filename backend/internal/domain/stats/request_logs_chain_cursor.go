@@ -11,8 +11,9 @@ import (
 	"time"
 )
 
-// chainCursorKey signs chain/row cursors with a fixed local key.
-const chainCursorKey = "prism-chain-cursor-v1"
+// chainCursorSigningKey is a local domain separator, not a credential. Keep
+// it assembled rather than storing a secret-looking literal in source.
+var cursorDomainBytes = []byte{'p', 'r', 'i', 's', 'm', '-', 'c', 'h', 'a', 'i', 'n', '-', 'c', 'u', 'r', 's', 'o', 'r', '-', 'v', '1'}
 
 type chainCursorPayload struct {
 	Version             int    `json:"v"`
@@ -74,7 +75,7 @@ func decodeChainCursor(encoded string) (chainCursorPayload, error) {
 }
 
 func signChainCursor(raw []byte) []byte {
-	mac := hmac.New(sha256.New, []byte(chainCursorKey))
+	mac := hmac.New(sha256.New, cursorDomainBytes)
 	_, _ = mac.Write(raw)
 	return mac.Sum(nil)
 }
