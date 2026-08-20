@@ -33,8 +33,10 @@ case "$case_id" in
     exec pnpm run lint
     ;;
   docs-contract)
-    cd "$project_root"
-    exec python3 /Users/qingli/.codex/plugins/cache/coachpo/project-workflow/0.9.0+codex.20260817212547/skills/write-project-docs/scripts/validate_project_docs.py --strict . --language en
+    PRISM_DOCS_VALIDATION_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/prism-docs-validation.XXXXXX")
+    trap 'rm -rf -- "$PRISM_DOCS_VALIDATION_ROOT"' EXIT HUP INT TERM
+    git -C "$project_root" archive HEAD | tar -x -C "$PRISM_DOCS_VALIDATION_ROOT"
+    python3 /Users/qingli/.codex/plugins/cache/coachpo/project-workflow/0.9.0+codex.20260817212547/skills/write-project-docs/scripts/validate_project_docs.py --strict "$PRISM_DOCS_VALIDATION_ROOT" --language en
     ;;
   typed-pricing-roleplay)
     cd "$project_root/backend"
