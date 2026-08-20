@@ -1,9 +1,11 @@
 # BACKEND DOMAIN STATS KNOWLEDGE BASE
 
 ## OVERVIEW
+
 `backend/internal/domain/stats/` owns PostgreSQL-backed read models for dashboards, usage analytics, spending, request logs, recent activity, routing health, and retained filter options.
 
 ## STRUCTURE
+
 ```text
 stats/
 ├── common.go                     # Package-internal query executor, shared records, and nullable/currency helpers
@@ -31,7 +33,7 @@ stats/
 ├── observe_activity.go           # Finalized ingress activity feed (never rebuilt from attempt rows)
 ├── observe_usage_summary_segments.go # Window-scoped cost-segment CTE fragment for the summary statement
 ├── query_coverage.go             # Non-null Requests/Audit coverage union
-├── request_logs.go               # Attempt-view list projections, scoped filters, and v2 slim rows
+├── request_logs.go               # Attempt-view list projections and scoped filters
 ├── request_logs_chain.go         # Retained ingress-chain view
 ├── request_logs_chain_cursor.go  # Ingress-chain cursor signing
 ├── request_logs_chain_cohort.go  # Ingress-chain cohort predicates
@@ -39,7 +41,7 @@ stats/
 ├── request_logs_chain_coverage.go# Ingress-chain coverage projections
 ├── request_logs_chain_rows.go    # Retained ingress rows
 ├── request_logs_export.go        # Server-side full filtered CSV export (RR snapshot, bounds, digest)
-├── request_logs_detail_v2.go     # Exact v2 detail: scoped statuses, failure projection, pricing layers
+├── request_logs_detail.go        # Exact request detail: scoped statuses, failure projection, pricing layers
 ├── cost_segments.go              # Canonical cost-segment catalogue (e.N / l.AAA / l.__unknown__)
 ├── cost_segment_cursor.go        # Signed cost-segment cursor payload and signing-key derivation
 ├── cost_segment_symbols.go       # Bounded offset page of observed symbols per cost segment
@@ -51,10 +53,11 @@ stats/
 ```
 
 ## WHERE TO LOOK
+
 - Dashboard aggregate snapshot and routing health map: `dashboard_snapshot_builder.go`
 - Dashboard aggregate snapshot cache and snapshot revision: `dashboard_aggregate_store.go`
 - Recent activity feed and watermarks: `dashboard_recent_activity.go`
-- Request-log attempt list/detail, chain view, CSV export, and cost segments: `request_logs.go`, `request_logs_chain.go`, `request_logs_export.go`, `request_logs_detail_v2.go`, `cost_segments.go`, `types.go`
+- Request-log attempt list/detail, chain view, CSV export, and cost segments: `request_logs.go`, `request_logs_chain.go`, `request_logs_export.go`, `request_logs_detail.go`, `cost_segments.go`, `types.go`
 - Ingress-chain cursor signing: `request_logs_chain_cursor.go`
 - Ingress-chain cohort predicates: `request_logs_chain_cohort.go`
 - Finalized ingress summaries: `request_logs_chain_summary.go`
@@ -69,6 +72,7 @@ stats/
 - HTTP management consumers: `../../httpapi/management/stats/`
 
 ## CONVENTIONS
+
 - Keep this package HTTP-neutral. Selected-profile parsing, query params, and response writing stay in `httpapi/management/stats`.
 - Use retained history as the source of truth: `request_logs`, `usage_request_events`, and endpoint label snapshots.
 - Preserve server field names in JSON types; frontend contracts mirror these names.
@@ -83,6 +87,7 @@ stats/
 - Dashboard overview and recent activity are separate read models; do not fold recent activity into aggregate snapshots.
 
 ## ANTI-PATTERNS
+
 - Do not add HTTP handlers or route parsing here.
 - Do not duplicate stats aggregation in frontend code.
 - Do not use mutable endpoint labels when retained `endpoint_label_snapshot` is required for historical reporting.

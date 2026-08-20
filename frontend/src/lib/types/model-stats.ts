@@ -8,25 +8,8 @@ import type {
 } from "./routing";
 import type { LoadbalanceStrategySummary } from "./loadbalance";
 import type { UsageSnapshotPreset } from "./usage-statistics";
-import type {
-  PersistedTerminalTargetType,
-} from "./target-compatibility";
-import type { QueryCoverage } from "./config-audit-settings";
-
-export type StreamOutcome =
-  | "not_streaming"
-  | "completed"
-  | "provider_incomplete"
-  | "client_disconnected"
-  | "upstream_read_error"
-  | "upstream_ended_without_terminal"
-  | "unknown";
-
-export type StreamErrorKind =
-  | "client_write_failed"
-  | "request_context_canceled"
-  | "upstream_read_failed"
-  | "missing_terminal_event";
+import type { PersistedTerminalTargetType } from "./target-compatibility";
+import type { StreamOutcome } from "./request-logs";
 
 export type ModelAccessTargetType = "model" | PersistedTerminalTargetType;
 
@@ -161,123 +144,6 @@ export interface ModelConfigCompositeCreate extends ModelConfigCreate {
 
 export type ModelConfigUpdate = ModelConfigMutationBase;
 
-export interface RequestLogFilterModelOption {
-  model_id: string;
-  model_label: string;
-}
-
-export interface RequestLogFilterClientOption {
-  client_rule_id: number;
-  client_label: string;
-}
-
-export interface RequestLogFilterResolvedTargetModelOption {
-  resolved_target_model_id: string;
-  model_label: string;
-}
-
-export interface RequestLogListItem {
-  request_log_id: string;
-  row_kind: "planning" | "admission" | "upstream" | "legacy_unknown";
-  ingress_request_id: string | null;
-  attempt_number: number | null;
-  attempt_trigger: string | null;
-  attempt_result: string | null;
-  is_winner: boolean | null;
-  created_at: string;
-  model_id: string;
-  model_label: string;
-  resolved_target_model_id: string | null;
-  resolved_target_model_label: string | null;
-  caller_client_display: string | null;
-  upstream_client_display: string | null;
-  user_agent_overridden: boolean;
-  api_family: ApiFamily;
-  endpoint_id: number | null;
-  endpoint_label: string;
-  terminal_target_id: number | null;
-  terminal_target_label: string | null;
-  terminal_target_configured: boolean;
-  terminal_target_owner_model_id: string | null;
-  ttft_ms: number | null;
-  completion_duration_ms: number | null;
-  upstream_status_code: number | null;
-  gateway_status_code: number | null;
-  legacy_status_code: number | null;
-  attempt_duration_ms: number | null;
-  legacy_duration_ms: number | null;
-  is_stream: boolean;
-  stream_outcome: StreamOutcome;
-  stream_error_kind: StreamErrorKind | null;
-  error_source: string | null;
-  error_code: string | null;
-  failure_stage: string | null;
-  failure_detail_preview: string | null;
-  failure_detail_source: "error_detail" | "stream_error_detail";
-  failure_detail_preview_truncated: boolean;
-  failure_detail_redacted: boolean;
-  reasoning_effort: string | null;
-  output_tokens: number | null;
-  total_tokens: number | null;
-  total_cost_user_currency_micros: number | null;
-  pricing_status: "priced" | "unpriced" | "ineligible" | "unknown";
-  pricing_evidence_trust: "trusted" | "legacy_untrusted";
-  unpriced_reason: string | null;
-  report_currency_symbol: string | null;
-  // Proxy-key attribution is retained in ordinary list rows as a snapshot;
-  // unknown/none are explicit states rather than a missing field.
-  proxy_api_key_id: number | null;
-  proxy_api_key_name_snapshot: string | null;
-  proxy_api_key_attribution_state: "identified" | "none" | "unknown";
-  proxy_api_key_auth_enforced_at_request: boolean | null;
-  // Deprecated aliases kept optional for fixture/build compatibility while
-  // the v2 scoped status/duration fields remain authoritative.
-  id?: number;
-  connection_id?: number | null;
-  status_code?: number | null;
-  response_time_ms?: number | null;
-}
-
-export interface RequestGenerationParamsReasoning {
-  effort?: string | null;
-  mode?: string | null;
-  budget_tokens?: number | null;
-  include_thoughts?: boolean | null;
-  source_field?: string | null;
-}
-
-export interface RequestGenerationParams {
-  provider?: string | null;
-  temperature?: number | null;
-  top_p?: number | null;
-  top_k?: number | null;
-  max_output_tokens?: number | null;
-  max_output_tokens_source?: string | null;
-  reasoning?: RequestGenerationParamsReasoning | null;
-}
-
-
-export interface RequestLogFilterEndpointOption {
-  endpoint_id: number;
-  endpoint_label: string;
-}
-
-export interface RequestLogListResponse {
-  items: RequestLogListItem[];
-  total: number;
-  total_is_exact: boolean;
-  has_more: boolean;
-  limit: number;
-  offset: number;
-  filter_options: {
-    endpoints: RequestLogFilterEndpointOption[];
-    models: RequestLogFilterModelOption[];
-    clients: RequestLogFilterClientOption[];
-    resolved_target_models: RequestLogFilterResolvedTargetModelOption[];
-  };
-  coverage: QueryCoverage;
-}
-
 export interface StatGroup {
   key: string;
   total_requests: number;
@@ -298,47 +164,6 @@ export interface StatsSummary {
   total_output_tokens: number;
   total_tokens: number;
   groups: StatGroup[];
-}
-
-export type RequestStatusFamily = "2xx" | "4xx" | "5xx";
-
-export const STATS_FROM_TIME_PARAM = "from_time" as const;
-export const STATS_TO_TIME_PARAM = "to_time" as const;
-
-export interface StatsRequestParams {
-  time_range?: "1h" | "6h" | "24h" | "7d" | "30d" | "all" | "custom";
-  ingress_request_id?: string;
-  proxy_api_key_id?: number;
-  model_id?: string;
-  client_rule_id?: number;
-  resolved_target_model_id?: string;
-  status_family?: RequestStatusFamily;
-  status_code?: number;
-  error_text?: string;
-  pricing_status?: "priced" | "unpriced" | "ineligible" | "unknown";
-  unpriced_reason?: string;
-  from_time?: string;
-  to_time?: string;
-  endpoint_id?: number;
-  terminal_target_id?: number;
-  limit?: number;
-  offset?: number;
-  view?: "attempts" | "ingress_chains";
-  chain_cursor?: string;
-  row_cursor?: string;
-  chain_limit?: number;
-  chain_row_limit?: number;
-  anchor_request_log_id?: string;
-  ingress_final_result?: "completed" | "failed" | "client_disconnected";
-  confirmed_failover?: string;
-  is_stream?: boolean;
-  stream_outcome?: string;
-  stream_error_kind?: string;
-  currency_code?: string;
-  reporting_currency_epoch?: number;
-  cost_segment_key?: string;
-  sort_by?: string;
-  sort_order?: "asc" | "desc";
 }
 
 export interface StatsSummaryParams {

@@ -7,9 +7,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn, formatApiFamily } from "@/lib/utils";
 import type { MouseEvent } from "react";
 import type {
-  RequestLogDetailV2,
+  RequestLogDetail,
   PricingProjection,
-} from "@/lib/types/request-logs-v2";
+} from "@/lib/types/request-logs";
 import {
   formatCost,
   formatTokenRate,
@@ -19,7 +19,7 @@ import {
 import { formatUnpricedReasonLabel } from "@/lib/costing";
 import {
   cacheReadShare,
-  classifyPricingSelection,
+  classifyPricingTier,
   classifyTokenComponents,
   describeUnpricedCause,
 } from "../pricingExplanation";
@@ -51,7 +51,7 @@ import {
 } from "../streamTelemetry";
 
 interface RequestLogOverviewTabProps {
-  request: RequestLogDetailV2;
+  request: RequestLogDetail;
   formatTimestamp: (iso: string) => string;
 }
 
@@ -108,7 +108,7 @@ function formatPricingSnapshotValue(value: string | null): string {
 
 // Scoped row status: upstream rows use the upstream HTTP status, planning/
 // admission rows the gateway status, legacy rows the legacy projection.
-function scopedStatus(request: RequestLogDetailV2): number | null {
+function scopedStatus(request: RequestLogDetail): number | null {
   const summary = request.summary;
   switch (summary.row_kind) {
     case "upstream":
@@ -121,79 +121,35 @@ function scopedStatus(request: RequestLogDetailV2): number | null {
   }
 }
 
-function scopedDuration(request: RequestLogDetailV2): number | null {
+function scopedDuration(request: RequestLogDetail): number | null {
   const summary = request.summary;
   return summary.row_kind === "upstream"
     ? summary.attempt_duration_ms
     : summary.legacy_duration_ms;
 }
 
-function pricingSelectionValue(
+function pricingTierValue(
   pricing: PricingProjection,
   messages: ReturnType<typeof useLocale>["messages"],
 ): React.ReactNode {
-  const selection = classifyPricingSelection({
-    state: pricing.pricing_selection_state,
-    role: pricing.pricing_card_role,
-    threshold: pricing.pricing_selector_threshold_tokens,
-    basis: pricing.pricing_selector_basis_tokens,
+  const tier = classifyPricingTier({
+    applied: pricing.pricing_tier_applied,
+    threshold: pricing.pricing_tier_threshold_tokens,
+    basis: pricing.pricing_tier_basis_tokens,
   });
-  switch (selection.kind) {
-    case "unavailable":
-      return (
-        <OperatorMissingValue
-          reason={messages.requestLogs.pricingSelectionUnavailable}
-        />
-      );
-    case "not_evaluated":
-      return <span>{messages.requestLogs.pricingSelectionNotEvaluated}</span>;
-    case "not_applicable":
-      return <span>{messages.requestLogs.pricingSelectionNotApplicable}</span>;
-    case "unresolved":
-      return (
-        <OperatorCallout intent="warning">
-          {messages.requestLogs.pricingSelectionUnresolved}
-        </OperatorCallout>
-      );
-    case "selected":
-      return <span>{messages.requestLogs.pricingSelectionSelected}</span>;
-  }
-}
-
-function pricingKindLabel(
-  kind: PricingProjection["pricing_template_kind"],
-  messages: ReturnType<typeof useLocale>["messages"],
-): string {
-  switch (kind) {
-    case "standard":
-      return messages.requestLogs.pricingKindStandard;
-    case "tiered":
-      return messages.requestLogs.pricingKindTiered;
-    case "peak_valley":
-      return messages.requestLogs.pricingKindPeakValley;
-    default:
-      return "—";
-  }
-}
-
-function pricingCardRoleLabel(
-  role: PricingProjection["pricing_card_role"],
-  messages: ReturnType<typeof useLocale>["messages"],
-): string {
-  switch (role) {
-    case "standard":
-      return messages.requestLogs.pricingCardStandard;
-    case "tier_base":
-      return messages.requestLogs.pricingCardTierBase;
-    case "tier_above":
-      return messages.requestLogs.pricingCardTierAbove;
-    case "peak":
-      return messages.requestLogs.pricingCardPeak;
-    case "offpeak":
-      return messages.requestLogs.pricingCardOffpeak;
-    default:
-      return "—";
-  }
+  if (tier.kind === "legacy")
+    return (
+      <OperatorMissingValue reason={messages.requestLogs.pricingTierLegacy} />
+    );
+  const label =
+    tier.kind === "base"
+      ? messages.requestLogs.pricingTierBase
+      : tier.kind === "tier"
+        ? messages.requestLogs.pricingTierTier
+        : tier.kind === "not_applicable"
+          ? messages.requestLogs.pricingTierNotApplicable
+          : messages.requestLogs.pricingTierNotEvaluated;
+  return <span>{label}</span>;
 }
 
 function pricingStateLabel(
@@ -236,7 +192,7 @@ function renderCacheReadShare(
 }
 
 function renderAuditCaptureState(
-  routing: RequestLogDetailV2["routing"],
+  routing: RequestLogDetail["routing"],
   messages: ReturnType<typeof useLocale>["messages"],
 ) {
   const captureMode = resolveRequestAuditCaptureMode(routing);
@@ -351,11 +307,7 @@ export function RequestLogOverviewTab({
       ? messages.requestLogs.streamUsageUnavailable
       : formatTokens(usage.total_tokens);
   const isPriced = pricing.pricing_status === "priced";
-  const totalCostMicros =
-    pricing.total_cost_user_currency_micros !== null &&
-    pricing.total_cost_user_currency_micros !== undefined
-      ? Number(pricing.total_cost_user_currency_micros)
-      : null;
+  const totalCostMicros = pricing.total_cost_user_currency_micros ?? null;
   const totalCostValue =
     streamUsageUnavailable && totalCostMicros === null
       ? messages.requestLogs.streamUsageUnavailable
@@ -848,71 +800,24 @@ export function RequestLogOverviewTab({
                   {pricing.pricing_config_version_used ?? "—"}
                 </span>
               </DetailRow>
-              <DetailRow label={messages.requestLogs.pricingTemplateKind}>
-                <span>
-                  {pricingKindLabel(pricing.pricing_template_kind, messages)}
-                </span>
-              </DetailRow>
-              <DetailRow label={messages.requestLogs.pricingSelection}>
+              <DetailRow label={messages.requestLogs.pricingTier}>
                 <div className="flex flex-col gap-1">
-                  {pricingSelectionValue(pricing, messages)}
-                  {pricing.pricing_selection_state === "selected" &&
-                  pricing.pricing_card_role !== null ? (
+                  {pricingTierValue(pricing, messages)}
+                  {pricing.pricing_tier_threshold_tokens !== null &&
+                  pricing.pricing_tier_basis_tokens !== null ? (
                     <span className="text-[11px] text-muted-foreground">
-                      {messages.requestLogs.pricingCardRole}:{" "}
-                      <span>
-                        {pricingCardRoleLabel(
-                          pricing.pricing_card_role,
-                          messages,
-                        )}
-                      </span>
-                    </span>
-                  ) : null}
-                  {pricing.pricing_selector_threshold_tokens !== null &&
-                  pricing.pricing_selector_basis_tokens !== null ? (
-                    <span className="text-[11px] text-muted-foreground">
-                      {messages.requestLogs.pricingSelectorThreshold}:{" "}
+                      {messages.requestLogs.pricingTierThreshold}:{" "}
                       <span className="font-mono">
-                        {pricing.pricing_selector_threshold_tokens}
+                        {pricing.pricing_tier_threshold_tokens}
                       </span>{" "}
-                      · {messages.requestLogs.pricingSelectorBasis}:{" "}
+                      · {messages.requestLogs.pricingTierBasis}:{" "}
                       <span className="font-mono">
-                        {pricing.pricing_selector_basis_tokens}
+                        {pricing.pricing_tier_basis_tokens}
                       </span>
                     </span>
                   ) : null}
                 </div>
               </DetailRow>
-              {pricing.pricing_schedule_timezone !== null ? (
-                <DetailRow label={messages.requestLogs.pricingScheduleTimezone}>
-                  <span className="font-mono">
-                    {pricing.pricing_schedule_timezone}
-                  </span>
-                </DetailRow>
-              ) : null}
-              {pricing.pricing_schedule_decided_at !== null ? (
-                <DetailRow
-                  label={messages.requestLogs.pricingScheduleDecidedAt}
-                >
-                  <span className="font-mono">
-                    {formatTimestamp(pricing.pricing_schedule_decided_at)}
-                  </span>
-                </DetailRow>
-              ) : null}
-              {pricing.pricing_schedule_local_weekday !== null &&
-              pricing.pricing_schedule_local_minute !== null ? (
-                <DetailRow
-                  label={messages.requestLogs.pricingScheduleLocalTime}
-                >
-                  <span className="font-mono">
-                    {pricing.pricing_schedule_local_weekday}:
-                    {String(pricing.pricing_schedule_local_minute).padStart(
-                      3,
-                      "0",
-                    )}
-                  </span>
-                </DetailRow>
-              ) : null}
               <DetailRow label={messages.requestLogs.pricingSnapshotInput}>
                 <span className="font-mono">
                   {formatPricingSnapshotValue(pricing.pricing_snapshot_input)}

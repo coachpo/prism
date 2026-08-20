@@ -60,6 +60,7 @@ function createTerminalTarget(
 
 const terminalA = createTerminalTarget(502, 901, 0);
 const terminalB = createTerminalTarget(503, 902, 1);
+
 function createConnection(id: number, name: string): Connection {
   return {
     id,
@@ -72,11 +73,12 @@ function createConnection(id: number, name: string): Connection {
       name: `endpoint-${id}`,
       base_url: `https://upstream-${id}.example`,
       has_api_key: true,
+      api_key_fingerprint: "test-fingerprint-ab12cd34ef56",
       api_key_updated_at: "2026-08-08T00:00:00Z",
       config_revision: 1,
       created_at: "2026-08-08T00:00:00Z",
       updated_at: "2026-08-08T00:00:00Z",
-    } as Connection["endpoint"],
+    },
     is_active: true,
     name,
     priority: 0,

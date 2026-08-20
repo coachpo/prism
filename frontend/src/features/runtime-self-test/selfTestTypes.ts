@@ -2,12 +2,38 @@
  * Shared runtime self-test types (Proxy Key SPEC §9).
  */
 
-export type SelfTestDirectState = "succeeded" | "http_error" | "network_error" | "cancelled";
-export type SelfTestAttributionState = "identified" | "none" | "unknown" | "evidence_pending";
-export type SelfTestRoutingState = "resolved" | "failed" | "not_reached" | "evidence_pending";
-export type SelfTestExecutionState = "completed" | "failed" | "not_reached" | "evidence_pending";
-export type SelfTestPricingState = "priced" | "unpriced" | "ineligible" | "unknown" | "evidence_pending";
-export type SelfTestTelemetryState = "not_expected" | "pending" | "ready" | "timed_out" | "unavailable";
+export type SelfTestDirectState =
+  | "succeeded"
+  | "http_error"
+  | "network_error"
+  | "cancelled";
+export type SelfTestAttributionState =
+  | "identified"
+  | "none"
+  | "unknown"
+  | "evidence_pending";
+export type SelfTestRoutingState =
+  | "resolved"
+  | "failed"
+  | "not_reached"
+  | "evidence_pending";
+export type SelfTestExecutionState =
+  | "completed"
+  | "failed"
+  | "not_reached"
+  | "evidence_pending";
+export type SelfTestPricingState =
+  | "priced"
+  | "unpriced"
+  | "ineligible"
+  | "unknown"
+  | "evidence_pending";
+export type SelfTestTelemetryState =
+  | "not_expected"
+  | "pending"
+  | "ready"
+  | "timed_out"
+  | "unavailable";
 
 export const INGRESS_REQUEST_ID_HEADER = "X-Prism-Ingress-Request-Id";
 
@@ -38,7 +64,7 @@ export interface RuntimeSelfTestResult {
   pricing: {
     state: SelfTestPricingState;
     unpricedReason: string | null;
-    costMicros: string | null;
+    costMicros: number | null;
     currency: string | null;
   };
   telemetryState: SelfTestTelemetryState;
@@ -73,4 +99,5 @@ export const SELF_TEST_POLL_ATTEMPTS = 8;
 export const SELF_TEST_POLL_MAX_DELAY_MS = 2000;
 export const SELF_TEST_POLL_BASE_DELAY_MS = 250;
 
-export const SELF_TEST_REQUESTS_HANDOFF_PATH = "/observe/requests?view=ingress_chains&ingress_request_id=";
+export const SELF_TEST_REQUESTS_HANDOFF_PATH =
+  "/observe/requests?view=ingress_chains&ingress_request_id=";

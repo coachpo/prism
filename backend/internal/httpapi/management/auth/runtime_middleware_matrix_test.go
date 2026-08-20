@@ -81,13 +81,9 @@ func runMatrixRequest(t *testing.T, service *Service, headers map[string]string)
 	return recorder.Code, recorder.Body.String(), capture
 }
 
-func matrixFixtureCredential(suffix string) string {
-	return "pm" + "-" + suffix
-}
-
 func TestRuntimeMiddlewareDecisionMatrix(t *testing.T) {
 	validDecision := RuntimeProxyKeyDecision{Allowed: true, KeyID: 42, KeyName: "production-client"}
-	validCredential := matrixFixtureCredential("1234567890abcdef1234567890abcdef")
+	validKey := "pm-" + strings.Repeat("a", 32)
 
 	tests := []struct {
 		name         string
@@ -109,57 +105,57 @@ func TestRuntimeMiddlewareDecisionMatrix(t *testing.T) {
 		},
 		{
 			name: "enabled valid bearer", authEnabled: true, decision: validDecision,
-			headers:    map[string]string{"Authorization": "Bearer " + validCredential},
+			headers:    map[string]string{"Authorization": "Bearer " + validKey},
 			wantStatus: http.StatusOK, wantState: requestcontext.RuntimeProxyKeyIdentified,
 			wantEnforce: true, wantID: 42, wantName: "production-client",
-			wantVerified: []string{validCredential},
+			wantVerified: []string{validKey},
 		},
 		{
-			name: "enabled unknown credential", authEnabled: true, headers: map[string]string{"Authorization": "Bearer " + matrixFixtureCredential("ffffffffffffffffffffffffffffffff")},
+			name: "enabled unknown credential", authEnabled: true, headers: map[string]string{"Authorization": "Bearer pm-ffffffffffffffffffffffffffffffff"},
 			wantStatus: http.StatusUnauthorized, wantState: requestcontext.RuntimeProxyKeyNone,
 		},
 		{
 			name: "enabled inactive credential", authEnabled: true, decision: RuntimeProxyKeyDecision{},
-			headers:    map[string]string{"X-API-Key": matrixFixtureCredential("11111111111111111111111111111111")},
+			headers:    map[string]string{"X-API-Key": "pm-11111111111111111111111111111111"},
 			wantStatus: http.StatusUnauthorized, wantState: requestcontext.RuntimeProxyKeyNone,
 		},
 		{
 			name: "enabled expired credential", authEnabled: true, decision: RuntimeProxyKeyDecision{},
-			headers:    map[string]string{"X-Goog-Api-Key": matrixFixtureCredential("22222222222222222222222222222222")},
+			headers:    map[string]string{"X-Goog-Api-Key": "pm-22222222222222222222222222222222"},
 			wantStatus: http.StatusUnauthorized, wantState: requestcontext.RuntimeProxyKeyNone,
 		},
 		{
 			name:        "enabled malformed authorization falls through to lower priority",
 			authEnabled: true, decision: validDecision,
-			headers:    map[string]string{"Authorization": "Basic abc", "X-API-Key": validCredential},
+			headers:    map[string]string{"Authorization": "Basic abc", "X-API-Key": validKey},
 			wantStatus: http.StatusOK, wantState: requestcontext.RuntimeProxyKeyIdentified,
 			wantEnforce: true, wantID: 42, wantName: "production-client",
-			wantVerified: []string{validCredential},
+			wantVerified: []string{validKey},
 		},
 		{
 			name:        "enabled valid high priority never falls back after selection",
 			authEnabled: true, decision: RuntimeProxyKeyDecision{},
-			headers:    map[string]string{"Authorization": "Bearer " + matrixFixtureCredential("33333333333333333333333333333333"), "X-API-Key": validCredential},
+			headers:    map[string]string{"Authorization": "Bearer pm-33333333333333333333333333333333", "X-API-Key": validKey},
 			wantStatus: http.StatusUnauthorized, wantState: requestcontext.RuntimeProxyKeyNone,
-			wantVerified: []string{matrixFixtureCredential("33333333333333333333333333333333")},
+			wantVerified: []string{"pm-33333333333333333333333333333333"},
 		},
 		{
 			name:        "enabled verifier unavailable fails closed 503",
 			authEnabled: true, verifyErr: runtimeSnapshotUnavailableError(),
-			headers:    map[string]string{"Authorization": "Bearer " + validCredential},
+			headers:    map[string]string{"Authorization": "Bearer " + validKey},
 			wantStatus: http.StatusServiceUnavailable, wantState: requestcontext.RuntimeProxyKeyNone,
-			wantVerified: []string{validCredential},
+			wantVerified: []string{validKey},
 		},
 		{
 			name:        "enabled generic verifier failure fails closed 503",
 			authEnabled: true, verifyErr: context.DeadlineExceeded,
-			headers:    map[string]string{"Authorization": "Bearer " + validCredential},
+			headers:    map[string]string{"Authorization": "Bearer " + validKey},
 			wantStatus: http.StatusServiceUnavailable, wantState: requestcontext.RuntimeProxyKeyNone,
-			wantVerified: []string{validCredential},
+			wantVerified: []string{validKey},
 		},
 		{
 			name: "enabled auth snapshot unavailable 503", authEnabled: false, authErr: runtimeSnapshotUnavailableError(),
-			headers:    map[string]string{"Authorization": "Bearer " + validCredential},
+			headers:    map[string]string{"Authorization": "Bearer " + validKey},
 			wantStatus: http.StatusServiceUnavailable, wantState: requestcontext.RuntimeProxyKeyNone,
 		},
 		{
@@ -170,57 +166,57 @@ func TestRuntimeMiddlewareDecisionMatrix(t *testing.T) {
 		{
 			name:       "disabled valid bearer identified without enforcement",
 			decision:   validDecision,
-			headers:    map[string]string{"Authorization": "Bearer " + validCredential},
+			headers:    map[string]string{"Authorization": "Bearer " + validKey},
 			wantStatus: http.StatusOK, wantState: requestcontext.RuntimeProxyKeyIdentified,
 			wantEnforce: false, wantID: 42, wantName: "production-client",
-			wantVerified: []string{validCredential},
+			wantVerified: []string{validKey},
 		},
 		{
 			name:       "disabled unknown credential continues none",
-			headers:    map[string]string{"Authorization": "Bearer " + matrixFixtureCredential("44444444444444444444444444444444")},
+			headers:    map[string]string{"Authorization": "Bearer pm-44444444444444444444444444444444"},
 			wantStatus: http.StatusOK, wantState: requestcontext.RuntimeProxyKeyNone,
 		},
 		{
 			name:       "disabled inactive credential continues none",
 			decision:   RuntimeProxyKeyDecision{},
-			headers:    map[string]string{"X-API-Key": matrixFixtureCredential("55555555555555555555555555555555")},
+			headers:    map[string]string{"X-API-Key": "pm-55555555555555555555555555555555"},
 			wantStatus: http.StatusOK, wantState: requestcontext.RuntimeProxyKeyNone,
 		},
 		{
 			name:       "disabled expired credential continues none",
 			decision:   RuntimeProxyKeyDecision{},
-			headers:    map[string]string{"X-Goog-Api-Key": matrixFixtureCredential("66666666666666666666666666666666")},
+			headers:    map[string]string{"X-Goog-Api-Key": "pm-66666666666666666666666666666666"},
 			wantStatus: http.StatusOK, wantState: requestcontext.RuntimeProxyKeyNone,
 		},
 		{
 			name:       "disabled optional verifier unavailable continues unknown",
 			verifyErr:  runtimeSnapshotUnavailableError(),
-			headers:    map[string]string{"Authorization": "Bearer " + validCredential},
+			headers:    map[string]string{"Authorization": "Bearer " + validKey},
 			wantStatus: http.StatusOK, wantState: requestcontext.RuntimeProxyKeyUnknown,
-			wantVerified: []string{validCredential},
+			wantVerified: []string{validKey},
 		},
 		{
 			name:       "disabled generic verifier failure continues unknown",
 			verifyErr:  context.DeadlineExceeded,
-			headers:    map[string]string{"Authorization": "Bearer " + validCredential},
+			headers:    map[string]string{"Authorization": "Bearer " + validKey},
 			wantStatus: http.StatusOK, wantState: requestcontext.RuntimeProxyKeyUnknown,
-			wantVerified: []string{validCredential},
+			wantVerified: []string{validKey},
 		},
 		{
 			name:       "disabled x-api-key valid identified",
 			decision:   validDecision,
-			headers:    map[string]string{"X-API-Key": validCredential},
+			headers:    map[string]string{"X-API-Key": validKey},
 			wantStatus: http.StatusOK, wantState: requestcontext.RuntimeProxyKeyIdentified,
 			wantEnforce: false, wantID: 42,
-			wantVerified: []string{validCredential},
+			wantVerified: []string{validKey},
 		},
 		{
 			name:       "disabled x-goog-api-key valid identified",
 			decision:   validDecision,
-			headers:    map[string]string{"X-Goog-Api-Key": validCredential},
+			headers:    map[string]string{"X-Goog-Api-Key": validKey},
 			wantStatus: http.StatusOK, wantState: requestcontext.RuntimeProxyKeyIdentified,
 			wantEnforce: false, wantID: 42,
-			wantVerified: []string{validCredential},
+			wantVerified: []string{validKey},
 		},
 	}
 
@@ -273,7 +269,7 @@ func TestRuntimeMiddlewareDecisionMatrix(t *testing.T) {
 			}
 			// Raw credentials never appear in error responses.
 			for _, value := range tc.headers {
-				credential := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(value, "Bearer "), matrixFixtureCredential("")))
+				credential := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(value, "Bearer "), "pm-"))
 				if credential != "" && strings.Contains(body, credential) {
 					t.Fatalf("error response leaked credential %q (body %q)", credential, body)
 				}

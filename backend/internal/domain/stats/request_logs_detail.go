@@ -5,13 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 )
 
-// v2 exact request detail (Requests SPEC §6.4). Old un-scoped `status_code`
+// Exact request detail (Requests SPEC §6.4). Old un-scoped `status_code`
 // and mixed `response_time_ms` are gone from the public DTO; the row carries
 // scoped statuses and attempt/legacy durations plus the unified failure
 // projection, canonical refs, and pricing projections.
@@ -126,8 +125,8 @@ type CurrentPricingTemplateDetail struct {
 	MatchesRequestRevision bool       `json:"matches_request_revision"`
 }
 
-// RequestLogDetailSummaryV2 is the scoped summary block.
-type RequestLogDetailSummaryV2 struct {
+// RequestLogDetailSummary is the scoped summary block.
+type RequestLogDetailSummary struct {
 	RequestLogID             string    `json:"request_log_id"`
 	CreatedAt                time.Time `json:"created_at"`
 	ModelID                  string    `json:"model_id"`
@@ -152,8 +151,8 @@ type RequestLogDetailSummaryV2 struct {
 	IsWinner                 *bool     `json:"is_winner"`
 }
 
-// RequestLogDetailRequestV2 is the request-context block.
-type RequestLogDetailRequestV2 struct {
+// RequestLogDetailRequest is the request-context block.
+type RequestLogDetailRequest struct {
 	OperationName                    *string          `json:"operation_name"`
 	UpstreamOperationName            *string          `json:"upstream_operation_name"`
 	OperationTranslationMode         *string          `json:"operation_translation_mode"`
@@ -177,8 +176,8 @@ type RequestLogDetailRequestV2 struct {
 	URLScrubProvenance               string           `json:"url_scrub_provenance"`
 }
 
-// RequestLogDetailRoutingV2 is the routing-context block.
-type RequestLogDetailRoutingV2 struct {
+// RequestLogDetailRouting is the routing-context block.
+type RequestLogDetailRouting struct {
 	ProfileID                   int     `json:"profile_id"`
 	EndpointLabel               string  `json:"endpoint_label"`
 	EndpointID                  *int    `json:"endpoint_id"`
@@ -190,8 +189,8 @@ type RequestLogDetailRoutingV2 struct {
 	AuditCaptureBodiesAtRequest bool    `json:"audit_capture_bodies_at_request"`
 }
 
-// RequestLogDetailUsageV2 is the usage block.
-type RequestLogDetailUsageV2 struct {
+// RequestLogDetailUsage is the usage block.
+type RequestLogDetailUsage struct {
 	InputTokens              *int  `json:"input_tokens"`
 	OutputTokens             *int  `json:"output_tokens"`
 	TotalTokens              *int  `json:"total_tokens"`
@@ -201,12 +200,12 @@ type RequestLogDetailUsageV2 struct {
 	ReasoningTokens          *int  `json:"reasoning_tokens"`
 }
 
-// RequestLogDetailResponseV2 is the exact v2 detail envelope.
-type RequestLogDetailResponseV2 struct {
-	Summary                RequestLogDetailSummaryV2       `json:"summary"`
-	Request                RequestLogDetailRequestV2       `json:"request"`
-	Routing                RequestLogDetailRoutingV2       `json:"routing"`
-	Usage                  RequestLogDetailUsageV2         `json:"usage"`
+// RequestLogDetailResponse is the exact request detail envelope.
+type RequestLogDetailResponse struct {
+	Summary                RequestLogDetailSummary         `json:"summary"`
+	Request                RequestLogDetailRequest         `json:"request"`
+	Routing                RequestLogDetailRouting         `json:"routing"`
+	Usage                  RequestLogDetailUsage           `json:"usage"`
 	Failure                *FailureProjectionDetail        `json:"failure"`
 	TerminalTarget         *TerminalTargetProjectionDetail `json:"terminal_target"`
 	Endpoint               *EndpointProjectionDetail       `json:"endpoint"`
@@ -216,8 +215,8 @@ type RequestLogDetailResponseV2 struct {
 	CurrentPricingTemplate *CurrentPricingTemplateDetail   `json:"current_pricing_template"`
 }
 
-// requestLogDetailRowV2 is the full v2 row projection.
-type requestLogDetailRowV2 struct {
+// requestLogDetailRow is the full request detail row projection.
+type requestLogDetailRow struct {
 	ProfileID                         int
 	ID                                int64
 	CreatedAt                         time.Time
@@ -324,9 +323,9 @@ type requestLogDetailRowV2 struct {
 	PricingScheduleDigest             *string
 }
 
-// GetRequestLogDetailV2 loads the exact v2 detail for one request-log row.
-func GetRequestLogDetailV2(ctx context.Context, exec queryExecutor, profileID int, requestLogID int64) (*RequestLogDetailResponseV2, bool, error) {
-	row, found, err := loadRequestLogDetailRowV2(ctx, exec, profileID, requestLogID)
+// GetRequestLogDetail loads the exact detail for one request-log row.
+func GetRequestLogDetail(ctx context.Context, exec queryExecutor, profileID int, requestLogID int64) (*RequestLogDetailResponse, bool, error) {
+	row, found, err := loadRequestLogDetailRow(ctx, exec, profileID, requestLogID)
 	if err != nil {
 		return nil, false, err
 	}
@@ -355,15 +354,15 @@ func GetRequestLogDetailV2(ctx context.Context, exec queryExecutor, profileID in
 
 	// Canonical refs: terminal target + endpoint from current tables.
 	terminalTarget := buildDetailTerminalTarget(connectionCatalog, row)
-	endpoint := buildDetailEndpoint(ctx, exec, profileID, currentEndpoint, row)
+	endpoint := buildDetailEndpoint(currentEndpoint, row)
 	initialTarget := buildDetailInitialTarget(connectionCatalog, row)
 
 	pricing := buildDetailPricing(row)
 	legacyEvidence := buildDetailLegacyPricingEvidence(row)
 	currentTemplate := buildDetailCurrentPricingTemplate(ctx, exec, profileID, row)
 
-	response := &RequestLogDetailResponseV2{
-		Summary: RequestLogDetailSummaryV2{
+	response := &RequestLogDetailResponse{
+		Summary: RequestLogDetailSummary{
 			RequestLogID:             fmt.Sprintf("%d", row.ID),
 			CreatedAt:                row.CreatedAt.UTC(),
 			ModelID:                  row.ModelID,
@@ -387,7 +386,7 @@ func GetRequestLogDetailV2(ctx context.Context, exec queryExecutor, profileID in
 			AttemptResult:            row.AttemptResult,
 			IsWinner:                 row.IsWinner,
 		},
-		Request: RequestLogDetailRequestV2{
+		Request: RequestLogDetailRequest{
 			OperationName:                    row.OperationName,
 			UpstreamOperationName:            row.UpstreamOperationName,
 			OperationTranslationMode:         row.OperationTranslationMode,
@@ -410,7 +409,7 @@ func GetRequestLogDetailV2(ctx context.Context, exec queryExecutor, profileID in
 			MetadataTruncatedFields:          row.MetadataTruncatedFields,
 			URLScrubProvenance:               row.URLScrubProvenance,
 		},
-		Routing: RequestLogDetailRoutingV2{
+		Routing: RequestLogDetailRouting{
 			ProfileID:                   row.ProfileID,
 			EndpointLabel:               resolveEndpointLabel(currentEndpoint.Name, currentEndpoint.BaseURL, row.EndpointBaseURL, row.EndpointID, "Unknown Endpoint"),
 			EndpointID:                  row.EndpointID,
@@ -421,7 +420,7 @@ func GetRequestLogDetailV2(ctx context.Context, exec queryExecutor, profileID in
 			AuditEnabledAtRequest:       row.AuditEnabledAtRequest,
 			AuditCaptureBodiesAtRequest: row.AuditCaptureBodiesAtRequest,
 		},
-		Usage: RequestLogDetailUsageV2{
+		Usage: RequestLogDetailUsage{
 			InputTokens:              row.InputTokens,
 			OutputTokens:             row.OutputTokens,
 			TotalTokens:              row.TotalTokens,
@@ -442,7 +441,7 @@ func GetRequestLogDetailV2(ctx context.Context, exec queryExecutor, profileID in
 }
 
 // failureCategoryFor derives the canonical failure category from typed fields.
-func failureCategoryFor(row requestLogDetailRowV2) string {
+func failureCategoryFor(row requestLogDetailRow) string {
 	switch row.RowKind {
 	case "planning":
 		return "planning"
@@ -472,7 +471,7 @@ func failureCategoryFor(row requestLogDetailRowV2) string {
 	}
 }
 
-func buildDetailFailureProjection(row requestLogDetailRowV2) *FailureProjectionDetail {
+func buildDetailFailureProjection(row requestLogDetailRow) *FailureProjectionDetail {
 	category := failureCategoryFor(row)
 	if category == "" {
 		return nil
@@ -512,22 +511,19 @@ func buildDetailFailureProjection(row requestLogDetailRowV2) *FailureProjectionD
 	return projection
 }
 
-func buildDetailPricing(row requestLogDetailRowV2) PricingProjectionDetail {
+func buildDetailPricing(row requestLogDetailRow) PricingProjectionDetail {
 	attribution := "identified"
 	if row.ReportingCurrencyEpoch == nil && row.ReportCurrencyCode == nil {
 		attribution = "legacy_unknown"
 	}
-	var costSegmentKey *string
-	if row.ReportingCurrencyEpoch != nil {
-		key := fmt.Sprintf("e.%d", *row.ReportingCurrencyEpoch)
-		costSegmentKey = &key
-	} else if row.ReportCurrencyCode != nil {
-		key := "l." + strings.ToUpper(*row.ReportCurrencyCode)
-		costSegmentKey = &key
-	} else {
-		key := "l.__unknown__"
-		costSegmentKey = &key
+	legacyCurrencyCode := ""
+	legacyCodeValid := false
+	if row.ReportCurrencyCode != nil {
+		legacyCurrencyCode = *row.ReportCurrencyCode
+		legacyCodeValid = true
 	}
+	costSegmentKeyValue := CostSegmentKeyFor(row.ReportingCurrencyEpoch, legacyCurrencyCode, legacyCodeValid)
+	costSegmentKey := &costSegmentKeyValue
 	projection := PricingProjectionDetail{
 		PricingStatus:                     row.PricingStatus,
 		UnpricedReason:                    row.UnpricedReason,
@@ -573,7 +569,7 @@ func buildDetailPricing(row requestLogDetailRowV2) PricingProjectionDetail {
 	return projection
 }
 
-func buildDetailLegacyPricingEvidence(row requestLogDetailRowV2) *LegacyPricingEvidenceDetail {
+func buildDetailLegacyPricingEvidence(row requestLogDetailRow) *LegacyPricingEvidenceDetail {
 	if row.PricingEvidenceTrust != "legacy_untrusted" {
 		return nil
 	}
@@ -610,7 +606,7 @@ func buildDetailLegacyPricingEvidence(row requestLogDetailRowV2) *LegacyPricingE
 	}
 }
 
-func buildDetailTerminalTarget(catalog map[int]connectionRecord, row requestLogDetailRowV2) *TerminalTargetProjectionDetail {
+func buildDetailTerminalTarget(catalog map[int]connectionRecord, row requestLogDetailRow) *TerminalTargetProjectionDetail {
 	if row.ConnectionID == nil {
 		return nil
 	}
@@ -630,7 +626,7 @@ func buildDetailTerminalTarget(catalog map[int]connectionRecord, row requestLogD
 	return projection
 }
 
-func buildDetailInitialTarget(catalog map[int]connectionRecord, row requestLogDetailRowV2) *TerminalTargetProjectionDetail {
+func buildDetailInitialTarget(catalog map[int]connectionRecord, row requestLogDetailRow) *TerminalTargetProjectionDetail {
 	if row.SelectedTerminalTargetID == nil {
 		return nil
 	}
@@ -650,7 +646,7 @@ func buildDetailInitialTarget(catalog map[int]connectionRecord, row requestLogDe
 	return projection
 }
 
-func buildDetailEndpoint(ctx context.Context, exec queryExecutor, profileID int, current endpointRecord, row requestLogDetailRowV2) *EndpointProjectionDetail {
+func buildDetailEndpoint(current endpointRecord, row requestLogDetailRow) *EndpointProjectionDetail {
 	if row.EndpointID == nil {
 		return nil
 	}
@@ -677,7 +673,7 @@ func buildDetailEndpoint(ctx context.Context, exec queryExecutor, profileID int,
 	return projection
 }
 
-func buildDetailCurrentPricingTemplate(ctx context.Context, exec queryExecutor, profileID int, row requestLogDetailRowV2) *CurrentPricingTemplateDetail {
+func buildDetailCurrentPricingTemplate(ctx context.Context, exec queryExecutor, profileID int, row requestLogDetailRow) *CurrentPricingTemplateDetail {
 	if row.PricingTemplateIDUsed == nil {
 		return nil
 	}
@@ -718,7 +714,7 @@ func buildDetailCurrentPricingTemplate(ctx context.Context, exec queryExecutor, 
 	return detail
 }
 
-func loadRequestLogDetailRowV2(ctx context.Context, exec queryExecutor, profileID int, requestLogID int64) (requestLogDetailRowV2, bool, error) {
+func loadRequestLogDetailRow(ctx context.Context, exec queryExecutor, profileID int, requestLogID int64) (requestLogDetailRow, bool, error) {
 	row := exec.QueryRow(
 		ctx,
 		`SELECT profile_id, id, created_at, model_id, resolved_target_model_id, api_family, row_kind,
@@ -755,17 +751,17 @@ func loadRequestLogDetailRowV2(ctx context.Context, exec queryExecutor, profileI
 		profileID,
 		requestLogID,
 	)
-	record, err := scanRequestLogDetailRowV2(row)
+	record, err := scanRequestLogDetailRow(row)
 	if err == pgx.ErrNoRows {
-		return requestLogDetailRowV2{}, false, nil
+		return requestLogDetailRow{}, false, nil
 	}
 	if err != nil {
-		return requestLogDetailRowV2{}, false, fmt.Errorf("load request log %d for profile %d: %w", requestLogID, profileID, err)
+		return requestLogDetailRow{}, false, fmt.Errorf("load request log %d for profile %d: %w", requestLogID, profileID, err)
 	}
 	return record, true, nil
 }
 
-func scanRequestLogDetailRowV2(scanner interface{ Scan(...any) error }) (requestLogDetailRowV2, error) {
+func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLogDetailRow, error) {
 	var resolvedTargetModelID sql.NullString
 	var upstreamStatusCode, gatewayStatusCode, legacyStatusCode sql.NullInt64
 	var attemptDurationMS, legacyDurationMS, ttftMS, completionDurationMS, attemptNumber sql.NullInt32
@@ -800,7 +796,7 @@ func scanRequestLogDetailRowV2(scanner interface{ Scan(...any) error }) (request
 	var pricingSelectorBasis sql.NullInt64
 	var pricingScheduleDecidedAt sql.NullTime
 
-	item := requestLogDetailRowV2{}
+	item := requestLogDetailRow{}
 	if err := scanner.Scan(
 		&item.ProfileID, &item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &item.RowKind,
 		&upstreamStatusCode, &gatewayStatusCode, &legacyStatusCode, &attemptDurationMS, &legacyDurationMS,
@@ -829,7 +825,7 @@ func scanRequestLogDetailRowV2(scanner interface{ Scan(...any) error }) (request
 		&pricingTemplateKind, &pricingSelectionState, &pricingCardRole, &pricingSelectorThreshold, &pricingSelectorBasis,
 		&pricingScheduleDecidedAt, &pricingScheduleTimezone, &pricingScheduleLocalWeekday, &pricingScheduleLocalMinute, &pricingScheduleDigest,
 	); err != nil {
-		return requestLogDetailRowV2{}, err
+		return requestLogDetailRow{}, err
 	}
 	item.CreatedAt = item.CreatedAt.UTC()
 	item.ResolvedTargetModelID = nullableString(resolvedTargetModelID)

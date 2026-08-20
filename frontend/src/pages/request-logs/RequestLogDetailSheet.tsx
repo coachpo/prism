@@ -10,11 +10,11 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import type { ChainResponse, RequestLogDetailV2 } from "@/lib/types/request-logs-v2";
+import type { ChainResponse, RequestLogDetail } from "@/lib/types/request-logs";
 import { RequestLogOverviewTab } from "./detail/RequestLogOverviewTab";
 
 interface RequestLogDetailSheetProps {
-  request: RequestLogDetailV2 | null;
+  request: RequestLogDetail | null;
   open: boolean;
   onClose: () => void;
   formatTimestamp: (iso: string) => string;

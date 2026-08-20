@@ -12,7 +12,7 @@
 
 ## Local rules
 
-- Do not put a contract version in an identifier. `contract_version` on the row is the only version discriminator; code names describe behaviour (`claimRetentionJob`, `drainLegacyRetentionJob`), not a generation. Persisted values that already encode a version — `v2_exact`, `superseded_by_v2_planning`, the cursor key domain separator — are frozen and must not be renamed.
+- Keep `contract_version` as the row's version discriminator. Existing contract values `v2_exact`, `superseded_by_v2_planning`, and the cursor key domain separator are frozen; do not rename them when refactoring source files.
 
 - Keep `log_retention` global (`profile_id = 0`) and operation-registered through the Settings job-center list/read/cancel contract. Handlers enqueue durable work; this package is the only owner allowed to drop partitions or delete retention boundary rows.
 - Automatic jobs use UTC day-aligned policy cutoffs, per-dataset policy and semantic fence generations, the Observe protection contract or Requests/Audit-owned fence, and a final publication step. Do not derive a cutoff from `now - N*24h`, use a second coverage owner, or count dropped-partition rows as `rows_deleted`.

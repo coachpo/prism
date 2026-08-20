@@ -14,19 +14,19 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/migrate"
 )
 
-// TestObservabilityV2FinalizeFailsClosedOnUndrainedUpgrade verifies that
+// TestObservabilityUpgradeFinalizeFailsClosedWhenUndrained verifies that
 // applying 000011 while the v1 drain is incomplete fails closed and is not
 // recorded as applied (Requests SPEC §5.6).
-func TestObservabilityV2FinalizeFailsClosedOnUndrainedUpgrade(t *testing.T) {
+func TestObservabilityUpgradeFinalizeFailsClosedWhenUndrained(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	harness := newPostgresHarness(t)
-	databaseName := "v2_finalize_fail_closed"
+	databaseName := "observability_finalize_fail_closed"
 	_, pool := upgradeStateDatabase(t, testContext, harness, databaseName)
 	defer pool.Close()
 
-	// Seed a v1 outbox row and force draining_v1 so 000006 preconditions fail.
+	// Seed a v1 outbox row and force draining_v1 so 000011 preconditions fail.
 	now := time.Now().UTC()
 	if _, err := pool.Exec(testContext, `INSERT INTO runtime_telemetry_outbox (profile_id, ingress_request_id, payload, schema_version, created_at)
 		VALUES (1, 'v1-undrained', '{"usage_event":{}}', 1, $1)`, now); err != nil {
@@ -70,7 +70,7 @@ func TestObservabilityV2FinalizeFailsClosedOnUndrainedUpgrade(t *testing.T) {
 	defer func() { _ = conn.Close(testContext) }()
 	_, err = runner.Run(testContext, conn)
 	if err == nil {
-		t.Fatal("expected 000006 to fail closed on an undrained upgrade database")
+		t.Fatal("expected 000011 to fail closed on an undrained upgrade database")
 	}
 	if !strings.Contains(err.Error(), "not drained") && !strings.Contains(err.Error(), "v1 telemetry outbox") {
 		t.Fatalf("expected v1-drain fail-closed error, got %v", err)
@@ -84,15 +84,15 @@ func TestObservabilityV2FinalizeFailsClosedOnUndrainedUpgrade(t *testing.T) {
 	}
 }
 
-// TestObservabilityV2BackfillInterruptedResume verifies the backfill owner is
+// TestObservabilityUpgradeBackfillInterruptedResume verifies the backfill owner is
 // crash-resumable: after a partial batch commit, a restart continues from the
 // durable cursor and eventually reaches backfill_ready.
-func TestObservabilityV2BackfillInterruptedResume(t *testing.T) {
+func TestObservabilityUpgradeBackfillInterruptedResume(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	harness := newPostgresHarness(t)
-	databaseName := "v2_backfill_resume"
+	databaseName := "observability_backfill_resume"
 	databaseURL, pool := upgradeStateDatabase(t, testContext, harness, databaseName)
 	profileID := loadUpgradeDefaultProfileID(t, testContext, pool)
 

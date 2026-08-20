@@ -11,7 +11,7 @@ request-logs/
 ├── queryParams.ts               # URL-state contract for retained browse filters, view, sort, and pagination
 ├── useRequestLogPageState.ts    # Search-param orchestration and exact-request mode
 ├── useRequestLogsPageData.ts    # Server fetches, chain-view flattening, and retained filter-option bootstrap
-├── useRequestLogDetail.ts       # Exact-request v2 detail fetch, not-found handling, and refresh
+├── useRequestLogDetail.ts       # Exact-request detail fetch, not-found handling, and refresh
 ├── useRequestLogChain.ts        # Retained ingress chain fetch for the detail sheet
 ├── requestLogSavedViews.ts      # Versioned saved canonical views (localStorage)
 ├── requestLogColumnPreferences.ts # Versioned column-visibility preferences (localStorage)

@@ -56,7 +56,7 @@ func TestRuntimeDurableTelemetryIsDefault(t *testing.T) {
 	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
 }
 
-func TestRuntimeTelemetryV2CurrencyAttributionCompatibility(t *testing.T) {
+func TestRuntimeTelemetryCurrencyAttributionCompatibility(t *testing.T) {
 	tests := []struct {
 		name            string
 		mutation        string

@@ -16,8 +16,8 @@ import type { StreamErrorKind, StreamOutcome } from "@/lib/types";
 import type {
   ChainIngressItem,
   ChainResponse,
-  RequestLogRowV2,
-} from "@/lib/types/request-logs-v2";
+  RequestLogChainRow,
+} from "@/lib/types/request-logs";
 import type { RequestLogPageState } from "./queryParams";
 import { timeRangeToFromTime } from "./queryParams";
 
@@ -47,7 +47,7 @@ function flattenChainItems(response: ChainResponse): RequestLogListItem[] {
     for (const row of chain.retained_rows) {
       // Chain rows carry model_id only; when the source row also carries
       // display labels (fixtures/tests) keep them.
-      const withLabels = row as RequestLogRowV2 & {
+      const withLabels = row as RequestLogChainRow & {
         model_label?: string;
         resolved_target_model_label?: string | null;
         api_family?: string;
@@ -107,10 +107,7 @@ function flattenChainItems(response: ChainResponse): RequestLogListItem[] {
         reasoning_effort: withLabels.reasoning_effort ?? null,
         output_tokens: withLabels.output_tokens ?? null,
         total_tokens: row.total_tokens,
-        total_cost_user_currency_micros:
-          row.total_cost_user_currency_micros !== null
-            ? Number(row.total_cost_user_currency_micros)
-            : null,
+        total_cost_user_currency_micros: row.total_cost_user_currency_micros,
         pricing_status: row.pricing_status,
         pricing_evidence_trust: row.pricing_evidence_trust,
         unpriced_reason: row.unpriced_reason,

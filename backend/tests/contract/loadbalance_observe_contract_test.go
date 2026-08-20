@@ -334,7 +334,7 @@ func TestEventsAdmissionReasonAndModelIdentityContract(t *testing.T) {
 	}
 }
 
-func putRetentionPolicyV2(t *testing.T, harness *contractHarness, profileID int, policies map[string]any) {
+func putRetentionPolicy(t *testing.T, harness *contractHarness, profileID int, policies map[string]any) {
 	t.Helper()
 	canonicalPolicies := map[string]any{
 		"request_logs_retention_days":       nil,
@@ -382,7 +382,7 @@ func TestEventsRequestContextHandoffContract(t *testing.T) {
 
 	// Configure a 30-day request retention so the ±15 minute window survives
 	// clipping (v2 contract: destructive NULL->N needs a fresh preflight).
-	putRetentionPolicyV2(t, harness, profileID, map[string]any{"request_logs_retention_days": 30})
+	putRetentionPolicy(t, harness, profileID, map[string]any{"request_logs_retention_days": 30})
 
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Observe Handoff Strategy")
@@ -419,7 +419,7 @@ func TestEventsRequestContextHandoffContract(t *testing.T) {
 
 	// With no request-log retention overlap the handoff is disabled with the
 	// typed reason and null filters.
-	putRetentionPolicyV2(t, harness, profileID, map[string]any{"request_logs_retention_days": 1})
+	putRetentionPolicy(t, harness, profileID, map[string]any{"request_logs_retention_days": 1})
 	nowAt = time.Now().UTC()
 	// The event lies outside the 1-day request retention but inside a valid
 	// 2-day custom event window, so detail is reachable while the handoff has

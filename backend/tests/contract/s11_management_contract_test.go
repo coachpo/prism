@@ -129,7 +129,7 @@ func TestAuditSettings(t *testing.T) {
 	wantOtherHeader := map[string]string{"openai": "disabled", "anthropic": "body_capture", "gemini": "disabled"}
 	payload := requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/settings/audit", nil, modelHeader(defaultProfileID), http.StatusOK)
 	assertAuditSettingsPayload(t, payload, wantDefault)
-	payload = putAuditSettingsV2(t, harness, defaultProfileID, auditPolicy("gemini", "body_capture"), auditPolicy("openai", "metadata_only"), auditPolicy("anthropic", "disabled"))
+	payload = putAuditSettings(t, harness, defaultProfileID, auditPolicy("gemini", "body_capture"), auditPolicy("openai", "metadata_only"), auditPolicy("anthropic", "disabled"))
 	assertAuditSettingsPayload(t, payload, wantUpdated)
 	assertAuditSettingsRows(t, harness, defaultProfileID, wantUpdated)
 	payload = requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/settings/audit", nil, modelHeader(defaultProfileID), http.StatusOK)
@@ -140,7 +140,7 @@ func TestAuditSettings(t *testing.T) {
 	otherProfileID := s11InsertAuditSettingsProfile(t, harness, "S11 Audit Settings Other")
 	payload = requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/settings/audit", nil, modelHeader(otherProfileID), http.StatusOK)
 	assertAuditSettingsPayload(t, payload, wantUpdated)
-	payload = putAuditSettingsV2(t, harness, otherProfileID, auditPolicy("openai", "disabled"), auditPolicy("anthropic", "body_capture"), auditPolicy("gemini", "disabled"))
+	payload = putAuditSettings(t, harness, otherProfileID, auditPolicy("openai", "disabled"), auditPolicy("anthropic", "body_capture"), auditPolicy("gemini", "disabled"))
 	assertAuditSettingsPayload(t, payload, wantOtherHeader)
 	assertAuditSettingsRows(t, harness, defaultProfileID, wantOtherHeader)
 	assertAuditSettingsRows(t, harness, otherProfileID, map[string]string{})
@@ -645,7 +645,7 @@ func assertAuditSettingsPayload(t *testing.T, payload map[string]any, want map[s
 	}
 }
 
-func putAuditSettingsV2(t *testing.T, harness *contractHarness, profileID int, policies ...map[string]any) map[string]any {
+func putAuditSettings(t *testing.T, harness *contractHarness, profileID int, policies ...map[string]any) map[string]any {
 	t.Helper()
 	getResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/audit", nil, modelHeader(profileID))
 	assertStatus(t, getResponse, http.StatusOK)

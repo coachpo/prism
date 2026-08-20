@@ -17,11 +17,11 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/startup"
 )
 
-// TestObservabilityV2UpgradeDrainsV1Outbox verifies the exclusive offline v1
-// drain: finalized v1 envelopes are scrubbed/capped/split into v2 rows, raw
+// TestObservabilityUpgradeDrainsV1Outbox verifies the exclusive offline v1
+// drain: finalized v1 envelopes are scrubbed/capped/split into current rows, raw
 // unsafe artifacts are wiped with telemetry_orphaned tombstones, and the
 // upgrade state advances to v1_drained.
-func TestObservabilityV2UpgradeDrainsV1Outbox(t *testing.T) {
+func TestObservabilityUpgradeDrainsV1Outbox(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
@@ -112,7 +112,7 @@ func TestObservabilityV2UpgradeDrainsV1Outbox(t *testing.T) {
 		t.Fatalf("insert v1 accepted outbox row: %v", err)
 	}
 
-	// Set upgrade state to draining_v1 (simulating a legacy upgrade).
+	// Set the persisted upgrade state to draining_v1 (simulating a legacy upgrade).
 	if _, err := pool.Exec(testContext, `UPDATE observability_v2_upgrade_state SET state = 'draining_v1', writer_fence_active = true WHERE id = 1`); err != nil {
 		t.Fatalf("set upgrade state to draining_v1: %v", err)
 	}
@@ -184,10 +184,10 @@ func TestObservabilityV2UpgradeDrainsV1Outbox(t *testing.T) {
 	}
 }
 
-// TestObservabilityV2BackfillDomainsReady verifies the three-domain backfill
+// TestObservabilityUpgradeBackfillDomainsReady verifies the three-domain backfill
 // owner rewrites legacy URLs/headers/metadata, nulls raw shadows, and reaches
 // backfill_ready so legacy read routes may activate.
-func TestObservabilityV2BackfillDomainsReady(t *testing.T) {
+func TestObservabilityUpgradeBackfillDomainsReady(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
@@ -211,7 +211,7 @@ func TestObservabilityV2BackfillDomainsReady(t *testing.T) {
 		t.Fatalf("seed legacy request log with URL: %v", err)
 	}
 	if _, err := pool.Exec(testContext, `INSERT INTO audit_logs (profile_id, model_id, request_method, request_url, endpoint_base_url, request_headers_legacy_raw_text, response_headers_legacy_raw_text, request_headers_scrub_provenance, response_headers_scrub_provenance, request_headers_capture_status, response_headers_capture_status, url_scrub_provenance, row_kind, legacy_status_code, legacy_duration_ms, is_stream, created_at) VALUES ($1, 'legacy-model', 'POST', 'https://legacy.invalid/v1?api_key=sk-456', 'https://legacy.invalid', '{"authorization": "Bearer sk-789"}', '{"x-api-key": "secret-key"}', 'legacy_unknown', 'legacy_unknown', 'pending_headers', 'pending_headers', 'legacy_unknown', 'legacy_unknown', 200, 100, FALSE, $2)`,
-		profileID, now.Add(2*time.Minute)); err != nil {
+		profileID, now.Add(-2*time.Minute)); err != nil {
 		t.Fatalf("seed legacy audit log: %v", err)
 	}
 
@@ -274,6 +274,21 @@ func TestObservabilityV2BackfillDomainsReady(t *testing.T) {
 	}
 	if !strings.Contains(requestHeaders, "[REDACTED-LEGACY]") {
 		t.Fatalf("expected legacy redacted header values, got %q", requestHeaders)
+	}
+
+	var auditURL, auditURLProvenance string
+	if err := pool.QueryRow(testContext, `SELECT request_url, url_scrub_provenance FROM audit_logs WHERE profile_id = $1`, profileID).Scan(&auditURL, &auditURLProvenance); err != nil {
+		t.Fatalf("load backfilled audit URL: %v", err)
+	}
+	if strings.Contains(auditURL, "sk-456") || auditURLProvenance != "legacy_rescrubbed" {
+		t.Fatalf("expected earlier audit URL to be scrubbed, got url=%q provenance=%q", auditURL, auditURLProvenance)
+	}
+	var requestURLsCursor int64
+	if err := pool.QueryRow(testContext, `SELECT last_id FROM observability_v2_backfill_state WHERE profile_id = $1 AND domain = 'request_urls'`, profileID).Scan(&requestURLsCursor); err != nil {
+		t.Fatalf("load request URL backfill cursor: %v", err)
+	}
+	if requestURLsCursor >= 0 {
+		t.Fatalf("expected request_urls checkpoint to encode the independent audit phase, got %d", requestURLsCursor)
 	}
 
 	// Upgrade state must be backfill_ready.

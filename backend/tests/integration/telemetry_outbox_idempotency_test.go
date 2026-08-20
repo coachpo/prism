@@ -6,14 +6,14 @@ import (
 	"time"
 )
 
-// TestTelemetryOutboxV2IdentityIdempotency verifies the v2 outbox identity
+// TestTelemetryOutboxIdentityIdempotency verifies the outbox identity
 // contract (Observe SPEC §3.5): the unique metadata identity
 // {profile_id, ingress_request_id} (schema_version=2 partial index) and the
 // artifact identity {profile_id, ingress_request_id, component_key,
 // artifact_kind} are enforced by the DB, so a duplicate enqueue converges
 // instead of creating a second metadata row, and the artifact upsert path is
 // idempotent on the same stable key.
-func TestTelemetryOutboxV2IdentityIdempotency(t *testing.T) {
+func TestTelemetryOutboxIdentityIdempotency(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
@@ -30,7 +30,7 @@ func TestTelemetryOutboxV2IdentityIdempotency(t *testing.T) {
 			(profile_id, ingress_request_id, schema_version, lifecycle_state, payload, core_payload, created_at)
 			VALUES ($1, $2, 2, 'finalized', '{}'::jsonb, $3, $4)`,
 			profileID, ingress, `{"kind":"metadata"}`, now); err != nil {
-			t.Fatalf("insert v2 metadata row: %v", err)
+			t.Fatalf("insert schema-version-2 metadata row: %v", err)
 		}
 	}
 
@@ -41,7 +41,7 @@ func TestTelemetryOutboxV2IdentityIdempotency(t *testing.T) {
 		(profile_id, ingress_request_id, schema_version, lifecycle_state, payload, core_payload, created_at)
 		VALUES ($1, $2, 2, 'finalized', '{}'::jsonb, $3, $4)`,
 		profileID, ingress, `{"kind":"metadata-dup"}`, now); err == nil {
-		t.Fatal("expected duplicate v2 metadata identity to be rejected by the unique index")
+		t.Fatal("expected duplicate schema-version-2 metadata identity to be rejected by the unique index")
 	}
 
 	// The enqueue retry path converges with ON CONFLICT DO UPDATE: still one row.
@@ -60,7 +60,7 @@ func TestTelemetryOutboxV2IdentityIdempotency(t *testing.T) {
 		t.Fatalf("count metadata rows: %v", err)
 	}
 	if metadataCount != 1 {
-		t.Fatalf("expected exactly 1 v2 metadata row after converging retry, got %d", metadataCount)
+		t.Fatalf("expected exactly 1 schema-version-2 metadata row after converging retry, got %d", metadataCount)
 	}
 
 	// Artifact identity: same stable key converges via ON CONFLICT DO NOTHING.

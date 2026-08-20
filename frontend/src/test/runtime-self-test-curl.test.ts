@@ -12,7 +12,7 @@ import {
 } from "@/features/runtime-self-test/effectiveOrigin";
 import { SELF_TEST_PROMPT } from "@/features/runtime-self-test/curlBuilder";
 
-const fixtureProxyValue = "test-proxy-value";
+const TEST_CREDENTIAL = "test-proxy-" + "x".repeat(32);
 
 afterEach(() => {
   __setApiBaseForTest(undefined);
@@ -78,11 +78,11 @@ describe("operation-aware curl builder", () => {
       apiFamily: "openai",
       openaiAcceptedFormat: "chat_completions_only",
       modelId: "gpt-5.6-luna",
-      proxyKey: fixtureProxyValue,
+      proxyKey: TEST_CREDENTIAL,
     });
     expect(output.operation).toBe("chat_completions");
     expect(output.url).toContain("/v1/chat/completions");
-    expect(output.headers.Authorization).toBe(`Bearer ${fixtureProxyValue}`);
+    expect(output.headers.Authorization).toBe(`Bearer ${TEST_CREDENTIAL}`);
     const body = jsonBody(output);
     expect(body.model).toBe("gpt-5.6-luna");
     expect(body.stream).toBe(false);
@@ -92,7 +92,7 @@ describe("operation-aware curl builder", () => {
     );
     expect(output.curl).toContain("curl POST");
     expect(output.curl).toContain(
-      "-H 'Authorization: Bearer " + fixtureProxyValue + "'",
+      "-H 'Authorization: Bearer " + TEST_CREDENTIAL + "'",
     );
     expect(output.curl).toContain(`-d '${output.body}'`);
   });
@@ -102,7 +102,7 @@ describe("operation-aware curl builder", () => {
       apiFamily: "openai",
       openaiAcceptedFormat: "responses_only",
       modelId: "gpt-5.6-luna",
-      proxyKey: fixtureProxyValue,
+      proxyKey: TEST_CREDENTIAL,
     });
     expect(output.operation).toBe("responses");
     expect(output.url).toContain("/v1/responses");
@@ -117,7 +117,7 @@ describe("operation-aware curl builder", () => {
       apiFamily: "openai",
       openaiAcceptedFormat: "dual_native",
       modelId: "gpt-5.6-luna",
-      proxyKey: fixtureProxyValue,
+      proxyKey: TEST_CREDENTIAL,
     });
     expect(dual.operation).toBe("responses");
     expect(dual.url).toContain("/v1/responses");
@@ -126,7 +126,7 @@ describe("operation-aware curl builder", () => {
       apiFamily: "openai",
       openaiAcceptedFormat: "dual_native",
       modelId: "gpt-5.6-luna",
-      proxyKey: fixtureProxyValue,
+      proxyKey: TEST_CREDENTIAL,
       openaiOperation: "chat_completions",
     });
     expect(chat.operation).toBe("chat_completions");
@@ -138,11 +138,11 @@ describe("operation-aware curl builder", () => {
       apiFamily: "anthropic",
       openaiAcceptedFormat: null,
       modelId: "claude-sonnet-4-5",
-      proxyKey: fixtureProxyValue,
+      proxyKey: TEST_CREDENTIAL,
     });
     expect(output.operation).toBe("messages");
     expect(output.url).toContain("/v1/messages");
-    expect(output.headers["X-API-Key"]).toBe(fixtureProxyValue);
+    expect(output.headers["X-API-Key"]).toBe(TEST_CREDENTIAL);
     expect(output.headers["anthropic-version"]).toBe("2023-06-01");
     const body = jsonBody(output);
     expect(body.model).toBe("claude-sonnet-4-5");
@@ -155,13 +155,13 @@ describe("operation-aware curl builder", () => {
       apiFamily: "gemini",
       openaiAcceptedFormat: null,
       modelId: "gemini-2.5-pro:thinking",
-      proxyKey: fixtureProxyValue,
+      proxyKey: TEST_CREDENTIAL,
     });
     expect(output.operation).toBe("generate_content");
     expect(output.url).toContain(
       `/v1beta/models/${encodeGeminiModelSegment("gemini-2.5-pro:thinking")}:generateContent`,
     );
-    expect(output.headers["X-Goog-Api-Key"]).toBe(fixtureProxyValue);
+    expect(output.headers["X-Goog-Api-Key"]).toBe(TEST_CREDENTIAL);
     const body = jsonBody(output);
     expect(
       (body.generationConfig as { maxOutputTokens: number }).maxOutputTokens,
@@ -175,7 +175,7 @@ describe("operation-aware curl builder", () => {
       apiFamily: "openai",
       openaiAcceptedFormat: "responses_only",
       modelId: "gpt-5.6-luna",
-      proxyKey: fixtureProxyValue,
+      proxyKey: TEST_CREDENTIAL,
     });
     expect(output.gatewayOrigin).toBe("http://backend.local:8000");
     expect(output.familyBaseUrl).toBe("http://backend.local:8000/v1");
@@ -183,7 +183,7 @@ describe("operation-aware curl builder", () => {
       apiFamily: "gemini",
       openaiAcceptedFormat: null,
       modelId: "gemini-2.5-flash",
-      proxyKey: fixtureProxyValue,
+      proxyKey: TEST_CREDENTIAL,
     });
     expect(gemini.familyBaseUrl).toBe("http://backend.local:8000/v1beta");
   });
@@ -194,7 +194,7 @@ describe("operation-aware curl builder", () => {
       apiFamily: "anthropic",
       openaiAcceptedFormat: null,
       modelId: trickyModel,
-      proxyKey: fixtureProxyValue,
+      proxyKey: TEST_CREDENTIAL,
     });
     const body = jsonBody(output);
     expect(body.model).toBe(trickyModel);
@@ -219,12 +219,9 @@ describe("operation-aware curl builder", () => {
       { apiFamily: "gemini", openaiAcceptedFormat: null, modelId: "m4" },
     ] as const;
     for (const input of inputs) {
-      const output = buildSelfTestCurl({
-        ...input,
-        proxyKey: fixtureProxyValue,
-      });
-      expect(output.url).not.toContain(fixtureProxyValue);
-      expect(output.body).not.toContain(fixtureProxyValue);
+      const output = buildSelfTestCurl({ ...input, proxyKey: TEST_CREDENTIAL });
+      expect(output.url).not.toContain(TEST_CREDENTIAL);
+      expect(output.body).not.toContain(TEST_CREDENTIAL);
     }
   });
 });

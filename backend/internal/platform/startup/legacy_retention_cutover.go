@@ -9,10 +9,10 @@ import (
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 )
 
-// runSettingsV2Cutover performs the one-time v2 cutover after migrations.
-// Databases whose staged migration prefix predates 000012 have no
+// runLegacyRetentionCutover performs the one-time legacy retention cutover
+// after migrations. Databases whose staged migration prefix predates 000015 have no
 // retention_worker_transition_state row; the cutover is a no-op there.
-func (s Service) runSettingsV2Cutover(ctx context.Context, conn *pgx.Conn) error {
+func (s Service) runLegacyRetentionCutover(ctx context.Context, conn *pgx.Conn) error {
 	var transitionExists bool
 	if err := conn.QueryRow(ctx, `SELECT to_regclass('public.retention_worker_transition_state') IS NOT NULL`).Scan(&transitionExists); err != nil {
 		return err
@@ -20,8 +20,8 @@ func (s Service) runSettingsV2Cutover(ctx context.Context, conn *pgx.Conn) error
 	if !transitionExists {
 		return nil
 	}
-	return pgxutil.InTx(ctx, conn, "settings_v2_cutover", func(tx pgx.Tx) error {
-		// The transition singleton exists after 000012; a pre-000012 database
+	return pgxutil.InTx(ctx, conn, "legacy_retention_cutover", func(tx pgx.Tx) error {
+		// The transition singleton exists after 000015; a pre-000015 database
 		// fails migrations before this step can run.
 		if _, err := tx.Exec(ctx, `UPDATE retention_worker_transition_state
 			SET legacy_claim_authorized = TRUE, legacy_delete_authorized = TRUE, updated_at = now()

@@ -1,8 +1,8 @@
 import type { AuditLogDetail } from "@/lib/types";
-import type { RequestLogDetailV2 } from "@/lib/types/request-logs-v2";
+import type { RequestLogDetail } from "@/lib/types/request-logs";
 
 type AuditCaptureProvenance =
-  | Pick<RequestLogDetailV2["routing"], "audit_enabled_at_request" | "audit_capture_bodies_at_request">
+  | Pick<RequestLogDetail["routing"], "audit_enabled_at_request" | "audit_capture_bodies_at_request">
   | Pick<AuditLogDetail, "audit_enabled_at_request" | "audit_capture_bodies_at_request">;
 
 export type RequestAuditCaptureMode = "disabled" | "metadata_only" | "full";

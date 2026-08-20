@@ -56,54 +56,8 @@ type timezonePreferenceResponse struct {
 	TimezonePreference *string `json:"timezone_preference"`
 }
 
-type retentionSettingsResponse struct {
-	RequestLogsRetentionDays       *int `json:"request_logs_retention_days"`
-	AuditLogsRetentionDays         *int `json:"audit_logs_retention_days"`
-	StatisticsRetentionDays        *int `json:"statistics_retention_days"`
-	LoadbalanceEventsRetentionDays *int `json:"loadbalance_events_retention_days"`
-}
-
-type auditSettingsResponse struct {
-	ProfileID int            `json:"profile_id"`
-	Settings  []auditSetting `json:"settings"`
-}
-
-type auditSetting struct {
-	APIFamily          string `json:"api_family"`
-	AuditEnabled       bool   `json:"audit_enabled"`
-	AuditCaptureBodies bool   `json:"audit_capture_bodies"`
-}
-
 type timezonePreferenceUpdateRequest struct {
 	TimezonePreference *string `json:"timezone_preference"`
-}
-
-type retentionSettingsUpdateRequest struct {
-	RequestLogsRetentionDays       *int `json:"request_logs_retention_days"`
-	AuditLogsRetentionDays         *int `json:"audit_logs_retention_days"`
-	StatisticsRetentionDays        *int `json:"statistics_retention_days"`
-	LoadbalanceEventsRetentionDays *int `json:"loadbalance_events_retention_days"`
-}
-
-type auditSettingsUpdateRequest struct {
-	Settings []auditSetting `json:"settings"`
-}
-
-type logRetentionSettingsRow struct {
-	RequestLogsRetentionDays       *int
-	AuditLogsRetentionDays         *int
-	StatisticsRetentionDays        *int
-	LoadbalanceEventsRetentionDays *int
-	CreatedAt                      time.Time
-	UpdatedAt                      time.Time
-}
-
-type auditSettingsRow struct {
-	APIFamily          string
-	AuditEnabled       bool
-	AuditCaptureBodies bool
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
 }
 
 type userSettingsRow struct {

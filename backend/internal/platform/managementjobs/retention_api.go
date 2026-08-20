@@ -118,7 +118,7 @@ func (s *Store) GetGlobalRetentionJob(ctx context.Context, id string) (retention
 func (s *Store) CancelRetentionJob(ctx context.Context, id string, operationID string) (retentionJobRow, bool, error) {
 	var row retentionJobRow
 	replayed := false
-	err := pgxutil.InTx(ctx, s.pool, "retention_cancel_v2", func(tx pgx.Tx) error {
+	err := pgxutil.InTx(ctx, s.pool, "retention_cancel", func(tx pgx.Tx) error {
 		if err := auditdomain.AcquireAffectedWriterAdmission(ctx, tx); err != nil {
 			return fmt.Errorf("retention cancel owner admission: %w", err)
 		}

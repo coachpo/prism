@@ -145,12 +145,12 @@ func (s *Service) handleGetAuthOperation(w http.ResponseWriter, r *http.Request)
 	err := s.pool.QueryRow(r.Context(), `SELECT result_json FROM settings_mutation_operations
 		WHERE resource_kind = 'auth_settings' AND operation_id = $1`, operationID).Scan(&raw)
 	if err != nil {
-		writeAuthSettingsV2Problem(w, r, s.corsSnapshot(), http.StatusNotFound, "auth_operation_not_found", "Operation not found", nil)
+		writeAuthSettingsProblem(w, r, s.corsSnapshot(), http.StatusNotFound, "auth_operation_not_found", "Operation not found", nil)
 		return
 	}
-	var result authOperationResultV2
+	var result authOperationResult
 	if err := json.Unmarshal(raw, &result); err != nil {
-		writeAuthSettingsV2Problem(w, r, s.corsSnapshot(), http.StatusInternalServerError, "auth_settings_unavailable", "Failed to decode authentication operation", nil)
+		writeAuthSettingsProblem(w, r, s.corsSnapshot(), http.StatusInternalServerError, "auth_settings_unavailable", "Failed to decode authentication operation", nil)
 		return
 	}
 	responseutil.WriteJSON(w, http.StatusOK, result)

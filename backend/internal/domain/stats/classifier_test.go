@@ -164,3 +164,31 @@ func TestCostSegmentKey(t *testing.T) {
 		t.Fatalf("expected l.__unknown__ for short code, got %q", key)
 	}
 }
+
+func TestDetailPricingUsesCanonicalCostSegmentKey(t *testing.T) {
+	stringPointer := func(value string) *string { return &value }
+	epoch := 4
+	projection := buildDetailPricing(requestLogDetailRow{
+		ReportingCurrencyEpoch: &epoch,
+		PricingStatus:          "priced",
+	})
+	if projection.CostSegmentKey == nil || *projection.CostSegmentKey != "e.4" {
+		t.Fatalf("expected detail epoch segment key e.4, got %#v", projection.CostSegmentKey)
+	}
+
+	legacy := buildDetailPricing(requestLogDetailRow{
+		ReportCurrencyCode: stringPointer(" usd "),
+		PricingStatus:      "priced",
+	})
+	if legacy.CostSegmentKey == nil || *legacy.CostSegmentKey != "l.USD" {
+		t.Fatalf("expected detail legacy segment key l.USD, got %#v", legacy.CostSegmentKey)
+	}
+
+	invalid := buildDetailPricing(requestLogDetailRow{
+		ReportCurrencyCode: stringPointer("US"),
+		PricingStatus:      "priced",
+	})
+	if invalid.CostSegmentKey == nil || *invalid.CostSegmentKey != "l.__unknown__" {
+		t.Fatalf("expected invalid detail currency to use unknown key, got %#v", invalid.CostSegmentKey)
+	}
+}

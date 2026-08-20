@@ -9,7 +9,7 @@
  */
 
 import { api } from "@/lib/api";
-import type { RequestLogDetailV2 } from "@/lib/types/request-logs-v2";
+import type { RequestLogDetail } from "@/lib/types/request-logs";
 import {
   INGRESS_REQUEST_ID_HEADER,
   SELF_TEST_POLL_ATTEMPTS,
@@ -104,7 +104,7 @@ export function delay(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 export interface TelemetryReconciliationResult {
-  detail: RequestLogDetailV2 | null;
+  detail: RequestLogDetail | null;
   state: "ready" | "timed_out" | "not_expected";
 }
 

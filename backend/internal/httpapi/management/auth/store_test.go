@@ -74,18 +74,7 @@ func TestRuntimeAuthConfigSnapshotUsesProviderWhenPresent(t *testing.T) {
 	}
 }
 
-func TestNormalizeUsernameAndNotes(t *testing.T) {
-	if got := normalizeUsername(nil); got != nil {
-		t.Fatalf("expected nil username when source is nil, got %v", *got)
-	}
-	username := "  admin  "
-	if got := normalizeUsername(&username); got == nil || *got != "admin" {
-		t.Fatalf("expected trimmed username, got %#v", got)
-	}
-	blankUsername := "   "
-	if got := normalizeUsername(&blankUsername); got != nil {
-		t.Fatalf("expected blank username to normalize to nil, got %v", *got)
-	}
+func TestNormalizeNotes(t *testing.T) {
 	notes := "  ops key  "
 	if got := normalizeNotes(&notes); got == nil || *got != "ops key" {
 		t.Fatalf("expected trimmed notes, got %#v", got)

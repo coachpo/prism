@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
-import type { ChainResponse } from "@/lib/types/request-logs-v2";
+import type { ChainResponse } from "@/lib/types/request-logs";
 
 interface UseRequestLogChainParams {
   ingressRequestId: string | null;

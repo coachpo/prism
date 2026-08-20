@@ -541,7 +541,7 @@ The Requests page must remain compatible with the following backend-facing and s
 
 - `RequestLogListItem` (v2 slim row: `request_log_id` string, `row_kind`, scoped statuses, attempt facts, failure preview) for the browse table
 - `ChainResponse`/`ChainIngressItem`/`FinalizedSummary` for the default chain view
-- `RequestLogDetailV2` for the detail sheet only
+- `RequestLogDetail` for the detail sheet only
 - `api.stats.requests()`/`api.stats.chains()` for browsing and `/api/stats/requests/{request_id}` for exact detail
 - `api.stats.exportCsv()` for the server-side full filtered export
 - audit API client methods plus raw body download helpers

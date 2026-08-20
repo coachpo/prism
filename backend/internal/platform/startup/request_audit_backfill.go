@@ -14,7 +14,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/domain/safediag"
 )
 
-// requestAuditV2BackfillOwner is the crash-resumable background-jobs owner
+// requestAuditBackfillOwner is the crash-resumable background-jobs owner
 // that scrubs legacy retained observability data after the v1 drain and
 // before legacy read routes activate (Requests SPEC §5.6).
 //
@@ -32,21 +32,36 @@ import (
 //
 // A domain is ready only after its scan is complete AND its raw shadows are
 // null; read routes stay unavailable (503 observability_v2_backfill_in_progress)
-// until the domain is ready.
-type requestAuditV2BackfillOwner struct {
+// until the domain is ready. The upgrade gate is the persisted
+// observability_v2_upgrade_state row and the durable per-profile checkpoints
+// live in observability_v2_backfill_state; those database identifiers are
+// intentionally unchanged by source-file naming work.
+type requestAuditBackfillOwner struct {
 	now func() time.Time
 }
 
-func newRequestAuditV2BackfillOwner(now func() time.Time) *requestAuditV2BackfillOwner {
+func newRequestAuditBackfillOwner(now func() time.Time) *requestAuditBackfillOwner {
 	if now == nil {
 		now = time.Now
 	}
-	return &requestAuditV2BackfillOwner{now: now}
+	return &requestAuditBackfillOwner{now: now}
 }
 
 const backfillBatchSize = 500
 
 var backfillDomains = []string{"request_urls", "request_metadata", "audit_headers_urls"}
+
+// requestURLsAuditPhaseCursor stores the audit_logs phase in the existing
+// request_urls checkpoint without changing the persisted schema. PostgreSQL
+// IDs are positive, so a negative last_id unambiguously means that the
+// request_logs scan is complete and the encoded audit_logs cursor is active.
+func requestURLsAuditPhaseCursor(id int64) int64 { return -id }
+
+func isRequestURLsAuditPhaseCursor(id *int64) bool {
+	return id != nil && *id < 0
+}
+
+func decodeRequestURLsAuditPhaseCursor(id int64) int64 { return -id }
 
 // backfillDomainState is a durable checkpoint row.
 type backfillDomainState struct {
@@ -60,7 +75,7 @@ type backfillDomainState struct {
 
 // EnsureAllDomainsReady runs the backfill for all profiles until every domain
 // is ready. It is idempotent and crash-resumable.
-func (owner *requestAuditV2BackfillOwner) EnsureAllDomainsReady(ctx context.Context, tx pgx.Tx) (complete bool, err error) {
+func (owner *requestAuditBackfillOwner) EnsureAllDomainsReady(ctx context.Context, tx pgx.Tx) (complete bool, err error) {
 	// Verify the upgrade is past the v1 drain before backfilling.
 	var state string
 	if err := tx.QueryRow(ctx, `SELECT state FROM observability_v2_upgrade_state WHERE id = 1`).Scan(&state); err != nil {
@@ -124,7 +139,7 @@ func loadBackfillProfiles(ctx context.Context, tx pgx.Tx) ([]int, error) {
 	return profiles, nil
 }
 
-func (owner *requestAuditV2BackfillOwner) ensureDomainReady(ctx context.Context, tx pgx.Tx, profileID int, domain string) (bool, error) {
+func (owner *requestAuditBackfillOwner) ensureDomainReady(ctx context.Context, tx pgx.Tx, profileID int, domain string) (bool, error) {
 	state := loadBackfillDomainState(ctx, tx, profileID, domain)
 	switch state.Status {
 	case "ready":
@@ -223,9 +238,13 @@ func auditRawShadowColumnsExist(ctx context.Context, tx pgx.Tx) (bool, error) {
 	return count > 0, nil
 }
 
-func (owner *requestAuditV2BackfillOwner) runBackfillBatch(ctx context.Context, tx pgx.Tx, profileID int, domain string, afterCreatedAt *time.Time, afterID *int64) (processed bool, err error) {
+func (owner *requestAuditBackfillOwner) runBackfillBatch(ctx context.Context, tx pgx.Tx, profileID int, domain string, afterCreatedAt *time.Time, afterID *int64) (processed bool, err error) {
 	switch domain {
 	case "request_urls":
+		if isRequestURLsAuditPhaseCursor(afterID) {
+			auditAfterID := decodeRequestURLsAuditPhaseCursor(*afterID)
+			return owner.backfillAuditURLs(ctx, tx, profileID, afterCreatedAt, &auditAfterID)
+		}
 		return owner.backfillRequestURLs(ctx, tx, profileID, afterCreatedAt, afterID)
 	case "request_metadata":
 		return owner.backfillRequestMetadata(ctx, tx, profileID, afterCreatedAt, afterID)
@@ -238,11 +257,11 @@ func (owner *requestAuditV2BackfillOwner) runBackfillBatch(ctx context.Context, 
 
 // backfillRequestURLs rewrites legacy request/audit URLs with the fixed
 // §4.3 scrubber and writes url_scrub_provenance.
-func (owner *requestAuditV2BackfillOwner) backfillRequestURLs(ctx context.Context, tx pgx.Tx, profileID int, afterCreatedAt *time.Time, afterID *int64) (bool, error) {
+func (owner *requestAuditBackfillOwner) backfillRequestURLs(ctx context.Context, tx pgx.Tx, profileID int, afterCreatedAt *time.Time, afterID *int64) (bool, error) {
 	rows, err := tx.Query(ctx, `SELECT id, created_at, endpoint_base_url FROM request_logs
 		WHERE profile_id = $1 AND url_scrub_provenance = 'legacy_unknown'
 		AND ($2::timestamptz IS NULL OR created_at > $2 OR (created_at = $2 AND id > $3))
-		ORDER BY created_at ASC, id ASC LIMIT `+fmt.Sprintf("%d", backfillBatchSize),
+		ORDER BY created_at ASC, id ASC LIMIT `+fmt.Sprintf("%d", backfillBatchSize+1),
 		profileID, afterCreatedAt, afterID)
 	if err != nil {
 		return false, fmt.Errorf("query legacy request URLs for profile %d: %w", profileID, err)
@@ -270,8 +289,14 @@ func (owner *requestAuditV2BackfillOwner) backfillRequestURLs(ctx context.Contex
 		return false, fmt.Errorf("iterate legacy request URL rows: %w", err)
 	}
 	if len(batch) == 0 {
-		// Also scrub audit_logs URLs.
-		return owner.backfillAuditURLs(ctx, tx, profileID, afterCreatedAt, afterID)
+		// request_logs and audit_logs have independent (created_at, id)
+		// sequences. Start the audit phase from its own beginning instead of
+		// applying the request_logs cursor to audit_logs.
+		return owner.backfillAuditURLs(ctx, tx, profileID, nil, nil)
+	}
+	requestRowsRemain := len(batch) > backfillBatchSize
+	if requestRowsRemain {
+		batch = batch[:backfillBatchSize]
 	}
 	for _, row := range batch {
 		scrubbed := ""
@@ -287,13 +312,19 @@ func (owner *requestAuditV2BackfillOwner) backfillRequestURLs(ctx context.Contex
 		}
 	}
 	last := batch[len(batch)-1]
-	if err := upsertBackfillDomainStatus(ctx, tx, profileID, "request_urls", "running", &last.created, &last.id); err != nil {
-		return false, err
+	if requestRowsRemain {
+		if err := upsertBackfillDomainStatus(ctx, tx, profileID, "request_urls", "running", &last.created, &last.id); err != nil {
+			return false, err
+		}
+		return true, nil
 	}
-	return true, nil
+	// The request_logs scan is complete in this transaction. Start the
+	// independent audit_logs phase at its own origin so an earlier audit row
+	// cannot be hidden by the request_logs cursor.
+	return owner.backfillAuditURLs(ctx, tx, profileID, nil, nil)
 }
 
-func (owner *requestAuditV2BackfillOwner) backfillAuditURLs(ctx context.Context, tx pgx.Tx, profileID int, afterCreatedAt *time.Time, afterID *int64) (bool, error) {
+func (owner *requestAuditBackfillOwner) backfillAuditURLs(ctx context.Context, tx pgx.Tx, profileID int, afterCreatedAt *time.Time, afterID *int64) (bool, error) {
 	rows, err := tx.Query(ctx, `SELECT id, created_at, request_url, endpoint_base_url FROM audit_logs
 		WHERE profile_id = $1 AND url_scrub_provenance = 'legacy_unknown'
 		AND ($2::timestamptz IS NULL OR created_at > $2 OR (created_at = $2 AND id > $3))
@@ -347,7 +378,8 @@ func (owner *requestAuditV2BackfillOwner) backfillAuditURLs(ctx context.Context,
 		}
 	}
 	last := batch[len(batch)-1]
-	if err := upsertBackfillDomainStatus(ctx, tx, profileID, "request_urls", "running", &last.created, &last.id); err != nil {
+	encodedAuditID := requestURLsAuditPhaseCursor(last.id)
+	if err := upsertBackfillDomainStatus(ctx, tx, profileID, "request_urls", "running", &last.created, &encodedAuditID); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -355,7 +387,7 @@ func (owner *requestAuditV2BackfillOwner) backfillAuditURLs(ctx context.Context,
 
 // backfillRequestMetadata irreversibly scrubs/caps §4.3 external metadata on
 // legacy request logs and writes the provenance arrays.
-func (owner *requestAuditV2BackfillOwner) backfillRequestMetadata(ctx context.Context, tx pgx.Tx, profileID int, afterCreatedAt *time.Time, afterID *int64) (bool, error) {
+func (owner *requestAuditBackfillOwner) backfillRequestMetadata(ctx context.Context, tx pgx.Tx, profileID int, afterCreatedAt *time.Time, afterID *int64) (bool, error) {
 	rows, err := tx.Query(ctx, `SELECT id, created_at, caller_user_agent, upstream_user_agent, provider_correlation_id, caller_request_id FROM request_logs
 		WHERE profile_id = $1 AND (metadata_redacted_fields = '{}' AND metadata_truncated_fields = '{}')
 		AND ($2::timestamptz IS NULL OR created_at > $2 OR (created_at = $2 AND id > $3))
@@ -428,7 +460,7 @@ func (owner *requestAuditV2BackfillOwner) backfillRequestMetadata(ctx context.Co
 
 // backfillAuditHeadersURLs rewrites legacy audit header raw shadows into
 // scrubbed JSONB targets and nulls the shadows transactionally.
-func (owner *requestAuditV2BackfillOwner) backfillAuditHeadersURLs(ctx context.Context, tx pgx.Tx, profileID int, afterCreatedAt *time.Time, afterID *int64) (bool, error) {
+func (owner *requestAuditBackfillOwner) backfillAuditHeadersURLs(ctx context.Context, tx pgx.Tx, profileID int, afterCreatedAt *time.Time, afterID *int64) (bool, error) {
 	// 000011 drops the raw shadow columns after the backfill completed in a
 	// previous lifecycle; a missing shadow column means the domain is already
 	// drained and no further rewrite is possible or needed.
