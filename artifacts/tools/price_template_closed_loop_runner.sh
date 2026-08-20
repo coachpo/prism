@@ -4,6 +4,7 @@ set -eu
 runner_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 project_root=$(CDPATH= cd -- "$runner_dir/../.." && pwd)
 case_id=${1:-}
+PRISM_PLAYWRIGHT_PROCESS_PATCH="$runner_dir/playwright_closed_loop_process_patch.cjs"
 PRISM_GO_WORKSPACE=/Users/qingli/go
 PRISM_GO_BUILD_CACHE=/Users/qingli/Library/Caches/go-build
 export GOPATH="$PRISM_GO_WORKSPACE"
@@ -52,6 +53,7 @@ case "$case_id" in
     ;;
   frontend-e2e)
     cd "$project_root/frontend"
+    export NODE_OPTIONS="--require=$PRISM_PLAYWRIGHT_PROCESS_PATCH"
     exec pnpm run test:e2e
     ;;
   *)
