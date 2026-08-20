@@ -507,7 +507,7 @@ func runBackendUntilHealthyThenInterrupt(t *testing.T, ctx context.Context, bina
 	)
 	command.Stdout = &output
 	command.Stderr = &output
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	configureTestChildProcess(command)
 	if err := command.Start(); err != nil {
 		t.Fatalf("start backend with startup telemetry config: %v", err)
 	}
@@ -516,11 +516,11 @@ func runBackendUntilHealthyThenInterrupt(t *testing.T, ctx context.Context, bina
 	go func() { waitErr <- command.Wait() }()
 	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", port)
 	if err := waitForBackendHealth(ctx, healthURL, waitErr); err != nil {
-		terminateBackendProcess(command.Process.Pid)
+		terminateBackendProcess(command)
 		t.Fatalf("backend did not become healthy with startup telemetry config: %v\n%s", err, output.String())
 	}
-	if err := syscall.Kill(-command.Process.Pid, syscall.SIGINT); err != nil {
-		terminateBackendProcess(command.Process.Pid)
+	if err := signalTestChildProcess(command, syscall.SIGINT); err != nil {
+		terminateBackendProcess(command)
 		t.Fatalf("interrupt backend with startup telemetry config: %v", err)
 	}
 	select {
@@ -529,7 +529,7 @@ func runBackendUntilHealthyThenInterrupt(t *testing.T, ctx context.Context, bina
 			t.Fatalf("backend exited after interrupt: %v\n%s", err, output.String())
 		}
 	case <-ctx.Done():
-		terminateBackendProcess(command.Process.Pid)
+		terminateBackendProcess(command)
 		t.Fatalf("backend did not stop after interrupt: %v\n%s", ctx.Err(), output.String())
 	}
 	return output.String()
@@ -562,8 +562,8 @@ func waitForBackendHealth(ctx context.Context, healthURL string, waitErr <-chan 
 	}
 }
 
-func terminateBackendProcess(pid int) {
-	_ = syscall.Kill(-pid, syscall.SIGKILL)
+func terminateBackendProcess(command *exec.Cmd) {
+	_ = signalTestChildProcess(command, syscall.SIGKILL)
 }
 
 func runBackendPrintEffectiveStartupSettings(t *testing.T, configPath, databaseURL string) string {

@@ -200,10 +200,10 @@ func startShLauncher(t *testing.T, mode, configPath string, timeout time.Duratio
 	command.Dir = repoRoot
 	command.Stdout = output
 	command.Stderr = output
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	configureTestChildProcess(command)
 	command.WaitDelay = 10 * time.Second
 	command.Cancel = func() error {
-		return signalLauncherProcessGroup(command, syscall.SIGTERM)
+		return signalLauncherProcess(command, syscall.SIGTERM)
 	}
 
 	run := &startShLauncherRun{
@@ -246,15 +246,15 @@ func (r *startShLauncherRun) cleanup(t *testing.T) {
 	t.Helper()
 	if r.command.Process != nil {
 		if exited, _ := r.exited(); !exited {
-			if err := signalLauncherProcessGroup(r.command, syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
-				t.Logf("send SIGTERM to start.sh process group: %v", err)
+			if err := signalLauncherProcess(r.command, syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
+				t.Logf("send SIGTERM to start.sh process: %v", err)
 			}
 			if !r.waitForExit(5 * time.Second) {
-				if err := signalLauncherProcessGroup(r.command, syscall.SIGKILL); err != nil && !errors.Is(err, os.ErrProcessDone) {
-					t.Logf("send SIGKILL to start.sh process group: %v", err)
+				if err := signalLauncherProcess(r.command, syscall.SIGKILL); err != nil && !errors.Is(err, os.ErrProcessDone) {
+					t.Logf("send SIGKILL to start.sh process: %v", err)
 				}
 				if !r.waitForExit(10 * time.Second) {
-					t.Logf("start.sh process group did not exit after SIGKILL")
+					t.Logf("start.sh process did not exit after SIGKILL")
 				}
 			}
 		}
@@ -323,15 +323,8 @@ func (r *startShLauncherRun) exited() (bool, error) {
 	}
 }
 
-func signalLauncherProcessGroup(command *exec.Cmd, signal syscall.Signal) error {
-	if command.Process == nil {
-		return os.ErrProcessDone
-	}
-	err := syscall.Kill(-command.Process.Pid, signal)
-	if errors.Is(err, syscall.ESRCH) {
-		return os.ErrProcessDone
-	}
-	return err
+func signalLauncherProcess(command *exec.Cmd, signal syscall.Signal) error {
+	return signalTestChildProcess(command, signal)
 }
 
 func waitForStartShReadiness(t *testing.T, run *startShLauncherRun, wantFrontend bool) {
