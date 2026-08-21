@@ -46,14 +46,14 @@ pnpm run build
 - Follow the project- and technology-specific rules in [docs/development-rules.md](docs/development-rules.md), the architecture facts in [docs/architecture.md](docs/architecture.md), and the unified size and responsibility policy in [docs/source-code-size-and-responsibility-rules.md](docs/source-code-size-and-responsibility-rules.md), together with the shared principles below.
 
 <!-- write-project-docs:derived-iteration-strategy:start -->
-<!-- write-project-docs:derived-iteration-strategy:metadata {"contentSha256":"sha256:15b7d81e6c1f340965919944b7722ed06bdbae80f52cbabf534a762da416956e","schemaVersion":1,"sources":[{"normalization":"without-visible-exact-mvp-control-line-terminal-lf-v2","path":"STATUS.md","sha256":"sha256:79e8c8875e8415f0bc53c51fdf0a62224aef7ebe8cad59b81da3dee82173c51b"},{"path":"docs/product.md","sha256":"sha256:e2c29705dce6de2acf20b7a3f03fe644ffc6c1c298e4c666e9f34b18d5d872aa"},{"path":"docs/architecture.md","sha256":"sha256:9ea161b7366b1ea41888f7c623e1d806c3f57b0f22534cfc553ad11c5ed5f20f"},{"path":"docs/development-rules.md","sha256":"sha256:c654dedd88097c8434d6e4cf8a7cf09463b0ea063ac9b8d36135698adf8e4d49"}]} -->
+<!-- write-project-docs:derived-iteration-strategy:metadata {"contentSha256":"sha256:9cbaaac428978dccc55d9506c5f4265dd16488ef1f26527f0c245ed93a0a84b1","schemaVersion":1,"sources":[{"normalization":"without-visible-exact-mvp-control-line-terminal-lf-v2","path":"STATUS.md","sha256":"sha256:79e8c8875e8415f0bc53c51fdf0a62224aef7ebe8cad59b81da3dee82173c51b"},{"path":"docs/product.md","sha256":"sha256:e2c29705dce6de2acf20b7a3f03fe644ffc6c1c298e4c666e9f34b18d5d872aa"},{"path":"docs/architecture.md","sha256":"sha256:52e9e3e1044a44a5cb0223db147d65874b8325567a0dfd2e846a90c9aec61927"},{"path":"docs/development-rules.md","sha256":"sha256:c654dedd88097c8434d6e4cf8a7cf09463b0ea063ac9b8d36135698adf8e4d49"}]} -->
 ## Current Iteration Strategy
 
 Convenience-first active development on the operator's personal home-LAN instance: work is prioritized from gaps observed in day-to-day use of the running instance, and where a change trades off against data-security hardening the convenient path wins. Keep the local dev/deploy loop (launcher full|headless, root Compose bundle, same-origin Vite proxying) fast, easy, and accurately documented.
 
 Derived from (the source documents remain authoritative): [`STATUS.md`](STATUS.md), [`docs/product.md`](docs/product.md), [`docs/architecture.md`](docs/architecture.md), [`docs/development-rules.md`](docs/development-rules.md).
 
-> This block scopes only the current iteration. It does not change the MVP fast-validation switch or weaken security, privacy, permissions, data integrity, existing compatibility commitments, or higher-priority requirements.
+> This block scopes only the current iteration. It does not change the MVP fast-validation switch, expand user authorization, authorize external writes or destructive operations, delete or reset existing data, fabricate validation results, or override higher-priority user requirements or explicit prohibitions.
 
 ### Must Complete Now
 

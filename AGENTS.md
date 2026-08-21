@@ -162,7 +162,7 @@ Before starting related work, read the authoritative documents that cover the sc
 - [Source Code Size and Responsibility Rules](docs/source-code-size-and-responsibility-rules.md)
 - [Contributing Guide](CONTRIBUTING.md)
 
-When implementing, reviewing, or verifying an engineering change, use `STATUS.md` and the product overview for current facts and delivery intent, then read the [Current Iteration Strategy](CONTRIBUTING.md#current-iteration-strategy) when that derived section exists. Consume only the required-now items, non-negotiable boundaries, and re-derivation triggers relevant to the task; do not independently expand explicitly deferred or currently untriggered work. A new user requirement, active Goal, reachable risk, hard project rule or invariant, or evidence-backed review finding overrides a conflicting deferred description. The strategy does not expand user authorization, and the MVP Fast Validation switch neither defines nor overrides it; do not reuse a stale strategy after source facts or its digest change.
+When implementing, reviewing, or verifying an engineering change, use `STATUS.md` and the product overview for current facts and delivery intent, then read the [Current Iteration Strategy](CONTRIBUTING.md#current-iteration-strategy) and "MVP Fast Validation" H3 when those sections exist. Consume only the required-now items, authorization boundaries, and re-derivation triggers relevant to the task. When MVP is enabled, apply its "Explicitly out of scope," "May be deferred," and "Still constraints" layers, retaining the current basis and observable re-evaluation trigger for every concrete deferred item. Existing compatibility commitments and repository-required checks are not themselves authorization to exclude work: only non-core specialized implementation, full validation, or default gates may be excluded, while checks required for affected paths or core acceptance still run. Re-include work when a new user requirement, active Goal, hard project rule or invariant, evidence invalidating the core conclusion, or a recorded re-evaluation trigger applies. The strategy and MVP switch remain independently stored, and neither expands user authorization; do not reuse a stale strategy after source facts or its digest change.
 
 ## Project Documentation Content Boundaries
 
@@ -172,3 +172,17 @@ This project does not add process or administrative management for the sake of d
 - Do not create documents, sections, placeholders, or "to be confirmed" items for those topics.
 - Existing and verified development, test, build, and deployment commands remain recorded in their own authoritative documents; this block does not change product, architecture, or engineering facts.
 <!-- write-project-docs:document-navigation:end -->
+
+<!-- write-agent-guides:engineering-router:start -->
+## Engineering Router
+
+Use the narrowest matching row. Read the linked authority before changing code and run only validation already authorized by the task.
+
+| Trigger | Authority | Invariant IDs | Validation entry |
+| --- | --- | --- | --- |
+| `backend`: Changing Go entrypoints, configuration, toolchain, dependencies, generated inputs, tests, or release artifacts | [docs/architecture.md](docs/architecture.md#inv-go-229d2b017a9b) | [INV-GO-229D2B017A9B](docs/architecture.md#inv-go-229d2b017a9b) | Manual review |
+| `backend`: Changing Context chains, goroutines, connections, commands, servers, workers, admission, or shutdown | [docs/architecture.md](docs/architecture.md#inv-go-2d7d34ee6112) | [INV-GO-2D7D34EE6112](docs/architecture.md#inv-go-2d7d34ee6112) | Manual review |
+| `backend`: Changing transactions, migrations, messages, caches, remote calls, retries, or cross-resource writes | [docs/architecture.md](docs/architecture.md#inv-go-2e9f9d48ab43) | [INV-GO-2E9F9D48AB43](docs/architecture.md#inv-go-2e9f9d48ab43) | Manual review |
+| `backend`: Changing package dependencies, synchronous calls, authoritative facts, shared state, or goroutine ownership | [docs/architecture.md](docs/architecture.md#inv-go-a392eb849715) | [INV-GO-A392EB849715](docs/architecture.md#inv-go-a392eb849715) | Manual review |
+| `backend`: Changing HTTP, CLI, file, identity, secret, diagnostic, limit, or public-error boundaries | [docs/architecture.md](docs/architecture.md#inv-go-fd5b268343ae) | [INV-GO-FD5B268343AE](docs/architecture.md#inv-go-fd5b268343ae) | Manual review |
+<!-- write-agent-guides:engineering-router:end -->

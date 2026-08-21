@@ -4717,3 +4717,32 @@ Selected foreign-key deletion boundaries:
 
 - Runtime hot state is process-local and is reset on every process start.
 - The baseline migration remains the exact source for PostgreSQL column types, sequences, constraints, indexes, and foreign keys.
+
+## 16. Profile-Backed Go Engineering Invariants
+
+The following stable IDs bind the Go profile to the `backend` scope. They are normative architecture outcomes, while the project invariant map records their current audit status as unverified because this documentation refresh does not execute the profile's candidate checks.
+
+<a id="inv-go-229d2b017a9b"></a>
+### Reproducible Entrypoints and Artifacts
+
+Go entrypoints, configuration, toolchain, dependencies, generated inputs, tests, and release artifacts must remain determinable and reproducible from a clean checkout through repository-owned commands.
+
+<a id="inv-go-2d7d34ee6112"></a>
+### Bounded Runtime Lifecycles
+
+Context chains, goroutines, connections, commands, servers, and workers must propagate cancellation and deadlines and retain explicit admission, panic handling, waiting, drain, and shutdown ownership.
+
+<a id="inv-go-2e9f9d48ab43"></a>
+### Consistent Failure Semantics
+
+Transactions, migrations, messages, caches, remote calls, retries, and cross-resource writes must preserve required consistency under duplicate delivery, timeout, cancellation, and partial failure.
+
+<a id="inv-go-a392eb849715"></a>
+### Acyclic Dependencies and Explicit Ownership
+
+Package imports must remain acyclic, synchronous calls must terminate safely, and every authoritative fact, shared state value, and background goroutine must have one explicit owner or conflict protocol.
+
+<a id="inv-go-fd5b268343ae"></a>
+### Explicit Trust Boundaries
+
+Adopted HTTP, CLI, message, file, path, identity, secret, diagnostic, limit, and public-error boundaries must be explicit, least-privilege, and covered by negative tests appropriate to their reachable risk.
