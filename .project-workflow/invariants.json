@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "profileSelection": {
     "path": ".project-workflow/profile-selection.json",
-    "digest": "sha256:318fb6ff889f359fe493327d0a175dd0ebf931c9fceb13b6a4107f8a7ea4e0e8"
+    "digest": "sha256:461385fcd4af354abc5a4b7019e800243b4358444c30519a33a717097a20e8a5"
   },
   "bindings": [
     {
@@ -10,8 +10,8 @@
       "source": {
         "kind": "profile",
         "profileId": "golang",
-        "profileVersion": "2.0.0",
-        "profileDigest": "sha256:e7493eb2e30ecbc4d10a727a1da368595334ff0ff2d1f284ba9895a6eb829ce7"
+        "profileVersion": "1.0.0",
+        "profileDigest": "sha256:bc26956f6cee66e4aec106bab8bac9673e7135ed34b867375239ab86f9cb45cb"
       },
       "scopes": [
         "backend"
@@ -44,8 +44,8 @@
       "source": {
         "kind": "profile",
         "profileId": "golang",
-        "profileVersion": "2.0.0",
-        "profileDigest": "sha256:e7493eb2e30ecbc4d10a727a1da368595334ff0ff2d1f284ba9895a6eb829ce7"
+        "profileVersion": "1.0.0",
+        "profileDigest": "sha256:bc26956f6cee66e4aec106bab8bac9673e7135ed34b867375239ab86f9cb45cb"
       },
       "scopes": [
         "backend"
@@ -78,8 +78,8 @@
       "source": {
         "kind": "profile",
         "profileId": "golang",
-        "profileVersion": "2.0.0",
-        "profileDigest": "sha256:e7493eb2e30ecbc4d10a727a1da368595334ff0ff2d1f284ba9895a6eb829ce7"
+        "profileVersion": "1.0.0",
+        "profileDigest": "sha256:bc26956f6cee66e4aec106bab8bac9673e7135ed34b867375239ab86f9cb45cb"
       },
       "scopes": [
         "backend"
@@ -112,8 +112,8 @@
       "source": {
         "kind": "profile",
         "profileId": "golang",
-        "profileVersion": "2.0.0",
-        "profileDigest": "sha256:e7493eb2e30ecbc4d10a727a1da368595334ff0ff2d1f284ba9895a6eb829ce7"
+        "profileVersion": "1.0.0",
+        "profileDigest": "sha256:bc26956f6cee66e4aec106bab8bac9673e7135ed34b867375239ab86f9cb45cb"
       },
       "scopes": [
         "backend"
@@ -146,8 +146,8 @@
       "source": {
         "kind": "profile",
         "profileId": "golang",
-        "profileVersion": "2.0.0",
-        "profileDigest": "sha256:e7493eb2e30ecbc4d10a727a1da368595334ff0ff2d1f284ba9895a6eb829ce7"
+        "profileVersion": "1.0.0",
+        "profileDigest": "sha256:bc26956f6cee66e4aec106bab8bac9673e7135ed34b867375239ab86f9cb45cb"
       },
       "scopes": [
         "backend"
