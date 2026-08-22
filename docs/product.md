@@ -57,7 +57,7 @@ Single operator (developer/power user) running the application locally or on a l
   - Models attach one reusable explicit Ban Policy strategy using `single`, `fill-first`, or `round-robin` routing
   - The three strategies act on the same enabled mixed access-target rows: `single` takes only the first enabled mixed peer, `fill-first` walks the authored mixed order, and `round-robin` rotates the direct mixed rows once per request while each child model keeps its own cursor
   - Two consequences of combining a routing schedule with these strategies are worth stating outright. Under `round-robin`, an out-of-window row still occupies its cursor slot, so the first in-window row after a run of `k` out-of-window rows takes `(k+1)/N` of the first attempts while that run lasts; availability is unaffected because every in-window row is still tried on failure. Under `single`, only the first enabled row is ever considered, so scheduling that row takes the whole model offline outside its window — `single` and routing schedules are effectively incompatible, and a time-based configuration should use `fill-first` or `round-robin`
-  - Upstream request timing uses shared backend timeout settings, while Ban Policy owns retry windows, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, `temporary` or `until_reset` bans, and failover status codes
+  - Outbound provider requests carry no connection or timeout limits; `runtime.sideEffects.attemptTimeout` applies to scheduler-owned runtime activity handoff work, while Ban Policy owns retry windows, `cycle_retry_attempt_limit`, `ban_cumulative_retry_attempt_threshold`, `temporary` or `until_reset` bans, and failover status codes
   - Ban Policy thresholds are inclusive: retry-cycle exhaustion uses `cycle_retry_attempts >= cycle_retry_attempt_limit`, and bans use `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`
 - Failover-worthy HTTP responses are governed by the attached strategy's configured failure status codes and retry-window settings
   - Non-failover client errors outside the configured failure status set (for example `400` or `404` with default policies) do not force-clear existing Ban Policy state
@@ -577,7 +577,7 @@ The Requests page must remain compatible with the following backend-facing and s
 
 This document maps Prism's current operator workflows from mounted frontend routes to the backend APIs they drive. It is grounded in `frontend/src/app/router/appRouter.tsx`, `frontend/src/app/router/rewriteRoutes.ts`, the live Go backend API surface, and the markdown API reference.
 
-Validated again against current repo surfaces on 2026-08-13:
+Validated again against current repo surfaces on 2026-08-22:
 
 - `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` are the four version surfaces and are always equal; `release.sh` is what keeps them aligned. The value itself is not restated here, because a copy of it in prose drifts the moment a release moves the files.
 - The protected frontend route shell mounts observe, request-log, model, route, settings, proxy-key, and pricing workflows; analytics lives under `/observe`.

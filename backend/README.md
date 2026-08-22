@@ -42,6 +42,8 @@ Supported runtime routes are:
 - `POST /v1/responses`
 - `POST /v1/responses/input_tokens`
 - `POST /v1/responses/compact`
+- `POST /v1/images/generations`
+- `POST /v1/images/edits`
 - `POST /v1/messages`
 - `POST /v1/messages/count_tokens`
 - `POST /v1beta/models/{model}:generateContent`
@@ -68,7 +70,7 @@ go build ./cmd/prism-backend
 
 ## Configuration
 - Supported steady-state backend startup uses `PRISM_CONFIG_PATH` and a plaintext bootstrap file such as `../config.json`; long-lived `OTEL_*` variables are ignored.
-- Backend-owned canonical defaults are the source of truth for freshly seeded bootstrap files: server `0.0.0.0:8000`, standalone database URL `postgres://prism:prism@localhost:5432/prism?sslmode=disable` unless `DATABASE_URL` is set, CORS for `http://localhost:5173`, PostgreSQL pools and management admission derived from `unit = clamp(GOMAXPROCS(0), 8, 16)`. The six lane maxima are management `unit + 1`, runtime execution `unit`, telemetry `unit / 2`, and feedback, cache refresh, and background jobs `unit / 4` each, for a total of 27 through 53. M2/M3 admission defaults are `unit` and `unit / 2`. Transport is `100/16/16/300s/90s/0s/10s/1s`, side-effect timeout is `10s`, and telemetry remains disabled.
+- Backend-owned canonical defaults are the source of truth for freshly seeded bootstrap files: server `0.0.0.0:8000`, standalone database URL `postgres://prism:prism@localhost:5432/prism?sslmode=disable` unless `DATABASE_URL` is set, CORS for `http://localhost:5173`, PostgreSQL pools and management admission derived from `unit = clamp(GOMAXPROCS(0), 8, 16)`. The six lane maxima are management `unit + 1`, runtime execution `unit`, telemetry `unit / 2`, and feedback, cache refresh, and background jobs `unit / 4` each, for a total of 27 through 53. M2/M3 admission defaults are `unit` and `unit / 2`. Outbound provider requests carry no connection or timeout limits; `runtime.sideEffects.attemptTimeout` is `10s`, and telemetry remains disabled.
 - When the bootstrap file already exists and is valid, Prism loads startup settings from it without rewriting it, even if it contains older values.
 - When the bootstrap file is missing, Prism seeds it from backend-owned defaults plus the optional `DATABASE_URL` input only; `../start.sh` supplies the local launcher DSN on host port `15432`.
 - The startup bootstrap contract is not DB-backed. Disaster recovery uses PostgreSQL `pg_dump` plus a copy of the plaintext bootstrap `config.json`; global log retention and other settings-page state flows remain PostgreSQL-backed state transport.

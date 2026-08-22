@@ -356,14 +356,14 @@ Dashboard and analytics updates use REST polling rather than a persistent browse
 - Ban creation is inclusive at `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`; the runtime never derives this threshold from the cycle limit.
 - `ban_mode` accepts `off`, `temporary`, and `until_reset`. The `until_reset` mode keeps a terminal target's current connection row banned until the current-state reset endpoint clears it.
 - The loadbalance strategies page exposes a `Create Defaults` action that explicitly creates `Default single routing`, `Default fill-first routing`, and `Default round-robin routing` for Default profile id `1`.
-- Upstream request timing is controlled by shared backend timeout settings, not by per-strategy timeout documents.
+- Outbound provider requests carry no connection or timeout limits; `runtime.sideEffects.attemptTimeout` applies to scheduler-owned runtime activity handoff work, not to per-strategy timeout fields.
 
 ### 4.2 Runtime execution pipeline
 
 1. The operation registry resolves the exact runtime operation and hook collection before the request body is consumed.
 2. Request setup resolves the frozen Default profile id `1` model by exact `planningSnapshot.ModelsByID` lookup, ordered access targets, attached strategy, and one immutable effective strategy snapshot for the request.
 3. Planner and runtime-state helpers use the production `LocalRuntimeStateStore` to build the current candidate set from admission counters, leases, round-robin cursors, and Ban Policy retry-window state. A connection carrying a routing schedule is additionally required to be inside one of its windows at the planning instant; the window check runs after Ban filtering, so a target excluded by its schedule is one already known to be otherwise usable.
-4. The shared execution core claims per-attempt local leases and uses shared upstream timeout behavior from the backend runtime before any client-visible bytes are committed.
+4. The shared execution core claims per-attempt local leases before any client-visible bytes are committed; outbound provider calls use the limit-free runtime HTTP client, while scheduler-owned runtime activity handoff work uses `runtime.sideEffects.attemptTimeout`.
 5. Operation request, response, and stream hooks interpret provider-native payload details by `HookCollectionID`, not necessarily operation name. Token-count and compact operations use their dedicated collections; passive outcomes feed back into process-local connection state while durable `loadbalance_events` retain transition history and model-policy snapshots, including `cycle_retry_attempt_limit` and `ban_cumulative_retry_attempt_threshold` when Ban Policy evaluation produced the event.
 
 Runtime request bodies are capped at `20 MiB`; oversized supported-operation requests return JSON `413` with `error: "request_body_too_large"` and `limit_bytes` before planning. If all eligible candidates are unavailable inside the current retry window, the gateway returns `503` with routing-availability detail. If all otherwise available candidates are blocked by admission limits, runtime returns `503` with `error: "admission_exhausted"` plus route-reason metadata before upstream transport. If every evaluated candidate was excluded solely by its routing schedule, runtime returns `503` with `terminal_target_schedule_closed` or `terminal_target_schedule_unresolvable` (see §14.2.2A). Exact facade routing, context-window preflight filtering, regex matching, capability-metadata expansion, hidden weight or tier semantics, and response-body model rewriting are retired. Request logs and usage events keep the existing requested-model and resolved-target fields.
@@ -3041,7 +3041,7 @@ Validation rules:
 - `ban_mode = "until_reset"` requires `ban_cumulative_retry_attempt_threshold` from `1` to `500`, `ban_cumulative_retry_attempt_threshold >= cycle_retry_attempt_limit`, and `ban_duration_seconds = 0`.
 - Runtime retry-cycle exhaustion is inclusive: `cycle_retry_attempts >= cycle_retry_attempt_limit` schedules the retry-window transition.
 - Runtime banning is inclusive and explicit: `cumulative_retry_attempts >= ban_cumulative_retry_attempt_threshold`. Prism never derives the ban threshold from `cycle_retry_attempt_limit`.
-- Upstream request timing is controlled by the shared backend timeout settings rather than per-strategy fields.
+- Outbound provider requests carry no connection or timeout limits; `runtime.sideEffects.attemptTimeout` applies to scheduler-owned runtime activity handoff work rather than per-strategy fields.
 
 #### 6.4 Get Loadbalance Strategy
 
