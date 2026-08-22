@@ -334,6 +334,14 @@ func buildRequestLogBrowseWhere(params RequestLogListParams) (string, []any) {
 		}
 		clauses = append(clauses, "unpriced_reason IN ("+strings.Join(placeholders, ",")+")")
 	}
+	if params.PricingCardRole != nil && strings.TrimSpace(*params.PricingCardRole) != "" {
+		args = append(args, strings.TrimSpace(*params.PricingCardRole))
+		clauses = append(clauses, fmt.Sprintf("pricing_card_role = $%d", len(args)))
+	}
+	if params.PricingSelectionState != nil && strings.TrimSpace(*params.PricingSelectionState) != "" {
+		args = append(args, strings.TrimSpace(*params.PricingSelectionState))
+		clauses = append(clauses, fmt.Sprintf("pricing_selection_state = $%d", len(args)))
+	}
 	if params.FromTime != nil {
 		args = append(args, params.FromTime.UTC())
 		clauses = append(clauses, fmt.Sprintf("created_at >= $%d", len(args)))

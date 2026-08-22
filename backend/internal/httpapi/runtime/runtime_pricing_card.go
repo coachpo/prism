@@ -8,10 +8,6 @@ import (
 	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 )
 
-func runtimePricingWindowsDigest(windows []terminaltarget.Window) string {
-	return terminaltarget.PricingWindowsDigest(windows)
-}
-
 type runtimePricingCardSelection struct {
 	State               string
 	Role                string
@@ -88,9 +84,7 @@ func selectRuntimePricingCard(snapshot *runtimePricingTemplateSnapshot, usage re
 	case pricingkind.PeakValley:
 		selection.Timezone = snapshot.PricingSchedule.Timezone
 		selection.ScheduleDigest = snapshot.PricingScheduleDigest
-		if len(snapshot.PricingSchedule.Windows) == 0 ||
-			strings.TrimSpace(snapshot.PricingScheduleDigest) == "" ||
-			runtimePricingWindowsDigest(snapshot.PricingSchedule.Windows) != strings.TrimSpace(snapshot.PricingScheduleDigest) ||
+		if !snapshot.PricingScheduleDigestValid ||
 			referenceNow.IsZero() {
 			selection.State = pricingkind.SelectionUnresolved
 			selection.Incoherent = true

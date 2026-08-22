@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import type { FilterOptions } from "./useRequestLogsPageData";
 import type { RequestLogPageActions } from "./useRequestLogPageState";
-import { PRICING_STATUS_OPTIONS, STATUS_FAMILY_OPTIONS, TIME_RANGE_OPTIONS, UNPRICED_REASON_OPTIONS } from "./queryParams";
+import { PRICING_CARD_ROLE_OPTIONS, PRICING_SELECTION_STATE_OPTIONS, PRICING_STATUS_OPTIONS, STATUS_FAMILY_OPTIONS, TIME_RANGE_OPTIONS, UNPRICED_REASON_OPTIONS } from "./queryParams";
 import { getTimeLabel, getUnpricedReasonLabel } from "./FiltersBar.constants";
 
 
@@ -36,6 +36,8 @@ interface FiltersBarPrimaryFiltersProps {
     | "setErrorText"
     | "setPricingStatus"
     | "setUnpricedReason"
+    | "setPricingCardRole"
+    | "setPricingSelectionState"
     | "setTimeRange"
   >;
   filterOptions: FilterOptions;
@@ -54,6 +56,8 @@ interface FiltersBarPrimaryFiltersProps {
     | "error_text"
     | "pricing_status"
     | "unpriced_reason"
+    | "pricing_card_role"
+    | "pricing_selection_state"
     | "time_range"
   >;
 }
@@ -103,6 +107,8 @@ export function FiltersBarPrimaryFilters({
     state.status_code,
     state.error_text,
     state.unpriced_reason,
+    state.pricing_card_role,
+    state.pricing_selection_state,
     state.status_family !== "all" ? state.status_family : "",
     state.pricing_status !== "all" ? state.pricing_status : "",
   ].filter(Boolean).length;
@@ -398,6 +404,28 @@ export function FiltersBarPrimaryFilters({
                 {getUnpricedReasonLabel(reason)}
               </SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="min-w-0">
+        <ToolbarLabel>{messages.requestLogs.pricingCardRole}</ToolbarLabel>
+        <Select value={state.pricing_card_role || "__all__"} onValueChange={(value) => actions.setPricingCardRole(value === "__all__" ? "" : value as typeof state.pricing_card_role)}>
+          <SelectTrigger className="h-9 w-full rounded-lg border-border bg-panel text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">{messages.requestLogs.allPricingCardRoles}</SelectItem>
+            {PRICING_CARD_ROLE_OPTIONS.map((role) => <SelectItem key={role} value={role}>{role === "standard" ? messages.requestLogs.pricingCardStandard : role === "tier_base" ? messages.requestLogs.pricingCardTierBase : role === "tier_above" ? messages.requestLogs.pricingCardTierAbove : role === "peak" ? messages.requestLogs.pricingCardPeak : messages.requestLogs.pricingCardOffpeak}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="min-w-0">
+        <ToolbarLabel>{messages.requestLogs.pricingSelectionState}</ToolbarLabel>
+        <Select value={state.pricing_selection_state || "__all__"} onValueChange={(value) => actions.setPricingSelectionState(value === "__all__" ? "" : value as typeof state.pricing_selection_state)}>
+          <SelectTrigger className="h-9 w-full rounded-lg border-border bg-panel text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">{messages.requestLogs.allPricingSelectionStates}</SelectItem>
+            {PRICING_SELECTION_STATE_OPTIONS.map((selection) => <SelectItem key={selection} value={selection}>{selection === "not_evaluated" ? messages.requestLogs.pricingSelectionNotEvaluated : selection === "not_applicable" ? messages.requestLogs.pricingSelectionNotApplicable : selection === "selected" ? messages.requestLogs.pricingSelectionSelected : messages.requestLogs.pricingSelectionUnresolved}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>

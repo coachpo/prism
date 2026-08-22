@@ -85,6 +85,7 @@ type DetailView = "usage" | "history";
 
 interface PricingTemplatesTableProps {
   detailHistory: PricingTemplateRevision[];
+  detailHistoryError: string | null;
   detailHistoryLoading: boolean;
   detailUsage: PricingTemplateConnectionUsageItem[];
   detailUsageError: string | null;
@@ -120,7 +121,8 @@ function kindLabel(
 ): string {
   if (template.template_kind === "standard") return copy.kindStandard;
   if (template.template_kind === "tiered") return copy.kindTiered;
-  return copy.kindPeakValley;
+  if (template.template_kind === "peak_valley") return copy.kindPeakValley;
+  return copy.unknownKind;
 }
 
 function getSortValue(
@@ -158,6 +160,7 @@ function matchesPricingFilter(template: PricingTemplate, query: string) {
 
 export function PricingTemplatesTable({
   detailHistory,
+  detailHistoryError,
   detailHistoryLoading,
   detailUsage,
   detailUsageError,
@@ -608,8 +611,10 @@ export function PricingTemplatesTable({
                                 />
                               ) : (
                                 <PricingTemplateHistoryPanel
+                                  error={detailHistoryError}
                                   loading={detailHistoryLoading}
                                   revisions={detailHistory}
+                                  onRetry={() => void onLoadHistory(template)}
                                 />
                               )}
                             </div>

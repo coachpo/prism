@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -18,23 +19,24 @@ import (
 
 // CurrencyCostSegment is one canonical segment.
 type CurrencyCostSegment struct {
-	SegmentKey                    string               `json:"segment_key"`
-	ReportingCurrencyEpoch        *int                 `json:"reporting_currency_epoch"`
-	CurrencyAttribution           string               `json:"currency_attribution"`
-	CurrencyCode                  *string              `json:"currency_code"`
-	DisplaySymbol                 *string              `json:"display_symbol"`
-	ObservedSymbols               []string             `json:"observed_symbols"`
-	ObservedSymbolCount           int                  `json:"observed_symbol_count"`
-	ObservedSymbolsTruncated      bool                 `json:"observed_symbols_truncated"`
-	RequestCount                  int                  `json:"request_count"`
-	PricingEligibleRequestCount   int                  `json:"pricing_eligible_request_count"`
-	PricingIneligibleRequestCount int                  `json:"pricing_ineligible_request_count"`
-	PricedRequestCount            int                  `json:"priced_request_count"`
-	UnpricedRequestCount          int                  `json:"unpriced_request_count"`
-	PricingUnknownRequestCount    int                  `json:"pricing_unknown_request_count"`
-	PricingCoverageState          string               `json:"pricing_coverage_state"`
-	UnpricedReasonCounts          UnpricedReasonCounts `json:"unpriced_reason_counts"`
-	KnownCostMicros               *string              `json:"known_cost_micros"`
+	SegmentKey                    string                         `json:"segment_key"`
+	ReportingCurrencyEpoch        *int                           `json:"reporting_currency_epoch"`
+	CurrencyAttribution           string                         `json:"currency_attribution"`
+	CurrencyCode                  *string                        `json:"currency_code"`
+	DisplaySymbol                 *string                        `json:"display_symbol"`
+	ObservedSymbols               []string                       `json:"observed_symbols"`
+	ObservedSymbolCount           int                            `json:"observed_symbol_count"`
+	ObservedSymbolsTruncated      bool                           `json:"observed_symbols_truncated"`
+	RequestCount                  int                            `json:"request_count"`
+	PricingEligibleRequestCount   int                            `json:"pricing_eligible_request_count"`
+	PricingIneligibleRequestCount int                            `json:"pricing_ineligible_request_count"`
+	PricedRequestCount            int                            `json:"priced_request_count"`
+	UnpricedRequestCount          int                            `json:"unpriced_request_count"`
+	PricingUnknownRequestCount    int                            `json:"pricing_unknown_request_count"`
+	PricingCoverageState          string                         `json:"pricing_coverage_state"`
+	UnpricedReasonCounts          UnpricedReasonCounts           `json:"unpriced_reason_counts"`
+	KnownCostMicros               *string                        `json:"known_cost_micros"`
+	PricingCardRoleBreakdown      []PricingCardRoleCostBreakdown `json:"pricing_card_role_breakdown"`
 }
 
 // UnpricedReasonCounts is the fixed four-reason breakdown.
@@ -66,13 +68,23 @@ const (
 	maxCostSegmentLimit     = 100
 )
 
-const canonicalCostSegmentKeySQL = `CASE
-	WHEN reporting_currency_epoch > 0 THEN 'e.' || reporting_currency_epoch::text
-	WHEN report_currency_code ~ '^[A-Z]{3}$' THEN 'l.' || report_currency_code
+func canonicalCostSegmentKeySQLFor(alias string) string {
+	qualifier := strings.TrimSpace(alias)
+	if qualifier != "" {
+		qualifier += "."
+	}
+	return `CASE
+	WHEN ` + qualifier + `reporting_currency_epoch > 0 THEN 'e.' || ` + qualifier + `reporting_currency_epoch::text
+	WHEN ` + qualifier + `report_currency_code ~ '^[A-Z]{3}$' THEN 'l.' || ` + qualifier + `report_currency_code
 	ELSE 'l.__unknown__'
 END`
+}
 
-const costSegmentClassifiedEventsCTE = `WITH classified AS (
+// canonicalCostSegmentKeySQL is the single SQL generator used by catalogue,
+// Observe aggregates, and all retained-history filters.
+var canonicalCostSegmentKeySQL = canonicalCostSegmentKeySQLFor("")
+
+var costSegmentClassifiedEventsCTE = `WITH classified AS (
 		SELECT *,
 			` + canonicalCostSegmentKeySQL + ` AS canonical_segment_key
 		FROM usage_request_events
@@ -121,9 +133,28 @@ func ListCostSegments(ctx context.Context, exec queryExecutor, params CostSegmen
 			COALESCE(SUM(total_cost_user_currency_micros) FILTER (WHERE pricing_status = 'priced' AND pricing_evidence_trust = 'trusted'), 0) AS trusted_cost_micros,
 			COUNT(total_cost_user_currency_micros) FILTER (WHERE pricing_status = 'priced' AND pricing_evidence_trust = 'trusted') AS trusted_cost_samples,
 			ARRAY_AGG(report_currency_symbol ORDER BY created_at, id)
-				FILTER (WHERE report_currency_symbol IS NOT NULL AND report_currency_symbol <> '') AS observed_symbols
-		FROM classified
-		GROUP BY canonical_segment_key`, params.ProfileID)
+				FILTER (WHERE report_currency_symbol IS NOT NULL AND report_currency_symbol <> '') AS observed_symbols,
+			COALESCE((
+				SELECT JSONB_AGG(JSONB_BUILD_OBJECT(
+					'card_role', role_rows.pricing_card_role,
+					'request_count', role_rows.request_count,
+					'priced_request_count', role_rows.priced_request_count,
+					'known_cost_micros', CASE WHEN grouped.canonical_segment_key <> 'l.__unknown__' AND role_rows.priced_request_count > 0 AND role_rows.trusted_cost_samples > 0 THEN role_rows.trusted_cost_micros::text END
+				) ORDER BY role_rows.pricing_card_role)
+				FROM (
+					SELECT pricing_card_role, COUNT(*)::int AS request_count,
+						COUNT(*) FILTER (WHERE pricing_status = 'priced')::int AS priced_request_count,
+						COALESCE(SUM(total_cost_user_currency_micros) FILTER (WHERE pricing_status = 'priced' AND pricing_evidence_trust = 'trusted'), 0) AS trusted_cost_micros,
+						COUNT(total_cost_user_currency_micros) FILTER (WHERE pricing_status = 'priced' AND pricing_evidence_trust = 'trusted')::int AS trusted_cost_samples
+					FROM classified AS role_events
+					WHERE role_events.canonical_segment_key = grouped.canonical_segment_key
+						AND role_events.pricing_selection_state = 'selected'
+						AND role_events.pricing_card_role IS NOT NULL
+					GROUP BY pricing_card_role
+				) AS role_rows
+			), '[]'::jsonb) AS pricing_card_role_breakdown
+		FROM classified AS grouped
+		GROUP BY grouped.canonical_segment_key`, params.ProfileID)
 	if err != nil {
 		return CostSegmentPage{}, fmt.Errorf("query cost segments for profile %d: %w", params.ProfileID, err)
 	}
@@ -136,6 +167,7 @@ func ListCostSegments(ctx context.Context, exec queryExecutor, params CostSegmen
 		var trustedCostSamples int
 		var observedSymbols []string
 		var displaySymbol *string
+		var roleBreakdownJSON []byte
 		if err := rows.Scan(
 			&segment.ReportingCurrencyEpoch,
 			&segment.CurrencyCode,
@@ -153,10 +185,16 @@ func ListCostSegments(ctx context.Context, exec queryExecutor, params CostSegmen
 			&trustedCost,
 			&trustedCostSamples,
 			&observedSymbols,
+			&roleBreakdownJSON,
 		); err != nil {
 			return CostSegmentPage{}, fmt.Errorf("scan cost segment: %w", err)
 		}
 		segment.DisplaySymbol = displaySymbol
+		if len(roleBreakdownJSON) > 0 {
+			if err := json.Unmarshal(roleBreakdownJSON, &segment.PricingCardRoleBreakdown); err != nil {
+				return CostSegmentPage{}, fmt.Errorf("decode cost segment role breakdown: %w", err)
+			}
+		}
 		// Deduplicate observed symbols preserving first-seen order (max 8).
 		segment.ObservedSymbols = dedupeSymbols(observedSymbols)
 		segment.ObservedSymbolCount = len(segment.ObservedSymbols)
@@ -165,16 +203,18 @@ func ListCostSegments(ctx context.Context, exec queryExecutor, params CostSegmen
 			segment.ObservedSymbolsTruncated = true
 			segment.ObservedSymbols = segment.ObservedSymbols[:8]
 		}
-		// Segment key derivation (Pricing SPEC §5.7).
-		switch {
-		case segment.ReportingCurrencyEpoch != nil && *segment.ReportingCurrencyEpoch > 0:
-			segment.SegmentKey = fmt.Sprintf("e.%d", *segment.ReportingCurrencyEpoch)
+		// Segment key derivation (Pricing SPEC §5.7) uses the same Go
+		// authority as detail and finalized-summary projections. The SQL CTE
+		// has already applied the equivalent canonical predicate to the group.
+		legacyCode := ""
+		legacyCodeValid := segment.CurrencyCode != nil
+		if legacyCodeValid {
+			legacyCode = *segment.CurrencyCode
+		}
+		segment.SegmentKey = CostSegmentKeyFor(segment.ReportingCurrencyEpoch, legacyCode, legacyCodeValid)
+		if strings.HasPrefix(segment.SegmentKey, "e.") {
 			segment.CurrencyAttribution = "identified"
-		case segment.CurrencyCode != nil && isUppercaseCode(*segment.CurrencyCode):
-			segment.SegmentKey = "l." + *segment.CurrencyCode
-			segment.CurrencyAttribution = "legacy_unknown"
-		default:
-			segment.SegmentKey = "l.__unknown__"
+		} else {
 			segment.CurrencyAttribution = "legacy_unknown"
 		}
 		segment.PricingCoverageState = deriveCoverageState(segment.PricingEligibleRequestCount, segment.PricedRequestCount, segment.UnpricedRequestCount, segment.PricingUnknownRequestCount)
@@ -227,6 +267,19 @@ func ListCostSegments(ctx context.Context, exec queryExecutor, params CostSegmen
 	}
 	page.CostSegmentsSnapshotHash = costSegmentSnapshotHash(segments)
 	return page, nil
+}
+
+// NormalizeCostSegmentKey validates the public filter grammar and returns the
+// canonical trimmed value. An empty value means that no filter was requested.
+func NormalizeCostSegmentKey(raw string) (*string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return nil, nil
+	}
+	if !isCanonicalCostSegmentKey(value) {
+		return nil, &HTTPError{StatusCode: 400, Code: "cost_segment_key_invalid", Detail: "Cost segment key is invalid."}
+	}
+	return &value, nil
 }
 
 func dedupeSymbols(symbols []string) []string {

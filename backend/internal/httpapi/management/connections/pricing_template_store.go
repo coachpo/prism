@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
+	"github.com/coachpo/prism/backend/internal/domain/pricingkind"
 	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 	"github.com/jackc/pgx/v5"
 )
@@ -62,6 +64,7 @@ type pricingTemplateResponse struct {
 	// Internal normalized card/window shape used to compare and persist full revisions.
 	cards                  map[string]pricingTemplateCard
 	windows                []terminaltarget.Window
+	scheduleDigest         *string
 	Version                int        `json:"version"`
 	RevisionID             int64      `json:"revision_id"`
 	VersionEffectiveAt     *time.Time `json:"version_effective_at"`
@@ -232,16 +235,19 @@ func scanPricingTemplateResponse(scanner interface{ Scan(...any) error }) (prici
 	}
 	item.Description = nullableStringValue(description)
 	item.TemplateKind = strings.TrimSpace(templateKind.String)
+	if !pricingkind.Kind(item.TemplateKind).Valid() {
+		return pricingTemplateResponse{}, &DomainError{StatusCode: http.StatusConflict, Detail: "pricing_template_shape_unavailable"}
+	}
+	if scheduleDigest.Valid {
+		digest := strings.TrimSpace(scheduleDigest.String)
+		item.scheduleDigest = &digest
+	}
 	if tierThreshold.Valid {
 		value := int(tierThreshold.Int32)
 		item.Tier = &pricingTemplateTier{InputTokensAbove: value}
 	}
 	if scheduleTimezone.Valid {
 		item.Schedule = &pricingTemplateSchedule{Timezone: strings.TrimSpace(scheduleTimezone.String)}
-	}
-	if scheduleDigest.Valid {
-		// digest is loaded into the schedule-owned revision shape only through
-		// the internal field; the public schedule contains authored windows.
 	}
 	if epoch.Valid {
 		value := int(epoch.Int32)

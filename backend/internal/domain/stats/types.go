@@ -16,6 +16,8 @@ type RequestLogListParams struct {
 	ErrorText             *string
 	PricingStatus         *string
 	UnpricedReasons       []string
+	PricingCardRole       *string
+	PricingSelectionState *string
 	FromTime              *time.Time
 	ToTime                *time.Time
 	EndpointID            *int

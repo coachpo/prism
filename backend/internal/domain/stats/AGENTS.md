@@ -65,6 +65,7 @@ stats/
 - Retained ingress rows: `request_logs_chain_rows.go`
 - Usage snapshot, spending, endpoint/model/proxy-key aggregates: `snapshot.go`, `spending.go`, `endpoint_model_statistics.go`, `model_metrics.go`
 - Observe usage summary and cost segments: `observe_usage_summary.go`, `observe_usage_summary_segments.go`
+- Canonical cost-segment generation and validation: `cost_segments.go`, `cost_segment_symbols.go`, `classifier.go`; the SQL generator and `CostSegmentKeyFor` must classify epoch 0, non-canonical currency codes, and NULL codes identically.
 - Observe query-context bounds/signing: `observe_query.go`, `observe_query_context.go`
 - Stats summary and throughput metrics: `aggregates.go`, `throughput.go`
 - Shared usage-event loading/scanning: `usage_event_records.go`
@@ -84,6 +85,8 @@ stats/
 - Keep the chain view server-owned: whole-ingress outer pages with signed chain cursors, bounded retained-row inner pages, and finalized-summary facts from `usage_request_events` only.
 - Keep CSV export server-side from a single `READ ONLY REPEATABLE READ` snapshot with typed rejection before any file bytes.
 - Keep pricing and usage-source math in backend read models. Frontend tables render supplied values; they do not recalculate totals.
+- Retained request-log filters for `cost_segment_key`, `pricing_card_role`, and `pricing_selection_state` must validate at the HTTP boundary and reuse the canonical domain predicates; `cost_segment_key` alone must not switch the ingress source away from retained request logs.
+- Observe cost segments may carry a selected-card-role breakdown (including peak/offpeak); derive it from trusted usage-event evidence in the same aggregate statement and preserve NULL for an untrusted or absent cost.
 - Dashboard overview and recent activity are separate read models; do not fold recent activity into aggregate snapshots.
 
 ## ANTI-PATTERNS

@@ -19,6 +19,8 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/coachpo/prism/backend/internal/domain/pricingkind"
+	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/jackc/pgx/v5"
@@ -138,7 +140,6 @@ func (s *Service) handleListPricingTemplatePage(w http.ResponseWriter, r *http.R
 		if err != nil {
 			return pricingTemplateListPage{}, fmt.Errorf("load pricing template page: %w", err)
 		}
-		defer rows.Close()
 		items := make([]pricingTemplateListItem, 0, limit)
 		lastName := cursor.startKey()
 		lastID := cursor.LastID
@@ -151,12 +152,15 @@ func (s *Service) handleListPricingTemplatePage(w http.ResponseWriter, r *http.R
 			lastName, lastID = nameIdentity, int(parseDecimalID(item.ID))
 		}
 		if err := rows.Err(); err != nil {
+			rows.Close()
 			return pricingTemplateListPage{}, err
 		}
+		rows.Close()
 		for index := range items {
 			if err := hydratePricingListRevision(r.Context(), tx, &items[index].CurrentRevision); err != nil {
 				return pricingTemplateListPage{}, err
 			}
+			setPricingListConfigurationStatus(&items[index])
 		}
 		consumed := cursor.ConsumedCount + len(items)
 		page := pricingTemplateListPage{Items: items, TotalCount: total, ConsumedCount: consumed, ListSnapshotHash: snapshotHash}
@@ -266,7 +270,7 @@ func scanPricingTemplateListItem(scanner interface{ Scan(...any) error }) (prici
 	if err := scanner.Scan(&id, &profileID, &name, &description, &createdAt, &updatedAt, &deletedAt, &revisionID, &version, &pricingUnit, &currencyCode, &currencyAttribution, &revisionEpoch, &templateKind, &tierThreshold, &scheduleTimezone, &scheduleDigest, &effectiveAt, &revisionCreatedAt, &createdByKind, &createdByOperationID, &nameIdentity, &item.ModelReferenceCount, &item.EndpointReferenceCount, &item.TerminalTargetReferenceCount); err != nil {
 		return pricingTemplateListItem{}, nil, err
 	}
-	if !revisionID.Valid || !pricingUnit.Valid || !currencyCode.Valid || !currencyAttribution.Valid || !templateKind.Valid {
+	if !revisionID.Valid || !pricingUnit.Valid || !currencyCode.Valid || !currencyAttribution.Valid || !templateKind.Valid || !pricingkind.Kind(strings.TrimSpace(templateKind.String)).Valid() {
 		return pricingTemplateListItem{}, nil, &DomainError{StatusCode: http.StatusConflict, Detail: "pricing_template_shape_unavailable"}
 	}
 	item.ID = strconv.Itoa(id)
@@ -290,8 +294,6 @@ func scanPricingTemplateListItem(scanner interface{ Scan(...any) error }) (prici
 	if tierThreshold.Valid {
 		item.CurrentRevision.Tier = &pricingTemplateTier{InputTokensAbove: int(tierThreshold.Int32)}
 	}
-	item.ConfigurationStatus = "complete"
-	item.MissingSpecialtyComponents = []string{}
 	return item, nameIdentity, nil
 }
 
@@ -307,7 +309,6 @@ func hydratePricingListRevision(ctx context.Context, tx pgx.Tx, revision *pricin
 	if err != nil {
 		return fmt.Errorf("load pricing list revision cards: %w", err)
 	}
-	defer rows.Close()
 	if revision.Tier != nil {
 		revision.Tier.Card = nil
 	}
@@ -334,7 +335,104 @@ func hydratePricingListRevision(ctx context.Context, tx pgx.Tx, revision *pricin
 			revision.OffpeakCard = card
 		}
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	kind := pricingkind.Kind(strings.TrimSpace(revision.TemplateKind))
+	if !kind.Valid() {
+		return &DomainError{StatusCode: http.StatusConflict, Detail: "pricing_template_shape_unavailable"}
+	}
+	for _, role := range pricingkind.RolesFor(kind) {
+		if pricingListRevisionCard(revision, role) == nil {
+			return &DomainError{StatusCode: http.StatusConflict, Detail: "pricing_template_shape_unavailable"}
+		}
+	}
+	if kind != pricingkind.PeakValley {
+		return nil
+	}
+	if revision.ScheduleTimezone == nil || strings.TrimSpace(*revision.ScheduleTimezone) == "" || revision.ScheduleDigest == nil || strings.TrimSpace(*revision.ScheduleDigest) == "" {
+		return &DomainError{StatusCode: http.StatusConflict, Detail: "pricing_template_shape_unavailable"}
+	}
+	windowRows, err := tx.Query(ctx, `SELECT weekday_mask, start_minute, end_minute FROM pricing_template_windows WHERE revision_id = $1 ORDER BY weekday_mask, start_minute, end_minute`, revisionID)
+	if err != nil {
+		return fmt.Errorf("load pricing list revision windows: %w", err)
+	}
+	windows := make([]terminaltarget.Window, 0)
+	for windowRows.Next() {
+		var mask, start, end int
+		if err := windowRows.Scan(&mask, &start, &end); err != nil {
+			windowRows.Close()
+			return err
+		}
+		windows = append(windows, terminaltarget.Window{WeekdayMask: mask, StartMinute: start, EndMinute: end})
+	}
+	if err := windowRows.Err(); err != nil {
+		windowRows.Close()
+		return err
+	}
+	windowRows.Close()
+	if len(windows) == 0 || terminaltarget.PricingWindowsDigest(windows) != strings.TrimSpace(*revision.ScheduleDigest) {
+		return &DomainError{StatusCode: http.StatusConflict, Detail: "pricing_template_shape_unavailable"}
+	}
+	return nil
+}
+
+func pricingListRevisionCard(revision *pricingRevisionDTO, role string) *pricingTemplateCard {
+	if revision == nil {
+		return nil
+	}
+	switch role {
+	case pricingkind.RoleStandard:
+		return revision.Card
+	case pricingkind.RoleTierBase:
+		return revision.BaseCard
+	case pricingkind.RoleTierAbove:
+		if revision.Tier != nil {
+			return revision.Tier.Card
+		}
+	case pricingkind.RolePeak:
+		return revision.PeakCard
+	case pricingkind.RoleOffpeak:
+		return revision.OffpeakCard
+	}
+	return nil
+}
+
+func setPricingListConfigurationStatus(item *pricingTemplateListItem) {
+	if item == nil {
+		return
+	}
+	missing := make([]string, 0, 3)
+	seen := make(map[string]struct{}, 3)
+	for _, role := range pricingkind.RolesFor(pricingkind.Kind(item.CurrentRevision.TemplateKind)) {
+		card := pricingListRevisionCard(&item.CurrentRevision, role)
+		if card == nil {
+			continue
+		}
+		for _, component := range []struct {
+			name  string
+			value *string
+		}{
+			{name: "cached_input_price", value: card.CachedInputPrice},
+			{name: "cache_creation_price", value: card.CacheCreationPrice},
+			{name: "reasoning_price", value: card.ReasoningPrice},
+		} {
+			if component.value == nil {
+				if _, ok := seen[component.name]; !ok {
+					seen[component.name] = struct{}{}
+					missing = append(missing, component.name)
+				}
+			}
+		}
+	}
+	item.MissingSpecialtyComponents = missing
+	item.ConfigurationStatus = "complete"
+	if len(missing) > 0 {
+		item.ConfigurationStatus = "incomplete"
+	}
 }
 
 func parseDecimalID(value string) int64 {

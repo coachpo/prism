@@ -125,6 +125,22 @@ func parseRequestLogListParams(r *http.Request, profileID int, observabilitySign
 			return statsdomain.RequestLogListParams{}, err
 		}
 	}
+	pricingCardRole := normalizedQueryString(r, "pricing_card_role")
+	if pricingCardRole != nil {
+		switch *pricingCardRole {
+		case "standard", "tier_base", "tier_above", "peak", "offpeak":
+		default:
+			return statsdomain.RequestLogListParams{}, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Code: "pricing_card_role_invalid", Detail: "pricing_card_role is invalid"}
+		}
+	}
+	pricingSelectionState := normalizedQueryString(r, "pricing_selection_state")
+	if pricingSelectionState != nil {
+		switch *pricingSelectionState {
+		case "not_evaluated", "not_applicable", "selected", "unresolved":
+		default:
+			return statsdomain.RequestLogListParams{}, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Code: "pricing_selection_state_invalid", Detail: "pricing_selection_state is invalid"}
+		}
+	}
 	ingressFinalResult := normalizedQueryString(r, "ingress_final_result")
 	if ingressFinalResult != nil {
 		normalized := strings.ToLower(strings.TrimSpace(*ingressFinalResult))
@@ -176,7 +192,7 @@ func parseRequestLogListParams(r *http.Request, profileID int, observabilitySign
 		return statsdomain.RequestLogListParams{}, err
 	}
 	coveragePreset := strings.TrimSpace(r.URL.Query().Get("time_range"))
-	return statsdomain.RequestLogListParams{ProfileID: profileID, IngressFinalResult: ingressFinalResult, ConfirmedFailover: confirmedFailover, IngressRequestID: normalizedQueryString(r, "ingress_request_id"), ModelID: normalizedQueryString(r, "model_id"), ResolvedTargetModelID: normalizedQueryString(r, "resolved_target_model_id"), StatusFamily: statusFamily, StatusCode: statusCode, ErrorText: normalizedQueryString(r, "error_text"), PricingStatus: pricingStatus, UnpricedReasons: unpricedReasons, FromTime: fromTime, ToTime: toTime, EndpointID: endpointID, TerminalTargetID: terminalTargetID, ProxyAPIKeyID: proxyAPIKeyID, ClientRuleID: clientRuleID, QueryContextFrom: queryContextFrom, QueryContextTo: queryContextTo, FinalResult: finalResult, FinalModelID: finalModelID, FinalEndpointID: finalEndpointID, FinalTerminalTargetID: finalTerminalTargetID, FinalPricingStatus: finalPricingStatus, FinalUnpricedReasons: finalUnpricedReasons, FinalReportingEpoch: reportingEpoch, CoveragePreset: coveragePreset, CoverageRequestedFrom: fromTime, CoverageRequestedTo: toTime, CoverageReferenceNow: referenceNow.UTC(), SortBy: sortBy, SortOrder: sortOrder, Limit: limit, Offset: offset}, nil
+	return statsdomain.RequestLogListParams{ProfileID: profileID, IngressFinalResult: ingressFinalResult, ConfirmedFailover: confirmedFailover, IngressRequestID: normalizedQueryString(r, "ingress_request_id"), ModelID: normalizedQueryString(r, "model_id"), ResolvedTargetModelID: normalizedQueryString(r, "resolved_target_model_id"), StatusFamily: statusFamily, StatusCode: statusCode, ErrorText: normalizedQueryString(r, "error_text"), PricingStatus: pricingStatus, UnpricedReasons: unpricedReasons, PricingCardRole: pricingCardRole, PricingSelectionState: pricingSelectionState, FromTime: fromTime, ToTime: toTime, EndpointID: endpointID, TerminalTargetID: terminalTargetID, ProxyAPIKeyID: proxyAPIKeyID, ClientRuleID: clientRuleID, QueryContextFrom: queryContextFrom, QueryContextTo: queryContextTo, FinalResult: finalResult, FinalModelID: finalModelID, FinalEndpointID: finalEndpointID, FinalTerminalTargetID: finalTerminalTargetID, FinalPricingStatus: finalPricingStatus, FinalUnpricedReasons: finalUnpricedReasons, FinalReportingEpoch: reportingEpoch, CoveragePreset: coveragePreset, CoverageRequestedFrom: fromTime, CoverageRequestedTo: toTime, CoverageReferenceNow: referenceNow.UTC(), SortBy: sortBy, SortOrder: sortOrder, Limit: limit, Offset: offset}, nil
 }
 
 // parseRequestLogSort resolves the attempt-view sort grammar: `sort_by` over
@@ -223,6 +239,8 @@ func rejectUnsupportedRequestLogQueryKeys(r *http.Request) error {
 		"error_text":               {},
 		"pricing_status":           {},
 		"unpriced_reason":          {},
+		"pricing_card_role":        {},
+		"pricing_selection_state":  {},
 		"from_time":                {},
 		"to_time":                  {},
 		"time_range":               {},

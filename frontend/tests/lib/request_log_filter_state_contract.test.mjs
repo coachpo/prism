@@ -49,15 +49,19 @@ test("request-log filter state round-trips caller client and final target model 
 });
 test("request-log filter state round-trips pricing filters", () => {
   const state = parsePageState(
-    new URLSearchParams("pricing_status=unpriced&unpriced_reason=MISSING_PRICE_DATA"),
+    new URLSearchParams("pricing_status=unpriced&unpriced_reason=MISSING_PRICE_DATA&pricing_card_role=peak&pricing_selection_state=selected"),
   );
 
   assert.equal(state.pricing_status, "unpriced");
   assert.equal(state.unpriced_reason, "MISSING_PRICE_DATA");
+  assert.equal(state.pricing_card_role, "peak");
+  assert.equal(state.pricing_selection_state, "selected");
 
   const params = stateToParams(state);
   assert.equal(params.get("pricing_status"), "unpriced");
   assert.equal(params.get("unpriced_reason"), "MISSING_PRICE_DATA");
+  assert.equal(params.get("pricing_card_role"), "peak");
+  assert.equal(params.get("pricing_selection_state"), "selected");
 });
 test("request-log filter state omits empty browse filters but keeps exact anchors", () => {
   const params = stateToParams({
@@ -70,6 +74,8 @@ test("request-log filter state omits empty browse filters but keeps exact anchor
     error_text: "",
     pricing_status: "all",
     unpriced_reason: "",
+    pricing_card_role: "",
+    pricing_selection_state: "",
     time_range: "24h",
     status_family: "all",
     limit: 100,

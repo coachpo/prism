@@ -55,7 +55,7 @@ export function PricingFeaturePage() {
       <div className="grid gap-[var(--density-card-gap)] sm:grid-cols-2 xl:grid-cols-4">
         <OperatorKpiCard
           label={copy.kpiTotal}
-          value={formatNumber(stats.total)}
+          value={data.pricingTemplatesError ? "—" : formatNumber(stats.total)}
           detail={copy.kpiTotalDetail}
           onClick={() => setFilter("all")}
         />
@@ -73,7 +73,7 @@ export function PricingFeaturePage() {
         />
         <OperatorKpiCard
           label={copy.kpiRecentlyChanged}
-          value={formatNumber(stats.recentlyChanged)}
+          value={data.pricingTemplatesError ? "—" : formatNumber(stats.recentlyChanged)}
           detail={copy.kpiRecentlyChangedDetail}
           onClick={() => setFilter("recently_changed")}
         />
@@ -92,6 +92,7 @@ export function PricingFeaturePage() {
 
       <PricingTemplatesTable
         detailHistory={data.pricingTemplateHistoryRevisions}
+        detailHistoryError={data.pricingTemplateHistoryError}
         detailHistoryLoading={data.pricingTemplateHistoryLoading}
         detailUsage={data.pricingTemplateUsageRows}
         detailUsageError={data.pricingTemplateUsageLoadError}
@@ -113,7 +114,7 @@ export function PricingFeaturePage() {
         pricingTemplatesLoading={data.pricingTemplatesLoading}
       />
 
-      <PricingTemplateDialog editingPricingTemplate={data.editingPricingTemplate} onClose={data.closePricingTemplateDialog} onOpenChange={data.setPricingTemplateDialogOpen} onSave={data.handleSavePricingTemplate} open={data.pricingTemplateDialogOpen} pricingTemplateSaving={data.pricingTemplateSaving} serverValidation={data.pricingTemplateServerError} />
+      <PricingTemplateDialog editingPricingTemplate={data.editingPricingTemplate} impact={data.pricingTemplateImpact} impactError={data.pricingTemplateImpactError} impactLoading={data.pricingTemplateImpactLoading} onClose={data.closePricingTemplateDialog} onOpenChange={data.setPricingTemplateDialogOpen} onRetryImpact={() => void data.retryPricingTemplateImpact()} onSave={data.handleSavePricingTemplate} open={data.pricingTemplateDialogOpen} pricingTemplateSaving={data.pricingTemplateSaving} serverValidation={data.pricingTemplateServerError} />
       <PricingTemplateImportDialog importing={data.pricingTemplateImporting} onClose={() => data.setPricingTemplateImportDialogOpen(false)} onImport={data.handleImportPricingTemplates} onOpenChange={data.setPricingTemplateImportDialogOpen} open={data.pricingTemplateImportDialogOpen} />
       <DeletePricingTemplateDialog deletePricingTemplateConfirm={data.deletePricingTemplateConfirm} displayTemplate={data.deletePricingTemplateDisplay ?? data.deletePricingTemplateConfirm} deletePricingTemplateConflict={data.deletePricingTemplateConflict} pricingTemplateUsageError={data.pricingTemplateUsageError} onClose={() => { data.setDeletePricingTemplateConfirm(null); data.setDeletePricingTemplateConflict(null) }} onDelete={data.handleDeletePricingTemplate} pricingTemplateDeleting={data.pricingTemplateDeleting} pricingTemplateUsageLoading={data.pricingTemplateUsageLoading} pricingTemplateUsageRows={data.pricingTemplateUsageRows} />
     </OperatorPageShell>

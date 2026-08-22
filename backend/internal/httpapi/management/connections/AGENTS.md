@@ -22,6 +22,9 @@ connections/
 ├── pricing_templates.go    # Pricing-template CRUD and validation
 ├── pricing_template_store.go     # Pricing-template row shape, queries, revision/mutation ledger, scanners
 ├── pricing_template_import.go    # Two-phase pricing-template JSON import (preview_hash / commit)
+├── pricing_template_cards.go     # Card/window hydration and read-shape validation
+├── pricing_template_shape.go     # Typed kind/card/window normalization and shape validation
+├── pricing_template_write.go     # Immutable revision writes and change detection
 ├── pricing_template_prices.go    # Pricing-template price value object (canonical decimals, tier, equality)
 ├── pricing_list_page.go    # Bounded keyset pricing-template owner page
 ├── pricing_lookup.go       # Pricing-template connection usage lookup
@@ -39,6 +42,9 @@ connections/
 - `custom_request_parameters` create/update semantics (missing/`null`/`{}` normalize, whole-value PATCH replace, 422 `field`/`path`/`reason`/`limit` envelope): `custom_request_parameters.go`, `routes.go`
 - Pricing-template CRUD and validation: `pricing_templates.go`
 - Pricing-template persistence (row shape, select query, revision/mutation ledger, row scanners): `pricing_template_store.go`
+- Pricing-template card/window read validation: `pricing_template_cards.go`
+- Typed authoring and immutable revision change detection: `pricing_template_shape.go`, `pricing_template_write.go`
+- Shape, readiness, and digest regression cases: `pricing_template_shape_test.go`, `pricing_readiness_test.go`
 - Two-phase pricing-template JSON import (`preview_hash` / commit): `pricing_template_import.go`
 - Pricing-template price value object (canonical decimals, tier normalization/equality): `pricing_template_prices.go`
 - Pricing-template connection assignment and usage lookup: `pricing_lookup.go`
@@ -57,6 +63,9 @@ connections/
 - Routing schedules are stored as a `connections` column plus `connection_routing_windows` child rows. Reads must attach the child rows in a second batch pass and project the evaluated state through `RoutingScheduleStateFor`, the single state projection every surface shares; never let a read return configuration without it.
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep pricing templates here, not in a separate management package. `pricing_template_revisions` owns typed selector metadata; `pricing_template_cards` is the sole current price-card source and `pricing_template_windows` is the sole peak/valley window source. `pricing_templates` stores only logical identity and the current revision pointer.
+- The list page reports specialty NULLs as `configuration_status=incomplete` with explicit missing component names, while setup readiness and currency archive readiness require only canonical input/output plus valid peak/valley schedule shape. Keep those three predicates aligned with the write contract: NULL specialty prices are valid unconfigured values, and explicit `"0"` is configured free pricing.
+- Read hydration fails with a typed shape-unavailable error for an unknown kind, missing required role, zero peak/valley windows, invalid timezone, or digest mismatch; it must not project a broken revision as an empty or positive state.
+- The pricing import envelope is schema version 3. The existing impact endpoint is the edit preflight source for current/next revision and Terminal Target references.
 - Settings currency migration must consume `pricing_list_page.go` (bounded `limit` + signed cursor + owner snapshot hash) or the explicitly bounded inventory evidence routes; do not add a new unbounded active-template scan to a Settings handler.
 - A no-query array response remains only for existing compatibility callers. New migration, import, and UI flows must use the bounded owner page and preserve pending/null pricing evidence instead of fabricating zero or current values. Currency migration carries every required card role; it must never project only a standard/base/offpeak card.
 - Keep all reads and writes pinned to Default profile id `1`. `X-Profile-Id` compatibility headers may be accepted, but they are ignored and the store still keeps `profile_id` columns for persistence and lookup.

@@ -51,15 +51,6 @@ func (field *optionalString) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-type timezonePreferenceResponse struct {
-	ProfileID          int     `json:"profile_id"`
-	TimezonePreference *string `json:"timezone_preference"`
-}
-
-type timezonePreferenceUpdateRequest struct {
-	TimezonePreference *string `json:"timezone_preference"`
-}
-
 type userSettingsRow struct {
 	ID                              int
 	ProfileID                       int

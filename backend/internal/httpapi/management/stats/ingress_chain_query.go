@@ -21,12 +21,36 @@ func parseChainQueryParams(r *http.Request, profileID int) (statsdomain.ChainQue
 		PricingStatus:          normalizedQueryString(r, "pricing_status"),
 		ReportingCurrencyEpoch: normalizedQueryString(r, "reporting_currency_epoch"),
 		CostSegmentKey:         normalizedQueryString(r, "cost_segment_key"),
+		PricingCardRole:        normalizedQueryString(r, "pricing_card_role"),
+		PricingSelectionState:  normalizedQueryString(r, "pricing_selection_state"),
 		ModelID:                normalizedQueryString(r, "model_id"),
 		ResolvedTargetModelID:  normalizedQueryString(r, "resolved_target_model_id"),
 		StatusFamily:           normalizedQueryString(r, "status_family"),
 		ErrorText:              normalizedQueryString(r, "error_text"),
 	}
 	var err error
+	params.CostSegmentKey, err = statsdomain.NormalizeCostSegmentKey(r.URL.Query().Get("cost_segment_key"))
+	if err != nil {
+		return statsdomain.ChainQueryParams{}, err
+	}
+	for key, value := range map[string]*string{"pricing_card_role": params.PricingCardRole, "pricing_selection_state": params.PricingSelectionState} {
+		if value == nil {
+			continue
+		}
+		valid := false
+		if key == "pricing_card_role" {
+			for _, candidate := range []string{"standard", "tier_base", "tier_above", "peak", "offpeak"} {
+				valid = valid || *value == candidate
+			}
+		} else {
+			for _, candidate := range []string{"not_evaluated", "not_applicable", "selected", "unresolved"} {
+				valid = valid || *value == candidate
+			}
+		}
+		if !valid {
+			return statsdomain.ChainQueryParams{}, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Code: key + "_invalid", Detail: key + " is invalid"}
+		}
+	}
 	params.FromTime, err = parseOptionalTime(r, "from_time")
 	if err != nil {
 		return statsdomain.ChainQueryParams{}, err

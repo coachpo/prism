@@ -178,9 +178,8 @@ func CostSegmentKeyFor(reportingCurrencyEpoch *int, legacyCurrencyCode string, l
 	if reportingCurrencyEpoch != nil && *reportingCurrencyEpoch > 0 {
 		return "e." + itoa(*reportingCurrencyEpoch)
 	}
-	code := strings.ToUpper(strings.TrimSpace(legacyCurrencyCode))
-	if legacyCodeValid && len(code) == 3 {
-		return "l." + code
+	if legacyCodeValid && isUppercaseCode(legacyCurrencyCode) {
+		return "l." + legacyCurrencyCode
 	}
 	return "l.__unknown__"
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
@@ -216,6 +217,15 @@ func writeSettingsJSON(w http.ResponseWriter, status int, payload any) {
 // implementation details. New settings routes use this adapter until their
 // domain validators are fully expressed as SettingsProblem values.
 func writeSettingsDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
+	if detail, ok := pricingTemplateGuardError(err); ok {
+		writeProblem(w, r, corsSnapshot, SettingsProblem{
+			Code:    "validation_failed",
+			Detail:  detail,
+			Params:  map[string]any{},
+			Details: map[string]any{"violations": []any{}},
+		}, http.StatusUnprocessableEntity)
+		return
+	}
 	var domainErr *domainError
 	if !errors.As(err, &domainErr) {
 		writeSettingsInternalError(w, r, corsSnapshot, err)
@@ -284,6 +294,17 @@ func writeSettingsDomainError(w http.ResponseWriter, r *http.Request, corsSnapsh
 		details = struct{}{}
 	}
 	writeProblem(w, r, corsSnapshot, SettingsProblem{Code: code, Detail: detail, Params: map[string]any{}, Details: details}, status)
+}
+
+func pricingTemplateGuardError(err error) (string, bool) {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return "", false
+	}
+	if strings.HasPrefix(pgErr.Message, "pricing template shape guard:") || pgErr.Message == "pricing template child rows are append-only" {
+		return pgErr.Message, true
+	}
+	return "", false
 }
 
 // problemf builds a registered problem with the given params and details.

@@ -64,6 +64,7 @@ settings/
 - Currency migration persistence and preview: `currency_migration_draft_store.go`, `currency_migration_preview.go`, `currency_migration_cutover.go`
 - Currency migration cursors and values: `currency_migration_cursor.go`, `currency_migration_values.go`, `currency_migration_identity.go`, `currency_migration_pages.go`
 - Currency migration errors and archive: `currency_migration_errors.go`, `currency_migration_archive.go`, and the bounded Pricing page in `../connections/pricing_list_page.go`
+- Archive preflight uses the same base input/output and peak/valley schedule readiness predicate as setup readiness; specialty NULLs remain valid unconfigured components. PostgreSQL 000023 shape-guard and append-only errors are translated to a 422 with the guard message preserved.
 - Settings scalar value projections: `settings_values.go`
 - Frontend settings consumers: `../../../../../frontend/src/pages/settings/`
 

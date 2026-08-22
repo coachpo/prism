@@ -39,6 +39,8 @@ function makeState(overrides = {}) {
     error_text: "",
     pricing_status: "all",
     unpriced_reason: "",
+    pricing_card_role: "",
+    pricing_selection_state: "",
     time_range: "24h",
     status_family: "all",
     limit: 100,

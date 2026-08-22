@@ -27,8 +27,11 @@ type CostSegmentSymbolsParams struct {
 
 // ListCostSegmentSymbols returns distinct symbols in first-seen event order.
 func ListCostSegmentSymbols(ctx context.Context, exec queryExecutor, params CostSegmentSymbolsParams) (CostSegmentSymbolsPage, error) {
-	segmentKey := strings.TrimSpace(params.SegmentKey)
-	if !isCanonicalCostSegmentKey(segmentKey) {
+	segmentKey, err := NormalizeCostSegmentKey(params.SegmentKey)
+	if err != nil {
+		return CostSegmentSymbolsPage{}, err
+	}
+	if segmentKey == nil {
 		return CostSegmentSymbolsPage{}, &HTTPError{StatusCode: 400, Code: "cost_segment_key_invalid", Detail: "Cost segment key is invalid."}
 	}
 	if params.Limit <= 0 {
@@ -41,9 +44,9 @@ func ListCostSegmentSymbols(ctx context.Context, exec queryExecutor, params Cost
 		return CostSegmentSymbolsPage{}, &HTTPError{StatusCode: 400, Code: "cost_segment_offset_invalid", Detail: "Cost segment symbol offset is invalid."}
 	}
 
-	page := CostSegmentSymbolsPage{SegmentKey: segmentKey, Symbols: []string{}, Limit: params.Limit, Offset: params.Offset}
+	page := CostSegmentSymbolsPage{SegmentKey: *segmentKey, Symbols: []string{}, Limit: params.Limit, Offset: params.Offset}
 	var exists bool
-	err := exec.QueryRow(ctx, costSegmentClassifiedEventsCTE+`, matching AS (
+	err = exec.QueryRow(ctx, costSegmentClassifiedEventsCTE+`, matching AS (
 		SELECT report_currency_symbol, created_at, id
 		FROM classified
 		WHERE canonical_segment_key = $2
@@ -62,7 +65,7 @@ func ListCostSegmentSymbols(ctx context.Context, exec queryExecutor, params Cost
 	SELECT
 		EXISTS (SELECT 1 FROM matching),
 		COALESCE((SELECT ARRAY_AGG(symbol ORDER BY created_at, id) FROM symbol_page), ARRAY[]::text[]),
-		(SELECT COUNT(*) FROM first_seen)`, params.ProfileID, segmentKey, params.Limit, params.Offset).Scan(&exists, &page.Symbols, &page.Total)
+		(SELECT COUNT(*) FROM first_seen)`, params.ProfileID, *segmentKey, params.Limit, params.Offset).Scan(&exists, &page.Symbols, &page.Total)
 	if err != nil {
 		return CostSegmentSymbolsPage{}, fmt.Errorf("query cost segment symbols for profile %d: %w", params.ProfileID, err)
 	}

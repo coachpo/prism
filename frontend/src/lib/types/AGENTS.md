@@ -35,6 +35,7 @@ types/
 - Ban Policy and load-balance payloads: `loadbalance.ts`
 - Management settings contracts: `management-settings.ts`
 - Audit log and coverage contracts: `audit-logs.ts`
+- Request-log pricing filters include independent `pricing_card_role` and `pricing_selection_state`; do not combine either with the other or collapse them into a single display enum.
 - Retention job and impact contracts: `retention-jobs.ts`
 - Costing and currency migration contracts: `currency-migration.ts`; currency drafts/previews carry `template_kind` and complete role-keyed `cards`, never a projected base/offpeak scalar.
 - Compatibility import barrel: `config-audit-settings.ts`

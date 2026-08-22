@@ -4,7 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/http"
+	"strings"
+	"time"
 
+	"github.com/coachpo/prism/backend/internal/domain/pricingkind"
 	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 )
 
@@ -53,6 +57,34 @@ func hydratePricingTemplateResponse(ctx context.Context, exec queryExecutor, ite
 	}
 	windowRows.Close()
 	item.projectCards()
+	if err := validatePricingTemplateResponseShape(item); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validatePricingTemplateResponseShape(item *pricingTemplateResponse) error {
+	if item == nil || !pricingkind.Kind(item.TemplateKind).Valid() {
+		return &DomainError{StatusCode: http.StatusConflict, Detail: "pricing_template_shape_unavailable"}
+	}
+	kind := pricingkind.Kind(item.TemplateKind)
+	for _, role := range pricingkind.RolesFor(kind) {
+		if _, ok := item.cards[role]; !ok {
+			return &DomainError{StatusCode: http.StatusConflict, Detail: "pricing_template_shape_unavailable"}
+		}
+	}
+	if kind != pricingkind.PeakValley {
+		if len(item.windows) > 0 || item.scheduleDigest != nil || item.Schedule != nil {
+			return &DomainError{StatusCode: http.StatusConflict, Detail: "pricing_template_shape_unavailable"}
+		}
+		return nil
+	}
+	if item.Schedule == nil || strings.TrimSpace(item.Schedule.Timezone) == "" || item.scheduleDigest == nil || strings.TrimSpace(*item.scheduleDigest) == "" || len(item.windows) == 0 {
+		return &DomainError{StatusCode: http.StatusConflict, Detail: "pricing_template_shape_unavailable"}
+	}
+	if _, err := time.LoadLocation(strings.TrimSpace(item.Schedule.Timezone)); err != nil || terminaltarget.PricingWindowsDigest(item.windows) != strings.TrimSpace(*item.scheduleDigest) {
+		return &DomainError{StatusCode: http.StatusConflict, Detail: "pricing_template_shape_unavailable"}
+	}
 	return nil
 }
 

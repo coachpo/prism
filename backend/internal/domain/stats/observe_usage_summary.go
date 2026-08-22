@@ -74,16 +74,24 @@ type CostSparkline struct {
 }
 
 type CostSparklinePoint struct {
-	BucketStart                   string         `json:"bucket_start"`
-	RequestCount                  int            `json:"request_count"`
-	PricingEligibleRequestCount   int            `json:"pricing_eligible_request_count"`
-	PricingIneligibleRequestCount int            `json:"pricing_ineligible_request_count"`
-	PricedRequestCount            int            `json:"priced_request_count"`
-	UnpricedRequestCount          int            `json:"unpriced_request_count"`
-	PricingUnknownRequestCount    int            `json:"pricing_unknown_request_count"`
-	UnpricedReasonCounts          map[string]int `json:"unpriced_reason_counts"`
-	PricingCoverageState          string         `json:"pricing_coverage_state"`
-	KnownCostMicros               *string        `json:"known_cost_micros"`
+	BucketStart                   string                         `json:"bucket_start"`
+	RequestCount                  int                            `json:"request_count"`
+	PricingEligibleRequestCount   int                            `json:"pricing_eligible_request_count"`
+	PricingIneligibleRequestCount int                            `json:"pricing_ineligible_request_count"`
+	PricedRequestCount            int                            `json:"priced_request_count"`
+	UnpricedRequestCount          int                            `json:"unpriced_request_count"`
+	PricingUnknownRequestCount    int                            `json:"pricing_unknown_request_count"`
+	UnpricedReasonCounts          map[string]int                 `json:"unpriced_reason_counts"`
+	PricingCoverageState          string                         `json:"pricing_coverage_state"`
+	KnownCostMicros               *string                        `json:"known_cost_micros"`
+	PricingCardRoleBreakdown      []PricingCardRoleCostBreakdown `json:"pricing_card_role_breakdown"`
+}
+
+type PricingCardRoleCostBreakdown struct {
+	CardRole           string  `json:"card_role"`
+	RequestCount       int     `json:"request_count"`
+	PricedRequestCount int     `json:"priced_request_count"`
+	KnownCostMicros    *string `json:"known_cost_micros"`
 }
 
 // cacheBasisEligibleSQL is the single shared eligibility predicate for the
@@ -124,6 +132,7 @@ WITH classified AS (
 		unpriced_reason,
 		pricing_evidence_trust,
 		pricing_selection_state,
+		pricing_card_role,
 		ttft_ms,
 		CASE WHEN output_tokens IS NOT NULL AND ttft_ms IS NOT NULL AND completion_duration_ms IS NOT NULL
 		          AND completion_duration_ms - ttft_ms > 0

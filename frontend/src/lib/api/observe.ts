@@ -41,6 +41,12 @@ export type ObserveCostSegment = {
     | "no_trusted_cost"
     | "no_eligible";
   known_cost_micros: string | null;
+  pricing_card_role_breakdown: {
+    card_role: "standard" | "tier_base" | "tier_above" | "peak" | "offpeak";
+    request_count: number;
+    priced_request_count: number;
+    known_cost_micros: string | null;
+  }[];
 };
 
 export type QueryContextResponse = {

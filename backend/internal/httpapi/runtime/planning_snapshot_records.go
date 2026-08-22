@@ -34,19 +34,20 @@ type runtimeEndpoint struct {
 type runtimePricingCard = terminaltarget.RuntimePricingCard
 
 type runtimePricingTemplateSnapshot struct {
-	ID                     int
-	Name                   string
-	RevisionID             int64
-	PricingUnit            string
-	PricingCurrencyCode    string
-	ReportingCurrencyEpoch *int
-	TemplateKind           string
-	Cards                  map[string]runtimePricingCard
-	TierInputTokensAbove   *int
-	PricingSchedule        terminaltarget.CompiledPricingSchedule
-	PricingScheduleDigest  string
-	Version                int
-	VersionEffectiveAt     *time.Time
+	ID                         int
+	Name                       string
+	RevisionID                 int64
+	PricingUnit                string
+	PricingCurrencyCode        string
+	ReportingCurrencyEpoch     *int
+	TemplateKind               string
+	Cards                      map[string]runtimePricingCard
+	TierInputTokensAbove       *int
+	PricingSchedule            terminaltarget.CompiledPricingSchedule
+	PricingScheduleDigest      string
+	PricingScheduleDigestValid bool
+	Version                    int
+	VersionEffectiveAt         *time.Time
 }
 
 func (snapshot *runtimePricingTemplateSnapshot) card(role string) (runtimePricingCard, bool) {

@@ -26,7 +26,7 @@ domain/
 - Runtime connection state, Ban Policy transitions, round-robin cursors, and load-balance event payloads: `loadbalance/AGENTS.md`, `loadbalance/`
 - Model-routing helper contracts shared with runtime planning and management authoring: `modelrouting/`, `terminaltarget/`
 - Terminal Target records and the single authoritative `custom_request_parameters` validator/overlay (limits, protected keys, canonicalization, deterministic shallow overlay): `terminaltarget/custom_request_parameters.go`
-- Routing-window compilation and eligibility (`CompileRoutingSchedule`, `DecideAt`, `NextOpenAt`, `NextCloseAt`, `WindowsCoverFullWeek`, `ValidateRoutingSchedule`): `terminaltarget/routing_schedule.go`
+- Routing-window compilation and eligibility (`CompileRoutingSchedule`, `DecideAt`, `NextOpenAt`, `NextCloseAt`, `WindowsCoverFullWeek`, `ValidateRoutingSchedule`): `terminaltarget/routing_schedule.go`; pricing-window digest and peak/valley decision values: `terminaltarget/pricing_schedule.go`
 - Typed pricing kind/card roles and independent selector evidence: `pricingkind/pricingkind.go`; pricing windows reuse the terminal-target half-open geometry but belong to a pricing revision and use the frozen ingress planning clock.
 - Dashboard aggregate snapshots, request-log read models, spending, throughput, usage snapshots, and rollups: `stats/AGENTS.md`, `stats/`
 - HTTP ownership that consumes these domains: `../httpapi/management/stats/AGENTS.md`, `../httpapi/runtime/AGENTS.md`

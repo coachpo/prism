@@ -36,10 +36,10 @@ runtime/
 ├── routing_plan*.go             # Routing plan compilation and validation helpers
 ├── planning_snapshot.go         # Runtime planning snapshot assembly and connection compilation
 ├── planning_access_resolution.go # Mixed access-target resolution, compatibility, and schedule gates
-├── planning_snapshot_legacy.go  # Legacy snapshot compatibility helpers
 ├── planning_classification.go   # Failed OpenAI text resolution → the stable OpenAI planning rejection codes
 ├── planning_schedule_codes.go   # Family-neutral routing-schedule planning codes and their attribution whitelist
 ├── planning_terminal_target_adapter.go # Terminal Target record scanning and runtime-connection projection
+├── planning_clock_test_helpers_test.go # Frozen planning-clock test context helpers
 ├── proxy_selector_helpers.go    # Access-target ordering helpers used by request planning
 ├── cache.go                     # Shared runtime cache reads and snapshots
 ├── runtime_context.go           # Runtime trace-context propagation helpers
@@ -80,6 +80,7 @@ runtime/
 ├── runtime_pricing.go           # Runtime pricing result and currency projection
 ├── runtime_pricing_core.go      # Shared exact five-component pricing arithmetic over the selected card
 ├── runtime_pricing_card.go      # standard/tiered/peak_valley card selector and schedule evidence
+├── pricing_template_snapshot_queries.go # Batched immutable pricing card/window snapshot reads
 ├── runtime_pricing_tier.go      # Typed tier basis and token-count operation helpers
 └── *_test.go                    # Route matrix, hook residency, planning, and ingress regressions
 ```
@@ -88,7 +89,7 @@ runtime/
 
 - Exact supported operations, hook collection ids, streaming flags, and model-binding sources: `operations.go`
 - Ingress rejection before body reads and response branching: `ingress.go`, `response_write.go`, `service.go`
-- Request planning and exact model binding: `request_plan.go`, `runtime_planning.go`, `runtime_operation_binding.go`, `runtime_model_rewrite.go`, `runtime_planner.go`, `routing_plan*.go`, `generations.go`, `planning_snapshot.go`, `planning_access_resolution.go`, `planning_snapshot_legacy.go`, `proxy_selector_helpers.go`
+- Request planning and exact model binding: `request_plan.go`, `runtime_planning.go`, `runtime_operation_binding.go`, `runtime_model_rewrite.go`, `runtime_planner.go`, `routing_plan*.go`, `generations.go`, `planning_snapshot.go`, `planning_access_resolution.go`, `proxy_selector_helpers.go`
 - Snapshot assembly, mixed access resolution, and runtime database reads: `planning_snapshot.go`, `planning_access_resolution.go`, `planning_snapshot_records.go`, `runtime_snapshot_queries.go`
 - Execution state and upstream attempts: `request_execution.go`, `request_execution_loop.go`, `upstream_attempt.go`, `failed_attempt_diagnostics.go`
 - Header policy: `upstream_header_policy.go`
@@ -98,12 +99,13 @@ runtime/
 - SSE terminal classification and usage merging for OpenAI, Anthropic, and Gemini stream operations: `operation_stream_hooks.go`
 - OpenAI native operation-set coverage, mismatched-target skipping, unsupported-wire rejection behavior, and planning diagnostics: `operation_translation.go`, `planning_snapshot.go`, `routing_plan*.go`, `runtime_test.go`
 - Local OpenAI model-list response: `openai_models.go`
-- Request-log, usage-event, and audit shaping plus `operation_name` persistence: `observability.go`, `telemetry_activity_handoff.go`, `telemetry_records.go`, `request_log_rows.go`, `audit_log_rows.go`, `usage_event_row.go`, `telemetry_persistence.go`, `attempt_lifecycle.go`, `../../../migrations/000001_initial_schema.sql`, `../../../migrations/000008_pricing_cost_trust_additive.sql`, `../../../migrations/000010_request_logs_audit_observability.sql`, `../../../migrations/000022_pricing_input_tier.sql`
+- Request-log, usage-event, and audit shaping plus `operation_name` persistence: `observability.go`, `telemetry_activity_handoff.go`, `telemetry_records.go`, `request_log_rows.go`, `audit_log_rows.go`, `usage_event_row.go`, `telemetry_persistence.go`, `attempt_lifecycle.go`, `../../../migrations/000001_initial_schema.sql`, `../../../migrations/000008_pricing_cost_trust_additive.sql`, `../../../migrations/000010_request_logs_audit_observability.sql`, `../../../migrations/000022_pricing_input_tier.sql`, `../../../migrations/000023_pricing_template_kind_cards.sql`
 - Provider usage normalization and response capture: `provider_usage_rules.go`, `response_capture.go`, `response_usage_parser.go`, `stream_response_capture.go`, `stream_response_classification.go`
 - Accounting and proxy-key telemetry: `accounting_events.go`, `proxy_key_telemetry.go`, `telemetry_column_values.go`; tier evidence is additive to the existing pricing fields and outbox Event contract.
 - Telemetry, feedback, and runtime side-effect ownership: `telemetry_persistence.go`, `runtime_feedback.go`, `telemetry_outbox.go`, `telemetry_outbox_poison.go`, `feedback_pipeline.go`, `runtime_side_effects.go`
 - Stream abort frames: `stream_abort_frames.go`
 - Runtime pricing and tier evidence: `runtime_pricing.go`, `runtime_pricing_core.go`, `runtime_pricing_tier.go`; the threshold basis is the normalized disjoint input sum and is selected before arithmetic/FX.
+- Peak/valley schedule digest coherence is computed once while compiling the planning snapshot in `planning_terminal_target_adapter.go`; request-time card selection only consumes the compiled validity flag and the frozen ingress planning clock. A truncated window child read remains unresolved.
 - Safe failure diagnostics bottom line: `../../domain/safediag/` (scrub/extract/codes/metadata/limits)
 - Partition ensuring and partition-cache behavior: `log_partitions.go`, `../../platform/logretention/`
 - Internal runtime regression coverage: `operations_test.go`, `service_ingress_test.go`, `request_generation_params_test.go`, `request_generation_params_runtime_test.go`, `operation_hook_residency_test.go`, `operation_response_hooks_test.go`, `operation_response_overflow_classifier_test.go`, `gateway_typed_hooks_bridge_test.go`, `planning_snapshot_contract_test.go`, `routing_plan_test.go`, `runtime_test.go`

@@ -29,6 +29,11 @@ func (s *Service) handleEndpointTerminalTargetStatistics(w http.ResponseWriter, 
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
+	costSegmentKey, err := statsdomain.NormalizeCostSegmentKey(r.URL.Query().Get("cost_segment_key"))
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	response, err := pgxutil.InReadOnlyTxValue(r.Context(), s.pool, "stats terminal targets", func(tx pgx.Tx) (statsdomain.TerminalTargetStatisticsResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
@@ -48,7 +53,7 @@ func (s *Service) handleEndpointTerminalTargetStatistics(w http.ResponseWriter, 
 			Preset:         queryStringOrDefault(r, "preset", "1h"),
 			FromTime:       fromTime,
 			ToTime:         toTime,
-			CostSegmentKey: strings.TrimSpace(r.URL.Query().Get("cost_segment_key")),
+			CostSegmentKey: valueOrEmpty(costSegmentKey),
 			Limit:          limit,
 			Offset:         offset,
 			ReferenceNow:   s.nowUTC(),
@@ -59,6 +64,13 @@ func (s *Service) handleEndpointTerminalTargetStatistics(w http.ResponseWriter, 
 		return
 	}
 	responseutil.WriteJSON(w, http.StatusOK, response)
+}
+
+func valueOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func (s *Service) handleObserveActivity(w http.ResponseWriter, r *http.Request) {

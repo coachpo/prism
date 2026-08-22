@@ -15,6 +15,7 @@ integration/
 ├── partitioned_log_retention_test.go       # Partitioned runtime/audit/usage/loadbalance retention
 ├── alerting_outbox_test.go                 # Webhook outbox persistence contract
 ├── runtime_route_matrix_test.go            # Integration route matrix smoke
+├── process_control_test.go                 # Verification-process and child-process ownership
 └── *_test.go
 ```
 

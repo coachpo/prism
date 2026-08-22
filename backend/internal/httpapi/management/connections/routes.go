@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
@@ -756,6 +757,10 @@ func decodeJSONRawBody(request *http.Request) ([]byte, error) {
 }
 
 func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
+	if detail, ok := pricingTemplateGuardError(err); ok {
+		responseutil.WriteError(w, r, corsSnapshot, http.StatusUnprocessableEntity, detail)
+		return
+	}
 	var connectionErr *DomainError
 	if errors.As(err, &connectionErr) {
 		responseutil.WriteErrorFields(w, r, corsSnapshot, connectionErr.StatusCode, connectionErr.Detail, connectionErr.Fields)
@@ -768,6 +773,17 @@ func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platf
 	}
 	responseutil.WriteError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
 	fmt.Fprintf(os.Stderr, "connections writeDomainError unhandled: %v\n", err)
+}
+
+func pricingTemplateGuardError(err error) (string, bool) {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return "", false
+	}
+	if strings.HasPrefix(pgErr.Message, "pricing template shape guard:") || pgErr.Message == "pricing template child rows are append-only" {
+		return pgErr.Message, true
+	}
+	return "", false
 }
 
 func routeInt(request *http.Request, name string) (int, error) {

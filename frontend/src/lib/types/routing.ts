@@ -281,7 +281,7 @@ export type PricingTemplateCreate = PricingTemplateWriteBase & PricingTemplateVa
 export type PricingTemplateImportMode = "upsert_by_name" | "create_only";
 
 export interface PricingTemplateImportRequest {
- schema_version: 2;
+ schema_version: 3;
  mode: PricingTemplateImportMode;
  templates: PricingTemplateCreate[];
 }
@@ -311,7 +311,7 @@ export interface PricingTemplateImportResponse {
 }
 
 export interface PricingTemplateImportCommitRequest {
- schema_version: 2;
+ schema_version: 3;
  mode: PricingTemplateImportMode;
  templates: PricingTemplateCreate[];
  preview_hash: string;

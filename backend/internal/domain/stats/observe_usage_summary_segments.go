@@ -69,7 +69,27 @@ segments AS (
 		'known_cost_micros', CASE
 			WHEN canonical_segment_key <> 'l.__unknown__' AND priced_count > 0 AND trusted_cost_samples > 0
 			THEN trusted_cost_micros::text
-		END
+		END,
+		'pricing_card_role_breakdown', COALESCE((
+			SELECT JSONB_AGG(JSONB_BUILD_OBJECT(
+				'card_role', role_rows.pricing_card_role,
+				'request_count', role_rows.request_count,
+				'priced_request_count', role_rows.priced_request_count,
+				'known_cost_micros', CASE WHEN segment_groups.canonical_segment_key <> 'l.__unknown__' AND role_rows.priced_request_count > 0 AND role_rows.trusted_cost_samples > 0 THEN role_rows.trusted_cost_micros::text END
+			) ORDER BY role_rows.pricing_card_role)
+			FROM (
+				SELECT pricing_card_role,
+					COUNT(*)::int AS request_count,
+					COUNT(*) FILTER (WHERE pricing_status = 'priced')::int AS priced_request_count,
+					COALESCE(SUM(total_cost_user_currency_micros) FILTER (WHERE pricing_status = 'priced' AND pricing_evidence_trust = 'trusted'), 0) AS trusted_cost_micros,
+					COUNT(total_cost_user_currency_micros) FILTER (WHERE pricing_status = 'priced' AND pricing_evidence_trust = 'trusted')::int AS trusted_cost_samples
+				FROM classified AS role_events
+				WHERE role_events.canonical_segment_key = segment_groups.canonical_segment_key
+					AND role_events.pricing_selection_state = 'selected'
+					AND role_events.pricing_card_role IS NOT NULL
+				GROUP BY pricing_card_role
+			) AS role_rows
+		), '[]'::jsonb)
 	) ORDER BY
 		CASE
 			WHEN canonical_segment_key LIKE 'e.%' THEN 0

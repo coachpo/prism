@@ -155,6 +155,8 @@ export interface StatsRequestParams {
   error_text?: string;
   pricing_status?: "priced" | "unpriced" | "ineligible" | "unknown";
   unpriced_reason?: string;
+  pricing_card_role?: "standard" | "tier_base" | "tier_above" | "peak" | "offpeak";
+  pricing_selection_state?: "not_evaluated" | "not_applicable" | "selected" | "unresolved";
   from_time?: string;
   to_time?: string;
   endpoint_id?: number;

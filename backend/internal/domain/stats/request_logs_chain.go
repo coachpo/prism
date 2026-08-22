@@ -27,6 +27,8 @@ type ChainQueryParams struct {
 	ConfirmedFailover       *bool
 	PricingStatus           *string
 	UnpricedReasons         []string
+	PricingCardRole         *string
+	PricingSelectionState   *string
 	ReportingCurrencyEpoch  *string
 	CostSegmentKey          *string
 	IsStream                *bool
@@ -243,6 +245,13 @@ const maxChainRowLimit = 200
 // rows per ingress. Row-scoped filters select the ingress set first; the
 // outer keyset cursor never splits an ingress across pages.
 func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQueryParams) (ChainResponse, error) {
+	if params.CostSegmentKey != nil {
+		normalized, err := NormalizeCostSegmentKey(*params.CostSegmentKey)
+		if err != nil {
+			return ChainResponse{}, err
+		}
+		params.CostSegmentKey = normalized
+	}
 	referenceNow := time.Now().UTC()
 	if !params.CoverageReferenceNow.IsZero() {
 		referenceNow = params.CoverageReferenceNow.UTC()
@@ -410,7 +419,7 @@ func selectChainIngressSet(ctx context.Context, exec queryExecutor, params Chain
 	useUsageSource := params.IngressFinalResult != nil || params.ConfirmedFailover != nil ||
 		params.PricingStatus != nil || len(params.UnpricedReasons) > 0 ||
 		params.ReportingCurrencyEpoch != nil || params.IsStream != nil ||
-		len(params.IngressFinalStatusCodes) > 0 || params.CostSegmentKey != nil
+		len(params.IngressFinalStatusCodes) > 0
 	if !useUsageSource {
 		return selectOrdinaryChainIngressSet(ctx, exec, params, cursor, hasCursor, sortOrder)
 	}
@@ -493,11 +502,7 @@ func selectChainIngressSet(ctx context.Context, exec queryExecutor, params Chain
 	}
 	if params.CostSegmentKey != nil && strings.TrimSpace(*params.CostSegmentKey) != "" {
 		segment := strings.TrimSpace(*params.CostSegmentKey)
-		if strings.HasPrefix(segment, "e.") {
-			query = fmt.Sprintf("%s AND ('e.' || COALESCE(reporting_currency_epoch::text, '')) = $%d", query, appendArg(segment))
-		} else if strings.HasPrefix(segment, "l.") {
-			query = fmt.Sprintf("%s AND ('l.' || COALESCE(report_currency_code, '__unknown__')) = $%d", query, appendArg(segment))
-		}
+		query = fmt.Sprintf("%s AND %s = $%d", query, canonicalCostSegmentKeySQLFor(""), appendArg(segment))
 	}
 	if hasChainRowFilter(params) {
 		query = appendChainRowCohortExists(query, &queryArgs, params, "usage_request_events")
@@ -572,6 +577,9 @@ func selectOrdinaryChainIngressSet(ctx context.Context, exec queryExecutor, para
 	}
 	if hasChainRowFilter(params) {
 		query = appendChainRowCohortExists(query, &queryArgs, params, "rl")
+	}
+	if params.CostSegmentKey != nil && strings.TrimSpace(*params.CostSegmentKey) != "" {
+		query = appendChainFinalizedCohortExists(query, &queryArgs, params, "rl")
 	}
 	if hasCursor {
 		queryArgs = append(queryArgs, cursor.OrderAt, cursor.IngressID)

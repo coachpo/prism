@@ -10,7 +10,7 @@ func hasChainRowFilter(params ChainQueryParams) bool {
 		params.TerminalTargetID != nil || params.StatusFamily != nil || params.StatusCode != nil ||
 		params.ErrorText != nil || len(params.StreamOutcomes) > 0 || len(params.StreamErrorKinds) > 0 ||
 		len(params.UpstreamStatusCodes) > 0 || len(params.GatewayStatusCodes) > 0 ||
-		len(params.LegacyStatusCodes) > 0 || params.RowResult != nil || params.ClientRulePattern != nil
+		len(params.LegacyStatusCodes) > 0 || params.RowResult != nil || params.ClientRulePattern != nil || params.PricingCardRole != nil || params.PricingSelectionState != nil
 }
 
 // appendChainRowCohortExists adds the Requests row-filter grammar as an
@@ -83,6 +83,12 @@ func buildChainRowMatchClauses(args *[]any, params ChainQueryParams, alias strin
 	}
 	appendValues(params.StreamOutcomes, alias+".stream_outcome")
 	appendValues(params.StreamErrorKinds, alias+".stream_error_kind")
+	if params.PricingCardRole != nil && strings.TrimSpace(*params.PricingCardRole) != "" {
+		add(strings.TrimSpace(*params.PricingCardRole), alias+".pricing_card_role = $%d")
+	}
+	if params.PricingSelectionState != nil && strings.TrimSpace(*params.PricingSelectionState) != "" {
+		add(strings.TrimSpace(*params.PricingSelectionState), alias+".pricing_selection_state = $%d")
+	}
 	if len(params.UpstreamStatusCodes) > 0 {
 		values := make([]string, 0, len(params.UpstreamStatusCodes))
 		for _, value := range params.UpstreamStatusCodes {
@@ -199,12 +205,7 @@ func appendChainFinalizedCohortExists(query string, args *[]any, params ChainQue
 	}
 	if params.CostSegmentKey != nil && strings.TrimSpace(*params.CostSegmentKey) != "" {
 		segment := strings.TrimSpace(*params.CostSegmentKey)
-		switch {
-		case strings.HasPrefix(segment, "e."):
-			add(segment, "('e.' || COALESCE(final_rows.reporting_currency_epoch::text, '')) = $%d")
-		case strings.HasPrefix(segment, "l."):
-			add(segment, "('l.' || COALESCE(final_rows.report_currency_code, '__unknown__')) = $%d")
-		}
+		add(segment, canonicalCostSegmentKeySQLFor("final_rows")+" = $%d")
 	}
 	return query + " AND EXISTS (SELECT 1 FROM usage_request_events final_rows WHERE " + strings.Join(clauses, " AND ") + ")"
 }

@@ -6,6 +6,8 @@ import {
   parsePageSearch,
   parsePageState,
   type PricingStatusFilter,
+  type PricingCardRoleFilter,
+  type PricingSelectionStateFilter,
   type RequestLogView,
   type StatusFamilyFilter,
   stateToParams,
@@ -57,12 +59,14 @@ export function useRequestLogPageState() {
   const setErrorText = useCallback((v: string) => update({ error_text: v }), [update]);
   const setPricingStatus = useCallback((v: PricingStatusFilter) => update({ pricing_status: v, unpriced_reason: v === "unpriced" ? state.unpriced_reason : "" }), [state.unpriced_reason, update]);
   const setUnpricedReason = useCallback((v: string) => update({ unpriced_reason: v }), [update]);
+  const setPricingCardRole = useCallback((v: PricingCardRoleFilter | "") => update({ pricing_card_role: v }), [update]);
+  const setPricingSelectionState = useCallback((v: PricingSelectionStateFilter | "") => update({ pricing_selection_state: v }), [update]);
   const setView = useCallback((v: RequestLogView) => update({ view: v, chain_cursor: "" }, false), [update]);
   const setChainCursor = useCallback((v: string) => update({ chain_cursor: v }, false), [update]);
   const setSort = useCallback((sortBy: string, sortOrder: "asc" | "desc") => update({ sort_by: sortBy as RequestLogPageState["sort_by"], sort_order: sortOrder, chain_cursor: "" }, false), [update]);
   const setIngressFinalResult = useCallback((v: string) => update({ ingress_final_result: v as RequestLogPageState["ingress_final_result"], confirmed_failover: false }, false), [update]);
   const setConfirmedFailover = useCallback((v: boolean) => update({ confirmed_failover: v, ingress_final_result: "" }, false), [update]);
-  const clearTriage = useCallback(() => update({ ingress_final_result: "", confirmed_failover: false, pricing_status: DEFAULTS.pricing_status, unpriced_reason: "" }, false), [update]);
+  const clearTriage = useCallback(() => update({ ingress_final_result: "", confirmed_failover: false, pricing_status: DEFAULTS.pricing_status, unpriced_reason: "", pricing_card_role: "", pricing_selection_state: "" }, false), [update]);
   const replaceState = useCallback((next: RequestLogPageState) => {
     void navigate({ to: "/observe/requests", search: () => stateToSearch(next), replace: true, resetScroll: false });
   }, [navigate]);
@@ -130,6 +134,8 @@ export function useRequestLogPageState() {
     state.ingress_final_result !== DEFAULTS.ingress_final_result ||
     state.confirmed_failover !== DEFAULTS.confirmed_failover ||
     state.unpriced_reason ||
+    state.pricing_card_role ||
+    state.pricing_selection_state ||
     state.time_range !== DEFAULTS.time_range ||
     state.status_family !== DEFAULTS.status_family ||
     state.view !== DEFAULTS.view
@@ -150,6 +156,8 @@ export function useRequestLogPageState() {
     setErrorText,
     setPricingStatus,
     setUnpricedReason,
+    setPricingCardRole,
+    setPricingSelectionState,
     setView,
     setChainCursor,
     setIngressFinalResult,

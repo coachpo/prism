@@ -6,7 +6,7 @@
 ## STRUCTURE
 ```text
 gateway/
-├── accounting/     # Runtime accounting event normalization
+├── accounting/     # Runtime accounting event normalization and clone-safe pricing evidence
 ├── core/           # Pipeline interfaces, envelopes, hook executor, route/accounting types
 │   └── AGENTS.md   # Shared gateway core contracts
 ├── provider/       # Provider adapter contract plus OpenAI, Anthropic, Gemini adapters
@@ -16,6 +16,7 @@ gateway/
 
 ## WHERE TO LOOK
 - Runtime ingress rejection, operation allowlist, and streaming safety: `../httpapi/runtime/operations.go`, `../httpapi/runtime/service.go`, `../httpapi/runtime/service_ingress_test.go`
+- Accounting event normalization, clone-safe pricing evidence, and JSON-shape regression coverage: `accounting/event.go`, `accounting/event_test.go`
 - Pipeline seams and shared envelopes: `core/AGENTS.md`, `core/pipeline.go`, `core/envelope.go`, `core/routing.go`, `core/errors.go`
 - Hook phase ordering, permissions, payload cloning, rejection behavior, and execution records: `core/hooks.go`, `core/hooks_test.go`
 - Provider adapter interface, default behavior, token/conversion contracts, and hook-behavior declarations: `provider/AGENTS.md`, `provider/adapter.go`, `provider/default_adapter.go`
@@ -31,6 +32,7 @@ gateway/
 - Keep provider-native request/response/stream behavior inside provider adapters, not in route planning or accounting.
 - Keep hook payloads clone-safe and permission-gated. Do not leak body/header access beyond declared hook permissions.
 - Keep route reasons canonical across `core`, `routing`, runtime observability, and accounting.
+- `accounting.Event.Normalize` and `SetPricingEvidence` must not mutate or retain caller-owned pointer storage; pricing evidence remains a separate kind/state/role projection.
 - Keep reservation decisions in `routing/` and release owned reservations when runtime attempts end.
 - When gateway work touches upstream request or response logic, evaluate streaming and non-streaming coverage for OpenAI Chat/Responses, Anthropic, and Gemini.
 

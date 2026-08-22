@@ -46,10 +46,10 @@ pnpm run build
 - Follow the project- and technology-specific rules in [docs/development-rules.md](docs/development-rules.md), the architecture facts in [docs/architecture.md](docs/architecture.md), and the unified size and responsibility policy in [docs/source-code-size-and-responsibility-rules.md](docs/source-code-size-and-responsibility-rules.md), together with the shared principles below.
 
 <!-- write-project-docs:derived-iteration-strategy:start -->
-<!-- write-project-docs:derived-iteration-strategy:metadata {"contentSha256":"sha256:9cbaaac428978dccc55d9506c5f4265dd16488ef1f26527f0c245ed93a0a84b1","schemaVersion":1,"sources":[{"normalization":"without-visible-exact-mvp-control-line-terminal-lf-v2","path":"STATUS.md","sha256":"sha256:76c51dc615f28b1d11423421704e11a5486fff0b03e19221ffe98a5c416b00c4"},{"path":"docs/product.md","sha256":"sha256:c119f9c4f1b439ad8a0ab2d449fe5f55eb5e901ce4973bdcb7f951f6a0707b06"},{"path":"docs/architecture.md","sha256":"sha256:0edcb56a4ffd5d16e9affcf0d22f2d70466d9638c204a2391e31e295056c9d23"},{"path":"docs/development-rules.md","sha256":"sha256:c654dedd88097c8434d6e4cf8a7cf09463b0ea063ac9b8d36135698adf8e4d49"}]} -->
+<!-- write-project-docs:derived-iteration-strategy:metadata {"contentSha256":"sha256:845e7c6841fab953e68421019d1bc384b98d262c510c90790d8bd623d32299e6","schemaVersion":1,"sources":[{"normalization":"without-visible-exact-mvp-control-line-terminal-lf-v2","path":"STATUS.md","sha256":"sha256:1414cebbb6b5085b9a94529d2fbe2bdbc0b428822659198dcfe05b07703e3771"},{"path":"docs/product.md","sha256":"sha256:ace6b43bf1607a369537efd7562b90c74d95301a5b074c4c1a10b97a81cdde54"},{"path":"docs/architecture.md","sha256":"sha256:6e0550a4df344b783383b7290d34a23b64916fd45b7420049d050a0ea33da32c"},{"path":"docs/development-rules.md","sha256":"sha256:c654dedd88097c8434d6e4cf8a7cf09463b0ea063ac9b8d36135698adf8e4d49"}]} -->
 ## Current Iteration Strategy
 
-Convenience-first active development on the operator's personal home-LAN instance: work is prioritized from gaps observed in day-to-day use of the running instance, and where a change trades off against data-security hardening the convenient path wins. Keep the local dev/deploy loop (launcher full|headless, root Compose bundle, same-origin Vite proxying) fast, easy, and accurately documented.
+Convenience-first active development on the operator's personal home-LAN instance: prioritize the confirmed typed-pricing and observability gap remediation, keep the local loop fast, and prefer the smallest verified end-to-end changes.
 
 Derived from (the source documents remain authoritative): [`STATUS.md`](STATUS.md), [`docs/product.md`](docs/product.md), [`docs/architecture.md`](docs/architecture.md), [`docs/development-rules.md`](docs/development-rules.md).
 
@@ -57,24 +57,25 @@ Derived from (the source documents remain authoritative): [`STATUS.md`](STATUS.m
 
 ### Must Complete Now
 
-- Keep the documented dev/deploy loop (launcher full|headless, root Compose bundle, same-origin Vite proxying, plaintext bootstrap defaults) working and convenient, green on the applicable quick checks.
-- Pick up operator-facing gaps observed in day-to-day use of the running instance and ship them as the smallest verified changes, per the no-shim clean-architecture convention.
+- Complete the confirmed typed pricing-template, cost-segment, failure-state, accounting, runtime, aggregation, request-log, and pricing UI acceptance paths, including the fresh-only 000023 documentation.
+- Run the affected backend unit/contract/runtime checks and frontend lint/build/test checks that are available in the environment, recording unavailable Docker/PostgreSQL or package-manager checks precisely.
 
 ### Not Pursued This Iteration
 
-- Data-security hardening beyond the shipped controls (TLS termination, external secret-manager integration, mandatory operator/query auth, global rate limiting, proxy-key scoping): basis: no positive trigger on a personal home-LAN deployment without external exposure; re-evaluate when the instance gains public exposure, additional operators or tooling, or the operator's convenience-vs-security priority changes.
+- Repository-wide AGENTS.md registration completeness CI and other full-repository governance gates; basis: MVP fast-validation mode and no current core acceptance dependency; re-evaluate if the registration gap recurs in the next iteration or the check becomes release-required.
+- Parsing upstream usage hit/miss fields; basis: no repository hits or corresponding upstream integration; re-evaluate when an upstream reports that shape.
 
 ### Non-negotiable Boundaries
 
-- Machine contracts (runtime operation registry with hook residency, file-backed bootstrap v1 with the required timeout fields, partitioned log-retention ownership) and their backend regression coverage are not lowered by the convenience-first stance.
-- Destructive data resets or data loss still require explicit authorization and a verified backup; the convenience-first priority does not authorize them.
-- Existing required checks still gate changes and releases: backend contract/integration/runtime/priority suites, frontend lint/build/test, and the CI dependency scanners (govulncheck, pnpm audit).
+- Preserve the operation-registered runtime allowlist, file-backed bootstrap v1 contract, partitioned log-retention ownership, and their required regression coverage.
+- Do not perform destructive resets or data loss without explicit authorization and a verified backup; keep 000023 fresh-only semantics and append-only pricing child constraints.
+- Do not widen permissions, make unauthorized external writes, or fabricate validation results; keep affected backend and frontend checks as gates.
 
 ### Re-derivation Triggers
 
-- The instance is exposed beyond the home LAN or operated for anyone else.
-- Deployment, user, or data-policy facts in STATUS.md change, including the recorded convenience-vs-security priority.
-- A release or lifecycle milestone changes the recorded version or the development mode in STATUS.md.
+- The instance is exposed beyond the home LAN, gains external users or traffic, or retains a changed data-policy boundary.
+- The recorded release/lifecycle version or current project design changes.
+- The observable pricing/observability acceptance, compatibility requirement, or a deferred-item trigger changes.
 <!-- write-project-docs:derived-iteration-strategy:end -->
 
 <!-- write-project-docs:shared-contributing:start -->

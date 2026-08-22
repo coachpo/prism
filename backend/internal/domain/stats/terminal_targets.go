@@ -99,6 +99,9 @@ type terminalTargetCoverageWindow struct {
 // aggregation and loadbalance event counts use their respective retained
 // windows from that snapshot.
 func GetEndpointTerminalTargetStatistics(ctx context.Context, exec queryExecutor, params TerminalTargetStatisticsParams) (TerminalTargetStatisticsResponse, error) {
+	if _, err := NormalizeCostSegmentKey(params.CostSegmentKey); err != nil {
+		return TerminalTargetStatisticsResponse{}, err
+	}
 	endpointExists, historicalExists, err := endpointOrHistoricalUsageExists(ctx, exec, params.ProfileID, params.EndpointID)
 	if err != nil {
 		return TerminalTargetStatisticsResponse{}, err

@@ -110,6 +110,8 @@ export const requestLogSearchSchema = z.object({
   terminal_target_id: searchStringSchema.catch(""),
   pricing_status: z.enum(["all", "priced", "unpriced", "ineligible", "unknown"]).catch("all"),
   unpriced_reason: searchStringSchema.catch(""),
+  pricing_card_role: searchStringSchema.catch(""),
+  pricing_selection_state: searchStringSchema.catch(""),
   status_family: z.enum(["all", "2xx", "4xx", "5xx"]).catch("all"),
   time_range: z.enum(["1h", "6h", "24h", "7d", "30d", "all"]).catch("24h"),
   // Observe finalized deep-link parameters (§4.3): query_context is required

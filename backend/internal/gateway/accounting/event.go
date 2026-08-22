@@ -57,16 +57,16 @@ func (event *Event) SetPricingEvidence(kind, state, role *string, threshold *int
 	if event == nil {
 		return
 	}
-	event.PricingTemplateKind = kind
-	event.PricingSelectionState = state
-	event.PricingCardRole = role
-	event.PricingSelectorThresholdTokens = threshold
-	event.PricingSelectorBasisTokens = basis
-	event.PricingScheduleDecidedAt = decidedAt
-	event.PricingScheduleTimezone = timezone
-	event.PricingScheduleLocalWeekday = weekday
-	event.PricingScheduleLocalMinute = minute
-	event.PricingScheduleDigest = digest
+	event.PricingTemplateKind = cloneStringPointer(kind)
+	event.PricingSelectionState = cloneStringPointer(state)
+	event.PricingCardRole = cloneStringPointer(role)
+	event.PricingSelectorThresholdTokens = cloneIntPointer(threshold)
+	event.PricingSelectorBasisTokens = cloneInt64Pointer(basis)
+	event.PricingScheduleDecidedAt = cloneTimePointer(decidedAt)
+	event.PricingScheduleTimezone = cloneStringPointer(timezone)
+	event.PricingScheduleLocalWeekday = cloneIntPointer(weekday)
+	event.PricingScheduleLocalMinute = cloneIntPointer(minute)
+	event.PricingScheduleDigest = cloneStringPointer(digest)
 }
 
 func NewEvent(event Event) (Event, error) {
@@ -93,11 +93,11 @@ func (event Event) Normalize() Event {
 		value := event.PricingScheduleDecidedAt.UTC()
 		event.PricingScheduleDecidedAt = &value
 	}
-	for _, value := range []*string{event.PricingTemplateKind, event.PricingSelectionState, event.PricingCardRole, event.PricingScheduleTimezone, event.PricingScheduleDigest} {
-		if value != nil {
-			*value = strings.TrimSpace(*value)
-		}
-	}
+	event.PricingTemplateKind = normalizeStringPointer(event.PricingTemplateKind)
+	event.PricingSelectionState = normalizeStringPointer(event.PricingSelectionState)
+	event.PricingCardRole = normalizeStringPointer(event.PricingCardRole)
+	event.PricingScheduleTimezone = normalizeStringPointer(event.PricingScheduleTimezone)
+	event.PricingScheduleDigest = normalizeStringPointer(event.PricingScheduleDigest)
 	event.RouteReason = NormalizeRouteReason(event.RouteReason)
 	event.UsageSource = NormalizeUsageSource(event.UsageSource)
 	event.StreamOutcome = strings.TrimSpace(event.StreamOutcome)
@@ -107,6 +107,46 @@ func (event Event) Normalize() Event {
 		event.ObservedAt = event.ObservedAt.UTC()
 	}
 	return event
+}
+
+func cloneStringPointer(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+func cloneIntPointer(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+func cloneInt64Pointer(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+func cloneTimePointer(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	copy := value.UTC()
+	return &copy
+}
+
+func normalizeStringPointer(value *string) *string {
+	copy := cloneStringPointer(value)
+	if copy != nil {
+		*copy = strings.TrimSpace(*copy)
+	}
+	return copy
 }
 
 func (event Event) Validate() error {

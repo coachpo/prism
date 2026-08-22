@@ -18,6 +18,11 @@ export const UNPRICED_REASON_OPTIONS = [
 ] as const;
 export type UnpricedReasonFilter = (typeof UNPRICED_REASON_OPTIONS)[number];
 
+export const PRICING_CARD_ROLE_OPTIONS = ["standard", "tier_base", "tier_above", "peak", "offpeak"] as const;
+export type PricingCardRoleFilter = (typeof PRICING_CARD_ROLE_OPTIONS)[number];
+export const PRICING_SELECTION_STATE_OPTIONS = ["not_evaluated", "not_applicable", "selected", "unresolved"] as const;
+export type PricingSelectionStateFilter = (typeof PRICING_SELECTION_STATE_OPTIONS)[number];
+
 export const FINAL_RESULT_OPTIONS = ["", "completed", "failed", "client_disconnected"] as const;
 export type FinalResultFilter = (typeof FINAL_RESULT_OPTIONS)[number];
 
@@ -39,6 +44,8 @@ export const DEFAULTS = {
   status_family: "all" as StatusFamilyFilter,
   pricing_status: "all" as PricingStatusFilter,
   unpriced_reason: "",
+  pricing_card_role: "",
+  pricing_selection_state: "",
   view: "ingress_chains" as RequestLogView,
   sort_by: "created_at" as RequestLogSortBy,
   sort_order: "desc" as "asc" | "desc",
@@ -72,6 +79,8 @@ export interface RequestLogPageState {
   error_text: string;
   pricing_status: PricingStatusFilter;
   unpriced_reason: string;
+  pricing_card_role: PricingCardRoleFilter | "";
+  pricing_selection_state: PricingSelectionStateFilter | "";
   time_range: TimeRange;
   from_time: string;
   to_time: string;
@@ -150,6 +159,8 @@ export function parsePageSearch(search: Record<string, unknown>): RequestLogPage
     ingress_final_result: parseEnum(search.ingress_final_result, FINAL_RESULT_OPTIONS, ""),
     confirmed_failover: normalizeSearchString(search.confirmed_failover) === "true",
     unpriced_reason: normalizeSearchString(search.unpriced_reason),
+    pricing_card_role: parseEnum(search.pricing_card_role, ["", ...PRICING_CARD_ROLE_OPTIONS] as const, DEFAULTS.pricing_card_role),
+    pricing_selection_state: parseEnum(search.pricing_selection_state, ["", ...PRICING_SELECTION_STATE_OPTIONS] as const, DEFAULTS.pricing_selection_state),
     time_range: parseEnum(search.time_range, TIME_RANGE_OPTIONS, DEFAULTS.time_range),
     from_time: normalizeSearchString(search.from_time),
     to_time: normalizeSearchString(search.to_time),
@@ -187,6 +198,8 @@ export function stateToSearch(state: RequestLogPageState): Record<string, string
   if (state.error_text) search.error_text = state.error_text;
   if (state.pricing_status !== DEFAULTS.pricing_status) search.pricing_status = state.pricing_status;
   if (state.pricing_status === "unpriced" && state.unpriced_reason) search.unpriced_reason = state.unpriced_reason;
+  if (state.pricing_card_role) search.pricing_card_role = state.pricing_card_role;
+  if (state.pricing_selection_state) search.pricing_selection_state = state.pricing_selection_state;
   if (state.from_time && state.to_time) {
     search.from_time = state.from_time;
     search.to_time = state.to_time;

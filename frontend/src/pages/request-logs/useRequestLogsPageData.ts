@@ -271,6 +271,8 @@ export function useRequestLogsPageData({
         state.pricing_status === "unpriced"
           ? state.unpriced_reason || undefined
           : undefined,
+      pricing_card_role: state.pricing_card_role || undefined,
+      pricing_selection_state: state.pricing_selection_state || undefined,
       endpoint_id: state.endpoint_id
         ? parseInt(state.endpoint_id, 10)
         : undefined,
@@ -444,6 +446,8 @@ export function useRequestLogsPageData({
     state.error_text,
     state.pricing_status,
     state.unpriced_reason,
+    state.pricing_card_role,
+    state.pricing_selection_state,
     state.endpoint_id,
     state.terminal_target_id,
     state.time_range,

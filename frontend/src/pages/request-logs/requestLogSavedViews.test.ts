@@ -38,6 +38,8 @@ function makeState(overrides: Partial<RequestLogPageState> = {}): RequestLogPage
     error_text: "rate limit",
     pricing_status: "all",
     unpriced_reason: "",
+    pricing_card_role: "",
+    pricing_selection_state: "",
     time_range: "7d",
     from_time: "",
     to_time: "",

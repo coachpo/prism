@@ -26,6 +26,7 @@ No external users. The single operator is the person running the home-LAN instan
 
 - PostgreSQL holds management state, request logs, audit logs, usage events, and loadbalance events (partitioned retained tables plus live management tables).
 - A plaintext bootstrap file (`config.json`, path set by `PRISM_CONFIG_PATH`) owns startup settings. The `runtime.transport` config section was removed outright (no compatibility shell) in v1.0.20: Prism no longer applies connection or timeout limits to outbound provider requests, and a leftover `runtime.transport` block fails startup with a readable migration error.
+- Pricing-template typed cards and peak/valley windows are introduced by `000023_pricing_template_kind_cards.sql` as a fresh-only, destructive shape migration. Before DDL, any retained pricing or currency-migration row raises a readable rebuild-required error; the existing instance must be exported or discarded and restarted with an empty database. This does not waive the backup and explicit-authorization requirement for the retained operating history.
 - The running home-LAN instance holds real accumulated operating history. Backing up an instance means `pg_dump` plus a copy of the plaintext config. The database and bootstrap file hold retained product state and are not disposable without backup.
 
 ## Compatibility Policy

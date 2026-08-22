@@ -16,6 +16,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+const pricingTemplateImportSchemaVersion = 3
+
 func (s *Service) handleImportPricingTemplates(w http.ResponseWriter, r *http.Request) {
 	// Preview-only import (SPEC 7.6): validates every row and returns the
 	// per-row action, the summary and a preview hash binding the canonical
@@ -35,8 +37,8 @@ func (s *Service) handleCommitPricingTemplateImport(w http.ResponseWriter, r *ht
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	if requestBody.SchemaVersion != 2 {
-		writeDomainError(w, r, s.corsSnapshot(), &domainError{StatusCode: http.StatusBadRequest, Detail: "schema_version must be 2"})
+	if requestBody.SchemaVersion != pricingTemplateImportSchemaVersion {
+		writeDomainError(w, r, s.corsSnapshot(), &domainError{StatusCode: http.StatusBadRequest, Detail: "schema_version must be 3"})
 		return
 	}
 	commitResponse, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (pricingTemplateImportResponse, error) {
@@ -106,8 +108,8 @@ func (s *Service) previewImportPayload(r *http.Request, requestBody pricingTempl
 }
 
 func normalizePricingTemplateImportRows(requestBody pricingTemplateImportRequest) (string, []pricingTemplateImportRow, []pricingTemplateImportError, error) {
-	if requestBody.SchemaVersion != 2 {
-		return "", nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "schema_version must be 2"}
+	if requestBody.SchemaVersion != pricingTemplateImportSchemaVersion {
+		return "", nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "schema_version must be 3"}
 	}
 	mode := strings.TrimSpace(requestBody.Mode)
 	if mode != "upsert_by_name" && mode != "create_only" {
@@ -321,8 +323,8 @@ func pricingTemplateImportKeysPresent(body []byte) error {
 		return fmt.Errorf("schema_version is required")
 	}
 	var schemaVersion int
-	if err := json.Unmarshal(version, &schemaVersion); err != nil || schemaVersion != 2 {
-		return fmt.Errorf("schema_version must be 2")
+	if err := json.Unmarshal(version, &schemaVersion); err != nil || schemaVersion != pricingTemplateImportSchemaVersion {
+		return fmt.Errorf("schema_version must be 3")
 	}
 	if _, ok := raw["mode"]; !ok {
 		return fmt.Errorf("mode is required")

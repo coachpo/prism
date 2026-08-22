@@ -154,8 +154,8 @@ func TestCostSegmentKey(t *testing.T) {
 	if key := CostSegmentKeyFor(&epoch, "USD", true); key != "e.3" {
 		t.Fatalf("expected e.3, got %q", key)
 	}
-	if key := CostSegmentKeyFor(nil, "usd", true); key != "l.USD" {
-		t.Fatalf("expected l.USD, got %q", key)
+	if key := CostSegmentKeyFor(nil, "usd", true); key != "l.__unknown__" {
+		t.Fatalf("expected non-canonical lowercase code to be unknown, got %q", key)
 	}
 	if key := CostSegmentKeyFor(nil, "USD", false); key != "l.__unknown__" {
 		t.Fatalf("expected l.__unknown__, got %q", key)
@@ -177,7 +177,7 @@ func TestDetailPricingUsesCanonicalCostSegmentKey(t *testing.T) {
 	}
 
 	legacy := buildDetailPricing(requestLogDetailRow{
-		ReportCurrencyCode: stringPointer(" usd "),
+		ReportCurrencyCode: stringPointer("USD"),
 		PricingStatus:      "priced",
 	})
 	if legacy.CostSegmentKey == nil || *legacy.CostSegmentKey != "l.USD" {
@@ -190,5 +190,42 @@ func TestDetailPricingUsesCanonicalCostSegmentKey(t *testing.T) {
 	})
 	if invalid.CostSegmentKey == nil || *invalid.CostSegmentKey != "l.__unknown__" {
 		t.Fatalf("expected invalid detail currency to use unknown key, got %#v", invalid.CostSegmentKey)
+	}
+}
+
+func TestCostSegmentKeyCanonicalEdgeCases(t *testing.T) {
+	zero := 0
+	for _, tc := range []struct {
+		name  string
+		epoch *int
+		code  string
+		valid bool
+		want  string
+	}{
+		{name: "epoch zero falls through", epoch: &zero, want: "l.__unknown__"},
+		{name: "lowercase code is not canonical", code: "usd", valid: true, want: "l.__unknown__"},
+		{name: "null code is unknown", want: "l.__unknown__"},
+		{name: "canonical legacy code", code: "USD", valid: true, want: "l.USD"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := CostSegmentKeyFor(tc.epoch, tc.code, tc.valid); got != tc.want {
+				t.Fatalf("expected %q, got %q", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestNormalizeCostSegmentKeyRejectsNonCanonicalFilters(t *testing.T) {
+	for _, value := range []string{"e.0", "e.01", "l.usd", "l.US"} {
+		if _, err := NormalizeCostSegmentKey(value); err == nil {
+			t.Fatalf("expected %q to be rejected", value)
+		} else if httpErr, ok := err.(*HTTPError); !ok || httpErr.StatusCode != 400 || httpErr.Code != "cost_segment_key_invalid" {
+			t.Fatalf("unexpected error for %q: %#v", value, err)
+		}
+	}
+	for _, value := range []string{"e.1", "l.USD", "l.__unknown__"} {
+		if normalized, err := NormalizeCostSegmentKey(value); err != nil || normalized == nil || *normalized != value {
+			t.Fatalf("expected canonical filter %q, got %v / %v", value, normalized, err)
+		}
 	}
 }

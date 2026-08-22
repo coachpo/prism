@@ -45,6 +45,8 @@ export function buildExportParams(state: RequestLogPageState): StatsRequestParam
     error_text: state.error_text || undefined,
     pricing_status: state.pricing_status === "all" ? undefined : state.pricing_status,
     unpriced_reason: state.pricing_status === "unpriced" ? state.unpriced_reason || undefined : undefined,
+    pricing_card_role: state.pricing_card_role || undefined,
+    pricing_selection_state: state.pricing_selection_state || undefined,
     endpoint_id: state.endpoint_id ? parseInt(state.endpoint_id, 10) : undefined,
     from_time: state.from_time || timeRangeToFromTime(state.time_range),
     to_time: state.to_time || undefined,

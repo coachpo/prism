@@ -30,6 +30,7 @@ runtime/
 - Rejected-route isolation before body reads, provider transport, telemetry, audit, feedback, or side effects: `rejected_route_isolation_test.go`
 - Request-log contracts, final-target filters, client-rule filters, grouped ingress rows, CSV, and typed kind/state/role pricing evidence: `request_logs_contract_test.go`
 - Peak/valley runtime selection with frozen clock, IANA wall-clock evidence, and independent persisted-row checks: `pricing_peak_valley_runtime_test.go`
+- Runtime pricing invariants also have process-local coverage for accepted planning time, half-open peak/valley boundaries, and snapshot digest/child-shape failure in `../../internal/httpapi/runtime/pricing_operation_matrix_test.go` and `runtime_test.go`.
 - Runtime planning, failover, current-state mutation, recovery, and admission exhaustion: `proxy_selector_test.go`
 - Runtime-created log partitions and helper parity: `runtime_partitioned_logs_test.go`, `log_partition_helpers_test.go`
 - Cache invalidation and runtime snapshots: `runtime_cache_invalidation_test.go`, `runtime_phase1_snapshot_test.go`

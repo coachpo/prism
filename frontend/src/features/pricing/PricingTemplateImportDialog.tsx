@@ -44,7 +44,7 @@ function parseImportJson(
   const parsed = JSON.parse(raw) as unknown;
   if (Array.isArray(parsed)) {
     return {
-      schema_version: 2,
+	      schema_version: 3,
       mode,
       templates: parsed as PricingTemplateCreate[],
     };
@@ -56,7 +56,7 @@ function parseImportJson(
   ) {
     return {
       ...(parsed as Partial<PricingTemplateImportRequest>),
-      schema_version: 2,
+	      schema_version: 3,
       mode,
       templates: (parsed as { templates: PricingTemplateCreate[] }).templates,
     };

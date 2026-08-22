@@ -29,8 +29,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useLocale } from "@/i18n/useLocale";
-import type { PricingTemplate } from "@/lib/types";
-import { OperatorCallout, OperatorInsetPanel } from "@/shared/design-system";
+import type { PricingTemplate, PricingTemplateImpact } from "@/lib/types";
+import { OperatorCallout, OperatorErrorState, OperatorInsetPanel, OperatorRetryButton } from "@/shared/design-system";
 import {
   fieldErrorsFromServerValidation,
   type ServerValidationResult,
@@ -47,8 +47,12 @@ import { PricingTierFields } from "./PricingTierFields";
 
 interface PricingTemplateDialogProps {
   editingPricingTemplate: PricingTemplate | null;
+  impact: PricingTemplateImpact | null;
+  impactError: string | null;
+  impactLoading: boolean;
   onClose: () => void;
   onOpenChange: (open: boolean) => void;
+  onRetryImpact: () => void;
   onSave: (values: PricingTemplateFormValues) => Promise<void>;
   open: boolean;
   pricingTemplateSaving: boolean;
@@ -76,8 +80,12 @@ function pricingFormPath(path: string): FieldPath<PricingTemplateFormValues> | n
 
 export function PricingTemplateDialog({
   editingPricingTemplate,
+  impact,
+  impactError,
+  impactLoading,
   onClose,
   onOpenChange,
+  onRetryImpact,
   onSave,
   open,
   pricingTemplateSaving,
@@ -226,6 +234,12 @@ export function PricingTemplateDialog({
                     />
                   </div>
                 </OperatorInsetPanel>
+                {editingPricingTemplate ? (
+                  impactLoading && !impact ? <OperatorInsetPanel><p className="text-xs text-muted-foreground">{dialogMessages.impactLoading}</p></OperatorInsetPanel>
+                    : impactError && !impact ? <OperatorErrorState title={dialogMessages.impactUnavailable} description={impactError} action={<OperatorRetryButton onClick={onRetryImpact}>{messages.common.retry}</OperatorRetryButton>} />
+                      : impact ? <OperatorInsetPanel><p className="text-sm font-medium text-foreground">{dialogMessages.impactTitle}</p><p className="mt-1 text-xs text-muted-foreground">{dialogMessages.impactSummary(impact.current_version, impact.next_version, impact.reference_count)}</p>{impact.references.length > 0 ? <ul className="mt-2 list-inside list-disc text-xs text-muted-foreground">{impact.references.map((reference) => <li key={reference.connection_id}>{reference.connection_name || dialogMessages.impactUnknownConnection} · {reference.model_id} · {reference.endpoint_name}</li>)}</ul> : <p className="mt-2 text-xs text-muted-foreground">{dialogMessages.impactNone}</p>}</OperatorInsetPanel>
+                      : null
+                ) : null}
                 <div className="flex flex-col gap-4">
                   {templateKind !== "peak_valley" ? (
                     <>
@@ -251,7 +265,7 @@ export function PricingTemplateDialog({
               <Button type="button" variant="outline" onClick={onClose}>
                 {dialogMessages.cancel}
               </Button>
-              <Button type="submit" disabled={pricingTemplateSaving}>
+              <Button type="submit" disabled={pricingTemplateSaving || Boolean(editingPricingTemplate && (impactLoading || impactError || !impact))}>
                 {pricingTemplateSaving
                   ? dialogMessages.saving
                   : dialogMessages.save}

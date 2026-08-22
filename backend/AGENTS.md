@@ -44,6 +44,7 @@ backend/
 - Gateway and runtime contracts: `internal/gateway/AGENTS.md`, `internal/httpapi/runtime/AGENTS.md`, `internal/httpapi/runtime/operations.go`
 - HTTP mounting, management fanout, and request context: `internal/httpapi/AGENTS.md`, `internal/httpapi/management/AGENTS.md`, `internal/httpapi/management/*/AGENTS.md`
 - Stats, audit, loadbalance, transactions, partitions, and schema: `internal/domain/`, `internal/pgxutil/tx.go`, `migrations/`, `internal/platform/logretention/`
+- Typed pricing-card and peak/valley window schema and its fresh-only rebuild guard: `migrations/000023_pricing_template_kind_cards.sql`
 - Container and regression boundaries: `../Dockerfile`, `tests/integration/dockerfile_contract_test.go`, `tests/AGENTS.md`, `tests/`
 
 ## CONVENTIONS

@@ -81,58 +81,6 @@ func (s *Service) handlePutCostingSettings(w http.ResponseWriter, r *http.Reques
 	writeSettingsJSON(w, http.StatusOK, response)
 }
 
-func (s *Service) handleGetTimezonePreference(w http.ResponseWriter, r *http.Request) {
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "settings", func(tx pgx.Tx) (timezonePreferenceResponse, error) {
-		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
-		if err != nil {
-			return timezonePreferenceResponse{}, err
-		}
-		settingsRow, err := loadOrCreateUserSettings(r.Context(), tx, profile.ID, s.nowUTC())
-		if err != nil {
-			return timezonePreferenceResponse{}, err
-		}
-		return buildTimezonePreferenceResponse(settingsRow), nil
-	})
-	if err != nil {
-		writeSettingsDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	writeSettingsJSON(w, http.StatusOK, response)
-}
-
-func (s *Service) handlePutTimezonePreference(w http.ResponseWriter, r *http.Request) {
-	var requestBody timezonePreferenceUpdateRequest
-	if err := decodeStrictJSONBody(r, &requestBody); err != nil {
-		writeProblem(w, r, s.corsSnapshot(), SettingsProblem{Code: "validation_failed", Detail: "Invalid request body", Params: map[string]any{}, Details: map[string]any{"violations": []any{}}}, http.StatusBadRequest)
-		return
-	}
-	if err := normalizeAndValidateTimezoneRequest(&requestBody); err != nil {
-		writeSettingsDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "settings", func(tx pgx.Tx) (timezonePreferenceResponse, error) {
-		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
-		if err != nil {
-			return timezonePreferenceResponse{}, err
-		}
-		settingsRow, err := loadOrCreateUserSettings(r.Context(), tx, profile.ID, s.nowUTC())
-		if err != nil {
-			return timezonePreferenceResponse{}, err
-		}
-		settingsRow.TimezonePreference = requestBody.TimezonePreference
-		settingsRow.UpdatedAt = s.nowUTC()
-		if err := updateUserSettings(r.Context(), tx, settingsRow); err != nil {
-			return timezonePreferenceResponse{}, err
-		}
-		return buildTimezonePreferenceResponse(settingsRow), nil
-	})
-	if err != nil {
-		writeSettingsDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	writeSettingsJSON(w, http.StatusOK, response)
-}
-
 func buildCostingSettingsResponse(ctx context.Context, tx pgx.Tx, settingsRow userSettingsRow) (costingSettingsResponse, error) {
 	var epoch int
 	var effectiveAt *time.Time
@@ -185,10 +133,6 @@ func buildCostingSettingsResponse(ctx context.Context, tx pgx.Tx, settingsRow us
 	}
 	response.PricingMigrationInventory = inventorySummary
 	return response, nil
-}
-
-func buildTimezonePreferenceResponse(settingsRow userSettingsRow) timezonePreferenceResponse {
-	return timezonePreferenceResponse{ProfileID: settingsRow.ProfileID, TimezonePreference: settingsRow.TimezonePreference}
 }
 
 func normalizeAndValidateCostingRequest(requestBody *costingSettingsUpdateRequest) error {
@@ -265,15 +209,6 @@ func applyCostingSettingsUpdate(ctx context.Context, tx pgx.Tx, profileID int, s
 	// Advancing the runtime planning generation is handled by the runtime
 	// cache invalidation middleware; the authoring counters are untouched by
 	// symbol-only updates.
-	return nil
-}
-
-func normalizeAndValidateTimezoneRequest(requestBody *timezonePreferenceUpdateRequest) error {
-	trimmedTimezone, err := normalizeTimezonePreference(requestBody.TimezonePreference)
-	if err != nil {
-		return err
-	}
-	requestBody.TimezonePreference = trimmedTimezone
 	return nil
 }
 

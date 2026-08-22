@@ -90,3 +90,53 @@ func TestPricingTemplateWindowValidationAllowsFullCoverageAndRejectsZeroWindows(
 		t.Fatal("zero peak windows must be rejected")
 	}
 }
+
+func TestPricingTemplateShapeChangeDetectionIncludesPeakCardWindowAndTimezone(t *testing.T) {
+	base, err := normalizePricingTemplateShape(pricingTemplateCreateRequest{
+		TemplateKind: "peak_valley",
+		PeakCard:     testCardInput("10", "20", "0", "0", "0"),
+		OffpeakCard:  testCardInput("1", "2", "0", "0", "0"),
+		Schedule:     &pricingTemplateScheduleInput{Timezone: "UTC", Windows: []pricingTemplateWindowInput{{WeekdayMask: 1, StartMinute: 600, EndMinute: 720}}},
+	})
+	if err != nil {
+		t.Fatalf("normalize base peak-valley shape: %v", err)
+	}
+	cases := []struct {
+		name   string
+		mutate func(pricingTemplateShape) pricingTemplateShape
+	}{
+		{name: "peak card", mutate: func(shape pricingTemplateShape) pricingTemplateShape {
+			card := shape.Cards["peak"]
+			card.InputPrice = "11"
+			shape.Cards["peak"] = card
+			return shape
+		}},
+		{name: "window", mutate: func(shape pricingTemplateShape) pricingTemplateShape {
+			shape.Windows[0].EndMinute = 721
+			shape.Digest = pricingTemplateWindowsDigest(shape.Windows)
+			return shape
+		}},
+		{name: "timezone", mutate: func(shape pricingTemplateShape) pricingTemplateShape {
+			timezone := "Europe/Helsinki"
+			shape.Timezone = &timezone
+			return shape
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			candidate := base
+			candidate.Cards = make(map[string]pricingTemplateCard, len(base.Cards))
+			for role, card := range base.Cards {
+				candidate.Cards[role] = card
+			}
+			candidate.Windows = append([]terminaltarget.Window(nil), base.Windows...)
+			if base.Timezone != nil {
+				timezone := *base.Timezone
+				candidate.Timezone = &timezone
+			}
+			if pricingTemplateShapesEqual(base, tc.mutate(candidate)) {
+				t.Fatalf("%s-only change must create a new pricing revision", tc.name)
+			}
+		})
+	}
+}

@@ -42,6 +42,8 @@ export function ActiveFilterChips({ actions }: { actions: Actions }) {
   push("status_code", copy.statusCode, state.status_code, () => actions.setStatusCode(""));
   push("error_text", copy.errorText, state.error_text, () => actions.setErrorText(""));
   push("unpriced_reason", copy.unpricedReason, state.unpriced_reason, () => actions.setUnpricedReason(""));
+  push("pricing_card_role", copy.pricingCardRole, state.pricing_card_role, () => actions.setPricingCardRole(""));
+  push("pricing_selection_state", copy.pricingSelectionState, state.pricing_selection_state, () => actions.setPricingSelectionState(""));
 
   if (state.status_family !== "all") {
     push("status_family", copy.statusFamily, state.status_family, () => actions.setStatusFamily("all"));

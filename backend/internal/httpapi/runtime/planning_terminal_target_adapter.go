@@ -320,18 +320,29 @@ func runtimeConnectionFromTerminalTargetRecord(record terminaltarget.RuntimeReco
 			cards[role] = card
 		}
 		timezone := dereferenceString(record.PricingTemplate.PricingScheduleTimezone)
+		pricingSchedule := terminaltarget.CompilePricingSchedule(timezone, record.PricingTemplate.PricingWindows)
+		pricingScheduleDigest := strings.TrimSpace(record.PricingTemplate.PricingScheduleDigest)
+		pricingScheduleDigestValid := true
+		if strings.TrimSpace(record.PricingTemplate.TemplateKind) == "peak_valley" {
+			// The child-table rows and their digest are compiled once into the
+			// immutable planning snapshot. Requests only read this boolean; a
+			// truncated child read therefore remains unresolved without hashing
+			// the same window set on every pricing attempt.
+			pricingScheduleDigestValid = len(record.PricingTemplate.PricingWindows) > 0 && pricingScheduleDigest != "" && terminaltarget.PricingWindowsDigest(record.PricingTemplate.PricingWindows) == pricingScheduleDigest
+		}
 		item.PricingTemplateSnapshot = &runtimePricingTemplateSnapshot{
-			ID:                    record.PricingTemplate.ID,
-			Name:                  record.PricingTemplate.Name,
-			RevisionID:            record.PricingTemplate.RevisionID,
-			PricingUnit:           record.PricingTemplate.PricingUnit,
-			PricingCurrencyCode:   record.PricingTemplate.PricingCurrencyCode,
-			TemplateKind:          record.PricingTemplate.TemplateKind,
-			Cards:                 cards,
-			TierInputTokensAbove:  cloneRuntimeIntPointer(record.PricingTemplate.TierInputTokensAbove),
-			PricingSchedule:       terminaltarget.CompilePricingSchedule(timezone, record.PricingTemplate.PricingWindows),
-			PricingScheduleDigest: record.PricingTemplate.PricingScheduleDigest,
-			Version:               record.PricingTemplate.Version,
+			ID:                         record.PricingTemplate.ID,
+			Name:                       record.PricingTemplate.Name,
+			RevisionID:                 record.PricingTemplate.RevisionID,
+			PricingUnit:                record.PricingTemplate.PricingUnit,
+			PricingCurrencyCode:        record.PricingTemplate.PricingCurrencyCode,
+			TemplateKind:               record.PricingTemplate.TemplateKind,
+			Cards:                      cards,
+			TierInputTokensAbove:       cloneRuntimeIntPointer(record.PricingTemplate.TierInputTokensAbove),
+			PricingSchedule:            pricingSchedule,
+			PricingScheduleDigest:      pricingScheduleDigest,
+			PricingScheduleDigestValid: pricingScheduleDigestValid,
+			Version:                    record.PricingTemplate.Version,
 		}
 		if record.PricingTemplate.ReportingCurrencyEpoch != nil {
 			epoch := *record.PricingTemplate.ReportingCurrencyEpoch

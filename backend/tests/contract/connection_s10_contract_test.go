@@ -312,7 +312,7 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 	profileID := modelLoadDefaultProfileID(t, harness)
 
 	payload := map[string]any{
-		"schema_version": 2,
+		"schema_version": 3,
 		"mode":           "upsert_by_name",
 		"templates": []map[string]any{
 			{"name": " gpt-4o ", "template_kind": "standard", "card": map[string]any{"input_price": "2.5", "output_price": "10", "cached_input_price": "1.25", "cache_creation_price": "0", "reasoning_price": "0"}, "description": " flagship "},
@@ -339,7 +339,7 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 	assertPricingTemplateCount(t, harness, profileID, 0)
 
 	// Commit with the preview hash writes the batch atomically.
-	commitBody := map[string]any{"schema_version": 2, "mode": payload["mode"], "templates": payload["templates"], "preview_hash": imported.PreviewHash}
+	commitBody := map[string]any{"schema_version": 3, "mode": payload["mode"], "templates": payload["templates"], "preview_hash": imported.PreviewHash}
 	commitResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import/commit", commitBody, modelHeader(profileID))
 	assertStatus(t, commitResponse, http.StatusOK)
 	decodeJSONResponse(t, commitResponse, &imported)
@@ -356,7 +356,7 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 	if imported.Created != 0 || imported.Updated != 0 || imported.PreviewHash == "" {
 		t.Fatalf("unexpected no-op import preview: %+v", imported)
 	}
-	commitBody2 := map[string]any{"schema_version": 2, "mode": payload["mode"], "templates": payload["templates"], "preview_hash": imported.PreviewHash}
+	commitBody2 := map[string]any{"schema_version": 3, "mode": payload["mode"], "templates": payload["templates"], "preview_hash": imported.PreviewHash}
 	updatedResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import/commit", commitBody2, modelHeader(profileID))
 	assertStatus(t, updatedResponse, http.StatusOK)
 	decodeJSONResponse(t, updatedResponse, &imported)
@@ -365,7 +365,7 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 	}
 	assertPricingTemplateCount(t, harness, profileID, 2)
 	metadataPayload := map[string]any{
-		"schema_version": 2,
+		"schema_version": 3,
 		"mode":           "upsert_by_name",
 		"templates": []map[string]any{
 			{"name": "gpt-4o", "template_kind": "standard", "card": map[string]any{"input_price": "2.5", "output_price": "10", "cached_input_price": "1.25", "cache_creation_price": "0", "reasoning_price": "0"}, "description": "metadata refreshed"},
@@ -381,7 +381,7 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 	if metadataPreview["updated"] != float64(1) || metadataItem["pricing_structure_changed"] != false || metadataItem["template_kind_changed"] != false || metadataItem["current_version"] != metadataItem["next_version"] {
 		t.Fatalf("metadata-only import must update without a revision bump, got %+v", metadataPreview)
 	}
-	metadataCommit := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import/commit", map[string]any{"schema_version": 2, "mode": "upsert_by_name", "templates": metadataPayload["templates"], "preview_hash": metadataPreview["preview_hash"]}, modelHeader(profileID))
+	metadataCommit := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import/commit", map[string]any{"schema_version": 3, "mode": "upsert_by_name", "templates": metadataPayload["templates"], "preview_hash": metadataPreview["preview_hash"]}, modelHeader(profileID))
 	assertStatus(t, metadataCommit, http.StatusOK)
 	var metadataVersion int
 	if err := harness.conn.QueryRow(context.Background(), `SELECT revisions.version FROM pricing_templates templates JOIN pricing_template_revisions revisions ON revisions.id = templates.current_revision_id WHERE templates.profile_id = $1 AND templates.name = 'gpt-4o'`, profileID).Scan(&metadataVersion); err != nil {
@@ -393,7 +393,7 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 
 	// A real price change through the two-phase flow bumps the version.
 	changedPayload := map[string]any{
-		"schema_version": 2,
+		"schema_version": 3,
 		"mode":           "upsert_by_name",
 		"templates": []map[string]any{
 			{"name": "gpt-4o", "template_kind": "standard", "card": map[string]any{"input_price": "2.5", "output_price": "11", "cached_input_price": "1.25", "cache_creation_price": "0", "reasoning_price": "0"}, "description": " flagship "},
@@ -408,7 +408,7 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 	}
 	firstChangeHash := imported.PreviewHash
 	alternateChangedPayload := map[string]any{
-		"schema_version": 2,
+		"schema_version": 3,
 		"mode":           "upsert_by_name",
 		"templates": []map[string]any{
 			{"name": "gpt-4o", "template_kind": "standard", "card": map[string]any{"input_price": "2.5", "output_price": "12", "cached_input_price": "1.25", "cache_creation_price": "0", "reasoning_price": "0"}, "description": " flagship "},
@@ -425,10 +425,10 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 	if alternateImported.Updated != 1 || alternateImported.PreviewHash == "" || alternateImported.PreviewHash == firstChangeHash {
 		t.Fatalf("same action/version with different card content must produce a different preview hash: first=%q alternate=%+v", firstChangeHash, alternateImported)
 	}
-	changedPayloadCommitWithAlternateBody := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import/commit", map[string]any{"schema_version": 2, "mode": "upsert_by_name", "templates": alternateChangedPayload["templates"], "preview_hash": firstChangeHash}, modelHeader(profileID))
+	changedPayloadCommitWithAlternateBody := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import/commit", map[string]any{"schema_version": 3, "mode": "upsert_by_name", "templates": alternateChangedPayload["templates"], "preview_hash": firstChangeHash}, modelHeader(profileID))
 	assertStatus(t, changedPayloadCommitWithAlternateBody, http.StatusConflict)
 	imported.PreviewHash = firstChangeHash
-	changeCommit := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import/commit", map[string]any{"schema_version": 2, "mode": "upsert_by_name", "templates": changedPayload["templates"], "preview_hash": imported.PreviewHash}, modelHeader(profileID))
+	changeCommit := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import/commit", map[string]any{"schema_version": 3, "mode": "upsert_by_name", "templates": changedPayload["templates"], "preview_hash": imported.PreviewHash}, modelHeader(profileID))
 	assertStatus(t, changeCommit, http.StatusOK)
 	decodeJSONResponse(t, changeCommit, &imported)
 	if imported.Created != 0 || imported.Updated != 1 {
@@ -437,12 +437,12 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 	assertPricingTemplateCount(t, harness, profileID, 2)
 
 	// A stale commit (wrong hash) fails closed without writing.
-	staleCommit := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import/commit", map[string]any{"schema_version": 2, "mode": payload["mode"], "templates": payload["templates"], "preview_hash": "not-the-hash"}, modelHeader(profileID))
+	staleCommit := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import/commit", map[string]any{"schema_version": 3, "mode": payload["mode"], "templates": payload["templates"], "preview_hash": "not-the-hash"}, modelHeader(profileID))
 	assertStatus(t, staleCommit, http.StatusConflict)
 	assertPricingTemplateCount(t, harness, profileID, 2)
 
 	invalid := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import", map[string]any{
-		"schema_version": 2,
+		"schema_version": 3,
 		"mode":           "upsert_by_name",
 		"templates": []map[string]any{
 			{"name": "bad-row-kept-out", "template_kind": "standard", "card": map[string]any{"input_price": "1", "output_price": "2", "cached_input_price": "1.2.3", "cache_creation_price": "0", "reasoning_price": "0"}},
@@ -458,7 +458,7 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 
 	// Legacy authoring fields inside import rows fail closed per row.
 	legacyRow := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import", map[string]any{
-		"schema_version": 2,
+		"schema_version": 3,
 		"mode":           "upsert_by_name",
 		"templates": []map[string]any{
 			{"name": "legacy-row", "template_kind": "standard", "pricing_currency_code": "USD", "card": map[string]any{"input_price": "1", "output_price": "2", "cached_input_price": "0", "cache_creation_price": "0", "reasoning_price": "0"}},
@@ -472,7 +472,7 @@ func TestPricingTemplateImportUpsertValidationAndUnknownFields(t *testing.T) {
 	assertPricingTemplateCount(t, harness, profileID, 2)
 
 	unknown := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates/import", map[string]any{
-		"schema_version": 2,
+		"schema_version": 3,
 		"mode":           "upsert_by_name",
 		"templates":      []map[string]any{},
 		"surprise":       true,

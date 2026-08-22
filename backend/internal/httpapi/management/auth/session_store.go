@@ -327,21 +327,6 @@ func (s *Service) createRotatedSession(ctx context.Context, tx pgx.Tx, authConfi
 	}, nil
 }
 
-func (s *Service) revokeAllRefreshTokens(ctx context.Context, tx pgx.Tx, authSubjectID int) error {
-	_, err := tx.Exec(
-		ctx,
-		`UPDATE refresh_tokens
-		SET revoked_at = $2
-		WHERE auth_subject_id = $1 AND revoked_at IS NULL`,
-		authSubjectID,
-		s.nowUTC(),
-	)
-	if err != nil {
-		return fmt.Errorf("revoke refresh tokens: %w", err)
-	}
-	return nil
-}
-
 func (s *Service) revokeRefreshToken(ctx context.Context, tx pgx.Tx, rawRefreshToken string) (*int, error) {
 	var authSubjectID int
 	err := tx.QueryRow(

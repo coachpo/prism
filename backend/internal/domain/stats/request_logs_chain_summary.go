@@ -194,16 +194,13 @@ func loadFinalizedSummary(ctx context.Context, exec queryExecutor, profileID int
 		rate := float64(*summary.OutputTokens) * 1000 / float64(*summary.CompletionDurationMS-*summary.TTFTMS)
 		summary.OutputRateTPS = &rate
 	}
-	if summary.ReportingCurrencyEpoch != nil && *summary.ReportingCurrencyEpoch > 0 {
-		key := fmt.Sprintf("e.%d", *summary.ReportingCurrencyEpoch)
-		summary.CostSegmentKey = &key
-	} else if summary.ReportCurrencyCode != nil {
-		key := "l." + strings.ToUpper(*summary.ReportCurrencyCode)
-		summary.CostSegmentKey = &key
-	} else {
-		key := "l.__unknown__"
-		summary.CostSegmentKey = &key
+	legacyCode := ""
+	legacyCodeValid := summary.ReportCurrencyCode != nil
+	if legacyCodeValid {
+		legacyCode = *summary.ReportCurrencyCode
 	}
+	key := CostSegmentKeyFor(summary.ReportingCurrencyEpoch, legacyCode, legacyCodeValid)
+	summary.CostSegmentKey = &key
 	return &summary, true, nil
 }
 

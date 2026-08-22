@@ -120,6 +120,29 @@ func TestRuntimeConnectionCarriesPricingOwnerSnapshot(t *testing.T) {
 	}
 }
 
+func TestRuntimePricingScheduleDigestIsCompiledOnceWithSnapshot(t *testing.T) {
+	windows := []terminaltarget.Window{{WeekdayMask: 1, StartMinute: 600, EndMinute: 720}}
+	validDigest := terminaltarget.PricingWindowsDigest(windows)
+	valid := runtimeConnectionFromTerminalTargetRecord(terminaltarget.RuntimeRecord{PricingTemplate: &terminaltarget.RuntimePricingTemplateSnapshot{
+		TemplateKind: "peak_valley", PricingScheduleTimezone: stringPtr("UTC"), PricingScheduleDigest: validDigest, PricingWindows: windows,
+	}}).PricingTemplateSnapshot
+	if valid == nil || !valid.PricingScheduleDigestValid {
+		t.Fatalf("expected compiled peak schedule digest to be valid, got %+v", valid)
+	}
+	invalid := runtimeConnectionFromTerminalTargetRecord(terminaltarget.RuntimeRecord{PricingTemplate: &terminaltarget.RuntimePricingTemplateSnapshot{
+		TemplateKind: "peak_valley", PricingScheduleTimezone: stringPtr("UTC"), PricingScheduleDigest: "wrong", PricingWindows: windows,
+	}}).PricingTemplateSnapshot
+	if invalid == nil || invalid.PricingScheduleDigestValid {
+		t.Fatalf("expected mismatched snapshot digest to be invalid, got %+v", invalid)
+	}
+	truncated := runtimeConnectionFromTerminalTargetRecord(terminaltarget.RuntimeRecord{PricingTemplate: &terminaltarget.RuntimePricingTemplateSnapshot{
+		TemplateKind: "peak_valley", PricingScheduleTimezone: stringPtr("UTC"), PricingScheduleDigest: validDigest,
+	}}).PricingTemplateSnapshot
+	if truncated == nil || truncated.PricingScheduleDigestValid {
+		t.Fatal("missing pricing window child rows must remain unresolved in the compiled snapshot")
+	}
+}
+
 // TestRuntimeConnectionCompilesRoutingScheduleWithoutSecretKey is the only
 // guard that the schedule compiles before the empty-secret-key early return
 // in compileRuntimeConnection: every DB-backed test seeds a non-empty secret

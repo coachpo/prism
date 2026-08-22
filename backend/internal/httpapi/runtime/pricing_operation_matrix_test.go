@@ -68,8 +68,9 @@ func typedPeakValleySnapshot(t *testing.T, timezone string, windows []terminalta
 				CacheCreationPrice: "0", ReasoningPrice: "0",
 			},
 		},
-		PricingSchedule:       terminaltarget.CompilePricingSchedule(timezone, windows),
-		PricingScheduleDigest: terminaltarget.PricingWindowsDigest(windows),
+		PricingSchedule:            terminaltarget.CompilePricingSchedule(timezone, windows),
+		PricingScheduleDigest:      terminaltarget.PricingWindowsDigest(windows),
+		PricingScheduleDigestValid: true,
 	}
 }
 
@@ -222,6 +223,7 @@ func TestTypedPeakValleyInvalidTimezoneAndDigestAreUnresolved(t *testing.T) {
 	} {
 		if snapshot.PricingSchedule.Timezone == "UTC" {
 			snapshot.PricingScheduleDigest = "wrong"
+			snapshot.PricingScheduleDigestValid = false
 		}
 		result := buildRuntimePricingResultForOperationAt(report, snapshot, nil, usage, runtimeStreamOutcomeCompleted, "openai.responses", time.Date(2026, 8, 10, 0, 30, 0, 0, time.UTC))
 		if result.PricingStatus != runtimePricingStatusUnpriced || result.PricingResolutionKind == nil || *result.PricingResolutionKind != runtimePricingResolutionScheduleUnresolved || result.PricingCardRole != nil || result.PricingSnapshotInput != nil {

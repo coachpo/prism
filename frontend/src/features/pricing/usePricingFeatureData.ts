@@ -12,6 +12,7 @@ import type {
   PricingTemplateConnectionUsageItem,
   PricingTemplateImportRequest,
   PricingTemplateRevision,
+  PricingTemplateImpact,
 } from "@/lib/types";
 import {
   extractServerValidation,
@@ -39,6 +40,12 @@ export function usePricingFeatureData(revision: number) {
     useState<PricingTemplate | null>(null);
   const [pricingTemplatePreparingEditId, setPricingTemplatePreparingEditId] =
     useState<number | null>(null);
+  const [pricingTemplateImpact, setPricingTemplateImpact] =
+    useState<PricingTemplateImpact | null>(null);
+  const [pricingTemplateImpactLoading, setPricingTemplateImpactLoading] =
+    useState(false);
+  const [pricingTemplateImpactError, setPricingTemplateImpactError] =
+    useState<string | null>(null);
   const [pricingTemplateSaving, setPricingTemplateSaving] = useState(false);
   const [pricingTemplateServerError, setPricingTemplateServerError] = useState<ServerValidationResult | null>(null);
   const [pricingTemplateUsageRows, setPricingTemplateUsageRows] = useState<
@@ -71,6 +78,8 @@ export function usePricingFeatureData(revision: number) {
     useState<PricingTemplateRevision[]>([]);
   const [pricingTemplateHistoryLoading, setPricingTemplateHistoryLoading] =
     useState(false);
+  const [pricingTemplateHistoryError, setPricingTemplateHistoryError] =
+    useState<string | null>(null);
   const navigate = useNavigate();
 
   const setDeletePricingTemplateConfirm = (
@@ -123,6 +132,8 @@ export function usePricingFeatureData(revision: number) {
   };
   const openCreatePricingTemplateDialog = () => {
     setEditingPricingTemplate(null);
+    setPricingTemplateImpact(null);
+    setPricingTemplateImpactError(null);
     setPricingTemplatePreparingEditId(null);
     setPricingTemplateServerError(null);
     setPricingTemplateDialogOpen(true);
@@ -132,12 +143,19 @@ export function usePricingFeatureData(revision: number) {
   ) => {
     const messages = getStaticMessages();
     setPricingTemplatePreparingEditId(templateSummary.id);
+    setPricingTemplateImpact(null);
+    setPricingTemplateImpactError(null);
+    setPricingTemplateImpactLoading(true);
     try {
-      setEditingPricingTemplate(
-        await api.pricingTemplates.get(templateSummary.id),
-      );
+      const template = await api.pricingTemplates.get(templateSummary.id);
+      setEditingPricingTemplate(template);
       setPricingTemplateServerError(null);
       setPricingTemplateDialogOpen(true);
+      try {
+        setPricingTemplateImpact(await api.pricingTemplates.impact(templateSummary.id));
+      } catch (error) {
+        setPricingTemplateImpactError(error instanceof Error ? error.message : messages.pricingTemplatesData.impactLoadFailed);
+      }
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -145,6 +163,7 @@ export function usePricingFeatureData(revision: number) {
           : messages.pricingTemplatesData.loadSingleFailed,
       );
     } finally {
+      setPricingTemplateImpactLoading(false);
       setPricingTemplatePreparingEditId(null);
     }
   };
@@ -199,19 +218,19 @@ export function usePricingFeatureData(revision: number) {
     template: PricingTemplate,
   ) => {
     const messages = getStaticMessages();
+    const sameTemplate = pricingTemplateHistoryTemplate?.id === template.id;
     setPricingTemplateHistoryTemplate(template);
     setPricingTemplateHistoryLoading(true);
-    setPricingTemplateHistoryRevisions([]);
+    setPricingTemplateHistoryError(null);
+    if (!sameTemplate) setPricingTemplateHistoryRevisions([]);
     try {
       setPricingTemplateHistoryRevisions(
         await api.pricingTemplates.revisions(template.id),
       );
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : messages.pricingTemplatesData.historyLoadFailed,
-      );
+      const detail = error instanceof Error ? error.message : messages.pricingTemplatesData.historyLoadFailed;
+      setPricingTemplateHistoryError(detail);
+      toast.error(detail);
     } finally {
       setPricingTemplateHistoryLoading(false);
     }
@@ -352,7 +371,7 @@ export function usePricingFeatureData(revision: number) {
     setPricingTemplateImporting(true);
     try {
       const result = await api.pricingTemplates.importCommit({
-        schema_version: 2,
+        schema_version: 3,
         mode: request.mode,
         templates: request.templates,
         preview_hash: response.preview_hash,
@@ -406,6 +425,10 @@ export function usePricingFeatureData(revision: number) {
     pricingTemplateDialogOpen,
     pricingTemplateImportDialogOpen,
     pricingTemplateHistoryLoading,
+    pricingTemplateHistoryError,
+    pricingTemplateImpact,
+    pricingTemplateImpactError,
+    pricingTemplateImpactLoading,
     pricingTemplateHistoryRevisions,
     pricingTemplateHistoryTemplate,
     pricingTemplateImporting,
@@ -425,6 +448,18 @@ export function usePricingFeatureData(revision: number) {
     setDeletePricingTemplateConflict,
     setPricingTemplateDialogOpen,
     setPricingTemplateImportDialogOpen,
+    retryPricingTemplateImpact: async () => {
+      if (!editingPricingTemplate) return;
+      setPricingTemplateImpactLoading(true);
+      setPricingTemplateImpactError(null);
+      try {
+        setPricingTemplateImpact(await api.pricingTemplates.impact(editingPricingTemplate.id));
+      } catch (error) {
+        setPricingTemplateImpactError(error instanceof Error ? error.message : getStaticMessages().pricingTemplatesData.impactLoadFailed);
+      } finally {
+        setPricingTemplateImpactLoading(false);
+      }
+    },
   };
 }
 

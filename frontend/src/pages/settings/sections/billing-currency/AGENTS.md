@@ -8,7 +8,8 @@
 billing-currency/
 ├── ReportingCurrencyCard.tsx   # Reporting currency code/symbol inputs and summary
 ├── CurrencyMigrationDialog.tsx # Two-phase migration preview -> commit dialog
-└── ArchiveUnusedFxDialog.tsx   # Archive-only unused-FX preview -> commit dialog
+├── ArchiveUnusedFxDialog.tsx   # Archive-only unused-FX preview -> commit dialog
+└── currencyMigrationCards.ts   # Complete role-keyed card projection for migration previews
 ```
 
 ## WHERE TO LOOK

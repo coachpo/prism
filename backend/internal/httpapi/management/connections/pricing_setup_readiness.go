@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
+	"github.com/coachpo/prism/backend/internal/domain/pricingkind"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -160,8 +161,9 @@ func loadPricingGenerations(ctx context.Context, exec queryExecutor, profileID i
 }
 
 // hasCompleteActivePricingTemplate reports whether at least one non-deleted
-// template has a complete current revision (canonical input and output
-// prices).
+// template has a usable current revision. Base input/output prices are the
+// readiness contract; specialty NULLs are valid unconfigured components and
+// are reported by the bounded Pricing owner list instead.
 func hasCompleteActivePricingTemplate(ctx context.Context, exec queryExecutor, profileID int) (bool, error) {
 	var found bool
 	if err := exec.QueryRow(ctx, `SELECT EXISTS (
@@ -179,7 +181,6 @@ func hasCompleteActivePricingTemplate(ctx context.Context, exec queryExecutor, p
 				SELECT 1 FROM pricing_template_cards cards
 				WHERE cards.revision_id = revisions.id AND cards.card_role = required.role
 				AND cards.input_price IS NOT NULL AND cards.output_price IS NOT NULL
-				AND cards.cached_input_price IS NOT NULL AND cards.cache_creation_price IS NOT NULL AND cards.reasoning_price IS NOT NULL
 			)
 		)
 	)`, profileID).Scan(&found); err != nil {
@@ -211,7 +212,7 @@ func hasCompleteActivePricingTemplate(ctx context.Context, exec queryExecutor, p
 // resolvePricingSetupReadinessState batches the per-witness pricing facts:
 // whether the witness's terminal connection references a pricing template
 // (applied) and whether that reference is cost-ready (active template,
-// current revision, current currency epoch, five canonical prices).
+// current revision, current currency epoch, canonical base prices).
 func resolvePricingSetupReadinessState(ctx context.Context, exec queryExecutor, profileID int, snapshot modelrouting.RouteWitnessSnapshot) (pricingSetupReadinessState, error) {
 	state := pricingSetupReadinessState{
 		appliedTerminalTargetIDs:   map[int]bool{},
@@ -248,7 +249,6 @@ func resolvePricingSetupReadinessState(ctx context.Context, exec queryExecutor, 
 				SELECT 1 FROM pricing_template_cards cards
 				WHERE cards.revision_id = r.id AND cards.card_role = required.role
 				AND cards.input_price IS NOT NULL AND cards.output_price IS NOT NULL
-				AND cards.cached_input_price IS NOT NULL AND cards.cache_creation_price IS NOT NULL AND cards.reasoning_price IS NOT NULL
 			)
 		) AS cards_ready
 		FROM connections c
@@ -284,13 +284,18 @@ func resolvePricingSetupReadinessState(ctx context.Context, exec queryExecutor, 
 
 // isCostReadyPricingRow applies the Pricing SPEC cost-ready predicate: the
 // reference is the current revision of an active template on the current
-// currency epoch with all five prices canonical (rate or explicit "0" free;
-// null optional components mean unconfigured and are not cost-ready).
+// currency epoch with canonical input/output prices. Optional specialty
+// components may be NULL; usage that needs one is resolved as missing price
+// data by the runtime pricing path.
 func isCostReadyPricingRow(currentEpoch *int, revisionEpoch *int, templateKind *string, cardsReady bool, scheduleTimezone, scheduleDigest *string, hasScheduleWindows bool) bool {
 	if currentEpoch == nil || revisionEpoch == nil || *revisionEpoch != *currentEpoch || templateKind == nil || strings.TrimSpace(*templateKind) == "" || !cardsReady {
 		return false
 	}
-	if strings.TrimSpace(*templateKind) != "peak_valley" {
+	kind := pricingkind.Kind(strings.TrimSpace(*templateKind))
+	if !kind.Valid() {
+		return false
+	}
+	if kind != pricingkind.PeakValley {
 		return scheduleTimezone == nil && scheduleDigest == nil && !hasScheduleWindows
 	}
 	if scheduleTimezone == nil || strings.TrimSpace(*scheduleTimezone) == "" || scheduleDigest == nil || strings.TrimSpace(*scheduleDigest) == "" || !hasScheduleWindows {
@@ -298,19 +303,6 @@ func isCostReadyPricingRow(currentEpoch *int, revisionEpoch *int, templateKind *
 	}
 	_, err := time.LoadLocation(strings.TrimSpace(*scheduleTimezone))
 	return err == nil
-}
-
-// canonicalPricingPrice accepts an explicit decimal price (rate) or "0"
-// (explicit free); nil/unconfigured is not canonical.
-func canonicalPricingPrice(value *string) bool {
-	if value == nil {
-		return false
-	}
-	trimmed := strings.TrimSpace(*value)
-	if trimmed == "" {
-		return false
-	}
-	return true
 }
 
 // resolvePricingMatchingProjection returns the stable matching projection:

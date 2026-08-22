@@ -213,6 +213,7 @@ export function WindowKpiGrid({
           badges={
             <div className="flex flex-col gap-1">
               <PricingBreakdown pricing={pricing} />
+              {segment?.pricing_card_role_breakdown?.length ? <div className="flex flex-wrap gap-x-2 text-[11px] text-muted-foreground"><span>{copy.pricingCardRoleBreakdown}：</span>{segment.pricing_card_role_breakdown.map((role) => <span key={role.card_role}>{pricingRoleLabel(role.card_role, messages.requestLogs)} <Money micros={role.known_cost_micros} symbol={symbol} /></span>)}</div> : null}
               <span className="text-[11px] text-muted-foreground">
                 {copy.pricingSelectorUnresolved}：
                 <span className="font-mono text-foreground">
@@ -256,6 +257,17 @@ function Money({
       {amount.toFixed(4)}
     </>
   );
+}
+
+function pricingRoleLabel(role: string, copy: ReturnType<typeof useLocale>["messages"]["requestLogs"]) {
+  switch (role) {
+    case "standard": return copy.pricingCardStandard;
+    case "tier_base": return copy.pricingCardTierBase;
+    case "tier_above": return copy.pricingCardTierAbove;
+    case "peak": return copy.pricingCardPeak;
+    case "offpeak": return copy.pricingCardOffpeak;
+    default: return copy.pricingCardRole;
+  }
 }
 
 /**

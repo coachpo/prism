@@ -18,6 +18,7 @@ lib/
 - Scripted `test:lib` glob coverage: `../../package.json` runs `tests/lib/*.test.mjs`; historical model-detail node tests are absent.
 - Management and profile-scope contracts: `management_*.test.mjs`, `profile_*_contract.test.mjs`
 - Observability/request-log contracts: `observability_api_contract.test.mjs`, `request_log_*_contract.test.mjs`
+- Request-log type ownership and number/micros wire-shape guard: `request_log_type_ownership_contract.test.mjs`
 - Observability contracts: `observability_*_contract.test.mjs`
 - Form and costing seams: `model_*_contract.test.mjs`, `pricing-template-*.test.mjs`, `costing_reporting_currency_contract.test.mjs`, `reporting_currency_contract.test.mjs`
 

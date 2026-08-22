@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/coachpo/prism/backend/internal/domain/pricingkind"
+	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/jackc/pgx/v5"
@@ -708,7 +709,51 @@ func listPricingTemplateRevisions(ctx context.Context, tx pgx.Tx, templateID int
 		return nil, fmt.Errorf("iterate pricing template revision windows: %w", err)
 	}
 	windowRows.Close()
+	if err := validatePricingTemplateRevisionHistory(items); err != nil {
+		return nil, err
+	}
 	return items, nil
+}
+
+func validatePricingTemplateRevisionHistory(items []pricingTemplateRevisionResponse) error {
+	for _, item := range items {
+		kind := pricingkind.Kind(item.TemplateKind)
+		if !kind.Valid() {
+			return &domainError{StatusCode: http.StatusConflict, Detail: "pricing_template_shape_unavailable"}
+		}
+		cards := map[string]*pricingTemplateCard{
+			pricingkind.RoleStandard:  item.Card,
+			pricingkind.RoleTierBase:  item.BaseCard,
+			pricingkind.RoleTierAbove: nil,
+			pricingkind.RolePeak:      item.PeakCard,
+			pricingkind.RoleOffpeak:   item.OffpeakCard,
+		}
+		if item.Tier != nil {
+			cards[pricingkind.RoleTierAbove] = item.Tier.Card
+		}
+		for _, role := range pricingkind.RolesFor(kind) {
+			if cards[role] == nil {
+				return &domainError{StatusCode: http.StatusConflict, Detail: "pricing_template_shape_unavailable"}
+			}
+		}
+		if kind != pricingkind.PeakValley {
+			if item.Schedule != nil || item.ScheduleDigest != nil {
+				return &domainError{StatusCode: http.StatusConflict, Detail: "pricing_template_shape_unavailable"}
+			}
+			continue
+		}
+		if item.Schedule == nil || strings.TrimSpace(item.Schedule.Timezone) == "" || item.ScheduleDigest == nil || strings.TrimSpace(*item.ScheduleDigest) == "" || len(item.Schedule.Windows) == 0 {
+			return &domainError{StatusCode: http.StatusConflict, Detail: "pricing_template_shape_unavailable"}
+		}
+		windows := make([]terminaltarget.Window, 0, len(item.Schedule.Windows))
+		for _, window := range item.Schedule.Windows {
+			windows = append(windows, terminaltarget.Window{WeekdayMask: window.WeekdayMask, StartMinute: window.StartMinute, EndMinute: window.EndMinute})
+		}
+		if pricingTemplateWindowsDigest(windows) != strings.TrimSpace(*item.ScheduleDigest) {
+			return &domainError{StatusCode: http.StatusConflict, Detail: "pricing_template_shape_unavailable"}
+		}
+	}
+	return nil
 }
 
 type pricingTemplateRevisionResponse struct {
