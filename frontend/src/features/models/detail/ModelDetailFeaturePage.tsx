@@ -4,6 +4,7 @@ import { usePublishBreadcrumbEntity } from "@/components/layout/app-layout/bread
 import { CopyButton } from "@/components/CopyButton";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { buildModelDetailPath } from "@/app/router/rewriteRoutes";
 import { useLocale } from "@/i18n/useLocale";
 import { useTimezone } from "@/hooks/useTimezone";
 import {
@@ -338,6 +339,9 @@ export function ModelDetailFeaturePage({
         onMoveTarget={data.handleMoveAccessTarget}
         onToggleTarget={data.handleToggleAccessTarget}
         onCopyTarget={setCopyTarget}
+        onViewModelTargetDetail={(targetModelConfigId) =>
+          navigateTo(buildModelDetailPath(targetModelConfigId))
+        }
       />
 
       <CopyTerminalTargetDialog

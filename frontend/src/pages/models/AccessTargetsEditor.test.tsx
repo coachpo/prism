@@ -14,6 +14,7 @@ import type {
   Connection,
   LoadbalanceCurrentStateItem,
   ModelAccessTarget,
+  ModelAccessTargetModelSummary,
   ModelConfigListItem,
 } from "@/lib/types";
 import { AccessTargetsEditor } from "./AccessTargetsEditor";
@@ -513,5 +514,130 @@ describe("AccessTargetsEditor runtime column keeps absence distinguishable", () 
       /模型目标阶段|终端目标阶段/,
     );
     expect(modelsUi.accessTargetsDescription).toMatch(/混合列表/);
+  });
+});
+
+describe("AccessTargetsEditor model target detail entry", () => {
+  const targetModelSummary: ModelAccessTargetModelSummary = {
+    id: 17,
+    profile_id: 1,
+    api_family: "openai",
+    model_id: targetModelId,
+    display_name: null,
+    openai_accepted_format: "dual_native",
+    openai_image_operations: null,
+    loadbalance_strategy_id: 11,
+    is_enabled: true,
+  };
+  // ID domains stay distinct on purpose: the row id (501) and the option-list
+  // config id (9) both differ from the only navigable identity, the linked
+  // config record's own id (17).
+  const linkedModelTarget: ModelAccessTarget = {
+    ...modelTarget,
+    target_model: targetModelSummary,
+  };
+
+  function openRowMenu(rowTestId: string) {
+    return within(screen.getByTestId(rowTestId)).getByRole("button", {
+      name: /更多操作/,
+    });
+  }
+
+  it("navigates by keyboard to the linked config id, never the row or option id", async () => {
+    const user = userEvent.setup();
+    const onViewViewModelTargetDetail = vi.fn();
+    renderEditor({
+      accessTargets: [linkedModelTarget],
+      onViewModelTargetDetail: onViewViewModelTargetDetail,
+    });
+
+    openRowMenu("access-target-501").focus();
+    await user.keyboard("{Enter}");
+    const item = await screen.findByRole("menuitem", {
+      name: "查看模型 Child Model 的详情",
+    });
+    if (item.getAttribute("data-highlighted") == null) {
+      await user.keyboard("{ArrowDown}");
+    }
+    await user.keyboard("{Enter}");
+
+    expect(onViewViewModelTargetDetail).toHaveBeenCalledExactlyOnceWith(17);
+  });
+
+  it("keeps the entry out of terminal-target menus and their actions intact", async () => {
+    const user = userEvent.setup();
+    const onViewViewModelTargetDetail = vi.fn();
+    renderEditor({
+      accessTargets: [terminalA, linkedModelTarget, terminalB],
+      onCopyTarget: vi.fn(),
+      onGeneratePricing: vi.fn(),
+      onRefreshRuntimeState: vi.fn(),
+      onViewModelTargetDetail: onViewViewModelTargetDetail,
+    });
+
+    await user.click(openRowMenu("access-target-502"));
+    let menu = await screen.findByRole("menu");
+    expect(
+      within(menu).queryByRole("menuitem", { name: /查看模型/ }),
+    ).toBeNull();
+    expect(
+      within(menu).getByRole("menuitem", { name: /复制终端目标 Terminal A/ }),
+    ).toBeTruthy();
+    await user.keyboard("{Escape}");
+
+    await user.click(openRowMenu("access-target-501"));
+    menu = await screen.findByRole("menu");
+    expect(
+      within(menu).getByRole("menuitem", {
+        name: /查看模型 Child Model 的详情/,
+      }),
+    ).toBeTruthy();
+    expect(onViewViewModelTargetDetail).not.toHaveBeenCalled();
+  });
+
+  it("hides the entry when target_model is missing instead of building a dead link", async () => {
+    const user = userEvent.setup();
+    const onViewViewModelTargetDetail = vi.fn();
+    renderEditor({ onViewModelTargetDetail: onViewViewModelTargetDetail });
+
+    await user.click(openRowMenu("access-target-501"));
+    const menu = await screen.findByRole("menu");
+    expect(
+      within(menu).queryByRole("menuitem", { name: /查看模型/ }),
+    ).toBeNull();
+    // The row keeps its ordinary actions; nothing navigates.
+    expect(
+      within(menu).getByRole("menuitem", { name: /移除目标 3/ }),
+    ).toBeTruthy();
+    expect(onViewViewModelTargetDetail).not.toHaveBeenCalled();
+  });
+
+  it("renders no entry when the host provides no navigation callback", () => {
+    renderEditor({ accessTargets: [linkedModelTarget] });
+
+    expect(openRowMenu("access-target-501")).toBeTruthy();
+    // Without a callback there is no menu content beyond removal, so the host
+    // contract stays optional rather than growing a dead item.
+    expect(screen.queryByTestId("model-view-detail-action")).toBeNull();
+  });
+
+  it("keeps the entry usable for a disabled model target", async () => {
+    const user = userEvent.setup();
+    const onViewViewModelTargetDetail = vi.fn();
+    renderEditor({
+      accessTargets: [{ ...linkedModelTarget, is_enabled: false }],
+      onViewModelTargetDetail: onViewViewModelTargetDetail,
+    });
+    const row = screen.getByTestId("access-target-501");
+    expect(within(row).getByRole("switch")).not.toBeChecked();
+
+    await user.click(openRowMenu("access-target-501"));
+    await user.click(
+      await screen.findByRole("menuitem", {
+        name: /查看模型 Child Model 的详情/,
+      }),
+    );
+
+    expect(onViewViewModelTargetDetail).toHaveBeenCalledExactlyOnceWith(17);
   });
 });

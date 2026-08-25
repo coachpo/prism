@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -109,6 +110,12 @@ interface AccessTargetsEditorProps {
   ) => Promise<void> | void;
   onCopyTarget?: (connection: Connection) => void;
   onGeneratePricing?: (connection: Connection) => void;
+  /**
+   * Opens the detail page of a Model Target's underlying model config. The
+   * only acceptable address is that config's own id (`target.target_model.id`);
+   * callers route it, so absence keeps the entry hidden.
+   */
+  onViewModelTargetDetail?: (targetModelConfigId: number) => void;
 }
 
 function getConnectionName(
@@ -215,6 +222,7 @@ export function AccessTargetsEditor({
   onToggleTarget,
   onCopyTarget,
   onGeneratePricing,
+  onViewModelTargetDetail,
 }: AccessTargetsEditorProps) {
   const { formatNumber, messages } = useLocale();
   const copy = messages.modelsUi;
@@ -455,6 +463,16 @@ export function AccessTargetsEditor({
                   );
                   const readOnlyConnection =
                     isTerminalTarget && isReadOnlyConnection(target);
+                  // The navigable identity of a Model Target is the target
+                  // model's own config record. The row id numbers this list,
+                  // and `target_model_id` is a string model id — neither can
+                  // address /route/models/{id}, so only `target_model` may.
+                  const targetModelConfigId = isTerminalTarget
+                    ? null
+                    : (target.target_model?.id ?? null);
+                  const canViewModelDetail =
+                    targetModelConfigId != null &&
+                    Boolean(onViewModelTargetDetail);
                   const positionLabel = formatNumber(targetIndex + 1);
                   const connectionId = isTerminalTarget
                     ? getTerminalTargetId(target)
@@ -680,6 +698,25 @@ export function AccessTargetsEditor({
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
+                                {canViewModelDetail ? (
+                                  <>
+                                    <DropdownMenuGroup>
+                                      <DropdownMenuItem
+                                        data-testid="model-view-detail-action"
+                                        onSelect={() =>
+                                          onViewModelTargetDetail?.(
+                                            targetModelConfigId,
+                                          )
+                                        }
+                                      >
+                                        {messages.modelsUi.viewModelDetails(
+                                          name,
+                                        )}
+                                      </DropdownMenuItem>
+                                    </DropdownMenuGroup>
+                                    <DropdownMenuSeparator />
+                                  </>
+                                ) : null}
                                 {connection && onCopyTarget ? (
                                   <DropdownMenuItem
                                     data-testid="terminal-copy-action"
