@@ -216,7 +216,7 @@ func commitPricingTemplateImport(ctx context.Context, tx pgx.Tx, profileID int, 
 					break
 				}
 			}
-			if _, err := createPricingTemplateWithShape(ctx, tx, profileID, currentTime, row.Name, row.Description, row.Shape); err != nil {
+			if _, err := createPricingTemplateWithShape(ctx, tx, profileID, currentTime, row.Name, row.Description, row.Shape, nil); err != nil {
 				return pricingTemplateImportResponse{}, err
 			}
 			result.Created++
@@ -232,7 +232,7 @@ func commitPricingTemplateImport(ctx context.Context, tx pgx.Tx, profileID int, 
 					break
 				}
 			}
-			if err := updatePricingTemplateWithShape(ctx, tx, profileID, current, row.Name, row.Description, row.Shape, currentTime); err != nil {
+			if err := updatePricingTemplateWithShape(ctx, tx, profileID, current, row.Name, row.Description, row.Shape, currentTime, nil); err != nil {
 				return pricingTemplateImportResponse{}, err
 			}
 			result.Updated++

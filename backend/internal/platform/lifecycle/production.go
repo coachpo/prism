@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
+	"github.com/coachpo/prism/backend/internal/domain/modelsdev"
 	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
 	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
@@ -260,7 +261,14 @@ func (resources *productionResources) buildManagementServices(settings config.Se
 	runtimeState := planning.state
 	dashboardSnapshots := statsdomain.NewDashboardAggregateStore()
 	services := managementServices{dashboardSnapshots: dashboardSnapshots}
-	modelsService, err := managementmodels.NewService(settings, managementmodels.Options{CORSOriginProvider: resources.deps.StartupConfigRuntime, Pool: managementPool, SecretEncryptionKey: settings.SecretEncryptionKey})
+	// The models.dev catalog client is lazy and process-local: nothing fetches
+	// at startup, remote I/O never happens inside transactions, and the fixed
+	// official URL keeps the source pinned.
+	catalogClient, err := modelsdev.NewClient(modelsdev.ClientOptions{})
+	if err != nil {
+		return services, err
+	}
+	modelsService, err := managementmodels.NewService(settings, managementmodels.Options{CORSOriginProvider: resources.deps.StartupConfigRuntime, Pool: managementPool, SecretEncryptionKey: settings.SecretEncryptionKey, Catalog: catalogClient})
 	if err != nil {
 		return services, err
 	}
@@ -274,7 +282,7 @@ func (resources *productionResources) buildManagementServices(settings config.Se
 	services.endpoints = endpointsService
 	resources.registerServiceClose(closeFuncHook(endpointsService.Close))
 
-	connectionsService, err := managementconnections.NewService(settings, managementconnections.Options{CORSOriginProvider: resources.deps.StartupConfigRuntime, Pool: managementPool})
+	connectionsService, err := managementconnections.NewService(settings, managementconnections.Options{CORSOriginProvider: resources.deps.StartupConfigRuntime, Pool: managementPool, Catalog: catalogClient})
 	if err != nil {
 		return services, err
 	}

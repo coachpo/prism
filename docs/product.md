@@ -288,6 +288,14 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 - Static routing diagnostics report the configured windows and whether they cover the week, never whether a window is open at this moment: diagnostics are a pure function of configuration so that one analysis generation always yields one answer. The live open/closed state is delivered separately, computed by the server, and never recomputed by the browser.
 - The model detail target list shows each target's current schedule state, and the state carries the boundary at which it stops being true so a page left open downgrades itself instead of asserting a stale verdict.
 
+### 4.18 Catalog Metadata and Source-Linked Pricing (models.dev)
+
+- Prism can bind each model to one offering of the fixed official models.dev catalog (`https://models.dev/api.json`, MIT License) and show its metadata on the model detail page. Binding happens through a unique exact ID auto-match (committable preview only; ambiguous or missing IDs require an explicit provider + model ID choice) or manual coordinates, and is never re-guessed once bound.
+- The card always distinguishes source values (refreshed only by explicit operator refreshes), per-field manual overrides (never touched by refreshes), and the effective merge. A refresh previews the field-by-field difference first and commits against the exact catalog revision it previewed, so stale data cannot land. Restoring a field writes its override back to null; the source name never changes the model's `display_name`, and none of this metadata participates in routing or runtime behavior.
+- Terminal Targets can generate prices from the bound offering: the dialog previews the USD-per-million-token price plan, lists stable reasons for anything that cannot be represented losslessly (non-USD reporting currency, missing cost rows, audio cost components, multiple tiers, tiers without proven strict-threshold evidence, specialty shape mismatches), and refuses to write in those cases. Only an OpenAI single context tier maps its size verbatim onto the tier threshold.
+- Committing creates or reuses the one source-linked pricing template for that offering with an append-only import revision carrying the catalog revision as evidence, then assigns it atomically to the current or explicitly selected Terminal Targets using the existing double CAS; any conflict rolls the whole transaction back. If the template was hand-edited since, the dialog requires explicit confirmation before overwriting.
+- Catalog fetching is restricted to HTTPS, same-origin redirects, a 10-second timeout, and a 16 MiB budget, revalidates through ETag/304, collapses concurrent fetches, and never runs inside a database transaction. There is no scheduled synchronization: every read of fresh data is an explicit operator action.
+
 ## 5. Non-Functional Requirements
 
 | Requirement | Target |

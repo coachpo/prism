@@ -13,9 +13,13 @@ A single Go binary, a React dashboard, and PostgreSQL are all it needs.
 - Load-balances across endpoints with `single`, `fill-first`, or `round-robin` strategies, with automatic retries.
 - Applies *ban policies*: an endpoint that keeps failing is benched, either temporarily or until you reset it, so retries stop hammering a dead provider.
 - Records request logs, token usage, and spending in PostgreSQL, with per-model success rate and latency on the dashboard.
-- Prices each request from reusable pricing templates you define per provider.
+- Prices each request from reusable pricing templates you define per provider, with optional import from the [models.dev](https://models.dev) catalog: model metadata on the model detail page plus one-click source-linked price templates assigned atomically to a Terminal Target.
 - Protects access with optional operator login for the dashboard and optional API keys for proxy callers; provider keys are encrypted at rest.
 - Ships as one Docker image plus PostgreSQL.
+
+## Data attribution
+
+Model catalog metadata and catalog prices are sourced from [models.dev](https://models.dev), fetched read-only at operator request from its fixed official endpoint (`https://models.dev/api.json`). models.dev data is licensed under the MIT License (Copyright (c) 2025 models.dev); Prism stores only the metadata fields an operator explicitly binds or imports and never redistributes the catalog itself. Catalog data is management-only in Prism: it never participates in routing, capability checks, or runtime behavior.
 
 ## Quick start
 
@@ -27,7 +31,7 @@ cd prism
 docker compose up -d --build
 ```
 
-Open http://localhost:8080. Compose builds the app image, runs PostgreSQL 16 next to it, and keeps both the database and the config file in named volumes. `docker compose down` preserves your data; `docker compose down -v` deletes it.
+Open <http://localhost:8080>. Compose builds the app image, runs PostgreSQL 16 next to it, and keeps both the database and the config file in named volumes. `docker compose down` preserves your data; `docker compose down -v` deletes it.
 
 Useful `.env` overrides include `PRISM_PUBLIC_PORT`, `PRISM_DATABASE_PORT`, and `POSTGRES_PASSWORD`. Change the default database password for anything beyond local use.
 

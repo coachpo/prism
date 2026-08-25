@@ -314,8 +314,13 @@ type modelConfigResponse struct {
 	OpenAIImageOperations *string                     `json:"openai_image_operations"`
 	AccessTargets         []modelAccessTargetResponse `json:"access_targets"`
 	IsEnabled             bool                        `json:"is_enabled"`
-	CreatedAt             time.Time                   `json:"created_at"`
-	UpdatedAt             time.Time                   `json:"updated_at"`
+	// Catalog carries the models.dev binding (source/override/effective
+	// metadata plus coordinates, fetch stamp, and revision) alongside the
+	// runtime identity fields. It is management-only projection data: nothing
+	// here participates in routing or enters the runtime snapshot.
+	Catalog   *modelCatalogResponse `json:"catalog,omitempty"`
+	CreatedAt time.Time             `json:"created_at"`
+	UpdatedAt time.Time             `json:"updated_at"`
 }
 
 type endpointModelsBatchItem struct {

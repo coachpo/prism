@@ -1,4 +1,5 @@
 export * from "./types/vendor";
+export * from "./types/model-catalog";
 export * from "./types/target-compatibility";
 export * from "./types/routing";
 export * from "./types/model-stats";

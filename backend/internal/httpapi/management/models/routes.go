@@ -105,7 +105,19 @@ func (s *Service) handleGetModel(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return modelConfigResponse{}, err
 		}
-		return buildModelDetailResponse(record, strategies, accessTargets, s.now().UTC()), nil
+		detail := buildModelDetailResponse(record, strategies, accessTargets, s.now().UTC())
+		binding, _, err := loadCatalogBinding(r.Context(), tx, profile.ID, modelConfigID)
+		if err != nil {
+			return modelConfigResponse{}, err
+		}
+		catalog := catalogResponseFromBinding(binding)
+		if !catalog.Bound && s.catalog != nil {
+			if snapshot := s.catalog.Snapshot(); snapshot != nil {
+				catalog.AutoMatch = autoMatchHint(snapshot, record.APIFamily, record.ModelID)
+			}
+		}
+		detail.Catalog = &catalog
+		return detail, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)

@@ -1,13 +1,16 @@
 # FRONTEND E2E TEST KNOWLEDGE BASE
 
 ## OVERVIEW
+
 `frontend/tests/e2e/` owns Prism's mocked Playwright journey suite for mounted routes, shell behavior, UI state, responsive evidence, and accessibility evidence. The suite is intentionally bounded by scenario ownership; it is not limited to an arbitrary fixed number of spec files.
 
 ## STRUCTURE
+
 ```text
 e2e/
 ├── auth-session-lifecycle.spec.ts
 ├── loadbalance-strategies-recovery.spec.ts
+├── model-catalog-pricing.spec.ts
 ├── models-access-target-authoring.spec.ts
 ├── request-log-dedicated-audit-page.spec.ts
 ├── routing-health-events.spec.ts
@@ -23,10 +26,12 @@ e2e/
 ```
 
 ## WHERE TO LOOK
+
 - Playwright config and server target: `../../playwright.config.ts`
 - Shared dashboard/statistics fixture builders: `dashboard-aggregate-fixtures.ts`
 - Auth journey: `auth-session-lifecycle.spec.ts`
 - Load-balance recovery journey: `loadbalance-strategies-recovery.spec.ts`
+- models.dev catalog binding and Terminal Target price-generation journey: `model-catalog-pricing.spec.ts` (mocked `/api/models/{id}/catalog*` and `/api/pricing-templates/catalog/*`; unique-match bind renders metadata, tiered plan preview commits with the current target as the only assignment)
 - Model access-target authoring journey: `models-access-target-authoring.spec.ts`
 - Request-log + audit journey: `request-log-dedicated-audit-page.spec.ts`; shared request-log/audit fixture builders: `request-log-dedicated-audit-fixtures.ts`
 - Routing-health events journey: `routing-health-events.spec.ts`
@@ -34,6 +39,7 @@ e2e/
 - Settings responsive/a11y evidence: `capture-settings-evidence.mjs`; it uses bounded mocked owner snapshots at 1680, 1200, and narrow keyboard-focus viewports and is kept separate from the owned journey-spec set.
 
 ## CONVENTIONS
+
 - Run through `pnpm run test:e2e -- <playwright args>`.
 - Default browser target is `http://127.0.0.1:15174`; override with `PLAYWRIGHT_BASE_URL` or disable the web server with `PLAYWRIGHT_DISABLE_WEBSERVER=1`.
 - When the bundled Playwright revision is unavailable, use `PLAYWRIGHT_CHANNEL=chrome` or the evidence runner/config's `PLAYWRIGHT_EXECUTABLE_PATH`; browser process permissions remain an environment prerequisite.
@@ -45,6 +51,7 @@ e2e/
 - Keep one spec per owned journey or evidence scenario. Additions must remain bounded, use existing fixtures where possible, and update this file when the scenario inventory changes; do not use an arbitrary file-count cap as a reason to omit required Settings, routing, request/audit, or accessibility coverage.
 
 ## ANTI-PATTERNS
+
 - Do not add real backend dependencies to e2e specs.
 - Do not duplicate large fixture payloads when `dashboard-aggregate-fixtures.ts` or local builders already cover them.
 - Do not use e2e specs for one-function contract checks.

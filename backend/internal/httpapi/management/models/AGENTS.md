@@ -1,9 +1,11 @@
 # BACKEND MANAGEMENT MODELS KNOWLEDGE BASE
 
 ## OVERVIEW
+
 `management/models/` owns model configuration routes under `/api/models*` pinned to Default profile id `1`. It manages model CRUD, public same-family model-target authoring with exact `target_model_id`, `position`, and `is_enabled`, private connection target preservation/mutation, obsolete nested create/update field rejection, and model lookups by endpoint for endpoint detail surfaces. `X-Profile-Id` may be accepted but is ignored; storage `profile_id` columns remain.
 
 ## STRUCTURE
+
 ```text
 models/
 ├── service.go                    # Model service lifecycle
@@ -31,11 +33,16 @@ models/
 ├── types.go                      # Model request and response shapes
 ├── routing_diagnostics.go        # Static routing-diagnostics endpoint and list routing_summary
 ├── route_readiness.go            # Route-witness readiness projection for the model surfaces
+├── catalog_types.go              # models.dev binding request/response shapes
+├── catalog_store.go              # model_catalog_bindings read/upsert and source diff helpers
+├── catalog_handlers.go           # Catalog bind/match-preview/refresh/override/candidates routes
 └── *_test.go                     # Store and route regression coverage
 ```
 
 ## WHERE TO LOOK
+
 - Route list and mount contract: `service.go`.
+- models.dev catalog surface: `catalog_handlers.go` mounts `/models/{model_config_id}/catalog*`; the restricted client lives in `internal/domain/modelsdev` and is injected through `Options.Catalog`. Metadata writes are planning-neutral (`none:true` admission specs); remote catalog I/O always happens outside transactions and commits verify the previewed ETag.
 - Model list/get/create/update/delete handlers: `routes.go`.
 - Access-target HTTP handlers: `access_target_handlers.go`.
 - Ordered access-target editing: `access_target_ordering.go`.
@@ -51,6 +58,7 @@ models/
 - Model request/response fields and model-target metadata: `types.go`.
 
 ## CONVENTIONS
+
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.
 - Keep model `api_family` as runtime compatibility truth.
 - Keep model IDs unique inside Default profile id `1`.
@@ -59,12 +67,16 @@ models/
 - Keep access targets ordered, same-profile, same-family, and acyclic.
 - Keep public model targets requiring exact `target_model_id`, `position`, and `is_enabled`; obsolete `weight` and `target_priority` payload keys must reject, while internal connection-owner targets keep the same flat ordered shape.
 
+- Keep models.dev catalog metadata management-only: it never enters the runtime snapshot, never participates in api_family/capability/routing decisions, never changes `display_name`, and its write routes must stay declared `runtimeCacheEffect{none: true}`.
+- Refreshes replace only `source_*` columns; manual overrides survive refreshes, per-field restore writes a null override, and rebinding to a different offering clears overrides while same-offering rebinds keep them.
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
 ## LLM UPSTREAM MATRIX
+
 - When model `api_family` or access-target validation changes, evaluate OpenAI, Anthropic, and Gemini operation compatibility.
 
 ## ANTI-PATTERNS
+
 - Do not move owner-scoped private connection route handling into model handlers.
 - Do not let access targets point at incompatible, missing, or cyclic target models.
 - Do not reintroduce exact-facade, regex matching, capability-metadata expansion, or frontend-only target authoring from this package.

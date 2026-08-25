@@ -649,6 +649,85 @@
     "invalidates_all_planning": false
   },
   {
+    "route_pattern": "/api/models/{model_config_id}/catalog",
+    "methods": [
+      "DELETE",
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/{model_config_id}/catalog/bind",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/{model_config_id}/catalog/candidates",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/{model_config_id}/catalog/match-preview",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/{model_config_id}/catalog/override",
+    "methods": [
+      "DELETE",
+      "PUT"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/{model_config_id}/catalog/refresh/commit",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/{model_config_id}/catalog/refresh/preview",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
     "route_pattern": "/api/models/{model_config_id}/connections",
     "methods": [
       "GET"
@@ -782,6 +861,28 @@
     "invalidates_auth": false,
     "invalidates_active_profile": false,
     "invalidates_planning": true,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/pricing-templates/catalog/commit",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": true,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/pricing-templates/catalog/preview",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
     "invalidates_all_planning": false
   },
   {

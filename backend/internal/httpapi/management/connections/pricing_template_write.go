@@ -28,22 +28,53 @@ func cloneTemplateInt(value *int) *int {
 	return &copy
 }
 
-func createPricingTemplateWithShape(ctx context.Context, tx pgx.Tx, profileID int, currentTime time.Time, name string, description *string, shape pricingTemplateShape) (pricingTemplateResponse, error) {
+// templateRevisionSource records whether a revision was authored manually or
+// imported from a models.dev catalog revision. Manual revisions carry no
+// catalog evidence; catalog revisions always do (fail-closed CHECK).
+type templateRevisionSource struct {
+	Origin          string // "manual" | "catalog"
+	CatalogRevision *string
+}
+
+var manualRevisionSource = templateRevisionSource{Origin: "manual"}
+
+func catalogRevisionSource(revision string) templateRevisionSource {
+	value := revision
+	return templateRevisionSource{Origin: "catalog", CatalogRevision: &value}
+}
+
+// templateCatalogSource links a template row to the models.dev offering its
+// prices were imported from. Nil on every manual write path.
+type templateCatalogSource struct {
+	ProviderID      string
+	CatalogModelID  string
+	CatalogRevision string
+}
+
+func createPricingTemplateWithShape(ctx context.Context, tx pgx.Tx, profileID int, currentTime time.Time, name string, description *string, shape pricingTemplateShape, catalogSource *templateCatalogSource) (pricingTemplateResponse, error) {
 	var epochID int64
 	var epochOrdinal int
 	var epochCode string
 	if err := tx.QueryRow(ctx, `SELECT epochs.id, epochs.epoch, epochs.currency_code FROM reporting_currency_epochs AS epochs JOIN user_settings AS settings ON settings.current_reporting_currency_epoch_id = epochs.id WHERE settings.profile_id = $1 AND epochs.superseded_at IS NULL FOR UPDATE OF settings`, profileID).Scan(&epochID, &epochOrdinal, &epochCode); err != nil {
 		return pricingTemplateResponse{}, fmt.Errorf("load active reporting currency epoch for profile %d: %w", profileID, err)
 	}
+	var providerID, catalogModelID any
+	if catalogSource != nil {
+		providerID, catalogModelID = catalogSource.ProviderID, catalogSource.CatalogModelID
+	}
 	var templateID int
-	if err := tx.QueryRow(ctx, `INSERT INTO pricing_templates (profile_id, name, description, current_revision_id, created_at, updated_at) VALUES ($1, $2, $3, NULL, $4, $4) RETURNING id`, profileID, name, description, currentTime).Scan(&templateID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO pricing_templates (profile_id, name, description, catalog_provider_id, catalog_model_id, current_revision_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, NULL, $6, $6) RETURNING id`, profileID, name, description, providerID, catalogModelID, currentTime).Scan(&templateID); err != nil {
 		return pricingTemplateResponse{}, fmt.Errorf("insert logical pricing template %q: %w", name, err)
 	}
 	operationID, err := reserveAndRecordPricingMutation(ctx, tx, profileID, "template_create", templateID, name, currentTime)
 	if err != nil {
 		return pricingTemplateResponse{}, err
 	}
-	revisionID, err := insertPricingRevisionWithShape(ctx, tx, templateID, 1, epochCode, epochID, epochOrdinal, "manual_create", operationID, currentTime, shape)
+	revisionSource := manualRevisionSource
+	if catalogSource != nil {
+		revisionSource = catalogRevisionSource(catalogSource.CatalogRevision)
+	}
+	revisionID, err := insertPricingRevisionWithShape(ctx, tx, templateID, 1, epochCode, epochID, epochOrdinal, "manual_create", operationID, currentTime, shape, revisionSource)
 	if err != nil {
 		return pricingTemplateResponse{}, err
 	}
@@ -66,7 +97,7 @@ func createPricingTemplateWithShape(ctx context.Context, tx pgx.Tx, profileID in
 	return created, nil
 }
 
-func insertPricingRevisionWithShape(ctx context.Context, tx pgx.Tx, templateID, version int, currencyCode string, epochID int64, epochOrdinal int, createdByKind, operationID string, currentTime time.Time, shape pricingTemplateShape) (int64, error) {
+func insertPricingRevisionWithShape(ctx context.Context, tx pgx.Tx, templateID, version int, currencyCode string, epochID int64, epochOrdinal int, createdByKind, operationID string, currentTime time.Time, shape pricingTemplateShape, source templateRevisionSource) (int64, error) {
 	var revisionID int64
 	var timezone, digest any
 	if shape.Timezone != nil {
@@ -75,7 +106,7 @@ func insertPricingRevisionWithShape(ctx context.Context, tx pgx.Tx, templateID, 
 	if shape.Kind == pricingkind.PeakValley {
 		digest = shape.Digest
 	}
-	if err := tx.QueryRow(ctx, `INSERT INTO pricing_template_revisions (template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, template_kind, tier_input_tokens_above, pricing_schedule_timezone, pricing_schedule_digest, effective_at, created_at, created_by_kind, created_by_operation_id) VALUES ($1,$2,'PER_1M',$3,$4,$5,'active_epoch',$6,$7,$8,$9,$10,$10,$11,$12) RETURNING id`, templateID, version, currencyCode, epochID, epochOrdinal, string(shape.Kind), shape.TierThreshold, timezone, digest, currentTime, createdByKind, operationID).Scan(&revisionID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO pricing_template_revisions (template_id, version, pricing_unit, currency_code, reporting_currency_epoch_id, reporting_currency_epoch, currency_attribution, template_kind, tier_input_tokens_above, pricing_schedule_timezone, pricing_schedule_digest, effective_at, created_at, created_by_kind, created_by_operation_id, revision_source, catalog_revision) VALUES ($1,$2,'PER_1M',$3,$4,$5,'active_epoch',$6,$7,$8,$9,$10,$10,$11,$12,$13,$14) RETURNING id`, templateID, version, currencyCode, epochID, epochOrdinal, string(shape.Kind), shape.TierThreshold, timezone, digest, currentTime, createdByKind, operationID, source.Origin, source.CatalogRevision).Scan(&revisionID); err != nil {
 		return 0, fmt.Errorf("insert pricing template revision: %w", err)
 	}
 	for role, card := range shape.Cards {
@@ -91,7 +122,7 @@ func insertPricingRevisionWithShape(ctx context.Context, tx pgx.Tx, templateID, 
 	return revisionID, nil
 }
 
-func updatePricingTemplateWithShape(ctx context.Context, tx pgx.Tx, profileID int, current pricingTemplateResponse, nextName string, nextDescription *string, shape pricingTemplateShape, currentTime time.Time) error {
+func updatePricingTemplateWithShape(ctx context.Context, tx pgx.Tx, profileID int, current pricingTemplateResponse, nextName string, nextDescription *string, shape pricingTemplateShape, currentTime time.Time, catalogSource *templateCatalogSource) error {
 	currentShape := pricingTemplateShapeFromResponse(current)
 	shapeChanged := !pricingTemplateShapesEqual(currentShape, shape)
 	nameChanged := nextName != current.Name
@@ -118,7 +149,11 @@ func updatePricingTemplateWithShape(ctx context.Context, tx pgx.Tx, profileID in
 		if err != nil {
 			return err
 		}
-		revisionID, err := insertPricingRevisionWithShape(ctx, tx, current.ID, current.Version+1, epochCode, epochID, epochOrdinal, "manual_edit", operationID, currentTime, shape)
+		revisionSource := manualRevisionSource
+		if catalogSource != nil {
+			revisionSource = catalogRevisionSource(catalogSource.CatalogRevision)
+		}
+		revisionID, err := insertPricingRevisionWithShape(ctx, tx, current.ID, current.Version+1, epochCode, epochID, epochOrdinal, "manual_edit", operationID, currentTime, shape, revisionSource)
 		if err != nil {
 			return err
 		}
@@ -133,8 +168,14 @@ func updatePricingTemplateWithShape(ctx context.Context, tx pgx.Tx, profileID in
 			return err
 		}
 	}
-	if _, err := tx.Exec(ctx, `UPDATE pricing_templates SET name = $2, description = $3, updated_at = $4 WHERE id = $1`, current.ID, nextName, nextDescription, currentTime); err != nil {
-		return err
+	if catalogSource != nil {
+		if _, err := tx.Exec(ctx, `UPDATE pricing_templates SET name = $2, description = $3, catalog_provider_id = $4, catalog_model_id = $5, updated_at = $6 WHERE id = $1`, current.ID, nextName, nextDescription, catalogSource.ProviderID, catalogSource.CatalogModelID, currentTime); err != nil {
+			return err
+		}
+	} else {
+		if _, err := tx.Exec(ctx, `UPDATE pricing_templates SET name = $2, description = $3, updated_at = $4 WHERE id = $1`, current.ID, nextName, nextDescription, currentTime); err != nil {
+			return err
+		}
 	}
 	_, err := tx.Exec(ctx, `UPDATE user_settings SET pricing_template_generation = pricing_template_generation + 1, updated_at = $2 WHERE profile_id = $1`, profileID, currentTime)
 	return err

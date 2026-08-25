@@ -22,6 +22,7 @@ connections/
 ├── pricing_templates.go    # Pricing-template CRUD and validation
 ├── pricing_template_store.go     # Pricing-template row shape, queries, revision/mutation ledger, scanners
 ├── pricing_template_import.go    # Two-phase pricing-template JSON import (preview_hash / commit)
+├── pricing_template_catalog.go   # models.dev source-linked price import: preview, atomic commit, double-CAS assignment
 ├── pricing_template_cards.go     # Card/window hydration and read-shape validation
 ├── pricing_template_shape.go     # Typed kind/card/window normalization and shape validation
 ├── pricing_template_write.go     # Immutable revision writes and change detection
@@ -57,6 +58,7 @@ connections/
 - Default-profile scope only; `X-Profile-Id` may be accepted for compatibility, but the effective scope remains profile id `1`.
 - Request shape is schema-versioned and uses the strict typed create shape. `standard` carries one card; `tiered` carries `base_card` plus `tier.card`; `peak_valley` carries `peak_card`, `offpeak_card`, and schedule. Legacy flat prices, provider presets, and kind-specific fields in the wrong branch are rejected. Unit/currency remain server-derived.
 - Preview/commit are all-or-nothing per phase, and any kind/card/threshold/window change invalidates the planning snapshot. Card roles and window digest are part of the replay identity.
+- Catalog import (`POST /api/pricing-templates/catalog/preview` + `/commit`) is the models.dev source-linked path. Preview builds the plan outside transactions from `internal/domain/modelsdev`, hashes offering + revision + plan + linked-template identity + target CAS columns, and reports stable fail-closed reasons (`reporting_currency_not_usd`, `cost_missing`, `audio_cost_present`, `multiple_tiers`, `tier_not_supported`, `legacy_tier_shape`, `tier_evidence_conflict`, `specialty_shape_mismatch`). Commit runs one transaction against the cached snapshot (never remote I/O), rejects stale revisions/state with 409, requires explicit `confirm_drift` after manual edits, appends an append-only `revision_source='catalog'` revision carrying the ETag, and assigns Terminal Targets through the existing double CAS under sorted row locks with whole-transaction rollback on any conflict.
 
 ## CONVENTIONS
 

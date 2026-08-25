@@ -20,6 +20,9 @@ model-detail/
 ├── CopyTerminalTargetDialog.tsx
 ├── ModelCostCards.tsx
 ├── RouteReadinessCard.tsx
+├── CatalogMetadataCard.tsx       # models.dev binding card: source/override/effective, bind, refresh diff, overrides
+├── CatalogPricingDialog.tsx      # Source-linked price generation for Terminal Targets
+├── useModelCatalog.ts            # Settled-record catalog read hook
 ├── classifyOpenAICoverage.ts
 ├── customRequestParameters.ts
 ├── modelDetailMetricsAndPaths.ts

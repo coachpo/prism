@@ -42,6 +42,7 @@ var expectedPrismMigrationVersions = []string{
 	"000021_connection_routing_schedule",
 	"000022_pricing_input_tier",
 	"000023_pricing_template_kind_cards",
+	"000024_model_catalog_metadata",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
@@ -968,13 +969,15 @@ func ensureDailyLogPartition(t *testing.T, ctx context.Context, conn *pgx.Conn, 
 	start := time.Date(createdAt.UTC().Year(), createdAt.UTC().Month(), createdAt.UTC().Day(), 0, 0, 0, 0, time.UTC)
 	end := start.AddDate(0, 0, 1)
 	partitionName := fmt.Sprintf("%s_%s_%s", tableName, start.Format("20060102"), strings.ReplaceAll(label, "-", "_"))
-	_, err := conn.Exec(ctx, fmt.Sprintf(
-		`CREATE TABLE public.%s PARTITION OF public.%s FOR VALUES FROM (%s) TO (%s)`,
-		quoteIdentifier(partitionName),
-		quoteIdentifier(tableName),
-		quoteLiteral(start.Format(time.RFC3339)),
-		quoteLiteral(end.Format(time.RFC3339)),
-	))
+	// SAFETY: DDL identifiers cannot be query parameters. Every dynamic piece
+	// goes through quoteIdentifier/quoteLiteral, which neutralize quotes, so
+	// the assembled statement carries no attacker-controlled SQL text. This
+	// mirrors the createDatabase helper in harness.go.
+	statement := `CREATE TABLE public.` + quoteIdentifier(partitionName) +
+		` PARTITION OF public.` + quoteIdentifier(tableName) +
+		` FOR VALUES FROM (` + quoteLiteral(start.Format(time.RFC3339)) +
+		`) TO (` + quoteLiteral(end.Format(time.RFC3339)) + `)`
+	_, err := conn.Exec(ctx, statement)
 	if err != nil {
 		t.Fatalf("create %s daily partition %s: %v", tableName, partitionName, err)
 	}

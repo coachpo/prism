@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/coachpo/prism/backend/internal/domain/modelsdev"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 )
@@ -15,6 +16,9 @@ type Options struct {
 	CORSOriginProvider platformcors.OriginProvider
 	Pool               *pgxpool.Pool
 	Now                func() time.Time
+	// Catalog serves the fixed official models.dev catalog for the source
+	// linked pricing import; tests inject an httptest-backed client.
+	Catalog *modelsdev.Client
 }
 
 type Service struct {
@@ -23,6 +27,7 @@ type Service struct {
 	now                 func() time.Time
 	corsOriginProvider  platformcors.OriginProvider
 	secretEncryptionKey string
+	catalog             *modelsdev.Client
 }
 
 // DomainError is the HTTP-neutral management error type used across the
@@ -68,6 +73,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		now:                 now,
 		corsOriginProvider:  corsOriginProvider,
 		secretEncryptionKey: settings.SecretEncryptionKey,
+		catalog:             options.Catalog,
 	}, nil
 }
 
@@ -110,6 +116,8 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 		router.Post("/", s.handleCreatePricingTemplate)
 		router.Post("/import", s.handleImportPricingTemplates)
 		router.Post("/import/commit", s.handleCommitPricingTemplateImport)
+		router.Post("/catalog/preview", s.handleCatalogPricingPreview)
+		router.Post("/catalog/commit", s.handleCatalogPricingCommit)
 		router.Get("/{template_id}", s.handleGetPricingTemplate)
 		router.Put("/{template_id}", s.handleUpdatePricingTemplate)
 		router.Delete("/{template_id}", s.handleDeletePricingTemplate)

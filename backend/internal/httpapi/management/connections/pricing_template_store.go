@@ -154,7 +154,7 @@ func createPricingTemplateWithRevision(ctx context.Context, tx pgx.Tx, profileID
 	if err != nil {
 		return pricingTemplateResponse{}, err
 	}
-	return createPricingTemplateWithShape(ctx, tx, profileID, currentTime, name, normalizeOptionalTrimmedString(requestBody.Description), shape)
+	return createPricingTemplateWithShape(ctx, tx, profileID, currentTime, name, normalizeOptionalTrimmedString(requestBody.Description), shape, nil)
 }
 
 func reserveAndRecordPricingMutation(ctx context.Context, tx pgx.Tx, profileID int, resultKind string, templateID int, templateName string, currentTime time.Time) (string, error) {
@@ -270,11 +270,4 @@ func scanPricingTemplateResponse(scanner interface{ Scan(...any) error }) (prici
 	item.CreatedAt = item.CreatedAt.UTC()
 	item.UpdatedAt = item.UpdatedAt.UTC()
 	return item, nil
-}
-
-func nullableTierThreshold(tier *pricingTemplateTier) any {
-	if tier == nil {
-		return nil
-	}
-	return tier.InputTokensAbove
 }

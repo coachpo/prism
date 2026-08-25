@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/coachpo/prism/backend/internal/domain/modelsdev"
 	"github.com/coachpo/prism/backend/internal/httpapi/management/connections"
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/platform/config"
@@ -26,6 +27,9 @@ type Options struct {
 	Pool                *pgxpool.Pool
 	Now                 func() time.Time
 	SecretEncryptionKey string
+	// Catalog serves the fixed official models.dev catalog. Production wiring
+	// pins the official URL; tests inject an httptest-backed client.
+	Catalog *modelsdev.Client
 }
 
 type Service struct {
@@ -35,6 +39,7 @@ type Service struct {
 	corsOriginProvider    platformcors.OriginProvider
 	terminalTargetCreator TerminalTargetCreator
 	secretEncryptionKey   string
+	catalog               *modelsdev.Client
 }
 
 // TerminalTargetCreator is implemented by the connections management service
@@ -77,7 +82,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		corsOriginProvider = platformcors.NewStaticOriginProvider(settings.CORSAllowedOriginsList())
 	}
 
-	return &Service{pool: pool, ownsPool: ownsPool, now: now, corsOriginProvider: corsOriginProvider, secretEncryptionKey: settings.SecretEncryptionKey}, nil
+	return &Service{pool: pool, ownsPool: ownsPool, now: now, corsOriginProvider: corsOriginProvider, secretEncryptionKey: settings.SecretEncryptionKey, catalog: options.Catalog}, nil
 }
 
 func (s *Service) Close() {
@@ -97,6 +102,10 @@ func (s *Service) corsSnapshot() platformcors.Snapshot {
 	return s.corsOriginProvider.CORSSnapshot()
 }
 
+// MountManagementRoutes registers the Default-profile model configuration
+// surface plus the models.dev catalog metadata routes under
+// /models/{model_config_id}/catalog*. Catalog routes never invalidate runtime
+// planning; their admission specs declare none explicitly.
 func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Post("/models/by-endpoints", s.handleModelsByEndpoints)
 	api.Get("/models/{model_config_id}/targets", s.handleListModelTargets)
@@ -105,6 +114,15 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Patch("/models/{model_config_id}/targets/{target_id}", s.handleUpdateModelTarget)
 	api.Patch("/models/{model_config_id}/targets/{target_id}/position", s.handleMoveModelTargetPosition)
 	api.Delete("/models/{model_config_id}/targets/{target_id}", s.handleDeleteModelTarget)
+	api.Get("/models/{model_config_id}/catalog", s.handleGetModelCatalog)
+	api.Get("/models/{model_config_id}/catalog/candidates", s.handleGetCatalogCandidates)
+	api.Post("/models/{model_config_id}/catalog/match-preview", s.handleMatchCatalogPreview)
+	api.Post("/models/{model_config_id}/catalog/bind", s.handleBindModelCatalog)
+	api.Post("/models/{model_config_id}/catalog/refresh/preview", s.handleRefreshCatalogPreview)
+	api.Post("/models/{model_config_id}/catalog/refresh/commit", s.handleRefreshCatalogCommit)
+	api.Put("/models/{model_config_id}/catalog/override", s.handlePutCatalogOverride)
+	api.Delete("/models/{model_config_id}/catalog/override", s.handleClearCatalogOverride)
+	api.Delete("/models/{model_config_id}/catalog", s.handleUnbindModelCatalog)
 	api.Get("/models/{model_config_id}", s.handleGetModel)
 	api.Post("/models", s.handleCreateModel)
 	api.Put("/models/{model_config_id}", s.handleUpdateModel)

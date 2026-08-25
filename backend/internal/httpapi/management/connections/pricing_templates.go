@@ -361,7 +361,7 @@ func (s *Service) handleUpdatePricingTemplate(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			return pricingTemplateResponse{}, err
 		}
-		if err := updatePricingTemplateWithShape(r.Context(), tx, profile.ID, current, nextName, nextDescription, shape, s.nowUTC()); err != nil {
+		if err := updatePricingTemplateWithShape(r.Context(), tx, profile.ID, current, nextName, nextDescription, shape, s.nowUTC(), nil); err != nil {
 			return pricingTemplateResponse{}, err
 		}
 		updated, found, err := loadPricingTemplate(r.Context(), tx, profile.ID, templateID, false)

@@ -833,6 +833,63 @@ Response `200`: `{ "deleted": true }`. Returns `409` if other models still refer
 
 ---
 
+#### 1.3A Model Catalog Metadata (models.dev)
+
+Catalog metadata is management-only projection data sourced from the fixed official models.dev catalog (`https://models.dev/api.json`, MIT License). It never participates in `api_family` compatibility truth, capability gating, routing, or the runtime snapshot; metadata writes never invalidate planning. The backend client is restricted: HTTPS only, same-origin redirects only, a 10-second whole-request timeout, a 16 MiB body budget, ETag/304 revalidation, single-flight fetches, `json.Number` decoding, and fail-closed schema validation. Remote I/O always happens outside database transactions; commits verify the operator's previewed catalog revision so stale source data cannot be written.
+
+##### Get Model Catalog Binding
+
+```
+GET /api/models/{id}/catalog
+```
+
+Response `200`: `{ bound, match_source ("unique_match" | "manual"), provider_id, catalog_model_id, catalog_revision, fetched_at, updated_at, source, override, effective, auto_match? }`. `source` is the immutable snapshot refreshed only by explicit refreshes; `override` holds per-field manual values; `effective` merges override over source field by field. Unbound models return `bound: false` with null projections plus an `auto_match` hint computed from the cached catalog when available. `GET /api/models/{id}` embeds the same object as `catalog`. The source name never changes the model's `display_name`.
+
+##### Match Preview
+
+```
+POST /api/models/{id}/catalog/match-preview
+```
+
+Fetches the catalog outside any transaction and reports exact-id matches across the api_family's canonical providers (`openai`→`openai`, `anthropic`→`anthropic`, `gemini`→`google`). Response `200`: `{ committable, provider_id?, catalog_model_id?, candidates[], reason ("unique_match" | "ambiguous" | "no_match"), catalog_revision, fetched_at }`. A unique exact match is committable; ambiguous or missing matches are preview-only.
+
+##### Bind
+
+```
+POST /api/models/{id}/catalog/bind
+```
+
+Request: `{ provider_id?, catalog_model_id?, expected_catalog_revision }`. With explicit coordinates both fields are required and must exist in the fetched catalog (`422 models_dev_offering_unknown` otherwise); without them the unique exact match is applied, while ambiguity or absence rejects with `409` plus the candidate list. A revision mismatch returns `409 models_dev_catalog_stale`. Binding to a different offering clears prior manual overrides; rebinding the same offering keeps overrides and the original match source. After binding, refreshes never re-guess the coordinates.
+
+##### Refresh Preview / Commit
+
+```
+POST /api/models/{id}/catalog/refresh/preview
+POST /api/models/{id}/catalog/refresh/commit
+```
+
+Preview fetches the current catalog revision and diffs it against the stored source snapshot field by field (`changes[]` with `added`/`removed`/`changed`). Commit requires `expected_catalog_revision`, replaces only the source columns plus revision/fetch stamp, and leaves manual overrides untouched (`409 models_dev_not_bound` when unbound; `409 models_dev_offering_missing` when the bound offering vanished from the catalog — fail closed, nothing is wiped).
+
+##### Manual Overrides
+
+```
+PUT /api/models/{id}/catalog/override
+DELETE /api/models/{id}/catalog/override
+DELETE /api/models/{id}/catalog
+```
+
+`PUT` accepts a flat object of known metadata fields; each present key writes that override, and an explicit JSON `null` restores the field to its source value (per-field restore). Unknown fields, wrong types, out-of-range numbers, or non-enum statuses return `422`. `DELETE /override` clears every manual override; `DELETE /catalog` unbinds (removes the binding row) without touching runtime identity. All three are planning-neutral.
+
+##### Bounded Candidate Search
+
+```
+GET /api/models/{id}/catalog/candidates?q=&scope=family|all&limit=&offset=
+```
+
+Response `200`: `{ items[] (provider_id, provider_name, model_id, name), total, limit, offset, scope }`. `limit` clamps to 100; `scope=family` restricts to the api_family's canonical providers and `all` covers every catalog provider for manual binding.
+
+---
+
 #### 1.4 Endpoints (Profile-Scoped Credentials)
 
 ##### List Endpoints
@@ -1202,6 +1259,15 @@ Request uses a strict discriminated shape. `template_kind` is required and the t
 Response `201`: Created typed pricing template object. The database source of truth is `pricing_template_cards` keyed by `(revision_id, card_role)` and `pricing_template_windows`; old revision price columns are removed by destructive migration `000023_pricing_template_kind_cards.sql`. `000023` is fresh-only: any retained pricing or currency-migration rows fail before DDL with a readable rebuild error and the transaction rolls back.
 
 Explicit JSON `null` means an unconfigured specialty component; explicit `"0"` means configured free pricing. `MISSING_PRICE_DATA` never means zero. A kind change is a complete retype, requires the full target shape and `expected_updated_at`, and creates a new immutable revision.
+
+##### Catalog Price Preview / Commit (models.dev)
+
+```
+POST /api/pricing-templates/catalog/preview
+POST /api/pricing-templates/catalog/commit
+```
+
+Source-linked pricing import from the fixed official models.dev catalog. Preview resolves the offering from a bound `model_config_id` or an explicit `provider_id` + `catalog_model_id` pair, builds the price plan outside any transaction, finds the single source-linked template for that offering (partial unique index), flags drift when the template's current shape differs from the planned shape, captures each requested Terminal Target's CAS state, and returns `preview_hash` over offering + revision + plan + template identity + target CAS columns. The plan fails closed with stable reasons (`reporting_currency_not_usd`, `cost_missing`, `audio_cost_present`, `multiple_tiers`, `tier_not_supported`, `legacy_tier_shape`, `tier_evidence_conflict`, `specialty_shape_mismatch`) and zero writes whenever prices are not losslessly representable; only an OpenAI single `context` tier maps its `size` verbatim onto `input_tokens_above`. Commit replays everything inside one transaction against the cached snapshot (no remote I/O): a stale revision or moved state rejects with `409`; incompatible plans reject with `422` and zero writes; drift requires explicit `confirm_drift`; the linked template is created or receives an append-only `revision_source='catalog'` import revision carrying `catalog_revision`; and Terminal Target assignment enforces the existing double CAS (`expected_connection_updated_at` + `expected_pricing_template_id`) under sorted row locks, rolling back the entire transaction on any conflict. Successful commits advance pricing generations and invalidate planning.
 
 ##### Import Pricing Templates
 
@@ -3798,6 +3864,19 @@ Constraints:
 - Runtime routing evaluates enabled mixed rows of both types by flat `position` and stable IDs: `single`, `fill-first`, and `round-robin` act on the same mixed peer set, Model Target rows recurse through the child model's own strategy, and direct Terminal rows contribute their own attempt.
 - Go management validation rejects self-reference, cross-profile targets, cross-api-family targets, and cycles; these relationship semantics are not enforced by database triggers.
 
+#### 2.2A `model_catalog_bindings` (management-only models.dev metadata)
+
+One optional binding row per model carrying the fixed official models.dev offering coordinates plus two independent metadata projections. Catalog metadata is management-only presentation state: it never participates in `api_family` compatibility truth, capability gating, routing, or the runtime snapshot, and writes to this table never invalidate planning.
+
+| Column group | Contents | Notes |
+| --- | --- | --- |
+| Coordinates | `provider_id`, `catalog_model_id`, `match_source`, `catalog_revision` (catalog ETag), `fetched_at` | `match_source` is `unique_match` or `manual`. One row per `model_config_id` (PK, FK -> model_configs ON DELETE CASCADE). Refreshes never re-guess coordinates |
+| `source_*` | name/description/family/release_date/last_updated/knowledge, capability booleans, modalities JSONB arrays, limit bigints, `open_weights`, `status` | Replaced wholesale by explicit refreshes only; absent values stay NULL and explicit zeros stay `"0"`-equivalent typed values |
+| `override_*` | The same field set, all nullable | Written only by operator overrides; refreshes never touch them; an explicit null override restores that field to its source value |
+| Stamp | `updated_at` | Advanced on every write |
+
+Constraints: CHECKs restrict statuses to the alpha/beta/deprecated enum, require modalities columns to be JSON arrays when present, and keep limits non-negative.
+
 #### 2.4 `loadbalance_strategies` (profile-scoped reusable routing behavior)
 
 Reusable explicit Ban Policy strategy objects attached by models within one profile.
@@ -3928,6 +4007,8 @@ Routing window invariants:
 
 `pricing_templates` is the logical, profile-scoped identity that can be attached to many Terminal Targets. It intentionally contains no price columns: the append-only `pricing_template_revisions` table below is the sole price source. The live logical row stores `id`, `profile_id`, `name`, `description`, `created_at`, `updated_at`, `current_revision_id`, `deleted_at`, and `name_identity`, with `UNIQUE(profile_id, name)` for active names. `current_revision_id` points at the current revision of the same template.
 
+Catalog linkage: optional `catalog_provider_id` + `catalog_model_id` columns record the single models.dev offering a template was imported from. A partial unique index (`uq_pricing_templates_catalog_offering`) allows exactly one live source-linked template per offering, so repeated imports of the same offering reuse that template instead of creating duplicates.
+
 #### 2.7A `pricing_template_revisions` (append-only typed revision)
 
 A revision is the immutable metadata and selector boundary. `template_kind` is `standard`, `tiered`, or `peak_valley` and is never combined with another kind. Price values live only in `pricing_template_cards`; schedule rows live only in `pricing_template_windows`.
@@ -3937,6 +4018,7 @@ A revision is the immutable metadata and selector boundary. `template_kind` is `
 | `template_kind` | Explicit mutually-exclusive discriminator; `NOT NULL` |
 | `tier_input_tokens_above` | Positive threshold only for `tiered`; selection is strict `basis > threshold` |
 | `pricing_schedule_timezone` / `pricing_schedule_digest` | Required only for `peak_valley`; digest is SHA-256 of sorted duplicate-free `mask,start,end` LF rows |
+| `revision_source` / `catalog_revision` | `manual` (default for every retained and hand-authored row) or `catalog` with the non-null catalog ETag evidence | A CHECK requires catalog revisions to carry their source revision and manual revisions to carry none; catalog imports are append-only revisions like every other write |
 | currency/revision fields | Existing epoch attribution, effective boundary, append-only provenance and version identity |
 
 `pricing_template_cards(revision_id, template_kind, card_role, ...)` has one complete five-component card for `standard`; `tier_base` and `tier_above` for `tiered`; or `peak` and `offpeak` for `peak_valley`. Composite foreign keys and deferred revision shape guards enforce the role set and specialty NULL/configured parity. Child rows are append-only and a post-commit digest mismatch fails closed.
@@ -4725,26 +4807,31 @@ Selected foreign-key deletion boundaries:
 The following stable IDs bind the Go profile to the `backend` scope. They are normative architecture outcomes, while the project invariant map records their current audit status as unverified because this documentation refresh does not execute the profile's candidate checks.
 
 <a id="inv-go-229d2b017a9b"></a>
+
 ### Reproducible Entrypoints and Artifacts
 
 Go entrypoints, configuration, toolchain, dependencies, generated inputs, tests, and release artifacts must remain determinable and reproducible from a clean checkout through repository-owned commands.
 
 <a id="inv-go-2d7d34ee6112"></a>
+
 ### Bounded Runtime Lifecycles
 
 Context chains, goroutines, connections, commands, servers, and workers must propagate cancellation and deadlines and retain explicit admission, panic handling, waiting, drain, and shutdown ownership.
 
 <a id="inv-go-2e9f9d48ab43"></a>
+
 ### Consistent Failure Semantics
 
 Transactions, migrations, messages, caches, remote calls, retries, and cross-resource writes must preserve required consistency under duplicate delivery, timeout, cancellation, and partial failure.
 
 <a id="inv-go-a392eb849715"></a>
+
 ### Acyclic Dependencies and Explicit Ownership
 
 Package imports must remain acyclic, synchronous calls must terminate safely, and every authoritative fact, shared state value, and background goroutine must have one explicit owner or conflict protocol.
 
 <a id="inv-go-fd5b268343ae"></a>
+
 ### Explicit Trust Boundaries
 
 Adopted HTTP, CLI, message, file, path, identity, secret, diagnostic, limit, and public-error boundaries must be explicit, least-privilege, and covered by negative tests appropriate to their reachable risk.

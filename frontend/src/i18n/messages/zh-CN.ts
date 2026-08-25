@@ -873,7 +873,12 @@ export const zhCNMessages = {
     impactTitle: "编辑影响预检",
     impactLoading: "正在读取编辑影响...",
     impactUnavailable: "无法确认编辑影响",
-    impactSummary: (current: MessageArg, next: MessageArg, references: MessageArg) => `当前 v${current} · 保存结构变更将生成 v${next} · 影响 ${references} 个终端目标`,
+    impactSummary: (
+      current: MessageArg,
+      next: MessageArg,
+      references: MessageArg,
+    ) =>
+      `当前 v${current} · 保存结构变更将生成 v${next} · 影响 ${references} 个终端目标`,
     impactUnknownConnection: "未命名终端目标",
     impactNone: "当前没有终端目标引用此模板。",
   },
@@ -2067,6 +2072,121 @@ export const zhCNMessages = {
     targetRemove: (name: MessageArg) => `删除目标 ${name}`,
     unlimited: "无限制",
   },
+  modelCatalog: {
+    // models.dev 目录元信息卡。来源快照 + 人工覆盖 + 生效值全部只作用于
+    // 管理面展示；刷新只替换来源值，人工覆盖与人工价格修订默认保留。
+    cardTitle: "目录元信息",
+    cardDescription:
+      "来自 models.dev 官方目录的模型元信息。仅用于管理面参考，不参与路由与运行时行为。",
+    stateUnbound: "未绑定",
+    stateManual: "手动绑定",
+    stateUnique: "自动匹配",
+    hasOverridesBadge: "存在人工覆盖",
+    unboundHint:
+      "尚未绑定目录条目。唯一精确匹配会自动进入可提交预览；跨提供方歧义的模型 ID 需要显式选择提供方与模型 ID。",
+    fetchedAtLabel: "抓取时间",
+    overrideMarker: "已覆盖",
+    valueAbsent: "（未提供）",
+    refreshAction: "刷新预览",
+    rebindAction: "重新绑定",
+    bindAction: "绑定目录",
+    overrideAction: "编辑覆盖",
+    loadingText: "正在读取官方目录…",
+
+    bindDialogTitle: "绑定 models.dev 目录",
+    bindDialogDescription:
+      "优先使用唯一精确 ID 自动匹配；也可以显式填写提供方 + 模型 ID 手动绑定。换绑到不同条目会清空旧的人工覆盖。",
+    uniqueMatchFound: "发现唯一精确匹配",
+    applyUniqueMatch: "应用该匹配",
+    ambiguousMatch: "模型 ID 匹配到多个提供方，无法自动绑定",
+    noMatch: "没有找到精确匹配的模型 ID",
+    explicitBindHint: "请从候选中选择或直接填写提供方与模型 ID 后手动绑定。",
+    manualBindTitle: "手动绑定",
+    providerLabel: "提供方 ID",
+    modelIdLabel: "模型 ID",
+    bindExplicitAction: "按填写的坐标绑定",
+    candidateSearchLabel: "搜索候选",
+    candidateSearchPlaceholder: "输入模型 ID、名称或提供方关键词",
+    candidateCount: (shown: MessageArg, total: MessageArg) =>
+      `显示 ${shown} / 共 ${total} 条候选`,
+
+    refreshDialogTitle: "刷新目录元信息",
+    refreshDialogDescription:
+      "重新抓取官方目录并预览来源值差异。确认后只会替换来源值；人工覆盖保持不变。",
+    refreshRevisionLabel: "目录修订",
+    refreshNoChanges: "来源值与当前快照一致，无需更新。",
+    refreshApply: "确认刷新",
+
+    overrideDialogTitle: "编辑人工覆盖",
+    overrideDialogDescription:
+      "留空表示不修改。把某个字段写回空即恢复为来源值；「来源名称不改显示名称」始终成立。",
+    restoreFieldTitle: "恢复此字段为来源值",
+    clearAllOverridesLabel: "清除全部人工覆盖",
+    clearAllOverridesAction: "清除全部覆盖",
+    saveOverrideAction: "保存覆盖",
+    overridePlaceholderSource: (source: string | null) =>
+      source ? `来源：${source}` : "来源未提供",
+    overrideDisplayNameNote:
+      "覆盖仅影响这张卡片展示的目录元信息，不会修改模型的显示名称、model_id 或任何路由属性。",
+
+    fieldName: "名称",
+    fieldDescription: "描述",
+    fieldFamily: "家族",
+    fieldReleaseDate: "发布日期",
+    fieldLastUpdated: "最近更新",
+    fieldKnowledge: "知识截止",
+    fieldReasoning: "推理",
+    fieldToolCall: "工具调用",
+    fieldStructuredOutput: "结构化输出",
+    fieldTemperature: "温度控制",
+    fieldAttachment: "附件",
+    fieldModalitiesInput: "输入模态",
+    fieldModalitiesOutput: "输出模态",
+    fieldLimitContext: "上下文上限",
+    fieldLimitInput: "输入上限",
+    fieldLimitOutput: "输出上限",
+    fieldOpenWeights: "开放权重",
+    fieldStatus: "状态",
+
+    pricingMenuAction: (name: string) => `为「${name}」从目录生成价格`,
+    pricingDialogTitlePrefix: "从目录生成价格",
+    pricingDialogDescription:
+      "基于 models.dev 的 USD/百万 token 价格生成价格模板，并以原子事务赋给选中的终端目标。",
+    pricingTargetsLabel: "赋值目标终端",
+    pricingCurrentTargetBadge: "当前",
+    pricingPlanKindStandard: "标准价",
+    pricingPlanKindTiered: "长上下文阶梯价",
+    pricingTierThreshold: (threshold: MessageArg) =>
+      `输入超过 ${threshold} tokens 时整单切换`,
+    pricingIncompatibleTitle: "价格不可导入",
+    pricingIncompatibleDescription:
+      "以下组件无法无损表达为 Prism 价格模板，本次提交零写入：",
+    pricingDriftTitle: "检测到人工改动",
+    pricingDriftConfirmLabel:
+      "我已确认：将用目录价格覆盖该模板当前的人工改动，并追加一条导入修订。",
+    pricingCommitAction: "生成并赋值",
+    pricingReuseNotice:
+      "同一目录条目复用既有来源关联模板，并追加 append-only 导入修订。",
+    pricingCreateNotice: "将创建一个新的来源关联价格模板。",
+    pricingSuccessToast: (name: string, count: MessageArg) =>
+      `已生成价格模板「${name}」并赋给 ${count} 个终端目标`,
+    pricingTargetNameFallback: (connectionId: MessageArg) =>
+      `终端目标 ${connectionId}`,
+    pricingCurrencyNote: (code: string) =>
+      `报表货币：${code}。目录价格为 USD/百万 token，不做汇率换算。`,
+    pricingLoadFailed: "读取目录价格失败",
+    pricingColumnRole: "角色",
+    pricingColumnInput: "输入",
+    pricingColumnOutput: "输出",
+    pricingColumnCacheRead: "缓存读",
+    pricingColumnCacheWrite: "缓存写",
+    pricingRoleTierBase: "基准价",
+    pricingRoleTierAbove: "阶梯价",
+    pricingRolePeak: "高峰",
+    pricingRoleOffpeak: "低谷",
+    valueNotApplicable: "—",
+  },
+
   modelsUi: {
     // 时段徽标的六态。每一态都必须有服务端来源，前端不做任何窗口推算。
     routingScheduleOpen: "时段内",
