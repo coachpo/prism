@@ -164,9 +164,9 @@ export function SettingsPage() {
         onValueChange={(value) => setScope(value as typeof scope)}
         className="flex flex-col gap-4"
       >
-        <TabsList className="w-full justify-start overflow-x-auto rounded-lg border border-border bg-inset p-1 sm:w-fit">
-          <TabsTrigger className="h-8" value={SETTINGS_SCOPES.global}>{messages.settingsPage.globalTab}</TabsTrigger>
-          <TabsTrigger className="h-8" value={SETTINGS_SCOPES.instance}>{messages.settingsPage.instanceTab}</TabsTrigger>
+        <TabsList className="w-full justify-start sm:w-fit">
+          <TabsTrigger value={SETTINGS_SCOPES.global}>{messages.settingsPage.globalTab}</TabsTrigger>
+          <TabsTrigger value={SETTINGS_SCOPES.instance}>{messages.settingsPage.instanceTab}</TabsTrigger>
         </TabsList>
 
         <TabsContent className="mt-0" value={SETTINGS_SCOPES.global}>
