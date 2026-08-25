@@ -636,7 +636,7 @@ Partitioned retention manages the current log-table set only. Prism does not rew
 
 ### 9.6 Frontend Placement
 
-Log retention controls live on the visible Settings `实例` scope (canonical `scope=instance`), with automatic policy + actual coverage, manual cleanup, and the retention job center. The visible `全局` scope (canonical `scope=global`) manages billing and reporting currency, timezone, audit & privacy, config rules, and other Default-profile state.
+Log retention controls live on the visible Settings `实例` scope (canonical `scope=instance`), with automatic policy + actual coverage, manual cleanup, and the retention job center. The job center is a static browser-side snapshot over the durable queue: it never polls; manual refresh and post-mutation calibration re-read the loaded pages serially with fresh cursors and swap atomically, while the management-jobs worker remains the only background processor. The visible `全局` scope (canonical `scope=global`) manages billing and reporting currency, timezone, audit & privacy, config rules, and other Default-profile state.
 
 ## 10. Database Design
 
@@ -4725,26 +4725,31 @@ Selected foreign-key deletion boundaries:
 The following stable IDs bind the Go profile to the `backend` scope. They are normative architecture outcomes, while the project invariant map records their current audit status as unverified because this documentation refresh does not execute the profile's candidate checks.
 
 <a id="inv-go-229d2b017a9b"></a>
+
 ### Reproducible Entrypoints and Artifacts
 
 Go entrypoints, configuration, toolchain, dependencies, generated inputs, tests, and release artifacts must remain determinable and reproducible from a clean checkout through repository-owned commands.
 
 <a id="inv-go-2d7d34ee6112"></a>
+
 ### Bounded Runtime Lifecycles
 
 Context chains, goroutines, connections, commands, servers, and workers must propagate cancellation and deadlines and retain explicit admission, panic handling, waiting, drain, and shutdown ownership.
 
 <a id="inv-go-2e9f9d48ab43"></a>
+
 ### Consistent Failure Semantics
 
 Transactions, migrations, messages, caches, remote calls, retries, and cross-resource writes must preserve required consistency under duplicate delivery, timeout, cancellation, and partial failure.
 
 <a id="inv-go-a392eb849715"></a>
+
 ### Acyclic Dependencies and Explicit Ownership
 
 Package imports must remain acyclic, synchronous calls must terminate safely, and every authoritative fact, shared state value, and background goroutine must have one explicit owner or conflict protocol.
 
 <a id="inv-go-fd5b268343ae"></a>
+
 ### Explicit Trust Boundaries
 
 Adopted HTTP, CLI, message, file, path, identity, secret, diagnostic, limit, and public-error boundaries must be explicit, least-privilege, and covered by negative tests appropriate to their reachable risk.

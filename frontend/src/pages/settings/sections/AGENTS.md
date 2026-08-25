@@ -1,9 +1,11 @@
 # FRONTEND SETTINGS SECTIONS KNOWLEDGE BASE
 
 ## OVERVIEW
+
 `pages/settings/sections/` owns the rendered settings sections used by `../../SettingsPage.tsx`. This folder covers the section-level UI for auth setup, audit and privacy, header-blocklist rules, user-agent or client rules, billing and currency, retention and deletion, and timezone preferences, plus the nested `authentication/` and `billing-currency/` leaf clusters. Keep it focused on section rendering, not the shell or costing orchestration.
 
 ## STRUCTURE
+
 ```text
 sections/
 ├── AuthenticationSection.tsx
@@ -31,7 +33,7 @@ sections/
 - Reporting currency and timezone section shell that renders the currency card and the migration/archive dialogs, while staying separate from costing state: `BasisAndDisplaySection.tsx`, `billing-currency/AGENTS.md`
 - Retention and deletion section (policy draft, owner actual-coverage cards, fresh preflight dialog handoff): `RetentionDeletionSection.tsx`, `../useRetentionDeletionData.ts`, `../dialogs/RetentionPolicyPreflightDialog.tsx`
 - Immediate manual cleanup, kept in its own danger-outlined card rather than folded into the policy card: `ManualCleanupSection.tsx`
-- Retention job center (server-persisted jobs, filters, polling, detail, cancel): `RetentionJobsSection.tsx`
+- Retention job center (server-persisted jobs as a static browser snapshot, filters, manual refresh plus post-mutation calibration with serial fresh-cursor page walks, two independent detail evidence lanes, cancel): `RetentionJobsSection.tsx`
 - Shared page shell, section IDs, and save-state helpers: `../AGENTS.md`, `../settingsPageHelpers.ts`, `../sectionSaveState.tsx`
 - Costing bootstrap, derived state, and save logic that feeds billing and timezone sections: `../costing/AGENTS.md`
 - Settings seam coverage lives in frontend lib/Vitest tests; the capped Playwright journey set does not include dedicated settings specs.
@@ -42,6 +44,7 @@ sections/
 - `billing-currency/`: `ReportingCurrencyCard.tsx`, `CurrencyMigrationDialog.tsx`, and `ArchiveUnusedFxDialog.tsx`; its leaf doc lives at `billing-currency/AGENTS.md`
 
 ## CONVENTIONS
+
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
 - Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 
@@ -57,6 +60,7 @@ sections/
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 
 ## LLM UPSTREAM MATRIX
+
 - When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
 
 ## ANTI-PATTERNS

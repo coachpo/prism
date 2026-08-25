@@ -44,7 +44,9 @@ export function SettingsGlobalTab({
             onSaveAuthSettings={data.handleSaveAuthSettings}
             pendingAuthConfirmation={data.pendingAuthConfirmation}
             onConfirmAuthSettings={data.confirmPendingAuthSettings}
-            onCancelAuthSettingsConfirmation={data.cancelPendingAuthConfirmation}
+            onCancelAuthSettingsConfirmation={
+              data.cancelPendingAuthConfirmation
+            }
           />
 
           <RetentionDeletionSection
@@ -72,6 +74,9 @@ export function SettingsGlobalTab({
             jobsHasMore={data.jobsHasMore}
             jobsLoading={data.jobsLoading}
             jobsStale={data.jobsStale}
+            jobsError={data.jobsError}
+            jobsLoadedAt={data.jobsLoadedAt}
+            onRefreshJobs={data.refreshJobs}
             jobOriginFilter={data.jobOriginFilter}
             jobStateFilter={data.jobStateFilter}
             setJobOriginFilter={data.setJobOriginFilter}
@@ -81,7 +86,13 @@ export function SettingsGlobalTab({
             openJobDetail={data.openJobDetail}
             selectedJob={data.selectedJob}
             jobDetail={data.jobDetail}
-            jobDetailLoading={data.jobDetailLoading}
+            jobDetailBaseLoading={data.jobDetailBaseLoading}
+            jobDetailBaseError={data.jobDetailBaseError}
+            checkpointsLane={data.checkpointsLane}
+            partitionsLane={data.partitionsLane}
+            retryJobDetail={() => {
+              if (data.selectedJob) void data.openJobDetail(data.selectedJob);
+            }}
             setSelectedJob={data.setSelectedJob}
             loadMoreJobCheckpoints={data.loadMoreJobCheckpoints}
             loadMoreJobPartitions={data.loadMoreJobPartitions}

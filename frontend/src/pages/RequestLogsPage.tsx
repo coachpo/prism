@@ -81,7 +81,13 @@ export function RequestLogsPage() {
     chains,
     chainPageCounts,
     coverage,
+    readKind,
+    chainRowReads,
   } = useRequestLogsPageData({ revision: 0, state, enabled: !isExactMode });
+
+  // A page turn withdraws the old rows for skeletons; a same-scope refresh
+  // keeps them rendered until its own read resolves.
+  const replacingRows = loading && readKind === "replace";
 
   const selectedRequestId = useMemo(() => {
     if (isExactMode) {
@@ -296,6 +302,8 @@ export function RequestLogsPage() {
               hasMoreChains={hasMoreChains}
               chainPageStart={chainPageStart}
               chainPageCounts={chainPageCounts}
+              replacing={replacingRows}
+              chainRowReads={chainRowReads}
               onLoadPreviousChains={() =>
                 actions.setChainCursor(previousChainCursor ?? "")
               }
@@ -313,6 +321,7 @@ export function RequestLogsPage() {
               totalIsExact={totalIsExact}
               hasMoreRows={hasMoreRows}
               loading={loading}
+              replacing={replacingRows}
               limit={state.limit}
               offset={state.offset}
               activeRequestId={listVisibleRequestId ?? null}

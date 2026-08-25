@@ -1,47 +1,73 @@
-import { Plug, Plus } from "lucide-react"
+import { Plug, Plus } from "lucide-react";
 
-import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useLocale } from "@/i18n/useLocale"
-import { OperatorEmptyState, OperatorErrorState, OperatorLoadingState, OperatorPageHeader, OperatorPageShell, OperatorSearchInput, OperatorStalenessBadge, OperatorToolbar, OperatorRetryButton } from "@/shared/design-system"
-import { AttachToModelDialog } from "@/pages/endpoints/AttachToModelDialog"
-import { DeleteEndpointDialog } from "@/pages/endpoints/DeleteEndpointDialog"
-import { EndpointDialog } from "./EndpointDialog"
-import { EndpointTable } from "./EndpointTable"
-import { OrphanCleanupDialog } from "@/pages/endpoints/OrphanCleanupDialog"
-import { useEndpointsFeatureData, type ReviewFilter } from "./useEndpointsFeatureData"
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useLocale } from "@/i18n/useLocale";
+import {
+  OperatorEmptyState,
+  OperatorErrorState,
+  OperatorLoadingState,
+  OperatorPageHeader,
+  OperatorPageShell,
+  OperatorSearchInput,
+  OperatorStalenessBadge,
+  OperatorToolbar,
+  OperatorRetryButton,
+} from "@/shared/design-system";
+import { AttachToModelDialog } from "@/pages/endpoints/AttachToModelDialog";
+import { DeleteEndpointDialog } from "@/pages/endpoints/DeleteEndpointDialog";
+import { EndpointDialog } from "./EndpointDialog";
+import { EndpointTable } from "./EndpointTable";
+import { OrphanCleanupDialog } from "@/pages/endpoints/OrphanCleanupDialog";
+import {
+  useEndpointsFeatureData,
+  type ReviewFilter,
+} from "./useEndpointsFeatureData";
 
 export function EndpointsFeaturePage() {
-  const { messages } = useLocale()
-  const copy = messages.endpointsPage
-  const data = useEndpointsFeatureData()
+  const { messages } = useLocale();
+  const copy = messages.endpointsPage;
+  const data = useEndpointsFeatureData();
 
   const filterOptions: Array<{ value: ReviewFilter; label: string }> = [
     { value: "all", label: copy.filterAll },
     { value: "referenced", label: copy.filterReferenced },
     { value: "unreferenced", label: copy.filterUnreferenced },
     { value: "inactive_only", label: copy.filterInactiveOnly },
-  ]
+  ];
 
-  const showToolbar = data.endpoints.length > 0
-  const unknownCount = data.unknownReferenceIds.size
+  const showToolbar = data.endpoints.length > 0;
+  const unknownCount = data.unknownReferenceIds.size;
   // One line of facts, not a row of KPI cards: this page's numbers are small
   // and the table right below already carries the detail.
   const referencedCount = data.endpoints.filter((endpoint) => {
-    const summary = data.references.summaries[endpoint.id]
-    return summary?.status === "ready" && summary.value.direct_reference_count > 0
-  }).length
+    const summary = data.references.summaries[endpoint.id];
+    return (
+      summary?.status === "ready" && summary.value.direct_reference_count > 0
+    );
+  }).length;
   const inactiveCount = data.endpoints.filter((endpoint) => {
-    const summary = data.references.summaries[endpoint.id]
-    return summary?.status === "ready"
-      && summary.value.direct_reference_count > 0
-      && summary.value.enabled_reference_count === 0
-  }).length
+    const summary = data.references.summaries[endpoint.id];
+    return (
+      summary?.status === "ready" &&
+      summary.value.direct_reference_count > 0 &&
+      summary.value.enabled_reference_count === 0
+    );
+  }).length;
 
   return (
     <OperatorPageShell data-testid="endpoints-feature-page">
       <OperatorPageHeader title={copy.title} description={copy.description}>
-        <Button onClick={() => data.setIsCreateOpen(true)}><Plus data-icon="inline-start" />{copy.addEndpoint}</Button>
+        <Button onClick={() => data.setIsCreateOpen(true)}>
+          <Plus data-icon="inline-start" />
+          {copy.addEndpoint}
+        </Button>
       </OperatorPageHeader>
 
       {data.isLoading ? (
@@ -50,16 +76,36 @@ export function EndpointsFeaturePage() {
         <OperatorErrorState
           title={messages.endpointsData.loadFailed}
           description={messages.common.requestFailed}
-          action={<OperatorRetryButton onClick={data.retryEndpointLoad}>{messages.endpointsUi.deleteRetry}</OperatorRetryButton>}
+          action={
+            <OperatorRetryButton onClick={data.retryEndpointLoad}>
+              {messages.endpointsUi.deleteRetry}
+            </OperatorRetryButton>
+          }
         />
       ) : data.endpoints.length === 0 ? (
-        <OperatorEmptyState icon={<Plug className="h-6 w-6" />} title={copy.noEndpointsConfigured} description={copy.noEndpointsConfiguredDescription} action={<Button onClick={() => data.setIsCreateOpen(true)}><Plus data-icon="inline-start" />{copy.addEndpoint}</Button>} />
+        <OperatorEmptyState
+          icon={<Plug className="h-6 w-6" />}
+          title={copy.noEndpointsConfigured}
+          description={copy.noEndpointsConfiguredDescription}
+          action={
+            <Button onClick={() => data.setIsCreateOpen(true)}>
+              <Plus data-icon="inline-start" />
+              {copy.addEndpoint}
+            </Button>
+          }
+        />
       ) : (
         <>
           {showToolbar ? (
             <OperatorToolbar>
               <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <OperatorSearchInput name="endpoints_search" autoComplete="off" placeholder={copy.searchEndpoints} value={data.searchQuery} onChange={(event) => data.setSearchQuery(event.target.value)} />
+                <OperatorSearchInput
+                  name="endpoints_search"
+                  autoComplete="off"
+                  placeholder={copy.searchEndpoints}
+                  value={data.searchQuery}
+                  onChange={(event) => data.setSearchQuery(event.target.value)}
+                />
                 <p className="text-xs text-muted-foreground">
                   {copy.overviewSummary(
                     String(data.endpoints.length),
@@ -77,14 +123,21 @@ export function EndpointsFeaturePage() {
                       label={copy.referenceStaleBadge}
                       reason={copy.referenceStaleReason(String(unknownCount))}
                     />
-                    <Button type="button" variant="outline" size="sm" onClick={data.references.retry}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={data.references.retry}
+                    >
                       {copy.referenceRefetchAll}
                     </Button>
                   </>
                 ) : null}
                 <Select
                   value={data.reviewFilter}
-                  onValueChange={(value) => data.setReviewFilter(value as ReviewFilter)}
+                  onValueChange={(value) =>
+                    data.setReviewFilter(value as ReviewFilter)
+                  }
                 >
                   <SelectTrigger className="w-52" aria-label={copy.filterAll}>
                     <SelectValue placeholder={copy.filterAll} />
@@ -104,7 +157,22 @@ export function EndpointsFeaturePage() {
           ) : null}
 
           {data.endpoints.length > 0 && data.filteredEndpoints.length === 0 ? (
-            <OperatorEmptyState icon={<Plug className="h-6 w-6" />} title={copy.noEndpointsMatchFilters} description={copy.noEndpointsMatchFiltersDescription} action={<Button variant="outline" onClick={() => { data.setSearchQuery(""); data.setReviewFilter("all") }}>{copy.filterAll}</Button>} />
+            <OperatorEmptyState
+              icon={<Plug className="h-6 w-6" />}
+              title={copy.noEndpointsMatchFilters}
+              description={copy.noEndpointsMatchFiltersDescription}
+              action={
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    data.setSearchQuery("");
+                    data.setReviewFilter("all");
+                  }}
+                >
+                  {copy.filterAll}
+                </Button>
+              }
+            />
           ) : null}
 
           {data.filteredEndpoints.length > 0 ? (
@@ -120,14 +188,19 @@ export function EndpointsFeaturePage() {
                 onEdit={data.setEditingEndpoint}
                 onLoadMore={data.handleLoadMoreBlockers}
                 onOpenReferences={data.references.loadDetail}
-                onOrphanCleanup={(endpoint, item) => data.setOrphanCleanupTarget({ endpoint, item })}
+                onOrphanCleanup={(endpoint, item) =>
+                  data.setOrphanCleanupTarget({ endpoint, item })
+                }
+                onRetryDetail={data.references.loadDetail}
                 onSort={data.toggleSort}
-                sort={{ column: data.sortKey, direction: data.sortDescending ? "desc" : "asc" }}
+                sort={{
+                  column: data.sortKey,
+                  direction: data.sortDescending ? "desc" : "asc",
+                }}
                 summaries={data.references.summaries}
               />
             </div>
           ) : null}
-
         </>
       )}
 
@@ -152,7 +225,9 @@ export function EndpointsFeaturePage() {
         state={data.deleteDialog}
         onConfirm={data.handleDeleteConfirm}
         onOpenChange={data.handleDeleteDialogOpenChange}
-        onOrphanCleanup={(endpoint, item) => data.setOrphanCleanupTarget({ endpoint, item })}
+        onOrphanCleanup={(endpoint, item) =>
+          data.setOrphanCleanupTarget({ endpoint, item })
+        }
         onRetry={data.handleDeleteRetry}
         onLoadMore={data.handleLoadMoreBlockers}
       />
@@ -168,7 +243,7 @@ export function EndpointsFeaturePage() {
         onOpenChange={(open) => !open && data.setAttachModelTarget(null)}
       />
     </OperatorPageShell>
-  )
+  );
 }
 
-export default EndpointsFeaturePage
+export default EndpointsFeaturePage;

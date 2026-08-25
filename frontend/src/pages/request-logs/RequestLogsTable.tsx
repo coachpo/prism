@@ -1,7 +1,15 @@
 // Requests SPEC §4 default columns: pricing state is a first-class column;
 // the sheet is a wide-format (no fixed 640px) detail surface.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Columns3, FileSearch } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
+  Columns3,
+  FileSearch,
+} from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { RequestLogListItem } from "@/lib/types";
 import { OperatorEmptyState } from "@/shared/design-system";
+import { PaginationLiveStatus } from "@/shared/table/paginationControls";
 import {
   getColumns,
   ROW_HEIGHT,
@@ -30,6 +39,8 @@ interface RequestLogsTableProps {
   totalIsExact: boolean;
   hasMoreRows: boolean;
   loading: boolean;
+  /** True while a replace read has withdrawn the old page for skeletons. */
+  replacing: boolean;
   limit: number;
   offset: number;
   activeRequestId: string | null;
@@ -77,21 +88,33 @@ function getRowTone(row: RequestLogListItem) {
   // unusual rows harder, not easier, to find.
   const status = scopedStatus(row);
   if (status !== null && status >= 500) {
-    return { row: "border-border bg-panel hover:bg-primary-soft/20", stripe: "before:bg-failing" };
+    return {
+      row: "border-border bg-panel hover:bg-primary-soft/20",
+      stripe: "before:bg-failing",
+    };
   }
   if (status !== null && status >= 400) {
-    return { row: "border-border bg-panel hover:bg-primary-soft/20", stripe: "before:bg-degraded" };
+    return {
+      row: "border-border bg-panel hover:bg-primary-soft/20",
+      stripe: "before:bg-degraded",
+    };
   }
   return { row: "border-border bg-panel hover:bg-primary-soft/20", stripe: "" };
 }
 
-function resolveColumns(columns: ColumnDef[], containerWidth: number): ResolvedColumn[] {
+function resolveColumns(
+  columns: ColumnDef[],
+  containerWidth: number,
+): ResolvedColumn[] {
   const baseWidth = columns.reduce((sum, col) => sum + col.width, 0);
   const growWeight = columns.reduce((sum, col) => sum + (col.grow ?? 0), 0);
   const extraWidth = Math.max(0, containerWidth - baseWidth);
 
   return columns.map((col) => {
-    const resolvedWidth = Math.round(col.width + (growWeight > 0 ? extraWidth * ((col.grow ?? 0) / growWeight) : 0));
+    const resolvedWidth = Math.round(
+      col.width +
+        (growWeight > 0 ? extraWidth * ((col.grow ?? 0) / growWeight) : 0),
+    );
     return {
       ...col,
       resolvedWidth,
@@ -105,6 +128,7 @@ export function RequestLogsTable({
   totalIsExact,
   hasMoreRows,
   loading,
+  replacing,
   limit,
   offset,
   activeRequestId,
@@ -154,12 +178,12 @@ export function RequestLogsTable({
 
   const resolvedColumns = useMemo(
     () => resolveColumns(visibleColumnDefs, Math.max(containerWidth - 2, 0)),
-    [visibleColumnDefs, containerWidth]
+    [visibleColumnDefs, containerWidth],
   );
 
   const totalWidth = useMemo(
     () => resolvedColumns.reduce((sum, col) => sum + col.resolvedWidth, 0),
-    [resolvedColumns]
+    [resolvedColumns],
   );
 
   const totalHeight = items.length * ROW_HEIGHT;
@@ -171,14 +195,26 @@ export function RequestLogsTable({
   const pageEnd = total > 0 ? Math.min(offset + limit, total) : 0;
   const hasPrev = offset > 0;
   const hasNext = hasMoreRows;
+  // A replace read withdraws the old page: its rows belong to the previous
+  // URL and must not masquerade as the target page while it loads.
+  const showPendingRows = replacing;
 
   return (
-    <div className="operator-table-shell flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-panel" data-testid="request-logs-table">
+    <div
+      className="operator-table-shell flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-panel"
+      data-testid="request-logs-table"
+    >
+      <PaginationLiveStatus
+        message={
+          showPendingRows ? messages.operationalTable.loadingTargetPage : null
+        }
+      />
       {/* Adaptive viewport: the table fills the shell instead of a fixed 640px. */}
       <div
         ref={containerRef}
         className="min-h-0 flex-1 overflow-auto scrollbar-thin"
         onScroll={handleScroll}
+        aria-busy={loading || undefined}
       >
         <div className="w-full" style={{ minWidth: totalWidth }}>
           <div className="sticky top-0 z-10 flex border-b border-border bg-inset">
@@ -192,7 +228,7 @@ export function RequestLogsTable({
                   className={cn(
                     "shrink-0 px-3 py-2.5 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground",
                     col.align === "right" && "text-right",
-                    col.align === "center" && "text-center"
+                    col.align === "center" && "text-center",
                   )}
                   style={{ width: col.resolvedWidth }}
                 >
@@ -200,7 +236,13 @@ export function RequestLogsTable({
                     <button
                       type="button"
                       aria-label={`${col.label} 排序`}
-                      aria-sort={isSorted ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                      aria-sort={
+                        isSorted
+                          ? sortOrder === "asc"
+                            ? "ascending"
+                            : "descending"
+                          : "none"
+                      }
                       className={cn(
                         "inline-flex items-center gap-1 hover:text-foreground",
                         isSorted && "text-foreground",
@@ -209,7 +251,11 @@ export function RequestLogsTable({
                     >
                       {col.label}
                       {isSorted ? (
-                        sortOrder === "asc" ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />
+                        sortOrder === "asc" ? (
+                          <ArrowUp className="size-3" />
+                        ) : (
+                          <ArrowDown className="size-3" />
+                        )
                       ) : (
                         <ArrowUpDown className="size-3 opacity-40" />
                       )}
@@ -222,19 +268,27 @@ export function RequestLogsTable({
             })}
           </div>
 
-          {loading && items.length === 0 ? (
+          {loading && (items.length === 0 || replacing) ? (
             <div className="flex flex-col gap-0">
               {SKELETON_ROW_KEYS.map((key) => (
-                <div key={key} className="flex border-b border-border bg-panel" style={{ height: ROW_HEIGHT }}>
+                <div
+                  key={key}
+                  className="flex border-b border-border bg-panel"
+                  style={{ height: ROW_HEIGHT }}
+                >
                   {resolvedColumns.map((col) => (
-                    <div key={col.key} className="shrink-0 px-3 py-3" style={{ width: col.resolvedWidth }}>
+                    <div
+                      key={col.key}
+                      className="shrink-0 px-3 py-3"
+                      style={{ width: col.resolvedWidth }}
+                    >
                       <Skeleton className="h-4 w-full" />
                     </div>
                   ))}
                 </div>
               ))}
             </div>
-          ) : items.length === 0 ? (
+          ) : items.length === 0 && !replacing ? (
             <div
               className="sticky left-0"
               style={{ width: containerWidth || "100%" }}
@@ -256,14 +310,16 @@ export function RequestLogsTable({
                   <button
                     type="button"
                     key={row.request_log_id}
-                    aria-label={messages.requestLogs.requestTitle(row.request_log_id)}
+                    aria-label={messages.requestLogs.requestTitle(
+                      row.request_log_id,
+                    )}
                     data-testid={`request-log-row-${row.request_log_id}`}
                     className={cn(
                       "absolute left-0 right-0 flex cursor-pointer items-center border-b text-left transition-colors",
                       "before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:content-['']",
                       tone.row,
                       tone.stripe,
-                      isSelected && "bg-primary-soft/40 before:bg-primary"
+                      isSelected && "bg-primary-soft/40 before:bg-primary",
                     )}
                     style={{
                       height: ROW_HEIGHT,
@@ -277,14 +333,15 @@ export function RequestLogsTable({
                         className={cn(
                           "flex h-full shrink-0 items-center overflow-hidden px-3",
                           col.align === "right" && "justify-end text-right",
-                          col.align === "center" && "justify-center text-center"
-                         )}
-                         style={{ width: col.resolvedWidth }}
-                        >
-                          {col.render(row, formatTimestamp)}
-                        </div>
-                      ))}
-                    </button>
+                          col.align === "center" &&
+                            "justify-center text-center",
+                        )}
+                        style={{ width: col.resolvedWidth }}
+                      >
+                        {col.render(row, formatTimestamp)}
+                      </div>
+                    ))}
+                  </button>
                 );
               })}
             </div>
@@ -296,20 +353,23 @@ export function RequestLogsTable({
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span>
             {total > 0
-              ? (totalIsExact
-                  ? messages.requestLogs.resultsRange(
-                      formatNumber(pageStart),
-                      formatNumber(pageEnd),
-                      formatNumber(total),
-                    )
-                  : messages.requestLogs.resultsRangeAtLeast(
-                      formatNumber(pageStart),
-                      formatNumber(pageEnd),
-                      formatNumber(total),
-                    ))
+              ? totalIsExact
+                ? messages.requestLogs.resultsRange(
+                    formatNumber(pageStart),
+                    formatNumber(pageEnd),
+                    formatNumber(total),
+                  )
+                : messages.requestLogs.resultsRangeAtLeast(
+                    formatNumber(pageStart),
+                    formatNumber(pageEnd),
+                    formatNumber(total),
+                  )
               : messages.requestLogs.zeroResults}
           </span>
-          <Select value={String(limit)} onValueChange={(v) => onSetLimit(Number(v))}>
+          <Select
+            value={String(limit)}
+            onValueChange={(v) => onSetLimit(Number(v))}
+          >
             <SelectTrigger
               className="h-8 w-[92px] rounded-md border-border bg-panel text-xs"
               data-testid="request-log-page-size-select"
@@ -328,10 +388,24 @@ export function RequestLogsTable({
         </div>
 
         <div className="flex items-center gap-1">
-          <Button variant="outline" size="icon" className="size-8 rounded-full" aria-label={messages.requestLogs.previousPage} disabled={!hasPrev} onClick={onPreviousPage}>
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-8 rounded-full"
+            aria-label={messages.requestLogs.previousPage}
+            disabled={!hasPrev}
+            onClick={onPreviousPage}
+          >
             <ChevronLeft />
           </Button>
-          <Button variant="outline" size="icon" className="size-8 rounded-full" aria-label={messages.requestLogs.nextPage} disabled={!hasNext} onClick={onNextPage}>
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-8 rounded-full"
+            aria-label={messages.requestLogs.nextPage}
+            disabled={!hasNext}
+            onClick={onNextPage}
+          >
             <ChevronRight />
           </Button>
         </div>
@@ -339,7 +413,6 @@ export function RequestLogsTable({
     </div>
   );
 }
-
 
 // Column visibility toggle (Requests SPEC §9.3): a compact popover listing
 // all column keys with checkboxes and a reset-to-defaults action. Keeps the
@@ -358,7 +431,9 @@ export function ColumnToggleMenu({
   const { messages } = useLocale();
   const keys = allColumnKeys();
   const labels = useMemo(() => {
-    const byKey = new Map(getColumns().map((column) => [column.key, column.label]));
+    const byKey = new Map(
+      getColumns().map((column) => [column.key, column.label]),
+    );
     return byKey;
   }, []);
 

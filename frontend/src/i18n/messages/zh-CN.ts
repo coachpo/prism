@@ -176,6 +176,14 @@ export const zhCNMessages = {
     nextPage: "下一页",
     pageSize: "每页条数",
     page: (page: MessageArg) => `第 ${page} 页`,
+    // 异步分页的诚实状态文案：替页/追加/刷新各自有明确说法，
+    // 且加载中会通过 role=status 播报给辅助技术。
+    loadingFirstPage: "正在加载数据…",
+    loadingPage: (page: MessageArg) => `正在加载第 ${page} 页…`,
+    loadingTargetPage: "正在加载目标页…",
+    loadingMore: "正在加载更多…",
+    retryLoadMore: "重试加载",
+    pageLoadFailed: (page: MessageArg) => `第 ${page} 页加载失败`,
   },
   dashboard: {
     activeModels: "活跃模型",
@@ -873,7 +881,12 @@ export const zhCNMessages = {
     impactTitle: "编辑影响预检",
     impactLoading: "正在读取编辑影响...",
     impactUnavailable: "无法确认编辑影响",
-    impactSummary: (current: MessageArg, next: MessageArg, references: MessageArg) => `当前 v${current} · 保存结构变更将生成 v${next} · 影响 ${references} 个终端目标`,
+    impactSummary: (
+      current: MessageArg,
+      next: MessageArg,
+      references: MessageArg,
+    ) =>
+      `当前 v${current} · 保存结构变更将生成 v${next} · 影响 ${references} 个终端目标`,
     impactUnknownConnection: "未命名终端目标",
     impactNone: "当前没有终端目标引用此模板。",
   },
@@ -1157,6 +1170,8 @@ export const zhCNMessages = {
     checkpoints: "检查点",
     partitionEvidence: "分区证据",
     jobDetailFailed: "加载清理作业详情失败",
+    jobsLoadFailed: "加载清理作业列表失败",
+    jobsRefresh: "手动刷新",
     jobTerminalNotice: (
       dataset: MessageArg,
       state: MessageArg,
@@ -2674,6 +2689,7 @@ export const zhCNMessages = {
 
     // 近 7 天请求列的四种情形。
     requests7dFailed: "读取失败",
+    requests7dRefreshing: "正在刷新…",
     requests7dFailedReason:
       "这一列的用量读取没有成功，因此不显示数字；这不代表该密钥没有请求。",
     requests7dFailedBadge: "用量列读取失败",
