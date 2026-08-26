@@ -371,6 +371,10 @@ async function installSetupReadinessRoutes(page: Page, mode: "fresh" | "unknown"
   });
   await page.route("**/api/models*", async (route) => {
     const url = new URL(route.request().url());
+    if (url.pathname !== "/api/models") {
+      await route.continue();
+      return;
+    }
     if (url.searchParams.get("include") !== "route_readiness") {
       await route.continue();
       return;
@@ -534,6 +538,11 @@ test.describe("auth session lifecycle", () => {
       fulfillJson(route, { authenticated: false, auth_enabled: false, username: null }),
     );
     await page.route("**/api/models*", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname !== "/api/models") {
+        await route.continue();
+        return;
+      }
       await fulfillJson(route, { detail: "Authentication required" }, 401);
     });
 
