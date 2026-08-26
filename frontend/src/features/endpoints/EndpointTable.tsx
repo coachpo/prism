@@ -15,10 +15,8 @@ import {
 } from "@/shared/table/operationalTable";
 import type { OperationalSortState } from "@/shared/table/operationalTableState";
 import { EndpointRowGroup, MobileEndpointCard } from "./EndpointRows";
-import {
-    type EndpointReferenceDetailState,
-    type EndpointReferenceSummaryState,
-} from "./useEndpointReferences";
+import type { EndpointReferenceDetailState } from "./useEndpointReferenceDetails";
+import type { EndpointReferenceSummaryState } from "./useEndpointReferenceSummaries";
 
 export type EndpointSortColumn =
     | "name"

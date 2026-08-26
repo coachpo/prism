@@ -25,10 +25,8 @@ import { DeleteEndpointDialog } from "@/pages/endpoints/DeleteEndpointDialog";
 import { EndpointDialog } from "./EndpointDialog";
 import { EndpointTable } from "./EndpointTable";
 import { OrphanCleanupDialog } from "@/pages/endpoints/OrphanCleanupDialog";
-import {
-  useEndpointsFeatureData,
-  type ReviewFilter,
-} from "./useEndpointsFeatureData";
+import { useEndpointsFeatureData } from "./useEndpointsFeatureData";
+import type { ReviewFilter } from "./useEndpointList";
 
 export function EndpointsFeaturePage() {
   const { messages } = useLocale();

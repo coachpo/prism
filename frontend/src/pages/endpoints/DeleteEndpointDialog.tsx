@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useLocale } from "@/i18n/useLocale"
 import { OperatorCallout, OperatorDestructiveDialog } from "@/shared/design-system"
-import type { DeleteDialogState } from "@/features/endpoints/useEndpointsFeatureData"
+import type { DeleteDialogState } from "@/features/endpoints/useEndpointDeletion"
 import type { EndpointReferenceItem } from "@/lib/types"
 
 type DeleteEndpointDialogProps = {

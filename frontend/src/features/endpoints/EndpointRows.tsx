@@ -26,11 +26,9 @@ import {
       ReferenceCell,
       ReferenceDisclosureRow,
 } from "./EndpointReferenceDisclosure";
-import {
-      summaryFor,
-      type EndpointReferenceDetailState,
-      type EndpointReferenceSummaryState,
-} from "./useEndpointReferences";
+import { summaryFor } from "./useEndpointReferenceSummaries";
+import type { EndpointReferenceDetailState } from "./useEndpointReferenceDetails";
+import type { EndpointReferenceSummaryState } from "./useEndpointReferenceSummaries";
 
 function KeyIdentityCell({
       endpoint,
