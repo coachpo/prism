@@ -239,6 +239,8 @@ Runtime compatibility and redirect checks use each model's required `api_family`
 
 The model-management frontend keeps model CRUD form state in `frontend/src/pages/models/modelFormState.ts`, mixed access-target draft/order rules in `accessTargetFormState.ts`, and detail-side ownership/options/summary projection in `modelAccessTargetProjection.ts`. Connection collection patching is owned by `connectionCollectionState.ts`; `useModelDetailConnectionMutations.ts` only composes the connection submit, lifecycle, reconciliation, and mixed-target mutation owners. The management-only catalog card shell delegates binding, refresh-diff/ETag commit, and manual override workflows to their named dialogs, so catalog metadata never enters runtime compatibility or routing.
 
+The client model-export feature keeps source snapshot/query and selection reconciliation in `frontend/src/features/models/export/useModelExportSource.ts`, uploaded config parsing/review/enhancement state in `useModelExportUploadReview.ts`, and destination validation, render request, key-decision handoff, stale handling, and result state in `useModelExportRender.ts`. `ModelExportDestinationPanel.tsx`, `ModelExportSelectionPanel.tsx`, `ModelExportUploadPanel.tsx`, `ModelExportSourcePanel.tsx`, and `ModelExportModelTable.tsx` own their concrete presentation boundaries; selection, upload review, source results, risk, and evidence are composed in that order. `ModelExportPage.tsx` is only the page composition root, while `PlatformKeyDialog.tsx` and `ExportResultSheet.tsx` retain their existing presentation ownership.
+
 ### 3.5 Management API Profile Scoping
 
 - Prism keeps one route-class matrix:

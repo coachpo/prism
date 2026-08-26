@@ -10,7 +10,7 @@
 features/
 ├── endpoints/        # `/route/endpoints` feature page and endpoint dialogs/hooks (`endpoints/AGENTS.md`)
 ├── loadbalance/      # `/route/ban-policies` page with strategy collection, mutation, and impact owners
-├── models/           # `/models` list feature, `/models/$modelId` detail adapter, and `models/export/` client-config export page
+├── models/           # `/models` list feature, `/models/$modelId` detail adapter, and `models/export/` client-config export owners
 ├── observe/          # `/observe` dashboard adapter plus routing-health query/context, event, and current-state owners
 ├── pricing/          # `/route/pricing` feature page with collection/editor/detail/import owners
 ├── proxy-keys/       # `/system/proxy-keys` global proxy-key surface: ledger, four mutation lanes, secret session, access panel (`proxy-keys/AGENTS.md`)
@@ -27,6 +27,7 @@ features/
 - Typed backend API, shared request plumbing, and pinned profile-header rules: `../lib/AGENTS.md`, `../lib/api/AGENTS.md`
 - Cross-route query, invalidation, server-validation, table, and design-system helpers: `../shared/AGENTS.md`
 - Routing-health event context/page and global current-state owners: `observe/useRoutingHealthQueryContext.ts`, `observe/useRoutingHealthEventPage.ts`, `observe/useRoutingHealthCurrentStateRead.ts`, `observe/useRoutingHealthCurrentStateReset.ts`
+- Model-export source/selection, upload review, render lifecycle, and presentation owners: `models/export/useModelExportSource.ts`, `models/export/useModelExportUploadReview.ts`, `models/export/useModelExportRender.ts`, `models/export/ModelExportSelectionPanel.tsx`, `models/export/ModelExportSourcePanel.tsx`, `models/export/ModelExportUploadPanel.tsx`, and `models/export/ModelExportDestinationPanel.tsx`
 
 ## CONVENTIONS
 
@@ -42,6 +43,7 @@ features/
 - Keep proxy-key ledger/query state, create/edit/rotate/delete mutation lifecycles, mutation reconciliation/error mapping, and the one-time raw-secret session in their named owners; mutations must preserve cache invalidation, capacity reconciliation, and no-store secret handling.
 - Keep request-log attempt reads and ingress-chain reads in separate owners; the page hook only selects and combines the active view while preserving committed filter metadata for cross-view fallback.
 - Keep routing-health signed query context, event paging/detail selection, Current State reads/resets, and presentation in their named owners; `RoutingHealthTab.tsx` only composes them.
+- Keep model-export source snapshot/selection reconciliation, uploaded config review/enhancement, and render/key/result lifecycle in their named hooks; `ModelExportPage.tsx` only composes page presentation. `PlatformKeyDialog.tsx` and `ExportResultSheet.tsx` remain the credential-decision and generated-result presentation owners.
 
 ## ANTI-PATTERNS
 
