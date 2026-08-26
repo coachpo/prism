@@ -25,7 +25,9 @@ runtime/
 ├── request_logs_audit_diagnostics_contract_test.go # Audit and safe-diagnostic request-log contracts
 ├── request_logs_contract_harness_test.go # Request-log database harness and fixture ownership
 ├── pricing_peak_valley_runtime_test.go # Real runtime peak/offpeak requests, SQL evidence symmetry, and half-open boundary
-├── proxy_selector_test.go              # Access-target selection, header parity, and private ownership
+├── proxy_forwarding_parity_test.go    # Runtime proxy forwarding and parity contracts
+├── runtime_operation_request_body_test.go # Runtime operation request-body builders
+├── proxy_selector_test.go              # Access-target selection and private ownership
 ├── proxy_admission_test.go             # Admission exhaustion and per-connection admission limits
 ├── proxy_failover_test.go              # Retry, failover, round-robin, and retry-window behavior
 ├── proxy_lease_test.go                 # Response-body lease and in-flight exclusivity
@@ -40,7 +42,9 @@ runtime/
 ## WHERE TO LOOK
 
 - Harness database/runtime setup: `runtime_database_harness.go`, `runtime_runtime_setup.go`, `runtime_database_lifecycle.go`
-- Domain seed helpers: `runtime_domain_seeds.go`
+- Domain seed helpers, including selector route seeds: `runtime_domain_seeds.go`
+- Runtime proxy forwarding and parity: `proxy_forwarding_parity_test.go`
+- Runtime operation request bodies: `runtime_operation_request_body_test.go`
 - Upstream test server plumbing: `runtime_upstream_fakes.go`
 - HTTP, concurrency, and state assertions: `runtime_http_assertions.go`
 - Operation route matrix and OpenAI native-compatibility coverage: `operation_route_matrix_test.go`, `operation_route_matrix_openai_compatibility_test.go`

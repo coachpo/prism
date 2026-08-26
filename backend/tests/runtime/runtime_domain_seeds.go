@@ -694,3 +694,67 @@ func (h *runtimeHarness) seedProfileHeaderBlocklistRule(t *testing.T, profileID 
 	}
 	h.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 }
+
+type selectorEndpointSeed struct {
+	label    string
+	baseURL  string
+	apiKey   string
+	priority int
+}
+
+type selectorRouteSeed struct {
+	profileID    int
+	apiFamily    string
+	prefix       string
+	suffix       string
+	strategyID   int
+	strategyType string
+	endpoints    []selectorEndpointSeed
+}
+
+type selectorRoute struct {
+	publicModelID       string
+	targetModelID       string
+	targetModelConfigID int
+	endpointIDs         []int
+	connectionIDs       []int
+}
+
+func seedSelectorRoute(t *testing.T, harness *runtimeHarness, seed selectorRouteSeed) selectorRoute {
+	t.Helper()
+	if seed.suffix == "" {
+		seed.suffix = randomSuffix()
+	}
+	if seed.apiFamily == "" {
+		seed.apiFamily = "openai"
+	}
+	publicModelID := "proxy-" + seed.prefix + "-" + seed.suffix
+	targetModelID := "native-" + seed.prefix + "-" + seed.suffix
+	strategyID := seed.strategyID
+	if strategyID == 0 {
+		strategyType := seed.strategyType
+		if strategyType == "" {
+			strategyType = "round-robin"
+		}
+		strategyID = harness.seedLegacyStrategy(t, seed.profileID, "runtime-"+seed.prefix+"-"+seed.suffix, strategyType)
+	}
+	targetModelConfigID := harness.seedModel(t, seed.profileID, seed.apiFamily, targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, seed.profileID, seed.apiFamily, publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	route := selectorRoute{
+		publicModelID:       publicModelID,
+		targetModelID:       targetModelID,
+		targetModelConfigID: targetModelConfigID,
+	}
+	for _, endpoint := range seed.endpoints {
+		apiKey := endpoint.apiKey
+		if apiKey == "" {
+			apiKey = seed.prefix + "-" + endpoint.label + "-key"
+		}
+		endpointID := harness.seedEndpoint(t, seed.profileID, seed.prefix+"-"+endpoint.label+"-endpoint-"+seed.suffix, endpoint.baseURL, apiKey)
+		connectionID := harness.seedConnection(t, seed.profileID, targetModelConfigID, endpointID, seed.prefix+"-"+endpoint.label+"-connection-"+seed.suffix, nil, nil, endpoint.priority)
+		route.endpointIDs = append(route.endpointIDs, endpointID)
+		route.connectionIDs = append(route.connectionIDs, connectionID)
+	}
+	return route
+}
