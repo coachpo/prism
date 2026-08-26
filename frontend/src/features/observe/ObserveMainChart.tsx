@@ -10,23 +10,41 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
-import { OBSERVE_GROUPS, OBSERVE_METRICS, type ObserveGroupBy, type ObserveMetric } from "@/features/observe/observeSearch";
+import {
+  OBSERVE_GROUPS,
+  OBSERVE_METRICS,
+  type ObserveGroupBy,
+  type ObserveMetric,
+} from "@/features/observe/observeSearch";
 import {
   buildObserveChartRows,
+  isLineMetric,
   isStackedRequestChart,
-  lastObservedBucket,
+  lineMetricDomain,
   observeChartMarks,
 } from "@/features/observe/observeChartRows";
+import { ObserveSeriesTable } from "@/features/observe/ObserveSeriesTable";
+import {
+  type ObservePointIndex,
+  ObserveSeriesTooltip,
+} from "@/features/observe/ObserveSeriesTooltip";
+import {
+  bucketCacheReadShare,
+  bucketOutputRate,
+} from "@/features/observe/seriesMetricStates";
 import type { UsageSeriesResponse } from "@/lib/api/observability";
 import type { FragmentState } from "@/features/observe/useObserveFragments";
-import { formatMoneyMicros } from "@/lib/costing";
-import { getActiveReportingCurrency } from "@/lib/reportingCurrency";
 import { cn } from "@/lib/utils";
-import { OperatorClippedBadge, OperatorEmptyState, OperatorErrorState, OperatorMissingValue, OperatorStalenessBadge } from "@/shared/design-system";
+import {
+  OperatorClippedBadge,
+  OperatorEmptyState,
+  OperatorErrorState,
+  OperatorStalenessBadge,
+} from "@/shared/design-system";
 
 /**
  * Series take the spectrum in order through `var(--chart-N)`; hard-coded hex
@@ -58,6 +76,22 @@ function seriesDash(index: number): string | undefined {
  */
 const CHART_MARGIN = { top: 16, right: 8, bottom: 20, left: 0 } as const;
 
+function buildObservePointIndex(
+  series: UsageSeriesResponse["series"],
+): ObservePointIndex {
+  const byBucket: ObservePointIndex = new Map();
+  for (const item of series) {
+    for (const point of item.points) {
+      const bucket =
+        byBucket.get(point.bucket_start) ??
+        new Map<string, UsageSeriesResponse["series"][number]["points"][number]>();
+      bucket.set(item.key, point);
+      byBucket.set(point.bucket_start, bucket);
+    }
+  }
+  return byBucket;
+}
+
 export function ObserveMainChart({
   fragment,
   metric,
@@ -83,6 +117,54 @@ export function ObserveMainChart({
     () => buildObserveChartRows(series, metric, groupBy),
     [groupBy, metric, series],
   );
+  const pointIndex = useMemo(() => buildObservePointIndex(series), [series]);
+
+  /**
+   * Honest emptiness for the two component-based metrics: when no bucket in
+   * the whole window carries a measurable reading, drawing empty axes would
+   * suggest a flat line the data never reported. Each gets its own empty
+   * state naming what is missing.
+   */
+  const metricMissingState = useMemo(() => {
+    const points = series.flatMap((item) => item.points);
+    if (metric === "output_rate") {
+      return points.some((point) => bucketOutputRate(point).kind === "value")
+        ? null
+        : "output_no_sample";
+    }
+    if (metric === "cache_read_share") {
+      if (points.some((point) => bucketCacheReadShare(point).kind === "value")) {
+        return null;
+      }
+      return points.some(
+        (point) => bucketCacheReadShare(point).kind === "no_denominator",
+      )
+        ? "cache_no_denominator"
+        : "cache_no_comparable";
+    }
+    return null;
+  }, [metric, series]);
+
+  /** Window-level sample and coverage totals across every drawn series. */
+  const coverageTotals = useMemo(() => {
+    let samples = 0;
+    let comparable = 0;
+    let requests = 0;
+    for (const item of series) {
+      for (const point of item.points) {
+        requests += point.request_count;
+        samples += point.output_rate_sample_count;
+        comparable += point.cache_basis_request_count;
+      }
+    }
+    return {
+      samples,
+      comparable,
+      partialSamples: samples > 0 && samples < requests,
+      partialBasis: comparable > 0 && comparable < requests,
+      requests,
+    };
+  }, [series]);
 
   const unit = copy.metricUnit(metric);
   const timezoneLabel = timezone ?? "";
@@ -101,17 +183,38 @@ export function ObserveMainChart({
   );
 
   const axisTick = { fill: "var(--chart-axis)", fontSize: 11 };
-  const formatBucket = (value: string) => formatTime(value, { hour: "2-digit", minute: "2-digit" });
+  const formatBucket = (value: string) =>
+    formatTime(value, { hour: "2-digit", minute: "2-digit" });
 
   return (
     <section className="flex flex-col gap-3" data-testid="observe-main-chart">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Segmented
-          ariaLabel={copy.metricLabel}
-          options={OBSERVE_METRICS.map((value) => ({ label: copy.metricName(value), value }))}
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          size="sm"
+          spacing={2}
           value={metric}
-          onChange={(value) => onMetricChange(value as ObserveMetric)}
-        />
+          aria-label={copy.metricLabel}
+          className="max-w-full flex-wrap"
+          onValueChange={(value) => {
+            // Radix emits "" when the active item is activated again; the
+            // main chart always shows exactly one metric, so ignore it.
+            if (value) onMetricChange(value as ObserveMetric);
+          }}
+        >
+          {OBSERVE_METRICS.map((value) => (
+            <ToggleGroupItem
+              key={value}
+              value={value}
+              aria-label={
+                value === "cache_read_share" ? copy.cacheReadShare : undefined
+              }
+            >
+              {copy.metricName(value)}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
         <div className="flex items-center gap-2">
           {fragment.data?.truncated ? (
             <OperatorClippedBadge
@@ -119,21 +222,37 @@ export function ObserveMainChart({
               reason={copy.seriesTruncatedReason(fragment.data.series_limit)}
             />
           ) : null}
-          <Segmented
-            ariaLabel={copy.groupLabel}
-            options={OBSERVE_GROUPS.map((value) => ({ label: copy.groupName(value), value }))}
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            spacing={2}
             value={groupBy}
-            onChange={(value) => onGroupByChange(value as ObserveGroupBy)}
-          />
-          <Segmented
-            ariaLabel={copy.chartTableSwitcherLabel}
-            options={[
-              { label: copy.chartView, value: "chart" },
-              { label: copy.tableView, value: "table" },
-            ]}
+            aria-label={copy.groupLabel}
+            onValueChange={(value) => {
+              if (value) onGroupByChange(value as ObserveGroupBy);
+            }}
+          >
+            {OBSERVE_GROUPS.map((value) => (
+              <ToggleGroupItem key={value} value={value}>
+                {copy.groupName(value)}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            spacing={2}
             value={mode}
-            onChange={(value) => setMode(value as "chart" | "table")}
-          />
+            aria-label={copy.chartTableSwitcherLabel}
+            onValueChange={(value) => {
+              if (value) setMode(value as "chart" | "table");
+            }}
+          >
+            <ToggleGroupItem value="chart">{copy.chartView}</ToggleGroupItem>
+            <ToggleGroupItem value="table">{copy.tableView}</ToggleGroupItem>
+          </ToggleGroup>
         </div>
       </div>
 
@@ -148,6 +267,7 @@ export function ObserveMainChart({
       {fragment.phase === "loading" && fragment.data === null ? (
         <Skeleton className="h-64 rounded-md" />
       ) : fragment.phase === "error" && fragment.data === null ? (
+        // 读取失败：整块替换为错误态并保留重试，绝不降级为空态。
         <OperatorErrorState
           testId="main-chart-error"
           title={copy.windowUnavailable}
@@ -157,9 +277,36 @@ export function ObserveMainChart({
         />
       ) : chartData.length === 0 ? (
         // No data draws no empty axes.
-        <OperatorEmptyState title={copy.noData} description={copy.adjustFiltersHint} />
+        <OperatorEmptyState
+          title={copy.noData}
+          description={copy.adjustFiltersHint}
+        />
       ) : mode === "table" ? (
-        <SeriesTable fragment={fragment} metric={metric} formatBucket={formatBucket} />
+        <ObserveSeriesTable
+          fragment={fragment}
+          metric={metric}
+          formatBucket={formatBucket}
+        />
+      ) : metricMissingState ? (
+        metricMissingState === "output_no_sample" ? (
+          <OperatorEmptyState
+            testId="output-rate-empty"
+            title={copy.outputRateEmptyTitle}
+            description={copy.outputRateEmptyDescription}
+          />
+        ) : metricMissingState === "cache_no_denominator" ? (
+          <OperatorEmptyState
+            testId="cache-read-share-zero-denominator-empty"
+            title={copy.cacheShareNoDenominatorTitle}
+            description={copy.cacheReadShareNoDenominator}
+          />
+        ) : (
+          <OperatorEmptyState
+            testId="cache-read-share-empty"
+            title={copy.cacheShareEmptyTitle}
+            description={copy.cacheShareEmptyDescription}
+          />
+        )
       ) : (
         <>
           <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
@@ -186,17 +333,61 @@ export function ObserveMainChart({
                 >
                   <span
                     aria-hidden="true"
-                    className="h-0.5 w-3 rounded-full"
-                    style={{ backgroundColor: seriesStroke(entry.colorIndex), opacity: isHidden ? 0.35 : 1 }}
+                    className="w-3 border-t-2"
+                    style={{
+                      borderTopColor: seriesStroke(entry.colorIndex),
+                      borderTopStyle: seriesDash(entry.colorIndex)
+                        ? "dashed"
+                        : "solid",
+                      opacity: isHidden ? 0.35 : 1,
+                    }}
                   />
                   {entry.label}
                 </button>
               );
             })}
           </div>
+          {metric === "output_rate" || metric === "cache_read_share" ? (
+            <div
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 self-start text-xs text-muted-foreground"
+              data-testid={`${metric}-coverage-hint`}
+            >
+              {metric === "output_rate" ? (
+                <>
+                  <span>
+                    {copy.outputRateSamplesHint(
+                      formatNumber(coverageTotals.samples),
+                      formatNumber(coverageTotals.requests),
+                    )}
+                  </span>
+                  {coverageTotals.partialSamples ? (
+                    <OperatorClippedBadge
+                      label={copy.partialCoverage}
+                      reason={copy.outputRatePartialReason}
+                    />
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <span>
+                    {copy.cacheBasisCoverageHint(
+                      formatNumber(coverageTotals.comparable),
+                      formatNumber(coverageTotals.requests),
+                    )}
+                  </span>
+                  {coverageTotals.partialBasis ? (
+                    <OperatorClippedBadge
+                      label={copy.cacheReadSharePartial}
+                      reason={copy.cacheReadSharePartialReason}
+                    />
+                  ) : null}
+                </>
+              )}
+            </div>
+          ) : null}
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              {metric === "ttft" ? (
+              {isLineMetric(metric) ? (
                 <LineChart data={chartData} margin={CHART_MARGIN}>
                   <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
                   <XAxis
@@ -205,10 +396,33 @@ export function ObserveMainChart({
                     tickLine={false}
                     interval="preserveStartEnd"
                     tickFormatter={formatBucket}
-                    label={{ value: copy.axisTimezone(timezoneLabel), position: "insideBottom", offset: -4, fill: "var(--chart-axis)", fontSize: 11 }}
+                    label={{
+                      value: copy.axisTimezone(timezoneLabel),
+                      position: "insideBottom",
+                      offset: -4,
+                      fill: "var(--chart-axis)",
+                      fontSize: 11,
+                    }}
                   />
-                  <YAxis tick={axisTick} tickLine={false} axisLine={false} width={52} unit={unit ? ` ${unit}` : undefined} />
-                  <Tooltip cursor={{ stroke: "var(--chart-cursor)" }} content={<SeriesTooltip formatBucket={formatBucket} unit={unit} />} />
+                  <YAxis
+                    tick={axisTick}
+                    tickLine={false}
+                    axisLine={false}
+                    width={52}
+                    unit={unit ? ` ${unit}` : undefined}
+                    domain={lineMetricDomain(metric)}
+                  />
+                  <Tooltip
+                    filterNull={false}
+                    cursor={{ stroke: "var(--chart-cursor)" }}
+                    content={
+                      <ObserveSeriesTooltip
+                        formatBucket={formatBucket}
+                        pointIndex={pointIndex}
+                        metric={metric}
+                      />
+                    }
+                  />
                   {/* An array, never a fragment: recharts collects its graphical
                       children through react-is, which does not recognise a
                       React 19 element as a fragment, so anything wrapped in one
@@ -224,6 +438,7 @@ export function ObserveMainChart({
                         strokeWidth={1.5}
                         stroke={seriesStroke(mark.colorIndex)}
                         strokeDasharray={seriesDash(mark.colorIndex)}
+                        connectNulls={false}
                       />
                     ),
                   )}
@@ -237,10 +452,32 @@ export function ObserveMainChart({
                     tickLine={false}
                     interval="preserveStartEnd"
                     tickFormatter={formatBucket}
-                    label={{ value: copy.axisTimezone(timezoneLabel), position: "insideBottom", offset: -4, fill: "var(--chart-axis)", fontSize: 11 }}
+                    label={{
+                      value: copy.axisTimezone(timezoneLabel),
+                      position: "insideBottom",
+                      offset: -4,
+                      fill: "var(--chart-axis)",
+                      fontSize: 11,
+                    }}
                   />
-                  <YAxis tick={axisTick} tickLine={false} axisLine={false} width={52} unit={unit ? ` ${unit}` : undefined} />
-                  <Tooltip cursor={{ fill: "var(--chart-cursor-fill)" }} content={<SeriesTooltip formatBucket={formatBucket} unit={unit} />} />
+                  <YAxis
+                    tick={axisTick}
+                    tickLine={false}
+                    axisLine={false}
+                    width={52}
+                    unit={unit ? ` ${unit}` : undefined}
+                  />
+                  <Tooltip
+                    filterNull={false}
+                    cursor={{ fill: "var(--chart-cursor-fill)" }}
+                    content={
+                      <ObserveSeriesTooltip
+                        formatBucket={formatBucket}
+                        pointIndex={pointIndex}
+                        metric={metric}
+                      />
+                    }
+                  />
                   {/* An array, never a fragment: recharts collects its graphical
                       children through react-is, which does not recognise a
                       React 19 element as a fragment, so anything wrapped in one
@@ -266,237 +503,10 @@ export function ObserveMainChart({
           empty, and "0 个时间桶" under the error card would state a count the
           window never reported. */}
       {chartData.length > 0 ? (
-        <p className="text-xs text-muted-foreground">{formatNumber(chartData.length)} {copy.buckets}</p>
+        <p className="text-xs text-muted-foreground">
+          {formatNumber(chartData.length)} {copy.buckets}
+        </p>
       ) : null}
     </section>
   );
-}
-
-function Segmented({
-  ariaLabel,
-  onChange,
-  options,
-  value,
-}: {
-  ariaLabel: string;
-  onChange: (value: string) => void;
-  options: readonly { label: string; value: string }[];
-  value: string;
-}) {
-  return (
-    <div
-      role="group"
-      aria-label={ariaLabel}
-      className="flex w-fit items-center gap-0.5 rounded-md border border-border bg-inset p-0.5"
-    >
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          onClick={() => onChange(option.value)}
-          aria-pressed={value === option.value}
-          className={cn(
-            "rounded-[4px] px-2 py-1 text-xs font-medium transition-colors",
-            value === option.value
-              ? "bg-primary-soft text-on-primary-soft"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/** Series name left, value right in mono, on `raised`. */
-function SeriesTooltip({
-  active,
-  formatBucket,
-  label,
-  payload,
-  unit,
-}: {
-  active?: boolean;
-  formatBucket: (value: string) => string;
-  label?: string;
-  payload?: { color?: string; name?: string; value?: number | string | null }[];
-  unit: string;
-}) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="operator-overlay-surface min-w-44 rounded-lg border p-2 text-xs">
-      <p className="mb-1 font-mono tabular-nums text-muted-foreground">
-        {label ? formatBucket(label) : ""}
-      </p>
-      <ul className="flex flex-col gap-0.5">
-        {payload.map((entry, index) => (
-          <li key={`${entry.name}-${index}`} className="flex items-center gap-2">
-            <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: entry.color }} />
-            <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-            <span className="shrink-0 font-mono tabular-nums">
-              {entry.value === null || entry.value === undefined ? "—" : `${entry.value}${unit ? ` ${unit}` : ""}`}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-/**
- * The window total and the last bucket are two different bases, so they get
- * their own column headers rather than sitting in one row unlabelled.
- */
-function SeriesTable({
-  formatBucket,
-  fragment,
-  metric,
-}: {
-  formatBucket: (value: string) => string;
-  fragment: FragmentState<UsageSeriesResponse>;
-  metric: ObserveMetric;
-}) {
-  const { formatNumber, messages } = useLocale();
-  const copy = messages.observe;
-  if (fragment.data === null || fragment.data.series.length === 0) return null;
-
-  const items = fragment.data.series;
-  // The window's last bucket, not the first series' — a series that stopped
-  // early does not know it. Every column then reads the one bucket the header
-  // names, so a series absent from it shows missing rather than an older
-  // number filed under the wrong time.
-  const lastBucketStart = lastObservedBucket(items);
-  const lastBucketLabel = lastBucketStart ? copy.lastBucketColumn(formatBucket(lastBucketStart)) : copy.lastBucketColumn("—");
-
-  // The card supplies the outer border; the table only needs to scroll.
-  return (
-    <div className="overflow-x-auto">
-      <Table aria-label={copy.semanticTable}>
-        <TableHeader>
-          <TableRow>
-            <TableHead>{copy.seriesLabel}</TableHead>
-            <TableHead className="text-right">
-              {copy.windowTotalColumn} · {copy.requests}
-            </TableHead>
-            {metric === "errors" ? (
-              <TableHead className="text-right">{copy.windowTotalColumn} · {copy.errorCount}</TableHead>
-            ) : null}
-            {metric === "tokens" ? (
-              <TableHead className="text-right">{copy.windowTotalColumn} · {copy.tokenCount}</TableHead>
-            ) : null}
-            {metric === "cost" ? (
-              <TableHead className="text-right">{copy.windowTotalColumn} · {copy.cost}</TableHead>
-            ) : null}
-            {metric === "requests" ? (
-              <>
-                <TableHead className="text-right">{lastBucketLabel} · {copy.httpSuccessShort}</TableHead>
-                <TableHead className="text-right">{lastBucketLabel} · {copy.httpFailedShort}</TableHead>
-              </>
-            ) : null}
-            {metric === "ttft" ? (
-              <>
-                <TableHead className="text-right">{lastBucketLabel} · P50</TableHead>
-                <TableHead className="text-right">{lastBucketLabel} · P95</TableHead>
-              </>
-            ) : null}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((item) => {
-            const lastPoint = item.points.find((point) => point.bucket_start === lastBucketStart);
-            return (
-              <TableRow key={item.key}>
-                <TableCell>{item.label}</TableCell>
-                <TableCell className="text-right font-mono tabular-nums">
-                  {formatNumber(item.request_count)}
-                </TableCell>
-                {metric === "errors" ? (
-                  <TableCell className="text-right font-mono tabular-nums">
-                    <Cell
-                      value={item.points.reduce(
-                        (total, point) => total + point.failed_count + point.client_disconnected_count,
-                        0,
-                      )}
-                    />
-                  </TableCell>
-                ) : null}
-                {metric === "tokens" ? (
-                  <TableCell className="text-right font-mono tabular-nums">
-                    <Cell value={sumWindowValues(item.points.map((point) => point.total_tokens))} />
-                  </TableCell>
-                ) : null}
-                {metric === "cost" ? (
-                  <TableCell className="text-right font-mono tabular-nums">
-                    <MoneyCell
-                      micros={sumWindowValues(
-                        item.points.map((point) =>
-                          point.known_cost_micros === null ? null : Number(point.known_cost_micros),
-                        ),
-                      )}
-                    />
-                  </TableCell>
-                ) : null}
-                {metric === "requests" ? (
-                  <>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      <Cell value={lastPoint?.http_success_count} />
-                    </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      <Cell value={lastPoint?.http_failed_count} />
-                    </TableCell>
-                  </>
-                ) : null}
-                {metric === "ttft" ? (
-                  <>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      <Cell value={lastPoint?.p50_ttft_ms} />
-                    </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      <Cell value={lastPoint?.p95_ttft_ms} />
-                    </TableCell>
-                  </>
-                ) : null}
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </div>
-  );
-}
-
-function Cell({ value }: { value: number | null | undefined }) {
-  const { formatNumber, messages } = useLocale();
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return <OperatorMissingValue reason={messages.honesty.noValue} />;
-  }
-  return <>{formatNumber(value)}</>;
-}
-
-/**
- * Window totals mirror the read model: `request_count` is itself summed from
- * the bucket rows, so a metric column sums the same points the chart draws and
- * the two views cannot disagree. Null buckets keep SQL SUM semantics — missing
- * usage does not zero the total, and an all-null window reads as missing
- * rather than a fabricated zero.
- */
-function sumWindowValues(values: readonly (number | null | undefined)[]): number | null {
-  let total = 0;
-  let sawValue = false;
-  for (const value of values) {
-    if (value === null || value === undefined || Number.isNaN(value)) continue;
-    total += value;
-    sawValue = true;
-  }
-  return sawValue ? total : null;
-}
-
-/** Cost column: trusted micros summed over the window, formatted like the KPI card. */
-function MoneyCell({ micros }: { micros: number | null }) {
-  const { messages } = useLocale();
-  if (micros === null) {
-    return <OperatorMissingValue reason={messages.honesty.noValue} />;
-  }
-  return <>{formatMoneyMicros(micros, getActiveReportingCurrency().symbol)}</>;
 }

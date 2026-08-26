@@ -98,10 +98,10 @@ Single operator (developer/power user) running the application locally or on a l
 - Dedicated model-detail route (`/models/:id`) for ordered access-target and Terminal Target configuration; current loadbalance state and loadbalance event history live under Ban Policies
 - Dedicated request-log browsing and investigation at `/observe/requests`, separate from dashboard analytics
 - Dedicated routes for pricing templates and proxy API key lifecycle management
-- `/observe` provides three tabs sharing one URL time preset: Overview (Now strip with rolling 30-minute RPM/TPM, Window KPI grid with TTFT P50/P95 headline, request preview and main chart), Analytics (single main chart with metric/group switching and a semantic data table), and Events (loadbalance timeline). Observe fragments load independently and never synthesize zeros on failure. The Window KPI grid shows six cards — requests, HTTP success rate, TTFT P95, output rate, cache-read share, and known cost. The cache-read share card separates genuine zero, no comparable rows, an empty window, a failed read, and partial coverage into distinct states (the share renders behind a clipped badge under partial coverage); it never paints a fabricated `0%` over missing data.
+- `/observe` is one dashboard with four content-switcher values sharing the page time preset: Trend (`trend`), Errors (`errors`), Activity (`activity`), and Terminal Targets (`terminal_targets`). The Now strip and Window KPI grid render once above that switcher; routing health is a separate `/observe/routing-health` route. Legacy `overview`/`analytics` links resolve to Trend, while legacy `events` links redirect to routing health. Observe fragments load independently and never synthesize zeros on failure. The Window KPI grid shows six cards — requests, HTTP success rate, TTFT P95, output rate, cache-read share, and known cost. The cache-read share card separates genuine zero, no comparable rows, an empty window, a failed read, and partial coverage into distinct states; it never paints a fabricated `0%` over missing data. The Trend main chart offers seven metrics in a fixed order — requests, errors, TTFT, output rate (`output_rate`), tokens, cache-read share (`cache_read_share`), cost — as one `metric` URL tuple; output rate and cache-read share draw as lines per bucket from the same usage-series read. Their tooltip, sample/partial-coverage badges, dedicated all-missing empty states, and last-bucket table columns distinguish a genuine zero, no samples, no comparable rows, a zero denominator, partial coverage, and a failed read; absent buckets stay gaps, never plotted zeros.
 - Model creation supports one-step composite create: an optional `initial_terminal_target` (existing or inline endpoint) is created atomically with the model; the model is enabled by default when the target is present, and cross-mode capability values are rejected with `422 target_openai_mode_mismatch` with zero writes. Terminal Targets can be batch-copied to same-profile same-family same-mode destination models in one transaction (new targets default to not participating in routing).
 - Model detail exposes read-only static routing diagnostics (`GET /api/models/{id}/routing-diagnostics`) and the models list embeds a compact `routing_summary`; both share one backend analyzer, which is separate from the runtime planner and never reads Ban/retry/admission state. The analyzer applies the routing strategy to the single mixed peer sequence exactly as the runtime does, so a `single` strategy truncates that one list rather than each target type.
-- Dashboard analytics lives under `/observe?tab=analytics` and replaces the old standalone statistics route
+- Dashboard trends live under canonical `/observe?tab=trend`; the legacy `tab=analytics` value remains a compatibility alias for that same view
 - The protected shell renders sidebar navigation and breadcrumbs from local route metadata.
 - Settings uses canonical public URLs with **全局** (`scope=global`) and **实例** (`scope=instance`) scopes and a section allowlist; the legacy `tab` query value is dropped during canonicalization. `scope=global` contains billing/reporting currency, timezone, audit/privacy, and config rules; `scope=instance` contains authentication and operator account, automatic retention policy with owner actual coverage, manual cleanup, and the retention job center.
 
@@ -152,8 +152,8 @@ The gateway computes the cost of each request based on the extracted token usage
   - Dashboard incidents for active bans and recent loadbalance events; the backend `routing_health_map` is returned in the snapshot but is not rendered by the current UI
   - Aggregate endpoint, model, and proxy-key usage views sourced from the unified usage snapshot with endpoint labels read from stored `endpoint_label_snapshot` values
   - Separate recent activity feed that links into request-log investigation without being embedded in the dashboard snapshot
-  - Analytics controls: time presets (`1h`, `6h`, `24h`, `7d`, `30d`, `all`) plus model-line selection for usage trend comparison
-  - Analytics KPI cards for requests/success rate, total tokens with component breakdown, RPM, TPM, and total spend, followed by usage trends and aggregate endpoint/model/proxy-key tables
+  - Trend controls: time presets (`1h`, `6h`, `24h`, `7d`, `30d`, `all`) plus model/endpoint/terminal-target series grouping
+  - Window KPI cards and the seven-metric Trend chart, followed by the separate Errors, Activity, and Terminal Targets switcher views
   - Summary statistics grouped by model and API family
 - Dedicated request investigation UI at `/observe/requests` with server-backed filters (`pricing_status` four-state, caller-only `client_rule_id`, final-target `resolved_target_model_id`), a default retained ingress-chain view with signed cursors, scoped status columns, adaptive table height, a failure-first detail sheet, and a dedicated full audit page with byte-exact raw body downloads
 - REST API for querying statistics remains available for API callers and debugging:
@@ -162,7 +162,7 @@ The gateway computes the cost of each request based on the extracted token usage
   - Get aggregated statistics (counts, averages, totals) with grouping
   - Get the usage snapshot and endpoint model statistics directly when needed
 - Dashboard overview polls REST stats for the aggregate snapshot and separate recent activity feed.
-- Dashboard Analytics polls the REST usage snapshot for the selected preset and treats each accepted snapshot as a full replacement; endpoint model statistics load through REST drilldown endpoints.
+- Observe issues one signed query context for the selected preset, then loads the summary and selected usage-series fragment independently; endpoint model statistics remain available through REST drilldown endpoints.
 
 #### 4.9.3 Retention Coverage And Analysis Windows
 
@@ -610,7 +610,7 @@ Validated again against current repo surfaces on 2026-08-22:
 ### Shared Scope Rules
 
 - Public auth routes are `/auth/login`.
-- Protected shell routes cover `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/route/pricing`, `/system/settings`, and `/system/proxy-keys`; analytics is under `/observe?tab=analytics`.
+- Protected shell routes cover `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/route/pricing`, `/system/settings`, and `/system/proxy-keys`; the canonical trend view is `/observe?tab=trend`.
 - Profile-scoped management requests are pinned to Default profile id `1`. `X-Profile-Id` is still accepted for compatibility, but the backend ignores its value.
 - Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/settings/auth*`, `GET/PUT /api/settings/log-retention`, destructive preflights and manual jobs under `/api/maintenance/log-retention/*`, and global retention job list/detail/cancel under `/api/management/jobs*`.
 - Runtime proxy traffic on `/v1/*` and `/v1beta/*` ignores management profile headers and resolves against frozen Default profile id `1`.
@@ -667,8 +667,8 @@ Validated again against current repo surfaces on 2026-08-22:
 **User entrypoints**
 
 - `/observe` (canonical dashboard; the root `/` landing gate redirects here for authenticated/disabled sessions)
-- `/observe?tab=analytics`
-- `/observe?tab=events` (routing-health events timeline)
+- `/observe?tab=trend` (main metric trend)
+- `/observe/routing-health` (current routing state and events timeline)
 
 **Frontend flow**
 
@@ -677,8 +677,8 @@ Validated again against current repo surfaces on 2026-08-22:
 3. The dashboard also loads current loadbalance incident state for active-ban and recent-event alerts. The backend snapshot's `routing_health_map` is a response field only and is not rendered by the current dashboard.
 4. The dashboard polls REST stats endpoints every 30 seconds for aggregate and recent-activity reconciliation, but any retryable data error that succeeds retries immediately on the next manual retry — recovery never waits for the next poll. Session failure, request error, retention gap, real empty, and real zero stay distinguishable across every protected page.
 5. The canonical overview hosts the first-run setup wizard: seven rows covering Endpoint, Pricing, routing policy, Model, enabled Terminal Target, and Proxy Key configuration facts plus a persistent “验证接入” action; the main progress counts only the four routing configuration items (`4/4`), settled strictly on the same `route_witness_generation` from existing-owner reads. Fresh, unknown, degraded, and empty-instance states are distinct; a fresh `4/4` auto-collapses exactly once per 4/4 cycle only after focus leaves the card, and the disclosure entry stays.
-6. Quick actions send operators into the analytics tab or `/observe/requests` for deeper analysis.
-7. The analytics tab stays aggregate-focused and uses its own snapshot presets rather than request-level drill-down.
+6. Quick actions send operators into the Trend view or `/observe/requests` for deeper analysis.
+7. The Trend view stays aggregate-focused and uses the shared signed query-context preset rather than request-level drill-down.
 8. The events tab renders the routing-health global current state and the loadbalance events timeline with typed summaries, coverage, and freshness from Observe's query context — partial/missing retention coverage is shown as a gap, never as a complete window.
 
 **Backend touchpoints**

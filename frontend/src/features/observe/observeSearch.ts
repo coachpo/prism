@@ -5,16 +5,30 @@ export function isObservePreset(value: string): value is ObservePreset {
   return (OBSERVE_PRESETS as readonly string[]).includes(value);
 }
 
-export type ObserveMetric = "requests" | "errors" | "ttft" | "tokens" | "cost";
-export type ObserveGroupBy = "none" | "model" | "endpoint" | "terminal_target";
+/** UI order is fixed: requests, errors, TTFT, output rate, tokens, cache read, cost. */
+export const OBSERVE_METRICS = [
+  "requests",
+  "errors",
+  "ttft",
+  "output_rate",
+  "tokens",
+  "cache_read_share",
+  "cost",
+] as const;
+export type ObserveMetric = (typeof OBSERVE_METRICS)[number];
 
-export const OBSERVE_METRICS: ObserveMetric[] = ["requests", "errors", "ttft", "tokens", "cost"];
-export const OBSERVE_GROUPS: ObserveGroupBy[] = ["none", "model", "endpoint", "terminal_target"];
+export const OBSERVE_GROUPS = [
+  "none",
+  "model",
+  "endpoint",
+  "terminal_target",
+] as const;
+export type ObserveGroupBy = (typeof OBSERVE_GROUPS)[number];
 
 export function isObserveMetric(value: string): value is ObserveMetric {
-  return (OBSERVE_METRICS as string[]).includes(value);
+  return (OBSERVE_METRICS as readonly string[]).includes(value);
 }
 
 export function isObserveGroupBy(value: string): value is ObserveGroupBy {
-  return (OBSERVE_GROUPS as string[]).includes(value);
+  return (OBSERVE_GROUPS as readonly string[]).includes(value);
 }

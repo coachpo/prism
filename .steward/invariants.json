@@ -1,0 +1,193 @@
+{
+  "schemaVersion": 1,
+  "profileSelection": {
+    "path": ".steward/profile-selection.json",
+    "digest": "sha256:eb157546c53295f1271458da1c86b5325ba6f14da9b58bd2cf0ee193a11e0aba"
+  },
+  "bindings": [
+    {
+      "invariantId": "INV-GO-229D2B017A9B",
+      "source": {
+        "kind": "profile",
+        "profileId": "golang",
+        "profileVersion": "1.0.0",
+        "profileDigest": "sha256:bc26956f6cee66e4aec106bab8bac9673e7135ed34b867375239ab86f9cb45cb"
+      },
+      "scopes": [
+        "backend"
+      ],
+      "trigger": "Changing Go entrypoints, configuration, toolchain, dependencies, generated inputs, tests, or release artifacts",
+      "authority": {
+        "path": "docs/architecture.md",
+        "anchor": "inv-go-229d2b017a9b"
+      },
+      "applicability": "applicable",
+      "applicabilityByScope": [
+        {
+          "scope": "backend",
+          "state": "applicable"
+        }
+      ],
+      "status": "unverified",
+      "evidence": [
+        "backend/cmd/prism-backend/main.go",
+        "backend/go.mod",
+        "docs/architecture.md#inv-go-229d2b017a9b"
+      ],
+      "enforcement": {
+        "kind": "manual",
+        "evidence": [
+          "AGENTS.md"
+        ],
+        "validationEntry": "cd backend && go build ./cmd/prism-backend && go test ./internal/... ./cmd/..."
+      }
+    },
+    {
+      "invariantId": "INV-GO-2D7D34EE6112",
+      "source": {
+        "kind": "profile",
+        "profileId": "golang",
+        "profileVersion": "1.0.0",
+        "profileDigest": "sha256:bc26956f6cee66e4aec106bab8bac9673e7135ed34b867375239ab86f9cb45cb"
+      },
+      "scopes": [
+        "backend"
+      ],
+      "trigger": "Changing Context chains, goroutines, connections, commands, servers, workers, admission, or shutdown",
+      "authority": {
+        "path": "docs/architecture.md",
+        "anchor": "inv-go-2d7d34ee6112"
+      },
+      "applicability": "applicable",
+      "applicabilityByScope": [
+        {
+          "scope": "backend",
+          "state": "applicable"
+        }
+      ],
+      "status": "unverified",
+      "evidence": [
+        "backend/cmd/prism-backend/main.go",
+        "backend/internal/platform/lifecycle/production.go",
+        "docs/architecture.md#inv-go-2d7d34ee6112"
+      ],
+      "enforcement": {
+        "kind": "manual",
+        "evidence": [
+          "AGENTS.md"
+        ],
+        "validationEntry": "cd backend && go test -timeout 30m ./internal/platform/lifecycle ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/..."
+      }
+    },
+    {
+      "invariantId": "INV-GO-2E9F9D48AB43",
+      "source": {
+        "kind": "profile",
+        "profileId": "golang",
+        "profileVersion": "1.0.0",
+        "profileDigest": "sha256:bc26956f6cee66e4aec106bab8bac9673e7135ed34b867375239ab86f9cb45cb"
+      },
+      "scopes": [
+        "backend"
+      ],
+      "trigger": "Changing transactions, migrations, messages, caches, remote calls, retries, or cross-resource writes",
+      "authority": {
+        "path": "docs/architecture.md",
+        "anchor": "inv-go-2e9f9d48ab43"
+      },
+      "applicability": "applicable",
+      "applicabilityByScope": [
+        {
+          "scope": "backend",
+          "state": "applicable"
+        }
+      ],
+      "status": "unverified",
+      "evidence": [
+        "backend/internal/platform/migrate/runner.go",
+        "docs/architecture.md#inv-go-2e9f9d48ab43"
+      ],
+      "enforcement": {
+        "kind": "manual",
+        "evidence": [
+          "AGENTS.md"
+        ],
+        "validationEntry": "cd backend && go test -timeout 30m ./tests/contract ./tests/integration"
+      }
+    },
+    {
+      "invariantId": "INV-GO-A392EB849715",
+      "source": {
+        "kind": "profile",
+        "profileId": "golang",
+        "profileVersion": "1.0.0",
+        "profileDigest": "sha256:bc26956f6cee66e4aec106bab8bac9673e7135ed34b867375239ab86f9cb45cb"
+      },
+      "scopes": [
+        "backend"
+      ],
+      "trigger": "Changing package dependencies, synchronous calls, authoritative facts, shared state, or goroutine ownership",
+      "authority": {
+        "path": "docs/architecture.md",
+        "anchor": "inv-go-a392eb849715"
+      },
+      "applicability": "applicable",
+      "applicabilityByScope": [
+        {
+          "scope": "backend",
+          "state": "applicable"
+        }
+      ],
+      "status": "unverified",
+      "evidence": [
+        "backend/cmd/prism-backend/main.go",
+        "backend/internal/platform/lifecycle/production.go",
+        "docs/architecture.md#inv-go-a392eb849715"
+      ],
+      "enforcement": {
+        "kind": "manual",
+        "evidence": [
+          "AGENTS.md"
+        ],
+        "validationEntry": "cd backend && go vet ./internal/... && go test ./internal/..."
+      }
+    },
+    {
+      "invariantId": "INV-GO-FD5B268343AE",
+      "source": {
+        "kind": "profile",
+        "profileId": "golang",
+        "profileVersion": "1.0.0",
+        "profileDigest": "sha256:bc26956f6cee66e4aec106bab8bac9673e7135ed34b867375239ab86f9cb45cb"
+      },
+      "scopes": [
+        "backend"
+      ],
+      "trigger": "Changing HTTP, CLI, file, identity, secret, diagnostic, limit, or public-error boundaries",
+      "authority": {
+        "path": "docs/architecture.md",
+        "anchor": "inv-go-fd5b268343ae"
+      },
+      "applicability": "applicable",
+      "applicabilityByScope": [
+        {
+          "scope": "backend",
+          "state": "applicable"
+        }
+      ],
+      "status": "unverified",
+      "evidence": [
+        "backend/internal/httpapi/runtime/operations.go",
+        "backend/internal/platform/http/server.go",
+        "docs/architecture.md#inv-go-fd5b268343ae"
+      ],
+      "enforcement": {
+        "kind": "manual",
+        "evidence": [
+          "AGENTS.md"
+        ],
+        "validationEntry": "cd backend && go test -timeout 30m ./tests/runtime"
+      }
+    }
+  ]
+}

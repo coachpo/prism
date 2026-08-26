@@ -1,4 +1,11 @@
-import type { ObserveGroupBy, ObserveMetric } from "@/features/observe/observeSearch";
+import type {
+  ObserveGroupBy,
+  ObserveMetric,
+} from "@/features/observe/observeSearch";
+import {
+  bucketCacheReadShare,
+  bucketOutputRate,
+} from "@/features/observe/seriesMetricStates";
 import type { UsageSeriesResponse } from "@/lib/api/observability";
 
 type UsageSeriesEntry = UsageSeriesResponse["series"][number];
@@ -33,13 +40,35 @@ function orderedBuckets(series: readonly UsageSeriesEntry[]): string[] {
  * The window's last observed bucket across every series. The first series is
  * only the busiest one; it can stop before the window does.
  */
-export function lastObservedBucket(series: readonly UsageSeriesEntry[]): string | undefined {
+export function lastObservedBucket(
+  series: readonly UsageSeriesEntry[],
+): string | undefined {
   return orderedBuckets(series).at(-1);
 }
 
 /** Requests split into a success/failed stack only while nothing is grouped. */
-export function isStackedRequestChart(metric: ObserveMetric, groupBy: ObserveGroupBy): boolean {
+export function isStackedRequestChart(
+  metric: ObserveMetric,
+  groupBy: ObserveGroupBy,
+): boolean {
   return metric === "requests" && groupBy === "none";
+}
+
+/** Metrics whose marks are lines, never bars: percentiles and rates. */
+export function isLineMetric(metric: ObserveMetric): boolean {
+  return (
+    metric === "ttft" ||
+    metric === "output_rate" ||
+    metric === "cache_read_share"
+  );
+}
+
+export function lineMetricDomain(
+  metric: ObserveMetric,
+): [number, number | "auto"] | undefined {
+  if (metric === "cache_read_share") return [0, 100];
+  if (metric === "output_rate") return [0, "auto"];
+  return undefined;
 }
 
 /**
@@ -58,17 +87,37 @@ export function observeChartMarks(
     // Success and failure are a fixed pair, not two entries of the spectrum:
     // green and pink regardless of where the one series sits in it.
     return [
-      { colorIndex: 2, key: `${ungrouped.key}-success`, label: stackLabels.success },
-      { colorIndex: 4, key: `${ungrouped.key}-failed`, label: stackLabels.failed },
+      {
+        colorIndex: 2,
+        key: `${ungrouped.key}-success`,
+        label: stackLabels.success,
+      },
+      {
+        colorIndex: 4,
+        key: `${ungrouped.key}-failed`,
+        label: stackLabels.failed,
+      },
     ];
   }
   if (metric === "ttft") {
     return series.flatMap((item, index) => [
-      { colorIndex: index * 2, key: `${item.key}-p50`, label: `${item.label} P50` },
-      { colorIndex: index * 2 + 1, key: `${item.key}-p95`, label: `${item.label} P95` },
+      {
+        colorIndex: index * 2,
+        key: `${item.key}-p50`,
+        label: `${item.label} P50`,
+      },
+      {
+        colorIndex: index * 2 + 1,
+        key: `${item.key}-p95`,
+        label: `${item.label} P95`,
+      },
     ]);
   }
-  return series.map((item, index) => ({ colorIndex: index, key: item.key, label: item.label }));
+  return series.map((item, index) => ({
+    colorIndex: index,
+    key: item.key,
+    label: item.label,
+  }));
 }
 
 /**
@@ -84,9 +133,13 @@ export function buildObserveChartRows(
 ): ObserveChartRow[] {
   if (series.length === 0) return [];
   const stacked = isStackedRequestChart(metric, groupBy);
-  const rows: ObserveChartRow[] = orderedBuckets(series).map((bucket) => ({ bucket }));
+  const rows: ObserveChartRow[] = orderedBuckets(series).map((bucket) => ({
+    bucket,
+  }));
   for (const item of series) {
-    const pointsByBucket = new Map(item.points.map((point) => [point.bucket_start, point]));
+    const pointsByBucket = new Map(
+      item.points.map((point) => [point.bucket_start, point]),
+    );
     for (const row of rows) {
       const point = pointsByBucket.get(row.bucket);
       // A bucket this entity has no row for stays unwritten, so the mark is a
@@ -110,8 +163,23 @@ export function buildObserveChartRows(
         row[`${key}-p95`] = point.p95_ttft_ms;
       } else if (metric === "tokens") {
         row[key] = point.total_tokens;
+      } else if (metric === "output_rate") {
+        // A bucket without samples is explicitly null: the line shows a gap,
+        // while filterNull=false keeps the source point available to the
+        // tooltip so it can explain the missing sample.
+        const rate = bucketOutputRate(point);
+        row[key] = rate.kind === "value" ? rate.tps : null;
+      } else if (metric === "cache_read_share") {
+        // Drawn as a percentage. Unusable bases are explicit nulls so the
+        // chart keeps a gap and the tooltip can distinguish no-comparable from
+        // zero-denominator; a genuine 0% remains a measured zero.
+        const share = bucketCacheReadShare(point);
+        row[key] = share.kind === "value" ? share.share * 100 : null;
       } else if (metric === "cost") {
-        row[key] = point.known_cost_micros === null ? null : Number(point.known_cost_micros) / 1_000_000;
+        row[key] =
+          point.known_cost_micros === null
+            ? null
+            : Number(point.known_cost_micros) / 1_000_000;
       }
     }
   }

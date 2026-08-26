@@ -134,9 +134,7 @@ WITH classified AS (
 		pricing_selection_state,
 		pricing_card_role,
 		ttft_ms,
-		CASE WHEN output_tokens IS NOT NULL AND ttft_ms IS NOT NULL AND completion_duration_ms IS NOT NULL
-		          AND completion_duration_ms - ttft_ms > 0
-		     THEN output_tokens * 1000.0 / (completion_duration_ms - ttft_ms) END AS output_rate_tps,
+			`+outputRateTPSSQL+` AS output_rate_tps,
 		input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
 		reasoning_tokens, total_tokens,
 		operation_name,

@@ -4,7 +4,7 @@
 
 Active development at version 1.0.24. Development proceeds as continuous iteration driven by the operator's own hands-on use of a running instance: work is prioritized from gaps observed in day-to-day operation rather than from an external roadmap. Upgrade work keeps the clean architecture and takes the best current implementation, so legacy shapes are preserved only when explicitly requested.
 
-MVP Fast Validation Mode: Enabled
+Development Tier: MVP
 
 ## Deployment
 
