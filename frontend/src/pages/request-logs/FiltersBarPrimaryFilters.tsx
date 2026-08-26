@@ -1,11 +1,9 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useLocale } from "@/i18n/useLocale";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -18,6 +16,7 @@ import type { RequestLogFilterOptions as FilterOptions } from "./requestLogQuery
 import type { RequestLogPageActions } from "./useRequestLogPageState";
 import { PRICING_CARD_ROLE_OPTIONS, PRICING_SELECTION_STATE_OPTIONS, PRICING_STATUS_OPTIONS, STATUS_FAMILY_OPTIONS, TIME_RANGE_OPTIONS, UNPRICED_REASON_OPTIONS } from "./queryParams";
 import { getTimeLabel, getUnpricedReasonLabel } from "./FiltersBar.constants";
+import { useRequestLogProxyApiKeyOptions } from "./useRequestLogProxyApiKeyOptions";
 
 
 interface FiltersBarPrimaryFiltersProps {
@@ -78,23 +77,12 @@ export function FiltersBarPrimaryFilters({
 }: FiltersBarPrimaryFiltersProps) {
   const { messages } = useLocale();
   const [requestLookupValue, setRequestLookupValue] = useState("");
-  const [proxyKeySearch, setProxyKeySearch] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
-  const proxyKeyOptionsQuery = useQuery({
-    queryKey: ["request-logs", "proxy-api-key-options", proxyKeySearch, state.proxy_api_key_id],
-    queryFn: () => api.stats.proxyApiKeyFilterOptions({
-      q: proxyKeySearch || undefined,
-      selected_id: state.proxy_api_key_id ? parseInt(state.proxy_api_key_id, 10) : undefined,
-    }),
-  });
-  const proxyKeyOptions = useMemo(() => {
-    const items = proxyKeyOptionsQuery.data?.items ?? [];
-    const selected = proxyKeyOptionsQuery.data?.selected ?? null;
-    if (selected && !items.some((item) => item.proxy_api_key_id === selected.proxy_api_key_id)) {
-      return [selected, ...items];
-    }
-    return items;
-  }, [proxyKeyOptionsQuery.data]);
+  const {
+    options: proxyKeyOptions,
+    search: proxyKeySearch,
+    setSearch: setProxyKeySearch,
+  } = useRequestLogProxyApiKeyOptions(state.proxy_api_key_id);
 
   // Conditions that live inside the collapsed panel.
   const hiddenFilterCount = [

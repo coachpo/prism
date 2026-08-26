@@ -14,9 +14,9 @@ import type {
 import {
   formatCost,
   formatTokenRate,
-  formatTtft,
   formatTokens,
-} from "../columns";
+  formatTtft,
+} from "../requestLogMetricPresentation";
 import { formatUnpricedReasonLabel } from "@/lib/costing";
 import {
   cacheReadShare,
