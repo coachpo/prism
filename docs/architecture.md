@@ -636,7 +636,7 @@ Partitioned retention manages the current log-table set only. Prism does not rew
 
 ### 9.6 Frontend Placement
 
-Log retention controls live on the visible Settings `实例` scope (canonical `scope=instance`), with automatic policy + actual coverage, manual cleanup, and the retention job center. The visible `全局` scope (canonical `scope=global`) manages billing and reporting currency, timezone, audit & privacy, config rules, and other Default-profile state.
+Log retention controls live on the visible Settings `实例` scope (canonical `scope=instance`), with automatic policy + actual coverage, manual cleanup, and the retention job center. The job center is a static browser-side snapshot over the durable queue: it never polls; manual refresh and post-mutation calibration re-read the loaded pages serially with fresh cursors and swap atomically, while the management-jobs worker remains the only background processor. The visible `全局` scope (canonical `scope=global`) manages billing and reporting currency, timezone, audit & privacy, config rules, and other Default-profile state.
 
 ## 10. Database Design
 

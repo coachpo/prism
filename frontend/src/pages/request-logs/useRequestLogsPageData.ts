@@ -209,6 +209,14 @@ export function useRequestLogsPageData({
     rows: 0,
   });
   const [coverage, setCoverage] = useState<QueryCoverage | null>(null);
+  /** How the outer read was issued; decides skeleton-replace vs keep-rows. */
+  const [readKind, setReadKind] = useState<"initial" | "replace" | "refresh">(
+    "initial",
+  );
+  /** Per-chain row_cursor append reads: pending flag and local retryable error. */
+  const [chainRowReads, setChainRowReads] = useState<
+    Record<string, { pending: boolean; error: string | null }>
+  >({});
 
   const fetchIdRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -304,6 +312,23 @@ export function useRequestLogsPageData({
       to_time: state.to_time || undefined,
     });
 
+    // The honest-state kind follows what changed: nothing committed yet is an
+    // initial read, the same query re-issued is a refresh that keeps rows, and
+    // any other change replaces what is on screen.
+    const previousSignature = loadedSignatureRef.current;
+    setReadKind(
+      previousSignature === null
+        ? "initial"
+        : previousSignature === signature
+          ? "refresh"
+          : "replace",
+    );
+    // A replaced outer page withdraws every per-chain append surface with it:
+    // the new page's chains have their own row cursors and no inherited errors.
+    if (previousSignature !== signature) {
+      setChainRowReads({});
+    }
+
     // A signed chain cursor only advances one query scope. Keep the small
     // client-side predecessor map for the previous-page control, but discard
     // it whenever filters, sorting, or the view changes.
@@ -326,6 +351,10 @@ export function useRequestLogsPageData({
       .then((res) => {
         if (id !== fetchIdRef.current) return;
         if (state.view === "ingress_chains") {
+          // SAFETY: both branches of `load` resolve to their documented wire
+          // shapes; the view flag selects which contract this response
+          // satisfies, so the cast only re-states what the runtime branch
+          // already guarantees.
           const chain = res as unknown as ChainResponse;
           const currentCursor = state.chain_cursor || "";
           const currentPageStart = currentCursor
@@ -508,7 +537,13 @@ export function useRequestLogsPageData({
       if (rowLoadsInFlightRef.current.has(loadKey)) return;
       rowLoadsInFlightRef.current.add(loadKey);
       const querySignature = loadedSignatureRef.current;
-      setFailure(null);
+      // Scoped single-flight: the pending flag and any failure live on this
+      // chain's own read lane, never on the page-wide failure surface. The
+      // rows already loaded stay exactly where they are either way.
+      setChainRowReads((current) => ({
+        ...current,
+        [normalizedIngress]: { pending: true, error: null },
+      }));
 
       try {
         const response = await api.stats.chains({
@@ -543,15 +578,24 @@ export function useRequestLogsPageData({
           appendUniqueRequestItems(current, flattenChainItems(response)),
         );
         setLastLoadedAt(new Date().toISOString());
+        if (querySignature !== null) {
+          setChainRowReads((current) => ({
+            ...current,
+            [normalizedIngress]: { pending: false, error: null },
+          }));
+        }
       } catch (err) {
         if (loadedSignatureRef.current !== querySignature) return;
-        setFailure({
-          message:
-            err instanceof Error
-              ? err.message
-              : messages.requestLogs.loadFailed,
-          stale: true,
-        });
+        setChainRowReads((current) => ({
+          ...current,
+          [normalizedIngress]: {
+            pending: false,
+            error:
+              err instanceof Error
+                ? err.message
+                : messages.requestLogs.loadFailed,
+          },
+        }));
       } finally {
         rowLoadsInFlightRef.current.delete(loadKey);
       }
@@ -593,6 +637,10 @@ export function useRequestLogsPageData({
       ? chainPageCounts
       : { ingress: 0, attempts: 0, rows: 0 },
     coverage: enabled ? coverage : null,
+    /** How the current outer read was issued; drives replace-vs-refresh UI. */
+    readKind: enabled ? readKind : "initial",
+    /** Per-chain row_cursor append reads: pending flag + local retryable error. */
+    chainRowReads: enabled ? chainRowReads : {},
     refresh,
     loadMoreChainRows,
   };

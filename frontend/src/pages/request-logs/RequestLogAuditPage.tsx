@@ -1,9 +1,22 @@
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { AlertTriangle, ArrowLeft, FileSearch, ShieldOff, Terminal } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  RefreshCw,
+  ShieldOff,
+  Terminal,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTimezone } from "@/hooks/useTimezone";
@@ -32,13 +45,13 @@ import {
   getSelectedAuditPath,
   parseRequestLogIdParam,
 } from "./requestLogAuditRoute";
-import { resolveRequestAuditCaptureMode, type RequestAuditCaptureMode } from "./requestLogAuditState";
+import {
+  resolveRequestAuditCaptureMode,
+  type RequestAuditCaptureMode,
+} from "./requestLogAuditState";
 import { RequestLogPayloadBlock } from "./detail/RequestLogPayloadBlock";
 import { getStatusIntent } from "./detail/requestLogDetailUtils";
-import {
-  useDedicatedRequestLogAudit,
-  type DedicatedRequestLogAuditStatus,
-} from "./useDedicatedRequestLogAudit";
+import { useDedicatedRequestLogAudit } from "./useDedicatedRequestLogAudit";
 
 function parsePositiveAuditId(value: string | null | undefined): number | null {
   if (!value) return null;
@@ -75,18 +88,25 @@ function StatusPanel({
   status: "neutral" | "warning" | "error";
   title: string;
 }) {
-  const icon = status === "neutral"
-    ? <ShieldOff className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
-    : <AlertTriangle className="mt-0.5 size-5 shrink-0 text-degraded" />;
+  const icon =
+    status === "neutral" ? (
+      <ShieldOff className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
+    ) : (
+      <AlertTriangle className="mt-0.5 size-5 shrink-0 text-degraded" />
+    );
 
   return (
-    <Card className={status === "error" ? "border-destructive/35" : "border-border"}>
+    <Card
+      className={status === "error" ? "border-destructive/35" : "border-border"}
+    >
       <CardContent className="flex flex-col gap-4 pt-0 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
           {icon}
           <div className="flex flex-col gap-1">
             <p className="text-sm font-medium">{title}</p>
-            <p className="max-w-2xl text-sm text-muted-foreground">{description}</p>
+            <p className="max-w-2xl text-sm text-muted-foreground">
+              {description}
+            </p>
           </div>
         </div>
         {action ? <div className="shrink-0">{action}</div> : null}
@@ -137,7 +157,10 @@ function AuditRecordsTable({
   const copy = messages.requestLogs;
 
   return (
-    <Card className="gap-0 overflow-hidden border-border" data-testid="dedicated-audit-list">
+    <Card
+      className="gap-0 overflow-hidden border-border"
+      data-testid="dedicated-audit-list"
+    >
       <CardHeader className="border-b py-2">
         <p className="text-xs text-muted-foreground">
           {copy.auditRecordListDescription(formatNumber(auditItems.length))}
@@ -154,7 +177,9 @@ function AuditRecordsTable({
                 <TableHead>{copy.model}</TableHead>
                 <TableHead>{copy.endpoint}</TableHead>
                 <TableHead>{copy.auditTableColumnStatus}</TableHead>
-                <TableHead className="text-right">{copy.auditTableColumnDuration}</TableHead>
+                <TableHead className="text-right">
+                  {copy.auditTableColumnDuration}
+                </TableHead>
                 <TableHead>{copy.auditTableColumnCapture}</TableHead>
                 <TableHead>{copy.auditTableColumnTime}</TableHead>
               </TableRow>
@@ -171,21 +196,36 @@ function AuditRecordsTable({
                     key={item.id}
                     data-testid={`audit-record-${item.id}`}
                     data-state={isSelected ? "selected" : undefined}
-                    className={cn("group/row cursor-pointer", operationalRowStripe(tier))}
+                    className={cn(
+                      "group/row cursor-pointer",
+                      operationalRowStripe(tier),
+                    )}
                   >
                     <TableCell className="font-mono tabular-nums">
-                      <Link to={getSelectedAuditPath(requestId, item.id, cursor)} className="hover:underline">
+                      <Link
+                        to={getSelectedAuditPath(requestId, item.id, cursor)}
+                        className="hover:underline"
+                      >
                         #{item.id}
                       </Link>
                     </TableCell>
-                    <TableCell className="font-mono">{item.request_method}</TableCell>
-                    <TableCell className="max-w-80 truncate font-mono text-xs" title={item.request_url}>
+                    <TableCell className="font-mono">
+                      {item.request_method}
+                    </TableCell>
+                    <TableCell
+                      className="max-w-80 truncate font-mono text-xs"
+                      title={item.request_url}
+                    >
                       {item.request_url}
                     </TableCell>
-                    <TableCell className="max-w-40 truncate font-mono text-xs">{item.model_id}</TableCell>
+                    <TableCell className="max-w-40 truncate font-mono text-xs">
+                      {item.model_id}
+                    </TableCell>
                     <TableCell className="max-w-40 truncate text-xs">
                       {item.endpoint_description ?? item.endpoint_base_url ?? (
-                        <OperatorMissingValue reason={messages.honesty.noValue} />
+                        <OperatorMissingValue
+                          reason={messages.honesty.noValue}
+                        />
                       )}
                     </TableCell>
                     <TableCell>
@@ -195,12 +235,16 @@ function AuditRecordsTable({
                           intent={getStatusIntent(statusCode)}
                         />
                       ) : (
-                        <OperatorMissingValue reason={messages.honesty.noValue} />
+                        <OperatorMissingValue
+                          reason={messages.honesty.noValue}
+                        />
                       )}
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
                       {durationMs === null ? (
-                        <OperatorMissingValue reason={messages.honesty.noValue} />
+                        <OperatorMissingValue
+                          reason={messages.honesty.noValue}
+                        />
                       ) : (
                         `${formatNumber(durationMs)} ms`
                       )}
@@ -224,17 +268,25 @@ function AuditRecordsTable({
         <div className="flex items-center justify-end gap-1 border-t border-border bg-inset px-[var(--density-card-pad-x)] py-2">
           {cursor ? (
             <Button variant="outline" size="sm" asChild>
-              <Link to={getAuditPagePath(requestId, null)}>{copy.previousPage}</Link>
+              <Link to={getAuditPagePath(requestId, null)}>
+                {copy.previousPage}
+              </Link>
             </Button>
           ) : (
-            <Button variant="outline" size="sm" disabled>{copy.previousPage}</Button>
+            <Button variant="outline" size="sm" disabled>
+              {copy.previousPage}
+            </Button>
           )}
           {hasMore && nextCursor ? (
             <Button variant="outline" size="sm" asChild>
-              <Link to={getAuditPagePath(requestId, nextCursor)}>{copy.nextPage}</Link>
+              <Link to={getAuditPagePath(requestId, nextCursor)}>
+                {copy.nextPage}
+              </Link>
             </Button>
           ) : (
-            <Button variant="outline" size="sm" disabled>{copy.nextPage}</Button>
+            <Button variant="outline" size="sm" disabled>
+              {copy.nextPage}
+            </Button>
           )}
         </div>
       </CardContent>
@@ -259,7 +311,9 @@ function getRequestBodyEmptyState(
   }
 
   if (body.text !== null) {
-    return messages.requestLogs.noCaptured(messages.requestLogs.requestBody.toLowerCase());
+    return messages.requestLogs.noCaptured(
+      messages.requestLogs.requestBody.toLowerCase(),
+    );
   }
 
   if (captureMode === "metadata_only") {
@@ -281,7 +335,9 @@ function getResponseBodyEmptyState(
   }
 
   if (body.text !== null) {
-    return messages.requestLogs.noCaptured(messages.requestLogs.response(statusCode ?? "—").toLowerCase());
+    return messages.requestLogs.noCaptured(
+      messages.requestLogs.response(statusCode ?? "—").toLowerCase(),
+    );
   }
 
   if (captureMode === "metadata_only") {
@@ -315,22 +371,37 @@ function AuditDetailCard({
   const responseBody = decodeAuditBodyBase64(detail.response_body_base64);
 
   return (
-    <Card className="overflow-hidden border-border" data-testid="dedicated-audit-detail">
+    <Card
+      className="overflow-hidden border-border"
+      data-testid="dedicated-audit-detail"
+    >
       <div className="flex flex-col gap-3 border-b border-border bg-inset px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
             {statusCode !== null ? (
-              <OperatorValueBadge label={String(statusCode)} intent={getStatusIntent(statusCode)} className="px-1.5 py-0" />
+              <OperatorValueBadge
+                label={String(statusCode)}
+                intent={getStatusIntent(statusCode)}
+                className="px-1.5 py-0"
+              />
             ) : (
               <OperatorMissingValue reason={messages.honesty.noValue} />
             )}
-            <OperatorTypeBadge label={getCaptureLabel(captureMode, messages)} intent={captureBadgeIntent(captureMode)} />
-            <OperatorValueBadge label={`#${detail.id}`} className="text-[11px]" />
+            <OperatorTypeBadge
+              label={getCaptureLabel(captureMode, messages)}
+              intent={captureBadgeIntent(captureMode)}
+            />
+            <OperatorValueBadge
+              label={`#${detail.id}`}
+              className="text-[11px]"
+            />
           </div>
           <p className="whitespace-pre-wrap break-words rounded-lg border border-border bg-panel p-3 font-mono text-xs leading-5 text-foreground shadow-inner [overflow-wrap:anywhere]">
             {`${detail.request_method} ${detail.request_url}`}
           </p>
-          <p className="text-xs text-muted-foreground">{formatTimestamp(detail.created_at)}</p>
+          <p className="text-xs text-muted-foreground">
+            {formatTimestamp(detail.created_at)}
+          </p>
         </div>
         <OperatorValueBadge
           label={durationMs === null ? "—" : `${formatNumber(durationMs)}ms`}
@@ -341,14 +412,22 @@ function AuditDetailCard({
         {/* Every payload states what was observed, kept and dropped, so a
             truncated body is never mistaken for the whole body. */}
         <div className="flex flex-col gap-2">
-          <RequestLogPayloadBlock title={messages.requestLogs.requestHeaders} content={detail.request_headers || ""} contentKind="headers" />
+          <RequestLogPayloadBlock
+            title={messages.requestLogs.requestHeaders}
+            content={detail.request_headers || ""}
+            contentKind="headers"
+          />
         </div>
         <Separator />
         <div className="flex flex-col gap-2">
           <RequestLogPayloadBlock
             title={messages.requestLogs.requestBody}
             content={requestBody.text ?? ""}
-            emptyState={getRequestBodyEmptyState(requestBody, captureMode, messages)}
+            emptyState={getRequestBodyEmptyState(
+              requestBody,
+              captureMode,
+              messages,
+            )}
             apiFamily={apiFamily}
             bodyKind="request"
             operationName={operationName}
@@ -373,7 +452,13 @@ function AuditDetailCard({
           <RequestLogPayloadBlock
             title={messages.requestLogs.response(statusCode ?? "—")}
             content={responseBody.text ?? ""}
-            emptyState={getResponseBodyEmptyState(responseBody, detail, captureMode, statusCode, messages)}
+            emptyState={getResponseBodyEmptyState(
+              responseBody,
+              detail,
+              captureMode,
+              statusCode,
+              messages,
+            )}
             apiFamily={apiFamily}
             bodyKind="response"
             operationName={operationName}
@@ -390,56 +475,18 @@ function AuditDetailCard({
   );
 }
 
-function getStatusContent(
-  status: DedicatedRequestLogAuditStatus,
-  requestIdLabel: string,
-  error: string | null,
-  messages: ReturnType<typeof useLocale>["messages"],
-) {
-  switch (status) {
-    case "invalid_request_id":
-      return {
-        description: messages.requestLogs.invalidRequestAuditRouteDescription(requestIdLabel),
-        title: messages.requestLogs.invalidRequestAuditRouteTitle,
-      };
-    case "request_missing":
-      return {
-        description: messages.requestLogs.requestNotFoundDescription(requestIdLabel),
-        title: messages.requestLogs.requestNotFound,
-      };
-    case "request_error":
-      return {
-        description: error ?? messages.requestLogs.loadFailed,
-        title: messages.requestLogs.requestLoadFailedTitle,
-      };
-    case "invalid_timestamp":
-      return {
-        description: messages.requestLogs.invalidAuditTimestampDescription,
-        title: messages.requestLogs.invalidAuditTimestampTitle,
-      };
-    case "audit_list_error":
-      return {
-        description: error ?? messages.requestLogs.auditListLoadFailed,
-        title: messages.requestLogs.auditListLoadFailedTitle,
-      };
-    case "audit_detail_error":
-      return {
-        description: error ?? messages.requestLogs.auditDetailLoadFailed,
-        title: messages.requestLogs.auditDetailLoadFailedTitle,
-      };
-    default:
-      return {
-        description: "",
-        title: "",
-      };
-  }
-}
-
 interface RequestLogAuditPageProps {
   requestIdParam?: string;
   searchParams?: URLSearchParams;
 }
 
+/**
+ * Dedicated request-log audit page over three independent lanes (request /
+ * list / detail). Each lane owns its loading and retry surface, so paging the
+ * record list never re-issues `requestDetail`, switching records never
+ * reloads the list, and a failure in one lane keeps the sticky page context
+ * and the other lanes exactly where they are.
+ */
 export function RequestLogAuditPage({
   requestIdParam,
   searchParams = new URLSearchParams(window.location.search),
@@ -451,50 +498,113 @@ export function RequestLogAuditPage({
   const { format } = useTimezone();
   const { messages } = useLocale();
   const requestIdLabel = requestIdParam?.trim() || "";
-  const defaultAuditPath = requestId === null ? "/observe/requests" : `/observe/requests/${requestId}/audit`;
+  const defaultAuditPath =
+    requestId === null
+      ? "/observe/requests"
+      : `/observe/requests/${requestId}/audit`;
   const state = useDedicatedRequestLogAudit({
     cursor: auditCursor ?? undefined,
     requestId,
     selectedAuditId,
-    selectedAuditParamLabel: auditIdParam,
     selectedAuditParamPresent: auditIdParam !== null,
+    selectedAuditParamLabel: auditIdParam,
   });
-  const statusContent = getStatusContent(state.status, requestIdLabel, state.error, messages);
-  const auditRequestApiFamily = state.request?.summary.api_family as ApiFamily | null ?? null;
+  const requestLane = state.request;
+  const listLane = state.list;
+  const detailLane = state.detail;
+  const auditRequestApiFamily =
+    (requestLane.request?.summary.api_family as ApiFamily | null) ?? null;
+
+  const requestFailureCopy = (() => {
+    switch (requestLane.phase) {
+      case "missing":
+        return {
+          description:
+            messages.requestLogs.requestNotFoundDescription(requestIdLabel),
+          title: messages.requestLogs.requestNotFound,
+        };
+      case "error":
+        return {
+          description: requestLane.error ?? messages.requestLogs.loadFailed,
+          title: messages.requestLogs.requestLoadFailedTitle,
+        };
+      default:
+        return null;
+    }
+  })();
 
   return (
-    <div className="flex flex-col gap-6 pb-8" data-clipboard-fallback-root="" data-testid="dedicated-request-log-audit-page">
+    <div
+      className="flex flex-col gap-6 pb-8"
+      data-clipboard-fallback-root=""
+      data-testid="dedicated-request-log-audit-page"
+    >
       <OperatorPageHeader
         title={messages.requestLogs.auditPageTitle(requestIdLabel || "-")}
         description={messages.requestLogs.auditPageDescription}
       >
         <Button variant="outline" asChild>
-          <Link to={requestId === null ? "/observe/requests" : `/observe/requests?request_id=${requestId}`}>
+          <Link
+            to={
+              requestId === null
+                ? "/observe/requests"
+                : `/observe/requests?request_id=${requestId}`
+            }
+          >
             <ArrowLeft data-icon="inline-start" />
             {messages.requestLogs.viewRequestInLogs}
           </Link>
         </Button>
       </OperatorPageHeader>
 
-      {state.request ? (
+      {invalidRequestId(requestId, requestIdParam) ? (
+        <StatusPanel
+          action={
+            <Button variant="outline" asChild>
+              <Link to="/observe/requests">
+                {messages.requestLogs.returnToRequestList}
+              </Link>
+            </Button>
+          }
+          description={messages.requestLogs.invalidRequestAuditRouteDescription(
+            requestIdLabel,
+          )}
+          status="neutral"
+          title={messages.requestLogs.invalidRequestAuditRouteTitle}
+        />
+      ) : null}
+
+      {/* Lane 1 output: the sticky page context. It renders from the request
+          lane alone, so list/detail reads never flash it away. */}
+      {requestLane.request ? (
         <>
-          <RequestLogAuditWindowBar requestCreatedAt={state.request.summary.created_at} />
-          {/* Sticky so scrolling a long SSE body never loses which request it belongs to. */}
-          <Card className="sticky top-14 z-10 border-border" data-testid="audit-context-panel">
+          <RequestLogAuditWindowBar
+            requestCreatedAt={requestLane.request.summary.created_at}
+          />
+          <Card
+            className="sticky top-14 z-10 border-border"
+            data-testid="audit-context-panel"
+          >
             <CardContent className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-0 text-xs text-muted-foreground">
               <Terminal className="size-3.5" />
               <span className="font-medium text-foreground">
-                {messages.requestLogs.requestTitle(state.request.summary.request_log_id)}
+                {messages.requestLogs.requestTitle(
+                  requestLane.request.summary.request_log_id,
+                )}
               </span>
               <Separator orientation="vertical" className="h-3" />
-              <span className="font-mono">{state.request.summary.model_label}</span>
+              <span className="font-mono">
+                {requestLane.request.summary.model_label}
+              </span>
               <Separator orientation="vertical" className="h-3" />
-              <span>{state.request.summary.api_family}</span>
+              <span>{requestLane.request.summary.api_family}</span>
               <Separator orientation="vertical" className="h-3" />
-              <span className="font-mono tabular-nums">{format(state.request.summary.created_at)}</span>
+              <span className="font-mono tabular-nums">
+                {format(requestLane.request.summary.created_at)}
+              </span>
               <OperatorTypeBadge
-                label={getCaptureLabel(state.captureMode, messages)}
-                intent={captureBadgeIntent(state.captureMode)}
+                label={getCaptureLabel(requestLane.captureMode, messages)}
+                intent={captureBadgeIntent(requestLane.captureMode)}
                 preserveLabel
               />
             </CardContent>
@@ -502,22 +612,30 @@ export function RequestLogAuditPage({
         </>
       ) : null}
 
-      {state.status === "request_loading" ? <LoadingCard /> : null}
+      {requestLane.phase === "loading" ? <LoadingCard /> : null}
 
-      {state.status === "invalid_request_id" || state.status === "request_missing" || state.status === "request_error" ? (
+      {requestFailureCopy ? (
         <StatusPanel
-          action={(
-            <Button variant="outline" asChild>
-              <Link to="/observe/requests">{messages.requestLogs.returnToRequestList}</Link>
-            </Button>
-          )}
-          description={statusContent.description}
-          status={state.status === "request_error" ? "error" : "neutral"}
-          title={statusContent.title}
+          action={
+            <>
+              <Button variant="outline" onClick={state.retryRequest}>
+                <RefreshCw data-icon="inline-start" />
+                {messages.common.retry}
+              </Button>
+              <Button variant="outline" asChild>
+                <Link to="/observe/requests">
+                  {messages.requestLogs.returnToRequestList}
+                </Link>
+              </Button>
+            </>
+          }
+          description={requestFailureCopy.description}
+          status={requestLane.phase === "error" ? "error" : "neutral"}
+          title={requestFailureCopy.title}
         />
       ) : null}
 
-      {state.status === "disabled" ? (
+      {requestLane.phase === "disabled" ? (
         <StatusPanel
           description={messages.requestLogs.auditDisabledDescription}
           status="neutral"
@@ -525,37 +643,40 @@ export function RequestLogAuditPage({
         />
       ) : null}
 
-      {state.status === "audit_list_error" ? (
+      {requestLane.phase === "invalid_timestamp" ? (
+        <StatusPanel
+          description={messages.requestLogs.invalidAuditTimestampDescription}
+          status="warning"
+          title={messages.requestLogs.invalidAuditTimestampTitle}
+        />
+      ) : null}
+
+      {/* Lane 2: the audit record page. */}
+      {listLane.phase === "loading" ? <LoadingCard /> : null}
+
+      {listLane.phase === "error" ? (
         <OperatorErrorState
           testId="audit-list-error"
           title={messages.requestLogs.auditListLoadFailedTitle}
           description={messages.honesty.readFailedDescription}
-          details={state.error}
+          details={listLane.error}
           detailsLabel={messages.honesty.viewDetails}
           action={
             <>
-              <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
+              <Button variant="outline" size="sm" onClick={state.retryList}>
                 {messages.common.retry}
               </Button>
               <Button variant="outline" size="sm" asChild>
-                <Link to="/observe/requests">{messages.requestLogs.returnToRequestList}</Link>
+                <Link to="/observe/requests">
+                  {messages.requestLogs.returnToRequestList}
+                </Link>
               </Button>
             </>
           }
         />
       ) : null}
 
-      {state.status === "invalid_timestamp" ? (
-        <StatusPanel
-          description={statusContent.description}
-          status="warning"
-          title={statusContent.title}
-        />
-      ) : null}
-
-      {state.status === "audit_list_loading" ? <LoadingCard /> : null}
-
-      {state.status === "no_audit_records" ? (
+      {listLane.phase === "empty" ? (
         <StatusPanel
           description={messages.requestLogs.noAuditRecordsDescription}
           status="neutral"
@@ -563,63 +684,81 @@ export function RequestLogAuditPage({
         />
       ) : null}
 
-      {state.auditItems.length > 0 && requestId !== null ? (
+      {requestId !== null && listLane.items.length > 0 ? (
         <div className="flex min-w-0 flex-col gap-4">
           <AuditRecordsTable
-            auditItems={state.auditItems}
+            auditItems={listLane.items}
             cursor={auditCursor}
-            hasMore={state.hasMore}
-            nextCursor={state.nextCursor}
+            hasMore={listLane.hasMore}
+            nextCursor={listLane.nextCursor}
             requestId={requestId}
-            selectedAuditId={state.selectedAuditId}
+            selectedAuditId={detailLane.selectedAuditId}
           />
           <div className="flex min-w-0 flex-col gap-4">
-            {state.status === "missing_audit" ? (
+            {/* Lane 3: the selected record's payload. Its states compose below
+                the list; a failure here never removes the list or the context. */}
+            {detailLane.phase === "missing_selection" ? (
               <StatusPanel
-                action={(
+                action={
                   <Button variant="outline" asChild>
-                    <Link to={defaultAuditPath}>{messages.requestLogs.showDefaultAuditRecord}</Link>
+                    <Link to={defaultAuditPath}>
+                      {messages.requestLogs.showDefaultAuditRecord}
+                    </Link>
                   </Button>
+                }
+                description={messages.requestLogs.missingAuditRecordDescription(
+                  detailLane.missingAuditLabel ?? "",
                 )}
-                description={messages.requestLogs.missingAuditRecordDescription(state.missingAuditLabel ?? "")}
                 status="warning"
                 title={messages.requestLogs.missingAuditRecordTitle}
               />
             ) : null}
-            {state.status === "audit_detail_loading" ? <LoadingCard /> : null}
-            {state.status === "audit_detail_error" ? (
+            {detailLane.phase === "loading" ? <LoadingCard /> : null}
+            {detailLane.phase === "error" ? (
               <StatusPanel
-                action={(
-                  <Button variant="outline" asChild>
-                    <Link to={defaultAuditPath}>{messages.requestLogs.showDefaultAuditRecord}</Link>
-                  </Button>
-                )}
-                description={statusContent.description}
+                action={
+                  <>
+                    <Button variant="outline" onClick={state.retryDetail}>
+                      <RefreshCw data-icon="inline-start" />
+                      {messages.common.retry}
+                    </Button>
+                    <Button variant="outline" asChild>
+                      <Link to={defaultAuditPath}>
+                        {messages.requestLogs.showDefaultAuditRecord}
+                      </Link>
+                    </Button>
+                  </>
+                }
+                description={
+                  detailLane.error ?? messages.requestLogs.auditDetailLoadFailed
+                }
                 status="error"
-                title={statusContent.title}
+                title={messages.requestLogs.auditDetailLoadFailedTitle}
               />
             ) : null}
-            {state.detail && auditRequestApiFamily ? (
+            {detailLane.detail && auditRequestApiFamily ? (
               <AuditDetailCard
                 apiFamily={auditRequestApiFamily}
-                captureMode={state.captureMode}
-                detail={state.detail}
-                operationName={state.request?.request.operation_name ?? null}
+                captureMode={requestLane.captureMode}
+                detail={detailLane.detail}
+                operationName={
+                  requestLane.request?.request.operation_name ?? null
+                }
                 formatTimestamp={format}
               />
             ) : null}
           </div>
         </div>
       ) : null}
-
-      {state.status === "ready" && state.auditItems.length === 0 ? (
-        <Card className="border-border">
-          <CardContent className="pt-0">
-            <FileSearch className="mb-3 size-5 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">{messages.requestLogs.noAuditRecords}</p>
-          </CardContent>
-        </Card>
-      ) : null}
     </div>
   );
+}
+
+/** A non-null param that parses to no valid id is an invalid route, not a lookup miss. */
+function invalidRequestId(
+  requestId: string | null,
+  requestIdParam?: string,
+): boolean {
+  if (requestId !== null) return false;
+  return Boolean(requestIdParam && requestIdParam.trim() !== "");
 }
