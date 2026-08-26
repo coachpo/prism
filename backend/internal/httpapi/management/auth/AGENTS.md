@@ -25,8 +25,17 @@ auth/
 ├── cookies.go                     # Access/refresh cookie helpers
 ├── request_tokens.go              # Request-token helpers
 ├── operations.go                  # Auth transition operations (operation id, status route)
-├── auth_settings_mutation.go                 # Auth settings transition mutation
-├── auth_settings_read.go       # Auth settings read path
+├── auth_settings_mutation.go                 # Thin Auth settings PUT orchestration and contract types
+├── auth_settings_request.go                  # Strict PUT decoding and operation identity validation
+├── auth_settings_mutation_input.go           # Frozen readiness-aware field/acknowledgement mutation input
+├── auth_settings_replay.go                   # Auth operation hash and durable replay proof
+├── auth_settings_transaction.go              # Single auth mutation transaction orchestration and fence ordering
+├── auth_settings_version.go                  # Immutable config-version staging and session lifecycle writes
+├── auth_settings_pointer_publication.go      # Legacy/final pointer publication and completed-operation record
+├── auth_settings_failure.go                  # Failed readiness result persistence
+├── auth_settings_failure_response.go         # Failed mutation envelope mapping and recovery handoff
+├── auth_settings_publish.go                  # Commit-boundary runtime-cache, snapshot, cookie, and response publication
+├── auth_settings_read.go                    # Auth settings read path
 ├── proxy_key_readiness_fence.go   # Proxy-owned readiness fence snapshot; every capture writes the generation
 ├── problems.go                    # Auth problem registry (flat envelope codes)
 ├── types.go                       # Tagged status/session/proxy-key payloads plus shared domain/query seams
@@ -39,10 +48,10 @@ auth/
 
 ## WHERE TO LOOK
 
-- Route mounting and handlers: `service.go`, `session_routes.go`, `proxy_key_routes.go`, `runtime_probe.go`, `auth_settings_mutation.go`, `auth_settings_read.go`
+- Route mounting and handlers: `service.go`, `session_routes.go`, `proxy_key_routes.go`, `runtime_probe.go`, `auth_settings_mutation.go`, `auth_settings_request.go`, `auth_settings_mutation_input.go`, `auth_settings_replay.go`, `auth_settings_transaction.go`, `auth_settings_version.go`, `auth_settings_pointer_publication.go`, `auth_settings_failure.go`, `auth_settings_failure_response.go`, `auth_settings_publish.go`, `auth_settings_read.go`
 - Tagged PublicAuthStatus union and session payloads: `types.go`, `auth_settings_read.go` (`handleGetPublicAuthStatus`), `session_routes.go` (`buildAuthenticatedSession`)
 - Auth problem registry and flat envelope writer: `problems.go`, `problem_writers.go`, `../responseutil/problem_envelope.go`
-- Auth settings transition mutation and route construction: `auth_settings_mutation.go`, `service.go`, `runtime_config.go`, `runtime_cache.go`
+- Auth settings transition mutation and route construction: `auth_settings_mutation.go` (thin PUT orchestration), `auth_settings_request.go` (strict request decoding), `auth_settings_mutation_input.go` (frozen field/acknowledgement input), `auth_settings_replay.go` (operation replay/hash), `auth_settings_transaction.go` (single transaction and fence order), `auth_settings_version.go` (immutable version/session writes), `auth_settings_pointer_publication.go` (legacy/final pointer publication and operation record), `auth_settings_failure.go` (failed result persistence), `auth_settings_failure_response.go` (failure envelope mapping), `auth_settings_publish.go` (commit-boundary publication), `service.go`, `runtime_config.go`, `runtime_cache.go`
 - Session persistence and refresh-token lifecycle: `session_store.go`, `types.go`, `tokens.go`, `routes_test.go`, `store_test.go`, `runtime_cache_test.go`
 - Management session enforcement and runtime proxy-key attribution middleware: `management_auth_middleware.go`, `runtime_middleware.go`, `runtime_middleware_matrix_test.go`
 - Login-throttle ledger: `login_throttle.go`
@@ -53,7 +62,7 @@ auth/
 - Transition operations and `GET /api/auth/operations/{operation_id}/status`: `operations.go`
 - Proxy API key capture and usage writer: `proxy_key_usage_writer.go`, `../../proxykeyusage/`
 - Proxy-key setup readiness projection: `proxy_setup_readiness.go`
-- Auth settings and Proxy readiness capture: `auth_settings_mutation.go` (transition mutation), `auth_settings_read.go` (read path and response projection), `proxy_key_readiness_fence.go` (readiness capture); the readiness count is one server-clock snapshot with a 30-second safe-active horizon and is the only source used by auth enablement and setup handoff.
+- Auth settings and Proxy readiness capture: `auth_settings_request.go` (strict request decoding), `auth_settings_mutation_input.go` (frozen validation input), `auth_settings_transaction.go` (single transition transaction), `auth_settings_version.go` (immutable version/session writes), `auth_settings_pointer_publication.go` (final pointer publication), `auth_settings_failure.go` (failed readiness result persistence), `auth_settings_failure_response.go` (failure envelope mapping), `auth_settings_read.go` (read path and response projection), `proxy_key_readiness_fence.go` (readiness capture); the readiness count is one server-clock snapshot with a 30-second safe-active horizon and is the only source used by auth enablement and setup handoff.
 
 ## CONVENTIONS
 
