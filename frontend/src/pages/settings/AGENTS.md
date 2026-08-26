@@ -21,8 +21,9 @@ settings/
 ├── useCostingSettingsData.ts
 ├── useAuditConfigurationData.ts
 ├── useRetentionDeletionData.ts
+├── manualCleanup.ts              # Manual-cleanup types and localized labels
 ├── sectionSaveState.tsx           # Shared dirty, saving, and recently-saved rendering
-├── settingsPageHelpers.ts         # Tab ids, section ids, default costing form, shared validation helpers
+├── settingsNavigation.ts          # Scope ids, section allowlists, navigation sections, and URL defaults
 ├── settingsSaveTypes.ts
 └── *.test.tsx                     # Save-action and retention keyword-confirmation coverage
 ```
@@ -32,17 +33,21 @@ settings/
 - `SettingsPage.tsx` renders two scopes: `全局` (`scope=global`) and `实例` (`scope=instance`). The legacy `tab` query value is dropped during canonicalization.
 - The Global scope mounts billing and reporting currency, timezone, and audit and privacy.
 - The Instance scope mounts instance-wide authentication plus automatic retention policy with owner actual coverage, manual cleanup, and the retention job center.
-- `settingsPageHelpers.ts` is the source of truth for scope ids, section ids, section allowlists, default section per scope, and shared costing and auth validation helpers. Destructive retention confirmation has no client-side keyword: the server issues `confirmation_keyword` with every preflight and compares it exactly.
+- `settingsNavigation.ts` is the source of truth for scope ids, section ids, section allowlists, and default section per scope. Destructive retention confirmation has no client-side keyword: the server issues `confirmation_keyword` with every preflight and compares it exactly.
 
 ## WHERE TO LOOK
 
 - Thin route shell, tab split, section order, and dialog mounts: `../SettingsPage.tsx`
 - Cross-section composition and shared save-state handoff: `useSettingsPageData.ts`
 - Active tab state, hash updates, scroll-driven focus, and section jump behavior: `useSettingsPageSectionState.ts`, `SettingsSectionsNav.tsx`
-- Stable helper constants and form-normalization utilities: `settingsPageHelpers.ts`
+- Settings scope, section allowlists, navigation sections, and URL defaults: `settingsNavigation.ts`
 - Shared save-state badges and render helpers: `sectionSaveState.tsx`, `settingsSaveTypes.ts`
 - Section implementation boundary: `sections/AGENTS.md`
 - Costing bootstrap, derived state, currency-migration refresh, and save boundary: `costing/AGENTS.md`
+- Costing form defaults and normalization: `costing/costingForm.ts`
+- Manual cleanup types and labels: `manualCleanup.ts`
+- Authentication password bounds and validation: `sections/authentication/authenticationPassword.ts`
+- Timezone offset and preview presentation: `../../lib/timezone.ts`
 - Local dialog ownership for destructive actions, vendor CRUD, and audit-rule editing: `dialogs/AGENTS.md`, `useAuditConfigurationData.ts`, `useRetentionDeletionData.ts`
 - Settings seam coverage lives in frontend lib/Vitest tests; the capped Playwright journey set does not include dedicated settings specs.
 

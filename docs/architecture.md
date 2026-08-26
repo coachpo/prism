@@ -67,7 +67,7 @@ frontend/
 │   │   ├── types.ts            # TypeScript contracts aligned with backend schemas
 │   │   ├── costing.ts          # Micros and currency formatting helpers
 │   │   ├── reportingCurrency.ts # Shared reporting-currency cache and normalization
-│   │   ├── timezone.ts         # Shared timezone formatting helpers
+│   │   ├── timezone.ts         # Shared timezone preference, timestamp, offset, and preview formatting
 │   ├── hooks/
 │   │   └── useTimezone.ts      # Shared timezone formatting helper
 │   ├── components/
@@ -250,9 +250,9 @@ Runtime compatibility and redirect checks use each model's required `api_family`
 
 The protected frontend shell derives sidebar destinations and breadcrumbs from the route metadata in `frontend/src/components/layout/app-layout/useShellNavigation.ts`, and persists only the desktop sidebar collapse preference in localStorage. Mobile drawer state remains transient browser UI state.
 
-The pricing feature owns tier form state and presentation in `frontend/src/features/pricing/pricingTierSchema.ts` and `PricingTierFields.tsx`; the existing pricing schema, dialog, table, and feature data hook remain the wire orchestration boundary. Request-log tier explanation stays in `frontend/src/pages/request-logs/pricingExplanation.ts` and the overview detail tab, while currency-migration blocking is rendered by the existing billing-currency dialog.
+The pricing feature owns tier form state and presentation in `frontend/src/features/pricing/pricingTierSchema.ts` and `PricingTierFields.tsx`; `frontend/src/features/pricing/pricingSchemas.ts` remains the single form-state/schema/validation/payload contract, while `pricingDeletion.ts` owns delete blocking and `pricingUsage.ts` owns usage/reference response projection. Request-log tier explanation stays in `frontend/src/pages/request-logs/pricingExplanation.ts` and the overview detail tab, while currency-migration blocking is rendered by the existing billing-currency dialog.
 
-The Settings shell uses canonical public URLs with `scope=global|instance` and a section allowlist (`billing-currency`, `timezone`, `audit-privacy`, `header-blocklist`, `client-rules`, `authentication`, `retention`, `manual-cleanup`, `retention-jobs`); the legacy `tab` query value is dropped during canonicalization. The visible `全局` scope keeps billing and reporting currency, timezone, audit & privacy, and config-rule flows; the visible `实例` scope owns authentication and operator account, automatic retention policy with actual coverage, manual cleanup, and the retention job center. Normal log retention applies across all profiles; list and detail APIs are pinned to Default id `1`.
+The Settings shell uses canonical public URLs with `scope=global|instance` and a section allowlist (`billing-currency`, `timezone`, `audit-privacy`, `header-blocklist`, `client-rules`, `authentication`, `retention`, `manual-cleanup`, `retention-jobs`); the legacy `tab` query value is dropped during canonicalization. `frontend/src/pages/settings/settingsNavigation.ts` owns those scope and section facts. The visible `全局` scope keeps billing and reporting currency, timezone, audit & privacy, and config-rule flows; the visible `实例` scope owns authentication and operator account, automatic retention policy with actual coverage, manual cleanup, and the retention job center. `costing/costingForm.ts`, `manualCleanup.ts`, `sections/authentication/authenticationPassword.ts`, and `frontend/src/lib/timezone.ts` own their respective form, cleanup, password, and timezone projections. Normal log retention applies across all profiles; list and detail APIs are pinned to Default id `1`.
 
 ### 3.6 Custom Header Injection
 

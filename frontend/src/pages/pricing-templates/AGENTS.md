@@ -12,6 +12,7 @@ pricing-templates/
 ## WHERE TO LOOK
 - Feature route, form schema, table, and mutation orchestration: `../../features/pricing/`
 - Delete conflict display: `DeletePricingTemplateDialog.tsx`
+- Delete-block decision: `../../features/pricing/pricingDeletion.ts`
 - Connection usage lookup that feeds those conflict rows: `../../features/pricing/usePricingFeatureData.ts` (`handleViewPricingTemplateUsage`), `../../features/pricing/PricingTemplatesTable.tsx`
 
 ## CONVENTIONS

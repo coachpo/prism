@@ -21,9 +21,9 @@ import {
 import {
   buildPricingTemplateCreatePayload,
   buildPricingTemplateUpdatePayload,
-  parsePricingTemplateUsageRows,
   type PricingTemplateFormValues,
 } from "./pricingSchemas";
+import { parsePricingTemplateUsageRows } from "./pricingUsage";
 import type { PricingImportPreviewState } from "./PricingImportPreview";
 
 export function usePricingFeatureData(revision: number) {

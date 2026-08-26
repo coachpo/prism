@@ -8,7 +8,8 @@
 costing/
 ├── useCostingSettingsBootstrap.ts   # Load costing settings and shared model options
 ├── useCostingDerivedState.ts        # Dirty flags, preview text, and labels
-└── useCostingSettingsSave.ts        # Billing save and timezone save flows
+├── useCostingSettingsSave.ts        # Billing save and timezone save flows
+└── costingForm.ts                   # Costing form defaults and normalization
 ```
 
 ## WHERE TO LOOK
@@ -17,7 +18,8 @@ costing/
 - Normalization, dirty-state derivation, and timezone preview: `useCostingDerivedState.ts`
 - Billing save, reporting-currency refresh/prime, and timezone save boundaries: `useCostingSettingsSave.ts`
 - Currency-migration committed refresh (re-fetch settings, prime provider, bump revision): `../useCostingSettingsData.ts`
-- Shared defaults, normalization helpers, and formatting helpers: `../settingsPageHelpers.ts`
+- Costing form defaults and normalization: `costingForm.ts`
+- Timezone offset and locale-aware preview: `../../../lib/timezone.ts`
 - Reporting-currency and timezone rendering layer: `../sections/BasisAndDisplaySection.tsx`, `../sections/billing-currency/AGENTS.md`
 - Reporting-currency save success, failure preservation, and provider priming belong to frontend seam tests rather than dedicated Playwright specs.
 
@@ -37,7 +39,8 @@ costing/
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep costing data normalized through `normalizeCostingForm()` before dirty checks or saves.
 - Preserve the split between billing saves and timezone saves. Timezone save depends on a valid saved billing state.
-- Reuse `settingsPageHelpers.ts` for defaults and normalization helpers.
+- Reuse `costingForm.ts` for defaults and normalization helpers.
+- Keep timezone offset and preview formatting in `../../../lib/timezone.ts`; do not duplicate locale or DST handling in costing hooks or sections.
 - After reporting-currency writes, use the provider refresh/prime seam instead of creating a local currency cache.
 - Do not reintroduce FX mapping state, validation, or endpoint-connection loading: the backend rejects `endpoint_fx_mappings` with 422 and the currency-migration flow is the only way to change the reporting currency code.
 
@@ -50,6 +53,6 @@ costing/
 
 - Do not move currency-migration dialog state into `../sections/billing-currency/AGENTS.md` presentation components beyond open/commit callbacks.
 - Do not collapse billing and timezone saves into one generic action when the hook boundary keeps their validation rules clear.
-- Do not duplicate normalization or mapping validation logic outside this hook cluster and `settingsPageHelpers.ts`; there is no mapping validation anymore.
+- Do not duplicate normalization or mapping validation logic outside this hook cluster and `costingForm.ts`; there is no mapping validation anymore.
 - Do not duplicate reporting-currency trust or fallback behavior here; the provider/lib seam owns it.
 - Do not reintroduce FX authoring: no `endpoint_fx_mappings` fields, no per-model/endpoint FX rate forms, no FX CRUD hooks.

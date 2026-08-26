@@ -15,7 +15,7 @@ billing-currency/
 ## WHERE TO LOOK
 - Section shell and parent handoff: `../BasisAndDisplaySection.tsx`, `../AGENTS.md`
 - Stateful costing hooks and save flow: `../../costing/AGENTS.md`
-- Shared normalization and display formatting helpers: `../../settingsPageHelpers.ts`
+- Shared costing-form normalization: `../../costing/costingForm.ts`; timezone preview formatting: `../../../../lib/timezone.ts`
 - Reporting-currency inputs and summary: `ReportingCurrencyCard.tsx`
 - Currency-migration preview (per-template vN+1 impact table) and commit (sends `preview_hash`): `CurrencyMigrationDialog.tsx`
 - Archive-only unused-FX preview and commit (keeps the active epoch and template prices unchanged): `ArchiveUnusedFxDialog.tsx`

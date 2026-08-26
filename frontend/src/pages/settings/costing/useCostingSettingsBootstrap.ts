@@ -4,7 +4,7 @@ import { getStaticMessages } from "@/i18n/staticMessages";
 import { getSharedModels } from "@/lib/referenceData";
 import type { CostingSettingsUpdate, ModelConfigListItem } from "@/lib/types";
 import { toast } from "sonner";
-import { DEFAULT_COSTING_FORM, normalizeCostingForm } from "../settingsPageHelpers";
+import { DEFAULT_COSTING_FORM, normalizeCostingForm } from "./costingForm";
 
 function getMessages() {
   return getStaticMessages();

@@ -16,7 +16,7 @@ import {
   type DeleteCleanupType,
   type RetentionPreset,
   getCleanupTypeLabel,
-} from "./settingsPageHelpers";
+} from "./manualCleanup";
 import type { SettingsSaveSection } from "./settingsSaveTypes";
 
 interface UseRetentionDeletionDataInput {
