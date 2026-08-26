@@ -9,7 +9,8 @@ costing/
 ├── useCostingSettingsBootstrap.ts   # Load costing settings and shared model options
 ├── useCostingDerivedState.ts        # Dirty flags, preview text, and labels
 ├── useCostingSettingsSave.ts        # Billing save and timezone save flows
-└── costingForm.ts                   # Costing form defaults and normalization
+├── costingForm.ts                   # Costing form defaults and normalization
+└── currencyMigrationProtocol.ts     # Inventory, draft, chunk/seal, preview, and commit protocol
 ```
 
 ## WHERE TO LOOK
@@ -19,6 +20,7 @@ costing/
 - Billing save, reporting-currency refresh/prime, and timezone save boundaries: `useCostingSettingsSave.ts`
 - Currency-migration committed refresh (re-fetch settings, prime provider, bump revision): `../useCostingSettingsData.ts`
 - Costing form defaults and normalization: `costingForm.ts`
+- Currency migration inventory preparation, draft chunk/seal, preview, and commit protocol: `currencyMigrationProtocol.ts`
 - Timezone offset and locale-aware preview: `../../../lib/timezone.ts`
 - Reporting-currency and timezone rendering layer: `../sections/BasisAndDisplaySection.tsx`, `../sections/billing-currency/AGENTS.md`
 - Reporting-currency save success, failure preservation, and provider priming belong to frontend seam tests rather than dedicated Playwright specs.
@@ -31,6 +33,7 @@ costing/
 - Timezone saving stays in this hook cluster because it shares the costing-form saved-state model, even though it is rendered by `../sections/BasisAndDisplaySection.tsx` alongside reporting currency.
 - Reporting-currency cache/trust itself is owned by `../../../context/ReportingCurrencyContext.tsx` and `../../../lib/reportingCurrency.ts`; this folder writes settings and refreshes or primes that shared state.
 - Currency migrations (preview + commit) are owned by the backend `settings` package; the frontend only renders the preview impact table and sends `preview_hash` on commit.
+- `CurrencyMigrationDialog.tsx` owns dialog inputs, step presentation, repair editing, and localized feedback; `currencyMigrationProtocol.ts` owns inventory paging, draft chunk/seal, preview, and commit requests.
 
 ## CONVENTIONS
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.

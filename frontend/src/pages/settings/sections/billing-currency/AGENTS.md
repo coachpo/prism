@@ -14,12 +14,12 @@ billing-currency/
 
 ## WHERE TO LOOK
 - Section shell and parent handoff: `../BasisAndDisplaySection.tsx`, `../AGENTS.md`
-- Stateful costing hooks and save flow: `../../costing/AGENTS.md`
+- Stateful costing hooks and save flow: `../../costing/AGENTS.md`, including `../../costing/currencyMigrationProtocol.ts`
 - Shared costing-form normalization: `../../costing/costingForm.ts`; timezone preview formatting: `../../../../lib/timezone.ts`
 - Reporting-currency inputs and summary: `ReportingCurrencyCard.tsx`
 - Currency-migration preview (per-template vN+1 impact table) and commit (sends `preview_hash`): `CurrencyMigrationDialog.tsx`
 - Archive-only unused-FX preview and commit (keeps the active epoch and template prices unchanged): `ArchiveUnusedFxDialog.tsx`
-- Currency-migration API calls and CAS `expected_updated_at` threading: `../../../../lib/api/observability.ts` (`settingsCosting.currencyMigrationPreview` / `currencyMigrationCommit`)
+- Currency-migration protocol and CAS `expected_updated_at` threading: `../../costing/currencyMigrationProtocol.ts`
 - Reporting-currency save and failed-save preservation belong to frontend seam tests rather than dedicated Playwright specs.
 
 ## CONVENTIONS

@@ -30,10 +30,12 @@ sections/
 
 - Auth setup: `AuthenticationSection.tsx`, `authentication/`
 - Audit and privacy API-family audit rows, header blocklist, user-agent or client rule management, and rules-panel rendering: `AuditConfigurationSection.tsx`, `AuditConfigurationAPIFamilyCard.tsx`, `AuditConfigurationHeaderBlocklistCard.tsx`, `AuditConfigurationUserAgentClientRulesCard.tsx`, `AuditConfigurationRulesPanel.tsx`, `AuditConfigurationRuleActions.tsx`, `AuditConfigurationRuleSection.tsx`, `AuditConfigurationRuleTable.tsx`
+- Audit resource state and mutations are owned by `../useAPIFamilyAuditSettings.ts`, `../useHeaderBlocklistRules.ts`, and `../useUserAgentClientRules.ts`; this folder renders their state.
 - Reporting currency and timezone section shell that renders the currency card and the migration/archive dialogs, while staying separate from costing state: `BasisAndDisplaySection.tsx`, `billing-currency/AGENTS.md`
 - Retention and deletion section (policy draft, owner actual-coverage cards, fresh preflight dialog handoff): `RetentionDeletionSection.tsx`, `../useRetentionDeletionData.ts`, `../dialogs/RetentionPolicyPreflightDialog.tsx`
 - Manual-cleanup section rendering: `ManualCleanupSection.tsx`; shared contract: `../manualCleanup.ts`
 - Retention job center (server-persisted jobs as a static browser snapshot, filters, manual refresh plus post-mutation calibration with serial fresh-cursor page walks, two independent detail evidence lanes, cancel): `RetentionJobsSection.tsx`
+- Retention job list/filter/cancel and detail/evidence state: `../useRetentionJobList.ts`, `../useRetentionJobDetails.ts`
 - Shared page shell, section IDs, and save-state helpers: `../AGENTS.md`, `../settingsNavigation.ts`, `../sectionSaveState.tsx`
 - Costing bootstrap, derived state, and save logic that feeds billing and timezone sections: `../costing/AGENTS.md`
 - Settings seam coverage lives in frontend lib/Vitest tests; the capped Playwright journey set does not include dedicated settings specs.
