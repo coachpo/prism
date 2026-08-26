@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const rollingWindowMinutes = 30
+
 type requestTrendPointStats struct {
 	requestCount int
 	successCount int
@@ -24,6 +26,44 @@ type tokenTrendPointStats struct {
 
 type latencyTrendPointStats struct {
 	values []int
+}
+
+type snapshotEvent struct {
+	APIFamily                string
+	AttemptCount             int
+	PricingStatus            string
+	CacheReadInputTokens     int
+	CacheCreationInputTokens int
+	ConnectionID             *int
+	CreatedAt                time.Time
+	EndpointID               *int
+	EndpointLabel            string
+	IngressRequestID         string
+	InputTokens              int
+	ModelID                  string
+	ModelLabel               string
+	OutputTokens             int
+	ProxyAPIKeyID            *int
+	ProxyAPIKeyLabel         *string
+	ProxyAPIKeyStatsLabel    string
+	ProxyKeyAttributionState string
+	ProxyAPIKeyPrefix        *string
+	ReasoningTokens          int
+	RequestPath              string
+	ResolvedTargetModelID    *string
+	StatusCode               int
+	SuccessFlag              bool
+	ResponseTimeMS           *int
+	TTFTMS                   *int
+	CompletionDurationMS     *int
+	HasOutputTokens          bool
+	TotalCostMicros          int64
+	TotalTokens              int
+}
+
+// priced reports whether the snapshot event is in the priced bucket.
+func (event snapshotEvent) priced() bool {
+	return event.PricingStatus == "priced"
 }
 
 func GetUsageSnapshot(ctx context.Context, exec queryExecutor, profileID int, preset string, referenceNow time.Time) (UsageSnapshotResponse, error) {
