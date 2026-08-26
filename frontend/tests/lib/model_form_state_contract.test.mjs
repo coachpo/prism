@@ -14,8 +14,6 @@ const {
   DEFAULT_MODEL_FORM_DATA,
   createEditModelFormData,
   createNewModelFormData,
-  getAccessTargetModelsForApiFamily,
-  getEditModelConnectionOptions,
   normalizeOpenAIAcceptedFormatForForm,
   setApiFamilyOnForm,
   setOpenAIAcceptedFormatOnForm,
@@ -23,6 +21,10 @@ const {
   toModelUpdatePayload,
   validateModelFormData,
 } = load(path.join(frontendDir, "src/pages/models/modelFormState.ts"));
+const {
+  getAccessTargetModelsForApiFamily,
+  getEditModelConnectionOptions,
+} = load(path.join(frontendDir, "src/pages/model-detail/modelAccessTargetProjection.ts"));
 
 const baseEditModel = {
   id: 7,

@@ -20,7 +20,11 @@ model-detail/
 ├── CopyTerminalTargetDialog.tsx
 ├── ModelCostCards.tsx
 ├── RouteReadinessCard.tsx
-├── CatalogMetadataCard.tsx       # models.dev binding card: source/override/effective, bind, refresh diff, overrides
+├── CatalogMetadataCard.tsx       # models.dev metadata card shell and workflow composition
+├── CatalogBindDialog.tsx         # Management-only match preview, candidate search, and bind workflow
+├── CatalogRefreshDialog.tsx      # Management-only refresh diff preview and ETag commit
+├── CatalogOverrideDialog.tsx     # Per-field/manual override workflow
+├── catalogMetadataPresentation.ts # Stable catalog field order, labels, and effective-value projection
 ├── CatalogPricingDialog.tsx      # Source-linked price generation for Terminal Targets
 ├── useModelCatalog.ts            # Settled-record catalog read hook
 ├── classifyOpenAICoverage.ts
@@ -29,8 +33,15 @@ model-detail/
 ├── routingScheduleDraft.ts
 ├── useConnectionFocus.ts
 ├── useModelDetailBootstrap.ts
-├── useModelDetailConnectionMutations.ts
-├── useModelDetailDataSupport.ts
+├── useModelDetailConnectionMutations.ts # Page coordinator for connection owners
+├── useModelDetailConnectionSubmit.ts    # Create/update submit and server field-error mapping
+├── useModelDetailConnectionLifecycle.ts # Quick connection mutations, delete, and refresh handoff
+├── useModelDetailConnectionReconciliation.ts # Server connection DTO collection replacement
+├── useModelDetailAccessTargetMutations.ts # Row-ID mutations for the mixed target list
+├── useModelDetailTargetReconciliation.ts # Server mixed-target response reconciliation
+├── connectionSubmitPreparation.ts
+├── connectionCollectionState.ts
+├── modelAccessTargetProjection.ts
 ├── connectionDataSupport.ts
 ├── useModelDetailDialogState.ts
 ├── useModelDetailModelForm.ts
@@ -42,11 +53,15 @@ model-detail/
 
 - Feature route and page composition: `../../features/models/detail/`
 - Bootstrap fetches, focus handoff, and redirect handling: `useModelDetailBootstrap.ts`, `useConnectionFocus.ts`
-- Connection create, edit, and delete flows with target-row-ID mutations: `useModelDetailConnectionMutations.ts`, `useModelDetailDialogState.ts`
-- Custom request parameters editor, client-side parser/validator mirroring the backend limits, and server 422 field mapping: `ConnectionCustomRequestParametersEditor.tsx`, `customRequestParameters.ts`, `useModelDetailConnectionMutations.ts`
+- Connection mutation coordinator: `useModelDetailConnectionMutations.ts`
+- Connection submit parsing, field validation, and payload preparation: `connectionSubmitPreparation.ts`, `connectionDataSupport.ts`
+- Connection create/update submit and server field-error mapping: `useModelDetailConnectionSubmit.ts`
+- Connection DTO collection replacement and post-mutation refresh: `useModelDetailConnectionReconciliation.ts`, `useModelDetailConnectionLifecycle.ts`
+- Mixed target row-ID mutations and server response reconciliation: `useModelDetailAccessTargetMutations.ts`, `useModelDetailTargetReconciliation.ts`
+- Custom request parameters editor, client-side parser/validator mirroring the backend limits, and server 422 field mapping: `ConnectionCustomRequestParametersEditor.tsx`, `customRequestParameters.ts`, `useModelDetailConnectionSubmit.ts`
 - Mixed access-target editor rendering and shared-order mutations: `../models/AccessTargetsEditor.tsx`
-- Connection draft/update payload and limiter/header normalization: `connectionDataSupport.ts`, `useModelDetailDataSupport.ts`; mounted pricing summaries include the typed `template_kind` and never fabricate a scalar base rate for multi-card templates.
-- Default forms, access-target summary (single enabled authored-order first row), and model list patching helpers: `useModelDetailDataSupport.ts`, `useModelDetailModelForm.ts`
+- Connection draft/update payload and limiter/header normalization: `connectionDataSupport.ts`; collection patch/resequence and pricing hydration: `connectionCollectionState.ts`; mounted pricing summaries include the typed `template_kind` and never fabricate a scalar base rate for multi-card templates.
+- Default forms, access-target ownership/options/summary projection, and model list patching: `useModelDetailDialogState.ts`, `modelAccessTargetProjection.ts`, `../models/modelListProjection.ts`, `useModelDetailModelForm.ts`
 - Spending-summary loading: `useModelDetailBootstrap.ts`, `ModelCostCards.tsx`
 - Retained Ban Policy current-state fetch/reset hook: `useModelLoadbalanceCurrentState.ts`
 - Shared latency and connection-label formatting: `modelDetailMetricsAndPaths.ts`
@@ -55,8 +70,11 @@ model-detail/
 
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
 - Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
-- Keep access-target option building and update payload shaping in `useModelDetailDataSupport.ts` / `useModelDetailModelForm.ts`; access-target editor rendering belongs in `../models/AccessTargetsEditor.tsx`. Pricing selection options and mounted summaries display the localized kind label, while card/window authoring remains on the Pricing route.
+- Keep model CRUD form state in `../models/modelFormState.ts`, mixed draft/order mutation rules in `../models/accessTargetFormState.ts`, and access-target ownership/options/summary projection in `modelAccessTargetProjection.ts`; access-target editor rendering belongs in `../models/AccessTargetsEditor.tsx`. Pricing selection options and mounted summaries display the localized kind label, while card/window authoring remains on the Pricing route.
+- Keep connection collection patch/resequence separate from access-target projection. `useModelDetailConnectionMutations.ts` composes the explicit connection submit, lifecycle, reconciliation, and target-mutation owners.
+- Parse raw connection drafts and map local/server field errors before connection API mutation; create/update/delete and collection reconciliation remain in the mutation owners.
+- Catalog metadata is a management-only projection. `CatalogMetadataCard.tsx` owns shell/effective rendering and the shared action lock; bind, refresh-diff, and override API workflows live in their named dialogs and never affect runtime compatibility.
 - Keep the custom request parameters editor draft as raw text and validate with `customRequestParameters.ts`; never bypass client validation with the raw string, and map server 422 field envelopes back to the editor instead of toasts.
-- Do not duplicate default form factories or redirect-target logic outside `useModelDetailDataSupport.ts`.
+- Do not duplicate default form factories or redirect-target logic outside their named form/connection owners.
 - Keep access-target mutations scoped to the source access-target row resolved from the model detail, while connection dialogs keep using the connection ID. Moves use the shared position order and must preserve the mixed runtime peer list.
 - Do not manage routing priority from `ConnectionDialog.tsx`; ordering belongs to the mixed access-target list.

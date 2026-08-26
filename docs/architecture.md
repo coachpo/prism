@@ -237,6 +237,8 @@ Live startup resources include listener host and port, PostgreSQL URL and six-la
 
 Runtime compatibility and redirect checks use each model's required `api_family`. Model rows do not depend on catalog metadata for routing, validation, or display. The Models page renders each row's `api_family` metadata directly.
 
+The model-management frontend keeps model CRUD form state in `frontend/src/pages/models/modelFormState.ts`, mixed access-target draft/order rules in `accessTargetFormState.ts`, and detail-side ownership/options/summary projection in `modelAccessTargetProjection.ts`. Connection collection patching is owned by `connectionCollectionState.ts`; `useModelDetailConnectionMutations.ts` only composes the connection submit, lifecycle, reconciliation, and mixed-target mutation owners. The management-only catalog card shell delegates binding, refresh-diff/ETag commit, and manual override workflows to their named dialogs, so catalog metadata never enters runtime compatibility or routing.
+
 ### 3.5 Management API Profile Scoping
 
 - Prism keeps one route-class matrix:

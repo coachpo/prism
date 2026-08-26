@@ -28,7 +28,7 @@ import {
   OperatorPageShell,
   OperatorStatusBadge,
 } from "@/shared/design-system";
-import { isOwnedConnectionTarget } from "@/pages/model-detail/useModelDetailDataSupport";
+import { isOwnedConnectionTarget } from "@/pages/model-detail/modelAccessTargetProjection";
 import { useModelDetailFeatureData } from "./useModelDetailFeatureData";
 
 type URLSearchParamsInit = ConstructorParameters<typeof URLSearchParams>[0];

@@ -77,7 +77,7 @@ import {
   OperatorTypeBadge,
 } from "@/shared/design-system";
 import { operationalRowActionsClassName } from "@/shared/table/operationalTable";
-import { sortAccessTargetsByPositionThenId } from "./modelFormState";
+import { sortAccessTargetsByPositionThenId } from "./accessTargetFormState";
 
 const TARGET_COLUMN_COUNT = 8;
 

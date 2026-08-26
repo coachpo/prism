@@ -19,11 +19,11 @@ import {
   type ModelFormValidationError,
   setLoadbalanceStrategyIdOnForm,
   toModelCreatePayload,
-  toModelListItem,
   toModelUpdatePayload,
   type SubmitEventLike,
   validateModelFormData,
 } from "./modelFormState";
+import { toModelListItem } from "./modelListProjection";
 import { useModelMetrics24h } from "./useModelMetrics24h";
 
 function getModelValidationMessage(

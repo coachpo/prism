@@ -1,8 +1,7 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelAccessTarget, ModelConfig } from "@/lib/types";
-import { useModelDetailConnectionMutations } from "./useModelDetailConnectionMutations";
-import { emptyRoutingScheduleDraft } from "./routingScheduleDraft";
+import { useModelDetailAccessTargetMutations } from "./useModelDetailAccessTargetMutations";
 
 const mocks = vi.hoisted(() => ({
   update: vi.fn(),
@@ -89,32 +88,10 @@ const model = {
 
 function renderMutations() {
   return renderHook(() =>
-    useModelDetailConnectionMutations({
-      id: "8",
-      revision: 0,
+    useModelDetailAccessTargetMutations({
+      modelConfigId: 8,
       model,
-      modelApiFamily: "openai",
-      createMode: "select",
-      selectedEndpointId: "",
-      newEndpointForm: { name: "", base_url: "", api_key: "" },
-      connectionForm: {} as never,
-      headerRows: [],
-      customRequestParametersDraft: "",
-      setCustomRequestParametersError: vi.fn(),
-    routingScheduleDraft: emptyRoutingScheduleDraft(),
-    setRoutingScheduleDraft: vi.fn(),
-    routingScheduleError: null,
-    setRoutingScheduleError: vi.fn(),
-      editingConnection: null,
-      pricingTemplates: [],
-      endpointSourceDefaultName: null,
-      refreshCurrentState: vi.fn(),
-      setIsConnectionDialogOpen: vi.fn(),
-      setAllModels: vi.fn(),
-      setConnections: vi.fn(),
-      setAllConnections: vi.fn(),
-      setModel: vi.fn(),
-      setGlobalEndpoints: vi.fn(),
+      applyTargets: vi.fn(),
     }),
   );
 }

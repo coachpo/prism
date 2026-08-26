@@ -13,7 +13,7 @@ import {
   type SubmitEventLike,
   validateModelFormData,
 } from "../models/modelFormState";
-import { patchModelListItemFromDetail } from "./useModelDetailDataSupport";
+import { patchModelListItemFromDetail } from "../models/modelListProjection";
 
 interface UseModelDetailModelFormInput {
   model: ModelConfig | null;

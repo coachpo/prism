@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { moveConnectionInList } from "@/pages/model-detail/useModelDetailDataSupport"
+import { moveConnectionInList } from "@/pages/model-detail/connectionCollectionState"
 import { modelDetailSearchSchema, normalizeModelDetailTab } from "@/features/models/detail/modelDetailSchemas"
 import type { Connection } from "@/lib/types"
 

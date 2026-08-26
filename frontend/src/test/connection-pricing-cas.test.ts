@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildConnectionUpdatePayload } from "@/pages/model-detail/useModelDetailDataSupport"
+import { buildConnectionUpdatePayload } from "@/pages/model-detail/connectionDataSupport"
 import type { Connection, ConnectionCreate } from "@/lib/types"
 
 function createConnection(params?: Partial<Connection>): Connection {

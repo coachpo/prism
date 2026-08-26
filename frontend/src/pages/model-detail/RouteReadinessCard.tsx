@@ -13,7 +13,7 @@ import {
 } from "@/shared/design-system";
 import { OperationRoutingSummary } from "@/features/models/detail/OperationRoutingSummary";
 import type { DiagnosticsView } from "@/features/models/detail/ModelDetailFeaturePage";
-import type { AccessTargetSummary } from "./useModelDetailDataSupport";
+import type { AccessTargetSummary } from "./modelAccessTargetProjection";
 
 interface RouteReadinessCardProps {
   accessTargetSummary?: AccessTargetSummary;
