@@ -569,6 +569,10 @@ func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platf
 	}
 	var loadbalanceDomainErr *loadbalancedomain.HTTPError
 	if errors.As(err, &loadbalanceDomainErr) {
+		if strings.TrimSpace(loadbalanceDomainErr.Code) != "" {
+			responseutil.WriteErrorFields(w, r, corsSnapshot, loadbalanceDomainErr.StatusCode, loadbalanceDomainErr.Detail, map[string]any{"code": loadbalanceDomainErr.Code})
+			return
+		}
 		responseutil.WriteError(w, r, corsSnapshot, loadbalanceDomainErr.StatusCode, loadbalanceDomainErr.Detail)
 		return
 	}

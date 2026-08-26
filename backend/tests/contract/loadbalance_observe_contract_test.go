@@ -437,6 +437,185 @@ func TestEventsRequestContextHandoffContract(t *testing.T) {
 	}
 }
 
+func observeSetRetentionPurgeState(t *testing.T, harness *contractHarness, dataset string, state string) {
+	t.Helper()
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE log_retention_policy_resources SET purge_state = $1 WHERE dataset = $2`, state, dataset); err != nil {
+		t.Fatalf("set %s purge state to %s: %v", dataset, state, err)
+	}
+}
+
+// TestEventsUnnamedTerminalTargetProjectionContract pins the NULL/blank/padded
+// connection-name contract: an existing terminal target with no usable name
+// still loads and projects as configured with the #<connection_id> fallback
+// label, a nonblank name is preserved byte-for-byte, and owner resolution is
+// independent from connection existence. A missing row stays configured=false.
+func TestEventsUnnamedTerminalTargetProjectionContract(t *testing.T) {
+	harness := newLoadbalanceContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	nowAt := time.Now().UTC()
+
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Observe Unnamed Strategy")
+	modelConfigID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "unnamed-model", stringPtr("Unnamed Model"), "native", &strategyID, true)
+	endpointID := modelInsertEndpoint(t, harness, profileID, "Unnamed Endpoint", 0)
+	connectionID := modelInsertConnection(t, harness, profileID, modelConfigID, endpointID, 0, true, nil)
+
+	observeInsertEvent(t, harness, observeEventSeed{ID: 4000, ProfileID: profileID, ConnectionID: connectionID, EventType: "banned", FailureKind: stringPtr("timeout"), ConsecutiveFailures: 1, ModelID: stringPtr("unnamed-model"), ModelConfigID: &modelConfigID, EndpointID: &endpointID, CreatedAt: nowAt.Add(-2 * time.Minute)})
+	missingConnectionID := connectionID + 987654
+	observeInsertEvent(t, harness, observeEventSeed{ID: 4001, ProfileID: profileID, ConnectionID: missingConnectionID, EventType: "banned", FailureKind: stringPtr("timeout"), ConsecutiveFailures: 1, ModelID: stringPtr("unnamed-model"), ModelConfigID: &modelConfigID, EndpointID: &endpointID, CreatedAt: nowAt.Add(-2 * time.Minute)})
+
+	// connections.name is legally NULL; the timeline must still load instead
+	// of failing the label scan.
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET name = NULL WHERE id = $1`, connectionID); err != nil {
+		t.Fatalf("clear connection name: %v", err)
+	}
+
+	assertConfiguredUnnamedTarget := func(item map[string]any) {
+		t.Helper()
+		target := asMap(t, item["terminal_target"])
+		if jsonInt(t, target["id"]) != connectionID || target["label"] != fmt.Sprintf("#%d", connectionID) || target["configured"] != true || jsonInt(t, target["owner_model_config_id"]) != modelConfigID {
+			t.Fatalf("expected configured unnamed target projection, got %+v", target)
+		}
+	}
+
+	queryContext := observeIssueEventsContext(t, harness, profileID, "24h")
+	payload := requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/loadbalance/events?query_context="+url.QueryEscape(queryContext)+"&limit=10", nil, modelHeader(profileID), http.StatusOK)
+	items := payload["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("expected both events on the unnamed-target timeline, got %+v", payload)
+	}
+	itemByID := map[string]map[string]any{}
+	for _, raw := range items {
+		item := asMap(t, raw)
+		itemByID[fmt.Sprint(item["event_id"])] = item
+	}
+	assertConfiguredUnnamedTarget(itemByID["4000"])
+	missingTarget := asMap(t, itemByID["4001"]["terminal_target"])
+	if jsonInt(t, missingTarget["id"]) != missingConnectionID || missingTarget["label"] != fmt.Sprintf("#%d", missingConnectionID) || missingTarget["configured"] != false || missingTarget["owner_model_config_id"] != nil {
+		t.Fatalf("expected missing target configured=false without owner, got %+v", missingTarget)
+	}
+
+	detail := requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/loadbalance/events/4000?query_context="+url.QueryEscape(queryContext), nil, modelHeader(profileID), http.StatusOK)
+	assertConfiguredUnnamedTarget(detail)
+
+	// A whitespace-only name is equally unusable and keeps the same contract.
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET name = '   ' WHERE id = $1`, connectionID); err != nil {
+		t.Fatalf("blank connection name: %v", err)
+	}
+	blankDetail := requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/loadbalance/events/4000?query_context="+url.QueryEscape(queryContext), nil, modelHeader(profileID), http.StatusOK)
+	assertConfiguredUnnamedTarget(blankDetail)
+
+	// Nonblank names retain their stored spelling; TrimSpace is only the blank
+	// test and must not normalize an operator-authored label.
+	const paddedName = "  Named Target  "
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET name = $1 WHERE id = $2`, paddedName, connectionID); err != nil {
+		t.Fatalf("set padded connection name: %v", err)
+	}
+	paddedDetail := requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/loadbalance/events/4000?query_context="+url.QueryEscape(queryContext), nil, modelHeader(profileID), http.StatusOK)
+	paddedTarget := asMap(t, paddedDetail["terminal_target"])
+	if paddedTarget["label"] != paddedName || paddedTarget["configured"] != true || jsonInt(t, paddedTarget["owner_model_config_id"]) != modelConfigID {
+		t.Fatalf("expected padded target label and owner to be preserved, got %+v", paddedTarget)
+	}
+
+	// The connection row remains configured when its owner edge disappears;
+	// only owner_model_config_id becomes unavailable.
+	if _, err := harness.conn.Exec(context.Background(), `DELETE FROM model_access_targets WHERE profile_id = $1 AND target_connection_id = $2 AND target_type = 'connection'`, profileID, connectionID); err != nil {
+		t.Fatalf("delete terminal target owner edge: %v", err)
+	}
+	ownerlessDetail := requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/loadbalance/events/4000?query_context="+url.QueryEscape(queryContext), nil, modelHeader(profileID), http.StatusOK)
+	ownerlessTarget := asMap(t, ownerlessDetail["terminal_target"])
+	if ownerlessTarget["label"] != paddedName || ownerlessTarget["configured"] != true || ownerlessTarget["owner_model_config_id"] != nil {
+		t.Fatalf("expected existing ownerless target to remain configured, got %+v", ownerlessTarget)
+	}
+}
+
+// TestEventsRequestLogPurgeInProgressContract pins the shared request-log
+// retention-floor branch: while the request-logs source is running or awaiting
+// recovery, both the events list and a hit detail return the typed 503 with
+// the existing Request Logs purge detail instead of an opaque 500.
+func TestEventsRequestLogPurgeInProgressContract(t *testing.T) {
+	harness := newLoadbalanceContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	nowAt := time.Now().UTC()
+
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Observe Purge Strategy")
+	modelConfigID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "purge-model", stringPtr("Purge Model"), "native", &strategyID, true)
+	endpointID := modelInsertEndpoint(t, harness, profileID, "Purge Endpoint", 0)
+	connectionID := modelInsertConnection(t, harness, profileID, modelConfigID, endpointID, 0, true, nil)
+
+	observeInsertEvent(t, harness, observeEventSeed{ID: 4100, ProfileID: profileID, ConnectionID: connectionID, EventType: "banned", FailureKind: stringPtr("timeout"), ConsecutiveFailures: 1, ModelID: stringPtr("purge-model"), ModelConfigID: &modelConfigID, EndpointID: &endpointID, CreatedAt: nowAt.Add(-2 * time.Minute)})
+
+	queryContext := observeIssueEventsContext(t, harness, profileID, "24h")
+	listPath := "/api/loadbalance/events?query_context=" + url.QueryEscape(queryContext)
+	detailPath := "/api/loadbalance/events/4100?query_context=" + url.QueryEscape(queryContext)
+
+	assertRequestLogPurgeUnavailable := func(response *http.Response) {
+		t.Helper()
+		var payload struct {
+			Code   string `json:"code"`
+			Detail string `json:"detail"`
+		}
+		decodeContractResponse(t, response, &payload)
+		if payload.Code != "request_log_purge_in_progress" || payload.Detail != "request logs are temporarily unavailable while retention cleanup is publishing" {
+			t.Fatalf("expected typed request log purge payload, got %+v", payload)
+		}
+	}
+
+	for _, purgeState := range []string{"running", "recovery_required"} {
+		observeSetRetentionPurgeState(t, harness, "request_logs", purgeState)
+		listResponse := harness.requestJSON(t, harness.client, http.MethodGet, listPath, nil, modelHeader(profileID))
+		if listResponse.StatusCode != http.StatusServiceUnavailable {
+			t.Fatalf("expected request-log purge list 503 in state %s, got %d body %s", purgeState, listResponse.StatusCode, readResponseBody(t, listResponse))
+		}
+		assertRequestLogPurgeUnavailable(listResponse)
+		detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, detailPath, nil, modelHeader(profileID))
+		if detailResponse.StatusCode != http.StatusServiceUnavailable {
+			t.Fatalf("expected request-log purge detail 503 in state %s, got %d body %s", purgeState, detailResponse.StatusCode, readResponseBody(t, detailResponse))
+		}
+		assertRequestLogPurgeUnavailable(detailResponse)
+	}
+}
+
+// TestEventsAllPresetEventsPurgeInProgressContract pins preset=all issuance:
+// while the loadbalance-events source is running or awaiting recovery, issuing
+// the all-history context returns the typed 503 with the existing Events purge
+// detail, and idle issuance keeps working.
+func TestEventsAllPresetEventsPurgeInProgressContract(t *testing.T) {
+	harness := newLoadbalanceContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+
+	idleIssue := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/loadbalance/events/query-context", map[string]any{"requested_preset": "all"}, modelHeader(profileID), http.StatusOK)
+	if token, ok := idleIssue["query_context"].(string); !ok || token == "" {
+		t.Fatalf("expected idle preset=all issuance to keep working, got %+v", idleIssue)
+	}
+
+	assertEventsPurgeUnavailable := func(response *http.Response) {
+		t.Helper()
+		var payload struct {
+			Code   string `json:"code"`
+			Detail string `json:"detail"`
+		}
+		decodeContractResponse(t, response, &payload)
+		if payload.Code != "event_purge_in_progress" || payload.Detail != "events are temporarily unavailable while retention cleanup is publishing" {
+			t.Fatalf("expected typed events purge payload, got %+v", payload)
+		}
+	}
+
+	for _, purgeState := range []string{"running", "recovery_required"} {
+		observeSetRetentionPurgeState(t, harness, "loadbalance_events", purgeState)
+		response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/loadbalance/events/query-context", map[string]any{"requested_preset": "all"}, modelHeader(profileID))
+		if response.StatusCode != http.StatusServiceUnavailable {
+			t.Fatalf("expected events purge preset=all 503 in state %s, got %d body %s", purgeState, response.StatusCode, readResponseBody(t, response))
+		}
+		assertEventsPurgeUnavailable(response)
+	}
+
+	// Restoring idle restores normal issuance; only the purge branch changed.
+	observeSetRetentionPurgeState(t, harness, "loadbalance_events", "idle")
+	requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/loadbalance/events/query-context", map[string]any{"requested_preset": "all"}, modelHeader(profileID), http.StatusOK)
+}
+
 var _ = json.Marshal
 
 func TestNarrowCooldownResetContract(t *testing.T) {
@@ -508,5 +687,13 @@ func TestNarrowCooldownResetContract(t *testing.T) {
 	missing := harness.requestJSON(t, harness.client, http.MethodPost, "/api/loadbalance/current-state/999999/reset", nil, modelHeader(profileID))
 	if missing.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected unknown target reset 404, got %d", missing.StatusCode)
+	}
+	var missingPayload map[string]any
+	decodeContractResponse(t, missing, &missingPayload)
+	if missingPayload["detail"] != "Connection not found" {
+		t.Fatalf("expected legacy no-code reset detail, got %+v", missingPayload)
+	}
+	if _, hasCode := missingPayload["code"]; hasCode {
+		t.Fatalf("expected legacy no-code reset response to omit code, got %+v", missingPayload)
 	}
 }
