@@ -9,13 +9,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useLocale } from "@/i18n/useLocale"
-import type { PricingTemplateImportRequest, PricingTemplateImportResponse } from "@/lib/types"
 import { OperatorMissingValue, OperatorSectionCard, OperatorTypeBadge } from "@/shared/design-system"
-
-export type PricingImportPreviewState = {
-  request: PricingTemplateImportRequest
-  response: PricingTemplateImportResponse
-}
+import type { PricingImportPreviewState } from "./usePricingImportProtocol"
 
 interface PricingImportPreviewProps {
   committing: boolean

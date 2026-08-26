@@ -9,11 +9,11 @@
 ```text
 features/
 ├── endpoints/        # `/route/endpoints` feature page and endpoint dialogs/hooks (`endpoints/AGENTS.md`)
-├── loadbalance/      # `/route/ban-policies` strategies-only page, trusted fragment data hook, strategy dialog (groups/presets/provenance/preview)
+├── loadbalance/      # `/route/ban-policies` page with strategy collection, mutation, and impact owners
 ├── models/           # `/models` list feature, `/models/$modelId` detail adapter, and `models/export/` client-config export page
 ├── observe/          # `/observe` dashboard adapter (Window KPI grid incl. cache-read share) plus the 路由健康 tab (global Current State, events timeline, event detail)
-├── pricing/          # `/route/pricing` feature page and pricing-template flows
-├── proxy-keys/       # `/system/proxy-keys` global proxy-key surface: ledger, mutations, generated-secret session, access panel (`proxy-keys/AGENTS.md`)
+├── pricing/          # `/route/pricing` feature page with collection/editor/detail/import owners
+├── proxy-keys/       # `/system/proxy-keys` global proxy-key surface: ledger, four mutation lanes, secret session, access panel (`proxy-keys/AGENTS.md`)
 ├── routing-health/    # Observe 路由健康 tab: global current state, events timeline, reset flow
 ├── runtime-self-test/ # Shared four-layer runtime self-test: effective origin, curl builder, direct runner, dialog
 ├── request-logs/     # `/observe/requests` list and audit detail adapters
@@ -36,6 +36,9 @@ features/
 - Uploaded client files are parsed entirely in-browser, matched by the complete public model id, and recursively stripped of sensitive camelCase/snake_case keys before anything uploads; remaining non-sensitive headers require item-by-item confirmation. Full-content copy, fixed-name/MIME download, and a real new-tab raw view reuse exactly one rendered content string. Pi's separate merge-fragment action parses that same string locally and copies only `{ "<provider_id>": { ...provider... } }\n` for insertion beneath an existing `models.json` `providers` object; it never re-renders or implies replacing other providers.
 - Keep global control pages free of profile-scope assumptions unless backend route scope explicitly says otherwise.
 - Prefer feature-local schema/payload builders beside the feature page when they are only used by that route.
+- Keep Ban Policy strategy collection/read, CRUD/default mutations, and impact cursor pagination in their named feature owners; the page hook only composes them.
+- Keep pricing-template collection/editor mutations, usage/history detail reads, and import preview/commit in their named feature owners; preserve the two-phase import contract and last-good states.
+- Keep proxy-key ledger/query state, create/edit/rotate/delete mutation lifecycles, mutation reconciliation/error mapping, and the one-time raw-secret session in their named owners; mutations must preserve cache invalidation, capacity reconciliation, and no-store secret handling.
 
 ## ANTI-PATTERNS
 
