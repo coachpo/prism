@@ -15,14 +15,24 @@ models/
 ├── modelListProjection.ts  # Server model DTO to list-row projection
 ├── modelTableContracts.ts  # Shared metric type contract
 ├── useModelMetrics24h.ts   # 24h metrics and spend hydration
-├── useModelsPageData.ts    # Shared-cache bootstrap, local patching, dialog orchestration
+├── useModelsPageData.ts    # Thin page composition over model, dialog, enablement, delete, strategy, and metrics owners
+├── useModelsCollection.ts  # Model/strategy bootstrap, shared-cache reads, and model list patching
+├── useModelDialogMutations.ts # Create/edit form state, dialog sessions, CRUD, and server error mapping
+├── useModelEnablementMutations.ts # Row and bulk model enablement mutations
+├── useModelDeletion.ts      # Model deletion target and mutation lifecycle
+├── useLoadbalanceStrategyDefaults.ts # Strategy-default creation, re-read, and dialog reconciliation
 └── *.test.ts(x)            # Access-target editor and metrics-hydration coverage
 ```
 
 ## WHERE TO LOOK
 
 - Feature route and table rendering: `../../features/models/`, `../../features/models/ModelsTable.tsx`
-- Shared model bootstrap and mutation patching: `useModelsPageData.ts`
+- Model collection/bootstrap, revision cache, and server DTO patching: `useModelsCollection.ts`
+- Model create/edit dialog sessions, form mutations, and server error mapping: `useModelDialogMutations.ts`
+- Row/bulk enablement state and mutations: `useModelEnablementMutations.ts`
+- Model deletion target and mutation: `useModelDeletion.ts`
+- Load-balance strategy default creation and forced re-read: `useLoadbalanceStrategyDefaults.ts`
+- Thin page-facing composition and metrics handoff: `useModelsPageData.ts`
 - Model CRUD form defaults, OpenAI text/image normalization, validation, and payload transforms: `modelFormState.ts`
 - Mixed access-target draft/order/mutation contract, including `(position, id)` ordering helpers: `accessTargetFormState.ts`
 - Model-list DTO projection after CRUD/detail responses: `modelListProjection.ts`
@@ -49,5 +59,6 @@ models/
 ## ANTI-PATTERNS
 
 - Do not rebuild model CRUD or mixed access-target rules in dialog components; import them from their named owner.
-- Do not let table components own API calls; `useModelsPageData.ts` already centralizes list mutations.
+- Do not let table components own API calls; the named model lifecycle owners centralize list and mutation calls while `useModelsPageData.ts` only composes them.
+- Keep model bootstrap/cache patching, dialog/form CRUD, row/bulk enablement, deletion, and strategy-default creation in their named owners. Dialog session fencing must remain authoritative when strategy defaults are re-read or a modal closes.
 - Do not fold metrics queries into the base list bootstrap when `useModelMetrics24h.ts` already isolates that concern.
