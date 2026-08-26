@@ -12,10 +12,13 @@ endpoints/
 ```
 
 ## WHERE TO LOOK
-- Feature route, compact table, reference state machines and form state: `../../features/endpoints/`
+- Feature route, compact table, list/reconciliation state, reference owners, and mutation workflows: `../../features/endpoints/`
 - Delete preflight machine and race `409` replacement: `DeleteEndpointDialog.tsx`
 - Orphan cleanup and attach dialogs: `OrphanCleanupDialog.tsx`, `AttachToModelDialog.tsx`
-- Reference summary/detail state machines and chunked batch coordinator: `../../features/endpoints/useEndpointReferences.ts`
+- Batch reference summary state: `../../features/endpoints/useEndpointReferenceSummaries.ts`
+- Per-Endpoint detail snapshot/cursor state: `../../features/endpoints/useEndpointReferenceDetails.ts`
+- Shared generation fence and composition: `../../features/endpoints/useEndpointReferences.ts`
+- Endpoint delete state: `../../features/endpoints/useEndpointDeletion.ts`
 - Typed Endpoint error guards: `../../lib/api/endpointErrors.ts`
 
 ## CONVENTIONS

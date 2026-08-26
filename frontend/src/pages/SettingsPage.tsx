@@ -19,7 +19,7 @@ import { SettingsGlobalTab } from "./settings/SettingsGlobalTab";
 import { SettingsSaveAction, type SettingsPendingSave } from "./settings/SettingsSaveAction";
 import { useSettingsPageData } from "./settings/useSettingsPageData";
 import { useSettingsPageSectionState } from "./settings/useSettingsPageSectionState";
-import { SETTINGS_SCOPES } from "./settings/settingsPageHelpers";
+import { SETTINGS_SCOPES } from "./settings/settingsNavigation";
 
 export function SettingsPage() {
   const { messages } = useLocale();

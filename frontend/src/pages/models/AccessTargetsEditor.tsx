@@ -63,7 +63,8 @@ import {
   getTerminalTargetId,
   isTerminalTargetAccessTargetType,
 } from "@/lib/types/target-compatibility";
-import { cn, formatApiFamily } from "@/lib/utils";
+import { formatApiFamily } from "@/components/apiFamilyPresentation";
+import { cn } from "@/lib/utils";
 import { useLocale } from "@/i18n/useLocale";
 import {
   OperatorCallout,
@@ -76,7 +77,7 @@ import {
   OperatorTypeBadge,
 } from "@/shared/design-system";
 import { operationalRowActionsClassName } from "@/shared/table/operationalTable";
-import { sortAccessTargetsByPositionThenId } from "./modelFormState";
+import { sortAccessTargetsByPositionThenId } from "./accessTargetFormState";
 
 const TARGET_COLUMN_COUNT = 8;
 

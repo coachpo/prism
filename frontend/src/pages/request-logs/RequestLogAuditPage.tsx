@@ -50,7 +50,7 @@ import {
   type RequestAuditCaptureMode,
 } from "./requestLogAuditState";
 import { RequestLogPayloadBlock } from "./detail/RequestLogPayloadBlock";
-import { getStatusIntent } from "./detail/requestLogDetailUtils";
+import { getStatusIntent } from "./detail/requestLogStatus";
 import { useDedicatedRequestLogAudit } from "./useDedicatedRequestLogAudit";
 
 function parsePositiveAuditId(value: string | null | undefined): number | null {

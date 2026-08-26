@@ -9,8 +9,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { VERSION_LABEL } from "@/lib/appVersion"
 import { useLocale } from "@/i18n/useLocale"
-import { VERSION_LABEL } from "@/components/layout/app-layout/useShellNavigation"
 
 type AuthPageShellProps = {
   title: ReactNode

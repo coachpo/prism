@@ -6,7 +6,7 @@ import type { RequestLogHeaderEntry, RequestLogPayloadDocument } from "./request
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { copyRequestLogText } from "./requestLogDetailUtils";
+import { copyRequestLogText } from "./requestLogClipboard";
 import {
   buildRequestLogHeaderDocument,
   buildRequestLogPayloadDocument,

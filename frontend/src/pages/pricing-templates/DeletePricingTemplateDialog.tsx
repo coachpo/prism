@@ -10,9 +10,10 @@ import {
 } from "@/components/ui/table";
 import { useLocale } from "@/i18n/useLocale";
 import type {
-    PricingTemplate,
-    PricingTemplateConnectionUsageItem,
+  PricingTemplate,
+  PricingTemplateConnectionUsageItem,
 } from "@/lib/types";
+import { isPricingTemplateDeleteBlocked } from "@/features/pricing/pricingDeletion";
 import {
     OperatorCallout,
     OperatorDestructiveDialog,
@@ -54,11 +55,12 @@ export function DeletePricingTemplateDialog({
     const dependencyRows =
         deletePricingTemplateConflict ?? pricingTemplateUsageRows;
     const hasDependencies = dependencyRows.length > 0;
-    const deleteDisabled =
-        pricingTemplateDeleting ||
-        pricingTemplateUsageLoading ||
-        pricingTemplateUsageError ||
-        hasDependencies;
+    const deleteDisabled = isPricingTemplateDeleteBlocked({
+        deleting: pricingTemplateDeleting,
+        usageLoading: pricingTemplateUsageLoading,
+        usageError: pricingTemplateUsageError,
+        dependencyCount: dependencyRows.length,
+    });
 
     return (
         <OperatorDestructiveDialog

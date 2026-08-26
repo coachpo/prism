@@ -1,8 +1,8 @@
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
+import { formatApiFamily } from "@/components/apiFamilyPresentation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLocale } from "@/i18n/useLocale";
 import type { ModelConfig } from "@/lib/types";
-import { formatApiFamily } from "@/lib/utils";
 import { getLoadbalanceStrategyDetailLabel } from "@/lib/loadbalanceRoutingPolicy";
 import {
   OperatorInsetPanel,
@@ -13,7 +13,7 @@ import {
 } from "@/shared/design-system";
 import { OperationRoutingSummary } from "@/features/models/detail/OperationRoutingSummary";
 import type { DiagnosticsView } from "@/features/models/detail/ModelDetailFeaturePage";
-import type { AccessTargetSummary } from "./useModelDetailDataSupport";
+import type { AccessTargetSummary } from "./modelAccessTargetProjection";
 
 interface RouteReadinessCardProps {
   accessTargetSummary?: AccessTargetSummary;

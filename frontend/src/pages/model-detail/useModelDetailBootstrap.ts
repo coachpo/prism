@@ -18,7 +18,7 @@ import type {
   PricingTemplate,
   SpendingSummary,
 } from "@/lib/types";
-import { getOwnedModelConnections } from "./useModelDetailDataSupport";
+import { getOwnedModelConnections } from "./modelAccessTargetProjection";
 
 interface UseModelDetailBootstrapInput {
   id: string | undefined;

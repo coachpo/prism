@@ -34,11 +34,9 @@ import type {
 	FinalizedSummary,
 	RequestLogChainRow,
 } from "@/lib/types/request-logs";
+import type { ChainRowReadState } from "./useRequestLogIngressChains";
 
 const CHAIN_COLUMN_COUNT = 10;
-
-/** Per-chain row_cursor append read state, owned by the data hook. */
-export type ChainRowReadState = { pending: boolean; error: string | null };
 
 /**
  * Ingress-chain view (SPEC: `view=ingress_chains`): outer pages of retained

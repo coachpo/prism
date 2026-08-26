@@ -25,11 +25,9 @@ import {
 } from "./strategyValueBadges";
 import { useLocale } from "@/i18n/useLocale";
 import type { LoadbalanceStrategy } from "@/lib/types";
-import type { FragmentState } from "@/features/loadbalance/useBanPoliciesFeatureData";
-import type {
-    StrategyImpactState,
-    SetDefaultState,
-} from "@/features/loadbalance/useBanPoliciesFeatureData";
+import type { SetDefaultState } from "@/features/loadbalance/useBanPolicyMutations";
+import type { StrategyImpactState } from "@/features/loadbalance/useStrategyImpactPager";
+import type { FragmentState } from "@/features/loadbalance/strategyFragmentState";
 import { BAN_POLICY_PRESETS } from "@/features/loadbalance/banPolicySchemas";
 import {
     OperatorCallout,

@@ -11,7 +11,7 @@ design-system/
 ├── section.tsx             # Section layout primitives
 ├── destructive-dialog.tsx  # Destructive confirmation shell
 ├── controls.tsx            # Common control wrappers
-├── status.tsx              # Four-tier status/type/value badges
+├── status.tsx              # Four-tier status/type/value badges and status-label presentation
 ├── honesty.tsx             # Missing value, staleness badge, clipped badge
 ├── freshness.tsx           # The "when is this from" bar
 ├── state-surfaces.tsx      # Empty/loading/error surfaces

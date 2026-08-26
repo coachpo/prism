@@ -1,4 +1,4 @@
-import type { ApiError } from "./core";
+import type { ApiError } from "./request";
 import type { Endpoint, EndpointReferenceItem, EndpointReferencePage, EndpointReferenceSummary } from "../types";
 
 // Typed Endpoint error guards. These live at the typed API/domain boundary and

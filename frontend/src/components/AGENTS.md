@@ -6,7 +6,8 @@
 ## STRUCTURE
 ```text
 components/
-├── ApiFamilyIcon.tsx, ApiFamilySelect.tsx             # Shared API-family icon and picker helpers
+├── ApiFamilyIcon.tsx                                  # Shared API-family icon component
+├── apiFamilyPresentation.ts, ApiFamilySelect.tsx      # API-family labels and picker presentation
 ├── CopyButton.tsx                                     # Shared copy affordance
 ├── IconActionGroup.tsx                                # Shared icon action cluster
 ├── ThemeToggle.tsx                                    # Theme menu items and standalone theme toggle
@@ -18,7 +19,7 @@ components/
 - Shell chrome and layout handoff: `layout/page.tsx`
 - Shell state cluster plus nav/version ownership: `layout/app-layout/AGENTS.md`
 - Shared theme control: `ThemeToggle.tsx`
-- Shared API-family, copy, and icon action widgets: `ApiFamilyIcon.tsx`, `ApiFamilySelect.tsx`, `CopyButton.tsx`, `IconActionGroup.tsx`
+- Shared API-family icon/label presentation, picker, copy, and icon action widgets: `ApiFamilyIcon.tsx`, `apiFamilyPresentation.ts`, `ApiFamilySelect.tsx`, `CopyButton.tsx`, `IconActionGroup.tsx`
 - Shared loadbalance rendering is retired. The old badges/table/detail-sheet components and the `loadbalance/` folder that held them are deleted; the routing-policy config surface (`../features/loadbalance/`) and the Observe 路由健康 tab (`../features/observe/`) own the current renderers, with event summary localization in `../features/observe/eventSummary.ts`
 - Design-system primitives and local wrappers: `ui/`
 - shadcn registry source of truth for `ui/`: `../../components.json`, `../index.css`
@@ -38,6 +39,7 @@ components/
 - Keep theme controls in shared preference widgets instead of duplicating them in auth pages or shell headers.
 - Reuse `ui/` primitives before adding one-off markup, and prefer local wrappers in `ui/` when a pattern belongs to the design system.
 - Keep semantic Tailwind tokens, `cn(...)` class composition, and shadcn variant/size props in shared components instead of raw color overrides or bespoke primitive copies.
+- Keep API-family icon rendering in `ApiFamilyIcon.tsx` and API-family label projection in `apiFamilyPresentation.ts`; `ApiFamilySelect.tsx` composes those owners without duplicating the mapping.
 - Keep the leaf docs in `ui/` for primitive-level wrappers, and keep this parent focused on the shared widgets above them.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.

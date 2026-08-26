@@ -5,7 +5,7 @@ import {
   getCleanupRetentionLabel,
   getCleanupTypeLabel,
   type DeleteCleanupType,
-} from "../settingsPageHelpers";
+} from "../manualCleanup";
 import type { RetentionPreflightResponse } from "@/lib/types";
 import { useTimezone } from "@/hooks/useTimezone";
 import { OperatorCallout, OperatorDestructiveDialog } from "@/shared/design-system";

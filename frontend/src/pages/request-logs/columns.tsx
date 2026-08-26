@@ -1,8 +1,9 @@
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
-import { formatNumber, getCurrentLocale } from "@/i18n/format";
+import { formatApiFamily } from "@/components/apiFamilyPresentation";
+import { getCurrentLocale } from "@/i18n/format";
 import { getStaticMessages } from "@/i18n/staticMessages";
-import { formatMoneyMicros, formatUnpricedReasonLabel, resolveSpendTrustState } from "@/lib/costing";
-import { cn, formatApiFamily } from "@/lib/utils";
+import { formatUnpricedReasonLabel, resolveSpendTrustState } from "@/lib/costing";
+import { cn } from "@/lib/utils";
 import type { RequestLogListItem } from "@/lib/types";
 import { OperatorTypeBadge, OperatorValueBadge } from "@/shared/design-system";
 import { AlertCircle } from "lucide-react";
@@ -13,18 +14,14 @@ import {
   isStreamUsageUnavailableReason,
 } from "./streamTelemetry";
 import { describeUnpricedCause } from "./pricingExplanation";
+import {
+  formatCost,
+  formatTokenRate,
+  formatTokens,
+  formatTtft,
+} from "./requestLogMetricPresentation";
 
 export const ROW_HEIGHT = 45;
-
-function formatCost(micros: number | null, symbol: string | null): string {
-  if (micros === null) return "—";
-  return formatMoneyMicros(micros, symbol ?? undefined, undefined, 2, 6, getCurrentLocale());
-}
-
-function formatTokens(tokens: number | null): string {
-  if (tokens === null) return "—";
-  return formatNumber(tokens, getCurrentLocale());
-}
 
 function pricingRoleLabel(
   role: RequestLogListItem["pricing_card_role"],
@@ -64,45 +61,6 @@ function pricingSelectionListLabel(
     default:
       return copy.pricingSelectionUnavailable;
   }
-}
-
-function formatTtft(ttftMs: number | null | undefined): string {
-  if (ttftMs === null || ttftMs === undefined || !Number.isFinite(ttftMs)) {
-    return "—";
-  }
-
-  return `${formatNumber(ttftMs, getCurrentLocale())}ms`;
-}
-
-function formatTokenRate(
-  outputTokens: number | null | undefined,
-  ttftMs: number | null | undefined,
-  completionDurationMs: number | null | undefined,
-): string {
-  if (
-    outputTokens === null ||
-    outputTokens === undefined ||
-    !Number.isFinite(outputTokens) ||
-    ttftMs === null ||
-    ttftMs === undefined ||
-    !Number.isFinite(ttftMs) ||
-    completionDurationMs === null ||
-    completionDurationMs === undefined ||
-    !Number.isFinite(completionDurationMs)
-  ) {
-    return "—";
-  }
-
-  const decodeDurationMs = completionDurationMs - ttftMs;
-  if (decodeDurationMs <= 0) {
-    return "—";
-  }
-
-  const tokensPerSecond = (outputTokens * 1000) / decodeDurationMs;
-  return `${formatNumber(tokensPerSecond, getCurrentLocale(), {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  })} tok/s`;
 }
 
 function statusIntent(code: number) {
@@ -433,5 +391,3 @@ export function getColumns(): ColumnDef[] {
     },
   ];
 }
-
-export { formatCost, formatTokenRate, formatTokens, formatTtft };

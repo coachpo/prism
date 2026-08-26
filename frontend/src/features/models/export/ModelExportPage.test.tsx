@@ -152,6 +152,20 @@ function resultFixture(
 describe("ModelExportPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(fetchModelExportSource).mockImplementation(() =>
+      Promise.resolve(sourceFixture()),
+    );
+    vi.mocked(renderModelExport).mockImplementation(() =>
+      Promise.resolve({
+        platform: "pi",
+        target_version: "0.84.3",
+        content: "{}\n",
+        content_sha256: "c".repeat(64),
+        file_name: "prism-pi-models.json",
+        mime_type: "application/json;charset=utf-8",
+        model_results: [],
+      }),
+    );
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
       configurable: true,
       value: vi.fn(),
@@ -165,6 +179,28 @@ describe("ModelExportPage", () => {
     const second = screen.getByRole("checkbox", { name: "glm-5.2" });
     expect(first.getAttribute("aria-checked")).toBe("true");
     expect(second.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("keeps selection, upload review, and source results in page order", async () => {
+    renderPage();
+    const row = await screen.findByTestId("export-row-3");
+    const selection = screen.getByText("选择模型", { exact: true });
+    const upload = screen.getByText("平台增强（可选）", { exact: true });
+    const sourceResults = screen.getByRole("heading", {
+      name: "导出源证据",
+    });
+
+    expect(
+      selection.compareDocumentPosition(upload) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      upload.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      row.compareDocumentPosition(sourceResults) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("adopts backend defaults under React StrictMode", async () => {
@@ -222,6 +258,47 @@ describe("ModelExportPage", () => {
     await waitFor(() =>
       expect(screen.getByRole("checkbox", { name: "gpt-x" })).not.toBeChecked(),
     );
+  });
+
+  it("resets platform-specific selection when switching clients", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchModelExportSource).mockImplementation((platform) =>
+      Promise.resolve(
+        platform === "pi"
+          ? sourceFixture()
+          : sourceFixture({
+              platform: "opencode",
+              target_version: "1.18.23",
+              source_digest: "b".repeat(64),
+              models: sourceFixture().models.map((model) => ({
+                ...model,
+                default_selected: false,
+              })),
+            }),
+      ),
+    );
+    renderPage();
+    await screen.findByTestId("export-row-3");
+    expect(
+      screen.getByRole("checkbox", { name: "gpt-x" }),
+    ).toBeChecked();
+
+    const platformSelect = screen.getByRole("combobox", {
+      name: "目标客户端",
+    });
+    platformSelect.focus();
+    await user.keyboard("{Enter}");
+    const opencodeOption = await screen.findByRole("option", {
+      name: "OpenCode 1.18.23（config JSON）",
+    });
+    opencodeOption.focus();
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(screen.getByTestId("export-row-3")).toBeInTheDocument());
+    expect(screen.getByRole("checkbox", { name: "gpt-x" })).not.toBeChecked();
+    expect(
+      screen.getByRole("button", { name: /生成配置文件/ }),
+    ).toBeDisabled();
   });
 
   it("price-complete filter narrows visible rows without unchecking hidden selections", async () => {
@@ -396,6 +473,25 @@ describe("ModelExportPage", () => {
     await waitFor(() => expect(renderModelExport).toHaveBeenCalledTimes(1));
     const [body] = vi.mocked(renderModelExport).mock.calls[0];
     expect(body.credential).toEqual({ include: true, api_key: "" });
+  });
+
+  it("marks a stale render and refreshes the source without closing the key dialog", async () => {
+    const user = userEvent.setup();
+    vi.mocked(renderModelExport).mockRejectedValueOnce(
+      Object.assign(new Error("source drifted"), {
+        code: "export_source_stale",
+        status: 409,
+      }),
+    );
+    renderPage();
+    await screen.findByTestId("export-row-3");
+
+    await user.click(screen.getByRole("button", { name: /生成配置文件/ }));
+    await user.click(screen.getByRole("button", { name: "确认生成" }));
+
+    await screen.findByText(/源事实已漂移/);
+    expect(fetchModelExportSource).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("export-key-dialog")).toBeInTheDocument();
   });
 
   it("scopes header confirmation to one upload and removes an unchecked prior header", async () => {

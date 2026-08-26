@@ -1,7 +1,7 @@
 # FRONTEND CONTEXT KNOWLEDGE BASE
 
 ## OVERVIEW
-`src/context/` owns Prism's auth bootstrap, theme/reporting providers, and reporting-currency state. Multi-profile UI state is absent; management requests are pinned to profile id `1` by `../lib/api/core.ts`.
+`src/context/` owns Prism's auth bootstrap, theme/reporting providers, and reporting-currency state. Multi-profile UI state is absent; management requests are pinned to profile id `1` by `../lib/api/request.ts`.
 
 ## STRUCTURE
 ```

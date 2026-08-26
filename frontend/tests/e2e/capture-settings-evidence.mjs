@@ -400,9 +400,11 @@ async function installSettingsRoutes(page) {
   await page.route("**/api/auth/session", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ authenticated: true, auth_enabled: true, username: "operator", subject_key: "auth:subject:1" }) }),
   );
-  await page.route("**/api/models*", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([]) }),
-  );
+  await page.route("**/api/models*", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/models") return route.continue();
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([]) });
+  });
   await page.route("**/api/settings/auth", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(authSettings()) }),
   );

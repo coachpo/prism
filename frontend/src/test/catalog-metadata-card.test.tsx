@@ -8,7 +8,7 @@ import { LocaleProvider } from "@/i18n/LocaleProvider";
 import type { ModelCatalogResponse } from "@/lib/types";
 import { CatalogMetadataCard } from "@/pages/model-detail/CatalogMetadataCard";
 
-vi.mock("@/lib/api/management", () => ({
+vi.mock("@/lib/api/models", () => ({
   models: {
     catalog: {
       matchPreview: vi.fn(),
@@ -120,13 +120,13 @@ describe("catalog pricing commit gating", () => {
   // semantics below; full interaction flows live in the Playwright journey.
   it("requires explicit confirmation before overwriting drifted templates", async () => {
     const { CatalogPricingDialog } = await import("@/pages/model-detail/CatalogPricingDialog");
-    const { models: managementModels } = await import("@/lib/api/management");
-    type PricingApi = typeof import("@/lib/api/management_resources").pricingTemplates;
+    const { models: managementModels } = await import("@/lib/api/models");
+    type PricingApi = typeof import("@/lib/api/pricingTemplates").pricingTemplates;
     let previewResolver: (value: unknown) => void = () => {};
     const previewPromise = new Promise((resolve) => {
       previewResolver = resolve;
     });
-    const pricingApi = (await import("@/lib/api/management_resources")).pricingTemplates as PricingApi;
+    const pricingApi = (await import("@/lib/api/pricingTemplates")).pricingTemplates as PricingApi;
     const previewSpy = vi.spyOn(pricingApi, "catalogPreview").mockReturnValue(previewPromise as never);
 
     render(
@@ -174,7 +174,7 @@ describe("catalog pricing commit gating", () => {
 
   it("surfaces stable incompatibility reasons instead of fake prices", async () => {
     const { CatalogPricingDialog } = await import("@/pages/model-detail/CatalogPricingDialog");
-    const pricingApi = (await import("@/lib/api/management_resources")).pricingTemplates;
+    const pricingApi = (await import("@/lib/api/pricingTemplates")).pricingTemplates;
     vi.spyOn(pricingApi, "catalogPreview").mockResolvedValue({
       schema_version: 1,
       offering: { provider_id: "openai", catalog_model_id: "gpt-audio", name: "GPT Audio" },

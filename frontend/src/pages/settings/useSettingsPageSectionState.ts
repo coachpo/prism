@@ -4,7 +4,7 @@ import {
   GLOBAL_SECTION_IDS,
   INSTANCE_SECTION_IDS,
   type SettingsScope,
-} from "./settingsPageHelpers";
+} from "./settingsNavigation";
 
 // Settings scope/section URL state (Settings SPEC §12.2): `scope=global|instance`
 // matches the visible tabs exactly, scope-only URLs stay canonical with an

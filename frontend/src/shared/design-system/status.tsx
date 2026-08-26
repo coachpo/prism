@@ -1,7 +1,7 @@
 import type { ComponentProps } from "react"
 
 import { Badge } from "@/components/ui/badge"
-import { cn, formatLabel } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 import {
   operatorStatusMarkers,
   operatorStatusTiers,
@@ -26,6 +26,12 @@ const OPERATOR_BADGE_TONES: Record<OperatorBadgeIntent, string> = {
 }
 
 const STATUS_TIERS = new Set<string>(operatorStatusTiers)
+
+function formatStatusLabel(value: string): string {
+  return value
+    .replace(/[_-]/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 function isStatusTier(intent: OperatorBadgeIntent): intent is OperatorStatusTier {
   return STATUS_TIERS.has(intent)
@@ -61,7 +67,7 @@ function OperatorBadgeBase({
           {operatorStatusMarkers[intent]}
         </span>
       ) : null}
-      {preserveLabel ? label : formatLabel(label)}
+      {preserveLabel ? label : formatStatusLabel(label)}
     </Badge>
   )
 }

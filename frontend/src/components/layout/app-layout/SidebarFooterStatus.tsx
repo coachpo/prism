@@ -3,10 +3,10 @@ import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { VERSION_LABEL } from "@/lib/appVersion";
 import { useLocale } from "@/i18n/useLocale";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { OperatorStatusBadge } from "@/shared/design-system";
-import { VERSION_LABEL } from "./useShellNavigation";
 
 /**
  * Two rows, not four. Row one is the authentication state plus the way to

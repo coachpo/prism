@@ -14,6 +14,7 @@ import {
 import { RequestFocusBanner } from "./request-logs/RequestFocusBanner";
 import { FiltersBar } from "./request-logs/FiltersBar";
 import { RequestLogsTable } from "./request-logs/RequestLogsTable";
+import { ColumnToggleMenu } from "./request-logs/ColumnToggleMenu";
 import { IngressChainsTable } from "./request-logs/IngressChainsTable";
 import { RequestLogDetailSheet } from "./request-logs/RequestLogDetailSheet";
 import { Download, SearchX } from "lucide-react";
@@ -28,7 +29,6 @@ import {
   OperatorStalenessBadge,
 } from "@/shared/design-system";
 import { ActiveFilterChips } from "./request-logs/ActiveFilterChips";
-import { ColumnToggleMenu } from "./request-logs/RequestLogsTable";
 import { RequestLogsViewToolbar } from "./request-logs/RequestLogsViewToolbar";
 import {
   decodeObserveReturn,

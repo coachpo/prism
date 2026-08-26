@@ -14,12 +14,12 @@ import {
   type OperatorStatusTier,
 } from "@/shared/design-system";
 import { LoadMoreControl } from "@/shared/table/paginationControls";
-import {
-  summaryFor,
-  type EndpointReferenceDetailState,
-  type EndpointReferencePagedSnapshot,
-  type EndpointReferenceSummaryState,
-} from "./useEndpointReferences";
+import { summaryFor } from "./useEndpointReferenceSummaries";
+import type {
+  EndpointReferenceDetailState,
+  EndpointReferencePagedSnapshot,
+} from "./useEndpointReferenceDetails";
+import type { EndpointReferenceSummaryState } from "./useEndpointReferenceSummaries";
 
 function ReferenceCell({
   endpoint,

@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useLocale } from "@/i18n/useLocale";
 import { cn } from "@/lib/utils";
-import type { FilterOptions } from "./useRequestLogsPageData";
+import type { RequestLogFilterOptions as FilterOptions } from "./requestLogQuery";
 import type { RequestLogPageActions } from "./useRequestLogPageState";
 import { FiltersBarPrimaryFilters } from "./FiltersBarPrimaryFilters";
 import {

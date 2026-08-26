@@ -271,7 +271,7 @@ Any of these is rework:
 ## Tables
 
 - Use `OperatorTableShell` for card-framed management tables.
-- Use `shared/table/operationalTable` helpers for client sorting, pagination, skeleton rows, and sortable headers.
+- Use `shared/table/operationalTableState` for client sorting/page calculations and `shared/table/operationalTable` for skeleton rows/sortable headers; use `shared/table/paginationStates` and `shared/table/paginationControls` for async/append pagination states and controls.
 - Empty table states should use `OperatorEmptyState`.
 - Keep domain-specific columns and cell renderers colocated with the feature.
 - Horizontally scrollable tables must keep empty/loading states aligned to the visible viewport, not the full scroll width.

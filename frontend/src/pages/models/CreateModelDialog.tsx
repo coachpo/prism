@@ -6,7 +6,8 @@ import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, Dia
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { endpoints as endpointsApi, models as modelsApi } from "@/lib/api/management";
+import { endpoints as endpointsApi } from "@/lib/api/endpoints";
+import { models as modelsApi } from "@/lib/api/models";
 import type { Endpoint, LoadbalanceStrategy, ModelConfigListItem, OpenAIAcceptedFormat, OpenAIImageOperations } from "@/lib/types";
 import type { ModelConfigCompositeCreate } from "@/lib/types";
 import { getLoadbalanceStrategyTypeLabel } from "@/lib/loadbalanceRoutingPolicy";

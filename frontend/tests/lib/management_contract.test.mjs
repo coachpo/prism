@@ -94,13 +94,16 @@ const loadbalanceRoutingPolicyMock = {
 const { load } = createTsModuleLoader({
   rootDir: frontendDir,
   mocks: {
-    "./core": coreMock,
+    "./request": coreMock,
     "../loadbalanceRoutingPolicy": loadbalanceRoutingPolicyMock,
   },
 });
-const { loadbalanceStrategies, endpoints, models, connections } = load(
-  path.join(frontendDir, "src/lib/api/management.ts"),
+const { loadbalanceStrategies } = load(
+  path.join(frontendDir, "src/lib/api/loadbalanceStrategies.ts"),
 );
+const { endpoints } = load(path.join(frontendDir, "src/lib/api/endpoints.ts"));
+const { models } = load(path.join(frontendDir, "src/lib/api/models.ts"));
+const { connections } = load(path.join(frontendDir, "src/lib/api/connections.ts"));
 
 test("management loadbalance strategy normalization accepts explicit Ban Policy payloads", async () => {
   requestCalls.length = 0;

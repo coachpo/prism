@@ -46,16 +46,18 @@ import {
   OperatorValueBadge,
 } from "@/shared/design-system";
 import {
-  OperationalTablePagination,
   OperationalTableSkeletonRows,
   SortableTableHead,
-  getNextOperationalSort,
   operationalRowActionsClassName,
+} from "@/shared/table/operationalTable";
+import { OperationalTablePagination } from "@/shared/table/paginationControls";
+import {
+  getNextOperationalSort,
   paginateOperationalRows,
   sortOperationalRows,
   type OperationalSortState,
   type OperationalSortValue,
-} from "@/shared/table/operationalTable";
+} from "@/shared/table/operationalTableState";
 import { normalizeTemplatePrice } from "./pricingSchemas";
 import { PricingTemplateHistoryPanel } from "./PricingTemplateHistoryPanel";
 import { PricingTemplateRatePanel, RateCell } from "./PricingTemplateRatePanel";

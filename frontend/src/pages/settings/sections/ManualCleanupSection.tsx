@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/select";
 import { useLocale } from "@/i18n/useLocale";
 import { OperatorSectionCard, OperatorTypeBadge } from "@/shared/design-system";
-import type { CleanupType, RetentionPreset } from "../settingsPageHelpers";
+import type { CleanupType, RetentionPreset } from "../manualCleanup";
 
 interface ManualCleanupSectionProps {
   cleanupType: CleanupType;

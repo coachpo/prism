@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import type { Messages } from "@/i18n/messages";
-import { APP_VERSION, formatVersionLabel } from "@/lib/appVersion";
 import { useBreadcrumbEntity } from "./breadcrumbEntity";
 
 export type NavLabelKey = keyof Messages["nav"];
@@ -173,11 +172,6 @@ export const SHELL_SIDEBAR_GROUP_ORDER: readonly ShellSidebarGroupId[] = [
 export const SHELL_SIDEBAR_ITEMS: readonly ShellSidebarItemDefinition[] = SHELL_ROUTE_METADATA.flatMap(
   (route) => (route.sidebarItem ? [route.sidebarItem] : [])
 );
-
-const GIT_RUN_NUMBER = String(import.meta.env.VITE_GIT_RUN_NUMBER ?? "local").trim() || "local";
-const GIT_REVISION = String(import.meta.env.VITE_GIT_REVISION ?? "unknown").trim() || "unknown";
-
-export const VERSION_LABEL = formatVersionLabel(APP_VERSION, GIT_RUN_NUMBER, GIT_REVISION);
 
 type ShellBreadcrumbLeafId =
   | "entity"

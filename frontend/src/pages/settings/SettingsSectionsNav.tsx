@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLocale } from "@/i18n/useLocale";
-import { GLOBAL_NAV_SECTIONS, INSTANCE_NAV_SECTIONS, type SettingsScope } from "./settingsPageHelpers";
+import { GLOBAL_NAV_SECTIONS, INSTANCE_NAV_SECTIONS, type SettingsScope } from "./settingsNavigation";
 
 interface SettingsSectionsNavProps {
   activeSectionId: string;

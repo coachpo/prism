@@ -12,13 +12,11 @@ import { useLocale } from "@/i18n/useLocale";
 import type { Endpoint, EndpointReferenceItem } from "@/lib/types";
 import {
     SortableTableHead,
-    type OperationalSortState,
 } from "@/shared/table/operationalTable";
+import type { OperationalSortState } from "@/shared/table/operationalTableState";
 import { EndpointRowGroup, MobileEndpointCard } from "./EndpointRows";
-import {
-    type EndpointReferenceDetailState,
-    type EndpointReferenceSummaryState,
-} from "./useEndpointReferences";
+import type { EndpointReferenceDetailState } from "./useEndpointReferenceDetails";
+import type { EndpointReferenceSummaryState } from "./useEndpointReferenceSummaries";
 
 export type EndpointSortColumn =
     | "name"

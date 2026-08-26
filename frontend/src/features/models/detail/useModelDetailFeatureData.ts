@@ -8,17 +8,19 @@ import type {
   PricingTemplate,
   SpendingSummary,
 } from "@/lib/types"
-import { getAccessTargetModelsForApiFamily } from "@/pages/models/modelFormState"
 import {
   type AccessTargetSummary,
   buildAccessTargetSummary,
+  getAccessTargetModelsForApiFamily,
   getSameFamilyConnections,
-} from "@/pages/model-detail/useModelDetailDataSupport"
+} from "@/pages/model-detail/modelAccessTargetProjection"
 import { useConnectionFocus } from "@/pages/model-detail/useConnectionFocus"
+import { useModelDetailAccessTargetMutations } from "@/pages/model-detail/useModelDetailAccessTargetMutations"
 import { useModelDetailBootstrap } from "@/pages/model-detail/useModelDetailBootstrap"
 import { useModelDetailConnectionMutations } from "@/pages/model-detail/useModelDetailConnectionMutations"
 import { useModelDetailDialogState } from "@/pages/model-detail/useModelDetailDialogState"
 import { useModelDetailModelForm } from "@/pages/model-detail/useModelDetailModelForm"
+import { useModelDetailTargetReconciliation } from "@/pages/model-detail/useModelDetailTargetReconciliation"
 import { useModelLoadbalanceCurrentState } from "@/pages/model-detail/useModelLoadbalanceCurrentState"
 
 type URLSearchParamsInit = ConstructorParameters<typeof URLSearchParams>[0]
@@ -146,14 +148,20 @@ export function useModelDetailFeatureData({
     enabled: Boolean(model),
   })
 
+  const { applyTargets } = useModelDetailTargetReconciliation({
+    modelConfigId: modelConfigId ?? NaN,
+    revision,
+    refreshCurrentState,
+    refreshDiagnostics,
+    setAllModels,
+    setConnections,
+    setModel,
+  })
+
   const {
     handleConnectionSubmit,
     handleDeleteConnection,
     handleToggleActive,
-    handleAddAccessTarget,
-    handleMoveAccessTarget,
-    handleToggleAccessTarget,
-    handleDeleteAccessTarget,
   } = useModelDetailConnectionMutations({
     id: modelId,
     revision,
@@ -166,8 +174,6 @@ export function useModelDetailFeatureData({
     headerRows,
     customRequestParametersDraft,
     routingScheduleDraft,
-    setRoutingScheduleDraft,
-    routingScheduleError,
     setRoutingScheduleError,
     setCustomRequestParametersError,
     editingConnection,
@@ -176,11 +182,20 @@ export function useModelDetailFeatureData({
     refreshCurrentState,
     refreshDiagnostics,
     setIsConnectionDialogOpen,
-    setAllModels,
     setConnections,
     setAllConnections,
-    setModel,
     setGlobalEndpoints,
+    applyTargets,
+  })
+  const {
+    handleAddAccessTarget,
+    handleMoveAccessTarget,
+    handleToggleAccessTarget,
+    handleDeleteAccessTarget,
+  } = useModelDetailAccessTargetMutations({
+    modelConfigId: modelConfigId ?? NaN,
+    model,
+    applyTargets,
   })
 
   const {

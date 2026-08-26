@@ -9,9 +9,9 @@ import type {
 } from "@/lib/types";
 import {
   createDefaultEndpointForm,
-  getSelectedEndpoint,
   normalizeOpenAITextCapability,
-} from "./useModelDetailDataSupport";
+} from "./connectionDataSupport";
+import { getSelectedEndpoint } from "./connectionCollectionState";
 import {
   emptyRoutingScheduleDraft,
   routingScheduleDraftFromSchedule,

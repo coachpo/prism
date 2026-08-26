@@ -7,7 +7,7 @@ import { clearUserTimezonePreference } from "@/lib/timezone";
 import type { CostingSettingsUpdate } from "@/lib/types";
 import { toast } from "sonner";
 import type { SettingsSaveSection } from "../settingsSaveTypes";
-import { normalizeCostingForm } from "../settingsPageHelpers";
+import { normalizeCostingForm } from "./costingForm";
 
 function getMessages() {
   return getStaticMessages();

@@ -9,43 +9,56 @@ lib/
 ├── api.ts                        # Public API facade re-exporting split modules
 ├── api/AGENTS.md                 # Typed `/api/*` client module split and grouped ownership
 ├── api/
-│   ├── core.ts                   # API base, X-Profile-Id injection, auth refresh, query builder
+│   ├── request.ts                # API base, query serialization, X-Profile-Id injection, auth refresh, ApiError
 │   ├── profileScope.ts           # Profile-scoped management route matcher
 │   ├── authSettings.ts           # Auth bootstrap, session flows, and proxy keys
-│   ├── management.ts             # Models, endpoints, connections, pricing templates
-│   ├── observability.ts          # Usage snapshot, stats, audit, loadbalance, settings costing/timezone
+│   ├── models.ts                 # Model CRUD, access targets, model connections, and catalog
+│   ├── loadbalanceStrategies.ts  # Loadbalance strategy CRUD, defaults, impact, and preview
+│   ├── endpoints.ts              # Endpoint CRUD, verification, references, and orphan cleanup
+│   ├── connections.ts             # Shared connection reference reads
+│   ├── pricingTemplates.ts        # Pricing-template CRUD, history, impact, and catalog pricing
+│   ├── requestStats.ts            # Request-log list, chain, detail, export, and filter clients
+│   ├── statistics.ts              # Dashboard, aggregate, spending, throughput, and metric clients
+│   ├── stats.ts                   # Public stats namespace composed from resource clients
+│   ├── settingsCosting.ts         # Costing, timezone, and currency-migration routes
+│   ├── settingsAudit.ts           # API-family audit settings and storage summary routes
+│   ├── settingsRetention.ts       # Retention policy, preflight, and job routes
+│   ├── configRules.ts             # Header blocklist and User-Agent client-rule routes
+│   ├── audit.ts                   # Audit-log list/detail routes
+│   ├── loadbalance.ts             # Loadbalance current-state, event, and incident routes
+│   ├── observability.ts           # Compatibility barrel for retained-observability clients
 │   └── endpointErrors.ts         # Typed Endpoint error guards at the API/domain boundary
 ├── referenceData.ts              # Shared reference-data cache keyed by profile revision
 ├── referenceDataRegistry.ts      # Registry of shared reference-data datasets
 ├── loadbalanceRoutingPolicy.ts   # Dual-family defaults and policy normalization
-├── appVersion.ts                 # Browser-facing app version helper built from Vite-injected package metadata
+├── appVersion.ts                 # Browser-facing version surface built from Vite-injected package metadata
 ├── reportingCurrency.ts          # Pinned-profile keyed reporting-currency cache
 ├── observeReturn.ts              # Validated return-state token restoring routing-health context from Requests
 ├── types.ts                      # Public type barrel
 ├── types/AGENTS.md               # Backend-aligned payload and domain type rules
 ├── types/                        # Backend-aligned payload and domain types
 ├── costing.ts                    # Shared cost formatting and usage-label helpers
-├── timezone.ts                   # Timezone preference cache and formatting helpers used by hooks/pages
+├── timezone.ts                   # Timezone preference cache, offset, and locale-aware preview
 ├── clipboard.ts                  # Browser clipboard helpers and UX-safe copy flow
-└── utils.ts                      # Small generic browser/UI helpers
+└── utils.ts                      # shadcn class-name composition (`cn`)
 ```
 
 ## WHERE TO LOOK
 
 - Public import boundary: `api.ts`
-- Typed `/api/*` client split, grouped surfaces, `api/core.ts` request rules, and profile-scope matcher: `api/AGENTS.md`
+- Typed `/api/*` client split, grouped surfaces, `api/request.ts` request rules and query serialization, and profile-scope matcher: `api/AGENTS.md`
 - Shared lookup cache, request dedupe, and dataset registry: `referenceData.ts`, `referenceDataRegistry.ts`
 - Shared dual-family load-balance defaults and policy normalization: `loadbalanceRoutingPolicy.ts`
-- Browser app version label formatting and Vite-injected package metadata: `appVersion.ts`
+- Browser app version surface, label formatting, and Vite-injected package metadata: `appVersion.ts`
 - Shared reporting-currency cache, normalization, active-currency sync, `prime()` and `refresh()` support, and fail-open default used by `ReportingCurrencyContext.tsx`: `reportingCurrency.ts`
-- Shared timezone preference lookup and formatting helpers consumed by `useTimezone()`: `timezone.ts`
+- Shared timezone preference lookup, timestamp formatting, offset, and locale-aware preview consumed by hooks/pages: `timezone.ts`
 - Shared cost formatting and usage-label helpers layered over the active reporting currency: `costing.ts`
 - Browser clipboard helpers reused across route shells and detail views: `clipboard.ts`
 - Backend-aligned payload types: `types.ts`, `types/AGENTS.md`, `types/`
 
 ## CHILD DOCS
 
-- `api/AGENTS.md`: `core.ts`, `profileScope.ts`, `authSettings.ts`, `management.ts`, and `observability.ts` ownership beneath the public `api.ts` barrel.
+- `api/AGENTS.md`: resource client ownership beneath the public `api.ts` barrel.
 - `types/AGENTS.md`: backend-aligned TypeScript contracts beneath the `types.ts` barrel.
 
 ## CONVENTIONS
@@ -54,7 +67,7 @@ lib/
 
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Pages and hooks should import from `api.ts` or its exported `stats` helper, not call `fetch()` directly.
-- `api/core.ts` is the only place that injects the pinned `X-Profile-Id: 1` header into scoped `/api/*` requests.
+- `api/request.ts` is the only place that injects the pinned `X-Profile-Id: 1` header into scoped `/api/*` requests.
 - `api/profileScope.ts` owns the route matcher for management calls that still receive the accepted-but-ignored `X-Profile-Id` header.
 - `request()` handles cookie credentials, `ApiError`, and one refresh retry for eligible `/api/*` paths.
 - Let `api/AGENTS.md` own the typed client split instead of expanding this parent with module-by-module endpoint detail.
@@ -75,7 +88,7 @@ lib/
 
 ## ANTI-PATTERNS
 
-- Do not bypass `api/core.ts` or `api/profileScope.ts` for Prism backend requests or pinned profile-header rules.
+- Do not bypass `api/request.ts` or `api/profileScope.ts` for Prism backend requests or pinned profile-header rules.
 - Do not add a parallel reference-data cache when `referenceData.ts` already owns the shared lookup datasets.
 - Do not duplicate reporting-currency cache or normalization in settings, costing, or page code when `reportingCurrency.ts` already owns that seam.
 - Do not duplicate timezone or cost helper logic in page folders when `timezone.ts` and `costing.ts` already own those seams.

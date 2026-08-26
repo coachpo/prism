@@ -13,7 +13,7 @@ import type {
   ProxySetupReadiness,
   SessionResponse,
 } from "../types";
-import { request } from "./core";
+import { request } from "./request";
 
 export const auth = {
   status: () => request<import("@/lib/types/auth").PublicAuthStatus>("/api/auth/status"),

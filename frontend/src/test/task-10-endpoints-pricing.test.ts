@@ -8,9 +8,9 @@ import {
 import {
   buildPricingTemplateCreatePayload,
   buildPricingTemplateUpdatePayload,
-  isPricingTemplateDeleteBlocked,
   pricingTemplateFormSchema,
 } from "@/features/pricing/pricingSchemas";
+import { isPricingTemplateDeleteBlocked } from "@/features/pricing/pricingDeletion";
 import type { PricingTemplate } from "@/lib/types";
 
 const pricingTemplate: PricingTemplate = {

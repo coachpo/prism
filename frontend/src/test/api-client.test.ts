@@ -1,7 +1,7 @@
 import { http, HttpResponse } from "msw"
 import { beforeEach, describe, expect, it } from "vitest"
 import { api } from "@/lib/api"
-import { request } from "@/lib/api/core"
+import { request } from "@/lib/api/request"
 import { authSessionCoordinator } from "@/context/auth/coordinatorInstance"
 import { rewriteTestServer } from "@/test"
 

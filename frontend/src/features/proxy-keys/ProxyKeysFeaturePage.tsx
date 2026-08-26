@@ -1,5 +1,6 @@
 import { useBlocker } from "@tanstack/react-router"
 import { useEffect } from "react"
+import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Plus, ShieldCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -26,6 +27,7 @@ import { isAuthSettingsEnabled } from "@/pages/proxy-api-keys/proxyKeyFormatting
 export default function ProxyKeysFeaturePage() {
   const { messages } = useLocale()
   const data = useProxyKeysFeatureData()
+  const [verifyAccessOpen, setVerifyAccessOpen] = useState(false)
   const copy = messages.proxyApiKeys
   const authEnabled = isAuthSettingsEnabled(data.authSettings)
 
@@ -63,7 +65,7 @@ export default function ProxyKeysFeaturePage() {
   return (
     <OperatorPageShell data-testid="proxy-keys-feature-page">
       <OperatorPageHeader title={copy.title} description={copy.description}>
-        <Button type="button" variant="outline" onClick={() => data.setVerifyAccessOpen(true)}>
+        <Button type="button" variant="outline" onClick={() => setVerifyAccessOpen(true)}>
           <ShieldCheck data-icon="inline-start" />
           {copy.verifyAccess}
         </Button>
@@ -126,11 +128,11 @@ export default function ProxyKeysFeaturePage() {
         models={modelsQuery.data ?? []}
         modelsError={Boolean(modelsQuery.error)}
         modelsLoading={modelsQuery.isLoading}
-        onOpenChange={data.setVerifyAccessOpen}
+        onOpenChange={setVerifyAccessOpen}
         onRetryModels={() => {
           void modelsQuery.refetch()
         }}
-        open={data.verifyAccessOpen}
+        open={verifyAccessOpen}
       />
 
       <ProxyKeySecretDialog

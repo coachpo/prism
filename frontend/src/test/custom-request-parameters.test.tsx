@@ -7,7 +7,7 @@ import {
   parseCustomRequestParametersDraft,
   customRequestParametersDraftFromValue,
 } from "@/pages/model-detail/customRequestParameters"
-import { buildConnectionDraftPayload } from "@/pages/model-detail/useModelDetailDataSupport"
+import { buildConnectionDraftPayload } from "@/pages/model-detail/connectionDataSupport"
 import { ConnectionCustomRequestParametersEditor } from "@/pages/model-detail/ConnectionCustomRequestParametersEditor"
 import type { Connection } from "@/lib/types"
 

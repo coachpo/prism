@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { useCostingDerivedState } from "./costing/useCostingDerivedState";
 import { useCostingSettingsBootstrap } from "./costing/useCostingSettingsBootstrap";
 import { useCostingSettingsSave } from "./costing/useCostingSettingsSave";
-import { normalizeCostingForm } from "./settingsPageHelpers";
+import { normalizeCostingForm } from "./costing/costingForm";
 
 interface UseCostingSettingsDataInput {
   bumpRevision: () => void;

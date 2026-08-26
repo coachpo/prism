@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import type { AuthSettings, AuthSettingsMutationResponse } from "@/lib/types";
 import { toast } from "sonner";
-import { validateAuthPassword } from "./settingsPageHelpers";
+import { validateAuthPassword } from "./sections/authentication/authenticationPassword";
 
 interface UseAuthenticationSettingsDataInput {
   enabled: boolean;

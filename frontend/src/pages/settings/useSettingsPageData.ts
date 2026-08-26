@@ -4,7 +4,7 @@ import { useAuth } from "@/context/useAuth";
 import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
 import { renderSectionSaveState } from "./sectionSaveState";
 import type { SettingsSaveSection } from "./settingsSaveTypes";
-import { type SettingsScope, SETTINGS_SCOPES } from "./settingsPageHelpers";
+import { type SettingsScope, SETTINGS_SCOPES } from "./settingsNavigation";
 import { useAuditConfigurationData } from "./useAuditConfigurationData";
 import { useAuthenticationSettingsData } from "./useAuthenticationSettingsData";
 import { useCostingSettingsData } from "./useCostingSettingsData";
