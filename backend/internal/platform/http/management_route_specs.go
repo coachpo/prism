@@ -1,22 +1,12 @@
 package platformhttp
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
-	"log/slog"
+	"github.com/coachpo/prism/backend/internal/platform/admission"
+	"github.com/coachpo/prism/backend/internal/platform/priority"
 	"net/http"
 	pathpkg "path"
-	"strconv"
 	"strings"
 	"time"
-
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/jackc/pgx/v5"
-
-	"github.com/coachpo/prism/backend/internal/platform/admission"
-	"github.com/coachpo/prism/backend/internal/platform/config"
-	"github.com/coachpo/prism/backend/internal/platform/priority"
 )
 
 const managementAdmissionTimeout = 60 * time.Second
@@ -44,19 +34,6 @@ type managementRouteSpec struct {
 	profileScoped               bool               // whether the frontend must send X-Profile-Id
 	cache                       runtimeCacheEffect // runtime cache invalidation contract
 	notes                       string             // notes column in the generated contract JSON
-}
-
-type admissionSnapshotProvider interface {
-	AdmissionSnapshot() StartupAdmissionSnapshot
-}
-
-type managementAdmissionController struct {
-	controller *admission.Controller
-	provider   admissionSnapshotProvider
-}
-
-type settingsSchemaTransitionReader interface {
-	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
 var managementRouteSpecs = []managementRouteSpec{
@@ -217,174 +194,6 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "stats endpoint terminal target statistics", method: http.MethodGet, pattern: "/stats/endpoints/{endpoint_id}/terminal-targets", tier: priority.ManagementTierM3, profileScoped: true, cache: runtimeCacheEffect{}, notes: "Bounded Terminal Target drill-down per endpoint (lazy expansion)."},
 }
 
-// The clamp warning is emitted from buildStartupAdmissionSnapshot, which runs on
-// the startup path; warning here as well would log the same line twice per boot.
-func newHTTPAdmissionController(settings config.Settings) *admission.Controller {
-	managementBudget := settings.ManagementAdmissionBudget()
-	return admission.NewController(admission.Limits{
-		ManagementM1: managementM1AdmissionBudget(settings, managementBudget),
-		ManagementM2: managementBudget.M2MaxConcurrent,
-		ManagementM3: managementBudget.M3MaxConcurrent,
-	})
-}
-
-func warnIfManagementAdmissionClamped(settings config.Settings) {
-	configured, effective, clamped := settings.ManagementAdmissionClamp()
-	if !clamped {
-		return
-	}
-	slog.Warn(
-		"management admission budget clamped by database.pools.management.maxConns; raise maxConns or lower m2MaxConcurrent",
-		slog.Int64("configured_m2", configured.M2MaxConcurrent),
-		slog.Int64("effective_m2", effective.M2MaxConcurrent),
-		slog.Int64("configured_m3", configured.M3MaxConcurrent),
-		slog.Int64("effective_m3", effective.M3MaxConcurrent),
-		slog.Int("management_max_conns", int(settings.ManagementDatabaseBudget().MaxConns)),
-	)
-}
-
-func managementM1AdmissionBudget(settings config.Settings, lowerPriorityBudget config.ManagementAdmissionBudget) int64 {
-	reserved := int64(settings.ManagementDatabaseBudget().MaxConns) - lowerPriorityBudget.M2MaxConcurrent
-	if reserved < 1 {
-		return 1
-	}
-	return reserved
-}
-
-func (c *managementAdmissionController) Middleware(next http.Handler) http.Handler {
-	if c == nil {
-		return next
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		routeSpec, ok := matchManagementRouteSpec(r.Method, r.URL.Path)
-		if !ok {
-			next.ServeHTTP(w, r)
-			return
-		}
-		controller := c.controller
-		if c.provider != nil {
-			controller = c.provider.AdmissionSnapshot().Controller()
-		}
-		requestContext, release, err := controller.Admit(r.Context(), routeSpec.AdmissionSpec())
-		if err != nil {
-			writeAdmissionError(w, err)
-			return
-		}
-		if routeSpec.releaseAdmissionFromHandler {
-			requestContext = admission.WithRelease(requestContext, release)
-			defer release()
-			next.ServeHTTP(w, r.WithContext(requestContext))
-			return
-		}
-		defer release()
-		next.ServeHTTP(w, r.WithContext(requestContext))
-	})
-}
-
-// settingsSchemaGuardMiddleware is deliberately separate from admission so
-// the auth middleware can remain the outer owner of protected routes. It
-// checks only the exact method/path registry entries marked above.
-type settingsSchemaGuardMiddleware struct {
-	reader settingsSchemaTransitionReader
-}
-
-func (m *settingsSchemaGuardMiddleware) Middleware(next http.Handler) http.Handler {
-	if m == nil || m.reader == nil {
-		return next
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		routeSpec, ok := matchManagementRouteSpec(r.Method, r.URL.Path)
-		if !ok || !routeSpec.settingsSchemaGuard {
-			next.ServeHTTP(w, r)
-			return
-		}
-		phase, exists, err := readSettingsSchemaPhase(r.Context(), m.reader)
-		if err != nil {
-			// A failed transition read must fail closed before the guarded
-			// mutation reaches its handler. The safe response does not expose
-			// database details or replay the request.
-			writeSettingsSchemaStateUnavailable(w, r)
-			return
-		}
-		if exists && (phase == "quiescing" || phase == "finalizing") {
-			writeSettingsSchemaFinalizing(w, r, phase)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func readSettingsSchemaPhase(ctx context.Context, reader settingsSchemaTransitionReader) (string, bool, error) {
-	var exists bool
-	if err := reader.QueryRow(ctx, `SELECT to_regclass('public.settings_schema_transition') IS NOT NULL`).Scan(&exists); err != nil {
-		return "", false, err
-	}
-	if !exists {
-		return "", false, nil
-	}
-	var phase string
-	if err := reader.QueryRow(ctx, `SELECT domain_phase FROM settings_schema_transition WHERE id = 1`).Scan(&phase); err != nil {
-		return "", true, err
-	}
-	return phase, true, nil
-}
-
-func writeSettingsSchemaFinalizing(w http.ResponseWriter, r *http.Request, phase string) {
-	requestID := middleware.GetReqID(r.Context())
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Cache-Control", "private, no-store")
-	w.Header().Set("Retry-After", "3")
-	w.WriteHeader(http.StatusServiceUnavailable)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"code":       "settings_schema_finalizing",
-		"detail":     "Settings schema is quiescing/finalizing; refetch authoritative state before resubmitting",
-		"params":     map[string]any{},
-		"details":    map[string]any{"transition_phase": phase, "retry_after_seconds": 3, "retry_scope": "status_check_only", "recovery": "wait_then_refetch_before_resubmit"},
-		"request_id": requestID,
-	})
-}
-
-func writeSettingsSchemaStateUnavailable(w http.ResponseWriter, r *http.Request) {
-	requestID := middleware.GetReqID(r.Context())
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Cache-Control", "private, no-store")
-	w.Header().Set("Retry-After", "3")
-	w.WriteHeader(http.StatusServiceUnavailable)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"code":       "internal_error",
-		"detail":     "Settings schema transition state is unavailable",
-		"params":     map[string]any{},
-		"details":    map[string]any{"recovery": "retry", "retry_after_seconds": 3},
-		"request_id": requestID,
-	})
-}
-
-func proxyAdmissionProviderMiddleware(provider admissionSnapshotProvider, fallbackController *admission.Controller, next http.Handler) http.Handler {
-	if provider == nil && fallbackController == nil {
-		return next
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		controller := fallbackController
-		if provider != nil {
-			controller = provider.AdmissionSnapshot().Controller()
-		}
-		spec := admission.Spec{
-			Name:     "runtime proxy",
-			Metadata: priority.Metadata{Priority: priority.PriorityProxy},
-			// Timeout is deliberately zero (no deadline): runtime.transport.requestTimeout
-			// was removed with the transport config section.
-			Timeout: 0,
-		}
-		requestContext, release, err := controller.Admit(r.Context(), spec)
-		if err != nil {
-			writeAdmissionError(w, err)
-			return
-		}
-		defer release()
-		next.ServeHTTP(w, r.WithContext(requestContext))
-	})
-}
-
 func (s managementRouteSpec) AdmissionSpec() admission.Spec {
 	timeout := s.timeout
 	if timeout == 0 {
@@ -467,25 +276,4 @@ func managementRouteSegments(path string) []string {
 		return nil
 	}
 	return strings.Split(trimmed, "/")
-}
-
-func writeAdmissionError(w http.ResponseWriter, err error) {
-	if overload, ok := errors.AsType[*admission.OverloadError](err); ok {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		if overload.RetryAfter > 0 {
-			w.Header().Set("Retry-After", retryAfterHeaderValue(overload.RetryAfter))
-		}
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(map[string]string{"detail": "Management route temporarily overloaded. Retry later."})
-		return
-	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusInternalServerError)
-	_ = json.NewEncoder(w).Encode(map[string]string{"detail": "Admission failed"})
-}
-
-func retryAfterHeaderValue(duration time.Duration) string {
-	seconds := int(duration.Round(time.Second) / time.Second)
-	seconds = max(seconds, 1)
-	return strconv.Itoa(seconds)
 }

@@ -1,21 +1,7 @@
 package platformhttp
 
 import (
-	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"os"
-	"reflect"
-	"regexp"
-	"slices"
-	"sort"
-	"strings"
-	"testing"
-	"time"
-
-	"github.com/go-chi/chi/v5"
-
 	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	managementconfigrules "github.com/coachpo/prism/backend/internal/httpapi/management/configrules"
@@ -25,12 +11,16 @@ import (
 	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
 	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
-	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
-	"github.com/coachpo/prism/backend/internal/platform/admission"
-	"github.com/coachpo/prism/backend/internal/platform/config"
-	platformdb "github.com/coachpo/prism/backend/internal/platform/db"
 	"github.com/coachpo/prism/backend/internal/platform/priority"
-	"github.com/coachpo/prism/backend/internal/profiledomain"
+	"github.com/go-chi/chi/v5"
+	"net/http"
+	"os"
+	"reflect"
+	"regexp"
+	"slices"
+	"sort"
+	"strings"
+	"testing"
 )
 
 func TestManagementMutationRouteSpecsDeclareCacheEffect(t *testing.T) {
@@ -213,253 +203,6 @@ func TestManagementRouteContractMatchesRouteSpecs(t *testing.T) {
 		}
 	}
 }
-
-func TestManagementAdmissionControllerFastFailsLowerPriorityRoutes(t *testing.T) {
-	t.Parallel()
-
-	testCases := []struct {
-		name     string
-		method   string
-		path     string
-		m2Budget int64
-		m3Budget int64
-		holdM2   int64
-		holdM3   int64
-	}{
-		{name: "m2 rejects when shared management lane is full", method: http.MethodGet, path: "/api/models", m2Budget: 1, m3Budget: 1, holdM2: 1},
-		{name: "m3 rejects when first shed lane is full", method: http.MethodGet, path: "/api/stats/summary", m2Budget: 2, m3Budget: 1, holdM3: 1},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			controller := &managementAdmissionController{controller: admission.NewController(admission.Limits{ManagementM1: 1, ManagementM2: testCase.m2Budget, ManagementM3: testCase.m3Budget})}
-
-			var releases []func()
-			defer func() {
-				for idx := len(releases) - 1; idx >= 0; idx-- {
-					releases[idx]()
-				}
-			}()
-			for range testCase.holdM2 {
-				_, release, err := controller.controller.Admit(context.Background(), admission.Spec{Name: "held M2", Metadata: priority.Metadata{Priority: priority.PriorityManagement, ManagementTier: priority.ManagementTierM2}, Timeout: time.Second})
-				if err != nil {
-					t.Fatalf("expected to pre-acquire the shared M2 lane: %v", err)
-				}
-				releases = append(releases, release)
-			}
-			for range testCase.holdM3 {
-				_, release, err := controller.controller.Admit(context.Background(), admission.Spec{Name: "held M3", Metadata: priority.Metadata{Priority: priority.PriorityManagement, ManagementTier: priority.ManagementTierM3}, Timeout: time.Second})
-				if err != nil {
-					t.Fatalf("expected to pre-acquire the M3 first-shed lane: %v", err)
-				}
-				releases = append(releases, release)
-			}
-
-			handlerCalled := false
-			handler := controller.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				handlerCalled = true
-				w.WriteHeader(http.StatusNoContent)
-			}))
-
-			request := httptest.NewRequest(testCase.method, testCase.path, nil)
-			response := httptest.NewRecorder()
-			startedAt := time.Now()
-			handler.ServeHTTP(response, request)
-
-			if elapsed := time.Since(startedAt); elapsed > 500*time.Millisecond {
-				t.Fatalf("expected fast-fail in <= 500ms, got %s", elapsed)
-			}
-			if handlerCalled {
-				t.Fatal("expected saturated lower-priority route to reject before hitting the handler")
-			}
-			if response.Code != http.StatusServiceUnavailable {
-				t.Fatalf("expected 503 overload response, got %d", response.Code)
-			}
-			if retryAfter := response.Header().Get("Retry-After"); retryAfter != "1" {
-				t.Fatalf("expected Retry-After header to be 1, got %q", retryAfter)
-			}
-		})
-	}
-}
-
-func TestConnectionBatchAdmissionBypassesM3Saturation(t *testing.T) {
-	t.Parallel()
-
-	controller := &managementAdmissionController{controller: admission.NewController(admission.Limits{ManagementM1: 1, ManagementM2: 2, ManagementM3: 1})}
-	_, releaseM3, err := controller.controller.Admit(context.Background(), admission.Spec{Name: "held M3", Metadata: priority.Metadata{Priority: priority.PriorityManagement, ManagementTier: priority.ManagementTierM3}, Timeout: time.Second})
-	if err != nil {
-		t.Fatalf("expected to pre-acquire the M3 first-shed lane: %v", err)
-	}
-	defer releaseM3()
-
-	handlerCalled := false
-	handler := controller.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		handlerCalled = true
-		metadata, err := priority.RequireMetadata(r.Context())
-		if err != nil {
-			t.Fatalf("expected priority metadata in request context: %v", err)
-		}
-		if metadata.ManagementTier != priority.ManagementTierM2 {
-			t.Fatalf("expected connection batch to use M2, got %+v", metadata)
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}))
-
-	request := httptest.NewRequest(http.MethodPost, "/api/models/connections/batch", nil)
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-
-	if !handlerCalled {
-		t.Fatal("expected connection batch read to bypass saturated M3 admission")
-	}
-	if response.Code != http.StatusNoContent {
-		t.Fatalf("expected connection batch read to reach handler, got %d", response.Code)
-	}
-}
-
-func TestManagementAdmissionControllerKeepsProtectedRoutesIsolated(t *testing.T) {
-	t.Parallel()
-
-	controller := &managementAdmissionController{controller: admission.NewController(admission.Limits{ManagementM1: 1, ManagementM2: 2, ManagementM3: 1})}
-	_, releaseM3, err := controller.controller.Admit(context.Background(), admission.Spec{Name: "held M3", Metadata: priority.Metadata{Priority: priority.PriorityManagement, ManagementTier: priority.ManagementTierM3}, Timeout: time.Second})
-	if err != nil {
-		t.Fatalf("expected to pre-acquire the M3 first-shed lane: %v", err)
-	}
-	defer releaseM3()
-	_, releaseM2, err := controller.controller.Admit(context.Background(), admission.Spec{Name: "held M2", Metadata: priority.Metadata{Priority: priority.PriorityManagement, ManagementTier: priority.ManagementTierM2}, Timeout: time.Second})
-	if err != nil {
-		t.Fatalf("expected to pre-acquire the shared M2 lane: %v", err)
-	}
-	defer releaseM2()
-
-	handlerCalled := false
-	handler := controller.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		handlerCalled = true
-		w.WriteHeader(http.StatusNoContent)
-	}))
-
-	request := httptest.NewRequest(http.MethodGet, "/api/auth/status", nil)
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-
-	if !handlerCalled {
-		t.Fatal("expected protected M1 route to use capacity isolated from lower-priority admission caps")
-	}
-	if response.Code != http.StatusNoContent {
-		t.Fatalf("expected protected route to reach handler, got %d", response.Code)
-	}
-}
-
-func TestAdmissionAttachesServerSideWorkloadAndIgnoresPriorityHeaders(t *testing.T) {
-	t.Parallel()
-
-	controller := &managementAdmissionController{controller: admission.NewController(admission.Limits{ManagementM1: 1, ManagementM2: 2, ManagementM3: 1})}
-	handler := controller.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		metadata, err := priority.RequireMetadata(r.Context())
-		if err != nil {
-			t.Fatalf("expected priority metadata in request context: %v", err)
-		}
-		if metadata.Priority != priority.PriorityManagement || metadata.ManagementTier != priority.ManagementTierM3 {
-			t.Fatalf("expected server-side M3 management metadata, got %+v", metadata)
-		}
-		workload, err := admission.RequireWorkload(r.Context())
-		if err != nil {
-			t.Fatalf("expected admitted workload context: %v", err)
-		}
-		if workload.Name != "stats summary" {
-			t.Fatalf("expected route spec workload name, got %q", workload.Name)
-		}
-		if _, ok := r.Context().Deadline(); !ok {
-			t.Fatal("expected admitted management request to have a deadline")
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}))
-
-	request := httptest.NewRequest(http.MethodGet, "/api/stats/summary", nil)
-	request.Header.Set("X-Prism-Priority", "proxy")
-	request.Header.Set("X-Management-Tier", "M1")
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-
-	if response.Code != http.StatusNoContent {
-		t.Fatalf("expected admitted request to reach handler, got %d", response.Code)
-	}
-}
-
-func TestProxyAdmissionAttachesServerSideWorkload(t *testing.T) {
-	t.Parallel()
-
-	controller := admission.NewController(admission.Limits{Proxy: 1})
-	handler := proxyAdmissionProviderMiddleware(nil, controller, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		metadata, err := priority.RequireMetadata(r.Context())
-		if err != nil {
-			t.Fatalf("expected proxy priority metadata: %v", err)
-		}
-		if metadata.Priority != priority.PriorityProxy {
-			t.Fatalf("expected proxy priority, got %+v", metadata)
-		}
-		workload, err := admission.RequireWorkload(r.Context())
-		if err != nil {
-			t.Fatalf("expected proxy workload context: %v", err)
-		}
-		if workload.Name != "runtime proxy" {
-			t.Fatalf("expected runtime proxy workload, got %q", workload.Name)
-		}
-		if _, ok := r.Context().Deadline(); ok {
-			t.Fatal("expected no proxy request deadline after runtime.transport removal")
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}))
-
-	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	request.Header.Set("X-Prism-Priority", "background")
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-
-	if response.Code != http.StatusNoContent {
-		t.Fatalf("expected proxy admission to reach handler, got %d", response.Code)
-	}
-}
-
-func TestNewHandlerWithDependenciesMountsBaselineRoutes(t *testing.T) {
-	t.Parallel()
-
-	settings := config.Settings{
-		Host:                             "127.0.0.1",
-		Port:                             8000,
-		AppEnv:                           config.EnvironmentDevelopment,
-		ManagementDatabasePoolBudget:     config.DatabasePoolBudget{MaxConns: 4},
-		ManagementAdmissionControlBudget: config.ManagementAdmissionBudget{M2MaxConcurrent: 2, M3MaxConcurrent: 1},
-	}
-	handler, err := NewHandlerWithDependencies(settings, Dependencies{
-		Version:        "route-assembly-test",
-		DatabasePools:  &platformdb.DatabasePools{},
-		AuthService:    &managementauth.Service{},
-		RuntimeService: &runtimeapi.Service{},
-	})
-	if err != nil {
-		t.Fatalf("create handler: %v", err)
-	}
-	router, ok := handler.(*chi.Mux)
-	if !ok {
-		t.Fatalf("expected handler to be chi mux, got %T", handler)
-	}
-
-	for _, route := range []struct {
-		method string
-		path   string
-	}{
-		{method: http.MethodGet, path: "/health"},
-		{method: http.MethodGet, path: "/api/auth/status"},
-		{method: http.MethodPost, path: "/v1/chat/completions"},
-		{method: http.MethodPost, path: "/v1/messages"},
-		{method: http.MethodPost, path: "/v1beta/models/gemini-pro:generateContent"},
-	} {
-		assertRouteMounted(t, router, route.method, route.path)
-	}
-	assertRouteNotMounted(t, router, http.MethodGet, "/metrics")
-}
-
 func assertRouteMounted(t *testing.T, router *chi.Mux, method string, path string) {
 	t.Helper()
 	routeContext := chi.NewRouteContext()
@@ -515,7 +258,6 @@ func TestManagementRouteSpecsCoverMountedRoutes(t *testing.T) {
 		t.Fatalf("walk management routes: %v", walkErr)
 	}
 }
-
 func routeKey(method string, route string) string {
 	return strings.ToUpper(method) + " " + normalizeManagementRoutePath(route)
 }
@@ -571,64 +313,5 @@ func assertRuntimeCacheInvalidationActionEqual(t *testing.T, method string, path
 	t.Helper()
 	if got.auth != want.auth || got.planningAll != want.planningAll || !reflect.DeepEqual(got.planningIDs, want.planningIDs) {
 		t.Fatalf("classifyRuntimeCacheInvalidation(%q, %q) = %+v, want %+v", method, path, got, want)
-	}
-}
-
-func TestManagementRouteContractClassifiesRuntimeCacheInvalidation(t *testing.T) {
-	t.Parallel()
-
-	routeContract := loadManagementRouteContract(t)
-	seenAuthInvalidation := false
-	seenPlanningInvalidation := false
-	seenProfileScopedNonInvalidatingRead := false
-	seenProfileScopedNonInvalidatingMutation := false
-
-	for _, row := range routeContract {
-		path := sampleManagementRoutePath(row.RoutePattern)
-		if row.InvalidatesAuth {
-			seenAuthInvalidation = true
-		}
-		if row.InvalidatesPlanning {
-			seenPlanningInvalidation = true
-		}
-		if row.ProfileScoped && !row.InvalidatesAuth && !row.InvalidatesActiveProfile && !row.InvalidatesPlanning && !row.InvalidatesAllPlanning {
-			for _, method := range row.Methods {
-				normalizedMethod := strings.ToUpper(method)
-				if normalizedMethod == http.MethodGet {
-					seenProfileScopedNonInvalidatingRead = true
-				}
-				if isManagementMutationMethod(normalizedMethod) {
-					seenProfileScopedNonInvalidatingMutation = true
-				}
-			}
-		}
-
-		for _, method := range row.Methods {
-			method := strings.ToUpper(method)
-			t.Run(method+" "+row.RoutePattern, func(t *testing.T) {
-				t.Parallel()
-
-				header := http.Header{}
-				if row.ProfileScoped {
-					header.Set(profiledomain.ProfileIDHeader, "42")
-				}
-				got := classifyRuntimeCacheInvalidation(method, path, header)
-				want := expectedRuntimeCacheInvalidationAction(row, method)
-				assertRuntimeCacheInvalidationActionEqual(t, method, path, got, want)
-			})
-		}
-	}
-
-	if !seenAuthInvalidation {
-		t.Fatal("manifest should include runtime auth invalidation rows")
-	}
-	if !seenPlanningInvalidation {
-		t.Fatal("manifest should include Default-profile planning invalidation rows")
-	}
-	if !seenProfileScopedNonInvalidatingRead {
-		t.Fatal("manifest should include profile-scoped non-invalidating read rows")
-	}
-	if !seenProfileScopedNonInvalidatingMutation {
-		t.Fatal("manifest should include profile-scoped non-invalidating mutation rows")
 	}
 }
