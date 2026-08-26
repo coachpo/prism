@@ -38,7 +38,7 @@ platform/
 - Management route registry (tier, profile scope, runtime-cache effect): `http/management_route_specs.go` 的 managementRouteSpecs；contract generator owner 是 `http/server_route_contract_test.go`，`http/management_route_contract.json` 是由它根据 registry 生成的产物，供前端漂移测试消费
 - Management admission controller and middleware: `http/management_admission.go`; settings-schema guard: `http/settings_schema_guard.go`; runtime proxy admission: `http/runtime_proxy_admission.go`; typed admission errors: `http/admission_errors.go`
 - Plaintext bootstrap contract, restart-applied fields, and safe secret metadata: `config/AGENTS.md`, `config/`
-- Startup migration and seed flow: `startup/AGENTS.md`, `startup/`, `migrate/`, `../../migrations/`
+- Startup migration and seed flow: `startup/AGENTS.md`, `startup/service.go`, `startup/{profiles.go,user_settings_seed.go,app_auth_settings_seed.go,user_agent_client_rule_seed.go,header_blocklist_seed.go,strategies.go,audit_settings_seed.go,retention_coverage_seed.go}`, `migrate/`, `../../migrations/`
 - DB lane budgets and pool handles: `db/`
 - Partitioned log retention, daily partition horizon, retention deletes, and low-priority maintenance worker: `logretention/`, `managementjobs/jobs.go`
 - Retention planning/execution, separate policy/fence generations, manual purge fence and final publish, legacy drain, and global job DTOs: `managementjobs/jobs.go`, `managementjobs/retention_planning.go`, `managementjobs/retention_execute.go`, `managementjobs/retention_legacy.go`, `managementjobs/retention_api.go`, `managementjobs/retention_dto.go`
