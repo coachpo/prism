@@ -12,184 +12,214 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// loadFinalizedSummary loads the finalized usage projection for an ingress.
-func loadFinalizedSummary(ctx context.Context, exec queryExecutor, profileID int, ingressRequestID string) (*FinalizedSummary, bool, error) {
-	var summary FinalizedSummary
-	var ingressStartedAt, ingressCompletedAt, effectiveAt *time.Time
-	var resolvedModelID, ownerModelID *string
-	var terminalTargetID *int
-	var terminalTargetName *string
-	var configured sql.NullBool
-	var endpointID *int
-	var endpointName *string
-	var pricingStatus string
-	var trust string
-	var unpricedReason, resolutionKind *string
-	var missingComponents []string
-	var requestLogID sql.NullInt64
-	err := exec.QueryRow(ctx, `SELECT
-			final_request_log.id,
-			usage_request_events.model_id,
-			usage_request_events.resolved_target_model_id,
-			usage_request_events.status_code,
-			usage_request_events.success_flag,
-			usage_request_events.stream_outcome,
-			usage_request_events.endpoint_id,
-			usage_request_events.endpoint_label_snapshot,
-			usage_request_events.connection_id,
-			connections.name,
-			connections.is_active,
-			owner_model_configs.model_id,
-			usage_request_events.ttft_ms,
-			usage_request_events.output_tokens,
-			usage_request_events.completion_duration_ms,
-			usage_request_events.total_tokens,
-			usage_request_events.total_cost_user_currency_micros,
-			usage_request_events.report_currency_code,
-			usage_request_events.report_currency_symbol,
-			usage_request_events.reporting_currency_epoch,
-			usage_request_events.currency_attribution,
-			usage_request_events.pricing_status,
-			usage_request_events.unpriced_reason,
-			usage_request_events.pricing_resolution_kind,
-			usage_request_events.missing_price_components,
-			usage_request_events.pricing_evidence_trust,
-			usage_request_events.final_error_code,
-			usage_request_events.final_attempt_number,
-			usage_request_events.final_attempt_trigger,
-			usage_request_events.final_target_entry_trigger,
-			usage_request_events.same_target_retry_occurred,
-			usage_request_events.hedge_occurred,
-			usage_request_events.failover_occurred,
-			usage_request_events.routing_evidence_complete,
-			usage_request_events.attempt_count,
-			usage_request_events.expected_request_log_row_count,
-			usage_request_events.ingress_started_at,
-			usage_request_events.ingress_completed_at,
-			usage_request_events.pricing_template_id_used,
-			usage_request_events.pricing_template_name_snapshot,
-			usage_request_events.pricing_template_revision_id_used,
-			usage_request_events.pricing_config_version_used,
-			usage_request_events.pricing_version_effective_at,
-			usage_request_events.pricing_snapshot_unit,
-			usage_request_events.pricing_snapshot_input,
-			usage_request_events.pricing_snapshot_output,
-			usage_request_events.pricing_snapshot_cache_read_input,
-			usage_request_events.pricing_snapshot_cache_creation_input,
-			usage_request_events.pricing_snapshot_reasoning
-		FROM usage_request_events
+// finalizedSummaryJoinSQL is the shared finalized-summary join shape: the
+// authoritative final request-log row, the Terminal Target connection, and
+// the Terminal Target's owner model. Aliases stay fixed so the select list
+// below remains the single projection contract.
+const finalizedSummaryJoinSQL = `
+		FROM usage_request_events ue
 		LEFT JOIN LATERAL (
 			SELECT request_logs.id
 			FROM request_logs
-			WHERE request_logs.profile_id = usage_request_events.profile_id
-			  AND request_logs.ingress_request_id = usage_request_events.ingress_request_id
+			WHERE request_logs.profile_id = ue.profile_id
+			  AND request_logs.ingress_request_id = ue.ingress_request_id
 			ORDER BY
-				(usage_request_events.final_attempt_number IS NOT NULL
-					AND request_logs.attempt_number = usage_request_events.final_attempt_number) DESC,
+				(ue.final_attempt_number IS NOT NULL
+					AND request_logs.attempt_number = ue.final_attempt_number) DESC,
 				(request_logs.is_winner IS TRUE) DESC,
 				request_logs.created_at DESC,
 				request_logs.id DESC
 			LIMIT 1
 		) AS final_request_log ON TRUE
-		LEFT JOIN connections ON connections.id = usage_request_events.connection_id
+		LEFT JOIN connections ON connections.id = ue.connection_id
 		LEFT JOIN LATERAL (
 			SELECT model_configs.model_id
 			FROM model_access_targets
 			JOIN model_configs ON model_configs.id = model_access_targets.source_model_config_id
-			WHERE model_access_targets.profile_id = usage_request_events.profile_id
-			  AND model_access_targets.target_connection_id = usage_request_events.connection_id
+			WHERE model_access_targets.profile_id = ue.profile_id
+			  AND model_access_targets.target_connection_id = ue.connection_id
 			ORDER BY model_access_targets.position ASC, model_access_targets.id ASC
 			LIMIT 1
-		) AS owner_model_configs ON TRUE
-		WHERE usage_request_events.profile_id = $1 AND usage_request_events.ingress_request_id = $2
-		ORDER BY usage_request_events.id DESC LIMIT 1`,
-		profileID, ingressRequestID).Scan(
-		&requestLogID,
-		&summary.RequestedModelID,
-		&resolvedModelID,
-		&summary.FinalStatusCode,
-		&summary.SuccessFlag,
-		&summary.StreamOutcome,
-		&endpointID,
-		&endpointName,
-		&terminalTargetID,
-		&terminalTargetName,
-		&configured,
-		&ownerModelID,
-		&summary.TTFTMS,
-		&summary.OutputTokens,
-		&summary.CompletionDurationMS,
-		&summary.TotalTokens,
-		&summary.TotalCostUserCurrencyMicros,
-		&summary.ReportCurrencyCode,
-		&summary.ReportCurrencySymbol,
-		&summary.ReportingCurrencyEpoch,
-		&summary.CurrencyAttribution,
-		&pricingStatus,
-		&unpricedReason,
-		&resolutionKind,
-		&missingComponents,
-		&trust,
-		&summary.FinalErrorCode,
-		&summary.FinalAttemptNumber,
-		&summary.FinalAttemptTrigger,
-		&summary.FinalTargetEntryTrigger,
-		&summary.SameTargetRetryOccurred,
-		&summary.HedgeOccurred,
-		&summary.FailoverOccurred,
-		&summary.RoutingEvidenceComplete,
-		&summary.AttemptCount,
-		&summary.ExpectedRequestLogRowCount,
-		&ingressStartedAt,
-		&ingressCompletedAt,
-		&summary.PricingTemplateIDUsed,
-		&summary.PricingTemplateNameSnapshot,
-		&summary.PricingTemplateRevisionIDUsed,
-		&summary.PricingConfigVersionUsed,
-		&effectiveAt,
-		&summary.PricingSnapshotUnit,
-		&summary.PricingSnapshotInput,
-		&summary.PricingSnapshotOutput,
-		&summary.PricingSnapshotCacheReadInput,
-		&summary.PricingSnapshotCacheCreationInput,
-		&summary.PricingSnapshotReasoning,
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, false, nil
+		) AS owner_model_configs ON TRUE`
+
+// finalizedSummarySelectList is the finalized-ingress projection consumed by
+// finalizedSummaryScan. One list, two entry points (single chain and page
+// batch), so the public summary fields cannot drift between paths.
+const finalizedSummarySelectList = `final_request_log.id,
+		ue.model_id,
+		ue.resolved_target_model_id,
+		ue.status_code,
+		ue.success_flag,
+		ue.stream_outcome,
+		ue.endpoint_id,
+		ue.endpoint_label_snapshot,
+		ue.connection_id,
+		connections.name,
+		connections.is_active,
+		owner_model_configs.model_id,
+		ue.ttft_ms,
+		ue.output_tokens,
+		ue.completion_duration_ms,
+		ue.total_tokens,
+		ue.total_cost_user_currency_micros,
+		ue.report_currency_code,
+		ue.report_currency_symbol,
+		ue.reporting_currency_epoch,
+		ue.currency_attribution,
+		ue.pricing_status,
+		ue.unpriced_reason,
+		ue.pricing_resolution_kind,
+		ue.missing_price_components,
+		ue.pricing_evidence_trust,
+		ue.final_error_code,
+		ue.final_attempt_number,
+		ue.final_attempt_trigger,
+		ue.final_target_entry_trigger,
+		ue.same_target_retry_occurred,
+		ue.hedge_occurred,
+		ue.failover_occurred,
+		ue.routing_evidence_complete,
+		ue.attempt_count,
+		ue.expected_request_log_row_count,
+		ue.ingress_started_at,
+		ue.ingress_completed_at,
+		ue.pricing_template_id_used,
+		ue.pricing_template_name_snapshot,
+		ue.pricing_template_revision_id_used,
+		ue.pricing_config_version_used,
+		ue.pricing_version_effective_at,
+		ue.pricing_snapshot_unit,
+		ue.pricing_snapshot_input,
+		ue.pricing_snapshot_output,
+		ue.pricing_snapshot_cache_read_input,
+		ue.pricing_snapshot_cache_creation_input,
+		ue.pricing_snapshot_reasoning`
+
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+// finalizedSummaryScan holds the raw scan targets of one finalized-summary
+// row and assembles them into the public FinalizedSummary projection.
+type finalizedSummaryScan struct {
+	summary FinalizedSummary
+	raw     struct {
+		requestLogID       sql.NullInt64
+		resolvedModelID    *string
+		endpointID         *int
+		endpointLabel      *string
+		connectionID       *int
+		terminalTargetName *string
+		configured         sql.NullBool
+		ownerModelID       *string
+		ingressStartedAt   *time.Time
+		ingressCompletedAt *time.Time
+		effectiveAt        *time.Time
+		pricingStatus      string
+		unpricedReason     *string
+		resolutionKind     *string
+		missingComponents  []string
+		trust              string
 	}
-	if err != nil {
-		return nil, false, fmt.Errorf("load finalized summary for ingress %s: %w", ingressRequestID, err)
+}
+
+func newFinalizedSummaryScan() *finalizedSummaryScan {
+	return &finalizedSummaryScan{}
+}
+
+func (scan *finalizedSummaryScan) dest() []any {
+	s := scan
+	return []any{
+		&s.raw.requestLogID,
+		&s.summary.RequestedModelID,
+		&s.raw.resolvedModelID,
+		&s.summary.FinalStatusCode,
+		&s.summary.SuccessFlag,
+		&s.summary.StreamOutcome,
+		&s.raw.endpointID,
+		&s.raw.endpointLabel,
+		&s.raw.connectionID,
+		&s.raw.terminalTargetName,
+		&s.raw.configured,
+		&s.raw.ownerModelID,
+		&s.summary.TTFTMS,
+		&s.summary.OutputTokens,
+		&s.summary.CompletionDurationMS,
+		&s.summary.TotalTokens,
+		&s.summary.TotalCostUserCurrencyMicros,
+		&s.summary.ReportCurrencyCode,
+		&s.summary.ReportCurrencySymbol,
+		&s.summary.ReportingCurrencyEpoch,
+		&s.summary.CurrencyAttribution,
+		&s.raw.pricingStatus,
+		&s.raw.unpricedReason,
+		&s.raw.resolutionKind,
+		&s.raw.missingComponents,
+		&s.raw.trust,
+		&s.summary.FinalErrorCode,
+		&s.summary.FinalAttemptNumber,
+		&s.summary.FinalAttemptTrigger,
+		&s.summary.FinalTargetEntryTrigger,
+		&s.summary.SameTargetRetryOccurred,
+		&s.summary.HedgeOccurred,
+		&s.summary.FailoverOccurred,
+		&s.summary.RoutingEvidenceComplete,
+		&s.summary.AttemptCount,
+		&s.summary.ExpectedRequestLogRowCount,
+		&s.raw.ingressStartedAt,
+		&s.raw.ingressCompletedAt,
+		&s.summary.PricingTemplateIDUsed,
+		&s.summary.PricingTemplateNameSnapshot,
+		&s.summary.PricingTemplateRevisionIDUsed,
+		&s.summary.PricingConfigVersionUsed,
+		&s.raw.effectiveAt,
+		&s.summary.PricingSnapshotUnit,
+		&s.summary.PricingSnapshotInput,
+		&s.summary.PricingSnapshotOutput,
+		&s.summary.PricingSnapshotCacheReadInput,
+		&s.summary.PricingSnapshotCacheCreationInput,
+		&s.summary.PricingSnapshotReasoning,
 	}
-	if requestLogID.Valid {
-		summary.RequestLogID = stringPointer(strconv.FormatInt(requestLogID.Int64, 10))
+}
+
+func (scan *finalizedSummaryScan) assemble() *FinalizedSummary {
+	summary := &scan.summary
+	raw := &scan.raw
+	if raw.requestLogID.Valid {
+		summary.RequestLogID = stringPointer(strconv.FormatInt(raw.requestLogID.Int64, 10))
 	}
 	summary.RequestedModel = &ModelRef{ID: summary.RequestedModelID, Label: summary.RequestedModelID}
-	if resolvedModelID != nil {
-		summary.ResolvedModel = &ModelRef{ID: *resolvedModelID, Label: *resolvedModelID}
+	if raw.resolvedModelID != nil {
+		summary.ResolvedModel = &ModelRef{ID: *raw.resolvedModelID, Label: *raw.resolvedModelID}
 	}
-	if terminalTargetID != nil {
-		label := fmt.Sprintf("Terminal Target #%d", *terminalTargetID)
-		if terminalTargetName != nil && strings.TrimSpace(*terminalTargetName) != "" {
-			label = strings.TrimSpace(*terminalTargetName)
+	if raw.connectionID != nil {
+		label := fmt.Sprintf("Terminal Target #%d", *raw.connectionID)
+		if raw.terminalTargetName != nil && strings.TrimSpace(*raw.terminalTargetName) != "" {
+			label = strings.TrimSpace(*raw.terminalTargetName)
 		}
-		summary.TerminalTarget = &TargetRef{ID: *terminalTargetID, Label: label, Configured: configured.Valid && configured.Bool, OwnerModelID: ownerModelID}
+		summary.TerminalTarget = &TargetRef{
+			ID:           *raw.connectionID,
+			Label:        label,
+			Configured:   raw.configured.Valid && raw.configured.Bool,
+			OwnerModelID: raw.ownerModelID,
+		}
 	}
-	if endpointID != nil {
-		label := fmt.Sprintf("Endpoint %d", *endpointID)
-		if endpointName != nil && strings.TrimSpace(*endpointName) != "" {
-			label = strings.TrimSpace(*endpointName)
+	if raw.endpointID != nil {
+		label := fmt.Sprintf("Endpoint %d", *raw.endpointID)
+		if raw.endpointLabel != nil && strings.TrimSpace(*raw.endpointLabel) != "" {
+			label = strings.TrimSpace(*raw.endpointLabel)
 		}
-		summary.Endpoint = &EndpointRef{ID: *endpointID, Label: label}
+		summary.Endpoint = &EndpointRef{ID: *raw.endpointID, Label: label}
 	}
 	summary.FinalResult = deriveFinalResult(summary.FinalStatusCode, summary.SuccessFlag, summary.StreamOutcome)
-	summary.FinalPricingStatus = pricingStatus
-	summary.FinalUnpricedReason = unpricedReason
-	summary.FinalPricingResolutionKind = resolutionKind
-	summary.MissingPriceComponents = missingComponents
-	summary.FinalPricingEvidenceTrust = trust
-	summary.IngressStartedAt = utcTimePointer(ingressStartedAt)
-	summary.IngressCompletedAt = utcTimePointer(ingressCompletedAt)
-	summary.PricingVersionEffectiveAt = utcTimePointer(effectiveAt)
+	summary.FinalPricingStatus = raw.pricingStatus
+	summary.FinalUnpricedReason = raw.unpricedReason
+	summary.FinalPricingResolutionKind = raw.resolutionKind
+	summary.MissingPriceComponents = raw.missingComponents
+	summary.FinalPricingEvidenceTrust = raw.trust
+	summary.IngressStartedAt = utcTimePointer(raw.ingressStartedAt)
+	summary.IngressCompletedAt = utcTimePointer(raw.ingressCompletedAt)
+	summary.PricingVersionEffectiveAt = utcTimePointer(raw.effectiveAt)
 	if summary.OutputTokens != nil && summary.TTFTMS != nil && summary.CompletionDurationMS != nil && *summary.CompletionDurationMS-*summary.TTFTMS > 0 {
 		rate := float64(*summary.OutputTokens) * 1000 / float64(*summary.CompletionDurationMS-*summary.TTFTMS)
 		summary.OutputRateTPS = &rate
@@ -201,7 +231,58 @@ func loadFinalizedSummary(ctx context.Context, exec queryExecutor, profileID int
 	}
 	key := CostSegmentKeyFor(summary.ReportingCurrencyEpoch, legacyCode, legacyCodeValid)
 	summary.CostSegmentKey = &key
-	return &summary, true, nil
+	return summary
+}
+
+// loadFinalizedSummaries loads the finalized usage projection for each listed
+// ingress in one statement: the newest usage event per ingress wins
+// (DISTINCT ON ingress ORDER BY id DESC), matching the historical per-ingress
+// `ORDER BY id DESC LIMIT 1` lookup exactly. Ingresses without finalized
+// evidence are absent from the returned map.
+func loadFinalizedSummaries(ctx context.Context, exec queryExecutor, profileID int, ingressIDs []string) (map[string]*FinalizedSummary, error) {
+	summaries := make(map[string]*FinalizedSummary, len(ingressIDs))
+	if len(ingressIDs) == 0 {
+		return summaries, nil
+	}
+	query := `SELECT DISTINCT ON (ue.ingress_request_id) ue.ingress_request_id,
+			` + finalizedSummarySelectList + finalizedSummaryJoinSQL + `
+		WHERE ue.profile_id = $1 AND ue.ingress_request_id = ANY($2)
+		ORDER BY ue.ingress_request_id ASC, ue.id DESC`
+	rows, err := exec.Query(ctx, query, profileID, ingressIDs)
+	if err != nil {
+		return nil, fmt.Errorf("load finalized summaries for profile %d: %w", profileID, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ingressID string
+		scan := newFinalizedSummaryScan()
+		dest := append([]any{&ingressID}, scan.dest()...)
+		if err := rows.Scan(dest...); err != nil {
+			return nil, fmt.Errorf("scan finalized summary: %w", err)
+		}
+		summaries[ingressID] = scan.assemble()
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate finalized summaries: %w", err)
+	}
+	return summaries, nil
+}
+
+// loadFinalizedSummary loads the finalized usage projection for one ingress.
+// It is the single-chain form of loadFinalizedSummaries.
+func loadFinalizedSummary(ctx context.Context, exec queryExecutor, profileID int, ingressRequestID string) (*FinalizedSummary, bool, error) {
+	scan := newFinalizedSummaryScan()
+	err := exec.QueryRow(ctx, `SELECT `+finalizedSummarySelectList+finalizedSummaryJoinSQL+`
+		WHERE ue.profile_id = $1 AND ue.ingress_request_id = $2
+		ORDER BY ue.id DESC LIMIT 1`,
+		profileID, ingressRequestID).Scan(scan.dest()...)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("load finalized summary for ingress %s: %w", ingressRequestID, err)
+	}
+	return scan.assemble(), true, nil
 }
 
 func deriveFinalResult(statusCode int, successFlag bool, streamOutcome string) string {

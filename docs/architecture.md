@@ -484,7 +484,7 @@ Request-log semantics are per-materialized attempt: one incoming runtime request
 
 - Filter by model, final target model, caller client rule, endpoint, api family, status family/exact status, error text, pricing status (`priced|unpriced|ineligible|unknown`), unpriced reason, and time range; unknown query keys return `422 unknown_query_key` (the old `priced` boolean alias is rejected)
 - Attempt view (`view=attempts`) with scoped status/duration filters and `sort_by` over `created_at|display_status|ttft_ms|total_tokens|total_cost_user_currency_micros`; rows with no value for the selected key (no TTFT on a non-stream row, no cost on an unpriced row) sort last in both directions, and `created_at`/`id` break ties so offset pages stay stable
-- Ingress-chain view (`view=ingress_chains`, default) with cohort filters (`ingress_final_result`, `confirmed_failover`, pricing cohort), whole-ingress outer pagination via signed chain cursors, and bounded retained-row inner pages with row cursors
+- Ingress-chain view (`view=ingress_chains`, default) with cohort filters (`ingress_final_result`, `confirmed_failover`, pricing cohort), whole-ingress outer pagination via signed chain cursors, and bounded retained-row inner pages with row cursors; the ordinary ingress set is resolved from retained request logs only (request-only chains stay visible with an unavailable finalized summary) and rows with a NULL `ingress_request_id` never form a chain
 - Server-side full filtered CSV export (`GET /api/stats/requests/export`) from a single `REPEATABLE READ` snapshot with 100,000-row/128 MiB/31-day bounds, formula-injection escaping, SHA-256 digest verification, and no partial files
 - Exact v2 detail (`GET /api/stats/requests/{request_id}`) with scoped statuses, the unified failure projection, canonical terminal-target/endpoint refs, routing provenance, pricing layers, and `legacy_pricing_evidence` for legacy-untrusted rows
 - Cost segment catalogue (`GET /api/stats/cost-segments`, `/symbols`) with canonical `e.N`/`l.AAA`/`l.__unknown__` keys
@@ -4708,7 +4708,9 @@ CREATE INDEX idx_connections_profile_family_active_priority ON connections(profi
 CREATE INDEX idx_connections_endpoint_id ON connections(endpoint_id);
 CREATE INDEX idx_connections_pricing_template_id ON connections(pricing_template_id);
 CREATE INDEX idx_crw_profile_connection ON connection_routing_windows(profile_id, connection_id);
-CREATE INDEX idx_request_logs_profile_created_at ON ONLY request_logs(profile_id, created_at);
+CREATE INDEX idx_request_logs_ingress_chain ON ONLY request_logs(profile_id, ingress_request_id, attempt_number, created_at, id);
+CREATE INDEX idx_request_logs_ingress_created_id ON ONLY request_logs(profile_id, ingress_request_id, created_at, id);
+CREATE INDEX idx_request_logs_profile_created_totals ON ONLY request_logs(profile_id, created_at, id) INCLUDE (ingress_request_id, row_kind);
 CREATE INDEX idx_request_logs_ingress_request_id ON ONLY request_logs(ingress_request_id);
 CREATE INDEX idx_request_logs_pricing_status ON ONLY request_logs(pricing_status);
 CREATE INDEX idx_request_logs_error_code ON ONLY request_logs(error_code);
@@ -4721,8 +4723,7 @@ CREATE INDEX ix_request_logs_model_id ON ONLY request_logs(model_id);
 CREATE INDEX ix_request_logs_proxy_api_key_id ON ONLY request_logs(proxy_api_key_id);
 CREATE INDEX ix_request_logs_upstream_status_code ON ONLY request_logs(upstream_status_code);
 CREATE INDEX idx_usage_request_events_profile_created_at ON ONLY usage_request_events(profile_id, created_at);
-CREATE INDEX idx_usage_request_events_profile_ingress_request ON ONLY usage_request_events(profile_id, ingress_request_id);
-CREATE INDEX idx_usage_request_events_ingress_request_id ON ONLY usage_request_events(ingress_request_id);
+CREATE INDEX idx_usage_request_events_profile_ingress_id ON ONLY usage_request_events(profile_id, ingress_request_id, id);
 CREATE INDEX ix_usage_request_events_api_family ON ONLY usage_request_events(api_family);
 CREATE INDEX ix_usage_request_events_connection_id ON ONLY usage_request_events(connection_id);
 CREATE INDEX ix_usage_request_events_endpoint_id ON ONLY usage_request_events(endpoint_id);
@@ -4749,6 +4750,21 @@ CREATE INDEX idx_refresh_tokens_revoked_at ON refresh_tokens(revoked_at);
 CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
 CREATE INDEX idx_proxy_api_keys_is_active ON proxy_api_keys(is_active);
 ```
+
+Stats read-path index swaps are applied by later migrations and reflected in
+the golden schema dump: `000020_stats_read_path_indexes` added the
+`management_job_events` sequential index and dropped the single-column
+`ix_request_logs_created_at`/`ix_request_logs_profile_id`; `000025_ingress_chain_query_indexes`
+added the ingress-chain covering set (`idx_request_logs_ingress_created_id`,
+`idx_request_logs_profile_created_totals` with `INCLUDE`
+`(ingress_request_id, row_kind)`, `idx_usage_request_events_profile_ingress_id`)
+and dropped `idx_request_logs_profile_created_at`,
+`ix_request_logs_status_code`,
+`idx_usage_request_events_profile_ingress_request`,
+`idx_usage_request_events_ingress_request_id`, and
+`ix_usage_request_events_profile_id`. Parent declarations propagate to child
+partitions at creation time; inspect live children when diagnosing per-partition
+indexes.
 
 Selected foreign-key deletion boundaries:
 

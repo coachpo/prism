@@ -761,9 +761,10 @@ CREATE INDEX idx_proxy_api_keys_is_active ON public.proxy_api_keys USING btree (
 CREATE INDEX idx_refresh_tokens_expires_at ON public.refresh_tokens USING btree (expires_at);
 CREATE INDEX idx_refresh_tokens_revoked_at ON public.refresh_tokens USING btree (revoked_at);
 CREATE INDEX idx_request_logs_ingress_chain ON ONLY public.request_logs USING btree (profile_id, ingress_request_id, attempt_number, created_at, id);
+CREATE INDEX idx_request_logs_ingress_created_id ON ONLY public.request_logs USING btree (profile_id, ingress_request_id, created_at, id);
 CREATE INDEX idx_request_logs_ingress_request_id ON ONLY public.request_logs USING btree (ingress_request_id);
 CREATE INDEX idx_request_logs_pricing_status ON ONLY public.request_logs USING btree (profile_id, pricing_status, created_at DESC);
-CREATE INDEX idx_request_logs_profile_created_at ON ONLY public.request_logs USING btree (profile_id, created_at);
+CREATE INDEX idx_request_logs_profile_created_totals ON ONLY public.request_logs USING btree (profile_id, created_at, id) INCLUDE (ingress_request_id, row_kind);
 CREATE INDEX idx_request_logs_reporting_currency_epoch ON ONLY public.request_logs USING btree (profile_id, reporting_currency_epoch, created_at DESC);
 CREATE INDEX idx_request_logs_unpriced_reason ON ONLY public.request_logs USING btree (profile_id, unpriced_reason, created_at DESC) WHERE ((pricing_status)::text = 'unpriced'::text);
 CREATE INDEX idx_routing_connection_runtime_leases_expires_at ON public.routing_connection_runtime_leases USING btree (expires_at);
@@ -773,10 +774,9 @@ CREATE INDEX idx_runtime_cache_generations_domain_scope ON public.runtime_cache_
 CREATE INDEX idx_runtime_telemetry_outbox_created_at ON public.runtime_telemetry_outbox USING btree (created_at, id);
 CREATE INDEX idx_runtime_telemetry_outbox_profile_ingress_request_id ON public.runtime_telemetry_outbox USING btree (profile_id, ingress_request_id);
 CREATE INDEX idx_uacr_enabled ON public.user_agent_client_rules USING btree (enabled);
-CREATE INDEX idx_usage_request_events_ingress_request_id ON ONLY public.usage_request_events USING btree (ingress_request_id);
 CREATE INDEX idx_usage_request_events_pricing_status ON ONLY public.usage_request_events USING btree (profile_id, pricing_status, created_at DESC);
 CREATE INDEX idx_usage_request_events_profile_created_at ON ONLY public.usage_request_events USING btree (profile_id, created_at);
-CREATE INDEX idx_usage_request_events_profile_ingress_request ON ONLY public.usage_request_events USING btree (profile_id, ingress_request_id);
+CREATE INDEX idx_usage_request_events_profile_ingress_id ON ONLY public.usage_request_events USING btree (profile_id, ingress_request_id, id);
 CREATE INDEX idx_usage_request_events_reporting_currency_epoch ON ONLY public.usage_request_events USING btree (profile_id, reporting_currency_epoch, created_at DESC);
 CREATE INDEX idx_usage_request_events_unpriced_reason ON ONLY public.usage_request_events USING btree (profile_id, unpriced_reason, created_at DESC) WHERE ((pricing_status)::text = 'unpriced'::text);
 CREATE INDEX ix_audit_logs_connection_id ON ONLY public.audit_logs USING btree (connection_id);
@@ -803,14 +803,12 @@ CREATE INDEX ix_request_logs_endpoint_id ON ONLY public.request_logs USING btree
 CREATE INDEX ix_request_logs_id ON ONLY public.request_logs USING btree (id);
 CREATE INDEX ix_request_logs_model_id ON ONLY public.request_logs USING btree (model_id);
 CREATE INDEX ix_request_logs_proxy_api_key_snapshot ON ONLY public.request_logs USING btree (profile_id, proxy_api_key_id_snapshot, created_at DESC, id DESC);
-CREATE INDEX ix_request_logs_status_code ON ONLY public.request_logs USING btree (status_code);
 CREATE INDEX ix_usage_request_events_api_family ON ONLY public.usage_request_events USING btree (api_family);
 CREATE INDEX ix_usage_request_events_connection_id ON ONLY public.usage_request_events USING btree (connection_id);
 CREATE INDEX ix_usage_request_events_created_at ON ONLY public.usage_request_events USING btree (created_at);
 CREATE INDEX ix_usage_request_events_endpoint_id ON ONLY public.usage_request_events USING btree (endpoint_id);
 CREATE INDEX ix_usage_request_events_id ON ONLY public.usage_request_events USING btree (id);
 CREATE INDEX ix_usage_request_events_model_id ON ONLY public.usage_request_events USING btree (model_id);
-CREATE INDEX ix_usage_request_events_profile_id ON ONLY public.usage_request_events USING btree (profile_id);
 CREATE INDEX ix_usage_request_events_proxy_api_key_snapshot ON ONLY public.usage_request_events USING btree (profile_id, proxy_api_key_id_snapshot, created_at DESC);
 CREATE INDEX ix_user_agent_client_rules_profile_id ON public.user_agent_client_rules USING btree (profile_id);
 CREATE INDEX ix_user_settings_profile_id ON public.user_settings USING btree (profile_id);

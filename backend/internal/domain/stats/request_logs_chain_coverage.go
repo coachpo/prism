@@ -18,14 +18,26 @@ func ResolveChainQueryBounds(ctx context.Context, exec queryExecutor, params Cha
 	if source.PurgeState == "running" || source.PurgeState == "recovery_required" {
 		return ChainQueryParams{}, &HTTPError{StatusCode: 503, Code: "request_log_purge_in_progress", Detail: "request logs are temporarily unavailable while retention cleanup is publishing"}
 	}
-	return resolveChainQueryBounds(ctx, exec, params, referenceNow.UTC(), source)
+	params, _, err = resolveChainQueryBoundsWithOwnerReads(ctx, exec, params, referenceNow.UTC(), source)
+	return params, err
 }
 
-func resolveChainQueryBounds(ctx context.Context, exec queryExecutor, params ChainQueryParams, referenceNow time.Time, source RetentionFloorEpochSource) (ChainQueryParams, error) {
+// resolveChainQueryBoundsWithOwnerReads loads the request-domain actual
+// coverage owner projection exactly once and reuses it for both the query
+// bounds and the envelope coverage block.
+func resolveChainQueryBoundsWithOwnerReads(ctx context.Context, exec queryExecutor, params ChainQueryParams, referenceNow time.Time, source RetentionFloorEpochSource) (ChainQueryParams, ActualCoverageProjection, error) {
 	actual, err := LoadActualCoverageProjection(ctx, exec, source)
 	if err != nil {
-		return ChainQueryParams{}, err
+		return ChainQueryParams{}, ActualCoverageProjection{}, err
 	}
+	params, err = resolveChainQueryBoundsFromActual(params, referenceNow, source, actual)
+	if err != nil {
+		return ChainQueryParams{}, ActualCoverageProjection{}, err
+	}
+	return params, actual, nil
+}
+
+func resolveChainQueryBoundsFromActual(params ChainQueryParams, referenceNow time.Time, source RetentionFloorEpochSource, actual ActualCoverageProjection) (ChainQueryParams, error) {
 	preset, fromTime, toTime, err := normalizeActualCoveragePreset(params.CoveragePreset, params.FromTime, params.ToTime, referenceNow)
 	if err != nil {
 		return ChainQueryParams{}, err
@@ -47,17 +59,22 @@ func resolveChainQueryBounds(ctx context.Context, exec queryExecutor, params Cha
 // populateChainCoverage keeps the chain envelope on the same owner projections
 // as ordinary Requests and Observe. The JSON fields are intentionally raw so
 // the domain-specific coverage contracts can evolve without a second chain
-// policy or a browser-computed range.
-func populateChainCoverage(ctx context.Context, exec queryExecutor, params ChainQueryParams, now time.Time, requestSource RetentionFloorEpochSource, response *ChainResponse) error {
+// policy or a browser-computed range. The request-domain owner reads are
+// passed in preloaded by the caller so no projection is read twice per page.
+func populateChainCoverage(ctx context.Context, exec queryExecutor, params ChainQueryParams, now time.Time, requestSource RetentionFloorEpochSource, requestActual ActualCoverageProjection, response *ChainResponse) error {
 	usageSource, err := LoadRetentionSourceProjection(ctx, exec, "usage_request_events", now)
 	if err != nil {
 		return err
 	}
-	requestCoverage, err := chainCoverageProjection(ctx, exec, params, now, requestSource, "request_logs")
+	usageActual, err := LoadActualCoverageProjection(ctx, exec, usageSource)
 	if err != nil {
 		return err
 	}
-	usageCoverage, err := chainCoverageProjection(ctx, exec, params, now, usageSource, "usage_request_events")
+	requestCoverage, err := chainCoverageProjectionFromOwner(params, now, requestSource, requestActual, "request_logs")
+	if err != nil {
+		return err
+	}
+	usageCoverage, err := chainCoverageProjectionFromOwner(params, now, usageSource, usageActual, "usage_request_events")
 	if err != nil {
 		return err
 	}
@@ -68,11 +85,7 @@ func populateChainCoverage(ctx context.Context, exec queryExecutor, params Chain
 	return nil
 }
 
-func chainCoverageProjection(ctx context.Context, exec queryExecutor, params ChainQueryParams, now time.Time, source RetentionFloorEpochSource, domain string) (json.RawMessage, error) {
-	actual, err := LoadActualCoverageProjection(ctx, exec, source)
-	if err != nil {
-		return nil, err
-	}
+func chainCoverageProjectionFromOwner(params ChainQueryParams, now time.Time, source RetentionFloorEpochSource, actual ActualCoverageProjection, domain string) (json.RawMessage, error) {
 	preset, fromTime, toTime, err := normalizeActualCoveragePreset(params.CoveragePreset, params.CoverageRequestedFrom, params.CoverageRequestedTo, now)
 	if err != nil {
 		return nil, err
