@@ -13,6 +13,89 @@ import (
 // row-scoped filters select the ingress cohort server-side before pagination,
 // the outer page never splits an ingress, retained-row pages are bounded, and
 // the finalized summary carries the authoritative final facts.
+// TestChainViewOrdinarySetCoversRequestOnlyIngressesAndSkipsNullIngress
+// verifies the ordinary ingress-set contract: chains whose retained request
+// logs have no finalized usage evidence still appear with an unavailable
+// finalized summary, rows with a NULL ingress_request_id never form a chain,
+// and the full-cohort totals stay consistent with the visible set.
+func TestChainViewOrdinarySetCoversRequestOnlyIngressesAndSkipsNullIngress(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	now := fixedS15Now.Add(-6 * time.Minute)
+	ensureContractTestLogPartitions(t, harness,
+		contractTestLogPartitionFor("request_logs", now),
+		contractTestLogPartitionFor("usage_request_events", now),
+	)
+
+	// Ingress with both retained rows and finalized evidence.
+	seedChainIngress(t, harness, profileID, "chain-both", now, 200, 2, false, "not_streaming")
+
+	// Request-only ingress: retained rows without any usage event.
+	requestOnlyAt := now.Add(time.Minute)
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (profile_id, model_id, api_family, ingress_request_id, attempt_number, row_kind, url_scrub_provenance, upstream_status_code, attempt_duration_ms, is_stream, success_flag, pricing_status, pricing_evidence_trust, attempt_trigger, attempt_result, is_winner, request_path, created_at)
+		VALUES ($1, 'chain-model', 'openai', 'chain-request-only', 1, 'upstream', 'runtime_scrubbed', 200, 100, FALSE, TRUE, 'ineligible', 'trusted', 'initial', 'completed', TRUE, '/v1/chat/completions', $2)`,
+		profileID, requestOnlyAt); err != nil {
+		t.Fatalf("seed request-only ingress row: %v", err)
+	}
+
+	// NULL-ingress diagnostic rows must not enter any chain or break totals.
+	nullIngressAt := now.Add(2 * time.Minute)
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (profile_id, model_id, api_family, ingress_request_id, attempt_number, row_kind, url_scrub_provenance, upstream_status_code, is_stream, success_flag, pricing_status, pricing_evidence_trust, request_path, created_at)
+		VALUES ($1, 'chain-model', 'openai', NULL, NULL, 'admission', 'runtime_scrubbed', NULL, FALSE, FALSE, 'ineligible', 'trusted', '/v1/chat/completions', $2)`,
+		profileID, nullIngressAt); err != nil {
+		t.Fatalf("seed null-ingress row: %v", err)
+	}
+
+	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&limit=50", http.StatusOK)
+	items := payload["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("expected exactly two chains (null ingress excluded), got %d in %+v", len(items), payload)
+	}
+
+	// Desc order puts the newest finalized chain first.
+	first := asMap(t, items[0])
+	if first["ingress_request_id"] != "chain-request-only" {
+		t.Fatalf("expected request-only chain to lead desc order, got %v", first["ingress_request_id"])
+	}
+	if first["finalized_summary"] != nil {
+		t.Fatalf("expected request-only chain to carry no finalized summary, got %+v", first["finalized_summary"])
+	}
+	if first["finalized_evidence_state"] != "unavailable" || first["elapsed_evidence_state"] != "unavailable" || first["order_evidence_state"] != "retained_row_fallback" {
+		t.Fatalf("expected unavailable finalized/elapsed evidence on request-only chain, got %+v", first)
+	}
+	if jsonInt(t, first["retained_request_log_row_count"]) != 1 {
+		t.Fatalf("expected one retained row for request-only chain, got %+v", first)
+	}
+
+	second := asMap(t, items[1])
+	if second["ingress_request_id"] != "chain-both" {
+		t.Fatalf("expected finalized chain second, got %v", second["ingress_request_id"])
+	}
+	if asMap(t, second["finalized_summary"]) == nil {
+		t.Fatalf("expected finalized summary for chain-both, got %+v", second)
+	}
+
+	// Full-cohort totals exclude the NULL-ingress row and match the page set.
+	if jsonInt(t, payload["retained_ingress_total"]) != 2 {
+		t.Fatalf("expected retained_ingress_total=2, got %+v", payload["retained_ingress_total"])
+	}
+	if jsonInt(t, payload["retained_request_log_row_total"]) != 3 {
+		t.Fatalf("expected retained_request_log_row_total=3 (null row excluded), got %+v", payload["retained_request_log_row_total"])
+	}
+
+	// The outer cursor keeps working across mixed-evidence chains.
+	page1 := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&chain_limit=1", http.StatusOK)
+	cursor, ok := page1["next_chain_cursor"].(string)
+	if !ok || cursor == "" {
+		t.Fatalf("expected signed continuation cursor, got %+v", page1)
+	}
+	page2 := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&chain_limit=1&chain_cursor="+cursor, http.StatusOK)
+	page2Items := page2["items"].([]any)
+	if len(page2Items) != 1 || asMap(t, page2Items[0])["ingress_request_id"] != "chain-both" {
+		t.Fatalf("expected chain-both on cursor page 2, got %+v", page2)
+	}
+}
+
 func TestChainViewServerSideCohortAndPagination(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)

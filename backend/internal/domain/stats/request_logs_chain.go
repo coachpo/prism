@@ -2,7 +2,6 @@ package stats
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -263,7 +262,7 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 	if requestSource.PurgeState == "running" || requestSource.PurgeState == "recovery_required" {
 		return ChainResponse{}, &HTTPError{StatusCode: 503, Code: "request_log_purge_in_progress", Detail: "request logs are temporarily unavailable while retention cleanup is publishing"}
 	}
-	params, err = resolveChainQueryBounds(ctx, exec, params, referenceNow, requestSource)
+	params, requestActual, err := resolveChainQueryBoundsWithOwnerReads(ctx, exec, params, referenceNow, requestSource)
 	if err != nil {
 		return ChainResponse{}, err
 	}
@@ -353,14 +352,30 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 	items := make([]ChainIngressItem, 0, len(ingresses))
 	pageUpstreamAttempts := 0
 	pageRequestLogRows := 0
-	for _, ingress := range ingresses {
-		item, err := loadChainIngressItem(ctx, exec, params, ingress, params.ChainRowLimit, rowCursor, requestEpoch, requestGeneration, connectionCatalog)
-		if err != nil {
-			return ChainResponse{}, err
+	if len(ingresses) > 0 {
+		var loaded []ChainIngressItem
+		if rowCursor != nil {
+			// Exact row-cursor continuation keeps the precise single-chain
+			// path: per-ingress loaders plus the signed keyset page bound.
+			item, itemErr := loadExactChainIngressItem(ctx, exec, params, ingresses[0], params.ChainRowLimit, rowCursor, requestEpoch, requestGeneration, connectionCatalog)
+			if itemErr != nil {
+				return ChainResponse{}, itemErr
+			}
+			loaded = []ChainIngressItem{item}
+		} else {
+			// The default page loads finalized summaries, full-chain counts,
+			// and first retained-row pages as three batched statements.
+			batch, batchErr := loadChainIngressItemsBatch(ctx, exec, params, ingresses, params.ChainRowLimit, requestEpoch, requestGeneration, connectionCatalog)
+			if batchErr != nil {
+				return ChainResponse{}, batchErr
+			}
+			loaded = batch
 		}
-		pageUpstreamAttempts += item.RetainedUpstreamAttemptCount
-		pageRequestLogRows += item.RetainedRequestLogRowCount
-		items = append(items, item)
+		for _, item := range loaded {
+			pageUpstreamAttempts += item.RetainedUpstreamAttemptCount
+			pageRequestLogRows += item.RetainedRequestLogRowCount
+			items = append(items, item)
+		}
 	}
 
 	response := ChainResponse{
@@ -391,7 +406,7 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 		}
 		response.NextChainCursor = &encoded
 	}
-	if err := populateChainCoverage(ctx, exec, params, referenceNow, requestSource, &response); err != nil {
+	if err := populateChainCoverage(ctx, exec, params, referenceNow, requestSource, requestActual, &response); err != nil {
 		return ChainResponse{}, err
 	}
 	// Full-cohort totals.
@@ -541,17 +556,14 @@ func selectChainIngressSet(ctx context.Context, exec queryExecutor, params Chain
 
 // selectOrdinaryChainIngressSet resolves the ordinary-mode ingress set from
 // the retained request logs themselves (no finalized cohort selectors). The
-// usage event id is resolved per ingress for the finalized summary join and
-// is NULL when no finalized evidence exists.
+// usage-event owner is never consulted here: the finalized summary loader is
+// the only consumer of usage facts, and it resolves them per page. Rows with
+// a NULL ingress_request_id are diagnostic orphans and never form a chain.
 func selectOrdinaryChainIngressSet(ctx context.Context, exec queryExecutor, params ChainQueryParams, cursor chainCursorPayload, hasCursor bool, sortOrder string) ([]chainIngressRef, error) {
 	query := `SELECT rl.ingress_request_id,
-		ue.id AS usage_event_id,
 		MIN(rl.created_at) AS first_at
 		FROM request_logs rl
-		LEFT JOIN LATERAL (SELECT ue.id FROM usage_request_events ue
-			WHERE ue.profile_id = rl.profile_id AND ue.ingress_request_id = rl.ingress_request_id
-			ORDER BY ue.id ASC LIMIT 1) ue ON TRUE
-		WHERE rl.profile_id = $1`
+		WHERE rl.profile_id = $1 AND rl.ingress_request_id IS NOT NULL`
 	queryArgs := []any{params.ProfileID}
 	havingClause := ""
 	nextArg := func() int { return len(queryArgs) + 1 }
@@ -590,7 +602,7 @@ func selectOrdinaryChainIngressSet(ctx context.Context, exec queryExecutor, para
 		}
 	}
 	queryArgs = append(queryArgs, params.ChainLimit+1)
-	query += fmt.Sprintf(" GROUP BY rl.ingress_request_id, ue.id%s ORDER BY first_at %s, rl.ingress_request_id %s LIMIT $%d", havingClause, strings.ToUpper(sortOrder), strings.ToUpper(sortOrder), len(queryArgs))
+	query += fmt.Sprintf(" GROUP BY rl.ingress_request_id%s ORDER BY first_at %s, rl.ingress_request_id %s LIMIT $%d", havingClause, strings.ToUpper(sortOrder), strings.ToUpper(sortOrder), len(queryArgs))
 
 	rows, err := exec.Query(ctx, query, queryArgs...)
 	if err != nil {
@@ -600,12 +612,8 @@ func selectOrdinaryChainIngressSet(ctx context.Context, exec queryExecutor, para
 	ingresses := make([]chainIngressRef, 0)
 	for rows.Next() {
 		var ref chainIngressRef
-		var usageEventID sql.NullInt64
-		if err := rows.Scan(&ref.IngressRequestID, &usageEventID, &ref.OrderAt); err != nil {
+		if err := rows.Scan(&ref.IngressRequestID, &ref.OrderAt); err != nil {
 			return nil, fmt.Errorf("scan ordinary chain ingress set: %w", err)
-		}
-		if usageEventID.Valid {
-			ref.UsageEventID = usageEventID.Int64
 		}
 		ref.OrderAt = ref.OrderAt.UTC()
 		ingresses = append(ingresses, ref)
@@ -616,9 +624,10 @@ func selectOrdinaryChainIngressSet(ctx context.Context, exec queryExecutor, para
 	return ingresses, nil
 }
 
-// loadChainIngressItem loads one chain item: finalized summary, full-ingress
-// retained counts, and one bounded retained-row page.
-func loadChainIngressItem(
+// loadExactChainIngressItem loads one chain item through the precise
+// single-chain path: per-ingress summary/counts plus the signed row-cursor
+// keyset page. Only this path may consume a row cursor.
+func loadExactChainIngressItem(
 	ctx context.Context,
 	exec queryExecutor,
 	params ChainQueryParams,
@@ -629,16 +638,82 @@ func loadChainIngressItem(
 	retentionGeneration int64,
 	connectionCatalog map[int]connectionRecord,
 ) (ChainIngressItem, error) {
+	ids := []string{ingress.IngressRequestID}
+	summaries, err := loadFinalizedSummaries(ctx, exec, params.ProfileID, ids)
+	if err != nil {
+		return ChainIngressItem{}, err
+	}
+	countsByIngress, err := loadRetainedRowCountsBatch(ctx, exec, params, ids)
+	if err != nil {
+		return ChainIngressItem{}, err
+	}
+	page, err := loadRetainedRows(ctx, exec, params, ingress.IngressRequestID, rowLimit, rowCursor, connectionCatalog)
+	if err != nil {
+		return ChainIngressItem{}, err
+	}
+	counts := countsByIngress[ingress.IngressRequestID]
+	return assembleChainIngressItem(params, ingress, summaries[ingress.IngressRequestID], counts, page, rowLimit, retentionEpoch, retentionGeneration)
+}
+
+// loadChainIngressItemsBatch loads a whole outer page with three batched
+// statements: finalized summaries, full-chain retained counts, and first
+// retained-row pages. Public item fields are assembled by the same routine
+// as the exact single-chain path.
+func loadChainIngressItemsBatch(
+	ctx context.Context,
+	exec queryExecutor,
+	params ChainQueryParams,
+	ingresses []chainIngressRef,
+	rowLimit int,
+	retentionEpoch int64,
+	retentionGeneration int64,
+	connectionCatalog map[int]connectionRecord,
+) ([]ChainIngressItem, error) {
+	ids := make([]string, 0, len(ingresses))
+	for _, ingress := range ingresses {
+		ids = append(ids, ingress.IngressRequestID)
+	}
+	summaries, err := loadFinalizedSummaries(ctx, exec, params.ProfileID, ids)
+	if err != nil {
+		return nil, err
+	}
+	countsByIngress, err := loadRetainedRowCountsBatch(ctx, exec, params, ids)
+	if err != nil {
+		return nil, err
+	}
+	pages, err := loadRetainedRowsBatch(ctx, exec, params, ids, rowLimit, connectionCatalog)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]ChainIngressItem, 0, len(ingresses))
+	for _, ingress := range ingresses {
+		item, err := assembleChainIngressItem(params, ingress, summaries[ingress.IngressRequestID], countsByIngress[ingress.IngressRequestID], pages[ingress.IngressRequestID], rowLimit, retentionEpoch, retentionGeneration)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+// assembleChainIngressItem builds the public chain item from the loaded
+// summary, full-ingress counts, and bounded retained-row page.
+func assembleChainIngressItem(
+	params ChainQueryParams,
+	ingress chainIngressRef,
+	summary *FinalizedSummary,
+	counts retainedRowCounts,
+	page retainedRowsPage,
+	rowLimit int,
+	retentionEpoch int64,
+	retentionGeneration int64,
+) (ChainIngressItem, error) {
 	item := ChainIngressItem{
 		IngressRequestID:       ingress.IngressRequestID,
 		ElapsedEvidenceState:   "authoritative",
 		FinalizedEvidenceState: "authoritative",
 	}
-	summary, found, err := loadFinalizedSummary(ctx, exec, params.ProfileID, ingress.IngressRequestID)
-	if err != nil {
-		return ChainIngressItem{}, err
-	}
-	if found {
+	if summary != nil {
 		item.FinalizedSummary = summary
 		if summary.IngressStartedAt != nil && summary.IngressCompletedAt != nil {
 			item.StartedAt = summary.IngressStartedAt
@@ -652,15 +727,6 @@ func loadChainIngressItem(
 		item.FinalizedEvidenceState = "unavailable"
 		item.ElapsedEvidenceState = "unavailable"
 		item.OrderEvidenceState = "retained_row_fallback"
-	}
-
-	counts, err := loadRetainedRowCounts(ctx, exec, params, ingress.IngressRequestID)
-	if err != nil {
-		return ChainIngressItem{}, err
-	}
-	page, err := loadRetainedRows(ctx, exec, params, ingress.IngressRequestID, rowLimit, rowCursor, connectionCatalog)
-	if err != nil {
-		return ChainIngressItem{}, err
 	}
 	item.RetainedRows = page.Rows
 	item.RetainedRowsLoadedCount = len(page.Rows)
@@ -710,9 +776,12 @@ func fillChainTotals(ctx context.Context, exec queryExecutor, params ChainQueryP
 	var upstreamAttemptTotal int
 	var requestLogRowTotal int
 	var legacyUnknownTotal int
-	// Full retained cohort across the filtered ingress set.
-	query := `SELECT
-			COUNT(DISTINCT request_logs.ingress_request_id) AS ingresses,
+	// Build one row per retained ingress first, then aggregate those rows into
+	// the exact public totals. This preserves the historical COUNT(DISTINCT)
+	// semantics while allowing PostgreSQL to use a hash aggregate instead of
+	// sorting the whole window for DISTINCT.
+	innerQuery := `SELECT
+			request_logs.ingress_request_id,
 			COUNT(*) FILTER (WHERE request_logs.row_kind = 'upstream') AS upstream_rows,
 			COUNT(*) AS total_rows,
 			COUNT(*) FILTER (WHERE request_logs.row_kind = 'legacy_unknown') AS legacy_rows
@@ -721,32 +790,39 @@ func fillChainTotals(ctx context.Context, exec queryExecutor, params ChainQueryP
 	queryArgs := []any{params.ProfileID}
 	if params.FromTime != nil {
 		queryArgs = append(queryArgs, params.FromTime.UTC())
-		query += fmt.Sprintf(" AND request_logs.created_at >= $%d", len(queryArgs))
+		innerQuery += fmt.Sprintf(" AND request_logs.created_at >= $%d", len(queryArgs))
 	}
 	if params.ToTime != nil {
 		queryArgs = append(queryArgs, params.ToTime.UTC())
-		query += fmt.Sprintf(" AND request_logs.created_at < $%d", len(queryArgs))
+		innerQuery += fmt.Sprintf(" AND request_logs.created_at < $%d", len(queryArgs))
 	}
 	if params.ProxyAPIKeyID != nil {
 		queryArgs = append(queryArgs, *params.ProxyAPIKeyID)
-		query += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM request_logs key_rows WHERE key_rows.profile_id = request_logs.profile_id AND key_rows.ingress_request_id = request_logs.ingress_request_id AND key_rows.proxy_api_key_id_snapshot = $%d)", len(queryArgs))
+		innerQuery += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM request_logs key_rows WHERE key_rows.profile_id = request_logs.profile_id AND key_rows.ingress_request_id = request_logs.ingress_request_id AND key_rows.proxy_api_key_id_snapshot = $%d)", len(queryArgs))
 	}
 	if params.IngressRequestID != nil && strings.TrimSpace(*params.IngressRequestID) != "" {
 		queryArgs = append(queryArgs, strings.TrimSpace(*params.IngressRequestID))
-		query += fmt.Sprintf(" AND request_logs.ingress_request_id = $%d", len(queryArgs))
+		innerQuery += fmt.Sprintf(" AND request_logs.ingress_request_id = $%d", len(queryArgs))
 	}
 	if params.Q != nil && strings.TrimSpace(*params.Q) != "" {
 		queryArgs = append(queryArgs, "%"+strings.TrimSpace(*params.Q)+"%")
-		query += fmt.Sprintf(" AND request_logs.ingress_request_id ILIKE $%d", len(queryArgs))
+		innerQuery += fmt.Sprintf(" AND request_logs.ingress_request_id ILIKE $%d", len(queryArgs))
 	}
 	if hasChainRowFilter(params) {
-		query = appendChainRowCohortExists(query, &queryArgs, params, "request_logs")
+		innerQuery = appendChainRowCohortExists(innerQuery, &queryArgs, params, "request_logs")
 	}
 	if params.IngressFinalResult != nil || params.ConfirmedFailover != nil || params.PricingStatus != nil ||
 		len(params.UnpricedReasons) > 0 || params.ReportingCurrencyEpoch != nil || params.IsStream != nil ||
 		len(params.IngressFinalStatusCodes) > 0 || params.CostSegmentKey != nil {
-		query = appendChainFinalizedCohortExists(query, &queryArgs, params, "request_logs")
+		innerQuery = appendChainFinalizedCohortExists(innerQuery, &queryArgs, params, "request_logs")
 	}
+	innerQuery += " GROUP BY request_logs.ingress_request_id"
+	query := `SELECT
+			COUNT(*) AS ingresses,
+			COALESCE(SUM(upstream_rows), 0) AS upstream_rows,
+			COALESCE(SUM(total_rows), 0) AS total_rows,
+			COALESCE(SUM(legacy_rows), 0) AS legacy_rows
+		FROM (` + innerQuery + `) AS per_ingress`
 	if err := exec.QueryRow(ctx, query, queryArgs...).Scan(&retainedIngressTotal, &upstreamAttemptTotal, &requestLogRowTotal, &legacyUnknownTotal); err != nil {
 		return fmt.Errorf("query retained chain totals: %w", err)
 	}

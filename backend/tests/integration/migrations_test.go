@@ -43,6 +43,7 @@ var expectedPrismMigrationVersions = []string{
 	"000022_pricing_input_tier",
 	"000023_pricing_template_kind_cards",
 	"000024_model_catalog_metadata",
+	"000025_ingress_chain_query_indexes",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
