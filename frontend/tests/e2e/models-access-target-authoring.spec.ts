@@ -1267,6 +1267,9 @@ test("model detail shows mixed order, single truncation and cooldown reset", asy
   const routes = await mockModelDetailRoutes(page);
 
   await page.goto("/models/7");
+  await page
+    .getByTestId("model-detail-feature-page")
+    .waitFor({ timeout: 15000 });
 
   await expect(page.getByTestId("access-targets-mixed-list")).toBeVisible();
   await expect(
