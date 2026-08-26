@@ -62,6 +62,31 @@ type Cost struct {
 	HasLegacyContextOver200k bool
 }
 
+// Interleaved is the parsed models.dev `interleaved` flag. The wire value is
+// a boolean, a bare reasoning field name, or an object carrying that field.
+// Kind distinguishes the three authored shapes so export targets can re-emit
+// the value without guessing; Field carries the bare/object form.
+type Interleaved struct {
+	Kind  string // "bool" or "field"
+	Bool  bool   // set when Kind == "bool"
+	Field string // set when Kind == "field"
+}
+
+// ReasoningOption is one entry of the optional models.dev `reasoning_options`
+// array. Type is effort, toggle, or budget_tokens; Values carries the ordered
+// effort levels for effort options and stays empty otherwise.
+type ReasoningOption struct {
+	Type   string
+	Values []string
+}
+
+// Reasoning option discriminator values accepted by the schema.
+const (
+	ReasoningOptionEffort       = "effort"
+	ReasoningOptionToggle       = "toggle"
+	ReasoningOptionBudgetTokens = "budget_tokens"
+)
+
 // Model is one validated catalog model entry. Coordinates are ProviderID +
 // ModelID (the provider-local key).
 type Model struct {
@@ -85,6 +110,11 @@ type Model struct {
 	Status           *string
 	Limit            Limit
 	Cost             *Cost
+	// ReasoningOptions and Interleaved are in-memory enrichment facts only:
+	// they are parsed from each fetch for export surfaces and are never
+	// persisted to management storage.
+	ReasoningOptions []ReasoningOption
+	Interleaved      *Interleaved
 }
 
 // Provider is one validated catalog provider entry.
@@ -260,7 +290,91 @@ func parseModel(providerID, modelID string, raw json.RawMessage) (*Model, error)
 		}
 		model.Cost = cost
 	}
+	if model.ReasoningOptions, err = parseReasoningOptions(body, label); err != nil {
+		return nil, err
+	}
+	if model.Interleaved, err = parseInterleaved(body, label); err != nil {
+		return nil, err
+	}
 	return model, nil
+}
+
+func parseReasoningOptions(body map[string]json.RawMessage, label string) ([]ReasoningOption, error) {
+	raw, ok := body["reasoning_options"]
+	if !ok || string(raw) == "null" {
+		return nil, nil
+	}
+	var entries []json.RawMessage
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return nil, schemaf("model %s reasoning_options must be an array: %v", label, err)
+	}
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	options := make([]ReasoningOption, 0, len(entries))
+	for index, entryRaw := range entries {
+		entry := map[string]json.RawMessage{}
+		if err := json.Unmarshal(entryRaw, &entry); err != nil {
+			return nil, schemaf("model %s reasoning_options[%d] must be an object: %v", label, index, err)
+		}
+		typeValue, err := optionalString(entry, "type", label+" reasoning_options")
+		if err != nil {
+			return nil, err
+		}
+		if typeValue == nil {
+			return nil, schemaf("model %s reasoning_options[%d].type is required", label, index)
+		}
+		option := ReasoningOption{Type: *typeValue}
+		switch option.Type {
+		case ReasoningOptionEffort:
+			valuesRaw, ok := entry["values"]
+			if !ok || string(valuesRaw) == "null" {
+				return nil, schemaf("model %s reasoning_options[%d].values is required for effort options", label, index)
+			}
+			var values []string
+			if err := json.Unmarshal(valuesRaw, &values); err != nil {
+				return nil, schemaf("model %s reasoning_options[%d].values must be an array of strings: %v", label, index, err)
+			}
+			for _, value := range values {
+				if strings.TrimSpace(value) == "" {
+					return nil, schemaf("model %s reasoning_options[%d] carries an empty effort value", label, index)
+				}
+			}
+			option.Values = values
+		case ReasoningOptionToggle, ReasoningOptionBudgetTokens:
+			// No extra payload today; tolerate future keys by ignoring them.
+		default:
+			return nil, schemaf("model %s reasoning_options[%d].type %q is outside effort|toggle|budget_tokens", label, index, option.Type)
+		}
+		options = append(options, option)
+	}
+	return options, nil
+}
+
+func parseInterleaved(body map[string]json.RawMessage, label string) (*Interleaved, error) {
+	raw, ok := body["interleaved"]
+	if !ok || string(raw) == "null" {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "true" || trimmed == "false" {
+		return &Interleaved{Kind: "bool", Bool: trimmed == "true"}, nil
+	}
+	var field string
+	if err := json.Unmarshal(raw, &field); err == nil && strings.TrimSpace(field) != "" {
+		return &Interleaved{Kind: "field", Field: field}, nil
+	}
+	object := map[string]json.RawMessage{}
+	if err := json.Unmarshal(raw, &object); err == nil {
+		fieldRaw, ok := object["field"]
+		if ok && string(fieldRaw) != "null" {
+			var inner string
+			if err := json.Unmarshal(fieldRaw, &inner); err == nil && strings.TrimSpace(inner) != "" {
+				return &Interleaved{Kind: "field", Field: inner}, nil
+			}
+		}
+	}
+	return nil, schemaf("model %s interleaved must be a boolean, a field name, or {field}", label)
 }
 
 func optionalString(body map[string]json.RawMessage, field, label string) (*string, error) {

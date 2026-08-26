@@ -1,14 +1,16 @@
 # FRONTEND FEATURES KNOWLEDGE BASE
 
 ## OVERVIEW
+
 `frontend/src/features/` owns the active protected route modules mounted by `src/app/router`, while `src/pages/` remains the oracle-compatible source for legacy page clusters and helper surfaces still reused by feature routes and tests.
 
 ## STRUCTURE
+
 ```text
 features/
 ├── endpoints/        # `/route/endpoints` feature page and endpoint dialogs/hooks (`endpoints/AGENTS.md`)
 ├── loadbalance/      # `/route/ban-policies` strategies-only page, trusted fragment data hook, strategy dialog (groups/presets/provenance/preview)
-├── models/           # `/models` list feature and `/models/$modelId` detail adapter
+├── models/           # `/models` list feature, `/models/$modelId` detail adapter, and `models/export/` client-config export page
 ├── observe/          # `/observe` dashboard adapter (Window KPI grid incl. cache-read share) plus the 路由健康 tab (global Current State, events timeline, event detail)
 ├── pricing/          # `/route/pricing` feature page and pricing-template flows
 ├── proxy-keys/       # `/system/proxy-keys` global proxy-key surface: ledger, mutations, generated-secret session, access panel (`proxy-keys/AGENTS.md`)
@@ -19,18 +21,23 @@ features/
 ```
 
 ## WHERE TO LOOK
+
 - Route mounting, route scopes, and search schemas: `../app/AGENTS.md`, `../app/router/appRouter.tsx`, `../app/router/rewriteRoutes.ts`
 - Legacy/oracle page clusters and nested page docs still referenced by feature modules: `../pages/AGENTS.md`
 - Typed backend API, shared request plumbing, and pinned profile-header rules: `../lib/AGENTS.md`, `../lib/api/AGENTS.md`
 - Cross-route query, invalidation, server-validation, table, and design-system helpers: `../shared/AGENTS.md`
 
 ## CONVENTIONS
+
 - For UI/UX, frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation changes, follow `frontend/DESIGN.md`: use `@/shared/design-system` before `@/components/ui`, preserve the Google Admin Console / Material Design 3 operator direction, use semantic tokens, operator surface classes, density variables, and required operator components, keep route state and API calls out of design-system components, and avoid adding compatibility wrappers under `@/components`.
 - Do not add decorative gradients, blur blobs, heavy shadows, marketing hero layouts, raw Tailwind status colors, page-local color blends, or ad hoc dark-mode overrides outside the `frontend/DESIGN.md` contract.
 - Keep route modules thin at the boundary: route params/search and feature-local composition belong here; reusable backend contracts stay in `../lib`, and oracle page clusters stay in `../pages` until migrated.
+- The `models/export/` surface owns the managed Pi 0.84.3 `prism-pi-models.json` (Pi `models.json` format) / OpenCode 1.18.23 `opencode-prism.json` export. Selection truth comes from the backend source snapshot (first load adopts defaults, refetches intersect user selections, platform switch resets); the operator supplies the Prism origin and provider id, and the credential modes are an omitted key slot or one explicitly included, trimmed final-dialog string (including empty). Never read Prism endpoint keys or derive the client URL from an upstream endpoint. Source/render calls bypass HTTP caches, key-bearing render responses never enter a query cache, and closing results, switching platform, or leaving the route clears content and revokes Blob URLs.
+- Uploaded client files are parsed entirely in-browser, matched by the complete public model id, and recursively stripped of sensitive camelCase/snake_case keys before anything uploads; remaining non-sensitive headers require item-by-item confirmation. Full-content copy, fixed-name/MIME download, and a real new-tab raw view reuse exactly one rendered content string. Pi's separate merge-fragment action parses that same string locally and copies only `{ "<provider_id>": { ...provider... } }\n` for insertion beneath an existing `models.json` `providers` object; it never re-renders or implies replacing other providers.
 - Keep global control pages free of profile-scope assumptions unless backend route scope explicitly says otherwise.
 - Prefer feature-local schema/payload builders beside the feature page when they are only used by that route.
 
 ## ANTI-PATTERNS
+
 - Do not add new protected routes without updating `../app/router/rewriteRoutes.ts`, `../app/router/appRouter.tsx`, navigation metadata, tests, and these docs.
 - Do not move backend API calls directly into presentational tables when a feature data hook already owns the mutation/fetch flow.

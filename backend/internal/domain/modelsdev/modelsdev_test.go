@@ -659,3 +659,57 @@ func TestAutoMatchProviderIDsStable(t *testing.T) {
 		t.Fatalf("unmapped families carry no providers: %v", ids)
 	}
 }
+
+func TestParseReasoningOptionsAndInterleaved(t *testing.T) {
+	payload := `{"p":{"models":{
+		"a":{"name":"a","reasoning_options":[{"type":"effort","values":["low","medium","high"]},{"type":"toggle"}],"interleaved":{"field":"reasoning_content"}},
+		"b":{"name":"b","reasoning_options":[{"type":"budget_tokens"}],"interleaved":true},
+		"c":{"name":"c","interleaved":false},
+		"d":{"name":"d"},
+		"e":{"name":"e","reasoning_options":[]}
+	}}}`
+	providers, err := parseCatalog([]byte(payload))
+	if err != nil {
+		t.Fatalf("parseCatalog: %v", err)
+	}
+	a := providers["p"].Models["a"]
+	if len(a.ReasoningOptions) != 2 || a.ReasoningOptions[0].Type != ReasoningOptionEffort ||
+		len(a.ReasoningOptions[0].Values) != 3 || a.ReasoningOptions[1].Type != ReasoningOptionToggle {
+		t.Fatalf("model a reasoning options mismatch: %+v", a.ReasoningOptions)
+	}
+	if a.Interleaved == nil || a.Interleaved.Kind != "field" || a.Interleaved.Field != "reasoning_content" {
+		t.Fatalf("model a interleaved mismatch: %+v", a.Interleaved)
+	}
+	b := providers["p"].Models["b"]
+	if len(b.ReasoningOptions) != 1 || b.ReasoningOptions[0].Type != ReasoningOptionBudgetTokens {
+		t.Fatalf("model b reasoning options mismatch: %+v", b.ReasoningOptions)
+	}
+	if b.Interleaved == nil || !b.Interleaved.Bool {
+		t.Fatalf("model b interleaved must be plain true: %+v", b.Interleaved)
+	}
+	c := providers["p"].Models["c"]
+	if c.Interleaved == nil || c.Interleaved.Bool {
+		t.Fatalf("model c interleaved must preserve explicit false: %+v", c.Interleaved)
+	}
+	if providers["p"].Models["d"].Interleaved != nil || len(providers["p"].Models["d"].ReasoningOptions) != 0 {
+		t.Fatalf("absent fields must stay absent")
+	}
+	if len(providers["p"].Models["e"].ReasoningOptions) != 0 {
+		t.Fatalf("empty reasoning_options array must normalize to none")
+	}
+}
+
+func TestParseReasoningOptionsRejectsUnknownTypesAndBrokenShapes(t *testing.T) {
+	for name, payload := range map[string]string{
+		"unknown type":    `{"p":{"models":{"m":{"reasoning_options":[{"type":"mood"}]}}}}`,
+		"missing values":  `{"p":{"models":{"m":{"reasoning_options":[{"type":"effort"}]}}}}`,
+		"non-array":       `{"p":{"models":{"m":{"reasoning_options":"yes"}}}}`,
+		"empty effort":    `{"p":{"models":{"m":{"reasoning_options":[{"type":"effort","values":[""]}]}}}}`,
+		"broken field":    `{"p":{"models":{"m":{"interleaved":{"wrong":"x"}}}}}`,
+		"numeric boolean": `{"p":{"models":{"m":{"interleaved":1}}}}`,
+	} {
+		if _, err := parseCatalog([]byte(payload)); err == nil {
+			t.Fatalf("%s must fail schema validation", name)
+		}
+	}
+}

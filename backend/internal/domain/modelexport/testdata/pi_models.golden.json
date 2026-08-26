@@ -1,0 +1,69 @@
+{
+  "providers": {
+    "prism": {
+      "models": [
+        {
+          "api": "openai-responses",
+          "baseUrl": "https://prism.example/v1",
+          "contextWindow": 1050000,
+          "cost": {
+            "cacheRead": 0.3,
+            "cacheWrite": 3.75,
+            "input": 3,
+            "output": 15
+          },
+          "id": "gpt-5.6-sol",
+          "input": [
+            "text",
+            "image"
+          ],
+          "maxTokens": 128000,
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "high": "high",
+            "low": "low",
+            "max": "max",
+            "medium": "medium",
+            "minimal": null,
+            "off": null,
+            "xhigh": null
+          }
+        },
+        {
+          "api": "anthropic-messages",
+          "baseUrl": "https://prism.example",
+          "contextWindow": 200000,
+          "cost": {
+            "cacheRead": 0.5,
+            "cacheWrite": 6.25,
+            "input": 5,
+            "output": 25,
+            "tiers": [
+              {
+                "cacheRead": 1,
+                "cacheWrite": 12.5,
+                "input": 10,
+                "inputTokensAbove": 200000,
+                "output": 37.5
+              }
+            ]
+          },
+          "id": "claude-opus-4-8",
+          "name": "Claude Opus 4.8"
+        },
+        {
+          "api": "google-generative-ai",
+          "baseUrl": "https://prism.example/v1beta",
+          "id": "gemini-4-pro",
+          "name": "Gemini 4 Pro"
+        },
+        {
+          "api": "openai-completions",
+          "baseUrl": "https://prism.example/v1",
+          "id": "glm-5.2"
+        }
+      ],
+      "name": "Prism"
+    }
+  }
+}

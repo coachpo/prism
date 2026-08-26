@@ -24,6 +24,18 @@ describe("shell navigation contract", () => {
     expect(SHELL_ROUTE_METADATA.find((route) => route.id === "routing-health")?.sidebarItem?.to).toBe("/observe/routing-health")
   })
 
+  it("maps the model export route to the Models sidebar and its own breadcrumb", () => {
+    expect(
+      SHELL_ROUTE_METADATA.find((route) => route.id === "model-export"),
+    ).toMatchObject({
+      canonicalPath: "/route/models/export",
+      pathPattern: "/route/models/export",
+      groupId: "routing",
+      sidebarItemId: "models",
+      breadcrumbLabelKey: "modelExport",
+    })
+  })
+
   it("keeps path prefix, sidebar group, and breadcrumb group aligned", () => {
     const prefixByGroup = {
       observability: "/observe",

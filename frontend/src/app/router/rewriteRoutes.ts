@@ -8,6 +8,7 @@ export type PrismRouteId =
   | "observe-routing-health"
   | "auth-login"
   | "models"
+  | "model-export"
   | "model-detail"
   | "route-endpoints"
   | "route-ban-policies"
@@ -207,6 +208,7 @@ export const prismRouteDefinitions = [
   { id: "observe-routing-health", path: "/observe/routing-health", scope: "protected-selected-profile", searchSchema: routingHealthSearchSchema },
   { id: "auth-login", path: "/auth/login", scope: "public", searchSchema: authLoginSearchSchema },
   { id: "models", path: "/route/models", scope: "protected-selected-profile", searchSchema: modelsListSearchSchema },
+  { id: "model-export", path: "/route/models/export", scope: "protected-selected-profile", searchSchema: emptySearchSchema },
   { id: "route-endpoints", path: "/route/endpoints", scope: "protected-selected-profile", searchSchema: emptySearchSchema },
   { id: "route-ban-policies", path: "/route/ban-policies", scope: "protected-selected-profile", searchSchema: emptySearchSchema },
   { id: "system-settings", path: "/system/settings", scope: "mixed", searchSchema: settingsSearchSchema },
@@ -232,6 +234,7 @@ export const prismPathById = {
   "observe-routing-health": "/observe/routing-health",
   "auth-login": "/auth/login",
   models: "/route/models",
+  "model-export": "/route/models/export",
   "model-detail": "/route/models/$modelId",
   "route-endpoints": "/route/endpoints",
   "route-ban-policies": "/route/ban-policies",
