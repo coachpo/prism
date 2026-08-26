@@ -1,0 +1,39 @@
+{
+  "providers": {
+    "prism": {
+      "api": "openai-responses",
+      "apiKey": "proxy-key",
+      "baseUrl": "https://prism.example/v1",
+      "models": [
+        {
+          "api": "openai-responses",
+          "baseUrl": "https://prism.example/v1",
+          "contextWindow": 1050000,
+          "cost": {
+            "cacheRead": 0.3,
+            "cacheWrite": 3.75,
+            "input": 3,
+            "output": 15
+          },
+          "id": "gpt-5.6-sol",
+          "input": [
+            "text",
+            "image"
+          ],
+          "maxTokens": 128000,
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "high": "high",
+            "low": "low",
+            "max": "max",
+            "medium": "medium",
+            "minimal": null,
+            "off": null,
+            "xhigh": null
+          }
+        }
+      ],
+      "name": "Prism"
+    }
+  }
+}

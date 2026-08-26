@@ -13,6 +13,7 @@ export type PrismRouteId =
   | "observe-routing-health"
   | "auth-login"
   | "models"
+  | "model-export"
   | "model-detail"
   | "route-endpoints"
   | "route-ban-policies"
@@ -322,6 +323,12 @@ export const prismRouteDefinitions = [
     searchSchema: modelsListSearchSchema,
   },
   {
+    id: "model-export",
+    path: "/route/models/export",
+    scope: "protected-selected-profile",
+    searchSchema: emptySearchSchema,
+  },
+  {
     id: "route-endpoints",
     path: "/route/endpoints",
     scope: "protected-selected-profile",
@@ -384,6 +391,7 @@ export const prismPathById = {
   "observe-routing-health": "/observe/routing-health",
   "auth-login": "/auth/login",
   models: "/route/models",
+  "model-export": "/route/models/export",
   "model-detail": "/route/models/$modelId",
   "route-endpoints": "/route/endpoints",
   "route-ban-policies": "/route/ban-policies",

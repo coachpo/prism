@@ -14,6 +14,7 @@ A single Go binary, a React dashboard, and PostgreSQL are all it needs.
 - Applies *ban policies*: an endpoint that keeps failing is benched, either temporarily or until you reset it, so retries stop hammering a dead provider.
 - Records request logs, token usage, and spending in PostgreSQL, with per-model success rate and latency on the dashboard.
 - Prices each request from reusable pricing templates you define per provider, with optional import from the [models.dev](https://models.dev) catalog: model metadata on the model detail page plus one-click source-linked price templates assigned atomically to a Terminal Target.
+- Exports client model configuration for [Pi](https://github.com/earendil-works/pi-mono) 0.84.3 (`prism-pi-models.json`, Pi `models.json` format) and OpenCode 1.18.23 (`opencode-prism.json`) from a dedicated `/route/models/export` page: pick models, supply the Prism gateway origin and provider id, review metadata and price risks, and generate deterministic JSON for copy, download, or raw viewing. An optional proxy key is entered only in the final dialog; Prism never substitutes an upstream endpoint URL or stored endpoint key. Unknown metadata and any price shape the client cannot represent stay explicit as warnings, with the whole `cost` group omitted rather than guessed.
 - Protects access with optional operator login for the dashboard and optional API keys for proxy callers; provider keys are encrypted at rest.
 - Ships as one Docker image plus PostgreSQL.
 

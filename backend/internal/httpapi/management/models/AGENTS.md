@@ -36,12 +36,17 @@ models/
 ├── catalog_types.go              # models.dev binding request/response shapes
 ├── catalog_store.go              # model_catalog_bindings read/upsert and source diff helpers
 ├── catalog_handlers.go           # Catalog bind/match-preview/refresh/override/candidates routes
+├── export_types.go               # Pi/OpenCode source/render wire contracts
+├── export_store.go               # consistent model/routing/current-price export snapshot
+├── export_facts.go               # DB/catalog rows projected into pure export facts
+├── export_handlers.go            # M3 no-store source/render handlers and server-owned replay
 └── *_test.go                     # Store and route regression coverage
 ```
 
 ## WHERE TO LOOK
 
 - Route list and mount contract: `service.go`.
+- Client model-config export surface: `export_handlers.go` mounts `/models/exports/{platform}/source` (consistent snapshot plus clock-free `source_digest`) and `/models/exports/{platform}/render` (fresh database facts matched against current-catalog and no-enrichment digest candidates, no network I/O and no use of request-carried catalog data). `export_store.go` reads models, reachable Terminal Targets, current pricing revisions, and catalog bindings in one transaction; `export_facts.go` projects rows into domain facts; `export_types.go` owns the wire shapes. Both M3 routes, including errors, are `private, no-store`, planning-neutral, and non-persistent. The pure merge/pricing/digest/origin-based renderer domain lives in `internal/domain/modelexport`.
 - models.dev catalog surface: `catalog_handlers.go` mounts `/models/{model_config_id}/catalog*`; the restricted client lives in `internal/domain/modelsdev` and is injected through `Options.Catalog`. Metadata writes are planning-neutral (`none:true` admission specs); remote catalog I/O always happens outside transactions and commits verify the previewed ETag.
 - Model list/get/create/update/delete handlers: `routes.go`.
 - Access-target HTTP handlers: `access_target_handlers.go`.
@@ -68,6 +73,10 @@ models/
 - Keep public model targets requiring exact `target_model_id`, `position`, and `is_enabled`; obsolete `weight` and `target_priority` payload keys must reject, while internal connection-owner targets keep the same flat ordered shape.
 
 - Keep models.dev catalog metadata management-only: it never enters the runtime snapshot, never participates in api_family/capability/routing decisions, never changes `display_name`, and its write routes must stay declared `runtimeCacheEffect{none: true}`.
+- Keep the export surface read-only against runtime state: no migrations, persisted export state, digest cache, or planning invalidation. Source may best-effort refresh models.dev outside its database transaction, but render never performs network I/O or accepts a request-carried candidate as truth; it recomputes only the current catalog-backed and independently derived no-enrichment candidates, with no exact digest match returning `export_source_stale`.
+- Render requires an operator-supplied Prism HTTP(S) origin, supports a trimmed slash-free provider id (default `prism`), and distinguishes an omitted client key slot from one explicitly included, trimmed final-dialog string (including empty). Never derive output URLs from upstream endpoint base URLs or read/decrypt stored endpoint keys. Credential, source, and error data must stay out of caches through `private, no-store`.
+- Source and render expose stable `enrichment_unavailable`, `metadata_incomplete`, and platform-specific metadata warning codes. Manual and completed-document target-schema failures map to `422 target_schema_invalid`; never accept unknown client fields merely because they are valid JSON.
+- Price truth comes only from current pricing-template revisions across every actually reachable target. Emit `cost` only for one consistent USD/PER_1M five-component shape with reasoning equal to output and lossless target representation; a null component emits `pricing_component_missing`, explicit `"0"` alone means free, and every failed gate keeps the model while omitting the whole group. Pi supports a strict positive-threshold tier; OpenCode supports flat or exactly 200,000 tokens as `context_over_200k`.
 - Refreshes replace only `source_*` columns; manual overrides survive refreshes, per-field restore writes a null override, and rebinding to a different offering clears overrides while same-offering rebinds keep them.
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
 

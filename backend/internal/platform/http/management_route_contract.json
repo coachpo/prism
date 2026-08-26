@@ -615,6 +615,28 @@
     "invalidates_all_planning": false
   },
   {
+    "route_pattern": "/api/models/exports/{platform}/render",
+    "methods": [
+      "POST"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
+    "route_pattern": "/api/models/exports/{platform}/source",
+    "methods": [
+      "GET"
+    ],
+    "profile_scoped": true,
+    "invalidates_auth": false,
+    "invalidates_active_profile": false,
+    "invalidates_planning": false,
+    "invalidates_all_planning": false
+  },
+  {
     "route_pattern": "/api/models/route-witnesses",
     "methods": [
       "GET"

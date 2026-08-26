@@ -44,6 +44,10 @@ import { GlobalAccessLayer } from "./GlobalAccessLayer";
 
 const ObservePage = lazy(() => import("@/features/observe/ObservePage"));
 const ModelsPage = lazy(() => import("@/features/models/ModelsFeaturePage"));
+// Export page ships a default export specifically for this lazy boundary.
+const ModelExportPage = lazy(
+  () => import("@/features/models/export/ModelExportPage"),
+);
 const ModelDetailFeaturePage = lazy(
   () => import("@/features/models/detail/ModelDetailFeaturePage"),
 );
@@ -225,6 +229,12 @@ function ProtectedObserveRoute() {
 
 function ProtectedModelsRoute() {
   return <ProtectedRoute>{withRouteSuspense(<ModelsPage />)}</ProtectedRoute>;
+}
+
+function ProtectedModelExportRoute() {
+  return (
+    <ProtectedRoute>{withRouteSuspense(<ModelExportPage />)}</ProtectedRoute>
+  );
 }
 
 function ProtectedModelDetailRoute() {
@@ -453,6 +463,12 @@ const modelsRoute = createRoute({
   validateSearch: (search) => modelsListSearchSchema.parse(search),
   component: ProtectedModelsRoute,
 });
+const modelsExportRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/route/models/export",
+  validateSearch: (search) => emptySearchSchema.parse(search),
+  component: ProtectedModelExportRoute,
+});
 const modelDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/route/models/$modelId",
@@ -546,6 +562,7 @@ export const prismRouteTree = rootRoute.addChildren([
   routingHealthRouteInternal,
   authLoginRoute,
   modelsRoute,
+  modelsExportRoute,
   modelDetailRoute,
   legacyModelsRoute,
   legacyModelDetailRoute,

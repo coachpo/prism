@@ -82,6 +82,8 @@ func TestManagementRouteSpecClassification(t *testing.T) {
 		{name: "management jobs list uses first shed tier", method: http.MethodGet, path: "/api/management/jobs", want: priority.ManagementTierM3, ok: true},
 		{name: "dashboard stats uses first shed tier", method: http.MethodGet, path: "/api/stats/dashboard", want: priority.ManagementTierM3, ok: true},
 		{name: "first shed stats route", method: http.MethodGet, path: "/api/stats/summary", want: priority.ManagementTierM3, ok: true},
+		{name: "model export source uses first shed tier", method: http.MethodGet, path: "/api/models/exports/pi/source", want: priority.ManagementTierM3, ok: true},
+		{name: "model export render uses first shed tier", method: http.MethodPost, path: "/api/models/exports/opencode/render", want: priority.ManagementTierM3, ok: true},
 		{name: "head maps to get", method: http.MethodHead, path: "/api/auth/status", want: priority.ManagementTierM1, ok: true},
 		{name: "options bypasses admission", method: http.MethodOptions, path: "/api/models", ok: false},
 		{name: "unknown management path stays unadmitted for router 404", method: http.MethodGet, path: "/api/not-mounted", ok: false},
@@ -99,6 +101,33 @@ func TestManagementRouteSpecClassification(t *testing.T) {
 				t.Fatalf("matchManagementRouteSpec(%q, %q) tier = %v, want %v", testCase.method, testCase.path, got.tier, testCase.want)
 			}
 		})
+	}
+}
+
+func TestModelExportRouteSpecsAreScopedM3AndPlanningNeutral(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/api/models/exports/pi/source"},
+		{method: http.MethodPost, path: "/api/models/exports/opencode/render"},
+	}
+	for _, testCase := range testCases {
+		spec, ok := matchManagementRouteSpec(testCase.method, testCase.path)
+		if !ok {
+			t.Fatalf("missing model export route spec for %s %s", testCase.method, testCase.path)
+		}
+		if spec.tier != priority.ManagementTierM3 || !spec.profileScoped {
+			t.Fatalf("model export route %s %s = tier %s, profileScoped=%v; want M3/true", testCase.method, testCase.path, spec.tier, spec.profileScoped)
+		}
+		if spec.cache.auth || spec.cache.planning || spec.cache.allPlanning || spec.cache.routeWitness {
+			t.Fatalf("model export route %s %s must not invalidate runtime caches: %+v", testCase.method, testCase.path, spec.cache)
+		}
+		if isManagementMutationMethod(testCase.method) && !spec.cache.none {
+			t.Fatalf("model export render must explicitly declare a none cache effect")
+		}
 	}
 }
 

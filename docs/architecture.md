@@ -890,6 +890,42 @@ Response `200`: `{ items[] (provider_id, provider_name, model_id, name), total, 
 
 ---
 
+#### 1.3B Client Model Configuration Export (Pi / OpenCode)
+
+The export surface generates deterministic client configuration from Prism-managed model truth. It is management-authenticated and read-only with respect to runtime state: it adds no migration or persisted export state, never invalidates runtime caches, and stays in the M3 management lane. Source, render, and all error responses carry `Cache-Control: private, no-store`.
+
+##### Export Source Snapshot
+
+```text
+GET /api/models/exports/{platform}/source
+```
+
+`platform` is `pi` or `opencode`. One read-only consistent database snapshot returns every Default-profile model row with `model_config_id`, `model_id`, `api_family`, selection truth (`default_selected`, `selectable`, and a stable `unselectable_reason`), layered Prism/models.dev/merged metadata, per-leaf provenance and missing metadata, catalog-binding evidence, platform completeness, normalized current-revision price facts, stable model warning codes, `target_version`, and a clock-free `source_digest`. `metadata_incomplete` covers absent target-relevant metadata, `enrichment_unavailable` distinguishes a bound offering that could not be refreshed/resolved, and `thinking_level_map_unrepresentable` identifies Pi reasoning options that cannot map without guessing. models.dev enrichment comes from a service-owned in-memory catalog snapshot after at most one best-effort revalidation outside the transaction; a failed fetch or vanished offering marks enrichment unavailable without failing source or re-guessing coordinates.
+
+The digest is SHA-256 over canonical output-affecting facts, including enrichment availability and the server-derived candidate, while excluding timestamps. The service does not maintain a digest-keyed source cache: render recomputes the current server-owned catalog candidate and the independently derived no-enrichment candidate against one fresh database snapshot, then accepts only an exact digest match to one of those two fact sets. A candidate may be shown to the browser for review, but render never decodes, trusts, or uses request-carried candidate data and never reconstructs trusted metadata from client input.
+
+The three-layer merge preserves presence exactly: explicit zeros/false/empty strings/arrays are values, not absences. Prism effective metadata wins; models.dev fills only absent leaves; manual enhancement fills only still-absent leaves unless listed in `override_fields`. Locked fields (model id, protocol mapping, base URL, provider slot, credential slots, prices) and credential-shaped recursive keys fail closed. Manual fields and nested groups are validated against the pinned target schema before rendering; unknown fields, wrong types, incomplete required groups, trailing JSON, or invalid override paths return `422 target_schema_invalid`. The complete generated document is validated again immediately before deterministic serialization.
+
+##### Render
+
+```text
+POST /api/models/exports/{platform}/render
+```
+
+Request: `{ expected_source_digest, model_config_ids[], base_url, provider_id?, credential?: { include, api_key? }, enhancements?, default_model_config_id? }`. `base_url` is an HTTP(S) origin without userinfo, path, query, or fragment. `provider_id` defaults to `prism`, is trimmed, non-empty, and may not contain `/`. Credential presence is explicit: `include=false` omits the client key slot, while `include=true` embeds the trimmed `api_key` string, including an explicitly confirmed empty string; stored endpoint secrets are never read. `default_model_config_id` is OpenCode-only and must belong to the explicit selection; Pi rejects it.
+
+Render performs no network I/O. It re-reads current database facts in one read-only consistent snapshot and matches `expected_source_digest` against the current catalog-backed fact set or the independently derived no-enrichment fact set. Model, route, or pricing drift—and catalog drift that matches neither candidate—returns `409 export_source_stale`; a source produced without enrichment can still replay through the no-enrichment candidate even if a cached catalog is now present. An empty selection or any unknown, cross-profile, disabled, or unrouteable id fails the entire request with `422`. Manual enhancement is the only request-provided metadata layer: it may fill absent leaves, and exact `override_fields` may replace known metadata, while model identity, protocol mapping, gateway base URL, provider slot, credential slots, and prices fail closed as locked paths. Recursive credential-shaped keys are rejected.
+
+Price gates use only current pricing-template revisions for every actually reachable Terminal Target of every accepted operation. A `cost` group is emitted only when all targets resolve to one identical normalized USD/PER_1M shape, all five Prism components are configured, `reasoning_price == output_price`, and the target client can represent the shape losslessly. Pi accepts flat pricing or one strict tier with any positive threshold; OpenCode accepts flat pricing or the exact 200,000-token threshold mapped to `context_over_200k`. Every failed gate keeps the model, omits the entire `cost` group, and records a stable warning. A null component, especially `reasoning_price=null`, is unconfigured and reports `pricing_component_missing`; it never falls back to output pricing or zero. Only the explicit decimal string `"0"` means free. No-template, currency/unit, reasoning mismatch, target-conflict, peak/valley, and tier-representation failures remain distinct warnings.
+
+Output mapping uses the operator-supplied provider id and Prism gateway origin, never an upstream endpoint URL. Pi 0.84.3 writes `prism-pi-models.json` in Pi `models.json` format: OpenAI `responses_only`/`dual_native` maps to `openai-responses` (dual-native pins Responses), `chat_completions_only` to `openai-completions`, Anthropic to `anthropic-messages`, and Gemini to `google-generative-ai`; model `baseUrl` is `<origin>/v1` for OpenAI, the bare `<origin>` for Anthropic, and `<origin>/v1beta` for Gemini. It also projects safe metadata, a total seven-key `thinkingLevelMap` derived only from explicit effort values (unsupported levels are explicit nulls), and lossless cost/tier fields. OpenCode 1.18.23 writes `opencode-prism.json`: its single provider retains `env: ["PRISM_API_KEY"]`; each model pins the matching `@ai-sdk/openai`, `@ai-sdk/openai-compatible`, `@ai-sdk/anthropic`, or `@ai-sdk/google` package, with model `provider.api` set to `<origin>/v1` for OpenAI/Anthropic and `<origin>/v1beta` for Gemini. It projects `name`, `family`, `release_date`, `attachment`, `reasoning`, `temperature`, `tool_call`, a context/output limit group with `input` when known, modalities, optional `interleaved`, an optional selected default model, and representable flat or `context_over_200k` cost; description, knowledge, status, and experimental fields are not emitted. OpenCode `variants` are accepted only as manually confirmed/uploaded advanced metadata; Prism does not synthesize them because OpenCode already supplies its defaults.
+
+Credentials have only two modes: omitted, or one explicitly included string manually entered and trimmed in the final dialog; an explicitly included empty string remains distinct from omission. The renderer never decrypts or exports stored endpoint keys. The generated document ends with exactly one newline; `content_sha256` hashes those exact UTF-8 bytes, and the response also returns the pinned `target_version`, fixed filename, and `application/json;charset=utf-8` MIME. Full-content copy, Blob download, and a real new-tab raw view all reuse the same content string. For Pi only, the browser may parse that same content and copy the single `providers` entry as `{ "<provider_id>": { ...provider... } }\n` for safe merging beneath an existing `models.json` `providers` object; it does not call render again or alter the full result. Closing the result, switching platforms, or leaving the route clears content and revokes the Blob URL.
+
+Uploaded Pi/OpenCode files are parsed entirely in the browser, use complete public model ids for matching, and never upload their raw text. Credential-shaped material is removed recursively before request assembly; remaining non-sensitive headers require explicit item-by-item confirmation.
+
+---
+
 #### 1.4 Endpoints (Profile-Scoped Credentials)
 
 ##### List Endpoints

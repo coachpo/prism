@@ -296,6 +296,15 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 - Committing creates or reuses the one source-linked pricing template for that offering with an append-only import revision carrying the catalog revision as evidence, then assigns it atomically to the current or explicitly selected Terminal Targets using the existing double CAS; any conflict rolls the whole transaction back. If the template was hand-edited since, the dialog requires explicit confirmation before overwriting.
 - Catalog fetching is restricted to HTTPS, same-origin redirects, a 10-second timeout, and a 16 MiB budget, revalidates through ETag/304, collapses concurrent fetches, and never runs inside a database transaction. There is no scheduled synchronization: every read of fresh data is an explicit operator action.
 
+### 4.19 Client Model Configuration Export (Pi / OpenCode)
+
+- The standalone `/route/models/export` page generates deterministic client configuration for Pi 0.84.3 (`prism-pi-models.json`, Pi `models.json` format) and OpenCode 1.18.23 (`opencode-prism.json`) from Prism-managed model truth, behind management authentication. The operator supplies an HTTP(S) Prism gateway origin and a provider id (default `prism`); the export never substitutes a reachable upstream endpoint URL.
+- The backend returns every model with selection truth, layered metadata/provenance/missing leaves, catalog evidence, normalized current pricing facts, stable metadata/enrichment warning codes, the pinned target version, and a clock-free `source_digest`. First load adopts backend defaults, refresh keeps the still-selectable intersection of a user's selection, and platform switching resets platform-specific selection, enhancements, and generated output. The default-off price-complete filter affects visibility and batch selection only; it never silently deselects a model.
+- Render performs no network I/O and never accepts a request-carried models.dev candidate as source truth. Without retaining a digest cache, it rechecks current database facts and matches the digest only against the recomputed current catalog-backed or no-enrichment fact set; no match returns `export_source_stale` (409). An empty selection or any unknown, cross-profile, disabled, or unrouteable id fails the whole request with 422. OpenCode may name one selected default model; Pi rejects that option.
+- Uploaded Pi `models.json` / `models-store.json` and OpenCode JSON/JSONC files are parsed only in the browser. Matching uses the complete public model id, sensitive keys are removed recursively before anything can be sent, and remaining non-sensitive headers require item-by-item confirmation. Manual values fill missing metadata unless an exact `override_fields` entry authorizes replacement; identity, protocol, gateway URL, provider, credential, and price paths remain locked. Every manual value is validated against the pinned target client's supported model-field schema, so unknown fields or wrong types fail the whole render with `target_schema_invalid` rather than being copied optimistically. OpenCode `variants` are manual/uploaded advanced metadata only; Prism does not synthesize them, while Pi `thinkingLevelMap` is a total seven-key map derived only from explicit effort values and reports `thinking_level_map_unrepresentable` when the catalog exposes only toggle/budget semantics.
+- Price export is fail-closed across every actually reachable Terminal Target for each accepted operation. A `cost` group requires one consistent current-revision shape in USD/PER_1M, all five Prism components, `reasoning_price == output_price`, and a lossless client mapping. Pi accepts one strict positive-threshold tier; OpenCode accepts flat pricing or the exact 200,000-token tier mapped to `context_over_200k`. A null component, including `reasoning_price=null`, omits the whole group and reports `pricing_component_missing`; no template, conflicting targets, another currency/unit, peak/valley, a reasoning/output mismatch, or an unrepresentable tier likewise keeps the model and emits a stable warning. Only an explicitly configured string `"0"` means free.
+- Credentials have only two states: omitted (`include=false`), or an explicitly included string manually typed and trimmed in the final dialog (`include=true`, with an explicitly confirmed empty string remaining distinct from omission). Export never reads or decrypts stored upstream endpoint keys, and the typed value never enters source responses, URLs, PostgreSQL, query caches, browser storage, logs, errors, or warnings. Source, render, and error responses are `private, no-store`; full-content copy, Blob download, and a true new-tab raw view reuse the same rendered content and fixed filename/MIME. Pi additionally offers a locally derived `{ "<provider_id>": { ...provider... } }\n` fragment for merging beneath an existing `models.json` `providers` object; that copy action never re-renders or replaces the full result, and the UI warns against overwriting other providers. Closing the result, switching platform, or leaving the page clears content and revokes its Blob URL.
+
 ## 5. Non-Functional Requirements
 
 | Requirement | Target |
@@ -610,7 +619,7 @@ Validated again against current repo surfaces on 2026-08-22:
 ### Shared Scope Rules
 
 - Public auth routes are `/auth/login`.
-- Protected shell routes cover `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/endpoints`, `/route/ban-policies`, `/route/pricing`, `/system/settings`, and `/system/proxy-keys`; the canonical trend view is `/observe?tab=trend`.
+- Protected shell routes cover `/observe`, `/observe/requests`, `/observe/requests/:requestId/audit`, `/models`, `/models/:id`, `/route/models/export`, `/route/endpoints`, `/route/ban-policies`, `/route/pricing`, `/system/settings`, and `/system/proxy-keys`; the canonical trend view is `/observe?tab=trend`.
 - Profile-scoped management requests are pinned to Default profile id `1`. `X-Profile-Id` is still accepted for compatibility, but the backend ignores its value.
 - Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/settings/auth*`, `GET/PUT /api/settings/log-retention`, destructive preflights and manual jobs under `/api/maintenance/log-retention/*`, and global retention job list/detail/cancel under `/api/management/jobs*`.
 - Runtime proxy traffic on `/v1/*` and `/v1beta/*` ignores management profile headers and resolves against frozen Default profile id `1`.
@@ -690,12 +699,13 @@ Validated again against current repo surfaces on 2026-08-22:
 - `GET /api/stats/endpoints/{endpoint_id}/models` for analytics endpoint drilldown rows
 - Setup wizard existing-owner reads: `GET /api/endpoints`, `GET /api/pricing-templates` (cost-readiness aggregate), `GET /api/config/routing-policies`, `GET /api/models` (configuration × application summaries on one witness generation), model detail target read, and `GET /api/settings/auth/proxy-keys?include=setup_readiness&expected_route_witness_generation=…`
 
-### 4. Model Management And Model Detail
+### 4. Model Management, Model Detail, And Client Export
 
 **User entrypoints**
 
 - `/models`
 - `/models/:id`
+- `/route/models/export`
 
 **Frontend flow**
 
@@ -704,6 +714,8 @@ Validated again against current repo surfaces on 2026-08-22:
 3. Model detail owns access-target authoring as one mixed list: same-family Model Targets and Terminal Targets share the global `position` order, cross-type adjacent moves use the same controls, and Terminal Target management covers the model's private endpoint bindings.
 4. The Terminal Target dialog's “高级请求设置” group lets operators configure request limits, custom request headers, and the optional custom request parameters JSON overlay (format/clear actions, top-level count summary, field-level validation, and server 422 mapping back to the editor). The routing schedule is edited in its own sibling section rather than inside that group, because it governs routing eligibility rather than request content.
 5. Request logs preserve the requested model while final-target fields show the terminal model reached through the access graph.
+6. The Models page opens the dedicated client-export route. The operator chooses Pi or OpenCode, supplies the Prism origin/provider id, selects only backend-marked selectable models, optionally reviews safe uploaded metadata, and types a proxy key only at final confirmation.
+7. Source and render requests use `private, no-store`; a stale digest forces a source refresh, and generated content is held only long enough to copy, download, or open the exact bytes in a new tab.
 
 **UI-driven backend touchpoints**
 
@@ -722,6 +734,8 @@ Validated again against current repo surfaces on 2026-08-22:
 - `POST /api/models/{model_config_id}/connections`
 - `PATCH /api/models/{model_config_id}/connections/{connection_id}`
 - `DELETE /api/models/{model_config_id}/connections/{connection_id}`
+- `GET /api/models/exports/{platform}/source`
+- `POST /api/models/exports/{platform}/render`
 
 `POST /api/models/by-endpoints` is used by the Endpoints page to hydrate model references. `GET /api/models/by-endpoint/{endpoint_id}` and `POST /api/models/connections/batch` remain backend/API-client surfaces without a current production frontend caller.
 

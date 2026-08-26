@@ -3,6 +3,7 @@ package models
 import (
 	"errors"
 	"net/http"
+	"reflect"
 	"testing"
 	"time"
 
@@ -136,5 +137,13 @@ func TestAttachRoutingSummariesSupportsPureImageModel(t *testing.T) {
 	}
 	if len(groups) != 2 {
 		t.Fatalf("expected only image operation groups, got %+v", summary.OperationGroups)
+	}
+}
+
+func TestExportClientOperationsGeminiUsesStreamAsPrimaryAndKeepsPricingSet(t *testing.T) {
+	operations := exportClientOperations(exportModelRow{APIFamily: "gemini"})
+	want := []string{"gemini.stream_generate_content", "gemini.generate_content", "gemini.count_tokens"}
+	if !reflect.DeepEqual(operations, want) {
+		t.Fatalf("Gemini export operation set = %v, want %v", operations, want)
 	}
 }

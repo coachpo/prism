@@ -123,6 +123,8 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Put("/models/{model_config_id}/catalog/override", s.handlePutCatalogOverride)
 	api.Delete("/models/{model_config_id}/catalog/override", s.handleClearCatalogOverride)
 	api.Delete("/models/{model_config_id}/catalog", s.handleUnbindModelCatalog)
+	api.Get("/models/exports/{platform}/source", s.handleGetExportSource)
+	api.Post("/models/exports/{platform}/render", s.handlePostExportRender)
 	api.Get("/models/{model_config_id}", s.handleGetModel)
 	api.Post("/models", s.handleCreateModel)
 	api.Put("/models/{model_config_id}", s.handleUpdateModel)

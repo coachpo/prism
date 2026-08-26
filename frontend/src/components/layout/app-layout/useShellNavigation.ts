@@ -37,7 +37,11 @@ export type ShellSidebarItemId =
   | "settings"
   | "proxy-api-keys";
 
-export type ShellRouteId = ShellSidebarItemId | "model-detail" | "request-log-audit";
+export type ShellRouteId =
+  | ShellSidebarItemId
+  | "model-export"
+  | "model-detail"
+  | "request-log-audit";
 
 export interface ShellSidebarItemDefinition {
   groupId: ShellSidebarGroupId;
@@ -125,6 +129,14 @@ export const SHELL_ROUTE_METADATA: readonly ShellRouteMetadata[] = [
     id: "models",
     pathPattern: "/route/models",
     sidebarItem: { groupId: "routing", icon: Server, id: "models", labelKey: "models", to: "/route/models" },
+    sidebarItemId: "models",
+  },
+  {
+    breadcrumbLabelKey: "modelExport",
+    canonicalPath: "/route/models/export",
+    groupId: "routing",
+    id: "model-export",
+    pathPattern: "/route/models/export",
     sidebarItemId: "models",
   },
   {
