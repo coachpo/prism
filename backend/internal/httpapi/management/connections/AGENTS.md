@@ -40,7 +40,13 @@ connections/
 ├── pricing_templates.go    # Pricing-template CRUD and validation
 ├── pricing_template_store.go     # Pricing-template row shape, queries, revision/mutation ledger, scanners
 ├── pricing_template_import.go    # Two-phase pricing-template JSON import (preview_hash / commit)
-├── pricing_template_catalog.go   # models.dev source-linked price import: preview, atomic commit, double-CAS assignment
+├── pricing_template_catalog.go   # Catalog pricing contract types
+├── pricing_catalog_request.go    # Catalog pricing request scope and offering resolution
+├── pricing_catalog_remote.go     # Restricted catalog fetch and safe fetch errors
+├── pricing_catalog_preview.go    # Preview hash and preview route
+├── pricing_catalog_preview_read.go # Preview read projection and price-plan shape
+├── pricing_catalog_commit.go     # Atomic catalog pricing commit transaction
+├── pricing_catalog_assignment.go # Catalog revision naming and Terminal Target CAS assignment
 ├── pricing_template_cards.go     # Card/window hydration and read-shape validation
 ├── pricing_template_shape.go     # Typed kind/card/window normalization and shape validation
 ├── pricing_template_write.go     # Immutable revision writes and change detection
@@ -72,6 +78,7 @@ connections/
 - Two-phase pricing-template JSON import (`preview_hash` / commit): `pricing_template_import.go`
 - Pricing-template price value object (canonical decimals, tier normalization/equality): `pricing_template_prices.go`
 - Pricing-template connection assignment and usage lookup: `pricing_lookup.go`
+- Catalog pricing workflow: `pricing_template_catalog.go` (contract types), `pricing_catalog_request.go` (request/offering scope), `pricing_catalog_remote.go` (remote fetch), `pricing_catalog_preview.go`, `pricing_catalog_preview_read.go` (preview/hash/plan), `pricing_catalog_commit.go` (atomic transaction), `pricing_catalog_assignment.go` (revision naming and target assignment); revision writes remain in `pricing_template_write.go`
 - Bounded keyset pricing-template owner pages used by Settings migration previews: `pricing_list_page.go`
 - Model target CRUD and ordering live in the separate model leaf: `../models/AGENTS.md`, `../models/service.go`
 

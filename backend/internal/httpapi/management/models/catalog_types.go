@@ -93,3 +93,13 @@ type modelCatalogCandidatesResponse struct {
 	Scope  string                `json:"scope"`
 	Query  string                `json:"query,omitempty"`
 }
+
+type modelCatalogMatchPreviewResponse struct {
+	Committable     bool                  `json:"committable"`
+	ProviderID      string                `json:"provider_id,omitempty"`
+	CatalogModelID  string                `json:"catalog_model_id,omitempty"`
+	Candidates      []modelsdev.Candidate `json:"candidates"`
+	Reason          string                `json:"reason"`
+	CatalogRevision string                `json:"catalog_revision"`
+	FetchedAt       time.Time             `json:"fetched_at"`
+}

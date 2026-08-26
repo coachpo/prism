@@ -18,6 +18,7 @@ domain/
 ├── stats/          # Dashboard, usage, spending, and request-log projections
 │   └── AGENTS.md   # Stats read-model and retained-history rules
 ├── pricingkind/    # Typed standard/tiered/peak_valley kind and card-role constants
+├── modelsdev/      # HTTP-neutral models.dev catalog client, schema, matching, and pricing plan
 └── terminaltarget/ # Terminal Target helper types, pricing-window values, the shared custom request parameters validator/overlay, and the routing-schedule compiler
 ```
 
@@ -30,6 +31,7 @@ domain/
 - Terminal Target records and the single authoritative `custom_request_parameters` validator/overlay (limits, protected keys, canonicalization, deterministic shallow overlay): `terminaltarget/custom_request_parameters.go`
 - Routing-window compilation and eligibility (`CompileRoutingSchedule`, `DecideAt`, `NextOpenAt`, `NextCloseAt`, `WindowsCoverFullWeek`, `ValidateRoutingSchedule`): `terminaltarget/routing_schedule.go`; pricing-window digest and peak/valley decision values: `terminaltarget/pricing_schedule.go`
 - Typed pricing kind/card roles and independent selector evidence: `pricingkind/pricingkind.go`; pricing windows reuse the terminal-target half-open geometry but belong to a pricing revision and use the frozen ingress planning clock.
+- models.dev catalog client, schema, exact matching, and pricing-plan domain: `modelsdev/AGENTS.md`, `modelsdev/`
 - Dashboard aggregate snapshots, request-log read models, spending, throughput, usage snapshots, and rollups: `stats/AGENTS.md`, `stats/`
 - HTTP ownership that consumes these domains: `../httpapi/management/stats/AGENTS.md`, `../httpapi/runtime/AGENTS.md`
 

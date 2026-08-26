@@ -35,7 +35,15 @@ models/
 ├── route_readiness.go            # Route-witness readiness projection for the model surfaces
 ├── catalog_types.go              # models.dev binding request/response shapes
 ├── catalog_store.go              # model_catalog_bindings read/upsert and source diff helpers
-├── catalog_handlers.go           # Catalog bind/match-preview/refresh/override/candidates routes
+├── catalog_handlers.go           # Catalog route guards and error envelope boundary
+├── catalog_read_projection.go    # Catalog binding projection and auto-match hint
+├── catalog_read_routes.go        # Catalog read, candidate, and match-preview routes
+├── catalog_remote.go              # Restricted catalog fetch and stale/unavailable errors
+├── catalog_binding.go             # Catalog bind matching and atomic bind transaction
+├── catalog_refresh.go             # Refresh preview and atomic refresh commit
+├── catalog_override.go            # Override field decoding and validation
+├── catalog_override_write.go      # Override write transactions
+├── catalog_unbind.go               # Catalog unbind transaction
 ├── export_types.go               # Pi/OpenCode source/render wire contracts
 ├── export_store.go               # consistent model/routing/current-price export snapshot
 ├── export_facts.go               # DB/catalog rows projected into pure export facts
@@ -47,7 +55,7 @@ models/
 
 - Route list and mount contract: `service.go`.
 - Client model-config export surface: `export_handlers.go` mounts `/models/exports/{platform}/source` (consistent snapshot plus clock-free `source_digest`) and `/models/exports/{platform}/render` (fresh database facts matched against current-catalog and no-enrichment digest candidates, no network I/O and no use of request-carried catalog data). `export_store.go` reads models, reachable Terminal Targets, current pricing revisions, and catalog bindings in one transaction; `export_facts.go` projects rows into domain facts; `export_types.go` owns the wire shapes. Both M3 routes, including errors, are `private, no-store`, planning-neutral, and non-persistent. The pure merge/pricing/digest/origin-based renderer domain lives in `internal/domain/modelexport`.
-- models.dev catalog surface: `catalog_handlers.go` mounts `/models/{model_config_id}/catalog*`; the restricted client lives in `internal/domain/modelsdev` and is injected through `Options.Catalog`. Metadata writes are planning-neutral (`none:true` admission specs); remote catalog I/O always happens outside transactions and commits verify the previewed ETag.
+- models.dev catalog surface: `catalog_read_routes.go`, `catalog_binding.go`, `catalog_refresh.go`, `catalog_override.go`, `catalog_override_write.go`, and `catalog_unbind.go` mount `/models/{model_config_id}/catalog*`; `catalog_handlers.go` owns route guards/error envelopes, `catalog_remote.go` owns the restricted fetch, and the client lives in `internal/domain/modelsdev`. Metadata writes are planning-neutral (`none:true` admission specs); remote catalog I/O always happens outside transactions and commits verify the previewed ETag.
 - Model list/get/create/update/delete handlers: `routes.go`.
 - Access-target HTTP handlers: `access_target_handlers.go`.
 - Ordered access-target editing: `access_target_ordering.go`.

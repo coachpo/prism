@@ -839,6 +839,8 @@ Response `200`: `{ "deleted": true }`. Returns `409` if other models still refer
 
 Catalog metadata is management-only projection data sourced from the fixed official models.dev catalog (`https://models.dev/api.json`, MIT License). It never participates in `api_family` compatibility truth, capability gating, routing, or the runtime snapshot; metadata writes never invalidate planning. The backend client is restricted: HTTPS only, same-origin redirects only, a 10-second whole-request timeout, a 16 MiB body budget, ETag/304 revalidation, single-flight fetches, `json.Number` decoding, and fail-closed schema validation. Remote I/O always happens outside database transactions; commits verify the operator's previewed catalog revision so stale source data cannot be written.
 
+The HTTP-neutral catalog boundary is owned by `backend/internal/domain/modelsdev/` for transport, schema, matching, and pricing-plan decisions. Management workflow ownership remains split between the models catalog read/bind/refresh/override/unbind routes and the connections catalog-pricing preview/commit/assignment routes; only cached catalog snapshots cross into write transactions.
+
 ##### Get Model Catalog Binding
 
 ```
