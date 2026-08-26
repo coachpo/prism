@@ -33,11 +33,6 @@ type pricingTemplateSchedule struct {
 	Windows  []pricingTemplateWindow `json:"windows"`
 }
 
-// validatePricingTemplateID deliberately stays in store.go: it reads
-// pricing_templates, but three of its four callers (routes.go, writer.go,
-// composite_create.go) are connection writes, so its reason to change is the
-// connection write contract. Do not pull it in here to "gather the pricing SQL".
-
 type pricingTemplateConnectionUsageRecord struct {
 	ConnectionID   int
 	ConnectionName *string

@@ -430,6 +430,8 @@ Because eligibility is judged after rotation, a routing schedule shifts which ro
 
 Profile-scoped management APIs are frozen to Default id `1`. They accept `X-Profile-Id` for frontend compatibility, but the backend ignores the header value. Runtime proxy traffic ignores that management header and resolves through the frozen Default profile id `1` runtime snapshot.
 
+Connection management keeps its existing ownership seams under `backend/internal/httpapi/management/connections/`: `connection_read_routes.go`, `routes.go`, and the owner mutation route files own HTTP boundaries; `connection_model_store.go`, `connection_endpoint_store.go`, `terminal_target_store.go`, `connection_access_target_store.go`, `connection_reference_store.go`, and `routing_window_store.go` own profile-scoped PostgreSQL records; `terminal_target_projection.go` and `connection_db_arguments.go` own row projection and database values. The HTTP-neutral `writer.go`, `access_targets.go`, `routing_schedule.go`, and `endpointdomain` remain canonical shared seams.
+
 ## 6. Request-Derived Metrics
 
 Prism has no manual Terminal Target probe routes or probe-backed health fields. Retained request history supports success-rate, latency, request-count, spending, and endpoint aggregates. The backend dashboard response includes `routing_health_map`, but the current dashboard adapter does not render that field. The production Models table shows success rate, P95 latency, and 24-hour request count as plain values; it does not assign health badges or color thresholds. `GET /api/stats/connection-success-rates` is available for consumers but is not currently used by the production UI.

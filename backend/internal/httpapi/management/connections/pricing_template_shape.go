@@ -142,6 +142,10 @@ func normalizePricingTemplateCard(path string, input *pricingTemplateCardInput) 
 	return pricingTemplateCard{InputPrice: inputPrice, OutputPrice: outputPrice, CachedInputPrice: cached, CacheCreationPrice: creation, ReasoningPrice: reasoning}, nil
 }
 
+func intPtr(value int) *int {
+	return &value
+}
+
 func validatePricingTemplateCardParity(cards map[string]pricingTemplateCard) error {
 	var reference *pricingTemplateCard
 	for _, card := range cards {

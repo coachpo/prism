@@ -71,3 +71,15 @@ func canonicalPricingDecimal(raw string) (string, error) {
 	}
 	return canonical, nil
 }
+
+func stringPtr(value string) *string {
+	resolved := value
+	return &resolved
+}
+
+func stringsEqualPointers(left *string, right *string) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
