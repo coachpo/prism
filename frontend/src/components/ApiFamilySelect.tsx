@@ -1,4 +1,5 @@
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
+import { formatApiFamily } from "@/components/apiFamilyPresentation";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import {
   Select,
@@ -8,7 +9,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { ApiFamily } from "@/lib/types";
-import { formatApiFamily } from "@/lib/utils";
 
 interface ApiFamilySelectProps {
   value: string;

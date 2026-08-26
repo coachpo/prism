@@ -1,8 +1,9 @@
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
+import { formatApiFamily } from "@/components/apiFamilyPresentation";
 import { formatNumber, getCurrentLocale } from "@/i18n/format";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { formatMoneyMicros, formatUnpricedReasonLabel, resolveSpendTrustState } from "@/lib/costing";
-import { cn, formatApiFamily } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import type { RequestLogListItem } from "@/lib/types";
 import { OperatorTypeBadge, OperatorValueBadge } from "@/shared/design-system";
 import { AlertCircle } from "lucide-react";

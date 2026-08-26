@@ -1,8 +1,8 @@
 import type { LucideIcon } from "lucide-react";
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
+import { formatApiFamily } from "@/components/apiFamilyPresentation";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatApiFamily } from "@/lib/utils";
 import { OperatorMetricTile } from "@/shared/design-system";
 
 export function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {

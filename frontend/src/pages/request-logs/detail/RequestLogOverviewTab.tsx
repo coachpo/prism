@@ -4,7 +4,8 @@ import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { cn, formatApiFamily } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { formatApiFamily } from "@/components/apiFamilyPresentation";
 import type { MouseEvent } from "react";
 import type {
   RequestLogDetail,
@@ -36,10 +37,10 @@ import {
   SummaryStat,
 } from "./requestLogDetailShared";
 import {
-  copyRequestLogText,
   getStatusIntent,
   getStatusTone,
-} from "./requestLogDetailUtils";
+} from "./requestLogStatus";
+import { copyRequestLogText } from "./requestLogClipboard";
 import { resolveRequestAuditCaptureMode } from "../requestLogAuditState";
 import {
   getStreamOutcomeIntent,

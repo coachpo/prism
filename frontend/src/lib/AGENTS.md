@@ -31,7 +31,7 @@ lib/
 ├── referenceData.ts              # Shared reference-data cache keyed by profile revision
 ├── referenceDataRegistry.ts      # Registry of shared reference-data datasets
 ├── loadbalanceRoutingPolicy.ts   # Dual-family defaults and policy normalization
-├── appVersion.ts                 # Browser-facing app version helper built from Vite-injected package metadata
+├── appVersion.ts                 # Browser-facing version surface built from Vite-injected package metadata
 ├── reportingCurrency.ts          # Pinned-profile keyed reporting-currency cache
 ├── observeReturn.ts              # Validated return-state token restoring routing-health context from Requests
 ├── types.ts                      # Public type barrel
@@ -40,7 +40,7 @@ lib/
 ├── costing.ts                    # Shared cost formatting and usage-label helpers
 ├── timezone.ts                   # Timezone preference cache and formatting helpers used by hooks/pages
 ├── clipboard.ts                  # Browser clipboard helpers and UX-safe copy flow
-└── utils.ts                      # Small generic browser/UI helpers
+└── utils.ts                      # shadcn class-name composition (`cn`)
 ```
 
 ## WHERE TO LOOK
@@ -49,7 +49,7 @@ lib/
 - Typed `/api/*` client split, grouped surfaces, `api/request.ts` request rules and query serialization, and profile-scope matcher: `api/AGENTS.md`
 - Shared lookup cache, request dedupe, and dataset registry: `referenceData.ts`, `referenceDataRegistry.ts`
 - Shared dual-family load-balance defaults and policy normalization: `loadbalanceRoutingPolicy.ts`
-- Browser app version label formatting and Vite-injected package metadata: `appVersion.ts`
+- Browser app version surface, label formatting, and Vite-injected package metadata: `appVersion.ts`
 - Shared reporting-currency cache, normalization, active-currency sync, `prime()` and `refresh()` support, and fail-open default used by `ReportingCurrencyContext.tsx`: `reportingCurrency.ts`
 - Shared timezone preference lookup and formatting helpers consumed by `useTimezone()`: `timezone.ts`
 - Shared cost formatting and usage-label helpers layered over the active reporting currency: `costing.ts`

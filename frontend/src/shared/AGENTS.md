@@ -10,7 +10,7 @@ shared/
 ├── design-system/  # Reusable operator component layer
 │   └── AGENTS.md   # Page/section/control/table/status rules
 ├── forms/          # Backend/server validation issue shaping
-├── table/          # Rewrite table column/row helpers
+├── table/          # Rewrite table rows, pure table algorithms, and pagination chrome
 └── index.ts        # Public shared export barrel
 ```
 
@@ -18,7 +18,10 @@ shared/
 - Public shared export surface: `index.ts`
 - Rewrite query key types, profile-id scope, and invalidation scope helpers: `api/queryKeys.ts`, `api/queryInvalidation.ts`
 - Server validation extraction and field-error formatting: `forms/serverValidation.ts`
-- Table helper exports: `table/rewriteTable.ts`
+- Pure operational-table sorting/page calculations: `table/operationalTableState.ts`
+- Operational table chrome: `table/operationalTable.tsx`
+- Async/append pagination state and controls: `table/paginationStates.ts`, `table/paginationControls.tsx`
+- Rewrite table helper exports: `table/rewriteTable.ts`
 - Reusable operator design-system components: `design-system/AGENTS.md`
 - Consumers in feature routes and seam tests: `../features/`, `../test/`, `../../tests/lib/`
 

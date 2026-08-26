@@ -45,7 +45,8 @@ request-logs/
 │   ├── sseFraming.ts            # SSE framing (LF/CRLF/CR-only, BOM, multi-line data, [DONE], incomplete tails)
 │   ├── streamTranscript.ts      # Operation-aware stream accumulation with tool calls/results
 │   ├── requestLogDetailShared.tsx  # Shared detail rows, stats, section cards, API-family pill
-│   └── requestLogDetailUtils.ts # Status intent/tone and detail copy helpers
+│   ├── requestLogStatus.ts       # Status intent/tone presentation
+│   └── requestLogClipboard.ts    # Detail clipboard action and localized toast side effect
 └── *.test.ts(x)                 # Saved views, preferences, audit route, and audit lookup coverage
 ```
 
@@ -60,7 +61,7 @@ request-logs/
 - Stream telemetry helpers and TTFT/rate display logic: `streamTelemetry.ts`, `detail/RequestLogOverviewTab.tsx`
 - Cache-read share on the request detail row and unpriced-cause explanations: `detail/RequestLogOverviewTab.tsx`, `../../features/observe/cacheReadShare.ts`, `pricingExplanation.ts`
 - E2E seam for exact-request mode and dedicated audit-page states: `../../../tests/e2e/request-log-dedicated-audit-page.spec.ts`; shared request-log fixtures live in `../../../tests/e2e/request-log-dedicated-audit-fixtures.ts`.
-- Parent-covered detail cluster helpers: `detail/RequestLogOverviewTab.tsx`, `detail/RequestLogPayloadBlock.tsx`, `detail/requestLogDetailShared.tsx`, `detail/requestLogDetailUtils.ts`
+- Parent-covered detail cluster helpers: `detail/RequestLogOverviewTab.tsx`, `detail/RequestLogPayloadBlock.tsx`, `detail/requestLogDetailShared.tsx`, `detail/requestLogStatus.ts`, `detail/requestLogClipboard.ts`
 - Reporting-currency trust and spend display coupling: `../../context/ReportingCurrencyContext.tsx`, `../../lib/reportingCurrency.ts`, `detail/RequestLogOverviewTab.tsx`
 
 ## CONVENTIONS

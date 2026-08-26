@@ -26,7 +26,8 @@ import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext"
 import { useLocale } from "@/i18n/useLocale"
 import type { ManagedModelConfigListItem } from "@/lib/api/models"
 import { formatMoneyMicros } from "@/lib/costing"
-import { cn, formatApiFamily } from "@/lib/utils"
+import { formatApiFamily } from "@/components/apiFamilyPresentation"
+import { cn } from "@/lib/utils"
 import {
   OperatorEmptyState,
   OperatorMissingValue,
@@ -35,14 +36,16 @@ import {
   OperatorTypeBadge,
 } from "@/shared/design-system"
 import {
-  OperationalTablePagination,
   operationalRowActionsClassName,
+} from "@/shared/table/operationalTable"
+import { OperationalTablePagination } from "@/shared/table/paginationControls"
+import {
   paginateOperationalRows,
   sortOperationalRows,
   type OperationalSortDirection,
   type OperationalSortState,
   type OperationalSortValue,
-} from "@/shared/table/operationalTable"
+} from "@/shared/table/operationalTableState"
 import { formatLatencyForDisplay } from "@/pages/model-detail/modelDetailMetricsAndPaths"
 import type { ModelDerivedMetric } from "@/pages/models/modelTableContracts"
 import { isSingleTruncated } from "./modelRoutingFlags"
