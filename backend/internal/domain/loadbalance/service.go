@@ -11,6 +11,7 @@ import (
 
 type HTTPError struct {
 	StatusCode int
+	Code       string
 	Detail     string
 }
 

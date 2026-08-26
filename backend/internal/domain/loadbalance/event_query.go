@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -181,14 +182,16 @@ func GetEvent(ctx context.Context, exec queryExecutor, profileID int, eventID in
 }
 
 // loadRequestLogsRetentionFloor consumes the request-log retention source.
-// A zero value means the source has no configured logical floor.
+// A zero value means the source has no configured logical floor. A purge that
+// is running or awaiting recovery surfaces as the shared typed 503 so the
+// events list/detail degrade explicitly instead of falling back to a 500.
 func loadRequestLogsRetentionFloor(ctx context.Context, exec queryExecutor, now time.Time) (time.Time, error) {
 	source, err := statsdomain.LoadRetentionSourceProjection(ctx, exec, "request_logs", now.UTC())
 	if err != nil {
 		return time.Time{}, fmt.Errorf("load request logs retention source: %w", err)
 	}
 	if source.PurgeState == "running" || source.PurgeState == "recovery_required" {
-		return time.Time{}, fmt.Errorf("request log purge in progress")
+		return time.Time{}, &HTTPError{StatusCode: http.StatusServiceUnavailable, Code: "request_log_purge_in_progress", Detail: "request logs are temporarily unavailable while retention cleanup is publishing"}
 	}
 	floor := source.ConfiguredCutoff
 	if source.PublishedFloor != nil && (floor == nil || source.PublishedFloor.After(*floor)) {
@@ -282,14 +285,16 @@ func NullableIntPtrEqual(left *int, right *int) bool {
 }
 
 // LoadEventsRetentionFloor consumes the loadbalance-events retention source.
-// A zero value means the source has no configured logical floor.
+// A zero value means the source has no configured logical floor. A purge that
+// is running or awaiting recovery surfaces as the shared typed 503 so the
+// preset=all context issuance matches the guarded list/detail behavior.
 func LoadEventsRetentionFloor(ctx context.Context, exec queryExecutor, now time.Time) (time.Time, error) {
 	source, err := statsdomain.LoadRetentionSourceProjection(ctx, exec, "loadbalance_events", now.UTC())
 	if err != nil {
 		return time.Time{}, fmt.Errorf("load loadbalance events retention source: %w", err)
 	}
 	if source.PurgeState == "running" || source.PurgeState == "recovery_required" {
-		return time.Time{}, fmt.Errorf("loadbalance event purge in progress")
+		return time.Time{}, &HTTPError{StatusCode: http.StatusServiceUnavailable, Code: "event_purge_in_progress", Detail: "events are temporarily unavailable while retention cleanup is publishing"}
 	}
 	floor := source.ConfiguredCutoff
 	if source.PublishedFloor != nil && (floor == nil || source.PublishedFloor.After(*floor)) {

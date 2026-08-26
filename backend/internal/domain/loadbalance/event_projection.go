@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -160,12 +161,15 @@ func loadEventLabels(ctx context.Context, exec queryExecutor, profileID int, ite
 		}
 		for rows.Next() {
 			var id int
-			var label string
-			if err := rows.Scan(&id, &label); err != nil {
+			// connections.name is legally NULL or blank; scan it as nullable so an
+			// unnamed terminal target still loads and row presence below, not a
+			// label map hit, decides the configured projection.
+			var name sql.NullString
+			if err := rows.Scan(&id, &name); err != nil {
 				rows.Close()
 				return eventLabels{}, fmt.Errorf("scan event terminal target label: %w", err)
 			}
-			labels.connections[id] = label
+			labels.connections[id] = name.String
 			labels.existingConnections[id] = true
 		}
 		rows.Close()
@@ -286,18 +290,24 @@ func buildEventEndpointProjection(item eventRow, labels eventLabels) EventEndpoi
 
 func buildEventTerminalTargetProjection(item eventRow, labels eventLabels) EventTerminalTargetProjection {
 	projection := EventTerminalTargetProjection{ID: &item.ConnectionID, Attribution: AttributionIdentified}
-	if label, ok := labels.connections[item.ConnectionID]; ok {
-		projection.Label = label
-		configured := true
+	if !labels.existingConnections[item.ConnectionID] {
+		projection.Label = fmt.Sprintf("#%d", item.ConnectionID)
+		configured := false
 		projection.Configured = &configured
-		if ownerID, ownerOK := labels.owners[item.ConnectionID]; ownerOK {
-			projection.OwnerModelConfigID = &ownerID
-		}
 		return projection
 	}
-	projection.Label = fmt.Sprintf("#%d", item.ConnectionID)
-	configured := false
+	// A configured target keeps configured=true even when its current name is
+	// NULL/blank; the label falls back to the persisted numeric identity.
+	label := strings.TrimSpace(labels.connections[item.ConnectionID])
+	if label == "" {
+		label = fmt.Sprintf("#%d", item.ConnectionID)
+	}
+	projection.Label = label
+	configured := true
 	projection.Configured = &configured
+	if ownerID, ownerOK := labels.owners[item.ConnectionID]; ownerOK {
+		projection.OwnerModelConfigID = &ownerID
+	}
 	return projection
 }
 
