@@ -3523,6 +3523,30 @@ export const zhCNMessages = {
     seriesTruncatedLabel: "仅显示前若干项",
     seriesTruncatedReason: (limit: number) =>
       `本次只返回请求量最高的 ${limit} 项，其余已合并进「其他」，因此图中各项之和不等于窗口总量。`,
+    // 输出速率与缓存读取：七指标口径与诚实空值语义。
+    outputRateEmptyTitle: "窗口内没有输出速率样本",
+    outputRateEmptyDescription:
+      "所选窗口内没有任何同时具备输出令牌、首字时延与正向流式时长的请求，因此没有可绘制的输出速率。",
+    cacheShareEmptyTitle: "窗口内没有可比的缓存读取数据",
+    cacheShareEmptyDescription:
+      "所选窗口内没有任何具备可比缓存分量的请求，因此没有可绘制的缓存读取占比。",
+    cacheShareNoDenominatorTitle: "窗口内缓存占比分母为零",
+    outputRateSamplesHint: (samples: MessageArg, requests: MessageArg) =>
+      `样本 ${samples} / 请求 ${requests}`,
+    partialCoverage: "部分覆盖",
+    outputRatePartialReason:
+      "仅部分请求计入输出速率样本（需要输出令牌、首字时延与正向流式时长）。",
+    cacheBasisCoverageHint: (comparable: MessageArg, requests: MessageArg) =>
+      `可比 ${comparable} / 请求 ${requests}`,
+    noSampleShort: "无样本",
+    noSampleReason: "该时间桶没有可测的输出速率样本。",
+    noComparableShort: "无可比",
+    bucketNoComparableReason: "该时间桶没有可比的缓存分量。",
+    noDenominatorShort: "零分母",
+    bucketNoDenominatorReason:
+      "该时间桶的输入与缓存分量合计为零，无法计算占比。",
+    samplesColumn: "样本",
+    comparableColumn: "可比",
     ttDrillDownNoEndpoints: "没有可用的端点。",
     ttDrillDownEndpointsFailed: "端点列表加载失败，无法确认是否有可用端点。",
     ttDrillDownLoading: "正在加载终端目标明细…",
@@ -3650,7 +3674,9 @@ export const zhCNMessages = {
         requests: "请求数",
         errors: "错误",
         ttft: "TTFT",
+        output_rate: "输出速率",
         tokens: "令牌",
+        cache_read_share: "缓存读取",
         cost: "花费",
       })[metric] ?? metric,
     groupLabel: "分组",
@@ -3662,9 +3688,15 @@ export const zhCNMessages = {
         terminal_target: "按终端目标",
       })[group] ?? group,
     metricUnit: (metric: string) =>
-      ({ requests: "次", errors: "次", ttft: "ms", tokens: "token", cost: "" })[
-        metric
-      ] ?? "",
+      ({
+        requests: "次",
+        errors: "次",
+        ttft: "ms",
+        output_rate: "tok/s",
+        tokens: "token",
+        cache_read_share: "%",
+        cost: "",
+      })[metric] ?? "",
     axisTimezone: (offset: MessageArg) => `时间（${offset}）`,
     seriesToggleHint: "点击图例可隐藏或显示该系列",
     adjustFiltersHint: "请尝试调整时间窗、指标或分组维度。",

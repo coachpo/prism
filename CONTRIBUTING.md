@@ -45,40 +45,33 @@ pnpm run build
 - Releases go through `./release.sh` (e.g. `./release.sh patch --dry-run`), which keeps `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` aligned, verifies backend version metadata plus the frontend build, then commits, tags, and pushes the single-image release. CI gates releases on `govulncheck` and `pnpm audit`.
 - Follow the project- and technology-specific rules in [docs/development-rules.md](docs/development-rules.md), the architecture facts in [docs/architecture.md](docs/architecture.md), and the unified size and responsibility policy in [docs/source-code-size-and-responsibility-rules.md](docs/source-code-size-and-responsibility-rules.md), together with the shared principles below.
 
-<!-- write-project-docs:derived-iteration-strategy:start -->
-<!-- write-project-docs:derived-iteration-strategy:metadata {"contentSha256":"sha256:845e7c6841fab953e68421019d1bc384b98d262c510c90790d8bd623d32299e6","schemaVersion":1,"sources":[{"normalization":"without-visible-exact-mvp-control-line-terminal-lf-v2","path":"STATUS.md","sha256":"sha256:1414cebbb6b5085b9a94529d2fbe2bdbc0b428822659198dcfe05b07703e3771"},{"path":"docs/product.md","sha256":"sha256:ace6b43bf1607a369537efd7562b90c74d95301a5b074c4c1a10b97a81cdde54"},{"path":"docs/architecture.md","sha256":"sha256:6e0550a4df344b783383b7290d34a23b64916fd45b7420049d050a0ea33da32c"},{"path":"docs/development-rules.md","sha256":"sha256:c654dedd88097c8434d6e4cf8a7cf09463b0ea063ac9b8d36135698adf8e4d49"}]} -->
-## Current Iteration Strategy
+<!-- write-project-docs:shared-contributing:start -->
+## Current Development Strategy
 
-Convenience-first active development on the operator's personal home-LAN instance: prioritize the confirmed typed-pricing and observability gap remediation, keep the local loop fast, and prefer the smallest verified end-to-end changes.
+**Development tier: `MVP`**
 
-Derived from (the source documents remain authoritative): [`STATUS.md`](STATUS.md), [`docs/product.md`](docs/product.md), [`docs/architecture.md`](docs/architecture.md), [`docs/development-rules.md`](docs/development-rules.md).
+Complete the smallest observable end-to-end loop around the confirmed core value, scope, non-goals, acceptance conditions, and exit conditions in [`docs/product.md`](docs/product.md). This tier permanently forgoes active investment in security, privacy, data, credential and key management, compatibility, audit/monitoring/SLO, and regulatory compliance requirements.
 
-> This block scopes only the current iteration. It does not change the MVP fast-validation switch, expand user authorization, authorize external writes or destructive operations, delete or reset existing data, fabricate validation results, or override higher-priority user requirements or explicit prohibitions.
+### Must Complete at This Tier
 
-### Must Complete Now
+- Complete the core user flow, visible result, and error paths directly required by core acceptance.
+- Run affected-path tests, checks, and builds sufficient to make the core conclusion observable and repeatable.
 
-- Complete the confirmed typed pricing-template, cost-segment, failure-state, accounting, runtime, aggregation, request-log, and pricing UI acceptance paths, including the fresh-only 000023 documentation.
-- Run the affected backend unit/contract/runtime checks and frontend lint/build/test checks that are available in the environment, recording unavailable Docker/PostgreSQL or package-manager checks precisely.
+### Not Pursued by Default
 
-### Not Pursued This Iteration
-
-- Repository-wide AGENTS.md registration completeness CI and other full-repository governance gates; basis: MVP fast-validation mode and no current core acceptance dependency; re-evaluate if the registration gap recurs in the next iteration or the check becomes release-required.
-- Parsing upstream usage hit/miss fields; basis: no repository hits or corresponding upstream integration; re-evaluate when an upstream reports that shape.
+- Permanently forgo active investment in security, privacy, data, credential and key management, permission-system expansion, compatibility layers and full compatibility regression, audit/monitoring/SLO, and regulatory compliance requirements; do not pursue non-core features, repository-wide default gates, high availability, or production hardening.
+- Do not add general capabilities, abstractions, dependencies, or non-primary business branches for unverified needs.
 
 ### Non-negotiable Boundaries
 
-- Preserve the operation-registered runtime allowlist, file-backed bootstrap v1 contract, partitioned log-retention ownership, and their required regression coverage.
-- Do not perform destructive resets or data loss without explicit authorization and a verified backup; keep 000023 fresh-only semantics and append-only pricing child constraints.
-- Do not widen permissions, make unauthorized external writes, or fabricate validation results; keep affected backend and frontend checks as gates.
+- Explicit user requirements, an accepted GOAL, hard project rules or invariants, repository-required checks, and explicit prohibitions in [`STATUS.md`](STATUS.md) remain effective and are not affected by the exemption; existing compatibility commitments are existing contracts and are not deleted by this tier.
+- Do not widen permissions, perform unauthorized external writes or destructive operations, delete or reset existing data, or fabricate validation results.
 
-### Re-derivation Triggers
+### Tier Transition Conditions
 
-- The instance is exposed beyond the home LAN, gains external users or traffic, or retains a changed data-policy boundary.
-- The recorded release/lifecycle version or current project design changes.
-- The observable pricing/observability acceptance, compatibility requirement, or a deferred-item trigger changes.
-<!-- write-project-docs:derived-iteration-strategy:end -->
+- Move to `PILOT` when limited real users, real or non-discardable data, external traffic, or pilot operating responsibility appears.
+- Move to `PRODUCTION` when general availability, explicit SLOs, or sustained production support is required.
 
-<!-- write-project-docs:shared-contributing:start -->
 ## General Design Principles
 
 While satisfying the confirmed functional scope, architectural boundaries, quality attributes, security, compatibility, and runtime constraints, choose a design in this order:
@@ -106,31 +99,6 @@ While satisfying functional scope, architectural boundaries, correctness, securi
 Search for an existing implementation before adding new code. Do not pull in a large dependency for a small feature; do not create abstraction, extension, or compatibility layers for hypothetical future requirements; keep custom implementations local, simple, and testable.
 
 Implementations must comply with the project architecture facts in [`docs/architecture.md`](docs/architecture.md), the project- and technology-specific rules in [`docs/development-rules.md`](docs/development-rules.md), and the unified size and responsibility rules in [`docs/source-code-size-and-responsibility-rules.md`](docs/source-code-size-and-responsibility-rules.md).
-
-### MVP Fast Validation
-
-This phase targets validating the confirmed core assumptions, scope, non-goals, and observable acceptance and exit conditions in [`docs/product.md`](docs/product.md), prioritizing the smallest observable end-to-end loop that produces usable evidence. "Shortest" means the shortest path to trustworthy feedback, not the fewest lines of code, steps, or tests.
-
-This subsection is the enabled-MVP scope overlay for the "General Design Principles" and "General Implementation Principles": include only work that directly serves the core validation above, without expanding scope for completeness.
-
-**Explicitly out of scope:** security or privacy governance, permission-system expansion, data-integrity enhancements, compatibility-layer construction and full compatibility regression, dedicated reachable-risk governance, repository-wide full checks, and production hardening that are unrelated to the core assumptions, observable acceptance conditions, and exit conditions, together with additional features and non-primary business branches that do not affect the current conclusion. Existing compatibility commitments and repository-required checks are not themselves in this category and do not authorize exclusion; only their non-core specialized implementation, full validation, or default gates may be excluded. Existing compatibility commitments still constrain solution choice, and checks required for affected paths or core acceptance still run.
-
-**May be deferred:** work that does not currently affect the conclusion but must return when observable triggers arise, such as real users, real or non-discardable data, external traffic, compatibility acceptance, the corresponding risk, or another observable condition. Every item must state the work, the current basis for deferral, and at least one observable re-evaluation trigger. An item without such a trigger that is unrelated to core validation is explicitly out of scope; an item that affects the current conclusion belongs in the current loop.
-
-**Still constraints:**
-
-- Do not widen permissions.
-- Do not perform unauthorized external writes.
-- Do not perform unauthorized destructive operations.
-- Do not delete or reset existing data.
-- Do not fabricate validation results.
-- Do not intentionally violate explicit prohibitions in [`STATUS.md`](STATUS.md).
-
-These constraints limit available actions without automatically adding specialized implementation or full checks.
-
-Within that narrowed scope, design and implementation still follow their respective ordering above. When several options can complete the core validation, prefer the one with the smallest change surface, the fewest new dependencies, and the easiest observation and rollback. Local, low-risk, reversible implementation details that do not change authorization boundaries may be decided directly within existing authority and the established development workflow.
-
-Implement only what the current validation requires; do not add generalized capabilities, abstractions, or dependencies for unvalidated requirements. Run the narrow validation needed to make the conclusion observable and reproducible. Non-core repository-wide full checks, default gates, and production hardening are not completion prerequisites, but checks explicitly required for affected paths or core acceptance still run. Do not present an unaccepted validation implementation as formal architecture or production capability.
 
 ## Definition of Done
 

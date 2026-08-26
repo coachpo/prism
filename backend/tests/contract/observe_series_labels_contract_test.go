@@ -23,9 +23,11 @@ func TestObserveUsageSeriesResolvesGroupedEntityLabels(t *testing.T) {
 	now := fixedS15Now.Add(-2 * time.Minute)
 	for index := 0; index < 3; index++ {
 		if _, err := harness.conn.Exec(context.Background(), `
-		INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, api_family, operation_name, status_code, success_flag,
-			attempt_count, request_path, endpoint_id, connection_id, endpoint_label_snapshot, pricing_status, pricing_evidence_trust, created_at)
-		VALUES ($1, $2, 'label-model', 'openai', 'openai.chat_completions', 200, true, 1, '/v1/chat/completions', $3, $4, 'Retained Endpoint Label', 'ineligible', 'trusted', $5)`,
+			INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, api_family, operation_name, status_code, success_flag,
+				attempt_count, request_path, endpoint_id, connection_id, endpoint_label_snapshot, pricing_status, pricing_evidence_trust,
+				input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, ttft_ms, completion_duration_ms, created_at)
+			VALUES ($1, $2, 'label-model', 'openai', 'openai.chat_completions', 200, true, 1, '/v1/chat/completions', $3, $4, 'Retained Endpoint Label', 'ineligible', 'trusted',
+				400, 100, 600, 100, 0, 100, 1100, $5)`,
 			profileID, fmt.Sprintf("label-ingress-%d", index), endpointID, connectionID, now.Add(time.Duration(index)*time.Second),
 		); err != nil {
 			t.Fatalf("seed labelled usage row: %v", err)
@@ -46,6 +48,7 @@ func TestObserveUsageSeriesResolvesGroupedEntityLabels(t *testing.T) {
 	if target["entity_id"] != fmt.Sprintf("%d", connectionID) {
 		t.Fatalf("expected terminal-target entity_id, got %+v", target)
 	}
+	assertGroupedSeriesMetricFields(t, target, 3, 100, 1200, 300)
 
 	endpoint := firstSeriesItem(t, harness, profileID, token, "endpoint")
 	if endpoint["key"] != fmt.Sprintf("endpoint:%d", endpointID) {
@@ -59,12 +62,45 @@ func TestObserveUsageSeriesResolvesGroupedEntityLabels(t *testing.T) {
 	if endpoint["entity_id"] != fmt.Sprintf("%d", endpointID) {
 		t.Fatalf("expected endpoint entity_id, got %+v", endpoint)
 	}
+	assertGroupedSeriesMetricFields(t, endpoint, 3, 100, 1200, 300)
+
+	model := firstSeriesItem(t, harness, profileID, token, "model")
+	if model["key"] != "model:label-model" || model["entity_id"] != "label-model" {
+		t.Fatalf("expected model series identity, got %+v", model)
+	}
+	assertGroupedSeriesMetricFields(t, model, 3, 100, 1200, 300)
 
 	// Ungrouped stays one series named for what it is, not the SQL remainder
 	// bucket it shares a code path with.
 	total := firstSeriesItem(t, harness, profileID, token, "none")
 	if total["key"] != "total" || total["label"] != "Total" || total["entity_id"] != nil {
 		t.Fatalf("expected unlabelled total series, got %+v", total)
+	}
+	assertGroupedSeriesMetricFields(t, total, 3, 100, 1200, 300)
+}
+
+func assertGroupedSeriesMetricFields(t *testing.T, item map[string]any, wantCount int, wantRate float64, wantInput int, wantRead int) {
+	t.Helper()
+	points := item["points"].([]any)
+	if len(points) != 1 {
+		t.Fatalf("expected one grouped metric bucket, got %+v", item)
+	}
+	point := asMap(t, points[0])
+	if got := jsonInt(t, point["output_rate_sample_count"]); got != wantCount {
+		t.Fatalf("expected %d output-rate samples, got %+v", wantCount, point)
+	}
+	assertJSONFloatNear(t, point["avg_output_rate_tps"], wantRate)
+	if got := jsonInt(t, point["cache_basis_request_count"]); got != wantCount {
+		t.Fatalf("expected %d cache-basis requests, got %+v", wantCount, point)
+	}
+	if got := jsonInt(t, point["cache_basis_input_tokens"]); got != wantInput {
+		t.Fatalf("expected basis input %d, got %+v", wantInput, point)
+	}
+	if got := jsonInt(t, point["cache_basis_cache_read_tokens"]); got != wantRead {
+		t.Fatalf("expected basis cache read %d, got %+v", wantRead, point)
+	}
+	if got := jsonInt(t, point["cache_basis_cache_creation_tokens"]); got != 0 {
+		t.Fatalf("expected measured zero cache creation, got %+v", point)
 	}
 }
 

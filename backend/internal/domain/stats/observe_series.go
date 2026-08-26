@@ -14,18 +14,31 @@ import (
 // ---- usage-series ----
 
 type SeriesPoint struct {
-	BucketStart             string                `json:"bucket_start"`
-	RequestCount            int                   `json:"request_count"`
-	HTTPSuccessCount        int                   `json:"http_success_count"`
-	HTTPFailedCount         int                   `json:"http_failed_count"`
-	FailedCount             int                   `json:"failed_count"`
-	ClientDisconnectedCount int                   `json:"client_disconnected_count"`
-	TTFTSampleCount         int                   `json:"ttft_sample_count"`
-	P50TTFTMS               *int                  `json:"p50_ttft_ms"`
-	P95TTFTMS               *int                  `json:"p95_ttft_ms"`
-	TotalTokens             *int64                `json:"total_tokens"`
-	KnownCostMicros         *string               `json:"known_cost_micros"`
-	PricingReconciliation   PricingReconciliation `json:"pricing_reconciliation"`
+	BucketStart             string  `json:"bucket_start"`
+	RequestCount            int     `json:"request_count"`
+	HTTPSuccessCount        int     `json:"http_success_count"`
+	HTTPFailedCount         int     `json:"http_failed_count"`
+	FailedCount             int     `json:"failed_count"`
+	ClientDisconnectedCount int     `json:"client_disconnected_count"`
+	TTFTSampleCount         int     `json:"ttft_sample_count"`
+	P50TTFTMS               *int    `json:"p50_ttft_ms"`
+	P95TTFTMS               *int    `json:"p95_ttft_ms"`
+	TotalTokens             *int64  `json:"total_tokens"`
+	KnownCostMicros         *string `json:"known_cost_micros"`
+	// Output rate keeps the usage-summary caliber: a per-request tok/s value
+	// only where output tokens, TTFT, and a positive stream duration exist,
+	// averaged per request inside the bucket. A zero sample count leaves the
+	// average null instead of publishing a fabricated zero.
+	OutputRateSampleCount int      `json:"output_rate_sample_count"`
+	AvgOutputRateTPS      *float64 `json:"avg_output_rate_tps"`
+	// Cache basis carries the shared eligibility predicate's raw components so
+	// the frontend can distinguish a real share, a genuine zero, no comparable
+	// rows, and a zero denominator; they never collapse into one ratio here.
+	CacheBasisRequestCount        int                   `json:"cache_basis_request_count"`
+	CacheBasisInputTokens         *int64                `json:"cache_basis_input_tokens"`
+	CacheBasisCacheReadTokens     *int64                `json:"cache_basis_cache_read_tokens"`
+	CacheBasisCacheCreationTokens *int64                `json:"cache_basis_cache_creation_tokens"`
+	PricingReconciliation         PricingReconciliation `json:"pricing_reconciliation"`
 }
 
 type SeriesItem struct {
@@ -100,6 +113,20 @@ func ResolveSeriesInterval(interval string, from time.Time, to time.Time) (strin
 	}
 }
 
+// seriesTopIDsQuery composes the Top-entity statement. The only interpolated
+// fragments are the allowlisted group column from `groupColumnFor` and an
+// already-validated integer bound; every runtime value binds through $n
+// parameters, so the composed text never carries request data.
+func seriesTopIDsQuery(groupColumn string, limit int) string {
+	return fmt.Sprintf(`
+SELECT %[1]s::text AS entity_id, COUNT(*) AS request_count
+FROM usage_request_events
+WHERE `+usageWindowPredicate+` AND %[1]s IS NOT NULL
+GROUP BY %[1]s
+ORDER BY request_count DESC, entity_id ASC
+LIMIT %d`, groupColumn, limit)
+}
+
 // LoadUsageSeries executes the two-statement main chart aggregate: statement 1
 // selects Top entity IDs; statement 2 builds buckets for those entities plus
 // the re-aggregated Other remainder.
@@ -127,13 +154,7 @@ func LoadUsageSeries(ctx context.Context, exec queryExecutor, profileID int, bou
 		// before routing settled records the outcome without an exit. Those rows
 		// are real traffic but not an entity, so they must not compete for a Top
 		// slot; the bucket aggregate below folds them into Other.
-		rows, err := exec.Query(ctx, fmt.Sprintf(`
-SELECT %[1]s::text AS entity_id, COUNT(*) AS request_count
-FROM usage_request_events
-WHERE `+usageWindowPredicate+` AND %[1]s IS NOT NULL
-GROUP BY %[1]s
-ORDER BY request_count DESC, entity_id ASC
-LIMIT %d`, groupColumn, seriesLimit-1), profileID, bounds.UsageFrom, bounds.UsageTo)
+		rows, err := exec.Query(ctx, seriesTopIDsQuery(groupColumn, seriesLimit-1), profileID, bounds.UsageFrom, bounds.UsageTo)
 		if err != nil {
 			return result, fmt.Errorf("load series top ids: %w", err)
 		}
@@ -155,7 +176,7 @@ LIMIT %d`, groupColumn, seriesLimit-1), profileID, bounds.UsageFrom, bounds.Usag
 	if err != nil {
 		return result, err
 	}
-	series, err := loadSeriesBuckets(ctx, exec, profileID, bounds, metric, groupBy, topIDs, labels, bucketSize, reportCurrencyCode, reportCurrencySymbol)
+	series, err := loadSeriesBuckets(ctx, exec, profileID, bounds, groupBy, topIDs, labels, bucketSize)
 	if err != nil {
 		return result, err
 	}
@@ -246,24 +267,13 @@ func seriesLabel(labels map[string]string, entityID string) string {
 	return entityID
 }
 
-func loadSeriesBuckets(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, metric string, groupBy string, topIDs []string, labels map[string]string, bucketSize time.Duration, reportCurrencyCode string, reportCurrencySymbol string) ([]SeriesItem, error) {
-	groupColumn := groupColumnFor(groupBy)
-	// Build per-entity bucket rows plus Other in one statement using
-	// grouping sets; the caller re-aggregates Other from raw rows.
-	where := usageWindowPredicate
-	args := []any{profileID, bounds.UsageFrom, bounds.UsageTo}
-	entityExpr := "NULL"
-	entityIDExpr := "NULL::text"
-	if groupColumn != "" {
-		if len(topIDs) == 0 {
-			entityExpr = "'other'::text"
-		} else {
-			entityExpr = fmt.Sprintf(`CASE WHEN %[1]s::text = ANY($4::text[]) THEN %[1]s::text ELSE 'other'::text END`, groupColumn)
-			entityIDExpr = fmt.Sprintf(`CASE WHEN %[1]s::text = ANY($4::text[]) THEN %[1]s::text ELSE NULL::text END`, groupColumn)
-			args = append(args, intSliceStrings(topIDs))
-		}
-	}
-	rows, err := exec.Query(ctx, fmt.Sprintf(`
+// seriesBucketsQuery composes the per-entity bucket statement. Every
+// interpolated fragment is allowlisted: the bucket literal comes from the
+// closed `bucketDurationLiteral` enum, the entity expressions embed only the
+// `groupColumnFor` column name, and the predicates are package constants;
+// runtime values bind through $n parameters and never enter the text.
+func seriesBucketsQuery(bucketLiteral string, entityExpr string, entityIDExpr string, where string) string {
+	return fmt.Sprintf(`
 WITH classified AS (
 	SELECT
 		date_bin(interval '%s', created_at, $2) AS bucket_start,
@@ -274,7 +284,12 @@ WITH classified AS (
 		unpriced_reason,
 		ttft_ms,
 		total_tokens,
-		CASE WHEN pricing_status = 'priced' AND pricing_evidence_trust = 'trusted' THEN total_cost_user_currency_micros END AS trusted_cost
+		CASE WHEN pricing_status = 'priced' AND pricing_evidence_trust = 'trusted' THEN total_cost_user_currency_micros END AS trusted_cost,
+			`+outputRateTPSSQL+` AS output_rate_tps,
+		`+cacheBasisEligibleSQL+` AS cache_basis_eligible,
+		input_tokens,
+		cache_read_input_tokens,
+		COALESCE(cache_creation_input_tokens, 0) AS cache_creation_tokens
 	FROM usage_request_events
 	WHERE %s
 )
@@ -291,6 +306,12 @@ SELECT
 	percentile_cont(0.95) WITHIN GROUP (ORDER BY ttft_ms) FILTER (WHERE outcome_detail = 'completed' AND ttft_ms >= 0) AS p95,
 	SUM(total_tokens) AS total_tokens,
 	SUM(trusted_cost) AS trusted_cost,
+	COUNT(output_rate_tps)::int AS output_rate_samples,
+	AVG(output_rate_tps) AS avg_output_rate,
+	COUNT(*) FILTER (WHERE cache_basis_eligible)::int AS cache_basis_requests,
+	SUM(input_tokens) FILTER (WHERE cache_basis_eligible) AS cache_basis_input,
+	SUM(cache_read_input_tokens) FILTER (WHERE cache_basis_eligible) AS cache_basis_read,
+	SUM(cache_creation_tokens) FILTER (WHERE cache_basis_eligible) AS cache_basis_creation,
 	COUNT(*) FILTER (WHERE pricing_status = 'priced')::int AS priced_count,
 	COUNT(*) FILTER (WHERE pricing_status = 'unpriced')::int AS unpriced_count,
 	COUNT(*) FILTER (WHERE pricing_status = 'ineligible')::int AS ineligible_count,
@@ -302,7 +323,27 @@ SELECT
 FROM classified
 GROUP BY entity_label, entity_id, bucket_start
 ORDER BY entity_label ASC, bucket_start ASC
-LIMIT 2000`, bucketDurationLiteral(bucketSize), entityExpr, entityIDExpr, where), args...)
+LIMIT 2000`, bucketLiteral, entityExpr, entityIDExpr, where)
+}
+
+func loadSeriesBuckets(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, groupBy string, topIDs []string, labels map[string]string, bucketSize time.Duration) ([]SeriesItem, error) {
+	groupColumn := groupColumnFor(groupBy)
+	// Build per-entity bucket rows plus Other in one statement using
+	// grouping sets; the caller re-aggregates Other from raw rows.
+	where := usageWindowPredicate
+	args := []any{profileID, bounds.UsageFrom, bounds.UsageTo}
+	entityExpr := "NULL"
+	entityIDExpr := "NULL::text"
+	if groupColumn != "" {
+		if len(topIDs) == 0 {
+			entityExpr = "'other'::text"
+		} else {
+			entityExpr = fmt.Sprintf(`CASE WHEN %[1]s::text = ANY($4::text[]) THEN %[1]s::text ELSE 'other'::text END`, groupColumn)
+			entityIDExpr = fmt.Sprintf(`CASE WHEN %[1]s::text = ANY($4::text[]) THEN %[1]s::text ELSE NULL::text END`, groupColumn)
+			args = append(args, intSliceStrings(topIDs))
+		}
+	}
+	rows, err := exec.Query(ctx, seriesBucketsQuery(bucketDurationLiteral(bucketSize), entityExpr, entityIDExpr, where), args...)
 	if err != nil {
 		return nil, fmt.Errorf("load series buckets: %w", err)
 	}
@@ -316,12 +357,21 @@ LIMIT 2000`, bucketDurationLiteral(bucketSize), entityExpr, entityIDExpr, where)
 	for rows.Next() {
 		var row bucketRow
 		var p50, p95 *float64
+		var avgOutputRate *float64
 		var tokens, cost *int64
+		var cacheBasisInput, cacheBasisRead, cacheBasisCreation *int64
 		var bucketStart time.Time
 		var priced, unpriced, ineligible, unknown, reasonDisabled, reasonUsage, reasonStream, reasonData, httpFailed, streamFailed, clientDisconnected, ttftSamples int
-		if err := rows.Scan(&row.entityLabel, &row.entityID, &bucketStart, &row.point.RequestCount, &httpFailed, &streamFailed, &clientDisconnected, &ttftSamples, &p50, &p95, &tokens, &cost, &priced, &unpriced, &ineligible, &unknown, &reasonDisabled, &reasonUsage, &reasonStream, &reasonData); err != nil {
+		var outputRateSamples, cacheBasisRequests int
+		if err := rows.Scan(&row.entityLabel, &row.entityID, &bucketStart, &row.point.RequestCount, &httpFailed, &streamFailed, &clientDisconnected, &ttftSamples, &p50, &p95, &tokens, &cost, &outputRateSamples, &avgOutputRate, &cacheBasisRequests, &cacheBasisInput, &cacheBasisRead, &cacheBasisCreation, &priced, &unpriced, &ineligible, &unknown, &reasonDisabled, &reasonUsage, &reasonStream, &reasonData); err != nil {
 			return nil, err
 		}
+		row.point.OutputRateSampleCount = outputRateSamples
+		row.point.AvgOutputRateTPS = avgOutputRate
+		row.point.CacheBasisRequestCount = cacheBasisRequests
+		row.point.CacheBasisInputTokens = cacheBasisInput
+		row.point.CacheBasisCacheReadTokens = cacheBasisRead
+		row.point.CacheBasisCacheCreationTokens = cacheBasisCreation
 		row.point.BucketStart = bucketStart.UTC().Format(time.RFC3339)
 		row.point.HTTPFailedCount = httpFailed
 		row.point.FailedCount = httpFailed + streamFailed
@@ -420,17 +470,6 @@ func bucketDurationLiteral(duration time.Duration) string {
 	default:
 		return "1 hour"
 	}
-}
-
-func parseSeriesBucket(value string) string {
-	parsed, err := time.Parse("2006-01-02T15:04:05.999999999Z07:00", value)
-	if err != nil {
-		parsed, err = time.Parse(time.RFC3339, value)
-		if err != nil {
-			return value
-		}
-	}
-	return parsed.UTC().Format(time.RFC3339)
 }
 
 func boolPointer(value bool) *bool {

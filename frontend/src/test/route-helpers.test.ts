@@ -40,6 +40,9 @@ describe("rewrite route helpers", () => {
     })
     expect(observeSearchSchema.parse({ tab: "events", event_sort_order: "asc" }).event_sort_order).toBe("asc")
     expect(observeSearchSchema.parse({ tab: "events", preset: "7d" }).preset).toBe("7d")
+    expect(observeSearchSchema.parse({ metric: "output_rate" }).metric).toBe("output_rate")
+    expect(observeSearchSchema.parse({ metric: "cache_read_share" }).metric).toBe("cache_read_share")
+    expect(observeSearchSchema.parse({ metric: "unknown" }).metric).toBe("requests")
     expect(requestLogSearchSchema.parse({
       client_rule_id: "123",
       limit: "300",

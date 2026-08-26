@@ -133,6 +133,12 @@ export type UsageSeriesResponse = {
       p95_ttft_ms: number | null;
       total_tokens: number | null;
       known_cost_micros: string | null;
+      output_rate_sample_count: number;
+      avg_output_rate_tps: number | null;
+      cache_basis_request_count: number;
+      cache_basis_input_tokens: number | null;
+      cache_basis_cache_read_tokens: number | null;
+      cache_basis_cache_creation_tokens: number | null;
       pricing_reconciliation: UsageSummaryResponse["pricing_reconciliation"];
     }[];
   }[];
