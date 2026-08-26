@@ -6,17 +6,25 @@
 ## STRUCTURE
 ```text
 configrules/
-├── service.go    # Service construction and `/config` route mounting
-├── routes.go     # Header-blocklist and user-agent/client rule handlers
-├── store.go      # Rule persistence and duplicate checks
-└── types.go      # Rule request and response shapes
+├── service.go                         # Service construction and `/config` route mounting
+├── routes.go                          # Shared route decode, error, query, and path boundary
+├── header_blocklist_routes.go         # Header Blocklist HTTP CRUD
+├── header_blocklist_validation.go     # Header Blocklist normalization and validation
+├── header_blocklist_store.go          # Header Blocklist persistence and duplicate checks
+├── user_agent_client_routes.go        # User-Agent Client Rule HTTP CRUD
+├── user_agent_client_validation.go    # User-Agent Client Rule normalization and validation
+├── user_agent_client_store.go         # User-Agent Client Rule persistence
+├── config_rule_query_contract.go      # PostgreSQL executor contract
+├── config_rule_db_values.go           # Rule nullable projections and defaults
+├── types.go                           # Rule request and response shapes
+└── *_test.go                          # Route-level regression coverage
 ```
 
 ## WHERE TO LOOK
 - Route list and mount contract: `service.go`.
-- Header-blocklist list/get/create/update/delete: `routes.go`.
-- User-agent/client rule list/get/create/update/delete: `routes.go`.
-- System-rule mutability and duplicate checks: `routes.go`, `store.go`.
+- Header-blocklist list/get/create/update/delete: `header_blocklist_routes.go`; field normalization: `header_blocklist_validation.go`; persistence and duplicate checks: `header_blocklist_store.go`.
+- User-agent/client rule list/get/create/update/delete: `user_agent_client_routes.go`; field normalization: `user_agent_client_validation.go`; persistence: `user_agent_client_store.go`.
+- Shared route decode/error/query boundary: `routes.go`; PostgreSQL executor and scalar values: `config_rule_query_contract.go`, `config_rule_db_values.go`.
 
 ## CONVENTIONS
 - Any UI/UX-facing guidance or frontend visual, styling, layout, component, page, dialog, drawer, table, form, status/feedback, or navigation change must defer to `frontend/DESIGN.md`; keep backend docs focused on the Go runtime contract instead of repeating design-system rules.

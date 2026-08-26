@@ -8,7 +8,12 @@
 loadbalance/
 ├── service.go          # Service construction and `/loadbalance` route mounting
 ├── routes.go           # Strategy CRUD and canonical defaults
-├── observability.go    # Current-state and event routes
+├── current_state_observability.go # Process-local current-state read/reset
+├── event_query_context_routes.go # Signed event query-context issue/retention validation
+├── event_routes.go     # Event list/detail query routes
+├── incident_routes.go  # Incident projection route
+├── observability_query.go # Observability query parsing
+├── instance_identity.go # Process instance identity
 ├── policy.go           # Strategy policy normalization
 ├── store.go            # Strategy persistence
 ├── import_contract.go  # Import-facing strategy contract helpers
@@ -21,7 +26,10 @@ loadbalance/
 ## WHERE TO LOOK
 - Route list and mount contract: `service.go`.
 - Strategy list/get/create/update/delete and defaults: `routes.go`.
-- Current-state list/reset and loadbalance events: `observability.go`.
+- Process-local current-state list/reset: `current_state_observability.go`.
+- Signed event query-context issue and retention checks: `event_query_context_routes.go`, `events_query_context.go`.
+- Event list/detail and incident projections: `event_routes.go`, `incident_routes.go`.
+- Query parsing and process identity: `observability_query.go`, `instance_identity.go`.
 - Shared domain operations: `../../../domain/loadbalance/`.
 
 ## CONVENTIONS
