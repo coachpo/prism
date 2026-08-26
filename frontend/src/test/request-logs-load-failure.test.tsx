@@ -17,7 +17,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 import { getStaticMessages } from "@/i18n/staticMessages";
-import { ApiError } from "@/lib/api/core";
+import { ApiError } from "@/lib/api/request";
 import type {
   QueryCoverage,
   RequestLogListItem,

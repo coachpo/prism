@@ -13,7 +13,7 @@ import type {
   ManagedModelConfigCreate,
   ManagedModelConfigListItem,
   ManagedModelConfigUpdate,
-} from "@/lib/api/management";
+} from "@/lib/api/models";
 
 export type SubmitEventLike = Pick<Event, "preventDefault">;
 

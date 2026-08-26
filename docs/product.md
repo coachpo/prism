@@ -605,7 +605,7 @@ Validated again against current repo surfaces on 2026-08-22:
 - Frontend route surface: `frontend/src/app/router/appRouter.tsx` and `frontend/src/app/router/rewriteRoutes.ts`
 - Shell navigation and route scoping: `frontend/src/components/layout/app-layout/useShellNavigation.ts`
 - Auth bootstrap and session flow: `frontend/src/context/AuthContext.tsx`
-- Default-profile scoping: `frontend/src/lib/api/core.ts`, `frontend/src/lib/api/profileScope.ts`
+- Default-profile scoping: `frontend/src/lib/api/request.ts`, `frontend/src/lib/api/profileScope.ts`
 - Backend router assembly: `backend/internal/httpapi/management/`, `backend/internal/httpapi/runtime/`, and `backend/internal/platform/http/server.go`
 - Backend API reference: `docs/architecture.md` (section 14, API Reference)
 - Request-log details: `docs/product.md` (section 8, Requests Page Specification)

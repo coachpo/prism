@@ -9,7 +9,7 @@ auth/
 ├── sessionCoordinator.ts   # Phase machine, epoch, singleflight refresh, classifiers
 ├── coordinatorInstance.ts  # Process-level coordinator singleton + shared browser listeners
 ├── refreshOutcome.ts       # Typed refresh outcome contract (recovery/passive/disabled probe)
-├── authExempt.ts           # Auth-exempt path/query matcher shared with api/core and gates
+├── authExempt.ts           # Auth-exempt path/query matcher shared with api/request and gates
 ├── crossTab.ts             # Cross-tab generation + auth-state broadcast signaling
 ├── refresh.ts              # Proactive timer interval and passive refresh guards
 └── *.test.ts               # Session-coordinator phase/epoch/singleflight coverage
@@ -33,7 +33,7 @@ auth/
 - Keep `sessionCoordinator.ts` as the single process-local coordinator. Views and hooks must not build a parallel state machine; they subscribe and read `getPhase`/`getEpoch`.
 - Keep refresh singleflight process-local: concurrent protected-management 401s share one refresh flight; each original request replays at most once; late responses are epoch-fenced and never refill caches.
 - Keep session epoch rotation strict: any epoch change invalidates React Query and shared reference data at the boundary (`App.tsx`), so auth boundaries never carry last-good snapshots.
-- Keep `/v1` and `/v1beta` runtime proxy-key 401s out of management session invalidation; management 401 classification lives in `authExempt.ts` plus the `api/core.ts` classifier.
+- Keep `/v1` and `/v1beta` runtime proxy-key 401s out of management session invalidation; management 401 classification lives in `authExempt.ts` plus the `api/request.ts` classifier.
 - Keep the disabled-401 probe singleflight and generation-bound: the probe uses the ordinary `GET /api/models` route through normal auth middleware with an internal purpose only; failures become a generation-bound exhausted incident, never a refresh or redirect loop.
 - Keep cross-tab signaling non-secret: `prism.authSessionGeneration` rotates only on new identity or auth-mode change; tabs re-bootstrap through the shared generation fence.
 - Keep proactive refresh cadence and visibility-refresh rules centralized in `refresh.ts`; passive refresh must not fire while a login/logout mutation is in flight.

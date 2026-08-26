@@ -13,7 +13,7 @@ function loadSettingsRetentionModule(requests) {
   const { load } = createTsModuleLoader({
     rootDir: frontendDir,
     mocks: {
-      "./core": {
+      "./request": {
         buildQuery: (params) => new URLSearchParams(params).toString(),
         request: async (url, init) => {
           requests.push({ url, init });

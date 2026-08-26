@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { api } from "@/lib/api";
-import { ApiError } from "@/lib/api/core";
+import { ApiError } from "@/lib/api/request";
 import type { RequestLogDetail } from "@/lib/types/request-logs";
 
 interface UseRequestLogDetailParams {

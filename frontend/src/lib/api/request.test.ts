@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { overloadRetryDelayMs, parseRetryAfter } from "./core";
+import { overloadRetryDelayMs, parseRetryAfter } from "./request";
 
 describe("parseRetryAfter", () => {
   it("parses delay-seconds", () => {
@@ -16,7 +16,6 @@ describe("parseRetryAfter", () => {
     expect(parseRetryAfter("", now)).toBeNull();
   });
 });
-
 describe("overloadRetryDelayMs", () => {
   it("waits as long as the server asked", () => {
     expect(overloadRetryDelayMs(1000, 0, 0)).toBe(1000);

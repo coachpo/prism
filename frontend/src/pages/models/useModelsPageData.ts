@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { ApiError } from "@/lib/api/core";
-import type { ManagedModelConfigListItem } from "@/lib/api/management";
+import { ApiError } from "@/lib/api/request";
+import type { ManagedModelConfigListItem } from "@/lib/api/models";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import {
   getSharedLoadbalanceStrategies,

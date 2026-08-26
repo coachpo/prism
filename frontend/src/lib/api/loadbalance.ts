@@ -1,7 +1,4 @@
 import type {
-  AuditLogDetail,
-  AuditLogListResponse,
-  AuditLogParams,
   EventsQueryContextResponse,
   GlobalCurrentStateResponse,
   LoadbalanceAdmissionReason,
@@ -13,22 +10,7 @@ import type {
   LoadbalanceFailureKind,
   LoadbalanceIncidentListResponse,
 } from "../types";
-import { buildQuery, request } from "./core";
-
-type RequestLogAuditParams = Required<Pick<AuditLogParams, "from" | "to">> & { anchor_id?: number }
-  & Pick<AuditLogParams, "limit" | "cursor">;
-
-export const audit = {
-  list: (params?: AuditLogParams) => {
-    const query = buildQuery(params as Record<string, string | number | boolean | null | undefined> | undefined);
-    return request<AuditLogListResponse>(`/api/audit/logs${query ? `?${query}` : ""}`);
-  },
-  listForRequestLog: (requestLogId: string, params: RequestLogAuditParams) => {
-    const query = buildQuery({ ...params, request_log_id: requestLogId } as Record<string, string | number | boolean | null | undefined>);
-    return request<AuditLogListResponse>(`/api/audit/logs${query ? `?${query}` : ""}`);
-  },
-  get: (id: number) => request<AuditLogDetail>(`/api/audit/logs/${id}`),
-};
+import { buildQuery, request } from "./request";
 
 export type EventsQueryContextPreset = "1h" | "6h" | "24h" | "7d" | "30d" | "all" | "custom";
 
@@ -89,5 +71,3 @@ export const loadbalance = {
   getEvent: (eventId: string, queryContext: string) =>
     request<LoadbalanceEventDetail>(`/api/loadbalance/events/${eventId}?query_context=${encodeURIComponent(queryContext)}`),
 };
-
-// ---- Observe v2 read models ----

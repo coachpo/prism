@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import { ApiError } from "@/lib/api/core";
+import { ApiError } from "@/lib/api/request";
 import type { TerminalTargetStatistic, TerminalTargetStatisticsResponse } from "@/lib/api/observability";
 import type { Endpoint } from "@/lib/types";
 import type { ObservePreset } from "@/features/observe/observeSearch";

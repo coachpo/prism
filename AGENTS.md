@@ -50,7 +50,7 @@ prism/
 | Runtime executor | `backend/internal/httpapi/runtime/service.go`, `backend/internal/httpapi/runtime/ingress.go`, `backend/internal/httpapi/runtime/request_plan.go`, `backend/internal/httpapi/runtime/request_execution.go`, `backend/internal/httpapi/runtime/request_execution_loop.go`, `backend/internal/httpapi/runtime/upstream_attempt.go` | Ingress rejection, planning, provider transport, telemetry side effects. |
 | Frontend shell | `frontend/src/main.tsx`, `frontend/src/App.tsx` | Browser mount, providers, router, toasts. |
 | Routes | `frontend/src/app/router/appRouter.tsx`, `rewriteRoutes.ts` | Route tree, scopes, and search schemas. |
-| Frontend API | `frontend/src/lib/api/core.ts` | Typed HTTP client and same-origin request plumbing. |
+| Frontend API | `frontend/src/lib/api.ts`, `frontend/src/lib/api/request.ts`, `frontend/src/lib/api/*.ts` | Public typed facade, shared request/auth plumbing, and resource clients. |
 
 ## SHARED FACTS
 

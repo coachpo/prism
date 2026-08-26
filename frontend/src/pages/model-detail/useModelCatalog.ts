@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { models as modelsApi } from "@/lib/api/management";
+import { models as modelsApi } from "@/lib/api/models";
 import type { ModelCatalogResponse } from "@/lib/types";
 
 interface CatalogSettled {

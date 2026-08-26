@@ -1,4 +1,4 @@
-import { request } from "./core";
+import { request } from "./request";
 
 export const modelRoutingDiagnostics = {
   get: (modelConfigId: number) => request<RoutingDiagnosticsResponse>(`/api/models/${modelConfigId}/routing-diagnostics`),

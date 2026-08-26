@@ -1,4 +1,4 @@
-import { buildQuery, request } from "./core";
+import { buildQuery, request } from "./request";
 
 export type ObserveCoverage = {
   requested_preset: string;

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ApiError } from "@/lib/api/core";
+import { ApiError } from "@/lib/api/request";
 import { observe, type QueryContextResponse, type UsageSummaryResponse, type DashboardNowResponse } from "@/lib/api/observability";
 
 export type FragmentPhase = "loading" | "ready" | "error";

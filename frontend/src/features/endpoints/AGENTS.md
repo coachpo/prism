@@ -21,7 +21,7 @@ endpoints/
 - Reference state machines (loading/ready/stale/error, generations, batch chunking, atomic summary replacement): `useEndpointReferences.ts`
 - Table/disclosure rendering and responsive cards: `EndpointTable.tsx`
 - Delete/orphan/attach dialogs: `../../pages/endpoints/`
-- Typed error guards and API methods: `../../lib/api/endpointErrors.ts`, `../../lib/api/management.ts`
+- Typed error guards and API methods: `../../lib/api/endpointErrors.ts`, `../../lib/api/endpoints.ts`
 
 ## CONVENTIONS
 - Follow `frontend/DESIGN.md` for all UI/UX work: prefer `@/shared/design-system` operator components, preserve the Material 3 operator direction, use semantic tokens and density variables.

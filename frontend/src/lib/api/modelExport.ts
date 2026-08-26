@@ -4,7 +4,7 @@ import type {
  ExportSourceResponse,
  ManualEnhancementWire,
 } from "@/features/models/export/exportTypes";
-import { request } from "./core";
+import { request } from "./request";
 
 export interface ExportRenderRequestBody {
  expected_source_digest: string;

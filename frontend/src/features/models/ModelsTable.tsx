@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/table"
 import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext"
 import { useLocale } from "@/i18n/useLocale"
-import type { ManagedModelConfigListItem } from "@/lib/api/management"
+import type { ManagedModelConfigListItem } from "@/lib/api/models"
 import { formatMoneyMicros } from "@/lib/costing"
 import { cn, formatApiFamily } from "@/lib/utils"
 import {

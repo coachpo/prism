@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { pricingTemplates as pricingApi } from "@/lib/api/management_resources";
+import { pricingTemplates as pricingApi } from "@/lib/api/pricingTemplates";
 import type {
   CatalogPricingPreviewResponse,
   Connection,

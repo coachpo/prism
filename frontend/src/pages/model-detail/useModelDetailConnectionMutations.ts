@@ -6,7 +6,7 @@ import {
 } from "./routingScheduleDraft";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { ApiError } from "@/lib/api/core";
+import { ApiError } from "@/lib/api/request";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { clearSharedReferenceData } from "@/lib/referenceData";
 import type {

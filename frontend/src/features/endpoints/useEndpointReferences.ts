@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { isReferenceIntegrityError } from "@/lib/api/endpointErrors";
-import { ApiError } from "@/lib/api/core";
+import { ApiError } from "@/lib/api/request";
 import type {
   EndpointReferenceDetail,
   EndpointReferenceItem,

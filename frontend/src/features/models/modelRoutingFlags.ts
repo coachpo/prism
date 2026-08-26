@@ -1,4 +1,4 @@
-import type { ManagedModelConfigListItem } from "@/lib/api/management"
+import type { ManagedModelConfigListItem } from "@/lib/api/models"
 
 /**
  * A `single` strategy uses the first enabled target and nothing else, so any

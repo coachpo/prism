@@ -1,21 +1,17 @@
-import { ApiError, getApiProfileId } from "./api/core";
+import { ApiError, getApiProfileId } from "./api/request";
 import { auth, settings } from "./api/authSettings";
-import {
-  audit,
-  config,
-  loadbalance,
-  settingsAudit,
-  settingsCosting,
-  settingsRetention,
-  stats,
-} from "./api/observability";
-import {
-  connections,
-  endpoints,
-  loadbalanceStrategies,
-  models,
-  pricingTemplates,
-} from "./api/management";
+import { audit } from "./api/audit";
+import { config } from "./api/configRules";
+import { connections } from "./api/connections";
+import { endpoints } from "./api/endpoints";
+import { loadbalance } from "./api/loadbalance";
+import { loadbalanceStrategies } from "./api/loadbalanceStrategies";
+import { models } from "./api/models";
+import { pricingTemplates } from "./api/pricingTemplates";
+import { stats } from "./api/stats";
+import { settingsAudit } from "./api/settingsAudit";
+import { settingsCosting } from "./api/settingsCosting";
+import { settingsRetention } from "./api/settingsRetention";
 
 export { ApiError, getApiProfileId };
 export { stats } from "./api/observability";
