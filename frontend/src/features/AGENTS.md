@@ -11,7 +11,7 @@ features/
 ├── endpoints/        # `/route/endpoints` feature page and endpoint dialogs/hooks (`endpoints/AGENTS.md`)
 ├── loadbalance/      # `/route/ban-policies` page with strategy collection, mutation, and impact owners
 ├── models/           # `/models` list feature, `/models/$modelId` detail adapter, and `models/export/` client-config export page
-├── observe/          # `/observe` dashboard adapter (Window KPI grid incl. cache-read share) plus the 路由健康 tab (global Current State, events timeline, event detail)
+├── observe/          # `/observe` dashboard adapter plus routing-health query/context, event, and current-state owners
 ├── pricing/          # `/route/pricing` feature page with collection/editor/detail/import owners
 ├── proxy-keys/       # `/system/proxy-keys` global proxy-key surface: ledger, four mutation lanes, secret session, access panel (`proxy-keys/AGENTS.md`)
 ├── routing-health/    # Observe 路由健康 tab: global current state, events timeline, reset flow
@@ -26,6 +26,7 @@ features/
 - Legacy/oracle page clusters and nested page docs still referenced by feature modules: `../pages/AGENTS.md`
 - Typed backend API, shared request plumbing, and pinned profile-header rules: `../lib/AGENTS.md`, `../lib/api/AGENTS.md`
 - Cross-route query, invalidation, server-validation, table, and design-system helpers: `../shared/AGENTS.md`
+- Routing-health event context/page and global current-state owners: `observe/useRoutingHealthQueryContext.ts`, `observe/useRoutingHealthEventPage.ts`, `observe/useRoutingHealthCurrentStateRead.ts`, `observe/useRoutingHealthCurrentStateReset.ts`
 
 ## CONVENTIONS
 
@@ -39,6 +40,8 @@ features/
 - Keep Ban Policy strategy collection/read, CRUD/default mutations, and impact cursor pagination in their named feature owners; the page hook only composes them.
 - Keep pricing-template collection/editor mutations, usage/history detail reads, and import preview/commit in their named feature owners; preserve the two-phase import contract and last-good states.
 - Keep proxy-key ledger/query state, create/edit/rotate/delete mutation lifecycles, mutation reconciliation/error mapping, and the one-time raw-secret session in their named owners; mutations must preserve cache invalidation, capacity reconciliation, and no-store secret handling.
+- Keep request-log attempt reads and ingress-chain reads in separate owners; the page hook only selects and combines the active view while preserving committed filter metadata for cross-view fallback.
+- Keep routing-health signed query context, event paging/detail selection, Current State reads/resets, and presentation in their named owners; `RoutingHealthTab.tsx` only composes them.
 
 ## ANTI-PATTERNS
 

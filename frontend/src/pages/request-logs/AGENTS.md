@@ -10,7 +10,11 @@
 request-logs/
 ├── queryParams.ts               # URL-state contract for retained browse filters, view, sort, and pagination
 ├── useRequestLogPageState.ts    # Search-param orchestration and exact-request mode
-├── useRequestLogsPageData.ts    # Server fetches, chain-view flattening, and retained filter-option bootstrap
+├── useRequestLogsPageData.ts    # Thin page coordinator for attempts and ingress-chain read owners
+├── requestLogQuery.ts           # URL-to-stats query projection and shared filter-option contract
+├── useRequestLogAttempts.ts     # Attempt-list query, replace state, generation, and retained filters
+├── useRequestLogIngressChains.ts # Ingress-chain query, cursor/append state, and row-read fencing
+├── requestLogChainProjection.ts # Chain envelope to attempt-row projection and append dedupe
 ├── useRequestLogDetail.ts       # Exact-request detail fetch, not-found handling, and refresh
 ├── useRequestLogChain.ts        # Retained ingress chain fetch for the detail sheet
 ├── requestLogSavedViews.ts      # Versioned saved canonical views (localStorage)
@@ -30,7 +34,8 @@ request-logs/
 ├── FiltersBar.constants.ts      # Filter option constants and shared filter presentation helpers
 ├── FiltersBarPrimaryFilters.tsx # Retained filter row composition (pricing_status four-state)
 ├── ActiveFilterChips.tsx        # Every filter actually in effect, as closable chips
-├── RequestLogsTable.tsx         # Adaptive-height virtualized attempt list with server chain cursors
+├── RequestLogsTable.tsx         # Adaptive-height virtualized attempt list
+├── ColumnToggleMenu.tsx         # Column visibility popover and reset-to-defaults action
 ├── IngressChainsTable.tsx       # Default server-side retained ingress-chain view
 ├── requestLogsCsv.ts            # Server-side full filtered CSV download helper
 ├── RequestLogDetailSheet.tsx    # Overview-only request inspection drawer, retained-chain section, clipboard fallback root
@@ -47,15 +52,16 @@ request-logs/
 │   ├── requestLogDetailShared.tsx  # Shared detail rows, stats, section cards, API-family pill
 │   ├── requestLogStatus.ts       # Status intent/tone presentation
 │   └── requestLogClipboard.ts    # Detail clipboard action and localized toast side effect
-└── *.test.ts(x)                 # Saved views, preferences, audit route, and audit lookup coverage
+└── *.test.ts(x)                 # Query, lifecycle, saved-view, preference, and audit coverage
 ```
 
 ## WHERE TO LOOK
 
-- Investigation flow and state, including URL-state and exact-request mode: `useRequestLogsPageData.ts`, `useRequestLogPageState.ts`
+- Investigation flow and state, including URL-state and exact-request mode: `useRequestLogPageState.ts`, `useRequestLogsPageData.ts`
+- Attempt-list and ingress-chain query lifecycles: `useRequestLogAttempts.ts`, `useRequestLogIngressChains.ts`, `requestLogChainProjection.ts`
 - Route-shell copy, empty-state messaging, and locale-aware detail labels: `../RequestLogsPage.tsx`, `@/i18n/useLocale`, `@/i18n/AGENTS.md`
 - Retained browse-filter contract and defaults: `queryParams.ts`
-- Table columns, row actions, and detail-entry affordances: `columns.tsx`, `RequestLogsTable.tsx`
+- Table columns, row actions, detail-entry affordances, and column visibility: `columns.tsx`, `RequestLogsTable.tsx`, `ColumnToggleMenu.tsx`
 - Filter-bar composition and shared filter constants: `FiltersBar.constants.ts`, `FiltersBarPrimaryFilters.tsx`, `FiltersBar.tsx`
 - Detail sheet, exact-request fetch, audit capture state, and sheet-scoped clipboard fallback: `RequestLogDetailSheet.tsx`, `useRequestLogDetail.ts`, `requestLogAuditState.ts`
 - Stream telemetry helpers and TTFT/rate display logic: `streamTelemetry.ts`, `detail/RequestLogOverviewTab.tsx`
@@ -94,6 +100,7 @@ request-logs/
 - Keep stream telemetry in `streamTelemetry.ts` and parent detail helpers instead of recomputing TTFT or request-rate state in shared widgets.
 - Keep copy actions on shared clipboard helpers. `RequestLogDetailSheet.tsx` intentionally provides `[data-clipboard-fallback-root]` so browser fallback UI stays inside the sheet instead of triggering downloads.
 - Keep request-log cost labels tied to `useReportingCurrencyContext()` so fallback or verified Default-profile reporting-currency trust is visible in detail views.
+- Keep attempts and ingress-chain reads in their named owners; `useRequestLogsPageData.ts` only selects the active view and combines page-facing state. Keep chain-envelope projection in `requestLogChainProjection.ts`, not in table components.
 - Render pricing evidence through `pricing_selection_state` and `pricing_card_role` independently. `unresolved` is a failure surface with `pricing_resolution_kind`; missing evidence is not a base-card decision. Peak/valley detail may show timezone, frozen decision time, local weekday/minute, and digest only when present. CSV column order must match the backend generic evidence columns.
 - Keep `detail/` parent-covered here. Those helpers support the request-log sheet only and should not get a separate AGENTS file.
 

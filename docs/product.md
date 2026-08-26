@@ -536,7 +536,7 @@ The dedicated audit page renders request and response headers plus request and r
 ### 8. Module Boundaries
 
 - `queryParams.ts` owns the canonical URL filter/view/sort contract, the `pricing_status` enum, and the triage cohort filters (`ingress_final_result`, `confirmed_failover`).
-- `useRequestLogsPageData()` owns fetch orchestration for both views plus the chain cursor paging.
+- `useRequestLogAttempts.ts` owns the attempt-list read/replace lifecycle; `useRequestLogIngressChains.ts` owns ingress-chain cursor, replacement, and nested row append state; `useRequestLogsPageData()` only composes the active view.
 - `columns.tsx` owns the default column set and the `pricing_state` cell; scoped status/duration helpers live here too.
 - `requestLogColumnPreferences.ts` owns versioned column-visibility preferences (localStorage).
 - `requestLogSavedViews.ts` owns versioned saved canonical queries (localStorage); `FiltersBar.tsx` renders the triage chips and the saved-views dropdown.

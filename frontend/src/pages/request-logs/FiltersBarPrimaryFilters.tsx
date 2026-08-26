@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { FilterOptions } from "./useRequestLogsPageData";
+import type { RequestLogFilterOptions as FilterOptions } from "./requestLogQuery";
 import type { RequestLogPageActions } from "./useRequestLogPageState";
 import { PRICING_CARD_ROLE_OPTIONS, PRICING_SELECTION_STATE_OPTIONS, PRICING_STATUS_OPTIONS, STATUS_FAMILY_OPTIONS, TIME_RANGE_OPTIONS, UNPRICED_REASON_OPTIONS } from "./queryParams";
 import { getTimeLabel, getUnpricedReasonLabel } from "./FiltersBar.constants";
