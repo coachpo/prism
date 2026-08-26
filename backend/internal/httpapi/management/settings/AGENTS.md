@@ -30,7 +30,9 @@ settings/
 ├── settings_operations.go            # Settings mutation operations
 ├── settings_request_identity.go      # Settings request identity
 ├── settings_conflict_errors.go      # Settings conflict errors
-├── audit_service.go                  # Audit policy service
+├── audit_service.go                  # API-family audit policy read/write orchestration
+├── audit_policy_transaction.go       # Audit policy replay, writer admission, and CAS transaction
+├── audit_storage_summary.go           # Audit storage summary and owner facts
 ├── currency_inventory.go             # Currency migration inventory
 ├── currency_migration_drafts.go     # Currency migration wire types
 ├── currency_migration_draft_routes.go # Currency draft routes
@@ -57,7 +59,9 @@ settings/
 - Retention impact analysis: `retention_impact_estimate.go`, `retention_impact_preview.go`
 - Retention owner drift and manual jobs: `retention_owner_drift.go`, `retention_manual_job.go`, `../../../platform/managementjobs/jobs.go`, `../../../platform/managementjobs/retention_legacy.go`, `../../../platform/managementjobs/retention_api.go`
 - Retention source projections: `../../../domain/stats/retention_source.go` (single owner)
-- Auth settings: `../auth/auth_settings_mutation.go` (immutable config versions, readiness, acknowledgements)
+- Audit policy CRUD and three-family replacement: `audit_service.go`, `audit_policy_transaction.go`
+- Audit storage summary and owner/fence facts: `audit_storage_summary.go`, `../../../domain/audit/`, `../../../domain/stats/retention_source.go`
+- Auth settings: `../auth/auth_settings_mutation.go` (thin PUT orchestration), `../auth/auth_settings_request.go` (strict request decoding), `../auth/auth_settings_mutation_input.go` (request/acknowledgement validation), `../auth/auth_settings_replay.go` (operation replay), `../auth/auth_settings_transaction.go` (single transaction), `../auth/auth_settings_version.go` (immutable versions/session lifecycle), `../auth/auth_settings_pointer_publication.go` (legacy/final pointer publication), `../auth/auth_settings_failure.go` (failed-result persistence), `../auth/auth_settings_failure_response.go` (failure envelope), `../auth/auth_settings_publish.go` (commit-boundary publication)
 - Costing/timezone: `routes.go`, `store.go`, `types.go`
 - Settings operation identity and conflicts: `settings_request_identity.go`, `settings_operations.go`, `settings_conflict_errors.go`, `problems.go`
 - Currency migration wire types and routes: `currency_migration_drafts.go`, `currency_migration_draft_routes.go`, `currency_migration_commit_routes.go`

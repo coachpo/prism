@@ -8,6 +8,71 @@ import (
 	"time"
 )
 
+type usageEventRecord struct {
+	ID                             int
+	CreatedAt                      time.Time
+	ProfileID                      int
+	IngressRequestID               string
+	ModelID                        string
+	ResolvedTargetModelID          *string
+	APIFamily                      string
+	EndpointID                     *int
+	EndpointLabelSnapshot          string
+	ConnectionID                   *int
+	ProxyAPIKeyID                  *int
+	ProxyAPIKeyNameSnapshot        *string
+	ProxyKeyAttributionState       string
+	ProxyKeyAuthEnforcedAtRequest  *bool
+	StatusCode                     int
+	SuccessFlag                    bool
+	PricingStatus                  string
+	PricingEvidenceTrust           string
+	UnpricedReason                 *string
+	InputTokens                    int
+	OutputTokens                   int
+	HasOutputTokens                bool
+	TotalTokens                    int
+	CacheReadInputTokens           int
+	CacheCreationInputTokens       int
+	ReasoningTokens                int
+	TotalCostUserCurrencyMicros    int64
+	HasTotalCostUserCurrencyMicros bool
+	AttemptCount                   int
+	RequestPath                    string
+	ResponseTimeMS                 *int
+	TTFTMS                         *int
+	CompletionDurationMS           *int
+	CurrentModelLabel              *string
+	CurrentEndpointName            *string
+	CurrentEndpointBaseURL         *string
+	CurrentProxyAPIKeyName         *string
+	CurrentProxyAPIKeyPrefix       *string
+}
+
+// Priced reports whether the record is in the priced four-state bucket.
+func (record usageEventRecord) Priced() bool {
+	return record.PricingStatus == "priced"
+}
+
+// Unpriced reports whether the record is in the unpriced four-state bucket.
+func (record usageEventRecord) Unpriced() bool {
+	return record.PricingStatus == "unpriced"
+}
+
+// TrustedKnownCost reports whether the record carries a canonical trusted
+// known cost that may enter sums/sorts (priced + trusted only; legacy
+// untrusted evidence never sums).
+func (record usageEventRecord) TrustedKnownCost() bool {
+	return record.PricingStatus == "priced" && record.PricingEvidenceTrust == "trusted"
+}
+
+func usageEventEndpointLabel(record usageEventRecord) string {
+	if label := strings.TrimSpace(record.EndpointLabelSnapshot); label != "" {
+		return label
+	}
+	return "Unknown Endpoint"
+}
+
 func loadUsageEventRecords(ctx context.Context, exec queryExecutor, profileID int, startAt *time.Time, endAt *time.Time, apiFamily *string, modelID *string, endpointID *int, connectionID *int) ([]usageEventRecord, error) {
 	clauses := []string{"usage_request_events.profile_id = $1"}
 	args := []any{profileID}

@@ -35,9 +35,10 @@ platform/
 - Production dependency graph, service registration, runtime cache bootstrap, scheduler start, and shutdown order: `lifecycle/production.go`, `lifecycle/app.go`
 - Router mounting, middleware, `/health`, `/api`, `/v1`, `/v1beta`, and startup config runtime snapshots: `http/AGENTS.md`, `http/server.go`, `http/management_branch.go`, `http/runtime_branch.go`, `http/dependencies.go`, `http/startup_config_runtime.go`
 - Shared body-size limits used by management/runtime HTTP: `bodylimits/`, `http/management_body_limits.go`
-- Management route registry (tier, profile scope, runtime-cache effect): `http/admission.go` 的 managementRouteSpecs；`http/management_route_contract.json` 是由它生成的产物，供前端漂移测试消费
+- Management route registry (tier, profile scope, runtime-cache effect): `http/management_route_specs.go` 的 managementRouteSpecs；contract generator owner 是 `http/server_route_contract_test.go`，`http/management_route_contract.json` 是由它根据 registry 生成的产物，供前端漂移测试消费
+- Management admission controller and middleware: `http/management_admission.go`; settings-schema guard: `http/settings_schema_guard.go`; runtime proxy admission: `http/runtime_proxy_admission.go`; typed admission errors: `http/admission_errors.go`
 - Plaintext bootstrap contract, restart-applied fields, and safe secret metadata: `config/AGENTS.md`, `config/`
-- Startup migration and seed flow: `startup/AGENTS.md`, `startup/`, `migrate/`, `../../migrations/`
+- Startup migration and seed flow: `startup/AGENTS.md`, `startup/service.go`, `startup/{profiles.go,user_settings_seed.go,app_auth_settings_seed.go,user_agent_client_rule_seed.go,header_blocklist_seed.go,strategies.go,audit_settings_seed.go,retention_coverage_seed.go}`, `migrate/`, `../../migrations/`
 - DB lane budgets and pool handles: `db/`
 - Partitioned log retention, daily partition horizon, retention deletes, and low-priority maintenance worker: `logretention/`, `managementjobs/jobs.go`
 - Retention planning/execution, separate policy/fence generations, manual purge fence and final publish, legacy drain, and global job DTOs: `managementjobs/jobs.go`, `managementjobs/retention_planning.go`, `managementjobs/retention_execute.go`, `managementjobs/retention_legacy.go`, `managementjobs/retention_api.go`, `managementjobs/retention_dto.go`
@@ -57,7 +58,7 @@ platform/
 - Preserve existing valid bootstrap files during startup. To reset defaults, stop Prism, remove or relocate the bootstrap file, then restart so the missing-file seed path runs.
 - Keep database capacity lane-specific. Runtime execution, telemetry, feedback, management, cache refresh, and background jobs must not borrow each other's protected budgets.
 - Keep request-path side effects on scheduler workers, durable outboxes, or after-commit wakeups.
-- 新增或修改管理路由时改 managementRouteSpecs，然后跑 `go test ./internal/platform/http -run TestManagementRouteContractMatchesRouteSpecs -update-route-contract` 重新生成契约文件；不要手工编辑该 JSON。
+- 新增或修改管理路由时改 `http/management_route_specs.go` 的 managementRouteSpecs，然后跑 `go test ./internal/platform/http -run TestManagementRouteContractMatchesRouteSpecs -update-route-contract` 重新生成契约文件；不要手工编辑该 JSON。
 - Keep partitioned log-retention work on `logretention.Store` plus the low-priority `log_partition_maintenance` worker. Managed tables are `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
 - Keep retention jobs low-priority and management-owned through `managementjobs/`; handlers should enqueue jobs, not run partition cleanup inline.
 - Keep v2 jobs durable and recoverable: automatic work waits behind a manual reservation, claims bind the current policy/fence/cutoff, `purge_to_time` is frozen at the execution fence for delete-all, and final publish is the only owner transition that advances visibility/revocation.

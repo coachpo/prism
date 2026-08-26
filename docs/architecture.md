@@ -117,6 +117,10 @@ frontend/
 
 The backend process loads the strict bootstrap file, then runs migrations and startup seeds under a 30-second startup timeout. The seed sequence establishes profile invariants, user settings, user-agent client rules, app-auth settings, endpoint-secret normalization, and header-blocklist rules before production services are built.
 
+Management ownership follows the resource and lifecycle boundaries: Header Blocklist and User-Agent Client Rules each own their HTTP CRUD, validation, and persistence; Loadbalance observability separates process-local current-state reset/read, signed event query-context and event list/detail reads, incident projection, and query parsing; Audit Settings separates API-family policy/CAS CRUD from storage-summary owner facts. Shared response/decode conversion remains at each management route boundary.
+
+Configuration rules keep Header Blocklist and User-Agent Client Rules as separate resource owners: each has its own HTTP CRUD, validation, and persistence path, while route decode/error conversion remains at the management route boundary. Loadbalance observability keeps process-local current-state reset/read, signed event query-context issuance and validation, event list/detail, incident projection, and query parsing as separate management seams. Audit policy CRUD/CAS and audit storage owner-fact projection are separate settings owners; none of these metadata/read paths changes runtime routing state.
+
 Production construction creates the startup config runtime, opens six isolated PostgreSQL pools, creates the scheduler and durable background services, ensures the log partition horizon before serving traffic, creates the shared planning cache and a fresh process-local runtime-state store, builds management and runtime services, registers workers, assembles the HTTP server, and starts the scheduler before `App.Run` begins serving.
 
 On shutdown Prism runs these phases in order: HTTP server shutdown, side-effect drains, scheduler stop, registered service closes in reverse registration order, and database-pool close. This order stops ingress first while allowing already accepted side effects a bounded drain window before worker and database resources disappear.
@@ -429,6 +433,8 @@ Because eligibility is judged after rotation, a routing schedule shifts which ro
 ### 5.4 Default profile and active runtime separation
 
 Profile-scoped management APIs are frozen to Default id `1`. They accept `X-Profile-Id` for frontend compatibility, but the backend ignores the header value. Runtime proxy traffic ignores that management header and resolves through the frozen Default profile id `1` runtime snapshot.
+
+Connection management keeps its existing ownership seams under `backend/internal/httpapi/management/connections/`: `connection_read_routes.go`, `routes.go`, and the owner mutation route files own HTTP boundaries; `connection_model_store.go`, `connection_endpoint_store.go`, `terminal_target_store.go`, `connection_access_target_store.go`, `connection_reference_store.go`, and `routing_window_store.go` own profile-scoped PostgreSQL records; `terminal_target_projection.go` and `connection_db_arguments.go` own row projection and database values. The HTTP-neutral `writer.go`, `access_targets.go`, `routing_schedule.go`, and `endpointdomain` remain canonical shared seams.
 
 ## 6. Request-Derived Metrics
 
@@ -836,6 +842,8 @@ Response `200`: `{ "deleted": true }`. Returns `409` if other models still refer
 #### 1.3A Model Catalog Metadata (models.dev)
 
 Catalog metadata is management-only projection data sourced from the fixed official models.dev catalog (`https://models.dev/api.json`, MIT License). It never participates in `api_family` compatibility truth, capability gating, routing, or the runtime snapshot; metadata writes never invalidate planning. The backend client is restricted: HTTPS only, same-origin redirects only, a 10-second whole-request timeout, a 16 MiB body budget, ETag/304 revalidation, single-flight fetches, `json.Number` decoding, and fail-closed schema validation. Remote I/O always happens outside database transactions; commits verify the operator's previewed catalog revision so stale source data cannot be written.
+
+The HTTP-neutral catalog boundary is owned by `backend/internal/domain/modelsdev/` for transport, schema, matching, and pricing-plan decisions. Management workflow ownership remains split between the models catalog read/bind/refresh/override/unbind routes and the connections catalog-pricing preview/commit/assignment routes; only cached catalog snapshots cross into write transactions.
 
 ##### Get Model Catalog Binding
 

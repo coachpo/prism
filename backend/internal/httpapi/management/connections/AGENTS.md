@@ -9,7 +9,25 @@
 ```text
 connections/
 ├── service.go              # Service construction and route mounting
-├── routes.go               # Public connection reads, rejection surfaces, and owner-scoped mutations
+├── routes.go               # Public mutation rejection and route decode/error boundary
+├── connection_read_routes.go # Public, batch, and owner-scoped connection reads
+├── connection_owner_create.go # Owner-scoped create route orchestration
+├── connection_owner_update.go # Owner-scoped update route and field orchestration
+├── connection_delete_routes.go # Owner-scoped delete and delete guard
+├── connection_reference_routes.go # Connection reference route and wire projection
+├── profile_scope.go        # Effective Default-profile resolution and profile lock
+├── connection_endpoint_write.go # Composite inline-endpoint adapter to the shared writer
+├── connection_write_validation.go # Connection field validation and normalization
+├── connection_query_contract.go # PostgreSQL executor contract
+├── connection_model_store.go # Model owner lookup and row scanner
+├── connection_endpoint_store.go # Endpoint lookup, uniqueness, insert, and row scanner
+├── connection_pricing_reference_store.go # Pricing-template reference lookup
+├── connection_access_target_store.go # Owner access-target positions, locks, and writes
+├── connection_reference_store.go # Connection reference query and row scanner
+├── terminal_target_store.go # Terminal Target read/write persistence
+├── terminal_target_projection.go # Terminal Target query shape and row projection
+├── routing_window_store.go # Routing-window child-row persistence and hydration
+├── connection_db_arguments.go # PostgreSQL nullable values and array arguments
 ├── writer.go               # Shared HTTP-neutral owner-scoped create (`CreateOwnerConnection`)
 ├── composite_create.go     # Redacted, secret-free composite create input/result shapes
 ├── copies.go               # Transactional batch copy route and redacted copy summaries
@@ -22,7 +40,13 @@ connections/
 ├── pricing_templates.go    # Pricing-template CRUD and validation
 ├── pricing_template_store.go     # Pricing-template row shape, queries, revision/mutation ledger, scanners
 ├── pricing_template_import.go    # Two-phase pricing-template JSON import (preview_hash / commit)
-├── pricing_template_catalog.go   # models.dev source-linked price import: preview, atomic commit, double-CAS assignment
+├── pricing_template_catalog.go   # Catalog pricing contract types
+├── pricing_catalog_request.go    # Catalog pricing request scope and offering resolution
+├── pricing_catalog_remote.go     # Restricted catalog fetch and safe fetch errors
+├── pricing_catalog_preview.go    # Preview hash and preview route
+├── pricing_catalog_preview_read.go # Preview read projection and price-plan shape
+├── pricing_catalog_commit.go     # Atomic catalog pricing commit transaction
+├── pricing_catalog_assignment.go # Catalog revision naming and Terminal Target CAS assignment
 ├── pricing_template_cards.go     # Card/window hydration and read-shape validation
 ├── pricing_template_shape.go     # Typed kind/card/window normalization and shape validation
 ├── pricing_template_write.go     # Immutable revision writes and change detection
@@ -30,7 +54,6 @@ connections/
 ├── pricing_list_page.go    # Bounded keyset pricing-template owner page
 ├── pricing_lookup.go       # Pricing-template connection usage lookup
 ├── pricing_setup_readiness.go    # Pricing/Proxy setup-readiness projection over the route witness
-├── store.go                # Profile-scoped connection, endpoint, model, and rule SQL, plus the connection→pricing-template reference guard
 ├── types.go                # Request and response shapes
 └── *_test.go               # Route-level regression coverage
 ```
@@ -38,9 +61,15 @@ connections/
 ## WHERE TO LOOK
 
 - Route list and mount contract: `service.go`
-- Public connection list/get/reference flows plus rejection surfaces for direct mutations: `routes.go`
-- Owner-scoped create/update/delete, legacy priority read compatibility, pricing-template assignment, and inline endpoint creation helpers: `routes.go`, `store.go`
-- `custom_request_parameters` create/update semantics (missing/`null`/`{}` normalize, whole-value PATCH replace, 422 `field`/`path`/`reason`/`limit` envelope): `custom_request_parameters.go`, `routes.go`
+- Public connection list/get/batch flows: `connection_read_routes.go`; connection references: `connection_reference_routes.go`; direct mutation rejection and route errors: `routes.go`
+- Owner-scoped create/update/delete, legacy priority read compatibility, and pricing-template assignment: `connection_owner_create.go`, `connection_owner_update.go`, `connection_delete_routes.go`, `connection_pricing_reference_store.go`
+- Inline endpoint selection and validation: `connection_endpoint_write.go`, `writer.go`, `connection_endpoint_store.go`, `endpointdomain`
+- `custom_request_parameters` create/update semantics (missing/`null`/`{}` normalize, whole-value PATCH replace, 422 `field`/`path`/`reason`/`limit` envelope): `custom_request_parameters.go`, `connection_owner_create.go`, `connection_owner_update.go`, `writer.go`, `composite_create.go`
+- Effective Default-profile scope and profile/access-target locks: `profile_scope.go`, `connection_access_target_store.go`
+- Model and endpoint owner lookups: `connection_model_store.go`, `connection_endpoint_store.go`
+- Terminal Target read/write and response projection: `terminal_target_store.go`, `terminal_target_projection.go`
+- Routing-window persistence and read hydration: `routing_window_store.go`, `routing_schedule.go`, `routing_schedule_state.go`
+- PostgreSQL nullable values and array arguments: `connection_db_arguments.go`
 - Pricing-template CRUD and validation: `pricing_templates.go`
 - Pricing-template persistence (row shape, select query, revision/mutation ledger, row scanners): `pricing_template_store.go`
 - Pricing-template card/window read validation: `pricing_template_cards.go`
@@ -49,6 +78,7 @@ connections/
 - Two-phase pricing-template JSON import (`preview_hash` / commit): `pricing_template_import.go`
 - Pricing-template price value object (canonical decimals, tier normalization/equality): `pricing_template_prices.go`
 - Pricing-template connection assignment and usage lookup: `pricing_lookup.go`
+- Catalog pricing workflow: `pricing_template_catalog.go` (contract types), `pricing_catalog_request.go` (request/offering scope), `pricing_catalog_remote.go` (remote fetch), `pricing_catalog_preview.go`, `pricing_catalog_preview_read.go` (preview/hash/plan), `pricing_catalog_commit.go` (atomic transaction), `pricing_catalog_assignment.go` (revision naming and target assignment); revision writes remain in `pricing_template_write.go`
 - Bounded keyset pricing-template owner pages used by Settings migration previews: `pricing_list_page.go`
 - Model target CRUD and ordering live in the separate model leaf: `../models/AGENTS.md`, `../models/service.go`
 

@@ -8,7 +8,11 @@
 
 ```text
 stats/
-├── common.go                     # Package-internal query executor, shared records, and nullable/currency helpers
+├── errors.go                     # Stats error contract
+├── query_contract.go             # PostgreSQL query executor contract
+├── query_values.go               # PostgreSQL scan/scalar projection conversions
+├── request_log_scope.go          # Row-scoped request-log status/duration SQL
+├── report_currency.go            # Report-currency projection read
 ├── read_model_math.go            # Shared time-preset, bucketing, percentile, and rate math
 ├── stats_catalog.go              # Current endpoint/connection catalog and Terminal Target label resolution
 ├── user_agent_rules.go           # Compiled User-Agent Client Rule loading and caller display classification
@@ -18,13 +22,13 @@ stats/
 ├── model_metrics.go              # Batch model metrics
 ├── endpoint_model_statistics.go  # Endpoint model statistics
 ├── spending.go                   # Spending report aggregation
-├── usage_event_records.go        # Shared usage-event loading and scanning
+├── usage_event_records.go        # Usage-event loading, records, pricing, and endpoint projections
 ├── types.go                      # JSON-facing read-model types
 ├── dashboard_health.go           # Dashboard freshness/coverage helper types
 ├── dashboard_snapshot_builder.go # Overview dashboard aggregate snapshot
 ├── dashboard_aggregate_store.go  # Per-profile dashboard aggregate snapshot cache
 ├── dashboard_recent_activity.go  # Bounded request-history activity feed
-├── observe_models.go             # Report-currency preferences and dashboard-now aggregates
+├── observe_models.go             # Dashboard-now read model
 ├── observe_usage_summary.go      # Observe usage summary and cost sparkline read model
 ├── observe_query.go              # Actual-coverage bounds resolution
 ├── observe_query_context.go     # Opaque query-context signing and verification
@@ -45,7 +49,7 @@ stats/
 ├── cost_segments.go              # Canonical cost-segment catalogue (e.N / l.AAA / l.__unknown__)
 ├── cost_segment_cursor.go        # Signed cost-segment cursor payload and signing-key derivation
 ├── cost_segment_symbols.go       # Bounded offset page of observed symbols per cost segment
-├── snapshot.go                   # Usage snapshot read model
+├── snapshot.go                   # Usage snapshot read model and snapshot-event projection
 ├── terminal_targets.go           # Bounded Terminal Target drill-down statistics
 ├── proxy_api_key_options.go      # Bounded proxy-key filter-option union
 ├── retention_source.go           # Retention source and actual-coverage owner projection
@@ -64,6 +68,7 @@ stats/
 - Ingress-chain coverage projections: `request_logs_chain_coverage.go`
 - Retained ingress rows: `request_logs_chain_rows.go`
 - Usage snapshot, spending, endpoint/model/proxy-key aggregates: `snapshot.go`, `spending.go`, `endpoint_model_statistics.go`, `model_metrics.go`
+- Report-currency projection: `report_currency.go`; `observe_models.go`, `snapshot.go`, and `spending.go` consume the same read contract
 - Observe usage summary and cost segments: `observe_usage_summary.go`, `observe_usage_summary_segments.go`
 - Canonical cost-segment generation and validation: `cost_segments.go`, `cost_segment_symbols.go`, `classifier.go`; the SQL generator and `CostSegmentKeyFor` must classify epoch 0, non-canonical currency codes, and NULL codes identically.
 - Observe query-context bounds/signing: `observe_query.go`, `observe_query_context.go`
