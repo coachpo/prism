@@ -47,14 +47,17 @@ models/
 ├── export_types.go               # Pi/OpenCode source/render wire contracts
 ├── export_store.go               # consistent model/routing/current-price export snapshot
 ├── export_facts.go               # DB/catalog rows projected into pure export facts
-├── export_handlers.go            # M3 no-store source/render handlers and server-owned replay
+├── export_source_route.go        # M3 no-store source HTTP route
+├── export_render_route.go        # M3 no-store render replay HTTP route
+├── export_source_projection.go   # Source response projection
+├── export_http_boundary.go       # Export HTTP boundary conversion
 └── *_test.go                     # Store and route regression coverage
 ```
 
 ## WHERE TO LOOK
 
 - Route list and mount contract: `service.go`.
-- Client model-config export surface: `export_handlers.go` mounts `/models/exports/{platform}/source` (consistent snapshot plus clock-free `source_digest`) and `/models/exports/{platform}/render` (fresh database facts matched against current-catalog and no-enrichment digest candidates, no network I/O and no use of request-carried catalog data). `export_store.go` reads models, reachable Terminal Targets, current pricing revisions, and catalog bindings in one transaction; `export_facts.go` projects rows into domain facts; `export_types.go` owns the wire shapes. Both M3 routes, including errors, are `private, no-store`, planning-neutral, and non-persistent. The pure merge/pricing/digest/origin-based renderer domain lives in `internal/domain/modelexport`.
+- Client model-config export surface: `export_source_route.go` mounts `/models/exports/{platform}/source` (consistent snapshot plus clock-free `source_digest`) and owns best-effort catalog refresh outside the transaction; `export_render_route.go` mounts `/models/exports/{platform}/render` (fresh database facts matched against current-catalog and no-enrichment digest candidates, no network I/O and no use of request-carried catalog data); `export_source_projection.go` owns source response projection; `export_http_boundary.go` owns platform parsing, strict render request decoding, origin validation, and typed domain-error conversion. `export_store.go` reads models, reachable Terminal Targets, current pricing revisions, and catalog bindings in one transaction; `export_facts.go` projects rows into domain facts; `export_types.go` owns the wire shapes. Both M3 routes, including errors, are `private, no-store`, planning-neutral, and non-persistent. The pure merge/pricing/digest/origin-based renderer domain lives in `internal/domain/modelexport`.
 - models.dev catalog surface: `catalog_read_routes.go`, `catalog_binding.go`, `catalog_refresh.go`, `catalog_override.go`, `catalog_override_write.go`, and `catalog_unbind.go` mount `/models/{model_config_id}/catalog*`; `catalog_handlers.go` owns route guards/error envelopes, `catalog_remote.go` owns the restricted fetch, and the client lives in `internal/domain/modelsdev`. Metadata writes are planning-neutral (`none:true` admission specs); remote catalog I/O always happens outside transactions and commits verify the previewed ETag.
 - Model list/get/create/update/delete handlers: `routes.go`.
 - Access-target HTTP handlers: `access_target_handlers.go`.
