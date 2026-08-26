@@ -444,11 +444,11 @@ func observeSetRetentionPurgeState(t *testing.T, harness *contractHarness, datas
 	}
 }
 
-// TestEventsUnnamedTerminalTargetProjectionContract pins the NULL/blank
+// TestEventsUnnamedTerminalTargetProjectionContract pins the NULL/blank/padded
 // connection-name contract: an existing terminal target with no usable name
 // still loads and projects as configured with the #<connection_id> fallback
-// label and a resolvable owner, while a missing connection row stays
-// configured=false without an owner.
+// label, a nonblank name is preserved byte-for-byte, and owner resolution is
+// independent from connection existence. A missing row stays configured=false.
 func TestEventsUnnamedTerminalTargetProjectionContract(t *testing.T) {
 	harness := newLoadbalanceContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
@@ -504,6 +504,29 @@ func TestEventsUnnamedTerminalTargetProjectionContract(t *testing.T) {
 	}
 	blankDetail := requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/loadbalance/events/4000?query_context="+url.QueryEscape(queryContext), nil, modelHeader(profileID), http.StatusOK)
 	assertConfiguredUnnamedTarget(blankDetail)
+
+	// Nonblank names retain their stored spelling; TrimSpace is only the blank
+	// test and must not normalize an operator-authored label.
+	const paddedName = "  Named Target  "
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE connections SET name = $1 WHERE id = $2`, paddedName, connectionID); err != nil {
+		t.Fatalf("set padded connection name: %v", err)
+	}
+	paddedDetail := requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/loadbalance/events/4000?query_context="+url.QueryEscape(queryContext), nil, modelHeader(profileID), http.StatusOK)
+	paddedTarget := asMap(t, paddedDetail["terminal_target"])
+	if paddedTarget["label"] != paddedName || paddedTarget["configured"] != true || jsonInt(t, paddedTarget["owner_model_config_id"]) != modelConfigID {
+		t.Fatalf("expected padded target label and owner to be preserved, got %+v", paddedTarget)
+	}
+
+	// The connection row remains configured when its owner edge disappears;
+	// only owner_model_config_id becomes unavailable.
+	if _, err := harness.conn.Exec(context.Background(), `DELETE FROM model_access_targets WHERE profile_id = $1 AND target_connection_id = $2 AND target_type = 'connection'`, profileID, connectionID); err != nil {
+		t.Fatalf("delete terminal target owner edge: %v", err)
+	}
+	ownerlessDetail := requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/loadbalance/events/4000?query_context="+url.QueryEscape(queryContext), nil, modelHeader(profileID), http.StatusOK)
+	ownerlessTarget := asMap(t, ownerlessDetail["terminal_target"])
+	if ownerlessTarget["label"] != paddedName || ownerlessTarget["configured"] != true || ownerlessTarget["owner_model_config_id"] != nil {
+		t.Fatalf("expected existing ownerless target to remain configured, got %+v", ownerlessTarget)
+	}
 }
 
 // TestEventsRequestLogPurgeInProgressContract pins the shared request-log
@@ -664,5 +687,13 @@ func TestNarrowCooldownResetContract(t *testing.T) {
 	missing := harness.requestJSON(t, harness.client, http.MethodPost, "/api/loadbalance/current-state/999999/reset", nil, modelHeader(profileID))
 	if missing.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected unknown target reset 404, got %d", missing.StatusCode)
+	}
+	var missingPayload map[string]any
+	decodeContractResponse(t, missing, &missingPayload)
+	if missingPayload["detail"] != "Connection not found" {
+		t.Fatalf("expected legacy no-code reset detail, got %+v", missingPayload)
+	}
+	if _, hasCode := missingPayload["code"]; hasCode {
+		t.Fatalf("expected legacy no-code reset response to omit code, got %+v", missingPayload)
 	}
 }

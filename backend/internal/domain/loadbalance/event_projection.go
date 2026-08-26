@@ -298,8 +298,8 @@ func buildEventTerminalTargetProjection(item eventRow, labels eventLabels) Event
 	}
 	// A configured target keeps configured=true even when its current name is
 	// NULL/blank; the label falls back to the persisted numeric identity.
-	label := strings.TrimSpace(labels.connections[item.ConnectionID])
-	if label == "" {
+	label := labels.connections[item.ConnectionID]
+	if strings.TrimSpace(label) == "" {
 		label = fmt.Sprintf("#%d", item.ConnectionID)
 	}
 	projection.Label = label
