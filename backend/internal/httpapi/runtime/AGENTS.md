@@ -13,8 +13,15 @@ runtime/
 ├── operation_image_audit.go     # Image audit-body redaction dispatch before persistence
 ├── service.go                   # Runtime service lifecycle
 ├── ingress.go                   # Runtime ingress admission
-├── response_write.go            # Downstream response writing
+├── response_write.go            # Downstream response lifecycle dispatch
+├── response_write_sse.go        # SSE response writing and durable handoff
+├── response_write_passthrough.go # Non-SSE passthrough response writing
+├── response_write_buffered.go   # Buffered response writing and durable handoff
+├── response_deferred_writer.go  # Deferred downstream commit writer
+├── response_write_handoff.go    # Durable-handoff eligibility predicate
+├── response_errors.go           # Runtime response error serialization
 ├── response_capture.go          # Non-stream response capture
+├── response_token_count.go      # Token-count response capture and usage extraction
 ├── response_usage_parser.go     # Streaming JSON usage parsing
 ├── stream_response_capture.go   # SSE response capture
 ├── stream_response_classification.go # SSE outcome classification
@@ -31,7 +38,8 @@ runtime/
 ├── request_execution.go         # Execution state records
 ├── request_execution_loop.go    # Execution attempt loop
 ├── upstream_attempt.go          # Upstream attempt transport
-├── failed_attempt_diagnostics.go # Failed-attempt diagnostics
+├── failed_attempt_diagnostics.go # Transport/stream diagnostic classification
+├── failed_response_sampler.go   # Failed-response sampler lifecycle
 ├── runtime_feedback.go          # Runtime feedback handoff
 ├── routing_plan*.go             # Routing plan compilation and validation helpers
 ├── planning_snapshot.go         # Runtime planning snapshot assembly and connection compilation
@@ -49,7 +57,8 @@ runtime/
 ├── gateway_*_bridge.go          # Gateway core and typed-hook bridge files
 ├── provider_usage_conversion.go # Provider usage normalization bridge
 ├── operation_request_hooks.go   # Request hook registry and streaming-intent selection
-├── operation_response_hooks.go  # Non-stream response parsing by operation
+├── operation_response_hooks.go  # Non-stream response hook registry by operation
+├── operation_response_overflow.go # Non-stream overflow classification
 ├── operation_stream_hooks.go    # SSE terminal and usage parsing by operation
 ├── operation_translation.go     # OpenAI native operation-set compatibility and rejection boundary
 ├── openai_models.go             # Local OpenAI model-list filtering and response
@@ -70,7 +79,7 @@ runtime/
 ├── proxy_key_telemetry.go       # Proxy-key telemetry
 ├── telemetry_request_helpers.go # Telemetry request helpers
 ├── bounded_audit_capture.go     # 4 MiB per-body / 12+4 MiB per-ingress bounded audit capture
-├── attempt_lifecycle.go         # Attempt triggers/results, launch-ordinal tracking, failed-response sampler, safe transport/stream diagnostics
+├── attempt_lifecycle.go         # Attempt triggers/results and launch-ordinal facts
 ├── telemetry_outbox.go             # Durable outbox lifecycle, metadata/artifact split, and provisional→finalized state machine
 ├── telemetry_outbox_poison.go   # Poison-row handling: permanent-vs-retryable materialization verdicts, safe SQLSTATE/constraint codes, backoff, and quarantine
 ├── log_partitions.go            # Runtime partition ensuring and cache
@@ -82,22 +91,27 @@ runtime/
 ├── runtime_pricing_card.go      # standard/tiered/peak_valley card selector and schedule evidence
 ├── pricing_template_snapshot_queries.go # Batched immutable pricing card/window snapshot reads
 ├── runtime_pricing_tier.go      # Typed tier basis and token-count operation helpers
-└── *_test.go                    # Route matrix, hook residency, planning, and ingress regressions
+├── runtime_planning_test.go    # Request planning and operation-binding regressions
+├── runtime_stream_audit_test.go # Stream, audit, and diagnostic regressions
+├── runtime_response_usage_test.go # Response hook and usage regressions
+├── runtime_pricing_test.go     # Runtime pricing regressions
+├── runtime_header_forwarding_test.go # Header forwarding and HTTP-client regressions
+└── *_test.go                    # Focused route, hook, planning, and ingress regressions
 ```
 
 ## WHERE TO LOOK
 
 - Exact supported operations, hook collection ids, streaming flags, and model-binding sources: `operations.go`
-- Ingress rejection before body reads and response branching: `ingress.go`, `response_write.go`, `service.go`
+- Ingress rejection before body reads and response branching: `ingress.go`, `response_write.go`, `response_write_sse.go`, `response_write_passthrough.go`, `response_write_buffered.go`, `service.go`
 - Request planning and exact model binding: `request_plan.go`, `runtime_planning.go`, `runtime_operation_binding.go`, `runtime_model_rewrite.go`, `runtime_planner.go`, `routing_plan*.go`, `generations.go`, `planning_snapshot.go`, `planning_access_resolution.go`, `proxy_selector_helpers.go`
 - Snapshot assembly, mixed access resolution, and runtime database reads: `planning_snapshot.go`, `planning_access_resolution.go`, `planning_snapshot_records.go`, `runtime_snapshot_queries.go`
-- Execution state and upstream attempts: `request_execution.go`, `request_execution_loop.go`, `upstream_attempt.go`, `failed_attempt_diagnostics.go`
+- Execution state and upstream attempts: `request_execution.go`, `request_execution_loop.go`, `upstream_attempt.go`, `attempt_lifecycle.go`, `failed_attempt_diagnostics.go`, `failed_response_sampler.go`
 - Header policy: `upstream_header_policy.go`
 - Runtime-to-gateway adapter seams and usage normalization: `*_adapter_bridge.go`, `gateway_core_bridge.go`, `gateway_typed_hooks_bridge.go`, `provider_usage_conversion.go`
 - Automatic generation-param extraction and operation-directed request hooks: `request_generation_params.go`, `operation_request_hooks.go`
-- Non-stream response parsing for text generation and token count operations: `operation_response_hooks.go`
+- Non-stream response hook registry, overflow classification, capture, and token-count parsing: `operation_response_hooks.go`, `operation_response_overflow.go`, `response_capture.go`, `response_token_count.go`
 - SSE terminal classification and usage merging for OpenAI, Anthropic, and Gemini stream operations: `operation_stream_hooks.go`
-- OpenAI native operation-set coverage, mismatched-target skipping, unsupported-wire rejection behavior, and planning diagnostics: `operation_translation.go`, `planning_snapshot.go`, `routing_plan*.go`, `runtime_test.go`
+- OpenAI native operation-set coverage, mismatched-target skipping, unsupported-wire rejection behavior, and planning diagnostics: `operation_translation.go`, `planning_snapshot.go`, `routing_plan*.go`, `runtime_planning_test.go`
 - Local OpenAI model-list response: `openai_models.go`
 - Request-log, usage-event, and audit shaping plus `operation_name` persistence: `observability.go`, `telemetry_activity_handoff.go`, `telemetry_records.go`, `request_log_rows.go`, `audit_log_rows.go`, `usage_event_row.go`, `telemetry_persistence.go`, `attempt_lifecycle.go`, `../../../migrations/000001_initial_schema.sql`, `../../../migrations/000008_pricing_cost_trust_additive.sql`, `../../../migrations/000010_request_logs_audit_observability.sql`, `../../../migrations/000022_pricing_input_tier.sql`, `../../../migrations/000023_pricing_template_kind_cards.sql`
 - Provider usage normalization and response capture: `provider_usage_rules.go`, `response_capture.go`, `response_usage_parser.go`, `stream_response_capture.go`, `stream_response_classification.go`
@@ -108,7 +122,7 @@ runtime/
 - Peak/valley schedule digest coherence is computed once while compiling the planning snapshot in `planning_terminal_target_adapter.go`; request-time card selection only consumes the compiled validity flag and the frozen ingress planning clock. A truncated window child read remains unresolved.
 - Safe failure diagnostics bottom line: `../../domain/safediag/` (scrub/extract/codes/metadata/limits)
 - Partition ensuring and partition-cache behavior: `log_partitions.go`, `../../platform/logretention/`
-- Internal runtime regression coverage: `operations_test.go`, `service_ingress_test.go`, `request_generation_params_test.go`, `request_generation_params_runtime_test.go`, `operation_hook_residency_test.go`, `operation_response_hooks_test.go`, `operation_response_overflow_classifier_test.go`, `gateway_typed_hooks_bridge_test.go`, `planning_snapshot_contract_test.go`, `routing_plan_test.go`, `runtime_test.go`
+- Internal runtime regression coverage: `operations_test.go`, `service_ingress_test.go`, `request_generation_params_test.go`, `request_generation_params_runtime_test.go`, `operation_hook_residency_test.go`, `operation_response_hooks_test.go`, `operation_response_overflow_classifier_test.go`, `gateway_typed_hooks_bridge_test.go`, `planning_snapshot_contract_test.go`, `routing_plan_test.go`, `runtime_planning_test.go`, `runtime_stream_audit_test.go`, `runtime_response_usage_test.go`, `runtime_pricing_test.go`, `runtime_header_forwarding_test.go`
 - Route-matrix, native compatibility, streaming, body-limit, and rejected-route coverage: `../../../tests/runtime/body_limits_test.go`, `../../../tests/runtime/operation_route_matrix_test.go`, `../../../tests/runtime/operation_route_matrix_openai_compatibility_test.go`, `../../../tests/runtime/runtime_streaming_buffering_test.go`, `../../../tests/runtime/rejected_route_isolation_test.go`, `../../../tests/runtime/request_generation_params_contract_test.go`, `../../../tests/integration/runtime_route_matrix_test.go`
 
 ## CONVENTIONS

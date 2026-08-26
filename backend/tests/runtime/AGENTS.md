@@ -15,7 +15,11 @@ runtime/
 ├── rejected_route_isolation_test.go    # Unsupported/wrong-method isolation before side effects
 ├── request_logs_contract_test.go       # Request-log list/detail, generic pricing evidence, CSV, and filter contracts
 ├── pricing_peak_valley_runtime_test.go # Real runtime peak/offpeak requests, SQL evidence symmetry, and half-open boundary
-├── proxy_selector_test.go              # Access-target planning, failover, Ban Policy, admission
+├── proxy_selector_test.go              # Access-target selection, header parity, and private ownership
+├── proxy_admission_test.go             # Admission exhaustion and per-connection admission limits
+├── proxy_failover_test.go              # Retry, failover, round-robin, and retry-window behavior
+├── proxy_lease_test.go                 # Response-body lease and in-flight exclusivity
+├── proxy_recovery_test.go              # Ban recovery, probe success, and restart persistence
 ├── runtime_streaming_buffering_test.go # Streaming buffering and terminal behavior
 ├── runtime_telemetry_outbox_test.go    # Durable telemetry outbox behavior
 ├── telemetry_outbox_poison_test.go     # Poison-row classification, quarantine, and backoff
@@ -30,8 +34,12 @@ runtime/
 - Rejected-route isolation before body reads, provider transport, telemetry, audit, feedback, or side effects: `rejected_route_isolation_test.go`
 - Request-log contracts, final-target filters, client-rule filters, grouped ingress rows, CSV, and typed kind/state/role pricing evidence: `request_logs_contract_test.go`
 - Peak/valley runtime selection with frozen clock, IANA wall-clock evidence, and independent persisted-row checks: `pricing_peak_valley_runtime_test.go`
-- Runtime pricing invariants also have process-local coverage for accepted planning time, half-open peak/valley boundaries, and snapshot digest/child-shape failure in `../../internal/httpapi/runtime/pricing_operation_matrix_test.go` and `runtime_test.go`.
-- Runtime planning, failover, current-state mutation, recovery, and admission exhaustion: `proxy_selector_test.go`
+- Runtime pricing invariants also have process-local coverage for accepted planning time, half-open peak/valley boundaries, and snapshot digest/child-shape failure in `../../internal/httpapi/runtime/pricing_operation_matrix_test.go` and `runtime_pricing_test.go`.
+- Runtime target selection and private ownership: `proxy_selector_test.go`
+- Runtime admission exhaustion and limits: `proxy_admission_test.go`
+- Runtime retry/failover and round-robin behavior: `proxy_failover_test.go`
+- Runtime response-body lease behavior: `proxy_lease_test.go`
+- Runtime recovery and restart persistence: `proxy_recovery_test.go`
 - Runtime-created log partitions and helper parity: `runtime_partitioned_logs_test.go`, `log_partition_helpers_test.go`
 - Cache invalidation and runtime snapshots: `runtime_cache_invalidation_test.go`, `runtime_phase1_snapshot_test.go`
 - Streaming and telemetry durability: `runtime_streaming_buffering_test.go`, `runtime_telemetry_outbox_test.go`, `telemetry_outbox_poison_test.go`, `proxy_key_attribution_failure_test.go`

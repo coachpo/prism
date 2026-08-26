@@ -87,6 +87,21 @@ func responseMayContainJSONUsage(contentType string) bool {
 	return trimmed == "" || strings.Contains(trimmed, "json")
 }
 
+func proxyNonEventResponseAndCaptureWithoutUsage(hooks operationResponseHooks, dst io.Writer, src io.Reader, contentType string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
+	auditBuffer, auditWriter := newBoundedAuditWriter(captureAuditBody)
+	writers := []io.Writer{dst}
+	if auditWriter != nil {
+		writers = append(writers, auditWriter)
+	}
+	_, err := io.Copy(io.MultiWriter(writers...), src)
+	completedAt := now()
+	capture := runtimeResponseCapture{CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming}
+	if captureAuditBody {
+		capture.AuditBody, capture.AuditBodyObserved, capture.AuditBodyStored, capture.AuditBodyTruncated = auditBuffer.snapshot()
+	}
+	return capture, err
+}
+
 type streamedResponseUsageCapture struct {
 	parser *streamedResponseUsageParser
 }

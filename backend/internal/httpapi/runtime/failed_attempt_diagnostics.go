@@ -1,80 +1,116 @@
 package runtime
 
-// Failed-attempt diagnostics own sampler lifecycle for responses that will not
-// reach the caller. The sampler is bounded, asynchronous, and subordinate to
-// retry progress; the next upstream launch never waits for diagnostic bytes.
-//
-// Header-blocklist rules are converted at the request boundary so diagnostic
-// scrubbing is at least as strict as forwarding policy. Hedge loser detection
-// remains here because it controls sampler ownership for cancelled attempts.
-//
-// The sampler's body ownership is exclusive: once attached, the sampler
-// closes the intermediate response. Final selected responses never enter this
-// path and retain their body for downstream relay and audit capture.
-//
-// A sampler limit hit is not a transport failure. The executor continues with
-// the next attempt and the telemetry row falls back to a stable HTTP diagnostic.
-//
-// Diagnostic content is scrubbed and bounded before it can enter a request-log
-// record. The sampler never emits provider URLs, credentials, or arbitrary body
-// bytes to the caller.
-// The final response path remains outside this module.
-//
-//
-// The diagnostic path is best effort and fail-closed.
-//
-// A sampler cannot change retry eligibility or the downstream response.
-// Its only durable consumer is the telemetry sealer.
-//
 import (
 	"context"
+	"crypto/tls"
 	"errors"
+	"net"
 	"strings"
 
 	"github.com/coachpo/prism/backend/internal/domain/safediag"
 )
 
-// startFailedResponseSampler begins the bounded failed-response sampler for an
-// intermediate retry/failover non-2xx response. The sampler reads at most
-// 32 KiB with a 50 ms deadline and exclusively owns the failed response body
-// close. The next launch never waits for it; telemetry sealing uses whatever
-// completed or falls back to generic status. It MUST only be called for
-// responses that will NOT be passed through to the client (the final selected
-// response keeps its body for passthrough).
-func (s *Service) startFailedResponseSampler(ctx context.Context, plan requestPlan, outcome *executionOutcome) {
-	if outcome == nil || outcome.Response == nil || outcome.Attempt.Sampler != nil {
-		return
-	}
-	ingressID := runtimeIngressRequestIDFromContext(ctx)
-	s.failedResponseSamplerOnce.Do(func() {
-		s.failedResponseSamplers = &failedResponseSamplerLimiter{}
-	})
-	if !s.failedResponseSamplers.acquire(ingressID) {
-		return
-	}
-	contentType := strings.ToLower(strings.TrimSpace(outcome.Response.Header.Get("Content-Type")))
-	sampler := newFailedResponseSampler(
-		ingressID,
-		outcome.Response,
-		contentType,
-		planBlocklistSensitiveRules(plan),
-	)
-	sampler.release = func() { s.failedResponseSamplers.release(ingressID) }
-	outcome.Attempt.Sampler = sampler
-	go sampler.run()
+const (
+	errorSourcePrism     = "prism"
+	errorSourceUpstream  = "upstream"
+	errorSourceTransport = "transport"
+	errorSourceClient    = "client"
+	errorSourceUnknown   = "unknown"
+
+	failureStageRouting          = "routing"
+	failureStageAdmission        = "admission"
+	failureStageUpstreamConnect  = "upstream_connect"
+	failureStageUpstreamResponse = "upstream_response"
+	failureStageStream           = "stream"
+	failureStageUnknown          = "unknown"
+)
+
+// attemptFailureDiagnostics carries the safe failure projection for one
+// attempt. Raw samples never enter these fields.
+type attemptFailureDiagnostics struct {
+	Source    string
+	Stage     string
+	Code      string
+	Detail    string
+	Redacted  bool
+	Truncated bool
 }
 
-// planBlocklistSensitiveRules converts the request-time effective Header
-// Blocklist into extra sensitive-name rules for runtime scrubbing. Every
-// consumer remains at least as strict as the outbound forwarding policy.
-func planBlocklistSensitiveRules(plan requestPlan) []safediag.SensitiveNameRule {
-	rules := make([]safediag.SensitiveNameRule, 0, len(plan.BlocklistRules))
-	for _, rule := range plan.BlocklistRules {
-		rules = append(rules, safediag.SensitiveNameRule{MatchType: rule.MatchType, Pattern: rule.Pattern})
+// upstreamFailureClass maps a transport error to a fixed classification
+// label that never contains an upstream address. It is the only source of
+// client-visible 502 detail: callers never receive host, port, or path.
+func upstreamFailureClass(err error) string {
+	if err == nil {
+		return ""
 	}
-	return rules
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "client_disconnected"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "upstream_timeout"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "upstream_timeout"
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return "upstream_dns_failed"
+	}
+	var certErr *tls.CertificateVerificationError
+	if errors.As(err, &certErr) {
+		return "upstream_tls_failed"
+	}
+	var recordErr tls.RecordHeaderError
+	if errors.As(err, &recordErr) {
+		return "upstream_tls_failed"
+	}
+	return "upstream_connect_failed"
 }
 
-func (s *Service) isHedgeLoserCancellation(ctx context.Context, err error) bool {
-	return err != nil && errors.Is(err, context.Canceled) && errors.Is(context.Cause(ctx), errHedgeLoserCanceled)
+// safeTransportDiagnostic builds the bounded transport diagnostic from a
+// sanitized typed error string. It never includes raw provider bytes.
+func safeTransportDiagnostic(err error) attemptFailureDiagnostics {
+	if err == nil {
+		return attemptFailureDiagnostics{}
+	}
+	message := err.Error()
+	scrubbed := safediag.ScrubValue(message, safediag.ScrubOptions{MaxBytes: safediag.MaxErrorDetailBytes})
+	return attemptFailureDiagnostics{
+		Source:    errorSourceTransport,
+		Stage:     failureStageUpstreamConnect,
+		Code:      safediag.CodeTransportError,
+		Detail:    scrubbed.Value,
+		Redacted:  scrubbed.Redacted,
+		Truncated: scrubbed.Truncated,
+	}
+}
+
+// safeStreamDiagnostic builds the bounded stream diagnostic. kind is the
+// typed stream_error_kind (may be empty); detail is the raw stream error text
+// which is scrubbed here before persistence.
+func safeStreamDiagnostic(source string, stage string, kind string, outcome string, rawDetail string) attemptFailureDiagnostics {
+	code := ""
+	if strings.TrimSpace(kind) != "" {
+		code = safediag.StreamKindFallbackCode(strings.TrimSpace(kind))
+	} else if strings.TrimSpace(outcome) != "" {
+		code = safediag.StreamOutcomeFallbackCode(strings.TrimSpace(outcome))
+	}
+	scrubbed := safediag.ScrubValue(rawDetail, safediag.ScrubOptions{MaxBytes: safediag.MaxStreamErrorDetailBytes})
+	return attemptFailureDiagnostics{
+		Source:    source,
+		Stage:     stage,
+		Code:      code,
+		Detail:    scrubbed.Value,
+		Redacted:  scrubbed.Redacted,
+		Truncated: scrubbed.Truncated,
+	}
+}
+
+// stableFallbackCode returns the stable error code for an HTTP failure.
+func stableHTTPErrorCode(statusCode int, providerCode string) string {
+	if code := safediag.AdoptProviderCode(providerCode); code != "" {
+		return code
+	}
+	return safediag.HTTPFallbackCode(statusCode)
 }
