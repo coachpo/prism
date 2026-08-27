@@ -9,7 +9,10 @@ import { useModelsCollection } from "./useModelsCollection";
  * Models page composition root. Collection/cache, dialog CRUD, enablement,
  * deletion, strategy defaults, and metrics keep their own lifecycles.
  */
-export function useModelsPageData(revision: number) {
+export function useModelsPageData(
+  revision: number,
+  scope: "ingress" | "final_execution" | "route_attempt" = "ingress",
+) {
   const collection = useModelsCollection(revision);
   const dialog = useModelDialogMutations({
     commitModels: collection.commitModels,
@@ -30,6 +33,18 @@ export function useModelsPageData(revision: number) {
   });
   const deletion = useModelDeletion({ commitModels: collection.commitModels });
   const metrics = useModelMetrics24h(collection.models);
+  const modelMetrics24h = Object.fromEntries(
+    collection.models.map((model) => [
+      model.id,
+      metrics.modelMetricsByScope[model.id]?.[scope],
+    ]),
+  );
+  const modelSpend30dMicros = Object.fromEntries(
+    collection.models.map((model) => [
+      model.id,
+      metrics.modelMetricsByScope[model.id]?.[scope]?.known_cost_micros ?? null,
+    ]),
+  );
 
   return {
     deleteTarget: deletion.deleteTarget,
@@ -50,10 +65,12 @@ export function useModelsPageData(revision: number) {
       strategyDefaults.loadbalanceStrategyDefaultsCreating,
     loading: collection.loading,
     loadError: collection.loadError,
+    metricsCoverage: metrics.coverage,
     metricsFailed: metrics.metricsFailed,
     metricsLoading: metrics.metricsLoading,
-    modelMetrics24h: metrics.modelMetrics24h,
-    modelSpend30dMicros: metrics.modelSpend30dMicros,
+    modelMetrics24h,
+    modelMetricsByScope: metrics.modelMetricsByScope,
+    modelSpend30dMicros,
     models: collection.models,
     setDeleteTarget: deletion.setDeleteTarget,
     setModelEnabled: enablement.setModelEnabled,

@@ -83,10 +83,10 @@ vi.mock("sonner", () => ({
 
 vi.mock("./useModelMetrics24h", () => ({
   useModelMetrics24h: () => ({
+    coverage: null,
     metricsFailed: false,
     metricsLoading: false,
-    modelMetrics24h: {},
-    modelSpend30dMicros: {},
+    modelMetricsByScope: {},
   }),
 }));
 

@@ -1,6 +1,17 @@
 {
+  "caliber": {
+    "cost_basis": "none",
+    "datasets": [
+      "request_logs"
+    ],
+    "grain": "upstream_attempt",
+    "identity_basis": "attempt_target_model_id",
+    "latency_basis": "attempt_duration",
+    "outcome_basis": "attempt_result",
+    "scope": "route_attempt"
+  },
   "coverage": {
-    "complete": true,
+    "complete": false,
     "effective_from_time": "2026-04-18T12:00:00Z",
     "effective_to_time": "2026-04-19T12:00:00Z",
     "gaps": [],
@@ -9,10 +20,26 @@
     "requested_to_time": "2026-04-19T12:00:00Z",
     "retention_epoch": "0",
     "retention_generation": "1",
-    "source_revision": "a5398a23431a72f248fa94c45390a560923566811afe62354c92c31b2562c249",
-    "state": "known"
+    "source_revision": "10a8bba470e251cd843f978d97af023741e12bdd3a1a89e28524db672a1b9155",
+    "state": "legacy_unknown"
+  },
+  "dataset_coverage": {
+    "request_logs": {
+      "complete": false,
+      "from_time": "2026-04-18T12:00:00Z",
+      "gaps": [],
+      "purge_state": "idle",
+      "requested_preset": "",
+      "retention_epoch": "0",
+      "retention_from_time": null,
+      "retention_generation": "1",
+      "source": "raw",
+      "source_revision": "10a8bba470e251cd843f978d97af023741e12bdd3a1a89e28524db672a1b9155",
+      "to_time": "2026-04-19T12:00:00Z"
+    }
   },
   "filter_options": {
+    "attempt_target_models": [],
     "clients": [
       {
         "client_label": "Codex",
@@ -57,15 +84,17 @@
         "endpoint_label": "Primary OpenAI"
       }
     ],
-    "models": [],
-    "resolved_target_models": []
+    "ingress_models": []
   },
+  "has_more": false,
   "items": [
     {
       "api_family": "openai",
       "attempt_duration_ms": 1234,
       "attempt_number": 2,
       "attempt_result": null,
+      "attempt_target_model_id": "gpt-4o-native",
+      "attempt_target_model_label": "gpt-4o-native",
       "attempt_trigger": null,
       "caller_client_display": "Codex",
       "completion_duration_ms": 914,
@@ -80,22 +109,22 @@
       "failure_detail_source": "error_detail",
       "failure_stage": null,
       "gateway_status_code": null,
+      "ingress_model_id": "gpt-4o",
       "ingress_request_id": "ingress_req_42",
       "is_stream": false,
       "is_winner": null,
       "legacy_duration_ms": null,
       "legacy_status_code": null,
-      "model_id": "gpt-4o",
       "model_label": "gpt-4o",
       "output_tokens": 42,
       "pricing_card_role": null,
+      "pricing_evidence_trust": "trusted",
       "pricing_resolution_kind": null,
       "pricing_selection_state": null,
       "pricing_selector_basis_tokens": null,
       "pricing_selector_threshold_tokens": null,
-      "pricing_template_kind": null,
-      "pricing_evidence_trust": "trusted",
       "pricing_status": "priced",
+      "pricing_template_kind": null,
       "proxy_api_key_attribution_state": "unknown",
       "proxy_api_key_auth_enforced_at_request": null,
       "proxy_api_key_id": null,
@@ -103,8 +132,6 @@
       "reasoning_effort": "low",
       "report_currency_symbol": "$",
       "request_log_id": "101",
-      "resolved_target_model_id": "gpt-4o-native",
-      "resolved_target_model_label": "gpt-4o-native",
       "row_kind": "upstream",
       "status_code": 200,
       "stream_error_kind": null,
@@ -112,20 +139,22 @@
       "terminal_target_configured": false,
       "terminal_target_id": 34,
       "terminal_target_label": null,
+      "terminal_target_owner_model_id": null,
       "total_cost_user_currency_micros": 1250,
       "total_tokens": 57,
       "ttft_ms": 320,
       "unpriced_reason": null,
       "upstream_client_display": "OpenAI SDK",
       "upstream_status_code": 200,
-      "user_agent_overridden": true,
-      "terminal_target_owner_model_id": null
+      "user_agent_overridden": true
     },
     {
       "api_family": "openai",
       "attempt_duration_ms": 120,
       "attempt_number": 1,
       "attempt_result": null,
+      "attempt_target_model_id": "gpt-4o",
+      "attempt_target_model_label": "gpt-4o",
       "attempt_trigger": null,
       "caller_client_display": null,
       "completion_duration_ms": null,
@@ -140,22 +169,22 @@
       "failure_detail_source": "error_detail",
       "failure_stage": null,
       "gateway_status_code": null,
+      "ingress_model_id": "gpt-4o",
       "ingress_request_id": "req-102",
       "is_stream": false,
       "is_winner": null,
       "legacy_duration_ms": null,
       "legacy_status_code": null,
-      "model_id": "gpt-4o",
       "model_label": "gpt-4o",
       "output_tokens": null,
       "pricing_card_role": null,
+      "pricing_evidence_trust": "trusted",
       "pricing_resolution_kind": "unsupported_unit",
       "pricing_selection_state": null,
       "pricing_selector_basis_tokens": null,
       "pricing_selector_threshold_tokens": null,
-      "pricing_template_kind": null,
-      "pricing_evidence_trust": "trusted",
       "pricing_status": "unpriced",
+      "pricing_template_kind": null,
       "proxy_api_key_attribution_state": "unknown",
       "proxy_api_key_auth_enforced_at_request": null,
       "proxy_api_key_id": null,
@@ -163,8 +192,6 @@
       "reasoning_effort": null,
       "report_currency_symbol": null,
       "request_log_id": "102",
-      "resolved_target_model_id": "gpt-4o",
-      "resolved_target_model_label": "gpt-4o",
       "row_kind": "upstream",
       "status_code": 200,
       "stream_error_kind": null,
@@ -172,19 +199,25 @@
       "terminal_target_configured": false,
       "terminal_target_id": null,
       "terminal_target_label": null,
+      "terminal_target_owner_model_id": null,
       "total_cost_user_currency_micros": null,
       "total_tokens": null,
       "ttft_ms": null,
       "unpriced_reason": "MISSING_PRICE_DATA",
       "upstream_client_display": null,
       "upstream_status_code": 200,
-      "user_agent_overridden": false,
-      "terminal_target_owner_model_id": null
+      "user_agent_overridden": false
     }
   ],
   "limit": 50,
   "offset": 0,
+  "samples": {
+    "cost_missing_count": 0,
+    "cost_sample_count": 0,
+    "latency_missing_count": 0,
+    "latency_sample_count": 0,
+    "observation_count": 2
+  },
   "total": 2,
-  "total_is_exact": true,
-  "has_more": false
+  "total_is_exact": true
 }

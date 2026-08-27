@@ -5,16 +5,20 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // CostSegmentSymbolsPage is one offset page of every distinct nonempty symbol
 // observed for a canonical cost segment.
 type CostSegmentSymbolsPage struct {
-	SegmentKey string   `json:"segment_key"`
-	Symbols    []string `json:"symbols"`
-	Total      int      `json:"total"`
-	Limit      int      `json:"limit"`
-	Offset     int      `json:"offset"`
+	SegmentKey      string            `json:"segment_key"`
+	Symbols         []string          `json:"symbols"`
+	Total           int               `json:"total"`
+	Limit           int               `json:"limit"`
+	Offset          int               `json:"offset"`
+	Caliber         ScopeCaliber      `json:"caliber"`
+	DatasetCoverage DatasetCoverage   `json:"dataset_coverage"`
+	Samples         ScopeSampleCounts `json:"samples"`
 }
 
 // CostSegmentSymbolsParams selects one full-symbol page.
@@ -44,7 +48,7 @@ func ListCostSegmentSymbols(ctx context.Context, exec queryExecutor, params Cost
 		return CostSegmentSymbolsPage{}, &HTTPError{StatusCode: 400, Code: "cost_segment_offset_invalid", Detail: "Cost segment symbol offset is invalid."}
 	}
 
-	page := CostSegmentSymbolsPage{SegmentKey: *segmentKey, Symbols: []string{}, Limit: params.Limit, Offset: params.Offset}
+	page := CostSegmentSymbolsPage{SegmentKey: *segmentKey, Symbols: []string{}, Limit: params.Limit, Offset: params.Offset, Caliber: CatalogCaliber("usage_request_events", "cost_segment_symbol")}
 	var exists bool
 	err = exec.QueryRow(ctx, costSegmentClassifiedEventsCTE+`, matching AS (
 		SELECT report_currency_symbol, created_at, id
@@ -71,6 +75,10 @@ func ListCostSegmentSymbols(ctx context.Context, exec queryExecutor, params Cost
 	}
 	if !exists {
 		return CostSegmentSymbolsPage{}, &HTTPError{StatusCode: 404, Code: "cost_segment_not_found", Detail: "Cost segment was not found."}
+	}
+	page.Samples = ScopeSampleCounts{ObservationCount: page.Total}
+	if _, coverage, coverageErr := ResolveDatasetCoverage(ctx, exec, "usage_request_events", "all", nil, nil, time.Now().UTC()); coverageErr == nil {
+		page.DatasetCoverage = DatasetCoverage{UsageRequestEvents: &coverage}
 	}
 	return page, nil
 }

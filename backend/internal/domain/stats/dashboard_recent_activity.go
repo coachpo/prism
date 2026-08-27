@@ -40,6 +40,10 @@ func GetDashboardRecentActivity(ctx context.Context, exec queryExecutor, profile
 	if limit > 50 {
 		limit = 50
 	}
+	_, coverage, err := ResolveDatasetCoverage(ctx, exec, "request_logs", "all", nil, &generatedAt, generatedAt)
+	if err != nil {
+		return DashboardRecentActivityResponse{}, err
+	}
 	_, currentEndpointsByID, err := loadCurrentEndpoints(ctx, exec, profileID)
 	if err != nil {
 		return DashboardRecentActivityResponse{}, err
@@ -63,10 +67,14 @@ func GetDashboardRecentActivity(ctx context.Context, exec queryExecutor, profile
 	if err != nil {
 		return DashboardRecentActivityResponse{}, err
 	}
-	return newDashboardRecentActivityResponse(generatedAt, items), nil
+	return newDashboardRecentActivityResponse(generatedAt, items, coverage), nil
 }
 
 func GetDashboardRecentActivityForRequestLog(ctx context.Context, exec queryExecutor, profileID int, requestLogID int, generatedAt time.Time) (DashboardRecentActivityResponse, error) {
+	_, coverage, err := ResolveDatasetCoverage(ctx, exec, "request_logs", "all", nil, &generatedAt, generatedAt)
+	if err != nil {
+		return DashboardRecentActivityResponse{}, err
+	}
 	_, currentEndpointsByID, err := loadCurrentEndpoints(ctx, exec, profileID)
 	if err != nil {
 		return DashboardRecentActivityResponse{}, err
@@ -89,7 +97,7 @@ func GetDashboardRecentActivityForRequestLog(ctx context.Context, exec queryExec
 	if err != nil {
 		return DashboardRecentActivityResponse{}, err
 	}
-	return newDashboardRecentActivityResponse(generatedAt, items), nil
+	return newDashboardRecentActivityResponse(generatedAt, items, coverage), nil
 }
 
 func scanDashboardRecentActivityItems(profileID int, rows dashboardRecentActivityRows, currentEndpointsByID map[int]endpointRecord, currentModelsByID map[string]requestLogModelRecord, capacity int) ([]DashboardRecentActivityItem, error) {
@@ -103,10 +111,10 @@ func scanDashboardRecentActivityItems(profileID int, rows dashboardRecentActivit
 		items = append(items, DashboardRecentActivityItem{
 			RequestLogID:                row.RequestLogID,
 			CreatedAt:                   row.CreatedAt.UTC(),
-			ModelID:                     row.ModelID,
-			ModelLabel:                  resolveRequestLogModelLabel(currentModelsByID, row.ModelID),
-			ResolvedTargetModelID:       row.ResolvedTargetModelID,
-			ResolvedTargetModelLabel:    resolveRequestLogResolvedTargetModelLabel(currentModelsByID, row.ResolvedTargetModelID),
+			IngressModelID:              row.ModelID,
+			IngressModelLabel:           resolveRequestLogModelLabel(currentModelsByID, row.ModelID),
+			AttemptTargetModelID:        row.ResolvedTargetModelID,
+			AttemptTargetModelLabel:     resolveRequestLogResolvedTargetModelLabel(currentModelsByID, row.ResolvedTargetModelID),
 			EndpointID:                  row.EndpointID,
 			EndpointLabel:               resolveEndpointLabel(currentEndpoint.Name, currentEndpoint.BaseURL, row.EndpointBaseURL, row.EndpointID, "Unknown Endpoint"),
 			StatusCode:                  row.StatusCode,
@@ -128,11 +136,14 @@ func scanDashboardRecentActivityItems(profileID int, rows dashboardRecentActivit
 	return items, nil
 }
 
-func newDashboardRecentActivityResponse(generatedAt time.Time, items []DashboardRecentActivityItem) DashboardRecentActivityResponse {
+func newDashboardRecentActivityResponse(generatedAt time.Time, items []DashboardRecentActivityItem, coverage Coverage) DashboardRecentActivityResponse {
 	return DashboardRecentActivityResponse{
 		GeneratedAt:       generatedAt.UTC(),
 		ActivityWatermark: dashboardRecentActivityWatermark(items),
 		Items:             items,
+		Caliber:           CaliberForScope(ScopeRouteAttempt),
+		DatasetCoverage:   DatasetCoverage{RequestLogs: &coverage},
+		Samples:           ScopeSampleCounts{ObservationCount: len(items)},
 	}
 }
 
@@ -168,7 +179,7 @@ func scanDashboardRecentActivityRow(scanner interface{ Scan(...any) error }) (da
 	}
 	row.CreatedAt = row.CreatedAt.UTC()
 	row.ResolvedTargetModelID = nullableString(resolvedTargetModelID)
-	row.EndpointID = nullableInt32(endpointID)
+	row.EndpointID = normalizePositiveID(nullableInt32(endpointID))
 	// response_time_ms is now the end-to-end duration and may be null for
 	// rows without a resolved duration.
 	row.StatusCode = nullableInt32(statusCode)

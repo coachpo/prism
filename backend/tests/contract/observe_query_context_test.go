@@ -403,8 +403,8 @@ func TestObserveUsageSeries(t *testing.T) {
 	contextPayload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/query-context?preset=24h", nil, http.StatusOK)
 	token := contextPayload["query_context"].(string)
 
-	series := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/usage-series?query_context="+token+"&metric=requests&group_by=model&interval=auto", nil, http.StatusOK)
-	if series["metric"] != "requests" || series["group_by"] != "model" {
+	series := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/usage-series?query_context="+token+"&metric=requests&group_by=ingress_model&interval=auto", nil, http.StatusOK)
+	if series["metric"] != "requests" || series["group_by"] != "ingress_model" {
 		t.Fatalf("unexpected series root, got %+v", series)
 	}
 	items := series["series"].([]any)
@@ -412,7 +412,7 @@ func TestObserveUsageSeries(t *testing.T) {
 		t.Fatalf("expected two model series, got %+v", items)
 	}
 	first := asMap(t, items[0])
-	if first["key"] != "model:series-model-a" {
+	if first["key"] != "ingress_model:series-model-a" {
 		t.Fatalf("expected model series key, got %+v", first)
 	}
 	if jsonInt(t, first["request_count"]) != 6 {
@@ -467,7 +467,7 @@ func TestObserveUsageErrors(t *testing.T) {
 	contextPayload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/query-context?preset=24h", nil, http.StatusOK)
 	token := contextPayload["query_context"].(string)
 
-	payload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/usage-errors?query_context="+token+"&group_by=model", nil, http.StatusOK)
+	payload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/usage-errors?query_context="+token+"&group_by=ingress_model", nil, http.StatusOK)
 	summary := asMap(t, payload["summary"])
 	if jsonInt(t, summary["request_count"]) != 6 || jsonInt(t, summary["http_error_count"]) != 3 ||
 		jsonInt(t, summary["stream_error_count"]) != 2 || jsonInt(t, summary["client_disconnected_count"]) != 1 ||
@@ -530,7 +530,7 @@ func TestObserveUsageErrors(t *testing.T) {
 		t.Fatalf("unexpected group B, got %+v", groupB)
 	}
 	groupFilters := groupB["request_filters"].(map[string]any)
-	if groupFilters["final_model_id"].([]any)[0] != "errors-model-b" {
+	if groupFilters["ingress_model_id"].([]any)[0] != "errors-model-b" {
 		t.Fatalf("expected group model filter, got %+v", groupFilters)
 	}
 	// Requests context deep link.
@@ -801,7 +801,7 @@ func TestObserveActivityFeed(t *testing.T) {
 		t.Fatalf("expected one newest row and another page, got %+v", firstPage)
 	}
 	first := asMap(t, firstItems[0])
-	if first["model_id"] != "activity-b" || jsonInt(t, first["status_code"]) != 503 {
+	if first["ingress_model_id"] != "activity-b" || jsonInt(t, first["status_code"]) != 503 {
 		t.Fatalf("expected newest first (activity-b), got %+v", first)
 	}
 	if first["final_result"] != "failed" || first["outcome_detail"] != "http_error" {
@@ -816,10 +816,10 @@ func TestObserveActivityFeed(t *testing.T) {
 		t.Fatalf("expected exact-full terminal page, got %+v", secondPage)
 	}
 	second := asMap(t, secondItems[0])
-	if second["model_id"] != "activity-a" || second["route_changed"] != true || first["is_stream"] != true || first["routing_evidence_complete"] != false || second["is_stream"] != false || second["routing_evidence_complete"] != true {
+	if second["ingress_model_id"] != "activity-a" || second["route_changed"] != true || first["is_stream"] != true || first["routing_evidence_complete"] != false || second["is_stream"] != false || second["routing_evidence_complete"] != true {
 		t.Fatalf("expected route_changed for activity-a, got %+v", second)
 	}
-	if second["resolved_target_model_id"] != "activity-actual" {
+	if second["final_target_model_id"] != "activity-actual" {
 		t.Fatalf("expected resolved model label, got %+v", second)
 	}
 	if second["known_cost_micros"] != "9300" || second["final_pricing_status"] != "priced" {
@@ -855,7 +855,7 @@ func TestObserveEmptyDatasetFragments(t *testing.T) {
 		t.Fatalf("expected an empty series list, got %#v", series["series"])
 	}
 
-	errorsPayload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/usage-errors?query_context="+token+"&group_by=model", nil, http.StatusOK)
+	errorsPayload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/usage-errors?query_context="+token+"&group_by=ingress_model", nil, http.StatusOK)
 	for _, key := range []string{"timeline", "http_statuses", "stream_outcomes", "groups"} {
 		list, ok := errorsPayload[key].([]any)
 		if !ok {
@@ -893,7 +893,7 @@ func TestObserveUsageErrorsCleanCohort(t *testing.T) {
 
 	contextPayload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/query-context?preset=24h", nil, http.StatusOK)
 	token := contextPayload["query_context"].(string)
-	payload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/usage-errors?query_context="+token+"&group_by=model", nil, http.StatusOK)
+	payload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/usage-errors?query_context="+token+"&group_by=ingress_model", nil, http.StatusOK)
 
 	if jsonInt(t, asMap(t, payload["summary"])["failed_count"]) != 0 {
 		t.Fatalf("expected a clean cohort, got %+v", payload["summary"])

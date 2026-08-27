@@ -4,9 +4,7 @@ import {
   type RequestLogFilterOptions,
 } from "./requestLogQuery";
 import { useRequestLogAttempts } from "./useRequestLogAttempts";
-import {
-  useRequestLogIngressChains,
-} from "./useRequestLogIngressChains";
+import { useRequestLogIngressChains } from "./useRequestLogIngressChains";
 
 export type { RequestLogFilterOptions as FilterOptions } from "./requestLogQuery";
 
@@ -16,11 +14,7 @@ interface UseRequestLogsPageDataParams {
   state: RequestLogPageState;
 }
 
-/**
- * Page-facing composition only. Attempts and ingress chains keep separate
- * query, replacement, append, cursor, and honest-read state owners; this hook
- * selects the active view and preserves the existing page contract.
- */
+/** Page-facing composition over independently owned attempts and chain reads. */
 export function useRequestLogsPageData({
   revision,
   state,
@@ -28,20 +22,12 @@ export function useRequestLogsPageData({
 }: UseRequestLogsPageDataParams) {
   const attemptsEnabled = enabled && state.view !== "ingress_chains";
   const chainsEnabled = enabled && state.view === "ingress_chains";
-  const attempts = useRequestLogAttempts({
-    revision,
-    state,
-    enabled: attemptsEnabled,
-  });
-  const chains = useRequestLogIngressChains({
-    revision,
-    state,
-    enabled: chainsEnabled,
-  });
+  const attempts = useRequestLogAttempts({ revision, state, enabled: attemptsEnabled });
+  const chains = useRequestLogIngressChains({ revision, state, enabled: chainsEnabled });
   const active = chainsEnabled ? chains : attempts;
   const fallback = chainsEnabled ? attempts : chains;
-  const filterOptionsLoaded = enabled &&
-    (active.filterOptionsLoaded || fallback.filterOptionsLoaded);
+  const filterOptionsLoaded =
+    enabled && (active.filterOptionsLoaded || fallback.filterOptionsLoaded);
   const filterOptions: RequestLogFilterOptions = !enabled
     ? EMPTY_REQUEST_LOG_FILTER_OPTIONS
     : active.filterOptionsLoaded
@@ -49,13 +35,9 @@ export function useRequestLogsPageData({
       : fallback.filterOptionsLoaded
         ? fallback.filterOptions
         : EMPTY_REQUEST_LOG_FILTER_OPTIONS;
-  // A successful read (including a stale last-good read) owns its metadata. A
-  // non-stale error also owns the failed scope, so its null coverage must not
-  // borrow an inactive view's coverage; only a not-yet-committed active lane
-  // falls back to the other view.
-  const activeHasCommittedRead = enabled &&
-    (active.lastLoadedAt !== null ||
-      (active.error !== null && !active.stale));
+  const activeHasCommittedRead =
+    enabled &&
+    (active.lastLoadedAt !== null || (active.error !== null && !active.stale));
   const coverage = !enabled
     ? null
     : activeHasCommittedRead

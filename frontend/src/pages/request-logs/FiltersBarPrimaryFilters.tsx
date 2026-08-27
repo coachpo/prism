@@ -186,13 +186,13 @@ export function FiltersBarPrimaryFilters({
         {moreOpen ? (
           <div className="grid gap-3 xl:grid-cols-12">
       <div className="min-w-0">
-        <ToolbarLabel>{messages.requestLogs.model}</ToolbarLabel>
+        <ToolbarLabel>{messages.requestLogs.entryModel}</ToolbarLabel>
         <Select
           value={state.model_id || "__all__"}
           onValueChange={(value) => actions.setModelId(value === "__all__" ? "" : value)}
         >
           <SelectTrigger
-            aria-label={messages.requestLogs.model}
+            aria-label={messages.requestLogs.entryModel}
             className="h-9 w-full min-w-0 max-w-full rounded-lg border-border bg-panel text-xs"
           >
             <SelectValue className="min-w-0" placeholder={messages.requestLogs.allModels} />
@@ -201,7 +201,7 @@ export function FiltersBarPrimaryFilters({
             <SelectItem value="__all__">{messages.requestLogs.allModels}</SelectItem>
             {filterOptionsLoaded &&
               filterOptions.models.map((model) => (
-                <SelectItem key={model.model_id} value={model.model_id}>
+                <SelectItem key={model.ingress_model_id} value={model.ingress_model_id}>
                   {model.model_label}
                 </SelectItem>
               ))}
@@ -266,22 +266,22 @@ export function FiltersBarPrimaryFilters({
       </div>
 
       <div className="min-w-0">
-        <ToolbarLabel>{messages.requestLogs.finalTargetModel}</ToolbarLabel>
+        <ToolbarLabel>{messages.requestLogs.attemptTargetModel}</ToolbarLabel>
         <Select
           value={state.resolved_target_model_id || "__all__"}
           onValueChange={(value) => actions.setResolvedTargetModelId(value === "__all__" ? "" : value)}
         >
           <SelectTrigger
-            aria-label={messages.requestLogs.finalTargetModel}
+            aria-label={messages.requestLogs.attemptTargetModel}
             className="h-9 w-full min-w-0 max-w-full rounded-lg border-border bg-panel text-xs"
           >
-            <SelectValue className="min-w-0" placeholder={messages.requestLogs.allFinalTargetModels} />
+            <SelectValue className="min-w-0" placeholder={messages.requestLogs.allAttemptTargetModels} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="__all__">{messages.requestLogs.allFinalTargetModels}</SelectItem>
+            <SelectItem value="__all__">{messages.requestLogs.allAttemptTargetModels}</SelectItem>
             {filterOptionsLoaded &&
               filterOptions.resolved_target_models.map((model) => (
-                <SelectItem key={model.resolved_target_model_id} value={model.resolved_target_model_id}>
+                <SelectItem key={model.attempt_target_model_id} value={model.attempt_target_model_id}>
                   {model.model_label}
                 </SelectItem>
               ))}

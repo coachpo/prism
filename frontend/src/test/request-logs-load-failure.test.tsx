@@ -83,11 +83,14 @@ function listResponse(items: RequestLogListItem[]): RequestLogListResponse {
     offset: 0,
     filter_options: {
       endpoints: [],
-      models: [],
+      ingress_models: [],
       clients: [],
-      resolved_target_models: [],
+      attempt_target_models: [],
     },
     coverage: coverage(),
+    caliber: {},
+    dataset_coverage: {},
+    samples: {},
   };
 }
 
@@ -101,10 +104,10 @@ function row(requestLogId: string): RequestLogListItem {
     attempt_result: "completed",
     is_winner: true,
     created_at: "2026-08-12T12:00:00Z",
-    model_id: "gpt-4o",
+    ingress_model_id: "gpt-4o",
     model_label: "gpt-4o",
-    resolved_target_model_id: "gpt-4o",
-    resolved_target_model_label: "gpt-4o",
+    attempt_target_model_id: "gpt-4o",
+    attempt_target_model_label: "gpt-4o",
     caller_client_display: null,
     upstream_client_display: null,
     user_agent_overridden: false,
@@ -180,8 +183,9 @@ function chainRow(
     failure_detail_persistence_truncated: false,
     stream_outcome: "not_streaming",
     stream_error_kind: null,
-    model_id: "gpt-4o",
-    resolved_target_model_id: "gpt-4o",
+    ingress_model_id: "gpt-4o",
+    attempt_target_model_id: "gpt-4o",
+    attempt_target_model_label: "gpt-4o",
     endpoint_id: 1,
     terminal_target_id: 1,
     terminal_target_label: "Primary target",
@@ -247,6 +251,9 @@ function chainResponse(
     ],
     has_more_chains: false,
     next_chain_cursor: null,
+    caliber: {},
+    dataset_coverage: {},
+    samples: {},
   };
 }
 

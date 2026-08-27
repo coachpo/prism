@@ -2,7 +2,7 @@
 
 ## OVERVIEW
 
-`backend/internal/domain/stats/` owns PostgreSQL-backed read models for dashboards, usage analytics, spending, request logs, recent activity, routing health, and retained filter options.
+`backend/internal/domain/stats/` owns PostgreSQL-backed read models for dashboards, usage analytics, spending, request logs, recent activity, routing health, and retained filter options. Every metric response declares one of three grains: `ingress` (one `usage_request_events` row, requested-model identity), `final_execution` (a finalized usage row with resolved-target identity and final-attempt latency evidence), or `route_attempt` (one `request_logs` upstream row, attempt-result semantics, and no cost claim).
 
 ## STRUCTURE
 
@@ -93,6 +93,10 @@ stats/
 - Retained request-log filters for `cost_segment_key`, `pricing_card_role`, and `pricing_selection_state` must validate at the HTTP boundary and reuse the canonical domain predicates; `cost_segment_key` alone must not switch the ingress source away from retained request logs.
 - Observe cost segments may carry a selected-card-role breakdown (including peak/offpeak); derive it from trusted usage-event evidence in the same aggregate statement and preserve NULL for an untrusted or absent cost.
 - Dashboard overview and recent activity are separate read models; do not fold recent activity into aggregate snapshots.
+- Keep `scope.go` authoritative for public scope, group, filter, caliber, sample/missing, and dataset-coverage semantics. Retired ambiguous `model`/`model_id` query keys reject with typed 422; use the scope-specific ingress/final/attempt model names.
+- Canonical money is always `pricing_status=priced AND pricing_evidence_trust=trusted`. Ingress and final-target groupings are non-additive projections of the same served-final fact; route-attempt metrics expose no cost. A trusted zero is a non-null zero with a positive cost sample count, while no trusted sample is null.
+- Final-execution latency is associated by `(profile_id, ingress_request_id, final_attempt_number)` to raw `request_logs.attempt_duration_ms`. Keep usage/request coverage separate and expose a missing latency sample when the request row was retained for less time.
+- Project non-positive retained endpoint, connection, Terminal Target, and proxy-key IDs as unattributed/null without rewriting retained history.
 
 ## ANTI-PATTERNS
 

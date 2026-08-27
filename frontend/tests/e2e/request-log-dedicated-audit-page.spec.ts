@@ -21,10 +21,10 @@ function createRequestLogDetailFixture() {
     summary: {
       request_log_id: "101",
       created_at: "2026-08-09T10:00:00Z",
-      model_id: "gpt-4o",
+      ingress_model_id: "gpt-4o",
       model_label: "GPT-4o",
-      resolved_target_model_id: null,
-      resolved_target_model_label: null,
+      attempt_target_model_id: null,
+      attempt_target_model_label: null,
       is_proxy_origin: false,
       api_family: "openai",
       status_code: 200,
@@ -103,6 +103,9 @@ function createRequestLogDetailFixture() {
       reporting_currency_epoch: 1,
       legacy_pricing_evidence: null,
     },
+    caliber: {},
+    dataset_coverage: {},
+    samples: {},
   };
 }
 
@@ -393,7 +396,7 @@ test.describe("dedicated request-log audit page", () => {
     const drawer = page.getByTestId("request-log-detail-sheet");
     await expect(drawer).toBeVisible({ timeout: 15000 });
     await expect(drawer.getByRole("tab", { name: "审计" })).toHaveCount(0);
-    await expect(drawer.getByText("查看请求模型、最终目标模型、已选择的终端目标，以及路由、令牌、费用和请求时审计来源。")).toBeVisible();
+    await expect(drawer.getByText("查看入口模型、本次尝试目标模型、规划首选与实际终端目标，以及路由、令牌、费用和请求时审计来源。")).toBeVisible();
     await expect(drawer.getByTestId("request-log-overview-grid").getByText("/v1/responses")).toBeVisible();
     await expect(drawer.getByRole("link", { name: "打开完整审计页" })).toHaveAttribute("href", "/observe/requests/101/audit");
     await expect(page).toHaveURL(/\/observe\/requests\?selected_request_id=101&view=attempts$/);
@@ -408,8 +411,10 @@ test("request-log sheet navigates previous/next with named controls and ArrowUp/
       request_log_id: "101",
       profile_id: 1,
       created_at: "2026-08-09T10:00:00Z",
-      model_id: "gpt-4o",
+      ingress_model_id: "gpt-4o",
       model_label: "GPT-4o",
+      attempt_target_model_id: "gpt-4o",
+      attempt_target_model_label: "GPT-4o",
       api_family: "openai",
       endpoint_id: 7,
       endpoint_label: "OpenRouter",
@@ -429,8 +434,10 @@ test("request-log sheet navigates previous/next with named controls and ArrowUp/
       request_log_id: "102",
       profile_id: 1,
       created_at: "2026-08-09T10:01:00Z",
-      model_id: "gpt-4o",
+      ingress_model_id: "gpt-4o",
       model_label: "GPT-4o",
+      attempt_target_model_id: "gpt-4o",
+      attempt_target_model_label: "GPT-4o",
       api_family: "openai",
       endpoint_id: 7,
       endpoint_label: "OpenRouter",
@@ -457,7 +464,10 @@ test("request-log sheet navigates previous/next with named controls and ArrowUp/
         total: 2,
         limit: 50,
         offset: 0,
-        filter_options: { endpoints: [], models: [], clients: [], resolved_target_models: [] },
+        filter_options: { endpoints: [], ingress_models: [], clients: [], attempt_target_models: [] },
+        caliber: {},
+        dataset_coverage: {},
+        samples: {},
       }),
     }),
   );
@@ -517,7 +527,10 @@ test("request-log list read failure replaces the table instead of reading as an 
         total: 1,
         limit: 100,
         offset: 0,
-        filter_options: { models: [], endpoints: [], clients: [], resolved_target_models: [] },
+        filter_options: { ingress_models: [], endpoints: [], clients: [], attempt_target_models: [] },
+        caliber: {},
+        dataset_coverage: {},
+        samples: {},
       }),
     });
   });
@@ -547,20 +560,105 @@ test("request-log list read failure replaces the table instead of reading as an 
 
 test("ingress-chains view renders chains with nested rows and expands", async ({ page }) => {
   const chains = {
+    view: "ingress_chains",
+    query_context: null,
+    source_ingress_total: 1,
+    retained_ingress_total: 1,
+    retained_upstream_attempt_total: 2,
+    retained_request_log_row_total: 2,
+    legacy_unknown_row_total: 0,
     items: [
       {
         ingress_request_id: "ingress-abc",
+        started_at: "2026-08-09T10:00:00Z",
+        completed_at: "2026-08-09T10:00:02Z",
+        elapsed_ms: 2000,
+        elapsed_evidence_state: "authoritative",
+        finalized_evidence_state: "authoritative",
+        finalized_summary: {
+          request_log_id: "113",
+          final_status_code: 200,
+          final_result: "completed",
+          final_error_code: null,
+          requested_model: { id: "entry-a", label: "Model A" },
+          resolved_model: { id: "target-c", label: "Model C" },
+          terminal_target: { id: 17, label: "TT-C", configured: true, owner_model_id: "target-c" },
+          endpoint: { id: 8, label: "Endpoint C" },
+          ttft_ms: 610,
+          total_tokens: 120,
+          total_cost_user_currency_micros: 4000,
+          report_currency_symbol: "$",
+          final_pricing_status: "priced",
+          attempt_count: 2,
+        },
         expected_attempt_count: 2,
+        expected_request_log_row_count: 2,
         retained_upstream_attempt_count: 2,
-        retained_request_log_row_count: 3,
+        retained_request_log_row_count: 2,
         legacy_unknown_row_count: 0,
         chain_complete: true,
+        same_target_retry_occurred: false,
+        hedge_occurred: false,
+        failover_occurred: true,
+        routing_evidence_complete: true,
         retained_rows_loaded_count: 2,
         retained_rows_page_complete: true,
-        next_row_cursor: "",
+        retained_row_count: 2,
+        matched_row_count: 2,
+        next_row_cursor: null,
         retained_rows: [
-          { request_log_id: "111", row_kind: "planning", created_at: "2026-08-09T10:00:00Z", model_id: "gpt-4o", resolved_target_model_id: null, attempt_number: null, attempt_trigger: null, attempt_result: null, is_winner: null, upstream_status_code: null, gateway_status_code: null, legacy_status_code: null, status_code: null, stream_outcome: "not_streaming", stream_error_kind: null, error_code: null, error_detail: null },
-          { request_log_id: "112", row_kind: "upstream", created_at: "2026-08-09T10:00:01Z", model_id: "gpt-4o", resolved_target_model_id: "gpt-4o", attempt_number: 1, attempt_trigger: "initial", attempt_result: "success", is_winner: true, upstream_status_code: 200, gateway_status_code: null, legacy_status_code: null, status_code: 200, stream_outcome: "not_streaming", stream_error_kind: null, error_code: null, error_detail: null },
+          {
+            request_log_id: "112",
+            row_kind: "upstream",
+            ingress_model_id: "entry-a",
+            attempt_target_model_id: "target-b",
+            attempt_target_model_label: "Model B",
+            endpoint_id: 7,
+            endpoint_label: "Endpoint B",
+            terminal_target_id: 16,
+            terminal_target_label: "TT-B",
+            created_at: "2026-08-09T10:00:01Z",
+            attempt_number: 1,
+            attempt_trigger: "initial",
+            attempt_result: "http_error",
+            attempt_duration_ms: 820,
+            total_tokens: null,
+            total_cost_user_currency_micros: null,
+            pricing_status: "unknown",
+            pricing_evidence_trust: "legacy_untrusted",
+            is_winner: false,
+            upstream_status_code: 503,
+            gateway_status_code: null,
+            legacy_status_code: null,
+            stream_outcome: "not_streaming",
+            stream_error_kind: null,
+          },
+          {
+            request_log_id: "113",
+            row_kind: "upstream",
+            ingress_model_id: "entry-a",
+            attempt_target_model_id: "target-c",
+            attempt_target_model_label: "Model C",
+            endpoint_id: 8,
+            endpoint_label: "Endpoint C",
+            terminal_target_id: 17,
+            terminal_target_label: "TT-C",
+            created_at: "2026-08-09T10:00:02Z",
+            attempt_number: 2,
+            attempt_trigger: "failover",
+            attempt_result: "completed",
+            attempt_duration_ms: 610,
+            total_tokens: 120,
+            total_cost_user_currency_micros: 4000,
+            pricing_status: "priced",
+            pricing_evidence_trust: "trusted",
+            is_winner: true,
+            upstream_status_code: 200,
+            gateway_status_code: null,
+            legacy_status_code: null,
+            stream_outcome: "not_streaming",
+            stream_error_kind: null,
+          },
         ],
       },
     ],
@@ -568,21 +666,24 @@ test("ingress-chains view renders chains with nested rows and expands", async ({
     next_chain_cursor: "signed-chain-cursor",
     page_ingress_count: 1,
     page_upstream_attempt_count: 2,
-    page_request_log_row_count: 3,
+    page_request_log_row_count: 2,
+    caliber: {},
+    dataset_coverage: {},
+    samples: {},
   };
   await mockPrismRoutes(page, "metadata_only");
   await page.route("**/api/stats/requests*", (route) => {
     const url = new URL(route.request().url());
-    if (url.pathname === "/api/stats/requests/112") {
-      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...createRequestLogDetailFixture(), summary: { ...createRequestLogDetailFixture().summary, request_log_id: "112" } }) });
+    if (url.pathname === "/api/stats/requests/113") {
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...createRequestLogDetailFixture(), summary: { ...createRequestLogDetailFixture().summary, request_log_id: "113", attempt_target_model_id: "target-c", attempt_target_model_label: "Model C" } }) });
     }
     if (url.searchParams.get("view") === "ingress_chains") {
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chains) });
     }
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [], total: 0, limit: 100, offset: 0, filter_options: { models: [], endpoints: [], clients: [], resolved_target_models: [] } }) });
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [], total: 0, limit: 100, offset: 0, filter_options: { ingress_models: [], endpoints: [], clients: [], attempt_target_models: [] }, caliber: {}, dataset_coverage: {}, samples: {} }) });
   });
-  await page.route("**/api/stats/requests/112", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...createRequestLogDetailFixture(), summary: { ...createRequestLogDetailFixture().summary, request_log_id: "112" } }) }),
+  await page.route("**/api/stats/requests/113", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...createRequestLogDetailFixture(), summary: { ...createRequestLogDetailFixture().summary, request_log_id: "113", attempt_target_model_id: "target-c", attempt_target_model_label: "Model C" } }) }),
   );
 
   await page.goto("/observe/requests?view=ingress_chains");
@@ -597,13 +698,18 @@ test("ingress-chains view renders chains with nested rows and expands", async ({
 
   await summaryRow.getByRole("button", { expanded: false }).click();
   await expect(page.getByTestId("chain-row-112")).toBeVisible();
+  await expect(page.getByTestId("chain-row-113")).toBeVisible();
   // Enum keys never reach the screen; the row kind is labelled.
   await expect(page.getByTestId("chain-row-112")).toContainText("上游尝试");
-  await expect(page.getByTestId("chain-row-112")).toContainText("胜出");
+  await expect(page.getByTestId("chain-row-112")).toContainText("HTTP 失败");
+  await expect(page.getByTestId("chain-row-113")).toContainText("故障转移");
+  await expect(page.getByTestId("chain-row-113")).toContainText("胜出");
+  await expect(page.getByText("initial", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("failover", { exact: true })).toHaveCount(0);
 
   // Row click opens the ordinary detail sheet without fetching audit payload.
-  await page.getByTestId("chain-row-112").click();
+  await page.getByTestId("chain-row-113").click();
   const sheet = page.getByTestId("request-log-detail-sheet");
   await expect(sheet).toBeVisible();
-  await expect(sheet).toContainText("请求 #112");
+  await expect(sheet).toContainText("请求 #113");
 });

@@ -60,7 +60,7 @@ export function RequestLogDetailSheet({
             </SheetTitle>
             <SheetDescription className="text-sm text-muted-foreground">
               {messages.requestLogs.detailDescription}
-              {hasRequestContext ? ` ${messages.requestLogs.requestedModel} / ${messages.requestLogs.finalTargetModel}.` : ""}
+              {hasRequestContext ? ` ${messages.requestLogs.entryModel} / ${messages.requestLogs.attemptTargetModel}.` : ""}
             </SheetDescription>
           </SheetHeader>
 
@@ -130,7 +130,7 @@ function RetainedChainSection({
     <section className="rounded-lg border border-border bg-panel" data-testid="request-log-chain-section">
       <div className="border-b border-border bg-inset px-4 py-3">
         <h3 className="text-sm font-semibold tracking-tight text-foreground">
-          {messages.requestLogs.retainedChain ?? "保留尝试链"}
+          {messages.requestLogs.retainedChain}
         </h3>
         <p className="mt-0.5 font-mono text-[11px] text-muted-foreground break-all">
           {ingressRequestId}
@@ -140,21 +140,35 @@ function RetainedChainSection({
         {loading ? (
           <p className="text-xs text-muted-foreground">…</p>
         ) : !ingressItem ? (
-          <p className="text-xs text-muted-foreground">{messages.requestLogs.chainUnavailable ?? "无法加载该入口请求的保留尝试链。"}</p>
+          <p className="text-xs text-muted-foreground">{messages.requestLogs.chainUnavailable}</p>
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
               <span>
-                {messages.requestLogs.retainedAttempts ?? "保留尝试"}: {ingressItem.retained_upstream_attempt_count}
+                {messages.requestLogs.retainedAttempts}: {ingressItem.retained_upstream_attempt_count}
               </span>
               <span aria-hidden="true">·</span>
               <span>
-                {messages.requestLogs.retainedRows ?? "保留行"}: {ingressItem.retained_request_log_row_count}
+                {messages.requestLogs.retainedRows}: {ingressItem.retained_request_log_row_count}
               </span>
+              {ingressItem.finalized_summary ? (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="font-mono tabular-nums">
+                    {messages.requestLogs.requestTotalKnownCost}:{" "}
+                    {ingressItem.finalized_summary.total_cost_user_currency_micros === null
+                      ? "—"
+                      : `${ingressItem.finalized_summary.report_currency_symbol ?? "$"}${(
+                          ingressItem.finalized_summary.total_cost_user_currency_micros /
+                          1_000_000
+                        ).toFixed(4)}`}
+                  </span>
+                </>
+              ) : null}
               {ingressItem.legacy_unknown_row_count > 0 ? (
                 <>
                   <span aria-hidden="true">·</span>
-                  <span>{messages.requestLogs.legacyRows ?? "历史行"}: {ingressItem.legacy_unknown_row_count}</span>
+                  <span>{messages.requestLogs.legacyRows}: {ingressItem.legacy_unknown_row_count}</span>
                 </>
               ) : null}
               {ingressItem.chain_complete !== null ? (
@@ -162,8 +176,8 @@ function RetainedChainSection({
                   <span aria-hidden="true">·</span>
                   <span className={ingressItem.chain_complete ? "text-healthy" : "text-degraded"}>
                     {ingressItem.chain_complete
-                      ? (messages.requestLogs.chainComplete ?? "链完整")
-                      : (messages.requestLogs.chainIncomplete ?? "链不完整（保留/证据缺口）")}
+                      ? messages.requestLogs.chainComplete
+                      : messages.requestLogs.chainIncomplete}
                   </span>
                 </>
               ) : null}
@@ -171,13 +185,19 @@ function RetainedChainSection({
             {ingressItem.failover_occurred || ingressItem.hedge_occurred || ingressItem.same_target_retry_occurred ? (
               <div className="flex flex-wrap gap-2 text-[11px]">
                 {ingressItem.same_target_retry_occurred ? (
-                  <span className="rounded-full border border-border px-2 py-0.5 text-muted-foreground">retry_same_target</span>
+                  <span className="rounded-full border border-border px-2 py-0.5 text-muted-foreground">
+                    {messages.requestLogs.attemptTriggerRetrySameTarget}
+                  </span>
                 ) : null}
                 {ingressItem.hedge_occurred ? (
-                  <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-primary">hedge</span>
+                  <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-primary">
+                    {messages.requestLogs.attemptTriggerHedge}
+                  </span>
                 ) : null}
                 {ingressItem.failover_occurred ? (
-                  <span className="rounded-full border border-degraded/30 bg-degraded/10 px-2 py-0.5 text-degraded">confirmed failover</span>
+                  <span className="rounded-full border border-degraded/30 bg-degraded/10 px-2 py-0.5 text-degraded">
+                    {messages.requestLogs.confirmedFailoverEvidence}
+                  </span>
                 ) : null}
               </div>
             ) : null}
@@ -192,16 +212,50 @@ function RetainedChainSection({
                     aria-current={isCurrent ? "true" : undefined}
                   >
                     <span className="shrink-0 font-mono text-[11px] text-muted-foreground">#{row.attempt_number ?? "—"}</span>
-                    <span className="shrink-0 font-mono text-[11px]">{row.attempt_trigger ?? "unknown"}</span>
-                    <span className="shrink-0 font-mono text-[11px]">{row.attempt_result ?? "—"}</span>
+                    <span className="shrink-0 text-[11px]">
+                      {detailAttemptTriggerLabel(row.attempt_trigger, messages.requestLogs)}
+                    </span>
+                    <span className="shrink-0 text-[11px]">
+                      {detailAttemptResultLabel(row.attempt_result, messages.requestLogs)}
+                    </span>
                     {status !== null ? (
                       <span className="shrink-0 font-mono text-[11px]">{status}</span>
                     ) : null}
+                    {row.attempt_target_model_id ? (
+                      <span className="shrink-0 text-[11px]">
+                        {messages.requestLogs.attemptTargetModel}: {row.attempt_target_model_id}
+                      </span>
+                    ) : null}
+                    {row.terminal_target_label || row.terminal_target_id !== null ? (
+                      <span className="shrink-0 text-[11px]">
+                        {row.terminal_target_label ?? messages.requestLogs.terminalTargetId(row.terminal_target_id)}
+                      </span>
+                    ) : null}
+                    {row.attempt_duration_ms !== null ? (
+                      <span className="shrink-0 font-mono text-[11px]">
+                        {row.attempt_duration_ms} ms
+                      </span>
+                    ) : null}
+                    <span className="shrink-0 font-mono text-[11px]">
+                      {messages.requestLogs.attemptKnownCost}:{" "}
+                      {row.is_winner === true &&
+                      row.pricing_status === "priced" &&
+                      row.pricing_evidence_trust === "trusted" &&
+                      row.total_cost_user_currency_micros !== null
+                        ? `${ingressItem.finalized_summary?.report_currency_symbol ?? "$"}${(
+                            row.total_cost_user_currency_micros / 1_000_000
+                          ).toFixed(4)}`
+                        : "—"}
+                    </span>
                     {row.is_winner === true ? (
-                      <span className="shrink-0 rounded-full bg-healthy/15 px-2 py-0.5 text-[10px] text-healthy">winner</span>
+                      <span className="shrink-0 rounded-full bg-healthy/15 px-2 py-0.5 text-[10px] text-healthy">
+                        {messages.requestLogs.winner}
+                      </span>
                     ) : null}
                     {isCurrent ? (
-                      <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] text-primary">current</span>
+                      <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] text-primary">
+                        {messages.requestLogs.currentAttempt}
+                      </span>
                     ) : null}
                   </li>
                 );
@@ -209,7 +263,7 @@ function RetainedChainSection({
             </ol>
             {ingressItem.retained_rows_page_complete === false && ingressItem.next_row_cursor ? (
               <p className="text-[11px] text-muted-foreground">
-                {messages.requestLogs.chainMoreRows ?? "该链还有更多保留行（嵌套分页）。"}
+                {messages.requestLogs.chainMoreRows}
               </p>
             ) : null}
           </>
@@ -217,6 +271,34 @@ function RetainedChainSection({
       </div>
     </section>
   );
+}
+
+function detailAttemptTriggerLabel(
+  value: import("@/lib/types/request-logs").AttemptTrigger | null,
+  copy: ReturnType<typeof useLocale>["messages"]["requestLogs"],
+) {
+  switch (value) {
+    case "initial": return copy.attemptTriggerInitial;
+    case "retry_same_target": return copy.attemptTriggerRetrySameTarget;
+    case "hedge": return copy.attemptTriggerHedge;
+    case "failover": return copy.attemptTriggerFailover;
+    default: return copy.attemptTriggerUnavailable;
+  }
+}
+
+function detailAttemptResultLabel(
+  value: import("@/lib/types/request-logs").AttemptResult | null,
+  copy: ReturnType<typeof useLocale>["messages"]["requestLogs"],
+) {
+  switch (value) {
+    case "completed": return copy.attemptResultCompleted;
+    case "http_error": return copy.attemptResultHttpError;
+    case "stream_error": return copy.attemptResultStreamError;
+    case "transport_error": return copy.attemptResultTransportError;
+    case "cancelled": return copy.attemptResultCancelled;
+    case "client_disconnected": return copy.attemptResultClientDisconnected;
+    default: return copy.attemptResultUnknown;
+  }
 }
 
 function cnRow(isCurrent: boolean, attemptResult: string | null | undefined): string {

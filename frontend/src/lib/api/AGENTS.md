@@ -42,6 +42,7 @@ api/
 - Costing/currency migration, audit, retention, and config-rule routes: `settingsCosting.ts`, `settingsAudit.ts`, `settingsRetention.ts`, `configRules.ts`
 - Audit logs and loadbalance current-state/event clients: `audit.ts`, `loadbalance.ts`
 - Observe analytics query-context, summary, series, errors, and activity clients: `observe.ts`
+- Observe query contexts carry an explicit attribution scope. Model metrics fetch all three named scope blocks in one POST; Terminal Target drill-down sends `final_execution|route_attempt` on every scoped read.
 - Model routing diagnostics and Terminal Target copy clients: `model_routing.ts`
 - Compatibility import barrel for existing direct callers: `observability.ts`; the public application facade remains `../api.ts`
 - Runtime operation paths `/v1` and `/v1beta` stay outside this client split; launcher/Vite proxying passes them through and backend runtime owns allowlist enforcement.

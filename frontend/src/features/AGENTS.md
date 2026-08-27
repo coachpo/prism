@@ -11,7 +11,7 @@ features/
 ├── endpoints/        # `/route/endpoints` feature page and endpoint dialogs/hooks (`endpoints/AGENTS.md`)
 ├── loadbalance/      # `/route/ban-policies` page with strategy collection, mutation, and impact owners
 ├── models/           # `/models` list feature, `/models/$modelId` detail adapter, and `models/export/` client-config export owners
-├── observe/          # `/observe` dashboard adapter plus routing-health query/context, event, and current-state owners
+├── observe/          # `/observe` dashboard adapter, scoped attribution views, and routing-health query/context, event, and current-state owners
 ├── pricing/          # `/route/pricing` feature page with collection/editor/detail/import owners
 ├── proxy-keys/       # `/system/proxy-keys` global proxy-key surface: ledger, four mutation lanes, secret session, access panel (`proxy-keys/AGENTS.md`)
 ├── routing-health/    # Observe 路由健康 tab: global current state, events timeline, reset flow
@@ -37,6 +37,7 @@ features/
 - The `models/export/` surface owns the managed Pi 0.84.3 `prism-pi-models.json` (Pi `models.json` format) / OpenCode 1.18.23 `opencode-prism.json` export. Selection truth comes from the backend source snapshot (first load adopts defaults, refetches intersect user selections, platform switch resets); the operator supplies the Prism origin and provider id, and the credential modes are an omitted key slot or one explicitly included, trimmed final-dialog string (including empty). Never read Prism endpoint keys or derive the client URL from an upstream endpoint. Source/render calls bypass HTTP caches, key-bearing render responses never enter a query cache, and closing results, switching platform, or leaving the route clears content and revokes Blob URLs.
 - Uploaded client files are parsed entirely in-browser, matched by the complete public model id, and recursively stripped of sensitive camelCase/snake_case keys before anything uploads; remaining non-sensitive headers require item-by-item confirmation. Full-content copy, fixed-name/MIME download, and a real new-tab raw view reuse exactly one rendered content string. Pi's separate merge-fragment action parses that same string locally and copies only `{ "<provider_id>": { ...provider... } }\n` for insertion beneath an existing `models.json` `providers` object; it never re-renders or implies replacing other providers.
 - Keep global control pages free of profile-scope assumptions unless backend route scope explicitly says otherwise.
+- Observe Trend and Errors share URL-backed `scope`; Activity always uses an independent ingress query context, while Terminal Targets own a final/attempt sub-view that re-reads the selected Endpoint.
 - Prefer feature-local schema/payload builders beside the feature page when they are only used by that route.
 - Keep Ban Policy strategy collection/read, CRUD/default mutations, and impact cursor pagination in their named feature owners; the page hook only composes them.
 - Keep pricing-template collection/editor mutations, usage/history detail reads, and import preview/commit in their named feature owners; preserve the two-phase import contract and last-good states.

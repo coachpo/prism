@@ -43,11 +43,11 @@ function coverage(sourceRevision: string): QueryCoverage {
 
 function filterOptions(label: string) {
   return {
-    models: [{ model_id: label, model_label: label }],
+    ingress_models: [{ ingress_model_id: label, model_label: label }],
     endpoints: [{ endpoint_id: 1, endpoint_label: label }],
     clients: [{ client_rule_id: 1, client_label: label }],
-    resolved_target_models: [
-      { resolved_target_model_id: label, model_label: label },
+    attempt_target_models: [
+      { attempt_target_model_id: label, model_label: label },
     ],
   };
 }
@@ -62,6 +62,9 @@ function attemptResponse(label: string): RequestLogListResponse {
     offset: 0,
     filter_options: filterOptions(label),
     coverage: coverage(label),
+    caliber: {},
+    dataset_coverage: {},
+    samples: {},
   };
 }
 
@@ -107,13 +110,13 @@ describe("request-log page metadata handoff", () => {
     );
 
     await waitFor(() => expect(result.current.filterOptionsLoaded).toBe(true));
-    expect(result.current.filterOptions.models[0]?.model_id).toBe("attempt");
+    expect(result.current.filterOptions.models[0]?.ingress_model_id).toBe("attempt");
     expect(result.current.coverage?.source_revision).toBe("attempt");
 
     rerender({ state: chainState });
     await waitFor(() => expect(mocks.chains).toHaveBeenCalled());
     expect(result.current.items).toEqual([]);
-    expect(result.current.filterOptions.models[0]?.model_id).toBe("attempt");
+    expect(result.current.filterOptions.models[0]?.ingress_model_id).toBe("attempt");
     expect(result.current.coverage?.source_revision).toBe("attempt");
 
     await act(async () => {
@@ -121,7 +124,7 @@ describe("request-log page metadata handoff", () => {
       await Promise.resolve();
     });
     await waitFor(() =>
-      expect(result.current.filterOptions.models[0]?.model_id).toBe("chain"),
+      expect(result.current.filterOptions.models[0]?.ingress_model_id).toBe("chain"),
     );
     expect(result.current.coverage?.source_revision).toBe("chain");
   });
@@ -150,7 +153,7 @@ describe("request-log page metadata handoff", () => {
     await waitFor(() => expect(result.current.error).toBe("chain read failed"));
     expect(result.current.stale).toBe(false);
     expect(result.current.coverage).toBeNull();
-    expect(result.current.filterOptions.models[0]?.model_id).toBe("attempt");
+    expect(result.current.filterOptions.models[0]?.ingress_model_id).toBe("attempt");
   });
 
   it("masks all public read metadata when the page lane is disabled", async () => {

@@ -42,6 +42,16 @@ function makeState(overrides = {}) {
     pricing_card_role: "",
     pricing_selection_state: "",
     time_range: "24h",
+    from_time: "",
+    to_time: "",
+    observe_return: "",
+    query_context: "",
+    final_result: "",
+    final_target_model_id: "",
+    final_endpoint_id: "",
+    final_terminal_target_id: "",
+    final_pricing_status: "",
+    final_unpriced_reason: "",
     status_family: "all",
     limit: 100,
     offset: 0,
@@ -111,18 +121,20 @@ test("saving the same view name updates in place", () => {
   assert.equal(views[0].state.model_id, "b");
 });
 
-test("column preferences default to the nine core columns plus pricing state", () => {
+test("column preferences default to explicit ingress and attempt target identity", () => {
   localStorage.clear();
   const prefs = loadColumnPreferences();
-  assert.equal(prefs.version, 3);
+  assert.equal(prefs.version, 4);
   assert.deepEqual(prefs.visibleKeys, DEFAULT_COLUMN_PREFERENCES.visibleKeys);
   assert.ok(prefs.visibleKeys.includes("pricing_state"));
   assert.ok(prefs.visibleKeys.includes("created_at"));
+  assert.ok(prefs.visibleKeys.includes("requested_model"));
+  assert.ok(prefs.visibleKeys.includes("attempt_target_model"));
 });
 
 test("column preferences persist and ignore unknown keys", () => {
   localStorage.clear();
-  saveColumnPreferences({ version: 3, visibleKeys: ["created_at", "pricing_state", "status_code", "not-a-real-column"] });
+  saveColumnPreferences({ version: 4, visibleKeys: ["created_at", "pricing_state", "status_code", "not-a-real-column"] });
   const prefs = loadColumnPreferences();
   assert.ok(prefs.visibleKeys.includes("created_at"));
   assert.ok(!prefs.visibleKeys.includes("not-a-real-column"));
@@ -130,7 +142,7 @@ test("column preferences persist and ignore unknown keys", () => {
 
 test("reset column preferences restores the default set", () => {
   localStorage.clear();
-  saveColumnPreferences({ version: 3, visibleKeys: ["created_at"] });
+  saveColumnPreferences({ version: 4, visibleKeys: ["created_at"] });
   const reset = resetColumnPreferences();
   assert.deepEqual(reset.visibleKeys, DEFAULT_COLUMN_PREFERENCES.visibleKeys);
   assert.equal(loadColumnPreferences().visibleKeys.length, DEFAULT_COLUMN_PREFERENCES.visibleKeys.length);

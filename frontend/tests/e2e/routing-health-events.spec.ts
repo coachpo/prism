@@ -201,7 +201,7 @@ test("routing health shows global current state and the events timeline with typ
     if (pathname === "/api/loadbalance/current-state") return fulfillJson(currentStatePayload());
     if (pathname === "/api/loadbalance/events/1002") return fulfillJson({ ...eventsPayload().items[0], request_context_unavailable_reason: null });
     if (pathname === "/api/stats/requests") {
-      return fulfillJson({ items: [], total: 0, filter_options: { models: [], endpoints: [], clients: [], resolved_target_models: [] } });
+      return fulfillJson({ items: [], total: 0, filter_options: { ingress_models: [], endpoints: [], clients: [], attempt_target_models: [] }, caliber: {}, dataset_coverage: {}, samples: {} });
     }
     return route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
   });

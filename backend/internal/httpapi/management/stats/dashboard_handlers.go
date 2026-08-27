@@ -13,6 +13,10 @@ import (
 )
 
 func (s *Service) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
+	if err := rejectQueryKeys(r); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	referenceNow := s.nowUTC()
 	snapshot, err := pgxutil.InReadOnlyTxValue(r.Context(), s.pool, "stats dashboard", func(tx pgx.Tx) (statsdomain.DashboardSnapshot, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
@@ -33,6 +37,10 @@ func (s *Service) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleDashboardRecentActivity(w http.ResponseWriter, r *http.Request) {
+	if err := rejectQueryKeys(r, "limit"); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	generatedAt := s.nowUTC()
 	response, err := pgxutil.InReadOnlyTxValue(r.Context(), s.pool, "stats dashboard recent activity", func(tx pgx.Tx) (statsdomain.DashboardRecentActivityResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
@@ -53,7 +61,7 @@ func (s *Service) handleDashboardRecentActivity(w http.ResponseWriter, r *http.R
 }
 
 func matchesDashboardSummarySnapshotRequest(params statsdomain.StatsSummaryParams, referenceNow time.Time) bool {
-	if params.ModelID != nil || params.APIFamily != nil || params.EndpointID != nil || params.ConnectionID != nil {
+	if params.Scope != statsdomain.ScopeIngress || params.IngressModelID != nil || params.FinalTargetModelID != nil || params.AttemptTargetModelID != nil || params.APIFamily != nil || params.EndpointID != nil || params.ConnectionID != nil {
 		return false
 	}
 	if !matchesDashboardSummaryWindow(params.FromTime, params.ToTime, referenceNow) {
@@ -62,7 +70,7 @@ func matchesDashboardSummarySnapshotRequest(params statsdomain.StatsSummaryParam
 	if params.GroupBy == nil {
 		return true
 	}
-	return strings.EqualFold(strings.TrimSpace(*params.GroupBy), "api_family")
+	return strings.EqualFold(strings.TrimSpace(*params.GroupBy), statsdomain.GroupAPIFamily)
 }
 
 func matchesDashboardSummaryWindow(fromTime *time.Time, toTime *time.Time, referenceNow time.Time) bool {
@@ -74,7 +82,7 @@ func matchesDashboardSummaryWindow(fromTime *time.Time, toTime *time.Time, refer
 }
 
 func matchesDashboardThroughputSnapshotRequest(params statsdomain.ThroughputParams, referenceNow time.Time) bool {
-	if params.ModelID != nil || params.APIFamily != nil || params.EndpointID != nil || params.ConnectionID != nil {
+	if params.Scope != statsdomain.ScopeIngress || params.IngressModelID != nil || params.FinalTargetModelID != nil || params.AttemptTargetModelID != nil || params.APIFamily != nil || params.EndpointID != nil || params.ConnectionID != nil {
 		return false
 	}
 	if params.FromTime == nil || params.ToTime == nil {

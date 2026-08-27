@@ -4,17 +4,19 @@ import type {
   ChainResponse,
   RequestLogChainRow,
 } from "@/lib/types/request-logs";
+import { getStaticMessages } from "@/i18n/staticMessages";
 
 // Chain envelopes deliberately carry a smaller retained-row shape than the
 // attempts table. This projection is the single boundary that fills the
 // table's honest absent/default fields without moving query state into a view.
 export function flattenChainItems(response: ChainResponse): RequestLogListItem[] {
   const rows: RequestLogListItem[] = [];
+  const copy = getStaticMessages().requestLogs;
   for (const chain of response.items) {
     for (const row of chain.retained_rows) {
       const withLabels = row as RequestLogChainRow & {
         model_label?: string;
-        resolved_target_model_label?: string | null;
+        attempt_target_model_label?: string | null;
         api_family?: string;
         output_tokens?: number | null;
         ttft_ms?: number | null;
@@ -31,12 +33,11 @@ export function flattenChainItems(response: ChainResponse): RequestLogListItem[]
         attempt_result: row.attempt_result,
         is_winner: row.is_winner,
         created_at: row.created_at,
-        model_id: row.model_id,
-        model_label: withLabels.model_label ?? row.model_id,
-        resolved_target_model_id: row.resolved_target_model_id,
-        resolved_target_model_label:
-          withLabels.resolved_target_model_label ??
-          row.resolved_target_model_id,
+        ingress_model_id: row.ingress_model_id,
+        model_label: withLabels.model_label ?? row.ingress_model_id,
+        attempt_target_model_id: row.attempt_target_model_id,
+        attempt_target_model_label:
+          withLabels.attempt_target_model_label ?? row.attempt_target_model_id,
         caller_client_display: null,
         upstream_client_display: null,
         user_agent_overridden: false,
@@ -45,8 +46,10 @@ export function flattenChainItems(response: ChainResponse): RequestLogListItem[]
           "openai",
         endpoint_id: row.endpoint_id,
         endpoint_label:
-          row.terminal_target_label ??
-          `Terminal Target #${row.terminal_target_id ?? "?"}`,
+          row.endpoint_label ??
+          (row.endpoint_id === null
+            ? copy.actualEndpointMissing
+            : copy.endpointId(row.endpoint_id)),
         terminal_target_id: row.terminal_target_id,
         terminal_target_label: row.terminal_target_label,
         terminal_target_configured: row.terminal_target_configured,

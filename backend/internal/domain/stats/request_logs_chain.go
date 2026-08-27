@@ -39,6 +39,7 @@ type ChainQueryParams struct {
 	IngressFinalStatusCodes []int
 	ModelID                 *string
 	ResolvedTargetModelID   *string
+	FinalTargetModelID      *string
 	EndpointID              *int
 	TerminalTargetID        *int
 	StatusFamily            *string
@@ -101,8 +102,8 @@ type FinalizedSummary struct {
 	FinalResult                       string       `json:"final_result"`
 	FinalErrorCode                    *string      `json:"final_error_code"`
 	RequestedModelID                  string       `json:"-"`
-	RequestedModel                    *ModelRef    `json:"requested_model"`
-	ResolvedModel                     *ModelRef    `json:"resolved_model"`
+	RequestedModel                    *ModelRef    `json:"ingress_model"`
+	ResolvedModel                     *ModelRef    `json:"final_target_model"`
 	TerminalTarget                    *TargetRef   `json:"terminal_target"`
 	Endpoint                          *EndpointRef `json:"endpoint"`
 	TTFTMS                            *int         `json:"ttft_ms"`
@@ -190,8 +191,8 @@ type ChainRowItem struct {
 	FailureDetailPersistenceTruncated bool      `json:"failure_detail_persistence_truncated"`
 	StreamOutcome                     string    `json:"stream_outcome"`
 	StreamErrorKind                   *string   `json:"stream_error_kind"`
-	ModelID                           string    `json:"model_id"`
-	ResolvedTargetModelID             *string   `json:"resolved_target_model_id"`
+	ModelID                           string    `json:"ingress_model_id"`
+	ResolvedTargetModelID             *string   `json:"attempt_target_model_id"`
 	EndpointID                        *int      `json:"endpoint_id"`
 	TerminalTargetID                  *int      `json:"terminal_target_id"`
 	TerminalTargetLabel               *string   `json:"terminal_target_label"`
@@ -233,6 +234,9 @@ type ChainResponse struct {
 	AttemptCoverage              *json.RawMessage   `json:"attempt_coverage"`
 	DrilldownCoverage            *json.RawMessage   `json:"drilldown_coverage"`
 	OrderEvidenceState           string             `json:"order_evidence_state,omitempty"`
+	Caliber                      ScopeCaliber       `json:"caliber"`
+	DatasetCoverage              DatasetCoverage    `json:"dataset_coverage"`
+	Samples                      ScopeSampleCounts  `json:"samples"`
 }
 
 const defaultChainLimit = 20
@@ -387,6 +391,18 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 		Items:                    items,
 		HasMoreChains:            hasMore,
 		OrderEvidenceState:       "authoritative",
+		Caliber:                  CaliberForScope(ScopeIngress),
+		Samples:                  ScopeSampleCounts{ObservationCount: len(items)},
+	}
+	if params.FromTime != nil && params.ToTime != nil {
+		coverage := Coverage{
+			RequestedPreset: params.CoveragePreset, FromTime: params.FromTime.UTC(), ToTime: params.ToTime.UTC(),
+			RetentionFromTime: requestSource.PublishedFloor, Source: "raw",
+			Complete: requestActual.Complete && requestActual.Freshness == "fresh", Gaps: []CoverageGap{},
+			RetentionEpoch: requestSource.RetentionEpoch, RetentionGeneration: requestSource.RetentionGeneration,
+			PurgeState: requestSource.PurgeState, SourceRevision: requestSource.SourceRevision,
+		}
+		response.DatasetCoverage = DatasetCoverage{RequestLogs: &coverage}
 	}
 	if hasMore && len(items) > 0 {
 		last := ingresses[len(ingresses)-1]
@@ -434,7 +450,7 @@ func selectChainIngressSet(ctx context.Context, exec queryExecutor, params Chain
 	useUsageSource := params.IngressFinalResult != nil || params.ConfirmedFailover != nil ||
 		params.PricingStatus != nil || len(params.UnpricedReasons) > 0 ||
 		params.ReportingCurrencyEpoch != nil || params.IsStream != nil ||
-		len(params.IngressFinalStatusCodes) > 0
+		len(params.IngressFinalStatusCodes) > 0 || params.FinalTargetModelID != nil
 	if !useUsageSource {
 		return selectOrdinaryChainIngressSet(ctx, exec, params, cursor, hasCursor, sortOrder)
 	}
@@ -476,6 +492,9 @@ func selectChainIngressSet(ctx context.Context, exec queryExecutor, params Chain
 	}
 	if params.ConfirmedFailover != nil {
 		query = fmt.Sprintf("%s AND failover_occurred = $%d", query, appendArg(*params.ConfirmedFailover))
+	}
+	if params.FinalTargetModelID != nil && strings.TrimSpace(*params.FinalTargetModelID) != "" {
+		query = fmt.Sprintf("%s AND resolved_target_model_id = $%d", query, appendArg(strings.TrimSpace(*params.FinalTargetModelID)))
 	}
 	if params.PricingStatus != nil {
 		query = fmt.Sprintf("%s AND pricing_status = $%d", query, appendArg(*params.PricingStatus))

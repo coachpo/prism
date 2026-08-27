@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import {
   OperatorEmptyState,
   OperatorErrorState,
+  OperatorClippedBadge,
   OperatorMissingValue,
   OperatorStalenessBadge,
   OperatorStatusBadge,
@@ -284,9 +285,12 @@ export function ObserveActivityTable({
             <TableHeader>
               <TableRow>
                 <TableHead>{messages.observe.time}</TableHead>
-                <TableHead>{messages.observe.requestedModel}</TableHead>
+                <TableHead>{messages.observe.activityRoute}</TableHead>
                 <TableHead>{messages.observe.result}</TableHead>
-                <TableHead>{messages.observe.endpoint}</TableHead>
+                <TableHead className="text-right">
+                  {messages.observe.activityAttempts}
+                </TableHead>
+                <TableHead>{messages.observe.activityExecutionTarget}</TableHead>
                 <TableHead className="text-right">TTFT</TableHead>
                 <TableHead className="text-right">
                   {messages.observe.tokens}
@@ -302,7 +306,7 @@ export function ObserveActivityTable({
             </TableHeader>
             <TableBody>
               {showPendingRows ? (
-                <OperationalTableSkeletonRows columns={9} rows={5} />
+                <OperationalTableSkeletonRows columns={10} rows={5} />
               ) : null}
               {showCommittedRows
                 ? items.map((item) => (
@@ -442,23 +446,48 @@ function ActivityRow({
         {format(item.created_at)}
       </TableCell>
       <TableCell>
-        <div>{item.model_label}</div>
-        {item.route_changed ? (
-          <div
-            className="text-xs text-muted-foreground"
-            data-testid="route-changed"
+        <div className="flex min-w-48 flex-col gap-0.5">
+          <span
+            className="truncate text-xs"
+            data-testid={item.route_changed ? "route-changed" : undefined}
           >
-            {copy.routeChanged} →{" "}
-            {item.resolved_target_model_label ?? (
-              <OperatorMissingValue reason={messages.honesty.noValue} />
-            )}
-          </div>
-        ) : null}
+            <span className="text-muted-foreground">{copy.entryModelShort}</span>{" "}
+            {item.ingress_model_label || item.ingress_model_id}
+          </span>
+          <span className="truncate text-xs">
+            <span aria-hidden="true" className="text-muted-foreground">→</span>{" "}
+            <span className="text-muted-foreground">{copy.finalModelShort}</span>{" "}
+            {item.final_target_model_label ??
+              item.final_target_model_id ?? (
+                <OperatorMissingValue reason={copy.finalTargetEvidenceMissing} />
+              )}
+          </span>
+          {!item.routing_evidence_complete ? (
+            <OperatorClippedBadge
+              label={copy.routingEvidencePartial}
+              reason={copy.routingEvidencePartialReason}
+            />
+          ) : null}
+        </div>
       </TableCell>
       <TableCell>
         <OperatorStatusBadge intent={tier} label={resultText} preserveLabel />
       </TableCell>
-      <TableCell>{item.endpoint_label}</TableCell>
+      <TableCell className="text-right font-mono tabular-nums">
+        {formatNumber(item.attempt_count)}
+      </TableCell>
+      <TableCell>
+        <div className="flex min-w-40 flex-col gap-0.5 text-xs">
+          <span>
+            {item.terminal_target_id === null
+              ? <OperatorMissingValue reason={copy.noTerminalTargetEvidence} />
+              : copy.terminalTargetId(item.terminal_target_id)}
+          </span>
+          <span className="truncate text-muted-foreground">
+            {item.endpoint_label || <OperatorMissingValue reason={copy.noEndpointEvidence} />}
+          </span>
+        </div>
+      </TableCell>
       <TableCell className="text-right font-mono tabular-nums">
         {item.ttft_ms === null ? (
           <OperatorMissingValue reason={messages.honesty.noValue} />

@@ -104,10 +104,10 @@ export function createDashboardRecentActivityItem(
   return {
     request_log_id: 301,
     created_at: dashboardAggregateTimestamp,
-    model_id: "model-a",
-    model_label: "Model A",
-    resolved_target_model_id: null,
-    resolved_target_model_label: null,
+    ingress_model_id: "model-a",
+    ingress_model_label: "Model A",
+    attempt_target_model_id: null,
+    attempt_target_model_label: null,
     endpoint_id: 201,
     endpoint_label: "Endpoint A",
     status_code: 200,
@@ -210,7 +210,11 @@ export function createEmptyDashboardSnapshot(): DashboardSnapshot {
   });
 }
 
-export function createDashboardModel(modelId: string, displayName: string, id: number) {
+export function createDashboardModel(
+  modelId: string,
+  displayName: string,
+  id: number,
+) {
   return {
     id,
     api_family: "openai",
@@ -335,7 +339,15 @@ export function createUsageSnapshot(
           ["2026-04-09T00:00:00Z", 900, 500, 350, 25, 25, 900],
           ["2026-04-09T01:00:00Z", 1500, 900, 550, 25, 25, 1500],
         ],
-        (bucket_start, total_tokens, input_tokens, output_tokens, cached_tokens, reasoning_tokens, tpm) => ({
+        (
+          bucket_start,
+          total_tokens,
+          input_tokens,
+          output_tokens,
+          cached_tokens,
+          reasoning_tokens,
+          tpm,
+        ) => ({
           bucket_start,
           total_tokens,
           input_tokens,
@@ -355,7 +367,15 @@ export function createUsageSnapshot(
           ["2026-04-08T00:00:00Z", 900, 500, 350, 25, 25, 37.5],
           ["2026-04-09T00:00:00Z", 1500, 900, 550, 25, 25, 62.5],
         ],
-        (bucket_start, total_tokens, input_tokens, output_tokens, cached_tokens, reasoning_tokens, tpm) => ({
+        (
+          bucket_start,
+          total_tokens,
+          input_tokens,
+          output_tokens,
+          cached_tokens,
+          reasoning_tokens,
+          tpm,
+        ) => ({
           bucket_start,
           total_tokens,
           input_tokens,
@@ -518,7 +538,10 @@ function buildSeries<TPoint extends { bucket_start: string }>(
       ? totalFromPoints(points)
       : points.reduce(
           (sum, point) =>
-            sum + ("request_count" in point && typeof point.request_count === "number" ? point.request_count : 0),
+            sum +
+            ("request_count" in point && typeof point.request_count === "number"
+              ? point.request_count
+              : 0),
           0,
         );
 

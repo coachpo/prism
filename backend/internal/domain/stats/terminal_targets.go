@@ -24,6 +24,7 @@ type TerminalTargetStatisticsParams struct {
 	Limit          int
 	Offset         int
 	ReferenceNow   time.Time
+	Scope          string
 }
 
 // TerminalTargetStatistic is one connection (Terminal Target) row of the
@@ -39,17 +40,18 @@ type TerminalTargetStatistic struct {
 	HTTPFailedCount         int                  `json:"http_failed_count"`
 	FinalFailedCount        int                  `json:"final_failed_count"`
 	ClientDisconnectedCount int                  `json:"client_disconnected_count"`
-	P50TTFTMS               *int                 `json:"p50_ttft_ms"`
-	P95TTFTMS               *int                 `json:"p95_ttft_ms"`
+	P50LatencyMS            *int                 `json:"p50_latency_ms"`
+	P95LatencyMS            *int                 `json:"p95_latency_ms"`
 	AvgOutputRateTPS        *float64             `json:"avg_output_rate_tps"`
 	TotalTokens             int                  `json:"total_tokens"`
-	TotalCostMicros         int64                `json:"total_cost_micros"`
+	KnownCostMicros         *int64               `json:"known_cost_micros"`
 	PricingStatusCounts     PricingStatusCounts  `json:"pricing_status_counts"`
 	UnpricedReasonCounts    UnpricedReasonCounts `json:"unpriced_reason_counts"`
 	Coverage                QueryCoverage        `json:"coverage"`
 	BanEventCount           int                  `json:"ban_event_count"`
 	AdmissionRejectionCount int                  `json:"admission_rejection_count"`
 	EventCoverageComplete   bool                 `json:"event_coverage_complete"`
+	Samples                 ScopeSampleCounts    `json:"samples"`
 }
 
 type PricingStatusCounts struct {
@@ -60,12 +62,15 @@ type PricingStatusCounts struct {
 }
 
 type TerminalTargetStatisticsResponse struct {
-	Items       []TerminalTargetStatistic `json:"items"`
-	Total       int                       `json:"total"`
-	Limit       int                       `json:"limit"`
-	Offset      int                       `json:"offset"`
-	Coverage    QueryCoverage             `json:"coverage"`
-	GeneratedAt time.Time                 `json:"generated_at"`
+	Items           []TerminalTargetStatistic `json:"items"`
+	Total           int                       `json:"total"`
+	Limit           int                       `json:"limit"`
+	Offset          int                       `json:"offset"`
+	Coverage        QueryCoverage             `json:"coverage"`
+	GeneratedAt     time.Time                 `json:"generated_at"`
+	Scope           string                    `json:"scope"`
+	Caliber         ScopeCaliber              `json:"caliber"`
+	DatasetCoverage DatasetCoverage           `json:"dataset_coverage"`
 }
 
 type terminalTargetAggregate struct {
@@ -81,6 +86,7 @@ type terminalTargetAggregate struct {
 	eligibleRates           int
 	totalTokens             int
 	totalCostMicros         int64
+	costSamples             int
 	pricingStatus           map[string]int
 	unpricedReasons         map[string]int
 	minCreatedAt            *time.Time
@@ -99,6 +105,13 @@ type terminalTargetCoverageWindow struct {
 // aggregation and loadbalance event counts use their respective retained
 // windows from that snapshot.
 func GetEndpointTerminalTargetStatistics(ctx context.Context, exec queryExecutor, params TerminalTargetStatisticsParams) (TerminalTargetStatisticsResponse, error) {
+	scope, err := NormalizeScope(params.Scope)
+	if err != nil {
+		return TerminalTargetStatisticsResponse{}, err
+	}
+	if scope == ScopeIngress {
+		return TerminalTargetStatisticsResponse{}, &HTTPError{StatusCode: 422, Code: "scope_invalid", Detail: "terminal-target statistics support final_execution or route_attempt"}
+	}
 	if _, err := NormalizeCostSegmentKey(params.CostSegmentKey); err != nil {
 		return TerminalTargetStatisticsResponse{}, err
 	}
@@ -134,10 +147,26 @@ func GetEndpointTerminalTargetStatistics(ctx context.Context, exec queryExecutor
 		offset = 0
 	}
 
-	aggregates, err := loadTerminalTargetAggregates(ctx, exec, params.ProfileID, params.EndpointID,
-		usageWindow.bounds.UsageFrom, usageWindow.bounds.UsageTo,
-		eventWindow.bounds.UsageFrom, eventWindow.bounds.UsageTo,
-		params.CostSegmentKey)
+	requestWindow, err := resolveTerminalTargetCoverageWindow(ctx, exec, "request_logs", preset, fromTime, toTime, referenceNow)
+	if err != nil {
+		return TerminalTargetStatisticsResponse{}, err
+	}
+	var aggregates []*terminalTargetAggregate
+	if scope == ScopeRouteAttempt {
+		aggregates, err = loadTerminalTargetAttemptAggregates(ctx, exec, params.ProfileID, params.EndpointID, requestWindow.bounds.UsageFrom, requestWindow.bounds.UsageTo)
+		if err == nil {
+			byID := make(map[int]*terminalTargetAggregate, len(aggregates))
+			for _, aggregate := range aggregates {
+				byID[aggregate.connectionID] = aggregate
+			}
+			err = attachTerminalTargetEventCounts(ctx, exec, params.ProfileID, params.EndpointID, eventWindow.bounds.UsageFrom, eventWindow.bounds.UsageTo, byID)
+		}
+	} else {
+		aggregates, err = loadTerminalTargetAggregates(ctx, exec, params.ProfileID, params.EndpointID,
+			usageWindow.bounds.UsageFrom, usageWindow.bounds.UsageTo,
+			eventWindow.bounds.UsageFrom, eventWindow.bounds.UsageTo,
+			params.CostSegmentKey)
+	}
 	if err != nil {
 		return TerminalTargetStatisticsResponse{}, err
 	}
@@ -160,16 +189,84 @@ func GetEndpointTerminalTargetStatistics(ctx context.Context, exec queryExecutor
 	}
 	eventCoverageComplete := eventWindow.coverage.State == "known" && eventWindow.coverage.Complete && len(eventWindow.coverage.Gaps) == 0
 	for _, aggregate := range page {
-		items = append(items, terminalTargetStatisticFromAggregate(aggregate, usageWindow.coverage, eventCoverageComplete))
+		coverage := usageWindow.coverage
+		if scope == ScopeRouteAttempt {
+			coverage = requestWindow.coverage
+		}
+		items = append(items, terminalTargetStatisticFromAggregate(scope, aggregate, coverage, eventCoverageComplete))
+	}
+	primaryCoverage := usageWindow.coverage
+	if scope == ScopeRouteAttempt {
+		primaryCoverage = requestWindow.coverage
 	}
 	return TerminalTargetStatisticsResponse{
-		Items:       items,
-		Total:       total,
-		Limit:       limit,
-		Offset:      offset,
-		Coverage:    usageWindow.coverage,
-		GeneratedAt: referenceNow,
+		Items:           items,
+		Total:           total,
+		Limit:           limit,
+		Offset:          offset,
+		Coverage:        primaryCoverage,
+		GeneratedAt:     referenceNow,
+		Scope:           scope,
+		Caliber:         CaliberForScope(scope),
+		DatasetCoverage: DatasetCoverage{UsageRequestEvents: queryCoverageToCoveragePointer(usageWindow.coverage), RequestLogs: queryCoverageToCoveragePointer(requestWindow.coverage), LoadbalanceEvents: queryCoverageToCoveragePointer(eventWindow.coverage)},
 	}, nil
+}
+
+func loadTerminalTargetAttemptAggregates(ctx context.Context, exec queryExecutor, profileID int, endpointID int, fromTime time.Time, toTime time.Time) ([]*terminalTargetAggregate, error) {
+	rows, err := exec.Query(ctx, `SELECT request_logs.connection_id,
+		COALESCE(NULLIF(connections.name, ''), endpoints.name, 'Terminal Target'),
+		request_logs.attempt_result, request_logs.attempt_duration_ms, request_logs.created_at
+		FROM request_logs
+		LEFT JOIN connections ON connections.id = request_logs.connection_id AND connections.profile_id = request_logs.profile_id
+		LEFT JOIN endpoints ON endpoints.id = request_logs.endpoint_id AND endpoints.profile_id = request_logs.profile_id
+		WHERE request_logs.profile_id = $1 AND request_logs.endpoint_id = $2
+		  AND request_logs.row_kind = 'upstream' AND request_logs.connection_id > 0
+		  AND request_logs.created_at >= $3 AND request_logs.created_at < $4
+		ORDER BY request_logs.created_at ASC, request_logs.id ASC`, profileID, endpointID, fromTime.UTC(), toTime.UTC())
+	if err != nil {
+		return nil, fmt.Errorf("query terminal-target attempts: %w", err)
+	}
+	defer rows.Close()
+	byID := map[int]*terminalTargetAggregate{}
+	order := []int{}
+	for rows.Next() {
+		var connectionID int
+		var label string
+		var result sql.NullString
+		var duration sql.NullInt32
+		var createdAt time.Time
+		if err := rows.Scan(&connectionID, &label, &result, &duration, &createdAt); err != nil {
+			return nil, err
+		}
+		aggregate := byID[connectionID]
+		if aggregate == nil {
+			aggregate = &terminalTargetAggregate{connectionID: connectionID, connectionLabel: label, pricingStatus: map[string]int{}, unpricedReasons: map[string]int{}}
+			byID[connectionID] = aggregate
+			order = append(order, connectionID)
+		}
+		aggregate.requestCount++
+		if result.Valid && result.String == "completed" {
+			aggregate.httpSuccess++
+		} else {
+			aggregate.httpFailed++
+			if !result.Valid || result.String != "cancelled" {
+				aggregate.finalFailed++
+			}
+		}
+		if duration.Valid && duration.Int32 >= 0 {
+			aggregate.ttftValues = append(aggregate.ttftValues, int(duration.Int32))
+		}
+		aggregate.minCreatedAt = minTimePointer(aggregate.minCreatedAt, createdAt)
+		aggregate.maxCreatedAt = maxTimePointer(aggregate.maxCreatedAt, createdAt)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	result := make([]*terminalTargetAggregate, 0, len(order))
+	for _, id := range order {
+		result = append(result, byID[id])
+	}
+	return result, nil
 }
 
 func normalizeTerminalTargetCoverageRequest(params TerminalTargetStatisticsParams, referenceNow time.Time) (string, *time.Time, *time.Time, error) {
@@ -211,14 +308,14 @@ func resolveTerminalTargetCoverageWindow(ctx context.Context, exec queryExecutor
 	return terminalTargetCoverageWindow{bounds: bounds, coverage: QueryCoverageFromActualBounds(bounds, source, actual)}, nil
 }
 
-func terminalTargetStatisticFromAggregate(aggregate *terminalTargetAggregate, coverage QueryCoverage, eventCoverageComplete bool) TerminalTargetStatistic {
+func terminalTargetStatisticFromAggregate(scope string, aggregate *terminalTargetAggregate, coverage QueryCoverage, eventCoverageComplete bool) TerminalTargetStatistic {
 	p50, p95 := percentileTTFT(aggregate.ttftValues)
 	var avgOutputRate *float64
 	if aggregate.eligibleRates > 0 {
 		resolved := aggregate.outputRateSum / float64(aggregate.eligibleRates)
 		avgOutputRate = &resolved
 	}
-	return TerminalTargetStatistic{
+	item := TerminalTargetStatistic{
 		ConnectionID:            aggregate.connectionID,
 		ConnectionLabel:         aggregate.connectionLabel,
 		RequestCount:            aggregate.requestCount,
@@ -226,11 +323,10 @@ func terminalTargetStatisticFromAggregate(aggregate *terminalTargetAggregate, co
 		HTTPFailedCount:         aggregate.httpFailed,
 		FinalFailedCount:        aggregate.finalFailed,
 		ClientDisconnectedCount: aggregate.clientDisconnect,
-		P50TTFTMS:               p50,
-		P95TTFTMS:               p95,
+		P50LatencyMS:            p50,
+		P95LatencyMS:            p95,
 		AvgOutputRateTPS:        avgOutputRate,
 		TotalTokens:             aggregate.totalTokens,
-		TotalCostMicros:         aggregate.totalCostMicros,
 		PricingStatusCounts: PricingStatusCounts{
 			Priced:     aggregate.pricingStatus["priced"],
 			Unpriced:   aggregate.pricingStatus["unpriced"],
@@ -247,7 +343,14 @@ func terminalTargetStatisticFromAggregate(aggregate *terminalTargetAggregate, co
 		BanEventCount:           aggregate.banEventCount,
 		AdmissionRejectionCount: aggregate.admissionRejectionCount,
 		EventCoverageComplete:   eventCoverageComplete,
+		Samples:                 ScopeSampleCounts{ObservationCount: aggregate.requestCount, LatencySampleCount: len(aggregate.ttftValues), LatencyMissingCount: aggregate.requestCount - len(aggregate.ttftValues), CostSampleCount: aggregate.costSamples},
 	}
+	item.Samples.CostMissingCount = aggregate.pricingStatus["unpriced"] + aggregate.pricingStatus["unknown"]
+	if scope == ScopeFinal && aggregate.costSamples > 0 {
+		cost := aggregate.totalCostMicros
+		item.KnownCostMicros = &cost
+	}
+	return item
 }
 
 func loadTerminalTargetAggregates(ctx context.Context, exec queryExecutor, profileID int, endpointID int, usageFrom time.Time, usageTo time.Time, eventFrom time.Time, eventTo time.Time, costSegmentKey string) ([]*terminalTargetAggregate, error) {
@@ -262,17 +365,29 @@ func loadTerminalTargetAggregates(ctx context.Context, exec queryExecutor, profi
 		usage_request_events.stream_outcome,
 		COALESCE(usage_request_events.pricing_status, 'unknown'),
 		COALESCE(usage_request_events.unpriced_reason, ''),
-		usage_request_events.ttft_ms,
+		final_attempt.attempt_duration_ms,
 		COALESCE(usage_request_events.output_tokens, 0),
 		COALESCE(usage_request_events.total_tokens, 0),
 		COALESCE(usage_request_events.total_cost_user_currency_micros, 0),
+		usage_request_events.pricing_status,
+		usage_request_events.pricing_evidence_trust,
 		usage_request_events.completion_duration_ms,
 		usage_request_events.created_at,
 		usage_request_events.endpoint_id
 		FROM classified AS usage_request_events
 		LEFT JOIN connections ON connections.id = usage_request_events.connection_id AND connections.profile_id = usage_request_events.profile_id
 		LEFT JOIN endpoints ON endpoints.id = usage_request_events.endpoint_id AND endpoints.profile_id = usage_request_events.profile_id
+		LEFT JOIN LATERAL (
+			SELECT request_logs.attempt_duration_ms
+			FROM request_logs
+			WHERE request_logs.profile_id = usage_request_events.profile_id
+			  AND request_logs.ingress_request_id = usage_request_events.ingress_request_id
+			  AND request_logs.row_kind = 'upstream'
+			  AND request_logs.attempt_number = usage_request_events.final_attempt_number
+			ORDER BY request_logs.created_at DESC, request_logs.id DESC LIMIT 1
+		) AS final_attempt ON TRUE
 		WHERE usage_request_events.profile_id = $1 AND usage_request_events.endpoint_id = $2 AND usage_request_events.created_at >= $3 AND usage_request_events.created_at < $4
+		AND usage_request_events.connection_id > 0 AND usage_request_events.resolved_target_model_id IS NOT NULL AND usage_request_events.final_attempt_number IS NOT NULL
 		AND ($5 = '' OR usage_request_events.canonical_segment_key = $5)`,
 		profileID, endpointID, usageFrom, usageTo, costSegmentKey)
 	if err != nil {
@@ -293,10 +408,12 @@ func loadTerminalTargetAggregates(ctx context.Context, exec queryExecutor, profi
 		var outputTokens int
 		var totalTokens int
 		var totalCostMicros int64
+		var rawPricingStatus sql.NullString
+		var pricingEvidenceTrust sql.NullString
 		var completionDurationMS sql.NullInt32
 		var createdAt time.Time
 		var rowEndpointID sql.NullInt32
-		if err := rows.Scan(&connectionID, &connectionLabel, &statusCode, &successFlag, &streamOutcome, &pricingStatus, &unpricedReason, &ttftMS, &outputTokens, &totalTokens, &totalCostMicros, &completionDurationMS, &createdAt, &rowEndpointID); err != nil {
+		if err := rows.Scan(&connectionID, &connectionLabel, &statusCode, &successFlag, &streamOutcome, &pricingStatus, &unpricedReason, &ttftMS, &outputTokens, &totalTokens, &totalCostMicros, &rawPricingStatus, &pricingEvidenceTrust, &completionDurationMS, &createdAt, &rowEndpointID); err != nil {
 			return nil, fmt.Errorf("scan terminal-target usage event: %w", err)
 		}
 		aggregate, ok := aggregates[connectionID]
@@ -330,7 +447,11 @@ func loadTerminalTargetAggregates(ctx context.Context, exec queryExecutor, profi
 			aggregate.eligibleRates++
 		}
 		aggregate.totalTokens += totalTokens
-		aggregate.totalCostMicros += totalCostMicros
+		// Canonical money: only priced+trusted (trusted zero distinct from no trusted sample).
+		if rawPricingStatus.Valid && pricingEvidenceTrust.Valid && strings.TrimSpace(rawPricingStatus.String) == "priced" && strings.TrimSpace(pricingEvidenceTrust.String) == "trusted" {
+			aggregate.totalCostMicros += totalCostMicros
+			aggregate.costSamples++
+		}
 		status := "unknown"
 		if pricingStatus != "" {
 			status = pricingStatus

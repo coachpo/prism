@@ -129,10 +129,10 @@ type CurrentPricingTemplateDetail struct {
 type RequestLogDetailSummary struct {
 	RequestLogID             string    `json:"request_log_id"`
 	CreatedAt                time.Time `json:"created_at"`
-	ModelID                  string    `json:"model_id"`
+	ModelID                  string    `json:"ingress_model_id"`
 	ModelLabel               string    `json:"model_label"`
-	ResolvedTargetModelID    *string   `json:"resolved_target_model_id"`
-	ResolvedTargetModelLabel *string   `json:"resolved_target_model_label"`
+	ResolvedTargetModelID    *string   `json:"attempt_target_model_id"`
+	ResolvedTargetModelLabel *string   `json:"attempt_target_model_label"`
 	APIFamily                string    `json:"api_family"`
 	RowKind                  string    `json:"row_kind"`
 	UpstreamStatusCode       *int      `json:"upstream_status_code"`
@@ -213,6 +213,9 @@ type RequestLogDetailResponse struct {
 	Pricing                PricingProjectionDetail         `json:"pricing"`
 	LegacyPricingEvidence  *LegacyPricingEvidenceDetail    `json:"legacy_pricing_evidence"`
 	CurrentPricingTemplate *CurrentPricingTemplateDetail   `json:"current_pricing_template"`
+	Caliber                ScopeCaliber                    `json:"caliber"`
+	DatasetCoverage        DatasetCoverage                 `json:"dataset_coverage"`
+	Samples                ScopeSampleCounts               `json:"samples"`
 }
 
 // requestLogDetailRow is the full request detail row projection.
@@ -362,6 +365,8 @@ func GetRequestLogDetail(ctx context.Context, exec queryExecutor, profileID int,
 	currentTemplate := buildDetailCurrentPricingTemplate(ctx, exec, profileID, row)
 
 	response := &RequestLogDetailResponse{
+		Caliber: CaliberForScope(ScopeRouteAttempt),
+		Samples: ScopeSampleCounts{ObservationCount: 1},
 		Summary: RequestLogDetailSummary{
 			RequestLogID:             fmt.Sprintf("%d", row.ID),
 			CreatedAt:                row.CreatedAt.UTC(),
@@ -436,6 +441,9 @@ func GetRequestLogDetail(ctx context.Context, exec queryExecutor, profileID int,
 		Pricing:                pricing,
 		LegacyPricingEvidence:  legacyEvidence,
 		CurrentPricingTemplate: currentTemplate,
+	}
+	if _, coverage, coverageErr := ResolveDatasetCoverage(ctx, exec, "request_logs", "all", nil, nil, time.Now().UTC()); coverageErr == nil {
+		response.DatasetCoverage = DatasetCoverage{RequestLogs: &coverage}
 	}
 	return response, true, nil
 }
@@ -849,7 +857,7 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	item.UpstreamRequestPath = normalizeOptionalString(nullableString(upstreamRequestPath))
 	item.IngressRequestID = nullableString(ingressRequestID)
 	item.ProviderCorrelationID = nullableString(providerCorrelationID)
-	item.ProxyAPIKeyID = nullableInt32(proxyAPIKeyID)
+	item.ProxyAPIKeyID = normalizePositiveID(nullableInt32(proxyAPIKeyID))
 	item.ProxyAPIKeyNameSnapshot = nullableString(proxyAPIKeyNameSnapshot)
 	item.ProxyAPIKeyAttributionState = normalizeOptionalString(nullableString(proxyAPIKeyAttributionState))
 	item.ProxyAPIKeyAuthEnforcedAtRequest = nullableBool(proxyAPIKeyAuthEnforced)
@@ -872,9 +880,9 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	item.MetadataRedactedFields = metadataRedactedFields
 	item.MetadataTruncatedFields = metadataTruncatedFields
 	item.URLScrubProvenance = stringValue(normalizeOptionalString(nullableString(urlScrubProvenance)))
-	item.EndpointID = nullableInt32(endpointID)
-	item.ConnectionID = nullableInt32(connectionID)
-	item.SelectedTerminalTargetID = nullableInt32(selectedTerminalTargetID)
+	item.EndpointID = normalizePositiveID(nullableInt32(endpointID))
+	item.ConnectionID = normalizePositiveID(nullableInt32(connectionID))
+	item.SelectedTerminalTargetID = normalizePositiveID(nullableInt32(selectedTerminalTargetID))
 	item.EndpointBaseURL = nullableString(endpointBaseURL)
 	item.EndpointDescription = nullableString(endpointDescription)
 	item.InputTokens = nullableInt32(inputTokens)

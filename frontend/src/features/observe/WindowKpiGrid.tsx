@@ -132,15 +132,28 @@ export function WindowKpiGrid({
           }
         />
         <OperatorKpiCard
-          label={copy.httpSuccessRate}
+          label={copy.finalCompletionRate}
           value={
-            data.http_success_rate === null ? (
-              <OperatorMissingValue reason={messages.honesty.noValue} />
+            data.request_count === 0 ? (
+              <OperatorMissingValue reason={copy.finalCompletionNoRequests} />
             ) : (
-              `${data.http_success_rate.toFixed(1)}%`
+              `${((data.completed_count / data.request_count) * 100).toFixed(1)}%`
             )
           }
-          detail={`${formatNumber(data.http_success_count)} / ${formatNumber(data.request_count)}`}
+          detail={copy.finalCompletionDetail(
+            formatNumber(data.completed_count),
+            formatNumber(data.request_count),
+            formatNumber(data.failed_count),
+            formatNumber(data.client_disconnected_count),
+          )}
+          badges={
+            coverageClipped ? (
+              <OperatorClippedBadge
+                label={messages.honesty.coverageIncomplete}
+                reason={messages.honesty.coverageIncompleteReason}
+              />
+            ) : null
+          }
         />
         <OperatorKpiCard
           label={copy.ttftP95}

@@ -14,6 +14,18 @@ import (
 )
 
 func (s *Service) handleEndpointTerminalTargetStatistics(w http.ResponseWriter, r *http.Request) {
+	if err := rejectQueryKeys(r, "scope", "preset", "from_time", "to_time", "cost_segment_key", "limit", "offset"); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	scope, err := statsdomain.NormalizeScope(queryStringOrDefault(r, "scope", statsdomain.ScopeFinal))
+	if err != nil || scope == statsdomain.ScopeIngress {
+		if err == nil {
+			err = &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "scope_invalid", Detail: "terminal-target statistics support final_execution or route_attempt"}
+		}
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	endpointID, err := routeInt(r, "endpoint_id")
 	if err != nil {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
@@ -32,6 +44,10 @@ func (s *Service) handleEndpointTerminalTargetStatistics(w http.ResponseWriter, 
 	costSegmentKey, err := statsdomain.NormalizeCostSegmentKey(r.URL.Query().Get("cost_segment_key"))
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	if scope == statsdomain.ScopeRouteAttempt && costSegmentKey != nil {
+		writeDomainError(w, r, s.corsSnapshot(), &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "filter_invalid", Detail: "cost_segment_key is not available for route_attempt"})
 		return
 	}
 	response, err := pgxutil.InReadOnlyTxValue(r.Context(), s.pool, "stats terminal targets", func(tx pgx.Tx) (statsdomain.TerminalTargetStatisticsResponse, error) {
@@ -57,6 +73,7 @@ func (s *Service) handleEndpointTerminalTargetStatistics(w http.ResponseWriter, 
 			Limit:          limit,
 			Offset:         offset,
 			ReferenceNow:   s.nowUTC(),
+			Scope:          scope,
 		})
 	})
 	if err != nil {
@@ -74,9 +91,17 @@ func valueOrEmpty(value *string) string {
 }
 
 func (s *Service) handleObserveActivity(w http.ResponseWriter, r *http.Request) {
+	if err := rejectQueryKeys(r, "query_context", "limit", "before"); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	token, bounds, err := s.resolveQueryContextFromRequest(r)
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	if token.Scope != statsdomain.ScopeIngress {
+		writeDomainError(w, r, s.corsSnapshot(), &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "scope_invalid", Detail: "observe activity requires an ingress query_context"})
 		return
 	}
 	coverage := statsdomain.CoverageFromQueryBounds(bounds, token.Domains["usage_request_events"])

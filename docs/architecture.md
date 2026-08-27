@@ -454,7 +454,7 @@ Connection management keeps its existing ownership seams under `backend/internal
 
 ## 6. Request-Derived Metrics
 
-Prism has no manual Terminal Target probe routes or probe-backed health fields. Retained request history supports success-rate, latency, request-count, spending, and endpoint aggregates. The backend dashboard response includes `routing_health_map`, but the current dashboard adapter does not render that field. The production Models table shows success rate, P95 latency, and 24-hour request count as plain values; it does not assign health badges or color thresholds. `GET /api/stats/connection-success-rates` is available for consumers but is not currently used by the production UI.
+Prism has no manual Terminal Target probe routes or probe-backed health fields. Retained request history exposes three explicit metric scopes. `ingress` reads one `usage_request_events` row per finalized ingress and uses requested-model identity. `final_execution` uses the finalized event's resolved leaf model and actual winning Terminal Target, with latency joined to the retained `final_attempt_number`. `route_attempt` reads only upstream `request_logs` rows and uses attempt-result semantics. Ingress and final-execution cost are separate, non-additive projections of the same `priced` plus `trusted` served-final fact; route attempts expose no aggregate cost. Every metric envelope identifies its caliber, datasets, coverage, and sample/missing counts, while invalid or scope-incompatible group/filter keys fail with typed `422`. The Models table and Observe surfaces render these scopes without assigning health from absent samples.
 
 ### 6.1 URL Path Joining
 
@@ -466,7 +466,7 @@ Prism does not document or apply version-segment de-duplication. Operators shoul
 
 ### 7.1 Concept
 
-Materialized runtime activity creates retained, product-facing request history for analytics, debugging, spending, and dashboard views. This is not a guarantee that every ingress request or every upstream transport failure will have history.
+Materialized runtime activity creates retained, product-facing request history for analytics, debugging, spending, and dashboard views. The ingress and final-execution scopes use finalized usage events; route-attempt scope uses actual upstream request-log rows. Dataset coverage remains independent, so missing final-attempt history produces a missing latency sample rather than a fabricated value. This is not a guarantee that every ingress request or every upstream transport failure will have history.
 
 ### 7.2 Logging Flow
 
@@ -1692,7 +1692,7 @@ Runtime planning orders the model's enabled mixed access-target rows once by `(p
 
 Two family-neutral planning codes describe routing-schedule rejections, and this section is their authoritative definition. `terminal_target_schedule_closed` is returned when every terminal target the request evaluated was excluded solely because it sits outside its configured routing window; `terminal_target_schedule_unresolvable` is returned when they were all excluded solely because their routing timezone could not be resolved. Both are `503`. Neither fires when any other cause contributed to the failure — a mixed failure keeps the ordinary response and appends an `N of M` sentence to the detail instead, so the stable codes never overstate what happened. The closed code carries `schedule_excluded_connection_ids`, `schedule_excluded_connection_ids_truncated`, `schedule_excluded_connection_count`, `schedule_reference_now`, `schedule_earliest_next_open_at`, and `schedule_earliest_next_open_at_known`; the unresolvable code carries the matching `schedule_unresolvable_*` trio plus `schedule_reference_now`. The `_at` keys are absent whenever the matching `_known` flag is false.
 
-Request-log detail keeps flat final-target attribution fields such as `resolved_target_model_id`, `terminal_target_id`, `selected_terminal_target_id`, `endpoint_id`, and `operation_translation_mode`. Deleted model-owned routing metadata is not exposed on public detail responses.
+Request-log detail keeps flat attribution fields for the ingress model, attempt target model, actual `terminal_target_id`, planned `selected_terminal_target_id`, endpoint, and operation translation mode. Deleted model-owned routing metadata is not exposed on public detail responses.
 
 #### 2.2B OpenAI native mode equality (strict)
 
@@ -2066,12 +2066,14 @@ Response `200`:
     {
       "request_log_id": 101,
       "created_at": "2026-04-19T11:59:59Z",
-      "model_id": "gpt-4o",
-      "model_label": "GPT-4o",
-      "resolved_target_model_id": "gpt-4o-mini",
-      "resolved_target_model_label": "GPT-4o mini",
+      "ingress_model_id": "gpt-4o",
+      "ingress_model_label": "GPT-4o",
+      "attempt_target_model_id": "gpt-4o-mini",
+      "attempt_target_model_label": "GPT-4o mini",
       "endpoint_id": 12,
       "endpoint_label": "Primary OpenAI",
+      "status_code": 200,
+      "response_time_ms": 403,
       "ttft_ms": 120,
       "completion_duration_ms": 403,
       "is_stream": true,
@@ -2142,8 +2144,8 @@ Attempt-view query parameters:
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `ingress_request_id` | string | — | Exact incoming-request grouping ID shared by per-attempt rows |
-| `model_id` | string | — | Filter by requested model ID |
-| `resolved_target_model_id` | string | — | Filter by final target model selected for the attempt |
+| `ingress_model_id` | string | — | Filter by requested entry model ID |
+| `attempt_target_model_id` | string | — | Filter by the resolved leaf model used by the attempt |
 | `status_family` | string | — | Filter by scoped status family (`2xx`, `4xx`, or `5xx`) |
 | `status_code` | integer | — | Exact scoped status-code filter |
 | `error_text` | string | — | Case-insensitive substring match against `error_detail`/`error_code`/`stream_error_detail`/`stream_error_kind` |
@@ -2541,7 +2543,7 @@ Failure projection semantics:
 - `legacy_pricing_evidence` is non-null only when `pricing_evidence_trust=legacy_untrusted` (shape `{raw_total_cost_original_micros, raw_total_cost_report_micros, raw_component_cost_micros, raw_price_snapshots, original_currency_code, report_currency_code, warning_code:"historical_unverified"}`); canonical cost stays null for those rows.
 - `current_pricing_template` is an optional read-only comparison; deleted/out-of-scope templates return `deleted=true` with the availability state, never a current-configuration substitute.
 
-Request-log detail uses the same canonical disjoint token components as runtime persistence: base input, base output, cache-read input, cache-creation input, reasoning output, and provider or derived total. Pricing snapshots store the five strings from the selected card only. Detail also exposes independent template kind, selection state, card role, generic tier evidence, and peak/valley decision-time evidence. Explicit `"0"` prices are configured free pricing and produce zero component cost without marking the row unpriced. Public request-log detail routing exposes `terminal_target_id` and `selected_terminal_target_id`; it does not expose `routing.connection_id` on the detail surface.
+Request-log detail uses the same canonical disjoint token components as runtime persistence: base input, base output, cache-read input, cache-creation input, reasoning output, and provider or derived total. Pricing snapshots store the five strings from the selected card only. Detail also exposes independent template kind, selection state, card role, generic tier evidence, and peak/valley decision-time evidence. Explicit `"0"` prices are configured free pricing and produce zero component cost without marking the row unpriced. Public request-log detail exposes `terminal_target_id` as the actual attempt exit and `selected_terminal_target_id` as the planning-primary identity; it does not expose a second `routing.connection_id` alias.
 
 The retained request-log list and ingress-chain views accept independent `pricing_card_role` and `pricing_selection_state` row filters. `cost_segment_key` is validated as `e.<positive epoch>`, `l.<AAA>`, or `l.__unknown__`, reuses the canonical classifier for filtering, and does not by itself replace the retained-row ingress source.
 
@@ -2567,18 +2569,32 @@ Query parameters:
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
+| `scope` | string | `ingress` | `ingress`, `final_execution`, or `route_attempt` |
 | `from_time` | datetime | — | Start of time range. If omitted, returns all historical data. |
 | `to_time` | datetime | now | End of time range |
-| `group_by` | string | — | Group results by: `model`, `api_family`, `endpoint` |
-| `model_id` | string | — | Filter by model ID |
+| `group_by` | string | `none` | Scope-specific identity: `ingress_model`, `final_target_model`, `attempt_target_model`, `api_family`, `proxy_api_key`, `endpoint`, `terminal_target`, `attempt_trigger`, or `attempt_result` as allowed by the selected scope |
+| `ingress_model_id` | string | — | Filter ingress scope by requested model |
+| `final_target_model_id` | string | — | Filter final-execution scope by resolved leaf model |
+| `attempt_target_model_id` | string | — | Filter route-attempt scope by the attempt's resolved leaf model |
 | `api_family` | string | — | Filter by runtime compatibility family (fixed enum) |
 | `endpoint_id` | integer | — | Filter by endpoint ID |
-| `connection_id` | integer | — | Filter by connection ID |
+| `terminal_target_id` | integer | — | Filter by actual Terminal Target ID |
+
+Unknown keys, ambiguous legacy model keys, and scope-incompatible group or filter values return typed `422` errors.
 
 Response `200`:
 
 ```json
 {
+  "caliber": {
+    "scope": "ingress",
+    "grain": "ingress_request",
+    "identity_basis": "ingress_model_id",
+    "outcome_basis": "final_result",
+    "latency_basis": "ingress_end_to_end",
+    "cost_basis": "served_final_trusted_cost",
+    "datasets": ["usage_request_events"]
+  },
   "total_requests": 1500,
   "success_count": 1450,
   "error_count": 50,
@@ -2597,11 +2613,19 @@ Response `200`:
       "avg_response_time_ms": 750,
       "total_tokens": 90000
     }
-  ]
+  ],
+  "coverage": { "usage_request_events": { "complete": true } },
+  "samples": {
+    "observation_count": 1500,
+    "latency_sample_count": 1500,
+    "latency_missing_count": 0,
+    "cost_sample_count": 1400,
+    "cost_missing_count": 50
+  }
 }
 ```
 
-Caliber declaration: the summary is built from `usage_request_events` (one row per ingress), carries `granularity: "request"` and `latency_basis: "end_to_end"`, and is deliberately different from the attempt-level caliber of `models/metrics`.
+Ingress and final-execution summaries read finalized usage events; final-execution latency also uses retained request logs. Route-attempt summaries read only `row_kind=upstream` request-log rows and use `attempt_result` plus raw `attempt_duration_ms`.
 
 #### 4.5 Model Metrics (Batch)
 
@@ -2619,7 +2643,7 @@ Request:
 }
 ```
 
-Response `200`: `items[]`, where each item contains `model_id`, `success_rate`, `request_count_24h`, `p95_latency_ms`, and `spend_30d_micros`. `success_rate` is `null` when the window has no samples for the model, `p95_latency_ms` is `null` without latency samples, and `spend_30d_micros` is `null` without trusted pricing evidence.
+Response `200` returns each requested model once with `ingress`, `final_execution`, and `route_attempt` metric blocks. Each block contains `request_count`, nullable `success_rate`, nullable `p95_latency_ms`, nullable `known_cost_micros`, `caliber`, and sample/missing counts. Route-attempt cost is always null with `cost_basis=none`. Response-level quality coverage carries usage and request datasets; spending coverage carries usage evidence. Ingress and final-execution cost are non-additive groupings of the same served-final trusted fact.
 
 #### 4.6 Get Connection Success Rates
 
@@ -2627,7 +2651,7 @@ Response `200`: `items[]`, where each item contains `model_id`, `success_rate`, 
 GET /api/stats/connection-success-rates
 ```
 
-Returns success rate data for all connections, computed from `request_logs`.
+Returns route-attempt completion data for actual Terminal Targets, computed only from upstream `request_logs` rows. Each item carries route-attempt caliber, request-log coverage, and sample counts; it does not expose served-final cost.
 
 Query parameters:
 
@@ -2675,14 +2699,18 @@ Query parameters:
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
+| `scope` | string | `ingress` | `ingress`, `final_execution`, or `route_attempt` |
+| `preset` | string | `24h` | Actual-coverage-resolved time preset |
 | `from_time` | datetime | — | Start of time range |
 | `to_time` | datetime | now | End of time range |
-| `model_id` | string | — | Filter by model ID |
+| `ingress_model_id` | string | — | Requested-model filter for ingress scope |
+| `final_target_model_id` | string | — | Resolved-model filter for final-execution scope |
+| `attempt_target_model_id` | string | — | Resolved-model filter for route-attempt scope |
 | `api_family` | string | — | Filter by runtime compatibility family (fixed enum) |
 | `endpoint_id` | integer | — | Filter by endpoint ID |
-| `connection_id` | integer | — | Filter by connection ID |
+| `terminal_target_id` | integer | — | Filter by actual Terminal Target ID |
 
-Response `200`: Throughput summary plus time buckets (`average_rpm`, `peak_rpm`, `current_rpm`, `total_requests`, `time_window_seconds`, `buckets[]`).
+Response `200`: Throughput summary plus time buckets (`average_rpm`, `peak_rpm`, `current_rpm`, `total_requests`, `time_window_seconds`, `buckets[]`) and the selected caliber, dataset coverage, and sample counts.
 
 #### 4.8 Global Log Retention Settings
 
@@ -2757,14 +2785,16 @@ Query parameters:
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
+| `scope` | string | `ingress` | `ingress` or `final_execution`; `route_attempt` returns no cost claim |
 | `preset` | string | — | Time preset: `today`, `24h`, `last_7_days`, `7d`, `last_30_days`, `30d`, `custom`, `all` |
 | `from_time` | datetime | — | Start of time range (ISO 8601) |
 | `to_time` | datetime | — | End of time range (ISO 8601) |
 | `api_family` | string | — | Filter by runtime compatibility family (fixed enum) |
-| `model_id` | string | — | Filter by model ID |
+| `ingress_model_id` | string | — | Requested-model filter for ingress scope |
+| `final_target_model_id` | string | — | Resolved-model filter for final-execution scope |
 | `endpoint_id` | integer | — | Filter by endpoint ID |
-| `connection_id` | integer | — | Filter by connection ID |
-| `group_by` | string | `none` | Group by: `none`, `day`, `week`, `month`, `api_family`, `model`, `endpoint`, `model_endpoint` |
+| `terminal_target_id` | integer | — | Filter by actual Terminal Target ID |
+| `group_by` | string | `none` | Scope-specific grouping such as `ingress_model`, `final_target_model`, `endpoint`, or `terminal_target` |
 | `limit` | integer | 50 | Result limit; must be positive |
 | `offset` | integer | 0 | Pagination offset |
 | `top_n` | integer | 5 | Number of top spenders to return; must be positive |
@@ -2774,7 +2804,9 @@ Response `200`:
 ```json
 {
   "summary": {
-    "total_cost_micros": 1250000,
+    "known_cost_micros": 1250000,
+    "cost_sample_count": 1400,
+    "cost_missing_count": 50,
     "successful_request_count": 1500,
     "priced_request_count": 1450,
     "unpriced_request_count": 50,
@@ -4281,7 +4313,7 @@ Usage-event rows are the finalized source for the unified statistics snapshot. T
 | selected_terminal_target_id | INTEGER | NULLABLE | Planner-selected terminal target for the finalized request |
 | proxy_api_key_id | INTEGER | NULLABLE | Proxy API key snapshot |
 | proxy_api_key_name_snapshot | VARCHAR(200) | NULLABLE | Proxy key name at event time |
-| attempt_count | INTEGER | NOT NULL, CHECK `attempt_count >= 1` | Number of upstream attempts that contributed to the finalized event |
+| attempt_count | INTEGER | NOT NULL, CHECK `attempt_count >= 0` | Number of real upstream launches; planning/admission-only finalized events use zero |
 | expected_request_log_row_count | INTEGER | NULLABLE | Expected retained request-log rows for chain reconciliation |
 | status_code | INTEGER | NOT NULL | Final HTTP status code |
 | success_flag | BOOLEAN | NOT NULL | Success indicator |
@@ -4740,7 +4772,7 @@ These live tables are internal platform state rather than primary product config
 
 ### 3. Selected Indexes, Constraints, and Foreign Keys
 
-`backend/migrations/000001_initial_schema.sql` is the complete and exact schema source. The following DDL is a selected set of high-centrality constraints and indexes; it is intentionally not a complete index or foreign-key listing. The baseline declares the shown partition-root indexes with `ON ONLY`; inspect the live child partitions when diagnosing per-partition indexes.
+`backend/migrations/000001_initial_schema.sql` is the fresh baseline, with later checked-in migrations completing the live schema. The following DDL is a selected set of high-centrality constraints and indexes; it is intentionally not a complete index or foreign-key listing. Baseline partition-root indexes may use `ON ONLY`; the additive ingress-chain and resolved-target migrations create partitioned indexes without `ONLY` so existing and future partitions receive usable child indexes.
 
 ```sql
 -- Profiles
@@ -4775,6 +4807,8 @@ CREATE INDEX idx_request_logs_ingress_request_id ON ONLY request_logs(ingress_re
 CREATE INDEX idx_request_logs_pricing_status ON ONLY request_logs(pricing_status);
 CREATE INDEX idx_request_logs_error_code ON ONLY request_logs(error_code);
 CREATE INDEX idx_request_logs_attempt_trigger ON ONLY request_logs(attempt_trigger);
+CREATE INDEX idx_request_logs_resolved_target_created ON request_logs(profile_id, resolved_target_model_id, created_at, id) WHERE row_kind = 'upstream' AND resolved_target_model_id IS NOT NULL;
+CREATE INDEX idx_request_logs_terminal_target_actual ON request_logs(profile_id, connection_id, resolved_target_model_id, created_at) WHERE row_kind = 'upstream' AND connection_id > 0;
 CREATE INDEX ix_request_logs_api_family ON ONLY request_logs(api_family);
 CREATE INDEX ix_request_logs_connection_id ON ONLY request_logs(connection_id);
 CREATE INDEX ix_request_logs_endpoint_id ON ONLY request_logs(endpoint_id);
@@ -4784,6 +4818,8 @@ CREATE INDEX ix_request_logs_proxy_api_key_id ON ONLY request_logs(proxy_api_key
 CREATE INDEX ix_request_logs_upstream_status_code ON ONLY request_logs(upstream_status_code);
 CREATE INDEX idx_usage_request_events_profile_created_at ON ONLY usage_request_events(profile_id, created_at);
 CREATE INDEX idx_usage_request_events_profile_ingress_id ON ONLY usage_request_events(profile_id, ingress_request_id, id);
+CREATE INDEX idx_usage_request_events_resolved_target_created ON usage_request_events(profile_id, resolved_target_model_id, created_at, id) WHERE resolved_target_model_id IS NOT NULL;
+CREATE INDEX idx_usage_request_events_terminal_target_final ON usage_request_events(profile_id, connection_id, resolved_target_model_id, created_at) WHERE connection_id > 0 AND final_attempt_number IS NOT NULL;
 CREATE INDEX ix_usage_request_events_api_family ON ONLY usage_request_events(api_family);
 CREATE INDEX ix_usage_request_events_connection_id ON ONLY usage_request_events(connection_id);
 CREATE INDEX ix_usage_request_events_endpoint_id ON ONLY usage_request_events(endpoint_id);
@@ -4822,9 +4858,11 @@ and dropped `idx_request_logs_profile_created_at`,
 `ix_request_logs_status_code`,
 `idx_usage_request_events_profile_ingress_request`,
 `idx_usage_request_events_ingress_request_id`, and
-`ix_usage_request_events_profile_id`. Parent declarations propagate to child
-partitions at creation time; inspect live children when diagnosing per-partition
-indexes.
+`ix_usage_request_events_profile_id`; `000026_resolved_target_indexes` adds the
+resolved-model and actual/final Terminal Target index pairs used by
+`final_execution` and `route_attempt`. Partitioned declarations propagate to
+existing children when the migration is applied and to future children at
+creation time; inspect live children when diagnosing per-partition indexes.
 
 Selected foreign-key deletion boundaries:
 

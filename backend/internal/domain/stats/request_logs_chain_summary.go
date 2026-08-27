@@ -185,6 +185,8 @@ func (scan *finalizedSummaryScan) dest() []any {
 func (scan *finalizedSummaryScan) assemble() *FinalizedSummary {
 	summary := &scan.summary
 	raw := &scan.raw
+	raw.endpointID = normalizePositiveID(raw.endpointID)
+	raw.connectionID = normalizePositiveID(raw.connectionID)
 	if raw.requestLogID.Valid {
 		summary.RequestLogID = stringPointer(strconv.FormatInt(raw.requestLogID.Int64, 10))
 	}

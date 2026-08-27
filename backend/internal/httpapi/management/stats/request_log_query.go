@@ -20,7 +20,10 @@ func parseRequestLogListParams(r *http.Request, profileID int, observabilitySign
 	hasFinalSelector := r.URL.Query().Get("ingress_final_result") != "" ||
 		r.URL.Query().Get("confirmed_failover") != "" ||
 		r.URL.Query().Get("final_result") != "" ||
-		r.URL.Query().Get("final_model_id") != "" ||
+		len(r.URL.Query()["final_status_code"]) > 0 ||
+		len(r.URL.Query()["final_stream_outcome"]) > 0 ||
+		len(r.URL.Query()["final_stream_error_kind"]) > 0 ||
+		r.URL.Query().Get("final_target_model_id") != "" ||
 		r.URL.Query().Get("final_endpoint_id") != "" ||
 		r.URL.Query().Get("final_terminal_target_id") != "" ||
 		r.URL.Query().Get("final_pricing_status") != "" ||
@@ -156,6 +159,17 @@ func parseRequestLogListParams(r *http.Request, profileID int, observabilitySign
 		return statsdomain.RequestLogListParams{}, err
 	}
 	finalResult := normalizedQueryString(r, "final_result")
+	if finalResult == nil {
+		if detail := strings.TrimSpace(r.URL.Query().Get("outcome_detail")); detail != "" {
+			mapped := "failed"
+			if detail == "completed" {
+				mapped = "completed"
+			} else if detail == "client_disconnected" {
+				mapped = "client_disconnected"
+			}
+			finalResult = &mapped
+		}
+	}
 	if finalResult != nil {
 		switch *finalResult {
 		case "completed", "failed", "client_disconnected":
@@ -163,7 +177,7 @@ func parseRequestLogListParams(r *http.Request, profileID int, observabilitySign
 			return statsdomain.RequestLogListParams{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "unknown_query_key", Detail: "Unknown final_result value: " + *finalResult}
 		}
 	}
-	finalModelID := normalizedQueryString(r, "final_model_id")
+	finalModelID := normalizedQueryString(r, "final_target_model_id")
 	finalEndpointID, err := parseOptionalInt(r, "final_endpoint_id")
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
@@ -187,12 +201,18 @@ func parseRequestLogListParams(r *http.Request, profileID int, observabilitySign
 		}
 	}
 	reportingEpoch := normalizedQueryString(r, "reporting_currency_epoch")
+	finalStatusCodes, err := repeatableQueryInts(r, "final_status_code")
+	if err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
+	finalStreamOutcomes := repeatableQueryValues(r, "final_stream_outcome")
+	finalStreamErrorKinds := repeatableQueryValues(r, "final_stream_error_kind")
 	sortBy, sortOrder, err := parseRequestLogSort(r)
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
 	}
 	coveragePreset := strings.TrimSpace(r.URL.Query().Get("time_range"))
-	return statsdomain.RequestLogListParams{ProfileID: profileID, IngressFinalResult: ingressFinalResult, ConfirmedFailover: confirmedFailover, IngressRequestID: normalizedQueryString(r, "ingress_request_id"), ModelID: normalizedQueryString(r, "model_id"), ResolvedTargetModelID: normalizedQueryString(r, "resolved_target_model_id"), StatusFamily: statusFamily, StatusCode: statusCode, ErrorText: normalizedQueryString(r, "error_text"), PricingStatus: pricingStatus, UnpricedReasons: unpricedReasons, PricingCardRole: pricingCardRole, PricingSelectionState: pricingSelectionState, FromTime: fromTime, ToTime: toTime, EndpointID: endpointID, TerminalTargetID: terminalTargetID, ProxyAPIKeyID: proxyAPIKeyID, ClientRuleID: clientRuleID, QueryContextFrom: queryContextFrom, QueryContextTo: queryContextTo, FinalResult: finalResult, FinalModelID: finalModelID, FinalEndpointID: finalEndpointID, FinalTerminalTargetID: finalTerminalTargetID, FinalPricingStatus: finalPricingStatus, FinalUnpricedReasons: finalUnpricedReasons, FinalReportingEpoch: reportingEpoch, CoveragePreset: coveragePreset, CoverageRequestedFrom: fromTime, CoverageRequestedTo: toTime, CoverageReferenceNow: referenceNow.UTC(), SortBy: sortBy, SortOrder: sortOrder, Limit: limit, Offset: offset}, nil
+	return statsdomain.RequestLogListParams{ProfileID: profileID, IngressFinalResult: ingressFinalResult, ConfirmedFailover: confirmedFailover, IngressRequestID: normalizedQueryString(r, "ingress_request_id"), ModelID: normalizedQueryString(r, "ingress_model_id"), ResolvedTargetModelID: normalizedQueryString(r, "attempt_target_model_id"), StatusFamily: statusFamily, StatusCode: statusCode, ErrorText: normalizedQueryString(r, "error_text"), PricingStatus: pricingStatus, UnpricedReasons: unpricedReasons, PricingCardRole: pricingCardRole, PricingSelectionState: pricingSelectionState, FromTime: fromTime, ToTime: toTime, EndpointID: endpointID, TerminalTargetID: terminalTargetID, ProxyAPIKeyID: proxyAPIKeyID, ClientRuleID: clientRuleID, QueryContextFrom: queryContextFrom, QueryContextTo: queryContextTo, FinalResult: finalResult, FinalStatusCodes: finalStatusCodes, FinalStreamOutcomes: finalStreamOutcomes, FinalStreamErrorKinds: finalStreamErrorKinds, FinalModelID: finalModelID, FinalEndpointID: finalEndpointID, FinalTerminalTargetID: finalTerminalTargetID, FinalPricingStatus: finalPricingStatus, FinalUnpricedReasons: finalUnpricedReasons, FinalReportingEpoch: reportingEpoch, CoveragePreset: coveragePreset, CoverageRequestedFrom: fromTime, CoverageRequestedTo: toTime, CoverageReferenceNow: referenceNow.UTC(), SortBy: sortBy, SortOrder: sortOrder, Limit: limit, Offset: offset}, nil
 }
 
 // parseRequestLogSort resolves the attempt-view sort grammar: `sort_by` over
@@ -232,8 +252,8 @@ func rejectUnsupportedRequestLogQueryKeys(r *http.Request) error {
 		"ingress_request_id":       {},
 		"ingress_final_result":     {},
 		"confirmed_failover":       {},
-		"model_id":                 {},
-		"resolved_target_model_id": {},
+		"ingress_model_id":         {},
+		"attempt_target_model_id":  {},
 		"status_family":            {},
 		"status_code":              {},
 		"error_text":               {},
@@ -252,7 +272,11 @@ func rejectUnsupportedRequestLogQueryKeys(r *http.Request) error {
 		"offset":                   {},
 		"query_context":            {},
 		"final_result":             {},
-		"final_model_id":           {},
+		"outcome_detail":           {},
+		"final_status_code":        {},
+		"final_stream_outcome":     {},
+		"final_stream_error_kind":  {},
+		"final_target_model_id":    {},
 		"final_endpoint_id":        {},
 		"final_terminal_target_id": {},
 		"final_pricing_status":     {},

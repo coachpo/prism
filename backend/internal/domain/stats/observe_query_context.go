@@ -15,6 +15,7 @@ import (
 // and a nonce so fragment cursors can be validated without re-parsing.
 type QueryContextToken struct {
 	SchemaVersion   int                                   `json:"schema_version"`
+	Scope           string                                `json:"scope"`
 	ProfileID       int                                   `json:"profile_id"`
 	RequestedPreset string                                `json:"requested_preset"`
 	RequestedFrom   *string                               `json:"requested_from,omitempty"`
@@ -187,15 +188,17 @@ func hmacSHA256(key []byte, message []byte) []byte {
 
 // QueryContextResponse is the query-context route payload.
 type QueryContextResponse struct {
-	QueryContext    string      `json:"query_context"`
-	RequestedBounds *TimeBounds `json:"requested_bounds"`
-	UsageBounds     TimeBounds  `json:"usage_bounds"`
-	UsageCoverage   Coverage    `json:"usage_coverage"`
-	EventBounds     TimeBounds  `json:"event_bounds"`
-	EventCoverage   Coverage    `json:"event_coverage"`
-	RequestBounds   TimeBounds  `json:"request_bounds"`
-	RequestCoverage Coverage    `json:"request_coverage"`
-	GeneratedAt     time.Time   `json:"generated_at"`
+	QueryContext    string       `json:"query_context"`
+	Scope           string       `json:"scope"`
+	Caliber         ScopeCaliber `json:"caliber"`
+	RequestedBounds *TimeBounds  `json:"requested_bounds"`
+	UsageBounds     TimeBounds   `json:"usage_bounds"`
+	UsageCoverage   Coverage     `json:"usage_coverage"`
+	EventBounds     TimeBounds   `json:"event_bounds"`
+	EventCoverage   Coverage     `json:"event_coverage"`
+	RequestBounds   TimeBounds   `json:"request_bounds"`
+	RequestCoverage Coverage     `json:"request_coverage"`
+	GeneratedAt     time.Time    `json:"generated_at"`
 }
 
 type TimeBounds struct {

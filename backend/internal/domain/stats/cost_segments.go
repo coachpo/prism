@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Cost segments catalogue (Pricing SPEC §5.7; Observe SPEC §3.4). Segment keys
@@ -54,6 +55,9 @@ type CostSegmentPage struct {
 	CostSegmentsConsumedCount int                   `json:"cost_segments_consumed_count"`
 	CostSegmentsSnapshotHash  string                `json:"cost_segments_snapshot_hash"`
 	CostSegmentsNextCursor    *string               `json:"cost_segments_next_cursor"`
+	Caliber                   ScopeCaliber          `json:"caliber"`
+	DatasetCoverage           DatasetCoverage       `json:"dataset_coverage"`
+	Samples                   ScopeSampleCounts     `json:"samples"`
 }
 
 // CostSegmentParams selects the segment catalogue.
@@ -232,6 +236,11 @@ func ListCostSegments(ctx context.Context, exec queryExecutor, params CostSegmen
 	totalCount := len(segments)
 	page := CostSegmentPage{
 		CostSegmentsTotalCount: totalCount,
+		Caliber:                ScopeCaliber{Scope: "catalog", Grain: "cost_segment", IdentityBasis: "cost_segment_key", OutcomeBasis: "none", LatencyBasis: "none", CostBasis: "served_final_trusted_cost", Datasets: []string{"usage_request_events"}},
+		Samples:                ScopeSampleCounts{ObservationCount: totalCount},
+	}
+	if _, coverage, coverageErr := ResolveDatasetCoverage(ctx, exec, "usage_request_events", "all", nil, nil, time.Now().UTC()); coverageErr == nil {
+		page.DatasetCoverage = DatasetCoverage{UsageRequestEvents: &coverage}
 	}
 	// Keyset cursor over the ordered segments (server-before-limit).
 	start := 0

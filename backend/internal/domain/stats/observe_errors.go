@@ -13,16 +13,19 @@ import (
 // the Requests deep link.
 
 type UsageErrorsParams struct {
-	GroupBy          string
-	EndpointID       *int
-	ModelID          *string
-	FinalResult      []string
-	OutcomeDetail    []string
-	StatusCode       []int
-	StreamOutcome    []string
-	StreamErrorKind  []string // "__null__" matches null kind
-	TerminalTargetID *int     // requires EndpointID
-	Limit            int
+	GroupBy              string
+	Scope                string
+	EndpointID           *int
+	IngressModelID       *string
+	FinalTargetModelID   *string
+	AttemptTargetModelID *string
+	FinalResult          []string
+	OutcomeDetail        []string
+	StatusCode           []int
+	StreamOutcome        []string
+	StreamErrorKind      []string // "__null__" matches null kind
+	TerminalTargetID     *int     // requires EndpointID
+	Limit                int
 }
 
 type UsageErrorsResult struct {
@@ -35,6 +38,9 @@ type UsageErrorsResult struct {
 	StreamOutcomes  []ErrorsStreamOutcome `json:"stream_outcomes"`
 	Groups          []ErrorsGroup         `json:"groups"`
 	Other           ErrorsOther           `json:"other"`
+	Caliber         ScopeCaliber          `json:"caliber"`
+	DatasetCoverage DatasetCoverage       `json:"dataset_coverage"`
+	Samples         ScopeSampleCounts     `json:"samples"`
 }
 
 type ErrorsRequestsContext struct {
@@ -176,8 +182,11 @@ func errorFilterWhere(params UsageErrorsParams) (string, []any) {
 		}
 		conditions = append(conditions, "("+strings.Join(kindConditions, " OR ")+")")
 	}
-	if params.ModelID != nil && strings.TrimSpace(*params.ModelID) != "" {
-		conditions = append(conditions, fmt.Sprintf("model_id = %s", next(strings.TrimSpace(*params.ModelID))))
+	if params.IngressModelID != nil && strings.TrimSpace(*params.IngressModelID) != "" {
+		conditions = append(conditions, fmt.Sprintf("model_id = %s", next(strings.TrimSpace(*params.IngressModelID))))
+	}
+	if params.FinalTargetModelID != nil && strings.TrimSpace(*params.FinalTargetModelID) != "" {
+		conditions = append(conditions, fmt.Sprintf("resolved_target_model_id = %s", next(strings.TrimSpace(*params.FinalTargetModelID))))
 	}
 	if params.EndpointID != nil {
 		conditions = append(conditions, fmt.Sprintf("endpoint_id = %s", next(*params.EndpointID)))
@@ -195,7 +204,20 @@ func errorFilterWhere(params UsageErrorsParams) (string, []any) {
 // LoadUsageErrors runs the three-statement error aggregate. Statement 1:
 // filtered cohort summary + timeline. Statement 2: HTTP status ranking.
 // Statement 3: stream outcome ranking with kind Top 5 and entity groups.
-func LoadUsageErrors(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, coverage Coverage, params UsageErrorsParams, queryContext string, referenceNow time.Time) (UsageErrorsResult, error) {
+func LoadUsageErrors(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, usageCoverage Coverage, requestCoverage Coverage, params UsageErrorsParams, queryContext string, referenceNow time.Time) (UsageErrorsResult, error) {
+	scope, err := NormalizeScope(params.Scope)
+	if err != nil {
+		return UsageErrorsResult{}, err
+	}
+	params.Scope = scope
+	groupBy, err := ValidateGroupBy(scope, params.GroupBy)
+	if err != nil {
+		return UsageErrorsResult{}, err
+	}
+	params.GroupBy = groupBy
+	if scope == ScopeRouteAttempt {
+		return loadAttemptErrors(ctx, exec, profileID, bounds, requestCoverage, params, queryContext, referenceNow)
+	}
 	if params.Limit <= 0 {
 		params.Limit = 20
 	}
@@ -206,8 +228,10 @@ func LoadUsageErrors(ctx context.Context, exec queryExecutor, profileID int, bou
 		params.GroupBy = "none"
 	}
 	result := UsageErrorsResult{
-		GeneratedAt: referenceNow.UTC(),
-		Coverage:    coverage,
+		GeneratedAt:     referenceNow.UTC(),
+		Coverage:        usageCoverage,
+		Caliber:         CaliberForScope(scope),
+		DatasetCoverage: ScopeCoverageFor(scope, &usageCoverage, &requestCoverage),
 		RequestsContext: ErrorsRequestsContext{
 			View:               "ingress_chains",
 			QueryContext:       queryContext,
@@ -223,6 +247,9 @@ func LoadUsageErrors(ctx context.Context, exec queryExecutor, profileID int, bou
 		Groups:         []ErrorsGroup{},
 	}
 	where, filterArgs := errorFilterWhere(params)
+	if scope == ScopeFinal {
+		where += " AND resolved_target_model_id IS NOT NULL AND final_attempt_number IS NOT NULL"
+	}
 	args := append([]any{profileID, bounds.UsageFrom, bounds.UsageTo}, filterArgs...)
 
 	// Statement 1: summary + timeline over the filtered cohort.
@@ -416,7 +443,7 @@ LIMIT 5`, where), append(args, outcome)...)
 
 	// Entity groups by requested dimension.
 	if params.GroupBy != "" && params.GroupBy != "none" {
-		groupColumn := groupColumnFor(params.GroupBy)
+		groupColumn := groupColumnFor(scope, params.GroupBy)
 		groupRows, err := exec.Query(ctx, fmt.Sprintf(`
 WITH classified AS (
 	SELECT %[1]s AS entity_id, created_at, `+outcomeDetailSQL+` AS outcome_detail
@@ -470,6 +497,7 @@ LIMIT %d`, groupColumn, where, params.Limit), args...)
 			result.Groups[index].RequestFilters = groupFilters(params, result.Groups[index])
 		}
 	}
+	result.Samples = ScopeSampleCounts{ObservationCount: result.Summary.RequestCount, LatencyMissingCount: result.Summary.RequestCount}
 	return result, nil
 }
 
@@ -503,8 +531,11 @@ func baseRequestFilters(params UsageErrorsParams) map[string][]string {
 	if len(params.StreamErrorKind) > 0 {
 		filters["final_stream_error_kind"] = params.StreamErrorKind
 	}
-	if params.ModelID != nil && strings.TrimSpace(*params.ModelID) != "" {
-		filters["final_model_id"] = []string{strings.TrimSpace(*params.ModelID)}
+	if params.IngressModelID != nil && strings.TrimSpace(*params.IngressModelID) != "" {
+		filters["ingress_model_id"] = []string{strings.TrimSpace(*params.IngressModelID)}
+	}
+	if params.FinalTargetModelID != nil && strings.TrimSpace(*params.FinalTargetModelID) != "" {
+		filters["final_target_model_id"] = []string{strings.TrimSpace(*params.FinalTargetModelID)}
 	}
 	if params.EndpointID != nil {
 		filters["final_endpoint_id"] = []string{fmt.Sprintf("%d", *params.EndpointID)}
@@ -546,8 +577,10 @@ func groupFilters(params UsageErrorsParams, group ErrorsGroup) map[string][]stri
 	}
 	if group.EntityID != nil {
 		switch group.EntityType {
-		case "model":
-			filters["final_model_id"] = []string{*group.EntityID}
+		case GroupIngressModel:
+			filters["ingress_model_id"] = []string{*group.EntityID}
+		case GroupFinalTargetModel:
+			filters["final_target_model_id"] = []string{*group.EntityID}
 		case "endpoint":
 			filters["final_endpoint_id"] = []string{*group.EntityID}
 		case "terminal_target":

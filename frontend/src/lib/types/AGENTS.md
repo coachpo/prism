@@ -30,12 +30,13 @@ types/
 - Public barrel: `../types.ts`
 - Auth/session surfaces: `auth.ts`
 - Terminal Target, routing, vendor, and model stats contracts: `target-compatibility.ts`, `routing.ts`, `vendor.ts`, `model-stats.ts`
+- `model-stats.ts` mirrors the composite three-scope model-metrics response, including caliber, samples, nullable trusted cost, and dataset coverage.
 - `JsonValue`/`JsonObject` and the `custom_request_parameters` field on `Connection`, `ConnectionCreate`, `ConnectionUpdate`, and their aliases: `routing.ts`
 - Usage, analytics, and proxy-key stats payloads: `usage-statistics.ts`
 - Ban Policy and load-balance payloads: `loadbalance.ts`
 - Management settings contracts: `management-settings.ts`
 - Audit log and coverage contracts: `audit-logs.ts`
-- Request-log pricing filters include independent `pricing_card_role` and `pricing_selection_state`; do not combine either with the other or collapse them into a single display enum.
+- Request-log wire identities use `ingress_model_id`, `attempt_target_model_id`, and finalized `final_target_model_id`; do not restore ambiguous `model_id`/`resolved_target_model_id` aliases. Pricing filters include independent `pricing_card_role` and `pricing_selection_state`.
 - Retention job and impact contracts: `retention-jobs.ts`
 - Costing and currency migration contracts: `currency-migration.ts`; currency drafts/previews carry `template_kind` and complete role-keyed `cards`, never a projected base/offpeak scalar.
 - Compatibility import barrel: `config-audit-settings.ts`

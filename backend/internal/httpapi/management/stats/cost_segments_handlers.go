@@ -13,6 +13,10 @@ import (
 )
 
 func (s *Service) handleCostSegments(w http.ResponseWriter, r *http.Request) {
+	if err := rejectQueryKeys(r, "limit", "cursor"); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (statsdomain.CostSegmentPage, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
@@ -34,6 +38,10 @@ func (s *Service) handleCostSegments(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleCostSegmentSymbols(w http.ResponseWriter, r *http.Request) {
+	if err := rejectQueryKeys(r, "limit", "offset"); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	limit, err := parsePositiveIntWithDefault(r, "limit", 50)
 	if err != nil {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
@@ -62,26 +70,38 @@ func (s *Service) handleCostSegmentSymbols(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Service) handleEndpointModelStatistics(w http.ResponseWriter, r *http.Request) {
+	if err := rejectQueryKeys(r, "scope", "preset", "from_time", "to_time"); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	scope, err := statsdomain.NormalizeScope(queryStringOrDefault(r, "scope", statsdomain.ScopeFinal))
+	if err != nil || scope == statsdomain.ScopeIngress {
+		if err == nil {
+			err = &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "scope_invalid", Detail: "endpoint model statistics support final_execution or route_attempt"}
+		}
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	endpointID, err := routeInt(r, "endpoint_id")
 	if err != nil {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) ([]statsdomain.EndpointModelStatistic, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (statsdomain.EndpointModelStatisticsResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
-			return nil, err
+			return statsdomain.EndpointModelStatisticsResponse{}, err
 		}
 		fromTime, err := parseOptionalTime(r, "from_time")
 		if err != nil {
-			return nil, err
+			return statsdomain.EndpointModelStatisticsResponse{}, err
 		}
 		toTime, err := parseOptionalTime(r, "to_time")
 		if err != nil {
-			return nil, err
+			return statsdomain.EndpointModelStatisticsResponse{}, err
 		}
 		preset := queryStringOrDefault(r, "preset", "1h")
-		return statsdomain.GetEndpointModelStatistics(r.Context(), tx, statsdomain.EndpointModelStatisticsParams{ProfileID: profile.ID, EndpointID: endpointID, Preset: preset, FromTime: fromTime, ToTime: toTime}, s.nowUTC())
+		return statsdomain.GetEndpointModelStatistics(r.Context(), tx, statsdomain.EndpointModelStatisticsParams{ProfileID: profile.ID, EndpointID: endpointID, Preset: preset, FromTime: fromTime, ToTime: toTime, Scope: scope, ReferenceNow: s.nowUTC()}, s.nowUTC())
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)

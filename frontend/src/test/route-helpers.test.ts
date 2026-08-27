@@ -9,6 +9,8 @@ import {
   rewriteRoutePaths,
 } from "@/app/index"
 import { resolveProtectedRedirect, resolvePublicRedirect } from "@/app/router/authGates"
+import { modelsListSearchSchema } from "@/app/router/rewriteRoutes"
+import { groupBelongsToScope } from "@/features/observe/observeSearch"
 
 const returnLocation = {
   pathname: "/observe/requests",
@@ -45,21 +47,35 @@ describe("rewrite route helpers", () => {
     expect(observeSearchSchema.parse({ metric: "output_rate" }).metric).toBe("output_rate")
     expect(observeSearchSchema.parse({ metric: "cache_read_share" }).metric).toBe("cache_read_share")
     expect(observeSearchSchema.parse({ metric: "unknown" }).metric).toBe("requests")
+    expect(observeSearchSchema.parse({ scope: "final_execution", group_by: "final_target_model" })).toMatchObject({
+      scope: "final_execution",
+      group_by: "final_target_model",
+    })
+    expect(observeSearchSchema.parse({ scope: "route_attempt", group_by: "attempt_target_model" })).toMatchObject({
+      scope: "route_attempt",
+      group_by: "attempt_target_model",
+    })
+    expect(observeSearchSchema.parse({ scope: "unknown", group_by: "model" })).toMatchObject({
+      scope: "ingress",
+      group_by: "none",
+    })
+    expect(modelsListSearchSchema.parse({ scope: "final_execution" })).toEqual({ scope: "final_execution" })
+    expect(modelsListSearchSchema.parse({ scope: "route_attempt" })).toEqual({ scope: "route_attempt" })
     expect(requestLogSearchSchema.parse({
       client_rule_id: "123",
       limit: "300",
       cursor: "12",
       request_id: "#bad",
-      resolved_target_model_id: "terminal-model",
+      attempt_target_model_id: "terminal-model",
       status: "success",
-      model: "gpt-test",
+      ingress_model_id: "gpt-test",
       selected_request_id: "101",
     })).toMatchObject({
       client_rule_id: "123",
       cursor: 12,
       limit: 300,
-      model: "gpt-test",
-      resolved_target_model_id: "terminal-model",
+      ingress_model_id: "gpt-test",
+      attempt_target_model_id: "terminal-model",
       request_id: "",
       selected_request_id: "101",
       status: "success",
@@ -69,6 +85,20 @@ describe("rewrite route helpers", () => {
       audit_id: "201",
       cursor: "page-2",
     })
+  })
+
+  it.each([
+    ["ingress_model", "ingress", true],
+    ["final_target_model", "final_execution", true],
+    ["attempt_target_model", "route_attempt", true],
+    ["attempt_trigger", "route_attempt", true],
+    ["attempt_result", "route_attempt", true],
+    ["terminal_target", "final_execution", true],
+    ["terminal_target", "route_attempt", true],
+    ["final_target_model", "ingress", false],
+    ["attempt_target_model", "final_execution", false],
+  ] as const)("maps %s to %s with allowed=%s", (groupBy, scope, allowed) => {
+    expect(groupBelongsToScope(groupBy, scope)).toBe(allowed)
   })
 
   it("resolves protected and public auth redirects with return state", () => {

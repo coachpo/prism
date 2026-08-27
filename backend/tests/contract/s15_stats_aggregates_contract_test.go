@@ -80,27 +80,24 @@ func TestEndpointModelStatistics(t *testing.T) {
 	insertUsageEvent(t, harness, usageEventSeed{ID: 10, ProfileID: profileID, IngressRequestID: "endpoint-1", ModelID: "endpoint-model", EndpointID: &endpointID, ConnectionID: &connectionID, OutputTokens: intPtr(20), TotalTokens: intPtr(20), TTFTMS: intPtr(100), CompletionDurationMS: intPtr(1000), CreatedAt: fixedS15Now.Add(-30 * time.Minute)})
 	insertUsageEvent(t, harness, usageEventSeed{ID: 11, ProfileID: profileID, IngressRequestID: "endpoint-2", ModelID: "endpoint-model", EndpointID: &endpointID, ConnectionID: &connectionID, PricedFlag: boolPtr(false), UnpricedReason: stringPtr("PRICING_DISABLED"), OutputTokens: intPtr(30), TotalTokens: intPtr(30), TTFTMS: intPtr(400), CompletionDurationMS: intPtr(1500), CreatedAt: fixedS15Now.Add(-20 * time.Minute)})
 	insertUsageEvent(t, harness, usageEventSeed{ID: 12, ProfileID: profileID, IngressRequestID: "endpoint-3", ModelID: "endpoint-model", EndpointID: &endpointID, ConnectionID: &connectionID, StatusCode: http.StatusInternalServerError, BillableFlag: boolPtr(false), PricedFlag: boolPtr(false), TotalTokens: intPtr(0), CreatedAt: fixedS15Now.Add(-10 * time.Minute)})
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE usage_request_events SET resolved_target_model_id=model_id, final_attempt_number=1 WHERE id BETWEEN 10 AND 12`); err != nil {
+		t.Fatalf("set endpoint final_execution identity: %v", err)
+	}
 
-	payload := s15GET[[]map[string]any](t, harness, profileID, fmt.Sprintf("/api/stats/endpoints/%d/models?preset=all", endpointID), http.StatusOK)
-	if len(payload) != 1 {
+	payload := s15GET[map[string]any](t, harness, profileID, fmt.Sprintf("/api/stats/endpoints/%d/models?preset=all&scope=final_execution", endpointID), http.StatusOK)
+	items := payload["items"].([]any)
+	if len(items) != 1 {
 		t.Fatalf("expected one endpoint-model statistics row, got %+v", payload)
 	}
-	row := payload[0]
-	if row["model_id"] != "endpoint-model" || row["model_label"] != "Endpoint Model" {
+	row := asMap(t, items[0])
+	if row["model_id"] != "endpoint-model" {
 		t.Fatalf("unexpected endpoint-model statistics payload: %+v", row)
 	}
 	assertJSONIntFields(t, row, map[string]int{
-		"request_count":          3,
-		"success_count":          2,
-		"failed_count":           1,
-		"priced_request_count":   0,
-		"unpriced_request_count": 2,
-		"p50_ttft_ms":            250,
-		"p95_ttft_ms":            385,
+		"request_count": 3,
+		"success_count": 2,
+		"failed_count":  1,
 	})
-	if math.Abs(row["avg_output_rate_tps"].(float64)-24.74) > 0.001 {
-		t.Fatalf("expected TTFT percentiles and average output rate from seeded rows, got %+v", row)
-	}
 }
 
 func TestStatsSummary(t *testing.T) {
@@ -129,10 +126,9 @@ func TestStatsSummary(t *testing.T) {
 func TestManagementDashboardStatsReturnsCanonicalSnapshotWithoutWindow(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
-	for _, path := range []string{"/api/stats/dashboard", "/api/stats/dashboard?window=24h", "/api/stats/dashboard?window=all"} {
-		payload := s15GET[map[string]any](t, harness, profileID, path, http.StatusOK)
-		assertS15DashboardShape(t, payload)
-	}
+	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/dashboard", http.StatusOK)
+	assertS15DashboardShape(t, payload)
+	s15GET[map[string]any](t, harness, profileID, "/api/stats/dashboard?window=24h", http.StatusUnprocessableEntity)
 }
 
 func TestManagementDashboardStatsSnapshotSections(t *testing.T) {
@@ -142,7 +138,7 @@ func TestManagementDashboardStatsSnapshotSections(t *testing.T) {
 	modelInsertModel(t, harness, profileID, nil, "openai", "dashboard-model", stringPtr("Dashboard Model"), "native", &strategyID, true)
 	insertUsageEvent(t, harness, usageEventSeed{ID: 30, ProfileID: profileID, IngressRequestID: "dashboard-spend-1", ModelID: "dashboard-model", InputTokens: intPtr(10), OutputTokens: intPtr(20), TotalTokens: intPtr(30), TotalCostUserCurrencyMicros: int64Ptr(2500), ResponseTimeMS: intPtr(100), CreatedAt: fixedS15Now.Add(-55 * time.Minute)})
 	insertUsageEvent(t, harness, usageEventSeed{ID: 31, ProfileID: profileID, IngressRequestID: "dashboard-error-1", ModelID: "dashboard-model", StatusCode: http.StatusInternalServerError, BillableFlag: boolPtr(false), PricedFlag: boolPtr(false), InputTokens: intPtr(5), OutputTokens: intPtr(10), TotalTokens: intPtr(15), ResponseTimeMS: intPtr(300), CreatedAt: fixedS15Now.Add(-50 * time.Minute)})
-	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/dashboard?window=24h", http.StatusOK)
+	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/dashboard", http.StatusOK)
 	assertS15DashboardShape(t, payload)
 	for _, key := range []string{"coverage_24h", "coverage_30d"} {
 		coverage := asMap(t, payload[key])
@@ -154,7 +150,7 @@ func TestManagementDashboardStatsSnapshotSections(t *testing.T) {
 	row := asMap(t, payload["api_family_rows"].([]any)[0])
 	topModel := asMap(t, payload["top_spending_models"].([]any)[0])
 	assertJSONIntFields(t, row, map[string]int{"total_requests": 2, "success_count": 1, "error_count": 1, "avg_response_time_ms": 200, "total_tokens": 45})
-	if row["key"] != "openai" || topModel["model_id"] != "dashboard-model" || topModel["model_label"] != "Dashboard Model" || jsonInt(t, topModel["total_cost_micros"]) != 2500 {
+	if row["key"] != "openai" || topModel["model_id"] != "unattributed" || jsonInt(t, topModel["known_cost_micros"]) != 2500 {
 		t.Fatalf("unexpected dashboard snapshot sections: rows=%+v top=%+v", row, topModel)
 	}
 	assertS15EmptyRoutingHealthMap(t, payload)
@@ -234,7 +230,8 @@ func TestModelMetrics(t *testing.T) {
 		t.Fatalf("expected one model metrics item, got %+v", payload)
 	}
 	item := asMap(t, items[0])
-	if item["model_id"] != "metrics-model" || jsonInt(t, item["request_count_24h"]) != 2 || jsonInt(t, item["p95_latency_ms"]) != 290 || jsonInt(t, item["spend_30d_micros"]) != 2500 {
+	ingress := asMap(t, item["ingress"])
+	if item["model_id"] != "metrics-model" || jsonInt(t, ingress["request_count"]) != 1 || jsonInt(t, ingress["known_cost_micros"]) != 2500 {
 		t.Fatalf("unexpected model metrics payload: %+v", item)
 	}
 }
@@ -245,6 +242,9 @@ func TestConnectionSuccessRates(t *testing.T) {
 	insertRequestLogSummaryRow(t, harness, 300, profileID, "connection-model", "openai", 12, 61, 200, 100, 0, 0, 0, fixedS15Now.Add(-40*time.Minute))
 	insertRequestLogSummaryRow(t, harness, 301, profileID, "connection-model", "openai", 12, 61, 500, 100, 0, 0, 0, fixedS15Now.Add(-35*time.Minute))
 	insertRequestLogSummaryRow(t, harness, 302, profileID, "connection-model", "openai", 12, 62, 200, 100, 0, 0, 0, fixedS15Now.Add(-30*time.Minute))
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET row_kind='upstream', url_scrub_provenance='runtime_scrubbed', resolved_target_model_id=model_id, ingress_request_id='connection-'||id, attempt_number=1, attempt_result=CASE WHEN legacy_status_code BETWEEN 200 AND 299 THEN 'completed' ELSE 'http_error' END, attempt_duration_ms=legacy_duration_ms, upstream_status_code=legacy_status_code, legacy_status_code=NULL, legacy_duration_ms=NULL WHERE id BETWEEN 300 AND 302`); err != nil {
+		t.Fatalf("set connection route_attempt rows: %v", err)
+	}
 
 	payload := s15GET[[]map[string]any](t, harness, profileID, "/api/stats/connection-success-rates", http.StatusOK)
 	if len(payload) != 2 || jsonInt(t, payload[0]["connection_id"]) != 61 || jsonInt(t, payload[0]["total_requests"]) != 2 || jsonInt(t, payload[0]["success_count"]) != 1 {
@@ -260,8 +260,11 @@ func TestThroughput(t *testing.T) {
 	insertRequestLogSummaryRow(t, harness, 400, profileID, "throughput-model", "openai", 12, 71, 200, 100, 0, 0, 0, fixedS15Now.Add(-2*time.Minute))
 	insertRequestLogSummaryRow(t, harness, 401, profileID, "throughput-model", "openai", 12, 71, 200, 100, 0, 0, 0, fixedS15Now.Add(-90*time.Second))
 	insertRequestLogSummaryRow(t, harness, 402, profileID, "throughput-model", "openai", 12, 71, 200, 100, 0, 0, 0, fixedS15Now.Add(-30*time.Second))
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET row_kind='upstream', url_scrub_provenance='runtime_scrubbed', resolved_target_model_id='throughput-model', ingress_request_id='throughput-'||id, attempt_number=1, attempt_result='completed', attempt_duration_ms=legacy_duration_ms, upstream_status_code=legacy_status_code, legacy_status_code=NULL, legacy_duration_ms=NULL WHERE id BETWEEN 400 AND 402`); err != nil {
+		t.Fatalf("set route_attempt throughput rows: %v", err)
+	}
 
-	payload := s15GET[map[string]any](t, harness, profileID, fmt.Sprintf("/api/stats/throughput?from_time=%s&to_time=%s", fromTime.Format(time.RFC3339), toTime.Format(time.RFC3339)), http.StatusOK)
+	payload := s15GET[map[string]any](t, harness, profileID, fmt.Sprintf("/api/stats/throughput?scope=route_attempt&from_time=%s&to_time=%s", fromTime.Format(time.RFC3339), toTime.Format(time.RFC3339)), http.StatusOK)
 	if jsonInt(t, payload["total_requests"]) != 3 || len(payload["buckets"].([]any)) != 2 {
 		t.Fatalf("unexpected throughput payload: %+v", payload)
 	}
@@ -286,6 +289,7 @@ func TestEndpointLabelSnapshotUsageSnapshotSurvivesEndpointRenameAndDelete(t *te
 		t.Fatalf("delete endpoint %d: %v", endpointDeleted, err)
 	}
 
+	refreshS15ActualCoverage(t, harness, "usage_request_events")
 	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/usage-snapshot?preset=all", http.StatusOK)
 	labels := s15LabelsByID(t, payload["endpoint_statistics"].([]any), "endpoint_id", "endpoint_label")
 	if labels[endpointRenamed] != "Historical Renamed Label" || labels[endpointDeleted] != "Historical Deleted Label" {
@@ -309,7 +313,8 @@ func TestEndpointLabelSnapshotSpendingSurvivesEndpointRenameAndDelete(t *testing
 		t.Fatalf("delete endpoint %d: %v", endpointDeleted, err)
 	}
 
-	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/spending?preset=all&group_by=endpoint&limit=50&offset=0&top_n=5", http.StatusOK)
+	refreshS15ActualCoverage(t, harness, "usage_request_events")
+	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/spending?scope=final_execution&preset=all&group_by=endpoint&limit=50&offset=0&top_n=5", http.StatusOK)
 	groupLabels := map[string]bool{}
 	for _, raw := range payload["groups"].([]any) {
 		groupLabels[asMap(t, raw)["key"].(string)] = true
@@ -333,13 +338,14 @@ func TestEndpointLabelSnapshotTopEndpointDuplicateLabelsStayDistinct(t *testing.
 	insertUsageEvent(t, harness, usageEventSeed{ID: 29, ProfileID: profileID, IngressRequestID: "snapshot-label-duplicate-a", ModelID: "snapshot-duplicate-model", APIFamily: "openai", EndpointID: &endpointA, EndpointLabelSnapshot: stringPtr("Shared Historical Label"), StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), TotalTokens: intPtr(10), TotalCostUserCurrencyMicros: int64Ptr(3000), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-20 * time.Minute)})
 	insertUsageEvent(t, harness, usageEventSeed{ID: 32, ProfileID: profileID, IngressRequestID: "snapshot-label-duplicate-b", ModelID: "snapshot-duplicate-model", APIFamily: "openai", EndpointID: &endpointB, EndpointLabelSnapshot: stringPtr("Shared Historical Label"), StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), TotalTokens: intPtr(12), TotalCostUserCurrencyMicros: int64Ptr(2000), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-10 * time.Minute)})
 
+	refreshS15ActualCoverage(t, harness, "usage_request_events")
 	usagePayload := s15GET[map[string]any](t, harness, profileID, "/api/stats/usage-snapshot?preset=all", http.StatusOK)
 	statsByID := s15LabelsByID(t, usagePayload["endpoint_statistics"].([]any), "endpoint_id", "endpoint_label")
 	if len(statsByID) != 2 || statsByID[endpointA] != "Shared Historical Label" || statsByID[endpointB] != "Shared Historical Label" {
 		t.Fatalf("expected duplicate snapshot labels to remain distinct by endpoint id in usage snapshot, got %+v", usagePayload["endpoint_statistics"])
 	}
 
-	spendingPayload := s15GET[map[string]any](t, harness, profileID, "/api/stats/spending?preset=all&group_by=endpoint&limit=50&offset=0&top_n=5", http.StatusOK)
+	spendingPayload := s15GET[map[string]any](t, harness, profileID, "/api/stats/spending?scope=final_execution&preset=all&group_by=endpoint&limit=50&offset=0&top_n=5", http.StatusOK)
 	topLabels := s15LabelsByID(t, spendingPayload["top_spending_endpoints"].([]any), "endpoint_id", "endpoint_label")
 	if len(topLabels) != 2 || topLabels[endpointA] != "Shared Historical Label" || topLabels[endpointB] != "Shared Historical Label" {
 		t.Fatalf("expected duplicate snapshot labels to remain distinct by endpoint id in top endpoints, got %+v", spendingPayload["top_spending_endpoints"])
@@ -355,10 +361,11 @@ func TestSpending(t *testing.T) {
 	endpointB := modelInsertEndpoint(t, harness, profileID, "Spend Endpoint B")
 	insertUsageEvent(t, harness, usageEventSeed{ID: 30, ProfileID: profileID, IngressRequestID: "spend-1", ModelID: "spend-model", APIFamily: "openai", EndpointID: &endpointA, StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), InputTokens: intPtr(10), OutputTokens: intPtr(20), TotalTokens: intPtr(38), CacheReadInputTokens: intPtr(5), CacheCreationInputTokens: intPtr(2), ReasoningTokens: intPtr(1), TotalCostUserCurrencyMicros: int64Ptr(5000), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-4 * time.Hour)})
 	insertUsageEvent(t, harness, usageEventSeed{ID: 31, ProfileID: profileID, IngressRequestID: "spend-2", ModelID: "spend-model", APIFamily: "openai", EndpointID: &endpointB, StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(false), UnpricedReason: stringPtr("PRICING_DISABLED"), InputTokens: intPtr(3), OutputTokens: intPtr(4), TotalTokens: intPtr(12), CacheReadInputTokens: intPtr(2), CacheCreationInputTokens: intPtr(1), ReasoningTokens: intPtr(2), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-3 * time.Hour)})
+	refreshS15ActualCoverage(t, harness, "usage_request_events")
 
-	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/spending?preset=all&group_by=model_endpoint&limit=50&offset=0", http.StatusOK)
+	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/spending?scope=ingress&preset=all&group_by=ingress_model_endpoint&limit=50&offset=0", http.StatusOK)
 	summary := asMap(t, payload["summary"])
-	if jsonInt(t, summary["successful_request_count"]) != 2 || jsonInt(t, summary["priced_request_count"]) != 1 || jsonInt(t, summary["unpriced_request_count"]) != 1 || jsonInt(t, summary["total_cost_micros"]) != 5000 || jsonInt(t, payload["groups_total"]) != 2 {
+	if jsonInt(t, summary["successful_request_count"]) != 2 || jsonInt(t, summary["priced_request_count"]) != 1 || jsonInt(t, summary["unpriced_request_count"]) != 1 || jsonInt(t, summary["known_cost_micros"]) != 5000 || jsonInt(t, payload["groups_total"]) != 2 {
 		t.Fatalf("unexpected spending summary payload: %+v", payload)
 	}
 	if jsonInt(t, summary["total_input_tokens"]) != 13 || jsonInt(t, summary["total_output_tokens"]) != 24 || jsonInt(t, summary["total_cache_read_input_tokens"]) != 7 || jsonInt(t, summary["total_cache_creation_input_tokens"]) != 3 || jsonInt(t, summary["total_reasoning_tokens"]) != 3 || jsonInt(t, summary["total_tokens"]) != 50 {
@@ -374,7 +381,7 @@ func TestSpending(t *testing.T) {
 		groupsByKey[group["key"].(string)] = group
 	}
 	unpricedGroup := groupsByKey[fmt.Sprintf("spend-model#%d", endpointB)]
-	if unpricedGroup == nil || jsonInt(t, unpricedGroup["total_cost_micros"]) != 0 || jsonInt(t, unpricedGroup["priced_requests"]) != 0 || jsonInt(t, unpricedGroup["unpriced_requests"]) != 1 {
+	if unpricedGroup == nil || unpricedGroup["known_cost_micros"] != nil || jsonInt(t, unpricedGroup["priced_requests"]) != 0 || jsonInt(t, unpricedGroup["unpriced_requests"]) != 1 {
 		t.Fatalf("expected unpriced spend group to stay zero-cost while preserving request counts, got %+v", groupsByKey)
 	}
 	topSpendingModels := payload["top_spending_models"].([]any)
@@ -382,7 +389,7 @@ func TestSpending(t *testing.T) {
 		t.Fatalf("expected one top spending model row, got %+v", payload["top_spending_models"])
 	}
 	topSpendingModel := asMap(t, topSpendingModels[0])
-	if topSpendingModel["model_id"] != "spend-model" || topSpendingModel["model_label"] != "Spend Model" || jsonInt(t, topSpendingModel["total_cost_micros"]) != 5000 {
+	if topSpendingModel["model_id"] != "spend-model" || topSpendingModel["model_label"] != "Spend Model" || jsonInt(t, topSpendingModel["known_cost_micros"]) != 5000 {
 		t.Fatalf("expected top spending models to preserve canonical labels, got %+v", payload["top_spending_models"])
 	}
 	topEndpoints := payload["top_spending_endpoints"].([]any)
@@ -399,6 +406,7 @@ func TestObservabilityTreatsSuccessfulMissingCostRowsAsUnpriced(t *testing.T) {
 	profileID := modelLoadDefaultProfileID(t, harness)
 	insertUsageEvent(t, harness, usageEventSeed{ID: 35, ProfileID: profileID, IngressRequestID: "missing-cost-1", ModelID: "missing-cost-model", APIFamily: "openai", StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), TotalTokens: intPtr(25), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-2 * time.Hour)})
 
+	refreshS15ActualCoverage(t, harness, "usage_request_events")
 	usageSnapshotPayload := s15GET[map[string]any](t, harness, profileID, "/api/stats/usage-snapshot?preset=all", http.StatusOK)
 	costOverview := asMap(t, usageSnapshotPayload["cost_overview"])
 	if jsonInt(t, costOverview["priced_request_count"]) != 0 || jsonInt(t, costOverview["unpriced_request_count"]) != 1 || jsonInt(t, costOverview["total_cost_micros"]) != 0 {
@@ -415,7 +423,7 @@ func TestObservabilityTreatsSuccessfulMissingCostRowsAsUnpriced(t *testing.T) {
 
 	spendingPayload := s15GET[map[string]any](t, harness, profileID, "/api/stats/spending?preset=all&group_by=none&limit=50&offset=0", http.StatusOK)
 	summary := asMap(t, spendingPayload["summary"])
-	if jsonInt(t, summary["successful_request_count"]) != 1 || jsonInt(t, summary["priced_request_count"]) != 0 || jsonInt(t, summary["unpriced_request_count"]) != 1 || jsonInt(t, summary["total_cost_micros"]) != 0 {
+	if jsonInt(t, summary["successful_request_count"]) != 1 || jsonInt(t, summary["priced_request_count"]) != 0 || jsonInt(t, summary["unpriced_request_count"]) != 1 || summary["known_cost_micros"] != nil {
 		t.Fatalf("expected missing-cost spending summary to stay unpriced with zero cost, got %+v", summary)
 	}
 	if jsonInt(t, asMap(t, spendingPayload["unpriced_breakdown"])["MISSING_PRICE_DATA"]) != 1 {
@@ -452,6 +460,9 @@ func TestEndpointTerminalTargetStatisticsDrillDown(t *testing.T) {
 	}
 	if _, err := harness.conn.Exec(context.Background(), `UPDATE usage_request_events SET stream_outcome = CASE WHEN id = 9604 THEN 'client_disconnected' ELSE stream_outcome END, report_currency_code = 'USD', reporting_currency_epoch = CASE WHEN id = 9602 THEN NULL ELSE 1 END WHERE id BETWEEN 9601 AND 9604`); err != nil {
 		t.Fatalf("set client disconnect: %v", err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE usage_request_events SET resolved_target_model_id='tt-model', final_attempt_number=1 WHERE id BETWEEN 9601 AND 9604`); err != nil {
+		t.Fatalf("set terminal-target final_execution identity: %v", err)
 	}
 	// ban + admission-rejection loadbalance events for connection 17
 	ensureContractTestLogPartitions(t, harness, contractTestLogPartitionFor("loadbalance_events", now))
@@ -514,8 +525,8 @@ func TestEndpointTerminalTargetStatisticsDrillDown(t *testing.T) {
 			t.Fatalf("expected %s reason count %d, got %+v", reason, want, reasons)
 		}
 	}
-	if jsonInt(t, first["p50_ttft_ms"]) != 120 {
-		t.Fatalf("expected p50 ttft 120 for conn 17, got %+v", first)
+	if first["p50_latency_ms"] != nil {
+		t.Fatalf("expected missing final-attempt latency without request rows, got %+v", first)
 	}
 	second := byConn[18]
 	if second == nil {

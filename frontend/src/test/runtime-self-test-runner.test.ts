@@ -97,19 +97,22 @@ describe("reconcileSelfTestTelemetry", () => {
       http.get("*/api/stats/requests", () => {
         calls += 1;
         if (calls < 2) {
-          return HttpResponse.json({ items: [], total: 0, limit: 5, offset: 0, filter_options: {} });
+          return HttpResponse.json({ items: [], total: 0, limit: 5, offset: 0, filter_options: { ingress_models: [], attempt_target_models: [], endpoints: [], clients: [] }, caliber: {}, dataset_coverage: {}, samples: {} });
         }
         return HttpResponse.json({
           items: [{ request_log_id: "101" }],
           total: 1,
           limit: 5,
           offset: 0,
-          filter_options: {},
+          filter_options: { ingress_models: [], attempt_target_models: [], endpoints: [], clients: [] },
+          caliber: {},
+          dataset_coverage: {},
+          samples: {},
         });
       }),
       http.get("*/api/stats/requests/101", () =>
         HttpResponse.json({
-          summary: { id: 101, status_code: 200, gateway_status_code: 200, resolved_target_model_id: "gpt-5.6-native" },
+          summary: { id: 101, status_code: 200, gateway_status_code: 200, attempt_target_model_id: "gpt-5.6-native" },
           request: { proxy_api_key_id: 42, proxy_api_key_attribution_state: "identified", proxy_api_key_auth_enforced_at_request: false },
           routing: { terminal_target_id: 7, endpoint_id: 3, endpoint_label: "Primary OpenAI" },
           pricing: { pricing_status: "priced", unpriced_reason: null, total_cost_user_currency_micros: 1250, report_currency_symbol: "$" },
@@ -127,7 +130,7 @@ describe("reconcileSelfTestTelemetry", () => {
     rewriteTestServer.use(
       http.get("*/api/stats/requests", () => {
         calls += 1;
-        return HttpResponse.json({ items: [], total: 0, limit: 5, offset: 0, filter_options: {} });
+        return HttpResponse.json({ items: [], total: 0, limit: 5, offset: 0, filter_options: { ingress_models: [], attempt_target_models: [], endpoints: [], clients: [] }, caliber: {}, dataset_coverage: {}, samples: {} });
       }),
     );
     const result = await reconcileSelfTestTelemetry("ingress-never", undefined);
@@ -137,7 +140,7 @@ describe("reconcileSelfTestTelemetry", () => {
 
   it("honors abort and throws SelfTestAbortedError", async () => {
     rewriteTestServer.use(
-      http.get("*/api/stats/requests", () => HttpResponse.json({ items: [], total: 0, limit: 5, offset: 0, filter_options: {} })),
+      http.get("*/api/stats/requests", () => HttpResponse.json({ items: [], total: 0, limit: 5, offset: 0, filter_options: { ingress_models: [], attempt_target_models: [], endpoints: [], clients: [] }, caliber: {}, dataset_coverage: {}, samples: {} })),
     );
     const controller = new AbortController();
     const pending = reconcileSelfTestTelemetry("ingress-abort", controller.signal);
@@ -148,7 +151,7 @@ describe("reconcileSelfTestTelemetry", () => {
 
 describe("buildSelfTestResult four-layer projection", () => {
   const telemetryDetail = {
-    summary: { id: 101, status_code: 200, gateway_status_code: 200, resolved_target_model_id: "gpt-5.6-native" },
+    summary: { id: 101, status_code: 200, gateway_status_code: 200, attempt_target_model_id: "gpt-5.6-native" },
     request: { proxy_api_key_id: 42, proxy_api_key_attribution_state: "identified", proxy_api_key_auth_enforced_at_request: false },
     routing: { terminal_target_id: 7, endpoint_id: 3, endpoint_label: "Primary OpenAI" },
     pricing: { pricing_status: "priced", unpriced_reason: null, total_cost_user_currency_micros: 1250, report_currency_symbol: "$" },

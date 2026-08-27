@@ -2,6 +2,7 @@ package runtimetest
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"strings"
@@ -88,10 +89,25 @@ func TestRuntimeAttemptBudgetExhaustionAt64Launches(t *testing.T) {
 	}
 
 	var finalErrorCode string
-	if err := harness.conn.QueryRow(queryCtx, `SELECT COALESCE(final_error_code, '') FROM usage_request_events WHERE profile_id = $1 AND model_id = $2 ORDER BY created_at DESC LIMIT 1`, profileID, modelID).Scan(&finalErrorCode); err != nil {
+	var persistedAttemptCount int
+	var resolvedTargetModelID sql.NullString
+	var endpointID sql.NullInt64
+	var connectionID sql.NullInt64
+	var selectedTerminalTargetID sql.NullInt64
+	var finalAttemptNumber sql.NullInt64
+	if err := harness.conn.QueryRow(queryCtx, `SELECT COALESCE(final_error_code, ''), attempt_count, resolved_target_model_id, endpoint_id, connection_id, selected_terminal_target_id, final_attempt_number FROM usage_request_events WHERE profile_id = $1 AND model_id = $2 ORDER BY created_at DESC LIMIT 1`, profileID, modelID).Scan(&finalErrorCode, &persistedAttemptCount, &resolvedTargetModelID, &endpointID, &connectionID, &selectedTerminalTargetID, &finalAttemptNumber); err != nil {
 		t.Fatalf("read final error code: %v", err)
 	}
 	if finalErrorCode != "attempt_budget_exhausted" {
 		t.Fatalf("expected finalized usage event to carry attempt_budget_exhausted, got %q", finalErrorCode)
+	}
+	if persistedAttemptCount != 64 {
+		t.Fatalf("expected finalized usage event attempt_count=64, got %d", persistedAttemptCount)
+	}
+	if resolvedTargetModelID.Valid || endpointID.Valid || connectionID.Valid || finalAttemptNumber.Valid {
+		t.Fatalf("budget exhaustion has no winner and must keep final identity null, got resolved=%+v endpoint=%+v connection=%+v final_attempt=%+v", resolvedTargetModelID, endpointID, connectionID, finalAttemptNumber)
+	}
+	if !selectedTerminalTargetID.Valid || int(selectedTerminalTargetID.Int64) != connectionIDs[0] {
+		t.Fatalf("expected planning-primary terminal target %d, got %+v", connectionIDs[0], selectedTerminalTargetID)
 	}
 }

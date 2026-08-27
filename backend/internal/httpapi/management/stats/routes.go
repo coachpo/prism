@@ -71,7 +71,10 @@ func requestLogHasSignedCohortSelector(r *http.Request) bool {
 	return query.Get("ingress_final_result") != "" ||
 		query.Get("confirmed_failover") != "" ||
 		query.Get("final_result") != "" ||
-		query.Get("final_model_id") != "" ||
+		len(query["final_status_code"]) > 0 ||
+		len(query["final_stream_outcome"]) > 0 ||
+		len(query["final_stream_error_kind"]) > 0 ||
+		query.Get("final_target_model_id") != "" ||
 		query.Get("final_endpoint_id") != "" ||
 		query.Get("final_terminal_target_id") != "" ||
 		query.Get("final_pricing_status") != "" ||

@@ -149,10 +149,10 @@ export function useRequestLogIngressChains({
         setCoverage(chain.source_coverage ?? null);
         if (chain.filter_options) {
           setFilterOptions({
-            models: chain.filter_options.models,
+            models: chain.filter_options.ingress_models,
             endpoints: chain.filter_options.endpoints,
             clients: chain.filter_options.clients,
-            resolved_target_models: chain.filter_options.resolved_target_models,
+            resolved_target_models: chain.filter_options.attempt_target_models,
           });
         }
         setFilterOptionsLoaded(true);

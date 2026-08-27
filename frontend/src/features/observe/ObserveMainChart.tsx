@@ -19,6 +19,8 @@ import {
   OBSERVE_METRICS,
   type ObserveGroupBy,
   type ObserveMetric,
+  type ObserveScope,
+  groupBelongsToScope,
 } from "@/features/observe/observeSearch";
 import {
   buildObserveChartRows,
@@ -98,12 +100,14 @@ export function ObserveMainChart({
   groupBy,
   onMetricChange,
   onGroupByChange,
+  scope = "ingress",
 }: {
   fragment: FragmentState<UsageSeriesResponse>;
   metric: ObserveMetric;
   groupBy: ObserveGroupBy;
   onMetricChange: (metric: ObserveMetric) => void;
   onGroupByChange: (groupBy: ObserveGroupBy) => void;
+  scope?: ObserveScope;
 }) {
   const { formatNumber, messages } = useLocale();
   const { format: formatTime, timezone } = useTimezone();
@@ -111,7 +115,19 @@ export function ObserveMainChart({
   const [mode, setMode] = useState<"chart" | "table">("chart");
   const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
 
-  const series = useMemo(() => fragment.data?.series ?? [], [fragment.data]);
+  const series = useMemo(
+    () =>
+      (fragment.data?.series ?? []).map((item) => ({
+        ...item,
+        label: localizedSeriesLabel(
+          groupBy,
+          item.entity_id ?? item.key,
+          item.label,
+          messages.requestLogs,
+        ),
+      })),
+    [fragment.data, groupBy, messages.requestLogs],
+  );
   const showStacked = isStackedRequestChart(metric, groupBy);
   const chartData = useMemo(
     () => buildObserveChartRows(series, metric, groupBy),
@@ -233,7 +249,9 @@ export function ObserveMainChart({
               if (value) onGroupByChange(value as ObserveGroupBy);
             }}
           >
-            {OBSERVE_GROUPS.map((value) => (
+            {OBSERVE_GROUPS.filter((value) =>
+              groupBelongsToScope(value, scope),
+            ).map((value) => (
               <ToggleGroupItem key={value} value={value}>
                 {copy.groupName(value)}
               </ToggleGroupItem>
@@ -509,4 +527,31 @@ export function ObserveMainChart({
       ) : null}
     </section>
   );
+}
+
+function localizedSeriesLabel(
+  groupBy: ObserveGroupBy,
+  key: string,
+  fallback: string,
+  copy: ReturnType<typeof useLocale>["messages"]["requestLogs"],
+): string {
+  if (groupBy === "attempt_trigger") {
+    return {
+      initial: copy.attemptTriggerInitial,
+      retry_same_target: copy.attemptTriggerRetrySameTarget,
+      hedge: copy.attemptTriggerHedge,
+      failover: copy.attemptTriggerFailover,
+    }[key] ?? copy.attemptTriggerUnavailable;
+  }
+  if (groupBy === "attempt_result") {
+    return {
+      completed: copy.attemptResultCompleted,
+      http_error: copy.attemptResultHttpError,
+      stream_error: copy.attemptResultStreamError,
+      transport_error: copy.attemptResultTransportError,
+      cancelled: copy.attemptResultCancelled,
+      client_disconnected: copy.attemptResultClientDisconnected,
+    }[key] ?? copy.attemptResultUnknown;
+  }
+  return fallback;
 }

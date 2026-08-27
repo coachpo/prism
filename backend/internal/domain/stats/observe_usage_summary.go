@@ -2,7 +2,9 @@ package stats
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -10,6 +12,10 @@ import (
 type UsageSummaryResult struct {
 	GeneratedAt                        time.Time             `json:"generated_at"`
 	Coverage                           Coverage              `json:"coverage"`
+	DatasetCoverage                    DatasetCoverage       `json:"dataset_coverage"`
+	Caliber                            ScopeCaliber          `json:"caliber"`
+	Samples                            ScopeSampleCounts     `json:"samples"`
+	KnownCostMicros                    *string               `json:"known_cost_micros"`
 	CostSegments                       []ObserveCostSegment  `json:"cost_segments"`
 	RequestCount                       int                   `json:"request_count"`
 	HTTPSuccessCount                   int                   `json:"http_success_count"`
@@ -281,6 +287,77 @@ SELECT
 		segments[0].Sparkline = &sparkline
 	}
 	result.CostSegments = segments
+	result.Caliber = CaliberForScope(ScopeIngress)
+	result.DatasetCoverage = DatasetCoverage{UsageRequestEvents: &coverage}
+	result.Samples = ScopeSampleCounts{
+		ObservationCount: requestCount, LatencySampleCount: result.TTFTSampleCount,
+		LatencyMissingCount: requestCount - result.TTFTSampleCount,
+		CostSampleCount:     priced, CostMissingCount: unpriced + unknown,
+	}
+	var knownCost int64
+	known := false
+	for _, segment := range segments {
+		if segment.KnownCostMicros == nil {
+			continue
+		}
+		value, parseErr := strconv.ParseInt(*segment.KnownCostMicros, 10, 64)
+		if parseErr == nil {
+			knownCost += value
+			known = true
+		}
+	}
+	if known {
+		value := strconv.FormatInt(knownCost, 10)
+		result.KnownCostMicros = &value
+	}
+	return result, nil
+}
+
+// LoadScopedUsageSummary handles non-ingress Observe scopes without pretending
+// the ingress-only usage SQL has another denominator.
+func LoadScopedUsageSummary(ctx context.Context, exec queryExecutor, profileID int, scope string, bounds QueryBounds, usageCoverage Coverage, requestCoverage Coverage, referenceNow time.Time) (UsageSummaryResult, error) {
+	if scope == ScopeIngress {
+		return UsageSummaryResult{}, fmt.Errorf("ingress scope must use LoadUsageSummary")
+	}
+	from, to := bounds.UsageFrom, bounds.UsageTo
+	summary, err := GetStatsSummary(ctx, exec, StatsSummaryParams{ProfileID: profileID, FromTime: &from, ToTime: &to, Preset: "custom", ReferenceNow: referenceNow, Scope: scope})
+	if err != nil {
+		return UsageSummaryResult{}, err
+	}
+	primaryCoverage := requestCoverage
+	if scope == ScopeFinal {
+		primaryCoverage = usageCoverage
+	}
+	result := UsageSummaryResult{
+		GeneratedAt: referenceNow.UTC(), Coverage: primaryCoverage, DatasetCoverage: ScopeCoverageFor(scope, &usageCoverage, &requestCoverage),
+		Caliber: summary.Caliber, Samples: summary.Samples, RequestCount: summary.TotalRequests,
+		CompletedCount: summary.SuccessCount, FailedCount: summary.ErrorCount,
+	}
+	if summary.SuccessRate != nil {
+		rate := *summary.SuccessRate
+		result.HTTPSuccessRate = &rate
+	}
+	result.P95TTFTMS = summary.P95ResponseTimeMS
+	if scope == ScopeFinal {
+		var knownCost sql.NullInt64
+		var costSamples, costMissing int
+		err := exec.QueryRow(ctx, `SELECT
+			SUM(total_cost_user_currency_micros) FILTER (WHERE pricing_status = 'priced' AND pricing_evidence_trust = 'trusted'),
+			COUNT(*) FILTER (WHERE pricing_status = 'priced' AND pricing_evidence_trust = 'trusted')::int,
+			COUNT(*) FILTER (WHERE pricing_status IN ('unpriced','unknown'))::int
+			FROM usage_request_events
+			WHERE profile_id = $1 AND created_at >= $2 AND created_at < $3
+			  AND resolved_target_model_id IS NOT NULL AND final_attempt_number IS NOT NULL`, profileID, from.UTC(), to.UTC()).Scan(&knownCost, &costSamples, &costMissing)
+		if err != nil {
+			return UsageSummaryResult{}, fmt.Errorf("load final execution cost summary: %w", err)
+		}
+		result.Samples.CostSampleCount = costSamples
+		result.Samples.CostMissingCount = costMissing
+		if knownCost.Valid && costSamples > 0 {
+			value := strconv.FormatInt(knownCost.Int64, 10)
+			result.KnownCostMicros = &value
+		}
+	}
 	return result, nil
 }
 

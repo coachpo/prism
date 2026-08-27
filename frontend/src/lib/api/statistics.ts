@@ -28,11 +28,12 @@ export interface TerminalTargetStatistic {
   http_failed_count: number;
   final_failed_count: number;
   client_disconnected_count: number;
-  p50_ttft_ms: number | null;
-  p95_ttft_ms: number | null;
+  p50_latency_ms: number | null;
+  p95_latency_ms: number | null;
   avg_output_rate_tps: number | null;
   total_tokens: number;
-  total_cost_micros: number;
+  known_cost_micros: number | null;
+  total_cost_micros?: number;
   pricing_status_counts: {
     priced: number;
     unpriced: number;
@@ -44,6 +45,13 @@ export interface TerminalTargetStatistic {
   ban_event_count: number;
   admission_rejection_count: number;
   event_coverage_complete: boolean;
+  samples?: {
+    observation_count: number;
+    latency_sample_count: number;
+    latency_missing_count: number;
+    cost_sample_count: number;
+    cost_missing_count: number;
+  };
 }
 
 export interface TerminalTargetStatisticsResponse {
@@ -53,6 +61,9 @@ export interface TerminalTargetStatisticsResponse {
   offset: number;
   coverage: QueryCoverage;
   generated_at: string;
+  scope: "final_execution" | "route_attempt";
+  caliber?: Record<string, unknown>;
+  dataset_coverage?: Record<string, unknown>;
 }
 
 export const statistics = {
@@ -76,6 +87,7 @@ export const statistics = {
       limit?: number;
       offset?: number;
       cost_segment_key?: string;
+      scope?: "final_execution" | "route_attempt";
     },
   ) => {
     const query = buildQuery(
@@ -85,7 +97,10 @@ export const statistics = {
       `/api/stats/endpoints/${endpointId}/terminal-targets${query ? `?${query}` : ""}`,
     );
   },
-  usageSnapshot: (params?: { preset?: UsageSnapshotPreset }) => {
+  usageSnapshot: (params?: {
+    preset?: UsageSnapshotPreset;
+    scope?: "ingress" | "final_execution" | "route_attempt";
+  }) => {
     const query = buildQuery(params);
     return request<UsageSnapshotResponse>(
       `/api/stats/usage-snapshot${query ? `?${query}` : ""}`,

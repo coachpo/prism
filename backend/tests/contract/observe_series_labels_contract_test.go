@@ -33,8 +33,11 @@ func TestObserveUsageSeriesResolvesGroupedEntityLabels(t *testing.T) {
 			t.Fatalf("seed labelled usage row: %v", err)
 		}
 	}
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE usage_request_events SET resolved_target_model_id=model_id, final_attempt_number=1 WHERE model_id='label-model'`); err != nil {
+		t.Fatalf("seed final_execution identity: %v", err)
+	}
 
-	contextPayload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/query-context?preset=24h", nil, http.StatusOK)
+	contextPayload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/query-context?preset=24h&scope=final_execution", nil, http.StatusOK)
 	token := contextPayload["query_context"].(string)
 
 	target := firstSeriesItem(t, harness, profileID, token, "terminal_target")
@@ -64,8 +67,8 @@ func TestObserveUsageSeriesResolvesGroupedEntityLabels(t *testing.T) {
 	}
 	assertGroupedSeriesMetricFields(t, endpoint, 3, 100, 1200, 300)
 
-	model := firstSeriesItem(t, harness, profileID, token, "model")
-	if model["key"] != "model:label-model" || model["entity_id"] != "label-model" {
+	model := firstSeriesItem(t, harness, profileID, token, "final_target_model")
+	if model["key"] != "final_target_model:label-model" || model["entity_id"] != "label-model" {
 		t.Fatalf("expected model series identity, got %+v", model)
 	}
 	assertGroupedSeriesMetricFields(t, model, 3, 100, 1200, 300)
@@ -163,8 +166,11 @@ func TestObserveUsageSeriesFoldsUnattributedRequestsIntoOther(t *testing.T) {
 			t.Fatalf("seed unattributed usage row: %v", err)
 		}
 	}
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE usage_request_events SET resolved_target_model_id=model_id, final_attempt_number=1 WHERE model_id='attributed-model'`); err != nil {
+		t.Fatalf("seed grouped final_execution identity: %v", err)
+	}
 
-	contextPayload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/query-context?preset=24h", nil, http.StatusOK)
+	contextPayload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/query-context?preset=24h&scope=final_execution", nil, http.StatusOK)
 	token := contextPayload["query_context"].(string)
 
 	for _, groupBy := range []string{"endpoint", "terminal_target"} {

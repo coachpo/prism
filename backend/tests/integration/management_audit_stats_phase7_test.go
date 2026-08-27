@@ -530,18 +530,18 @@ func TestDashboardRecentActivityBoundedContract(t *testing.T) {
 	if first["request_log_id"] != float64(4101) || second["request_log_id"] != float64(4100) {
 		t.Fatalf("expected created_at/id deterministic ordering, got first=%+v second=%+v", first, second)
 	}
-	for _, key := range []string{"request_log_id", "created_at", "model_id", "model_label", "resolved_target_model_id", "resolved_target_model_label", "endpoint_id", "endpoint_label", "status_code", "response_time_ms", "ttft_ms", "completion_duration_ms", "is_stream", "stream_outcome", "total_tokens", "total_cost_user_currency_micros", "pricing_status", "unpriced_reason", "report_currency_symbol"} {
+	for _, key := range []string{"request_log_id", "created_at", "ingress_model_id", "ingress_model_label", "attempt_target_model_id", "attempt_target_model_label", "endpoint_id", "endpoint_label", "status_code", "response_time_ms", "ttft_ms", "completion_duration_ms", "is_stream", "stream_outcome", "total_tokens", "total_cost_user_currency_micros", "pricing_status", "unpriced_reason", "report_currency_symbol"} {
 		if _, ok := first[key]; !ok {
 			t.Fatalf("expected recent activity item field %q, got %+v", key, first)
 		}
 	}
-	for _, forbidden := range []string{"id", "api_family", "connection_id", "terminal_target_id", "filter_options", "offset"} {
+	for _, forbidden := range []string{"id", "api_family", "connection_id", "terminal_target_id", "filter_options", "offset", "model_id", "model_label", "resolved_target_model_id", "resolved_target_model_label"} {
 		if _, ok := first[forbidden]; ok {
-			t.Fatalf("recent activity item must not expose request-log list field %q: %+v", forbidden, first)
+			t.Fatalf("recent activity item must not expose ambiguous legacy field %q: %+v", forbidden, first)
 		}
 	}
-	if first["model_label"] != "Phase 7 recent-activity" || first["endpoint_label"] != "Phase 7 recent-activity Endpoint" {
-		t.Fatalf("expected recent activity labels from current config, got %+v", first)
+	if first["ingress_model_id"] != route.ModelID || first["ingress_model_label"] != "Phase 7 recent-activity" || first["endpoint_label"] != "Phase 7 recent-activity Endpoint" {
+		t.Fatalf("expected recent activity ingress identity from current config, got %+v", first)
 	}
 	watermark := defaultPayload["activity_watermark"].(map[string]any)
 	if watermark["latest_request_log_id"] != float64(4101) || watermark["latest_request_log_created_at"] == nil {
@@ -934,7 +934,22 @@ func phase7InsertDashboardRequestLog(t *testing.T, ctx context.Context, exec int
 }, profileID int, id int, route phase7DashboardRoutingTarget, statusCode int, createdAt time.Time) {
 	t.Helper()
 	phase7EnsureLogPartition(t, ctx, exec, "request_logs", createdAt)
-	if _, err := exec.Exec(ctx, `INSERT INTO request_logs (id, profile_id, model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, row_kind, url_scrub_provenance, upstream_status_code, attempt_duration_ms, is_stream, success_flag, pricing_status, pricing_evidence_trust, request_path, endpoint_description, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, $3, 'openai', $4, $5, $6, 1, $7, 'upstream', 'runtime_scrubbed', $8, 100, FALSE, $9, 'ineligible', 'trusted', '/v1/chat/completions', $10, $11, FALSE, FALSE)`, id, profileID, route.ModelID, route.EndpointID, route.ConnectionID, fmt.Sprintf("phase7-dashboard-request-%d", id), "https://dashboard-routing.invalid", statusCode, statusCode >= 200 && statusCode < 300, route.EndpointName, createdAt.UTC()); err != nil {
+	// Mirror the live runtime upstream writer: one initial attempt row with a
+	// resolved target, status-derived attempt_result, consistent winner flag,
+	// and writer-truth success_flag (non-2xx rows stay success=false).
+	attemptResult := "http_error"
+	errCode := fmt.Sprintf("upstream.http.%d", statusCode)
+	errSource := "upstream"
+	errStage := "upstream_response"
+	gatewayStatus := statusCode
+	if statusCode >= 200 && statusCode < 300 {
+		attemptResult = "completed"
+		errCode = ""
+		errSource = ""
+		errStage = ""
+		gatewayStatus = 0
+	}
+	if _, err := exec.Exec(ctx, `INSERT INTO request_logs (id, profile_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, attempt_trigger, attempt_result, is_winner, endpoint_base_url, row_kind, url_scrub_provenance, upstream_status_code, gateway_status_code, attempt_duration_ms, ttft_ms, completion_duration_ms, is_stream, stream_outcome, input_tokens, output_tokens, total_tokens, error_source, error_code, failure_stage, success_flag, pricing_status, pricing_evidence_trust, request_path, endpoint_description, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, $3, $3, 'openai', $4, $5, $6, 1, 'initial', $7, TRUE, $8, 'upstream', 'runtime_scrubbed', NULLIF($9, 0), NULLIF($10, 0), 100, 40, 100, FALSE, 'not_streaming', 3, 5, 8, NULLIF($11, ''), NULLIF($12, ''), NULLIF($13, ''), $14, 'ineligible', 'trusted', '/v1/chat/completions', $15, $16, FALSE, FALSE)`, id, profileID, route.ModelID, route.EndpointID, route.ConnectionID, fmt.Sprintf("phase7-dashboard-request-%d", id), attemptResult, "https://dashboard-routing.invalid", statusCode, gatewayStatus, errSource, errCode, errStage, statusCode >= 200 && statusCode < 300, route.EndpointName, createdAt.UTC()); err != nil {
 		t.Fatalf("insert dashboard request log %d: %v", id, err)
 	}
 }
@@ -1004,11 +1019,6 @@ func phase7AssertJobLease(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 }
 
 func int64Ptr(value int64) *int64 {
-	resolved := value
-	return &resolved
-}
-
-func stringPtr(value string) *string {
 	resolved := value
 	return &resolved
 }

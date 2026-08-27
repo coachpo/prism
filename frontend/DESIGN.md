@@ -39,6 +39,13 @@ Supporting rules:
 - **Basis must be labelled.** When one column is a window total and another is the last bucket, say so in the column header. When a block uses a different time window than the page, say so on the block.
 - **Never leak enum keys.** `priced`, `unpriced`, `healthy`, `stream_outcome` and friends pass through a Chinese label dictionary before display. Dotted registry identifiers such as `anthropic.messages` are enum keys too: brand nouns like Anthropic and Gemini stay untranslated, the identifier around them does not reach the screen. A label dictionary needs a named fallback for the key it has not learned yet, never the key itself.
 
+### Observability Attribution
+
+- `入口请求` (`ingress`) counts one finalized ingress once and attributes it to the requested entry model.
+- `最终承载` (`final_execution`) counts one finalized request once and attributes it to the actual final target model and winning Terminal Target.
+- `路由尝试` (`route_attempt`) counts each actual upstream attempt, including failed retries. It does not aggregate or infer provider cost; an unknown failed-attempt charge renders as `—` with an explanation.
+- Parent request cost and child attempt cost are composition, not two totals to add. Request-chain surfaces label the parent and child values explicitly and keep routing completeness separate from pricing/cost evidence.
+
 ## Visual Direction
 
 The product name supplies the concept. A prism splits one incident beam into a spectrum — exactly what the gateway does: one entry, many exits.
@@ -367,7 +374,7 @@ Feedback routing: while a dialog stays open, report inline only; once it closes,
 
 Interface language is Simplified Chinese, single locale. All visible strings and every `aria-label` / `sr-only` string go through `messages`; no new hard-coded literals.
 
-Fixed terminology: 端点, 终端目标, 终端配置 (孤立时称孤立终端配置), 访问目标, 模型目标, 价格模板, 路由策略, 路由时段, 代理密钥, 入口模型, 参与路由, 已知成本, 定价状态, 覆盖, 口径.
+Fixed terminology: 端点, 终端目标, 终端配置 (孤立时称孤立终端配置), 访问目标, 模型目标, 价格模板, 路由策略, 路由时段, 代理密钥, 入口模型, 最终承载, 路由尝试, 参与路由, 已知成本, 定价状态, 覆盖, 口径, 可信成本, 未归因.
 
 Left untranslated: Prism, Gateway, API family, epoch, cutoff, generation, FX, preflight, curl, OpenAI, Anthropic, Gemini.
 

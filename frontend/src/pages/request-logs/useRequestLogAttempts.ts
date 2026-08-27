@@ -87,10 +87,10 @@ export function useRequestLogAttempts({
         setHasMoreRows(response.has_more);
         setCoverage(response.coverage);
         setFilterOptions({
-          models: response.filter_options.models,
+          models: response.filter_options.ingress_models,
           endpoints: response.filter_options.endpoints,
           clients: response.filter_options.clients,
-          resolved_target_models: response.filter_options.resolved_target_models,
+          resolved_target_models: response.filter_options.attempt_target_models,
         });
         setFilterOptionsLoaded(true);
         loadedSignatureRef.current = signature;

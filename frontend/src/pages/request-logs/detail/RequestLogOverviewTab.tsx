@@ -125,6 +125,19 @@ function scopedDuration(request: RequestLogDetail): number | null {
     : summary.legacy_duration_ms;
 }
 
+function requestAttemptTriggerLabel(
+  value: RequestLogDetail["summary"]["attempt_trigger"],
+  copy: ReturnType<typeof useLocale>["messages"]["requestLogs"],
+) {
+  switch (value) {
+    case "initial": return copy.attemptTriggerInitial;
+    case "retry_same_target": return copy.attemptTriggerRetrySameTarget;
+    case "hedge": return copy.attemptTriggerHedge;
+    case "failover": return copy.attemptTriggerFailover;
+    default: return copy.attemptTriggerUnavailable;
+  }
+}
+
 function pricingStateLabel(
   pricing: PricingProjection,
   messages: ReturnType<typeof useLocale>["messages"],
@@ -216,10 +229,8 @@ export function RequestLogOverviewTab({
       ? { card: "border-l-border" }
       : getStatusTone(statusCode);
   const requestedModelLabel = summary.model_label;
-  const finalTargetModelId =
-    summary.resolved_target_model_id ?? summary.model_id;
-  const finalTargetLabel =
-    summary.resolved_target_model_label ?? requestedModelLabel;
+  const finalTargetModelId = summary.attempt_target_model_id;
+  const finalTargetLabel = summary.attempt_target_model_label;
   const failureDetail = failure?.detail ?? null;
   const formattedErrorDetail = failureDetail
     ? formatErrorDetail(failureDetail)
@@ -344,13 +355,18 @@ export function RequestLogOverviewTab({
                     {requestedModelLabel}
                   </h3>
                 </div>
-                {requestedModelLabel !== summary.model_id ? (
+                {requestedModelLabel !== summary.ingress_model_id ? (
                   <p className="font-mono text-[11px] text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                    {summary.model_id}
+                    {summary.ingress_model_id}
                   </p>
                 ) : null}
                 <p className="text-xs text-muted-foreground">
-                  {messages.requestLogs.finalTargetModel}: {finalTargetLabel}
+                  {messages.requestLogs.attemptTargetModel}:{" "}
+                  {finalTargetLabel ?? finalTargetModelId ?? (
+                    <OperatorMissingValue
+                      reason={messages.requestLogs.attemptTargetEvidenceUnavailable}
+                    />
+                  )}
                 </p>
                 <p className="font-mono text-xs text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                   {requestInfo.request_path}
@@ -487,7 +503,12 @@ export function RequestLogOverviewTab({
                 <DetailRow
                   label={messages.requestLogs.attemptTrigger ?? "尝试触发"}
                 >
-                  <span className="font-mono">{summary.attempt_trigger}</span>
+                  <span>
+                    {requestAttemptTriggerLabel(
+                      summary.attempt_trigger,
+                      messages.requestLogs,
+                    )}
+                  </span>
                 </DetailRow>
               ) : null}
               {requestInfo.provider_correlation_id ? (
@@ -506,22 +527,28 @@ export function RequestLogOverviewTab({
               <DetailRow label={messages.requestLogs.requestedModel}>
                 <div className="flex flex-col gap-1">
                   <p>{requestedModelLabel}</p>
-                  {requestedModelLabel !== summary.model_id ? (
+                  {requestedModelLabel !== summary.ingress_model_id ? (
                     <p className="font-mono text-[11px] text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                      {summary.model_id}
+                      {summary.ingress_model_id}
                     </p>
                   ) : null}
                 </div>
               </DetailRow>
-              <DetailRow label={messages.requestLogs.finalTargetModel}>
-                <div className="flex flex-col gap-1">
-                  <p>{finalTargetLabel}</p>
-                  {finalTargetLabel !== finalTargetModelId ? (
+              <DetailRow label={messages.requestLogs.attemptTargetModel}>
+                {finalTargetModelId === null ? (
+                  <OperatorMissingValue
+                    reason={messages.requestLogs.attemptTargetEvidenceUnavailable}
+                  />
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    <p>{finalTargetLabel ?? finalTargetModelId}</p>
+                    {finalTargetLabel && finalTargetLabel !== finalTargetModelId ? (
                     <p className="font-mono text-[11px] text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                       {finalTargetModelId}
                     </p>
-                  ) : null}
-                </div>
+                    ) : null}
+                  </div>
+                )}
               </DetailRow>
               {request.terminal_target ? (
                 <DetailRow

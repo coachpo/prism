@@ -26,7 +26,7 @@ func TestRequestLogsPartitionProfileScopedDuplicateID(t *testing.T) {
 
 	detailPayload := s15GET[map[string]any](t, harness, profileID, fmt.Sprintf("/api/stats/requests/%d", requestID), http.StatusOK)
 	summary := asMap(t, detailPayload["summary"])
-	if summary["model_id"] != "partition-new" || jsonInt(t, summary["legacy_status_code"]) != 500 || jsonInt(t, summary["legacy_duration_ms"]) != 222 {
+	if summary["ingress_model_id"] != "partition-new" || jsonInt(t, summary["legacy_status_code"]) != 500 || jsonInt(t, summary["legacy_duration_ms"]) != 222 {
 		t.Fatalf("expected newest duplicate request-log id for Default profile, got %+v", detailPayload)
 	}
 }
@@ -58,7 +58,7 @@ func TestRequestLogsHalfOpenTimeBounds(t *testing.T) {
 	insertRequestLogSummaryRow(t, harness, 9501, profileID, "half-open-model", "openai", 12, 91, 200, 100, 0, 0, 0, boundary)
 	insertRequestLogSummaryRow(t, harness, 9502, profileID, "half-open-model", "openai", 12, 91, 200, 100, 0, 0, 0, boundary.Add(time.Minute))
 
-	windowPayload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?from_time="+url.QueryEscape(boundary.Add(-2*time.Minute).Format(time.RFC3339))+"&to_time="+url.QueryEscape(boundary.Format(time.RFC3339))+"&model_id=half-open-model&limit=50", http.StatusOK)
+	windowPayload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?from_time="+url.QueryEscape(boundary.Add(-2*time.Minute).Format(time.RFC3339))+"&to_time="+url.QueryEscape(boundary.Format(time.RFC3339))+"&ingress_model_id=half-open-model&limit=50", http.StatusOK)
 	items := windowPayload["items"].([]any)
 	ids := map[string]bool{}
 	for _, raw := range items {
@@ -72,7 +72,7 @@ func TestRequestLogsHalfOpenTimeBounds(t *testing.T) {
 		t.Fatalf("half-open bound violated: rows at/after `to` leaked into window: %+v", windowPayload)
 	}
 
-	nextPayload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?from_time="+url.QueryEscape(boundary.Format(time.RFC3339))+"&to_time="+url.QueryEscape(boundary.Add(2*time.Minute).Format(time.RFC3339))+"&model_id=half-open-model&limit=50", http.StatusOK)
+	nextPayload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?from_time="+url.QueryEscape(boundary.Format(time.RFC3339))+"&to_time="+url.QueryEscape(boundary.Add(2*time.Minute).Format(time.RFC3339))+"&ingress_model_id=half-open-model&limit=50", http.StatusOK)
 	nextItems := nextPayload["items"].([]any)
 	nextIDs := map[string]bool{}
 	for _, raw := range nextItems {

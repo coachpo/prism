@@ -177,7 +177,7 @@ export function IngressChainsTable({
 												<TableRow data-testid={`chain-${chain.ingress_request_id}`}>
 													<TableCell
 														colSpan={CHAIN_COLUMN_COUNT + 1}
-														className="bg-inset p-0"
+													className="max-w-0 bg-inset p-0"
 													>
 														<ChainRowsPanel
 															chain={chain}
@@ -257,14 +257,30 @@ function ChainRowsPanel({
 	const hasMore =
 		!chain.retained_rows_page_complete && Boolean(chain.next_row_cursor);
 	return (
-		<div className="flex flex-col gap-0.5 px-[var(--density-card-pad-x)] py-2">
-			{chain.retained_rows.map((row) => (
-				<ChainRowButton
-					key={row.request_log_id}
-					row={row}
+			<div className="w-full max-w-full overflow-x-auto px-[var(--density-card-pad-x)] py-2">
+				<div className="grid min-w-[72rem] grid-cols-[4rem_8rem_12rem_12rem_12rem_12rem_8rem_8rem_10rem] gap-2 border-b border-border px-2 py-1 text-[11px] font-medium text-muted-foreground">
+					<span>{messages.requestLogs.attemptNumberShort}</span>
+					<span>{messages.requestLogs.attemptTrigger}</span>
+					<span>{messages.requestLogs.attemptTargetModel}</span>
+					<span>{messages.requestLogs.terminalTarget}</span>
+					<span>{messages.requestLogs.endpoint}</span>
+					<span>{messages.requestLogs.chainColumnResult}</span>
+					<span>{messages.requestLogs.attemptDuration}</span>
+					<span>{messages.requestLogs.tokens}</span>
+					<span>{messages.requestLogs.attemptKnownCost}</span>
+				</div>
+				<div className="flex min-w-[72rem] flex-col gap-0.5">
+				{chain.retained_rows.map((row) => (
+					<ChainRowButton
+						key={row.request_log_id}
+						currencySymbol={
+							chain.finalized_summary?.report_currency_symbol ?? null
+						}
+						row={row}
 					onSelect={() => onSelectRow(row.request_log_id)}
 				/>
-			))}
+				))}
+				</div>
 			{readState?.error ? (
 				<p
 					role="alert"
@@ -288,7 +304,7 @@ function ChainRowsPanel({
 					onLoadMore={onLoadMore}
 				/>
 			) : null}
-		</div>
+			</div>
 	);
 }
 
@@ -408,22 +424,47 @@ function ChainSummaryRow({
 				)}
 			</TableCell>
 
-			<TableCell className="max-w-52 truncate">
-				{summary?.terminal_target?.label ?? summary?.resolved_model?.label ?? (
-					<OperatorMissingValue reason={missingReason} />
-				)}
-			</TableCell>
+				<TableCell className="max-w-52 truncate">
+					{summary?.resolved_model?.label ?? (
+						<OperatorMissingValue reason={missingReason} />
+					)}
+				</TableCell>
 
-			<TableCell className="max-w-40 truncate">
-				{summary?.endpoint?.label ?? (
-					<OperatorMissingValue reason={missingReason} />
-				)}
-			</TableCell>
+				<TableCell className="max-w-52">
+					{summary ? (
+						<div className="flex min-w-0 flex-col gap-0.5 text-xs">
+							<span className="truncate">
+								{summary.terminal_target?.label ?? (
+									<OperatorMissingValue reason={copy.actualTerminalTargetMissing} />
+								)}
+							</span>
+							<span className="truncate text-muted-foreground">
+								{summary.endpoint?.label ?? (
+									<OperatorMissingValue reason={copy.actualEndpointMissing} />
+								)}
+							</span>
+						</div>
+					) : (
+						<OperatorMissingValue reason={missingReason} />
+					)}
+				</TableCell>
 
 			<TableCell className="text-right font-mono tabular-nums">
-				{summary ? (
-					formatNumber(summary.attempt_count)
-				) : (
+					{summary ? (
+						<span className="inline-flex flex-col items-end gap-0.5">
+							<span>{formatNumber(summary.attempt_count)}</span>
+							{chain.chain_complete === false ? (
+								<span className="text-[10px] text-degraded">
+									{copy.attemptEvidenceCount(
+										formatNumber(chain.retained_upstream_attempt_count),
+										chain.expected_attempt_count === null
+											? copy.expectedUnknown
+											: formatNumber(chain.expected_attempt_count),
+									)}
+								</span>
+							) : null}
+						</span>
+					) : (
 					<OperatorMissingValue reason={missingReason} />
 				)}
 			</TableCell>
@@ -485,11 +526,7 @@ function pricingLabel(
 	}
 }
 
-/**
- * `legacy_unknown` is deliberately left untranslated: it is the backend's own
- * name for rows whose kind was never recorded, and inventing a Chinese label
- * would imply the kind is known.
- */
+/** Row-kind enums always pass through the localized label dictionary. */
 function rowKindLabel(
 	kind: string,
 	copy: ReturnType<typeof useLocale>["messages"]["requestLogs"],
@@ -507,52 +544,142 @@ function rowKindLabel(
 }
 
 function ChainRowButton({
+	currencySymbol,
 	row,
 	onSelect,
 }: {
+	currencySymbol: string | null;
 	row: RequestLogChainRow;
 	onSelect: () => void;
 }) {
 	const { messages } = useLocale();
+	const copy = messages.requestLogs;
 	const statusCode =
 		row.upstream_status_code ?? row.gateway_status_code ?? row.legacy_status_code;
+	const isUpstreamAttempt = row.row_kind === "upstream";
+	const targetModel =
+		row.attempt_target_model_label ?? row.attempt_target_model_id;
+	const endpoint =
+		row.endpoint_label ??
+		(row.endpoint_id === null ? null : copy.endpointId(row.endpoint_id));
+	const terminalTarget =
+		row.terminal_target_label ??
+		(row.terminal_target_id === null
+			? null
+			: copy.terminalTargetId(row.terminal_target_id));
+	const attemptCost =
+		row.is_winner === true &&
+		row.pricing_status === "priced" &&
+		row.pricing_evidence_trust === "trusted" &&
+		row.total_cost_user_currency_micros !== null
+			? `${currencySymbol ?? "$"}${(
+				row.total_cost_user_currency_micros / 1_000_000
+			).toFixed(4)}`
+			: null;
+
 	return (
 		<button
 			type="button"
-			className="flex flex-wrap items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-panel"
+			className="grid w-full min-w-[72rem] grid-cols-[4rem_8rem_12rem_12rem_12rem_12rem_8rem_8rem_10rem] items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-panel"
 			onClick={onSelect}
 			data-testid={`chain-row-${row.request_log_id}`}
 		>
 			<span className="font-mono text-muted-foreground">
-				#{row.request_log_id}
+				{row.attempt_number === null
+					? copy.diagnosticRowShort
+					: `#${row.attempt_number}`}
 			</span>
-			<OperatorTypeBadge
-				label={rowKindLabel(row.row_kind, messages.requestLogs)}
-				preserveLabel
-				className="text-[10px]"
-			/>
-			{statusCode !== null && statusCode !== undefined ? (
-				<OperatorValueBadge
-					label={String(statusCode)}
-					intent={statusCode < 400 ? "healthy" : "failing"}
+			<span>{attemptTriggerLabel(row.attempt_trigger, copy)}</span>
+			<span className="truncate">
+				{isUpstreamAttempt && targetModel ? targetModel : (
+					<OperatorMissingValue reason={copy.noUpstreamAttemptTarget} />
+				)}
+			</span>
+			<span className="truncate">
+				{isUpstreamAttempt && terminalTarget ? terminalTarget : (
+					<OperatorMissingValue reason={copy.noActualTerminalTarget} />
+				)}
+			</span>
+			<span className="truncate">
+				{isUpstreamAttempt && endpoint ? endpoint : (
+					<OperatorMissingValue reason={copy.noActualEndpoint} />
+				)}
+			</span>
+			<span className="flex flex-wrap items-center gap-1">
+				<OperatorTypeBadge
+					label={rowKindLabel(row.row_kind, copy)}
+					preserveLabel
 					className="text-[10px]"
 				/>
-			) : null}
-			{row.attempt_number !== null && row.attempt_number !== undefined ? (
-				<span className="text-muted-foreground">
-					{messages.requestLogs.attemptLabel(row.attempt_number)}
-				</span>
-			) : null}
-			{row.is_winner === true ? (
-				<OperatorValueBadge
-					label={messages.requestLogs.winner}
-					intent="healthy"
-					className="text-[10px]"
-				/>
-			) : null}
-			{row.error_code ? (
-				<span className="font-mono text-destructive">{row.error_code}</span>
-			) : null}
+				{statusCode !== null && statusCode !== undefined ? (
+					<OperatorValueBadge
+						label={String(statusCode)}
+						intent={statusCode < 400 ? "healthy" : "failing"}
+						className="text-[10px]"
+					/>
+				) : null}
+				<span>{attemptResultLabel(row.attempt_result, copy)}</span>
+				{row.is_winner === true ? (
+					<OperatorValueBadge
+						label={copy.winner}
+						intent="healthy"
+						className="text-[10px]"
+					/>
+				) : null}
+			</span>
+			<span className="font-mono tabular-nums">
+				{row.attempt_duration_ms === null ? (
+					<OperatorMissingValue reason={copy.attemptDurationMissing} />
+				) : (
+					`${row.attempt_duration_ms} ms`
+				)}
+			</span>
+			<span className="font-mono tabular-nums">
+				{row.total_tokens === null ? (
+					<OperatorMissingValue reason={copy.attemptTokensMissing} />
+				) : (
+					row.total_tokens
+				)}
+			</span>
+			<span className="font-mono tabular-nums">
+				{attemptCost ?? (
+					<OperatorMissingValue
+						reason={
+							row.is_winner === true
+								? copy.attemptCostMissing
+								: copy.failedAttemptCostUnknown
+						}
+					/>
+				)}
+			</span>
 		</button>
 	);
+}
+
+function attemptTriggerLabel(
+	value: RequestLogChainRow["attempt_trigger"],
+	copy: ReturnType<typeof useLocale>["messages"]["requestLogs"],
+): string {
+	switch (value) {
+		case "initial": return copy.attemptTriggerInitial;
+		case "retry_same_target": return copy.attemptTriggerRetrySameTarget;
+		case "hedge": return copy.attemptTriggerHedge;
+		case "failover": return copy.attemptTriggerFailover;
+		default: return copy.attemptTriggerUnavailable;
+	}
+}
+
+function attemptResultLabel(
+	value: RequestLogChainRow["attempt_result"],
+	copy: ReturnType<typeof useLocale>["messages"]["requestLogs"],
+): string {
+	switch (value) {
+		case "completed": return copy.attemptResultCompleted;
+		case "http_error": return copy.attemptResultHttpError;
+		case "stream_error": return copy.attemptResultStreamError;
+		case "transport_error": return copy.attemptResultTransportError;
+		case "cancelled": return copy.attemptResultCancelled;
+		case "client_disconnected": return copy.attemptResultClientDisconnected;
+		default: return copy.attemptResultUnknown;
+	}
 }

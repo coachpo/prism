@@ -89,12 +89,12 @@ func s15TokenTrendTotals(t *testing.T, payload map[string]any) map[string]any {
 
 func assertS15DashboardShape(t *testing.T, payload map[string]any) {
 	t.Helper()
-	for _, key := range []string{"api_family_rows", "coverage_24h", "coverage_30d", "generated_at", "health", "metric_snapshot", "routing_health_map", "snapshot_revision", "source_watermark", "top_spending_models"} {
+	for _, key := range []string{"api_family_rows", "coverage_24h", "coverage_30d", "generated_at", "health", "metric_snapshot", "routing_health_map", "snapshot_revision", "source_watermark", "top_spending_models", "caliber", "dataset_coverage", "samples", "routing_health_caliber"} {
 		if _, ok := payload[key]; !ok {
 			t.Fatalf("expected dashboard snapshot key %q, got %+v", key, payload)
 		}
 	}
-	if len(payload) != 10 {
+	if len(payload) != 14 {
 		t.Fatalf("expected canonical dashboard snapshot shape, got %+v", payload)
 	}
 	for _, key := range []string{"window", "covers", "freshness", "metrics", "recent_requests", "strategy_family_summary"} {

@@ -271,7 +271,10 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 		items = items[:limit]
 	}
 	return RequestLogListResponse{
-		Coverage: coverage,
+		Coverage:        coverage,
+		Caliber:         CaliberForScope(ScopeRouteAttempt),
+		DatasetCoverage: DatasetCoverage{RequestLogs: queryCoverageToCoveragePointer(coverage)},
+		Samples:         ScopeSampleCounts{ObservationCount: len(items)},
 		FilterOptions: RequestLogListFilterOptions{
 			Endpoints:            buildRequestLogEndpointOptions(currentEndpoints, params.EndpointID),
 			Models:               buildRequestLogModelOptions(currentModels, params.ModelID),
@@ -350,7 +353,7 @@ func buildRequestLogBrowseWhere(params RequestLogListParams) (string, []any) {
 		args = append(args, params.ToTime.UTC())
 		clauses = append(clauses, fmt.Sprintf("created_at < $%d", len(args)))
 	}
-	if params.IngressFinalResult != nil || params.ConfirmedFailover != nil || params.FinalResult != nil || params.FinalModelID != nil || params.FinalEndpointID != nil || params.FinalTerminalTargetID != nil || params.FinalPricingStatus != nil || len(params.FinalUnpricedReasons) > 0 || params.FinalReportingEpoch != nil {
+	if params.IngressFinalResult != nil || params.ConfirmedFailover != nil || params.FinalResult != nil || len(params.FinalStatusCodes) > 0 || len(params.FinalStreamOutcomes) > 0 || len(params.FinalStreamErrorKinds) > 0 || params.FinalModelID != nil || params.FinalEndpointID != nil || params.FinalTerminalTargetID != nil || params.FinalPricingStatus != nil || len(params.FinalUnpricedReasons) > 0 || params.FinalReportingEpoch != nil {
 		clauses = append(clauses, buildFinalizedCohortExistsClause(params, &args))
 	}
 	if params.EndpointID != nil {
@@ -440,7 +443,7 @@ func buildFinalizedCohortExistsClause(params RequestLogListParams, args *[]any) 
 	}
 	if params.FinalModelID != nil && strings.TrimSpace(*params.FinalModelID) != "" {
 		*args = append(*args, strings.TrimSpace(*params.FinalModelID))
-		clauses = append(clauses, fmt.Sprintf("ue.model_id = $%d", len(*args)))
+		clauses = append(clauses, fmt.Sprintf("ue.resolved_target_model_id = $%d", len(*args)))
 	}
 	if params.FinalEndpointID != nil {
 		*args = append(*args, *params.FinalEndpointID)
@@ -475,6 +478,30 @@ func buildFinalizedCohortExistsClause(params RequestLogListParams, args *[]any) 
 		// derived from the finalized usage row, never a stored column.
 		*args = append(*args, strings.TrimSpace(*params.FinalResult))
 		clauses = append(clauses, fmt.Sprintf("(%s) = $%d", finalizedUsageResultClassifierSQL, len(*args)))
+	}
+	if len(params.FinalStatusCodes) > 0 {
+		placeholders := make([]string, 0, len(params.FinalStatusCodes))
+		for _, code := range params.FinalStatusCodes {
+			*args = append(*args, code)
+			placeholders = append(placeholders, fmt.Sprintf("$%d", len(*args)))
+		}
+		clauses = append(clauses, "ue.status_code IN ("+strings.Join(placeholders, ",")+")")
+	}
+	if len(params.FinalStreamOutcomes) > 0 {
+		placeholders := make([]string, 0, len(params.FinalStreamOutcomes))
+		for _, value := range params.FinalStreamOutcomes {
+			*args = append(*args, value)
+			placeholders = append(placeholders, fmt.Sprintf("$%d", len(*args)))
+		}
+		clauses = append(clauses, "ue.stream_outcome IN ("+strings.Join(placeholders, ",")+")")
+	}
+	if len(params.FinalStreamErrorKinds) > 0 {
+		placeholders := make([]string, 0, len(params.FinalStreamErrorKinds))
+		for _, value := range params.FinalStreamErrorKinds {
+			*args = append(*args, value)
+			placeholders = append(placeholders, fmt.Sprintf("$%d", len(*args)))
+		}
+		clauses = append(clauses, "ue.stream_error_kind IN ("+strings.Join(placeholders, ",")+")")
 	}
 	return "EXISTS (SELECT 1 FROM usage_request_events ue WHERE " + strings.Join(clauses, " AND ") + ")"
 }
@@ -671,9 +698,9 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 	}
 	item.CreatedAt = item.CreatedAt.UTC()
 	item.ResolvedTargetModelID = nullableString(resolvedTargetModelID)
-	item.EndpointID = nullableInt32(endpointID)
-	item.ConnectionID = nullableInt32(connectionID)
-	item.ProxyAPIKeyID = nullableInt32(proxyAPIKeyID)
+	item.EndpointID = normalizePositiveID(nullableInt32(endpointID))
+	item.ConnectionID = normalizePositiveID(nullableInt32(connectionID))
+	item.ProxyAPIKeyID = normalizePositiveID(nullableInt32(proxyAPIKeyID))
 	item.ProxyAPIKeyNameSnapshot = nullableString(proxyAPIKeyNameSnapshot)
 	item.ProxyAPIKeyAttributionState = stringValue(nullableString(proxyAPIKeyAttributionState))
 	item.ProxyAPIKeyAuthEnforced = nullableBool(proxyAPIKeyAuthEnforced)

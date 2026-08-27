@@ -185,7 +185,7 @@ export function buildSelfTestResult(
   const routing: RuntimeSelfTestResult["routing"] = {
     state: detail ? "resolved" : direct.statusCode === 401 ? "not_reached" : "evidence_pending",
     requestedModelId: context.requestedModelId,
-    resolvedModelId: detail?.summary.resolved_target_model_id ?? null,
+    resolvedModelId: detail?.summary.attempt_target_model_id ?? null,
   };
 
   const detailStatus = detail

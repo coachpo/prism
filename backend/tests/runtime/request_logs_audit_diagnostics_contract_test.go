@@ -54,24 +54,24 @@ func TestRequestLogCurrentModelEnrichmentContract(t *testing.T) {
 	decodeJSONResponse(t, response, &payload)
 
 	filterOptions := asMapRuntime(t, payload["filter_options"])
-	models := filterOptions["models"].([]any)
+	models := filterOptions["ingress_models"].([]any)
 	if !jsonBytesEqual(t, models, []any{
-		map[string]any{"model_id": "gpt-4o-native", "model_label": "GPT-4o Native"},
-		map[string]any{"model_id": "gpt-4o", "model_label": "GPT-4o Proxy"},
+		map[string]any{"ingress_model_id": "gpt-4o-native", "model_label": "GPT-4o Native"},
+		map[string]any{"ingress_model_id": "gpt-4o", "model_label": "GPT-4o Proxy"},
 	}) {
 		t.Fatalf("expected current model filter options to expose display-name enrichment, got %+v", models)
 	}
 
 	itemsByID := requestLogItemsByID(t, payload["items"].([]any))
 	fixtureItem := itemsByID[101]
-	if fixtureItem["model_label"] != "GPT-4o Proxy" || fixtureItem["resolved_target_model_label"] != "GPT-4o Native" {
+	if fixtureItem["model_label"] != "GPT-4o Proxy" || fixtureItem["attempt_target_model_label"] != "GPT-4o Native" {
 		t.Fatalf("expected fixture request log to use current model display-name enrichment, got %+v", fixtureItem)
 	}
 	if _, ok := fixtureItem["is_proxy_origin"]; ok {
 		t.Fatalf("did not expect proxy-origin field in fixture request log payload, got %+v", fixtureItem)
 	}
 	directItem := itemsByID[103]
-	if directItem["model_label"] != "GPT-4o Proxy" || directItem["resolved_target_model_label"] != "GPT-4o Proxy" {
+	if directItem["model_label"] != "GPT-4o Proxy" || directItem["attempt_target_model_label"] != "GPT-4o Proxy" {
 		t.Fatalf("expected current direct row to expose requested and final-target labels, got %+v", directItem)
 	}
 
@@ -79,7 +79,7 @@ func TestRequestLogCurrentModelEnrichmentContract(t *testing.T) {
 	assertStatus(t, detailResponse, http.StatusOK)
 	decodeJSONResponse(t, detailResponse, &payload)
 	summary := asMapRuntime(t, payload["summary"])
-	if summary["model_label"] != "GPT-4o Proxy" || summary["resolved_target_model_label"] != "GPT-4o Native" {
+	if summary["model_label"] != "GPT-4o Proxy" || summary["attempt_target_model_label"] != "GPT-4o Native" {
 		t.Fatalf("expected detail summary to use current model enrichment, got %+v", summary)
 	}
 	if _, ok := summary["is_proxy_origin"]; ok {
