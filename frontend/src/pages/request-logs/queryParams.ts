@@ -85,6 +85,13 @@ export interface RequestLogPageState {
   from_time: string;
   to_time: string;
   observe_return: string;
+  query_context: string;
+  final_result: string;
+  final_target_model_id: string;
+  final_endpoint_id: string;
+  final_terminal_target_id: string;
+  final_pricing_status: string;
+  final_unpriced_reason: string;
   status_family: StatusFamilyFilter;
   limit: number;
   offset: number;
@@ -147,12 +154,12 @@ export function parsePageSearch(search: Record<string, unknown>): RequestLogPage
 
   return {
     ingress_request_id: normalizeSearchString(search.ingress_request_id),
-    model_id: normalizeSearchString(search.model || search.model_id),
+    model_id: normalizeSearchString(search.ingress_model_id),
     endpoint_id: normalizeSearchString(search.endpoint || search.endpoint_id),
     terminal_target_id: normalizeSearchString(search.terminal_target_id),
     client_rule_id: normalizeSearchString(search.client_rule_id),
     proxy_api_key_id: normalizeSearchString(search.proxy_api_key_id),
-    resolved_target_model_id: normalizeSearchString(search.resolved_target_model_id),
+    resolved_target_model_id: normalizeSearchString(search.attempt_target_model_id),
     status_code: normalizeSearchString(search.status_code),
     error_text: normalizeSearchString(search.error_text),
     pricing_status: parseEnum(search.pricing_status, PRICING_STATUS_OPTIONS, DEFAULTS.pricing_status),
@@ -165,6 +172,13 @@ export function parsePageSearch(search: Record<string, unknown>): RequestLogPage
     from_time: normalizeSearchString(search.from_time),
     to_time: normalizeSearchString(search.to_time),
     observe_return: normalizeSearchString(search.observe_return),
+    query_context: normalizeSearchString(search.query_context),
+    final_result: normalizeSearchString(search.final_result),
+    final_target_model_id: normalizeSearchString(search.final_target_model_id),
+    final_endpoint_id: normalizeSearchString(search.final_endpoint_id),
+    final_terminal_target_id: normalizeSearchString(search.final_terminal_target_id),
+    final_pricing_status: normalizeSearchString(search.final_pricing_status),
+    final_unpriced_reason: normalizeSearchString(search.final_unpriced_reason),
     status_family: statusParam && statusParam !== "all"
       ? statusAliasToFamily(parseEnum(statusParam, STATUS_ALIAS_OPTIONS, "all"))
       : parseEnum(statusFamilyParam, STATUS_FAMILY_OPTIONS, DEFAULTS.status_family),
@@ -188,12 +202,12 @@ export function stateToSearch(state: RequestLogPageState): Record<string, string
   if (state.ingress_final_result) search.ingress_final_result = state.ingress_final_result;
   if (state.confirmed_failover) search.confirmed_failover = "true";
   if (state.ingress_request_id) search.ingress_request_id = state.ingress_request_id;
-  if (state.model_id) search.model = state.model_id;
+  if (state.model_id) search.ingress_model_id = state.model_id;
   if (state.endpoint_id) search.endpoint = state.endpoint_id;
   if (state.terminal_target_id) search.terminal_target_id = state.terminal_target_id;
   if (state.client_rule_id) search.client_rule_id = state.client_rule_id;
   if (state.proxy_api_key_id) search.proxy_api_key_id = state.proxy_api_key_id;
-  if (state.resolved_target_model_id) search.resolved_target_model_id = state.resolved_target_model_id;
+  if (state.resolved_target_model_id) search.attempt_target_model_id = state.resolved_target_model_id;
   if (state.status_code) search.status_code = state.status_code;
   if (state.error_text) search.error_text = state.error_text;
   if (state.pricing_status !== DEFAULTS.pricing_status) search.pricing_status = state.pricing_status;
@@ -207,6 +221,13 @@ export function stateToSearch(state: RequestLogPageState): Record<string, string
     search.time_range = state.time_range;
   }
   if (state.observe_return) search.observe_return = state.observe_return;
+  if (state.query_context) search.query_context = state.query_context;
+  if (state.final_result) search.final_result = state.final_result;
+  if (state.final_target_model_id) search.final_target_model_id = state.final_target_model_id;
+  if (state.final_endpoint_id) search.final_endpoint_id = state.final_endpoint_id;
+  if (state.final_terminal_target_id) search.final_terminal_target_id = state.final_terminal_target_id;
+  if (state.final_pricing_status) search.final_pricing_status = state.final_pricing_status;
+  if (state.final_unpriced_reason) search.final_unpriced_reason = state.final_unpriced_reason;
   if (state.status_family !== DEFAULTS.status_family) search.status = statusFamilyToAlias(state.status_family);
   if (state.limit !== DEFAULTS.limit) search.limit = state.limit;
   if (state.offset !== DEFAULTS.offset) search.cursor = state.offset;

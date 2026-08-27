@@ -20,6 +20,17 @@ const observabilitySigningKeyLabel = "prism.observe.query-context.v1"
 // window. It is the first fragment call of every refresh generation; all
 // Window/Breakdown fragments reuse the returned token.
 func (s *Service) handleQueryContext(w http.ResponseWriter, r *http.Request) {
+	for key := range r.URL.Query() {
+		if key != "preset" && key != "from_time" && key != "to_time" && key != "scope" {
+			writeDomainError(w, r, s.corsSnapshot(), &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "filter_invalid", Detail: "unknown filter " + key})
+			return
+		}
+	}
+	scope, err := statsdomain.NormalizeScope(r.URL.Query().Get("scope"))
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	preset := strings.TrimSpace(r.URL.Query().Get("preset"))
 	fromTime := parseOptionalRFC3339(r.URL.Query().Get("from_time"))
 	toTime := parseOptionalRFC3339(r.URL.Query().Get("to_time"))
@@ -74,6 +85,7 @@ func (s *Service) handleQueryContext(w http.ResponseWriter, r *http.Request) {
 		usageSource := sourcesByDomain["usage_request_events"]
 		token := statsdomain.QueryContextToken{
 			SchemaVersion:   1,
+			Scope:           scope,
 			ProfileID:       profile.ID,
 			RequestedPreset: usageBounds.RequestedPreset,
 			UsageFrom:       usageBounds.UsageFrom.UTC().Format(time.RFC3339Nano),
@@ -105,6 +117,8 @@ func (s *Service) handleQueryContext(w http.ResponseWriter, r *http.Request) {
 		requestCoverage := statsdomain.CoverageFromQueryBounds(requestBounds, domainSnapshots["request_logs"])
 		return statsdomain.QueryContextResponse{
 			QueryContext:    signed,
+			Scope:           scope,
+			Caliber:         statsdomain.CaliberForScope(scope),
 			UsageBounds:     statsdomain.TimeBounds{FromTime: usageBounds.UsageFrom, ToTime: usageBounds.UsageTo},
 			EventBounds:     statsdomain.TimeBounds{FromTime: eventBounds.UsageFrom, ToTime: eventBounds.UsageTo},
 			EventCoverage:   eventCoverage,
@@ -142,12 +156,19 @@ func requestedBoundsOrNil(bounds statsdomain.QueryBounds) *statsdomain.TimeBound
 
 // handleUsageSummary returns the Window KPI aggregate for a query context.
 func (s *Service) handleUsageSummary(w http.ResponseWriter, r *http.Request) {
+	if err := rejectQueryKeys(r, "query_context"); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	token, bounds, err := s.resolveQueryContextFromRequest(r)
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	coverage := statsdomain.CoverageFromQueryBounds(bounds, token.Domains["usage_request_events"])
+	usageBounds, _ := statsdomain.QueryBoundsForDomain(token, "usage_request_events")
+	requestBounds, _ := statsdomain.QueryBoundsForDomain(token, "request_logs")
+	usageCoverage := statsdomain.CoverageFromQueryBounds(usageBounds, token.Domains["usage_request_events"])
+	requestCoverage := statsdomain.CoverageFromQueryBounds(requestBounds, token.Domains["request_logs"])
 	response, err := pgxutil.InReadOnlyTxValue(r.Context(), s.pool, "stats usage-summary", func(tx pgx.Tx) (statsdomain.UsageSummaryResult, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
@@ -160,7 +181,10 @@ func (s *Service) handleUsageSummary(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return statsdomain.UsageSummaryResult{}, err
 		}
-		return statsdomain.LoadUsageSummary(r.Context(), tx, profile.ID, bounds, coverage, s.nowUTC(), reportCurrencyCode, reportCurrencySymbol)
+		if token.Scope == statsdomain.ScopeIngress {
+			return statsdomain.LoadUsageSummary(r.Context(), tx, profile.ID, usageBounds, usageCoverage, s.nowUTC(), reportCurrencyCode, reportCurrencySymbol)
+		}
+		return statsdomain.LoadScopedUsageSummary(r.Context(), tx, profile.ID, token.Scope, bounds, usageCoverage, requestCoverage, s.nowUTC())
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -207,43 +231,18 @@ func (s *Service) resolveQueryContextFromRequest(r *http.Request) (statsdomain.Q
 			return token, statsdomain.QueryBounds{}, &statsdomain.HTTPError{StatusCode: http.StatusServiceUnavailable, Code: domainPurgeInProgressCode(domain), Detail: "observability data is temporarily unavailable while retention cleanup is publishing"}
 		}
 	}
-	var requestedFrom, requestedTo *time.Time
-	if token.RequestedFrom != nil {
-		parsed, parseErr := time.Parse(time.RFC3339, *token.RequestedFrom)
-		if parseErr != nil {
-			return token, statsdomain.QueryBounds{}, &statsdomain.HTTPError{StatusCode: 422, Detail: "invalid query_context"}
-		}
-		requestedFrom = &parsed
-	}
-	if token.RequestedTo != nil {
-		parsed, parseErr := time.Parse(time.RFC3339, *token.RequestedTo)
-		if parseErr != nil {
-			return token, statsdomain.QueryBounds{}, &statsdomain.HTTPError{StatusCode: 422, Detail: "invalid query_context"}
-		}
-		requestedTo = &parsed
-	}
-	usageFrom, err := time.Parse(time.RFC3339, token.UsageFrom)
+	scope, err := statsdomain.NormalizeScope(token.Scope)
 	if err != nil {
-		return token, statsdomain.QueryBounds{}, &statsdomain.HTTPError{StatusCode: 422, Detail: "invalid query_context"}
+		return token, statsdomain.QueryBounds{}, &statsdomain.HTTPError{StatusCode: 422, Code: "invalid_query_context", Detail: "invalid query_context scope"}
 	}
-	usageTo, err := time.Parse(time.RFC3339, token.UsageTo)
+	token.Scope = scope
+	domain := "usage_request_events"
+	if scope == statsdomain.ScopeRouteAttempt {
+		domain = "request_logs"
+	}
+	bounds, err := statsdomain.QueryBoundsForDomain(token, domain)
 	if err != nil {
-		return token, statsdomain.QueryBounds{}, &statsdomain.HTTPError{StatusCode: 422, Detail: "invalid query_context"}
-	}
-	// The usage snapshot is the only place the frozen retention floor and
-	// coverage gaps survive; without them every fragment would report a null
-	// gap list and no floor while the query context itself carries both.
-	usageSnapshot := token.Domains["usage_request_events"]
-	bounds := statsdomain.QueryBounds{
-		RequestedPreset:    token.RequestedPreset,
-		RequestedFrom:      requestedFrom,
-		RequestedTo:        requestedTo,
-		UsageFrom:          usageFrom,
-		UsageTo:            usageTo,
-		UsageRetentionFrom: usageSnapshot.RetentionFromTime,
-		Source:             token.Source,
-		Complete:           token.Complete,
-		Gaps:               append(make([]statsdomain.CoverageGap, 0, len(usageSnapshot.Gaps)), usageSnapshot.Gaps...),
+		return token, statsdomain.QueryBounds{}, &statsdomain.HTTPError{StatusCode: 422, Code: "invalid_query_context", Detail: "invalid query_context"}
 	}
 	return token, bounds, nil
 }
@@ -268,12 +267,19 @@ func (s *Service) observabilitySigningKey() []byte {
 
 // handleUsageSeries returns the single main chart for a query context.
 func (s *Service) handleUsageSeries(w http.ResponseWriter, r *http.Request) {
+	if err := rejectQueryKeys(r, "query_context", "metric", "group_by", "interval", "series_limit"); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	token, bounds, err := s.resolveQueryContextFromRequest(r)
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	coverage := statsdomain.CoverageFromQueryBounds(bounds, token.Domains["usage_request_events"])
+	usageBounds, _ := statsdomain.QueryBoundsForDomain(token, "usage_request_events")
+	requestBounds, _ := statsdomain.QueryBoundsForDomain(token, "request_logs")
+	usageCoverage := statsdomain.CoverageFromQueryBounds(usageBounds, token.Domains["usage_request_events"])
+	requestCoverage := statsdomain.CoverageFromQueryBounds(requestBounds, token.Domains["request_logs"])
 	metric := strings.TrimSpace(r.URL.Query().Get("metric"))
 	if metric == "" {
 		metric = "requests"
@@ -302,7 +308,7 @@ func (s *Service) handleUsageSeries(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return statsdomain.UsageSeriesResult{}, err
 		}
-		return statsdomain.LoadUsageSeries(r.Context(), tx, profile.ID, bounds, coverage, metric, groupBy, interval, seriesLimit, s.nowUTC(), reportCurrencyCode, reportCurrencySymbol)
+		return statsdomain.LoadUsageSeries(r.Context(), tx, profile.ID, token.Scope, bounds, usageCoverage, requestCoverage, metric, groupBy, interval, seriesLimit, s.nowUTC(), reportCurrencyCode, reportCurrencySymbol)
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -313,6 +319,10 @@ func (s *Service) handleUsageSeries(w http.ResponseWriter, r *http.Request) {
 
 // handleDashboardNow returns the Now strip (rolling 30m RPM/TPM).
 func (s *Service) handleDashboardNow(w http.ResponseWriter, r *http.Request) {
+	if err := rejectQueryKeys(r); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	response, err := pgxutil.InReadOnlyTxValue(r.Context(), s.pool, "stats dashboard now", func(tx pgx.Tx) (statsdomain.DashboardNowResult, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
@@ -329,19 +339,33 @@ func (s *Service) handleDashboardNow(w http.ResponseWriter, r *http.Request) {
 
 // handleUsageErrors returns the error aggregation panel for a query context.
 func (s *Service) handleUsageErrors(w http.ResponseWriter, r *http.Request) {
+	if err := rejectQueryKeys(r, "query_context", "group_by", "limit", "ingress_model_id", "final_target_model_id", "attempt_target_model_id", "endpoint_id", "terminal_target_id", "final_result", "outcome_detail", "status_code", "stream_outcome", "stream_error_kind"); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	rawQueryContext := strings.TrimSpace(r.URL.Query().Get("query_context"))
 	token, bounds, err := s.resolveQueryContextFromRequest(r)
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	coverage := statsdomain.CoverageFromQueryBounds(bounds, token.Domains["usage_request_events"])
+	usageBounds, _ := statsdomain.QueryBoundsForDomain(token, "usage_request_events")
+	requestBounds, _ := statsdomain.QueryBoundsForDomain(token, "request_logs")
+	usageCoverage := statsdomain.CoverageFromQueryBounds(usageBounds, token.Domains["usage_request_events"])
+	requestCoverage := statsdomain.CoverageFromQueryBounds(requestBounds, token.Domains["request_logs"])
 	params := statsdomain.UsageErrorsParams{
 		GroupBy: strings.TrimSpace(r.URL.Query().Get("group_by")),
+		Scope:   token.Scope,
 		Limit:   parsePositiveQueryIntDefault(r, "limit", 20),
 	}
-	if modelID := strings.TrimSpace(r.URL.Query().Get("model_id")); modelID != "" {
-		params.ModelID = &modelID
+	if modelID := strings.TrimSpace(r.URL.Query().Get("ingress_model_id")); modelID != "" {
+		params.IngressModelID = &modelID
+	}
+	if modelID := strings.TrimSpace(r.URL.Query().Get("final_target_model_id")); modelID != "" {
+		params.FinalTargetModelID = &modelID
+	}
+	if modelID := strings.TrimSpace(r.URL.Query().Get("attempt_target_model_id")); modelID != "" {
+		params.AttemptTargetModelID = &modelID
 	}
 	if endpointID := parseOptionalPositiveQueryInt(r, "endpoint_id"); endpointID != nil {
 		params.EndpointID = endpointID
@@ -366,7 +390,7 @@ func (s *Service) handleUsageErrors(w http.ResponseWriter, r *http.Request) {
 		if profile.ID != token.ProfileID {
 			return statsdomain.UsageErrorsResult{}, &statsdomain.HTTPError{StatusCode: 422, Detail: "query_context scope mismatch"}
 		}
-		return statsdomain.LoadUsageErrors(r.Context(), tx, profile.ID, bounds, coverage, params, rawQueryContext, s.nowUTC())
+		return statsdomain.LoadUsageErrors(r.Context(), tx, profile.ID, bounds, usageCoverage, requestCoverage, params, rawQueryContext, s.nowUTC())
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -397,4 +421,17 @@ func parseOptionalPositiveQueryInt(r *http.Request, key string) *int {
 		return nil
 	}
 	return &parsed
+}
+
+func rejectQueryKeys(r *http.Request, allowed ...string) error {
+	allow := make(map[string]struct{}, len(allowed))
+	for _, key := range allowed {
+		allow[key] = struct{}{}
+	}
+	for key := range r.URL.Query() {
+		if _, ok := allow[key]; !ok {
+			return &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "filter_invalid", Detail: "unknown filter " + key}
+		}
+	}
+	return nil
 }

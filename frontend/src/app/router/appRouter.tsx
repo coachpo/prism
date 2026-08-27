@@ -253,7 +253,12 @@ function ProtectedModelDetailRoute() {
       return;
     }
     const raw = new URLSearchParams(rawSearch);
-    const supported = new Set(["action", "endpoint_id", "focus_connection_id"]);
+    const supported = new Set([
+      "action",
+      "endpoint_id",
+      "focus_connection_id",
+      "metrics_scope",
+    ]);
     if (Array.from(raw.keys()).some((key) => !supported.has(key))) {
       canonicalizedRawSearchRef.current = rawSearch;
       void navigate({
@@ -264,6 +269,9 @@ function ProtectedModelDetailRoute() {
           ...(search.endpoint_id ? { endpoint_id: search.endpoint_id } : {}),
           ...(search.focus_connection_id
             ? { focus_connection_id: search.focus_connection_id }
+            : {}),
+          ...(search.metrics_scope
+            ? { metrics_scope: search.metrics_scope }
             : {}),
         },
         replace: true,
@@ -277,12 +285,15 @@ function ProtectedModelDetailRoute() {
     search.action,
     search.endpoint_id,
     search.focus_connection_id,
+    search.metrics_scope,
   ]);
   const searchParams = new URLSearchParams();
   if (search.action) searchParams.set("action", search.action);
   if (search.endpoint_id) searchParams.set("endpoint_id", search.endpoint_id);
   if (search.focus_connection_id)
     searchParams.set("focus_connection_id", search.focus_connection_id);
+  if (search.metrics_scope)
+    searchParams.set("metrics_scope", search.metrics_scope);
   return (
     <ProtectedRoute>
       {withRouteSuspense(
@@ -302,6 +313,10 @@ function ProtectedModelDetailRoute() {
                 endpoint_id: nextSearchParams.get("endpoint_id") ?? undefined,
                 focus_connection_id:
                   nextSearchParams.get("focus_connection_id") ?? undefined,
+                metrics_scope:
+                  nextSearchParams.get("metrics_scope") === "final_execution"
+                    ? "final_execution"
+                    : undefined,
               },
               replace: options?.replace,
               // The detail page consumes its one-shot params by writing them back

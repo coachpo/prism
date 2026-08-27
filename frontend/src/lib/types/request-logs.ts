@@ -21,7 +21,7 @@ export type StreamErrorKind =
   | "missing_terminal_event";
 
 export interface RequestLogFilterModelOption {
-  model_id: string;
+  ingress_model_id: string;
   model_label: string;
 }
 
@@ -31,7 +31,7 @@ export interface RequestLogFilterClientOption {
 }
 
 export interface RequestLogFilterResolvedTargetModelOption {
-  resolved_target_model_id: string;
+  attempt_target_model_id: string;
   model_label: string;
 }
 
@@ -44,10 +44,10 @@ export interface RequestLogListItem {
   attempt_result: string | null;
   is_winner: boolean | null;
   created_at: string;
-  model_id: string;
+  ingress_model_id: string;
   model_label: string;
-  resolved_target_model_id: string | null;
-  resolved_target_model_label: string | null;
+  attempt_target_model_id: string | null;
+  attempt_target_model_label: string | null;
   caller_client_display: string | null;
   upstream_client_display: string | null;
   user_agent_overridden: boolean;
@@ -131,11 +131,14 @@ export interface RequestLogListResponse {
   offset: number;
   filter_options: {
     endpoints: RequestLogFilterEndpointOption[];
-    models: RequestLogFilterModelOption[];
+    ingress_models: RequestLogFilterModelOption[];
     clients: RequestLogFilterClientOption[];
-    resolved_target_models: RequestLogFilterResolvedTargetModelOption[];
+    attempt_target_models: RequestLogFilterResolvedTargetModelOption[];
   };
   coverage: QueryCoverage;
+  caliber: Record<string, unknown>;
+  dataset_coverage: Record<string, unknown>;
+  samples: Record<string, number>;
 }
 
 export type RequestStatusFamily = "2xx" | "4xx" | "5xx";
@@ -147,9 +150,9 @@ export interface StatsRequestParams {
   time_range?: "1h" | "6h" | "24h" | "7d" | "30d" | "all" | "custom";
   ingress_request_id?: string;
   proxy_api_key_id?: number;
-  model_id?: string;
+  ingress_model_id?: string;
   client_rule_id?: number;
-  resolved_target_model_id?: string;
+  attempt_target_model_id?: string;
   status_family?: RequestStatusFamily;
   status_code?: number;
   error_text?: string;
@@ -170,6 +173,13 @@ export interface StatsRequestParams {
   chain_row_limit?: number;
   anchor_request_log_id?: string;
   ingress_final_result?: "completed" | "failed" | "client_disconnected";
+  query_context?: string;
+  final_result?: "completed" | "failed" | "client_disconnected";
+  final_target_model_id?: string;
+  final_endpoint_id?: number;
+  final_terminal_target_id?: number;
+  final_pricing_status?: "priced" | "unpriced" | "ineligible" | "unknown";
+  final_unpriced_reason?: string;
   confirmed_failover?: string;
   is_stream?: boolean;
   stream_outcome?: string;
@@ -268,10 +278,13 @@ export interface RequestLogChainRow {
   failure_detail_persistence_truncated: boolean;
   stream_outcome: string;
   stream_error_kind: string | null;
-  model_id: string;
-  resolved_target_model_id: string | null;
+  ingress_model_id: string;
+  attempt_target_model_id: string | null;
+  attempt_target_model_label?: string | null;
   endpoint_id: number | null;
+  endpoint_label?: string | null;
   terminal_target_id: number | null;
+  selected_terminal_target_id?: number | null;
   terminal_target_label: string | null;
   terminal_target_configured: boolean;
   terminal_target_owner_model_id: string | null;
@@ -381,10 +394,10 @@ export interface ChainResponse {
   items: ChainIngressItem[];
   filter_options?: {
     endpoints: Array<{ endpoint_id: number; endpoint_label: string }>;
-    models: Array<{ model_id: string; model_label: string }>;
+    ingress_models: Array<{ ingress_model_id: string; model_label: string }>;
     clients: Array<{ client_rule_id: number; client_label: string }>;
-    resolved_target_models: Array<{
-      resolved_target_model_id: string;
+    attempt_target_models: Array<{
+      attempt_target_model_id: string;
       model_label: string;
     }>;
   };
@@ -415,6 +428,9 @@ export interface ChainResponse {
       })
     | null;
   order_evidence_state?: string;
+  caliber: Record<string, unknown>;
+  dataset_coverage: Record<string, unknown>;
+  samples: Record<string, number>;
 }
 
 // Unified failure projection (Requests SPEC §6.4 exact detail).
@@ -498,10 +514,10 @@ export interface RequestLogDetail {
   summary: {
     request_log_id: string;
     created_at: string;
-    model_id: string;
+    ingress_model_id: string;
     model_label: string;
-    resolved_target_model_id: string | null;
-    resolved_target_model_label: string | null;
+    attempt_target_model_id: string | null;
+    attempt_target_model_label: string | null;
     api_family: string;
     row_kind: RowKind;
     upstream_status_code: number | null;
@@ -602,4 +618,7 @@ export interface RequestLogDetail {
     current_effective_at: string | null;
     matches_request_revision: boolean;
   } | null;
+  caliber: Record<string, unknown>;
+  dataset_coverage: Record<string, unknown>;
+  samples: Record<string, number>;
 }

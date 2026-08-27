@@ -10,6 +10,7 @@ import {
   streamOutcomeSelection,
   type ObserveErrorSelection,
 } from "@/features/observe/observeErrorSelection";
+import type { ObserveGroupBy } from "@/features/observe/observeSearch";
 
 /**
  * Observe error analysis panel: HTTP failure ranking and stream diagnostics
@@ -17,11 +18,13 @@ import {
  * filter conjunction and deep-links into /observe/requests.
  */
 export function ObserveErrorPanel({
+  groupBy,
   queryContext,
   onSelect,
   onContextResolved,
   selectedKey,
 }: {
+  groupBy: ObserveGroupBy;
   queryContext: string | null;
   /** Selecting a leaf filters the adjacent stream instead of navigating away. */
   onSelect: (selection: ObserveErrorSelection) => void;
@@ -43,7 +46,7 @@ export function ObserveErrorPanel({
     }
     let cancelled = false;
     void observe
-      .usageErrors(queryContext, { group_by: "none", limit: 10 })
+      .usageErrors(queryContext, { group_by: groupBy, limit: 10 })
       .then((data) => {
         if (cancelled) return;
         setFragment({ phase: "ready", data, stale: false, error: null, retryAfterMs: null });
@@ -59,7 +62,7 @@ export function ObserveErrorPanel({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryContext]);
+  }, [groupBy, queryContext]);
 
   if (!queryContext) {
     return <section role="status" className="rounded-lg border border-border bg-inset p-4 text-sm text-muted-foreground">{messages.observe.windowUnavailable}</section>;

@@ -218,6 +218,106 @@ export async function mockModelRoutes(
   };
 }
 
+test("models table switches three metric scopes without refetching its composite snapshot", async ({
+  page,
+}) => {
+  await mockModelRoutes(page, {
+    models: [
+      createModelListItem(1, "entry-a", "Entry A"),
+      createModelListItem(2, "target-c", "Target C"),
+    ],
+  });
+  let metricReads = 0;
+  const metricBlock = (
+    scope: "ingress" | "final_execution" | "route_attempt",
+    requestCount: number,
+    knownCostMicros: number | null,
+  ) => ({
+    request_count: requestCount,
+    success_rate: requestCount === 0 ? null : 100,
+    p95_latency_ms: requestCount === 0 ? null : 610,
+    known_cost_micros: knownCostMicros,
+    caliber: {
+      scope,
+      grain: scope,
+      identity_basis: scope,
+      outcome_basis:
+        scope === "route_attempt" ? "attempt" : "finalized_ingress",
+      latency_basis: "attempt_duration",
+      cost_basis: scope === "route_attempt" ? "none" : "trusted_cost",
+      datasets: [],
+    },
+    samples: {
+      observation_count: requestCount,
+      latency_sample_count: requestCount,
+      latency_missing_count: 0,
+      cost_sample_count: knownCostMicros === null ? 0 : requestCount,
+      cost_missing_count: knownCostMicros === null ? requestCount : 0,
+    },
+  });
+  await page.route("**/api/stats/models/metrics", (route) => {
+    metricReads += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [
+          {
+            model_id: "entry-a",
+            ingress: metricBlock("ingress", 1, 5_000),
+            final_execution: metricBlock("final_execution", 0, 0),
+            route_attempt: metricBlock("route_attempt", 0, null),
+          },
+          {
+            model_id: "target-c",
+            ingress: metricBlock("ingress", 0, 0),
+            final_execution: metricBlock("final_execution", 1, 4_000),
+            route_attempt: metricBlock("route_attempt", 1, null),
+          },
+        ],
+        coverage: { quality: {}, spending: {} },
+      }),
+    });
+  });
+
+  await page.goto("/models");
+  await expect(
+    page.getByRole("columnheader", { name: /^入口请求 24h/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("columnheader", { name: /^请求总已知成本 30d/ }),
+  ).toBeVisible();
+  await expect.poll(() => metricReads).toBe(1);
+
+  await page.getByRole("tab", { name: "最终承载" }).click();
+  await expect(page).toHaveURL(/scope=final_execution/);
+  await expect(
+    page.getByRole("columnheader", { name: /^承载请求 24h/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("columnheader", { name: /^归属已知成本 30d/ }),
+  ).toBeVisible();
+  expect(metricReads).toBe(1);
+
+  await page.getByRole("tab", { name: "路由尝试" }).click();
+  await expect(page).toHaveURL(/scope=route_attempt/);
+  await expect(
+    page.getByRole("columnheader", { name: /^尝试数 24h/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("columnheader", { name: /^尝试成本 30d/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByTitle(
+      "路由尝试口径不声明成本；失败尝试是否产生上游费用未知。",
+    ).first(),
+  ).toBeVisible();
+  expect(metricReads).toBe(1);
+
+  await page.getByRole("tab", { name: "入口" }).click();
+  await expect(page).not.toHaveURL(/scope=/);
+});
+
 test("create model dialog disables submit when no loadbalance strategies exist", async ({
   page,
 }) => {

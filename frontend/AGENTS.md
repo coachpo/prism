@@ -65,6 +65,7 @@ frontend/
 - Keep backend startup configuration out of the dashboard after R2. Operators edit `config.json` and restart; `VITE_API_BASE` plus launcher proxy envs are transport wiring only.
 - Keep reporting-currency provider state in `src/context/ReportingCurrencyContext.tsx` and shared cache, `prime()` or `refresh()` behavior, and normalization in `src/lib/reportingCurrency.ts` instead of duplicating settings-side currency bootstrap in pages.
 - Keep live dashboard and analytics refresh in page-owned polling hooks that use the typed REST API boundary.
+- Keep observability attribution explicit end to end: `ingress`, `final_execution`, and `route_attempt` are distinct grains; route-attempt views never infer provider cost, and request-chain parent/child costs are never presented as additive totals.
 - Keep the single zh-CN locale state, shared formatting, and non-hook static label lookups in `src/i18n/`, not in shell or page code.
 - Keep shadcn/ui additions aligned with `components.json`: `style` `new-york`, Tailwind CSS in `src/index.css`, `lucide` icons, aliases rooted at `@/`, and generated primitives under `src/components/ui/`.
 - Use existing `ui/` primitives and local wrappers before adding one-off markup in pages or shared widgets.

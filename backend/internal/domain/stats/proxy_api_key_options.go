@@ -31,14 +31,29 @@ func ListProxyAPIKeyFilterOptions(ctx context.Context, exec queryExecutor, param
 		query = string([]rune(query)[:100])
 	}
 
-	fromTime := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
-	if params.FromTime != nil {
-		fromTime = params.FromTime.UTC()
+	referenceNow := time.Now().UTC()
+	// The unbounded default window (all retained history) is the owner-union
+	// semantics of this option source; only explicit caller bounds opt into
+	// the 30-day custom window contract.
+	preset := "all"
+	var requestedFrom, requestedTo *time.Time
+	if params.FromTime != nil || params.ToTime != nil {
+		preset = "custom"
+		fromTime := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+		if params.FromTime != nil {
+			fromTime = params.FromTime.UTC()
+		}
+		toTime := time.Now().UTC().Add(24 * time.Hour)
+		if params.ToTime != nil {
+			toTime = params.ToTime.UTC()
+		}
+		requestedFrom, requestedTo = &fromTime, &toTime
 	}
-	toTime := time.Now().UTC().Add(24 * time.Hour)
-	if params.ToTime != nil {
-		toTime = params.ToTime.UTC()
+	bounds, coverage, err := ResolveDatasetCoverage(ctx, exec, "request_logs", preset, requestedFrom, requestedTo, referenceNow)
+	if err != nil {
+		return ProxyAPIKeyFilterOptionsResponse{}, err
 	}
+	fromTime, toTime := bounds.UsageFrom, bounds.UsageTo
 
 	args := []any{params.ProfileID, fromTime, toTime, query}
 	where := `strpos(lower(coalesce(options.resolved_name, '')), lower($4)) > 0 OR options.option_key_id::text = $4`
@@ -109,7 +124,7 @@ func ListProxyAPIKeyFilterOptions(ctx context.Context, exec queryExecutor, param
 	if hasMore {
 		items = items[:limit]
 	}
-	response := ProxyAPIKeyFilterOptionsResponse{Items: items, ResolvedFromTime: &fromTime, ResolvedToTime: &toTime}
+	response := ProxyAPIKeyFilterOptionsResponse{Items: items, ResolvedFromTime: &fromTime, ResolvedToTime: &toTime, Caliber: CatalogCaliber("request_logs", "proxy_api_key_id"), DatasetCoverage: DatasetCoverage{RequestLogs: &coverage}, Samples: ScopeSampleCounts{ObservationCount: len(items)}}
 	if hasMore && len(items) > 0 {
 		cursor := encodeProxyAPIKeyOptionCursor(items[len(items)-1].Name, items[len(items)-1].ProxyAPIKeyID)
 		response.NextCursor = &cursor

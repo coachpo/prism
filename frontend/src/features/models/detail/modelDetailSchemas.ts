@@ -10,6 +10,7 @@ export const DEFAULT_MODEL_DETAIL_TAB: ModelDetailTab = "connections"
 
 export const modelDetailSearchSchema = z.object({
   tab: z.enum(MODEL_DETAIL_TABS).catch(DEFAULT_MODEL_DETAIL_TAB),
+  metrics_scope: z.enum(["ingress", "final_execution"]).optional(),
   focus_connection_id: z.string().regex(/^\d+$/).optional(),
   // Endpoint-page handoff (MC-A6): preselect and lock this endpoint for a new
   // Terminal Target; only the validated endpoint_id is carried, never secrets.

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { observe, type UsageSeriesResponse } from "@/lib/api/observability";
 import type { ObserveGroupBy, ObserveMetric } from "@/features/observe/observeSearch";
 import { fragmentErrorFrom, type FragmentState } from "@/features/observe/useObserveFragments";
+import { getStaticMessages } from "@/i18n/staticMessages";
 
 export interface MainChartState {
   metric: ObserveMetric;
@@ -23,7 +24,9 @@ export function useUsageSeriesFragment(
       queueMicrotask(() => {
         if (!active) return
         if (queryContextPhase === "error") {
-          setFragment({ phase: "error", data: null, stale: false, error: "查询上下文不可用", retryAfterMs: null })
+          setFragment({ phase: "error", data: null, stale: false, error: getStaticMessages().observe.queryContextUnavailable, retryAfterMs: null })
+        } else {
+          setFragment({ phase: "loading", data: null, stale: false, error: null, retryAfterMs: null })
         }
       })
       return () => { active = false }
@@ -49,4 +52,3 @@ export function useUsageSeriesFragment(
   }, [queryContext, queryContextPhase, metric, groupBy, interval]);
   return fragment;
 }
-

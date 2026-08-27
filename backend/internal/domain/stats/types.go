@@ -32,6 +32,9 @@ type RequestLogListParams struct {
 	QueryContextFrom      *time.Time
 	QueryContextTo        *time.Time
 	FinalResult           *string
+	FinalStatusCodes      []int
+	FinalStreamOutcomes   []string
+	FinalStreamErrorKinds []string
 	FinalModelID          *string
 	FinalEndpointID       *int
 	FinalTerminalTargetID *int
@@ -63,12 +66,12 @@ type RequestLogFilterEndpointOption struct {
 }
 
 type RequestLogFilterModelOption struct {
-	ModelID    string `json:"model_id"`
+	ModelID    string `json:"ingress_model_id"`
 	ModelLabel string `json:"model_label"`
 }
 
 type RequestLogFilterResolvedTargetModelOption struct {
-	ResolvedTargetModelID string `json:"resolved_target_model_id"`
+	ResolvedTargetModelID string `json:"attempt_target_model_id"`
 	ModelLabel            string `json:"model_label"`
 }
 
@@ -79,8 +82,8 @@ type RequestLogFilterClientOption struct {
 
 type RequestLogListFilterOptions struct {
 	Endpoints            []RequestLogFilterEndpointOption            `json:"endpoints"`
-	Models               []RequestLogFilterModelOption               `json:"models"`
-	ResolvedTargetModels []RequestLogFilterResolvedTargetModelOption `json:"resolved_target_models"`
+	Models               []RequestLogFilterModelOption               `json:"ingress_models"`
+	ResolvedTargetModels []RequestLogFilterResolvedTargetModelOption `json:"attempt_target_models"`
 	Clients              []RequestLogFilterClientOption              `json:"clients"`
 }
 
@@ -101,6 +104,9 @@ type ProxyAPIKeyFilterOptionsResponse struct {
 	NextCursor       *string                   `json:"next_cursor"`
 	ResolvedFromTime *time.Time                `json:"resolved_from_time"`
 	ResolvedToTime   *time.Time                `json:"resolved_to_time"`
+	Caliber          ScopeCaliber              `json:"caliber"`
+	DatasetCoverage  DatasetCoverage           `json:"dataset_coverage"`
+	Samples          ScopeSampleCounts         `json:"samples"`
 }
 
 type ProxyAPIKeyFilterOptionsParams struct {
@@ -123,10 +129,10 @@ type RequestLogListItem struct {
 	AttemptResult                 *string   `json:"attempt_result"`
 	IsWinner                      *bool     `json:"is_winner"`
 	CreatedAt                     time.Time `json:"created_at"`
-	ModelID                       string    `json:"model_id"`
+	ModelID                       string    `json:"ingress_model_id"`
 	ModelLabel                    string    `json:"model_label"`
-	ResolvedTargetModelID         *string   `json:"resolved_target_model_id"`
-	ResolvedTargetModelLabel      *string   `json:"resolved_target_model_label"`
+	ResolvedTargetModelID         *string   `json:"attempt_target_model_id"`
+	ResolvedTargetModelLabel      *string   `json:"attempt_target_model_label"`
 	APIFamily                     string    `json:"api_family"`
 	EndpointID                    *int      `json:"endpoint_id"`
 	EndpointLabel                 string    `json:"endpoint_label"`
@@ -191,16 +197,19 @@ type RequestLogListResponse struct {
 	Offset  int  `json:"offset"`
 	// Coverage is the non-null ordinary query-scoped retention projection
 	// (Requests SPEC: every successful ordinary attempts envelope carries it).
-	Coverage QueryCoverage `json:"coverage"`
+	Coverage        QueryCoverage     `json:"coverage"`
+	Caliber         ScopeCaliber      `json:"caliber"`
+	DatasetCoverage DatasetCoverage   `json:"dataset_coverage"`
+	Samples         ScopeSampleCounts `json:"samples"`
 }
 
 type DashboardRecentActivityItem struct {
 	RequestLogID                int       `json:"request_log_id"`
 	CreatedAt                   time.Time `json:"created_at"`
-	ModelID                     string    `json:"model_id"`
-	ModelLabel                  string    `json:"model_label"`
-	ResolvedTargetModelID       *string   `json:"resolved_target_model_id"`
-	ResolvedTargetModelLabel    *string   `json:"resolved_target_model_label"`
+	IngressModelID              string    `json:"ingress_model_id"`
+	IngressModelLabel           string    `json:"ingress_model_label"`
+	AttemptTargetModelID        *string   `json:"attempt_target_model_id"`
+	AttemptTargetModelLabel     *string   `json:"attempt_target_model_label"`
 	EndpointID                  *int      `json:"endpoint_id"`
 	EndpointLabel               string    `json:"endpoint_label"`
 	StatusCode                  *int      `json:"status_code"`
@@ -225,35 +234,48 @@ type DashboardRecentActivityResponse struct {
 	GeneratedAt       time.Time                        `json:"generated_at"`
 	ActivityWatermark DashboardRecentActivityWatermark `json:"activity_watermark"`
 	Items             []DashboardRecentActivityItem    `json:"items"`
+	Caliber           ScopeCaliber                     `json:"caliber"`
+	DatasetCoverage   DatasetCoverage                  `json:"dataset_coverage"`
+	Samples           ScopeSampleCounts                `json:"samples"`
 }
 
 type StatsSummaryParams struct {
-	ProfileID    int
-	FromTime     *time.Time
-	ToTime       *time.Time
-	GroupBy      *string
-	ModelID      *string
-	APIFamily    *string
-	EndpointID   *int
-	ConnectionID *int
+	ProfileID            int
+	FromTime             *time.Time
+	ToTime               *time.Time
+	Preset               string
+	ReferenceNow         time.Time
+	GroupBy              *string
+	IngressModelID       *string
+	FinalTargetModelID   *string
+	AttemptTargetModelID *string
+	APIFamily            *string
+	EndpointID           *int
+	ConnectionID         *int
+	AttemptTrigger       *string
+	AttemptResult        *string
+	Scope                string
 }
 
 type StatGroup struct {
-	Key               string  `json:"key"`
-	TotalRequests     int     `json:"total_requests"`
-	SuccessCount      int     `json:"success_count"`
-	ErrorCount        int     `json:"error_count"`
-	AvgResponseTimeMS float64 `json:"avg_response_time_ms"`
-	TotalTokens       int     `json:"total_tokens"`
+	Key               string            `json:"key"`
+	TotalRequests     int               `json:"total_requests"`
+	SuccessCount      int               `json:"success_count"`
+	ErrorCount        int               `json:"error_count"`
+	SuccessRate       *float64          `json:"success_rate"`
+	AvgResponseTimeMS *float64          `json:"avg_response_time_ms"`
+	P95ResponseTimeMS *int              `json:"p95_response_time_ms"`
+	TotalTokens       int               `json:"total_tokens"`
+	Samples           ScopeSampleCounts `json:"samples"`
 }
 
 type StatsSummaryResponse struct {
 	TotalRequests     int         `json:"total_requests"`
 	SuccessCount      int         `json:"success_count"`
 	ErrorCount        int         `json:"error_count"`
-	SuccessRate       float64     `json:"success_rate"`
-	AvgResponseTimeMS float64     `json:"avg_response_time_ms"`
-	P95ResponseTimeMS int         `json:"p95_response_time_ms"`
+	SuccessRate       *float64    `json:"success_rate"`
+	AvgResponseTimeMS *float64    `json:"avg_response_time_ms"`
+	P95ResponseTimeMS *int        `json:"p95_response_time_ms"`
 	TotalInputTokens  int         `json:"total_input_tokens"`
 	TotalOutputTokens int         `json:"total_output_tokens"`
 	TotalTokens       int         `json:"total_tokens"`
@@ -263,27 +285,47 @@ type StatsSummaryResponse struct {
 	Granularity string `json:"granularity"`
 	// LatencyBasis is always "end_to_end": stream durations include the
 	// finalization time, not just the response-header time.
-	LatencyBasis string `json:"latency_basis"`
+	LatencyBasis string            `json:"latency_basis"`
+	Caliber      ScopeCaliber      `json:"caliber"`
+	Coverage     DatasetCoverage   `json:"coverage"`
+	Samples      ScopeSampleCounts `json:"samples"`
+}
+
+type ModelScopeMetricBlock struct {
+	RequestCount    int               `json:"request_count"`
+	SuccessRate     *float64          `json:"success_rate"`
+	P95LatencyMS    *int              `json:"p95_latency_ms"`
+	KnownCostMicros *int64            `json:"known_cost_micros"`
+	Caliber         ScopeCaliber      `json:"caliber"`
+	Samples         ScopeSampleCounts `json:"samples"`
 }
 
 type ModelMetricsBatchItem struct {
-	ModelID         string   `json:"model_id"`
-	SuccessRate     *float64 `json:"success_rate"`      // null when the window has no samples
-	RequestCount24H int      `json:"request_count_24h"` // 0 is a fact; stays non-pointer
-	P95LatencyMS    *int     `json:"p95_latency_ms"`    // null without latency samples
-	Spend30DMicros  *int64   `json:"spend_30d_micros"`  // null without trusted pricing evidence
+	ModelID        string                `json:"model_id"`
+	Ingress        ModelScopeMetricBlock `json:"ingress"`
+	FinalExecution ModelScopeMetricBlock `json:"final_execution"`
+	RouteAttempt   ModelScopeMetricBlock `json:"route_attempt"`
+}
+
+type ModelMetricsCoverage struct {
+	Quality  DatasetCoverage `json:"quality"`
+	Spending DatasetCoverage `json:"spending"`
 }
 
 type ModelMetricsBatchResponse struct {
-	Items []ModelMetricsBatchItem `json:"items"`
+	Items    []ModelMetricsBatchItem `json:"items"`
+	Coverage ModelMetricsCoverage    `json:"coverage"`
 }
 
 type ConnectionSuccessRate struct {
-	ConnectionID  int      `json:"connection_id"`
-	TotalRequests int      `json:"total_requests"`
-	SuccessCount  int      `json:"success_count"`
-	ErrorCount    int      `json:"error_count"`
-	SuccessRate   *float64 `json:"success_rate"`
+	ConnectionID  int               `json:"connection_id"`
+	TotalRequests int               `json:"total_requests"`
+	SuccessCount  int               `json:"success_count"`
+	ErrorCount    int               `json:"error_count"`
+	SuccessRate   *float64          `json:"success_rate"`
+	Caliber       ScopeCaliber      `json:"caliber"`
+	Coverage      DatasetCoverage   `json:"coverage"`
+	Samples       ScopeSampleCounts `json:"samples"`
 }
 
 type ThroughputBucket struct {
@@ -299,25 +341,33 @@ type ThroughputStatsResponse struct {
 	TotalRequests     int                `json:"total_requests"`
 	TimeWindowSeconds float64            `json:"time_window_seconds"`
 	Buckets           []ThroughputBucket `json:"buckets"`
+	Caliber           ScopeCaliber       `json:"caliber"`
+	Coverage          DatasetCoverage    `json:"coverage"`
+	Samples           ScopeSampleCounts  `json:"samples"`
 }
 
 type SpendingSummary struct {
-	TotalCostMicros                   int64 `json:"total_cost_micros"`
-	SuccessfulRequestCount            int   `json:"successful_request_count"`
-	PricedRequestCount                int   `json:"priced_request_count"`
-	UnpricedRequestCount              int   `json:"unpriced_request_count"`
-	TotalInputTokens                  int   `json:"total_input_tokens"`
-	TotalOutputTokens                 int   `json:"total_output_tokens"`
-	TotalCacheReadInputTokens         int   `json:"total_cache_read_input_tokens"`
-	TotalCacheCreationInputTokens     int   `json:"total_cache_creation_input_tokens"`
-	TotalReasoningTokens              int   `json:"total_reasoning_tokens"`
-	TotalTokens                       int   `json:"total_tokens"`
-	AvgCostPerSuccessfulRequestMicros int64 `json:"avg_cost_per_successful_request_micros"`
+	TotalCostMicros                   int64  `json:"-"`
+	KnownCostMicros                   *int64 `json:"known_cost_micros"`
+	CostSampleCount                   int    `json:"cost_sample_count"`
+	CostMissingCount                  int    `json:"cost_missing_count"`
+	SuccessfulRequestCount            int    `json:"successful_request_count"`
+	PricedRequestCount                int    `json:"priced_request_count"`
+	UnpricedRequestCount              int    `json:"unpriced_request_count"`
+	TotalInputTokens                  int    `json:"total_input_tokens"`
+	TotalOutputTokens                 int    `json:"total_output_tokens"`
+	TotalCacheReadInputTokens         int    `json:"total_cache_read_input_tokens"`
+	TotalCacheCreationInputTokens     int    `json:"total_cache_creation_input_tokens"`
+	TotalReasoningTokens              int    `json:"total_reasoning_tokens"`
+	TotalTokens                       int    `json:"total_tokens"`
+	AvgCostPerSuccessfulRequestMicros int64  `json:"avg_cost_per_successful_request_micros"`
 }
 
 type SpendingGroupRow struct {
 	Key              string `json:"key"`
-	TotalCostMicros  int64  `json:"total_cost_micros"`
+	TotalCostMicros  int64  `json:"-"`
+	KnownCostMicros  *int64 `json:"known_cost_micros"`
+	CostSampleCount  int    `json:"cost_sample_count"`
 	TotalRequests    int    `json:"total_requests"`
 	PricedRequests   int    `json:"priced_requests"`
 	UnpricedRequests int    `json:"unpriced_requests"`
@@ -327,16 +377,19 @@ type SpendingGroupRow struct {
 type SpendingTopModel struct {
 	ModelID         string `json:"model_id"`
 	ModelLabel      string `json:"model_label"`
-	TotalCostMicros int64  `json:"total_cost_micros"`
+	KnownCostMicros *int64 `json:"known_cost_micros"`
 }
 
 type SpendingTopEndpoint struct {
 	EndpointID      *int   `json:"endpoint_id"`
 	EndpointLabel   string `json:"endpoint_label"`
-	TotalCostMicros int64  `json:"total_cost_micros"`
+	KnownCostMicros *int64 `json:"known_cost_micros"`
 }
 
 type SpendingReportResponse struct {
+	Scope                string                `json:"scope"`
+	Caliber              ScopeCaliber          `json:"caliber"`
+	Coverage             DatasetCoverage       `json:"coverage"`
 	Summary              SpendingSummary       `json:"summary"`
 	Groups               []SpendingGroupRow    `json:"groups"`
 	GroupsTotal          int                   `json:"groups_total"`
@@ -530,6 +583,10 @@ type UsageSnapshotResponse struct {
 	EndpointStatistics    []UsageEndpointStatistic    `json:"endpoint_statistics"`
 	ModelStatistics       []UsageModelStatistic       `json:"model_statistics"`
 	ProxyAPIKeyStatistics []UsageProxyAPIKeyStatistic `json:"proxy_api_key_statistics"`
+	Caliber               ScopeCaliber                `json:"caliber"`
+	DatasetCoverage       DatasetCoverage             `json:"dataset_coverage"`
+	Samples               ScopeSampleCounts           `json:"samples"`
+	KnownCostMicros       *int64                      `json:"known_cost_micros"`
 }
 
 type EndpointModelStatistic struct {

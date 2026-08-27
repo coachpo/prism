@@ -82,7 +82,9 @@ type usageEventRecord struct {
 	TotalCostUserCurrencyMicros    int64
 	HasTotalCostUserCurrencyMicros bool
 	AttemptCount                   int
+	FinalAttemptNumber             *int
 	RequestPath                    string
+	StreamOutcome                  string
 	ResponseTimeMS                 *int
 	TTFTMS                         *int
 	CompletionDurationMS           *int
@@ -140,6 +142,7 @@ type snapshotEvent struct {
 	CompletionDurationMS     *int
 	HasOutputTokens          bool
 	TotalCostMicros          int64
+	HasKnownCost             bool
 	TotalTokens              int
 }
 

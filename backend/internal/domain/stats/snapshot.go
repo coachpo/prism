@@ -28,11 +28,12 @@ type latencyTrendPointStats struct {
 
 func GetUsageSnapshot(ctx context.Context, exec queryExecutor, profileID int, preset string, referenceNow time.Time) (UsageSnapshotResponse, error) {
 	generatedAt := referenceNow.UTC()
-	startAt, endAt := resolveTimePreset(preset, nil, &generatedAt, generatedAt)
-	normalizedEndAt := generatedAt
-	if endAt != nil {
-		normalizedEndAt = endAt.UTC()
+	bounds, coverage, err := ResolveDatasetCoverage(ctx, exec, "usage_request_events", preset, nil, &generatedAt, generatedAt)
+	if err != nil {
+		return UsageSnapshotResponse{}, err
 	}
+	startAt := &bounds.UsageFrom
+	normalizedEndAt := bounds.UsageTo
 	records, err := loadUsageEventRecords(ctx, exec, profileID, startAt, &normalizedEndAt, nil, nil, nil, nil)
 	if err != nil {
 		return UsageSnapshotResponse{}, err
@@ -93,7 +94,7 @@ func GetUsageSnapshot(ctx context.Context, exec queryExecutor, profileID int, pr
 		Daily:  buildTokenTypeBreakdown(events, startAt, normalizedEndAt, "day"),
 	}
 	costOverview := buildCostOverview(events, startAt, normalizedEndAt)
-	return UsageSnapshotResponse{
+	response := UsageSnapshotResponse{
 		GeneratedAt: generatedAt,
 		TimeRange: UsageSnapshotTimeRange{
 			Preset:  preset,
@@ -133,7 +134,26 @@ func GetUsageSnapshot(ctx context.Context, exec queryExecutor, profileID int, pr
 		EndpointStatistics:    buildUsageEndpointStatistics(events),
 		ModelStatistics:       buildUsageModelStatistics(events),
 		ProxyAPIKeyStatistics: buildProxyAPIKeyStatistics(events),
-	}, nil
+		Caliber:               CaliberForScope(ScopeIngress), DatasetCoverage: DatasetCoverage{UsageRequestEvents: &coverage},
+		Samples: ScopeSampleCounts{ObservationCount: totalRequests},
+	}
+	for _, event := range events {
+		if event.ResponseTimeMS != nil {
+			response.Samples.LatencySampleCount++
+		} else {
+			response.Samples.LatencyMissingCount++
+		}
+		if event.HasKnownCost {
+			response.Samples.CostSampleCount++
+		} else if event.PricingStatus != "ineligible" {
+			response.Samples.CostMissingCount++
+		}
+	}
+	if response.Samples.CostSampleCount > 0 {
+		cost := totalCostMicros
+		response.KnownCostMicros = &cost
+	}
+	return response, nil
 }
 
 func buildSnapshotEvents(records []usageEventRecord) []snapshotEvent {
@@ -189,6 +209,7 @@ func buildSnapshotEvents(records []usageEventRecord) []snapshotEvent {
 			CompletionDurationMS:  record.CompletionDurationMS,
 			HasOutputTokens:       record.HasOutputTokens,
 			TotalCostMicros:       totalCostMicros,
+			HasKnownCost:          record.TrustedKnownCost() && record.HasTotalCostUserCurrencyMicros,
 			TotalTokens:           record.TotalTokens,
 		})
 	}

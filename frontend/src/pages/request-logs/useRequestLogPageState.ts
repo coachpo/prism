@@ -122,6 +122,13 @@ export function useRequestLogPageState() {
 
   const hasActiveFilters = !!(
     state.ingress_request_id ||
+    state.query_context ||
+    state.final_result ||
+    state.final_target_model_id ||
+    state.final_endpoint_id ||
+    state.final_terminal_target_id ||
+    state.final_pricing_status ||
+    state.final_unpriced_reason ||
     state.model_id ||
     state.endpoint_id ||
     state.terminal_target_id ||

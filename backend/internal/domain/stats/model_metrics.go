@@ -16,131 +16,234 @@ type ModelMetricsParams struct {
 	ReferenceNow       time.Time
 }
 
-type summaryRequestLogRow struct {
-	CreatedAt       time.Time
-	ModelID         string
-	APIFamily       string
-	EndpointBaseURL *string
-	EndpointID      *int
-	ConnectionID    *int
-	StatusCode      int
-	ResponseTimeMS  int
-	InputTokens     *int
-	OutputTokens    *int
-	TotalTokens     *int
+type modelAttemptMetricRow struct {
+	IngressRequestID string
+	AttemptNumber    int
+	ResolvedTargetID *string
+	AttemptResult    string
+	AttemptDuration  *int
+}
+
+type modelMetricAccumulator struct {
+	observations int
+	successes    int
+	latencies    []int
+	latencyMiss  int
+	cost         int64
+	costSamples  int
+	costMissing  int
 }
 
 func GetModelMetrics(ctx context.Context, exec queryExecutor, params ModelMetricsParams) (ModelMetricsBatchResponse, error) {
-	uniqueModelIDs := dedupeNonEmptyStrings(params.ModelIDs)
-	items := make([]ModelMetricsBatchItem, 0, len(uniqueModelIDs))
-	if len(uniqueModelIDs) == 0 {
-		return ModelMetricsBatchResponse{Items: items}, nil
+	modelIDs := dedupeNonEmptyStrings(params.ModelIDs)
+	response := ModelMetricsBatchResponse{Items: make([]ModelMetricsBatchItem, 0, len(modelIDs))}
+	if len(modelIDs) == 0 {
+		return response, nil
 	}
-	summaryFrom := params.ReferenceNow.UTC().Add(-time.Duration(params.SummaryWindowHours) * time.Hour)
-	summaryRows, err := loadModelMetricSummaryRows(ctx, exec, params.ProfileID, uniqueModelIDs, summaryFrom)
+	referenceNow := params.ReferenceNow.UTC()
+	if referenceNow.IsZero() {
+		referenceNow = time.Now().UTC()
+	}
+	hours := params.SummaryWindowHours
+	if hours <= 0 {
+		hours = 24
+	}
+	qualityFrom, qualityTo := referenceNow.Add(-time.Duration(hours)*time.Hour), referenceNow
+	qualityUsageBounds, qualityUsageCoverage, err := ResolveDatasetCoverage(ctx, exec, "usage_request_events", "custom", &qualityFrom, &qualityTo, referenceNow)
 	if err != nil {
 		return ModelMetricsBatchResponse{}, err
 	}
-	spendingFrom, spendingTo := resolveTimePreset(params.SpendingPreset, nil, nil, params.ReferenceNow.UTC())
-	spendingRows, err := loadUsageEventRecords(ctx, exec, params.ProfileID, spendingFrom, spendingTo, nil, nil, nil, nil)
+	qualityRequestBounds, qualityRequestCoverage, err := ResolveDatasetCoverage(ctx, exec, "request_logs", "custom", &qualityFrom, &qualityTo, referenceNow)
 	if err != nil {
 		return ModelMetricsBatchResponse{}, err
 	}
-	return ModelMetricsBatchResponse{Items: buildModelMetricsItems(uniqueModelIDs, summaryRows, spendingRows)}, nil
-}
+	spendingPreset := normalizeModelSpendingPreset(params.SpendingPreset)
+	spendingBounds, spendingCoverage, err := ResolveDatasetCoverage(ctx, exec, "usage_request_events", spendingPreset, nil, &referenceNow, referenceNow)
+	if err != nil {
+		return ModelMetricsBatchResponse{}, err
+	}
+	qualityFromEffective, qualityToEffective := qualityUsageBounds.UsageFrom, qualityUsageBounds.UsageTo
+	qualityUsage, err := loadUsageEventRecords(ctx, exec, params.ProfileID, &qualityFromEffective, &qualityToEffective, nil, nil, nil, nil)
+	if err != nil {
+		return ModelMetricsBatchResponse{}, err
+	}
+	spendingFromEffective, spendingToEffective := spendingBounds.UsageFrom, spendingBounds.UsageTo
+	spendingUsage, err := loadUsageEventRecords(ctx, exec, params.ProfileID, &spendingFromEffective, &spendingToEffective, nil, nil, nil, nil)
+	if err != nil {
+		return ModelMetricsBatchResponse{}, err
+	}
+	attempts, err := loadModelAttemptMetricRows(ctx, exec, params.ProfileID, modelIDs, qualityRequestBounds.UsageFrom, qualityRequestBounds.UsageTo)
+	if err != nil {
+		return ModelMetricsBatchResponse{}, err
+	}
 
-// buildModelMetricsItems assembles the per-model metric rows. Fields that
-// have no samples in the window stay nil: success_rate, p95_latency_ms, and
-// spend_30d_micros are only set when there is evidence for them.
-func buildModelMetricsItems(uniqueModelIDs []string, summaryRows []summaryRequestLogRow, spendingRows []usageEventRecord) []ModelMetricsBatchItem {
-	resultByModelID := map[string]ModelMetricsBatchItem{}
-	for _, modelID := range uniqueModelIDs {
-		resultByModelID[modelID] = ModelMetricsBatchItem{ModelID: modelID}
-	}
-	summaryByModel := map[string][]summaryRequestLogRow{}
-	for _, row := range summaryRows {
-		summaryByModel[row.ModelID] = append(summaryByModel[row.ModelID], row)
-	}
-	for modelID, rows := range summaryByModel {
-		item := resultByModelID[modelID]
-		latencies := make([]int, 0, len(rows))
-		successCount := 0
-		for _, row := range rows {
-			latencies = append(latencies, row.ResponseTimeMS)
-			if row.StatusCode >= 200 && row.StatusCode <= 299 {
-				successCount++
+	ingress := newModelMetricAccumulatorMap(modelIDs)
+	final := newModelMetricAccumulatorMap(modelIDs)
+	attempt := newModelMetricAccumulatorMap(modelIDs)
+	finalAttemptLatency := make(map[string]int, len(attempts))
+	for _, row := range attempts {
+		if row.ResolvedTargetID != nil {
+			if acc := attempt[*row.ResolvedTargetID]; acc != nil {
+				acc.observations++
+				if row.AttemptResult == "completed" {
+					acc.successes++
+				}
+				if row.AttemptDuration != nil {
+					acc.latencies = append(acc.latencies, *row.AttemptDuration)
+				} else {
+					acc.latencyMiss++
+				}
 			}
 		}
-		item.RequestCount24H = len(rows)
-		rate := successRate(successCount, len(rows))
-		item.SuccessRate = &rate
-		item.P95LatencyMS = percentileContInt(latencies, 0.95)
-		resultByModelID[modelID] = item
+		if row.AttemptDuration != nil {
+			finalAttemptLatency[modelAttemptKey(row.IngressRequestID, row.AttemptNumber)] = *row.AttemptDuration
+		}
 	}
-	for _, row := range spendingRows {
-		item, ok := resultByModelID[row.ModelID]
-		if !ok || !row.SuccessFlag {
+	for _, row := range qualityUsage {
+		if acc := ingress[row.ModelID]; acc != nil {
+			acc.addUsageObservation(row, row.ResponseTimeMS)
+		}
+		if row.ResolvedTargetModelID == nil || row.FinalAttemptNumber == nil {
 			continue
 		}
-		if row.TrustedKnownCost() {
-			if item.Spend30DMicros == nil {
-				item.Spend30DMicros = new(int64)
+		if acc := final[*row.ResolvedTargetModelID]; acc != nil {
+			var latency *int
+			if value, ok := finalAttemptLatency[modelAttemptKey(row.IngressRequestID, *row.FinalAttemptNumber)]; ok {
+				latency = &value
 			}
-			*item.Spend30DMicros += row.TotalCostUserCurrencyMicros
+			acc.addUsageObservation(row, latency)
 		}
-		resultByModelID[row.ModelID] = item
 	}
-	items := make([]ModelMetricsBatchItem, 0, len(uniqueModelIDs))
-	for _, modelID := range uniqueModelIDs {
-		items = append(items, resultByModelID[modelID])
+	for _, row := range spendingUsage {
+		if acc := ingress[row.ModelID]; acc != nil {
+			acc.addUsageCost(row)
+		}
+		if row.ResolvedTargetModelID != nil && row.FinalAttemptNumber != nil {
+			if acc := final[*row.ResolvedTargetModelID]; acc != nil {
+				acc.addUsageCost(row)
+			}
+		}
 	}
-	return items
+	for _, modelID := range modelIDs {
+		response.Items = append(response.Items, ModelMetricsBatchItem{
+			ModelID:        modelID,
+			Ingress:        metricBlockFromAccumulator(ScopeIngress, ingress[modelID]),
+			FinalExecution: metricBlockFromAccumulator(ScopeFinal, final[modelID]),
+			RouteAttempt:   metricBlockFromAccumulator(ScopeRouteAttempt, attempt[modelID]),
+		})
+	}
+	response.Coverage = ModelMetricsCoverage{
+		Quality:  DatasetCoverage{UsageRequestEvents: &qualityUsageCoverage, RequestLogs: &qualityRequestCoverage},
+		Spending: DatasetCoverage{UsageRequestEvents: &spendingCoverage},
+	}
+	return response, nil
 }
 
-func loadModelMetricSummaryRows(ctx context.Context, exec queryExecutor, profileID int, modelIDs []string, fromTime time.Time) ([]summaryRequestLogRow, error) {
-	if len(modelIDs) == 0 {
-		return []summaryRequestLogRow{}, nil
+func normalizeModelSpendingPreset(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "today", "24h":
+		return "24h"
+	case "last_7_days", "7d":
+		return "7d"
+	case "all":
+		return "all"
+	default:
+		return "30d"
 	}
-	placeholders := make([]string, 0, len(modelIDs))
-	args := []any{profileID, fromTime.UTC()}
+}
+
+func newModelMetricAccumulatorMap(modelIDs []string) map[string]*modelMetricAccumulator {
+	result := make(map[string]*modelMetricAccumulator, len(modelIDs))
 	for _, modelID := range modelIDs {
-		args = append(args, modelID)
-		placeholders = append(placeholders, fmt.Sprintf("$%d", len(args)))
+		result[modelID] = &modelMetricAccumulator{}
 	}
-	rows, err := exec.Query(ctx, `SELECT created_at, model_id, api_family, endpoint_base_url, endpoint_id, connection_id, `+scopedRequestLogStatusSQL+` AS scoped_status, `+scopedRequestLogDurationSQL+` AS scoped_duration_ms, input_tokens, output_tokens, total_tokens FROM request_logs WHERE profile_id = $1 AND created_at >= $2 AND model_id IN (`+strings.Join(placeholders, ", ")+`)`, args...)
+	return result
+}
+
+func (acc *modelMetricAccumulator) addUsageObservation(row usageEventRecord, latency *int) {
+	acc.observations++
+	outcome := ClassifyOutcomeDetail(row.StatusCode, &row.StreamOutcome)
+	if ClassifyFinalResult(outcome) == FinalResultCompleted {
+		acc.successes++
+	}
+	if latency != nil {
+		acc.latencies = append(acc.latencies, *latency)
+	} else {
+		acc.latencyMiss++
+	}
+}
+
+func (acc *modelMetricAccumulator) addUsageCost(row usageEventRecord) {
+	if row.PricingStatus == "ineligible" {
+		return
+	}
+	if row.TrustedKnownCost() && row.HasTotalCostUserCurrencyMicros {
+		acc.cost += row.TotalCostUserCurrencyMicros
+		acc.costSamples++
+		return
+	}
+	acc.costMissing++
+}
+
+func metricBlockFromAccumulator(scope string, acc *modelMetricAccumulator) ModelScopeMetricBlock {
+	block := ModelScopeMetricBlock{Caliber: CaliberForScope(scope)}
+	if acc == nil {
+		return block
+	}
+	block.RequestCount = acc.observations
+	if acc.observations > 0 {
+		rate := successRate(acc.successes, acc.observations)
+		block.SuccessRate = &rate
+	}
+	block.P95LatencyMS = percentileContInt(acc.latencies, 0.95)
+	if scope != ScopeRouteAttempt && acc.costSamples > 0 {
+		cost := acc.cost
+		block.KnownCostMicros = &cost
+	}
+	block.Samples = ScopeSampleCounts{
+		ObservationCount: acc.observations, LatencySampleCount: len(acc.latencies), LatencyMissingCount: acc.latencyMiss,
+		CostSampleCount: acc.costSamples, CostMissingCount: acc.costMissing,
+	}
+	return block
+}
+
+func loadModelAttemptMetricRows(ctx context.Context, exec queryExecutor, profileID int, modelIDs []string, fromTime time.Time, toTime time.Time) ([]modelAttemptMetricRow, error) {
+	rows, err := exec.Query(ctx, `SELECT ingress_request_id, attempt_number, resolved_target_model_id, attempt_result, attempt_duration_ms
+		FROM request_logs
+		WHERE profile_id = $1 AND row_kind = 'upstream'
+		  AND created_at >= $2 AND created_at < $3
+		  AND resolved_target_model_id = ANY($4::text[])
+		ORDER BY created_at ASC, id ASC`, profileID, fromTime.UTC(), toTime.UTC(), modelIDs)
 	if err != nil {
-		return nil, fmt.Errorf("query model metric summary rows for profile %d: %w", profileID, err)
+		return nil, fmt.Errorf("query model attempt metrics for profile %d: %w", profileID, err)
 	}
 	defer rows.Close()
-	items := make([]summaryRequestLogRow, 0)
+	result := make([]modelAttemptMetricRow, 0)
 	for rows.Next() {
-		var endpointBaseURL sql.NullString
-		var endpointID sql.NullInt32
-		var connectionID sql.NullInt32
-		var inputTokens sql.NullInt32
-		var outputTokens sql.NullInt32
-		var totalTokens sql.NullInt32
-		var scopedStatus sql.NullInt32
-		var scopedDuration sql.NullInt32
-		var item summaryRequestLogRow
-		if err := rows.Scan(&item.CreatedAt, &item.ModelID, &item.APIFamily, &endpointBaseURL, &endpointID, &connectionID, &scopedStatus, &scopedDuration, &inputTokens, &outputTokens, &totalTokens); err != nil {
-			return nil, fmt.Errorf("scan model metric summary row: %w", err)
+		var ingress sql.NullString
+		var attemptNumber sql.NullInt32
+		var resolved sql.NullString
+		var attemptResult sql.NullString
+		var duration sql.NullInt32
+		if err := rows.Scan(&ingress, &attemptNumber, &resolved, &attemptResult, &duration); err != nil {
+			return nil, fmt.Errorf("scan model attempt metric row: %w", err)
 		}
-		item.StatusCode = intValue(nullableInt32(scopedStatus))
-		item.ResponseTimeMS = intValue(nullableInt32(scopedDuration))
-		item.CreatedAt = item.CreatedAt.UTC()
-		item.EndpointBaseURL = nullableString(endpointBaseURL)
-		item.EndpointID = nullableInt32(endpointID)
-		item.ConnectionID = nullableInt32(connectionID)
-		item.InputTokens = nullableInt32(inputTokens)
-		item.OutputTokens = nullableInt32(outputTokens)
-		item.TotalTokens = nullableInt32(totalTokens)
-		items = append(items, item)
+		if !ingress.Valid || strings.TrimSpace(ingress.String) == "" || !attemptNumber.Valid || attemptNumber.Int32 <= 0 {
+			continue
+		}
+		result = append(result, modelAttemptMetricRow{
+			IngressRequestID: ingress.String, AttemptNumber: int(attemptNumber.Int32), ResolvedTargetID: nullableString(resolved),
+			AttemptResult: stringValue(nullableString(attemptResult)), AttemptDuration: nullableInt32(duration),
+		})
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate model metric summary rows for profile %d: %w", profileID, err)
+		return nil, fmt.Errorf("iterate model attempt metric rows: %w", err)
 	}
-	return items, nil
+	return result, nil
+}
+
+func modelAttemptKey(ingressID string, attemptNumber int) string {
+	return fmt.Sprintf("%s\x00%d", ingressID, attemptNumber)
 }
 
 func dedupeNonEmptyStrings(values []string) []string {

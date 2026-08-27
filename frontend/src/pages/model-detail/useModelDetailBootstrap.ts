@@ -84,8 +84,8 @@ export function useModelDetailBootstrap({
       try {
         const data = await api.stats.spending({
           model_id: modelId,
-          group_by: "endpoint",
           preset: spendingPreset,
+          scope: "ingress",
         });
         if (requestId !== spendingRequestIdRef.current) {
           return;

@@ -32,6 +32,7 @@ api/
 - Settings costing/timezone/audit/retention and header-blocklist or User-Agent rule clients: `settings.ts`
 - Audit logs and loadbalance current-state/event clients: `event_clients.ts`
 - Observe analytics query-context, summary, series, errors, and activity clients: `observe.ts`
+- Observe query contexts carry an explicit attribution scope. Model metrics fetch all three named scope blocks in one POST; Terminal Target drill-down sends `final_execution|route_attempt` on every scoped read.
 - Model routing diagnostics and Terminal Target copy clients: `model_routing.ts`
 - Compatibility import barrel for existing direct callers: `observability.ts`
 - Runtime operation paths `/v1` and `/v1beta` stay outside this client split; launcher/Vite proxying passes them through and backend runtime owns allowlist enforcement.

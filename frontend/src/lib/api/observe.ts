@@ -59,6 +59,10 @@ export type QueryContextResponse = {
   request_bounds: { from_time: string; to_time: string };
   request_coverage: ObserveCoverage;
   generated_at: string;
+  caliber?: {
+    scope: "ingress" | "final_execution" | "route_attempt";
+    [key: string]: unknown;
+  };
 };
 
 export type UsageSummaryResponse = {
@@ -184,7 +188,12 @@ export const observe = {
     );
   },
   queryContext: (
-    params: { preset: string; from_time?: string; to_time?: string },
+    params: {
+      preset: string;
+      from_time?: string;
+      to_time?: string;
+      scope?: "ingress" | "final_execution" | "route_attempt";
+    },
     signal?: AbortSignal,
   ) => {
     const query = buildQuery(params);
@@ -306,10 +315,10 @@ export type ObserveActivityItem = {
   usage_event_id: string;
   final_ingress_request_id: string;
   created_at: string;
-  model_id: string;
-  model_label: string;
-  resolved_target_model_id: string | null;
-  resolved_target_model_label: string | null;
+  ingress_model_id: string;
+  ingress_model_label: string;
+  final_target_model_id: string | null;
+  final_target_model_label: string | null;
   route_changed: boolean;
   attempt_count: number;
   routing_evidence_complete: boolean;
@@ -343,6 +352,9 @@ export type ObserveActivityResponse = {
   coverage: ObserveCoverage;
   items: ObserveActivityItem[];
   has_more: boolean;
+  caliber?: Record<string, unknown>;
+  dataset_coverage?: Record<string, unknown>;
+  samples?: Record<string, number>;
 };
 
 // ---- Model routing diagnostics (model connection UX pair) ----

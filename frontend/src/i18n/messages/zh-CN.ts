@@ -1498,6 +1498,35 @@ export const zhCNMessages = {
     costUnavailable: "成本数据读取失败",
     costUnavailableReason:
       "这次成本读取没有成功，因此不显示金额；这不代表该模型没有花费。",
+    roleMetricsTitle: "模型角色指标",
+    roleMetricsScopeLabel: "模型角色统计口径",
+    roleMetricsIngress: "作为入口",
+    roleMetricsFinal: "作为最终承载",
+    roleMetricsIngressDescription:
+      "入口请求口径：每个进入该模型的入口请求只计一次，完成率与端到端延迟包含重试和故障转移。",
+    roleMetricsFinalDescription:
+      "最终承载口径：仅统计该模型成为最终目标的请求，延迟取胜出尝试。",
+    roleMetricsIngressRequests: "入口请求",
+    roleMetricsFinalRequests: "承载请求",
+    roleMetricsCompletionRate: "最终完成率",
+    roleMetricsEndToEndP95: "端到端 P95",
+    roleMetricsFinalAttemptP95: "最终尝试 P95",
+    roleMetricsKnownCost: "可信已知成本",
+    roleMetricsWindow24h: "口径：最近 24 小时",
+    roleMetricsWindow30d: "口径：最近 30 天",
+    roleMetricsNoDenominator: "窗口内没有已最终化请求，无法计算完成率。",
+    roleMetricsNoLatencySample: "窗口内没有可用延迟样本。",
+    roleMetricsNoTrustedCost: "窗口内没有可信成本样本；这不代表零成本。",
+    roleMetricsLoading: "指标仍在读取中。",
+    roleMetricsPartial: "部分覆盖",
+    roleMetricsLatencyPartial: (known: MessageArg, missing: MessageArg) =>
+      `已有 ${known} 个延迟样本，另有 ${missing} 个观测缺少延迟。`,
+    roleMetricsCostPartial: (known: MessageArg, missing: MessageArg) =>
+      `已有 ${known} 个可信成本样本，另有 ${missing} 个观测缺少可信成本。`,
+    roleMetricsUnavailable: "模型角色指标读取失败",
+    roleMetricsUnavailableReason:
+      "这次统计读取没有成功；模型配置和路由操作仍可继续使用。",
+    roleMetricsStale: "显示上次成功读取的模型角色指标",
 
     // 页顶新鲜度条。
     runtimeBasis: "运行态为本进程观测的封禁与在途快照，非上游探活结果。",
@@ -1937,6 +1966,61 @@ export const zhCNMessages = {
     newModel: "新建模型",
     searchModels: "搜索模型...",
     title: "模型",
+    metricsScopeLabel: "模型统计口径",
+    scopeIngress: "入口",
+    scopeFinalExecution: "最终承载",
+    scopeRouteAttempt: "路由尝试",
+    scopeSuccessColumn: (scope: string) =>
+      scope === "route_attempt" ? "尝试成功率" : "最终完成率",
+    scopeP95Column: (scope: string) =>
+      scope === "ingress"
+        ? "端到端 P95"
+        : scope === "final_execution"
+          ? "最终尝试 P95"
+          : "尝试耗时 P95",
+    scopeRequestsColumn: (scope: string) =>
+      scope === "ingress"
+        ? "入口请求"
+        : scope === "final_execution"
+          ? "承载请求"
+          : "尝试数",
+    scopeSpendColumn: (scope: string) =>
+      scope === "ingress"
+        ? "请求总已知成本"
+        : scope === "final_execution"
+          ? "归属已知成本"
+          : "尝试成本",
+    scopeSuccessBasis: (scope: string) =>
+      scope === "route_attempt"
+        ? "口径：最近 24 小时实际路由尝试中的成功尝试占比。"
+        : scope === "final_execution"
+          ? "口径：最近 24 小时以该模型为最终目标的请求最终完成占比。"
+          : "口径：最近 24 小时进入该模型的请求最终完成占比；每个入口请求只计一次。",
+    scopeP95Basis: (scope: string) =>
+      scope === "route_attempt"
+        ? "口径：最近 24 小时该模型实际路由尝试的耗时 P95。"
+        : scope === "final_execution"
+          ? "口径：最近 24 小时该模型作为最终目标时，胜出尝试耗时的 P95。"
+          : "口径：最近 24 小时入口请求的端到端耗时 P95，包含重试和故障转移。",
+    scopeRequestsBasis: (scope: string) =>
+      scope === "route_attempt"
+        ? "口径：最近 24 小时实际发往该模型的上游尝试数；失败重试也计入。"
+        : scope === "final_execution"
+          ? "口径：最近 24 小时该模型成为最终目标模型的请求数。"
+          : "口径：最近 24 小时进入该模型的入口请求数；每个入口请求只计一次。",
+    scopeSpendBasis: (scope: string) =>
+      scope === "route_attempt"
+        ? "路由尝试口径不声明成本；失败尝试的上游计费事实未知。"
+        : scope === "final_execution"
+          ? "口径：最近 30 天归于该最终目标模型的可信已知成本。"
+          : "口径：最近 30 天该入口模型请求的可信总成本；未定价部分不计入。",
+    routeAttemptCostUnavailable:
+      "路由尝试口径不声明成本；失败尝试是否产生上游费用未知。",
+    metricsPartial: "部分覆盖",
+    metricPartialSamples: (known: MessageArg, missing: MessageArg) =>
+      `已有 ${known} 个延迟样本，另有 ${missing} 个观测缺少延迟。`,
+    metricPartialCost: (known: MessageArg, missing: MessageArg) =>
+      `已有 ${known} 个可信成本样本，另有 ${missing} 个观测缺少可信成本。`,
 
     // 工具条筛选（此前是硬编码英文字面量）。
     searchLabel: "搜索模型",
@@ -2429,6 +2513,8 @@ export const zhCNMessages = {
     terminalTargetColumn: "终端目标",
     input: "输入",
     model: "模型",
+    entryModel: "入口模型",
+    attemptTargetModel: "尝试目标模型",
     noTemplatesConfigured: "当前没有配置价格模板。",
     output: "输出",
     tableTitle: "价格模板",
@@ -2888,7 +2974,7 @@ export const zhCNMessages = {
     rowKindPlanning: "规划",
     rowKindAdmission: "准入",
     rowKindUpstream: "上游尝试",
-    rowKindLegacyUnknown: "legacy_unknown",
+    rowKindLegacyUnknown: "历史类型未知",
     viewIngressChains: "入口链",
     viewAttempts: "尝试",
     viewSwitcherLabel: "视图切换",
@@ -2924,7 +3010,7 @@ export const zhCNMessages = {
     chainColumnResult: "结果",
     chainColumnRequestedModel: "请求模型",
     chainColumnFinalTarget: "最终目标",
-    chainColumnEndpoint: "端点",
+    chainColumnEndpoint: "实际执行出口",
     chainColumnAttempts: "尝试次数",
     chainColumnTokens: "令牌",
     chainColumnCost: "已知成本",
@@ -2941,6 +3027,45 @@ export const zhCNMessages = {
     chainLoadMoreRows: "加载更多行",
     attemptLabel: (n: MessageArg) => `尝试 ${n}`,
     winner: "胜出",
+    currentAttempt: "当前查看",
+    confirmedFailoverEvidence: "已确认故障转移",
+    attemptTriggerInitial: "首次尝试",
+    attemptTriggerRetrySameTarget: "同目标重试",
+    attemptTriggerHedge: "并发竞速",
+    attemptTriggerFailover: "故障转移",
+    attemptTriggerUnavailable: "触发原因不可用",
+    attemptResultCompleted: "完成",
+    attemptResultHttpError: "HTTP 失败",
+    attemptResultStreamError: "流失败",
+    attemptResultTransportError: "传输失败",
+    attemptResultCancelled: "已取消",
+    attemptResultClientDisconnected: "客户端中断",
+    attemptResultUnknown: "结果未知",
+    actualTerminalTargetMissing: "没有实际终端目标证据。",
+    actualEndpointMissing: "没有实际端点证据。",
+    attemptEvidenceCount: (retained: MessageArg, expected: MessageArg) =>
+      `已保留 ${retained} / 预期 ${expected}`,
+    expectedUnknown: "未知",
+    attemptNumberShort: "尝试",
+    attemptTargetModel: "尝试目标模型",
+    attemptDuration: "尝试耗时",
+    attemptKnownCost: "本次尝试已知成本",
+    requestTotalKnownCost: "请求总已知成本",
+    diagnosticRowShort: "诊断",
+    noUpstreamAttemptTarget: "该行未发起实际上游尝试。",
+    noActualTerminalTarget: "该行没有实际终端目标。",
+    noActualEndpoint: "该行没有实际端点。",
+    endpointId: (id: MessageArg) => `端点 #${id}`,
+    terminalTargetId: (id: MessageArg) => `终端目标 #${id}`,
+    attemptDurationMissing: "没有可用的尝试耗时。",
+    attemptTokensMissing: "本次尝试没有可用令牌用量。",
+    attemptCostMissing: "胜出尝试没有可信成本样本；这不代表零成本。",
+    failedAttemptCostUnknown:
+      "失败尝试是否产生上游费用未知；路由尝试口径不声明成本。",
+    finalTargetEvidenceUnavailable:
+      "该请求没有最终目标模型证据；不会用入口模型代填。",
+    attemptTargetEvidenceUnavailable:
+      "该行没有实际尝试目标模型证据；不会用入口模型代填。",
     savedViewsLabel: "保存的视图",
     savedViewNamePlaceholder: "视图名称",
     savedViewsEmpty: "还没有保存的视图",
@@ -3010,6 +3135,7 @@ export const zhCNMessages = {
     auditStreamingResponseBodyNotStored: "此审计记录未存储该流式响应正文。",
     allClients: "所有客户端",
     allFinalTargetModels: "所有最终目标模型",
+    allAttemptTargetModels: "所有尝试目标模型",
     billableOnly: "仅可计费",
     cacheCreation: "缓存创建",
     cacheRead: "缓存读取",
@@ -3025,7 +3151,7 @@ export const zhCNMessages = {
     compact: "紧凑",
     connection: "连接",
     detailDescription:
-      "查看请求模型、最终目标模型、已选择的终端目标，以及路由、令牌、费用和请求时审计来源。",
+      "查看入口模型、本次尝试目标模型、规划首选与实际终端目标，以及路由、令牌、费用和请求时审计来源。",
     endpoint: "端点",
     errorTextFilterLabel: "错误文本",
     exportCsv: "导出 CSV",
@@ -3049,6 +3175,7 @@ export const zhCNMessages = {
     max: "最大值",
     min: "最小值",
     model: "模型",
+    entryModel: "入口模型",
     nonStreaming: "非流式",
     outcome: "结果",
     overview: "概览",
@@ -3606,6 +3733,22 @@ export const zhCNMessages = {
     viewActivity: "活动",
     viewTerminalTargets: "终端目标",
     viewSwitcherLabel: "内容切换",
+    analysisScopeLabel: "分析单位",
+    analysisScopeName: (scope: string) =>
+      ({
+        ingress: "入口请求",
+        final_execution: "最终承载",
+        route_attempt: "路由尝试",
+      })[scope] ?? "未知口径",
+    analysisScopeBasis: (scope: string) =>
+      ({
+        ingress: "每个入口请求只计一次，归于入口模型。",
+        final_execution: "每个最终化请求最多计一次，归于最终目标模型。",
+        route_attempt: "每个实际上游尝试计一次，失败重试也计入。",
+      })[scope] ?? "口径不可用。",
+    viewLinkedErrors: "使用同一口径查看错误 →",
+    scopedErrorsOpenRequestsHint:
+      "该口径的完整匹配流水请在请求日志中查看；近期活动固定使用入口请求口径。",
     chartView: "图",
     tableView: "表",
     chartTableSwitcherLabel: "图表或数据表",
@@ -3644,6 +3787,14 @@ export const zhCNMessages = {
     enabledModels: "已启用模型",
     requests: "请求数",
     httpSuccessRate: "HTTP 成功率",
+    finalCompletionRate: "最终完成率",
+    finalCompletionNoRequests: "窗口内没有已最终化的入口请求。",
+    finalCompletionDetail: (
+      completed: MessageArg,
+      total: MessageArg,
+      failed: MessageArg,
+      disconnected: MessageArg,
+    ) => `完成 ${completed} / ${total} · 失败 ${failed} · 客户端中断 ${disconnected}`,
     ttftP95: "TTFT P95",
     outputRate: "输出速率",
     cost: "已知成本",
@@ -3665,6 +3816,7 @@ export const zhCNMessages = {
     pricingStatus: "定价状态",
     nowUnavailable: "此刻数据不可用",
     windowUnavailable: "窗口数据不可用",
+    queryContextUnavailable: "查询上下文不可用",
     requestsPreviewTitle: "请求预览",
     requestsPreviewDescription: "请求趋势预览（成功/失败堆叠）",
     mainChartTitle: "主趋势图",
@@ -3684,7 +3836,11 @@ export const zhCNMessages = {
     groupName: (group: string) =>
       ({
         none: "合计",
-        model: "按模型",
+        ingress_model: "按入口模型",
+        final_target_model: "按最终目标模型",
+        attempt_target_model: "按尝试目标模型",
+        attempt_trigger: "按尝试触发原因",
+        attempt_result: "按尝试结果",
         endpoint: "按端点",
         terminal_target: "按终端目标",
       })[group] ?? group,
@@ -3750,6 +3906,39 @@ export const zhCNMessages = {
     activityTitle: "近期活动",
     activityDescription:
       "每条已保留的最终请求一行；路由改变与失败结果内联可见。",
+    activityIngressDescription:
+      "口径：入口请求；每条已保留的最终请求一行，同时显示入口模型、最终目标模型和实际执行出口。",
+    activityRoute: "入口 → 最终目标",
+    activityAttempts: "尝试次数",
+    activityExecutionTarget: "实际执行出口",
+    entryModelShort: "入口",
+    finalModelShort: "最终",
+    finalTargetEvidenceMissing: "最终目标模型证据不可用。",
+    routingEvidencePartial: "路由证据不完整",
+    routingEvidencePartialReason:
+      "尝试链证据不完整；已知身份照常显示，未知部分不会由入口模型代填。",
+    noTerminalTargetEvidence: "没有实际终端目标证据。",
+    noEndpointEvidence: "没有实际端点证据。",
+    terminalTargetId: (id: MessageArg) => `终端目标 #${id}`,
+    terminalTargetScopeLabel: "终端目标统计口径",
+    terminalTargetScopeBasis: (scope: string) =>
+      scope === "route_attempt"
+        ? "每个实际上游尝试计一次；失败重试也计入，且不声明尝试成本。"
+        : "按最终请求归属统计；不包含中间失败尝试。",
+    finalRequestsShort: "最终请求",
+    attemptsShort: "尝试",
+    successCountShort: (count: MessageArg) => `成功 ${count}`,
+    failureCountShort: (count: MessageArg) => `失败 ${count}`,
+    latencyP95Value: (value: MessageArg) => `耗时 P95 ${value} ms`,
+    routeAttemptCostUnavailable:
+      "路由尝试口径不声明成本；失败尝试是否产生上游费用未知。",
+    noTrustedCostSample: "没有可信成本样本；这不代表零成本。",
+    partialSamples: "样本不完整",
+    partialCost: "成本不完整",
+    terminalTargetLatencyPartial: (known: MessageArg, missing: MessageArg) =>
+      `已有 ${known} 个耗时样本，另有 ${missing} 个观测缺少耗时。`,
+    terminalTargetCostPartial: (known: MessageArg, missing: MessageArg) =>
+      `已有 ${known} 个可信成本样本，另有 ${missing} 个观测缺少可信成本。`,
     time: "时间",
     requestedModel: "请求模型",
     result: "结果",

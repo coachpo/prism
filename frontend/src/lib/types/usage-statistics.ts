@@ -200,4 +200,17 @@ export interface UsageSnapshotResponse {
   endpoint_statistics: UsageEndpointStatistic[];
   model_statistics: UsageModelStatistic[];
   proxy_api_key_statistics: UsageProxyApiKeyStatistic[];
+  caliber: {
+    scope: "ingress" | "final_execution" | "route_attempt";
+    [key: string]: unknown;
+  };
+  dataset_coverage: Record<string, unknown>;
+  samples: {
+    observation_count: number;
+    latency_sample_count: number;
+    latency_missing_count: number;
+    cost_sample_count: number;
+    cost_missing_count: number;
+  };
+  known_cost_micros: number | null;
 }

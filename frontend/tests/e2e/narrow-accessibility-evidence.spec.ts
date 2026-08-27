@@ -313,6 +313,17 @@ test("narrow 390x844 observe page has no horizontal overflow and all tabs reacha
   });
   expect(noHorizontalOverflow).toBe(true);
 
+  const analysisScopes = page
+    .getByRole("group", { name: "分析单位" })
+    .getByRole("radio");
+  await expect(analysisScopes).toHaveCount(3);
+  await analysisScopes.nth(0).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(analysisScopes.nth(1)).toBeFocused();
+  await page.keyboard.press("Space");
+  await expect(analysisScopes.nth(1)).toBeChecked();
+  await expect(page).toHaveURL(/scope=final_execution/);
+
   // Keyboard: every tab trigger is focusable and arrow-key navigable.
   const tabs = page.getByRole("tab");
   const count = await tabs.count();
@@ -323,6 +334,18 @@ test("narrow 390x844 observe page has no horizontal overflow and all tabs reacha
     await page.keyboard.press("ArrowRight");
     await expect(tabs.nth(index)).toBeFocused();
   }
+
+  const terminalScopes = page
+    .getByRole("tablist", { name: "终端目标统计口径" })
+    .getByRole("tab");
+  await expect(terminalScopes).toHaveCount(2);
+  await terminalScopes.nth(0).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(terminalScopes.nth(1)).toBeFocused();
+  await expect(terminalScopes.nth(1)).toHaveAttribute(
+    "data-state",
+    "active",
+  );
 });
 
 /**
@@ -408,6 +431,34 @@ test("narrow 390x844 request logs table keeps identity column reachable without 
   expect(noPageOverflow).toBe(true);
   // Identity column header remains visible in the scroll container.
   await expect(page.getByText("状态", { exact: true }).first()).toBeVisible();
+});
+
+test("narrow ingress attempt chain scrolls inside its inset without widening the page", async ({
+  page,
+}) => {
+  await page.setViewportSize(NARROW_VIEWPORT);
+  await page.goto("/observe/requests?view=ingress_chains");
+  const summary = page.getByTestId("chain-summary-ingress-101");
+  await expect(summary).toBeVisible();
+  await summary.getByRole("button", { expanded: false }).click();
+
+  const insetScroller = page
+    .getByTestId("chain-ingress-101")
+    .locator("div.overflow-x-auto")
+    .first();
+  await expect(insetScroller).toBeVisible();
+  expect(
+    await insetScroller.evaluate(
+      (element) => element.scrollWidth > element.clientWidth,
+    ),
+  ).toBe(true);
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth + 1,
+    ),
+  ).toBe(true);
 });
 
 test("reduced motion preference does not break observe page rendering", async ({

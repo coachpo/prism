@@ -16,6 +16,7 @@ import { useTimezone } from "@/hooks/useTimezone"
 import { observe, type ObserveActivityItem, type ObserveActivityResponse, type UsageErrorsResponse } from "@/lib/api/observability"
 import {
   OperatorClippedBadge,
+  OperatorCallout,
   OperatorEmptyState,
   OperatorErrorState,
   OperatorInsetPanel,
@@ -26,6 +27,7 @@ import {
 import { fragmentErrorFrom, type FragmentState } from "@/features/observe/useObserveFragments"
 import { ObserveErrorPanel } from "@/features/observe/ObserveErrorPanel"
 import type { ObserveErrorSelection } from "@/features/observe/observeErrorSelection"
+import type { ObserveGroupBy, ObserveScope } from "@/features/observe/observeSearch"
 
 const STREAM_PAGE_SIZE = 50
 
@@ -39,7 +41,15 @@ const STREAM_PAGE_SIZE = 50
  * window, and says so — the full set stays one click away through the
  * backend-built filter conjunction.
  */
-export function ObserveErrorWorkbench({ queryContext }: { queryContext: string | null }) {
+export function ObserveErrorWorkbench({
+  queryContext,
+  scope,
+  groupBy,
+}: {
+  groupBy: ObserveGroupBy
+  queryContext: string | null
+  scope: ObserveScope
+}) {
   const { messages } = useLocale()
   const copy = messages.observe
   const [selection, setSelection] = useState<ObserveErrorSelection | null>(null)
@@ -52,6 +62,7 @@ export function ObserveErrorWorkbench({ queryContext }: { queryContext: string |
   return (
     <div className="grid min-w-0 gap-[var(--density-card-gap)] xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
       <ObserveErrorPanel
+        groupBy={groupBy}
         queryContext={queryContext}
         onContextResolved={handleContextResolved}
         onSelect={setSelection}
@@ -71,7 +82,7 @@ export function ObserveErrorWorkbench({ queryContext }: { queryContext: string |
               <Button asChild type="button" variant="outline" size="sm">
                 <Link
                   to="/observe/requests"
-                  search={buildRequestsSearch(selection, requestsContext, queryContext)}
+                  search={buildRequestsSearch(selection, requestsContext, queryContext, scope)}
                 >
                   {copy.workbenchOpenInRequests}
                 </Link>
@@ -80,8 +91,12 @@ export function ObserveErrorWorkbench({ queryContext }: { queryContext: string |
           ) : null
         }
       >
-        {selection ? (
+        {selection && scope === "ingress" ? (
           <MatchingStream queryContext={queryContext} selection={selection} />
+        ) : selection ? (
+          <OperatorCallout intent="info">
+            {copy.scopedErrorsOpenRequestsHint}
+          </OperatorCallout>
         ) : (
           <p className="text-xs text-muted-foreground">{copy.workbenchNoSelection}</p>
         )}
@@ -98,9 +113,10 @@ function buildRequestsSearch(
   selection: ObserveErrorSelection,
   requestsContext: UsageErrorsResponse["requests_context"] | null,
   queryContext: string | null,
+  scope: ObserveScope,
 ): Record<string, string> {
   const search: Record<string, string> = {
-    view: "ingress_chains",
+    view: scope === "route_attempt" ? "attempts" : "ingress_chains",
     query_context: requestsContext?.query_context ?? queryContext ?? "",
   }
   for (const [key, values] of Object.entries(selection.requestFilters)) {
@@ -216,7 +232,7 @@ function StreamRow({
   return (
     <TableRow>
       <TableCell className="font-mono text-xs tabular-nums">{formatTime(item.created_at)}</TableCell>
-      <TableCell className="text-xs">{item.model_label || item.model_id}</TableCell>
+      <TableCell className="text-xs">{item.ingress_model_label || item.ingress_model_id}</TableCell>
       <TableCell>
         <OperatorStatusBadge
           intent={item.final_result === "completed" ? "healthy" : item.final_result === "failed" ? "failing" : "degraded"}

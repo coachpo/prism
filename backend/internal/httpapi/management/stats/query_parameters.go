@@ -68,12 +68,33 @@ func parseStatsSummaryParams(r *http.Request, profileID int) (statsdomain.StatsS
 	if err != nil {
 		return statsdomain.StatsSummaryParams{}, err
 	}
-	connectionID, err := parseOptionalInt(r, "connection_id")
+	connectionID, err := parseOptionalInt(r, "terminal_target_id")
 	if err != nil {
 		return statsdomain.StatsSummaryParams{}, err
 	}
+	scope := queryStringOrDefault(r, "scope", "ingress")
+	normalizedScope, err := statsdomain.NormalizeScope(scope)
+	if err != nil {
+		return statsdomain.StatsSummaryParams{}, err
+	}
+	keys := make([]string, 0, len(r.URL.Query()))
+	for key := range r.URL.Query() {
+		keys = append(keys, key)
+	}
+	if err := statsdomain.ValidateScopeQueryKeys(normalizedScope, keys); err != nil {
+		return statsdomain.StatsSummaryParams{}, err
+	}
 	groupBy := normalizedQueryString(r, "group_by")
-	return statsdomain.StatsSummaryParams{ProfileID: profileID, FromTime: fromTime, ToTime: toTime, GroupBy: groupBy, ModelID: normalizedQueryString(r, "model_id"), APIFamily: normalizedQueryString(r, "api_family"), EndpointID: endpointID, ConnectionID: connectionID}, nil
+	if _, err := statsdomain.ValidateGroupBy(normalizedScope, valueOrEmpty(groupBy)); err != nil {
+		return statsdomain.StatsSummaryParams{}, err
+	}
+	return statsdomain.StatsSummaryParams{
+		ProfileID: profileID, FromTime: fromTime, ToTime: toTime, Preset: queryStringOrDefault(r, "preset", "24h"),
+		ReferenceNow: time.Now().UTC(), GroupBy: groupBy,
+		IngressModelID: normalizedQueryString(r, "ingress_model_id"), FinalTargetModelID: normalizedQueryString(r, "final_target_model_id"),
+		AttemptTargetModelID: normalizedQueryString(r, "attempt_target_model_id"), APIFamily: normalizedQueryString(r, "api_family"),
+		EndpointID: endpointID, ConnectionID: connectionID, AttemptTrigger: normalizedQueryString(r, "attempt_trigger"), AttemptResult: normalizedQueryString(r, "attempt_result"), Scope: normalizedScope,
+	}, nil
 }
 
 func decodeModelMetricsRequest(r *http.Request) (modelMetricsBatchRequest, error) {

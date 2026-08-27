@@ -85,6 +85,10 @@ func (s *Service) handleListRequestLogs(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Service) handleProxyAPIKeyFilterOptions(w http.ResponseWriter, r *http.Request) {
+	if err := rejectQueryKeys(r, "q", "from_time", "to_time", "limit", "cursor", "selected_id"); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	response, err := pgxutil.InReadOnlyTxValue(r.Context(), s.pool, "stats proxy API key filter options", func(tx pgx.Tx) (statsdomain.ProxyAPIKeyFilterOptionsResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
@@ -136,6 +140,10 @@ func parseProxyAPIKeyFilterOptionsParams(r *http.Request, profileID int) (statsd
 }
 
 func (s *Service) handleGetRequestLog(w http.ResponseWriter, r *http.Request) {
+	if err := rejectQueryKeys(r); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	responseutil.SetPrivateNoStoreHeaders(w)
 	rawRequestLogID := strings.TrimSpace(chi.URLParam(r, "request_id"))
 	if rawRequestLogID == "" || !requestLogIDPattern.MatchString(rawRequestLogID) {

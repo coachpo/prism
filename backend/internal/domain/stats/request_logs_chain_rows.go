@@ -65,6 +65,8 @@ func chainRowScanDest(item *ChainRowItem) ([]any, *chainRowRawDetail) {
 func applyChainRowProjection(item *ChainRowItem, raw *chainRowRawDetail, connectionCatalog map[int]connectionRecord) {
 	item.RequestLogID = strconv.FormatInt(raw.requestLogID, 10)
 	item.CreatedAt = item.CreatedAt.UTC()
+	item.EndpointID = normalizePositiveID(item.EndpointID)
+	item.TerminalTargetID = normalizePositiveID(item.TerminalTargetID)
 	// Unified failure projection: error_detail wins; stream detail is
 	// used for 2xx abnormal streams and client disconnects.
 	detail := raw.errorDetail

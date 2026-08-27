@@ -49,7 +49,11 @@ function getTrimmedString(value: unknown) {
 }
 
 function getModelSaveErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof ApiError && error.detail && typeof error.detail === "object") {
+  if (
+    error instanceof ApiError &&
+    error.detail &&
+    typeof error.detail === "object"
+  ) {
     const detail = error.detail as {
       code?: unknown;
       detail?: unknown;
@@ -60,13 +64,21 @@ function getModelSaveErrorMessage(error: unknown, fallback: string) {
 
     if (Array.isArray(detail.routing_plan_issues)) {
       const routingPlanIssue = detail.routing_plan_issues.find(
-        (issue): issue is { code?: unknown; field?: unknown; message?: unknown; path?: unknown } =>
-          !!issue && typeof issue === "object",
+        (
+          issue,
+        ): issue is {
+          code?: unknown;
+          field?: unknown;
+          message?: unknown;
+          path?: unknown;
+        } => !!issue && typeof issue === "object",
       );
 
       if (routingPlanIssue) {
         const code = getTrimmedString(routingPlanIssue.code);
-        const field = getTrimmedString(routingPlanIssue.field) || getTrimmedString(routingPlanIssue.path);
+        const field =
+          getTrimmedString(routingPlanIssue.field) ||
+          getTrimmedString(routingPlanIssue.path);
         const message = getTrimmedString(routingPlanIssue.message);
 
         if (message && field && code) {
@@ -81,13 +93,14 @@ function getModelSaveErrorMessage(error: unknown, fallback: string) {
       }
     }
 
-    const structuredDetail = detail.detail && typeof detail.detail === "object"
-      ? detail.detail as {
-          code?: unknown;
-          field?: unknown;
-          message?: unknown;
-        }
-      : detail;
+    const structuredDetail =
+      detail.detail && typeof detail.detail === "object"
+        ? (detail.detail as {
+            code?: unknown;
+            field?: unknown;
+            message?: unknown;
+          })
+        : detail;
     const code = getTrimmedString(structuredDetail.code);
     const field = getTrimmedString(structuredDetail.field);
     const message = getTrimmedString(structuredDetail.message);
@@ -108,7 +121,9 @@ function getModelSaveErrorMessage(error: unknown, fallback: string) {
 
 function sortStrategies(strategies: LoadbalanceStrategy[]) {
   return [...strategies].sort((left, right) => {
-    const updatedAtDelta = new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime();
+    const updatedAtDelta =
+      new Date(right.updated_at).getTime() -
+      new Date(left.updated_at).getTime();
     return updatedAtDelta !== 0 ? updatedAtDelta : right.id - left.id;
   });
 }
@@ -117,42 +132,74 @@ type ModelDialogSession =
   | { readonly mode: "closed" | "edit"; readonly createSession: null }
   | { readonly mode: "create"; readonly createSession: number };
 
-export function useModelsPageData(revision: number) {
-  const [loadbalanceStrategies, setLoadbalanceStrategies] = useState<LoadbalanceStrategy[]>([]);
+export function useModelsPageData(
+  revision: number,
+  scope: "ingress" | "final_execution" | "route_attempt" = "ingress",
+) {
+  const [loadbalanceStrategies, setLoadbalanceStrategies] = useState<
+    LoadbalanceStrategy[]
+  >([]);
   const [models, setModels] = useState<ManagedModelConfigListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [editingModel, setEditingModel] = useState<ManagedModelConfigListItem | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<ManagedModelConfigListItem | null>(null);
-  const [formData, setFormData] = useState<ModelFormData>(DEFAULT_MODEL_FORM_DATA);
+  const [editingModel, setEditingModel] =
+    useState<ManagedModelConfigListItem | null>(null);
+  const [deleteTarget, setDeleteTarget] =
+    useState<ManagedModelConfigListItem | null>(null);
+  const [formData, setFormData] = useState<ModelFormData>(
+    DEFAULT_MODEL_FORM_DATA,
+  );
   const [formError, setFormError] = useState<string | null>(null);
-  const [loadbalanceStrategyDefaultsCreating, setLoadbalanceStrategyDefaultsCreating] = useState(false);
-  const [togglingModelIds, setTogglingModelIds] = useState<Set<number>>(new Set());
-  const modelDialogSessionRef = useRef<ModelDialogSession>({ mode: "closed", createSession: null });
+  const [
+    loadbalanceStrategyDefaultsCreating,
+    setLoadbalanceStrategyDefaultsCreating,
+  ] = useState(false);
+  const [togglingModelIds, setTogglingModelIds] = useState<Set<number>>(
+    new Set(),
+  );
+  const modelDialogSessionRef = useRef<ModelDialogSession>({
+    mode: "closed",
+    createSession: null,
+  });
   const nextCreateDialogSessionRef = useRef(0);
-  const { metricsFailed, metricsLoading, modelMetrics24h, modelSpend30dMicros } = useModelMetrics24h(models);
+  const {
+    coverage: metricsCoverage,
+    metricsFailed,
+    metricsLoading,
+    modelMetricsByScope,
+  } = useModelMetrics24h(models);
+  const modelMetrics24h = Object.fromEntries(
+    models.map((model) => [model.id, modelMetricsByScope[model.id]?.[scope]]),
+  );
+  const modelSpend30dMicros = Object.fromEntries(
+    models.map((model) => [
+      model.id,
+      modelMetricsByScope[model.id]?.[scope]?.known_cost_micros ?? null,
+    ]),
+  );
 
-  const applyBootstrapData = useCallback((data: {
-    loadbalanceStrategiesData: LoadbalanceStrategy[];
-    modelsData: ManagedModelConfigListItem[];
-  }) => {
-    setLoadbalanceStrategies(data.loadbalanceStrategiesData);
-    setModels(data.modelsData);
-  }, []);
+  const applyBootstrapData = useCallback(
+    (data: {
+      loadbalanceStrategiesData: LoadbalanceStrategy[];
+      modelsData: ManagedModelConfigListItem[];
+    }) => {
+      setLoadbalanceStrategies(data.loadbalanceStrategiesData);
+      setModels(data.modelsData);
+    },
+    [],
+  );
 
   const fetchData = useCallback(async (currentRevision: number) => {
     return Promise.all([
       getSharedLoadbalanceStrategies(currentRevision),
       getSharedModels(currentRevision),
-    ]).then(
-      ([loadbalanceStrategiesData, modelsData]) => ({
-        loadbalanceStrategiesData,
-        modelsData: modelsData as ManagedModelConfigListItem[],
-      })
-    );
+    ]).then(([loadbalanceStrategiesData, modelsData]) => ({
+      loadbalanceStrategiesData,
+      modelsData: modelsData as ManagedModelConfigListItem[],
+    }));
   }, []);
 
   useEffect(() => {
@@ -168,7 +215,10 @@ export function useModelsPageData(revision: number) {
         setLoadError(null);
       } catch (error) {
         if (!cancelled) {
-          const message = error instanceof Error ? error.message : getStaticMessages().modelsData.fetchFailed;
+          const message =
+            error instanceof Error
+              ? error.message
+              : getStaticMessages().modelsData.fetchFailed;
           setLoadError(message);
           toast.error(getStaticMessages().modelsData.fetchFailed);
           console.error(error);
@@ -186,11 +236,15 @@ export function useModelsPageData(revision: number) {
   }, [applyBootstrapData, fetchData, loadAttempt, revision]);
 
   const retryLoad = useCallback(() => {
-    setLoadAttempt((current) => current + 1);
+    setLoadAttempt((current: number) => current + 1);
   }, []);
 
-  const commitModels = (updater: (current: ManagedModelConfigListItem[]) => ManagedModelConfigListItem[]) => {
-    setModels((current) => {
+  const commitModels = (
+    updater: (
+      current: ManagedModelConfigListItem[],
+    ) => ManagedModelConfigListItem[],
+  ) => {
+    setModels((current: ManagedModelConfigListItem[]) => {
       const next = updater(current);
       setSharedModels(revision, next);
       return next;
@@ -256,9 +310,10 @@ export function useModelsPageData(revision: number) {
     }
 
     if (validationError === "loadbalance_strategy_required") {
-      const message = loadbalanceStrategies.length === 0
-        ? messages.modelDetail.noLoadbalanceStrategiesAvailable
-        : messages.modelsData.selectLoadbalanceStrategy;
+      const message =
+        loadbalanceStrategies.length === 0
+          ? messages.modelDetail.noLoadbalanceStrategiesAvailable
+          : messages.modelsData.selectLoadbalanceStrategy;
       setFormError(message);
       toast.error(message);
       return;
@@ -274,11 +329,16 @@ export function useModelsPageData(revision: number) {
 
     try {
       if (editingModel) {
-        const updated = await api.models.update(editingModel.id, toModelUpdatePayload(formData));
+        const updated = await api.models.update(
+          editingModel.id,
+          toModelUpdatePayload(formData),
+        );
         commitModels((current) =>
           current.map((model) =>
-            model.id === editingModel.id ? toModelListItem(updated.model, model) : model
-          )
+            model.id === editingModel.id
+              ? toModelListItem(updated.model, model)
+              : model,
+          ),
         );
         toast.success(messages.modelsData.updated);
       } else {
@@ -288,7 +348,10 @@ export function useModelsPageData(revision: number) {
       }
       handleSetIsDialogOpen(false);
     } catch (error) {
-      const message = getModelSaveErrorMessage(error, messages.modelsData.saveFailed);
+      const message = getModelSaveErrorMessage(
+        error,
+        messages.modelsData.saveFailed,
+      );
       setFormError(message);
       toast.error(message);
     }
@@ -306,20 +369,33 @@ export function useModelsPageData(revision: number) {
    * sends only the flag it changes rather than replaying a whole form payload
    * built from possibly stale row data.
    */
-  const setModelEnabled = async (model: ManagedModelConfigListItem, nextEnabled: boolean) => {
+  const setModelEnabled = async (
+    model: ManagedModelConfigListItem,
+    nextEnabled: boolean,
+  ) => {
     const messages = getStaticMessages();
-    setTogglingModelIds((current) => new Set(current).add(model.id));
+    setTogglingModelIds((current: Set<number>) =>
+      new Set(current).add(model.id),
+    );
     try {
-      const updated = await api.models.update(model.id, { is_enabled: nextEnabled });
+      const updated = await api.models.update(model.id, {
+        is_enabled: nextEnabled,
+      });
       commitModels((current) =>
-        current.map((item) => (item.id === model.id ? toModelListItem(updated.model, item) : item)),
+        current.map((item) =>
+          item.id === model.id ? toModelListItem(updated.model, item) : item,
+        ),
       );
       return true;
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : messages.modelsPage.toggleFailed);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : messages.modelsPage.toggleFailed,
+      );
       return false;
     } finally {
-      setTogglingModelIds((current) => {
+      setTogglingModelIds((current: Set<number>) => {
         const next = new Set(current);
         next.delete(model.id);
         return next;
@@ -327,14 +403,21 @@ export function useModelsPageData(revision: number) {
     }
   };
 
-  const setModelsEnabled = async (targets: ManagedModelConfigListItem[], nextEnabled: boolean) => {
+  const setModelsEnabled = async (
+    targets: ManagedModelConfigListItem[],
+    nextEnabled: boolean,
+  ) => {
     const messages = getStaticMessages();
-    const results = await Promise.all(targets.map((model) => setModelEnabled(model, nextEnabled)));
+    const results = await Promise.all(
+      targets.map((model) => setModelEnabled(model, nextEnabled)),
+    );
     const succeeded = results.filter(Boolean).length;
     const failed = results.length - succeeded;
     // Report both halves: a partial batch that only reported success would
     // leave the operator believing rows changed that did not.
-    toast.success(messages.modelsPage.bulkDone(String(succeeded), String(failed)));
+    toast.success(
+      messages.modelsPage.bulkDone(String(succeeded), String(failed)),
+    );
   };
 
   const handleDelete = async () => {
@@ -342,11 +425,17 @@ export function useModelsPageData(revision: number) {
     if (!deleteTarget) return;
     try {
       await api.models.delete(deleteTarget.id);
-      commitModels((current) => current.filter((model) => model.id !== deleteTarget.id));
+      commitModels((current) =>
+        current.filter((model) => model.id !== deleteTarget.id),
+      );
       toast.success(messages.modelsData.deleted);
       setDeleteTarget(null);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : messages.modelsData.deleteFailed);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : messages.modelsData.deleteFailed,
+      );
     }
   };
 
@@ -359,25 +448,39 @@ export function useModelsPageData(revision: number) {
       // strategy row. Re-read the owner list before exposing options; mapping
       // the summary onto an empty/stale local list would silently leave the
       // create form in an unknown state.
-      const next = sortStrategies(await getSharedLoadbalanceStrategies(revision, true));
+      const next = sortStrategies(
+        await getSharedLoadbalanceStrategies(revision, true),
+      );
       setSharedLoadbalanceStrategies(revision, next);
       const currentDialog = modelDialogSessionRef.current;
       if (currentDialog.mode === "create") {
         setLoadbalanceStrategies(next);
-        setFormData((current) => setLoadbalanceStrategyIdOnForm(current, next[0]?.id ?? null));
+        setFormData((current: ModelFormData) =>
+          setLoadbalanceStrategyIdOnForm(current, next[0]?.id ?? null),
+        );
       } else if (currentDialog.mode === "closed") {
         setLoadbalanceStrategies(next);
       }
-      toast.success(response.created.length > 0 ? messages.loadbalanceStrategiesData.defaultsCreated : messages.loadbalanceStrategiesData.defaultsAlreadyExisted);
+      toast.success(
+        response.created.length > 0
+          ? messages.loadbalanceStrategiesData.defaultsCreated
+          : messages.loadbalanceStrategiesData.defaultsAlreadyExisted,
+      );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : messages.loadbalanceStrategiesData.saveFailed);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : messages.loadbalanceStrategiesData.saveFailed,
+      );
     } finally {
       setLoadbalanceStrategyDefaultsCreating(false);
     }
   };
 
   const setLoadbalanceStrategyId = (value: number | null) => {
-    setFormData((current) => setLoadbalanceStrategyIdOnForm(current, value));
+    setFormData((current: ModelFormData) =>
+      setLoadbalanceStrategyIdOnForm(current, value),
+    );
   };
 
   return {
@@ -398,7 +501,9 @@ export function useModelsPageData(revision: number) {
     loading,
     loadError,
     metricsFailed,
+    metricsCoverage,
     metricsLoading,
+    modelMetricsByScope,
     modelMetrics24h,
     modelSpend30dMicros,
     models,

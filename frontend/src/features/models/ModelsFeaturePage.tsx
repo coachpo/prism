@@ -33,12 +33,17 @@ import {
   modelsQueryKeys,
   normalizeModelsListFilters,
 } from "./queryKeys";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export function ModelsFeaturePage() {
   const { formatNumber, messages } = useLocale();
-  const data = useModelsPageData(0);
-  const copy = messages.modelsPage;
   const search = useSearch({ from: "/route/models" });
+  const scope = search.scope ?? "ingress";
+  const data = useModelsPageData(
+    0,
+    scope as "ingress" | "final_execution" | "route_attempt",
+  );
+  const copy = messages.modelsPage;
   const navigate = useNavigate();
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
@@ -77,32 +82,38 @@ export function ModelsFeaturePage() {
 
   const filtered = useMemo(() => {
     const query = searchText.trim().toLowerCase();
-    return data.models.filter((model) => {
-      if (query) {
-        const haystack =
-          `${model.model_id} ${model.display_name ?? ""}`.toLowerCase();
-        if (!haystack.includes(query)) return false;
-      }
-      if (apiFamilyFilter !== "all" && model.api_family !== apiFamilyFilter)
-        return false;
-      if (statusFilter === "enabled" && !model.is_enabled) return false;
-      if (statusFilter === "disabled" && model.is_enabled) return false;
-      if (flagFilter === "needs_target" && model.access_targets.length > 0)
-        return false;
-      if (flagFilter === "single_truncated" && !isSingleTruncated(model))
-        return false;
-      return true;
-    });
+    return data.models.filter(
+      (model: import("@/lib/api/management").ManagedModelConfigListItem) => {
+        if (query) {
+          const haystack =
+            `${model.model_id} ${model.display_name ?? ""}`.toLowerCase();
+          if (!haystack.includes(query)) return false;
+        }
+        if (apiFamilyFilter !== "all" && model.api_family !== apiFamilyFilter)
+          return false;
+        if (statusFilter === "enabled" && !model.is_enabled) return false;
+        if (statusFilter === "disabled" && model.is_enabled) return false;
+        if (flagFilter === "needs_target" && model.access_targets.length > 0)
+          return false;
+        if (flagFilter === "single_truncated" && !isSingleTruncated(model))
+          return false;
+        return true;
+      },
+    );
   }, [apiFamilyFilter, data.models, flagFilter, searchText, statusFilter]);
 
   const stats = useMemo(() => {
-    const enabled = data.models.filter((model) => model.is_enabled).length;
+    const enabled = data.models.filter(
+      (model: import("@/lib/api/management").ManagedModelConfigListItem) =>
+        model.is_enabled,
+    ).length;
     return {
       total: data.models.length,
       enabled,
       disabled: data.models.length - enabled,
       needsTarget: data.models.filter(
-        (model) => model.access_targets.length === 0,
+        (model: import("@/lib/api/management").ManagedModelConfigListItem) =>
+          model.access_targets.length === 0,
       ).length,
       singleTruncated: data.models.filter(isSingleTruncated).length,
     };
@@ -214,6 +225,24 @@ export function ModelsFeaturePage() {
 
       <Card className="operator-table-shell gap-0 overflow-hidden rounded-lg">
         <CardHeader className="border-b">
+          <Tabs
+            value={scope}
+            onValueChange={(value) =>
+              patchSearch({
+                scope: value === "ingress" ? undefined : value,
+              })
+            }
+          >
+            <TabsList aria-label={copy.metricsScopeLabel}>
+              <TabsTrigger value="ingress">{copy.scopeIngress}</TabsTrigger>
+              <TabsTrigger value="final_execution">
+                {copy.scopeFinalExecution}
+              </TabsTrigger>
+              <TabsTrigger value="route_attempt">
+                {copy.scopeRouteAttempt}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
           <FieldGroup className="gap-4 md:flex-row md:items-end">
             <Field className="md:max-w-sm">
               <FieldLabel htmlFor="models-search">
@@ -304,6 +333,7 @@ export function ModelsFeaturePage() {
         </CardHeader>
         <CardContent className="p-0" data-table-row-count={filtered.length}>
           <ModelsTable
+            scope={scope}
             filtered={filtered}
             metricsFailed={data.metricsFailed}
             metricsLoading={data.metricsLoading}

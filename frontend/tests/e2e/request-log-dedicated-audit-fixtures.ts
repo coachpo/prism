@@ -192,10 +192,10 @@ export function createRequestLogListItem(scenario: Scenario = "full") {
     attempt_result: null,
     is_winner: null,
     created_at: timestamp,
-    model_id: modelId,
+    ingress_model_id: modelId,
     model_label: getScenarioModelLabel(scenario),
-    resolved_target_model_id: null,
-    resolved_target_model_label: null,
+    attempt_target_model_id: null,
+    attempt_target_model_label: null,
     caller_client_display: "Prism QA Browser",
     upstream_client_display: "Prism QA Browser",
     user_agent_overridden: false,
@@ -242,10 +242,10 @@ function createRequestLogDetail(scenario: Scenario) {
     summary: {
       request_log_id: "101",
       created_at: config.createdAt,
-      model_id: modelId,
+      ingress_model_id: modelId,
       model_label: getScenarioModelLabel(scenario),
-      resolved_target_model_id: null,
-      resolved_target_model_label: null,
+      attempt_target_model_id: null,
+      attempt_target_model_label: null,
       api_family: apiFamily,
       row_kind: "upstream",
       upstream_status_code: 200,
@@ -346,6 +346,9 @@ function createRequestLogDetail(scenario: Scenario) {
     },
     legacy_pricing_evidence: null,
     current_pricing_template: null,
+    caliber: {},
+    dataset_coverage: {},
+    samples: {},
   };
 }
 
@@ -524,6 +527,9 @@ export async function mockPrismRoutes(page: Page, scenario: Scenario) {
           ],
           has_more_chains: false,
           next_chain_cursor: null,
+          caliber: {},
+          dataset_coverage: {},
+          samples: {},
         });
       }
       return fulfillJson({
@@ -531,7 +537,10 @@ export async function mockPrismRoutes(page: Page, scenario: Scenario) {
         total: 1,
         limit: 100,
         offset: 0,
-        filter_options: { models: [], endpoints: [], clients: [], resolved_target_models: [] },
+        filter_options: { ingress_models: [], endpoints: [], clients: [], attempt_target_models: [] },
+        caliber: {},
+        dataset_coverage: {},
+        samples: {},
       });
     }
 

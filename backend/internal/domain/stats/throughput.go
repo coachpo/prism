@@ -10,12 +10,26 @@ import (
 )
 
 type ConnectionSuccessRateParams struct {
-	ProfileID int
-	FromTime  *time.Time
-	ToTime    *time.Time
+	ProfileID    int
+	FromTime     *time.Time
+	ToTime       *time.Time
+	ReferenceNow time.Time
 }
 
 func GetConnectionSuccessRates(ctx context.Context, exec queryExecutor, params ConnectionSuccessRateParams) ([]ConnectionSuccessRate, error) {
+	referenceNow := params.ReferenceNow.UTC()
+	if referenceNow.IsZero() {
+		referenceNow = time.Now().UTC()
+	}
+	preset := "24h"
+	if params.FromTime != nil || params.ToTime != nil {
+		preset = "custom"
+	}
+	bounds, coverage, err := ResolveDatasetCoverage(ctx, exec, "request_logs", preset, params.FromTime, params.ToTime, referenceNow)
+	if err != nil {
+		return nil, err
+	}
+	params.FromTime, params.ToTime = &bounds.UsageFrom, &bounds.UsageTo
 	query, args := buildConnectionSuccessRatesQuery(params)
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
@@ -25,19 +39,24 @@ func GetConnectionSuccessRates(ctx context.Context, exec queryExecutor, params C
 	aggregates := map[int]*ConnectionSuccessRate{}
 	for rows.Next() {
 		var connectionID int
-		var scopedStatus sql.NullInt32
-		if err := rows.Scan(&connectionID, &scopedStatus); err != nil {
+		var attemptResult sql.NullString
+		var duration sql.NullInt32
+		if err := rows.Scan(&connectionID, &attemptResult, &duration); err != nil {
 			return nil, fmt.Errorf("scan connection success rate row: %w", err)
 		}
-		statusCode := intValue(nullableInt32(scopedStatus))
 		item := aggregates[connectionID]
 		if item == nil {
 			aggregates[connectionID] = &ConnectionSuccessRate{ConnectionID: connectionID}
 			item = aggregates[connectionID]
 		}
 		item.TotalRequests++
-		if statusCode >= 200 && statusCode <= 299 {
+		if attemptResult.Valid && attemptResult.String == "completed" {
 			item.SuccessCount++
+		}
+		if duration.Valid {
+			item.Samples.LatencySampleCount++
+		} else {
+			item.Samples.LatencyMissingCount++
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -48,6 +67,9 @@ func GetConnectionSuccessRates(ctx context.Context, exec queryExecutor, params C
 		item.ErrorCount = item.TotalRequests - item.SuccessCount
 		rate := successRate(item.SuccessCount, item.TotalRequests)
 		item.SuccessRate = &rate
+		item.Caliber = CaliberForScope(ScopeRouteAttempt)
+		item.Coverage = DatasetCoverage{RequestLogs: &coverage}
+		item.Samples.ObservationCount = item.TotalRequests
 		items = append(items, *item)
 	}
 	sort.Slice(items, func(i int, j int) bool { return items[i].ConnectionID < items[j].ConnectionID })
@@ -55,7 +77,7 @@ func GetConnectionSuccessRates(ctx context.Context, exec queryExecutor, params C
 }
 
 func buildConnectionSuccessRatesQuery(params ConnectionSuccessRateParams) (string, []any) {
-	clauses := []string{"profile_id = $1", "connection_id IS NOT NULL"}
+	clauses := []string{"profile_id = $1", "row_kind = 'upstream'", "connection_id > 0"}
 	args := []any{params.ProfileID}
 	if params.FromTime != nil {
 		args = append(args, params.FromTime.UTC())
@@ -65,37 +87,70 @@ func buildConnectionSuccessRatesQuery(params ConnectionSuccessRateParams) (strin
 		args = append(args, params.ToTime.UTC())
 		clauses = append(clauses, fmt.Sprintf("created_at <= $%d", len(args)))
 	}
-	return `SELECT connection_id, ` + scopedRequestLogStatusSQL + ` AS scoped_status FROM request_logs WHERE ` + strings.Join(clauses, " AND "), args
+	return `SELECT connection_id, attempt_result, attempt_duration_ms FROM request_logs WHERE ` + strings.Join(clauses, " AND "), args
 }
 
 type ThroughputParams struct {
-	ProfileID    int
-	FromTime     *time.Time
-	ToTime       *time.Time
-	ModelID      *string
-	APIFamily    *string
-	EndpointID   *int
-	ConnectionID *int
+	ProfileID            int
+	FromTime             *time.Time
+	ToTime               *time.Time
+	Preset               string
+	ReferenceNow         time.Time
+	IngressModelID       *string
+	FinalTargetModelID   *string
+	AttemptTargetModelID *string
+	APIFamily            *string
+	EndpointID           *int
+	ConnectionID         *int
+	Scope                string
 }
 
 func GetThroughput(ctx context.Context, exec queryExecutor, params ThroughputParams) (ThroughputStatsResponse, error) {
-	rows, err := loadThroughputTimestamps(ctx, exec, params)
+	scope, err := NormalizeScope(params.Scope)
 	if err != nil {
 		return ThroughputStatsResponse{}, err
 	}
-	return buildThroughputStats(rows, params.FromTime, params.ToTime), nil
+	referenceNow := params.ReferenceNow.UTC()
+	if referenceNow.IsZero() {
+		referenceNow = time.Now().UTC()
+	}
+	preset := params.Preset
+	if params.FromTime != nil || params.ToTime != nil {
+		preset = "custom"
+	}
+	domain := "usage_request_events"
+	if scope == ScopeRouteAttempt {
+		domain = "request_logs"
+	}
+	bounds, coverage, err := ResolveDatasetCoverage(ctx, exec, domain, preset, params.FromTime, params.ToTime, referenceNow)
+	if err != nil {
+		return ThroughputStatsResponse{}, err
+	}
+	params.FromTime, params.ToTime = &bounds.UsageFrom, &bounds.UsageTo
+	var rows []time.Time
+	if scope == ScopeRouteAttempt {
+		rows, err = loadThroughputAttemptTimestamps(ctx, exec, params)
+	} else {
+		rows, err = loadThroughputUsageTimestamps(ctx, exec, params, scope)
+	}
+	if err != nil {
+		return ThroughputStatsResponse{}, err
+	}
+	response := buildThroughputStats(rows, params.FromTime, params.ToTime)
+	response.Caliber = CaliberForScope(scope)
+	if scope == ScopeRouteAttempt {
+		response.Coverage = DatasetCoverage{RequestLogs: &coverage}
+	} else {
+		response.Coverage = DatasetCoverage{UsageRequestEvents: &coverage}
+	}
+	response.Samples = ScopeSampleCounts{ObservationCount: len(rows)}
+	return response, nil
 }
 
 func GetDashboardThroughput(ctx context.Context, exec queryExecutor, params ThroughputParams) (ThroughputStatsResponse, error) {
-	records, err := loadUsageEventRecords(ctx, exec, params.ProfileID, params.FromTime, params.ToTime, params.APIFamily, params.ModelID, params.EndpointID, params.ConnectionID)
-	if err != nil {
-		return ThroughputStatsResponse{}, err
-	}
-	createdAtValues := make([]time.Time, 0, len(records))
-	for _, record := range records {
-		createdAtValues = append(createdAtValues, record.CreatedAt)
-	}
-	return buildThroughputStats(createdAtValues, params.FromTime, params.ToTime), nil
+	params.Scope = ScopeIngress
+	params.Preset = "custom"
+	return GetThroughput(ctx, exec, params)
 }
 
 func buildThroughputStats(createdAtValues []time.Time, fromTime *time.Time, toTime *time.Time) ThroughputStatsResponse {
@@ -165,8 +220,8 @@ func buildThroughputStats(createdAtValues []time.Time, fromTime *time.Time, toTi
 	}
 }
 
-func loadThroughputTimestamps(ctx context.Context, exec queryExecutor, params ThroughputParams) ([]time.Time, error) {
-	clauses := []string{"profile_id = $1"}
+func loadThroughputAttemptTimestamps(ctx context.Context, exec queryExecutor, params ThroughputParams) ([]time.Time, error) {
+	clauses := []string{"profile_id = $1", "row_kind = 'upstream'"}
 	args := []any{params.ProfileID}
 	if params.FromTime != nil {
 		args = append(args, params.FromTime.UTC())
@@ -176,9 +231,9 @@ func loadThroughputTimestamps(ctx context.Context, exec queryExecutor, params Th
 		args = append(args, params.ToTime.UTC())
 		clauses = append(clauses, fmt.Sprintf("created_at <= $%d", len(args)))
 	}
-	if params.ModelID != nil && strings.TrimSpace(*params.ModelID) != "" {
-		args = append(args, strings.TrimSpace(*params.ModelID))
-		clauses = append(clauses, fmt.Sprintf("model_id = $%d", len(args)))
+	if params.AttemptTargetModelID != nil && strings.TrimSpace(*params.AttemptTargetModelID) != "" {
+		args = append(args, strings.TrimSpace(*params.AttemptTargetModelID))
+		clauses = append(clauses, fmt.Sprintf("resolved_target_model_id = $%d", len(args)))
 	}
 	if params.APIFamily != nil && strings.TrimSpace(*params.APIFamily) != "" {
 		args = append(args, strings.TrimSpace(*params.APIFamily))
@@ -209,4 +264,54 @@ func loadThroughputTimestamps(ctx context.Context, exec queryExecutor, params Th
 		return nil, fmt.Errorf("iterate throughput rows for profile %d: %w", params.ProfileID, err)
 	}
 	return items, nil
+}
+
+func loadThroughputUsageTimestamps(ctx context.Context, exec queryExecutor, params ThroughputParams, scope string) ([]time.Time, error) {
+	clauses := []string{"profile_id = $1"}
+	args := []any{params.ProfileID}
+	if params.FromTime != nil {
+		args = append(args, params.FromTime.UTC())
+		clauses = append(clauses, fmt.Sprintf("created_at >= $%d", len(args)))
+	}
+	if params.ToTime != nil {
+		args = append(args, params.ToTime.UTC())
+		clauses = append(clauses, fmt.Sprintf("created_at < $%d", len(args)))
+	}
+	if params.APIFamily != nil {
+		args = append(args, strings.TrimSpace(*params.APIFamily))
+		clauses = append(clauses, fmt.Sprintf("api_family = $%d", len(args)))
+	}
+	if scope == ScopeIngress && params.IngressModelID != nil {
+		args = append(args, strings.TrimSpace(*params.IngressModelID))
+		clauses = append(clauses, fmt.Sprintf("model_id = $%d", len(args)))
+	}
+	if scope == ScopeFinal {
+		clauses = append(clauses, "resolved_target_model_id IS NOT NULL", "final_attempt_number IS NOT NULL")
+		if params.FinalTargetModelID != nil {
+			args = append(args, strings.TrimSpace(*params.FinalTargetModelID))
+			clauses = append(clauses, fmt.Sprintf("resolved_target_model_id = $%d", len(args)))
+		}
+	}
+	if params.EndpointID != nil {
+		args = append(args, *params.EndpointID)
+		clauses = append(clauses, fmt.Sprintf("endpoint_id = $%d", len(args)))
+	}
+	if params.ConnectionID != nil {
+		args = append(args, *params.ConnectionID)
+		clauses = append(clauses, fmt.Sprintf("connection_id = $%d", len(args)))
+	}
+	rows, err := exec.Query(ctx, `SELECT created_at FROM usage_request_events WHERE `+strings.Join(clauses, " AND ")+` ORDER BY created_at ASC`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query throughput usage rows: %w", err)
+	}
+	defer rows.Close()
+	items := []time.Time{}
+	for rows.Next() {
+		var createdAt time.Time
+		if err := rows.Scan(&createdAt); err != nil {
+			return nil, err
+		}
+		items = append(items, createdAt.UTC())
+	}
+	return items, rows.Err()
 }

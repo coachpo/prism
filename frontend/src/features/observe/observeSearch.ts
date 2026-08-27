@@ -19,11 +19,22 @@ export type ObserveMetric = (typeof OBSERVE_METRICS)[number];
 
 export const OBSERVE_GROUPS = [
   "none",
-  "model",
+  "ingress_model",
+  "final_target_model",
+  "attempt_target_model",
+  "attempt_trigger",
+  "attempt_result",
   "endpoint",
   "terminal_target",
 ] as const;
 export type ObserveGroupBy = (typeof OBSERVE_GROUPS)[number];
+
+export const OBSERVE_SCOPES = [
+  "ingress",
+  "final_execution",
+  "route_attempt",
+] as const;
+export type ObserveScope = (typeof OBSERVE_SCOPES)[number];
 
 export function isObserveMetric(value: string): value is ObserveMetric {
   return (OBSERVE_METRICS as readonly string[]).includes(value);
@@ -31,4 +42,30 @@ export function isObserveMetric(value: string): value is ObserveMetric {
 
 export function isObserveGroupBy(value: string): value is ObserveGroupBy {
   return (OBSERVE_GROUPS as readonly string[]).includes(value);
+}
+
+export function isObserveScope(value: string): value is ObserveScope {
+  return (OBSERVE_SCOPES as readonly string[]).includes(value);
+}
+
+export function groupBelongsToScope(
+  groupBy: ObserveGroupBy,
+  scope: ObserveScope,
+): boolean {
+  if (groupBy === "none") return true;
+  if (scope === "ingress") return groupBy === "ingress_model";
+  if (scope === "final_execution") {
+    return ["final_target_model", "endpoint", "terminal_target"].includes(
+      groupBy,
+    );
+  }
+  return [
+    "attempt_target_model",
+    "attempt_trigger",
+    "attempt_result",
+    "endpoint",
+    "terminal_target",
+  ].includes(
+    groupBy,
+  );
 }

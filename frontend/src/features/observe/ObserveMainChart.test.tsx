@@ -4,7 +4,7 @@
  * the metric's values out of the table while the chart drew them, so the two
  * views could not be cross-checked.
  */
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -14,7 +14,7 @@ import { LocaleProvider } from "@/i18n/LocaleProvider";
 import type { UsageSeriesResponse } from "@/lib/api/observability";
 import { rewriteTestServer } from "@/test/msw/server";
 import { ObserveMainChart } from "./ObserveMainChart";
-import type { ObserveMetric } from "./observeSearch";
+import type { ObserveMetric, ObserveScope } from "./observeSearch";
 
 const BUCKETS = ["2026-08-08T00:00:00Z", "2026-08-08T01:00:00Z"] as const;
 
@@ -138,6 +138,7 @@ async function renderTable(
 function renderChart(
   metric: ObserveMetric,
   series: UsageSeriesResponse["series"],
+  scope: ObserveScope = "ingress",
 ) {
   return render(
     <LocaleProvider>
@@ -147,6 +148,7 @@ function renderChart(
         groupBy="none"
         onMetricChange={() => {}}
         onGroupByChange={() => {}}
+        scope={scope}
       />
     </LocaleProvider>,
   );
@@ -345,6 +347,30 @@ describe("ObserveMainChart series table", () => {
 });
 
 describe("ObserveMainChart honest chart states", () => {
+  it.each([
+    ["ingress", ["合计", "按入口模型"]],
+    ["final_execution", ["合计", "按最终目标模型", "按端点", "按终端目标"]],
+    [
+      "route_attempt",
+      [
+        "合计",
+        "按尝试目标模型",
+        "按尝试触发原因",
+        "按尝试结果",
+        "按端点",
+        "按终端目标",
+      ],
+    ],
+  ] as const)("limits %s grouping controls to that analysis unit", (scope, labels) => {
+    const view = renderChart("requests", SERIES, scope);
+    expect(
+      within(screen.getByRole("group", { name: "分组" }))
+        .getAllByRole("radio")
+        .map((item) => item.textContent),
+    ).toEqual(labels);
+    view.unmount();
+  });
+
   it("distinguishes output no-sample from both cache missing-basis states", () => {
     const output = renderChart("output_rate", [
       {

@@ -86,7 +86,11 @@ export function ModelCostCards({
         <div className="grid gap-[var(--density-card-gap)] sm:grid-cols-2 xl:grid-cols-4 [&>[data-slot=kpi-card]]:bg-inset">
           <OperatorKpiCard
             label={copy.kpiKnownCost}
-            value={formatMoneyMicros(spending.total_cost_micros, currencySymbol, currencyCode, 2, 6, locale)}
+            value={
+              spending.known_cost_micros === null
+                ? messages.honesty.noValue
+                : formatMoneyMicros(spending.known_cost_micros, currencySymbol, currencyCode, 2, 6, locale)
+            }
             detail={windowLabel}
             badges={
               spending.unpriced_request_count > 0 ? (

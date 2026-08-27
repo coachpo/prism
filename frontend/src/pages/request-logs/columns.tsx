@@ -257,7 +257,7 @@ export function getColumns(): ColumnDef[] {
       width: 170,
       grow: 2,
       render: (row) => {
-        const requestedModelValue = row.model_label || row.model_id;
+        const requestedModelValue = row.model_label || row.ingress_model_id;
 
         return (
           <div className="min-w-0">
@@ -267,16 +267,25 @@ export function getColumns(): ColumnDef[] {
       },
     },
     {
-      key: "final_target_model",
-      label: messages.finalTargetModel,
+      key: "attempt_target_model",
+      label: messages.attemptTargetModel,
       width: 190,
       grow: 2,
       render: (row) => {
-        const finalTargetValue = row.resolved_target_model_label ?? row.resolved_target_model_id ?? row.model_label ?? row.model_id;
+        const finalTargetValue = row.attempt_target_model_label ?? row.attempt_target_model_id;
 
         return (
           <div className="min-w-0">
-            <span className="block truncate text-xs font-medium">{finalTargetValue}</span>
+            {finalTargetValue ? (
+              <span className="block truncate text-xs font-medium">{finalTargetValue}</span>
+            ) : (
+              <span
+                className="block truncate text-xs text-muted-foreground"
+                title={messages.finalTargetEvidenceUnavailable}
+              >
+                —
+              </span>
+            )}
           </div>
         );
       },
@@ -299,7 +308,7 @@ export function getColumns(): ColumnDef[] {
       grow: 2,
       render: (row) => (
         <span className="block truncate text-xs font-medium">
-          {row.terminal_target_label ?? (row.terminal_target_id === null ? "—" : `Terminal Target #${row.terminal_target_id}`)}
+          {row.terminal_target_label ?? (row.terminal_target_id === null ? "—" : messages.terminalTargetId(row.terminal_target_id))}
         </span>
       ),
     },

@@ -29,6 +29,7 @@ func (s *Service) handleStatsSummary(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
+	params.ReferenceNow = referenceNow
 	if matchesDashboardSummarySnapshotRequest(params, referenceNow) {
 		snapshot, snapshotErr := s.loadOrBuildDashboardAggregateSnapshot(r.Context(), profile.ID, referenceNow)
 		if snapshotErr != nil {
@@ -77,6 +78,10 @@ func (s *Service) handleModelMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleConnectionSuccessRates(w http.ResponseWriter, r *http.Request) {
+	if err := rejectQueryKeys(r, "from_time", "to_time"); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) ([]statsdomain.ConnectionSuccessRate, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
@@ -90,7 +95,7 @@ func (s *Service) handleConnectionSuccessRates(w http.ResponseWriter, r *http.Re
 		if err != nil {
 			return nil, err
 		}
-		return statsdomain.GetConnectionSuccessRates(r.Context(), tx, statsdomain.ConnectionSuccessRateParams{ProfileID: profile.ID, FromTime: fromTime, ToTime: toTime})
+		return statsdomain.GetConnectionSuccessRates(r.Context(), tx, statsdomain.ConnectionSuccessRateParams{ProfileID: profile.ID, FromTime: fromTime, ToTime: toTime, ReferenceNow: s.nowUTC()})
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -106,6 +111,19 @@ func (s *Service) handleThroughput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	referenceNow := s.nowUTC()
+	scope, err := statsdomain.NormalizeScope(r.URL.Query().Get("scope"))
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	keys := make([]string, 0, len(r.URL.Query()))
+	for key := range r.URL.Query() {
+		keys = append(keys, key)
+	}
+	if err := statsdomain.ValidateScopeQueryKeys(scope, keys); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	fromTime, err := parseOptionalTime(r, "from_time")
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -121,19 +139,15 @@ func (s *Service) handleThroughput(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	connectionID, err := parseOptionalInt(r, "connection_id")
+	connectionID, err := parseOptionalInt(r, "terminal_target_id")
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	params := statsdomain.ThroughputParams{
-		ProfileID:    profile.ID,
-		FromTime:     fromTime,
-		ToTime:       toTime,
-		ModelID:      normalizedQueryString(r, "model_id"),
-		APIFamily:    normalizedQueryString(r, "api_family"),
-		EndpointID:   endpointID,
-		ConnectionID: connectionID,
+		ProfileID: profile.ID, FromTime: fromTime, ToTime: toTime, Preset: queryStringOrDefault(r, "preset", "24h"), ReferenceNow: referenceNow,
+		IngressModelID: normalizedQueryString(r, "ingress_model_id"), FinalTargetModelID: normalizedQueryString(r, "final_target_model_id"), AttemptTargetModelID: normalizedQueryString(r, "attempt_target_model_id"),
+		APIFamily: normalizedQueryString(r, "api_family"), EndpointID: endpointID, ConnectionID: connectionID, Scope: scope,
 	}
 	if matchesDashboardThroughputSnapshotRequest(params, referenceNow) {
 		snapshot, snapshotErr := s.loadOrBuildDashboardAggregateSnapshot(r.Context(), profile.ID, referenceNow)
@@ -153,6 +167,19 @@ func (s *Service) handleThroughput(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleSpending(w http.ResponseWriter, r *http.Request) {
+	scope, err := statsdomain.NormalizeScope(r.URL.Query().Get("scope"))
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	keys := make([]string, 0, len(r.URL.Query()))
+	for key := range r.URL.Query() {
+		keys = append(keys, key)
+	}
+	if err := statsdomain.ValidateScopeQueryKeys(scope, keys); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (statsdomain.SpendingReportResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
@@ -170,7 +197,7 @@ func (s *Service) handleSpending(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return statsdomain.SpendingReportResponse{}, err
 		}
-		connectionID, err := parseOptionalInt(r, "connection_id")
+		connectionID, err := parseOptionalInt(r, "terminal_target_id")
 		if err != nil {
 			return statsdomain.SpendingReportResponse{}, err
 		}
@@ -186,7 +213,7 @@ func (s *Service) handleSpending(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return statsdomain.SpendingReportResponse{}, err
 		}
-		return statsdomain.GetSpending(r.Context(), tx, statsdomain.SpendingParams{ProfileID: profile.ID, Preset: queryStringOrDefault(r, "preset", ""), FromTime: fromTime, ToTime: toTime, APIFamily: normalizedQueryString(r, "api_family"), ModelID: normalizedQueryString(r, "model_id"), EndpointID: endpointID, ConnectionID: connectionID, GroupBy: queryStringOrDefault(r, "group_by", "none"), Limit: limit, Offset: offset, TopN: topN, ReferenceNow: s.nowUTC()})
+		return statsdomain.GetSpending(r.Context(), tx, statsdomain.SpendingParams{ProfileID: profile.ID, Preset: queryStringOrDefault(r, "preset", "24h"), FromTime: fromTime, ToTime: toTime, APIFamily: normalizedQueryString(r, "api_family"), IngressModelID: normalizedQueryString(r, "ingress_model_id"), FinalTargetModelID: normalizedQueryString(r, "final_target_model_id"), EndpointID: endpointID, ConnectionID: connectionID, GroupBy: queryStringOrDefault(r, "group_by", "none"), Limit: limit, Offset: offset, TopN: topN, ReferenceNow: s.nowUTC(), Scope: scope})
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -196,6 +223,10 @@ func (s *Service) handleSpending(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleUsageSnapshot(w http.ResponseWriter, r *http.Request) {
+	if err := rejectQueryKeys(r, "preset"); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	profile, err := s.resolveEffectiveProfile(r.Context(), r)
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)

@@ -51,15 +51,18 @@ type SeriesItem struct {
 }
 
 type UsageSeriesResult struct {
-	GeneratedAt    time.Time    `json:"generated_at"`
-	Coverage       Coverage     `json:"coverage"`
-	Metric         string       `json:"metric"`
-	GroupBy        string       `json:"group_by"`
-	SelectionBasis string       `json:"selection_basis"`
-	Interval       string       `json:"interval"`
-	SeriesLimit    int          `json:"series_limit"`
-	Truncated      bool         `json:"truncated"`
-	Series         []SeriesItem `json:"series"`
+	GeneratedAt     time.Time         `json:"generated_at"`
+	Coverage        Coverage          `json:"coverage"`
+	Metric          string            `json:"metric"`
+	GroupBy         string            `json:"group_by"`
+	SelectionBasis  string            `json:"selection_basis"`
+	Interval        string            `json:"interval"`
+	SeriesLimit     int               `json:"series_limit"`
+	Truncated       bool              `json:"truncated"`
+	Series          []SeriesItem      `json:"series"`
+	Caliber         ScopeCaliber      `json:"caliber"`
+	DatasetCoverage DatasetCoverage   `json:"dataset_coverage"`
+	Samples         ScopeSampleCounts `json:"samples"`
 }
 
 // ResolveSeriesInterval resolves interval=auto into a concrete bucket size
@@ -117,20 +120,23 @@ func ResolveSeriesInterval(interval string, from time.Time, to time.Time) (strin
 // fragments are the allowlisted group column from `groupColumnFor` and an
 // already-validated integer bound; every runtime value binds through $n
 // parameters, so the composed text never carries request data.
-func seriesTopIDsQuery(groupColumn string, limit int) string {
+func seriesTopIDsQuery(groupColumn string, where string, limit int) string {
 	return fmt.Sprintf(`
 SELECT %[1]s::text AS entity_id, COUNT(*) AS request_count
 FROM usage_request_events
-WHERE `+usageWindowPredicate+` AND %[1]s IS NOT NULL
+	WHERE %[2]s AND %[1]s IS NOT NULL
 GROUP BY %[1]s
 ORDER BY request_count DESC, entity_id ASC
-LIMIT %d`, groupColumn, limit)
+	LIMIT %[3]d`, groupColumn, where, limit)
 }
 
 // LoadUsageSeries executes the two-statement main chart aggregate: statement 1
 // selects Top entity IDs; statement 2 builds buckets for those entities plus
 // the re-aggregated Other remainder.
-func LoadUsageSeries(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, coverage Coverage, metric string, groupBy string, interval string, seriesLimit int, referenceNow time.Time, reportCurrencyCode string, reportCurrencySymbol string) (UsageSeriesResult, error) {
+func LoadUsageSeries(ctx context.Context, exec queryExecutor, profileID int, scope string, bounds QueryBounds, usageCoverage Coverage, requestCoverage Coverage, metric string, groupBy string, interval string, seriesLimit int, referenceNow time.Time, reportCurrencyCode string, reportCurrencySymbol string) (UsageSeriesResult, error) {
+	if scope == ScopeRouteAttempt {
+		return loadAttemptSeries(ctx, exec, profileID, bounds, requestCoverage, metric, groupBy, interval, seriesLimit, referenceNow)
+	}
 	intervalName, bucketSize, err := ResolveSeriesInterval(interval, bounds.UsageFrom, bounds.UsageTo)
 	if err != nil {
 		return UsageSeriesResult{}, err
@@ -138,23 +144,37 @@ func LoadUsageSeries(ctx context.Context, exec queryExecutor, profileID int, bou
 	if seriesLimit < 2 || seriesLimit > 6 {
 		seriesLimit = 6
 	}
-	result := UsageSeriesResult{
-		GeneratedAt:    referenceNow.UTC(),
-		Coverage:       coverage,
-		Metric:         metric,
-		GroupBy:        groupBy,
-		SelectionBasis: "request_count",
-		Interval:       intervalName,
-		SeriesLimit:    seriesLimit,
+	// Strict whitelist: Observe group_by must be allowlisted.
+	groupBy, err = ValidateGroupBy(scope, groupBy)
+	if err != nil {
+		return UsageSeriesResult{}, err
 	}
-	groupColumn := groupColumnFor(groupBy)
+	if err := validateSeriesMetric(scope, metric); err != nil {
+		return UsageSeriesResult{}, err
+	}
+	result := UsageSeriesResult{
+		GeneratedAt:     referenceNow.UTC(),
+		Coverage:        usageCoverage,
+		Metric:          metric,
+		GroupBy:         groupBy,
+		SelectionBasis:  "request_count",
+		Interval:        intervalName,
+		SeriesLimit:     seriesLimit,
+		Caliber:         CaliberForScope(scope),
+		DatasetCoverage: ScopeCoverageFor(scope, &usageCoverage, &requestCoverage),
+	}
+	groupColumn := groupColumnFor(scope, groupBy)
+	where := usageWindowPredicate
+	if scope == ScopeFinal {
+		where += " AND resolved_target_model_id IS NOT NULL AND final_attempt_number IS NOT NULL"
+	}
 	topIDs := make([]string, 0)
 	if groupColumn != "" {
 		// `endpoint_id` and `connection_id` are nullable: a request that failed
 		// before routing settled records the outcome without an exit. Those rows
 		// are real traffic but not an entity, so they must not compete for a Top
 		// slot; the bucket aggregate below folds them into Other.
-		rows, err := exec.Query(ctx, seriesTopIDsQuery(groupColumn, seriesLimit-1), profileID, bounds.UsageFrom, bounds.UsageTo)
+		rows, err := exec.Query(ctx, seriesTopIDsQuery(groupColumn, where, seriesLimit-1), profileID, bounds.UsageFrom, bounds.UsageTo)
 		if err != nil {
 			return result, fmt.Errorf("load series top ids: %w", err)
 		}
@@ -172,26 +192,56 @@ func LoadUsageSeries(ctx context.Context, exec queryExecutor, profileID int, bou
 		}
 		result.Truncated = len(topIDs) == seriesLimit-1
 	}
-	labels, err := loadSeriesLabels(ctx, exec, profileID, bounds, groupBy, topIDs)
+	labels, err := loadSeriesLabels(ctx, exec, profileID, bounds, scope, groupBy, topIDs)
 	if err != nil {
 		return result, err
 	}
-	series, err := loadSeriesBuckets(ctx, exec, profileID, bounds, groupBy, topIDs, labels, bucketSize)
+	series, err := loadSeriesBuckets(ctx, exec, profileID, bounds, scope, groupBy, topIDs, labels, bucketSize, where)
 	if err != nil {
 		return result, err
 	}
 	result.Series = series
+	for _, item := range series {
+		result.Samples.ObservationCount += item.RequestCount
+		for _, point := range item.Points {
+			result.Samples.LatencySampleCount += point.TTFTSampleCount
+			result.Samples.LatencyMissingCount += point.RequestCount - point.TTFTSampleCount
+			result.Samples.CostSampleCount += point.PricingReconciliation.PricedRequestCount
+			result.Samples.CostMissingCount += point.PricingReconciliation.UnpricedRequestCount + point.PricingReconciliation.UnknownRequestCount
+		}
+	}
 	return result, nil
 }
 
-func groupColumnFor(groupBy string) string {
-	switch groupBy {
-	case "model":
+func validateSeriesMetric(scope string, metric string) error {
+	normalized := strings.TrimSpace(metric)
+	allowed := map[string]struct{}{"requests": {}, "errors": {}, "tokens": {}, "cost": {}}
+	if scope == ScopeIngress {
+		allowed["ttft"] = struct{}{}
+		allowed["output_rate"] = struct{}{}
+		allowed["cache_read_share"] = struct{}{}
+	} else if scope == ScopeFinal {
+		allowed["final_attempt_latency"] = struct{}{}
+		allowed["cache_read_share"] = struct{}{}
+	}
+	if _, ok := allowed[normalized]; !ok {
+		return &HTTPError{StatusCode: 422, Code: "metric_invalid", Detail: fmt.Sprintf("metric %q not allowed for scope %q", metric, scope)}
+	}
+	return nil
+}
+
+func groupColumnFor(scope string, groupBy string) string {
+	switch strings.TrimSpace(strings.ToLower(groupBy)) {
+	case GroupIngressModel:
 		return "model_id"
-	case "endpoint":
-		return "endpoint_id"
-	case "terminal_target":
-		return "connection_id"
+	case GroupFinalTargetModel:
+		return "resolved_target_model_id"
+	case GroupEndpoint:
+		return "CASE WHEN endpoint_id > 0 THEN endpoint_id END"
+	case GroupTerminalTarget:
+		return "CASE WHEN connection_id > 0 THEN connection_id END"
+	case GroupNone, "":
+		return ""
 	default:
 		return ""
 	}
@@ -204,14 +254,14 @@ func groupColumnFor(groupBy string) string {
 // are therefore a separate lookup over at most `seriesLimit-1` ids, which also
 // keeps the join off the hot aggregate. `model` needs no lookup because
 // `model_id` is already the model identifier.
-func loadSeriesLabels(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, groupBy string, topIDs []string) (map[string]string, error) {
+func loadSeriesLabels(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, scope string, groupBy string, topIDs []string) (map[string]string, error) {
 	labels := map[string]string{}
 	if len(topIDs) == 0 {
 		return labels, nil
 	}
 	var query string
 	switch groupBy {
-	case "endpoint":
+	case GroupEndpoint:
 		// The retained snapshot is the endpoint label source for usage
 		// reporting, not the mutable endpoints.name; `usageEventEndpointLabel`
 		// applies the same rule to the record surfaces.
@@ -222,7 +272,7 @@ SELECT DISTINCT ON (endpoint_id)
 FROM usage_request_events
 WHERE ` + usageWindowPredicate + ` AND endpoint_id::text = ANY($4::text[])
 ORDER BY endpoint_id, created_at DESC`
-	case "terminal_target":
+	case GroupTerminalTarget:
 		// Same precedence as the terminal-target drill-down, so one target
 		// cannot read as two different names on two surfaces.
 		query = `
@@ -272,7 +322,7 @@ func seriesLabel(labels map[string]string, entityID string) string {
 // closed `bucketDurationLiteral` enum, the entity expressions embed only the
 // `groupColumnFor` column name, and the predicates are package constants;
 // runtime values bind through $n parameters and never enter the text.
-func seriesBucketsQuery(bucketLiteral string, entityExpr string, entityIDExpr string, where string) string {
+func seriesBucketsQuery(bucketLiteral string, entityExpr string, entityIDExpr string, latencyExpr string, extraJoin string, where string) string {
 	return fmt.Sprintf(`
 WITH classified AS (
 	SELECT
@@ -282,7 +332,7 @@ WITH classified AS (
 		`+outcomeDetailSQL+` AS outcome_detail,
 		pricing_status,
 		unpriced_reason,
-		ttft_ms,
+			%s AS ttft_ms,
 		total_tokens,
 		CASE WHEN pricing_status = 'priced' AND pricing_evidence_trust = 'trusted' THEN total_cost_user_currency_micros END AS trusted_cost,
 			`+outputRateTPSSQL+` AS output_rate_tps,
@@ -290,8 +340,9 @@ WITH classified AS (
 		input_tokens,
 		cache_read_input_tokens,
 		COALESCE(cache_creation_input_tokens, 0) AS cache_creation_tokens
-	FROM usage_request_events
-	WHERE %s
+		FROM usage_request_events
+		%s
+		WHERE %s
 )
 SELECT
 	COALESCE(entity_label, 'other') AS entity_label,
@@ -323,14 +374,13 @@ SELECT
 FROM classified
 GROUP BY entity_label, entity_id, bucket_start
 ORDER BY entity_label ASC, bucket_start ASC
-LIMIT 2000`, bucketLiteral, entityExpr, entityIDExpr, where)
+	LIMIT 2000`, bucketLiteral, entityExpr, entityIDExpr, latencyExpr, extraJoin, where)
 }
 
-func loadSeriesBuckets(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, groupBy string, topIDs []string, labels map[string]string, bucketSize time.Duration) ([]SeriesItem, error) {
-	groupColumn := groupColumnFor(groupBy)
+func loadSeriesBuckets(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, scope string, groupBy string, topIDs []string, labels map[string]string, bucketSize time.Duration, where string) ([]SeriesItem, error) {
+	groupColumn := groupColumnFor(scope, groupBy)
 	// Build per-entity bucket rows plus Other in one statement using
 	// grouping sets; the caller re-aggregates Other from raw rows.
-	where := usageWindowPredicate
 	args := []any{profileID, bounds.UsageFrom, bounds.UsageTo}
 	entityExpr := "NULL"
 	entityIDExpr := "NULL::text"
@@ -343,7 +393,21 @@ func loadSeriesBuckets(ctx context.Context, exec queryExecutor, profileID int, b
 			args = append(args, intSliceStrings(topIDs))
 		}
 	}
-	rows, err := exec.Query(ctx, seriesBucketsQuery(bucketDurationLiteral(bucketSize), entityExpr, entityIDExpr, where), args...)
+	latencyExpr := "usage_request_events.ttft_ms"
+	extraJoin := ""
+	if scope == ScopeFinal {
+		latencyExpr = "final_attempt.attempt_duration_ms"
+		extraJoin = `LEFT JOIN LATERAL (
+			SELECT request_logs.attempt_duration_ms
+			FROM request_logs
+			WHERE request_logs.profile_id = usage_request_events.profile_id
+			  AND request_logs.ingress_request_id = usage_request_events.ingress_request_id
+			  AND request_logs.row_kind = 'upstream'
+			  AND request_logs.attempt_number = usage_request_events.final_attempt_number
+			ORDER BY request_logs.created_at DESC, request_logs.id DESC LIMIT 1
+		) AS final_attempt ON TRUE`
+	}
+	rows, err := exec.Query(ctx, seriesBucketsQuery(bucketDurationLiteral(bucketSize), entityExpr, entityIDExpr, latencyExpr, extraJoin, where), args...)
 	if err != nil {
 		return nil, fmt.Errorf("load series buckets: %w", err)
 	}
@@ -414,7 +478,7 @@ func loadSeriesBuckets(ctx context.Context, exec queryExecutor, profileID int, b
 	}
 	for _, bucket := range buckets {
 		key := bucket.entityID
-		if groupBy == "" || groupBy == "none" {
+		if groupBy == "" || groupBy == GroupNone {
 			key = "total"
 		} else if key == "" || key == "other" {
 			key = "other"

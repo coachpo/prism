@@ -14,6 +14,11 @@ function loadApi() {
   return load(path.join(frontendDir, "src/lib/api.ts"));
 }
 
+function loadObservabilityApi() {
+  const { load } = createTsModuleLoader({ rootDir: frontendDir });
+  return load(path.join(frontendDir, "src/lib/api/observability.ts"));
+}
+
 function installFetchRecorder(requests, responses) {
   const originalFetch = globalThis.fetch;
   void normalizeFetchInit;
@@ -156,6 +161,122 @@ test("request detail and audit lookup preserve BIGINT request-log IDs", async ()
   assert.equal(auditUrl.searchParams.get("to"), "2026-08-14T00:00:00.000Z");
   assert.equal(auditUrl.searchParams.get("limit"), "20");
   assert.equal(auditUrl.searchParams.get("cursor"), "signed-cursor");
+});
+
+test("request-log API sends canonical ingress, attempt and final model filters", async () => {
+  const requests = [];
+  const restoreFetch = installFetchRecorder(requests, [{ items: [] }]);
+  const { api } = loadApi();
+
+  try {
+    await api.stats.requests({
+      ingress_model_id: "entry-a",
+      attempt_target_model_id: "target-b",
+      final_target_model_id: "target-c",
+      view: "attempts",
+    });
+  } finally {
+    restoreFetch();
+  }
+
+  const url = new URL(requests[0].url, "https://prism.test");
+  assert.equal(url.pathname, "/api/stats/requests");
+  assert.equal(url.searchParams.get("ingress_model_id"), "entry-a");
+  assert.equal(url.searchParams.get("attempt_target_model_id"), "target-b");
+  assert.equal(url.searchParams.get("final_target_model_id"), "target-c");
+  assert.equal(url.searchParams.get("view"), "attempts");
+  assert.equal(url.searchParams.has("model_id"), false);
+  assert.equal(url.searchParams.has("resolved_target_model_id"), false);
+});
+
+test("observability scopes stay explicit across model, trend, error and terminal-target reads", async () => {
+  const requests = [];
+  const restoreFetch = installFetchRecorder(
+    requests,
+    Array.from({ length: 7 }, () => ({})),
+  );
+  const { observe, stats } = loadObservabilityApi();
+
+  try {
+    await stats.modelMetrics({
+      model_ids: ["entry-a", "target-c"],
+      summary_window_hours: 24,
+      spending_preset: "last_30_days",
+    });
+    await observe.queryContext({ preset: "24h", scope: "final_execution" });
+    await observe.usageSeries("ctx-final", {
+      metric: "requests",
+      group_by: "final_target_model",
+      interval: "1h",
+    });
+    await observe.usageErrors("ctx-final", {
+      group_by: "final_target_model",
+      limit: 10,
+    });
+    await observe.queryContext({ preset: "24h", scope: "route_attempt" });
+    await stats.endpointTerminalTargets(7, {
+      preset: "24h",
+      scope: "final_execution",
+    });
+    await stats.endpointTerminalTargets(7, {
+      preset: "24h",
+      scope: "route_attempt",
+    });
+  } finally {
+    restoreFetch();
+  }
+
+  assert.equal(requests.length, 7);
+  assert.equal(requests[0].url, "/api/stats/models/metrics");
+  assert.equal(requests[0].init.method, "POST");
+  assert.deepEqual(JSON.parse(requests[0].init.body), {
+    model_ids: ["entry-a", "target-c"],
+    summary_window_hours: 24,
+    spending_preset: "last_30_days",
+  });
+  assert.equal(Object.hasOwn(JSON.parse(requests[0].init.body), "scope"), false);
+
+  const parsed = requests.slice(1).map((entry) =>
+    new URL(entry.url, "https://prism.test"),
+  );
+  assert.deepEqual(
+    parsed.map((url) => [url.pathname, Object.fromEntries(url.searchParams)]),
+    [
+      [
+        "/api/stats/query-context",
+        { preset: "24h", scope: "final_execution" },
+      ],
+      [
+        "/api/stats/usage-series",
+        {
+          metric: "requests",
+          group_by: "final_target_model",
+          interval: "1h",
+          query_context: "ctx-final",
+        },
+      ],
+      [
+        "/api/stats/usage-errors",
+        {
+          group_by: "final_target_model",
+          limit: "10",
+          query_context: "ctx-final",
+        },
+      ],
+      [
+        "/api/stats/query-context",
+        { preset: "24h", scope: "route_attempt" },
+      ],
+      [
+        "/api/stats/endpoints/7/terminal-targets",
+        { preset: "24h", scope: "final_execution" },
+      ],
+      [
+        "/api/stats/endpoints/7/terminal-targets",
+        { preset: "24h", scope: "route_attempt" },
+      ],
+    ],
+  );
 });
 
 // The auth session coordinator attaches a live epoch AbortSignal to every

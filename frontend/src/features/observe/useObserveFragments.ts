@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiError } from "@/lib/api/core";
 import { observe, type QueryContextResponse, type UsageSummaryResponse, type DashboardNowResponse } from "@/lib/api/observability";
+import type { ObserveScope } from "@/features/observe/observeSearch";
 
 export type FragmentPhase = "loading" | "ready" | "error";
 
@@ -52,7 +53,7 @@ export function useObserveFragments(preset: string) {
     abortRef.current = controller;
     const signal = controller.signal;
     void observe
-      .queryContext({ preset }, signal)
+      .queryContext({ preset, scope: "ingress" }, signal)
       .then((context) => {
         if (generationRef.current !== generation || signal.aborted) return;
         setQueryContext({ phase: "ready", data: context, stale: false, error: null, retryAfterMs: null });
@@ -89,6 +90,63 @@ export function useObserveFragments(preset: string) {
   }, [refresh]);
 
   return { queryContext, summary, now, refresh };
+}
+
+/** Query-context lane used only by Trend and Errors. Window KPIs and Activity
+ * keep their independent ingress context, so changing analysis scope cannot
+ * silently change the page's one-request-per-row surfaces. */
+export function useObserveAnalysisContext(
+  preset: string,
+  scope: ObserveScope,
+): FragmentState<QueryContextResponse> & { refresh: () => void } {
+  const [fragment, setFragment] = useState<FragmentState<QueryContextResponse>>(
+    initialFragment,
+  );
+  const [reloadToken, setReloadToken] = useState(0);
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+    queueMicrotask(() => {
+      if (!active) return;
+      setFragment((previous) => ({
+        ...previous,
+        phase: "loading",
+        stale: previous.data !== null,
+        error: null,
+        retryAfterMs: null,
+      }));
+    });
+    void observe
+      .queryContext({ preset, scope }, controller.signal)
+      .then((data) => {
+        if (active && !controller.signal.aborted) {
+          setFragment({
+            phase: "ready",
+            data,
+            stale: false,
+            error: null,
+            retryAfterMs: null,
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!active || controller.signal.aborted) return;
+        const mapped = fragmentErrorFrom(error);
+        setFragment((previous) => ({
+          ...previous,
+          phase: "error",
+          stale: previous.data !== null,
+          error: mapped.error,
+          retryAfterMs: mapped.retryAfterMs,
+        }));
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [preset, reloadToken, scope]);
+  const refresh = useCallback(() => setReloadToken((value) => value + 1), []);
+  return { ...fragment, refresh };
 }
 
 export function describeError(error: unknown): string {

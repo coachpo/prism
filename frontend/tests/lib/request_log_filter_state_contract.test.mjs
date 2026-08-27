@@ -28,21 +28,25 @@ test("request-log filter state defaults to 24h and preserves exact status/error 
   assert.equal(params.get("error_text"), "timeout");
   assert.equal(params.has("time_range"), false);
 });
-test("request-log filter state round-trips caller client and final target model params", () => {
+test("request-log filter state round-trips caller client and attempt target model params", () => {
   const state = parsePageState(
     new URLSearchParams(
-      "client_rule_id=123&resolved_target_model_id=terminal-model&request_id=101&selected_request_id=202",
+      "client_rule_id=123&ingress_model_id=entry-model&attempt_target_model_id=terminal-model&final_target_model_id=winner-model&request_id=101&selected_request_id=202",
     ),
   );
 
   assert.equal(state.client_rule_id, "123");
+  assert.equal(state.model_id, "entry-model");
   assert.equal(state.resolved_target_model_id, "terminal-model");
+  assert.equal(state.final_target_model_id, "winner-model");
   assert.equal(state.request_id, "101");
   assert.equal(state.selected_request_id, "202");
 
   const params = stateToParams(state);
   assert.equal(params.get("client_rule_id"), "123");
-  assert.equal(params.get("resolved_target_model_id"), "terminal-model");
+  assert.equal(params.get("ingress_model_id"), "entry-model");
+  assert.equal(params.get("attempt_target_model_id"), "terminal-model");
+  assert.equal(params.get("final_target_model_id"), "winner-model");
   assert.equal(params.get("request_id"), "101");
   assert.equal(params.get("selected_request_id"), "202");
   assert.equal(params.has("clientRuleId"), false);
@@ -85,7 +89,7 @@ test("request-log filter state omits empty browse filters but keeps exact anchor
   });
 
   assert.equal(params.has("client_rule_id"), false);
-  assert.equal(params.has("resolved_target_model_id"), false);
+  assert.equal(params.has("attempt_target_model_id"), false);
   assert.equal(params.get("request_id"), "303");
   assert.equal(params.get("selected_request_id"), "404");
 });

@@ -14,10 +14,10 @@ type ActivityItem struct {
 	UsageEventID             string  `json:"usage_event_id"`
 	FinalIngressRequestID    string  `json:"final_ingress_request_id"`
 	CreatedAt                string  `json:"created_at"`
-	ModelID                  string  `json:"model_id"`
-	ModelLabel               string  `json:"model_label"`
-	ResolvedTargetModelID    *string `json:"resolved_target_model_id"`
-	ResolvedTargetModelLabel *string `json:"resolved_target_model_label"`
+	ModelID                  string  `json:"ingress_model_id"`
+	ModelLabel               string  `json:"ingress_model_label"`
+	ResolvedTargetModelID    *string `json:"final_target_model_id"`
+	ResolvedTargetModelLabel *string `json:"final_target_model_label"`
 	RouteChanged             bool    `json:"route_changed"`
 	AttemptCount             int     `json:"attempt_count"`
 	RoutingEvidenceComplete  bool    `json:"routing_evidence_complete"`
@@ -43,10 +43,13 @@ type ActivityItem struct {
 }
 
 type ActivityFeedResponse struct {
-	GeneratedAt time.Time      `json:"generated_at"`
-	Coverage    Coverage       `json:"coverage"`
-	Items       []ActivityItem `json:"items"`
-	HasMore     bool           `json:"has_more"`
+	GeneratedAt     time.Time         `json:"generated_at"`
+	Coverage        Coverage          `json:"coverage"`
+	Items           []ActivityItem    `json:"items"`
+	HasMore         bool              `json:"has_more"`
+	Caliber         ScopeCaliber      `json:"caliber"`
+	DatasetCoverage DatasetCoverage   `json:"dataset_coverage"`
+	Samples         ScopeSampleCounts `json:"samples"`
 }
 
 type ActivityParams struct {
@@ -64,9 +67,11 @@ func LoadFinalizedActivity(ctx context.Context, exec queryExecutor, profileID in
 		params.Limit = 50
 	}
 	result := ActivityFeedResponse{
-		GeneratedAt: referenceNow.UTC(),
-		Coverage:    coverage,
-		Items:       []ActivityItem{},
+		GeneratedAt:     referenceNow.UTC(),
+		Coverage:        coverage,
+		Items:           []ActivityItem{},
+		Caliber:         CaliberForScope(ScopeIngress),
+		DatasetCoverage: DatasetCoverage{UsageRequestEvents: &coverage},
 	}
 	beforeCondition := ""
 	args := []any{profileID, bounds.UsageFrom, bounds.UsageTo}
@@ -142,5 +147,6 @@ ORDER BY id DESC
 	if result.HasMore {
 		result.Items = result.Items[:params.Limit]
 	}
+	result.Samples = ScopeSampleCounts{ObservationCount: len(result.Items)}
 	return result, nil
 }

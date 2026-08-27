@@ -39,6 +39,8 @@ type ExportResult struct {
 	DigestSHA256 string
 	View         string
 	Content      []byte
+	Caliber      ScopeCaliber
+	Coverage     QueryCoverage
 }
 
 // ExportCSV exports the full filtered result set. The rows are scanned from
@@ -128,7 +130,7 @@ func ExportCSV(ctx context.Context, tx pgx.Tx, params ExportParams) (ExportResul
 	if int64(len(content)) != byteCount {
 		return ExportResult{}, &HTTPError{StatusCode: 422, Code: "export_spool_drift", Detail: "Export spool drifted after verification."}
 	}
-	return ExportResult{RowCount: matched, ByteCount: byteCount, DigestSHA256: digest, View: view, Content: content}, nil
+	return ExportResult{RowCount: matched, ByteCount: byteCount, DigestSHA256: digest, View: view, Content: content, Caliber: CaliberForScope(ScopeRouteAttempt), Coverage: coverage}, nil
 }
 
 func buildExportCountQuery(params ExportParams) (string, []any) {
@@ -160,7 +162,7 @@ func buildExportRowQuery(params ExportParams) (string, []any) {
 // exportHeader is the fixed CSV column allowlist (Requests SPEC §6.8).
 var exportHeader = []string{
 	"row_kind", "request_log_id", "ingress_request_id", "attempt_number", "attempt_trigger", "attempt_result", "is_winner",
-	"created_at", "model_id", "resolved_target_model_id", "api_family", "operation_name", "endpoint_id", "terminal_target_id",
+	"created_at", "ingress_model_id", "attempt_target_model_id", "api_family", "operation_name", "endpoint_id", "terminal_target_id",
 	"upstream_status_code", "gateway_status_code", "legacy_status_code", "error_source", "error_code", "failure_stage",
 	"error_detail", "stream_error_detail", "stream_outcome", "stream_error_kind",
 	"attempt_duration_ms", "legacy_duration_ms", "ttft_ms", "total_duration_ms", "input_tokens", "output_tokens", "total_tokens",

@@ -19,17 +19,29 @@ import { CatalogMetadataCard } from "@/pages/model-detail/CatalogMetadataCard";
 import { CatalogPricingDialog } from "@/pages/model-detail/CatalogPricingDialog";
 import { useModelCatalog } from "@/pages/model-detail/useModelCatalog";
 import type { Connection } from "@/lib/types";
+import type { ModelConfigListItem } from "@/lib/types";
 import { toast } from "sonner";
-import { ModelCostCards } from "@/pages/model-detail/ModelCostCards";
 import { RouteReadinessCard } from "@/pages/model-detail/RouteReadinessCard";
 import {
+  OperatorClippedBadge,
+  OperatorErrorState,
   OperatorFreshnessBar,
+  OperatorKpiCard,
+  OperatorMissingValue,
   OperatorPageHeader,
   OperatorPageShell,
+  OperatorRetryButton,
+  OperatorSectionCard,
+  OperatorStalenessBadge,
   OperatorStatusBadge,
 } from "@/shared/design-system";
 import { isOwnedConnectionTarget } from "@/pages/model-detail/useModelDetailDataSupport";
 import { useModelDetailFeatureData } from "./useModelDetailFeatureData";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useModelMetrics24h } from "@/pages/models/useModelMetrics24h";
+import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
+import { formatMoneyMicros } from "@/lib/costing";
+import type { ModelDerivedMetric } from "@/pages/models/modelTableContracts";
 
 type URLSearchParamsInit = ConstructorParameters<typeof URLSearchParams>[0];
 type SetURLSearchParams = (
@@ -77,6 +89,8 @@ export type DiagnosticsView =
   | { kind: "loading" }
   | { kind: "error"; message: string }
   | { kind: "loaded"; value: RoutingDiagnosticsResponse };
+
+export type DetailMetricsScope = "ingress" | "final_execution";
 
 /**
  * Reads static routing diagnostics for one model, keeping the four states a
@@ -206,6 +220,18 @@ export function ModelDetailFeaturePage({
   // The breadcrumb leaf must name the model, not say "配置". Until the model
   // loads this stays null and the shell falls back to the id.
   usePublishBreadcrumbEntity(data.model?.display_name || data.model?.model_id);
+  const metricsScope: DetailMetricsScope =
+    resolvedSearchParams.get("metrics_scope") === "final_execution"
+      ? "final_execution"
+      : "ingress";
+  const modelMetricRows = useMemo(
+    () =>
+      data.model
+        ? [data.model as unknown as ModelConfigListItem]
+        : [],
+    [data.model],
+  );
+  const roleMetrics = useModelMetrics24h(modelMetricRows);
 
   if (data.loading) {
     return (
@@ -226,6 +252,8 @@ export function ModelDetailFeaturePage({
   if (!data.model) return null;
 
   const model = data.model;
+  const selectedRoleMetric =
+    roleMetrics.modelMetricsByScope[model.id]?.[metricsScope] ?? null;
   // The runtime snapshot is per-connection; the freshest observation on the
   // page is what the bar reports.
   const runtimeUpdatedAt =
@@ -288,6 +316,7 @@ export function ModelDetailFeaturePage({
           onRefresh: () => {
             data.refreshCurrentState();
             data.refetchSpending();
+            roleMetrics.refresh();
           },
         }}
       />
@@ -299,15 +328,18 @@ export function ModelDetailFeaturePage({
         model={model}
       />
 
-      <ModelCostCards
-        currencyCode={data.spendingCurrencyCode}
-        currencySymbol={data.spendingCurrencySymbol}
-        failed={data.spendingFailed}
-        loading={data.spendingLoading}
-        onRetry={data.refetchSpending}
-        onWindowChange={data.setSpendingWindow}
-        spending={data.spending}
-        window={data.spendingWindow}
+      <ModelRoleMetrics
+        failed={roleMetrics.metricsFailed}
+        loading={roleMetrics.metricsLoading}
+        metric={selectedRoleMetric}
+        onRetry={roleMetrics.refresh}
+        onScopeChange={(nextScope) => {
+          const next = new URLSearchParams(resolvedSearchParams);
+          if (nextScope === "ingress") next.delete("metrics_scope");
+          else next.set("metrics_scope", nextScope);
+          setSearchParams(next, { replace: true });
+        }}
+        scope={metricsScope}
       />
 
       <CatalogMetadataCard
@@ -431,3 +463,160 @@ export function ModelDetailFeaturePage({
 }
 
 export default ModelDetailFeaturePage;
+
+function ModelRoleMetrics({
+  failed,
+  loading,
+  metric,
+  onRetry,
+  onScopeChange,
+  scope,
+}: {
+  failed: boolean;
+  loading: boolean;
+  metric: ModelDerivedMetric | null;
+  onRetry: () => void;
+  onScopeChange: (scope: DetailMetricsScope) => void;
+  scope: DetailMetricsScope;
+}) {
+  const { currencyState } = useReportingCurrencyContext();
+  const { formatNumber, locale, messages } = useLocale();
+  const copy = messages.modelDetail;
+  const latencyPartial = (metric?.samples?.latency_missing_count ?? 0) > 0;
+  const costPartial = (metric?.samples?.cost_missing_count ?? 0) > 0;
+
+  return (
+    <OperatorSectionCard
+      title={copy.roleMetricsTitle}
+      description={
+        scope === "ingress"
+          ? copy.roleMetricsIngressDescription
+          : copy.roleMetricsFinalDescription
+      }
+      actions={
+        <Tabs
+          value={scope}
+          onValueChange={(value) =>
+            onScopeChange(value as DetailMetricsScope)
+          }
+        >
+          <TabsList aria-label={copy.roleMetricsScopeLabel}>
+            <TabsTrigger value="ingress">
+              {copy.roleMetricsIngress}
+            </TabsTrigger>
+            <TabsTrigger value="final_execution">
+              {copy.roleMetricsFinal}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      }
+    >
+      {failed && metric === null ? (
+        <OperatorErrorState
+          title={copy.roleMetricsUnavailable}
+          description={copy.roleMetricsUnavailableReason}
+          action={
+            <OperatorRetryButton onClick={onRetry}>
+              {messages.common.retry}
+            </OperatorRetryButton>
+          }
+        />
+      ) : (
+        <div className="flex flex-col gap-2">
+          {failed && metric ? (
+            <OperatorStalenessBadge
+              className="self-start"
+              label={copy.roleMetricsStale}
+              reason={copy.roleMetricsUnavailableReason}
+            />
+          ) : null}
+          <div className="grid gap-[var(--density-card-gap)] sm:grid-cols-2 xl:grid-cols-4 [&>[data-slot=kpi-card]]:bg-inset">
+            <OperatorKpiCard
+              label={
+                scope === "ingress"
+                  ? copy.roleMetricsIngressRequests
+                  : copy.roleMetricsFinalRequests
+              }
+              value={
+                loading && metric === null ? (
+                  <OperatorMissingValue reason={copy.roleMetricsLoading} />
+                ) : metric?.request_count_24h == null ? (
+                  <OperatorMissingValue reason={messages.honesty.noValue} />
+                ) : (
+                  formatNumber(metric.request_count_24h)
+                )
+              }
+              detail={copy.roleMetricsWindow24h}
+            />
+            <OperatorKpiCard
+              label={copy.roleMetricsCompletionRate}
+              value={
+                metric?.success_rate == null ? (
+                  <OperatorMissingValue reason={copy.roleMetricsNoDenominator} />
+                ) : (
+                  `${formatNumber(metric.success_rate, { maximumFractionDigits: 1 })}%`
+                )
+              }
+              detail={copy.roleMetricsWindow24h}
+            />
+            <OperatorKpiCard
+              label={
+                scope === "ingress"
+                  ? copy.roleMetricsEndToEndP95
+                  : copy.roleMetricsFinalAttemptP95
+              }
+              value={
+                metric?.p95_latency_ms == null ? (
+                  <OperatorMissingValue reason={copy.roleMetricsNoLatencySample} />
+                ) : (
+                  `${formatNumber(metric.p95_latency_ms)} ms`
+                )
+              }
+              detail={copy.roleMetricsWindow24h}
+              badges={
+                latencyPartial ? (
+                  <OperatorClippedBadge
+                    label={copy.roleMetricsPartial}
+                    reason={copy.roleMetricsLatencyPartial(
+                      metric?.samples?.latency_sample_count ?? 0,
+                      metric?.samples?.latency_missing_count ?? 0,
+                    )}
+                  />
+                ) : null
+              }
+            />
+            <OperatorKpiCard
+              label={copy.roleMetricsKnownCost}
+              value={
+                metric?.known_cost_micros == null ? (
+                  <OperatorMissingValue reason={copy.roleMetricsNoTrustedCost} />
+                ) : (
+                  formatMoneyMicros(
+                    metric.known_cost_micros,
+                    currencyState.currency.symbol,
+                    currencyState.currency.code,
+                    2,
+                    6,
+                    locale,
+                  )
+                )
+              }
+              detail={copy.roleMetricsWindow30d}
+              badges={
+                costPartial ? (
+                  <OperatorClippedBadge
+                    label={copy.roleMetricsPartial}
+                    reason={copy.roleMetricsCostPartial(
+                      metric?.samples?.cost_sample_count ?? 0,
+                      metric?.samples?.cost_missing_count ?? 0,
+                    )}
+                  />
+                ) : null
+              }
+            />
+          </div>
+        </div>
+      )}
+    </OperatorSectionCard>
+  );
+}

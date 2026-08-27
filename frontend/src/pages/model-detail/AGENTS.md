@@ -48,6 +48,7 @@ model-detail/
 - Connection draft/update payload and limiter/header normalization: `connectionDataSupport.ts`, `useModelDetailDataSupport.ts`; mounted pricing summaries include the typed `template_kind` and never fabricate a scalar base rate for multi-card templates.
 - Default forms, access-target summary (single enabled authored-order first row), and model list patching helpers: `useModelDetailDataSupport.ts`, `useModelDetailModelForm.ts`
 - Spending-summary loading: `useModelDetailBootstrap.ts`, `ModelCostCards.tsx`
+- Role metrics reuse the composite model-metrics read and keep `metrics_scope=ingress|final_execution` URL-backed; a failed metric read never blocks model or target configuration.
 - Retained Ban Policy current-state fetch/reset hook: `useModelLoadbalanceCurrentState.ts`
 - Shared latency and connection-label formatting: `modelDetailMetricsAndPaths.ts`
 

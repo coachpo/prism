@@ -527,16 +527,20 @@ type DashboardAggregateSnapshot struct {
 }
 
 type DashboardSnapshot struct {
-	GeneratedAt       time.Time                        `json:"generated_at"`
-	SnapshotRevision  string                           `json:"snapshot_revision"`
-	SourceWatermark   DashboardSnapshotSourceWatermark `json:"source_watermark"`
-	Coverage24H       DashboardSnapshotCoverage        `json:"coverage_24h"`
-	Coverage30D       DashboardSnapshotCoverage        `json:"coverage_30d"`
-	Health            DashboardSnapshotHealth          `json:"health"`
-	MetricSnapshot    DashboardMetricSnapshot          `json:"metric_snapshot"`
-	APIFamilyRows     []StatGroup                      `json:"api_family_rows"`
-	TopSpendingModels []SpendingTopModel               `json:"top_spending_models"`
-	RoutingHealthMap  DashboardRoutingHealthMap        `json:"routing_health_map"`
+	GeneratedAt          time.Time                        `json:"generated_at"`
+	SnapshotRevision     string                           `json:"snapshot_revision"`
+	SourceWatermark      DashboardSnapshotSourceWatermark `json:"source_watermark"`
+	Coverage24H          DashboardSnapshotCoverage        `json:"coverage_24h"`
+	Coverage30D          DashboardSnapshotCoverage        `json:"coverage_30d"`
+	Health               DashboardSnapshotHealth          `json:"health"`
+	MetricSnapshot       DashboardMetricSnapshot          `json:"metric_snapshot"`
+	APIFamilyRows        []StatGroup                      `json:"api_family_rows"`
+	TopSpendingModels    []SpendingTopModel               `json:"top_spending_models"`
+	RoutingHealthMap     DashboardRoutingHealthMap        `json:"routing_health_map"`
+	Caliber              ScopeCaliber                     `json:"caliber"`
+	DatasetCoverage      DatasetCoverage                  `json:"dataset_coverage"`
+	Samples              ScopeSampleCounts                `json:"samples"`
+	RoutingHealthCaliber ScopeCaliber                     `json:"routing_health_caliber"`
 }
 
 type DashboardSnapshotSourceWatermark struct {
@@ -627,16 +631,20 @@ func NewDashboardSnapshot(aggregate DashboardAggregateSnapshot, referenceNow tim
 	apiFamilyRows := append([]StatGroup{}, aggregate.APIFamilySummary24H.Groups...)
 	topSpendingModels := append([]SpendingTopModel{}, aggregate.SpendingSummary30D.TopSpendingModels...)
 	return DashboardSnapshot{
-		GeneratedAt:       generatedAt,
-		SnapshotRevision:  aggregate.SnapshotRevision,
-		SourceWatermark:   cloneDashboardSnapshotSourceWatermark(aggregate.SourceWatermark),
-		Coverage24H:       DashboardSnapshotCoverage{From: generatedAt.Add(-24 * time.Hour), To: generatedAt},
-		Coverage30D:       DashboardSnapshotCoverage{From: generatedAt.Add(-30 * 24 * time.Hour), To: generatedAt},
-		Health:            NewDashboardSnapshotHealth(generatedAt, referenceNow),
-		MetricSnapshot:    newDashboardMetricSnapshot(aggregate),
-		APIFamilyRows:     apiFamilyRows,
-		TopSpendingModels: topSpendingModels,
-		RoutingHealthMap:  cloneDashboardRoutingHealthMap(aggregate.RoutingHealthMap),
+		GeneratedAt:          generatedAt,
+		SnapshotRevision:     aggregate.SnapshotRevision,
+		SourceWatermark:      cloneDashboardSnapshotSourceWatermark(aggregate.SourceWatermark),
+		Coverage24H:          DashboardSnapshotCoverage{From: generatedAt.Add(-24 * time.Hour), To: generatedAt},
+		Coverage30D:          DashboardSnapshotCoverage{From: generatedAt.Add(-30 * 24 * time.Hour), To: generatedAt},
+		Health:               NewDashboardSnapshotHealth(generatedAt, referenceNow),
+		MetricSnapshot:       newDashboardMetricSnapshot(aggregate),
+		APIFamilyRows:        apiFamilyRows,
+		TopSpendingModels:    topSpendingModels,
+		RoutingHealthMap:     cloneDashboardRoutingHealthMap(aggregate.RoutingHealthMap),
+		Caliber:              CaliberForScope(ScopeIngress),
+		DatasetCoverage:      aggregate.StatsSummary24H.Coverage,
+		Samples:              aggregate.StatsSummary24H.Samples,
+		RoutingHealthCaliber: CaliberForScope(ScopeFinal),
 	}
 }
 
@@ -657,15 +665,12 @@ func newDashboardMetricSnapshot(aggregate DashboardAggregateSnapshot) DashboardM
 		UnpricedRequestCount:   aggregate.SpendingSummary30D.Summary.UnpricedRequestCount,
 	}
 	if total := aggregate.StatsSummary24H.TotalRequests; total > 0 {
-		successRate := aggregate.StatsSummary24H.SuccessRate
 		// Error rate comes straight from the counts instead of 100 minus
 		// success rate: the subtraction would turn "no samples" into "100%
 		// failed" and would carry the success-rate rounding drift.
 		errorRate := roundFloat(float64(aggregate.StatsSummary24H.ErrorCount)/float64(total)*100, 2)
-		avgLatency := aggregate.StatsSummary24H.AvgResponseTimeMS
-		p95 := aggregate.StatsSummary24H.P95ResponseTimeMS
-		snapshot.SuccessRate, snapshot.ErrorRate = &successRate, &errorRate
-		snapshot.AvgLatency, snapshot.P95Latency = &avgLatency, &p95
+		snapshot.SuccessRate, snapshot.ErrorRate = aggregate.StatsSummary24H.SuccessRate, &errorRate
+		snapshot.AvgLatency, snapshot.P95Latency = aggregate.StatsSummary24H.AvgResponseTimeMS, aggregate.StatsSummary24H.P95ResponseTimeMS
 	}
 	return snapshot
 }
@@ -673,24 +678,24 @@ func newDashboardMetricSnapshot(aggregate DashboardAggregateSnapshot) DashboardM
 func BuildDashboardAggregateSnapshot(ctx context.Context, exec queryExecutor, profileID int, referenceNow time.Time) (DashboardAggregateSnapshot, error) {
 	generatedAt := referenceNow.UTC()
 	windowStart24H := generatedAt.Add(-24 * time.Hour)
-	apiFamilyGroupBy := "api_family"
+	apiFamilyGroupBy := GroupAPIFamily
 	models, err := loadDashboardSnapshotModels(ctx, exec, profileID)
 	if err != nil {
 		return DashboardAggregateSnapshot{}, err
 	}
-	statsSummary, err := GetStatsSummary(ctx, exec, StatsSummaryParams{ProfileID: profileID, FromTime: &windowStart24H, ToTime: &generatedAt})
+	statsSummary, err := GetStatsSummary(ctx, exec, StatsSummaryParams{ProfileID: profileID, FromTime: &windowStart24H, ToTime: &generatedAt, Preset: "custom", ReferenceNow: generatedAt, Scope: ScopeIngress})
 	if err != nil {
 		return DashboardAggregateSnapshot{}, err
 	}
-	apiFamilySummary, err := GetStatsSummary(ctx, exec, StatsSummaryParams{ProfileID: profileID, FromTime: &windowStart24H, ToTime: &generatedAt, GroupBy: &apiFamilyGroupBy})
+	apiFamilySummary, err := GetStatsSummary(ctx, exec, StatsSummaryParams{ProfileID: profileID, FromTime: &windowStart24H, ToTime: &generatedAt, Preset: "custom", ReferenceNow: generatedAt, Scope: ScopeIngress, GroupBy: &apiFamilyGroupBy})
 	if err != nil {
 		return DashboardAggregateSnapshot{}, err
 	}
-	spendingSummary, err := GetSpending(ctx, exec, SpendingParams{ProfileID: profileID, Preset: "last_30_days", ToTime: &generatedAt, GroupBy: "none", Limit: 50, Offset: 0, TopN: 5, ReferenceNow: generatedAt})
+	spendingSummary, err := GetSpending(ctx, exec, SpendingParams{ProfileID: profileID, Preset: "last_30_days", ToTime: &generatedAt, GroupBy: GroupNone, Limit: 50, Offset: 0, TopN: 5, ReferenceNow: generatedAt, Scope: ScopeFinal})
 	if err != nil {
 		return DashboardAggregateSnapshot{}, err
 	}
-	throughput, err := GetDashboardThroughput(ctx, exec, ThroughputParams{ProfileID: profileID, FromTime: &windowStart24H, ToTime: &generatedAt})
+	throughput, err := GetDashboardThroughput(ctx, exec, ThroughputParams{ProfileID: profileID, FromTime: &windowStart24H, ToTime: &generatedAt, Preset: "custom", ReferenceNow: generatedAt, Scope: ScopeIngress})
 	if err != nil {
 		return DashboardAggregateSnapshot{}, err
 	}

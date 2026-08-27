@@ -64,8 +64,20 @@ export const observeSearchSchema = z.object({
   // main-chart view; output_rate and cache_read_share are first-class members,
   // not modifiers of the five original metrics.
   metric: z.enum(OBSERVE_METRICS).catch("requests"),
+  scope: z
+    .enum(["ingress", "final_execution", "route_attempt"])
+    .catch("ingress"),
   group_by: z
-    .enum(["none", "model", "endpoint", "terminal_target"])
+    .enum([
+      "none",
+      "ingress_model",
+      "final_target_model",
+      "attempt_target_model",
+      "attempt_trigger",
+      "attempt_result",
+      "endpoint",
+      "terminal_target",
+    ])
     .catch("none"),
   interval: z
     .enum(["auto", "5m", "15m", "1h", "6h", "1d", "1w", "1mo", "1y"])
@@ -162,11 +174,10 @@ export const requestLogSearchSchema = z.object({
     .number()
     .refine((value) => [100, 300, 500].includes(value))
     .catch(100),
-  model: searchStringSchema.catch(""),
-  model_id: searchStringSchema.catch(""),
+  ingress_model_id: searchStringSchema.catch(""),
   offset: z.coerce.number().int().min(0).catch(0),
   request_id: requestIdSearchSchema,
-  resolved_target_model_id: searchStringSchema.catch(""),
+  attempt_target_model_id: searchStringSchema.catch(""),
   selected_request_id: requestIdSearchSchema,
   status: z.enum(["all", "success", "client_error", "error"]).catch("all"),
   status_code: searchStringSchema.catch(""),
@@ -186,12 +197,13 @@ export const requestLogSearchSchema = z.object({
   // Observe finalized deep-link parameters (§4.3): query_context is required
   // whenever any final_* selector is present; the backend verifies the token.
   query_context: searchStringSchema.catch(""),
+  final_result: searchStringSchema.catch(""),
   ingress_final_result: searchStringSchema.catch(""),
   outcome_detail: searchStringSchema.catch(""),
   final_status_code: searchStringSchema.catch(""),
   final_stream_outcome: searchStringSchema.catch(""),
   final_stream_error_kind: searchStringSchema.catch(""),
-  final_model_id: searchStringSchema.catch(""),
+  final_target_model_id: searchStringSchema.catch(""),
   final_endpoint_id: searchStringSchema.catch(""),
   final_terminal_target_id: searchStringSchema.catch(""),
   final_pricing_status: searchStringSchema.catch(""),
@@ -251,6 +263,9 @@ export const settingsSearchSchema = z.object({
 // a filtered view is a shareable link. `/route/models` previously accepted no
 // parameters, so every key here is additive.
 export const modelsListSearchSchema = z.object({
+  scope: z
+    .enum(["ingress", "final_execution", "route_attempt"])
+    .optional(),
   search: z.string().optional(),
   api_family: z.enum(["all", "openai", "anthropic", "gemini"]).optional(),
   status: z.enum(["all", "enabled", "disabled"]).optional(),

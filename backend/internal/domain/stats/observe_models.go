@@ -47,6 +47,9 @@ type DashboardNowResult struct {
 	Health            DashboardNowHealth  `json:"health"`
 	Rolling           DashboardNowRolling `json:"rolling"`
 	EnabledModelCount int                 `json:"enabled_model_count"`
+	Caliber           ScopeCaliber        `json:"caliber"`
+	DatasetCoverage   DatasetCoverage     `json:"dataset_coverage"`
+	Samples           ScopeSampleCounts   `json:"samples"`
 }
 
 type DashboardNowHealth struct {
@@ -73,18 +76,18 @@ func LoadDashboardNow(ctx context.Context, exec queryExecutor, profileID int, re
 	}
 	from := referenceNow.UTC().Add(-time.Duration(rollingMinutes) * time.Minute)
 	to := referenceNow.UTC()
+	bounds, coverage, err := ResolveDatasetCoverage(ctx, exec, "usage_request_events", "custom", &from, &to, referenceNow)
+	if err != nil {
+		return DashboardNowResult{}, err
+	}
+	from, to = bounds.UsageFrom, bounds.UsageTo
 	result := DashboardNowResult{
-		GeneratedAt: referenceNow.UTC(),
+		GeneratedAt:     referenceNow.UTC(),
+		Caliber:         CaliberForScope(ScopeIngress),
+		DatasetCoverage: DatasetCoverage{UsageRequestEvents: &coverage},
 		Rolling: DashboardNowRolling{
 			WindowMinutes: rollingMinutes,
-			Coverage: Coverage{
-				RequestedPreset: "rolling",
-				FromTime:        from,
-				ToTime:          to,
-				Source:          "raw",
-				Complete:        true,
-				Precision:       &CoveragePrecision{TTFT: "exact", OutputRate: "exact"},
-			},
+			Coverage:      coverage,
 		},
 	}
 	var tokenCount *int64
@@ -108,6 +111,7 @@ WHERE profile_id = $1 AND created_at >= $2 AND created_at < $3`,
 		result.Rolling.TPM = &value
 	}
 	result.Rolling.TokenCoverageComplete = result.Rolling.TokenSampleCount == result.Rolling.RequestCount
+	result.Samples = ScopeSampleCounts{ObservationCount: result.Rolling.RequestCount, CostMissingCount: result.Rolling.RequestCount}
 	if err := exec.QueryRow(ctx, `SELECT COUNT(*) FROM model_configs WHERE profile_id = $1 AND is_enabled = TRUE`, profileID).Scan(&result.EnabledModelCount); err != nil {
 		return result, fmt.Errorf("load enabled model count for profile %d: %w", profileID, err)
 	}

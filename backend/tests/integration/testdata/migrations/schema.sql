@@ -766,6 +766,8 @@ CREATE INDEX idx_request_logs_ingress_request_id ON ONLY public.request_logs USI
 CREATE INDEX idx_request_logs_pricing_status ON ONLY public.request_logs USING btree (profile_id, pricing_status, created_at DESC);
 CREATE INDEX idx_request_logs_profile_created_totals ON ONLY public.request_logs USING btree (profile_id, created_at, id) INCLUDE (ingress_request_id, row_kind);
 CREATE INDEX idx_request_logs_reporting_currency_epoch ON ONLY public.request_logs USING btree (profile_id, reporting_currency_epoch, created_at DESC);
+CREATE INDEX idx_request_logs_resolved_target_created ON ONLY public.request_logs USING btree (profile_id, resolved_target_model_id, created_at, id) WHERE (((row_kind)::text = 'upstream'::text) AND (resolved_target_model_id IS NOT NULL));
+CREATE INDEX idx_request_logs_terminal_target_actual ON ONLY public.request_logs USING btree (profile_id, connection_id, resolved_target_model_id, created_at) WHERE (((row_kind)::text = 'upstream'::text) AND (connection_id > 0));
 CREATE INDEX idx_request_logs_unpriced_reason ON ONLY public.request_logs USING btree (profile_id, unpriced_reason, created_at DESC) WHERE ((pricing_status)::text = 'unpriced'::text);
 CREATE INDEX idx_routing_connection_runtime_leases_expires_at ON public.routing_connection_runtime_leases USING btree (expires_at);
 CREATE INDEX idx_routing_connection_runtime_leases_profile_connection ON public.routing_connection_runtime_leases USING btree (profile_id, connection_id);
@@ -778,6 +780,8 @@ CREATE INDEX idx_usage_request_events_pricing_status ON ONLY public.usage_reques
 CREATE INDEX idx_usage_request_events_profile_created_at ON ONLY public.usage_request_events USING btree (profile_id, created_at);
 CREATE INDEX idx_usage_request_events_profile_ingress_id ON ONLY public.usage_request_events USING btree (profile_id, ingress_request_id, id);
 CREATE INDEX idx_usage_request_events_reporting_currency_epoch ON ONLY public.usage_request_events USING btree (profile_id, reporting_currency_epoch, created_at DESC);
+CREATE INDEX idx_usage_request_events_resolved_target_created ON ONLY public.usage_request_events USING btree (profile_id, resolved_target_model_id, created_at, id) WHERE (resolved_target_model_id IS NOT NULL);
+CREATE INDEX idx_usage_request_events_terminal_target_final ON ONLY public.usage_request_events USING btree (profile_id, connection_id, resolved_target_model_id, created_at) WHERE ((connection_id > 0) AND (final_attempt_number IS NOT NULL));
 CREATE INDEX idx_usage_request_events_unpriced_reason ON ONLY public.usage_request_events USING btree (profile_id, unpriced_reason, created_at DESC) WHERE ((pricing_status)::text = 'unpriced'::text);
 CREATE INDEX ix_audit_logs_connection_id ON ONLY public.audit_logs USING btree (connection_id);
 CREATE INDEX ix_audit_logs_created_at ON ONLY public.audit_logs USING btree (created_at);

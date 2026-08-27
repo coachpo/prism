@@ -156,7 +156,13 @@ function nowFixture() {
   };
 }
 
-async function mockObserveRoutes(page: Page) {
+type ObserveReadLog = {
+  queryScopes: string[];
+  seriesQueries: Array<{ groupBy: string | null; queryContext: string | null }>;
+  errorQueries: Array<{ groupBy: string | null; queryContext: string | null }>;
+};
+
+async function mockObserveRoutes(page: Page, reads?: ObserveReadLog) {
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
     const { pathname } = url;
@@ -193,8 +199,11 @@ async function mockObserveRoutes(page: Page) {
       return fulfillJson({ timezone_preference: "UTC" });
     }
     if (pathname === "/api/stats/query-context") {
+      const scope = url.searchParams.get("scope") ?? "ingress";
+      reads?.queryScopes.push(scope);
       return fulfillJson({
-        query_context: "signed-token",
+        query_context:
+          scope === "ingress" ? "signed-token" : `signed-token-${scope}`,
         requested_bounds: {
           from_time: "2026-08-08T00:00:00Z",
           to_time: "2026-08-09T00:00:00Z",
@@ -226,6 +235,10 @@ async function mockObserveRoutes(page: Page) {
       return fulfillJson(summaryFixture());
     }
     if (pathname === "/api/stats/usage-series") {
+      reads?.seriesQueries.push({
+        groupBy: url.searchParams.get("group_by"),
+        queryContext: url.searchParams.get("query_context"),
+      });
       return fulfillJson(seriesFixture());
     }
     if (pathname === "/api/stats/dashboard/now") {
@@ -247,10 +260,10 @@ async function mockObserveRoutes(page: Page) {
             usage_event_id: "1",
             final_ingress_request_id: "ingress-1",
             created_at: "2026-08-09T00:00:00Z",
-            model_id: "facade",
-            model_label: "facade",
-            resolved_target_model_id: "actual",
-            resolved_target_model_label: "actual",
+            ingress_model_id: "facade",
+            ingress_model_label: "facade",
+            final_target_model_id: "actual",
+            final_target_model_label: "actual",
             route_changed: true,
             attempt_count: 2,
             routing_evidence_complete: true,
@@ -278,10 +291,10 @@ async function mockObserveRoutes(page: Page) {
             usage_event_id: "2",
             final_ingress_request_id: "ingress-2",
             created_at: "2026-08-08T23:59:00Z",
-            model_id: "direct",
-            model_label: "direct",
-            resolved_target_model_id: null,
-            resolved_target_model_label: null,
+            ingress_model_id: "direct",
+            ingress_model_label: "direct",
+            final_target_model_id: null,
+            final_target_model_label: null,
             route_changed: false,
             attempt_count: 1,
             routing_evidence_complete: true,
@@ -311,6 +324,10 @@ async function mockObserveRoutes(page: Page) {
     }
 
     if (pathname === "/api/stats/usage-errors") {
+      reads?.errorQueries.push({
+        groupBy: url.searchParams.get("group_by"),
+        queryContext: url.searchParams.get("query_context"),
+      });
       return fulfillJson({
         generated_at: "2026-08-09T00:00:00Z",
         coverage: {
@@ -322,8 +339,13 @@ async function mockObserveRoutes(page: Page) {
           gaps: [],
         },
         requests_context: {
-          view: "ingress_chains",
-          query_context: "signed-token",
+          view: url.searchParams
+            .get("query_context")
+            ?.endsWith("route_attempt")
+            ? "attempts"
+            : "ingress_chains",
+          query_context:
+            url.searchParams.get("query_context") ?? "signed-token",
           final_from_time: "2026-08-08T00:00:00Z",
           final_to_time: "2026-08-09T00:00:00Z",
           base_request_filters: {},
@@ -468,7 +490,7 @@ test.describe("observe page regression", () => {
     await expect(page.getByTestId("observe-main-chart")).toBeVisible();
     await expect(page.getByTestId("window-kpi-grid")).toHaveCount(1);
     await expect(page.getByText(/TTFT P95/).first()).toBeVisible();
-    await expect(page.getByText(/98\.8%/)).toBeVisible();
+    await expect(page.getByText(/97\.9%/)).toBeVisible();
 
     // The pricing enum never reaches the screen: four Chinese segments instead.
     await expect(page.getByTestId("pricing-breakdown")).toContainText("已计价");
@@ -489,7 +511,12 @@ test.describe("observe page regression", () => {
   test("switches metric and group on the single main chart via URL state", async ({
     page,
   }) => {
-    await mockObserveRoutes(page);
+    const reads: ObserveReadLog = {
+      queryScopes: [],
+      seriesQueries: [],
+      errorQueries: [],
+    };
+    await mockObserveRoutes(page, reads);
     // The legacy `analytics` name still resolves; both old tabs showed the chart.
     await page.goto("/observe?tab=analytics");
 
@@ -508,8 +535,37 @@ test.describe("observe page regression", () => {
     await page.getByRole("tab", { name: "趋势" }).click();
     await page.getByRole("radio", { name: "TTFT" }).click();
     await expect(page).toHaveURL(/metric=ttft/);
-    await page.getByRole("radio", { name: "按模型" }).click();
-    await expect(page).toHaveURL(/group_by=model/);
+    await page.getByRole("radio", { name: "按入口模型" }).click();
+    await expect(page).toHaveURL(/group_by=ingress_model/);
+
+    await page.getByRole("radio", { name: "最终承载" }).click();
+    await expect(page).toHaveURL(/scope=final_execution/);
+    await expect(page).toHaveURL(/group_by=none/);
+    await page.getByRole("radio", { name: "按最终目标模型" }).click();
+    await expect(page).toHaveURL(/group_by=final_target_model/);
+    await expect
+      .poll(() =>
+        reads.seriesQueries.some(
+          (query) =>
+            query.groupBy === "final_target_model" &&
+            query.queryContext === "signed-token-final_execution",
+        ),
+      )
+      .toBe(true);
+
+    await page.getByRole("button", { name: /使用同一口径查看错误/ }).click();
+    await expect(page.getByTestId("observe-error-panel")).toBeVisible();
+    await expect(page.getByRole("radio", { name: "最终承载" })).toBeChecked();
+    await expect
+      .poll(() =>
+        reads.errorQueries.some(
+          (query) =>
+            query.groupBy === "final_target_model" &&
+            query.queryContext === "signed-token-final_execution",
+        ),
+      )
+      .toBe(true);
+    await page.getByRole("tab", { name: "趋势" }).click();
 
     // These controls write to the URL, but they are in-page state changes, not
     // navigations. The router's default scroll reset would throw the operator
@@ -547,6 +603,53 @@ test.describe("observe page regression", () => {
     await expect(page.getByTestId("routing-health-page")).toBeVisible();
     await expect(page.getByText("负载均衡事件", { exact: true })).toBeVisible();
   });
+
+  test("route-attempt trend and errors share context and open attempt logs", async ({
+    page,
+  }) => {
+    const reads: ObserveReadLog = {
+      queryScopes: [],
+      seriesQueries: [],
+      errorQueries: [],
+    };
+    await mockObserveRoutes(page, reads);
+    await page.goto(
+      "/observe?scope=route_attempt&group_by=attempt_target_model",
+    );
+
+    await expect(page.getByRole("radio", { name: "路由尝试" })).toBeChecked();
+    await expect
+      .poll(() => reads.queryScopes.includes("route_attempt"))
+      .toBe(true);
+    await expect(
+      page.getByRole("radio", { name: "按尝试目标模型" }),
+    ).toBeChecked();
+    await expect
+      .poll(() =>
+        reads.seriesQueries.some(
+          (query) =>
+            query.groupBy === "attempt_target_model" &&
+            query.queryContext === "signed-token-route_attempt",
+        ),
+      )
+      .toBe(true);
+
+    await page.getByRole("tab", { name: "错误" }).click();
+    await expect(page.getByTestId("observe-error-panel")).toBeVisible();
+    await expect
+      .poll(() =>
+        reads.errorQueries.some(
+          (query) =>
+            query.groupBy === "attempt_target_model" &&
+            query.queryContext === "signed-token-route_attempt",
+        ),
+      )
+      .toBe(true);
+    await page.getByTestId("error-status-503").click();
+    await expect(
+      page.getByRole("link", { name: "在请求日志中查看全部" }),
+    ).toHaveAttribute("href", /view=attempts/);
+  });
 });
 
 test("observe JSON export v2 carries coverage, freshness and fragment completeness", async ({
@@ -575,11 +678,12 @@ test("observe JSON export v2 carries coverage, freshness and fragment completene
   expect(payload.freshness.exported_at).toBeTruthy();
 });
 
-test("terminal target drill-down lazily loads on endpoint expansion and isolates 503", async ({
+test("terminal target drill-down lazily reloads distinct final and attempt scopes", async ({
   page,
 }) => {
   await mockObserveRoutes(page);
   let terminalTargetRequests = 0;
+  const terminalTargetScopes: string[] = [];
   await page.route("**/api/endpoints", (route) =>
     route.fulfill({
       status: 200,
@@ -598,6 +702,10 @@ test("terminal target drill-down lazily loads on endpoint expansion and isolates
   );
   await page.route("**/api/stats/endpoints/7/terminal-targets*", (route) => {
     terminalTargetRequests += 1;
+    const scope =
+      new URL(route.request().url()).searchParams.get("scope") ??
+      "final_execution";
+    terminalTargetScopes.push(scope);
     return route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -606,16 +714,17 @@ test("terminal target drill-down lazily loads on endpoint expansion and isolates
           {
             connection_id: 17,
             connection_label: "OpenRouter Primary",
-            request_count: 25,
+            request_count: scope === "route_attempt" ? 31 : 25,
             http_success_count: 20,
             http_failed_count: 5,
             final_failed_count: 3,
             client_disconnected_count: 1,
-            p50_ttft_ms: 120,
-            p95_ttft_ms: 480,
+            p50_latency_ms: 120,
+            p95_latency_ms: 480,
             avg_output_rate_tps: 12.5,
             total_tokens: 5000,
-            total_cost_micros: 9300,
+            known_cost_micros:
+              scope === "route_attempt" ? null : 9300,
             pricing_status_counts: {
               priced: 18,
               unpriced: 2,
@@ -648,6 +757,9 @@ test("terminal target drill-down lazily loads on endpoint expansion and isolates
           gaps: [],
         },
         generated_at: "2026-08-09T00:00:00Z",
+        scope,
+        caliber: { scope },
+        dataset_coverage: {},
       }),
     });
   });
@@ -660,9 +772,24 @@ test("terminal target drill-down lazily loads on endpoint expansion and isolates
   await page.getByTestId("tt-endpoint-7").click();
   await expect(page.getByTestId("tt-row-17")).toBeVisible();
   expect(terminalTargetRequests).toBe(1);
+  expect(terminalTargetScopes).toEqual(["final_execution"]);
   await expect(page.getByTestId("tt-row-17")).toContainText(
     "OpenRouter Primary",
   );
+  await expect(page.getByTestId("tt-row-17")).toContainText("最终请求: 25");
+  await expect(page.getByTestId("tt-row-17")).toContainText("$0.0093");
   await expect(page.getByTestId("tt-row-17")).toContainText("最终失败 3");
   await expect(page.getByTestId("tt-row-17")).toContainText("封禁事件 2");
+
+  await page.getByRole("tab", { name: "路由尝试" }).click();
+  await expect.poll(() => terminalTargetScopes).toEqual([
+    "final_execution",
+    "route_attempt",
+  ]);
+  await expect(page.getByTestId("tt-row-17")).toContainText("尝试: 31");
+  await expect(
+    page.getByTitle(
+      "路由尝试口径不声明成本；失败尝试是否产生上游费用未知。",
+    ),
+  ).toBeVisible();
 });

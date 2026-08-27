@@ -28,10 +28,10 @@ function listResponse(total: number) {
     has_more: false,
     coverage: { complete: true },
     filter_options: {
-      models: [],
+      ingress_models: [],
       endpoints: [],
       clients: [],
-      resolved_target_models: [],
+      attempt_target_models: [],
     },
   };
 }

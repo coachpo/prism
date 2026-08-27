@@ -43,13 +43,14 @@ function parseOptionalStatusCode(value: string): number | undefined {
 // their retained rows in order; the page uses request_log_id as the key.
 function flattenChainItems(response: ChainResponse): RequestLogListItem[] {
   const rows: RequestLogListItem[] = [];
+  const copy = getStaticMessages().requestLogs;
   for (const chain of response.items) {
     for (const row of chain.retained_rows) {
-      // Chain rows carry model_id only; when the source row also carries
+      // Chain rows carry explicit ingress/attempt target ids; when a source row also carries
       // display labels (fixtures/tests) keep them.
       const withLabels = row as RequestLogChainRow & {
         model_label?: string;
-        resolved_target_model_label?: string | null;
+        attempt_target_model_label?: string | null;
         api_family?: string;
         output_tokens?: number | null;
         ttft_ms?: number | null;
@@ -66,12 +67,12 @@ function flattenChainItems(response: ChainResponse): RequestLogListItem[] {
         attempt_result: row.attempt_result,
         is_winner: row.is_winner,
         created_at: row.created_at,
-        model_id: row.model_id,
-        model_label: withLabels.model_label ?? row.model_id,
-        resolved_target_model_id: row.resolved_target_model_id,
-        resolved_target_model_label:
-          withLabels.resolved_target_model_label ??
-          row.resolved_target_model_id,
+        ingress_model_id: row.ingress_model_id,
+        model_label: withLabels.model_label ?? row.ingress_model_id,
+        attempt_target_model_id: row.attempt_target_model_id,
+        attempt_target_model_label:
+          withLabels.attempt_target_model_label ??
+          row.attempt_target_model_id,
         caller_client_display: null,
         upstream_client_display: null,
         user_agent_overridden: false,
@@ -80,8 +81,10 @@ function flattenChainItems(response: ChainResponse): RequestLogListItem[] {
           "openai",
         endpoint_id: row.endpoint_id,
         endpoint_label:
-          row.terminal_target_label ??
-          `Terminal Target #${row.terminal_target_id ?? "?"}`,
+          row.endpoint_label ??
+          (row.endpoint_id === null
+            ? copy.actualEndpointMissing
+            : copy.endpointId(row.endpoint_id)),
         terminal_target_id: row.terminal_target_id,
         terminal_target_label: row.terminal_target_label,
         terminal_target_configured: row.terminal_target_configured,
@@ -260,15 +263,28 @@ export function useRequestLogsPageData({
         state.from_time && state.to_time ? "custom" : state.time_range,
       ingress_final_result: state.ingress_final_result || undefined,
       confirmed_failover: state.confirmed_failover ? "true" : undefined,
+      query_context: state.query_context || undefined,
+      final_result:
+        (state.final_result as StatsRequestParams["final_result"]) || undefined,
+      final_target_model_id: state.final_target_model_id || undefined,
+      final_endpoint_id: state.final_endpoint_id
+        ? parseInt(state.final_endpoint_id, 10)
+        : undefined,
+      final_terminal_target_id: state.final_terminal_target_id
+        ? parseInt(state.final_terminal_target_id, 10)
+        : undefined,
+      final_pricing_status:
+        (state.final_pricing_status as StatsRequestParams["final_pricing_status"]) || undefined,
+      final_unpriced_reason: state.final_unpriced_reason || undefined,
       ingress_request_id: state.ingress_request_id || undefined,
-      model_id: state.model_id || undefined,
+      ingress_model_id: state.model_id || undefined,
       proxy_api_key_id: state.proxy_api_key_id
         ? parseInt(state.proxy_api_key_id, 10)
         : undefined,
       client_rule_id: state.client_rule_id
         ? parseInt(state.client_rule_id, 10)
         : undefined,
-      resolved_target_model_id: state.resolved_target_model_id || undefined,
+      attempt_target_model_id: state.resolved_target_model_id || undefined,
       status_family:
         state.status_family === "all" ? undefined : state.status_family,
       status_code: parseOptionalStatusCode(state.status_code),
@@ -397,10 +413,10 @@ export function useRequestLogsPageData({
             const options = chain.filter_options;
             setFilterOptions((prev) => ({
               ...prev,
-              models: options.models,
+              models: options.ingress_models,
               endpoints: options.endpoints,
               clients: options.clients,
-              resolved_target_models: options.resolved_target_models,
+              resolved_target_models: options.attempt_target_models,
             }));
           }
         } else {
@@ -417,10 +433,10 @@ export function useRequestLogsPageData({
           chainQueryParamsRef.current = null;
           setFilterOptions((prev) => ({
             ...prev,
-            models: list.filter_options.models,
+            models: list.filter_options.ingress_models,
             endpoints: list.filter_options.endpoints,
             clients: list.filter_options.clients,
-            resolved_target_models: list.filter_options.resolved_target_models,
+            resolved_target_models: list.filter_options.attempt_target_models,
           }));
         }
 
@@ -465,6 +481,13 @@ export function useRequestLogsPageData({
   }, [
     state.ingress_final_result,
     state.confirmed_failover,
+    state.query_context,
+    state.final_result,
+    state.final_target_model_id,
+    state.final_endpoint_id,
+    state.final_terminal_target_id,
+    state.final_pricing_status,
+    state.final_unpriced_reason,
     state.ingress_request_id,
     state.model_id,
     state.proxy_api_key_id,

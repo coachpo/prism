@@ -18,6 +18,7 @@ import type { QueryContextResponse, UsageSummaryResponse, DashboardNowResponse, 
 export function ObserveExportButton({
   preset,
   metric,
+  scope,
   groupBy,
   interval,
   queryContextFragment,
@@ -28,6 +29,7 @@ export function ObserveExportButton({
 }: {
   preset: string;
   metric: string;
+  scope: string;
   groupBy: string;
   interval: string;
   queryContextFragment: FragmentState<QueryContextResponse>;
@@ -50,6 +52,7 @@ export function ObserveExportButton({
         tab: "current",
         preset,
         metric,
+        scope,
         group_by: groupBy,
         interval,
         cost_segment_key: costSegmentKey ?? null,
@@ -93,7 +96,7 @@ export function ObserveExportButton({
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
-  }, [preset, metric, groupBy, interval, costSegmentKey, queryContextFragment, summaryFragment, nowFragment, seriesFragment]);
+  }, [preset, metric, scope, groupBy, interval, costSegmentKey, queryContextFragment, summaryFragment, nowFragment, seriesFragment]);
 
   return (
     <Button

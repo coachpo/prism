@@ -174,6 +174,9 @@ func appendChainFinalizedCohortExists(query string, args *[]any, params ChainQue
 	if params.ConfirmedFailover != nil {
 		add(*params.ConfirmedFailover, "final_rows.failover_occurred = $%d")
 	}
+	if params.FinalTargetModelID != nil && strings.TrimSpace(*params.FinalTargetModelID) != "" {
+		add(strings.TrimSpace(*params.FinalTargetModelID), "final_rows.resolved_target_model_id = $%d")
+	}
 	if params.PricingStatus != nil {
 		add(*params.PricingStatus, "final_rows.pricing_status = $%d")
 	}

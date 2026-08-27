@@ -29,6 +29,7 @@ import { formatMoneyMicros } from "@/lib/costing"
 import { cn, formatApiFamily } from "@/lib/utils"
 import {
   OperatorEmptyState,
+  OperatorClippedBadge,
   OperatorMissingValue,
   OperatorStalenessBadge,
   OperatorStatusBadge,
@@ -45,6 +46,7 @@ import {
 } from "@/shared/table/operationalTable"
 import { formatLatencyForDisplay } from "@/pages/model-detail/modelDetailMetricsAndPaths"
 import type { ModelDerivedMetric } from "@/pages/models/modelTableContracts"
+import type { ObservabilityScope } from "@/lib/types/model-stats"
 import { isSingleTruncated } from "./modelRoutingFlags"
 
 const MODEL_PAGE_SIZES = [25, 50, 100] as const
@@ -62,6 +64,7 @@ export type ModelSortColumn =
   | "spend"
 
 type Props = {
+  scope: ObservabilityScope
   filtered: ManagedModelConfigListItem[]
   metricsFailed: boolean
   metricsLoading: boolean
@@ -174,11 +177,13 @@ function MetricHead({
 function MetricValue({
   failed,
   loading,
+  partialReason,
   render,
   value,
 }: {
   failed: boolean
   loading: boolean
+  partialReason?: string
   render: (value: number) => string
   value: number | null | undefined
 }) {
@@ -194,10 +199,21 @@ function MetricValue({
     )
   }
   if (value == null) return <OperatorMissingValue className="text-xs" />
-  return <span className="font-mono text-xs tabular-nums">{render(value)}</span>
+  return (
+    <span className="inline-flex flex-col items-end gap-0.5">
+      <span className="font-mono text-xs tabular-nums">{render(value)}</span>
+      {partialReason ? (
+        <OperatorClippedBadge
+          label={copy.metricsPartial}
+          reason={partialReason}
+        />
+      ) : null}
+    </span>
+  )
 }
 
 export function ModelsTable({
+  scope,
   filtered,
   metricsFailed,
   metricsLoading,
@@ -324,8 +340,8 @@ export function ModelsTable({
               <SortHead column="targets" label={copy.columnTargets} onSort={updateSort} sort={sort} />
               <SortHead column="strategy" label={copy.columnStrategy} onSort={updateSort} sort={sort} />
               <MetricHead
-                basis={copy.successBasis}
-                label={copy.columnSuccess}
+                basis={copy.scopeSuccessBasis(scope)}
+                label={copy.scopeSuccessColumn(scope)}
                 onSort={updateSort}
                 sort={sort}
                 sortKey="success"
@@ -333,8 +349,8 @@ export function ModelsTable({
                 window={copy.window24h}
               />
               <MetricHead
-                basis={copy.p95Basis}
-                label={copy.columnP95}
+                basis={copy.scopeP95Basis(scope)}
+                label={copy.scopeP95Column(scope)}
                 onSort={updateSort}
                 sort={sort}
                 sortKey="p95"
@@ -342,8 +358,8 @@ export function ModelsTable({
                 window={copy.window24h}
               />
               <MetricHead
-                basis={copy.requestsBasis}
-                label={copy.columnRequests}
+                basis={copy.scopeRequestsBasis(scope)}
+                label={copy.scopeRequestsColumn(scope)}
                 onSort={updateSort}
                 sort={sort}
                 sortKey="requests"
@@ -351,8 +367,8 @@ export function ModelsTable({
                 window={copy.window24h}
               />
               <MetricHead
-                basis={copy.spendBasis}
-                label={copy.columnSpend}
+                basis={copy.scopeSpendBasis(scope)}
+                label={copy.scopeSpendColumn(scope)}
                 onSort={updateSort}
                 sort={sort}
                 sortKey="spend"
@@ -468,6 +484,14 @@ export function ModelsTable({
                       loading={metricsLoading}
                       render={(value) => formatLatencyForDisplay(value)}
                       value={metrics?.p95_latency_ms}
+                      partialReason={
+                        (metrics?.samples?.latency_missing_count ?? 0) > 0
+                          ? copy.metricPartialSamples(
+                              metrics?.samples?.latency_sample_count ?? 0,
+                              metrics?.samples?.latency_missing_count ?? 0,
+                            )
+                          : undefined
+                      }
                     />
                   </TableCell>
                   <TableCell className="align-top text-right">
@@ -479,12 +503,27 @@ export function ModelsTable({
                     />
                   </TableCell>
                   <TableCell className="align-top text-right">
-                    <MetricValue
-                      failed={metricsFailed}
-                      loading={metricsLoading}
-                      render={(value) => formatMoneyMicros(value, currencyState.currency.symbol, undefined, 2, 6, locale)}
-                      value={spend}
-                    />
+                    {scope === "route_attempt" ? (
+                      <OperatorMissingValue
+                        className="text-xs"
+                        reason={copy.routeAttemptCostUnavailable}
+                      />
+                    ) : (
+                      <MetricValue
+                        failed={metricsFailed}
+                        loading={metricsLoading}
+                        render={(value) => formatMoneyMicros(value, currencyState.currency.symbol, undefined, 2, 6, locale)}
+                        value={spend}
+                        partialReason={
+                          (metrics?.samples?.cost_missing_count ?? 0) > 0
+                            ? copy.metricPartialCost(
+                                metrics?.samples?.cost_sample_count ?? 0,
+                                metrics?.samples?.cost_missing_count ?? 0,
+                              )
+                            : undefined
+                        }
+                      />
+                    )}
                   </TableCell>
                   <TableCell className="align-top text-right">
                     <div className={cn(operationalRowActionsClassName, "gap-1")}>

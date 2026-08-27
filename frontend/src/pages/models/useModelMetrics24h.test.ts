@@ -12,22 +12,57 @@ vi.mock("@/lib/api", () => ({
 
 const models = [{ id: 7, model_id: "gpt-4o-mini" } as ModelConfigListItem];
 
+const block = (
+  scope: "ingress" | "final_execution" | "route_attempt",
+  overrides: Record<string, unknown> = {},
+) => ({
+  request_count: 12,
+  success_rate: 99.5,
+  p95_latency_ms: 340,
+  known_cost_micros: scope === "route_attempt" ? null : 5_000,
+  caliber: {
+    scope,
+    grain: scope,
+    identity_basis: scope,
+    outcome_basis: scope === "route_attempt" ? "attempt" : "finalized_ingress",
+    latency_basis: "attempt_duration",
+    cost_basis: scope === "route_attempt" ? "none" : "trusted_served_final",
+    datasets: [],
+  },
+  samples: {
+    observation_count: 12,
+    latency_sample_count: 12,
+    latency_missing_count: 0,
+    cost_sample_count: scope === "route_attempt" ? 0 : 12,
+    cost_missing_count: scope === "route_attempt" ? 12 : 0,
+  },
+  ...overrides,
+});
+
+const response = () => ({
+  items: [{
+    model_id: "gpt-4o-mini",
+    ingress: block("ingress"),
+    final_execution: block("final_execution", { request_count: 9 }),
+    route_attempt: block("route_attempt", { request_count: 18 }),
+  }],
+  coverage: { quality: {}, spending: {} },
+});
+
 describe("model telemetry data truth", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it("reports a failed read as a failure and keeps the last successful values", async () => {
-    mocks.modelMetrics.mockResolvedValueOnce({
-      items: [{ model_id: "gpt-4o-mini", success_rate: 99.5, request_count_24h: 12, p95_latency_ms: 340, spend_30d_micros: 5_000 }],
-    });
+    mocks.modelMetrics.mockResolvedValueOnce(response());
 
     const { rerender, result } = renderHook(({ list }) => useModelMetrics24h(list), {
       initialProps: { list: models },
     });
 
     await waitFor(() => {
-      expect(result.current.modelMetrics24h[7]?.success_rate).toBe(99.5);
+      expect(result.current.modelMetricsByScope[7]?.ingress.success_rate).toBe(99.5);
     });
     expect(result.current.metricsFailed).toBe(false);
 
@@ -39,25 +74,37 @@ describe("model telemetry data truth", () => {
     await waitFor(() => {
       expect(result.current.metricsFailed).toBe(true);
     });
-    expect(result.current.modelMetrics24h[7]?.success_rate).toBe(99.5);
-    expect(result.current.modelSpend30dMicros[7]).toBe(5_000);
+    expect(result.current.modelMetricsByScope[7]?.ingress.success_rate).toBe(99.5);
+    expect(result.current.modelMetricsByScope[7]?.final_execution.request_count_24h).toBe(9);
+    expect(result.current.modelMetricsByScope[7]?.route_attempt.known_cost_micros).toBeNull();
   });
 
   it("reports genuinely absent metrics as null rather than zero", async () => {
-    mocks.modelMetrics.mockResolvedValueOnce({ items: [] });
+    mocks.modelMetrics.mockResolvedValueOnce({ items: [], coverage: { quality: {}, spending: {} } });
 
     const { result } = renderHook(() => useModelMetrics24h(models));
 
     await waitFor(() => {
       expect(result.current.metricsLoading).toBe(false);
     });
-    expect(result.current.modelMetrics24h[7]).toEqual({
+    expect(result.current.modelMetricsByScope[7]?.ingress).toEqual({
       success_rate: null,
       request_count_24h: null,
       p95_latency_ms: null,
+      known_cost_micros: null,
+      caliber: null,
+      samples: null,
     });
-    expect(result.current.modelSpend30dMicros[7]).toBeNull();
     expect(result.current.metricsFailed).toBe(false);
+  });
+
+  it("loads all three scopes in one request and never asks for a scope-specific refetch", async () => {
+    mocks.modelMetrics.mockResolvedValueOnce(response());
+    const { result } = renderHook(() => useModelMetrics24h(models));
+    await waitFor(() => expect(result.current.metricsLoading).toBe(false));
+    expect(mocks.modelMetrics).toHaveBeenCalledTimes(1);
+    expect(mocks.modelMetrics.mock.calls[0]?.[0]).not.toHaveProperty("scope");
+    expect(result.current.modelMetricsByScope[7]?.route_attempt.request_count_24h).toBe(18);
   });
 });
 

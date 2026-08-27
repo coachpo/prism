@@ -73,7 +73,7 @@ Single operator (developer/power user) running the application locally or on a l
 
 - **Endpoints** are profile-scoped credential objects containing a name, base URL, and API key.
 - **Models** carry fixed `api_family` metadata.
-- **Terminal Targets** are profile-scoped model routing, costing, and health configurations that reference endpoints in the same profile. They can also carry per-target custom HTTP headers, an optional static JSON request-body parameter overlay, and an optional routing schedule that limits which parts of the week the target may be selected (see §4.12, §4.13, and §4.17).
+- **Terminal Targets** are profile-scoped model routing, costing, and health configurations that reference endpoints in the same profile. They can also carry per-target custom HTTP headers, an optional static JSON request-body parameter overlay, and an optional routing schedule that limits which parts of the week the target may be selected (see §4.12, §4.13, and §4.18).
 - Endpoints can be reused across multiple models within the same profile; each Terminal Target keeps its own header and request-parameter configuration.
 - Deleting an endpoint is blocked if any Terminal Targets in that profile still reference it.
 
@@ -255,15 +255,26 @@ Allow operators to attach an optional static top-level JSON object (`custom_requ
 - This is plaintext, non-secret configuration: the management API echoes it, and enabling request-body audit capture stores the final merged upstream body (which includes the injected parameters); validation errors and logs never echo the configured values
 - Prism does not guess vendors, download provider catalogs, or verify provider slugs; whether an upstream accepts or honors a parameter is the operator's and upstream's responsibility (for example OpenRouter `provider.only` / `provider.order` / `allow_fallbacks`)
 
-### 4.14 Supported API Families
+### 4.14 Three-Scope Observability
+
+- Every metric declares one scope: `ingress` counts each finalized ingress once by its requested model; `final_execution` counts requests with a final execution owner by the resolved leaf model and actual winning Terminal Target; `route_attempt` counts each real upstream attempt by its attempt target and actual Terminal Target.
+- Ingress and final-execution cost are non-additive projections of the same served-final fact. Canonical sums include only `priced` plus `trusted` evidence. Route-attempt aggregates make no cost claim, and the UI distinguishes trusted zero from no trusted sample.
+- Final-execution latency joins the finalized usage event to its retained `final_attempt_number` and uses that row's `attempt_duration_ms`. Missing request-log evidence reduces the latency sample count without removing the finalized request or filling a zero.
+- Public statistics responses expose scope-specific caliber, dataset coverage, and observation/latency/cost sample and missing counts. Ambiguous legacy model keys and invalid scope/group/filter combinations fail with typed `422` errors.
+- Models switches among entry, final-execution, and route-attempt metrics without coupling configuration mutations to metric availability. Model Detail exposes the model's entry and final-execution roles separately.
+- Observe shares the selected scope between Trend and Errors, keeps Activity explicitly ingress-scoped, and gives Terminal Targets separate final-execution and route-attempt views.
+- Requests keeps ingress chains as the default investigation unit. A parent row separates ingress model, final target model, and actual exit; expanded rows expose each attempt target, actual Terminal Target, trigger, result, duration, tokens, and any known per-row cost. The planned Terminal Target remains distinct from actual execution.
+- The additive resolved-target indexes are introduced by `000026_resolved_target_indexes.sql`; existing retained history is not rewritten, and non-positive historical identities project as unattributed.
+
+### 4.15 Supported API Families
 
 - The application exclusively supports the shipped OpenAI, Anthropic, and Gemini `api_family` values
 
-### 4.15 Configurable Header Blocklist
+### 4.16 Configurable Header Blocklist
 
 Database-backed header blocklist with CRUD API. Supports exact and prefix match types. System defaults for Cloudflare tunnel metadata, tracing headers, and standard proxy headers. Applied by the Go runtime on every request.
 
-### 4.16 Frozen Profile Scope
+### 4.17 Frozen Profile Scope
 
 - Prism preserves the `profiles` table and all `profile_id` storage columns for historical attribution and a future unfreeze path.
 - Profile-scoped management APIs are pinned to Default profile id `1`; `X-Profile-Id` is accepted for compatibility and ignored.
@@ -272,7 +283,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 - Runtime proxy traffic on `/v1/*` and `/v1beta/*` ignores management profile headers and always resolves against frozen Default profile id `1`; `X-Profile-Id` and profile fields remain compatibility/storage attribution only.
 - Observability rows (`request_logs`, `audit_logs`) carry immutable `profile_id` attribution for historical correctness.
 
-### 4.17 Routing Schedule per Terminal Target
+### 4.18 Routing Schedule per Terminal Target
 
 - A Terminal Target may carry a routing schedule: a set of recurring weekly windows during which it is allowed to be selected. Outside every window it is not a routing candidate at all.
 - Having no schedule means no restriction. Existing Terminal Targets migrated with none, so their routing behaviour is unchanged down to the byte.
@@ -288,7 +299,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 - Static routing diagnostics report the configured windows and whether they cover the week, never whether a window is open at this moment: diagnostics are a pure function of configuration so that one analysis generation always yields one answer. The live open/closed state is delivered separately, computed by the server, and never recomputed by the browser.
 - The model detail target list shows each target's current schedule state, and the state carries the boundary at which it stops being true so a page left open downgrades itself instead of asserting a stale verdict.
 
-### 4.18 Catalog Metadata and Source-Linked Pricing (models.dev)
+### 4.19 Catalog Metadata and Source-Linked Pricing (models.dev)
 
 - Prism can bind each model to one offering of the fixed official models.dev catalog (`https://models.dev/api.json`, MIT License) and show its metadata on the model detail page. Binding happens through a unique exact ID auto-match (committable preview only; ambiguous or missing IDs require an explicit provider + model ID choice) or manual coordinates, and is never re-guessed once bound.
 - The card always distinguishes source values (refreshed only by explicit operator refreshes), per-field manual overrides (never touched by refreshes), and the effective merge. A refresh previews the field-by-field difference first and commits against the exact catalog revision it previewed, so stale data cannot land. Restoring a field writes its override back to null; the source name never changes the model's `display_name`, and none of this metadata participates in routing or runtime behavior.
@@ -296,7 +307,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 - Committing creates or reuses the one source-linked pricing template for that offering with an append-only import revision carrying the catalog revision as evidence, then assigns it atomically to the current or explicitly selected Terminal Targets using the existing double CAS; any conflict rolls the whole transaction back. If the template was hand-edited since, the dialog requires explicit confirmation before overwriting.
 - Catalog fetching is restricted to HTTPS, same-origin redirects, a 10-second timeout, and a 16 MiB budget, revalidates through ETag/304, collapses concurrent fetches, and never runs inside a database transaction. There is no scheduled synchronization: every read of fresh data is an explicit operator action.
 
-### 4.19 Client Model Configuration Export (Pi / OpenCode)
+### 4.20 Client Model Configuration Export (Pi / OpenCode)
 
 - The standalone `/route/models/export` page generates deterministic client configuration for Pi 0.84.3 (`prism-pi-models.json`, Pi `models.json` format) and OpenCode 1.18.23 (`opencode-prism.json`) from Prism-managed model truth, behind management authentication. The operator supplies an HTTP(S) Prism gateway origin and a provider id (default `prism`); the export never substitutes a reachable upstream endpoint URL.
 - The backend returns every model with selection truth, layered metadata/provenance/missing leaves, catalog evidence, normalized current pricing facts, stable metadata/enrichment warning codes, the pinned target version, and a clock-free `source_digest`. First load adopts backend defaults, refresh keeps the still-selectable intersection of a user's selection, and platform switching resets platform-specific selection, enhancements, and generated output. The default-off price-complete filter affects visibility and batch selection only; it never silently deselects a model.

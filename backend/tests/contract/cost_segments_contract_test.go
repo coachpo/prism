@@ -116,7 +116,7 @@ func TestCostSegmentsCatalogue(t *testing.T) {
 		t.Run("symbols "+test.name, func(t *testing.T) {
 			page := s15GET[map[string]any](t, harness, profileID, test.path, http.StatusOK)
 			gotSymbols := page["symbols"].([]any)
-			if len(page) != 5 || page["segment_key"] != test.key || jsonInt(t, page["total"]) != test.total || jsonInt(t, page["limit"]) != test.limit || jsonInt(t, page["offset"]) != test.offset || len(gotSymbols) != len(test.symbols) {
+			if len(page) != 8 || page["segment_key"] != test.key || jsonInt(t, page["total"]) != test.total || jsonInt(t, page["limit"]) != test.limit || jsonInt(t, page["offset"]) != test.offset || len(gotSymbols) != len(test.symbols) {
 				t.Fatalf("unexpected symbol page: %+v", page)
 			}
 			for index, symbol := range test.symbols {

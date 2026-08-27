@@ -83,9 +83,10 @@ request-logs/
 - Keep saved views and column preferences versioned in localStorage with a schema version; saved views omit transient pagination/selection anchors.
 - Keep the filter bar compact: request-ID search + time + triage chips + More Filters toggle visible; the remaining controls collapse.
 - Keep the sheet's retained-chain section server-owned; never reconstruct the chain client-side from the current page.
+- Keep chain identity explicit: the parent renders entry model, final model, and actual Terminal Target/Endpoint separately; expanded rows render actual attempt target/exit, localized trigger/result, duration, tokens, and only trusted winner cost. Failed-attempt cost is unknown, never zero.
 - Keep audit payload fetching isolated to the dedicated full audit page. The overview drawer must not fetch audit payloads.
 - Use exact-request mode (`request_id`) to switch from paginated browsing to a single-request investigation workflow, and keep that mode local to the request-logs page.
-- Keep retained browse filtering on `ingress_request_id`, `model_id`, `endpoint_id`, `client_rule_id`, `resolved_target_model_id`, `status_family`, `status_code`, `error_text`, `pricing_status`, `unpriced_reason`, `time_range`, `view`, `sort_by`, `sort_order`, and `chain_cursor`; URL stays the source of truth for deep links.
+- Keep retained browse filtering on `ingress_request_id`, `ingress_model_id`, `attempt_target_model_id`, `endpoint_id`, `terminal_target_id`, `client_rule_id`, `status_family`, `status_code`, `error_text`, `pricing_status`, `unpriced_reason`, `time_range`, `view`, `sort_by`, `sort_order`, and `chain_cursor`; finalized Observe deep links use signed `query_context` plus explicit `final_*` keys. URL stays the source of truth.
 - Keep `pricing_card_role` and `pricing_selection_state` as independent retained-row filters, with typed options round-tripped through URL state and server-side CSV export.
 - Keep user-facing copy on the shared locale boundary through `useLocale()`, while timestamp formatting continues to flow through `useTimezone()`.
 - Keep audit capture mode and detail-state helpers in `requestLogAuditState.ts` instead of re-deriving them inside detail tabs or fetch hooks.

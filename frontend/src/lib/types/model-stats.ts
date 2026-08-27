@@ -149,37 +149,60 @@ export interface StatGroup {
   total_requests: number;
   success_count: number;
   error_count: number;
-  avg_response_time_ms: number;
+  success_rate?: number | null;
+  avg_response_time_ms: number | null;
+  p95_response_time_ms?: number | null;
   total_tokens: number;
+  samples?: ScopeMetricSamples;
 }
 
 export interface StatsSummary {
   total_requests: number;
   success_count: number;
   error_count: number;
-  success_rate: number;
-  avg_response_time_ms: number;
-  p95_response_time_ms: number;
+  success_rate: number | null;
+  avg_response_time_ms: number | null;
+  p95_response_time_ms: number | null;
   total_input_tokens: number;
   total_output_tokens: number;
   total_tokens: number;
   groups: StatGroup[];
+  granularity: string;
+  latency_basis: string;
+  caliber: ScopeCaliber;
+  coverage: Record<string, unknown>;
+  samples: ScopeMetricSamples;
 }
 
 export interface StatsSummaryParams {
   from_time?: string;
   to_time?: string;
-  group_by?: "model" | "api_family" | "endpoint";
-  model_id?: string;
+  group_by?:
+    | "none"
+    | "api_family"
+    | "ingress_model"
+    | "final_target_model"
+    | "attempt_target_model"
+    | "endpoint"
+    | "terminal_target"
+    | "attempt_trigger"
+    | "attempt_result";
+  ingress_model_id?: string;
+  final_target_model_id?: string;
+  attempt_target_model_id?: string;
   api_family?: ApiFamily;
   endpoint_id?: number;
   connection_id?: number;
+  attempt_trigger?: string;
+  attempt_result?: string;
+  scope?: ObservabilityScope;
 }
 
 export interface EndpointModelStatisticsParams {
   preset?: UsageSnapshotPreset;
   from_time?: string;
   to_time?: string;
+  scope?: "final_execution" | "route_attempt";
 }
 
 export interface ModelMetricsBatchParams {
@@ -188,16 +211,51 @@ export interface ModelMetricsBatchParams {
   spending_preset?: "today" | "last_7_days" | "last_30_days" | "custom" | "all";
 }
 
+export type ObservabilityScope =
+  | "ingress"
+  | "final_execution"
+  | "route_attempt";
+
+export interface ScopeCaliber {
+  scope: ObservabilityScope;
+  grain: string;
+  identity_basis: string;
+  outcome_basis: string;
+  latency_basis: string;
+  cost_basis: string;
+  datasets: string[];
+}
+
+export interface ScopeMetricSamples {
+  observation_count: number;
+  latency_sample_count: number;
+  latency_missing_count: number;
+  cost_sample_count: number;
+  cost_missing_count: number;
+}
+
+export interface ScopeMetricBlock {
+  request_count: number;
+  success_rate: number | null;
+  p95_latency_ms: number | null;
+  known_cost_micros: number | null;
+  caliber: ScopeCaliber;
+  samples: ScopeMetricSamples;
+}
+
 export interface ModelMetricsBatchItem {
   model_id: string;
-  success_rate: number | null;
-  request_count_24h: number;
-  p95_latency_ms: number | null;
-  spend_30d_micros: number | null;
+  ingress: ScopeMetricBlock;
+  final_execution: ScopeMetricBlock;
+  route_attempt: ScopeMetricBlock;
 }
 
 export interface ModelMetricsBatchResponse {
   items: ModelMetricsBatchItem[];
+  coverage: {
+    quality: Record<string, unknown>;
+    spending: Record<string, unknown>;
+  };
 }
 
 export interface ConnectionSuccessRate {
@@ -219,9 +277,11 @@ export type SpendingGroupBy =
   | "week"
   | "month"
   | "api_family"
-  | "model"
+  | "ingress_model"
+  | "final_target_model"
+  | "attempt_target_model"
   | "endpoint"
-  | "model_endpoint";
+  | "terminal_target";
 
 export interface SpendingReportParams {
   preset?: "today" | "last_7_days" | "last_30_days" | "custom" | "all";
@@ -234,10 +294,13 @@ export interface SpendingReportParams {
   limit?: number;
   offset?: number;
   top_n?: number;
+  scope?: ObservabilityScope;
 }
 
 export interface SpendingSummary {
-  total_cost_micros: number;
+  known_cost_micros: number | null;
+  cost_sample_count: number;
+  cost_missing_count: number;
   successful_request_count: number;
   priced_request_count: number;
   unpriced_request_count: number;
@@ -254,7 +317,8 @@ export interface SpendingSummary {
 
 export interface SpendingGroupRow {
   key: string;
-  total_cost_micros: number;
+  known_cost_micros: number | null;
+  cost_sample_count: number;
   total_requests: number;
   priced_requests: number;
   unpriced_requests: number;
@@ -264,16 +328,19 @@ export interface SpendingGroupRow {
 export interface SpendingTopModel {
   model_id: string;
   model_label: string;
-  total_cost_micros: number;
+  known_cost_micros: number | null;
 }
 
 export interface SpendingTopEndpoint {
   endpoint_id: number | null;
   endpoint_label: string;
-  total_cost_micros: number;
+  known_cost_micros: number | null;
 }
 
 export interface SpendingReportResponse {
+  scope: ObservabilityScope;
+  caliber: ScopeCaliber;
+  coverage: Record<string, unknown>;
   summary: SpendingSummary;
   groups: SpendingGroupRow[];
   groups_total: number;
@@ -297,6 +364,9 @@ export interface ThroughputStatsResponse {
   total_requests: number;
   time_window_seconds: number;
   buckets: ThroughputBucket[];
+  caliber: ScopeCaliber;
+  coverage: Record<string, unknown>;
+  samples: ScopeMetricSamples;
 }
 
 export interface ThroughputStatsParams {
@@ -306,6 +376,7 @@ export interface ThroughputStatsParams {
   api_family?: string;
   endpoint_id?: number;
   connection_id?: number;
+  scope?: ObservabilityScope;
 }
 
 export interface DashboardSnapshotCoverage {
@@ -407,10 +478,10 @@ export interface DashboardSnapshot {
 export interface DashboardRecentActivityItem {
   request_log_id: number;
   created_at: string;
-  model_id: string;
-  model_label: string;
-  resolved_target_model_id: string | null;
-  resolved_target_model_label: string | null;
+  ingress_model_id: string;
+  ingress_model_label: string;
+  attempt_target_model_id: string | null;
+  attempt_target_model_label: string | null;
   endpoint_id: number | null;
   endpoint_label: string;
   status_code: number | null;

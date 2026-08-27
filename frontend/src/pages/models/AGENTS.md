@@ -35,6 +35,7 @@ models/
 - Keep access-target validation, strategy attachment rules, and `api_family` handling in `modelFormState.ts` instead of scattering them across dialog components.
 - `AccessTargetsEditor.tsx` consumes persisted access targets through mutation-shaped rows and renders one mixed Model Target/Terminal Target list with global "位置 N" numbering. Moves use the shared runtime order; row mutations address the persisted access-target row ID (never a position in `access_targets`, which the drag draft can reorder) and connection actions use the connection ID.
 - Hydrate 24h metrics separately from the base model list so CRUD flows do not own observability queries.
+- Hydrate all three named metric blocks (`ingress`, `final_execution`, `route_attempt`) in one batch read. The table switch is URL-backed and selects a local block; it must not issue one request per tab. Route-attempt cost stays absent with a reason.
 - Keep the grouped models table keyed by `api_family` while still rendering the per-row `api_family` metadata.
 
 - Prefer steady-state Prism configuration in the plaintext startup config JSON instead of adding new environment-variable knobs. Keep env vars limited to bootstrap-critical startup inputs or process wiring such as `PRISM_CONFIG_PATH`, `DATABASE_URL`, launcher proxy wiring, build metadata, container ports, or test flags.
