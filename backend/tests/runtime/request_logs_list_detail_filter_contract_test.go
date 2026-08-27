@@ -31,6 +31,8 @@ func TestRequestLogListContract(t *testing.T) {
 	// chain read model rather than this attempt-list projection.
 	delete(payload, "coverage")
 	delete(expected, "coverage")
+	delete(payload, "dataset_coverage")
+	delete(expected, "dataset_coverage")
 	rawDump, _ := json.MarshalIndent(payload, "", "  ")
 	_ = os.WriteFile("/tmp/request-log-list-actual.json", append(rawDump, '\n'), 0o644)
 	if !jsonBytesEqual(t, payload, expected) {
@@ -48,7 +50,7 @@ func TestRequestLogListContract(t *testing.T) {
 		t.Fatalf("did not expect request-log list row to expose stream_error_detail, got %+v", primaryItem)
 	}
 	filterOptions := asMapRuntime(t, payload["filter_options"])
-	models, ok := filterOptions["models"].([]any)
+	models, ok := filterOptions["ingress_models"].([]any)
 	if !ok {
 		t.Fatalf("expected request-log filter options to always include models array, got %+v", filterOptions)
 	}
@@ -95,15 +97,15 @@ func TestRequestLogListContract(t *testing.T) {
 			t.Fatalf("request-log detail must not expose legacy key %q: %+v", forbidden, payload)
 		}
 	}
-	staleModelResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?model_id=stale-selected-model&limit=50&offset=0", nil, runtimeModelHeader(profileID))
+	staleModelResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?ingress_model_id=stale-selected-model&limit=50&offset=0", nil, runtimeModelHeader(profileID))
 	assertStatus(t, staleModelResponse, http.StatusOK)
 	decodeJSONResponse(t, staleModelResponse, &payload)
-	models = payload["filter_options"].(map[string]any)["models"].([]any)
+	models = payload["filter_options"].(map[string]any)["ingress_models"].([]any)
 	if len(models) == 0 {
 		t.Fatalf("expected model filters for stale-selected-model request, got %+v", payload)
 	}
 	firstModel := asMapRuntime(t, models[0])
-	if firstModel["model_id"] != "stale-selected-model" || firstModel["model_label"] != "stale-selected-model" {
+	if firstModel["ingress_model_id"] != "stale-selected-model" || firstModel["model_label"] != "stale-selected-model" {
 		t.Fatalf("expected stale selected model option to prepend synthetic label, got %+v", payload["filter_options"])
 	}
 }
@@ -182,7 +184,7 @@ func TestRequestLogsResolvedTargetModelFilterComposesWithRequestedModel(t *testi
 	updateRequestLogModels(t, harness, profileID, 222, "other-requested-model", "final-target-model")
 	updateRequestLogModels(t, harness, profileID, 223, "requested-model", "other-final-target-model")
 
-	response := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?model_id=requested-model&resolved_target_model_id=final-target-model&limit=50&offset=0", nil, runtimeModelHeader(profileID))
+	response := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?ingress_model_id=requested-model&attempt_target_model_id=final-target-model&limit=50&offset=0", nil, runtimeModelHeader(profileID))
 	assertStatus(t, response, http.StatusOK)
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
@@ -194,7 +196,7 @@ func TestRequestLogsResolvedTargetModelFilterComposesWithRequestedModel(t *testi
 		t.Fatalf("expected composed filters to return request 221, got %+v", items[0])
 	}
 
-	mismatch := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?model_id=missing-requested-model&resolved_target_model_id=final-target-model&limit=50&offset=0", nil, runtimeModelHeader(profileID))
+	mismatch := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?ingress_model_id=missing-requested-model&attempt_target_model_id=final-target-model&limit=50&offset=0", nil, runtimeModelHeader(profileID))
 	assertStatus(t, mismatch, http.StatusOK)
 	decodeJSONResponse(t, mismatch, &payload)
 	if got := len(payload["items"].([]any)); got != 0 {
@@ -323,6 +325,10 @@ func TestRequestLogDetailContract(t *testing.T) {
 	expected := loadRequestFixture(t, "request-log-detail.json")
 	expectedRouting := asMapRuntime(t, expected["routing"])
 	expectedRouting["profile_id"] = float64(profileID)
+	// Dataset coverage carries runtime materialization identity and is verified
+	// independently from this frozen response fixture.
+	delete(payload, "dataset_coverage")
+	delete(expected, "dataset_coverage")
 	rawDump, _ := json.MarshalIndent(payload, "", "  ")
 	_ = os.WriteFile("/tmp/request-log-detail-actual.json", append(rawDump, '\n'), 0o644)
 	if !jsonBytesEqual(t, payload, expected) {

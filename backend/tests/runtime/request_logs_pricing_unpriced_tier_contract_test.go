@@ -165,7 +165,7 @@ func TestRuntimeRequestLogPreservesUnpricedPricingPathways(t *testing.T) {
 
 				spendingPayload := loadPayload(t, harness, profileID, "/api/stats/spending?preset=1h&group_by=none&limit=50&offset=0")
 				summary := asMapRuntime(t, spendingPayload["summary"])
-				if jsonInt(t, summary["successful_request_count"]) != 1 || jsonInt(t, summary["priced_request_count"]) != 1 || jsonInt(t, summary["unpriced_request_count"]) != 0 || jsonInt(t, summary["total_cost_micros"]) != 0 {
+				if jsonInt(t, summary["successful_request_count"]) != 1 || jsonInt(t, summary["priced_request_count"]) != 1 || jsonInt(t, summary["unpriced_request_count"]) != 0 || jsonInt(t, summary["known_cost_micros"]) != 0 {
 					t.Fatalf("expected priced-zero spending summary to stay priced with zero cost, got %+v", summary)
 				}
 				unpricedBreakdown := asMapRuntime(t, spendingPayload["unpriced_breakdown"])
@@ -376,7 +376,7 @@ func TestRuntimeRequestLogPreservesUnpricedPricingPathways(t *testing.T) {
 
 				spendingPayload := loadPayload(t, harness, profileID, "/api/stats/spending?preset=1h&group_by=none&limit=50&offset=0")
 				summary := asMapRuntime(t, spendingPayload["summary"])
-				if jsonInt(t, summary["successful_request_count"]) != 1 || jsonInt(t, summary["priced_request_count"]) != 0 || jsonInt(t, summary["unpriced_request_count"]) != 1 || jsonInt(t, summary["total_reasoning_tokens"]) != 3 || jsonInt(t, summary["total_cost_micros"]) != 0 {
+				if jsonInt(t, summary["successful_request_count"]) != 1 || jsonInt(t, summary["priced_request_count"]) != 0 || jsonInt(t, summary["unpriced_request_count"]) != 1 || jsonInt(t, summary["total_reasoning_tokens"]) != 3 || summary["known_cost_micros"] != nil {
 					t.Fatalf("expected degraded spending summary to stay unpriced with zero cost, got %+v", summary)
 				}
 				unpricedBreakdown := asMapRuntime(t, spendingPayload["unpriced_breakdown"])
