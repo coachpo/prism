@@ -74,10 +74,10 @@ type Interleaved struct {
 
 // ReasoningOption is one entry of the optional models.dev `reasoning_options`
 // array. Type is effort, toggle, or budget_tokens; Values carries the ordered
-// effort levels for effort options and stays empty otherwise.
+// nullable effort levels for effort options and stays empty otherwise.
 type ReasoningOption struct {
 	Type   string
-	Values []string
+	Values []*string
 }
 
 // Reasoning option discriminator values accepted by the schema.
@@ -331,12 +331,12 @@ func parseReasoningOptions(body map[string]json.RawMessage, label string) ([]Rea
 			if !ok || string(valuesRaw) == "null" {
 				return nil, schemaf("model %s reasoning_options[%d].values is required for effort options", label, index)
 			}
-			var values []string
+			var values []*string
 			if err := json.Unmarshal(valuesRaw, &values); err != nil {
-				return nil, schemaf("model %s reasoning_options[%d].values must be an array of strings: %v", label, index, err)
+				return nil, schemaf("model %s reasoning_options[%d].values must be an array of nullable strings: %v", label, index, err)
 			}
 			for _, value := range values {
-				if strings.TrimSpace(value) == "" {
+				if value != nil && strings.TrimSpace(*value) == "" {
 					return nil, schemaf("model %s reasoning_options[%d] carries an empty effort value", label, index)
 				}
 			}
@@ -680,17 +680,34 @@ func optionalPricePtr(body map[string]json.RawMessage, field, label, prefix stri
 	return &canonical, nil
 }
 
-// CanonicalPrice normalizes a catalog decimal literal into the Prism pricing
-// canonical form (^\\d+(\\.\\d+)?$ without insignificant zeros). Exponent
-// notation and signs are rejected so the wire literal survives losslessly.
+// CanonicalPrice normalizes a catalog decimal literal into plain canonical
+// form (^\\d+(\\.\\d+)?$ without insignificant zeros). Representation limits
+// of Prism pricing storage are enforced later by BuildPricePlan so one valid
+// but unrepresentable offering cannot make the entire catalog unavailable.
 func CanonicalPrice(literal string) (string, error) {
 	text := strings.TrimSpace(literal)
-	if text == "" || len(text) > 20 {
-		return "", fmt.Errorf("price %q must be 1..20 plain digits", literal)
+	if text == "" {
+		return "", fmt.Errorf("price %q must be a plain non-negative decimal", literal)
 	}
-	integral, fractional := text, ""
-	if cutIntegral, cutFractional, found := strings.Cut(text, "."); found {
+	mantissa := text
+	exponent := 0
+	if exponentIndex := strings.IndexAny(text, "eE"); exponentIndex >= 0 {
+		mantissa = text[:exponentIndex]
+		parsedExponent, err := strconv.Atoi(text[exponentIndex+1:])
+		if err != nil {
+			return "", fmt.Errorf("price %q has an invalid decimal exponent", literal)
+		}
+		exponent = parsedExponent
+	}
+	if mantissa == "" {
+		return "", fmt.Errorf("price %q must be a non-negative decimal", literal)
+	}
+	integral, fractional := mantissa, ""
+	if cutIntegral, cutFractional, found := strings.Cut(mantissa, "."); found {
 		integral, fractional = cutIntegral, cutFractional
+		if fractional == "" {
+			return "", fmt.Errorf("price %q must be a non-negative decimal", literal)
+		}
 	}
 	if integral == "" {
 		integral = "0"
@@ -705,19 +722,44 @@ func CanonicalPrice(literal string) (string, error) {
 			return "", fmt.Errorf("price %q must be a non-negative decimal", literal)
 		}
 	}
-	integral = strings.TrimLeft(integral, "0")
-	if integral == "" {
-		integral = "0"
+	digits := integral + fractional
+	decimalPosition := len(integral) + exponent
+	for len(digits) > 0 && digits[0] == '0' {
+		digits = digits[1:]
+		decimalPosition--
 	}
-	fractional = strings.TrimRight(fractional, "0")
-	canonical := integral
-	if fractional != "" {
-		canonical = canonical + "." + fractional
+	digits = strings.TrimRight(digits, "0")
+	if digits == "" {
+		return "0", nil
 	}
-	if len(canonical) > 20 {
-		return "", fmt.Errorf("price %q exceeds the canonical length budget", literal)
+	// models.dev validates through a finite JavaScript number. A 1024-byte
+	// canonical budget comfortably covers that domain while preventing a
+	// hostile exponent from forcing an unbounded allocation.
+	const maxCatalogCanonicalPriceLength = 1024
+	if len(digits) > maxCatalogCanonicalPriceLength ||
+		decimalPosition > maxCatalogCanonicalPriceLength ||
+		decimalPosition < -maxCatalogCanonicalPriceLength {
+		return "", fmt.Errorf("price %q exceeds the catalog decimal budget", literal)
 	}
-	return canonical, nil
+	canonicalLength := len(digits)
+	if decimalPosition <= 0 {
+		canonicalLength += 2 - decimalPosition
+	} else if decimalPosition < len(digits) {
+		canonicalLength++
+	} else {
+		canonicalLength = decimalPosition
+	}
+	if canonicalLength > maxCatalogCanonicalPriceLength {
+		return "", fmt.Errorf("price %q exceeds the catalog decimal budget", literal)
+	}
+	switch {
+	case decimalPosition <= 0:
+		return "0." + strings.Repeat("0", -decimalPosition) + digits, nil
+	case decimalPosition >= len(digits):
+		return digits + strings.Repeat("0", decimalPosition-len(digits)), nil
+	default:
+		return digits[:decimalPosition] + "." + digits[decimalPosition:], nil
+	}
 }
 
 func jsonUnmarshalUseNumber(raw json.RawMessage, target any) error {

@@ -50,7 +50,6 @@ func TestFetchRejectsSchemaViolations(t *testing.T) {
 		"bad modality":          `{"p":{"models":{"m":{"modalities":{"input":["smell"]}}}}}`,
 		"fractional limit":      `{"p":{"models":{"m":{"limit":{"context":12.5}}}}}`,
 		"negative price":        `{"p":{"models":{"m":{"cost":{"input":-1,"output":2}}}}}`,
-		"exponent price":        `{"p":{"models":{"m":{"cost":{"input":1e3,"output":2}}}}}`,
 		"input without output":  `{"p":{"models":{"m":{"cost":{"input":1}}}}}`,
 		"tier missing size":     `{"p":{"models":{"m":{"cost":{"input":1,"output":2,"tiers":[{"type":"context"}]}}}}}`,
 		"date format violated":  `{"p":{"models":{"m":{"release_date":"tomorrow"}}}}`,
@@ -71,13 +70,17 @@ func TestFetchRejectsSchemaViolations(t *testing.T) {
 
 func TestCanonicalPriceNormalizesLiterals(t *testing.T) {
 	cases := map[string]string{
-		"0":     "0",
-		"0.0":   "0",
-		"00":    "0",
-		"2.50":  "2.5",
-		"10":    "10",
-		"0.028": "0.028",
-		".5":    "0.5",
+		"0":                     "0",
+		"0.0":                   "0",
+		"00":                    "0",
+		"2.50":                  "2.5",
+		"10":                    "10",
+		"0.028":                 "0.028",
+		".5":                    "0.5",
+		"0.0024499999999999995": "0.0024499999999999995",
+		"1e3":                   "1000",
+		"1.25e-3":               "0.00125",
+		"2.500E+2":              "250",
 	}
 	for raw, want := range cases {
 		got, err := CanonicalPrice(raw)
@@ -85,7 +88,7 @@ func TestCanonicalPriceNormalizesLiterals(t *testing.T) {
 			t.Fatalf("CanonicalPrice(%q) = %q, %v; want %q", raw, got, err, want)
 		}
 	}
-	for _, raw := range []string{"-1", "1e3", "", "123456789012345678901234567890"} {
+	for _, raw := range []string{"-1", "", "1.", ".", "1e", "1e100000"} {
 		if _, err := CanonicalPrice(raw); err == nil {
 			t.Fatalf("CanonicalPrice(%q) must fail", raw)
 		}
@@ -108,6 +111,38 @@ func TestParseCatalogPreservesNumbersWithoutFloatRoundTrip(t *testing.T) {
 	raw, _ := json.Marshal(model.Cost.Base.Input)
 	if string(raw) != `"0.1"` {
 		t.Fatalf("canonical input should serialize back as a string, got %s", raw)
+	}
+}
+
+func TestParseCatalogAcceptsOfficialNullableEffortAndLongPrice(t *testing.T) {
+	payload := `{
+		"sarvam":{"models":{"sarvam-105b":{
+			"name":"Sarvam-105B",
+			"reasoning_options":[{"type":"effort","values":[null,"low","medium","high"]}]
+		}}},
+		"chutes":{"models":{"Nemotron-3-Nano-Omni-30B-TEE":{
+			"name":"Nemotron 3 Nano Omni 30B TEE",
+			"cost":{"input":0.0245,"output":0.0978,"cache_read":0.0024499999999999995}
+		}}}
+	}`
+	providers, err := parseCatalog([]byte(payload))
+	if err != nil {
+		t.Fatalf("parseCatalog: %v", err)
+	}
+	reasoning := providers["sarvam"].Models["sarvam-105b"].ReasoningOptions
+	if len(reasoning) != 1 || len(reasoning[0].Values) != 4 || reasoning[0].Values[0] != nil {
+		t.Fatalf("nullable effort values were not preserved: %+v", reasoning)
+	}
+	for index, want := range []string{"low", "medium", "high"} {
+		value := reasoning[0].Values[index+1]
+		if value == nil || *value != want {
+			t.Fatalf("effort value %d = %v, want %q", index+1, value, want)
+		}
+	}
+	model := providers["chutes"].Models["Nemotron-3-Nano-Omni-30B-TEE"]
+	if model.Cost == nil || model.Cost.Base.CachedInput == nil ||
+		*model.Cost.Base.CachedInput != "0.0024499999999999995" {
+		t.Fatalf("long catalog price was not preserved: %+v", model.Cost)
 	}
 }
 

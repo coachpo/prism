@@ -118,7 +118,8 @@ func TestKeyLooksSensitiveCoversRecursiveCredentialNames(t *testing.T) {
 
 func TestDerivePiThinkingLevelMapIsTotalAndMapsNoneToOff(t *testing.T) {
 	raw := derivePiThinkingLevelMap([]modelsdev.ReasoningOption{{
-		Type: modelsdev.ReasoningOptionEffort, Values: []string{"none", "low", "high"},
+		Type:   modelsdev.ReasoningOptionEffort,
+		Values: []*string{nil, ptrString("none"), ptrString("low"), ptrString("high")},
 	}})
 	if raw == nil {
 		t.Fatalf("effort options must produce a thinkingLevelMap")

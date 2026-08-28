@@ -169,6 +169,26 @@ func TestBuildPricePlanFailClosedReasons(t *testing.T) {
 			t.Fatalf("specialty mismatch must fail closed: %+v", plan.Incompatibilities)
 		}
 	})
+	t.Run("price outside Prism storage representation", func(t *testing.T) {
+		longPrice, err := CanonicalPrice("2.4499999999999995e-3")
+		if err != nil || longPrice != "0.0024499999999999995" {
+			t.Fatalf("canonical exponent price = %q, %v", longPrice, err)
+		}
+		model := &Model{Cost: &Cost{Base: TierPrices{
+			Input: "0.0245", Output: "0.0978", CachedInput: &longPrice,
+		}}}
+		plan := BuildPricePlan(Offering{ProviderID: "chutes", ModelID: "long-price"}, model, "USD")
+		if !hasReason(plan, ReasonPriceNotRepresentable) {
+			t.Fatalf("unrepresentable price must fail closed: %+v", plan.Incompatibilities)
+		}
+		if len(plan.Incompatibilities) != 1 || plan.Incompatibilities[0].Field != "cost.cache_read" {
+			t.Fatalf("unrepresentable price field drifted: %+v", plan.Incompatibilities)
+		}
+		if plan.Cards[RoleStandard].CachedInputPrice == nil ||
+			*plan.Cards[RoleStandard].CachedInputPrice != longPrice {
+			t.Fatalf("price-plan preview must preserve source evidence: %+v", plan.Cards)
+		}
+	})
 }
 
 func hasReason(plan PricePlan, reason string) bool {

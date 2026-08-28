@@ -288,8 +288,10 @@ export interface SpendingReportParams {
   from_time?: string;
   to_time?: string;
   api_family?: ApiFamily;
-  model_id?: string;
-  connection_id?: number;
+  ingress_model_id?: string;
+  final_target_model_id?: string;
+  endpoint_id?: number;
+  terminal_target_id?: number;
   group_by?: SpendingGroupBy;
   limit?: number;
   offset?: number;

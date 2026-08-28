@@ -1278,7 +1278,8 @@ async function mockLinkedModelPairRoutes(page: Page) {
     }
     if (pathname === "/api/stats/spending") {
       const modelId =
-        new URL(request.url()).searchParams.get("model_id") ?? "detail-alpha";
+        new URL(request.url()).searchParams.get("ingress_model_id") ??
+        "detail-alpha";
       return fulfillJson({
         summary: {
           model_id: modelId,

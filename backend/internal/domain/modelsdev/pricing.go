@@ -11,6 +11,7 @@ import (
 const (
 	ReasonReportingCurrencyNotUSD = "reporting_currency_not_usd"
 	ReasonCostMissing             = "cost_missing"
+	ReasonPriceNotRepresentable   = "price_not_representable"
 	ReasonAudioCostPresent        = "audio_cost_present"
 	ReasonMultipleTiers           = "multiple_tiers"
 	ReasonTierNotSupported        = "tier_not_supported"
@@ -18,6 +19,8 @@ const (
 	ReasonTierEvidenceConflict    = "tier_evidence_conflict"
 	ReasonSpecialtyShapeMismatch  = "specialty_shape_mismatch"
 )
+
+const maxPrismPriceLength = 20
 
 // Pricing card roles mirrored from the pricingkind domain so this package
 // stays dependency-free.
@@ -68,11 +71,12 @@ func (plan PricePlan) Committable() bool {
 
 // BuildPricePlan maps one catalog offering into a pricing template shape.
 //
-// Fail-closed contract: non-USD reporting currency, missing cost rows, audio
-// cost components, multiple tiers, tiers that are not an OpenAI single
-// context tier with a whole-number size, legacy context_over_200k without
-// explicit tiers, conflicting duplicate tier evidence, and base/tier
-// specialty shape mismatches all produce a stable reason and zero writes.
+// Fail-closed contract: non-USD reporting currency, missing cost rows, prices
+// outside Prism's storage representation, audio cost components, multiple
+// tiers, tiers that are not an OpenAI single context tier with a whole-number
+// size, legacy context_over_200k without explicit tiers, conflicting duplicate
+// tier evidence, and base/tier specialty shape mismatches all produce a stable
+// reason and zero writes.
 func BuildPricePlan(offering Offering, model *Model, reportingCurrencyCode string) PricePlan {
 	plan := PricePlan{Kind: "standard", Cards: map[string]PriceCard{}}
 	addIncompatibility := func(field, reason string) {
@@ -94,6 +98,7 @@ func BuildPricePlan(offering Offering, model *Model, reportingCurrencyCode strin
 		addIncompatibility("cost.input_audio", ReasonAudioCostPresent)
 	}
 	baseCard := cardFromPrices(cost.Base)
+	addPriceRepresentationIncompatibilities("cost", baseCard, addIncompatibility)
 
 	switch tierCount := len(cost.Tiers); {
 	case tierCount > 1:
@@ -120,7 +125,9 @@ func BuildPricePlan(offering Offering, model *Model, reportingCurrencyCode strin
 			plan.Cards[RoleStandard] = baseCard
 			return plan
 		}
-		if err := specialtyParity(baseCard, cardFromPrices(tier.Prices)); err != nil {
+		tierCard := cardFromPrices(tier.Prices)
+		addPriceRepresentationIncompatibilities("cost.tiers[0]", tierCard, addIncompatibility)
+		if err := specialtyParity(baseCard, tierCard); err != nil {
 			addIncompatibility("cost.tiers", ReasonSpecialtyShapeMismatch)
 			plan.Cards[RoleStandard] = baseCard
 			return plan
@@ -129,7 +136,7 @@ func BuildPricePlan(offering Offering, model *Model, reportingCurrencyCode strin
 		plan.Kind = "tiered"
 		plan.TierThreshold = &threshold
 		plan.Cards[RoleTierBase] = baseCard
-		plan.Cards[RoleTierAbove] = cardFromPrices(tier.Prices)
+		plan.Cards[RoleTierAbove] = tierCard
 	default:
 		if cost.HasLegacyContextOver200k {
 			// A bare legacy long-context row has no explicit strict-> size
@@ -140,6 +147,23 @@ func BuildPricePlan(offering Offering, model *Model, reportingCurrencyCode strin
 	}
 	sortIncompatibilities(plan.Incompatibilities)
 	return plan
+}
+
+func addPriceRepresentationIncompatibilities(prefix string, card PriceCard, add func(string, string)) {
+	for _, field := range []struct {
+		name  string
+		value *string
+	}{
+		{name: "input", value: &card.InputPrice},
+		{name: "output", value: &card.OutputPrice},
+		{name: "cache_read", value: card.CachedInputPrice},
+		{name: "cache_write", value: card.CacheCreationPrice},
+		{name: "reasoning", value: card.ReasoningPrice},
+	} {
+		if field.value != nil && len(*field.value) > maxPrismPriceLength {
+			add(prefix+"."+field.name, ReasonPriceNotRepresentable)
+		}
+	}
 }
 
 func cardFromPrices(prices TierPrices) PriceCard {
@@ -195,12 +219,13 @@ func specialtyParity(base, tier PriceCard) error {
 var incompatibilityOrder = map[string]int{
 	ReasonReportingCurrencyNotUSD: 0,
 	ReasonCostMissing:             1,
-	ReasonAudioCostPresent:        2,
-	ReasonMultipleTiers:           3,
-	ReasonLegacyTierShape:         4,
-	ReasonTierEvidenceConflict:    5,
-	ReasonTierNotSupported:        6,
-	ReasonSpecialtyShapeMismatch:  7,
+	ReasonPriceNotRepresentable:   2,
+	ReasonAudioCostPresent:        3,
+	ReasonMultipleTiers:           4,
+	ReasonLegacyTierShape:         5,
+	ReasonTierEvidenceConflict:    6,
+	ReasonTierNotSupported:        7,
+	ReasonSpecialtyShapeMismatch:  8,
 }
 
 func sortIncompatibilities(items []Incompatibility) {

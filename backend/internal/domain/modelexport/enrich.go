@@ -85,7 +85,7 @@ func DeriveCandidate(platform Platform, apiFamily string, acceptedFormat *string
 // than guessing defaults. Toggle/budget-only models return nil: there is no
 // lossless projection onto string-valued levels.
 func derivePiThinkingLevelMap(options []modelsdev.ReasoningOption) json.RawMessage {
-	var efforts []string
+	var efforts []*string
 	for _, option := range options {
 		if option.Type == modelsdev.ReasoningOptionEffort {
 			efforts = append(efforts, option.Values...)
@@ -96,10 +96,13 @@ func derivePiThinkingLevelMap(options []modelsdev.ReasoningOption) json.RawMessa
 	}
 	present := map[string]string{}
 	for _, effort := range efforts {
-		lower := strings.ToLower(strings.TrimSpace(effort))
+		if effort == nil {
+			continue
+		}
+		lower := strings.ToLower(strings.TrimSpace(*effort))
 		switch lower {
 		case "none", "off":
-			present["off"] = effort
+			present["off"] = *effort
 		case "minimal", "low", "medium", "high", "xhigh", "max":
 			if _, exists := present[lower]; !exists {
 				present[lower] = lower

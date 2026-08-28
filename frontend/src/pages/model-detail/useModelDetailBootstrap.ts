@@ -83,7 +83,7 @@ export function useModelDetailBootstrap({
       setSpendingLoading(true);
       try {
         const data = await api.stats.spending({
-          model_id: modelId,
+          ingress_model_id: modelId,
           preset: spendingPreset,
           scope: "ingress",
         });

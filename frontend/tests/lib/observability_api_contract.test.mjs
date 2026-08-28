@@ -189,6 +189,29 @@ test("request-log API sends canonical ingress, attempt and final model filters",
   assert.equal(url.searchParams.has("resolved_target_model_id"), false);
 });
 
+test("spending API sends the scope-specific ingress model filter", async () => {
+  const requests = [];
+  const restoreFetch = installFetchRecorder(requests, [{ summary: {} }]);
+  const { api } = loadApi();
+
+  try {
+    await api.stats.spending({
+      ingress_model_id: "entry-a",
+      preset: "all",
+      scope: "ingress",
+    });
+  } finally {
+    restoreFetch();
+  }
+
+  const url = new URL(requests[0].url, "https://prism.test");
+  assert.equal(url.pathname, "/api/stats/spending");
+  assert.equal(url.searchParams.get("ingress_model_id"), "entry-a");
+  assert.equal(url.searchParams.get("preset"), "all");
+  assert.equal(url.searchParams.get("scope"), "ingress");
+  assert.equal(url.searchParams.has("model_id"), false);
+});
+
 test("observability scopes stay explicit across model, trend, error and terminal-target reads", async () => {
   const requests = [];
   const restoreFetch = installFetchRecorder(

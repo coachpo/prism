@@ -22,7 +22,8 @@ import (
 // catalogFixtureCatalog mirrors the published models.dev shapes closely
 // enough to exercise every mapping rule: unique matches, cross-provider
 // ambiguity, an OpenAI single context tier with duplicate legacy evidence,
-// audio costs, and explicit zero prices.
+// audio costs, explicit zero prices, nullable efforts, and a source decimal
+// that is valid catalog data but too long for Prism pricing storage.
 const catalogFixtureCatalog = `{
   "openai": {
     "id": "openai",
@@ -35,6 +36,7 @@ const catalogFixtureCatalog = `{
         "family": "gpt-contract",
         "attachment": false,
         "reasoning": true,
+        "reasoning_options": [{"type": "effort", "values": [null, "low", "medium", "high"]}],
         "tool_call": true,
         "structured_output": true,
         "temperature": true,
@@ -79,6 +81,17 @@ const catalogFixtureCatalog = `{
         "last_updated": "2026-04",
         "open_weights": false,
         "cost": {"input": 1, "output": 2}
+      }
+    }
+  },
+  "chutes": {
+    "id": "chutes",
+    "name": "Chutes",
+    "models": {
+      "schema-edge": {
+        "id": "schema-edge",
+        "name": "Schema Edge",
+        "cost": {"input": 0.0245, "output": 0.0978, "cache_read": 2.4499999999999995e-3}
       }
     }
   }
@@ -171,6 +184,10 @@ func TestModelCatalogBindingAndOverrideContracts(t *testing.T) {
 	matchPreview := requestJSONStatus[map[string]any](t, harness, http.MethodPost, catalogPath+"/match-preview", map[string]any{}, nil, http.StatusOK)
 	if matchPreview["committable"] != true || matchPreview["provider_id"] != "openai" || matchPreview["reason"] != "unique_match" {
 		t.Fatalf("unexpected match preview %+v", matchPreview)
+	}
+	candidates := requestJSONStatus[map[string]any](t, harness, http.MethodGet, catalogPath+"/candidates?scope=all&limit=20", nil, nil, http.StatusOK)
+	if jsonInt(t, candidates["total"]) < 1 || len(candidates["items"].([]any)) < 1 {
+		t.Fatalf("catalog candidates must remain available: %+v", candidates)
 	}
 	revision := matchPreview["catalog_revision"].(string)
 
