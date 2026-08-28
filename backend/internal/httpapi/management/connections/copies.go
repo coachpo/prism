@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"slices"
 	"sort"
 
 	"github.com/jackc/pgx/v5"
@@ -157,31 +156,9 @@ func (s *Service) handleCreateConnectionCopies(w http.ResponseWriter, r *http.Re
 			destinationModels[destinationID] = allModels[destinationID]
 		}
 
-		// Cross-mode destinations are a hard error for the whole batch: the
-		// copied capability must equal the owner accepted format (SPEC: strict
-		// mode equality, same as model-target authoring). Text equality includes nil.
-		if providerauth.IsOpenAI(sourceOwner.APIFamily) {
-			for _, destinationID := range destinations {
-				destination := destinationModels[destinationID]
-				if !providerauth.OpenAITextModesMatch(destination.OpenAIAcceptedFormat, source.OpenAITextCapability) {
-					return terminalTargetCopyResponse{}, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "target_openai_mode_mismatch"}
-				}
-			}
-		}
-
-		// The image dimension uses containment rather than equality: the copied
-		// capability must serve every image operation each destination accepts,
-		// and may serve more. A destination that accepts no image operation
-		// imposes no requirement.
-		if providerauth.IsOpenAI(sourceOwner.APIFamily) {
-			for _, destinationID := range destinations {
-				destination := destinationModels[destinationID]
-				if destination.OpenAIImageOperations == nil {
-					continue
-				}
-				if !providerauth.OpenAIImageCapabilitiesCover(destination.OpenAIImageOperations, source.OpenAIImageCapability) {
-					return terminalTargetCopyResponse{}, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: openAIImageUncoveredIssueCode}
-				}
+		for _, destinationID := range destinations {
+			if err := validateCopyCapabilityDimensions(destinationModels[destinationID], source.OpenAITextCapability, source.OpenAIImageCapability); err != nil {
+				return terminalTargetCopyResponse{}, err
 			}
 		}
 
@@ -189,26 +166,6 @@ func (s *Service) handleCreateConnectionCopies(w http.ResponseWriter, r *http.Re
 		warnings := make([]modelrouting.ConfigurationWarning, 0, len(destinations))
 		for _, destinationID := range destinations {
 			destination := destinationModels[destinationID]
-			// Cross-mode copy is a hard 422 with whole-batch rollback: the
-			// copied connection keeps the source capability, so a destination
-			// model whose accepted format cannot serve that capability is
-			// rejected before any row is written (Model SPEC copy contract).
-			// Text strict equality includes nil; image containment handles nil source as no requirement.
-			if providerauth.IsOpenAI(destination.APIFamily) {
-				if !providerauth.OpenAITextModesMatch(destination.OpenAIAcceptedFormat, source.OpenAITextCapability) {
-					return terminalTargetCopyResponse{}, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "target_openai_mode_mismatch"}
-				}
-				if destination.OpenAIAcceptedFormat != nil && source.OpenAITextCapability != nil {
-					if !openAITextModeServesCapability(*destination.OpenAIAcceptedFormat, *source.OpenAITextCapability) {
-						return terminalTargetCopyResponse{}, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "target_openai_mode_mismatch"}
-					}
-				}
-			}
-			if providerauth.IsOpenAI(destination.APIFamily) && destination.OpenAIImageOperations != nil && source.OpenAIImageCapability != nil {
-				if !openAIImageOperationsServedByCapability(*destination.OpenAIImageOperations, *source.OpenAIImageCapability) {
-					return terminalTargetCopyResponse{}, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: openAIImageUncoveredIssueCode}
-				}
-			}
 			if err := validateLimiter("qps_limit", source.QPSLimit); err != nil {
 				return terminalTargetCopyResponse{}, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: err.Error()}
 			}
@@ -298,6 +255,22 @@ func (s *Service) handleCreateConnectionCopies(w http.ResponseWriter, r *http.Re
 	responseutil.WriteJSON(w, http.StatusCreated, response)
 }
 
+func validateCopyCapabilityDimensions(destination modelRecord, textCapability *string, imageCapability *string) error {
+	if !providerauth.IsOpenAI(destination.APIFamily) {
+		return nil
+	}
+	if !providerauth.OpenAITextModesMatch(destination.OpenAIAcceptedFormat, textCapability) {
+		return &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "target_openai_mode_mismatch"}
+	}
+	// A destination with no image dimension imposes no image requirement. If
+	// it does accept image operations, the copied target must cover all of
+	// them; a broader target capability remains valid.
+	if destination.OpenAIImageOperations != nil && !providerauth.OpenAIImageCapabilitiesCover(destination.OpenAIImageOperations, imageCapability) {
+		return &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: openAIImageUncoveredIssueCode}
+	}
+	return nil
+}
+
 func cloneString(value *string) *string {
 	if value == nil {
 		return nil
@@ -380,20 +353,4 @@ func lockCopyAccessTargetRows(ctx context.Context, tx pgx.Tx, profileID int, mod
 		}
 	}
 	return nil
-}
-
-// openAITextModeServesCapability reports whether the destination model's
-// accepted format can serve the copied connection's capability. A broader
-// destination mode (dual_native) serves narrower capabilities; a narrower
-// destination mode cannot serve a broader source capability (Model SPEC copy
-// contract: cross-mode copies reject with 422 target_openai_mode_mismatch).
-func openAITextModeServesCapability(mode string, capability string) bool {
-	modeOperations := modelrouting.OpenAIAcceptedOperationSet(mode)
-	capabilityOperations := modelrouting.OpenAITargetSupportedOperationSet(capability)
-	for _, operation := range capabilityOperations {
-		if !slices.Contains(modeOperations, operation) {
-			return false
-		}
-	}
-	return true
 }

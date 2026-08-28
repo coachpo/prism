@@ -2,6 +2,7 @@ import { X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
+import { applyRequestLogStatePatch } from "./queryParams";
 import type { useRequestLogPageState } from "./useRequestLogPageState";
 
 type Actions = ReturnType<typeof useRequestLogPageState>;
@@ -35,8 +36,16 @@ export function ActiveFilterChips({ actions }: { actions: Actions }) {
   push("ingress_request_id", copy.ingressRequestId, state.ingress_request_id, () => actions.setIngressRequestId(""));
   push("ingress_model_id", copy.entryModel, state.model_id, () => actions.setModelId(""));
   push("attempt_target_model_id", copy.attemptTargetModel, state.resolved_target_model_id, () => actions.setResolvedTargetModelId(""));
-  push("final_target_model_id", copy.finalTargetModel, state.final_target_model_id, () => actions.replaceState({ ...state, final_target_model_id: "" }));
-  push("final_result", copy.finalResult, state.final_result, () => actions.replaceState({ ...state, final_result: "" }));
+  push("final_target_model_id", copy.finalTargetModel, state.final_target_model_id, () =>
+    actions.replaceState(
+      applyRequestLogStatePatch(state, { final_target_model_id: "" }),
+    ),
+  );
+  push("final_result", copy.finalResult, state.final_result, () =>
+    actions.replaceState(
+      applyRequestLogStatePatch(state, { final_result: "" }),
+    ),
+  );
   push("endpoint_id", copy.endpoint, state.endpoint_id, () => actions.setEndpointId(""));
   push("terminal_target_id", copy.terminalTarget, state.terminal_target_id, () => actions.setTerminalTargetId(""));
   push("proxy_api_key_id", copy.proxyApiKey, state.proxy_api_key_id, () => actions.setProxyApiKeyId(""));

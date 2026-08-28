@@ -46,7 +46,9 @@ models/
 
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Bootstrap models from `@/lib/referenceData`, then patch the local list with `setSharedModels()` after mutations.
+- Preserve backend `routing_summary` and authoritative recursive connection counts in list projection. Routing-relevant detail mutations refresh the shared model collection instead of recalculating direct connections in the browser.
 - Keep model CRUD form validation, strategy attachment, `api_family`, and independent OpenAI text/image dimensions in `modelFormState.ts`; keep mixed access-target draft/order rules in `accessTargetFormState.ts`.
+- Model create payloads are family-discriminated: Anthropic/Gemini omit every OpenAI-only key rather than sending explicit nulls.
 - `AccessTargetsEditor.tsx` consumes persisted access targets through mutation-shaped rows and renders one mixed Model Target/Terminal Target list with global "位置 N" numbering. Moves use the shared runtime order; row mutations address the persisted access-target row ID (never a position in `access_targets`, which the drag draft can reorder) and connection actions use the connection ID.
 - Hydrate 24h metrics separately from the base model list so CRUD flows do not own observability queries.
 - Hydrate all three named metric blocks (`ingress`, `final_execution`, `route_attempt`) in one batch read. The table switch is URL-backed and selects a local block; it must not issue one request per tab. Route-attempt cost stays absent with a reason.

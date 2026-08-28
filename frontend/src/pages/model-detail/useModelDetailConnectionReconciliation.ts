@@ -26,6 +26,7 @@ interface UseModelDetailConnectionReconciliationInput {
   setConnections: React.Dispatch<React.SetStateAction<Connection[]>>;
   setAllConnections: React.Dispatch<React.SetStateAction<Connection[]>>;
   setGlobalEndpoints: React.Dispatch<React.SetStateAction<Endpoint[]>>;
+  refreshModels?: () => Promise<void>;
 }
 
 /**
@@ -38,6 +39,7 @@ export function useModelDetailConnectionReconciliation({
   setConnections,
   setAllConnections,
   setGlobalEndpoints,
+  refreshModels,
 }: UseModelDetailConnectionReconciliationInput) {
   const commitConnection = useCallback<CommitModelDetailConnection>(
     (connection) => {
@@ -59,11 +61,15 @@ export function useModelDetailConnectionReconciliation({
       setGlobalEndpoints((current) =>
         upsertEndpointInList(current, committedConnection.endpoint),
       );
+      void refreshModels?.().catch((error) => {
+        console.error("Failed to refresh authoritative model list", error);
+      });
       return committedConnection;
     },
     [
       modelConfigId,
       pricingTemplates,
+      refreshModels,
       setAllConnections,
       setConnections,
       setGlobalEndpoints,

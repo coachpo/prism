@@ -13,11 +13,11 @@ import (
 // select the ingress cohort server-side before pagination.
 func parseChainQueryParams(r *http.Request, profileID int) (statsdomain.ChainQueryParams, error) {
 	allowed := map[string]struct{}{
-		"view": {}, "q": {}, "ingress_request_id": {}, "ingress_final_result": {}, "final_result": {}, "row_result": {}, "confirmed_failover": {},
+		"view": {}, "q": {}, "ingress_request_id": {}, "ingress_final_result": {}, "final_result": {}, "row_result": {}, "confirmed_failover": {}, "query_context": {},
 		"pricing_status": {}, "unpriced_reason": {}, "pricing_card_role": {}, "pricing_selection_state": {}, "reporting_currency_epoch": {}, "cost_segment_key": {},
 		"is_stream": {}, "stream_outcome": {}, "stream_error_kind": {}, "final_stream_outcome": {}, "final_stream_error_kind": {}, "upstream_status_code": {}, "gateway_status_code": {}, "legacy_status_code": {}, "ingress_final_status_code": {}, "final_status_code": {},
 		"ingress_model_id": {}, "attempt_target_model_id": {}, "final_target_model_id": {}, "endpoint_id": {}, "terminal_target_id": {}, "status_family": {}, "status_code": {}, "client_rule_id": {}, "error_text": {}, "proxy_api_key_id": {},
-		"from_time": {}, "to_time": {}, "time_range": {}, "sort_by": {}, "sort_order": {}, "chain_limit": {}, "chain_cursor": {}, "chain_row_limit": {}, "row_cursor": {}, "anchor_request_log_id": {}, "limit": {},
+		"from_time": {}, "to_time": {}, "time_range": {}, "sort_by": {}, "sort_order": {}, "chain_limit": {}, "chain_cursor": {}, "chain_row_limit": {}, "row_cursor": {}, "anchor_request_log_id": {},
 	}
 	for key := range r.URL.Query() {
 		if _, ok := allowed[key]; !ok {

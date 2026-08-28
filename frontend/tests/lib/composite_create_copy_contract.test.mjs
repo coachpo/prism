@@ -116,7 +116,7 @@ test("terminal target copy request keeps enable_copies default false semantics",
         source_connection_id: 15,
         items: [{
           model_config_id: 8,
-          connection_summary: { id: 25, name: "Primary", endpoint_id: 1, is_active: true, openai_text_capability: "dual_native", pricing_template: null, qps_limit: null, max_in_flight_non_stream: null, max_in_flight_stream: null, custom_header_count: 0 },
+          connection_summary: { id: 25, name: "Primary", endpoint_id: 1, is_active: true, openai_text_capability: "dual_native", openai_image_capability: "generations_and_edits", pricing_template: null, qps_limit: null, max_in_flight_non_stream: null, max_in_flight_stream: null, custom_header_count: 0, custom_request_parameter_count: 0 },
           access_target: { id: 52, target_type: "connection", connection_id: 25, terminal_target_id: 25, position: 0, is_enabled: false },
         }],
         configuration_warnings: [],
@@ -132,6 +132,7 @@ test("terminal target copy request keeps enable_copies default false semantics",
     assert.equal(requests[0].url, "/api/models/7/connections/15/copies");
     assert.deepEqual(requests[0].body, { destination_model_config_ids: [8] });
     assert.equal(response.items[0].access_target.is_enabled, false);
+    assert.equal(response.items[0].connection_summary.openai_image_capability, "generations_and_edits");
   } finally {
     globalThis.fetch = originalFetch;
   }

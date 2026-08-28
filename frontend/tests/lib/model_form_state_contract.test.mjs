@@ -271,11 +271,12 @@ test("payload shaping preserves model CRUD fields only", () => {
   });
 });
 
-test("non-OpenAI model payloads omit accepted format", () => {
+test("non-OpenAI model payloads omit both OpenAI capability dimensions", () => {
   const payload = toModelCreatePayload({ ...setApiFamilyOnForm(createNewModelFormData(17), "anthropic"), model_id: "claude-model", display_name: "Claude Model" });
 
   assert.equal(payload.api_family, "anthropic");
   assert.equal(Object.hasOwn(payload, "openai_accepted_format"), false);
+  assert.equal(Object.hasOwn(payload, "openai_image_operations"), false);
 });
 
 // The two dimensions are independent, so a blank text format is valid exactly

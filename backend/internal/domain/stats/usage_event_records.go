@@ -29,12 +29,18 @@ type usageEventRecord struct {
 	PricingEvidenceTrust           string
 	UnpricedReason                 *string
 	InputTokens                    int
+	HasInputTokens                 bool
 	OutputTokens                   int
 	HasOutputTokens                bool
 	TotalTokens                    int
+	HasTotalTokens                 bool
 	CacheReadInputTokens           int
+	HasCacheReadInputTokens        bool
 	CacheCreationInputTokens       int
+	HasCacheCreationInputTokens    bool
 	ReasoningTokens                int
+	HasReasoningTokens             bool
+	CacheBasisEligible             bool
 	TotalCostUserCurrencyMicros    int64
 	HasTotalCostUserCurrencyMicros bool
 	AttemptCount                   int
@@ -80,7 +86,7 @@ func loadUsageEventRecords(ctx context.Context, exec queryExecutor, profileID in
 	args := []any{profileID}
 	if endAt != nil {
 		args = append(args, endAt.UTC())
-		clauses = append(clauses, fmt.Sprintf("usage_request_events.created_at <= $%d", len(args)))
+		clauses = append(clauses, fmt.Sprintf("usage_request_events.created_at < $%d", len(args)))
 	}
 	if startAt != nil {
 		args = append(args, startAt.UTC())
@@ -102,7 +108,8 @@ func loadUsageEventRecords(ctx context.Context, exec queryExecutor, profileID in
 		args = append(args, *connectionID)
 		clauses = append(clauses, fmt.Sprintf("usage_request_events.connection_id = $%d", len(args)))
 	}
-	rows, err := exec.Query(ctx, `SELECT usage_request_events.id, usage_request_events.created_at, usage_request_events.profile_id, usage_request_events.ingress_request_id, usage_request_events.model_id, usage_request_events.resolved_target_model_id, usage_request_events.api_family, usage_request_events.endpoint_id, usage_request_events.endpoint_label_snapshot, usage_request_events.connection_id, usage_request_events.proxy_api_key_id_snapshot, usage_request_events.proxy_api_key_name_snapshot, usage_request_events.status_code, usage_request_events.success_flag, usage_request_events.pricing_status, usage_request_events.pricing_evidence_trust, usage_request_events.unpriced_reason, usage_request_events.input_tokens, usage_request_events.output_tokens, usage_request_events.total_tokens, usage_request_events.cache_read_input_tokens, usage_request_events.cache_creation_input_tokens, usage_request_events.reasoning_tokens, usage_request_events.total_cost_user_currency_micros, usage_request_events.attempt_count, usage_request_events.final_attempt_number, usage_request_events.request_path, usage_request_events.stream_outcome, usage_request_events.response_time_ms, usage_request_events.ttft_ms, usage_request_events.completion_duration_ms, model_configs.display_name, endpoints.name, endpoints.base_url, proxy_api_keys.name, proxy_api_keys.key_prefix
+	rows, err := exec.Query(ctx, `SELECT usage_request_events.id, usage_request_events.created_at, usage_request_events.profile_id, usage_request_events.ingress_request_id, usage_request_events.model_id, usage_request_events.resolved_target_model_id, usage_request_events.api_family, usage_request_events.endpoint_id, usage_request_events.endpoint_label_snapshot, usage_request_events.connection_id, usage_request_events.proxy_api_key_id_snapshot, usage_request_events.proxy_api_key_name_snapshot, usage_request_events.status_code, usage_request_events.success_flag, usage_request_events.pricing_status, usage_request_events.pricing_evidence_trust, usage_request_events.unpriced_reason, usage_request_events.input_tokens, usage_request_events.output_tokens, usage_request_events.total_tokens, usage_request_events.cache_read_input_tokens, usage_request_events.cache_creation_input_tokens, usage_request_events.reasoning_tokens, usage_request_events.total_cost_user_currency_micros, usage_request_events.attempt_count, usage_request_events.final_attempt_number, usage_request_events.request_path, usage_request_events.stream_outcome, usage_request_events.response_time_ms, usage_request_events.ttft_ms, usage_request_events.completion_duration_ms, model_configs.display_name, endpoints.name, endpoints.base_url, proxy_api_keys.name, proxy_api_keys.key_prefix,
+		`+cacheBasisEligibleSQL+` AS cache_basis_eligible
 		 FROM usage_request_events
 		 LEFT JOIN model_configs ON model_configs.profile_id = usage_request_events.profile_id AND model_configs.model_id = usage_request_events.model_id
 		 LEFT JOIN endpoints ON endpoints.profile_id = usage_request_events.profile_id AND endpoints.id = usage_request_events.endpoint_id
@@ -155,7 +162,7 @@ func scanUsageEventRecord(scanner interface{ Scan(...any) error }) (usageEventRe
 	var currentProxyAPIKeyName sql.NullString
 	var currentProxyAPIKeyPrefix sql.NullString
 	item := usageEventRecord{}
-	if err := scanner.Scan(&item.ID, &item.CreatedAt, &item.ProfileID, &item.IngressRequestID, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &endpointID, &endpointLabelSnapshot, &connectionID, &proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &item.StatusCode, &item.SuccessFlag, &pricingStatus, &pricingEvidenceTrust, &unpricedReason, &inputTokens, &outputTokens, &totalTokens, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &totalCostUserCurrencyMicros, &item.AttemptCount, &finalAttemptNumber, &item.RequestPath, &streamOutcome, &responseTimeMS, &ttftMS, &completionDurationMS, &currentModelLabel, &currentEndpointName, &currentEndpointBaseURL, &currentProxyAPIKeyName, &currentProxyAPIKeyPrefix); err != nil {
+	if err := scanner.Scan(&item.ID, &item.CreatedAt, &item.ProfileID, &item.IngressRequestID, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &endpointID, &endpointLabelSnapshot, &connectionID, &proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &item.StatusCode, &item.SuccessFlag, &pricingStatus, &pricingEvidenceTrust, &unpricedReason, &inputTokens, &outputTokens, &totalTokens, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &totalCostUserCurrencyMicros, &item.AttemptCount, &finalAttemptNumber, &item.RequestPath, &streamOutcome, &responseTimeMS, &ttftMS, &completionDurationMS, &currentModelLabel, &currentEndpointName, &currentEndpointBaseURL, &currentProxyAPIKeyName, &currentProxyAPIKeyPrefix, &item.CacheBasisEligible); err != nil {
 		return usageEventRecord{}, fmt.Errorf("scan usage event: %w", err)
 	}
 	item.CreatedAt = item.CreatedAt.UTC()
@@ -169,12 +176,17 @@ func scanUsageEventRecord(scanner interface{ Scan(...any) error }) (usageEventRe
 	item.PricingEvidenceTrust = stringValue(nullableString(pricingEvidenceTrust))
 	item.UnpricedReason = nullableString(unpricedReason)
 	item.InputTokens = intValue(nullableInt32(inputTokens))
+	item.HasInputTokens = inputTokens.Valid
 	item.OutputTokens = intValue(nullableInt32(outputTokens))
 	item.HasOutputTokens = outputTokens.Valid
 	item.TotalTokens = intValue(nullableInt32(totalTokens))
+	item.HasTotalTokens = totalTokens.Valid
 	item.CacheReadInputTokens = intValue(nullableInt32(cacheReadInputTokens))
+	item.HasCacheReadInputTokens = cacheReadInputTokens.Valid
 	item.CacheCreationInputTokens = intValue(nullableInt32(cacheCreationInputTokens))
+	item.HasCacheCreationInputTokens = cacheCreationInputTokens.Valid
 	item.ReasoningTokens = intValue(nullableInt32(reasoningTokens))
+	item.HasReasoningTokens = reasoningTokens.Valid
 	item.TotalCostUserCurrencyMicros = int64Value(nullableInt64(totalCostUserCurrencyMicros))
 	item.HasTotalCostUserCurrencyMicros = totalCostUserCurrencyMicros.Valid
 	item.FinalAttemptNumber = nullableInt32(finalAttemptNumber)

@@ -23,6 +23,9 @@ type chainCursorPayload struct {
 	UsageEventID        int64  `json:"u"`
 	Limit               int    `json:"l"`
 	SortOrder           string `json:"s"`
+	CohortHash          string `json:"c"`
+	WindowFrom          string `json:"f,omitempty"`
+	WindowTo            string `json:"t,omitempty"`
 	RetentionEpoch      int64  `json:"r"`
 	RetentionGeneration int64  `json:"g"`
 }
@@ -34,6 +37,9 @@ type rowCursorPayload struct {
 	OrderAt             string `json:"o"`
 	RequestLogID        string `json:"id"`
 	Limit               int    `json:"l"`
+	CohortHash          string `json:"c"`
+	WindowFrom          string `json:"f,omitempty"`
+	WindowTo            string `json:"t,omitempty"`
 	RetentionEpoch      int64  `json:"r"`
 	RetentionGeneration int64  `json:"g"`
 }
@@ -78,6 +84,72 @@ func signChainCursor(raw []byte) []byte {
 	mac := hmac.New(sha256.New, cursorDomainBytes)
 	_, _ = mac.Write(raw)
 	return mac.Sum(nil)
+}
+
+func chainCohortFingerprint(params ChainQueryParams) (string, error) {
+	identity := params
+	identity.Cursor = nil
+	identity.ChainCursor = nil
+	identity.RowCursor = nil
+	identity.Limit = 0
+	identity.ChainLimit = 0
+	identity.ChainRowLimit = 0
+	identity.ClientRulePattern = nil
+	identity.CoverageReferenceNow = time.Time{}
+	identity.CoveragePreset = ""
+	identity.CoverageRequestedFrom = nil
+	identity.CoverageRequestedTo = nil
+	identity.FromTime = nil
+	identity.ToTime = nil
+	if identity.Q != nil {
+		trimmed := strings.TrimSpace(*identity.Q)
+		identity.Q = &trimmed
+	}
+	identity.SortBy = strings.ToLower(strings.TrimSpace(identity.SortBy))
+	identity.SortOrder = strings.ToLower(strings.TrimSpace(identity.SortOrder))
+	raw, err := json.Marshal(identity)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(raw)
+	return base64.RawURLEncoding.EncodeToString(digest[:]), nil
+}
+
+func applyChainCursorWindow(params *ChainQueryParams, fromRaw string, toRaw string) error {
+	if fromRaw == "" && toRaw == "" {
+		params.CoveragePreset = "all"
+		params.CoverageRequestedFrom = nil
+		params.CoverageRequestedTo = nil
+		params.FromTime = nil
+		params.ToTime = nil
+		return nil
+	}
+	if fromRaw == "" || toRaw == "" {
+		return fmt.Errorf("incomplete cursor window")
+	}
+	from, err := time.Parse(time.RFC3339Nano, fromRaw)
+	if err != nil {
+		return fmt.Errorf("invalid cursor from time: %w", err)
+	}
+	to, err := time.Parse(time.RFC3339Nano, toRaw)
+	if err != nil || !to.After(from) {
+		return fmt.Errorf("invalid cursor to time")
+	}
+	from = from.UTC()
+	to = to.UTC()
+	params.CoveragePreset = "custom"
+	params.CoverageRequestedFrom = &from
+	params.CoverageRequestedTo = &to
+	params.FromTime = &from
+	params.ToTime = &to
+	return nil
+}
+
+func chainCursorWindow(params ChainQueryParams) (string, string) {
+	if params.FromTime == nil || params.ToTime == nil {
+		return "", ""
+	}
+	return params.FromTime.UTC().Format(time.RFC3339Nano), params.ToTime.UTC().Format(time.RFC3339Nano)
 }
 
 func encodeRowCursor(payload rowCursorPayload) (string, error) {

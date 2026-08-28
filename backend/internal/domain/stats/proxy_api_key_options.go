@@ -77,7 +77,7 @@ func ListProxyAPIKeyFilterOptions(ctx context.Context, exec queryExecutor, param
 					proxy_api_key_id_snapshot AS key_id, proxy_api_key_name_snapshot AS name_snapshot
 				FROM request_logs
 				WHERE profile_id = $1 AND proxy_api_key_id_snapshot IS NOT NULL
-					AND proxy_api_key_name_snapshot IS NOT NULL AND created_at >= $2 AND created_at <= $3
+					AND proxy_api_key_name_snapshot IS NOT NULL AND created_at >= $2 AND created_at < $3
 				ORDER BY proxy_api_key_id_snapshot, created_at DESC, id DESC
 			) snapshot
 			WHERE NOT EXISTS (SELECT 1 FROM proxy_api_keys current_key WHERE current_key.id = snapshot.key_id)
@@ -178,7 +178,7 @@ func loadProxyAPIKeyFilterOption(ctx context.Context, exec queryExecutor, profil
 		return option, nil
 	}
 	var snapshotName sql.NullString
-	if err := exec.QueryRow(ctx, `SELECT proxy_api_key_name_snapshot FROM request_logs WHERE profile_id = $1 AND proxy_api_key_id_snapshot = $2 AND created_at >= $3 AND created_at <= $4 AND proxy_api_key_name_snapshot IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 1`, profileID, keyID, fromTime, toTime).Scan(&snapshotName); err == nil {
+	if err := exec.QueryRow(ctx, `SELECT proxy_api_key_name_snapshot FROM request_logs WHERE profile_id = $1 AND proxy_api_key_id_snapshot = $2 AND created_at >= $3 AND created_at < $4 AND proxy_api_key_name_snapshot IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 1`, profileID, keyID, fromTime, toTime).Scan(&snapshotName); err == nil {
 		name := strings.TrimSpace(stringValue(nullableString(snapshotName)))
 		if name == "" {
 			name = fmt.Sprintf("#%d", keyID)

@@ -104,6 +104,23 @@ function fragmentFor(
     data: {
       generated_at: "2026-08-08T02:00:00Z",
       coverage: coverage(),
+      dataset_coverage: { usage_request_events: coverage() },
+      caliber: {
+        scope: "ingress",
+        grain: "ingress_request",
+        identity_basis: "ingress_model_id",
+        outcome_basis: "final_result",
+        latency_basis: "ingress_end_to_end",
+        cost_basis: "served_final_trusted_cost",
+        datasets: ["usage_request_events"],
+      },
+      samples: {
+        observation_count: 0,
+        latency_sample_count: 0,
+        latency_missing_count: 0,
+        cost_sample_count: 0,
+        cost_missing_count: 0,
+      },
       metric,
       group_by: "none",
       selection_basis: "request_count",
@@ -348,8 +365,22 @@ describe("ObserveMainChart series table", () => {
 
 describe("ObserveMainChart honest chart states", () => {
   it.each([
-    ["ingress", ["合计", "按入口模型"]],
-    ["final_execution", ["合计", "按最终目标模型", "按端点", "按终端目标"]],
+    ["ingress", "requests", ["请求数", "错误", "TTFT", "输出速率", "令牌", "缓存读取", "花费"]],
+    ["final_execution", "requests", ["请求数", "错误", "最终尝试延迟", "令牌", "缓存读取", "花费"]],
+    ["route_attempt", "attempts", ["尝试数", "错误", "尝试延迟"]],
+  ] as const)("limits %s metrics to its server matrix", (scope, metric, labels) => {
+    const view = renderChart(metric, SERIES, scope);
+    expect(
+      within(screen.getByRole("group", { name: "指标" }))
+        .getAllByRole("radio")
+        .map((item) => item.textContent),
+    ).toEqual(labels);
+    view.unmount();
+  });
+
+  it.each([
+    ["ingress", ["合计", "按入口模型", "按 API 家族"]],
+    ["final_execution", ["合计", "按最终目标模型", "按 API 家族", "按端点", "按终端目标"]],
     [
       "route_attempt",
       [
@@ -357,6 +388,7 @@ describe("ObserveMainChart honest chart states", () => {
         "按尝试目标模型",
         "按尝试触发原因",
         "按尝试结果",
+        "按 API 家族",
         "按端点",
         "按终端目标",
       ],

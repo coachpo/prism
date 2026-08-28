@@ -82,7 +82,7 @@ describe("ObserveActivityTable ingress attribution", () => {
   it("shows A to C, attempt count and the actual outlet on one finalized request row", async () => {
     render(
       <LocaleProvider>
-        <ObserveActivityTable queryContext="ingress-context" />
+        <ObserveActivityTable preset="24h" queryContext="ingress-context" />
       </LocaleProvider>,
     );
 
@@ -100,17 +100,17 @@ describe("ObserveActivityTable ingress attribution", () => {
       screen.getByRole("columnheader", { name: "实际执行出口" }),
     ).toBeInTheDocument();
 
-    expect(mocks.observeActivity).toHaveBeenCalledWith(
-      "ingress-context",
-      { limit: 20, before: undefined },
-    );
+    expect(mocks.observeActivity).toHaveBeenCalledWith("ingress-context", {
+      limit: 20,
+      before: undefined,
+    });
   });
 
   it("opens the retained ingress chain for the finalized request", async () => {
     const user = userEvent.setup();
     render(
       <LocaleProvider>
-        <ObserveActivityTable queryContext="ingress-context" />
+        <ObserveActivityTable preset="7d" queryContext="ingress-context" />
       </LocaleProvider>,
     );
 
@@ -120,8 +120,8 @@ describe("ObserveActivityTable ingress attribution", () => {
         to: "/observe/requests",
         search: {
           view: "ingress_chains",
-          query_context: "ingress-context",
-          final_ingress_request_id: "ingress-1",
+          ingress_request_id: "ingress-1",
+          time_range: "7d",
         },
       }),
     );

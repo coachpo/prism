@@ -106,6 +106,102 @@ test("model target client rejects obsolete routing metadata from API responses",
   }
 });
 
+test("model list preserves the backend routing summary and model delete envelope", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url: String(url), init });
+    if (String(url) === "/api/models/7") {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ deleted: true }),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify([{
+        id: 7,
+        profile_id: 1,
+        api_family: "openai",
+        model_id: "gpt-summary",
+        display_name: null,
+        openai_accepted_format: "dual_native",
+        openai_image_operations: null,
+        loadbalance_strategy_id: 3,
+        loadbalance_strategy: null,
+        access_targets: [],
+        is_enabled: true,
+        connection_count: 2,
+        active_connection_count: 1,
+        health_success_rate: null,
+        health_total_requests: 0,
+        routing_summary: {
+          enabled_access_target_count: 2,
+          total_access_target_count: 3,
+          openai_mode: "dual_native",
+          coverage: "partial",
+          operation_groups: [{ group: "responses", status: "routable" }],
+          single_truncated_access_target_ids: [12],
+          warning_codes: ["single_strategy_truncates_targets"],
+        },
+        created_at: "2026-08-28T00:00:00Z",
+        updated_at: "2026-08-28T00:00:00Z",
+      }]),
+    };
+  };
+
+  try {
+    const { api } = loadApi();
+    const items = await api.models.list();
+    assert.equal(items[0].connection_count, 2);
+    assert.equal(items[0].routing_summary.coverage, "partial");
+    assert.deepEqual(items[0].routing_summary.single_truncated_access_target_ids, [12]);
+    assert.deepEqual(await api.models.delete(7), { deleted: true });
+    assert.equal(requests[1].init.method, "DELETE");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("routing diagnostics passes the caller AbortSignal to fetch", async () => {
+  const originalFetch = globalThis.fetch;
+  let observedSignal;
+  globalThis.fetch = async (_url, init) => {
+    observedSignal = init?.signal;
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        model_config_id: 7,
+        openai_accepted_format: null,
+        strategy: { id: 3, type: "single" },
+        accepted_operations: [],
+        stages: [],
+        targets: [],
+        operation_routes: [],
+        operation_coverage: [],
+        configuration_warnings: [],
+      }),
+    };
+  };
+
+  try {
+    const { load } = createTsModuleLoader({ rootDir: frontendDir });
+    const { modelRoutingDiagnostics } = load(
+      path.join(frontendDir, "src/lib/api/model_routing.ts"),
+    );
+    const controller = new AbortController();
+    await modelRoutingDiagnostics.get(7, controller.signal);
+    assert.equal(observedSignal instanceof AbortSignal, true);
+    controller.abort();
+    assert.equal(observedSignal.aborted, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 // The auth session coordinator attaches a live epoch AbortSignal to every
 // protected fetch; the route contract is the remaining init surface.
 function normalizeFetchInit(init) {

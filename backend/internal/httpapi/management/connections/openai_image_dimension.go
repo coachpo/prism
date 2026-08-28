@@ -101,13 +101,6 @@ func ensureOpenAIImageCapabilityCoversOwnerOperations(ownerAPIFamily string, own
 	return nil
 }
 
-// openAIImageOperationsServedByCapability reports whether a destination model's
-// accepted image operations are all served by a capability being copied onto
-// it. It is the copy-time counterpart of the create/update check.
-func openAIImageOperationsServedByCapability(destinationImageOperations string, capability string) bool {
-	return providerauth.OpenAIImageCapabilityCovers(destinationImageOperations, capability)
-}
-
 // openAIImageUncoveredIssueCode re-exports the routing issue code so HTTP
 // handlers in this package can report image coverage failures with the same
 // identity the routing domain uses.

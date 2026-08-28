@@ -140,6 +140,7 @@ const modelOptions: ModelConfigListItem[] = [
     active_connection_count: 0,
     health_success_rate: null,
     health_total_requests: 0,
+    routing_summary: null,
     created_at: "2026-08-08T00:00:00Z",
     updated_at: "2026-08-08T00:00:00Z",
   },

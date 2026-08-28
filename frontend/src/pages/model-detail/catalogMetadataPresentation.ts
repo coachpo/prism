@@ -2,6 +2,13 @@ import type { Messages } from "@/i18n/messages";
 import type { ModelCatalogMetadata } from "@/lib/types";
 
 export type CatalogFieldKey = keyof ModelCatalogMetadata;
+export type CatalogFieldKind =
+  | "string"
+  | "date"
+  | "boolean"
+  | "string_list"
+  | "integer"
+  | "status";
 
 // Stable display order is also the address space used by the override editor.
 export const CATALOG_FIELD_ORDER: CatalogFieldKey[] = [
@@ -25,15 +32,26 @@ export const CATALOG_FIELD_ORDER: CatalogFieldKey[] = [
   "status",
 ];
 
-export const CATALOG_OVERRIDE_TEXT_FIELDS: CatalogFieldKey[] = [
-  "name",
-  "description",
-  "family",
-  "release_date",
-  "last_updated",
-  "knowledge",
-  "status",
-];
+export const CATALOG_FIELD_KINDS: Record<CatalogFieldKey, CatalogFieldKind> = {
+  name: "string",
+  description: "string",
+  family: "string",
+  release_date: "date",
+  last_updated: "date",
+  knowledge: "date",
+  attachment: "boolean",
+  reasoning: "boolean",
+  tool_call: "boolean",
+  structured_output: "boolean",
+  temperature: "boolean",
+  modalities_input: "string_list",
+  modalities_output: "string_list",
+  limit_context: "integer",
+  limit_input: "integer",
+  limit_output: "integer",
+  open_weights: "boolean",
+  status: "status",
+};
 
 export function renderCatalogFieldValue(
   metadata: ModelCatalogMetadata | null,

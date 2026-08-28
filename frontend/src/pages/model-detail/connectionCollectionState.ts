@@ -2,7 +2,6 @@ import type {
   Connection,
   ConnectionPricingTemplateSummary,
   Endpoint,
-  ModelConfigListItem,
   PricingTemplate,
 } from "@/lib/types";
 
@@ -113,23 +112,6 @@ export function upsertEndpointInList(
     (left, right) =>
       left.name.localeCompare(right.name, "zh-CN") || left.id - right.id,
   );
-}
-
-export function patchModelListConnectionCounts(
-  models: ModelConfigListItem[],
-  modelConfigId: number,
-  connections: Connection[],
-): ModelConfigListItem[] {
-  return models.map((item) => {
-    if (item.id !== modelConfigId) return item;
-    return {
-      ...item,
-      connection_count: connections.length,
-      active_connection_count: connections.filter(
-        (connection) => connection.is_active,
-      ).length,
-    };
-  });
 }
 
 function buildConnectionPricingTemplateSummary(

@@ -26,6 +26,22 @@ func appendChainRowCohortExists(query string, args *[]any, params ChainQueryPara
 	return query + " AND EXISTS (SELECT 1 FROM request_logs match_rows WHERE " + strings.Join(clauses, " AND ") + ")"
 }
 
+func appendChainWindowCohortExists(query string, args *[]any, params ChainQueryParams, outerAlias string) string {
+	clauses := []string{
+		"window_rows.profile_id = " + outerAlias + ".profile_id",
+		"window_rows.ingress_request_id = " + outerAlias + ".ingress_request_id",
+	}
+	if params.FromTime != nil {
+		*args = append(*args, params.FromTime.UTC())
+		clauses = append(clauses, fmt.Sprintf("window_rows.created_at >= $%d", len(*args)))
+	}
+	if params.ToTime != nil {
+		*args = append(*args, params.ToTime.UTC())
+		clauses = append(clauses, fmt.Sprintf("window_rows.created_at < $%d", len(*args)))
+	}
+	return query + " AND EXISTS (SELECT 1 FROM request_logs window_rows WHERE " + strings.Join(clauses, " AND ") + ")"
+}
+
 func buildChainRowMatchClauses(args *[]any, params ChainQueryParams, alias string) []string {
 	clauses := make([]string, 0)
 	add := func(value any, clause string) {
@@ -163,6 +179,12 @@ func appendChainFinalizedCohortExists(query string, args *[]any, params ChainQue
 	add := func(value any, clause string) {
 		*args = append(*args, value)
 		clauses = append(clauses, fmt.Sprintf(clause, len(*args)))
+	}
+	if params.FromTime != nil {
+		add(params.FromTime.UTC(), "final_rows.created_at >= $%d")
+	}
+	if params.ToTime != nil {
+		add(params.ToTime.UTC(), "final_rows.created_at < $%d")
 	}
 	if params.IngressFinalResult != nil {
 		classifier := `CASE WHEN final_rows.status_code NOT BETWEEN 200 AND 299 THEN 'failed'

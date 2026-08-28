@@ -15,8 +15,8 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
 import {
+  metricsForScope,
   OBSERVE_GROUPS,
-  OBSERVE_METRICS,
   type ObserveGroupBy,
   type ObserveMetric,
   type ObserveScope,
@@ -219,7 +219,7 @@ export function ObserveMainChart({
             if (value) onMetricChange(value as ObserveMetric);
           }}
         >
-          {OBSERVE_METRICS.map((value) => (
+          {metricsForScope(scope).map((value) => (
             <ToggleGroupItem
               key={value}
               value={value}

@@ -419,13 +419,13 @@ function ChainSummaryRow({
 			</TableCell>
 
 			<TableCell className="max-w-52 truncate">
-				{summary?.requested_model?.label ?? (
+					{summary?.ingress_model?.label ?? (
 					<OperatorMissingValue reason={missingReason} />
 				)}
 			</TableCell>
 
 				<TableCell className="max-w-52 truncate">
-					{summary?.resolved_model?.label ?? (
+						{summary?.final_target_model?.label ?? (
 						<OperatorMissingValue reason={missingReason} />
 					)}
 				</TableCell>

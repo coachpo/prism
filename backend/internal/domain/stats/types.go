@@ -5,42 +5,82 @@ import (
 )
 
 type RequestLogListParams struct {
-	ProfileID             int
-	IngressRequestID      *string
-	IngressFinalResult    *string
-	ConfirmedFailover     *bool
-	ModelID               *string
-	ResolvedTargetModelID *string
-	StatusFamily          *string
-	StatusCode            *int
-	ErrorText             *string
-	PricingStatus         *string
-	UnpricedReasons       []string
-	PricingCardRole       *string
-	PricingSelectionState *string
-	FromTime              *time.Time
-	ToTime                *time.Time
-	EndpointID            *int
-	TerminalTargetID      *int
-	ProxyAPIKeyID         *int
-	ClientRuleID          *int
-	ClientRulePattern     *string
+	ProfileID                   int
+	IngressRequestID            *string
+	IngressFinalResult          *string
+	ConfirmedFailover           *bool
+	ModelID                     *string
+	ModelIDs                    []string
+	ModelIDIsNull               bool
+	ResolvedTargetModelID       *string
+	ResolvedTargetModelIDs      []string
+	ResolvedTargetModelIDIsNull bool
+	APIFamilies                 []string
+	APIFamilyIsNull             bool
+	RowKinds                    []string
+	StatusFamily                *string
+	StatusCode                  *int
+	StatusCodes                 []int
+	StatusCodeIsNull            bool
+	StreamOutcomes              []string
+	StreamOutcomeIsNull         bool
+	StreamErrorKinds            []string
+	StreamErrorKindIsNull       bool
+	ErrorText                   *string
+	PricingStatus               *string
+	UnpricedReasons             []string
+	PricingCardRole             *string
+	PricingSelectionState       *string
+	FromTime                    *time.Time
+	ToTime                      *time.Time
+	EndpointID                  *int
+	EndpointIDs                 []int
+	EndpointIDIsNull            bool
+	TerminalTargetID            *int
+	TerminalTargetIDs           []int
+	TerminalTargetIDIsNull      bool
+	ProxyAPIKeyID               *int
+	ClientRuleID                *int
+	ClientRulePattern           *string
 	// Observe signed-context deep-link selectors (Observe SPEC §4.3): when
 	// any final_* selector is present the query_context must have been
 	// validated and the final cohort is resolved through usage_request_events
 	// (the authoritative finalized ingress summary), never from retained rows.
-	QueryContextFrom      *time.Time
-	QueryContextTo        *time.Time
-	FinalResult           *string
-	FinalStatusCodes      []int
-	FinalStreamOutcomes   []string
-	FinalStreamErrorKinds []string
-	FinalModelID          *string
-	FinalEndpointID       *int
-	FinalTerminalTargetID *int
-	FinalPricingStatus    *string
-	FinalUnpricedReasons  []string
-	FinalReportingEpoch   *string
+	QueryContextFrom            *time.Time
+	QueryContextTo              *time.Time
+	FinalResult                 *string
+	FinalResults                []string
+	FinalOutcomeDetails         []string
+	FinalStatusCodes            []int
+	FinalStatusCodeIsNull       bool
+	FinalStreamOutcomes         []string
+	FinalStreamOutcomeIsNull    bool
+	FinalStreamErrorKinds       []string
+	FinalStreamErrorKindIsNull  bool
+	FinalModelID                *string
+	FinalModelIDs               []string
+	FinalModelIDIsNull          bool
+	FinalEndpointID             *int
+	FinalEndpointIDs            []int
+	FinalEndpointIDIsNull       bool
+	FinalTerminalTargetID       *int
+	FinalTerminalTargetIDs      []int
+	FinalTerminalTargetIDIsNull bool
+	FinalPricingStatus          *string
+	FinalPricingStatuses        []string
+	FinalPricingStatusIsNull    bool
+	FinalUnpricedReasons        []string
+	FinalReportingEpoch         *string
+	FinalReportingEpochs        []string
+	FinalReportingEpochIsNull   bool
+	// FinalExclusion is the bounded complement selector emitted by Observe
+	// Errors for a Top-N "Other" remainder. It is valid only with a signed
+	// query context and applies to the authoritative finalized usage row.
+	FinalExclusion       *FinalizedCohortExclusion
+	AttemptTriggers      []string
+	AttemptTriggerIsNull bool
+	AttemptResults       []string
+	AttemptResultIsNull  bool
 	// CoverageRequestedFrom/To carry the parsed explicit request bounds (nil
 	// when absent) so the coverage projection can be resolved in the same
 	// snapshot as the rows.
@@ -59,6 +99,27 @@ type RequestLogListParams struct {
 	Limit     int
 	Offset    int
 }
+
+// FinalizedCohortExclusion names one allowlisted finalized facet and the
+// visible Top-N values to exclude. Values are parameterized by the request-log
+// query builder; ExcludeNull distinguishes a visible unattributed bucket from
+// an ordinary non-null value.
+type FinalizedCohortExclusion struct {
+	Facet       string
+	Values      []string
+	ExcludeNull bool
+}
+
+const (
+	FinalExclusionStatusCode          = "status_code"
+	FinalExclusionStreamOutcome       = "stream_outcome"
+	FinalExclusionStreamErrorKind     = "stream_error_kind"
+	FinalExclusionAPIFamily           = "api_family"
+	FinalExclusionIngressModel        = "ingress_model_id"
+	FinalExclusionFinalTargetModel    = "final_target_model_id"
+	FinalExclusionFinalEndpoint       = "final_endpoint_id"
+	FinalExclusionFinalTerminalTarget = "final_terminal_target_id"
+)
 
 type RequestLogFilterEndpointOption struct {
 	EndpointID    int    `json:"endpoint_id"`
@@ -590,17 +651,19 @@ type UsageSnapshotResponse struct {
 }
 
 type EndpointModelStatistic struct {
-	ModelID              string   `json:"model_id"`
-	ModelLabel           string   `json:"model_label"`
-	RequestCount         int      `json:"request_count"`
-	SuccessCount         *int     `json:"success_count"`
-	FailedCount          *int     `json:"failed_count"`
-	PricedRequestCount   *int     `json:"priced_request_count"`
-	UnpricedRequestCount *int     `json:"unpriced_request_count"`
-	SuccessRate          float64  `json:"success_rate"`
-	P50TTFTMS            *int     `json:"p50_ttft_ms"`
-	P95TTFTMS            *int     `json:"p95_ttft_ms"`
-	TotalTokens          int      `json:"total_tokens"`
-	TotalCostMicros      int64    `json:"total_cost_micros"`
-	AvgOutputRateTPS     *float64 `json:"avg_output_rate_tps"`
+	ModelID              string            `json:"model_id"`
+	ModelLabel           string            `json:"model_label"`
+	RequestCount         int               `json:"request_count"`
+	SuccessCount         *int              `json:"success_count"`
+	FailedCount          *int              `json:"failed_count"`
+	PricedRequestCount   *int              `json:"priced_request_count"`
+	UnpricedRequestCount *int              `json:"unpriced_request_count"`
+	SuccessRate          float64           `json:"success_rate"`
+	P50TTFTMS            *int              `json:"p50_ttft_ms"`
+	P95TTFTMS            *int              `json:"p95_ttft_ms"`
+	TotalTokens          int               `json:"total_tokens"`
+	TotalCostMicros      int64             `json:"total_cost_micros"`
+	KnownCostMicros      *int64            `json:"known_cost_micros"`
+	AvgOutputRateTPS     *float64          `json:"avg_output_rate_tps"`
+	Samples              ScopeSampleCounts `json:"samples"`
 }

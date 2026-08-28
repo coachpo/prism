@@ -103,6 +103,13 @@ func TestSetupReadinessModelsAndResolver(t *testing.T) {
 	if representative["operation_name"] != "openai.chat_completions" {
 		t.Fatalf("expected representative chat_completions witness, got %+v", representative)
 	}
+	if representative["endpoint_id"] != fmt.Sprintf("%d", endpointID) || representative["coverage"] != "full" {
+		t.Fatalf("expected real endpoint identity and lowercase full coverage, got %+v", representative)
+	}
+	routeSchedule := readinessTarget["route_schedule"].(map[string]any)
+	if routeSchedule["schedule_limited"] != false || intValue(routeSchedule["limited_witness_count"]) != 0 || intValue(routeSchedule["total_witness_count"]) < 1 {
+		t.Fatalf("expected unrestricted route schedule qualifier, got %+v", routeSchedule)
+	}
 	resolved := harness.requestJSON(t, harness.client, http.MethodGet, "/api/models/route-witnesses?generation="+generationTarget, nil, modelHeader(profileID))
 	assertStatus(t, resolved, http.StatusOK)
 	var resolvedPayload map[string]any
@@ -110,6 +117,9 @@ func TestSetupReadinessModelsAndResolver(t *testing.T) {
 	witness := resolvedPayload["witness"].(map[string]any)
 	if witness["witness_id"] != representative["witness_id"] {
 		t.Fatalf("expected resolver to return the representative witness, got %+v", witness)
+	}
+	if witness["endpoint_id"] != representative["endpoint_id"] || witness["coverage"] != "full" {
+		t.Fatalf("expected resolver to preserve endpoint identity and coverage, got %+v", witness)
 	}
 	selected := harness.requestJSON(t, harness.client, http.MethodGet, "/api/models/route-witnesses?generation="+generationTarget+"&selected_id=does-not-exist", nil, modelHeader(profileID))
 	assertStatus(t, selected, http.StatusNotFound)

@@ -64,11 +64,11 @@ func parseStatsSummaryParams(r *http.Request, profileID int) (statsdomain.StatsS
 	if err != nil {
 		return statsdomain.StatsSummaryParams{}, err
 	}
-	endpointID, err := parseOptionalInt(r, "endpoint_id")
+	endpointID, err := parseOptionalPositiveStatsID(r, "endpoint_id")
 	if err != nil {
 		return statsdomain.StatsSummaryParams{}, err
 	}
-	connectionID, err := parseOptionalInt(r, "terminal_target_id")
+	connectionID, err := parseOptionalPositiveStatsID(r, "terminal_target_id")
 	if err != nil {
 		return statsdomain.StatsSummaryParams{}, err
 	}
@@ -84,9 +84,16 @@ func parseStatsSummaryParams(r *http.Request, profileID int) (statsdomain.StatsS
 	if err := statsdomain.ValidateScopeQueryKeys(normalizedScope, keys); err != nil {
 		return statsdomain.StatsSummaryParams{}, err
 	}
-	groupBy := normalizedQueryString(r, "group_by")
-	if _, err := statsdomain.ValidateGroupBy(normalizedScope, valueOrEmpty(groupBy)); err != nil {
+	if err := validateAggregateEndpointQueryKeys("summary", normalizedScope, keys); err != nil {
 		return statsdomain.StatsSummaryParams{}, err
+	}
+	groupBy := normalizedQueryString(r, "group_by")
+	validatedGroup, err := statsdomain.ValidateGroupBy(normalizedScope, valueOrEmpty(groupBy))
+	if err != nil {
+		return statsdomain.StatsSummaryParams{}, err
+	}
+	if validatedGroup == statsdomain.GroupProxyAPIKey {
+		return statsdomain.StatsSummaryParams{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "group_invalid", Detail: "summary does not support group_by proxy_api_key"}
 	}
 	return statsdomain.StatsSummaryParams{
 		ProfileID: profileID, FromTime: fromTime, ToTime: toTime, Preset: queryStringOrDefault(r, "preset", "24h"),
@@ -95,6 +102,45 @@ func parseStatsSummaryParams(r *http.Request, profileID int) (statsdomain.StatsS
 		AttemptTargetModelID: normalizedQueryString(r, "attempt_target_model_id"), APIFamily: normalizedQueryString(r, "api_family"),
 		EndpointID: endpointID, ConnectionID: connectionID, AttemptTrigger: normalizedQueryString(r, "attempt_trigger"), AttemptResult: normalizedQueryString(r, "attempt_result"), Scope: normalizedScope,
 	}, nil
+}
+
+func validateAggregateEndpointQueryKeys(endpoint string, scope string, keys []string) error {
+	allowed := map[string]struct{}{"scope": {}, "preset": {}, "from_time": {}, "to_time": {}, "api_family": {}}
+	switch endpoint {
+	case "summary":
+		allowed["group_by"] = struct{}{}
+	case "spending":
+		for _, key := range []string{"group_by", "limit", "offset", "top_n"} {
+			allowed[key] = struct{}{}
+		}
+	case "throughput":
+	default:
+		return &statsdomain.HTTPError{StatusCode: http.StatusInternalServerError, Code: "endpoint_contract_invalid", Detail: "unknown aggregate endpoint contract"}
+	}
+	switch scope {
+	case statsdomain.ScopeIngress:
+		allowed["ingress_model_id"] = struct{}{}
+	case statsdomain.ScopeFinal:
+		allowed["final_target_model_id"] = struct{}{}
+		allowed["endpoint_id"] = struct{}{}
+		allowed["terminal_target_id"] = struct{}{}
+	case statsdomain.ScopeRouteAttempt:
+		if endpoint != "spending" {
+			allowed["attempt_target_model_id"] = struct{}{}
+			allowed["endpoint_id"] = struct{}{}
+			allowed["terminal_target_id"] = struct{}{}
+		}
+		if endpoint == "summary" {
+			allowed["attempt_trigger"] = struct{}{}
+			allowed["attempt_result"] = struct{}{}
+		}
+	}
+	for _, key := range keys {
+		if _, ok := allowed[key]; !ok {
+			return &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "filter_invalid", Detail: fmt.Sprintf("filter %q is not supported by %s for scope %q", key, endpoint, scope)}
+		}
+	}
+	return nil
 }
 
 func decodeModelMetricsRequest(r *http.Request) (modelMetricsBatchRequest, error) {

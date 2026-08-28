@@ -10,6 +10,11 @@ const disableWebServer =
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  // These journeys install complete per-test API route tables and several
+  // exercise shared auth/session propagation. One worker keeps the local
+  // Vite module graph and browser session timing deterministic under the
+  // constrained self-hosted verification environment.
+  workers: 1,
   use: {
     baseURL,
     // Optional: run against the system Chrome/Edge when the Playwright browser

@@ -4,19 +4,17 @@ import type {
   Connection,
   ModelAccessTarget,
   ModelConfig,
-  ModelConfigListItem,
 } from "@/lib/types";
 import {
   getOwnedModelConnections,
 } from "./modelAccessTargetProjection";
-import { patchModelListItemFromDetail } from "../models/modelListProjection";
 
 interface UseModelDetailTargetReconciliationInput {
   modelConfigId: number;
   revision: number;
   refreshCurrentState: () => void | Promise<void>;
   refreshDiagnostics?: () => void | Promise<void>;
-  setAllModels: React.Dispatch<React.SetStateAction<ModelConfigListItem[]>>;
+  refreshModels?: () => Promise<void>;
   setConnections: React.Dispatch<React.SetStateAction<Connection[]>>;
   setModel: React.Dispatch<React.SetStateAction<ModelConfig | null>>;
 }
@@ -31,7 +29,7 @@ export function useModelDetailTargetReconciliation({
   revision,
   refreshCurrentState,
   refreshDiagnostics,
-  setAllModels,
+  refreshModels,
   setConnections,
   setModel,
 }: UseModelDetailTargetReconciliationInput) {
@@ -41,21 +39,21 @@ export function useModelDetailTargetReconciliation({
         if (!currentModel) return currentModel;
         const nextModel = { ...currentModel, access_targets: targets };
         setConnections(getOwnedModelConnections(nextModel, modelConfigId));
-        setAllModels((currentModels) =>
-          patchModelListItemFromDetail(currentModels, nextModel),
-        );
         return nextModel;
       });
       clearSharedReferenceData(undefined, revision);
       void refreshCurrentState();
       void refreshDiagnostics?.();
+      void refreshModels?.().catch((error) => {
+        console.error("Failed to refresh authoritative model list", error);
+      });
     },
     [
       modelConfigId,
       refreshCurrentState,
       refreshDiagnostics,
+      refreshModels,
       revision,
-      setAllModels,
       setConnections,
       setModel,
     ],

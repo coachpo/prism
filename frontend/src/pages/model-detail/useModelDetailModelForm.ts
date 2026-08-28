@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { clearSharedReferenceData } from "@/lib/referenceData";
-import type { ModelConfig, ModelConfigListItem } from "@/lib/types";
+import type { ModelConfig } from "@/lib/types";
 import {
   createEditModelFormData,
   DEFAULT_MODEL_FORM_DATA,
@@ -13,22 +13,23 @@ import {
   type SubmitEventLike,
   validateModelFormData,
 } from "../models/modelFormState";
-import { patchModelListItemFromDetail } from "../models/modelListProjection";
 
 interface UseModelDetailModelFormInput {
   model: ModelConfig | null;
   revision: number;
   setIsEditModelDialogOpenState: (open: boolean) => void;
-  setAllModels: React.Dispatch<React.SetStateAction<ModelConfigListItem[]>>;
   setModel: React.Dispatch<React.SetStateAction<ModelConfig | null>>;
+  refreshDiagnostics?: () => void | Promise<void>;
+  refreshModels?: () => Promise<void>;
 }
 
 export function useModelDetailModelForm({
   model,
   revision,
   setIsEditModelDialogOpenState,
-  setAllModels,
   setModel,
+  refreshDiagnostics,
+  refreshModels,
 }: UseModelDetailModelFormInput) {
   const [formData, setFormData] = useState<ModelFormData>(DEFAULT_MODEL_FORM_DATA);
   const [targetEditorError, setTargetEditorError] = useState<string | null>(null);
@@ -37,9 +38,8 @@ export function useModelDetailModelForm({
     (updatedModel: ModelConfig) => {
       clearSharedReferenceData(undefined, revision);
       setModel(updatedModel);
-      setAllModels((currentModels) => patchModelListItemFromDetail(currentModels, updatedModel));
     },
-    [revision, setAllModels, setModel],
+    [revision, setModel],
   );
 
   const setLoadbalanceStrategyId = useCallback((value: number | null) => {
@@ -87,6 +87,8 @@ export function useModelDetailModelForm({
       try {
         const updatedResponse = await api.models.update(model.id, toModelUpdatePayload(formData));
         applyUpdatedModel(updatedResponse.model);
+        await refreshModels?.();
+        void refreshDiagnostics?.();
         toast.success(messages.modelDetailData.modelUpdated);
         setIsEditModelDialogOpen(false);
       } catch (error) {
@@ -95,7 +97,14 @@ export function useModelDetailModelForm({
         toast.error(message);
       }
     },
-    [applyUpdatedModel, formData, model, setIsEditModelDialogOpen],
+    [
+      applyUpdatedModel,
+      formData,
+      model,
+      refreshDiagnostics,
+      refreshModels,
+      setIsEditModelDialogOpen,
+    ],
   );
 
   return {

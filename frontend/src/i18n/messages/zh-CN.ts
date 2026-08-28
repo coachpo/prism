@@ -2214,7 +2214,17 @@ export const zhCNMessages = {
 
     overrideDialogTitle: "编辑人工覆盖",
     overrideDialogDescription:
-      "留空表示不修改。把某个字段写回空即恢复为来源值；「来源名称不改显示名称」始终成立。",
+      "每个字段可选择不修改、写入覆盖值或恢复来源。文本覆盖允许显式空字符串；只有“恢复来源”会发送 null。",
+    overrideModeUnchanged: "不修改",
+    overrideModeValue: "写入覆盖值",
+    overrideModeRestore: "恢复来源",
+    overrideWillRestore: "保存后恢复为来源值",
+    overrideWillNotChange: "本次不发送此字段",
+    overrideBooleanPlaceholder: "选择是或否",
+    overrideBooleanTrue: "是",
+    overrideBooleanFalse: "否",
+    overrideStatusPlaceholder: "选择状态",
+    overrideListPlaceholder: "逗号分隔；留空表示空列表",
     restoreFieldTitle: "恢复此字段为来源值",
     clearAllOverridesLabel: "清除全部人工覆盖",
     clearAllOverridesAction: "清除全部覆盖",
@@ -2299,8 +2309,8 @@ export const zhCNMessages = {
     copyDestinationModels: "目标模型（同家族；OpenAI 必须模式完全相同）",
     copyDestinationDisabled: "（模型已停用）",
     copyNoCandidates: "没有可复制的同模式目标模型。",
-    copyModeMismatchNote: "以下模型模式不同，不可作为目标：",
-    copyModeMismatchLabel: "模式必须完全相同",
+    copyModeMismatchNote: "以下模型的文本或图片能力要求不兼容，不可作为目标：",
+    copyModeMismatchLabel: "能力维度不兼容",
     copyEnableLabel: "将新目标设为参与路由",
     copyEnableDescription:
       "默认不参与路由（不改变目标模型现有流量）；开启后按各目标模型策略生效，但不会启用已停用的模型。",
@@ -3825,8 +3835,11 @@ export const zhCNMessages = {
     metricName: (metric: string) =>
       ({
         requests: "请求数",
+        attempts: "尝试数",
         errors: "错误",
         ttft: "TTFT",
+        final_attempt_latency: "最终尝试延迟",
+        attempt_latency: "尝试延迟",
         output_rate: "输出速率",
         tokens: "令牌",
         cache_read_share: "缓存读取",
@@ -3841,14 +3854,18 @@ export const zhCNMessages = {
         attempt_target_model: "按尝试目标模型",
         attempt_trigger: "按尝试触发原因",
         attempt_result: "按尝试结果",
+        api_family: "按 API 家族",
         endpoint: "按端点",
         terminal_target: "按终端目标",
       })[group] ?? group,
     metricUnit: (metric: string) =>
       ({
         requests: "次",
+        attempts: "次",
         errors: "次",
         ttft: "ms",
+        final_attempt_latency: "ms",
+        attempt_latency: "ms",
         output_rate: "tok/s",
         tokens: "token",
         cache_read_share: "%",
@@ -3876,6 +3893,29 @@ export const zhCNMessages = {
     retentionCoverageDescription:
       "所选窗口包含 owner 已发布 floor 之前的区间；结果不会用零值填补已删除历史。",
     retentionCoverageLink: "查看保留策略与实际覆盖",
+    finalUsageCoverageTitle: "最终承载用量事件覆盖受限",
+    finalUsageCoverageDescription:
+      "最终承载的请求、结果、令牌、缓存与成本来自用量事件；此缺口可能使这些数据不完整，但不代表最终尝试延迟同时缺失。",
+    finalLatencyCoverageTitle: "最终尝试延迟覆盖受限",
+    finalLatencyCoverageDescription:
+      "最终尝试延迟依赖请求日志与最终尝试的关联；此缺口只限制最终尝试延迟样本，不改变用量事件统计的完整性判断。",
+    routeAttemptCoverageTitle: "路由尝试日志覆盖受限",
+    routeAttemptCoverageDescription:
+      "路由尝试的计数、结果与尝试延迟都来自请求日志；此缺口可能使当前路由尝试分析不完整。",
+    coverageGapDetailsTitle: "已知缺口",
+    coverageGapDetail: (
+      from: MessageArg,
+      to: MessageArg,
+      reason: MessageArg,
+    ) => `${from} 至 ${to} · ${reason}`,
+    coverageGapReason: (reason: string) =>
+      ({
+        retention_deleted: "已超出当前保留范围",
+        outside_retention_floor: "已超出当前保留范围",
+        actual_coverage_unavailable: "该区间的 owner 尚无可用覆盖证据",
+        coverage_source_revision_changed: "覆盖来源已变更，当前证据不连续",
+        no_retained_intersection: "所选窗口与已保留数据没有交集",
+      })[reason] ?? "owner 报告了未分类的覆盖缺口",
     eventsTitle: "负载均衡事件",
     eventsDescription: "重试、封禁、恢复与准入拒绝时间线；配置页保留只读入口。",
     errorPanelTitle: "错误分析",

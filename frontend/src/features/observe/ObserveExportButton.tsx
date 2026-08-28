@@ -57,27 +57,74 @@ export function ObserveExportButton({
         interval,
         cost_segment_key: costSegmentKey ?? null,
       },
-      coverage: queryContextFragment.data?.usage_coverage ?? null,
-      window: {
-        requested: queryContextFragment.data?.requested_bounds ?? null,
-        effective: queryContextFragment.data?.usage_bounds ?? null,
-        event_bounds: queryContextFragment.data?.event_bounds ?? null,
-        request_bounds: queryContextFragment.data?.request_bounds ?? null,
-      },
       fragments: {
-        query_context: fragmentState(queryContextFragment),
-        summary: fragmentState(summaryFragment),
-        now: fragmentState(nowFragment),
-        series: fragmentState(seriesFragment),
+        query_context: {
+          state: fragmentState(queryContextFragment),
+          scope: queryContextFragment.data?.scope ?? scope,
+          caliber: queryContextFragment.data?.caliber ?? null,
+          dataset_coverage: queryContextFragment.data
+            ? {
+                usage_request_events:
+                  queryContextFragment.data.usage_coverage,
+                request_logs: queryContextFragment.data.request_coverage,
+                loadbalance_events: queryContextFragment.data.event_coverage,
+              }
+            : null,
+          bounds: queryContextFragment.data
+            ? {
+                requested: queryContextFragment.data.requested_bounds,
+                usage: queryContextFragment.data.usage_bounds,
+                requests: queryContextFragment.data.request_bounds,
+                events: queryContextFragment.data.event_bounds,
+              }
+            : null,
+          data: queryContextFragment.data,
+        },
+        summary: {
+          state: fragmentState(summaryFragment),
+          scope: summaryFragment.data?.caliber?.scope ?? "ingress",
+          caliber: summaryFragment.data?.caliber ?? null,
+          dataset_coverage: summaryFragment.data?.dataset_coverage ?? null,
+          bounds: summaryFragment.data?.coverage
+            ? {
+                from_time: summaryFragment.data.coverage.from_time,
+                to_time: summaryFragment.data.coverage.to_time,
+              }
+            : null,
+          data: summaryFragment.data,
+        },
+        now: {
+          state: fragmentState(nowFragment),
+          scope: "global_current_state",
+          caliber: null,
+          dataset_coverage: nowFragment.data?.rolling?.coverage
+            ? { usage_request_events: nowFragment.data.rolling.coverage }
+            : null,
+          bounds: nowFragment.data?.rolling?.coverage
+            ? {
+                from_time: nowFragment.data.rolling.coverage.from_time,
+                to_time: nowFragment.data.rolling.coverage.to_time,
+              }
+            : null,
+          data: nowFragment.data,
+        },
+        series: {
+          state: fragmentState(seriesFragment),
+          scope: seriesFragment.data?.caliber?.scope ?? scope,
+          caliber: seriesFragment.data?.caliber ?? null,
+          dataset_coverage: seriesFragment.data?.dataset_coverage ?? null,
+          bounds: seriesFragment.data?.coverage
+            ? {
+                from_time: seriesFragment.data.coverage.from_time,
+                to_time: seriesFragment.data.coverage.to_time,
+              }
+            : null,
+          data: seriesFragment.data,
+        },
         // Bounded drill-downs that were not loaded are explicitly excluded.
-        error_breakdown: "not_included",
-        activity: "not_included",
-        events: "not_included",
-      },
-      data: {
-        summary: summaryFragment.phase === "ready" ? summaryFragment.data : null,
-        now: nowFragment.phase === "ready" ? nowFragment.data : null,
-        series: seriesFragment.phase === "ready" ? seriesFragment.data : null,
+        error_breakdown: { state: "not_included", data: null },
+        activity: { state: "not_included", data: null },
+        events: { state: "not_included", data: null },
       },
       freshness: {
         query_context_generated_at: queryContextFragment.data?.generated_at ?? null,

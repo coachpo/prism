@@ -14,7 +14,8 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:lib": "node --test \"tests/lib/*.test.mjs\"",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:closed-loop": "node scripts/run-playwright-closed-loop.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

@@ -22,21 +22,27 @@ async function installObserveRoutes(page: import("@playwright/test").Page) {
       body: JSON.stringify(body),
     });
   };
-  await page.route("**/api/stats/query-context**", (route) =>
-    fulfill(route, {
+  await page.route("**/api/stats/query-context**", (route) => {
+    const scope = new URL(route.request().url()).searchParams.get("scope") ?? "ingress";
+    const coverage = {
+      requested_preset: "24h",
+      from_time: "2026-08-08T00:00:00Z",
+      to_time: "2026-08-09T00:00:00Z",
+      source: "raw",
+      complete: true,
+      gaps: [],
+    };
+    return fulfill(route, {
       query_context: "narrow-observe-context",
+      scope,
+      caliber: { scope },
       usage_bounds: {
         from_time: "2026-08-08T00:00:00Z",
         to_time: "2026-08-09T00:00:00Z",
       },
-      usage_coverage: {
-        requested_preset: "24h",
-        from_time: "2026-08-08T00:00:00Z",
-        to_time: "2026-08-09T00:00:00Z",
-        source: "raw",
-        complete: true,
-        gaps: [],
-      },
+      usage_coverage: coverage,
+      request_coverage: coverage,
+      event_coverage: coverage,
       event_bounds: {
         from_time: "2026-08-08T00:00:00Z",
         to_time: "2026-08-09T00:00:00Z",
@@ -46,11 +52,14 @@ async function installObserveRoutes(page: import("@playwright/test").Page) {
         to_time: "2026-08-09T00:00:00Z",
       },
       generated_at: "2026-08-09T00:00:00Z",
-    }),
-  );
+    });
+  });
   await page.route("**/api/stats/usage-summary**", (route) =>
     fulfill(route, {
       generated_at: "2026-08-09T00:00:00Z",
+      caliber: { scope: "ingress" },
+      dataset_coverage: {},
+      samples: { observation_count: 0, latency_sample_count: 0, latency_missing_count: 0, cost_sample_count: 0, cost_missing_count: 0 },
       coverage: {
         requested_preset: "24h",
         from_time: "2026-08-08T00:00:00Z",
@@ -96,9 +105,13 @@ async function installObserveRoutes(page: import("@playwright/test").Page) {
       window_average_tpm: null,
     }),
   );
-  await page.route("**/api/stats/usage-series**", (route) =>
-    fulfill(route, {
+  await page.route("**/api/stats/usage-series**", (route) => {
+    const url = new URL(route.request().url());
+    return fulfill(route, {
       generated_at: "2026-08-09T00:00:00Z",
+      caliber: { scope: "ingress" },
+      dataset_coverage: {},
+      samples: { observation_count: 3, latency_sample_count: 2, latency_missing_count: 1, cost_sample_count: 0, cost_missing_count: 3 },
       coverage: {
         requested_preset: "24h",
         from_time: "2026-08-08T00:00:00Z",
@@ -107,8 +120,8 @@ async function installObserveRoutes(page: import("@playwright/test").Page) {
         complete: true,
         gaps: [],
       },
-      metric: "requests",
-      group_by: "none",
+      metric: url.searchParams.get("metric") ?? "requests",
+      group_by: url.searchParams.get("group_by") ?? "none",
       selection_basis: "request_count",
       interval: "1h",
       series_limit: 6,
@@ -157,8 +170,8 @@ async function installObserveRoutes(page: import("@playwright/test").Page) {
           ],
         },
       ],
-    }),
-  );
+    });
+  });
   await page.route("**/api/stats/dashboard/now**", (route) =>
     fulfill(route, {
       generated_at: "2026-08-09T00:00:00Z",

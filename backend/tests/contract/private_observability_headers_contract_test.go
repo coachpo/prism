@@ -18,6 +18,8 @@ var privateObservabilityHeaderCases = []struct {
 	{"request list rejection", "/api/stats/requests?view=invalid", http.StatusBadRequest},
 	{"request detail", "/api/stats/requests/9910", http.StatusOK},
 	{"request detail rejection", "/api/stats/requests/not-a-number", http.StatusBadRequest},
+	{"request detail zero rejection", "/api/stats/requests/0", http.StatusBadRequest},
+	{"request detail overflow rejection", "/api/stats/requests/9223372036854775808", http.StatusBadRequest},
 	{"request export rejection", "/api/stats/requests/export", http.StatusUnprocessableEntity},
 	{"audit list", "/api/audit/logs?from=2026-04-18T12:00:00Z&to=2026-04-19T12:00:00Z&limit=1", http.StatusOK},
 	{"audit list conflict", "/api/audit/logs?from=2026-04-18T12:00:00Z&to=2026-04-19T12:00:00Z&request_log_id=9910", http.StatusConflict},
@@ -41,6 +43,13 @@ func TestPrivateObservabilityResponseHeaders(t *testing.T) {
 			assertVaryContains(t, response.Header, "Origin")
 			if got := response.Header.Get("Access-Control-Allow-Origin"); got != headers["Origin"] {
 				t.Fatalf("expected allowed CORS origin %q, got %q", headers["Origin"], got)
+			}
+			if strings.HasPrefix(test.name, "request detail") && test.want == http.StatusBadRequest {
+				var payload map[string]any
+				decodeJSONResponse(t, response, &payload)
+				if payload["code"] != "invalid_request_id" {
+					t.Fatalf("expected invalid_request_id, got %+v", payload)
+				}
 			}
 		})
 	}

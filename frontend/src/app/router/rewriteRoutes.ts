@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { modelDetailSearchSchema } from "@/features/models/detail/modelDetailSchemas";
 import { OBSERVE_METRICS } from "@/features/observe/observeSearch";
+import { isPositiveDecimalInt64 } from "@/pages/request-logs/queryParams";
 
 export type PrismRouteScope =
   | "public"
@@ -30,7 +31,7 @@ const searchStringSchema = z.preprocess(
 const requestIdSearchSchema = z
   .preprocess(
     (value) => (value == null ? "" : String(value)),
-    z.string().regex(/^\d+$/),
+    z.string().refine(isPositiveDecimalInt64),
   )
   .catch("");
 const optionalSearchStringSchema = z.preprocess(
@@ -40,7 +41,10 @@ const optionalSearchStringSchema = z.preprocess(
 const optionalRequestIdSearchSchema = z
   .preprocess(
     (value) => (value == null ? undefined : String(value)),
-    z.string().regex(/^\d+$/).optional(),
+    z
+      .string()
+      .refine(isPositiveDecimalInt64)
+      .optional(),
   )
   .catch(undefined);
 
@@ -75,6 +79,7 @@ export const observeSearchSchema = z.object({
       "attempt_target_model",
       "attempt_trigger",
       "attempt_result",
+      "api_family",
       "endpoint",
       "terminal_target",
     ])
@@ -178,9 +183,13 @@ export const requestLogSearchSchema = z.object({
   offset: z.coerce.number().int().min(0).catch(0),
   request_id: requestIdSearchSchema,
   attempt_target_model_id: searchStringSchema.catch(""),
+  api_family: searchStringSchema.catch(""),
+  row_kind: searchStringSchema.catch(""),
   selected_request_id: requestIdSearchSchema,
   status: z.enum(["all", "success", "client_error", "error"]).catch("all"),
   status_code: searchStringSchema.catch(""),
+  stream_outcome: searchStringSchema.catch(""),
+  stream_error_kind: searchStringSchema.catch(""),
   error_text: searchStringSchema.catch(""),
   from_time: optionalSearchStringSchema.catch(undefined),
   to_time: optionalSearchStringSchema.catch(undefined),
@@ -199,10 +208,12 @@ export const requestLogSearchSchema = z.object({
   query_context: searchStringSchema.catch(""),
   final_result: searchStringSchema.catch(""),
   ingress_final_result: searchStringSchema.catch(""),
+  confirmed_failover: searchStringSchema.catch(""),
   outcome_detail: searchStringSchema.catch(""),
   final_status_code: searchStringSchema.catch(""),
   final_stream_outcome: searchStringSchema.catch(""),
   final_stream_error_kind: searchStringSchema.catch(""),
+  final_exclude: searchStringSchema.catch(""),
   final_target_model_id: searchStringSchema.catch(""),
   final_endpoint_id: searchStringSchema.catch(""),
   final_terminal_target_id: searchStringSchema.catch(""),
@@ -210,6 +221,20 @@ export const requestLogSearchSchema = z.object({
   final_unpriced_reason: searchStringSchema.catch(""),
   reporting_currency_epoch: searchStringSchema.catch(""),
   cost_segment_key: searchStringSchema.catch(""),
+  attempt_trigger: searchStringSchema.catch(""),
+  attempt_result: searchStringSchema.catch(""),
+  view: z.enum(["attempts", "ingress_chains"]).catch("ingress_chains"),
+  sort_by: z
+    .enum([
+      "created_at",
+      "display_status",
+      "ttft_ms",
+      "total_tokens",
+      "total_cost_user_currency_micros",
+    ])
+    .optional()
+    .catch(undefined),
+  sort_order: z.enum(["asc", "desc"]).optional().catch(undefined),
   chain_limit: z.coerce
     .number()
     .int()

@@ -2,6 +2,7 @@ package stats
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,22 +18,11 @@ func parseRequestLogListParams(r *http.Request, profileID int, observabilitySign
 	// through the authoritative finalized usage summary (never translated
 	// into ordinary filters).
 	rawContext := strings.TrimSpace(r.URL.Query().Get("query_context"))
-	hasFinalSelector := r.URL.Query().Get("ingress_final_result") != "" ||
-		r.URL.Query().Get("confirmed_failover") != "" ||
-		r.URL.Query().Get("final_result") != "" ||
-		len(r.URL.Query()["final_status_code"]) > 0 ||
-		len(r.URL.Query()["final_stream_outcome"]) > 0 ||
-		len(r.URL.Query()["final_stream_error_kind"]) > 0 ||
-		r.URL.Query().Get("final_target_model_id") != "" ||
-		r.URL.Query().Get("final_endpoint_id") != "" ||
-		r.URL.Query().Get("final_terminal_target_id") != "" ||
-		r.URL.Query().Get("final_pricing_status") != "" ||
-		len(r.URL.Query()["final_unpriced_reason"]) > 0 ||
-		r.URL.Query().Get("reporting_currency_epoch") != ""
+	hasFinalSelector := requestLogHasSignedCohortSelector(r)
 	var queryContextFrom, queryContextTo *time.Time
 	if rawContext != "" || hasFinalSelector {
 		if rawContext == "" {
-			return statsdomain.RequestLogListParams{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Detail: "query_context_required"}
+			return statsdomain.RequestLogListParams{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "query_context_required", Detail: "query_context is required with signed cohort selectors"}
 		}
 		token, err := statsdomain.VerifyQueryContext(rawContext, observabilitySigningKey, referenceNow)
 		if err != nil {
@@ -41,14 +31,12 @@ func parseRequestLogListParams(r *http.Request, profileID int, observabilitySign
 		if token.ProfileID != profileID {
 			return statsdomain.RequestLogListParams{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Detail: "query_context scope mismatch"}
 		}
-		from, err := time.Parse(time.RFC3339, token.UsageFrom)
+		requestBounds, err := statsdomain.QueryBoundsForDomain(token, "request_logs")
 		if err != nil {
 			return statsdomain.RequestLogListParams{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Detail: "invalid query_context"}
 		}
-		to, err := time.Parse(time.RFC3339, token.UsageTo)
-		if err != nil {
-			return statsdomain.RequestLogListParams{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Detail: "invalid query_context"}
-		}
+		from := requestBounds.UsageFrom.UTC()
+		to := requestBounds.UsageTo.UTC()
 		queryContextFrom = &from
 		queryContextTo = &to
 		// The two pricing cohort grammars must never select the same cohort
@@ -67,16 +55,30 @@ func parseRequestLogListParams(r *http.Request, profileID int, observabilitySign
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
 	}
-	endpointID, err := parseOptionalInt(r, "endpoint_id")
+	if queryContextFrom != nil && queryContextTo != nil {
+		from := queryContextFrom.UTC()
+		to := queryContextTo.UTC()
+		fromTime = &from
+		toTime = &to
+	}
+	modelID, modelIDs, modelIDIsNull := parseRepeatedStringOrNull(r, "ingress_model_id")
+	resolvedTargetModelID, resolvedTargetModelIDs, resolvedTargetModelIDIsNull := parseRepeatedStringOrNull(r, "attempt_target_model_id")
+	_, apiFamilies, apiFamilyIsNull := parseRepeatedStringOrNull(r, "api_family")
+	_, rowKinds, rowKindIsNull := parseRepeatedStringOrNull(r, "row_kind")
+	rowKinds = lowerSelectorValues(rowKinds)
+	if rowKindIsNull {
+		return statsdomain.RequestLogListParams{}, invalidQueryParameter("row_kind", "does not support __null__")
+	}
+	if err := validateSelectorValues("row_kind", rowKinds, "planning", "admission", "upstream", "legacy_unknown"); err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
+	endpointID, endpointIDs, endpointIDIsNull, err := parseRepeatedIntOrNull(r, "endpoint_id", true)
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
 	}
-	terminalTargetID, err := parseOptionalInt(r, "terminal_target_id")
+	terminalTargetID, terminalTargetIDs, terminalTargetIDIsNull, err := parseRepeatedIntOrNull(r, "terminal_target_id", true)
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
-	}
-	if terminalTargetID != nil && *terminalTargetID <= 0 {
-		return statsdomain.RequestLogListParams{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "invalid_terminal_target_id", Detail: "invalid terminal_target_id"}
 	}
 	var proxyAPIKeyID *int
 	if rawValues, present := r.URL.Query()["proxy_api_key_id"]; present {
@@ -108,10 +110,17 @@ func parseRequestLogListParams(r *http.Request, profileID int, observabilitySign
 		normalized := strings.ToLower(strings.TrimSpace(*statusFamily))
 		statusFamily = &normalized
 	}
-	statusCode, err := parseOptionalInt(r, "status_code")
+	statusCode, statusCodes, statusCodeIsNull, err := parseRepeatedIntOrNull(r, "status_code", false)
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
 	}
+	_, streamOutcomes, streamOutcomeIsNull := parseRepeatedStringOrNull(r, "stream_outcome")
+	streamOutcomes = lowerSelectorValues(streamOutcomes)
+	if err := validateSelectorValues("stream_outcome", streamOutcomes,
+		"not_streaming", "completed", "gateway_timeout", "provider_incomplete", "client_disconnected", "upstream_read_error", "upstream_ended_without_terminal", "unknown"); err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
+	_, streamErrorKinds, streamErrorKindIsNull := parseRepeatedStringOrNull(r, "stream_error_kind")
 	pricingStatus := normalizedQueryString(r, "pricing_status")
 	if pricingStatus != nil {
 		normalized := strings.ToLower(strings.TrimSpace(*pricingStatus))
@@ -122,7 +131,7 @@ func parseRequestLogListParams(r *http.Request, profileID int, observabilitySign
 		}
 		pricingStatus = &normalized
 	}
-	unpricedReasons := repeatableQueryValues(r, "unpriced_reason")
+	unpricedReasons := collectRepeatedCommaValues(r, "unpriced_reason")
 	for _, reason := range unpricedReasons {
 		if _, err := parseUnpricedReasonValue(reason); err != nil {
 			return statsdomain.RequestLogListParams{}, err
@@ -158,61 +167,193 @@ func parseRequestLogListParams(r *http.Request, profileID int, observabilitySign
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
 	}
-	finalResult := normalizedQueryString(r, "final_result")
-	if finalResult == nil {
-		if detail := strings.TrimSpace(r.URL.Query().Get("outcome_detail")); detail != "" {
-			mapped := "failed"
-			if detail == "completed" {
-				mapped = "completed"
-			} else if detail == "client_disconnected" {
-				mapped = "client_disconnected"
-			}
-			finalResult = &mapped
-		}
+	finalResults := lowerSelectorValues(collectRepeatedCommaValues(r, "final_result"))
+	if err := validateSelectorValues("final_result", finalResults, "completed", "failed", "client_disconnected"); err != nil {
+		return statsdomain.RequestLogListParams{}, err
 	}
-	if finalResult != nil {
-		switch *finalResult {
-		case "completed", "failed", "client_disconnected":
-		default:
-			return statsdomain.RequestLogListParams{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "unknown_query_key", Detail: "Unknown final_result value: " + *finalResult}
-		}
+	finalOutcomeDetails := lowerSelectorValues(collectRepeatedCommaValues(r, "outcome_detail"))
+	if err := validateSelectorValues("outcome_detail", finalOutcomeDetails, "completed", "http_error", "stream_error", "client_disconnected"); err != nil {
+		return statsdomain.RequestLogListParams{}, err
 	}
-	finalModelID := normalizedQueryString(r, "final_target_model_id")
-	finalEndpointID, err := parseOptionalInt(r, "final_endpoint_id")
+	var finalResult *string
+	if len(finalResults) > 0 {
+		normalized := finalResults[0]
+		finalResult = &normalized
+	}
+	finalModelID, finalModelIDs, finalModelIDIsNull := parseRepeatedStringOrNull(r, "final_target_model_id")
+	finalEndpointID, finalEndpointIDs, finalEndpointIsNull, err := parseRepeatedIntOrNull(r, "final_endpoint_id", true)
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
 	}
-	finalTerminalTargetID, err := parseOptionalInt(r, "final_terminal_target_id")
+	finalTerminalTargetID, finalTerminalTargetIDs, finalTerminalIsNull, err := parseRepeatedIntOrNull(r, "final_terminal_target_id", true)
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
 	}
-	finalPricingStatus := normalizedQueryString(r, "final_pricing_status")
-	if finalPricingStatus != nil {
-		switch *finalPricingStatus {
-		case "priced", "unpriced", "ineligible", "unknown":
-		default:
-			return statsdomain.RequestLogListParams{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "unknown_query_key", Detail: "Unknown final_pricing_status value: " + *finalPricingStatus}
-		}
+	finalPricingStatus, finalPricingStatuses, finalPricingStatusIsNull := parseRepeatedStringOrNull(r, "final_pricing_status")
+	finalPricingStatuses = lowerSelectorValues(finalPricingStatuses)
+	if err := validateSelectorValues("final_pricing_status", finalPricingStatuses, "priced", "unpriced", "ineligible", "unknown"); err != nil {
+		return statsdomain.RequestLogListParams{}, err
 	}
-	finalUnpricedReasons := repeatableQueryValues(r, "final_unpriced_reason")
+	if len(finalPricingStatuses) > 0 {
+		first := finalPricingStatuses[0]
+		finalPricingStatus = &first
+	}
+	finalUnpricedReasons := collectRepeatedCommaValues(r, "final_unpriced_reason")
 	for _, reason := range finalUnpricedReasons {
 		if _, err := parseUnpricedReasonValue(reason); err != nil {
 			return statsdomain.RequestLogListParams{}, err
 		}
 	}
-	reportingEpoch := normalizedQueryString(r, "reporting_currency_epoch")
-	finalStatusCodes, err := repeatableQueryInts(r, "final_status_code")
+	reportingEpoch, reportingEpochs, reportingEpochIsNull := parseRepeatedStringOrNull(r, "reporting_currency_epoch")
+	for index, value := range reportingEpochs {
+		if value == "__legacy_unknown__" {
+			reportingEpochIsNull = true
+			reportingEpochs = append(reportingEpochs[:index], reportingEpochs[index+1:]...)
+			break
+		}
+	}
+	if reportingEpoch == nil && reportingEpochIsNull {
+		legacyUnknown := "__legacy_unknown__"
+		reportingEpoch = &legacyUnknown
+	}
+	_, finalStatusCodes, finalStatusCodeIsNull, err := parseRepeatedIntOrNull(r, "final_status_code", false)
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
 	}
-	finalStreamOutcomes := repeatableQueryValues(r, "final_stream_outcome")
-	finalStreamErrorKinds := repeatableQueryValues(r, "final_stream_error_kind")
+	_, finalStreamOutcomes, finalStreamOutcomeIsNull := parseRepeatedStringOrNull(r, "final_stream_outcome")
+	finalStreamOutcomes = lowerSelectorValues(finalStreamOutcomes)
+	if err := validateSelectorValues("final_stream_outcome", finalStreamOutcomes,
+		"not_streaming", "completed", "gateway_timeout", "provider_incomplete", "client_disconnected", "upstream_read_error", "upstream_ended_without_terminal", "unknown"); err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
+	_, finalStreamErrorKinds, finalStreamErrorKindIsNull := parseRepeatedStringOrNull(r, "final_stream_error_kind")
+	finalExclusion, err := parseFinalizedCohortExclusion(r)
+	if err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
 	sortBy, sortOrder, err := parseRequestLogSort(r)
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
 	}
+	_, attemptTriggers, attemptTriggerIsNull := parseRepeatedStringOrNull(r, "attempt_trigger")
+	attemptTriggers = lowerSelectorValues(attemptTriggers)
+	if err := validateSelectorValues("attempt_trigger", attemptTriggers, "initial", "retry_same_target", "hedge", "failover"); err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
+	_, attemptResults, attemptResultIsNull := parseRepeatedStringOrNull(r, "attempt_result")
+	attemptResults = lowerSelectorValues(attemptResults)
+	if err := validateSelectorValues("attempt_result", attemptResults, "completed", "http_error", "stream_error", "transport_error", "cancelled", "client_disconnected", "unknown"); err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
 	coveragePreset := strings.TrimSpace(r.URL.Query().Get("time_range"))
-	return statsdomain.RequestLogListParams{ProfileID: profileID, IngressFinalResult: ingressFinalResult, ConfirmedFailover: confirmedFailover, IngressRequestID: normalizedQueryString(r, "ingress_request_id"), ModelID: normalizedQueryString(r, "ingress_model_id"), ResolvedTargetModelID: normalizedQueryString(r, "attempt_target_model_id"), StatusFamily: statusFamily, StatusCode: statusCode, ErrorText: normalizedQueryString(r, "error_text"), PricingStatus: pricingStatus, UnpricedReasons: unpricedReasons, PricingCardRole: pricingCardRole, PricingSelectionState: pricingSelectionState, FromTime: fromTime, ToTime: toTime, EndpointID: endpointID, TerminalTargetID: terminalTargetID, ProxyAPIKeyID: proxyAPIKeyID, ClientRuleID: clientRuleID, QueryContextFrom: queryContextFrom, QueryContextTo: queryContextTo, FinalResult: finalResult, FinalStatusCodes: finalStatusCodes, FinalStreamOutcomes: finalStreamOutcomes, FinalStreamErrorKinds: finalStreamErrorKinds, FinalModelID: finalModelID, FinalEndpointID: finalEndpointID, FinalTerminalTargetID: finalTerminalTargetID, FinalPricingStatus: finalPricingStatus, FinalUnpricedReasons: finalUnpricedReasons, FinalReportingEpoch: reportingEpoch, CoveragePreset: coveragePreset, CoverageRequestedFrom: fromTime, CoverageRequestedTo: toTime, CoverageReferenceNow: referenceNow.UTC(), SortBy: sortBy, SortOrder: sortOrder, Limit: limit, Offset: offset}, nil
+	return statsdomain.RequestLogListParams{
+		ProfileID: profileID, IngressFinalResult: ingressFinalResult, ConfirmedFailover: confirmedFailover,
+		IngressRequestID: normalizedQueryString(r, "ingress_request_id"),
+		ModelID:          modelID, ModelIDs: modelIDs, ModelIDIsNull: modelIDIsNull,
+		ResolvedTargetModelID: resolvedTargetModelID, ResolvedTargetModelIDs: resolvedTargetModelIDs, ResolvedTargetModelIDIsNull: resolvedTargetModelIDIsNull,
+		APIFamilies: apiFamilies, APIFamilyIsNull: apiFamilyIsNull, RowKinds: rowKinds,
+		StatusFamily: statusFamily, StatusCode: statusCode, StatusCodes: statusCodes, StatusCodeIsNull: statusCodeIsNull,
+		StreamOutcomes: streamOutcomes, StreamOutcomeIsNull: streamOutcomeIsNull,
+		StreamErrorKinds: streamErrorKinds, StreamErrorKindIsNull: streamErrorKindIsNull,
+		ErrorText:     normalizedQueryString(r, "error_text"),
+		PricingStatus: pricingStatus, UnpricedReasons: unpricedReasons, PricingCardRole: pricingCardRole, PricingSelectionState: pricingSelectionState,
+		FromTime: fromTime, ToTime: toTime,
+		EndpointID: endpointID, EndpointIDs: endpointIDs, EndpointIDIsNull: endpointIDIsNull,
+		TerminalTargetID: terminalTargetID, TerminalTargetIDs: terminalTargetIDs, TerminalTargetIDIsNull: terminalTargetIDIsNull,
+		ProxyAPIKeyID: proxyAPIKeyID, ClientRuleID: clientRuleID,
+		QueryContextFrom: queryContextFrom, QueryContextTo: queryContextTo,
+		FinalResult: finalResult, FinalResults: finalResults, FinalOutcomeDetails: finalOutcomeDetails,
+		FinalStatusCodes: finalStatusCodes, FinalStatusCodeIsNull: finalStatusCodeIsNull,
+		FinalStreamOutcomes: finalStreamOutcomes, FinalStreamOutcomeIsNull: finalStreamOutcomeIsNull,
+		FinalStreamErrorKinds: finalStreamErrorKinds, FinalStreamErrorKindIsNull: finalStreamErrorKindIsNull,
+		FinalModelID: finalModelID, FinalModelIDs: finalModelIDs, FinalModelIDIsNull: finalModelIDIsNull,
+		FinalEndpointID: finalEndpointID, FinalEndpointIDs: finalEndpointIDs, FinalEndpointIDIsNull: finalEndpointIsNull,
+		FinalTerminalTargetID: finalTerminalTargetID, FinalTerminalTargetIDs: finalTerminalTargetIDs, FinalTerminalTargetIDIsNull: finalTerminalIsNull,
+		FinalPricingStatus: finalPricingStatus, FinalPricingStatuses: finalPricingStatuses, FinalPricingStatusIsNull: finalPricingStatusIsNull, FinalUnpricedReasons: finalUnpricedReasons,
+		FinalReportingEpoch: reportingEpoch, FinalReportingEpochs: reportingEpochs, FinalReportingEpochIsNull: reportingEpochIsNull,
+		FinalExclusion:  finalExclusion,
+		AttemptTriggers: attemptTriggers, AttemptTriggerIsNull: attemptTriggerIsNull,
+		AttemptResults: attemptResults, AttemptResultIsNull: attemptResultIsNull,
+		CoveragePreset: coveragePreset, CoverageRequestedFrom: fromTime, CoverageRequestedTo: toTime, CoverageReferenceNow: referenceNow.UTC(),
+		SortBy: sortBy, SortOrder: sortOrder, Limit: limit, Offset: offset,
+	}, nil
+}
+
+// parseFinalizedCohortExclusion parses the one structured, signed-only
+// complement selector used by usage-errors Top-N remainders:
+//
+//	final_exclude=<facet>,<visible-value>,...
+//
+// It is deliberately capped at the usage-errors limit (50 visible values)
+// and every facet/value is validated before the domain query sees it.
+func parseFinalizedCohortExclusion(r *http.Request) (*statsdomain.FinalizedCohortExclusion, error) {
+	parts := collectRepeatedCommaValues(r, "final_exclude")
+	if len(parts) == 0 {
+		return nil, nil
+	}
+	if len(parts) < 2 || len(parts) > 51 {
+		return nil, invalidQueryParameter("final_exclude", "must contain one facet and between 1 and 50 visible values")
+	}
+	facet := strings.ToLower(strings.TrimSpace(parts[0]))
+	exclusion := &statsdomain.FinalizedCohortExclusion{Facet: facet, Values: make([]string, 0, len(parts)-1)}
+	seen := map[string]struct{}{}
+	appendValue := func(value string) {
+		if _, duplicate := seen[value]; duplicate {
+			return
+		}
+		seen[value] = struct{}{}
+		exclusion.Values = append(exclusion.Values, value)
+	}
+	for _, raw := range parts[1:] {
+		value := strings.TrimSpace(raw)
+		if value == "__null__" {
+			exclusion.ExcludeNull = true
+			continue
+		}
+		switch facet {
+		case statsdomain.FinalExclusionStatusCode:
+			parsed, err := strconv.Atoi(value)
+			if err != nil || parsed < 100 || parsed > 599 {
+				return nil, invalidQueryParameter("final_exclude", "status_code values must be within [100, 599]")
+			}
+			appendValue(strconv.Itoa(parsed))
+		case statsdomain.FinalExclusionStreamOutcome:
+			value = strings.ToLower(value)
+			if err := validateSelectorValues("final_exclude stream_outcome", []string{value},
+				"not_streaming", "completed", "gateway_timeout", "provider_incomplete", "client_disconnected", "upstream_read_error", "upstream_ended_without_terminal", "unknown"); err != nil {
+				return nil, err
+			}
+			appendValue(value)
+		case statsdomain.FinalExclusionAPIFamily:
+			value = strings.ToLower(value)
+			if err := validateSelectorValues("final_exclude api_family", []string{value}, "openai", "anthropic", "gemini"); err != nil {
+				return nil, err
+			}
+			appendValue(value)
+		case statsdomain.FinalExclusionIngressModel, statsdomain.FinalExclusionFinalTargetModel:
+			if len(value) > 200 {
+				return nil, invalidQueryParameter("final_exclude", "model values must not exceed 200 characters")
+			}
+			appendValue(value)
+		case statsdomain.FinalExclusionStreamErrorKind:
+			if len(value) > 50 {
+				return nil, invalidQueryParameter("final_exclude", "stream_error_kind values must not exceed 50 characters")
+			}
+			appendValue(value)
+		case statsdomain.FinalExclusionFinalEndpoint, statsdomain.FinalExclusionFinalTerminalTarget:
+			parsed, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || parsed <= 0 {
+				return nil, invalidQueryParameter("final_exclude", "entity IDs must be positive integers")
+			}
+			appendValue(strconv.FormatInt(parsed, 10))
+		default:
+			return nil, invalidQueryParameter("final_exclude", "facet is not supported")
+		}
+	}
+	if len(exclusion.Values) == 0 && !exclusion.ExcludeNull {
+		return nil, invalidQueryParameter("final_exclude", "must exclude at least one visible value")
+	}
+	return exclusion, nil
 }
 
 // parseRequestLogSort resolves the attempt-view sort grammar: `sort_by` over
@@ -247,6 +388,106 @@ func parseRequestLogSort(r *http.Request) (string, string, error) {
 // 422 unknown_query_key with no migration hint. The Observe signed-context
 // deep-link family (query_context + final_*) is part of the grammar and is
 // never translated into ordinary filters.
+func collectRepeatedCommaValues(r *http.Request, key string) []string {
+	result := []string{}
+	seen := map[string]struct{}{}
+	for _, raw := range r.URL.Query()[key] {
+		// Support both repeated keys and comma-separated URL values.
+		for _, part := range strings.Split(raw, ",") {
+			trimmed := strings.TrimSpace(part)
+			if trimmed == "" {
+				continue
+			}
+			if _, duplicate := seen[trimmed]; duplicate {
+				continue
+			}
+			seen[trimmed] = struct{}{}
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
+func parseRepeatedStringOrNull(r *http.Request, key string) (*string, []string, bool) {
+	rawValues := collectRepeatedCommaValues(r, key)
+	values := make([]string, 0, len(rawValues))
+	hasNull := false
+	for _, value := range rawValues {
+		if value == "__null__" {
+			hasNull = true
+			continue
+		}
+		values = append(values, value)
+	}
+	if len(values) == 0 {
+		return nil, values, hasNull
+	}
+	first := values[0]
+	return &first, values, hasNull
+}
+
+func parseRepeatedIntOrNull(r *http.Request, key string, positive bool) (*int, []int, bool, error) {
+	values := collectRepeatedCommaValues(r, key)
+	if len(values) == 0 {
+		return nil, nil, false, nil
+	}
+	hasNull := false
+	numbers := []int{}
+	seen := map[int]struct{}{}
+	var first *int
+	for _, value := range values {
+		if value == "__null__" {
+			hasNull = true
+			continue
+		}
+		parsed, err := strconv.ParseInt(strings.TrimSpace(value), 10, 32)
+		if err != nil || (positive && parsed <= 0) {
+			reason := "must be an integer or __null__"
+			if positive {
+				reason = "must be a positive integer or __null__"
+			}
+			return nil, nil, false, invalidQueryParameter(key, reason)
+		}
+		num := int(parsed)
+		if _, duplicate := seen[num]; duplicate {
+			continue
+		}
+		seen[num] = struct{}{}
+		numbers = append(numbers, num)
+		if first == nil {
+			first = &num
+		}
+	}
+	return first, numbers, hasNull, nil
+}
+
+func lowerSelectorValues(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		normalized := strings.ToLower(strings.TrimSpace(value))
+		if _, duplicate := seen[normalized]; duplicate {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+	return result
+}
+
+func validateSelectorValues(key string, values []string, allowedValues ...string) error {
+	allowed := make(map[string]struct{}, len(allowedValues))
+	for _, value := range allowedValues {
+		allowed[value] = struct{}{}
+	}
+	for _, value := range values {
+		if _, ok := allowed[value]; !ok {
+			return &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "unknown_query_key", Detail: "Unknown " + key + " value: " + value}
+		}
+	}
+	return nil
+}
+
 func rejectUnsupportedRequestLogQueryKeys(r *http.Request) error {
 	supported := map[string]struct{}{
 		"ingress_request_id":       {},
@@ -254,6 +495,12 @@ func rejectUnsupportedRequestLogQueryKeys(r *http.Request) error {
 		"confirmed_failover":       {},
 		"ingress_model_id":         {},
 		"attempt_target_model_id":  {},
+		"api_family":               {},
+		"row_kind":                 {},
+		"attempt_trigger":          {},
+		"attempt_result":           {},
+		"stream_outcome":           {},
+		"stream_error_kind":        {},
 		"status_family":            {},
 		"status_code":              {},
 		"error_text":               {},
@@ -276,6 +523,7 @@ func rejectUnsupportedRequestLogQueryKeys(r *http.Request) error {
 		"final_status_code":        {},
 		"final_stream_outcome":     {},
 		"final_stream_error_kind":  {},
+		"final_exclude":            {},
 		"final_target_model_id":    {},
 		"final_endpoint_id":        {},
 		"final_terminal_target_id": {},

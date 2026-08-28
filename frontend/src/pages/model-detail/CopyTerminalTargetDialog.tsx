@@ -4,13 +4,21 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { terminalTargetCopies, type TerminalTargetCopyResponse } from "@/lib/api/observability";
-import type { ModelConfigListItem, OpenAITextCapability } from "@/lib/types";
+import {
+  models as modelsApi,
+  type TerminalTargetCopyResponse,
+} from "@/lib/api/models";
+import type {
+  ModelConfigListItem,
+  OpenAIImageCapability,
+  OpenAITextCapability,
+} from "@/lib/types";
 import { OperatorCallout, OperatorSwitchField } from "@/shared/design-system";
+import { canCopyTerminalTargetToModel } from "./terminalTargetCopyCompatibility";
 
 /**
  * Batch Terminal Target copy (MC-B4): copy one Terminal Target to selected
- * same-profile same-family (OpenAI: same-mode) destination models in one
+ * same-profile same-family (OpenAI: compatible text and image dimensions) destination models in one
  * transaction. New access targets default to not participating in routing;
  * the explicit switch opts them in per destination.
  */
@@ -20,6 +28,7 @@ export function CopyTerminalTargetDialog({
   connectionId,
   connectionName,
   ownerMode,
+  ownerImageCapability,
   models,
   onClose,
   onCopied,
@@ -29,6 +38,7 @@ export function CopyTerminalTargetDialog({
   connectionId: number;
   connectionName: string;
   ownerMode: OpenAITextCapability | null | undefined;
+  ownerImageCapability: OpenAIImageCapability | null | undefined;
   models: ModelConfigListItem[];
   onClose: () => void;
   onCopied: (response: TerminalTargetCopyResponse) => void;
@@ -50,15 +60,29 @@ export function CopyTerminalTargetDialog({
 
   const candidates = useMemo(
     () =>
-      models.filter((model) => model.id !== modelConfigId && (ownerMode == null || model.openai_accepted_format === ownerMode)),
-    [models, modelConfigId, ownerMode],
+      models.filter(
+        (model) =>
+          model.id !== modelConfigId &&
+          canCopyTerminalTargetToModel(
+            model,
+            ownerMode ?? null,
+            ownerImageCapability ?? null,
+          ),
+      ),
+    [models, modelConfigId, ownerImageCapability, ownerMode],
   );
   const modeMismatched = useMemo(
     () =>
-      ownerMode == null
-        ? []
-        : models.filter((model) => model.id !== modelConfigId && model.openai_accepted_format !== ownerMode),
-    [models, modelConfigId, ownerMode],
+      models.filter(
+        (model) =>
+          model.id !== modelConfigId &&
+          !canCopyTerminalTargetToModel(
+            model,
+            ownerMode ?? null,
+            ownerImageCapability ?? null,
+          ),
+      ),
+    [models, modelConfigId, ownerImageCapability, ownerMode],
   );
 
   const handleSubmit = async () => {
@@ -69,7 +93,7 @@ export function CopyTerminalTargetDialog({
     }
     setSubmitting(true);
     try {
-      const response = await terminalTargetCopies.create(modelConfigId, connectionId, {
+      const response = await modelsApi.connections.copies(modelConfigId, connectionId, {
         destination_model_config_ids: Array.from(selected),
         enable_copies: enableCopies,
       });

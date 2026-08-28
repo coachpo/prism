@@ -261,13 +261,22 @@ export function toModelCreatePayload(
 ): ManagedModelConfigCreate {
   const normalizedDisplayName =
     formData.display_name?.trim() || formData.model_id.trim();
-  return {
-    api_family: formData.api_family,
+  const common = {
     model_id: formData.model_id,
     display_name: normalizedDisplayName,
     is_enabled: formData.is_enabled,
-    ...getNormalizedOpenAIState(formData),
     ...getNormalizedRoutingState(formData),
+  };
+  if (formData.api_family === "openai") {
+    return {
+      ...common,
+      api_family: "openai",
+      ...getNormalizedOpenAIState(formData),
+    };
+  }
+  return {
+    ...common,
+    api_family: formData.api_family,
   };
 }
 

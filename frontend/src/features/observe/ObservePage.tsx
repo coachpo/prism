@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -9,11 +9,13 @@ import { ObserveFreshnessBar } from "@/features/observe/ObserveFreshnessBar";
 import { RoutingHealthEntryCard } from "@/features/observe/RoutingHealthEntryCard";
 import { TerminalTargetDrillDown } from "@/features/observe/TerminalTargetDrillDown";
 import {
+  defaultMetricForScope,
   groupBelongsToScope,
   isObserveMetric,
   isObserveGroupBy,
   isObservePreset,
   isObserveScope,
+  isValidMetricForScope,
   OBSERVE_SCOPES,
   type ObservePreset,
   type ObserveScope,
@@ -21,6 +23,7 @@ import {
 import { ObserveActivityTable } from "@/features/observe/ObserveActivityTable";
 import { ObserveErrorWorkbench } from "@/features/observe/ObserveErrorWorkbench";
 import { ObserveMainChart } from "@/features/observe/ObserveMainChart";
+import { ObserveScopedCoverageWarnings } from "@/features/observe/ObserveScopedCoverageWarnings";
 import { useUsageSeriesFragment } from "@/features/observe/useObserveSeries";
 import { NowStrip } from "@/features/observe/NowStrip";
 import {
@@ -70,14 +73,32 @@ export function ObservePage() {
 
   const view = resolveView(search.tab);
   const preset = isObservePreset(search.preset) ? search.preset : "24h";
-  const metric = isObserveMetric(search.metric) ? search.metric : "requests";
   const scope = isObserveScope(search.scope) ? search.scope : "ingress";
+  const metric =
+    isObserveMetric(search.metric) && isValidMetricForScope(search.metric, scope)
+      ? search.metric
+      : defaultMetricForScope(scope);
   const parsedGroupBy = isObserveGroupBy(search.group_by)
     ? search.group_by
     : "none";
   const groupBy = groupBelongsToScope(parsedGroupBy, scope)
     ? parsedGroupBy
     : "none";
+
+  useEffect(() => {
+    if (search.metric === metric && (search.group_by ?? "none") === groupBy)
+      return;
+    void navigate({
+      to: "/observe",
+      search: {
+        ...search,
+        metric,
+        group_by: groupBy === "none" ? undefined : groupBy,
+      },
+      replace: true,
+      resetScroll: false,
+    });
+  }, [groupBy, metric, navigate, search]);
 
   const setSearch = useCallback(
     (patch: Record<string, string | undefined>) => {
@@ -114,8 +135,8 @@ export function ObservePage() {
   const analysisContext = useObserveAnalysisContext(preset, scope);
   const setup = useSetupCoordinator();
   const chartState = useMemo(
-    () => ({ metric, groupBy, interval: search.interval ?? "auto" }),
-    [metric, groupBy, search.interval],
+    () => ({ metric, groupBy, interval: search.interval ?? "auto", scope }),
+    [metric, groupBy, search.interval, scope],
   );
   const seriesFragment = useUsageSeriesFragment(
     analysisContext.phase === "ready"
@@ -236,8 +257,12 @@ export function ObservePage() {
             onValueChange={(value) => {
               if (!value || !isObserveScope(value)) return;
               const nextScope = value as ObserveScope;
+              const nextMetric = isValidMetricForScope(metric, nextScope)
+                ? metric
+                : defaultMetricForScope(nextScope);
               setSearch({
                 scope: nextScope === "ingress" ? undefined : nextScope,
+                metric: nextMetric,
                 group_by: groupBelongsToScope(groupBy, nextScope)
                   ? groupBy
                   : "none",
@@ -254,6 +279,16 @@ export function ObservePage() {
             {messages.observe.analysisScopeBasis(scope)}
           </span>
         </div>
+      ) : null}
+
+      {(view === "trend" || view === "errors") &&
+      analysisContext.phase === "ready" &&
+      analysisContext.data ? (
+        <ObserveScopedCoverageWarnings
+          scope={scope}
+          usageCoverage={analysisContext.data.usage_coverage}
+          requestCoverage={analysisContext.data.request_coverage}
+        />
       ) : null}
 
       {view === "trend" ? (
@@ -306,6 +341,7 @@ export function ObservePage() {
           description={messages.observe.activityIngressDescription}
         >
           <ObserveActivityTable
+            preset={preset}
             queryContext={fragments.queryContext.data?.query_context ?? null}
           />
         </OperatorSectionCard>

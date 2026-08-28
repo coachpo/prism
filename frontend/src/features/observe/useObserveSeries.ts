@@ -9,6 +9,7 @@ export interface MainChartState {
   metric: ObserveMetric;
   groupBy: ObserveGroupBy;
   interval: string;
+  scope?: string;
 }
 
 export function useUsageSeriesFragment(
@@ -16,7 +17,7 @@ export function useUsageSeriesFragment(
   state: MainChartState,
   queryContextPhase: "loading" | "ready" | "error" = "ready",
 ): FragmentState<UsageSeriesResponse> {
-  const { metric, groupBy, interval } = state;
+  const { metric, groupBy, interval, scope } = state;
   const [fragment, setFragment] = useState<FragmentState<UsageSeriesResponse>>({ phase: "loading", data: null, stale: false, error: null, retryAfterMs: null });
   useEffect(() => {
     if (!queryContext) {
@@ -38,7 +39,21 @@ export function useUsageSeriesFragment(
     void observe
       .usageSeries(queryContext, { metric, group_by: groupBy, interval }, controller.signal)
       .then((series) => {
-        if (!controller.signal.aborted) setFragment({ phase: "ready", data: series, stale: false, error: null, retryAfterMs: null });
+        if (controller.signal.aborted) return;
+        if (
+          (scope && series.caliber.scope !== scope) ||
+          series.metric !== metric
+        ) {
+          setFragment({
+            phase: "error",
+            data: null,
+            stale: false,
+            error: getStaticMessages().observe.queryContextUnavailable,
+            retryAfterMs: null,
+          });
+          return;
+        }
+        setFragment({ phase: "ready", data: series, stale: false, error: null, retryAfterMs: null });
       })
       .catch((err: unknown) => {
         if (!controller.signal.aborted) {
@@ -49,6 +64,6 @@ export function useUsageSeriesFragment(
     return () => {
       controller.abort();
     };
-  }, [queryContext, queryContextPhase, metric, groupBy, interval]);
+  }, [queryContext, queryContextPhase, metric, groupBy, interval, scope]);
   return fragment;
 }

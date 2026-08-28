@@ -10,6 +10,7 @@ function route(operationName: string, overrides: Partial<RoutingDiagnosticRoute>
     accepted: false,
     configured_leaf_exists: false,
     statically_routable: false,
+    resolved_stage: null,
     access_target_ids: [],
     ...overrides,
   }
@@ -21,8 +22,10 @@ function diagnostics(routes: RoutingDiagnosticRoute[]): RoutingDiagnosticsRespon
     openai_accepted_format: "chat_completions_only",
     strategy: { id: 3, type: "fill-first" },
     accepted_operations: routes.filter((item) => item.accepted).map((item) => item.operation_name),
+    stages: [],
     targets: [],
     operation_routes: routes,
+    operation_coverage: [],
     configuration_warnings: [],
   }
 }

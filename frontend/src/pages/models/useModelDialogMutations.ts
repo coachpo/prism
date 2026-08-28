@@ -17,7 +17,6 @@ import {
   type SubmitEventLike,
   validateModelFormData,
 } from "./modelFormState";
-import { toModelListItem } from "./modelListProjection";
 
 function getModelValidationMessage(
   messages: ReturnType<typeof getStaticMessages>,
@@ -105,19 +104,15 @@ export type ModelDialogSession =
   | { readonly mode: "create"; readonly createSession: number };
 
 interface UseModelDialogMutationsInput {
-  commitModels: (
-    updater: (
-      current: ManagedModelConfigListItem[],
-    ) => ManagedModelConfigListItem[],
-  ) => void;
   loadbalanceStrategies: LoadbalanceStrategy[];
   refreshStrategiesAfterDialogClose: () => void;
+  refreshModels: () => Promise<ManagedModelConfigListItem[]>;
 }
 
 export function useModelDialogMutations({
-  commitModels,
   loadbalanceStrategies,
   refreshStrategiesAfterDialogClose,
+  refreshModels,
 }: UseModelDialogMutationsInput) {
   const [isDialogOpen, setIsDialogOpenState] = useState(false);
   const [createDialogOpen, setCreateDialogOpenState] = useState(false);
@@ -221,26 +216,17 @@ export function useModelDialogMutations({
 
       try {
         if (editingModel) {
-          const updated = await api.models.update(
+          await api.models.update(
             editingModel.id,
             toModelUpdatePayload(formData),
           );
-          commitModels((current) =>
-            current.map((model) =>
-              model.id === editingModel.id
-                ? toModelListItem(updated.model, model)
-                : model,
-            ),
-          );
+          await refreshModels();
           toast.success(messages.modelsData.updated);
         } else {
-          const created = await api.models.create(
+          await api.models.create(
             toModelCreatePayload(formData),
           );
-          commitModels((current) => [
-            ...current,
-            toModelListItem(created.model),
-          ]);
+          await refreshModels();
           toast.success(messages.modelsData.created);
         }
         handleSetIsDialogOpen(false);
@@ -254,23 +240,23 @@ export function useModelDialogMutations({
       }
     },
     [
-      commitModels,
       editingModel,
       formData,
       handleSetIsDialogOpen,
       loadbalanceStrategies.length,
+      refreshModels,
     ],
   );
 
   const handleModelCreated = useCallback(
-    async (model: ManagedModelConfigListItem) => {
+    async () => {
       const messages = getStaticMessages();
-      commitModels((current) => [...current, model]);
+      await refreshModels();
       toast.success(messages.modelsData.created);
       // Preserve the composite create dialog's existing close/session path.
       setCreateDialogOpenState(false);
     },
-    [commitModels],
+    [refreshModels],
   );
 
   const setLoadbalanceStrategyId = useCallback((value: number | null) => {

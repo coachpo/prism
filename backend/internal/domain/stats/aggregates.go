@@ -10,26 +10,43 @@ import (
 )
 
 type scopedStatObservation struct {
-	IngressID      string
-	IngressModelID string
-	TargetModelID  *string
-	APIFamily      string
-	EndpointID     *int
-	EndpointLabel  string
-	ConnectionID   *int
-	AttemptTrigger *string
-	AttemptResult  *string
-	Success        bool
-	LatencyMS      *int
-	InputTokens    int
-	OutputTokens   int
-	TotalTokens    int
+	IngressID                   string
+	IngressModelID              string
+	TargetModelID               *string
+	APIFamily                   string
+	EndpointID                  *int
+	EndpointLabel               string
+	ConnectionID                *int
+	AttemptTrigger              *string
+	AttemptResult               *string
+	AttemptClass                attemptOutcomeClass
+	OutcomeDetail               OutcomeDetail
+	Success                     bool
+	LatencyMS                   *int
+	InputTokens                 int
+	HasInputTokens              bool
+	OutputTokens                int
+	HasOutputTokens             bool
+	TotalTokens                 int
+	HasTotalTokens              bool
+	CacheReadInputTokens        int
+	HasCacheReadInputTokens     bool
+	CacheCreationInputTokens    int
+	HasCacheCreationInputTokens bool
+	ReasoningTokens             int
+	HasReasoningTokens          bool
+	CacheBasisEligible          bool
+	PricingStatus               string
+	TrustedCost                 *int64
+	OutputRateTPS               *float64
 }
 
 type scopedStatAccumulator struct {
-	group     StatGroup
-	latencies []int
-	missing   int
+	group       StatGroup
+	latencies   []int
+	missing     int
+	costSamples int
+	costMissing int
 }
 
 func GetStatsSummary(ctx context.Context, exec queryExecutor, params StatsSummaryParams) (StatsSummaryResponse, error) {
@@ -40,6 +57,9 @@ func GetStatsSummary(ctx context.Context, exec queryExecutor, params StatsSummar
 	groupBy, err := ValidateGroupBy(scope, stringValue(params.GroupBy))
 	if err != nil {
 		return StatsSummaryResponse{}, err
+	}
+	if groupBy == GroupProxyAPIKey {
+		return StatsSummaryResponse{}, &HTTPError{StatusCode: 422, Code: "group_invalid", Detail: "summary does not support group_by proxy_api_key"}
 	}
 	referenceNow := params.ReferenceNow.UTC()
 	if referenceNow.IsZero() {
@@ -102,7 +122,20 @@ func loadUsageStatObservations(ctx context.Context, exec queryExecutor, params S
 			IngressID: record.IngressRequestID, IngressModelID: record.ModelID, TargetModelID: record.ResolvedTargetModelID,
 			APIFamily: record.APIFamily, EndpointID: normalizePositiveID(record.EndpointID), EndpointLabel: usageEventEndpointLabel(record),
 			ConnectionID: normalizePositiveID(record.ConnectionID), Success: ClassifyFinalResult(outcome) == FinalResultCompleted,
-			InputTokens: record.InputTokens, OutputTokens: record.OutputTokens, TotalTokens: record.TotalTokens,
+			OutcomeDetail: outcome,
+			InputTokens:   record.InputTokens, HasInputTokens: record.HasInputTokens,
+			OutputTokens: record.OutputTokens, HasOutputTokens: record.HasOutputTokens,
+			TotalTokens: record.TotalTokens, HasTotalTokens: record.HasTotalTokens,
+			CacheReadInputTokens: record.CacheReadInputTokens, HasCacheReadInputTokens: record.HasCacheReadInputTokens,
+			CacheCreationInputTokens: record.CacheCreationInputTokens, HasCacheCreationInputTokens: record.HasCacheCreationInputTokens,
+			ReasoningTokens: record.ReasoningTokens, HasReasoningTokens: record.HasReasoningTokens,
+			CacheBasisEligible: record.CacheBasisEligible,
+			PricingStatus:      record.PricingStatus,
+			OutputRateTPS:      requestOutputRateTPS(record.OutputTokens, record.HasOutputTokens, record.TTFTMS, record.CompletionDurationMS),
+		}
+		if record.TrustedKnownCost() && record.HasTotalCostUserCurrencyMicros {
+			cost := record.TotalCostUserCurrencyMicros
+			item.TrustedCost = &cost
 		}
 		if scope == ScopeFinal {
 			if latency, ok := finalLatencies[modelAttemptKey(record.IngressRequestID, *record.FinalAttemptNumber)]; ok {
@@ -169,7 +202,9 @@ func loadAttemptStatObservations(ctx context.Context, exec queryExecutor, params
 	if params.AttemptResult != nil {
 		add(strings.TrimSpace(*params.AttemptResult), "attempt_result = $%d")
 	}
-	rows, err := exec.Query(ctx, `SELECT ingress_request_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, attempt_trigger, attempt_result, attempt_duration_ms
+	rows, err := exec.Query(ctx, `SELECT ingress_request_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, attempt_trigger, attempt_result, attempt_duration_ms,
+		input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, ttft_ms, completion_duration_ms,
+		`+cacheBasisEligibleSQL+` AS cache_basis_eligible
 		FROM request_logs WHERE `+strings.Join(clauses, " AND ")+` ORDER BY created_at ASC, id ASC`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query route-attempt statistics: %w", err)
@@ -179,17 +214,29 @@ func loadAttemptStatObservations(ctx context.Context, exec queryExecutor, params
 	for rows.Next() {
 		var ingress, modelID, apiFamily string
 		var target sql.NullString
-		var endpointID, connectionID, duration sql.NullInt32
+		var endpointID, connectionID, duration, inputTokens, outputTokens, totalTokens sql.NullInt32
+		var cacheReadInputTokens, cacheCreationInputTokens, reasoningTokens, ttftMS, completionMS sql.NullInt32
+		var cacheBasisEligible bool
 		var trigger, result sql.NullString
-		if err := rows.Scan(&ingress, &modelID, &target, &apiFamily, &endpointID, &connectionID, &trigger, &result, &duration); err != nil {
+		if err := rows.Scan(&ingress, &modelID, &target, &apiFamily, &endpointID, &connectionID, &trigger, &result, &duration, &inputTokens, &outputTokens, &totalTokens, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &ttftMS, &completionMS, &cacheBasisEligible); err != nil {
 			return nil, err
 		}
 		resultValue := stringValue(nullableString(result))
+		attemptClass := classifyAttemptResult(result)
 		item := scopedStatObservation{
 			IngressID: ingress, IngressModelID: modelID, TargetModelID: nullableString(target), APIFamily: apiFamily,
 			EndpointID: normalizePositiveID(nullableInt32(endpointID)), ConnectionID: normalizePositiveID(nullableInt32(connectionID)),
 			AttemptTrigger: nullableString(trigger), AttemptResult: nullableString(result), Success: resultValue == "completed",
-			LatencyMS: nullableInt32(duration),
+			AttemptClass: attemptClass,
+			LatencyMS:    nullableInt32(duration),
+			InputTokens:  intValue(nullableInt32(inputTokens)), HasInputTokens: inputTokens.Valid,
+			OutputTokens: intValue(nullableInt32(outputTokens)), HasOutputTokens: outputTokens.Valid,
+			TotalTokens: intValue(nullableInt32(totalTokens)), HasTotalTokens: totalTokens.Valid,
+			CacheReadInputTokens: intValue(nullableInt32(cacheReadInputTokens)), HasCacheReadInputTokens: cacheReadInputTokens.Valid,
+			CacheCreationInputTokens: intValue(nullableInt32(cacheCreationInputTokens)), HasCacheCreationInputTokens: cacheCreationInputTokens.Valid,
+			ReasoningTokens: intValue(nullableInt32(reasoningTokens)), HasReasoningTokens: reasoningTokens.Valid,
+			CacheBasisEligible: cacheBasisEligible,
+			OutputRateTPS:      requestOutputRateTPS(intValue(nullableInt32(outputTokens)), outputTokens.Valid, nullableInt32(ttftMS), nullableInt32(completionMS)),
 		}
 		items = append(items, item)
 	}
@@ -212,6 +259,13 @@ func buildScopedStatsSummary(observations []scopedStatObservation, scope string,
 		} else {
 			response.Samples.LatencyMissingCount++
 		}
+		if scope != ScopeRouteAttempt {
+			if observation.TrustedCost != nil {
+				response.Samples.CostSampleCount++
+			} else if observation.PricingStatus == "priced" || observation.PricingStatus == "unpriced" || observation.PricingStatus == "unknown" {
+				response.Samples.CostMissingCount++
+			}
+		}
 		response.TotalInputTokens += observation.InputTokens
 		response.TotalOutputTokens += observation.OutputTokens
 		response.TotalTokens += observation.TotalTokens
@@ -233,6 +287,13 @@ func buildScopedStatsSummary(observations []scopedStatObservation, scope string,
 			group.latencies = append(group.latencies, *observation.LatencyMS)
 		} else {
 			group.missing++
+		}
+		if scope != ScopeRouteAttempt {
+			if observation.TrustedCost != nil {
+				group.costSamples++
+			} else if observation.PricingStatus == "priced" || observation.PricingStatus == "unpriced" || observation.PricingStatus == "unknown" {
+				group.costMissing++
+			}
 		}
 	}
 	response.ErrorCount = response.TotalRequests - response.SuccessCount
@@ -260,7 +321,10 @@ func buildScopedStatsSummary(observations []scopedStatObservation, scope string,
 			item.AvgResponseTimeMS = &average
 			item.P95ResponseTimeMS = percentileContInt(aggregate.latencies, 0.95)
 		}
-		item.Samples = ScopeSampleCounts{ObservationCount: item.TotalRequests, LatencySampleCount: len(aggregate.latencies), LatencyMissingCount: aggregate.missing}
+		item.Samples = ScopeSampleCounts{
+			ObservationCount: item.TotalRequests, LatencySampleCount: len(aggregate.latencies), LatencyMissingCount: aggregate.missing,
+			CostSampleCount: aggregate.costSamples, CostMissingCount: aggregate.costMissing,
+		}
 		items = append(items, item)
 	}
 	sort.Slice(items, func(i, j int) bool {

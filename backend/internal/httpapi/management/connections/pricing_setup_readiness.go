@@ -9,6 +9,7 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 	"github.com/coachpo/prism/backend/internal/domain/pricingkind"
+	"github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -71,7 +72,7 @@ func buildPricingSetupReadinessTx(ctx context.Context, tx pgx.Tx, profileID int,
 	if err != nil {
 		return PricingSetupReadiness{}, err
 	}
-	snapshot := modelrouting.AnalyzeRouteWitnessSnapshot(graph, currentGeneration)
+	snapshot := modelrouting.AnalyzeRouteWitnessSnapshotWithOperations(graph, currentGeneration, runtime.ModelBoundRouteWitnessOperations())
 	state, err := resolvePricingSetupReadinessState(ctx, tx, profileID, snapshot)
 	if err != nil {
 		return PricingSetupReadiness{}, err

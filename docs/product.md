@@ -98,9 +98,10 @@ Single operator (developer/power user) running the application locally or on a l
 - Dedicated model-detail route (`/models/:id`) for ordered access-target and Terminal Target configuration; current loadbalance state and loadbalance event history live under Ban Policies
 - Dedicated request-log browsing and investigation at `/observe/requests`, separate from dashboard analytics
 - Dedicated routes for pricing templates and proxy API key lifecycle management
-- `/observe` is one dashboard with four content-switcher values sharing the page time preset: Trend (`trend`), Errors (`errors`), Activity (`activity`), and Terminal Targets (`terminal_targets`). The Now strip and Window KPI grid render once above that switcher; routing health is a separate `/observe/routing-health` route. Legacy `overview`/`analytics` links resolve to Trend, while legacy `events` links redirect to routing health. Observe fragments load independently and never synthesize zeros on failure. The Window KPI grid shows six cards — requests, HTTP success rate, TTFT P95, output rate, cache-read share, and known cost. The cache-read share card separates genuine zero, no comparable rows, an empty window, a failed read, and partial coverage into distinct states; it never paints a fabricated `0%` over missing data. The Trend main chart offers seven metrics in a fixed order — requests, errors, TTFT, output rate (`output_rate`), tokens, cache-read share (`cache_read_share`), cost — as one `metric` URL tuple; output rate and cache-read share draw as lines per bucket from the same usage-series read. Their tooltip, sample/partial-coverage badges, dedicated all-missing empty states, and last-bucket table columns distinguish a genuine zero, no samples, no comparable rows, a zero denominator, partial coverage, and a failed read; absent buckets stay gaps, never plotted zeros.
-- Model creation supports one-step composite create: an optional `initial_terminal_target` (existing or inline endpoint) is created atomically with the model; the model is enabled by default when the target is present, and cross-mode capability values are rejected with `422 target_openai_mode_mismatch` with zero writes. Terminal Targets can be batch-copied to same-profile same-family same-mode destination models in one transaction (new targets default to not participating in routing).
-- Model detail exposes read-only static routing diagnostics (`GET /api/models/{id}/routing-diagnostics`) and the models list embeds a compact `routing_summary`; both share one backend analyzer, which is separate from the runtime planner and never reads Ban/retry/admission state. The analyzer applies the routing strategy to the single mixed peer sequence exactly as the runtime does, so a `single` strategy truncates that one list rather than each target type.
+- `/observe` is one dashboard with four content-switcher values sharing the page time preset: Trend (`trend`), Errors (`errors`), Activity (`activity`), and Terminal Targets (`terminal_targets`). The Now strip and fixed-ingress Window KPI grid render once above that switcher; routing health is a separate `/observe/routing-health` route. Trend and Errors share a URL-backed scope and expose only that scope's authoritative metric/group catalog: ingress uses `requests|errors|ttft|output_rate|tokens|cache_read_share|cost`, final execution uses `requests|errors|final_attempt_latency|tokens|cache_read_share|cost`, and route attempt uses `attempts|errors|attempt_latency`. Invalid combinations fail with typed `422`; no alias silently substitutes a different metric. Every scoped fragment carries its own caliber, bounds, dataset coverage and sample/missing evidence, and the UI/export keep request counts distinct from attempt counts.
+- Model creation supports one-step composite create: an optional `initial_terminal_target` (existing or inline endpoint) is created atomically with the model; non-OpenAI wire payloads omit OpenAI-only keys, while OpenAI text/image dimensions are validated independently. Terminal Targets can be batch-copied to same-profile, same-family destination models in one transaction only when text capability matches exactly (including `null`) and image capability contains the destination requirement; both enabled and disabled copies validate before any write.
+- Model detail exposes read-only static routing diagnostics (`GET /api/models/{id}/routing-diagnostics`) and the models list embeds the authoritative compact `routing_summary`; both share one backend analyzer and the runtime-owned model-bound operation catalog across OpenAI, Anthropic, and Gemini. Route witnesses carry the real Endpoint identity, lowercase coverage, and a routing-schedule qualifier. Routing mutations refresh diagnostics and the authoritative model list, rather than preserving browser-recomputed routing or connection counts.
+- models.dev Catalog overrides expose all backend-owned metadata fields and preserve three states per field: missing, explicit `null` restore, and explicit value (including an empty string). Refresh replaces source facts only; manual overrides survive.
 - Dashboard trends live under canonical `/observe?tab=trend`; the legacy `tab=analytics` value remains a compatibility alias for that same view
 - The protected shell renders sidebar navigation and breadcrumbs from local route metadata.
 - Settings uses canonical public URLs with **全局** (`scope=global`) and **实例** (`scope=instance`) scopes and a section allowlist; the legacy `tab` query value is dropped during canonicalization. `scope=global` contains billing/reporting currency, timezone, audit/privacy, and config rules; `scope=instance` contains authentication and operator account, automatic retention policy with owner actual coverage, manual cleanup, and the retention job center.
@@ -155,7 +156,7 @@ The gateway computes the cost of each request based on the extracted token usage
   - Trend controls: time presets (`1h`, `6h`, `24h`, `7d`, `30d`, `all`) plus model/endpoint/terminal-target series grouping
   - Window KPI cards and the seven-metric Trend chart, followed by the separate Errors, Activity, and Terminal Targets switcher views
   - Summary statistics grouped by model and API family
-- Dedicated request investigation UI at `/observe/requests` with server-backed filters (`pricing_status` four-state, caller-only `client_rule_id`, final-target `resolved_target_model_id`), a default retained ingress-chain view with signed cursors, scoped status columns, adaptive table height, a failure-first detail sheet, and a dedicated full audit page with byte-exact raw body downloads
+- Dedicated request investigation UI at `/observe/requests` with server-backed requested-model, attempt-target, caller-client, scoped status and four-state pricing filters; signed final-owner drill-downs; a default retained ingress-chain view with cohort-bound cursors; a failure-first detail sheet; and a dedicated full audit page with byte-exact raw body downloads
 - REST API for querying statistics remains available for API callers and debugging:
   - List request logs with pagination and filters
   - Get the stats-only dashboard snapshot and separate dashboard recent activity feed
@@ -257,13 +258,12 @@ Allow operators to attach an optional static top-level JSON object (`custom_requ
 
 ### 4.14 Three-Scope Observability
 
-- Every metric declares one scope: `ingress` counts each finalized ingress once by its requested model; `final_execution` counts requests with a final execution owner by the resolved leaf model and actual winning Terminal Target; `route_attempt` counts each real upstream attempt by its attempt target and actual Terminal Target.
+- Every metric declares one scope and uses that scope's server-owned metric catalog: `ingress` counts each finalized ingress once by its requested model; `final_execution` counts requests with a final execution owner by the resolved leaf model and actual winning Terminal Target; `route_attempt` counts each real upstream attempt by its attempt target and actual Terminal Target. Omitted metrics resolve to the scope default (`requests`, `requests`, or `attempts`); explicit incompatible metrics fail closed.
 - Ingress and final-execution cost are non-additive projections of the same served-final fact. Canonical sums include only `priced` plus `trusted` evidence. Route-attempt aggregates make no cost claim, and the UI distinguishes trusted zero from no trusted sample.
-- Final-execution latency joins the finalized usage event to its retained `final_attempt_number` and uses that row's `attempt_duration_ms`. Missing request-log evidence reduces the latency sample count without removing the finalized request or filling a zero.
-- Public statistics responses expose scope-specific caliber, dataset coverage, and observation/latency/cost sample and missing counts. Ambiguous legacy model keys and invalid scope/group/filter combinations fail with typed `422` errors.
-- Models switches among entry, final-execution, and route-attempt metrics without coupling configuration mutations to metric availability. Model Detail exposes the model's entry and final-execution roles separately.
-- Observe shares the selected scope between Trend and Errors, keeps Activity explicitly ingress-scoped, and gives Terminal Targets separate final-execution and route-attempt views.
-- Requests keeps ingress chains as the default investigation unit. A parent row separates ingress model, final target model, and actual exit; expanded rows expose each attempt target, actual Terminal Target, trigger, result, duration, tokens, and any known per-row cost. The planned Terminal Target remains distinct from actual execution.
+- Latency is scope-specific: ingress TTFT, final-attempt latency joined by `final_attempt_number`, and per-route-attempt duration. Missing request-log evidence reduces samples without removing the finalized request or filling a zero.
+- Public statistics responses expose scope-specific caliber, dataset coverage, and observation/latency/cost sample and missing counts. Endpoint-specific group/filter capability is explicit; an unsupported key returns typed `422` instead of a 200 no-op, all/Other fabrication, or SQL failure. Top-N series and Errors preserve the full denominator through a real Other bucket and only report `truncated` when a remainder exists.
+- Observe keeps Activity explicitly ingress-scoped. Trend/Errors show scoped request-log coverage separately from the fixed usage KPI lane, and JSON export describes each fragment's own scope/bounds/coverage instead of assigning one mixed top-level window.
+- Requests keeps ingress chains as the default investigation unit. Attempts, chains, full CSV and detail use the same non-pagination cohort contract; ordinary triage requires no token, while Observe `final_*`/attempt deep links carry a signed request-domain context. Same-key multi-values are OR, different keys are AND, and `__null__` means an explicitly unattributed value. Exact ingress lookup without an explicit window uses retained `all` bounds across chain, attempts and CSV.
 - The additive resolved-target indexes are introduced by `000026_resolved_target_indexes.sql`; existing retained history is not rewritten, and non-positive historical identities project as unattributed.
 
 ### 4.15 Supported API Families
@@ -356,7 +356,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 
 The Requests page is Prism's dedicated request-browser and investigation surface for proxied traffic. It is mounted at `/observe/requests`. It provides a Default-profile-pinned view for browsing request history through server-backed filters, a retained-ingress chain view as the default investigation unit, and an overview detail sheet with a unified failure projection. Full audit payloads live on a dedicated audit page.
 
-The backend request-log and audit APIs remain the source of truth. The frontend route is responsible for presenting that data in an operator-friendly investigation workflow without changing runtime proxy semantics. The canonical URL filter set keeps `ingress_request_id`, `model`, `endpoint`, `client_rule_id`, `resolved_target_model_id`, `status`, `status_code`, `error_text`, `pricing_status`, `unpriced_reason`, `time_range`, `view`, `sort_by`, `sort_order`, and `chain_cursor`, while exact single-request investigation uses `request_id`.
+The backend request-log and audit APIs remain the source of truth. The frontend route is responsible for presenting that data in an operator-friendly investigation workflow without changing runtime proxy semantics. Canonical browse identity uses `ingress_model_id` for the requested model and `attempt_target_model_id` for a retained attempt target; ambiguous model aliases are not restored. Ordinary URL state also carries endpoint, Terminal Target, caller client rule, status/error/pricing, triage, time, view, sort and pagination. Observe drill-down adds signed repeated `final_*`/attempt selectors, while exact single-request investigation uses a positive int64 decimal `request_id` without conversion to a JavaScript number.
 
 The request-log route now uses split HTTP contracts: a slim v2 row payload for attempt browsing, a chain envelope for the default ingress-chain view, and a v2 detail payload for the sheet. The `priced` boolean alias is not accepted anywhere; pricing filtering uses the four-state `pricing_status` (`priced|unpriced|ineligible|unknown`) and the strict backend rejects unknown query keys with `422 unknown_query_key`.
 
@@ -399,19 +399,20 @@ The route should also integrate shared application services:
 
 Supported canonical query parameters:
 
-- Browse filters: `ingress_request_id`, `model`, `endpoint`, `client_rule_id`, `resolved_target_model_id`, `status`, `status_code`, `error_text`, `pricing_status`, `unpriced_reason`, `time_range`
+- Browse filters: `ingress_request_id`, `ingress_model_id`, `endpoint`, `terminal_target_id`, `client_rule_id`, `attempt_target_model_id`, `api_family`, `row_kind`, `status`, `status_code`, `error_text`, `pricing_status`, `unpriced_reason`, `pricing_card_role`, `pricing_selection_state`, `time_range`
+- Signed Observe filters: `query_context` plus repeated/comma-equivalent `final_result`, `outcome_detail`, `final_status_code`, `final_stream_outcome`, `final_stream_error_kind`, `final_target_model_id`, `final_endpoint_id`, `final_terminal_target_id`, `final_pricing_status`, `final_unpriced_reason`, `reporting_currency_epoch`, `attempt_trigger`, and `attempt_result`; server-generated Other links additionally use the bounded, typed `final_exclude` complement selector
 - View: `view` (`ingress_chains` default | `attempts`), `chain_cursor` for chain outer-page continuation
 - Sorting: `sort_by`, `sort_order` (chain view restricts `sort_by` to `created_at`)
 - Pagination: `limit`, `cursor` (attempt view)
 - Exact-investigation flow: `request_id`
 - Row selection without exact mode: `selected_request_id`
 
-Accepted legacy aliases are parsed and canonicalized away: `model_id`, `endpoint_id`, `status_family`, and `offset`. `status=client_error` maps to backend `status_family=4xx`; `status=error` maps to backend `status_family=5xx`. The old `priced=true|false` parameter is not parsed and is rejected by the backend as an unknown key.
+Accepted URL aliases are canonicalized only where the route still owns them (`endpoint_id`, `status_family`, and attempt-page `offset`). `status=client_error` maps to backend `status_family=4xx`; `status=error` maps to backend `status_family=5xx`. Retired ambiguous model aliases and `priced=true|false` are rejected by the backend.
 
 Behavioral requirements:
 
 - Default values should be omitted from the URL.
-- Any filter mutation that changes the result set must reset pagination (attempt `cursor`/chain cursor) to the first page.
+- Any filter mutation that changes the result set must reset attempt offset and both signed chain cursors to the first page. Cursors bind the normalized cohort/window as well as profile, sort, page size and retention generation, so a manually reused cursor fails closed.
 - `request_id` must switch the page into exact-request investigation mode.
 - `ingress_request_id` must support grouped investigation of all per-attempt rows created by one incoming runtime request.
 - Stale `detail_tab` parameters must be ignored and canonicalized away.
@@ -431,8 +432,8 @@ Primary APIs:
 Required behavior:
 
 - Debounce fetches by 300 ms.
-- Send server-supported browse filters for model, ingress request grouping, endpoint, caller client rule, final target model, status family, exact status code, error text, pricing status, unpriced reason, and time window.
-- Translate canonical URL state to backend request parameters: `model` -> `model_id`, `endpoint` -> `endpoint_id`, `status` -> `status_family`, and `cursor` -> `offset` (attempt view only).
+- Send the server-supported scope-specific identity, grouping, caller-client, status/error, pricing, triage and time filters without browser-side cohort refinement.
+- Keep `ingress_model_id` and `attempt_target_model_id` unchanged on the wire; translate only `endpoint` to `endpoint_id`, status aliases to `status_family`, and attempt `cursor` to `offset`.
 - Send `unpriced_reason` only when `pricing_status=unpriced`; other pricing states omit it from backend params.
 - Send `ingress_request_id` as an exact server-backed grouping filter when present.
 - Keep list browsing on the slim v2 row schema and fetch exact-request sheet data from the dedicated v2 detail endpoint.
@@ -441,7 +442,7 @@ Required behavior:
 
 #### 6.2 Filter Option Bootstrap
 
-The page derives model, endpoint, caller client, and final-target filter options from the paginated `/api/stats/requests` response: `filter_options.models`, `filter_options.endpoints`, `filter_options.clients`, and `filter_options.resolved_target_models`.
+Both attempts and ingress-chain envelopes require non-null `filter_options.ingress_models`, `filter_options.endpoints`, `filter_options.clients`, and `filter_options.attempt_target_models`; empty sets are `[]`, never omitted. The default chain response therefore bootstraps filters without a hidden attempts request.
 
 Response-owned filter options should become ready when the current list response arrives. `filter_options.clients` entries use `{ client_rule_id, client_label }` and represent enabled User-Agent Client Rules. Selecting one sends `client_rule_id` back to the backend, where matching is caller-only against `caller_user_agent`.
 
@@ -470,7 +471,7 @@ Required behavior:
 
 #### 7.1 Filter And Triage Workflow
 
-The page should use only the retained browse filters in URL state and send them directly to the backend list route. The current canonical URL contract keeps `request_id`, `selected_request_id`, `ingress_request_id`, `model`, `endpoint`, `client_rule_id`, `resolved_target_model_id`, `status`, `status_code`, `error_text`, `pricing_status`, `unpriced_reason`, `time_range`, `view`, `sort_by`, `sort_order`, and `chain_cursor`, and removes the old client-side search, token, latency, stream, outcome, and triage refinement layer. The Client dropdown must not expose regex, `client_scope`, or upstream matching language.
+The page sends retained browse filters directly to the owning backend read model. Ordinary triage (`ingress_final_result`, `confirmed_failover`) is tokenless; Observe analysis links carry a signed context and explicit final/attempt selectors. The Client dropdown exposes only enabled rule identity and never regex, `client_scope`, or upstream matching language.
 
 Triage chips are canonical-query shortcuts only:
 
@@ -581,7 +582,7 @@ The Requests page must remain compatible with the following backend-facing and s
 
 1. Visiting `/observe/requests` loads the ingress-chain view plus filter-reference data for Default profile id `1`.
 2. Server-backed filter changes update URL state with `replace: true` semantics and reset pagination to the first page.
-3. The retained browse filters update URL state with `replace: true` semantics and drive refreshed list requests directly, without a client-side search or triage refinement layer. `client_rule_id` filters caller user agents only, and `resolved_target_model_id` filters final target models. `pricing_status` is the only pricing filter; `priced` is never generated or accepted.
+3. Retained browse filters update URL state with `replace: true`, clear every incompatible pagination anchor, and drive refreshed list/CSV cohorts directly. `client_rule_id` filters caller user agents only, `ingress_model_id` selects the requested model, `attempt_target_model_id` selects retained attempt targets, and signed `final_target_model_id` selects the finalized owner. `priced` is never generated or accepted.
 4. Visiting `/observe/requests?request_id=<id>` opens exact-request investigation mode with the focus banner and detail-sheet support.
 5. Visiting `/observe/requests?ingress_request_id=<id>` filters the request list to all per-attempt rows for that incoming runtime request without breaking numeric `request_id` deep links.
 6. Opening the dedicated full audit page loads request detail first, then queries `/api/audit/logs` with `request_log_id`, ±12-hour bounds, `limit=20`, and optional `cursor`; disabled audit makes no audit API call.

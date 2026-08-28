@@ -117,7 +117,10 @@ export function useModelDetailConnectionLifecycle({
           toast.error(TERMINAL_TARGET_OWNER_MISMATCH);
           return;
         }
-        await api.models.connections.delete(modelConfigId, connectionId);
+        await api.models.connections.delete(
+          modelConfigId,
+          connectionId,
+        );
         clearSharedReferenceData(undefined, revision);
         setAllConnections((current) =>
           removeConnectionFromList(current, connectionId),

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "@/lib/api/request";
 import { observe, type QueryContextResponse, type UsageSummaryResponse, type DashboardNowResponse } from "@/lib/api/observability";
 import type { ObserveScope } from "@/features/observe/observeSearch";
+import { getStaticMessages } from "@/i18n/staticMessages";
 
 export type FragmentPhase = "loading" | "ready" | "error";
 
@@ -108,18 +109,28 @@ export function useObserveAnalysisContext(
     const controller = new AbortController();
     queueMicrotask(() => {
       if (!active) return;
-      setFragment((previous) => ({
-        ...previous,
+      setFragment({
         phase: "loading",
-        stale: previous.data !== null,
+        data: null,
+        stale: false,
         error: null,
         retryAfterMs: null,
-      }));
+      });
     });
     void observe
       .queryContext({ preset, scope }, controller.signal)
       .then((data) => {
         if (active && !controller.signal.aborted) {
+          if (data.scope !== scope || data.caliber.scope !== scope) {
+            setFragment({
+              phase: "error",
+              data: null,
+              stale: false,
+              error: getStaticMessages().observe.queryContextUnavailable,
+              retryAfterMs: null,
+            });
+            return;
+          }
           setFragment({
             phase: "ready",
             data,
@@ -132,13 +143,13 @@ export function useObserveAnalysisContext(
       .catch((error: unknown) => {
         if (!active || controller.signal.aborted) return;
         const mapped = fragmentErrorFrom(error);
-        setFragment((previous) => ({
-          ...previous,
+        setFragment({
           phase: "error",
-          stale: previous.data !== null,
+          data: null,
+          stale: false,
           error: mapped.error,
           retryAfterMs: mapped.retryAfterMs,
-        }));
+        });
       });
     return () => {
       active = false;

@@ -34,6 +34,10 @@ function makeState(overrides: Partial<RequestLogPageState> = {}): RequestLogPage
     client_rule_id: "",
     proxy_api_key_id: "",
     resolved_target_model_id: "",
+    api_family: "",
+    row_kind: "",
+    stream_outcome: "",
+    stream_error_kind: "",
     status_code: "",
     error_text: "rate limit",
     pricing_status: "all",
@@ -46,11 +50,20 @@ function makeState(overrides: Partial<RequestLogPageState> = {}): RequestLogPage
     observe_return: "",
     query_context: "",
     final_result: "",
+    outcome_detail: "",
+    final_status_code: "",
+    final_stream_outcome: "",
+    final_stream_error_kind: "",
+    final_exclude: "",
     final_target_model_id: "",
     final_endpoint_id: "",
     final_terminal_target_id: "",
     final_pricing_status: "",
     final_unpriced_reason: "",
+    reporting_currency_epoch: "",
+    cost_segment_key: "",
+    attempt_trigger: "",
+    attempt_result: "",
     status_family: "all",
     limit: 300,
     offset: 0,
@@ -75,6 +88,45 @@ describe("requestLogSavedViews", () => {
     expect("request_id" in canonical).toBe(false);
     expect("selected_request_id" in canonical).toBe(false);
     expect("chain_cursor" in canonical).toBe(false);
+  });
+
+  it("omits signed-context selectors and resets them when applying a view", () => {
+    const tokenBound = {
+      query_context: "signed-context",
+      final_result: "failed,client_disconnected",
+      outcome_detail: "http_error",
+      final_status_code: "429,503",
+      final_stream_outcome: "stream_error",
+      final_stream_error_kind: "__null__,protocol_error",
+      final_exclude: "stream_error_kind,__null__,protocol_error",
+      final_target_model_id: "winner-a,__null__",
+      final_endpoint_id: "7,__null__",
+      final_terminal_target_id: "11,12",
+      final_pricing_status: "unpriced",
+      final_unpriced_reason: "MISSING_PRICE_DATA",
+      reporting_currency_epoch: "3",
+      attempt_trigger: "initial,failover",
+      attempt_result: "http_error,__null__",
+    } satisfies Partial<RequestLogPageState>;
+    const stateOnly = savedViewStateOf(makeState(tokenBound));
+
+    for (const key of Object.keys(tokenBound)) {
+      expect(key in stateOnly).toBe(false);
+    }
+
+    const view = saveRequestLogView("ordinary", makeState());
+    const applied = applySavedView(view, makeState(tokenBound));
+    for (const key of Object.keys(tokenBound) as Array<keyof typeof tokenBound>) {
+      expect(applied[key]).toBe("");
+    }
+  });
+
+  it("preserves ordinary attempt identity filters in an attempts saved view", () => {
+    const canonical = savedViewStateOf(
+      makeState({ api_family: "openai", row_kind: "upstream" }),
+    );
+    expect(canonical.api_family).toBe("openai");
+    expect(canonical.row_kind).toBe("upstream");
   });
 
   it("round-trips saved views through localStorage", () => {

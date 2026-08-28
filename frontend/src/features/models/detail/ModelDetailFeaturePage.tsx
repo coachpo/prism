@@ -115,18 +115,21 @@ function useRoutingDiagnosticsView(modelConfigId: number | undefined) {
 
   useEffect(() => {
     if (!modelConfigId || Number.isNaN(modelConfigId)) return;
-    let cancelled = false;
+    const controller = new AbortController();
     void (async () => {
       try {
-        const diagnostics = await modelRoutingDiagnostics.get(modelConfigId);
-        if (!cancelled)
+        const diagnostics = await modelRoutingDiagnostics.get(
+          modelConfigId,
+          controller.signal,
+        );
+        if (!controller.signal.aborted)
           setSettled({
             token: reloadToken,
             modelConfigId,
             result: { kind: "loaded", value: diagnostics },
           });
       } catch (error: unknown) {
-        if (!cancelled) {
+        if (!controller.signal.aborted) {
           setSettled({
             token: reloadToken,
             modelConfigId,
@@ -139,7 +142,7 @@ function useRoutingDiagnosticsView(modelConfigId: number | undefined) {
       }
     })();
     return () => {
-      cancelled = true;
+      controller.abort();
     };
     // reloadToken is the only retry dimension: without it the retry button
     // would update state that no effect reads and issue no request.
@@ -381,11 +384,15 @@ export function ModelDetailFeaturePage({
         modelConfigId={parsedModelConfigId ?? 0}
         connectionId={copyTarget?.id ?? 0}
         connectionName={copyTarget?.name ?? copyTarget?.endpoint?.name ?? ""}
-        ownerMode={model.openai_accepted_format ?? null}
+        ownerMode={copyTarget?.openai_text_capability ?? null}
+        ownerImageCapability={copyTarget?.openai_image_capability ?? null}
         models={data.targetModelsForApiFamily}
         onClose={() => setCopyTarget(null)}
         onCopied={() => {
           setCopyTarget(null);
+          void data.refreshModels().catch((error) => {
+            console.error("Failed to refresh authoritative model list", error);
+          });
           navigateTo(`/route/models/${model.id}`);
         }}
       />

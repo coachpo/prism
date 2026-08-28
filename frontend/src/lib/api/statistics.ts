@@ -4,6 +4,7 @@ import type {
   DashboardRecentActivityParams,
   DashboardRecentActivityResponse,
   DashboardSnapshot,
+  EndpointModelStatisticsResponse,
   EndpointModelStatisticsParams,
   ModelMetricsBatchParams,
   ModelMetricsBatchResponse,
@@ -13,7 +14,6 @@ import type {
   StatsSummaryParams,
   ThroughputStatsParams,
   ThroughputStatsResponse,
-  UsageModelStatistic,
   UsageSnapshotPreset,
   UsageSnapshotResponse,
 } from "../types";
@@ -99,7 +99,6 @@ export const statistics = {
   },
   usageSnapshot: (params?: {
     preset?: UsageSnapshotPreset;
-    scope?: "ingress" | "final_execution" | "route_attempt";
   }) => {
     const query = buildQuery(params);
     return request<UsageSnapshotResponse>(
@@ -115,7 +114,7 @@ export const statistics = {
         | Record<string, string | number | boolean | null | undefined>
         | undefined,
     );
-    return request<UsageModelStatistic[]>(
+    return request<EndpointModelStatisticsResponse>(
       `/api/stats/endpoints/${endpointId}/models${query ? `?${query}` : ""}`,
     );
   },

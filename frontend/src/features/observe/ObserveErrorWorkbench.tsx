@@ -28,6 +28,7 @@ import { fragmentErrorFrom, type FragmentState } from "@/features/observe/useObs
 import { ObserveErrorPanel } from "@/features/observe/ObserveErrorPanel"
 import type { ObserveErrorSelection } from "@/features/observe/observeErrorSelection"
 import type { ObserveGroupBy, ObserveScope } from "@/features/observe/observeSearch"
+import { buildRequestsSearch } from "@/features/observe/observeErrorRequestSearch"
 
 const STREAM_PAGE_SIZE = 50
 
@@ -103,26 +104,6 @@ export function ObserveErrorWorkbench({
       </OperatorInsetPanel>
     </div>
   )
-}
-
-/**
- * The deep link keeps the backend's `request_filters` and `requests_context`
- * verbatim — the same conjunction the ranking used to navigate with.
- */
-function buildRequestsSearch(
-  selection: ObserveErrorSelection,
-  requestsContext: UsageErrorsResponse["requests_context"] | null,
-  queryContext: string | null,
-  scope: ObserveScope,
-): Record<string, string> {
-  const search: Record<string, string> = {
-    view: scope === "route_attempt" ? "attempts" : "ingress_chains",
-    query_context: requestsContext?.query_context ?? queryContext ?? "",
-  }
-  for (const [key, values] of Object.entries(selection.requestFilters)) {
-    search[key] = values.join(",")
-  }
-  return search
 }
 
 function MatchingStream({

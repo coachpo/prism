@@ -35,6 +35,8 @@ function makeState(overrides = {}) {
     endpoint_id: "",
     client_rule_id: "",
     resolved_target_model_id: "",
+    api_family: "",
+    row_kind: "",
     status_code: "",
     error_text: "",
     pricing_status: "all",
@@ -47,11 +49,19 @@ function makeState(overrides = {}) {
     observe_return: "",
     query_context: "",
     final_result: "",
+    outcome_detail: "",
+    final_status_code: "",
+    final_stream_outcome: "",
+    final_stream_error_kind: "",
     final_target_model_id: "",
     final_endpoint_id: "",
     final_terminal_target_id: "",
     final_pricing_status: "",
     final_unpriced_reason: "",
+    reporting_currency_epoch: "",
+    cost_segment_key: "",
+    attempt_trigger: "",
+    attempt_result: "",
     status_family: "all",
     limit: 100,
     offset: 0,
@@ -88,6 +98,43 @@ test("saved views omit transient pagination and selection anchors", () => {
   assert.equal("chain_cursor" in stateOnly, false);
   assert.equal("request_id" in stateOnly, false);
   assert.equal("selected_request_id" in stateOnly, false);
+});
+
+test("saved views omit and reset signed Observe selectors", () => {
+  const signedSelectors = {
+    query_context: "signed-context",
+    final_result: "failed,client_disconnected",
+    outcome_detail: "http_error",
+    final_status_code: "429,503",
+    final_stream_outcome: "stream_error",
+    final_stream_error_kind: "__null__,protocol_error",
+    final_target_model_id: "winner-a,__null__",
+    final_endpoint_id: "7,__null__",
+    final_terminal_target_id: "11,12",
+    final_pricing_status: "unpriced",
+    final_unpriced_reason: "MISSING_PRICE_DATA",
+    reporting_currency_epoch: "3",
+    attempt_trigger: "initial,failover",
+    attempt_result: "http_error,__null__",
+  };
+  const stateOnly = savedViewStateOf(makeState(signedSelectors));
+  for (const key of Object.keys(signedSelectors)) {
+    assert.equal(key in stateOnly, false, key);
+  }
+
+  const view = saveRequestLogView("ordinary", makeState());
+  const applied = applySavedView(view, makeState(signedSelectors));
+  for (const key of Object.keys(signedSelectors)) {
+    assert.equal(applied[key], "", key);
+  }
+});
+
+test("saved attempt views retain ordinary api-family and row-kind filters", () => {
+  const stateOnly = savedViewStateOf(
+    makeState({ api_family: "openai", row_kind: "upstream", view: "attempts" }),
+  );
+  assert.equal(stateOnly.api_family, "openai");
+  assert.equal(stateOnly.row_kind, "upstream");
 });
 
 test("applying a saved view resets pagination and preserves nothing transient", () => {

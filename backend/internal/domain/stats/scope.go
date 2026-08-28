@@ -26,6 +26,31 @@ const (
 	GroupAttemptResult      = "attempt_result"
 )
 
+const (
+	MetricRequests            = "requests"
+	MetricErrors              = "errors"
+	MetricTTFT                = "ttft"
+	MetricOutputRate          = "output_rate"
+	MetricTokens              = "tokens"
+	MetricCacheReadShare      = "cache_read_share"
+	MetricCost                = "cost"
+	MetricAttempts            = "attempts"
+	MetricFinalAttemptLatency = "final_attempt_latency"
+	MetricAttemptLatency      = "attempt_latency"
+)
+
+var scopeMetricsOrdered = map[string][]string{
+	ScopeIngress:      {MetricRequests, MetricErrors, MetricTTFT, MetricOutputRate, MetricTokens, MetricCacheReadShare, MetricCost},
+	ScopeFinal:        {MetricRequests, MetricErrors, MetricFinalAttemptLatency, MetricTokens, MetricCacheReadShare, MetricCost},
+	ScopeRouteAttempt: {MetricAttempts, MetricErrors, MetricAttemptLatency},
+}
+
+var scopeDefaultMetric = map[string]string{
+	ScopeIngress:      MetricRequests,
+	ScopeFinal:        MetricRequests,
+	ScopeRouteAttempt: MetricAttempts,
+}
+
 var validScopes = map[string]struct{}{
 	ScopeIngress: {}, ScopeFinal: {}, ScopeRouteAttempt: {},
 }
@@ -52,6 +77,45 @@ type DatasetCoverage struct {
 	UsageRequestEvents *Coverage `json:"usage_request_events,omitempty"`
 	RequestLogs        *Coverage `json:"request_logs,omitempty"`
 	LoadbalanceEvents  *Coverage `json:"loadbalance_events,omitempty"`
+}
+
+func MetricsForScope(scope string) []string {
+	if metrics, ok := scopeMetricsOrdered[scope]; ok {
+		return append([]string(nil), metrics...)
+	}
+	return append([]string(nil), scopeMetricsOrdered[ScopeIngress]...)
+}
+
+func DefaultMetricForScope(scope string) string {
+	if metric, ok := scopeDefaultMetric[scope]; ok {
+		return metric
+	}
+	return MetricRequests
+}
+
+func NormalizeMetric(scope string, metric string) (string, error) {
+	normalizedScope, err := NormalizeScope(scope)
+	if err != nil {
+		return "", err
+	}
+	trimmed := strings.TrimSpace(metric)
+	if trimmed == "" {
+		return DefaultMetricForScope(normalizedScope), nil
+	}
+	for _, allowed := range scopeMetricsOrdered[normalizedScope] {
+		if trimmed == allowed {
+			return trimmed, nil
+		}
+	}
+	return "", &HTTPError{StatusCode: 422, Code: "metric_invalid", Detail: fmt.Sprintf("metric %q not allowed for scope %q", metric, normalizedScope)}
+}
+
+func ValidateMetric(scope string, metric string) error {
+	if strings.TrimSpace(metric) == "" {
+		return &HTTPError{StatusCode: 422, Code: "metric_invalid", Detail: fmt.Sprintf("metric %q not allowed for scope %q", metric, scope)}
+	}
+	_, err := NormalizeMetric(scope, metric)
+	return err
 }
 
 func NormalizeScope(scope string) (string, error) {

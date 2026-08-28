@@ -349,12 +349,13 @@ Proxy request completes
 Observe dashboard and Trend view
   -> Initial load reads Observe v2 read models
 - `GET /api/stats/query-context` resolves a preset/custom window into signed opaque `query_context` (HMAC subkey derived from the server secret encryption key, 24h TTL) using the Observe owner actual-coverage projections for request logs, usage events, and loadbalance events. The token freezes per-domain requested/effective bounds, retention epoch/generation/fence, source revision, coverage revision/hash, materialization cut, freshness, and gaps; `all` uses the owner earliest bound and an empty half-open interval when no retained intersection exists. Fragments never re-parse presets or synthesize a policy-day window. Fragment validation re-reads the owning retention source: a running/recovery purge fails closed with the owning 503 and a manual-purge final publish revokes older tokens with `410 dataset_snapshot_revoked`.
-- `GET /api/stats/usage-summary?query_context=` returns the Window KPI aggregate in one SQL statement: outcome counts (completed/http_error/stream_error/client_disconnected), TTFT P50/P95 percentile_cont over completed samples, output-rate average, disjoint token components with sample counts, pricing four-state + four-reason reconciliation, canonical `cost_segments` (identified `e.<epoch>`; legacy `l.<AAA>` / `l.__unknown__`) with `known_cost_micros` as exact decimal string, a selected-card `pricing_card_role_breakdown` (including peak/offpeak trusted cost), and a bounded cost sparkline. The payload also carries four `cache_basis_*` fields (`cache_basis_request_count`, `cache_basis_input_tokens`, `cache_basis_cache_read_tokens`, `cache_basis_cache_creation_tokens`) aggregated inside the same statement under a single `cache_basis_eligible` predicate in the classified CTE — `input_tokens`, `cache_read_input_tokens`, and `operation_name` all non-null, with `operation_name` outside `anthropic.count_tokens`, `gemini.count_tokens`, `openai.images.generations`, and `openai.images.edits` (null `operation_name` is indeterminate and excluded). These drive the cache-read share card (`cache_read / (input + cache_read + COALESCE(cache_creation, 0))`) with real zero, no-comparable-rows, empty-window, failed-read, and partial-coverage states kept distinct.
-- `GET /api/stats/usage-series?query_context=&metric=&group_by=&interval=` returns the single main chart: interval auto resolution to 24–120 buckets, Top (N-1) + re-aggregated Other, per-bucket pricing reconciliation; grouping by `endpoint`/`terminal_target` reads nullable columns, so rows that failed before an exit was selected are excluded from Top selection and folded into Other rather than published as an id-less entity — the request total is identical under every `group_by`; count metrics use bars, TTFT/output-rate/cache-read-share use lines. The aggregate does not branch on `metric` (the parameter is echoed back): every bucket row always carries the six component fields — `output_rate_sample_count` + `avg_output_rate_tps` (per-request simple mean of `output_tokens × 1000 / (completion_duration_ms − ttft_ms)` over requests with output tokens, TTFT, and a positive stream duration; no samples leaves the average null) and the four `cache_basis_*` fields aggregated under the same single eligibility predicate as usage-summary (null basis sums mean no comparable rows; creation is COALESCEd to a real zero inside an eligible basis). A zero-length window — the empty half-open interval `all` freezes for a domain with no retained rows — resolves to the finest bucket and returns an empty chart, not `422 invalid_time_range`.
+- `GET /api/stats/usage-summary?query_context=` consumes the frozen token bounds directly, including `all` windows longer than 30 days; it never reinterprets them as a browser `custom` preset. Its scope-discriminated response initializes arrays/maps, names the correct outcome and latency basis, carries trusted-zero-aware cost samples only where the scope owns cost, preserves selected-card `pricing_card_role_breakdown`, and distinguishes zero from missing evidence.
+- `GET /api/stats/usage-series?query_context=&metric=&group_by=&interval=` returns the scoped main chart with 24–120 buckets and Top entities plus a re-aggregated Other. Counts and raw latency samples are conserved before percentile calculation; exact capacity is not `truncated`. Endpoint/Terminal Target labels use the catalog/retained identity resolver rather than bare numeric IDs. A zero-length owner-complete `all` interval returns an empty chart, not an invalid-range error.
+- `GET /api/stats/usage-errors?query_context=&group_by=&limit=` validates every scope/filter enum before SQL, binds all values as parameters, and uses the same outcome classifier as summary and Requests. Route-attempt mode reads upstream attempts only, distinguishes HTTP/stream/transport/disconnect outcomes, honors scope filters and limit, emits non-null replayable `request_filters`, and computes Other from the full denominator.
 - `GET /api/stats/dashboard/now` returns the Now strip: 30-minute rolling RPM/TPM with token sample coverage plus enabled model count.
 - `GET /api/loadbalance/events` accepts an optional `model_id` (empty selects the profile global timeline).
 - The outcome classifier (`completed / http_error / stream_error / client_disconnected` detail and `completed / failed / client_disconnected` final result) and the pricing four-state classifier are implemented once and shared by all read models; SQL CASE expressions mirror the Go pure functions.
-- Failures never produce synthetic zeros: fragments keep independent loading/ready/error states, 422/410 typed errors for invalid/expired query contexts, and null values for missing samples (TTFT/rate/token/cost).
+- Failures never produce synthetic zeros: fragments keep independent loading/ready/error states, 422/410 typed errors for invalid/expired query contexts, and null values for missing samples. Scoped request coverage is presented independently from the fixed-ingress usage lane, and JSON export carries per-fragment scope, bounds, caliber and dataset coverage rather than one mixed top-level claim.
 - Fragment list fields (series, timeline, error rankings, stream error kinds, coverage gaps) are always JSON arrays: an empty aggregate serializes as `[]`, never `null`. Fragment coverage also carries the retention floor and gaps frozen in the query-context domain snapshot rather than re-deriving them.
 
 GET /api/stats/usage-snapshot?preset={preset}
@@ -454,7 +455,7 @@ Connection management keeps its existing ownership seams under `backend/internal
 
 ## 6. Request-Derived Metrics
 
-Prism has no manual Terminal Target probe routes or probe-backed health fields. Retained request history exposes three explicit metric scopes. `ingress` reads one `usage_request_events` row per finalized ingress and uses requested-model identity. `final_execution` uses the finalized event's resolved leaf model and actual winning Terminal Target, with latency joined to the retained `final_attempt_number`. `route_attempt` reads only upstream `request_logs` rows and uses attempt-result semantics. Ingress and final-execution cost are separate, non-additive projections of the same `priced` plus `trusted` served-final fact; route attempts expose no aggregate cost. Every metric envelope identifies its caliber, datasets, coverage, and sample/missing counts, while invalid or scope-incompatible group/filter keys fail with typed `422`. The Models table and Observe surfaces render these scopes without assigning health from absent samples.
+Prism has no manual Terminal Target probe routes or probe-backed health fields. Retained request history exposes three explicit metric scopes with an authoritative catalog owned by `backend/internal/domain/stats/scope.go`: ingress has `requests|errors|ttft|output_rate|tokens|cache_read_share|cost`, final execution has `requests|errors|final_attempt_latency|tokens|cache_read_share|cost`, and route attempt has `attempts|errors|attempt_latency`. An omitted metric resolves to that scope's default; an explicit incompatible metric/group/filter fails with typed `422`, never a no-op or alias. Ingress reads one `usage_request_events` row per finalized ingress and uses requested-model identity. Final execution uses the resolved leaf and winning Terminal Target, with latency joined by `final_attempt_number`. Route attempt reads upstream `request_logs`, classifies attempt outcomes, and makes no cost claim. Top-N series/Errors conserve the full denominator through a real Other bucket, labels resolve through current/retained catalogs with explicit fallbacks, and `truncated` means a remainder actually exists. Every envelope identifies its caliber, datasets, coverage, and observation/latency/cost sample and missing counts.
 
 ### 6.1 URL Path Joining
 
@@ -1271,6 +1272,16 @@ carry no capability matrix and report `not_applicable`.
 
 The field set is fixed by `backend/tests/contract/routing_diagnostics_contract_test.go`
 under CI; this section describes intent rather than restating the payload.
+
+Setup/readiness route witnesses use the model-bound projection of the runtime
+operation registry as their sole operation catalog. OpenAI, Anthropic, and
+Gemini therefore share one family-aware graph traversal without copying route
+names into the domain. A witness carries the Terminal Target id, its actual
+Endpoint id, lowercase `full|partial|none` coverage, and the optional routing
+schedule qualifier. Non-positive identities and cross-family chains fail
+closed. The frontend preserves this projection and the list's authoritative
+`routing_summary`; model or target mutations refresh both diagnostics and the
+server-computed list/count projection.
 
 #### 1.6 Pricing Templates
 
@@ -2128,7 +2139,7 @@ Query parameters:
 | `from_time` | datetime | — | Optional explicit start time |
 | `to_time` | datetime | — | Optional explicit end time |
 
-Response `200`: Array of per-model endpoint statistics. Each item includes `model_id`, `model_label`, request counts, success rates, TTFT percentiles, token totals, total cost, and average output rate for the selected endpoint scope.
+Response `200` is an envelope `{items, scope, caliber, coverage, samples}` rather than a bare array. Each item supplies P50/P95 latency, priced/unpriced counts, trusted cost (including trusted zero), token totals and output-rate samples for the requested supported scope; missing samples remain null with explicit sample/missing counts.
 
 #### 4.2 List Request Logs / Ingress Chains
 
@@ -2137,7 +2148,7 @@ GET /api/stats/requests?view=attempts
 GET /api/stats/requests?view=ingress_chains
 ```
 
-`view=ingress_chains` is the default when `view` is omitted.
+The Requests page explicitly sends `view=ingress_chains` as its default. The API's omitted-view form remains the flat attempts read used by existing direct callers.
 
 Attempt-view query parameters:
 
@@ -2146,6 +2157,7 @@ Attempt-view query parameters:
 | `ingress_request_id` | string | — | Exact incoming-request grouping ID shared by per-attempt rows |
 | `ingress_model_id` | string | — | Filter by requested entry model ID |
 | `attempt_target_model_id` | string | — | Filter by the resolved leaf model used by the attempt |
+| `api_family` / `row_kind` | repeated string | — | Attempt family and retained row kind; route-attempt Observe links pin `row_kind=upstream` |
 | `status_family` | string | — | Filter by scoped status family (`2xx`, `4xx`, or `5xx`) |
 | `status_code` | integer | — | Exact scoped status-code filter |
 | `error_text` | string | — | Case-insensitive substring match against `error_detail`/`error_code`/`stream_error_detail`/`stream_error_kind` |
@@ -2154,6 +2166,7 @@ Attempt-view query parameters:
 | `time_range` | string | `24h` | Server-resolved owner window: `1h`, `6h`, `24h`, `7d`, `30d`, `all`, or `custom`; `all` uses actual owner earliest coverage |
 | `from_time` / `to_time` | datetime | — | ISO 8601 half-open time range `[from_time,to_time)` |
 | `endpoint_id` | integer | — | Filter by endpoint ID |
+| `terminal_target_id` | integer | — | Filter by actual Terminal Target ID |
 | `client_rule_id` | integer | — | Filter by caller client, matched against `caller_user_agent` only through enabled User-Agent Client Rules |
 | `limit` | integer | 50 | Result limit; must be positive |
 | `offset` | integer | 0 | Pagination offset (attempt view) |
@@ -2166,12 +2179,12 @@ Chain-view query parameters (`view=ingress_chains`):
 | --- | --- | --- | --- |
 | `chain_limit` | integer | 20 | Ingress count per outer page (max 50) |
 | `chain_row_limit` | integer | 50 | Retained-row inner page per ingress (max 200) |
-| `chain_cursor` | string | — | Signed opaque outer cursor; never splits an ingress across pages |
-| `row_cursor` | string | — | Signed opaque inner row cursor for one exact ingress |
+| `chain_cursor` | string | — | Signed opaque outer cursor binding the frozen window and complete cohort; never splits an ingress across pages |
+| `row_cursor` | string | — | Signed opaque inner cursor binding one exact ingress, frozen window, filters and row page size |
 | `anchor_request_log_id` | string | — | Exact BIGINT row anchor within one exact ingress selector; returned as a separate `anchor_item` in the same batch |
 | `time_range` | string | `24h` | Same server-resolved owner window as attempts; `custom` requires `from_time` and `to_time` |
 | `sort_order` | string | `desc` | `asc` or `desc` by finalized/retained created_at (chain view restricts `sort_by` to `created_at`) |
-| Cohort filters | — | — | `confirmed_failover`, `ingress_final_result`, `pricing_status`, `unpriced_reason`, `reporting_currency_epoch`, `is_stream`, `stream_outcome`, status codes |
+| Cohort filters | — | — | Tokenless `confirmed_failover`/`ingress_final_result`; finalized pricing/cost-segment/model selectors; retained-row target/status/client filters |
 
 The `/observe/requests` route uses these signed chain cursors and derives its default 24-hour window in the page state. The request attempts, ingress-chain list, and CSV export send the selected `time_range` to the server; the server resolves it against the Requests actual-coverage owner rather than trusting a browser-generated timestamp. CSV export is server-side over the selected bounded result set at `GET /api/stats/requests/export`; responses include the digest, exact content length and coverage callout rather than treating an incomplete retained window as true-empty.
 
@@ -2181,9 +2194,9 @@ Attempt-view response `200`:
 {
   "filter_options": {
     "endpoints": [{ "endpoint_id": 12, "endpoint_label": "Primary OpenAI" }],
-    "models": [{ "model_id": "gpt-4o", "model_label": "GPT-4o" }],
+    "ingress_models": [{ "ingress_model_id": "gpt-4o", "model_label": "GPT-4o" }],
     "clients": [{ "client_rule_id": 7, "client_label": "Codex" }],
-    "resolved_target_models": [{ "resolved_target_model_id": "gpt-4o", "model_label": "GPT-4o" }]
+    "attempt_target_models": [{ "attempt_target_model_id": "gpt-4o", "model_label": "GPT-4o" }]
   },
   "coverage": {
     "requested_from_time": "...",
@@ -2219,10 +2232,10 @@ Attempt-view response `200`:
       "failure_detail_redacted": false,
       "stream_outcome": "not_streaming",
       "stream_error_kind": null,
-      "model_id": "gpt-4o",
+      "ingress_model_id": "gpt-4o",
       "model_label": "GPT-4o",
-      "resolved_target_model_id": "gpt-4o",
-      "resolved_target_model_label": "GPT-4o",
+      "attempt_target_model_id": "gpt-4o",
+      "attempt_target_model_label": "GPT-4o",
       "api_family": "openai",
       "endpoint_id": 12,
       "endpoint_label": "Primary OpenAI",
@@ -2361,9 +2374,9 @@ Chain semantics:
 - `attempt_budget_exhausted` etc. gateway terminal codes appear in `final_error_code`.
 - All Requests list/detail/chain/export responses send `Cache-Control: private, no-store` and preserve auth/profile-sensitive `Vary`.
 
-The list route is the slim browse contract used by `/observe/requests` and other row-summary consumers. It keeps one row per upstream attempt, returns `filter_options.endpoints` for the endpoint dropdown, `filter_options.models` for the requested-model dropdown, `filter_options.clients` for caller client filtering, and `filter_options.resolved_target_models` for final-target filtering. It includes requested-model labels, final-target labels, `stream_outcome`, `stream_error_kind`, and the failure preview for display. The current request-log page uses page sizes `100`, `300`, and `500`, with `100` as the frontend default. This retained-history route is the operator drill-in surface for investigation, not a dashboard aggregate or metrics endpoint.
+The attempts route keeps one retained row per attempt, while the chain envelope keeps one selected ingress with its complete retained-row counts/pages. Both envelopes require `filter_options.endpoints`, `filter_options.ingress_models`, `filter_options.clients`, and `filter_options.attempt_target_models`; empty option sets are `[]`. `client_rule_id` matches caller User-Agent only. Requested, attempt-target and signed final-owner identities remain distinct, and BIGINT row IDs are positive decimal strings rather than JavaScript numbers.
 
-`filter_options` always includes `endpoints`, `models`, `clients`, and `resolved_target_models`. `filter_options.models` is request-log scoped and contains `{ model_id, model_label }` entries. `filter_options.clients` contains `{ client_rule_id, client_label }` entries built from enabled User-Agent Client Rules. `client_rule_id` filtering is caller-only and matches `caller_user_agent`; it never matches `upstream_user_agent`. `filter_options.resolved_target_models` contains `{ resolved_target_model_id, model_label }` entries for final-target filtering. Empty option sets are returned as empty arrays instead of omitted fields. `ingress_request_id` groups multiple attempt rows that belong to one incoming runtime request. `model_id` stays the requested model and `resolved_target_model_id` captures the final target model for that attempt, while request-log row and detail payloads use `resolved_target_model_label` for the matching display label. Row IDs are decimal strings (`request_log_id`), never JS numbers.
+Ordinary Requests triage (`ingress_final_result`, `confirmed_failover`) needs no query token. Observe analysis links use `view=attempts`, an opaque signed `query_context`, and explicit repeated/comma-equivalent selectors. Same-key values are OR, different keys are AND, and `__null__` matches a normalized unattributed value without forcing finalized usage evidence for attempt-only selectors. A server-generated bounded `final_exclude=<facet>,<visible>...` expresses the exact complement behind ingress/final Errors Other; its facet is closed, values are parameterized, and it is rejected without the signed context. Exact `ingress_request_id` without an explicit window resolves against owner-retained `all` bounds for attempts, chains and CSV. Every cohort mutation clears cursors; signed outer and row cursors also bind the normalized cohort/window, profile, ordering, page size and retention generation.
 
 Exact single-request investigation now lives on `GET /api/stats/requests/{request_id}` (v2 detail) instead of the paginated list-query surface.
 
@@ -2373,13 +2386,13 @@ Exact single-request investigation now lives on `GET /api/stats/requests/{reques
 GET /api/stats/requests/export
 ```
 
-Server-side full filtered CSV export (Requests SPEC §6.8). Query parameters mirror the attempt-view filters above (`view`, `from_time`/`to_time`, `pricing_status`, `unpriced_reason`, `status_family`, `status_code`, `error_text`, `ingress_request_id`, `model_id`, `endpoint_id`, `client_rule_id`, `resolved_target_model_id`) plus optional `exact_request_log_ids`. The export:
+Server-side full filtered CSV export (Requests SPEC §6.8). It reuses the non-pagination filter projection. `view=attempts` exports the flat attempt cohort; `view=ingress_chains` exports all retained rows of the server-selected chain cohort, including finalized pricing/cost-segment and row-filter semantics. Signed final selectors retain their frozen request-domain bounds, while ordinary triage remains tokenless. The export:
 
 - Reads rows and counts in one `READ ONLY REPEATABLE READ` snapshot (with exact-ID exemption); concurrent inserts cannot change the exported row count.
-- Rejects more than 100,000 rows or a range wider than 31 days (unless exact IDs are supplied) with a typed error before any file bytes.
+- Rejects more than 100,000 rows or a requested range wider than 31 days (unless exact ingress is supplied) with a typed error before any file bytes; exactly 31 days is reachable even though ordinary custom browsing remains capped at 30.
 - Neutralizes formula injection by prefixing cells that start with `=`, `+`, `-`, or `@` with a single quote.
 - Spools to a 0600 temp file (128 MiB cap), computes a SHA-256 digest, then streams with `Content-Type: text/csv`, `Cache-Control: private, no-store`, and `Digest: sha-256=...`. Any spool/digest failure returns a typed rejection, never a partial success file.
-- Responds `422` when pagination keys (`limit`/`offset`/`cursor`/`chain_cursor`) are present.
+- Rejects every attempts/chain/row pagination key before opening the export snapshot.
 
 #### 4.3 Get Request Log Detail
 

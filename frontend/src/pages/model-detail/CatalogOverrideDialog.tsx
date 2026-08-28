@@ -1,7 +1,5 @@
 import { useMemo, useState } from "react";
 
-import { Undo2 } from "lucide-react";
-
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -15,14 +13,28 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useLocale } from "@/i18n/useLocale";
 import { models as modelsApi } from "@/lib/api/models";
 import type { ModelCatalogResponse } from "@/lib/types";
 import {
-  CATALOG_OVERRIDE_TEXT_FIELDS,
+  CATALOG_FIELD_KINDS,
+  CATALOG_FIELD_ORDER,
   catalogFieldLabel,
   renderCatalogFieldValue,
+  type CatalogFieldKey,
 } from "./catalogMetadataPresentation";
+import {
+  buildCatalogOverridePatch,
+  catalogOverrideValueToRaw,
+  type CatalogOverrideDraft,
+} from "./catalogOverrideDraft";
 
 type CatalogActionRunner = (
   action: () => Promise<unknown>,
@@ -44,80 +56,159 @@ export function CatalogOverrideDialog({
 }) {
   const { messages } = useLocale();
   const copy = messages.modelCatalog;
-  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [draft, setDraft] = useState<CatalogOverrideDraft>({});
   const [clearAll, setClearAll] = useState(false);
+  const result = useMemo(() => buildCatalogOverridePatch(draft), [draft]);
+  const hasErrors = Object.keys(result.errors).length > 0;
 
-  const patch = useMemo(() => {
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(draft)) {
-      if (value === "") {
-        result[key] = null;
-      } else if (
-        key === "limit_context" ||
-        key === "limit_input" ||
-        key === "limit_output"
-      ) {
-        const parsed = Number(value);
-        if (!Number.isInteger(parsed) || parsed < 0) continue;
-        result[key] = parsed;
-      } else {
-        result[key] = value;
+  const setMode = (
+    key: CatalogFieldKey,
+    mode: "unchanged" | "value" | "restore",
+  ) => {
+    setDraft((current) => {
+      if (mode === "unchanged") {
+        const next = { ...current };
+        delete next[key];
+        return next;
       }
-    }
-    return result;
-  }, [draft]);
+      if (mode === "restore") return { ...current, [key]: { mode } };
+      return {
+        ...current,
+        [key]: {
+          mode,
+          raw: catalogOverrideValueToRaw(
+            catalog?.override ?? catalog?.effective ?? null,
+            key,
+          ),
+        },
+      };
+    });
+  };
+
+  const setValue = (key: CatalogFieldKey, raw: string) => {
+    setDraft((current) => ({ ...current, [key]: { mode: "value", raw } }));
+  };
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{copy.overrideDialogTitle}</DialogTitle>
           <DialogDescription>{copy.overrideDialogDescription}</DialogDescription>
         </DialogHeader>
-        <DialogBody className="flex max-h-[60vh] flex-col gap-[var(--density-inline-gap)] overflow-y-auto">
-          {CATALOG_OVERRIDE_TEXT_FIELDS.map((key) => (
-            <div key={key} className="flex items-end gap-2">
-              <div className="flex grow flex-col gap-1">
-                <Label htmlFor={"override-" + key}>
-                  {catalogFieldLabel(copy, key)}
-                </Label>
-                <Input
-                  id={"override-" + key}
-                  value={draft[key] ?? ""}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      [key]: event.target.value,
-                    }))
-                  }
-                  placeholder={
-                    renderCatalogFieldValue(catalog?.effective ?? null, key) ??
-                    copy.overridePlaceholderSource(
+        <DialogBody className="flex max-h-[65vh] flex-col gap-[var(--density-inline-gap)] overflow-y-auto">
+          {CATALOG_FIELD_ORDER.map((key) => {
+            const entry = draft[key];
+            const mode = entry?.mode ?? "unchanged";
+            const raw = entry?.mode === "value" ? entry.raw : "";
+            const kind = CATALOG_FIELD_KINDS[key];
+            return (
+              <div
+                key={key}
+                className="grid gap-2 rounded-md border border-border p-3 sm:grid-cols-[minmax(9rem,1fr)_10rem_minmax(12rem,1.5fr)]"
+              >
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <Label htmlFor={`override-mode-${key}`}>
+                    {catalogFieldLabel(copy, key)}
+                  </Label>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {copy.overridePlaceholderSource(
                       renderCatalogFieldValue(catalog?.source ?? null, key),
-                    )
-                  }
-                />
-              </div>
-              {renderCatalogFieldValue(catalog?.source ?? null, key) !== null && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  title={copy.restoreFieldTitle}
-                  disabled={busy}
-                  onClick={() =>
-                    runAction(() =>
-                      modelsApi.catalog.putOverride(modelConfigId, {
-                        [key]: null,
-                      }),
+                    )}
+                  </span>
+                </div>
+                <Select
+                  value={mode}
+                  onValueChange={(value) =>
+                    setMode(
+                      key,
+                      value as "unchanged" | "value" | "restore",
                     )
                   }
                 >
-                  <Undo2 />
-                </Button>
-              )}
-            </div>
-          ))}
+                  <SelectTrigger id={`override-mode-${key}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unchanged">
+                      {copy.overrideModeUnchanged}
+                    </SelectItem>
+                    <SelectItem value="value">
+                      {copy.overrideModeValue}
+                    </SelectItem>
+                    <SelectItem value="restore">
+                      {copy.overrideModeRestore}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="flex min-w-0 flex-col gap-1">
+                  {mode === "value" ? (
+                    kind === "boolean" ? (
+                      <Select
+                        value={raw}
+                        onValueChange={(value) => setValue(key, value)}
+                      >
+                        <SelectTrigger aria-label={catalogFieldLabel(copy, key)}>
+                          <SelectValue placeholder={copy.overrideBooleanPlaceholder} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="true">
+                            {copy.overrideBooleanTrue}
+                          </SelectItem>
+                          <SelectItem value="false">
+                            {copy.overrideBooleanFalse}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : kind === "status" ? (
+                      <Select
+                        value={raw}
+                        onValueChange={(value) => setValue(key, value)}
+                      >
+                        <SelectTrigger aria-label={catalogFieldLabel(copy, key)}>
+                          <SelectValue placeholder={copy.overrideStatusPlaceholder} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="alpha">alpha</SelectItem>
+                          <SelectItem value="beta">beta</SelectItem>
+                          <SelectItem value="deprecated">deprecated</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        aria-label={catalogFieldLabel(copy, key)}
+                        inputMode={kind === "integer" ? "numeric" : undefined}
+                        maxLength={
+                          kind === "string" || kind === "date" ? 500 : undefined
+                        }
+                        placeholder={
+                          kind === "string_list"
+                            ? copy.overrideListPlaceholder
+                            : renderCatalogFieldValue(
+                                catalog?.effective ?? null,
+                                key,
+                              ) ?? ""
+                        }
+                        value={raw}
+                        onChange={(event) => setValue(key, event.target.value)}
+                      />
+                    )
+                  ) : (
+                    <span className="self-center text-xs text-muted-foreground">
+                      {mode === "restore"
+                        ? copy.overrideWillRestore
+                        : copy.overrideWillNotChange}
+                    </span>
+                  )}
+                  {result.errors[key] ? (
+                    <span className="text-xs text-destructive">
+                      {result.errors[key]}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
           <label className="flex items-center gap-2 text-sm">
             <Checkbox
               checked={clearAll}
@@ -150,7 +241,11 @@ export function CatalogOverrideDialog({
           )}
           <Button
             type="button"
-            disabled={busy || (Object.keys(patch).length === 0 && !clearAll)}
+            disabled={
+              busy ||
+              (!clearAll &&
+                (hasErrors || Object.keys(result.patch).length === 0))
+            }
             onClick={() =>
               clearAll
                 ? runAction(
@@ -158,7 +253,11 @@ export function CatalogOverrideDialog({
                     onClose,
                   )
                 : runAction(
-                    () => modelsApi.catalog.putOverride(modelConfigId, patch),
+                    () =>
+                      modelsApi.catalog.putOverride(
+                        modelConfigId,
+                        result.patch,
+                      ),
                     onClose,
                   )
             }

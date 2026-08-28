@@ -29,11 +29,11 @@ func (s *Service) handleListRequestLogs(w http.ResponseWriter, r *http.Request) 
 			return nil, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "view must be ingress_chains or attempts"}
 		}
 		var signedRequestBounds *statsdomain.QueryBounds
-		// Final-result deep links on the flat request-log list bind a signed
-		// query context (Requests SPEC §4.3). The retained ingress-chain view
-		// has its own server-side cohort and does not require that token.
-		if view != "ingress_chains" && requestLogHasSignedCohortSelector(r) {
-			if strings.TrimSpace(r.URL.Query().Get("query_context")) == "" {
+		rawQueryContext := strings.TrimSpace(r.URL.Query().Get("query_context"))
+		// Observe final-selector deep links bind a signed query context in both
+		// views. Ordinary triage selectors deliberately stay outside this gate.
+		if rawQueryContext != "" || requestLogHasSignedCohortSelector(r) {
+			if rawQueryContext == "" {
 				return nil, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "query_context_required", Detail: "query_context is required with final filters"}
 			}
 			token, _, err := s.resolveQueryContextFromRequest(r)
@@ -53,6 +53,15 @@ func (s *Service) handleListRequestLogs(w http.ResponseWriter, r *http.Request) 
 			params, parseErr := parseChainQueryParams(r, profile.ID)
 			if parseErr != nil {
 				return nil, parseErr
+			}
+			if signedRequestBounds != nil {
+				fromTime := signedRequestBounds.UsageFrom.UTC()
+				toTime := signedRequestBounds.UsageTo.UTC()
+				params.CoveragePreset = "custom"
+				params.CoverageRequestedFrom = &fromTime
+				params.CoverageRequestedTo = &toTime
+				params.FromTime = &fromTime
+				params.ToTime = &toTime
 			}
 			params.CoverageReferenceNow = s.nowUTC()
 			return statsdomain.ListIngressChains(r.Context(), tx, params)
@@ -147,12 +156,12 @@ func (s *Service) handleGetRequestLog(w http.ResponseWriter, r *http.Request) {
 	responseutil.SetPrivateNoStoreHeaders(w)
 	rawRequestLogID := strings.TrimSpace(chi.URLParam(r, "request_id"))
 	if rawRequestLogID == "" || !requestLogIDPattern.MatchString(rawRequestLogID) {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "request_id must be a positive decimal string")
+		writeDomainError(w, r, s.corsSnapshot(), &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Code: "invalid_request_id", Detail: "request_id must be a positive decimal string"})
 		return
 	}
 	requestLogID, err := strconv.ParseInt(rawRequestLogID, 10, 64)
-	if err != nil {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "request_id must be a positive decimal string")
+	if err != nil || requestLogID <= 0 {
+		writeDomainError(w, r, s.corsSnapshot(), &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Code: "invalid_request_id", Detail: "request_id must be a positive decimal string"})
 		return
 	}
 	type detailResult struct {
