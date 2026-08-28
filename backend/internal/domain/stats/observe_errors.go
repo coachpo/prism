@@ -123,10 +123,12 @@ type ErrorsOther struct {
 	Groups         ErrorsRemainder `json:"groups"`
 }
 
+const finalResultSQL = `CASE WHEN status_code NOT BETWEEN 200 AND 299 THEN 'failed' WHEN stream_outcome = 'client_disconnected' THEN 'client_disconnected' WHEN stream_outcome IS NULL OR stream_outcome IN ('', 'not_streaming', 'completed') THEN 'completed' ELSE 'failed' END`
+
 // errorFilterSQL builds the shared filtered cohort CTE fragment. The filter
 // expressions mirror the classifier: outcome_detail is derived from the same
 // CASE; pricing is not involved (final result only).
-func errorFilterWhere(params UsageErrorsParams) (string, []any) {
+func errorFilterWhere(params UsageErrorsParams) (string, []any, error) {
 	conditions := make([]string, 0, 8)
 	args := make([]any, 0, 8)
 	argIndex := 4 // $1 profile, $2 from, $3 to reserved
@@ -147,18 +149,30 @@ func errorFilterWhere(params UsageErrorsParams) (string, []any) {
 		conditions = append(conditions, fmt.Sprintf("%s IN (%s)", column, strings.Join(placeholders, ", ")))
 	}
 	if len(params.FinalResult) > 0 {
-		values := make([]string, 0, len(params.FinalResult))
 		for _, value := range params.FinalResult {
-			values = append(values, "'"+strings.TrimSpace(value)+"'")
+			trimmed := strings.TrimSpace(value)
+			if trimmed != "completed" && trimmed != "failed" && trimmed != "client_disconnected" {
+				return "", nil, &HTTPError{StatusCode: 422, Code: "filter_invalid", Detail: "invalid final_result: " + trimmed}
+			}
 		}
-		conditions = append(conditions, fmt.Sprintf("final_result IN (%s)", strings.Join(values, ", ")))
+		placeholders := make([]string, 0, len(params.FinalResult))
+		for _, value := range params.FinalResult {
+			placeholders = append(placeholders, next(strings.TrimSpace(value)))
+		}
+		conditions = append(conditions, fmt.Sprintf("(%s) IN (%s)", finalResultSQL, strings.Join(placeholders, ", ")))
 	}
 	if len(params.OutcomeDetail) > 0 {
-		values := make([]string, 0, len(params.OutcomeDetail))
 		for _, value := range params.OutcomeDetail {
-			values = append(values, "'"+strings.TrimSpace(value)+"'")
+			trimmed := strings.TrimSpace(value)
+			if trimmed != "completed" && trimmed != "http_error" && trimmed != "stream_error" && trimmed != "client_disconnected" {
+				return "", nil, &HTTPError{StatusCode: 422, Code: "filter_invalid", Detail: "invalid outcome_detail: " + trimmed}
+			}
 		}
-		conditions = append(conditions, fmt.Sprintf("outcome_detail IN (%s)", strings.Join(values, ", ")))
+		placeholders := make([]string, 0, len(params.OutcomeDetail))
+		for _, value := range params.OutcomeDetail {
+			placeholders = append(placeholders, next(strings.TrimSpace(value)))
+		}
+		conditions = append(conditions, fmt.Sprintf("(%s) IN (%s)", outcomeDetailSQL, strings.Join(placeholders, ", ")))
 	}
 	if len(params.StatusCode) > 0 {
 		placeholders := make([]string, 0, len(params.StatusCode))
@@ -198,7 +212,7 @@ func errorFilterWhere(params UsageErrorsParams) (string, []any) {
 	if len(conditions) > 0 {
 		where += " AND " + strings.Join(conditions, " AND ")
 	}
-	return where, args
+	return where, args, nil
 }
 
 // LoadUsageErrors runs the three-statement error aggregate. Statement 1:
@@ -246,7 +260,10 @@ func LoadUsageErrors(ctx context.Context, exec queryExecutor, profileID int, bou
 		StreamOutcomes: []ErrorsStreamOutcome{},
 		Groups:         []ErrorsGroup{},
 	}
-	where, filterArgs := errorFilterWhere(params)
+	where, filterArgs, err := errorFilterWhere(params)
+	if err != nil {
+		return UsageErrorsResult{}, err
+	}
 	if scope == ScopeFinal {
 		where += " AND resolved_target_model_id IS NOT NULL AND final_attempt_number IS NOT NULL"
 	}
@@ -399,17 +416,19 @@ LIMIT %d`, where, params.Limit), args...)
 	// Kind Top 5 per listed outcome + other remainder.
 	for outcomeIndex := range result.StreamOutcomes {
 		outcome := result.StreamOutcomes[outcomeIndex].StreamOutcome
+		kindPlaceholder := fmt.Sprintf("$%d", len(args)+1)
+		kindArgs := append(append([]any(nil), args...), outcome)
 		kindRows, err := exec.Query(ctx, fmt.Sprintf(`
 WITH classified AS (
 	SELECT stream_error_kind
 	FROM usage_request_events
-	WHERE %s AND stream_outcome = $4
+	WHERE %s AND stream_outcome = %s
 )
 SELECT stream_error_kind, COUNT(*)::int
 FROM classified
 GROUP BY stream_error_kind
 ORDER BY COUNT(*) DESC, stream_error_kind ASC NULLS LAST
-LIMIT 5`, where), append(args, outcome)...)
+LIMIT 5`, where, kindPlaceholder), kindArgs...)
 		if err != nil {
 			return result, fmt.Errorf("load usage errors stream kinds: %w", err)
 		}

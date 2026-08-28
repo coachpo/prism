@@ -44,6 +44,7 @@ type ChainQueryParams struct {
 	TerminalTargetID        *int
 	StatusFamily            *string
 	StatusCode              *int
+	ClientRuleID            *int
 	ClientRulePattern       *string
 	ErrorText               *string
 	ProxyAPIKeyID           *int
@@ -315,6 +316,24 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 	}
 	if sortOrder != "desc" && sortOrder != "asc" {
 		return ChainResponse{}, &HTTPError{StatusCode: 422, Code: "chain_sort_unsupported", Detail: "Ingress chain view only supports created_at asc|desc."}
+	}
+	if params.ClientRuleID != nil {
+		rule, found, ruleErr := loadCompiledUserAgentRuleByID(ctx, exec, params.ProfileID, *params.ClientRuleID)
+		if ruleErr != nil {
+			return ChainResponse{}, ruleErr
+		}
+		if !found {
+			return ChainResponse{}, &HTTPError{StatusCode: 400, Detail: "invalid client_rule_id"}
+		}
+		params.ClientRulePattern = &rule.RawPattern
+	}
+	if params.Q != nil {
+		trimmed := strings.TrimSpace(*params.Q)
+		if trimmed == "" {
+			params.Q = nil
+		} else {
+			params.Q = &trimmed
+		}
 	}
 
 	// Resolve the chain cursor and freeze the outer order bound.

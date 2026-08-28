@@ -102,6 +102,15 @@ func parseChainQueryParams(r *http.Request, profileID int) (statsdomain.ChainQue
 		return statsdomain.ChainQueryParams{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "invalid_proxy_api_key_id", Detail: "invalid proxy_api_key_id"}
 	}
 	params.ProxyAPIKeyID = proxyAPIKeyID
+	params.Q = normalizedQueryString(r, "q")
+	clientRuleID, err := parseOptionalInt(r, "client_rule_id")
+	if err != nil {
+		return statsdomain.ChainQueryParams{}, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "invalid client_rule_id"}
+	}
+	if clientRuleID != nil && *clientRuleID <= 0 {
+		return statsdomain.ChainQueryParams{}, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "invalid client_rule_id"}
+	}
+	params.ClientRuleID = clientRuleID
 	params.ConfirmedFailover, err = parseOptionalBool(r, "confirmed_failover")
 	if err != nil {
 		return statsdomain.ChainQueryParams{}, err

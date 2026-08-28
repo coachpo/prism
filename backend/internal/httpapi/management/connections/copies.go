@@ -159,8 +159,8 @@ func (s *Service) handleCreateConnectionCopies(w http.ResponseWriter, r *http.Re
 
 		// Cross-mode destinations are a hard error for the whole batch: the
 		// copied capability must equal the owner accepted format (SPEC: strict
-		// mode equality, same as model-target authoring).
-		if providerauth.IsOpenAI(sourceOwner.APIFamily) && source.OpenAITextCapability != nil {
+		// mode equality, same as model-target authoring). Text equality includes nil.
+		if providerauth.IsOpenAI(sourceOwner.APIFamily) {
 			for _, destinationID := range destinations {
 				destination := destinationModels[destinationID]
 				if !providerauth.OpenAITextModesMatch(destination.OpenAIAcceptedFormat, source.OpenAITextCapability) {
@@ -193,9 +193,15 @@ func (s *Service) handleCreateConnectionCopies(w http.ResponseWriter, r *http.Re
 			// copied connection keeps the source capability, so a destination
 			// model whose accepted format cannot serve that capability is
 			// rejected before any row is written (Model SPEC copy contract).
-			if providerauth.IsOpenAI(destination.APIFamily) && destination.OpenAIAcceptedFormat != nil && source.OpenAITextCapability != nil {
-				if !openAITextModeServesCapability(*destination.OpenAIAcceptedFormat, *source.OpenAITextCapability) {
+			// Text strict equality includes nil; image containment handles nil source as no requirement.
+			if providerauth.IsOpenAI(destination.APIFamily) {
+				if !providerauth.OpenAITextModesMatch(destination.OpenAIAcceptedFormat, source.OpenAITextCapability) {
 					return terminalTargetCopyResponse{}, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "target_openai_mode_mismatch"}
+				}
+				if destination.OpenAIAcceptedFormat != nil && source.OpenAITextCapability != nil {
+					if !openAITextModeServesCapability(*destination.OpenAIAcceptedFormat, *source.OpenAITextCapability) {
+						return terminalTargetCopyResponse{}, &DomainError{StatusCode: http.StatusUnprocessableEntity, Detail: "target_openai_mode_mismatch"}
+					}
 				}
 			}
 			if providerauth.IsOpenAI(destination.APIFamily) && destination.OpenAIImageOperations != nil && source.OpenAIImageCapability != nil {
