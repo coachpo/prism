@@ -1,4 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import {
+  createEmptyIngressSpendingReport,
+  expectIngressSpendingRequest,
+} from "./spending-report-fixtures";
 
 const timestamp = "2026-08-08T12:00:00Z";
 const saveButton = /Save|保存/;
@@ -171,7 +175,10 @@ async function mockModelDetailRoutes(
       return fulfillJson({ items: [] });
     }
     if (pathname === "/api/stats/spending") {
-      return fulfillJson({ summary: { total_spend: "0", currency_code: "EUR", currency_symbol: "€" } });
+      expectIngressSpendingRequest(request, "router-model");
+      return fulfillJson(
+        createEmptyIngressSpendingReport({ currencyCode: "EUR", currencySymbol: "€" }),
+      );
     }
     if (pathname === "/api/loadbalance/current-state") {
       return fulfillJson({ items: [] });

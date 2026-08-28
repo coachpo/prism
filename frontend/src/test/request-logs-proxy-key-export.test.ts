@@ -119,7 +119,11 @@ describe("proxy_api_key_id and view URL round-trip", () => {
   });
 
   it("clearing the key filter resets pagination", () => {
-    const parsed = parsePageSearch({ proxy_api_key_id: "42", cursor: "100" });
+    const parsed = parsePageSearch({
+      proxy_api_key_id: "42",
+      cursor: "100",
+      view: "attempts",
+    });
     expect(parsed.offset).toBe(100);
     const cleared = { ...parsed, proxy_api_key_id: "", offset: 0 };
     const serialized = stateToSearch(cleared);

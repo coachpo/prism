@@ -134,8 +134,16 @@ ORDER BY request_count DESC, entity_id ASC
 // selects Top entity IDs; statement 2 builds buckets for those entities plus
 // the re-aggregated Other remainder.
 func LoadUsageSeries(ctx context.Context, exec queryExecutor, profileID int, scope string, bounds QueryBounds, usageCoverage Coverage, requestCoverage Coverage, metric string, groupBy string, interval string, seriesLimit int, referenceNow time.Time, reportCurrencyCode string, reportCurrencySymbol string) (UsageSeriesResult, error) {
-	if scope == ScopeRouteAttempt {
-		return loadAttemptSeries(ctx, exec, profileID, bounds, requestCoverage, metric, groupBy, interval, seriesLimit, referenceNow)
+	normalizedScope, err := NormalizeScope(scope)
+	if err != nil {
+		return UsageSeriesResult{}, err
+	}
+	normalizedMetric, err := NormalizeMetric(normalizedScope, metric)
+	if err != nil {
+		return UsageSeriesResult{}, err
+	}
+	if normalizedScope == ScopeRouteAttempt {
+		return loadAttemptSeries(ctx, exec, profileID, bounds, requestCoverage, normalizedMetric, groupBy, interval, seriesLimit, referenceNow)
 	}
 	intervalName, bucketSize, err := ResolveSeriesInterval(interval, bounds.UsageFrom, bounds.UsageTo)
 	if err != nil {
@@ -145,17 +153,14 @@ func LoadUsageSeries(ctx context.Context, exec queryExecutor, profileID int, sco
 		seriesLimit = 6
 	}
 	// Strict whitelist: Observe group_by must be allowlisted.
-	groupBy, err = ValidateGroupBy(scope, groupBy)
+	groupBy, err = ValidateGroupBy(normalizedScope, groupBy)
 	if err != nil {
-		return UsageSeriesResult{}, err
-	}
-	if err := validateSeriesMetric(scope, metric); err != nil {
 		return UsageSeriesResult{}, err
 	}
 	result := UsageSeriesResult{
 		GeneratedAt:     referenceNow.UTC(),
 		Coverage:        usageCoverage,
-		Metric:          metric,
+		Metric:          normalizedMetric,
 		GroupBy:         groupBy,
 		SelectionBasis:  "request_count",
 		Interval:        intervalName,
@@ -214,20 +219,7 @@ func LoadUsageSeries(ctx context.Context, exec queryExecutor, profileID int, sco
 }
 
 func validateSeriesMetric(scope string, metric string) error {
-	normalized := strings.TrimSpace(metric)
-	allowed := map[string]struct{}{"requests": {}, "errors": {}, "tokens": {}, "cost": {}}
-	if scope == ScopeIngress {
-		allowed["ttft"] = struct{}{}
-		allowed["output_rate"] = struct{}{}
-		allowed["cache_read_share"] = struct{}{}
-	} else if scope == ScopeFinal {
-		allowed["final_attempt_latency"] = struct{}{}
-		allowed["cache_read_share"] = struct{}{}
-	}
-	if _, ok := allowed[normalized]; !ok {
-		return &HTTPError{StatusCode: 422, Code: "metric_invalid", Detail: fmt.Sprintf("metric %q not allowed for scope %q", metric, scope)}
-	}
-	return nil
+	return ValidateMetric(scope, metric)
 }
 
 func groupColumnFor(scope string, groupBy string) string {

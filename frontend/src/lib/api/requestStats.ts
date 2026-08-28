@@ -7,11 +7,18 @@ import type {
 import { buildQuery, request } from "./request";
 
 function buildStatsQuery(params?: StatsRequestParams) {
-  return buildQuery(
-    params as
-      | Record<string, string | number | boolean | null | undefined>
-      | undefined,
-  );
+  const query = new URLSearchParams();
+  if (!params) return "";
+
+  for (const [key, value] of Object.entries(params)) {
+    const values = Array.isArray(value) ? value : [value];
+    for (const item of values) {
+      if (item !== undefined && item !== null && item !== "") {
+        query.append(key, String(item));
+      }
+    }
+  }
+  return query.toString();
 }
 
 export const requestStats = {

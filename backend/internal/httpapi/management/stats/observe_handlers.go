@@ -281,9 +281,6 @@ func (s *Service) handleUsageSeries(w http.ResponseWriter, r *http.Request) {
 	usageCoverage := statsdomain.CoverageFromQueryBounds(usageBounds, token.Domains["usage_request_events"])
 	requestCoverage := statsdomain.CoverageFromQueryBounds(requestBounds, token.Domains["request_logs"])
 	metric := strings.TrimSpace(r.URL.Query().Get("metric"))
-	if metric == "" {
-		metric = "requests"
-	}
 	groupBy := strings.TrimSpace(r.URL.Query().Get("group_by"))
 	if groupBy == "" {
 		groupBy = "none"

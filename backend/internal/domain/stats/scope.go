@@ -26,6 +26,43 @@ const (
 	GroupAttemptResult      = "attempt_result"
 )
 
+const (
+	MetricRequests            = "requests"
+	MetricErrors              = "errors"
+	MetricTTFT                = "ttft"
+	MetricOutputRate          = "output_rate"
+	MetricTokens              = "tokens"
+	MetricCacheReadShare      = "cache_read_share"
+	MetricCost                = "cost"
+	MetricAttempts            = "attempts"
+	MetricFinalAttemptLatency = "final_attempt_latency"
+	MetricAttemptLatency      = "attempt_latency"
+)
+
+var scopeMetricsOrdered = map[string][]string{
+	ScopeIngress:      {MetricRequests, MetricErrors, MetricTTFT, MetricOutputRate, MetricTokens, MetricCacheReadShare, MetricCost},
+	ScopeFinal:        {MetricRequests, MetricErrors, MetricFinalAttemptLatency, MetricTokens, MetricCacheReadShare, MetricCost},
+	ScopeRouteAttempt: {MetricAttempts, MetricErrors, MetricAttemptLatency},
+}
+
+var scopeDefaultMetric = map[string]string{
+	ScopeIngress:      MetricRequests,
+	ScopeFinal:        MetricRequests,
+	ScopeRouteAttempt: MetricAttempts,
+}
+
+var scopeMetricsAllowed = map[string]map[string]struct{}{
+	ScopeIngress: {
+		MetricRequests: {}, MetricErrors: {}, MetricTTFT: {}, MetricOutputRate: {}, MetricTokens: {}, MetricCacheReadShare: {}, MetricCost: {},
+	},
+	ScopeFinal: {
+		MetricRequests: {}, MetricErrors: {}, MetricFinalAttemptLatency: {}, MetricTokens: {}, MetricCacheReadShare: {}, MetricCost: {},
+	},
+	ScopeRouteAttempt: {
+		MetricAttempts: {}, MetricErrors: {}, MetricAttemptLatency: {},
+	},
+}
+
 var validScopes = map[string]struct{}{
 	ScopeIngress: {}, ScopeFinal: {}, ScopeRouteAttempt: {},
 }
@@ -52,6 +89,63 @@ type DatasetCoverage struct {
 	UsageRequestEvents *Coverage `json:"usage_request_events,omitempty"`
 	RequestLogs        *Coverage `json:"request_logs,omitempty"`
 	LoadbalanceEvents  *Coverage `json:"loadbalance_events,omitempty"`
+}
+
+func MetricsForScope(scope string) []string {
+	if ordered, ok := scopeMetricsOrdered[scope]; ok {
+		return append([]string(nil), ordered...)
+	}
+	return append([]string(nil), scopeMetricsOrdered[ScopeIngress]...)
+}
+
+func DefaultMetricForScope(scope string) string {
+	if value, ok := scopeDefaultMetric[scope]; ok {
+		return value
+	}
+	return MetricRequests
+}
+
+func IsValidMetric(scope string, metric string) bool {
+	normalized := strings.TrimSpace(metric)
+	if normalized == "" {
+		return false
+	}
+	allowed, ok := scopeMetricsAllowed[scope]
+	if !ok {
+		return false
+	}
+	_, ok = allowed[normalized]
+	return ok
+}
+
+func NormalizeMetric(scope string, metric string) (string, error) {
+	normalizedScope, err := NormalizeScope(scope)
+	if err != nil {
+		return "", err
+	}
+	trimmed := strings.TrimSpace(metric)
+	if trimmed == "" {
+		return DefaultMetricForScope(normalizedScope), nil
+	}
+	if !IsValidMetric(normalizedScope, trimmed) {
+		return "", &HTTPError{StatusCode: 422, Code: "metric_invalid", Detail: fmt.Sprintf("metric %q not allowed for scope %q", metric, normalizedScope)}
+	}
+	return trimmed, nil
+}
+
+func ValidateMetric(scope string, metric string) error {
+	_, err := NormalizeMetric(scope, metric)
+	if err != nil {
+		// NormalizeMetric already returns the typed 422 for unknown metric.
+		// For empty metric the caller expected default, so ValidateMetric
+		// should require explicit value.
+		trimmed := strings.TrimSpace(metric)
+		if trimmed == "" {
+			return &HTTPError{StatusCode: 422, Code: "metric_invalid", Detail: fmt.Sprintf("metric %q not allowed for scope %q", metric, scope)}
+		}
+		return err
+	}
+	return nil
 }
 
 func NormalizeScope(scope string) (string, error) {

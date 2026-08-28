@@ -3,6 +3,10 @@ import {
   createDashboardRecentActivityResponse,
   createEmptyDashboardSnapshot,
 } from "./dashboard-aggregate-fixtures";
+import {
+  createEmptyIngressSpendingReport,
+  expectIngressSpendingRequest,
+} from "./spending-report-fixtures";
 
 const timestamp = "2026-04-28T12:00:00Z";
 
@@ -192,13 +196,17 @@ async function installAuthLifecycleRoutes(context: BrowserContext) {
     }
 
     if (pathname === "/api/stats/query-context") {
+      const queryContextScope =
+        new URL(request.url()).searchParams.get("scope") ?? "ingress";
       await fulfillJson(route, {
         query_context: "signed-token",
+        scope: queryContextScope,
         usage_bounds: { from_time: "2026-08-08T00:00:00Z", to_time: "2026-08-09T00:00:00Z" },
         usage_coverage: { requested_preset: "24h", from_time: "2026-08-08T00:00:00Z", to_time: "2026-08-09T00:00:00Z", source: "raw", complete: true, gaps: [] },
         event_bounds: { from_time: "2026-08-08T00:00:00Z", to_time: "2026-08-09T00:00:00Z" },
         request_bounds: { from_time: "2026-08-08T00:00:00Z", to_time: "2026-08-09T00:00:00Z" },
         generated_at: "2026-08-09T00:00:00Z",
+        caliber: { scope: queryContextScope },
       });
       return;
     }
@@ -234,7 +242,12 @@ async function installAuthLifecycleRoutes(context: BrowserContext) {
     }
 
     if (pathname === "/api/stats/usage-series") {
-      await fulfillJson(route, { generated_at: "2026-08-09T00:00:00Z", coverage: { requested_preset: "24h", from_time: "2026-08-08T00:00:00Z", to_time: "2026-08-09T00:00:00Z", source: "raw", complete: true, gaps: [] }, metric: "requests", group_by: "none", selection_basis: "request_count", interval: "1h", series_limit: 6, truncated: false, series: [] });
+      const seriesURL = new URL(request.url());
+      const scope = seriesURL.searchParams.get("scope") ?? "ingress";
+      const metric =
+        seriesURL.searchParams.get("metric") ??
+        (scope === "route_attempt" ? "attempts" : "requests");
+      await fulfillJson(route, { generated_at: "2026-08-09T00:00:00Z", coverage: { requested_preset: "24h", from_time: "2026-08-08T00:00:00Z", to_time: "2026-08-09T00:00:00Z", source: "raw", complete: true, gaps: [] }, metric, group_by: "none", selection_basis: "request_count", interval: "1h", series_limit: 6, truncated: false, series: [], caliber: { scope }, dataset_coverage: {}, samples: {} });
       return;
     }
 
@@ -271,7 +284,8 @@ if (pathname === "/api/stats/usage-errors") {
     }
 
     if (pathname === "/api/stats/spending") {
-      await fulfillJson(route, { summary: { total_cost_micros: 0 }, items: [] });
+      expectIngressSpendingRequest(request);
+      await fulfillJson(route, createEmptyIngressSpendingReport());
       return;
     }
 

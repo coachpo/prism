@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from "react"
-import { Link } from "@tanstack/react-router"
+import { useCallback, useEffect, useState } from "react";
+import { Link } from "@tanstack/react-router";
 
-import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -10,10 +10,15 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table"
-import { useLocale } from "@/i18n/useLocale"
-import { useTimezone } from "@/hooks/useTimezone"
-import { observe, type ObserveActivityItem, type ObserveActivityResponse, type UsageErrorsResponse } from "@/lib/api/observability"
+} from "@/components/ui/table";
+import { useLocale } from "@/i18n/useLocale";
+import { useTimezone } from "@/hooks/useTimezone";
+import {
+  observe,
+  type ObserveActivityItem,
+  type ObserveActivityResponse,
+  type UsageErrorsResponse,
+} from "@/lib/api/observability";
 import {
   OperatorClippedBadge,
   OperatorCallout,
@@ -23,13 +28,19 @@ import {
   OperatorRetryButton,
   OperatorStatusBadge,
   OperatorTypeBadge,
-} from "@/shared/design-system"
-import { fragmentErrorFrom, type FragmentState } from "@/features/observe/useObserveFragments"
-import { ObserveErrorPanel } from "@/features/observe/ObserveErrorPanel"
-import type { ObserveErrorSelection } from "@/features/observe/observeErrorSelection"
-import type { ObserveGroupBy, ObserveScope } from "@/features/observe/observeSearch"
+} from "@/shared/design-system";
+import {
+  fragmentErrorFrom,
+  type FragmentState,
+} from "@/features/observe/useObserveFragments";
+import { ObserveErrorPanel } from "@/features/observe/ObserveErrorPanel";
+import type { ObserveErrorSelection } from "@/features/observe/observeErrorSelection";
+import type {
+  ObserveGroupBy,
+  ObserveScope,
+} from "@/features/observe/observeSearch";
 
-const STREAM_PAGE_SIZE = 50
+const STREAM_PAGE_SIZE = 50;
 
 /**
  * The anomaly workbench: the error ranking and the request stream side by
@@ -46,18 +57,41 @@ export function ObserveErrorWorkbench({
   scope,
   groupBy,
 }: {
-  groupBy: ObserveGroupBy
-  queryContext: string | null
-  scope: ObserveScope
+  groupBy: ObserveGroupBy;
+  queryContext: string | null;
+  scope: ObserveScope;
 }) {
-  const { messages } = useLocale()
-  const copy = messages.observe
-  const [selection, setSelection] = useState<ObserveErrorSelection | null>(null)
-  const [requestsContext, setRequestsContext] = useState<UsageErrorsResponse["requests_context"] | null>(null)
+  const { messages } = useLocale();
+  const copy = messages.observe;
+  const contextKey = `${queryContext ?? ""}:${scope}:${groupBy}`;
+  const [selectionSnapshot, setSelectionSnapshot] = useState<{
+    key: string;
+    value: ObserveErrorSelection | null;
+  }>(() => ({ key: contextKey, value: null }));
+  const [requestsContextSnapshot, setRequestsContextSnapshot] = useState<{
+    key: string;
+    value: UsageErrorsResponse["requests_context"] | null;
+  }>(() => ({ key: contextKey, value: null }));
+  const selection =
+    selectionSnapshot.key === contextKey ? selectionSnapshot.value : null;
+  const requestsContext =
+    requestsContextSnapshot.key === contextKey
+      ? requestsContextSnapshot.value
+      : null;
 
-  const handleContextResolved = useCallback((context: UsageErrorsResponse["requests_context"]) => {
-    setRequestsContext(context)
-  }, [])
+  const handleSelection = useCallback(
+    (next: ObserveErrorSelection | null) => {
+      setSelectionSnapshot({ key: contextKey, value: next });
+    },
+    [contextKey],
+  );
+
+  const handleContextResolved = useCallback(
+    (context: UsageErrorsResponse["requests_context"]) => {
+      setRequestsContextSnapshot({ key: contextKey, value: context });
+    },
+    [contextKey],
+  );
 
   return (
     <div className="grid min-w-0 gap-[var(--density-card-gap)] xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
@@ -65,7 +99,7 @@ export function ObserveErrorWorkbench({
         groupBy={groupBy}
         queryContext={queryContext}
         onContextResolved={handleContextResolved}
-        onSelect={setSelection}
+        onSelect={handleSelection}
         selectedKey={selection?.key ?? null}
       />
 
@@ -76,13 +110,23 @@ export function ObserveErrorWorkbench({
         actions={
           selection ? (
             <div className="flex items-center gap-2">
-              <Button type="button" variant="ghost" size="sm" onClick={() => setSelection(null)}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => handleSelection(null)}
+              >
                 {copy.workbenchClearSelection}
               </Button>
               <Button asChild type="button" variant="outline" size="sm">
                 <Link
                   to="/observe/requests"
-                  search={buildRequestsSearch(selection, requestsContext, queryContext, scope)}
+                  search={buildRequestsSearch(
+                    selection,
+                    requestsContext,
+                    queryContext,
+                    scope,
+                  )}
                 >
                   {copy.workbenchOpenInRequests}
                 </Link>
@@ -98,11 +142,13 @@ export function ObserveErrorWorkbench({
             {copy.scopedErrorsOpenRequestsHint}
           </OperatorCallout>
         ) : (
-          <p className="text-xs text-muted-foreground">{copy.workbenchNoSelection}</p>
+          <p className="text-xs text-muted-foreground">
+            {copy.workbenchNoSelection}
+          </p>
         )}
       </OperatorInsetPanel>
     </div>
-  )
+  );
 }
 
 /**
@@ -113,87 +159,116 @@ function buildRequestsSearch(
   selection: ObserveErrorSelection,
   requestsContext: UsageErrorsResponse["requests_context"] | null,
   queryContext: string | null,
-  scope: ObserveScope,
+  _scope: ObserveScope,
 ): Record<string, string> {
+  void _scope;
   const search: Record<string, string> = {
-    view: scope === "route_attempt" ? "attempts" : "ingress_chains",
+    view: "attempts",
     query_context: requestsContext?.query_context ?? queryContext ?? "",
-  }
+  };
   for (const [key, values] of Object.entries(selection.requestFilters)) {
-    search[key] = values.join(",")
+    search[key] = values.join(",");
   }
-  return search
+  return search;
 }
 
 function MatchingStream({
   queryContext,
   selection,
 }: {
-  queryContext: string | null
-  selection: ObserveErrorSelection
+  queryContext: string | null;
+  selection: ObserveErrorSelection;
 }) {
-  const { formatNumber, messages } = useLocale()
-  const { format: formatTime } = useTimezone()
-  const copy = messages.observe
-  const [fragment, setFragment] = useState<FragmentState<ObserveActivityResponse>>({
+  const { formatNumber, messages } = useLocale();
+  const { format: formatTime } = useTimezone();
+  const copy = messages.observe;
+  const [fragment, setFragment] = useState<
+    FragmentState<ObserveActivityResponse>
+  >({
     phase: "loading",
     data: null,
     stale: false,
     error: null,
     retryAfterMs: null,
-  })
-  const [attempt, setAttempt] = useState(0)
+  });
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (!queryContext) return
-    let cancelled = false
+    if (!queryContext) return;
+    let cancelled = false;
     void observe
       .observeActivity(queryContext, { limit: STREAM_PAGE_SIZE })
       .then((data) => {
-        if (!cancelled) setFragment({ phase: "ready", data, stale: false, error: null, retryAfterMs: null })
+        if (!cancelled)
+          setFragment({
+            phase: "ready",
+            data,
+            stale: false,
+            error: null,
+            retryAfterMs: null,
+          });
       })
       .catch((error: unknown) => {
-        if (cancelled) return
-        const mapped = fragmentErrorFrom(error)
+        if (cancelled) return;
+        const mapped = fragmentErrorFrom(error);
         setFragment((previous) => ({
           ...previous,
           phase: "error",
           stale: previous.data !== null,
           error: mapped.error,
           retryAfterMs: mapped.retryAfterMs,
-        }))
-      })
+        }));
+      });
     return () => {
-      cancelled = true
-    }
-  }, [attempt, queryContext])
+      cancelled = true;
+    };
+  }, [attempt, queryContext]);
 
-  if (fragment.phase === "loading") return <Skeleton className="h-40 rounded-md" />
+  if (fragment.phase === "loading")
+    return <Skeleton className="h-40 rounded-md" />;
   if (fragment.phase === "error" && fragment.data === null) {
     return (
       <OperatorErrorState
         title={copy.windowUnavailable}
         description={fragment.error ?? undefined}
-        action={<OperatorRetryButton onClick={() => setAttempt((current) => current + 1)}>{messages.common.retry}</OperatorRetryButton>}
+        action={
+          <OperatorRetryButton
+            onClick={() => setAttempt((current) => current + 1)}
+          >
+            {messages.common.retry}
+          </OperatorRetryButton>
+        }
       />
-    )
+    );
   }
   if (fragment.data === null) {
-    return <p className="text-xs text-muted-foreground">{copy.windowUnavailable}</p>
+    return (
+      <p className="text-xs text-muted-foreground">{copy.windowUnavailable}</p>
+    );
   }
 
-  const scanned = fragment.data.items
-  const matched = scanned.filter((item) => selection.match(item))
+  const scanned = fragment.data.items;
+  const matched = scanned.filter((item) => selection.match(item));
 
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <OperatorTypeBadge intent="accent" preserveLabel label={selection.label} />
+        <OperatorTypeBadge
+          intent="accent"
+          preserveLabel
+          label={selection.label}
+        />
         <span className="font-mono tabular-nums">
-          {copy.workbenchMatchedCount(formatNumber(matched.length), formatNumber(scanned.length))}
+          {copy.workbenchMatchedCount(
+            formatNumber(matched.length),
+            formatNumber(scanned.length),
+          )}
         </span>
         {/* The page boundary is a real clip, so it is labelled as one. */}
-        <OperatorClippedBadge label={copy.workbenchStreamTitle} reason={copy.workbenchScopeBasis} />
+        <OperatorClippedBadge
+          label={copy.workbenchStreamTitle}
+          reason={copy.workbenchScopeBasis}
+        />
       </div>
 
       {matched.length === 0 ? (
@@ -206,43 +281,61 @@ function MatchingStream({
                 <TableHead>{messages.requestLogs.timeRange}</TableHead>
                 <TableHead>{messages.modelDetail.modelIdLabel}</TableHead>
                 <TableHead>{messages.common.status}</TableHead>
-                <TableHead className="text-right">{messages.requestLogs.tokens}</TableHead>
+                <TableHead className="text-right">
+                  {messages.requestLogs.tokens}
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {matched.map((item) => (
-                <StreamRow key={item.usage_event_id} formatTime={formatTime} item={item} />
+                <StreamRow
+                  key={item.usage_event_id}
+                  formatTime={formatTime}
+                  item={item}
+                />
               ))}
             </TableBody>
           </Table>
         </div>
       )}
     </div>
-  )
+  );
 }
 
 function StreamRow({
   formatTime,
   item,
 }: {
-  formatTime: (value: string) => string
-  item: ObserveActivityItem
+  formatTime: (value: string) => string;
+  item: ObserveActivityItem;
 }) {
-  const { formatNumber, messages } = useLocale()
+  const { formatNumber, messages } = useLocale();
   return (
     <TableRow>
-      <TableCell className="font-mono text-xs tabular-nums">{formatTime(item.created_at)}</TableCell>
-      <TableCell className="text-xs">{item.ingress_model_label || item.ingress_model_id}</TableCell>
+      <TableCell className="font-mono text-xs tabular-nums">
+        {formatTime(item.created_at)}
+      </TableCell>
+      <TableCell className="text-xs">
+        {item.ingress_model_label || item.ingress_model_id}
+      </TableCell>
       <TableCell>
         <OperatorStatusBadge
-          intent={item.final_result === "completed" ? "healthy" : item.final_result === "failed" ? "failing" : "degraded"}
+          intent={
+            item.final_result === "completed"
+              ? "healthy"
+              : item.final_result === "failed"
+                ? "failing"
+                : "degraded"
+          }
           preserveLabel
           label={`${item.status_code}`}
         />
       </TableCell>
       <TableCell className="text-right font-mono text-xs tabular-nums">
-        {item.total_tokens === null ? messages.honesty.noValue : formatNumber(item.total_tokens)}
+        {item.total_tokens === null
+          ? messages.honesty.noValue
+          : formatNumber(item.total_tokens)}
       </TableCell>
     </TableRow>
-  )
+  );
 }

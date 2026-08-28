@@ -178,6 +178,8 @@ export const requestLogSearchSchema = z.object({
   offset: z.coerce.number().int().min(0).catch(0),
   request_id: requestIdSearchSchema,
   attempt_target_model_id: searchStringSchema.catch(""),
+  api_family: searchStringSchema.catch(""),
+  row_kind: searchStringSchema.catch(""),
   selected_request_id: requestIdSearchSchema,
   status: z.enum(["all", "success", "client_error", "error"]).catch("all"),
   status_code: searchStringSchema.catch(""),
@@ -199,6 +201,7 @@ export const requestLogSearchSchema = z.object({
   query_context: searchStringSchema.catch(""),
   final_result: searchStringSchema.catch(""),
   ingress_final_result: searchStringSchema.catch(""),
+  confirmed_failover: searchStringSchema.catch(""),
   outcome_detail: searchStringSchema.catch(""),
   final_status_code: searchStringSchema.catch(""),
   final_stream_outcome: searchStringSchema.catch(""),
@@ -210,6 +213,8 @@ export const requestLogSearchSchema = z.object({
   final_unpriced_reason: searchStringSchema.catch(""),
   reporting_currency_epoch: searchStringSchema.catch(""),
   cost_segment_key: searchStringSchema.catch(""),
+  attempt_trigger: searchStringSchema.catch(""),
+  attempt_result: searchStringSchema.catch(""),
   chain_limit: z.coerce
     .number()
     .int()

@@ -233,7 +233,7 @@ func LoadUsageErrors(ctx context.Context, exec queryExecutor, profileID int, bou
 		Caliber:         CaliberForScope(scope),
 		DatasetCoverage: ScopeCoverageFor(scope, &usageCoverage, &requestCoverage),
 		RequestsContext: ErrorsRequestsContext{
-			View:               "ingress_chains",
+			View:               "attempts",
 			QueryContext:       queryContext,
 			FinalFromTime:      bounds.UsageFrom.UTC().Format(time.RFC3339),
 			FinalToTime:        bounds.UsageTo.UTC().Format(time.RFC3339),

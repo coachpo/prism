@@ -75,6 +75,8 @@ export interface RequestLogPageState {
   client_rule_id: string;
   proxy_api_key_id: string;
   resolved_target_model_id: string;
+  api_family: string;
+  row_kind: string;
   status_code: string;
   error_text: string;
   pricing_status: PricingStatusFilter;
@@ -87,11 +89,19 @@ export interface RequestLogPageState {
   observe_return: string;
   query_context: string;
   final_result: string;
+  outcome_detail: string;
+  final_status_code: string;
+  final_stream_outcome: string;
+  final_stream_error_kind: string;
   final_target_model_id: string;
   final_endpoint_id: string;
   final_terminal_target_id: string;
   final_pricing_status: string;
   final_unpriced_reason: string;
+  reporting_currency_epoch: string;
+  cost_segment_key: string;
+  attempt_trigger: string;
+  attempt_result: string;
   status_family: StatusFamilyFilter;
   limit: number;
   offset: number;
@@ -101,6 +111,53 @@ export interface RequestLogPageState {
   sort_by: RequestLogSortBy;
   sort_order: "asc" | "desc";
   chain_cursor: string;
+}
+
+export const TOKEN_BOUND_REQUEST_FILTER_DEFAULTS = {
+  query_context: "",
+  final_result: "",
+  outcome_detail: "",
+  final_status_code: "",
+  final_stream_outcome: "",
+  final_stream_error_kind: "",
+  final_target_model_id: "",
+  final_endpoint_id: "",
+  final_terminal_target_id: "",
+  final_pricing_status: "",
+  final_unpriced_reason: "",
+  reporting_currency_epoch: "",
+  attempt_trigger: "",
+  attempt_result: "",
+} as const satisfies Partial<RequestLogPageState>;
+
+function chainCompatibleState(
+  state: RequestLogPageState,
+): RequestLogPageState {
+  return {
+    ...state,
+    ...(state.query_context ? TOKEN_BOUND_REQUEST_FILTER_DEFAULTS : {}),
+    api_family: "",
+    row_kind: "",
+    attempt_trigger: "",
+    attempt_result: "",
+  };
+}
+
+export function requestLogStateForView(
+  state: RequestLogPageState,
+  view: RequestLogView,
+): RequestLogPageState {
+  if (view === "attempts") {
+    return { ...state, view, chain_cursor: "", offset: DEFAULTS.offset };
+  }
+  return {
+    ...chainCompatibleState(state),
+    view,
+    limit: DEFAULTS.limit,
+    offset: DEFAULTS.offset,
+    chain_cursor: "",
+    sort_by: "created_at",
+  };
 }
 
 function parseEnum<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
@@ -124,6 +181,14 @@ function normalizeSearchString(value: unknown): string {
   }
 
   return trimmed;
+}
+
+export function splitRequestFilterValues(value: string): string[] | undefined {
+  const values = value
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return values.length > 0 ? values : undefined;
 }
 
 function parseIntParam(value: unknown, fallback: number): number {
@@ -151,8 +216,12 @@ export function parsePageSearch(search: Record<string, unknown>): RequestLogPage
   const explicitOffset = parseIntParam(search.offset, DEFAULTS.offset);
   const view = parseEnum(search.view, VIEW_OPTIONS, DEFAULTS.view);
   const sortOrder = parseEnum(search.sort_order, ["asc", "desc"], DEFAULTS.sort_order);
+  const sortBy =
+    view === "ingress_chains"
+      ? "created_at"
+      : parseEnum(search.sort_by, SORT_BY_OPTIONS, DEFAULTS.sort_by);
 
-  return {
+  const state: RequestLogPageState = {
     ingress_request_id: normalizeSearchString(search.ingress_request_id),
     model_id: normalizeSearchString(search.ingress_model_id),
     endpoint_id: normalizeSearchString(search.endpoint || search.endpoint_id),
@@ -160,6 +229,8 @@ export function parsePageSearch(search: Record<string, unknown>): RequestLogPage
     client_rule_id: normalizeSearchString(search.client_rule_id),
     proxy_api_key_id: normalizeSearchString(search.proxy_api_key_id),
     resolved_target_model_id: normalizeSearchString(search.attempt_target_model_id),
+    api_family: normalizeSearchString(search.api_family),
+    row_kind: normalizeSearchString(search.row_kind),
     status_code: normalizeSearchString(search.status_code),
     error_text: normalizeSearchString(search.error_text),
     pricing_status: parseEnum(search.pricing_status, PRICING_STATUS_OPTIONS, DEFAULTS.pricing_status),
@@ -174,27 +245,59 @@ export function parsePageSearch(search: Record<string, unknown>): RequestLogPage
     observe_return: normalizeSearchString(search.observe_return),
     query_context: normalizeSearchString(search.query_context),
     final_result: normalizeSearchString(search.final_result),
+    outcome_detail: normalizeSearchString(search.outcome_detail),
+    final_status_code: normalizeSearchString(search.final_status_code),
+    final_stream_outcome: normalizeSearchString(search.final_stream_outcome),
+    final_stream_error_kind: normalizeSearchString(
+      search.final_stream_error_kind,
+    ),
     final_target_model_id: normalizeSearchString(search.final_target_model_id),
     final_endpoint_id: normalizeSearchString(search.final_endpoint_id),
     final_terminal_target_id: normalizeSearchString(search.final_terminal_target_id),
     final_pricing_status: normalizeSearchString(search.final_pricing_status),
     final_unpriced_reason: normalizeSearchString(search.final_unpriced_reason),
+    reporting_currency_epoch: normalizeSearchString(
+      search.reporting_currency_epoch,
+    ),
+    cost_segment_key: normalizeSearchString(search.cost_segment_key),
+    attempt_trigger: normalizeSearchString(search.attempt_trigger),
+    attempt_result: normalizeSearchString(search.attempt_result),
     status_family: statusParam && statusParam !== "all"
       ? statusAliasToFamily(parseEnum(statusParam, STATUS_ALIAS_OPTIONS, "all"))
       : parseEnum(statusFamilyParam, STATUS_FAMILY_OPTIONS, DEFAULTS.status_family),
-    limit: parsePageSize(search.limit),
-    offset: explicitOffset !== DEFAULTS.offset ? explicitOffset : cursorOffset,
+    limit: view === "attempts" ? parsePageSize(search.limit) : DEFAULTS.limit,
+    offset:
+      view === "attempts"
+        ? explicitOffset !== DEFAULTS.offset
+          ? explicitOffset
+          : cursorOffset
+        : DEFAULTS.offset,
     request_id: normalizeRequestId(search.request_id),
     selected_request_id: normalizeRequestId(search.selected_request_id),
     view,
-    sort_by: parseEnum(search.sort_by, SORT_BY_OPTIONS, view === "ingress_chains" ? "created_at" : DEFAULTS.sort_by),
+    sort_by: sortBy,
     sort_order: sortOrder,
-    chain_cursor: normalizeSearchString(search.chain_cursor),
+    chain_cursor:
+      view === "ingress_chains"
+        ? normalizeSearchString(search.chain_cursor)
+        : "",
   };
+  return view === "ingress_chains" ? chainCompatibleState(state) : state;
 }
 
 export function parsePageState(params: URLSearchParams): RequestLogPageState {
-  return parsePageSearch(Object.fromEntries(params));
+  const search: Record<string, string | string[]> = {};
+  params.forEach((value, key) => {
+    const current = search[key];
+    if (current === undefined) {
+      search[key] = value;
+    } else if (Array.isArray(current)) {
+      current.push(value);
+    } else {
+      search[key] = [current, value];
+    }
+  });
+  return parsePageSearch(search);
 }
 
 export function stateToSearch(state: RequestLogPageState): Record<string, string | number> {
@@ -208,6 +311,8 @@ export function stateToSearch(state: RequestLogPageState): Record<string, string
   if (state.client_rule_id) search.client_rule_id = state.client_rule_id;
   if (state.proxy_api_key_id) search.proxy_api_key_id = state.proxy_api_key_id;
   if (state.resolved_target_model_id) search.attempt_target_model_id = state.resolved_target_model_id;
+  if (state.api_family) search.api_family = state.api_family;
+  if (state.row_kind) search.row_kind = state.row_kind;
   if (state.status_code) search.status_code = state.status_code;
   if (state.error_text) search.error_text = state.error_text;
   if (state.pricing_status !== DEFAULTS.pricing_status) search.pricing_status = state.pricing_status;
@@ -223,23 +328,38 @@ export function stateToSearch(state: RequestLogPageState): Record<string, string
   if (state.observe_return) search.observe_return = state.observe_return;
   if (state.query_context) search.query_context = state.query_context;
   if (state.final_result) search.final_result = state.final_result;
+  if (state.outcome_detail) search.outcome_detail = state.outcome_detail;
+  if (state.final_status_code) search.final_status_code = state.final_status_code;
+  if (state.final_stream_outcome)
+    search.final_stream_outcome = state.final_stream_outcome;
+  if (state.final_stream_error_kind)
+    search.final_stream_error_kind = state.final_stream_error_kind;
   if (state.final_target_model_id) search.final_target_model_id = state.final_target_model_id;
   if (state.final_endpoint_id) search.final_endpoint_id = state.final_endpoint_id;
   if (state.final_terminal_target_id) search.final_terminal_target_id = state.final_terminal_target_id;
   if (state.final_pricing_status) search.final_pricing_status = state.final_pricing_status;
   if (state.final_unpriced_reason) search.final_unpriced_reason = state.final_unpriced_reason;
+  if (state.reporting_currency_epoch)
+    search.reporting_currency_epoch = state.reporting_currency_epoch;
+  if (state.cost_segment_key) search.cost_segment_key = state.cost_segment_key;
+  if (state.attempt_trigger) search.attempt_trigger = state.attempt_trigger;
+  if (state.attempt_result) search.attempt_result = state.attempt_result;
   if (state.status_family !== DEFAULTS.status_family) search.status = statusFamilyToAlias(state.status_family);
-  if (state.limit !== DEFAULTS.limit) search.limit = state.limit;
-  if (state.offset !== DEFAULTS.offset) search.cursor = state.offset;
+  if (state.view === "attempts" && state.limit !== DEFAULTS.limit)
+    search.limit = state.limit;
+  if (state.view === "attempts" && state.offset !== DEFAULTS.offset)
+    search.cursor = state.offset;
   if (state.request_id) search.request_id = state.request_id;
   if (state.selected_request_id) search.selected_request_id = state.selected_request_id;
   // Keep the investigation unit explicit in portable URLs, including the
   // default ingress-chain view. This prevents a copied request-log URL from
   // silently changing scope when the page default evolves.
   search.view = state.view;
-  if (state.sort_by !== (state.view === "ingress_chains" ? "created_at" : DEFAULTS.sort_by)) search.sort_by = state.sort_by;
+  if (state.view === "attempts" && state.sort_by !== DEFAULTS.sort_by)
+    search.sort_by = state.sort_by;
   if (state.sort_order !== DEFAULTS.sort_order) search.sort_order = state.sort_order;
-  if (state.chain_cursor) search.chain_cursor = state.chain_cursor;
+  if (state.view === "ingress_chains" && state.chain_cursor)
+    search.chain_cursor = state.chain_cursor;
   return search;
 }
 

@@ -51,6 +51,7 @@ export type ObserveCostSegment = {
 
 export type QueryContextResponse = {
   query_context: string;
+  scope: "ingress" | "final_execution" | "route_attempt";
   requested_bounds: { from_time: string; to_time: string } | null;
   usage_bounds: { from_time: string; to_time: string };
   usage_coverage: ObserveCoverage;
@@ -59,9 +60,14 @@ export type QueryContextResponse = {
   request_bounds: { from_time: string; to_time: string };
   request_coverage: ObserveCoverage;
   generated_at: string;
-  caliber?: {
+  caliber: {
     scope: "ingress" | "final_execution" | "route_attempt";
-    [key: string]: unknown;
+    grain: string;
+    identity_basis: string;
+    outcome_basis: string;
+    latency_basis: string;
+    cost_basis: string;
+    datasets: string[];
   };
 };
 
@@ -119,6 +125,9 @@ export type UsageSeriesResponse = {
   interval: string;
   series_limit: number;
   truncated: boolean;
+  caliber: { scope: string; [key: string]: unknown };
+  dataset_coverage: Record<string, unknown>;
+  samples: Record<string, number>;
   series: {
     key: string;
     entity_id: string | null;

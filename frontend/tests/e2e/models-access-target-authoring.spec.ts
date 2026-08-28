@@ -1,4 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import {
+  createEmptyIngressSpendingReport,
+  expectIngressSpendingRequest,
+} from "./spending-report-fixtures";
 
 const timestamp = "2026-04-27T12:00:00Z";
 const newModelButton = /New Model|新建模型/;
@@ -1035,22 +1039,8 @@ export async function mockModelDetailRoutes(page: Page) {
       return fulfillJson([]);
     }
     if (pathname === "/api/stats/spending") {
-      return fulfillJson({
-        summary: {
-          model_id: "detail-openai",
-          group_by: "endpoint",
-          preset: "all",
-          total_spend_micros: 0,
-          total_input_tokens: 0,
-          total_output_tokens: 0,
-          total_cache_read_input_tokens: 0,
-          total_cache_creation_input_tokens: 0,
-          total_reasoning_tokens: 0,
-          request_count: 0,
-        },
-        report_currency_symbol: "$",
-        report_currency_code: "USD",
-      });
+      expectIngressSpendingRequest(request, "detail-openai");
+      return fulfillJson(createEmptyIngressSpendingReport());
     }
     if (
       pathname === "/api/loadbalance/current-state/16/reset" &&
@@ -1277,25 +1267,8 @@ async function mockLinkedModelPairRoutes(page: Page) {
       return fulfillJson([]);
     }
     if (pathname === "/api/stats/spending") {
-      const modelId =
-        new URL(request.url()).searchParams.get("ingress_model_id") ??
-        "detail-alpha";
-      return fulfillJson({
-        summary: {
-          model_id: modelId,
-          group_by: "endpoint",
-          preset: "all",
-          total_spend_micros: 0,
-          total_input_tokens: 0,
-          total_output_tokens: 0,
-          total_cache_read_input_tokens: 0,
-          total_cache_creation_input_tokens: 0,
-          total_reasoning_tokens: 0,
-          request_count: 0,
-        },
-        report_currency_symbol: "$",
-        report_currency_code: "USD",
-      });
+      expectIngressSpendingRequest(request, ["detail-alpha", "detail-beta"]);
+      return fulfillJson(createEmptyIngressSpendingReport());
     }
     return fulfillJson({});
   });

@@ -5,42 +5,74 @@ import (
 )
 
 type RequestLogListParams struct {
-	ProfileID             int
-	IngressRequestID      *string
-	IngressFinalResult    *string
-	ConfirmedFailover     *bool
-	ModelID               *string
-	ResolvedTargetModelID *string
-	StatusFamily          *string
-	StatusCode            *int
-	ErrorText             *string
-	PricingStatus         *string
-	UnpricedReasons       []string
-	PricingCardRole       *string
-	PricingSelectionState *string
-	FromTime              *time.Time
-	ToTime                *time.Time
-	EndpointID            *int
-	TerminalTargetID      *int
-	ProxyAPIKeyID         *int
-	ClientRuleID          *int
-	ClientRulePattern     *string
+	ProfileID                   int
+	IngressRequestID            *string
+	IngressFinalResult          *string
+	ConfirmedFailover           *bool
+	ModelID                     *string
+	ModelIDs                    []string
+	ModelIDIsNull               bool
+	ResolvedTargetModelID       *string
+	ResolvedTargetModelIDs      []string
+	ResolvedTargetModelIDIsNull bool
+	APIFamilies                 []string
+	APIFamilyIsNull             bool
+	RowKinds                    []string
+	StatusFamily                *string
+	StatusCode                  *int
+	StatusCodes                 []int
+	StatusCodeIsNull            bool
+	ErrorText                   *string
+	PricingStatus               *string
+	UnpricedReasons             []string
+	PricingCardRole             *string
+	PricingSelectionState       *string
+	FromTime                    *time.Time
+	ToTime                      *time.Time
+	EndpointID                  *int
+	EndpointIDs                 []int
+	EndpointIDIsNull            bool
+	TerminalTargetID            *int
+	TerminalTargetIDs           []int
+	TerminalTargetIDIsNull      bool
+	ProxyAPIKeyID               *int
+	ClientRuleID                *int
+	ClientRulePattern           *string
 	// Observe signed-context deep-link selectors (Observe SPEC §4.3): when
 	// any final_* selector is present the query_context must have been
 	// validated and the final cohort is resolved through usage_request_events
 	// (the authoritative finalized ingress summary), never from retained rows.
-	QueryContextFrom      *time.Time
-	QueryContextTo        *time.Time
-	FinalResult           *string
-	FinalStatusCodes      []int
-	FinalStreamOutcomes   []string
-	FinalStreamErrorKinds []string
-	FinalModelID          *string
-	FinalEndpointID       *int
-	FinalTerminalTargetID *int
-	FinalPricingStatus    *string
-	FinalUnpricedReasons  []string
-	FinalReportingEpoch   *string
+	QueryContextFrom            *time.Time
+	QueryContextTo              *time.Time
+	FinalResult                 *string
+	FinalResults                []string
+	FinalOutcomeDetails         []string
+	FinalStatusCodes            []int
+	FinalStatusCodeIsNull       bool
+	FinalStreamOutcomes         []string
+	FinalStreamOutcomeIsNull    bool
+	FinalStreamErrorKinds       []string
+	FinalStreamErrorKindIsNull  bool
+	FinalModelID                *string
+	FinalModelIDs               []string
+	FinalModelIDIsNull          bool
+	FinalEndpointID             *int
+	FinalEndpointIDs            []int
+	FinalEndpointIDIsNull       bool
+	FinalTerminalTargetID       *int
+	FinalTerminalTargetIDs      []int
+	FinalTerminalTargetIDIsNull bool
+	FinalPricingStatus          *string
+	FinalPricingStatuses        []string
+	FinalPricingStatusIsNull    bool
+	FinalUnpricedReasons        []string
+	FinalReportingEpoch         *string
+	FinalReportingEpochs        []string
+	FinalReportingEpochIsNull   bool
+	AttemptTriggers             []string
+	AttemptTriggerIsNull        bool
+	AttemptResults              []string
+	AttemptResultIsNull         bool
 	// CoverageRequestedFrom/To carry the parsed explicit request bounds (nil
 	// when absent) so the coverage projection can be resolved in the same
 	// snapshot as the rows.

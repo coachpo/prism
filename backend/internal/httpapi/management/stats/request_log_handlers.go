@@ -29,11 +29,12 @@ func (s *Service) handleListRequestLogs(w http.ResponseWriter, r *http.Request) 
 			return nil, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "view must be ingress_chains or attempts"}
 		}
 		var signedRequestBounds *statsdomain.QueryBounds
+		rawQueryContext := strings.TrimSpace(r.URL.Query().Get("query_context"))
 		// Final-result deep links on the flat request-log list bind a signed
 		// query context (Requests SPEC §4.3). The retained ingress-chain view
 		// has its own server-side cohort and does not require that token.
-		if view != "ingress_chains" && requestLogHasSignedCohortSelector(r) {
-			if strings.TrimSpace(r.URL.Query().Get("query_context")) == "" {
+		if view != "ingress_chains" && (rawQueryContext != "" || requestLogHasSignedCohortSelector(r)) {
+			if rawQueryContext == "" {
 				return nil, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "query_context_required", Detail: "query_context is required with final filters"}
 			}
 			token, _, err := s.resolveQueryContextFromRequest(r)

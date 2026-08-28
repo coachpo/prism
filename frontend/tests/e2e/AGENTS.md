@@ -18,6 +18,7 @@ e2e/
 ├── narrow-accessibility-evidence.spec.ts
 ├── request-log-streaming-payloads.spec.ts
 ├── terminal-target-custom-request-parameters.spec.ts
+├── spending-report-fixtures.ts   # Shared ingress SpendingReport/query contract fixture
 ├── capture-a11y-evidence.mjs      # Accessibility evidence capture (not a journey spec)
 ├── capture-endpoint-evidence.mjs  # Endpoint evidence capture (not a journey spec)
 ├── capture-settings-evidence.mjs  # Responsive Settings evidence capture (not a journey spec)
@@ -29,6 +30,7 @@ e2e/
 
 - Playwright config and server target: `../../playwright.config.ts`
 - Shared dashboard/statistics fixture builders: `dashboard-aggregate-fixtures.ts`
+- Shared model-detail Spending response and exact ingress-query assertion: `spending-report-fixtures.ts`
 - Auth journey: `auth-session-lifecycle.spec.ts`
 - Load-balance recovery journey: `loadbalance-strategies-recovery.spec.ts`
 - models.dev catalog binding and Terminal Target price-generation journey: `model-catalog-pricing.spec.ts` (mocked `/api/models/{id}/catalog*` and `/api/pricing-templates/catalog/*`; unique-match bind renders metadata, tiered plan preview commits with the current target as the only assignment)

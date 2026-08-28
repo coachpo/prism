@@ -70,14 +70,17 @@ func requestLogHasSignedCohortSelector(r *http.Request) bool {
 	query := r.URL.Query()
 	return query.Get("ingress_final_result") != "" ||
 		query.Get("confirmed_failover") != "" ||
-		query.Get("final_result") != "" ||
-		len(query["final_status_code"]) > 0 ||
-		len(query["final_stream_outcome"]) > 0 ||
-		len(query["final_stream_error_kind"]) > 0 ||
-		query.Get("final_target_model_id") != "" ||
-		query.Get("final_endpoint_id") != "" ||
-		query.Get("final_terminal_target_id") != "" ||
-		query.Get("final_pricing_status") != "" ||
-		len(query["final_unpriced_reason"]) > 0 ||
-		query.Get("reporting_currency_epoch") != ""
+		len(collectRepeatedCommaValues(r, "final_result")) > 0 ||
+		len(collectRepeatedCommaValues(r, "outcome_detail")) > 0 ||
+		len(collectRepeatedCommaValues(r, "final_status_code")) > 0 ||
+		len(collectRepeatedCommaValues(r, "final_stream_outcome")) > 0 ||
+		len(collectRepeatedCommaValues(r, "final_stream_error_kind")) > 0 ||
+		len(collectRepeatedCommaValues(r, "final_target_model_id")) > 0 ||
+		len(collectRepeatedCommaValues(r, "final_endpoint_id")) > 0 ||
+		len(collectRepeatedCommaValues(r, "final_terminal_target_id")) > 0 ||
+		len(collectRepeatedCommaValues(r, "final_pricing_status")) > 0 ||
+		len(collectRepeatedCommaValues(r, "final_unpriced_reason")) > 0 ||
+		len(collectRepeatedCommaValues(r, "reporting_currency_epoch")) > 0 ||
+		len(collectRepeatedCommaValues(r, "attempt_trigger")) > 0 ||
+		len(collectRepeatedCommaValues(r, "attempt_result")) > 0
 }

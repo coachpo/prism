@@ -21,11 +21,11 @@ func loadAttemptSeries(ctx context.Context, exec queryExecutor, profileID int, b
 	if err != nil {
 		return UsageSeriesResult{}, err
 	}
-	switch strings.TrimSpace(metric) {
-	case "", "attempts", "errors", "attempt_latency":
-	default:
-		return UsageSeriesResult{}, &HTTPError{StatusCode: 422, Code: "metric_invalid", Detail: fmt.Sprintf("metric %q not allowed for scope %q", metric, ScopeRouteAttempt)}
+	normalizedMetric, err := NormalizeMetric(ScopeRouteAttempt, metric)
+	if err != nil {
+		return UsageSeriesResult{}, err
 	}
+	metric = normalizedMetric
 	intervalName, bucketSize, err := ResolveSeriesInterval(interval, bounds.UsageFrom, bounds.UsageTo)
 	if err != nil {
 		return UsageSeriesResult{}, err

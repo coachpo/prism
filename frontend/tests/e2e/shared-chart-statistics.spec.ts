@@ -86,7 +86,7 @@ function summaryFixture() {
   };
 }
 
-function seriesFixture() {
+function seriesFixture(metric = "requests", scope = "ingress") {
   return {
     generated_at: "2026-08-09T00:00:00Z",
     coverage: {
@@ -97,12 +97,15 @@ function seriesFixture() {
       complete: true,
       gaps: [],
     },
-    metric: "requests",
+    metric,
     group_by: "none",
     selection_basis: "request_count",
     interval: "1h",
     series_limit: 6,
     truncated: false,
+    caliber: { scope },
+    dataset_coverage: {},
+    samples: {},
     series: [
       {
         key: "total",
@@ -204,6 +207,7 @@ async function mockObserveRoutes(page: Page, reads?: ObserveReadLog) {
       return fulfillJson({
         query_context:
           scope === "ingress" ? "signed-token" : `signed-token-${scope}`,
+        scope,
         requested_bounds: {
           from_time: "2026-08-08T00:00:00Z",
           to_time: "2026-08-09T00:00:00Z",
@@ -229,17 +233,26 @@ async function mockObserveRoutes(page: Page, reads?: ObserveReadLog) {
           to_time: "2026-08-09T00:00:00Z",
         },
         generated_at: "2026-08-09T00:00:00Z",
+        caliber: { scope },
       });
     }
     if (pathname === "/api/stats/usage-summary") {
       return fulfillJson(summaryFixture());
     }
     if (pathname === "/api/stats/usage-series") {
+      const queryContext = url.searchParams.get("query_context") ?? "";
+      const scope = queryContext.includes("route_attempt")
+        ? "route_attempt"
+        : queryContext.includes("final_execution")
+          ? "final_execution"
+          : "ingress";
       reads?.seriesQueries.push({
         groupBy: url.searchParams.get("group_by"),
         queryContext: url.searchParams.get("query_context"),
       });
-      return fulfillJson(seriesFixture());
+      return fulfillJson(
+        seriesFixture(url.searchParams.get("metric") ?? "requests", scope),
+      );
     }
     if (pathname === "/api/stats/dashboard/now") {
       return fulfillJson(nowFixture());
@@ -533,7 +546,7 @@ test.describe("observe page regression", () => {
     // Metric and group selectors are single-select ToggleGroups: each option
     // is a radio inside a named group.
     await page.getByRole("tab", { name: "趋势" }).click();
-    await page.getByRole("radio", { name: "TTFT" }).click();
+    await page.getByRole("radio", { name: "首字耗时" }).click();
     await expect(page).toHaveURL(/metric=ttft/);
     await page.getByRole("radio", { name: "按入口模型" }).click();
     await expect(page).toHaveURL(/group_by=ingress_model/);

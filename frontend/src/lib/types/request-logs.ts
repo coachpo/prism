@@ -146,24 +146,30 @@ export type RequestStatusFamily = "2xx" | "4xx" | "5xx";
 export const STATS_FROM_TIME_PARAM = "from_time" as const;
 export const STATS_TO_TIME_PARAM = "to_time" as const;
 
+export type RepeatableRequestFilter<T extends string | number> = T | T[];
+
 export interface StatsRequestParams {
   time_range?: "1h" | "6h" | "24h" | "7d" | "30d" | "all" | "custom";
   ingress_request_id?: string;
-  proxy_api_key_id?: number;
+  proxy_api_key_id?: number | string;
   ingress_model_id?: string;
-  client_rule_id?: number;
-  attempt_target_model_id?: string;
+  client_rule_id?: number | string;
+  attempt_target_model_id?: RepeatableRequestFilter<string>;
+  api_family?: RepeatableRequestFilter<string>;
+  row_kind?: RepeatableRequestFilter<RowKind>;
+  attempt_trigger?: RepeatableRequestFilter<AttemptTrigger | "__null__">;
+  attempt_result?: RepeatableRequestFilter<AttemptResult | "__null__">;
   status_family?: RequestStatusFamily;
-  status_code?: number;
+  status_code?: RepeatableRequestFilter<number | string>;
   error_text?: string;
   pricing_status?: "priced" | "unpriced" | "ineligible" | "unknown";
-  unpriced_reason?: string;
+  unpriced_reason?: RepeatableRequestFilter<string>;
   pricing_card_role?: "standard" | "tier_base" | "tier_above" | "peak" | "offpeak";
   pricing_selection_state?: "not_evaluated" | "not_applicable" | "selected" | "unresolved";
   from_time?: string;
   to_time?: string;
-  endpoint_id?: number;
-  terminal_target_id?: number;
+  endpoint_id?: RepeatableRequestFilter<number | string>;
+  terminal_target_id?: RepeatableRequestFilter<number | string>;
   limit?: number;
   offset?: number;
   view?: "attempts" | "ingress_chains";
@@ -174,18 +180,24 @@ export interface StatsRequestParams {
   anchor_request_log_id?: string;
   ingress_final_result?: "completed" | "failed" | "client_disconnected";
   query_context?: string;
-  final_result?: "completed" | "failed" | "client_disconnected";
-  final_target_model_id?: string;
-  final_endpoint_id?: number;
-  final_terminal_target_id?: number;
+  final_result?: RepeatableRequestFilter<
+    "completed" | "failed" | "client_disconnected"
+  >;
+  outcome_detail?: RepeatableRequestFilter<string>;
+  final_status_code?: RepeatableRequestFilter<number | string>;
+  final_stream_outcome?: RepeatableRequestFilter<string>;
+  final_stream_error_kind?: RepeatableRequestFilter<string>;
+  final_target_model_id?: RepeatableRequestFilter<string>;
+  final_endpoint_id?: RepeatableRequestFilter<number | string>;
+  final_terminal_target_id?: RepeatableRequestFilter<number | string>;
   final_pricing_status?: "priced" | "unpriced" | "ineligible" | "unknown";
-  final_unpriced_reason?: string;
+  final_unpriced_reason?: RepeatableRequestFilter<string>;
   confirmed_failover?: string;
   is_stream?: boolean;
   stream_outcome?: string;
   stream_error_kind?: string;
   currency_code?: string;
-  reporting_currency_epoch?: number;
+  reporting_currency_epoch?: number | string;
   cost_segment_key?: string;
   sort_by?: string;
   sort_order?: "asc" | "desc";

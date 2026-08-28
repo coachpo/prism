@@ -95,6 +95,7 @@ function coverage(): UsageSeriesResponse["coverage"] {
 function fragmentFor(
   metric: ObserveMetric,
   series: UsageSeriesResponse["series"] = SERIES,
+  scope: ObserveScope = "ingress",
 ): FragmentState<UsageSeriesResponse> {
   return {
     phase: "ready",
@@ -110,6 +111,9 @@ function fragmentFor(
       interval: "1h",
       series_limit: 6,
       truncated: false,
+      caliber: { scope },
+      dataset_coverage: {},
+      samples: {},
       series,
     },
   };
@@ -143,7 +147,7 @@ function renderChart(
   return render(
     <LocaleProvider>
       <ObserveMainChart
-        fragment={fragmentFor(metric, series)}
+        fragment={fragmentFor(metric, series, scope)}
         metric={metric}
         groupBy="none"
         onMetricChange={() => {}}

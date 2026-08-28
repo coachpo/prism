@@ -31,11 +31,16 @@ func (s *Service) handleExportRequestLogs(w http.ResponseWriter, r *http.Request
 	// range-free exception; otherwise a preset or both explicit bounds are
 	// required so a download can never silently become a browser-window dump.
 	query := r.URL.Query()
-	hasExactIngress := strings.TrimSpace(query.Get("ingress_request_id")) != ""
-	hasPreset := strings.TrimSpace(query.Get("time_range")) != ""
-	hasFrom := strings.TrimSpace(query.Get("from_time")) != ""
-	hasTo := strings.TrimSpace(query.Get("to_time")) != ""
-	if !hasExactIngress && !hasPreset && (!hasFrom || !hasTo) {
+	requestedView := strings.ToLower(strings.TrimSpace(query.Get("view")))
+	if requestedView == "" {
+		requestedView = "ingress_chains"
+	}
+	hasQueryContext := strings.TrimSpace(query.Get("query_context")) != ""
+	if requestedView != "ingress_chains" && requestLogHasSignedCohortSelector(r) && !hasQueryContext {
+		writeDomainError(w, r, s.corsSnapshot(), &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "query_context_required", Detail: "query_context is required with final filters"})
+		return
+	}
+	if !requestLogExportHasBoundedRange(r) {
 		writeDomainError(w, r, s.corsSnapshot(), &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "export_range_required", Detail: "Export requires an explicit time range."})
 		return
 	}
@@ -56,8 +61,9 @@ func (s *Service) handleExportRequestLogs(w http.ResponseWriter, r *http.Request
 			return statsdomain.ExportResult{}, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "view must be ingress_chains or attempts"}
 		}
 		var signedRequestBounds *statsdomain.QueryBounds
-		if view != "ingress_chains" && requestLogHasSignedCohortSelector(r) {
-			if strings.TrimSpace(r.URL.Query().Get("query_context")) == "" {
+		rawQueryContext := strings.TrimSpace(r.URL.Query().Get("query_context"))
+		if rawQueryContext != "" || (view != "ingress_chains" && requestLogHasSignedCohortSelector(r)) {
+			if rawQueryContext == "" {
 				return statsdomain.ExportResult{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "query_context_required", Detail: "query_context is required with final filters"}
 			}
 			token, _, resolveErr := s.resolveQueryContextFromRequest(r)
@@ -111,4 +117,14 @@ func (s *Service) handleExportRequestLogs(w http.ResponseWriter, r *http.Request
 	if _, err := w.Write(result.Content); err != nil {
 		slog.Warn("export stream interrupted", "error", err)
 	}
+}
+
+func requestLogExportHasBoundedRange(r *http.Request) bool {
+	query := r.URL.Query()
+	hasExactIngress := strings.TrimSpace(query.Get("ingress_request_id")) != ""
+	hasPreset := strings.TrimSpace(query.Get("time_range")) != ""
+	hasFrom := strings.TrimSpace(query.Get("from_time")) != ""
+	hasTo := strings.TrimSpace(query.Get("to_time")) != ""
+	hasQueryContext := strings.TrimSpace(query.Get("query_context")) != ""
+	return hasExactIngress || hasPreset || (hasFrom && hasTo) || hasQueryContext
 }

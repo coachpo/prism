@@ -15,8 +15,8 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
 import {
+  metricsForScope,
   OBSERVE_GROUPS,
-  OBSERVE_METRICS,
   type ObserveGroupBy,
   type ObserveMetric,
   type ObserveScope,
@@ -86,7 +86,10 @@ function buildObservePointIndex(
     for (const point of item.points) {
       const bucket =
         byBucket.get(point.bucket_start) ??
-        new Map<string, UsageSeriesResponse["series"][number]["points"][number]>();
+        new Map<
+          string,
+          UsageSeriesResponse["series"][number]["points"][number]
+        >();
       bucket.set(item.key, point);
       byBucket.set(point.bucket_start, bucket);
     }
@@ -149,7 +152,9 @@ export function ObserveMainChart({
         : "output_no_sample";
     }
     if (metric === "cache_read_share") {
-      if (points.some((point) => bucketCacheReadShare(point).kind === "value")) {
+      if (
+        points.some((point) => bucketCacheReadShare(point).kind === "value")
+      ) {
         return null;
       }
       return points.some(
@@ -219,7 +224,7 @@ export function ObserveMainChart({
             if (value) onMetricChange(value as ObserveMetric);
           }}
         >
-          {OBSERVE_METRICS.map((value) => (
+          {metricsForScope(scope).map((value) => (
             <ToggleGroupItem
               key={value}
               value={value}
@@ -536,22 +541,26 @@ function localizedSeriesLabel(
   copy: ReturnType<typeof useLocale>["messages"]["requestLogs"],
 ): string {
   if (groupBy === "attempt_trigger") {
-    return {
-      initial: copy.attemptTriggerInitial,
-      retry_same_target: copy.attemptTriggerRetrySameTarget,
-      hedge: copy.attemptTriggerHedge,
-      failover: copy.attemptTriggerFailover,
-    }[key] ?? copy.attemptTriggerUnavailable;
+    return (
+      {
+        initial: copy.attemptTriggerInitial,
+        retry_same_target: copy.attemptTriggerRetrySameTarget,
+        hedge: copy.attemptTriggerHedge,
+        failover: copy.attemptTriggerFailover,
+      }[key] ?? copy.attemptTriggerUnavailable
+    );
   }
   if (groupBy === "attempt_result") {
-    return {
-      completed: copy.attemptResultCompleted,
-      http_error: copy.attemptResultHttpError,
-      stream_error: copy.attemptResultStreamError,
-      transport_error: copy.attemptResultTransportError,
-      cancelled: copy.attemptResultCancelled,
-      client_disconnected: copy.attemptResultClientDisconnected,
-    }[key] ?? copy.attemptResultUnknown;
+    return (
+      {
+        completed: copy.attemptResultCompleted,
+        http_error: copy.attemptResultHttpError,
+        stream_error: copy.attemptResultStreamError,
+        transport_error: copy.attemptResultTransportError,
+        cancelled: copy.attemptResultCancelled,
+        client_disconnected: copy.attemptResultClientDisconnected,
+      }[key] ?? copy.attemptResultUnknown
+    );
   }
   return fallback;
 }

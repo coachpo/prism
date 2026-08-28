@@ -18,6 +18,18 @@ import (
 // logs have no finalized usage evidence still appear with an unavailable
 // finalized summary, rows with a NULL ingress_request_id never form a chain,
 // and the full-cohort totals stay consistent with the visible set.
+func TestChainViewRejectsOffsetPaginationAliases(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	for _, key := range []string{"limit", "offset"} {
+		payload := s15GET[map[string]any](t, harness, profileID,
+			"/api/stats/requests?view=ingress_chains&"+key+"=1", http.StatusUnprocessableEntity)
+		if payload["code"] != "unknown_query_key" {
+			t.Fatalf("%s must be rejected as unknown_query_key: %+v", key, payload)
+		}
+	}
+}
+
 func TestChainViewOrdinarySetCoversRequestOnlyIngressesAndSkipsNullIngress(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
@@ -46,7 +58,7 @@ func TestChainViewOrdinarySetCoversRequestOnlyIngressesAndSkipsNullIngress(t *te
 		t.Fatalf("seed null-ingress row: %v", err)
 	}
 
-	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&limit=50", http.StatusOK)
+	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains", http.StatusOK)
 	items := payload["items"].([]any)
 	if len(items) != 2 {
 		t.Fatalf("expected exactly two chains (null ingress excluded), got %d in %+v", len(items), payload)
@@ -110,7 +122,7 @@ func TestChainViewServerSideCohortAndPagination(t *testing.T) {
 	seedChainIngress(t, harness, profileID, "chain-c", now.Add(2*time.Minute), 500, 1, false, "not_streaming")
 
 	// Chain view default: all three ingresses, desc order.
-	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&limit=50", http.StatusOK)
+	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains", http.StatusOK)
 	items := payload["items"].([]any)
 	if len(items) != 3 {
 		t.Fatalf("expected 3 chain items, got %d", len(items))
@@ -128,7 +140,7 @@ func TestChainViewServerSideCohortAndPagination(t *testing.T) {
 	}
 
 	// Confirmed failover cohort selects chain-b only.
-	failoverPayload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&confirmed_failover=true&limit=50", http.StatusOK)
+	failoverPayload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&confirmed_failover=true", http.StatusOK)
 	failoverItems := failoverPayload["items"].([]any)
 	if len(failoverItems) != 1 {
 		t.Fatalf("expected confirmed_failover cohort to select chain-b only, got %d", len(failoverItems))
@@ -143,7 +155,7 @@ func TestChainViewServerSideCohortAndPagination(t *testing.T) {
 	}
 
 	// Final-result failed cohort selects chain-c.
-	failedPayload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&ingress_final_result=failed&limit=50", http.StatusOK)
+	failedPayload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&ingress_final_result=failed", http.StatusOK)
 	failedItems := failedPayload["items"].([]any)
 	if len(failedItems) != 1 || asMap(t, failedItems[0])["ingress_request_id"] != "chain-c" {
 		t.Fatalf("expected final_result=failed cohort to select chain-c, got %d items", len(failedItems))

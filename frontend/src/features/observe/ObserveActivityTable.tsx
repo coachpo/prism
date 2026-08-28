@@ -18,6 +18,7 @@ import {
   type ObserveActivityResponse,
 } from "@/lib/api/observability";
 import { fragmentErrorFrom } from "@/features/observe/useObserveFragments";
+import type { ObservePreset } from "@/features/observe/observeSearch";
 import { cn } from "@/lib/utils";
 import {
   OperatorEmptyState,
@@ -61,8 +62,10 @@ const ACTIVITY_PAGE_SIZE = 20;
  * the new one.
  */
 export function ObserveActivityTable({
+  preset,
   queryContext,
 }: {
+  preset: ObservePreset;
   queryContext: string | null;
 }) {
   const { formatNumber, messages } = useLocale();
@@ -167,12 +170,12 @@ export function ObserveActivityTable({
         to: "/observe/requests",
         search: {
           view: "ingress_chains",
-          query_context: queryContext ?? "",
-          final_ingress_request_id: item.final_ingress_request_id,
+          ingress_request_id: item.final_ingress_request_id,
+          time_range: preset,
         },
       });
     },
-    [navigate, queryContext],
+    [navigate, preset],
   );
 
   const tableCopy = messages.operationalTable;
@@ -290,7 +293,9 @@ export function ObserveActivityTable({
                 <TableHead className="text-right">
                   {messages.observe.activityAttempts}
                 </TableHead>
-                <TableHead>{messages.observe.activityExecutionTarget}</TableHead>
+                <TableHead>
+                  {messages.observe.activityExecutionTarget}
+                </TableHead>
                 <TableHead className="text-right">TTFT</TableHead>
                 <TableHead className="text-right">
                   {messages.observe.tokens}
@@ -451,16 +456,21 @@ function ActivityRow({
             className="truncate text-xs"
             data-testid={item.route_changed ? "route-changed" : undefined}
           >
-            <span className="text-muted-foreground">{copy.entryModelShort}</span>{" "}
+            <span className="text-muted-foreground">
+              {copy.entryModelShort}
+            </span>{" "}
             {item.ingress_model_label || item.ingress_model_id}
           </span>
           <span className="truncate text-xs">
-            <span aria-hidden="true" className="text-muted-foreground">→</span>{" "}
-            <span className="text-muted-foreground">{copy.finalModelShort}</span>{" "}
-            {item.final_target_model_label ??
-              item.final_target_model_id ?? (
-                <OperatorMissingValue reason={copy.finalTargetEvidenceMissing} />
-              )}
+            <span aria-hidden="true" className="text-muted-foreground">
+              →
+            </span>{" "}
+            <span className="text-muted-foreground">
+              {copy.finalModelShort}
+            </span>{" "}
+            {item.final_target_model_label ?? item.final_target_model_id ?? (
+              <OperatorMissingValue reason={copy.finalTargetEvidenceMissing} />
+            )}
           </span>
           {!item.routing_evidence_complete ? (
             <OperatorClippedBadge
@@ -479,12 +489,16 @@ function ActivityRow({
       <TableCell>
         <div className="flex min-w-40 flex-col gap-0.5 text-xs">
           <span>
-            {item.terminal_target_id === null
-              ? <OperatorMissingValue reason={copy.noTerminalTargetEvidence} />
-              : copy.terminalTargetId(item.terminal_target_id)}
+            {item.terminal_target_id === null ? (
+              <OperatorMissingValue reason={copy.noTerminalTargetEvidence} />
+            ) : (
+              copy.terminalTargetId(item.terminal_target_id)
+            )}
           </span>
           <span className="truncate text-muted-foreground">
-            {item.endpoint_label || <OperatorMissingValue reason={copy.noEndpointEvidence} />}
+            {item.endpoint_label || (
+              <OperatorMissingValue reason={copy.noEndpointEvidence} />
+            )}
           </span>
         </div>
       </TableCell>

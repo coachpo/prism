@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -9,11 +9,13 @@ import { ObserveFreshnessBar } from "@/features/observe/ObserveFreshnessBar";
 import { RoutingHealthEntryCard } from "@/features/observe/RoutingHealthEntryCard";
 import { TerminalTargetDrillDown } from "@/features/observe/TerminalTargetDrillDown";
 import {
+  defaultMetricForScope,
   groupBelongsToScope,
-  isObserveMetric,
   isObserveGroupBy,
+  isObserveMetric,
   isObservePreset,
   isObserveScope,
+  isValidMetricForScope,
   OBSERVE_SCOPES,
   type ObservePreset,
   type ObserveScope,
@@ -70,14 +72,42 @@ export function ObservePage() {
 
   const view = resolveView(search.tab);
   const preset = isObservePreset(search.preset) ? search.preset : "24h";
-  const metric = isObserveMetric(search.metric) ? search.metric : "requests";
-  const scope = isObserveScope(search.scope) ? search.scope : "ingress";
+  const rawScope = isObserveScope(search.scope) ? search.scope : "ingress";
+  const scope: ObserveScope = rawScope;
+  const rawMetric = search.metric;
+  const metric =
+    isObserveMetric(rawMetric) && isValidMetricForScope(rawMetric, scope)
+      ? rawMetric
+      : defaultMetricForScope(scope);
   const parsedGroupBy = isObserveGroupBy(search.group_by)
     ? search.group_by
     : "none";
   const groupBy = groupBelongsToScope(parsedGroupBy, scope)
     ? parsedGroupBy
     : "none";
+  const needsMetricNormalize = rawMetric !== metric;
+  const needsGroupNormalize = parsedGroupBy !== groupBy;
+  useEffect(() => {
+    if (!needsMetricNormalize && !needsGroupNormalize) return;
+    void navigate({
+      to: "/observe",
+      search: {
+        ...search,
+        metric,
+        group_by: groupBy === "none" ? undefined : groupBy,
+      },
+      replace: true,
+      resetScroll: false,
+    });
+  }, [
+    needsMetricNormalize,
+    needsGroupNormalize,
+    metric,
+    groupBy,
+    navigate,
+    search,
+    scope,
+  ]);
 
   const setSearch = useCallback(
     (patch: Record<string, string | undefined>) => {
@@ -114,12 +144,12 @@ export function ObservePage() {
   const analysisContext = useObserveAnalysisContext(preset, scope);
   const setup = useSetupCoordinator();
   const chartState = useMemo(
-    () => ({ metric, groupBy, interval: search.interval ?? "auto" }),
-    [metric, groupBy, search.interval],
+    () => ({ metric, groupBy, interval: search.interval ?? "auto", scope }),
+    [metric, groupBy, scope, search.interval],
   );
   const seriesFragment = useUsageSeriesFragment(
     analysisContext.phase === "ready"
-      ? analysisContext.data?.query_context ?? null
+      ? (analysisContext.data?.query_context ?? null)
       : null,
     chartState,
     analysisContext.phase,
@@ -236,8 +266,12 @@ export function ObservePage() {
             onValueChange={(value) => {
               if (!value || !isObserveScope(value)) return;
               const nextScope = value as ObserveScope;
+              const nextMetric = isValidMetricForScope(metric, nextScope)
+                ? metric
+                : defaultMetricForScope(nextScope);
               setSearch({
                 scope: nextScope === "ingress" ? undefined : nextScope,
+                metric: nextMetric,
                 group_by: groupBelongsToScope(groupBy, nextScope)
                   ? groupBy
                   : "none",
@@ -290,7 +324,7 @@ export function ObservePage() {
             groupBy={groupBy}
             queryContext={
               analysisContext.phase === "ready"
-                ? analysisContext.data?.query_context ?? null
+                ? (analysisContext.data?.query_context ?? null)
                 : null
             }
             scope={scope}
@@ -306,6 +340,7 @@ export function ObservePage() {
           description={messages.observe.activityIngressDescription}
         >
           <ObserveActivityTable
+            preset={preset}
             queryContext={fragments.queryContext.data?.query_context ?? null}
           />
         </OperatorSectionCard>

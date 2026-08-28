@@ -54,10 +54,18 @@ export function isStackedRequestChart(
   return metric === "requests" && groupBy === "none";
 }
 
+export function isLatencyMetric(metric: ObserveMetric): boolean {
+  return (
+    metric === "ttft" ||
+    metric === "final_attempt_latency" ||
+    metric === "attempt_latency"
+  );
+}
+
 /** Metrics whose marks are lines, never bars: percentiles and rates. */
 export function isLineMetric(metric: ObserveMetric): boolean {
   return (
-    metric === "ttft" ||
+    isLatencyMetric(metric) ||
     metric === "output_rate" ||
     metric === "cache_read_share"
   );
@@ -99,7 +107,7 @@ export function observeChartMarks(
       },
     ];
   }
-  if (metric === "ttft") {
+  if (isLatencyMetric(metric)) {
     return series.flatMap((item, index) => [
       {
         colorIndex: index * 2,
@@ -158,9 +166,11 @@ export function buildObserveChartRows(
         }
       } else if (metric === "errors") {
         row[key] = point.failed_count + point.client_disconnected_count;
-      } else if (metric === "ttft") {
+      } else if (isLatencyMetric(metric)) {
         row[`${key}-p50`] = point.p50_ttft_ms;
         row[`${key}-p95`] = point.p95_ttft_ms;
+      } else if (metric === "attempts") {
+        row[key] = point.request_count;
       } else if (metric === "tokens") {
         row[key] = point.total_tokens;
       } else if (metric === "output_rate") {
