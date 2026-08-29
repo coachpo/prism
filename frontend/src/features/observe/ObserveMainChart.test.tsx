@@ -95,6 +95,7 @@ function coverage(): UsageSeriesResponse["coverage"] {
 function fragmentFor(
   metric: ObserveMetric,
   series: UsageSeriesResponse["series"] = SERIES,
+  scope: ObserveScope = "ingress",
 ): FragmentState<UsageSeriesResponse> {
   return {
     phase: "ready",
@@ -104,15 +105,23 @@ function fragmentFor(
     data: {
       generated_at: "2026-08-08T02:00:00Z",
       coverage: coverage(),
-      dataset_coverage: { usage_request_events: coverage() },
+      dataset_coverage:
+        scope === "route_attempt"
+          ? { request_logs: coverage() }
+          : { usage_request_events: coverage() },
       caliber: {
-        scope: "ingress",
-        grain: "ingress_request",
-        identity_basis: "ingress_model_id",
-        outcome_basis: "final_result",
-        latency_basis: "ingress_end_to_end",
-        cost_basis: "served_final_trusted_cost",
-        datasets: ["usage_request_events"],
+        scope,
+        grain: scope === "route_attempt" ? "upstream_attempt" : "ingress_request",
+        identity_basis:
+          scope === "route_attempt" ? "attempt_target_model_id" : "ingress_model_id",
+        outcome_basis:
+          scope === "route_attempt" ? "attempt_result" : "final_result",
+        latency_basis:
+          scope === "route_attempt" ? "attempt_duration" : "ingress_end_to_end",
+        cost_basis:
+          scope === "route_attempt" ? "none" : "served_final_trusted_cost",
+        datasets:
+          scope === "route_attempt" ? ["request_logs"] : ["usage_request_events"],
       },
       samples: {
         observation_count: 0,
@@ -160,7 +169,7 @@ function renderChart(
   return render(
     <LocaleProvider>
       <ObserveMainChart
-        fragment={fragmentFor(metric, series)}
+        fragment={fragmentFor(metric, series, scope)}
         metric={metric}
         groupBy="none"
         onMetricChange={() => {}}
@@ -365,9 +374,9 @@ describe("ObserveMainChart series table", () => {
 
 describe("ObserveMainChart honest chart states", () => {
   it.each([
-    ["ingress", "requests", ["请求数", "错误", "TTFT", "输出速率", "令牌", "缓存读取", "花费"]],
-    ["final_execution", "requests", ["请求数", "错误", "最终尝试延迟", "令牌", "缓存读取", "花费"]],
-    ["route_attempt", "attempts", ["尝试数", "错误", "尝试延迟"]],
+    ["ingress", "requests", ["请求数", "错误", "首字耗时", "输出速率", "令牌", "缓存读取", "花费"]],
+    ["final_execution", "requests", ["请求数", "错误", "最终尝试耗时", "令牌", "缓存读取", "花费"]],
+    ["route_attempt", "attempts", ["尝试数", "错误", "尝试耗时"]],
   ] as const)("limits %s metrics to its server matrix", (scope, metric, labels) => {
     const view = renderChart(metric, SERIES, scope);
     expect(

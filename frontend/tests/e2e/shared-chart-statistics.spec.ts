@@ -24,7 +24,13 @@ function summaryFixture() {
     coverage,
     caliber: { scope: "ingress" },
     dataset_coverage: { usage_request_events: coverage },
-    samples: { observation_count: 1364, latency_sample_count: 1302, latency_missing_count: 62, cost_sample_count: 1300, cost_missing_count: 48 },
+    samples: {
+      observation_count: 1364,
+      latency_sample_count: 1302,
+      latency_missing_count: 62,
+      cost_sample_count: 1300,
+      cost_missing_count: 48,
+    },
     cost_segments: [
       {
         segment_key: "e.1",
@@ -90,23 +96,41 @@ function summaryFixture() {
   };
 }
 
-function seriesFixture() {
+function seriesFixture(
+  metric = "requests",
+  scope = "ingress",
+  groupBy = "none",
+) {
+  const coverage = {
+    requested_preset: "24h",
+    from_time: "2026-08-08T00:00:00Z",
+    to_time: "2026-08-09T00:00:00Z",
+    source: "raw",
+    complete: true,
+    gaps: [],
+  };
   return {
     generated_at: "2026-08-09T00:00:00Z",
-    coverage: {
-      requested_preset: "24h",
-      from_time: "2026-08-08T00:00:00Z",
-      to_time: "2026-08-09T00:00:00Z",
-      source: "raw",
-      complete: true,
-      gaps: [],
-    },
-    metric: "requests",
-    group_by: "none",
-    selection_basis: "request_count",
+    coverage,
+    metric,
+    group_by: groupBy,
+    selection_basis:
+      scope === "route_attempt" ? "attempt_count" : "request_count",
     interval: "1h",
     series_limit: 6,
     truncated: false,
+    caliber: { scope },
+    dataset_coverage:
+      scope === "route_attempt"
+        ? { request_logs: coverage }
+        : { usage_request_events: coverage },
+    samples: {
+      observation_count: 1364,
+      latency_sample_count: 1302,
+      latency_missing_count: 62,
+      cost_sample_count: 1300,
+      cost_missing_count: 48,
+    },
     series: [
       {
         key: "total",
@@ -216,6 +240,7 @@ async function mockObserveRoutes(page: Page, reads?: ObserveReadLog) {
       return fulfillJson({
         query_context:
           scope === "ingress" ? "signed-token" : `signed-token-${scope}`,
+        scope,
         requested_bounds: {
           from_time: "2026-08-08T00:00:00Z",
           to_time: "2026-08-09T00:00:00Z",
@@ -224,8 +249,6 @@ async function mockObserveRoutes(page: Page, reads?: ObserveReadLog) {
           from_time: "2026-08-08T00:00:00Z",
           to_time: "2026-08-09T00:00:00Z",
         },
-        scope,
-        caliber: { scope },
         usage_coverage: coverage,
         request_coverage: coverage,
         event_coverage: coverage,
@@ -238,6 +261,7 @@ async function mockObserveRoutes(page: Page, reads?: ObserveReadLog) {
           to_time: "2026-08-09T00:00:00Z",
         },
         generated_at: "2026-08-09T00:00:00Z",
+        caliber: { scope },
       });
     }
     if (pathname === "/api/stats/usage-summary") {
@@ -245,26 +269,23 @@ async function mockObserveRoutes(page: Page, reads?: ObserveReadLog) {
     }
     if (pathname === "/api/stats/usage-series") {
       const queryContext = url.searchParams.get("query_context");
-      const scope = queryContext?.endsWith("route_attempt")
+      const scope = queryContext?.includes("route_attempt")
         ? "route_attempt"
-        : queryContext?.endsWith("final_execution")
+        : queryContext?.includes("final_execution")
           ? "final_execution"
           : "ingress";
       reads?.seriesQueries.push({
         groupBy: url.searchParams.get("group_by"),
         queryContext,
       });
-      const fixture = seriesFixture();
-      return fulfillJson({
-        ...fixture,
-        metric: url.searchParams.get("metric") ?? (scope === "route_attempt" ? "attempts" : "requests"),
-        group_by: url.searchParams.get("group_by") ?? "none",
-        caliber: { scope },
-        dataset_coverage: scope === "route_attempt"
-          ? { request_logs: fixture.coverage }
-          : { usage_request_events: fixture.coverage },
-        samples: { observation_count: 1364, latency_sample_count: 1302, latency_missing_count: 62, cost_sample_count: 1300, cost_missing_count: 48 },
-      });
+      return fulfillJson(
+        seriesFixture(
+          url.searchParams.get("metric") ??
+            (scope === "route_attempt" ? "attempts" : "requests"),
+          scope,
+          url.searchParams.get("group_by") ?? "none",
+        ),
+      );
     }
     if (pathname === "/api/stats/dashboard/now") {
       return fulfillJson(nowFixture());
@@ -554,7 +575,7 @@ test.describe("observe page regression", () => {
     // Metric and group selectors are single-select ToggleGroups: each option
     // is a radio inside a named group.
     await page.getByRole("tab", { name: "趋势" }).click();
-    await page.getByRole("radio", { name: "TTFT" }).click();
+    await page.getByRole("radio", { name: "首字耗时" }).click();
     await expect(page).toHaveURL(/metric=ttft/);
     await page.getByRole("radio", { name: "按入口模型" }).click();
     await expect(page).toHaveURL(/group_by=ingress_model/);

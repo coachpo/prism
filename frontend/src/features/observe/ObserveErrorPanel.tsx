@@ -32,13 +32,15 @@ export function ObserveErrorPanel({
   selectedKey: string | null;
 }) {
   const { messages } = useLocale();
-  const [fragment, setFragment] = useState<FragmentState<UsageErrorsResponse>>({
-    phase: "loading",
-    data: null,
-    stale: false,
-    error: null,
-    retryAfterMs: null,
-  });
+  const requestKey = `${queryContext ?? ""}:${groupBy}`;
+  const [snapshot, setSnapshot] = useState<{
+    key: string;
+    fragment: FragmentState<UsageErrorsResponse>;
+  }>(() => ({ key: requestKey, fragment: loadingErrorsFragment() }));
+  const fragment =
+    snapshot.key === requestKey
+      ? snapshot.fragment
+      : loadingErrorsFragment();
 
   useEffect(() => {
     if (!queryContext) {
@@ -49,20 +51,44 @@ export function ObserveErrorPanel({
       .usageErrors(queryContext, { group_by: groupBy, limit: 10 })
       .then((data) => {
         if (cancelled) return;
-        setFragment({ phase: "ready", data, stale: false, error: null, retryAfterMs: null });
+        setSnapshot({
+          key: requestKey,
+          fragment: {
+            phase: "ready",
+            data,
+            stale: false,
+            error: null,
+            retryAfterMs: null,
+          },
+        });
         onContextResolved(data.requests_context);
       })
       .catch((err: unknown) => {
         if (!cancelled) {
           const mapped = fragmentErrorFrom(err);
-          setFragment((previous) => ({ ...previous, phase: "error", stale: previous.data !== null, error: mapped.error, retryAfterMs: mapped.retryAfterMs }));
+          setSnapshot((previous) => {
+            const priorFragment =
+              previous.key === requestKey
+                ? previous.fragment
+                : loadingErrorsFragment();
+            return {
+              key: requestKey,
+              fragment: {
+                ...priorFragment,
+                phase: "error",
+                stale: priorFragment.data !== null,
+                error: mapped.error,
+                retryAfterMs: mapped.retryAfterMs,
+              },
+            };
+          });
         }
       });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupBy, queryContext]);
+  }, [groupBy, queryContext, requestKey]);
 
   if (!queryContext) {
     return <section role="status" className="rounded-lg border border-border bg-inset p-4 text-sm text-muted-foreground">{messages.observe.windowUnavailable}</section>;
@@ -216,4 +242,14 @@ export function ObserveErrorPanel({
       ) : null}
     </section>
   );
+}
+
+function loadingErrorsFragment(): FragmentState<UsageErrorsResponse> {
+  return {
+    phase: "loading",
+    data: null,
+    stale: false,
+    error: null,
+    retryAfterMs: null,
+  };
 }

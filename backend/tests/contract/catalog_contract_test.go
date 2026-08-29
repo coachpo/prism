@@ -185,6 +185,8 @@ func TestModelCatalogBindingAndOverrideContracts(t *testing.T) {
 	if matchPreview["committable"] != true || matchPreview["provider_id"] != "openai" || matchPreview["reason"] != "unique_match" {
 		t.Fatalf("unexpected match preview %+v", matchPreview)
 	}
+	wrongMethod := modelResponse(t, harness, profileID, http.MethodGet, catalogPath+"/match-preview", nil)
+	assertStatus(t, wrongMethod, http.StatusMethodNotAllowed)
 	candidates := requestJSONStatus[map[string]any](t, harness, http.MethodGet, catalogPath+"/candidates?scope=all&limit=20", nil, nil, http.StatusOK)
 	if jsonInt(t, candidates["total"]) < 1 || len(candidates["items"].([]any)) < 1 {
 		t.Fatalf("catalog candidates must remain available: %+v", candidates)
@@ -496,5 +498,72 @@ func TestCatalogPricingImportAtomicAssignmentContracts(t *testing.T) {
 	}
 	if audioTemplates != 0 {
 		t.Fatalf("incompatible import must not create templates, found %d", audioTemplates)
+	}
+
+	// A valid catalog decimal that exceeds Prism's 20-character storage
+	// boundary remains previewable as source evidence, but commit rejects it
+	// before creating a revision or changing any requested target assignment.
+	schemaEdgeModel := catalogCreateOpenAIModel(t, harness, strategyID, "schema-edge")
+	schemaEdgeModelID := jsonInt(t, schemaEdgeModel["id"])
+	schemaEdgeBind := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/catalog/bind", schemaEdgeModelID), map[string]any{
+		"provider_id": "chutes", "catalog_model_id": "schema-edge", "expected_catalog_revision": revision,
+	}, nil, http.StatusOK)
+	if schemaEdgeBind["bound"] != true {
+		t.Fatalf("schema-edge model must bind: %+v", schemaEdgeBind)
+	}
+
+	var revisionsBefore int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT COUNT(*) FROM pricing_template_revisions`).Scan(&revisionsBefore); err != nil {
+		t.Fatalf("count revisions before incompatible import: %v", err)
+	}
+	var assignedTemplateBefore *int
+	var targetUpdatedAtBefore time.Time
+	if err := harness.conn.QueryRow(context.Background(),
+		`SELECT pricing_template_id, updated_at FROM connections WHERE id = $1`, connectionID).Scan(&assignedTemplateBefore, &targetUpdatedAtBefore); err != nil {
+		t.Fatalf("load target before incompatible import: %v", err)
+	}
+
+	schemaEdgePreview := requestJSONStatus[map[string]any](t, harness, http.MethodPost, previewPath, map[string]any{
+		"model_config_id": schemaEdgeModelID, "connection_ids": []int{connectionID},
+	}, nil, http.StatusOK)
+	if schemaEdgePreview["committable"] != false {
+		t.Fatalf("unrepresentable catalog price must fail closed: %+v", schemaEdgePreview)
+	}
+	schemaEdgePlan := asMap(t, schemaEdgePreview["plan"])
+	schemaEdgeCards := asMap(t, schemaEdgePlan["cards"])
+	schemaEdgeStandardCard := asMap(t, schemaEdgeCards["standard"])
+	if schemaEdgeStandardCard["cached_input_price"] != "0.0024499999999999995" {
+		t.Fatalf("preview must preserve the exact catalog decimal: %+v", schemaEdgeStandardCard)
+	}
+	schemaEdgeIncompatibilities := schemaEdgePlan["incompatibilities"].([]any)
+	if len(schemaEdgeIncompatibilities) != 1 {
+		t.Fatalf("expected one exact storage incompatibility, got %+v", schemaEdgeIncompatibilities)
+	}
+	schemaEdgeIncompatibility := asMap(t, schemaEdgeIncompatibilities[0])
+	if schemaEdgeIncompatibility["field"] != "cost.cache_read" || schemaEdgeIncompatibility["reason"] != "price_not_representable" {
+		t.Fatalf("unrepresentable price reason drifted: %+v", schemaEdgeIncompatibility)
+	}
+
+	schemaEdgeCommit := modelResponse(t, harness, profileID, http.MethodPost, commitPath, map[string]any{
+		"schema_version": 1, "model_config_id": schemaEdgeModelID, "connection_ids": []int{connectionID},
+		"preview_hash": schemaEdgePreview["preview_hash"].(string), "expected_catalog_revision": schemaEdgePreview["catalog_revision"].(string),
+	})
+	catalogAssertErrorContains(t, schemaEdgeCommit, http.StatusUnprocessableEntity, "models_dev_pricing_incompatible")
+	assertCountQuery(t, harness, `SELECT COUNT(*) FROM pricing_templates WHERE profile_id = $1 AND catalog_provider_id = 'chutes' AND catalog_model_id = 'schema-edge' AND deleted_at IS NULL`, profileID, 0)
+	var revisionsAfter int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT COUNT(*) FROM pricing_template_revisions`).Scan(&revisionsAfter); err != nil {
+		t.Fatalf("count revisions after incompatible import: %v", err)
+	}
+	if revisionsAfter != revisionsBefore {
+		t.Fatalf("incompatible import created revisions: before=%d after=%d", revisionsBefore, revisionsAfter)
+	}
+	var assignedTemplateAfter *int
+	var targetUpdatedAtAfter time.Time
+	if err := harness.conn.QueryRow(context.Background(),
+		`SELECT pricing_template_id, updated_at FROM connections WHERE id = $1`, connectionID).Scan(&assignedTemplateAfter, &targetUpdatedAtAfter); err != nil {
+		t.Fatalf("load target after incompatible import: %v", err)
+	}
+	if assignedTemplateBefore == nil || assignedTemplateAfter == nil || *assignedTemplateAfter != *assignedTemplateBefore || !targetUpdatedAtAfter.Equal(targetUpdatedAtBefore) {
+		t.Fatalf("incompatible import changed target assignment: before=%v/%s after=%v/%s", assignedTemplateBefore, targetUpdatedAtBefore, assignedTemplateAfter, targetUpdatedAtAfter)
 	}
 }

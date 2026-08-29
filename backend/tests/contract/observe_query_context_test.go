@@ -540,7 +540,7 @@ func TestObserveUsageErrors(t *testing.T) {
 	}
 	// Requests context deep link.
 	requestsContext := asMap(t, payload["requests_context"])
-	if requestsContext["view"] != "ingress_chains" || requestsContext["query_context"] != token {
+	if requestsContext["view"] != "attempts" || requestsContext["query_context"] != token {
 		t.Fatalf("unexpected requests context, got %+v", requestsContext)
 	}
 }

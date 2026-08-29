@@ -3804,7 +3804,8 @@ export const zhCNMessages = {
       total: MessageArg,
       failed: MessageArg,
       disconnected: MessageArg,
-    ) => `完成 ${completed} / ${total} · 失败 ${failed} · 客户端中断 ${disconnected}`,
+    ) =>
+      `完成 ${completed} / ${total} · 失败 ${failed} · 客户端中断 ${disconnected}`,
     ttftP95: "TTFT P95",
     outputRate: "输出速率",
     cost: "已知成本",
@@ -3837,9 +3838,9 @@ export const zhCNMessages = {
         requests: "请求数",
         attempts: "尝试数",
         errors: "错误",
-        ttft: "TTFT",
-        final_attempt_latency: "最终尝试延迟",
-        attempt_latency: "尝试延迟",
+        ttft: "首字耗时",
+        final_attempt_latency: "最终尝试耗时",
+        attempt_latency: "尝试耗时",
         output_rate: "输出速率",
         tokens: "令牌",
         cache_read_share: "缓存读取",
@@ -4011,8 +4012,10 @@ export const zhCNMessages = {
     commonSettingsDescription:
       "客户端将通过这里填写的 Prism Gateway origin 和 provider ID 访问当前实例。",
     gatewayOriginLabel: "Prism Gateway origin",
-    gatewayOriginHint: "只允许 HTTP(S) origin，不含路径、用户信息、查询或片段。",
-    gatewayOriginInvalid: "请输入不含路径、用户信息、查询或片段的 HTTP(S) origin。",
+    gatewayOriginHint:
+      "只允许 HTTP(S) origin，不含路径、用户信息、查询或片段。",
+    gatewayOriginInvalid:
+      "请输入不含路径、用户信息、查询或片段的 HTTP(S) origin。",
     providerIdLabel: "Provider ID",
     providerIdHint: "默认 prism；会写入客户端配置的 provider 槽。",
     providerIdInvalid: "Provider ID 去除首尾空白后不能为空，也不能包含 /。",

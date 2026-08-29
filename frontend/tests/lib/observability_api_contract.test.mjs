@@ -32,6 +32,7 @@ function installFetchRecorder(requests, responses) {
       ok: true,
       status: 200,
       text: async () => JSON.stringify(body),
+      blob: async () => new Blob([JSON.stringify(body)]),
     };
   };
 
@@ -171,8 +172,14 @@ test("request-log API sends canonical ingress, attempt and final model filters",
   try {
     await api.stats.requests({
       ingress_model_id: "entry-a",
-      attempt_target_model_id: "target-b",
-      final_target_model_id: "target-c",
+      attempt_target_model_id: ["target-b", "__null__"],
+      api_family: ["openai", "__null__"],
+      row_kind: "upstream",
+      attempt_trigger: ["initial", "failover", "__null__"],
+      attempt_result: ["http_error", "transport_error", "__null__"],
+      final_target_model_id: ["target-c", "__null__"],
+      final_status_code: ["429", "503"],
+      final_endpoint_id: ["7", "__null__", "9"],
       view: "attempts",
     });
   } finally {
@@ -182,11 +189,84 @@ test("request-log API sends canonical ingress, attempt and final model filters",
   const url = new URL(requests[0].url, "https://prism.test");
   assert.equal(url.pathname, "/api/stats/requests");
   assert.equal(url.searchParams.get("ingress_model_id"), "entry-a");
-  assert.equal(url.searchParams.get("attempt_target_model_id"), "target-b");
-  assert.equal(url.searchParams.get("final_target_model_id"), "target-c");
+  assert.deepEqual(url.searchParams.getAll("attempt_target_model_id"), [
+    "target-b",
+    "__null__",
+  ]);
+  assert.deepEqual(url.searchParams.getAll("attempt_trigger"), [
+    "initial",
+    "failover",
+    "__null__",
+  ]);
+  assert.deepEqual(url.searchParams.getAll("api_family"), [
+    "openai",
+    "__null__",
+  ]);
+  assert.deepEqual(url.searchParams.getAll("row_kind"), ["upstream"]);
+  assert.deepEqual(url.searchParams.getAll("attempt_result"), [
+    "http_error",
+    "transport_error",
+    "__null__",
+  ]);
+  assert.deepEqual(url.searchParams.getAll("final_target_model_id"), [
+    "target-c",
+    "__null__",
+  ]);
+  assert.deepEqual(url.searchParams.getAll("final_status_code"), [
+    "429",
+    "503",
+  ]);
+  assert.deepEqual(url.searchParams.getAll("final_endpoint_id"), [
+    "7",
+    "__null__",
+    "9",
+  ]);
   assert.equal(url.searchParams.get("view"), "attempts");
   assert.equal(url.searchParams.has("model_id"), false);
   assert.equal(url.searchParams.has("resolved_target_model_id"), false);
+});
+
+test("request-log CSV preserves the signed request-domain cohort on the wire", async () => {
+  const requests = [];
+  const restoreFetch = installFetchRecorder(requests, [{}]);
+  const { api } = loadApi();
+
+  try {
+    await api.stats.exportCsv({
+      query_context: "signed-context",
+      final_endpoint_id: ["7", "__null__", "9"],
+      api_family: ["openai"],
+      row_kind: "upstream",
+      attempt_trigger: ["initial", "failover"],
+      attempt_result: ["http_error", "__null__"],
+      view: "attempts",
+    });
+  } finally {
+    restoreFetch();
+  }
+
+  const url = new URL(requests[0].url, "https://prism.test");
+  assert.equal(url.pathname, "/api/stats/requests/export");
+  assert.equal(url.searchParams.get("query_context"), "signed-context");
+  assert.deepEqual(url.searchParams.getAll("final_endpoint_id"), [
+    "7",
+    "__null__",
+    "9",
+  ]);
+  assert.deepEqual(url.searchParams.getAll("api_family"), ["openai"]);
+  assert.deepEqual(url.searchParams.getAll("row_kind"), ["upstream"]);
+  assert.deepEqual(url.searchParams.getAll("attempt_trigger"), [
+    "initial",
+    "failover",
+  ]);
+  assert.deepEqual(url.searchParams.getAll("attempt_result"), [
+    "http_error",
+    "__null__",
+  ]);
+  assert.equal(url.searchParams.has("time_range"), false);
+  assert.equal(url.searchParams.has("from_time"), false);
+  assert.equal(url.searchParams.has("to_time"), false);
+  assert.equal(requests[0].init.headers.Accept, "text/csv");
 });
 
 test("spending API sends the scope-specific ingress model filter", async () => {

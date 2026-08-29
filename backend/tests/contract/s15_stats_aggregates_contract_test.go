@@ -355,6 +355,10 @@ func TestEndpointLabelSnapshotTopEndpointDuplicateLabelsStayDistinct(t *testing.
 func TestSpending(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
+	legacyFilter := s15GET[map[string]any](t, harness, profileID, "/api/stats/spending?scope=ingress&preset=all&model_id=spend-model", http.StatusUnprocessableEntity)
+	if legacyFilter["code"] != "filter_invalid" {
+		t.Fatalf("retired spending model_id must fail with filter_invalid: %+v", legacyFilter)
+	}
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Spend Strategy")
 	modelInsertModel(t, harness, profileID, nil, "openai", "spend-model", stringPtr("Spend Model"), "native", &strategyID, true)
 	endpointA := modelInsertEndpoint(t, harness, profileID, "Spend Endpoint A")

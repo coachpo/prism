@@ -93,6 +93,19 @@ func DefaultMetricForScope(scope string) string {
 	return MetricRequests
 }
 
+func IsValidMetric(scope string, metric string) bool {
+	normalized := strings.TrimSpace(metric)
+	if normalized == "" {
+		return false
+	}
+	for _, allowed := range scopeMetricsOrdered[scope] {
+		if normalized == allowed {
+			return true
+		}
+	}
+	return false
+}
+
 func NormalizeMetric(scope string, metric string) (string, error) {
 	normalizedScope, err := NormalizeScope(scope)
 	if err != nil {
@@ -102,12 +115,10 @@ func NormalizeMetric(scope string, metric string) (string, error) {
 	if trimmed == "" {
 		return DefaultMetricForScope(normalizedScope), nil
 	}
-	for _, allowed := range scopeMetricsOrdered[normalizedScope] {
-		if trimmed == allowed {
-			return trimmed, nil
-		}
+	if !IsValidMetric(normalizedScope, trimmed) {
+		return "", &HTTPError{StatusCode: 422, Code: "metric_invalid", Detail: fmt.Sprintf("metric %q not allowed for scope %q", metric, normalizedScope)}
 	}
-	return "", &HTTPError{StatusCode: 422, Code: "metric_invalid", Detail: fmt.Sprintf("metric %q not allowed for scope %q", metric, normalizedScope)}
+	return trimmed, nil
 }
 
 func ValidateMetric(scope string, metric string) error {

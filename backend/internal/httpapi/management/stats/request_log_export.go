@@ -32,10 +32,6 @@ func (s *Service) handleExportRequestLogs(w http.ResponseWriter, r *http.Request
 	// range-free exception; otherwise a preset or both explicit bounds are
 	// required so a download can never silently become a browser-window dump.
 	query := r.URL.Query()
-	requestedView := strings.ToLower(strings.TrimSpace(query.Get("view")))
-	if requestedView == "" {
-		requestedView = "ingress_chains"
-	}
 	hasQueryContext := strings.TrimSpace(query.Get("query_context")) != ""
 	if requestLogHasSignedCohortSelector(r) && !hasQueryContext {
 		writeDomainError(w, r, s.corsSnapshot(), &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "query_context_required", Detail: "query_context is required with final filters"})

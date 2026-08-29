@@ -455,7 +455,13 @@ Connection management keeps its existing ownership seams under `backend/internal
 
 ## 6. Request-Derived Metrics
 
-Prism has no manual Terminal Target probe routes or probe-backed health fields. Retained request history exposes three explicit metric scopes with an authoritative catalog owned by `backend/internal/domain/stats/scope.go`: ingress has `requests|errors|ttft|output_rate|tokens|cache_read_share|cost`, final execution has `requests|errors|final_attempt_latency|tokens|cache_read_share|cost`, and route attempt has `attempts|errors|attempt_latency`. An omitted metric resolves to that scope's default; an explicit incompatible metric/group/filter fails with typed `422`, never a no-op or alias. Ingress reads one `usage_request_events` row per finalized ingress and uses requested-model identity. Final execution uses the resolved leaf and winning Terminal Target, with latency joined by `final_attempt_number`. Route attempt reads upstream `request_logs`, classifies attempt outcomes, and makes no cost claim. Top-N series/Errors conserve the full denominator through a real Other bucket, labels resolve through current/retained catalogs with explicit fallbacks, and `truncated` means a remainder actually exists. Every envelope identifies its caliber, datasets, coverage, and observation/latency/cost sample and missing counts.
+Prism has no manual Terminal Target probe routes or probe-backed health fields. Retained request history exposes three explicit metric scopes with an authoritative ordered catalog owned by `backend/internal/domain/stats/scope.go`:
+
+- `ingress` — `requests`, `errors`, `ttft`, `output_rate`, `tokens`, `cache_read_share`, `cost` (default `requests`)
+- `final_execution` — `requests`, `errors`, `final_attempt_latency`, `tokens`, `cache_read_share`, `cost` (default `requests`)
+- `route_attempt` — `attempts`, `errors`, `attempt_latency` (default `attempts`)
+
+An omitted `metric` resolves to the scope default before validation; an explicit incompatible metric/group/filter returns typed `422`, never a no-op, alias, or cross-scope substitution. Ingress reads one `usage_request_events` row per finalized ingress and uses requested-model identity. Final execution uses the resolved leaf and actual winning Terminal Target, with latency joined by `final_attempt_number`. Route attempt reads upstream `request_logs`, classifies attempt outcomes, renders `attempts` as a count, and makes no cost claim. Ingress and final-execution cost are non-additive projections of the same `priced` plus `trusted` served-final fact. Latency P50/P95 for `ttft`, `final_attempt_latency`, and `attempt_latency` uses the shared percentile fields while preserving missing, zero, partial-sample, and read-failure states. Top-N series/Errors conserve the full denominator through a real Other bucket, labels resolve through current or retained catalogs with explicit fallbacks, and `truncated` means a remainder actually exists. Every envelope identifies its caliber, datasets, coverage, and observation/latency/cost sample and missing counts; the Models and Observe surfaces never infer health from absent samples.
 
 ### 6.1 URL Path Joining
 
@@ -2157,7 +2163,8 @@ Attempt-view query parameters:
 | `ingress_request_id` | string | — | Exact incoming-request grouping ID shared by per-attempt rows |
 | `ingress_model_id` | string | — | Filter by requested entry model ID |
 | `attempt_target_model_id` | string | — | Filter by the resolved leaf model used by the attempt |
-| `api_family` / `row_kind` | repeated string | — | Attempt family and retained row kind; route-attempt Observe links pin `row_kind=upstream` |
+| `api_family` | repeated string | — | Attempt API-family filter; repeated and comma-separated values are equivalent |
+| `row_kind` | repeated string | — | Retained row kind (`planning`, `admission`, `upstream`, `legacy_unknown`); route-attempt Observe links pin `upstream` |
 | `status_family` | string | — | Filter by scoped status family (`2xx`, `4xx`, or `5xx`) |
 | `status_code` | integer | — | Exact scoped status-code filter |
 | `error_text` | string | — | Case-insensitive substring match against `error_detail`/`error_code`/`stream_error_detail`/`stream_error_kind` |
@@ -2374,7 +2381,7 @@ Chain semantics:
 - `attempt_budget_exhausted` etc. gateway terminal codes appear in `final_error_code`.
 - All Requests list/detail/chain/export responses send `Cache-Control: private, no-store` and preserve auth/profile-sensitive `Vary`.
 
-The attempts route keeps one retained row per attempt, while the chain envelope keeps one selected ingress with its complete retained-row counts/pages. Both envelopes require `filter_options.endpoints`, `filter_options.ingress_models`, `filter_options.clients`, and `filter_options.attempt_target_models`; empty option sets are `[]`. `client_rule_id` matches caller User-Agent only. Requested, attempt-target and signed final-owner identities remain distinct, and BIGINT row IDs are positive decimal strings rather than JavaScript numbers.
+The attempts route is the slim browse contract and keeps one retained row per attempt, while the chain envelope keeps one selected ingress with its complete retained-row counts/pages. Both envelopes require `filter_options.endpoints`, `filter_options.ingress_models`, `filter_options.clients`, and `filter_options.attempt_target_models`; empty option sets are `[]`. Rows include requested and attempt-target labels, `stream_outcome`, `stream_error_kind`, and a failure preview. `client_rule_id` matches caller User-Agent only and never matches `upstream_user_agent`. Requested, attempt-target, and signed final-owner identities remain distinct, and BIGINT row IDs are positive decimal strings rather than JavaScript numbers. The attempts UI offers page sizes 100, 300, and 500, with 100 as its default; this retained-history route is an investigation surface, not a dashboard aggregate.
 
 Ordinary Requests triage (`ingress_final_result`, `confirmed_failover`) needs no query token. Observe analysis links use `view=attempts`, an opaque signed `query_context`, and explicit repeated/comma-equivalent selectors. Same-key values are OR, different keys are AND, and `__null__` matches a normalized unattributed value without forcing finalized usage evidence for attempt-only selectors. A server-generated bounded `final_exclude=<facet>,<visible>...` expresses the exact complement behind ingress/final Errors Other; its facet is closed, values are parameterized, and it is rejected without the signed context. Exact `ingress_request_id` without an explicit window resolves against owner-retained `all` bounds for attempts, chains and CSV. Every cohort mutation clears cursors; signed outer and row cursors also bind the normalized cohort/window, profile, ordering, page size and retention generation.
 
@@ -2386,9 +2393,9 @@ Exact single-request investigation now lives on `GET /api/stats/requests/{reques
 GET /api/stats/requests/export
 ```
 
-Server-side full filtered CSV export (Requests SPEC §6.8). It reuses the non-pagination filter projection. `view=attempts` exports the flat attempt cohort; `view=ingress_chains` exports all retained rows of the server-selected chain cohort, including finalized pricing/cost-segment and row-filter semantics. Signed final selectors retain their frozen request-domain bounds, while ordinary triage remains tokenless. The export:
+Server-side full filtered CSV export (Requests SPEC §6.8). It reuses the non-pagination attempt/chain filter projection, including requested/attempt/final identities, API family, row kind, status/error, pricing, signed `query_context`, and final selectors. `view=attempts` exports the flat attempt cohort; `view=ingress_chains` exports all retained rows of the server-selected chain cohort, including finalized pricing/cost-segment and row-filter semantics. Signed final selectors retain their frozen request-domain bounds, while ordinary triage remains tokenless. The export:
 
-- Reads rows and counts in one `READ ONLY REPEATABLE READ` snapshot (with exact-ID exemption); concurrent inserts cannot change the exported row count.
+- Reads rows and counts in one `READ ONLY REPEATABLE READ` snapshot (with the exact-ingress range exemption); concurrent inserts cannot change the exported row count.
 - Rejects more than 100,000 rows or a requested range wider than 31 days (unless exact ingress is supplied) with a typed error before any file bytes; exactly 31 days is reachable even though ordinary custom browsing remains capped at 30.
 - Neutralizes formula injection by prefixing cells that start with `=`, `+`, `-`, or `@` with a single quote.
 - Spools to a 0600 temp file (128 MiB cap), computes a SHA-256 digest, then streams with `Content-Type: text/csv`, `Cache-Control: private, no-store`, and `Digest: sha-256=...`. Any spool/digest failure returns a typed rejection, never a partial success file.

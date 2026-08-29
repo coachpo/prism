@@ -11,8 +11,8 @@ import { TerminalTargetDrillDown } from "@/features/observe/TerminalTargetDrillD
 import {
   defaultMetricForScope,
   groupBelongsToScope,
-  isObserveMetric,
   isObserveGroupBy,
+  isObserveMetric,
   isObservePreset,
   isObserveScope,
   isValidMetricForScope,
@@ -73,10 +73,12 @@ export function ObservePage() {
 
   const view = resolveView(search.tab);
   const preset = isObservePreset(search.preset) ? search.preset : "24h";
-  const scope = isObserveScope(search.scope) ? search.scope : "ingress";
+  const rawScope = isObserveScope(search.scope) ? search.scope : "ingress";
+  const scope: ObserveScope = rawScope;
+  const rawMetric = search.metric;
   const metric =
-    isObserveMetric(search.metric) && isValidMetricForScope(search.metric, scope)
-      ? search.metric
+    isObserveMetric(rawMetric) && isValidMetricForScope(rawMetric, scope)
+      ? rawMetric
       : defaultMetricForScope(scope);
   const parsedGroupBy = isObserveGroupBy(search.group_by)
     ? search.group_by
@@ -84,10 +86,10 @@ export function ObservePage() {
   const groupBy = groupBelongsToScope(parsedGroupBy, scope)
     ? parsedGroupBy
     : "none";
-
+  const needsMetricNormalize = rawMetric !== metric;
+  const needsGroupNormalize = parsedGroupBy !== groupBy;
   useEffect(() => {
-    if (search.metric === metric && (search.group_by ?? "none") === groupBy)
-      return;
+    if (!needsMetricNormalize && !needsGroupNormalize) return;
     void navigate({
       to: "/observe",
       search: {
@@ -98,7 +100,15 @@ export function ObservePage() {
       replace: true,
       resetScroll: false,
     });
-  }, [groupBy, metric, navigate, search]);
+  }, [
+    needsMetricNormalize,
+    needsGroupNormalize,
+    metric,
+    groupBy,
+    navigate,
+    search,
+    scope,
+  ]);
 
   const setSearch = useCallback(
     (patch: Record<string, string | undefined>) => {
@@ -136,11 +146,11 @@ export function ObservePage() {
   const setup = useSetupCoordinator();
   const chartState = useMemo(
     () => ({ metric, groupBy, interval: search.interval ?? "auto", scope }),
-    [metric, groupBy, search.interval, scope],
+    [metric, groupBy, scope, search.interval],
   );
   const seriesFragment = useUsageSeriesFragment(
     analysisContext.phase === "ready"
-      ? analysisContext.data?.query_context ?? null
+      ? (analysisContext.data?.query_context ?? null)
       : null,
     chartState,
     analysisContext.phase,
@@ -325,7 +335,7 @@ export function ObservePage() {
             groupBy={groupBy}
             queryContext={
               analysisContext.phase === "ready"
-                ? analysisContext.data?.query_context ?? null
+                ? (analysisContext.data?.query_context ?? null)
                 : null
             }
             scope={scope}

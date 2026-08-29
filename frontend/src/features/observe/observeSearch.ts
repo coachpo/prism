@@ -33,6 +33,7 @@ export const SCOPE_DEFAULT_METRIC = {
   route_attempt: "attempts",
 } as const;
 
+/** Union of all metrics for URL schema validation */
 export const OBSERVE_METRICS = [
   "requests",
   "errors",
@@ -41,9 +42,9 @@ export const OBSERVE_METRICS = [
   "tokens",
   "cache_read_share",
   "cost",
-	"attempts",
-	"final_attempt_latency",
-	"attempt_latency",
+  "attempts",
+  "final_attempt_latency",
+  "attempt_latency",
 ] as const;
 export type ObserveMetric = (typeof OBSERVE_METRICS)[number];
 
@@ -97,9 +98,7 @@ export function groupBelongsToScope(
     "attempt_result",
     "endpoint",
     "terminal_target",
-  ].includes(
-    groupBy,
-  );
+  ].includes(groupBy);
 }
 
 export function metricsForScope(scope: ObserveScope): readonly ObserveMetric[] {
@@ -115,4 +114,12 @@ export function isValidMetricForScope(
   scope: ObserveScope,
 ): metric is ObserveMetric {
   return (metricsForScope(scope) as readonly string[]).includes(metric);
+}
+
+export function normalizeMetricForScope(
+  metric: string | undefined,
+  scope: ObserveScope,
+): ObserveMetric {
+  if (metric && isValidMetricForScope(metric, scope)) return metric;
+  return defaultMetricForScope(scope);
 }

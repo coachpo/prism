@@ -48,6 +48,11 @@ export function ObserveSeriesTable({
   if (fragment.data === null || fragment.data.series.length === 0) return null;
 
   const items = fragment.data.series;
+  const observationLabel =
+    fragment.data.caliber.scope === "route_attempt" ||
+    fragment.data.selection_basis === "attempt_count"
+      ? copy.metricName("attempts")
+      : copy.requests;
   const lastBucketStart = lastObservedBucket(items);
   const lastBucketLabel = lastBucketStart
     ? copy.lastBucketColumn(formatBucket(lastBucketStart))
@@ -60,10 +65,7 @@ export function ObserveSeriesTable({
           <TableRow>
             <TableHead>{copy.seriesLabel}</TableHead>
             <TableHead className="text-right">
-              {copy.windowTotalColumn} ·{" "}
-              {fragment.data.selection_basis === "attempt_count"
-                ? copy.metricName("attempts")
-                : copy.requests}
+              {copy.windowTotalColumn} · {observationLabel}
             </TableHead>
             {metric === "errors" ? (
               <TableHead className="text-right">
@@ -92,8 +94,12 @@ export function ObserveSeriesTable({
             ) : null}
             {isLatencyMetric(metric) ? (
               <>
-                <TableHead className="text-right">{lastBucketLabel} · P50</TableHead>
-                <TableHead className="text-right">{lastBucketLabel} · P95</TableHead>
+                <TableHead className="text-right">
+                  {lastBucketLabel} · P50
+                </TableHead>
+                <TableHead className="text-right">
+                  {lastBucketLabel} · P95
+                </TableHead>
               </>
             ) : null}
             {metric === "output_rate" ? (
@@ -134,7 +140,9 @@ export function ObserveSeriesTable({
                     <Cell
                       value={item.points.reduce(
                         (total, point) =>
-                          total + point.failed_count + point.client_disconnected_count,
+                          total +
+                          point.failed_count +
+                          point.client_disconnected_count,
                         0,
                       )}
                     />
@@ -270,7 +278,12 @@ function SampleBasisCell({
   requests: number | null | undefined;
 }) {
   const { formatNumber, messages } = useLocale();
-  if (measured === null || measured === undefined || requests === null || requests === undefined) {
+  if (
+    measured === null ||
+    measured === undefined ||
+    requests === null ||
+    requests === undefined
+  ) {
     return <OperatorMissingValue reason={messages.honesty.noValue} />;
   }
   return <>{`${formatNumber(measured)} / ${formatNumber(requests)}`}</>;

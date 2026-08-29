@@ -19,6 +19,18 @@ import (
 // logs have no finalized usage evidence still appear with an unavailable
 // finalized summary, rows with a NULL ingress_request_id never form a chain,
 // and the full-cohort totals stay consistent with the visible set.
+func TestChainViewRejectsOffsetPaginationAliases(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	for _, key := range []string{"limit", "offset"} {
+		payload := s15GET[map[string]any](t, harness, profileID,
+			"/api/stats/requests?view=ingress_chains&"+key+"=1", http.StatusUnprocessableEntity)
+		if payload["code"] != "unknown_query_key" {
+			t.Fatalf("%s must be rejected as unknown_query_key: %+v", key, payload)
+		}
+	}
+}
+
 func TestChainViewOrdinarySetCoversRequestOnlyIngressesAndSkipsNullIngress(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)

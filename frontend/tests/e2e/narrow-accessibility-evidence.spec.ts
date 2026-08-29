@@ -23,7 +23,8 @@ async function installObserveRoutes(page: import("@playwright/test").Page) {
     });
   };
   await page.route("**/api/stats/query-context**", (route) => {
-    const scope = new URL(route.request().url()).searchParams.get("scope") ?? "ingress";
+    const scope =
+      new URL(route.request().url()).searchParams.get("scope") ?? "ingress";
     const coverage = {
       requested_preset: "24h",
       from_time: "2026-08-08T00:00:00Z",
@@ -59,7 +60,13 @@ async function installObserveRoutes(page: import("@playwright/test").Page) {
       generated_at: "2026-08-09T00:00:00Z",
       caliber: { scope: "ingress" },
       dataset_coverage: {},
-      samples: { observation_count: 0, latency_sample_count: 0, latency_missing_count: 0, cost_sample_count: 0, cost_missing_count: 0 },
+      samples: {
+        observation_count: 0,
+        latency_sample_count: 0,
+        latency_missing_count: 0,
+        cost_sample_count: 0,
+        cost_missing_count: 0,
+      },
       coverage: {
         requested_preset: "24h",
         from_time: "2026-08-08T00:00:00Z",
@@ -111,7 +118,13 @@ async function installObserveRoutes(page: import("@playwright/test").Page) {
       generated_at: "2026-08-09T00:00:00Z",
       caliber: { scope: "ingress" },
       dataset_coverage: {},
-      samples: { observation_count: 3, latency_sample_count: 2, latency_missing_count: 1, cost_sample_count: 0, cost_missing_count: 3 },
+      samples: {
+        observation_count: 3,
+        latency_sample_count: 2,
+        latency_missing_count: 1,
+        cost_sample_count: 0,
+        cost_missing_count: 3,
+      },
       coverage: {
         requested_preset: "24h",
         from_time: "2026-08-08T00:00:00Z",
@@ -370,7 +383,7 @@ test("narrow 390x844 observe page has no horizontal overflow and all tabs reacha
 const SEVEN_METRICS = [
   "请求数",
   "错误",
-  "TTFT",
+  "首字耗时",
   "输出速率",
   "令牌",
   "缓存读取",
@@ -391,7 +404,8 @@ test("narrow 390x844 observe main chart exposes seven keyboard-operable metrics"
   });
   expect(noHorizontalOverflow).toBe(true);
 
-  // Fixed UI order: requests, errors, TTFT, output rate, tokens, cache read, cost.
+  // Fixed ingress order: requests, errors, first-token latency, output rate,
+  // tokens, cache read, cost.
   const metricGroup = chart.getByRole("group", { name: "指标" });
   const metrics = metricGroup.getByRole("radio");
   await expect(metrics).toHaveCount(7);
