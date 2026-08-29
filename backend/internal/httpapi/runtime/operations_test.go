@@ -162,6 +162,34 @@ func TestRuntimeOperationCatalog(t *testing.T) {
 	}
 }
 
+func TestModelBoundRouteWitnessOperationsMirrorsRegistry(t *testing.T) {
+	want := []struct {
+		name   string
+		family string
+	}{
+		{name: "openai.chat_completions", family: "openai"},
+		{name: "openai.responses", family: "openai"},
+		{name: "openai.responses.input_tokens", family: "openai"},
+		{name: "openai.responses.compact", family: "openai"},
+		{name: "openai.images.generations", family: "openai"},
+		{name: "openai.images.edits", family: "openai"},
+		{name: "anthropic.messages", family: "anthropic"},
+		{name: "anthropic.count_tokens", family: "anthropic"},
+		{name: "gemini.generate_content", family: "gemini"},
+		{name: "gemini.stream_generate_content", family: "gemini"},
+		{name: "gemini.count_tokens", family: "gemini"},
+	}
+	got := ModelBoundRouteWitnessOperations()
+	if len(got) != len(want) {
+		t.Fatalf("expected %d model-bound operations, got %+v", len(want), got)
+	}
+	for index, operation := range got {
+		if operation.Name != want[index].name || operation.APIFamily != want[index].family {
+			t.Fatalf("unexpected operation projection at %d: %+v", index, operation)
+		}
+	}
+}
+
 func assertRuntimeOperation(t *testing.T, operation RuntimeOperation, want runtimeOperationExpectation) {
 	t.Helper()
 	if operation.Name != want.name {

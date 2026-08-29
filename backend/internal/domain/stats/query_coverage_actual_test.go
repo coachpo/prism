@@ -90,6 +90,24 @@ func TestResolveQueryBoundsFromActualCoverageDoesNotShrinkDirtyOwnerRange(t *tes
 	}
 }
 
+func TestResolveQueryBoundsCustomRangeLimitIsCallerSpecific(t *testing.T) {
+	referenceNow := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
+	from := referenceNow.Add(-31 * 24 * time.Hour)
+	source := RetentionFloorEpochSource{Domain: "request_logs", SourceRevision: "source-export"}
+	actual := ActualCoverageProjection{Complete: true, Freshness: "fresh"}
+
+	if _, err := ResolveQueryBoundsFromActualCoverage("custom", &from, &referenceNow, referenceNow, source, actual); err == nil {
+		t.Fatal("ordinary 30-day custom range unexpectedly accepted 31 days")
+	}
+	if _, err := resolveQueryBoundsFromActualCoverageWithCustomLimit("custom", &from, &referenceNow, referenceNow, source, actual, 31*24*time.Hour); err != nil {
+		t.Fatalf("export-specific 31-day custom range rejected: %v", err)
+	}
+	tooEarly := from.Add(-time.Nanosecond)
+	if _, err := resolveQueryBoundsFromActualCoverageWithCustomLimit("custom", &tooEarly, &referenceNow, referenceNow, source, actual, 31*24*time.Hour); err == nil {
+		t.Fatal("31 days plus one nanosecond unexpectedly accepted")
+	}
+}
+
 func TestCoverageFromQueryBoundsRequiresFreshCompleteOwner(t *testing.T) {
 	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
 	bounds := QueryBounds{RequestedPreset: "24h", UsageFrom: now.Add(-24 * time.Hour), UsageTo: now, Source: "raw", Complete: true, Gaps: []CoverageGap{}}

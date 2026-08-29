@@ -3,55 +3,41 @@ package modelexport
 import (
 	"encoding/json"
 	"sort"
-	"strings"
-	"unicode"
+
+	"github.com/coachpo/prism/backend/internal/domain/pidev"
 )
 
 // MetadataSource names the layer that contributed a metadata leaf.
 type MetadataSource string
 
 const (
-	// SourcePrism marks leaves resolved from stored Prism binding metadata
-	// (source columns after per-field overrides).
+	// SourcePrism marks leaves resolved from first-party Prism metadata.
 	SourcePrism MetadataSource = "prism"
-	// SourceModelsDev marks leaves filled from the in-memory models.dev
-	// catalog parse.
-	SourceModelsDev MetadataSource = "models_dev"
-	// SourceManual marks leaves contributed by the operator's manual
-	// enhancement payload.
-	SourceManual MetadataSource = "manual"
+	// SourcePiCatalog marks leaves filled from the persisted, API-sanitized
+	// pi.dev binding snapshot (including any validated per-field override).
+	SourcePiCatalog MetadataSource = "pi_catalog"
 )
 
-// Known metadata leaf names shared by both platforms' enrichment surfaces.
-// These are the only manual-overridable known metadata leaves; everything
-// outside this set that the manual layer fills is a platform extension field.
+// Known metadata leaf names are exactly the five ordinary Pi model fields the
+// renderer projects. thinkingLevelMap and compat are validated derived fields
+// on PiTemplate; OpenCode-only catalog metadata is intentionally absent.
 const (
-	MetaName             = "name"
-	MetaDescription      = "description"
-	MetaFamily           = "family"
-	MetaReasoning        = "reasoning"
-	MetaAttachment       = "attachment"
-	MetaToolCall         = "tool_call"
-	MetaTemperature      = "temperature"
-	MetaContextWindow    = "context_window"
-	MetaMaxOutputTokens  = "max_output_tokens"
-	MetaMaxInputTokens   = "max_input_tokens"
-	MetaModalitiesInput  = "modalities_input"
-	MetaModalitiesOutput = "modalities_output"
-	MetaStatus           = "status"
-	MetaReleaseDate      = "release_date"
-	MetaKnowledge        = "knowledge"
-	MetaInterleaved      = "interleaved"
+	MetaName            = "name"
+	MetaReasoning       = "reasoning"
+	MetaContextWindow   = "context_window"
+	MetaMaxOutputTokens = "max_output_tokens"
+	MetaModalitiesInput = "modalities_input"
 )
 
 // KnownMetadataLeaves lists every known metadata leaf in stable order. The
 // merge provenance and missing reports use exactly this order.
 func KnownMetadataLeaves() []string {
 	return []string{
-		MetaName, MetaDescription, MetaFamily, MetaReasoning, MetaAttachment,
-		MetaToolCall, MetaTemperature, MetaContextWindow, MetaMaxOutputTokens,
-		MetaMaxInputTokens, MetaModalitiesInput, MetaModalitiesOutput,
-		MetaStatus, MetaReleaseDate, MetaKnowledge, MetaInterleaved,
+		MetaName,
+		MetaReasoning,
+		MetaContextWindow,
+		MetaMaxOutputTokens,
+		MetaModalitiesInput,
 	}
 }
 
@@ -115,10 +101,9 @@ func (m MetadataLayer) Values() map[string]json.RawMessage {
 	return values
 }
 
-// MergeResult carries the three-layer merge output plus its audit trail.
+// MergeResult carries the two-layer merge output plus its audit trail.
 type MergeResult struct {
-	// Merged holds every present leaf after Prism → models.dev fill → manual
-	// application.
+	// Merged holds every present leaf after Prism → persisted Pi fill.
 	Merged MetadataLayer
 	// Provenance maps each merged leaf to the layer it came from.
 	Provenance map[string]MetadataSource
@@ -127,69 +112,32 @@ type MergeResult struct {
 	Missing []string
 }
 
-// MergeOptions configures one three-layer merge.
+// MergeOptions configures one Pi-only two-layer merge.
 type MergeOptions struct {
-	// Prism is the stored Prism effective metadata (source after overrides).
+	// Prism is first-party Prism metadata, currently the operator-owned display
+	// name. It wins when present.
 	Prism MetadataLayer
-	// ModelsDev is the live models.dev parse for the bound offering. It may
-	// be empty when the catalog was unavailable or the offering vanished.
-	ModelsDev MetadataLayer
-	// Manual is the operator-authored enhancement payload for this model.
-	Manual MetadataLayer
-	// OverrideFields lists manual leaves allowed to replace values that are
-	// already present in the Prism or models.dev layers.
-	OverrideFields []string
-}
-
-// sensitiveSubstrings is matched case-insensitively against every manual key.
-// Any hit fails the whole enhancement closed rather than silently dropping
-// credential-shaped material.
-var sensitiveSubstrings = []string{
-	"apikey", "authorization", "authtoken", "proxykey", "secret", "password",
-	"passwd", "credential", "cookie", "sessionkey", "accesskey", "privatekey",
-	"bearer", "signature", "satoken", "clientsecret", "accesstoken",
-	"sessiontoken", "refreshtoken", "idtoken",
+	// Pi is the effective API-sanitized metadata frozen in the persisted Pi
+	// binding. It fills only leaves Prism left absent.
+	Pi MetadataLayer
 }
 
 // KeyLooksSensitive reports whether a JSON object key carries credential-like
 // material anywhere in its name.
 func KeyLooksSensitive(key string) bool {
-	lower := strings.ToLower(strings.TrimSpace(key))
-	if lower == "" {
-		return true
-	}
-	var compactBuilder strings.Builder
-	compactBuilder.Grow(len(lower))
-	for _, r := range lower {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			compactBuilder.WriteRune(r)
-		}
-	}
-	compact := compactBuilder.String()
-	for _, needle := range sensitiveSubstrings {
-		if strings.Contains(lower, needle) || strings.Contains(compact, needle) {
-			return true
-		}
-	}
-	return false
+	return pidev.KeyLooksSensitive(key)
 }
 
-// MergeKnownMetadata applies the three-layer leaf merge over the known
+// MergeKnownMetadata applies the two-layer leaf merge over the known
 // metadata surface (error types live in errors.go):
 //
 //  1. Prism effective values win by default.
-//  2. models.dev fills only leaves Prism left absent.
-//  3. Manual values fill only still-absent leaves unless their name is listed
-//     in OverrideFields, in which case they overwrite.
+//  2. The persisted Pi binding fills only leaves Prism left absent.
 //
 // Presence is preserved exactly: explicit false/0/""/[] stay present values
 // and never count as missing. Locked fields cannot appear in the metadata
 // surface, but the guard is kept here so future callers fail closed too.
 func MergeKnownMetadata(options MergeOptions) (MergeResult, error) {
-	override := make(map[string]struct{}, len(options.OverrideFields))
-	for _, field := range options.OverrideFields {
-		override[strings.TrimSpace(field)] = struct{}{}
-	}
 	result := MergeResult{Provenance: map[string]MetadataSource{}}
 	merged := map[string]json.RawMessage{}
 
@@ -201,29 +149,19 @@ func MergeKnownMetadata(options MergeOptions) (MergeResult, error) {
 		merged[leaf] = value
 		result.Provenance[leaf] = SourcePrism
 	}
-	for _, leaf := range options.ModelsDev.Leaves() {
-		if _, present := merged[leaf]; present {
-			continue
-		}
-		value, _ := options.ModelsDev.Get(leaf)
-		merged[leaf] = value
-		result.Provenance[leaf] = SourceModelsDev
-	}
-	for _, leaf := range options.Manual.Leaves() {
+	for _, leaf := range options.Pi.Leaves() {
 		if err := rejectLockedMetadataLeaf(leaf); err != nil {
 			return MergeResult{}, err
 		}
 		if KeyLooksSensitive(leaf) {
 			return MergeResult{}, &ErrSensitiveField{Field: leaf}
 		}
-		value, _ := options.Manual.Get(leaf)
 		if _, present := merged[leaf]; present {
-			if _, allowed := override[leaf]; !allowed {
-				continue
-			}
+			continue
 		}
+		value, _ := options.Pi.Get(leaf)
 		merged[leaf] = value
-		result.Provenance[leaf] = SourceManual
+		result.Provenance[leaf] = SourcePiCatalog
 	}
 	for _, leaf := range KnownMetadataLeaves() {
 		if _, present := merged[leaf]; !present {
@@ -246,18 +184,9 @@ func rejectLockedMetadataLeaf(leaf string) error {
 }
 
 // MetadataWarningCodes derives stable per-model warnings from the merged
-// metadata evidence. A bound but unavailable models.dev offering is distinct
-// from ordinary missing metadata, and an unbound model never receives the
-// enrichment warning.
-func MetadataWarningCodes(platform Platform, fact ModelFact, merged MetadataLayer) []string {
+// Prism + persisted Pi metadata evidence.
+func MetadataWarningCodes(merged MetadataLayer) []string {
 	warnings := []string{}
-	if fact.CatalogBinding.Bound && !fact.Enrichment.Available {
-		warnings = append(warnings, WarningEnrichmentUnavailable)
-	}
-	if fact.APIFamily == "openai" && fact.CatalogBinding.Bound &&
-		fact.CatalogBinding.ProviderID != "" && fact.CatalogBinding.ProviderID != "openai" {
-		warnings = append(warnings, WarningPiCompatMayRequireManualOverride)
-	}
 	if raw, present := merged.Get(MetaModalitiesInput); present {
 		var modalities []string
 		if json.Unmarshal(raw, &modalities) == nil {

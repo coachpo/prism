@@ -27,6 +27,7 @@ type piCandidateWire struct {
 	MaxTokens        *int64             `json:"max_tokens,omitempty"`
 	ThinkingLevelMap map[string]*string `json:"thinking_level_map,omitempty"`
 	Compat           map[string]any     `json:"compat,omitempty"`
+	DroppedFields    []string           `json:"dropped_fields,omitempty"`
 }
 
 type piSelectedWire struct {
@@ -59,19 +60,25 @@ type piSourceModelRow struct {
 	CandidateStatus string            `json:"candidate_status"`
 	// PiSelected/BindSource/CatalogRevision/FetchedAt/UpdatedAt/BindingStatus
 	// describe the persisted model_pi_catalog_bindings row, when one exists.
-	// PiSelected is the render authority; BindingStatus reports whether it
-	// still matches the live evidence above (bound/bound_drifted/unbound).
-	PiSelected      *piSelectedWire                `json:"pi_selected,omitempty"`
-	BindingStatus   string                         `json:"pi_binding_status"`
-	BindSource      string                         `json:"pi_bind_source,omitempty"`
-	CatalogRevision string                         `json:"pi_binding_catalog_revision,omitempty"`
-	FetchedAt       *time.Time                     `json:"pi_binding_fetched_at,omitempty"`
-	UpdatedAt       *time.Time                     `json:"pi_binding_updated_at,omitempty"`
-	Prism           map[string]json.RawMessage     `json:"prism_metadata"`
-	Merged          map[string]json.RawMessage     `json:"merged_metadata"`
-	Provenance      map[string]string              `json:"metadata_provenance"`
-	Missing         []string                       `json:"missing_metadata"`
-	Completeness    exportPlatformCompletenessWire `json:"platform_completeness"`
+	// PiSelected preserves the raw bound coordinate for rebind/unbind even
+	// after Prism identity/API drift. BindingRenderable is the explicit render
+	// health gate; BindingStatus separately reports live catalog drift.
+	PiSelected               *piSelectedWire            `json:"pi_selected,omitempty"`
+	BindingStatus            string                     `json:"pi_binding_status"`
+	BindingRenderable        bool                       `json:"pi_binding_renderable"`
+	BindSource               string                     `json:"pi_bind_source,omitempty"`
+	CatalogRevision          string                     `json:"pi_binding_catalog_revision,omitempty"`
+	FetchedAt                *time.Time                 `json:"pi_binding_fetched_at,omitempty"`
+	UpdatedAt                *time.Time                 `json:"pi_binding_updated_at,omitempty"`
+	BindingSourceMetadata    *piBindingMetadataPayload  `json:"pi_binding_source"`
+	BindingOverrideMetadata  *piBindingMetadataPayload  `json:"pi_binding_override"`
+	BindingEffectiveMetadata *piBindingMetadataPayload  `json:"pi_binding_effective"`
+	BindingDroppedFields     []string                   `json:"pi_binding_dropped_fields,omitempty"`
+	Prism                    map[string]json.RawMessage `json:"prism_metadata"`
+	Merged                   map[string]json.RawMessage `json:"merged_metadata"`
+	Provenance               map[string]string          `json:"metadata_provenance"`
+	Missing                  []string                   `json:"missing_metadata"`
+	Completeness             exportCompletenessWire     `json:"completeness"`
 }
 
 type piSourceResponse struct {
@@ -97,7 +104,6 @@ type piRenderRequest struct {
 
 type piRenderResponse struct {
 	TargetVersion string                          `json:"target_version"`
-	Catalog       piCatalogWire                   `json:"catalog"`
 	Content       string                          `json:"content"`
 	ContentSHA256 string                          `json:"content_sha256"`
 	FileName      string                          `json:"file_name"`

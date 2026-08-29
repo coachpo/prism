@@ -24,6 +24,7 @@ CREATE TABLE public.model_pi_catalog_bindings (
     source_max_tokens bigint,
     source_thinking_level_map jsonb,
     source_compat jsonb,
+    source_dropped_fields jsonb NOT NULL DEFAULT '[]'::jsonb,
     override_name text,
     override_reasoning boolean,
     override_input jsonb,
@@ -50,14 +51,17 @@ CREATE TABLE public.model_pi_catalog_bindings (
     CONSTRAINT ck_mpcb_compat_shape CHECK (
         source_compat IS NULL OR jsonb_typeof(source_compat) = 'object'
     ),
+    CONSTRAINT ck_mpcb_dropped_fields_shape CHECK (
+        jsonb_typeof(source_dropped_fields) = 'array'
+    ),
     CONSTRAINT ck_mpcb_override_compat_shape CHECK (
         override_compat IS NULL OR jsonb_typeof(override_compat) = 'object'
     ),
-    CONSTRAINT ck_mpcb_nonnegative_limits CHECK (
-        COALESCE(source_context_window, 0) >= 0
-        AND COALESCE(source_max_tokens, 0) >= 0
-        AND COALESCE(override_context_window, 0) >= 0
-        AND COALESCE(override_max_tokens, 0) >= 0
+    CONSTRAINT ck_mpcb_positive_limits CHECK (
+        (source_context_window IS NULL OR source_context_window > 0)
+        AND (source_max_tokens IS NULL OR source_max_tokens > 0)
+        AND (override_context_window IS NULL OR override_context_window > 0)
+        AND (override_max_tokens IS NULL OR override_max_tokens > 0)
     ),
     CONSTRAINT model_pi_catalog_bindings_model_fkey
         FOREIGN KEY (model_config_id) REFERENCES public.model_configs(id) ON DELETE CASCADE

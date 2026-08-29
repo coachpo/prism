@@ -25,6 +25,7 @@ export interface UseModelDetailConnectionMutationsInput
   pricingTemplates: PricingTemplate[];
   refreshCurrentState: () => void | Promise<void>;
   refreshDiagnostics?: () => void | Promise<void>;
+  refreshModels?: () => Promise<void>;
   setRoutingScheduleError: (
     error: import("./routingScheduleDraft").RoutingScheduleDraftError | null,
   ) => void;
@@ -61,6 +62,7 @@ export function useModelDetailConnectionMutations({
   endpointSourceDefaultName,
   refreshCurrentState,
   refreshDiagnostics,
+  refreshModels,
   routingScheduleDraft,
   setRoutingScheduleError,
   setIsConnectionDialogOpen,
@@ -76,6 +78,7 @@ export function useModelDetailConnectionMutations({
     setConnections,
     setAllConnections,
     setGlobalEndpoints,
+    refreshModels,
   });
   const submit = useModelDetailConnectionSubmit({
     id,

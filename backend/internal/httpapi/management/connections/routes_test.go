@@ -184,6 +184,43 @@ func TestEnsureOpenAIImageCapabilityCoversOwnerOperations(t *testing.T) {
 	}
 }
 
+func TestValidateCopyCapabilityDimensions(t *testing.T) {
+	dual := connectionStringRef("dual_native")
+	generations := connectionStringRef("generations")
+	both := connectionStringRef("generations_and_edits")
+	tests := []struct {
+		name        string
+		destination modelRecord
+		text        *string
+		image       *string
+		wantDetail  string
+	}{
+		{name: "text only exact", destination: modelRecord{APIFamily: "openai", OpenAIAcceptedFormat: dual}, text: dual},
+		{name: "text model allows target with extra image capability", destination: modelRecord{APIFamily: "openai", OpenAIAcceptedFormat: dual}, text: dual, image: generations},
+		{name: "image only exact", destination: modelRecord{APIFamily: "openai", OpenAIImageOperations: generations}, image: generations},
+		{name: "image source cannot copy to text model", destination: modelRecord{APIFamily: "openai", OpenAIAcceptedFormat: dual}, image: generations, wantDetail: "target_openai_mode_mismatch"},
+		{name: "text source cannot copy to image model", destination: modelRecord{APIFamily: "openai", OpenAIImageOperations: generations}, text: dual, wantDetail: "target_openai_mode_mismatch"},
+		{name: "dual dimensions covered", destination: modelRecord{APIFamily: "openai", OpenAIAcceptedFormat: dual, OpenAIImageOperations: generations}, text: dual, image: both},
+		{name: "image containment fails", destination: modelRecord{APIFamily: "openai", OpenAIAcceptedFormat: dual, OpenAIImageOperations: both}, text: dual, image: generations, wantDetail: openAIImageUncoveredIssueCode},
+		{name: "non OpenAI has no OpenAI dimensions", destination: modelRecord{APIFamily: "anthropic"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateCopyCapabilityDimensions(test.destination, test.text, test.image)
+			if test.wantDetail == "" {
+				if err != nil {
+					t.Fatalf("expected valid copy dimensions, got %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected %q", test.wantDetail)
+			}
+			requireConnectionDomainError(t, err, http.StatusUnprocessableEntity, test.wantDetail)
+		})
+	}
+}
+
 func TestRouteInt(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/connections/42", nil)
 	routeContext := chi.NewRouteContext()

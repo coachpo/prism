@@ -109,15 +109,15 @@ describe("model telemetry data truth", () => {
 });
 
 describe("single-strategy truncation", () => {
-  const model = (strategyType: string, enabledTargets: number) =>
+  const model = (truncatedAccessTargetIds: number[]) =>
     ({
-      loadbalance_strategy: { legacy_strategy_type: strategyType },
-      access_targets: Array.from({ length: enabledTargets }, () => ({ is_enabled: true })),
+      routing_summary: {
+        single_truncated_access_target_ids: truncatedAccessTargetIds,
+      },
     }) as unknown as Parameters<typeof isSingleTruncated>[0];
 
-  it("flags a single strategy that has more than one enabled target", () => {
-    expect(isSingleTruncated(model("single", 2))).toBe(true);
-    expect(isSingleTruncated(model("single", 1))).toBe(false);
-    expect(isSingleTruncated(model("round-robin", 3))).toBe(false);
+  it("uses the backend analyzer's truncation ids", () => {
+    expect(isSingleTruncated(model([2]))).toBe(true);
+    expect(isSingleTruncated(model([]))).toBe(false);
   });
 });

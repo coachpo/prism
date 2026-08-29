@@ -193,7 +193,7 @@ func loadDashboardSnapshotConnections(ctx context.Context, exec queryExecutor, p
 func applyDashboardRoutingTraffic(ctx context.Context, exec queryExecutor, profileID int, fromTime time.Time, toTime time.Time, edgeMap map[string]*dashboardRoutingEdgeAccumulator, connectionToEdgeKeys map[int]map[string]struct{}) error {
 	rows, err := exec.Query(ctx, `SELECT connection_id, model_id, endpoint_id, COUNT(*)
 		FROM usage_request_events
-		WHERE profile_id = $1 AND endpoint_id IS NOT NULL AND success_flag = TRUE AND created_at >= $2 AND created_at <= $3
+		WHERE profile_id = $1 AND endpoint_id IS NOT NULL AND success_flag = TRUE AND created_at >= $2 AND created_at < $3
 		GROUP BY connection_id, model_id, endpoint_id`, profileID, fromTime.UTC(), toTime.UTC())
 	if err != nil {
 		return fmt.Errorf("query dashboard routing traffic for profile %d: %w", profileID, err)
@@ -240,7 +240,7 @@ func applyDashboardRoutingSuccessRates(ctx context.Context, exec queryExecutor, 
 		COUNT(*) AS total_requests,
 		COALESCE(SUM(CASE WHEN success_flag THEN 1 ELSE 0 END), 0) AS success_count
 		FROM usage_request_events
-		WHERE profile_id = $1 AND connection_id IS NOT NULL AND created_at >= $2 AND created_at <= $3
+		WHERE profile_id = $1 AND connection_id IS NOT NULL AND created_at >= $2 AND created_at < $3
 		GROUP BY connection_id`, profileID, fromTime.UTC(), toTime.UTC())
 	if err != nil {
 		return fmt.Errorf("query dashboard routing success rates for profile %d: %w", profileID, err)

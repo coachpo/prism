@@ -615,7 +615,7 @@
     "invalidates_all_planning": false
   },
   {
-    "route_pattern": "/api/models/export/render",
+    "route_pattern": "/api/models/exports/pi/render",
     "methods": [
       "POST"
     ],
@@ -626,7 +626,7 @@
     "invalidates_all_planning": false
   },
   {
-    "route_pattern": "/api/models/export/source",
+    "route_pattern": "/api/models/exports/pi/source",
     "methods": [
       "GET"
     ],

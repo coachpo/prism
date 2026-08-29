@@ -22,7 +22,8 @@ func (s *Service) handleExportRequestLogs(w http.ResponseWriter, r *http.Request
 	// Reject pagination keys up front.
 	if strings.TrimSpace(r.URL.Query().Get("limit")) != "" || strings.TrimSpace(r.URL.Query().Get("offset")) != "" ||
 		strings.TrimSpace(r.URL.Query().Get("cursor")) != "" || strings.TrimSpace(r.URL.Query().Get("chain_cursor")) != "" ||
-		strings.TrimSpace(r.URL.Query().Get("row_cursor")) != "" {
+		strings.TrimSpace(r.URL.Query().Get("row_cursor")) != "" || strings.TrimSpace(r.URL.Query().Get("chain_limit")) != "" ||
+		strings.TrimSpace(r.URL.Query().Get("chain_row_limit")) != "" || strings.TrimSpace(r.URL.Query().Get("anchor_request_log_id")) != "" {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "export_pagination_unsupported")
 		return
 	}
@@ -31,12 +32,8 @@ func (s *Service) handleExportRequestLogs(w http.ResponseWriter, r *http.Request
 	// range-free exception; otherwise a preset or both explicit bounds are
 	// required so a download can never silently become a browser-window dump.
 	query := r.URL.Query()
-	requestedView := strings.ToLower(strings.TrimSpace(query.Get("view")))
-	if requestedView == "" {
-		requestedView = "ingress_chains"
-	}
 	hasQueryContext := strings.TrimSpace(query.Get("query_context")) != ""
-	if requestedView != "ingress_chains" && requestLogHasSignedCohortSelector(r) && !hasQueryContext {
+	if requestLogHasSignedCohortSelector(r) && !hasQueryContext {
 		writeDomainError(w, r, s.corsSnapshot(), &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "query_context_required", Detail: "query_context is required with final filters"})
 		return
 	}
@@ -62,7 +59,7 @@ func (s *Service) handleExportRequestLogs(w http.ResponseWriter, r *http.Request
 		}
 		var signedRequestBounds *statsdomain.QueryBounds
 		rawQueryContext := strings.TrimSpace(r.URL.Query().Get("query_context"))
-		if rawQueryContext != "" || (view != "ingress_chains" && requestLogHasSignedCohortSelector(r)) {
+		if rawQueryContext != "" || requestLogHasSignedCohortSelector(r) {
 			if rawQueryContext == "" {
 				return statsdomain.ExportResult{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "query_context_required", Detail: "query_context is required with final filters"}
 			}
@@ -78,6 +75,24 @@ func (s *Service) handleExportRequestLogs(w http.ResponseWriter, r *http.Request
 				return statsdomain.ExportResult{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "invalid_query_context", Detail: "invalid query_context"}
 			}
 			signedRequestBounds = &requestBounds
+		}
+		if view == "ingress_chains" {
+			chainParams, parseErr := parseChainQueryParams(r, profile.ID)
+			if parseErr != nil {
+				return statsdomain.ExportResult{}, parseErr
+			}
+			if signedRequestBounds != nil {
+				fromTime := signedRequestBounds.UsageFrom.UTC()
+				toTime := signedRequestBounds.UsageTo.UTC()
+				chainParams.CoveragePreset = "custom"
+				chainParams.CoverageRequestedFrom = &fromTime
+				chainParams.CoverageRequestedTo = &toTime
+				chainParams.FromTime = &fromTime
+				chainParams.ToTime = &toTime
+			}
+			chainParams.CoverageReferenceNow = s.nowUTC()
+			exportParams := statsdomain.ExportParams{ChainQueryParams: &chainParams, View: view}
+			return statsdomain.ExportCSV(r.Context(), tx, exportParams)
 		}
 		params, err := parseRequestLogListParams(r, profile.ID, s.observabilitySigningKey(), s.nowUTC())
 		if err != nil {

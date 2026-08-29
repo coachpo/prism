@@ -93,6 +93,7 @@ request-logs/
 - Keep `pricing_status` as the four-state request-log pricing filter (`all|priced|unpriced|ineligible|unknown`); never generate or accept the retired `priced` boolean alias. `unpriced_reason` stays aligned with backend reason codes: `PRICING_DISABLED`, `MISSING_TOKEN_USAGE`, `STREAM_USAGE_UNAVAILABLE`, and `MISSING_PRICE_DATA`.
 - Keep CSV export server-side: `api.stats.exportCsv()` downloads the full filtered file from `/api/stats/requests/export`; never assemble CSV from currently loaded table rows.
 - Keep the default view as the server-side retained ingress chain (`view=ingress_chains`) with signed chain cursors; the table paginates by `chain_cursor`, not by `offset`.
+- The chain envelope owns required `filter_options`; never mark them loaded when the field is absent. Attempts carry only limit/offset, chains only chain/row cursors, and CSV no pagination fields.
 - Keep row scoping strict: render `upstream_status_code`/`gateway_status_code`/`legacy_status_code` by `row_kind` and never COALESCE across scopes; the `pricing_state` column is first-class in the default column set.
 - Keep BIGINT request-log IDs as decimal strings end-to-end; never convert them to JS numbers.
 - Keep the payload viewer content-aware: streaming SSE offers 消息/JSON 事件/原始 SSE with real per-view content, non-stream JSON offers 消息/JSON, and binary/invalid-UTF-8 bodies are unparseable; never render the same stored text as two modes.
@@ -103,6 +104,7 @@ request-logs/
 - Keep audit payload fetching isolated to the dedicated full audit page. The overview drawer must not fetch audit payloads.
 - Use exact-request mode (`request_id`) to switch from paginated browsing to a single-request investigation workflow, and keep that mode local to the request-logs page.
 - Keep retained browse filtering on `ingress_request_id`, `ingress_model_id`, `attempt_target_model_id`, `row_kind`, `endpoint_id`, `terminal_target_id`, `client_rule_id`, `status_family`, `status_code`, `error_text`, `pricing_status`, `unpriced_reason`, `time_range`, `view`, `sort_by`, `sort_order`, and `chain_cursor`; finalized Observe deep links use signed `query_context` plus explicit `final_*` keys, while route-attempt deep links pin `row_kind=upstream`. URL stays the source of truth.
+- Ordinary triage is unsigned. Signed Observe lists preserve repeated/comma/`__null__` selectors in attempts view; the server-generated `final_exclude` complement stays transient like the other token-bound fields. Every cohort mutation, including removing a chip, clears offset and chain cursors. Exact ingress without an explicit non-default window lets the backend resolve retained `all` bounds.
 - Keep `pricing_card_role` and `pricing_selection_state` as independent retained-row filters, with typed options round-tripped through URL state and server-side CSV export.
 - Keep user-facing copy on the shared locale boundary through `useLocale()`, while timestamp formatting continues to flow through `useTimezone()`.
 - Keep audit capture mode and detail-state helpers in `requestLogAuditState.ts` instead of re-deriving them inside detail tabs or fetch hooks.

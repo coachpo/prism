@@ -25,38 +25,13 @@ export interface ModelCatalogMetadata {
   status: "alpha" | "beta" | "deprecated" | null;
 }
 
+/**
+ * Missing keys are untouched, null restores the source value, and every other
+ * value (including an empty string or empty list) is an explicit override.
+ */
 export type CatalogOverridePatch = {
-  // Every present key writes that override field; null restores the field to
-  // its source value. Values are typed per field.
-} & Partial<
-  Record<
-    | "name"
-    | "description"
-    | "family"
-    | "release_date"
-    | "last_updated"
-    | "knowledge"
-    | "status",
-    string | null
-  >
-> &
-  Partial<
-    Record<
-      | "attachment"
-      | "reasoning"
-      | "tool_call"
-      | "structured_output"
-      | "temperature"
-      | "open_weights",
-      boolean | null
-    >
-  > &
-  Partial<
-    Record<"limit_context" | "limit_input" | "limit_output", number | null>
-  > &
-  Partial<
-    Record<"modalities_input" | "modalities_output", string[] | null>
-  >;
+  [K in keyof ModelCatalogMetadata]?: ModelCatalogMetadata[K];
+};
 
 export interface CatalogCandidate {
   provider_id: string;

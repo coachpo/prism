@@ -8,12 +8,12 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { endpoints as endpointsApi } from "@/lib/api/endpoints";
 import { models as modelsApi } from "@/lib/api/models";
-import type { Endpoint, LoadbalanceStrategy, ModelConfigListItem, OpenAIAcceptedFormat, OpenAIImageOperations } from "@/lib/types";
-import type { ModelConfigCompositeCreate } from "@/lib/types";
+import type { Endpoint, LoadbalanceStrategy, ModelConfig, OpenAIAcceptedFormat, OpenAIImageOperations } from "@/lib/types";
 import { getLoadbalanceStrategyTypeLabel } from "@/lib/loadbalanceRoutingPolicy";
 import { OperatorCallout, OperatorInsetPanel, OperatorSwitchField } from "@/shared/design-system";
 import { DEFAULT_OPENAI_ACCEPTED_FORMAT } from "@/pages/models/modelFormState";
 import type { OpenAICapabilitySelectValue } from "@/features/models/openaiCapabilityOptions";
+import { buildCompositeModelCreatePayload } from "./compositeModelCreatePayload";
 import {
   OPENAI_ACCEPTED_FORMAT_SELECT_VALUES,
   OPENAI_CAPABILITY_UNSET,
@@ -40,7 +40,7 @@ export function CreateModelDialog({
   isOpen: boolean;
   loadbalanceStrategies: LoadbalanceStrategy[];
   onClose: () => void;
-  onCreated: (model: ModelConfigListItem) => void;
+  onCreated: (model: ModelConfig) => void | Promise<void>;
   createLoadbalanceStrategyDefaultsPending?: boolean;
   onCreateLoadbalanceStrategyDefaults?: () => Promise<void>;
 }) {
@@ -78,10 +78,6 @@ export function CreateModelDialog({
 
   const resolvedAcceptedFormat = fromSelectValue<OpenAIAcceptedFormat>(acceptedFormat) || null;
   const resolvedImageOperations = fromSelectValue<OpenAIImageOperations>(imageOperations) || null;
-  // The initial Terminal Target derives both capabilities from the owner model
-  // server-side, so only the text one is echoed back to the operator here.
-  const capability = apiFamily === "openai" ? resolvedAcceptedFormat : null;
-
   const strategyById = useMemo(() => {
     const map = new Map<number, LoadbalanceStrategy>();
     for (const strategy of loadbalanceStrategies) map.set(strategy.id, strategy);
@@ -110,27 +106,26 @@ export function CreateModelDialog({
     }
     setSubmitting(true);
     try {
-      const payload: ModelConfigCompositeCreate = {
-        api_family: apiFamily,
-        model_id: modelId.trim(),
-        display_name: displayName.trim() || null,
-        openai_accepted_format: apiFamily === "openai" ? resolvedAcceptedFormat : null,
-        openai_image_operations: apiFamily === "openai" ? resolvedImageOperations : null,
-        loadbalance_strategy_id: strategyId,
-        is_enabled: !configureLater,
-      };
-      if (!configureLater) {
-        payload.initial_terminal_target = {
-          ...(inlineEndpoint
-            ? { endpoint_create: { name: inlineName.trim(), base_url: inlineBaseUrl.trim(), api_key: inlineApiKey } }
-            : { endpoint_id: endpointId ?? undefined }),
-          name: targetName.trim() || null,
-          is_active: true,
-          openai_text_capability: capability,
-        };
-      }
+      const payload = buildCompositeModelCreatePayload({
+        apiFamily,
+        modelId,
+        displayName,
+        loadbalanceStrategyId: strategyId,
+        configureLater,
+        openAIAcceptedFormat: resolvedAcceptedFormat,
+        openAIImageOperations: resolvedImageOperations,
+        initialTerminalTarget: configureLater
+          ? undefined
+          : {
+              ...(inlineEndpoint
+                ? { endpoint_create: { name: inlineName.trim(), base_url: inlineBaseUrl.trim(), api_key: inlineApiKey } }
+                : { endpoint_id: endpointId ?? undefined }),
+              name: targetName.trim() || null,
+              is_active: true,
+            },
+      });
       const created = await modelsApi.create(payload);
-      onCreated(toListItemLike(created.model));
+      await onCreated(created.model);
       onClose();
     } catch (error) {
       setFormError(error instanceof Error ? error.message : messages.modelsData.saveFailed);
@@ -251,9 +246,9 @@ export function CreateModelDialog({
                   {inlineEndpoint ? copy.initialTargetUseExisting : copy.initialTargetCreateInline}
                 </Button>
               </div>
-              {apiFamily === "openai" && capability ? (
+              {apiFamily === "openai" && resolvedAcceptedFormat ? (
                 <div className="mt-2 text-xs text-muted-foreground">
-                  {copy.ownerDerivedCapability}: {getOpenAIAcceptedFormatOptionLabel(capability, copy)}（{copy.ownerDerivedReadOnly}）
+                  {copy.ownerDerivedCapability}: {getOpenAIAcceptedFormatOptionLabel(resolvedAcceptedFormat, copy)}（{copy.ownerDerivedReadOnly}）
                 </div>
               ) : null}
               {inlineEndpoint ? (
@@ -314,10 +309,4 @@ export function CreateModelDialog({
       </DialogContent>
     </Dialog>
   );
-}
-
-
-
-function toListItemLike(model: ModelConfigListItem | { id: number; model_id: string; display_name: string | null; api_family: string }): ModelConfigListItem {
-  return model as ModelConfigListItem;
 }

@@ -256,7 +256,7 @@ export function ModelsTable({
       if (column === "name") return modelTitle(model)
       if (column === "api_family") return model.api_family
       if (column === "status") return model.is_enabled
-      if (column === "targets") return model.access_targets.length
+      if (column === "targets") return model.routing_summary?.total_access_target_count ?? null
       if (column === "strategy") return model.loadbalance_strategy?.name ?? null
       if (column === "success") return modelMetrics24h[model.id]?.success_rate ?? null
       if (column === "p95") return modelMetrics24h[model.id]?.p95_latency_ms ?? null
@@ -386,7 +386,8 @@ export function ModelsTable({
               const title = modelTitle(model)
               const metrics = modelMetrics24h[model.id]
               const spend = modelSpend30dMicros[model.id] ?? null
-              const enabledTargets = model.access_targets.filter((target) => target.is_enabled).length
+              const enabledTargets = model.routing_summary?.enabled_access_target_count
+              const totalTargets = model.routing_summary?.total_access_target_count
               const truncated = isSingleTruncated(model)
 
               return (
@@ -436,14 +437,16 @@ export function ModelsTable({
                       aria-label={copy.targetsLinkAria(title)}
                       className="flex min-w-40 flex-col gap-0.5 underline-offset-2 hover:underline"
                     >
-                      {model.access_targets.length === 0 ? (
+                      {totalTargets == null ? (
+                        <OperatorMissingValue />
+                      ) : totalTargets === 0 ? (
                         <OperatorStatusBadge intent="failing" preserveLabel label={copy.targetsNone} />
                       ) : (
                         <>
                           <span className="font-mono text-xs tabular-nums">
                             {copy.targetsCount(
-                              formatNumber(enabledTargets),
-                              formatNumber(model.access_targets.length),
+                              formatNumber(enabledTargets ?? 0),
+                              formatNumber(totalTargets),
                             )}
                           </span>
                           <span className="truncate text-xs text-muted-foreground">
@@ -463,12 +466,35 @@ export function ModelsTable({
                       ) : (
                         <OperatorMissingValue className="text-xs" reason={copy.strategyMissingReason} />
                       )}
+                      {model.routing_summary ? (
+                        <OperatorStatusBadge
+                          intent={
+                            model.routing_summary.coverage === "full"
+                              ? "healthy"
+                              : model.routing_summary.coverage === "partial"
+                                ? "degraded"
+                                : model.routing_summary.coverage === "none"
+                                  ? "failing"
+                                  : "idle"
+                          }
+                          preserveLabel
+                          label={
+                            model.routing_summary.coverage === "full"
+                              ? messages.routing.coverageFull
+                              : model.routing_summary.coverage === "partial"
+                                ? messages.routing.coveragePartial
+                                : model.routing_summary.coverage === "none"
+                                  ? messages.routing.coverageNone
+                                  : messages.common.notApplicable
+                          }
+                        />
+                      ) : null}
                       {truncated ? (
                         <OperatorStatusBadge
                           intent="degraded"
                           preserveLabel
                           label={copy.singleTruncated}
-                          title={copy.singleTruncatedReason(formatNumber(enabledTargets))}
+                          title={copy.singleTruncatedReason(formatNumber(enabledTargets ?? 0))}
                         />
                       ) : null}
                     </div>

@@ -84,6 +84,9 @@ func decodeJSONBytes(body []byte, target any) error {
 		return responseutil.SanitizeDecodeError(err)
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("request body must contain exactly one JSON value")
+		}
 		return err
 	}
 	return nil

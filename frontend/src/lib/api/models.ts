@@ -19,6 +19,8 @@ import type {
   ConfigurationWarning,
   ModelRouteReadinessEnvelope,
   ModelRouteReadinessSummary,
+  OpenAIImageCapability,
+  OpenAITextCapability,
 } from "../types";
 import {
   normalizeLoadbalanceStrategySummary,
@@ -119,14 +121,7 @@ type ConnectionMutationEnvelope = {
 
 type DeletedConnectionMutationEnvelope = {
   deleted: boolean;
-  access_targets: Array<{
-    id: number;
-    target_type: string;
-    connection_id: number | null;
-    terminal_target_id: number | null;
-    position: number;
-    is_enabled: boolean;
-  }>;
+  access_targets: ConnectionMutationAccessTarget[];
   configuration_warnings: ConfigurationWarning[];
 };
 
@@ -144,7 +139,8 @@ export interface TerminalTargetCopyResponse {
       name: string | null;
       endpoint_id: number;
       is_active: boolean;
-      openai_text_capability: string | null;
+      openai_text_capability: OpenAITextCapability | null;
+      openai_image_capability: OpenAIImageCapability | null;
       pricing_template: { id: number; name: string } | null;
       qps_limit: number | null;
       max_in_flight_non_stream: number | null;
@@ -154,9 +150,9 @@ export interface TerminalTargetCopyResponse {
     };
     access_target: {
       id: number;
-      target_type: string;
-      connection_id: number | null;
-      terminal_target_id: number | null;
+      target_type: "connection";
+      connection_id: number;
+      terminal_target_id: number;
       position: number;
       is_enabled: boolean;
     };
@@ -211,6 +207,7 @@ function normalizeModelConfigListItem(
     active_connection_count: model.active_connection_count,
     health_success_rate: model.health_success_rate,
     health_total_requests: model.health_total_requests,
+    routing_summary: model.routing_summary,
     created_at: model.created_at,
     updated_at: model.updated_at,
   };
@@ -276,7 +273,7 @@ export const models = {
       configuration_warnings: response.configuration_warnings ?? [],
     })),
   delete: (id: number) =>
-    request<void>(`/api/models/${id}`, { method: "DELETE" }),
+    request<{ deleted: true }>(`/api/models/${id}`, { method: "DELETE" }),
   targets: {
     list: (modelConfigId: number) =>
       request<RawModelAccessTarget[]>(

@@ -107,6 +107,9 @@ func decodeObserveCostSegments(profileID int, raw []byte) ([]ObserveCostSegment,
 		return nil, fmt.Errorf("decode usage-summary cost segments for profile %d: %w", profileID, err)
 	}
 	for index := range segments {
+		if segments[index].PricingCardRoleBreakdown == nil {
+			segments[index].PricingCardRoleBreakdown = []PricingCardRoleCostBreakdown{}
+		}
 		segments[index].ObservedSymbols = dedupeSymbols(segments[index].ObservedSymbols)
 		segments[index].ObservedSymbolCount = len(segments[index].ObservedSymbols)
 		if segments[index].ObservedSymbolCount > 8 {

@@ -175,11 +175,14 @@ func LoadUsageSeries(ctx context.Context, exec queryExecutor, profileID int, sco
 	}
 	topIDs := make([]string, 0)
 	if groupColumn != "" {
+		visibleSlots := seriesLimit - 1
 		// `endpoint_id` and `connection_id` are nullable: a request that failed
 		// before routing settled records the outcome without an exit. Those rows
 		// are real traffic but not an entity, so they must not compete for a Top
 		// slot; the bucket aggregate below folds them into Other.
-		rows, err := exec.Query(ctx, seriesTopIDsQuery(groupColumn, where, seriesLimit-1), profileID, bounds.UsageFrom, bounds.UsageTo)
+		// Fetch one witness beyond the visible entity slots. Filling the slots
+		// exactly is not truncation; only a real witness proves an Other remainder.
+		rows, err := exec.Query(ctx, seriesTopIDsQuery(groupColumn, where, visibleSlots+1), profileID, bounds.UsageFrom, bounds.UsageTo)
 		if err != nil {
 			return result, fmt.Errorf("load series top ids: %w", err)
 		}
@@ -195,7 +198,10 @@ func LoadUsageSeries(ctx context.Context, exec queryExecutor, profileID int, sco
 		if err := rows.Err(); err != nil {
 			return result, err
 		}
-		result.Truncated = len(topIDs) == seriesLimit-1
+		result.Truncated = len(topIDs) > visibleSlots
+		if result.Truncated {
+			topIDs = topIDs[:visibleSlots]
+		}
 	}
 	labels, err := loadSeriesLabels(ctx, exec, profileID, bounds, scope, groupBy, topIDs)
 	if err != nil {
@@ -218,10 +224,6 @@ func LoadUsageSeries(ctx context.Context, exec queryExecutor, profileID int, sco
 	return result, nil
 }
 
-func validateSeriesMetric(scope string, metric string) error {
-	return ValidateMetric(scope, metric)
-}
-
 func groupColumnFor(scope string, groupBy string) string {
 	switch strings.TrimSpace(strings.ToLower(groupBy)) {
 	case GroupIngressModel:
@@ -232,6 +234,10 @@ func groupColumnFor(scope string, groupBy string) string {
 		return "CASE WHEN endpoint_id > 0 THEN endpoint_id END"
 	case GroupTerminalTarget:
 		return "CASE WHEN connection_id > 0 THEN connection_id END"
+	case GroupAPIFamily:
+		return "NULLIF(api_family, '')"
+	case GroupProxyAPIKey:
+		return "CASE WHEN proxy_api_key_id_snapshot > 0 THEN proxy_api_key_id_snapshot END"
 	case GroupNone, "":
 		return ""
 	default:
@@ -254,6 +260,19 @@ func loadSeriesLabels(ctx context.Context, exec queryExecutor, profileID int, bo
 	var query string
 	switch groupBy {
 	case GroupEndpoint:
+		if scope == ScopeRouteAttempt {
+			query = `
+SELECT DISTINCT ON (request_logs.endpoint_id)
+	request_logs.endpoint_id::text,
+	COALESCE(NULLIF(endpoints.name, ''), NULLIF(request_logs.endpoint_description, ''), 'Endpoint #' || request_logs.endpoint_id::text)
+FROM request_logs
+LEFT JOIN endpoints ON endpoints.id = request_logs.endpoint_id AND endpoints.profile_id = request_logs.profile_id
+WHERE request_logs.profile_id = $1 AND request_logs.row_kind = 'upstream'
+	AND request_logs.created_at >= $2 AND request_logs.created_at < $3
+	AND request_logs.endpoint_id::text = ANY($4::text[])
+ORDER BY request_logs.endpoint_id, request_logs.created_at DESC, request_logs.id DESC`
+			break
+		}
 		// The retained snapshot is the endpoint label source for usage
 		// reporting, not the mutable endpoints.name; `usageEventEndpointLabel`
 		// applies the same rule to the record surfaces.
@@ -265,6 +284,20 @@ FROM usage_request_events
 WHERE ` + usageWindowPredicate + ` AND endpoint_id::text = ANY($4::text[])
 ORDER BY endpoint_id, created_at DESC`
 	case GroupTerminalTarget:
+		if scope == ScopeRouteAttempt {
+			query = `
+SELECT DISTINCT ON (request_logs.connection_id)
+	request_logs.connection_id::text,
+	COALESCE(NULLIF(connections.name, ''), NULLIF(endpoints.name, ''), NULLIF(request_logs.endpoint_description, ''), 'Terminal Target #' || request_logs.connection_id::text)
+FROM request_logs
+LEFT JOIN connections ON connections.id = request_logs.connection_id AND connections.profile_id = request_logs.profile_id
+LEFT JOIN endpoints ON endpoints.id = request_logs.endpoint_id AND endpoints.profile_id = request_logs.profile_id
+WHERE request_logs.profile_id = $1 AND request_logs.row_kind = 'upstream'
+	AND request_logs.created_at >= $2 AND request_logs.created_at < $3
+	AND request_logs.connection_id::text = ANY($4::text[])
+ORDER BY request_logs.connection_id, request_logs.created_at DESC, request_logs.id DESC`
+			break
+		}
 		// Same precedence as the terminal-target drill-down, so one target
 		// cannot read as two different names on two surfaces.
 		query = `
@@ -276,7 +309,17 @@ LEFT JOIN connections ON connections.id = usage_request_events.connection_id AND
 LEFT JOIN endpoints ON endpoints.id = usage_request_events.endpoint_id AND endpoints.profile_id = usage_request_events.profile_id
 WHERE usage_request_events.profile_id = $1 AND usage_request_events.created_at >= $2 AND usage_request_events.created_at < $3
 	AND usage_request_events.connection_id::text = ANY($4::text[])
-ORDER BY usage_request_events.connection_id, usage_request_events.created_at DESC`
+		ORDER BY usage_request_events.connection_id, usage_request_events.created_at DESC`
+	case GroupProxyAPIKey:
+		query = `
+SELECT DISTINCT ON (usage_request_events.proxy_api_key_id_snapshot)
+	usage_request_events.proxy_api_key_id_snapshot::text,
+	COALESCE(NULLIF(proxy_api_keys.name, ''), NULLIF(usage_request_events.proxy_api_key_name_snapshot, ''), 'Proxy Key #' || usage_request_events.proxy_api_key_id_snapshot::text)
+FROM usage_request_events
+LEFT JOIN proxy_api_keys ON proxy_api_keys.id = usage_request_events.proxy_api_key_id_snapshot
+WHERE usage_request_events.profile_id = $1 AND usage_request_events.created_at >= $2 AND usage_request_events.created_at < $3
+	AND usage_request_events.proxy_api_key_id_snapshot::text = ANY($4::text[])
+ORDER BY usage_request_events.proxy_api_key_id_snapshot, usage_request_events.created_at DESC`
 	default:
 		return labels, nil
 	}

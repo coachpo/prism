@@ -93,7 +93,10 @@ export function ModelsFeaturePage() {
           return false;
         if (statusFilter === "enabled" && !model.is_enabled) return false;
         if (statusFilter === "disabled" && model.is_enabled) return false;
-        if (flagFilter === "needs_target" && model.access_targets.length > 0)
+        if (
+          flagFilter === "needs_target" &&
+          model.routing_summary?.total_access_target_count !== 0
+        )
           return false;
         if (flagFilter === "single_truncated" && !isSingleTruncated(model))
           return false;
@@ -113,7 +116,7 @@ export function ModelsFeaturePage() {
       disabled: data.models.length - enabled,
       needsTarget: data.models.filter(
         (model: import("@/lib/api/models").ManagedModelConfigListItem) =>
-          model.access_targets.length === 0,
+          model.routing_summary?.total_access_target_count === 0,
       ).length,
       singleTruncated: data.models.filter(isSingleTruncated).length,
     };

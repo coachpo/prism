@@ -86,6 +86,16 @@ export function useModelsCollection(revision: number) {
     setLoadAttempt((current) => current + 1);
   }, []);
 
+  const refreshModels = useCallback(async () => {
+    const next = (await getSharedModels(
+      revision,
+      true,
+    )) as ManagedModelConfigListItem[];
+    setModels(next);
+    setSharedModels(revision, next);
+    return next;
+  }, [revision]);
+
   const commitModels = useCallback(
     (
       updater: (
@@ -139,6 +149,7 @@ export function useModelsCollection(revision: number) {
     readSortedLoadbalanceStrategies,
     refreshStrategiesAfterDialogClose,
     replaceLoadbalanceStrategies,
+    refreshModels,
     retryLoad,
   };
 }

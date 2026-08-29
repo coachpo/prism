@@ -15,10 +15,10 @@ export function useModelsPageData(
 ) {
   const collection = useModelsCollection(revision);
   const dialog = useModelDialogMutations({
-    commitModels: collection.commitModels,
     loadbalanceStrategies: collection.loadbalanceStrategies,
     refreshStrategiesAfterDialogClose:
       collection.refreshStrategiesAfterDialogClose,
+    refreshModels: collection.refreshModels,
   });
   const strategyDefaults = useLoadbalanceStrategyDefaults({
     dialogSessionRef: dialog.modelDialogSessionRef,

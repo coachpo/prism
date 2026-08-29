@@ -55,7 +55,7 @@ test("model export client fetches source from the Pi static route", async () => 
     const api = await loadApi();
     const response = await api.fetchModelExportSource();
     assert.equal(requests.length, 1);
-    assert.ok(requests[0].url.endsWith("/api/models/export/source"));
+    assert.ok(requests[0].url.endsWith("/api/models/exports/pi/source"));
     assert.equal(requests[0].init.cache, "no-store");
     assert.equal(response.source_digest.length, 64);
     assert.equal(response.target_version, "0.84.3");
@@ -67,7 +67,6 @@ test("model export client fetches source from the Pi static route", async () => 
 test("model export render posts digest-guarded Pi bodies with binding-coordinate selections", async () => {
   const { requests, restore } = stubFetch({
     target_version: "0.84.3",
-    catalog: { status: "fresh", revision: "rev-1" },
     content: "{}\n",
     content_sha256: "e".repeat(64),
     file_name: "prism-pi-models.json",
@@ -82,26 +81,32 @@ test("model export render posts digest-guarded Pi bodies with binding-coordinate
       model_config_ids: [5, 3],
       base_url: "https://prism.example",
       provider_id: "prism-home",
-      credential: { include: true, api_key: "" },
+      credential: { include: true, api_key: "proxy-key" },
       selections: {
         3: { provider_id: "openai", model_id: "gpt-x", api: "openai-responses" },
+        5: { provider_id: "anthropic", model_id: "claude-x", api: "anthropic-messages" },
       },
     });
     assert.equal(requests[0].init.method, "POST");
     assert.equal(requests[0].init.cache, "no-store");
-    assert.ok(requests[0].url.endsWith("/api/models/export/render"));
+    assert.ok(requests[0].url.endsWith("/api/models/exports/pi/render"));
     assert.equal(requests[0].init.body.expected_source_digest, "a".repeat(64));
     assert.deepEqual(requests[0].init.body.model_config_ids, [5, 3]);
     assert.equal(requests[0].init.body.base_url, "https://prism.example");
     assert.equal(requests[0].init.body.provider_id, "prism-home");
     assert.deepEqual(requests[0].init.body.credential, {
       include: true,
-      api_key: "",
+      api_key: "proxy-key",
     });
     assert.deepEqual(requests[0].init.body.selections[3], {
       provider_id: "openai",
       model_id: "gpt-x",
       api: "openai-responses",
+    });
+    assert.deepEqual(requests[0].init.body.selections[5], {
+      provider_id: "anthropic",
+      model_id: "claude-x",
+      api: "anthropic-messages",
     });
     assert.equal(response.file_name, "prism-pi-models.json");
   } finally {
@@ -147,6 +152,7 @@ test("model export refresh preview and commit hit their own routes", async () =>
     changed: true,
     changes: [{ field: "context_window", current: "128000", next: "256000", kind: "changed" }],
     catalog_revision: "sha256-" + "b".repeat(64),
+    binding_updated_at: "2026-01-01T00:00:00Z",
     fetched_at: "2026-01-01T00:00:00Z",
   });
   try {
@@ -171,13 +177,26 @@ test("model export refresh preview and commit hit their own routes", async () =>
   });
   try {
     const api = await loadApi();
-    await api.refreshModelPiCommit(7, "sha256-" + "b".repeat(64));
+    await api.refreshModelPiCommit(7, {
+      provider_id: "openai",
+      catalog_model_id: "gpt-x",
+      api: "openai-responses",
+      binding_updated_at: "2026-01-01T00:00:00Z",
+      catalog_revision: "sha256-" + "b".repeat(64),
+    });
     assert.equal(commit.requests[0].init.method, "POST");
     assert.ok(commit.requests[0].url.endsWith("/api/models/7/pi/refresh/commit"));
     assert.equal(
       commit.requests[0].init.body.expected_catalog_revision,
       "sha256-" + "b".repeat(64),
     );
+    assert.deepEqual(commit.requests[0].init.body, {
+      expected_provider_id: "openai",
+      expected_catalog_model_id: "gpt-x",
+      expected_api: "openai-responses",
+      expected_binding_updated_at: "2026-01-01T00:00:00Z",
+      expected_catalog_revision: "sha256-" + "b".repeat(64),
+    });
   } finally {
     commit.restore();
   }

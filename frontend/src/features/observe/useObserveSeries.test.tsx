@@ -104,9 +104,18 @@ function seriesResponse(
     interval: "1h",
     series_limit: 6,
     truncated: false,
-    caliber: { scope },
-    dataset_coverage: {},
-    samples: {},
+    caliber: contextResponse(scope, "series-fixture").caliber,
+    dataset_coverage:
+      scope === "route_attempt"
+        ? { request_logs: coverage() }
+        : { usage_request_events: coverage() },
+    samples: {
+      observation_count: 0,
+      latency_sample_count: 0,
+      latency_missing_count: 0,
+      cost_sample_count: 0,
+      cost_missing_count: 0,
+    },
     series: [],
   };
 }

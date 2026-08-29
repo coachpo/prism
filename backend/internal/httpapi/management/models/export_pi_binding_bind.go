@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coachpo/prism/backend/internal/domain/modelexport"
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/jackc/pgx/v5"
@@ -53,8 +54,8 @@ func (s *Service) handleBindModelPi(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), piCatalogFetchFailed(err))
 		return
 	}
-	if catalog.RevisionString() != expectedRevision {
-		writeDomainError(w, r, s.corsSnapshot(), piCatalogStaleError(expectedRevision, catalog.RevisionString()))
+	if catalog.Revision != expectedRevision {
+		writeDomainError(w, r, s.corsSnapshot(), piCatalogStaleError(expectedRevision, catalog.Revision))
 		return
 	}
 
@@ -94,7 +95,7 @@ func (s *Service) handleBindModelPi(w http.ResponseWriter, r *http.Request) {
 
 	sourceMetadata := piBindingMetadataFromModel(model)
 	now := s.nowUTC()
-	response, err := s.bindPiInTransaction(r.Context(), r, modelConfigID, providerID, catalogModelID, expectedAPI, bindSource, catalog.RevisionString(), catalog.FetchedAt, sourceMetadata, now)
+	response, err := s.bindPiInTransaction(r.Context(), r, modelConfigID, providerID, catalogModelID, expectedAPI, bindSource, catalog.Revision, catalog.FetchedAt, sourceMetadata, model.DroppedFields, now)
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
@@ -105,20 +106,33 @@ func (s *Service) handleBindModelPi(w http.ResponseWriter, r *http.Request) {
 // bindPiInTransaction is the only database write phase of a bind. The
 // catalog has already been fetched and matched before this transaction
 // begins; this function never performs remote I/O.
-func (s *Service) bindPiInTransaction(ctx context.Context, r *http.Request, modelConfigID int, providerID, catalogModelID, api, bindSource, catalogRevision string, fetchedAt time.Time, sourceMetadata piBindingMetadata, now time.Time) (piBindingResponse, error) {
+func (s *Service) bindPiInTransaction(ctx context.Context, r *http.Request, modelConfigID int, providerID, catalogModelID, api, bindSource, catalogRevision string, fetchedAt time.Time, sourceMetadata piBindingMetadata, droppedFields []string, now time.Time) (piBindingResponse, error) {
 	return pgxutil.InTxValue(ctx, s.pool, "model", func(tx pgx.Tx) (piBindingResponse, error) {
 		profile, profileErr := resolveEffectiveProfile(ctx, tx, r)
 		if profileErr != nil {
 			return piBindingResponse{}, profileErr
 		}
-		if _, loadErr := loadModelForCatalog(ctx, tx, profile.ID, modelConfigID); loadErr != nil {
+		currentModel, found, loadErr := loadModelRecord(ctx, tx, profile.ID, modelConfigID, true)
+		if loadErr != nil {
 			return piBindingResponse{}, loadErr
 		}
-		existing, _, loadBindingErr := loadPiBinding(ctx, tx, profile.ID, modelConfigID)
+		if !found {
+			return piBindingResponse{}, newPiDomainError(http.StatusNotFound, "Model configuration not found", nil)
+		}
+		if currentModel.ModelID != catalogModelID || modelexport.PiAPIForModel(currentModel.APIFamily, currentModel.OpenAIAcceptedFormat) != api {
+			return piBindingResponse{}, newPiDomainError(http.StatusConflict, "pi_model_changed: the Prism model id or final Pi API changed while the catalog was fetched; fetch source and bind again", nil)
+		}
+		existing, _, loadBindingErr := loadPiBindingForUpdate(ctx, tx, profile.ID, modelConfigID)
 		if loadBindingErr != nil {
 			return piBindingResponse{}, loadBindingErr
 		}
 		sameCoordinate := existing.ProviderID == providerID && existing.CatalogModelID == catalogModelID && existing.API == api
+		if sameCoordinate {
+			// Binding is an explicit freeze. Repeating bind for the same
+			// coordinate is idempotent; only refresh may replace its source
+			// snapshot, dropped-field evidence, or catalog revision.
+			return existing.response(), nil
+		}
 		record := piBindingRecord{
 			ModelConfigID:   modelConfigID,
 			ProviderID:      providerID,
@@ -127,19 +141,15 @@ func (s *Service) bindPiInTransaction(ctx context.Context, r *http.Request, mode
 			BindSource:      bindSource,
 			CatalogRevision: catalogRevision,
 			FetchedAt:       fetchedAt,
-			UpdatedAt:       now,
+			UpdatedAt:       nextPiBindingUpdatedAt(existing.UpdatedAt, now),
 			Source:          sourceMetadata,
 			Override:        existing.Override,
+			DroppedFields:   normalizePiDroppedFields(droppedFields),
 		}
 		// Rebinding to a different coordinate invalidates prior overrides: they
-		// described another candidate's metadata. Same-coordinate rebinds keep
-		// both overrides and the original bind_source.
-		if !sameCoordinate {
-			record.Override = piBindingMetadata{}
-		} else if existing.BindSource != "" {
-			record.BindSource = existing.BindSource
-		}
-		if upsertErr := upsertPiBinding(ctx, tx, record, now); upsertErr != nil {
+		// described another candidate's metadata.
+		record.Override = piBindingMetadata{}
+		if upsertErr := upsertPiBinding(ctx, tx, record, record.UpdatedAt); upsertErr != nil {
 			return piBindingResponse{}, upsertErr
 		}
 		saved, _, saveErr := loadPiBinding(ctx, tx, profile.ID, modelConfigID)

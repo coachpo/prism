@@ -12,7 +12,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 )
 
-// handleGetPiExportSource serves GET /api/models/export/source.
+// handleGetPiExportSource serves GET /api/models/exports/pi/source.
 // One consistent DB snapshot plus one best-effort pi.dev fetch outside the transaction.
 func (s *Service) handleGetPiExportSource(w http.ResponseWriter, r *http.Request) {
 	responseutil.SetPrivateNoStoreHeaders(w)
@@ -22,7 +22,7 @@ func (s *Service) handleGetPiExportSource(w http.ResponseWriter, r *http.Request
 		if err != nil {
 			return nil, err
 		}
-		modelRows, targetRows, bindings, graph, err := loadExportSnapshot(r.Context(), tx)
+		modelRows, targetRows, graph, err := loadExportSnapshot(r.Context(), tx, profile.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -31,10 +31,9 @@ func (s *Service) handleGetPiExportSource(w http.ResponseWriter, r *http.Request
 			return nil, err
 		}
 		grouped := sortTargetRowsByModel(targetRows)
-		facts, candidates, err := buildPiSourceFacts(piExportFactsInput{
+		facts, templates, err := buildPiSourceFacts(piExportFactsInput{
 			ModelRows:     modelRows,
 			TargetRows:    grouped,
-			Bindings:      bindings,
 			PiBindings:    piBindings,
 			Catalog:       catalog,
 			CatalogStatus: catalogStatus,
@@ -47,7 +46,7 @@ func (s *Service) handleGetPiExportSource(w http.ResponseWriter, r *http.Request
 		if err != nil {
 			return nil, err
 		}
-		resp, err := assemblePiSourceResponse(facts, candidates, catalogStatus, catalog, piBindings)
+		resp, err := assemblePiSourceResponse(facts, templates, catalogStatus, catalog, piBindings)
 		if err != nil {
 			return nil, err
 		}
@@ -69,19 +68,6 @@ func (s *Service) piCatalogForSource(ctx context.Context) (*pidev.Catalog, strin
 	cat, err := s.piCatalog.Fetch(ctx)
 	if err == nil {
 		return cat, "fresh"
-	}
-	if snap := s.piCatalog.Snapshot(); snap != nil {
-		return snap, "stale"
-	}
-	return nil, "unavailable"
-}
-
-// piCatalogSnapshot backs render, which must stay network-free: it only ever reads the
-// last-known-good snapshot and reports "stale" for it, since a live freshness check would
-// require the Fetch this function deliberately never makes.
-func (s *Service) piCatalogSnapshot() (*pidev.Catalog, string) {
-	if s.piCatalog == nil {
-		return nil, "unavailable"
 	}
 	if snap := s.piCatalog.Snapshot(); snap != nil {
 		return snap, "stale"

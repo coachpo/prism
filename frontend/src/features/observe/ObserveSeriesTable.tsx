@@ -49,7 +49,8 @@ export function ObserveSeriesTable({
 
   const items = fragment.data.series;
   const observationLabel =
-    fragment.data.caliber.scope === "route_attempt"
+    fragment.data.caliber.scope === "route_attempt" ||
+    fragment.data.selection_basis === "attempt_count"
       ? copy.metricName("attempts")
       : copy.requests;
   const lastBucketStart = lastObservedBucket(items);

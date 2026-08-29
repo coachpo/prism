@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { api } from "@/lib/api"
+import { setSharedModels } from "@/lib/referenceData"
 import type {
   Connection,
   Endpoint,
@@ -79,6 +81,12 @@ export function useModelDetailFeatureData({
   const [connectionCardRefs] = useState<Map<number, HTMLDivElement>>(new Map())
   const [globalEndpoints, setGlobalEndpoints] = useState<Endpoint[]>([])
 
+  const refreshModels = useCallback(async () => {
+    const authoritativeModels = await api.models.list()
+    setAllModels(authoritativeModels)
+    setSharedModels(revision, authoritativeModels)
+  }, [revision])
+
   const {
     isEditModelDialogOpen,
     setIsEditModelDialogOpen: setIsEditModelDialogOpenState,
@@ -153,7 +161,7 @@ export function useModelDetailFeatureData({
     revision,
     refreshCurrentState,
     refreshDiagnostics,
-    setAllModels,
+    refreshModels,
     setConnections,
     setModel,
   })
@@ -181,6 +189,7 @@ export function useModelDetailFeatureData({
     endpointSourceDefaultName,
     refreshCurrentState,
     refreshDiagnostics,
+    refreshModels,
     setIsConnectionDialogOpen,
     setConnections,
     setAllConnections,
@@ -210,8 +219,9 @@ export function useModelDetailFeatureData({
     model,
     revision,
     setIsEditModelDialogOpenState,
-    setAllModels,
     setModel,
+    refreshDiagnostics,
+    refreshModels,
   })
 
   const effectiveTargetApiFamily = model?.api_family ?? formData.api_family
@@ -287,6 +297,7 @@ export function useModelDetailFeatureData({
     spendingCurrencyCode,
     connections,
     refreshCurrentState,
+    refreshModels,
     isConnectionDialogOpen,
     setIsConnectionDialogOpen,
     editingConnection,

@@ -1,9 +1,9 @@
 package models
 
-// exportPlatformCompletenessWire states which client-facing fields this
-// platform's file will carry for the model, plus whether a cost group can be
-// expressed. Absent never renders as zero anywhere downstream.
-type exportPlatformCompletenessWire struct {
+// exportCompletenessWire states which Pi-facing fields the generated file
+// will carry for a model, plus whether its cost group is expressible. Absent
+// values never render as zero downstream.
+type exportCompletenessWire struct {
 	MetadataFields map[string]bool `json:"metadata_fields"`
 	CostExportable bool            `json:"cost_exportable"`
 }
@@ -37,7 +37,7 @@ type exportSourceTargetRow struct {
 }
 
 type exportPriceRiskWire struct {
-	// Exportable mirrors platform cost expressibility after every gate.
+	// Exportable mirrors Pi cost expressibility after every gate.
 	Exportable   bool     `json:"exportable"`
 	WarningCodes []string `json:"warning_codes,omitempty"`
 }

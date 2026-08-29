@@ -57,7 +57,7 @@ func TestBuildRequestLogBrowseWhereSupportsOrdinaryListsAndNull(t *testing.T) {
 
 	for _, fragment := range []string{
 		"resolved_target_model_id IN ($2,$3) OR resolved_target_model_id IS NULL",
-		"api_family IN ($4,$5)",
+		"NULLIF(api_family, '') IN ($4,$5)",
 		"IN ($6,$7)",
 		"CASE WHEN endpoint_id > 0 THEN endpoint_id END) IN ($8,$9)",
 		"CASE WHEN endpoint_id > 0 THEN endpoint_id END) IS NULL",
@@ -106,7 +106,7 @@ func TestBuildRequestLogBrowseWhereSupportsFinalListsExactDetailAndNull(t *testi
 		"CASE WHEN ue.connection_id > 0 THEN ue.connection_id END) IS NULL",
 		"'http_error'",
 		"'stream_error'",
-		"ue.stream_error_kind IS NULL",
+		"NULLIF(ue.stream_error_kind, '') IS NULL",
 		"ue.stream_outcome IS NULL",
 	} {
 		if !strings.Contains(where, fragment) {
@@ -172,5 +172,73 @@ func TestAttemptErrorGroupIdentitySeparatesLiteralUnknownFromNull(t *testing.T) 
 	}
 	if !reflect.DeepEqual(nullFilters["attempt_result"], []string{"__null__"}) {
 		t.Fatalf("null filters = %#v", nullFilters)
+	}
+}
+
+func TestFinalizedCohortExclusionBuildsParameterizedComplement(t *testing.T) {
+	where, args := buildRequestLogBrowseWhere(RequestLogListParams{
+		ProfileID: 1,
+		FinalExclusion: &FinalizedCohortExclusion{
+			Facet:       FinalExclusionStreamErrorKind,
+			Values:      []string{"kind-a", "kind-b"},
+			ExcludeNull: true,
+		},
+	})
+	for _, fragment := range []string{
+		"EXISTS (SELECT 1 FROM usage_request_events ue",
+		"NULLIF(ue.stream_error_kind, '') IS NOT NULL",
+		"NULLIF(ue.stream_error_kind, '') NOT IN ($2,$3)",
+	} {
+		if !strings.Contains(where, fragment) {
+			t.Fatalf("where clause missing %q: %s", fragment, where)
+		}
+	}
+	if !reflect.DeepEqual(args, []any{1, "kind-a", "kind-b"}) {
+		t.Fatalf("args = %#v", args)
+	}
+
+	where, args = buildRequestLogBrowseWhere(RequestLogListParams{
+		ProfileID: 1,
+		FinalExclusion: &FinalizedCohortExclusion{
+			Facet:  FinalExclusionIngressModel,
+			Values: []string{"visible-model"},
+		},
+	})
+	if !strings.Contains(where, "NULLIF(ue.model_id, '') IS NULL OR NULLIF(ue.model_id, '') NOT IN ($2)") {
+		t.Fatalf("null-inclusive complement missing: %s", where)
+	}
+	if !reflect.DeepEqual(args, []any{1, "visible-model"}) {
+		t.Fatalf("args = %#v", args)
+	}
+}
+
+func TestFinalizedErrorRemaindersCarryExactReplaySelectors(t *testing.T) {
+	httpFilters := httpStatusRemainderFilters(UsageErrorsParams{}, []ErrorsHTTPStatus{{StatusCode: 500}, {StatusCode: 503}})
+	if !reflect.DeepEqual(httpFilters, map[string][]string{
+		"final_result":   {"failed"},
+		"outcome_detail": {"http_error"},
+		"final_exclude":  {FinalExclusionStatusCode, "500", "503"},
+	}) {
+		t.Fatalf("http remainder filters = %#v", httpFilters)
+	}
+
+	kind := "protocol_error"
+	kindFilters := streamKindRemainderFilters(UsageErrorsParams{}, "provider_incomplete", []ErrorsStreamKind{
+		{StreamErrorKind: &kind},
+		{StreamErrorKind: nil},
+	})
+	if !reflect.DeepEqual(kindFilters["final_stream_outcome"], []string{"provider_incomplete"}) ||
+		!reflect.DeepEqual(kindFilters["final_exclude"], []string{FinalExclusionStreamErrorKind, "protocol_error", "__null__"}) {
+		t.Fatalf("kind remainder filters = %#v", kindFilters)
+	}
+
+	apiFamily := "openai"
+	groupFilters := groupRemainderFilters(UsageErrorsParams{GroupBy: GroupAPIFamily}, []ErrorsGroup{
+		{EntityID: &apiFamily},
+		{EntityID: nil},
+	})
+	if !reflect.DeepEqual(groupFilters["final_result"], []string{"failed", "client_disconnected"}) ||
+		!reflect.DeepEqual(groupFilters["final_exclude"], []string{FinalExclusionAPIFamily, "openai", "__null__"}) {
+		t.Fatalf("group remainder filters = %#v", groupFilters)
 	}
 }

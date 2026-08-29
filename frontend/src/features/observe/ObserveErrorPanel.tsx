@@ -126,6 +126,15 @@ export function ObserveErrorPanel({
         <span className="rounded-md bg-inset px-2 py-1 tabular-nums" data-testid="error-stream-count">
           {messages.observe.streamFailures}: {data.summary.stream_error_count}
         </span>
+        {data.summary.transport_error_count > 0 ? (
+          <span
+            className="rounded-md bg-inset px-2 py-1 tabular-nums"
+            data-testid="error-transport-count"
+          >
+            {messages.requestLogs.attemptResultTransportError}:{" "}
+            {data.summary.transport_error_count}
+          </span>
+        ) : null}
         <span className="rounded-md bg-inset px-2 py-1 tabular-nums" data-testid="error-client-count">
           {messages.observe.clientDisconnected}: {data.summary.client_disconnected_count}
         </span>

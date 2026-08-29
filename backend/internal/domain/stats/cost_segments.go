@@ -239,9 +239,11 @@ func ListCostSegments(ctx context.Context, exec queryExecutor, params CostSegmen
 		Caliber:                ScopeCaliber{Scope: "catalog", Grain: "cost_segment", IdentityBasis: "cost_segment_key", OutcomeBasis: "none", LatencyBasis: "none", CostBasis: "served_final_trusted_cost", Datasets: []string{"usage_request_events"}},
 		Samples:                ScopeSampleCounts{ObservationCount: totalCount},
 	}
-	if _, coverage, coverageErr := ResolveDatasetCoverage(ctx, exec, "usage_request_events", "all", nil, nil, time.Now().UTC()); coverageErr == nil {
-		page.DatasetCoverage = DatasetCoverage{UsageRequestEvents: &coverage}
+	_, coverage, coverageErr := ResolveDatasetCoverage(ctx, exec, "usage_request_events", "all", nil, nil, time.Now().UTC())
+	if coverageErr != nil {
+		return CostSegmentPage{}, coverageErr
 	}
+	page.DatasetCoverage = DatasetCoverage{UsageRequestEvents: &coverage}
 	// Keyset cursor over the ordered segments (server-before-limit).
 	start := 0
 	if params.Cursor != nil && strings.TrimSpace(*params.Cursor) != "" {

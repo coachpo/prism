@@ -13,6 +13,7 @@ const { load } = createTsModuleLoader({ rootDir: frontendDir });
 const {
   DEFAULTS,
   TOKEN_BOUND_REQUEST_FILTER_DEFAULTS,
+  applyRequestLogStatePatch,
   parsePageState,
   requestLogStateForView,
   stateToParams,
@@ -56,6 +57,24 @@ test("request-log filter state round-trips caller client and attempt target mode
   assert.equal(params.get("request_id"), "101");
   assert.equal(params.get("selected_request_id"), "202");
   assert.equal(params.has("clientRuleId"), false);
+});
+test("request-log filter state rejects zero while preserving large decimal IDs", () => {
+  const state = parsePageState(
+    new URLSearchParams(
+      "request_id=0&selected_request_id=9223372036854775807",
+    ),
+  );
+
+  assert.equal(state.request_id, "");
+  assert.equal(state.selected_request_id, "9223372036854775807");
+  const params = stateToParams(state);
+  assert.equal(params.has("request_id"), false);
+  assert.equal(params.get("selected_request_id"), "9223372036854775807");
+
+  const overflow = parsePageState(
+    new URLSearchParams("request_id=9223372036854775808"),
+  );
+  assert.equal(overflow.request_id, "");
 });
 test("request-log filter state round-trips pricing filters", () => {
   const state = parsePageState(
@@ -161,6 +180,21 @@ test("request-log URL state drops pagination keys owned by the other view", () =
   assert.equal(attemptParams.get("cursor"), "300");
   assert.equal(attemptParams.get("sort_by"), "ttft_ms");
   assert.equal(attemptParams.has("chain_cursor"), false);
+});
+test("request-log cohort changes clear both attempts and chain pagination", () => {
+  const state = parsePageState(
+    new URLSearchParams(
+      "view=ingress_chains&chain_cursor=chain-2&confirmed_failover=true",
+    ),
+  );
+  const next = applyRequestLogStatePatch(state, {
+    confirmed_failover: false,
+    ingress_final_result: "failed",
+  });
+
+  assert.equal(next.offset, 0);
+  assert.equal(next.chain_cursor, "");
+  assert.equal(next.ingress_final_result, "failed");
 });
 test("switching an Observe attempts deep link clears chain-incompatible state", () => {
   const attempts = parsePageState(

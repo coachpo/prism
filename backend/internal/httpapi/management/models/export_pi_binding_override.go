@@ -37,7 +37,7 @@ var piOverrideFieldSpecs = []piOverrideFieldSpec{
 // a stored override can never later fail render with a shape error. Values
 // are returned already converted to their binding-storage Go type; nil marks
 // an explicit restore-to-source.
-func decodePiOverrideFields(body []byte) (map[string]any, error) {
+func decodePiOverrideFields(body []byte, api string) (map[string]any, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, newPiDomainError(http.StatusBadRequest, "Invalid request body", nil)
@@ -61,7 +61,7 @@ func decodePiOverrideFields(body []byte) (map[string]any, error) {
 			values[key] = nil
 			continue
 		}
-		parsed, err := parsePiOverrideValue(key, valueRaw)
+		parsed, err := parsePiOverrideValue(api, key, valueRaw)
 		if err != nil {
 			return nil, err
 		}
@@ -70,7 +70,7 @@ func decodePiOverrideFields(body []byte) (map[string]any, error) {
 	return values, nil
 }
 
-func parsePiOverrideValue(field string, raw json.RawMessage) (any, error) {
+func parsePiOverrideValue(api, field string, raw json.RawMessage) (any, error) {
 	invalid := func(reason string) error {
 		return newPiDomainError(http.StatusUnprocessableEntity, reason, map[string]any{"field": field})
 	}
@@ -80,7 +80,7 @@ func parsePiOverrideValue(field string, raw json.RawMessage) (any, error) {
 		if err := json.Unmarshal(raw, &value); err != nil {
 			return nil, invalid("must be a string or null")
 		}
-		if err := modelexport.ValidatePiSourceField(field, value); err != nil {
+		if err := modelexport.ValidatePiSourceField(api, field, value); err != nil {
 			return nil, invalid(err.Error())
 		}
 		return &value, nil
@@ -95,7 +95,7 @@ func parsePiOverrideValue(field string, raw json.RawMessage) (any, error) {
 		if err := json.Unmarshal(raw, &value); err != nil {
 			return nil, invalid("must be a whole number or null")
 		}
-		if err := modelexport.ValidatePiSourceField(field, value); err != nil {
+		if err := modelexport.ValidatePiSourceField(api, field, value); err != nil {
 			return nil, invalid(err.Error())
 		}
 		return &value, nil
@@ -104,7 +104,7 @@ func parsePiOverrideValue(field string, raw json.RawMessage) (any, error) {
 		if err := json.Unmarshal(raw, &decoded); err != nil {
 			return nil, invalid("must be an array of \"text\"/\"image\" or null")
 		}
-		if err := modelexport.ValidatePiSourceField(field, decoded); err != nil {
+		if err := modelexport.ValidatePiSourceField(api, field, decoded); err != nil {
 			return nil, invalid(err.Error())
 		}
 		values := make([]string, 0, len(decoded))
@@ -117,7 +117,7 @@ func parsePiOverrideValue(field string, raw json.RawMessage) (any, error) {
 		if err := json.Unmarshal(raw, &decoded); err != nil {
 			return nil, invalid("must be an object of Pi thinking levels or null")
 		}
-		if err := modelexport.ValidatePiSourceField(field, decoded); err != nil {
+		if err := modelexport.ValidatePiSourceField(api, field, decoded); err != nil {
 			return nil, invalid(err.Error())
 		}
 		values := make(map[string]*string, len(decoded))
@@ -131,11 +131,11 @@ func parsePiOverrideValue(field string, raw json.RawMessage) (any, error) {
 		}
 		return values, nil
 	case "compat":
-		var decoded map[string]any
-		if err := json.Unmarshal(raw, &decoded); err != nil {
+		decoded, err := decodePiCompatJSON(raw)
+		if err != nil {
 			return nil, invalid("must be an object or null")
 		}
-		if err := modelexport.ValidatePiSourceField(field, decoded); err != nil {
+		if err := modelexport.ValidatePiSourceField(api, field, decoded); err != nil {
 			return nil, invalid(err.Error())
 		}
 		return decoded, nil
@@ -154,13 +154,8 @@ func (s *Service) handlePutPiOverride(w http.ResponseWriter, r *http.Request) {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	values, err := decodePiOverrideFields(body)
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
 	now := s.nowUTC()
-	response, txErr := s.putPiOverrideInTransaction(r.Context(), r, modelConfigID, values, now)
+	response, txErr := s.putPiOverrideInTransaction(r.Context(), r, modelConfigID, body, now)
 	if txErr != nil {
 		writeDomainError(w, r, s.corsSnapshot(), txErr)
 		return
@@ -168,18 +163,29 @@ func (s *Service) handlePutPiOverride(w http.ResponseWriter, r *http.Request) {
 	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
-func (s *Service) putPiOverrideInTransaction(ctx context.Context, r *http.Request, modelConfigID int, values map[string]any, now time.Time) (piBindingResponse, error) {
+func (s *Service) putPiOverrideInTransaction(ctx context.Context, r *http.Request, modelConfigID int, body []byte, now time.Time) (piBindingResponse, error) {
 	return pgxutil.InTxValue(ctx, s.pool, "model", func(tx pgx.Tx) (piBindingResponse, error) {
 		profile, profileErr := resolveEffectiveProfile(ctx, tx, r)
 		if profileErr != nil {
 			return piBindingResponse{}, profileErr
 		}
-		if _, modelErr := loadModelForCatalog(ctx, tx, profile.ID, modelConfigID); modelErr != nil {
+		model, found, modelErr := loadModelRecord(ctx, tx, profile.ID, modelConfigID, true)
+		if modelErr != nil {
 			return piBindingResponse{}, modelErr
 		}
+		if !found {
+			return piBindingResponse{}, newPiDomainError(http.StatusNotFound, "Model configuration not found", nil)
+		}
 		var binding piBindingRecord
-		if _, boundErr := loadBoundPiBinding(ctx, tx, profile.ID, modelConfigID, &binding); boundErr != nil {
+		if boundErr := loadBoundPiBindingForUpdate(ctx, tx, profile.ID, modelConfigID, &binding); boundErr != nil {
 			return piBindingResponse{}, boundErr
+		}
+		if validateErr := validatePiBindingForModel(binding, model); validateErr != nil {
+			return piBindingResponse{}, validateErr
+		}
+		values, decodeErr := decodePiOverrideFields(body, binding.API)
+		if decodeErr != nil {
+			return piBindingResponse{}, decodeErr
 		}
 		for _, spec := range piOverrideFieldSpecs {
 			value, present := values[spec.field]
@@ -192,8 +198,8 @@ func (s *Service) putPiOverrideInTransaction(ctx context.Context, r *http.Reques
 			}
 			spec.setValue(&binding.Override, value)
 		}
-		binding.UpdatedAt = now
-		if upsertErr := upsertPiBinding(ctx, tx, binding, now); upsertErr != nil {
+		binding.UpdatedAt = nextPiBindingUpdatedAt(binding.UpdatedAt, now)
+		if upsertErr := upsertPiBinding(ctx, tx, binding, binding.UpdatedAt); upsertErr != nil {
 			return piBindingResponse{}, upsertErr
 		}
 		saved, _, saveErr := loadPiBinding(ctx, tx, profile.ID, modelConfigID)
@@ -225,16 +231,23 @@ func (s *Service) clearPiOverrideInTransaction(ctx context.Context, r *http.Requ
 		if profileErr != nil {
 			return piBindingResponse{}, profileErr
 		}
-		if _, modelErr := loadModelForCatalog(ctx, tx, profile.ID, modelConfigID); modelErr != nil {
+		model, found, modelErr := loadModelRecord(ctx, tx, profile.ID, modelConfigID, true)
+		if modelErr != nil {
 			return piBindingResponse{}, modelErr
 		}
+		if !found {
+			return piBindingResponse{}, newPiDomainError(http.StatusNotFound, "Model configuration not found", nil)
+		}
 		var binding piBindingRecord
-		if _, boundErr := loadBoundPiBinding(ctx, tx, profile.ID, modelConfigID, &binding); boundErr != nil {
+		if boundErr := loadBoundPiBindingForUpdate(ctx, tx, profile.ID, modelConfigID, &binding); boundErr != nil {
 			return piBindingResponse{}, boundErr
 		}
+		if validateErr := validatePiBindingForModel(binding, model); validateErr != nil {
+			return piBindingResponse{}, validateErr
+		}
 		binding.Override = piBindingMetadata{}
-		binding.UpdatedAt = now
-		if upsertErr := upsertPiBinding(ctx, tx, binding, now); upsertErr != nil {
+		binding.UpdatedAt = nextPiBindingUpdatedAt(binding.UpdatedAt, now)
+		if upsertErr := upsertPiBinding(ctx, tx, binding, binding.UpdatedAt); upsertErr != nil {
 			return piBindingResponse{}, upsertErr
 		}
 		saved, _, saveErr := loadPiBinding(ctx, tx, profile.ID, modelConfigID)
@@ -265,8 +278,15 @@ func (s *Service) unbindPiInTransaction(ctx context.Context, r *http.Request, mo
 		if profileErr != nil {
 			return piBindingResponse{}, profileErr
 		}
-		if _, modelErr := loadModelForCatalog(ctx, tx, profile.ID, modelConfigID); modelErr != nil {
+		_, found, modelErr := loadModelRecord(ctx, tx, profile.ID, modelConfigID, true)
+		if modelErr != nil {
 			return piBindingResponse{}, modelErr
+		}
+		if !found {
+			return piBindingResponse{}, newPiDomainError(http.StatusNotFound, "Model configuration not found", nil)
+		}
+		if _, _, lockErr := loadPiBindingForUpdate(ctx, tx, profile.ID, modelConfigID); lockErr != nil {
+			return piBindingResponse{}, lockErr
 		}
 		if err := deletePiBinding(ctx, tx, modelConfigID); err != nil {
 			return piBindingResponse{}, err

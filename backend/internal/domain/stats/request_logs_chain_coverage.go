@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -11,6 +12,10 @@ import (
 // owner-resolved window. The export path must consume the same actual bounds
 // as the interactive chain list rather than reintroducing a floor-only clip.
 func ResolveChainQueryBounds(ctx context.Context, exec queryExecutor, params ChainQueryParams, referenceNow time.Time) (ChainQueryParams, error) {
+	return resolveChainQueryBoundsWithCustomLimit(ctx, exec, params, referenceNow, 30*24*time.Hour)
+}
+
+func resolveChainQueryBoundsWithCustomLimit(ctx context.Context, exec queryExecutor, params ChainQueryParams, referenceNow time.Time, maxCustomRange time.Duration) (ChainQueryParams, error) {
 	source, err := LoadRetentionSourceProjection(ctx, exec, "request_logs", referenceNow.UTC())
 	if err != nil {
 		return ChainQueryParams{}, err
@@ -18,7 +23,11 @@ func ResolveChainQueryBounds(ctx context.Context, exec queryExecutor, params Cha
 	if source.PurgeState == "running" || source.PurgeState == "recovery_required" {
 		return ChainQueryParams{}, &HTTPError{StatusCode: 503, Code: "request_log_purge_in_progress", Detail: "request logs are temporarily unavailable while retention cleanup is publishing"}
 	}
-	params, _, err = resolveChainQueryBoundsWithOwnerReads(ctx, exec, params, referenceNow.UTC(), source)
+	actual, err := LoadActualCoverageProjection(ctx, exec, source)
+	if err != nil {
+		return ChainQueryParams{}, err
+	}
+	params, err = resolveChainQueryBoundsFromActualWithCustomLimit(params, referenceNow.UTC(), source, actual, maxCustomRange)
 	return params, err
 }
 
@@ -38,11 +47,24 @@ func resolveChainQueryBoundsWithOwnerReads(ctx context.Context, exec queryExecut
 }
 
 func resolveChainQueryBoundsFromActual(params ChainQueryParams, referenceNow time.Time, source RetentionFloorEpochSource, actual ActualCoverageProjection) (ChainQueryParams, error) {
+	return resolveChainQueryBoundsFromActualWithCustomLimit(params, referenceNow, source, actual, 30*24*time.Hour)
+}
+
+func resolveChainQueryBoundsFromActualWithCustomLimit(params ChainQueryParams, referenceNow time.Time, source RetentionFloorEpochSource, actual ActualCoverageProjection, maxCustomRange time.Duration) (ChainQueryParams, error) {
+	// An exact ingress selector is already index-bounded. Without an explicit
+	// window, resolve it against the retained owner domain instead of silently
+	// applying the interactive 24-hour browse default.
+	if params.IngressRequestID != nil && strings.TrimSpace(*params.IngressRequestID) != "" && params.CoveragePreset == "" && params.FromTime == nil && params.ToTime == nil {
+		params.CoveragePreset = "all"
+		params.CoverageRequestedFrom = nil
+		params.CoverageRequestedTo = nil
+		return params, nil
+	}
 	preset, fromTime, toTime, err := normalizeActualCoveragePreset(params.CoveragePreset, params.FromTime, params.ToTime, referenceNow)
 	if err != nil {
 		return ChainQueryParams{}, err
 	}
-	bounds, err := ResolveQueryBoundsFromActualCoverage(preset, fromTime, toTime, referenceNow, source, actual)
+	bounds, err := resolveQueryBoundsFromActualCoverageWithCustomLimit(preset, fromTime, toTime, referenceNow, source, actual, maxCustomRange)
 	if err != nil {
 		return ChainQueryParams{}, err
 	}

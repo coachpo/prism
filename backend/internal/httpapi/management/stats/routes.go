@@ -67,10 +67,7 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 }
 
 func requestLogHasSignedCohortSelector(r *http.Request) bool {
-	query := r.URL.Query()
-	return query.Get("ingress_final_result") != "" ||
-		query.Get("confirmed_failover") != "" ||
-		len(collectRepeatedCommaValues(r, "final_result")) > 0 ||
+	return len(collectRepeatedCommaValues(r, "final_result")) > 0 ||
 		len(collectRepeatedCommaValues(r, "outcome_detail")) > 0 ||
 		len(collectRepeatedCommaValues(r, "final_status_code")) > 0 ||
 		len(collectRepeatedCommaValues(r, "final_stream_outcome")) > 0 ||
@@ -81,6 +78,7 @@ func requestLogHasSignedCohortSelector(r *http.Request) bool {
 		len(collectRepeatedCommaValues(r, "final_pricing_status")) > 0 ||
 		len(collectRepeatedCommaValues(r, "final_unpriced_reason")) > 0 ||
 		len(collectRepeatedCommaValues(r, "reporting_currency_epoch")) > 0 ||
+		len(collectRepeatedCommaValues(r, "final_exclude")) > 0 ||
 		len(collectRepeatedCommaValues(r, "attempt_trigger")) > 0 ||
 		len(collectRepeatedCommaValues(r, "attempt_result")) > 0
 }

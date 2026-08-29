@@ -40,11 +40,7 @@ import {
   type AuditBodyText,
 } from "./auditLogView";
 import { RequestLogAuditWindowBar } from "./RequestLogAuditWindowBar";
-import {
-  getAuditPagePath,
-  getSelectedAuditPath,
-  parseRequestLogIdParam,
-} from "./requestLogAuditRoute";
+import { parseRequestLogIdParam } from "./requestLogAuditRoute";
 import {
   resolveRequestAuditCaptureMode,
   type RequestAuditCaptureMode,
@@ -203,7 +199,9 @@ function AuditRecordsTable({
                   >
                     <TableCell className="font-mono tabular-nums">
                       <Link
-                        to={getSelectedAuditPath(requestId, item.id, cursor)}
+                        to="/observe/requests/$requestId/audit"
+                        params={{ requestId }}
+                        search={{ audit_id: String(item.id), cursor: cursor ?? undefined }}
                         className="hover:underline"
                       >
                         #{item.id}
@@ -268,7 +266,11 @@ function AuditRecordsTable({
         <div className="flex items-center justify-end gap-1 border-t border-border bg-inset px-[var(--density-card-pad-x)] py-2">
           {cursor ? (
             <Button variant="outline" size="sm" asChild>
-              <Link to={getAuditPagePath(requestId, null)}>
+              <Link
+                to="/observe/requests/$requestId/audit"
+                params={{ requestId }}
+                search={{}}
+              >
                 {copy.previousPage}
               </Link>
             </Button>
@@ -279,7 +281,11 @@ function AuditRecordsTable({
           )}
           {hasMore && nextCursor ? (
             <Button variant="outline" size="sm" asChild>
-              <Link to={getAuditPagePath(requestId, nextCursor)}>
+              <Link
+                to="/observe/requests/$requestId/audit"
+                params={{ requestId }}
+                search={{ cursor: nextCursor }}
+              >
                 {copy.nextPage}
               </Link>
             </Button>

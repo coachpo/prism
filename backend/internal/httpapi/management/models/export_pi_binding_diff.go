@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"sort"
 	"strconv"
-	"strings"
 )
 
 // piBindingFieldOrder fixes the stable diff order of refresh previews; it
@@ -42,7 +41,12 @@ func renderPiStringList(values []string) *string {
 	if values == nil {
 		return nil
 	}
-	rendered := "[" + strings.Join(values, ",") + "]"
+	encoded, err := json.Marshal(values)
+	if err != nil {
+		rendered := "<unrepresentable>"
+		return &rendered
+	}
+	rendered := string(encoded)
 	return &rendered
 }
 
@@ -50,21 +54,12 @@ func renderPiThinkingLevelMap(values map[string]*string) *string {
 	if values == nil {
 		return nil
 	}
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
+	encoded, err := json.Marshal(values)
+	if err != nil {
+		rendered := "<unrepresentable>"
+		return &rendered
 	}
-	sort.Strings(keys)
-	parts := make([]string, 0, len(keys))
-	for _, key := range keys {
-		value := values[key]
-		if value == nil {
-			parts = append(parts, key+":null")
-			continue
-		}
-		parts = append(parts, key+":"+*value)
-	}
-	rendered := "{" + strings.Join(parts, ",") + "}"
+	rendered := string(encoded)
 	return &rendered
 }
 
@@ -112,4 +107,31 @@ func diffPiBindingSource(current, next piBindingMetadata) ([]piBindingFieldChang
 		}
 	}
 	return changes, len(changes) > 0
+}
+
+func appendPiDroppedFieldsDiff(changes []piBindingFieldChange, current, next []string) ([]piBindingFieldChange, bool) {
+	currentValue := renderPiDroppedFields(current)
+	nextValue := renderPiDroppedFields(next)
+	if currentValue == nextValue {
+		return changes, false
+	}
+	currentCopy, nextCopy := currentValue, nextValue
+	kind := "changed"
+	if len(current) == 0 && len(next) > 0 {
+		kind = "added"
+	} else if len(current) > 0 && len(next) == 0 {
+		kind = "removed"
+	}
+	return append(changes, piBindingFieldChange{
+		Field: "dropped_fields", Current: &currentCopy, Next: &nextCopy, Kind: kind,
+	}), true
+}
+
+func renderPiDroppedFields(values []string) string {
+	copyValues := normalizePiDroppedFields(values)
+	encoded, err := json.Marshal(copyValues)
+	if err != nil {
+		return "[]"
+	}
+	return string(encoded)
 }

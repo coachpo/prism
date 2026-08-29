@@ -23,6 +23,7 @@ type UsageSummaryResult struct {
 	HTTPSuccessRate                    *float64              `json:"http_success_rate"`
 	CompletedCount                     int                   `json:"completed_count"`
 	StreamErrorCount                   int                   `json:"stream_error_count"`
+	TransportErrorCount                int                   `json:"transport_error_count"`
 	ClientDisconnectedCount            int                   `json:"client_disconnected_count"`
 	FailedCount                        int                   `json:"failed_count"`
 	TTFTSampleCount                    int                   `json:"ttft_sample_count"`
@@ -54,24 +55,25 @@ type UsageSummaryResult struct {
 
 // ObserveCostSegment mirrors the canonical cost segment shape.
 type ObserveCostSegment struct {
-	SegmentKey                    string         `json:"segment_key"`
-	ReportingCurrencyEpoch        *int           `json:"reporting_currency_epoch"`
-	CurrencyAttribution           string         `json:"currency_attribution"`
-	CurrencyCode                  *string        `json:"currency_code"`
-	DisplaySymbol                 *string        `json:"display_symbol"`
-	ObservedSymbols               []string       `json:"observed_symbols"`
-	ObservedSymbolCount           int            `json:"observed_symbol_count"`
-	ObservedSymbolsTruncated      bool           `json:"observed_symbols_truncated"`
-	RequestCount                  int            `json:"request_count"`
-	PricingEligibleRequestCount   int            `json:"pricing_eligible_request_count"`
-	PricingIneligibleRequestCount int            `json:"pricing_ineligible_request_count"`
-	PricedRequestCount            int            `json:"priced_request_count"`
-	UnpricedRequestCount          int            `json:"unpriced_request_count"`
-	PricingUnknownRequestCount    int            `json:"pricing_unknown_request_count"`
-	UnpricedReasonCounts          map[string]int `json:"unpriced_reason_counts"`
-	PricingCoverageState          string         `json:"pricing_coverage_state"`
-	KnownCostMicros               *string        `json:"known_cost_micros"`
-	Sparkline                     *CostSparkline `json:"sparkline,omitempty"`
+	SegmentKey                    string                         `json:"segment_key"`
+	ReportingCurrencyEpoch        *int                           `json:"reporting_currency_epoch"`
+	CurrencyAttribution           string                         `json:"currency_attribution"`
+	CurrencyCode                  *string                        `json:"currency_code"`
+	DisplaySymbol                 *string                        `json:"display_symbol"`
+	ObservedSymbols               []string                       `json:"observed_symbols"`
+	ObservedSymbolCount           int                            `json:"observed_symbol_count"`
+	ObservedSymbolsTruncated      bool                           `json:"observed_symbols_truncated"`
+	RequestCount                  int                            `json:"request_count"`
+	PricingEligibleRequestCount   int                            `json:"pricing_eligible_request_count"`
+	PricingIneligibleRequestCount int                            `json:"pricing_ineligible_request_count"`
+	PricedRequestCount            int                            `json:"priced_request_count"`
+	UnpricedRequestCount          int                            `json:"unpriced_request_count"`
+	PricingUnknownRequestCount    int                            `json:"pricing_unknown_request_count"`
+	UnpricedReasonCounts          map[string]int                 `json:"unpriced_reason_counts"`
+	PricingCoverageState          string                         `json:"pricing_coverage_state"`
+	KnownCostMicros               *string                        `json:"known_cost_micros"`
+	PricingCardRoleBreakdown      []PricingCardRoleCostBreakdown `json:"pricing_card_role_breakdown"`
+	Sparkline                     *CostSparkline                 `json:"sparkline,omitempty"`
 }
 
 type CostSparkline struct {
@@ -127,7 +129,7 @@ func LoadUsageSummary(ctx context.Context, exec queryExecutor, profileID int, bo
 	}
 	var p50, p95 *float64
 	var avgRate *float64
-	var priced, unpriced, ineligible, unknown int
+	var priced, unpriced, ineligible, unknown, trustedCostSamples int
 	var reasonDisabled, reasonMissingUsage, reasonStreamUsage, reasonMissingData int
 	var segmentsJSON []byte
 	row := exec.QueryRow(ctx, `
@@ -166,6 +168,7 @@ SELECT
 	(SELECT COUNT(*) FROM classified WHERE pricing_status = 'unpriced')::int,
 	(SELECT COUNT(*) FROM classified WHERE pricing_status = 'ineligible')::int,
 	(SELECT COUNT(*) FROM classified WHERE pricing_status = 'unknown')::int,
+	(SELECT COUNT(total_cost_user_currency_micros) FROM classified WHERE pricing_status = 'priced' AND pricing_evidence_trust = 'trusted')::int,
 	(SELECT COUNT(*) FROM classified WHERE pricing_status = 'unpriced' AND unpriced_reason = 'PRICING_DISABLED')::int,
 	(SELECT COUNT(*) FROM classified WHERE pricing_status = 'unpriced' AND unpriced_reason = 'MISSING_TOKEN_USAGE')::int,
 	(SELECT COUNT(*) FROM classified WHERE pricing_status = 'unpriced' AND unpriced_reason = 'STREAM_USAGE_UNAVAILABLE')::int,
@@ -207,6 +210,7 @@ SELECT
 		&unpriced,
 		&ineligible,
 		&unknown,
+		&trustedCostSamples,
 		&reasonDisabled,
 		&reasonMissingUsage,
 		&reasonStreamUsage,
@@ -292,7 +296,7 @@ SELECT
 	result.Samples = ScopeSampleCounts{
 		ObservationCount: requestCount, LatencySampleCount: result.TTFTSampleCount,
 		LatencyMissingCount: requestCount - result.TTFTSampleCount,
-		CostSampleCount:     priced, CostMissingCount: unpriced + unknown,
+		CostSampleCount:     trustedCostSamples, CostMissingCount: priced + unpriced + unknown - trustedCostSamples,
 	}
 	var knownCost int64
 	known := false
@@ -315,15 +319,22 @@ SELECT
 
 // LoadScopedUsageSummary handles non-ingress Observe scopes without pretending
 // the ingress-only usage SQL has another denominator.
-func LoadScopedUsageSummary(ctx context.Context, exec queryExecutor, profileID int, scope string, bounds QueryBounds, usageCoverage Coverage, requestCoverage Coverage, referenceNow time.Time) (UsageSummaryResult, error) {
+func LoadScopedUsageSummary(ctx context.Context, exec queryExecutor, profileID int, scope string, usageBounds QueryBounds, requestBounds QueryBounds, usageCoverage Coverage, requestCoverage Coverage, referenceNow time.Time) (UsageSummaryResult, error) {
 	if scope == ScopeIngress {
 		return UsageSummaryResult{}, fmt.Errorf("ingress scope must use LoadUsageSummary")
 	}
-	from, to := bounds.UsageFrom, bounds.UsageTo
-	summary, err := GetStatsSummary(ctx, exec, StatsSummaryParams{ProfileID: profileID, FromTime: &from, ToTime: &to, Preset: "custom", ReferenceNow: referenceNow, Scope: scope})
+	params := StatsSummaryParams{ProfileID: profileID, ReferenceNow: referenceNow, Scope: scope}
+	var observations []scopedStatObservation
+	var err error
+	if scope == ScopeRouteAttempt {
+		observations, err = loadAttemptStatObservations(ctx, exec, params, requestBounds)
+	} else {
+		observations, err = loadUsageStatObservations(ctx, exec, params, scope, usageBounds, requestBounds)
+	}
 	if err != nil {
 		return UsageSummaryResult{}, err
 	}
+	summary := buildScopedStatsSummary(observations, scope, GroupNone)
 	primaryCoverage := requestCoverage
 	if scope == ScopeFinal {
 		primaryCoverage = usageCoverage
@@ -331,28 +342,89 @@ func LoadScopedUsageSummary(ctx context.Context, exec queryExecutor, profileID i
 	result := UsageSummaryResult{
 		GeneratedAt: referenceNow.UTC(), Coverage: primaryCoverage, DatasetCoverage: ScopeCoverageFor(scope, &usageCoverage, &requestCoverage),
 		Caliber: summary.Caliber, Samples: summary.Samples, RequestCount: summary.TotalRequests,
-		CompletedCount: summary.SuccessCount, FailedCount: summary.ErrorCount,
+		CostSegments: []ObserveCostSegment{}, PricingReconciliation: NewPricingReconciliation(),
 	}
-	if summary.SuccessRate != nil {
-		rate := *summary.SuccessRate
+	FinalizePricingReconciliation(&result.PricingReconciliation)
+	latencies := make([]int, 0, len(observations))
+	for _, observation := range observations {
+		if observation.LatencyMS != nil {
+			latencies = append(latencies, *observation.LatencyMS)
+		}
+		if scope == ScopeFinal {
+			switch observation.OutcomeDetail {
+			case OutcomeDetailHTTPError:
+				result.HTTPFailedCount++
+				result.FailedCount++
+			case OutcomeDetailStreamError:
+				result.StreamErrorCount++
+				result.FailedCount++
+			case OutcomeDetailClientDisconnected:
+				result.ClientDisconnectedCount++
+			default:
+				result.CompletedCount++
+			}
+		} else {
+			switch observation.AttemptClass {
+			case attemptClassCompleted:
+				result.CompletedCount++
+			case attemptClassHTTPError:
+				result.HTTPFailedCount++
+				result.FailedCount++
+			case attemptClassStreamError:
+				result.StreamErrorCount++
+				result.FailedCount++
+			case attemptClassTransportError:
+				result.TransportErrorCount++
+				result.FailedCount++
+			case attemptClassClientDisconnected:
+				result.ClientDisconnectedCount++
+			case attemptClassUnknown:
+				result.FailedCount++
+			}
+		}
+	}
+	result.HTTPSuccessCount = result.CompletedCount + result.StreamErrorCount + result.ClientDisconnectedCount
+	if result.RequestCount > 0 {
+		rate := float64(result.HTTPSuccessCount) * 100 / float64(result.RequestCount)
 		result.HTTPSuccessRate = &rate
 	}
-	result.P95TTFTMS = summary.P95ResponseTimeMS
+	result.TTFTSampleCount = len(latencies)
+	result.P50TTFTMS = percentileContInt(latencies, 0.50)
+	result.P95TTFTMS = percentileContInt(latencies, 0.95)
+	projectScopedUsageEvidence(&result, observations)
+	spanMinutes := primaryCoverage.ToTime.Sub(primaryCoverage.FromTime).Minutes()
+	if spanMinutes > 0 {
+		rpm := float64(result.RequestCount) / spanMinutes
+		result.WindowAverageRPM = &rpm
+		if result.TotalTokens != nil {
+			tpm := float64(*result.TotalTokens) / spanMinutes
+			result.WindowAverageTPM = &tpm
+		}
+	}
 	if scope == ScopeFinal {
 		var knownCost sql.NullInt64
-		var costSamples, costMissing int
+		var priced, unpriced, ineligible, unknown, costSamples int
 		err := exec.QueryRow(ctx, `SELECT
 			SUM(total_cost_user_currency_micros) FILTER (WHERE pricing_status = 'priced' AND pricing_evidence_trust = 'trusted'),
-			COUNT(*) FILTER (WHERE pricing_status = 'priced' AND pricing_evidence_trust = 'trusted')::int,
-			COUNT(*) FILTER (WHERE pricing_status IN ('unpriced','unknown'))::int
+			COUNT(total_cost_user_currency_micros) FILTER (WHERE pricing_status = 'priced' AND pricing_evidence_trust = 'trusted')::int,
+			COUNT(*) FILTER (WHERE pricing_status = 'priced')::int,
+			COUNT(*) FILTER (WHERE pricing_status = 'unpriced')::int,
+			COUNT(*) FILTER (WHERE pricing_status = 'ineligible')::int,
+			COUNT(*) FILTER (WHERE pricing_status = 'unknown')::int
 			FROM usage_request_events
 			WHERE profile_id = $1 AND created_at >= $2 AND created_at < $3
-			  AND resolved_target_model_id IS NOT NULL AND final_attempt_number IS NOT NULL`, profileID, from.UTC(), to.UTC()).Scan(&knownCost, &costSamples, &costMissing)
+			  AND resolved_target_model_id IS NOT NULL AND final_attempt_number IS NOT NULL`, profileID, usageBounds.UsageFrom.UTC(), usageBounds.UsageTo.UTC()).Scan(&knownCost, &costSamples, &priced, &unpriced, &ineligible, &unknown)
 		if err != nil {
 			return UsageSummaryResult{}, fmt.Errorf("load final execution cost summary: %w", err)
 		}
 		result.Samples.CostSampleCount = costSamples
-		result.Samples.CostMissingCount = costMissing
+		result.Samples.CostMissingCount = priced + unpriced + unknown - costSamples
+		result.PricingReconciliation.EligibleRequestCount = priced + unpriced + unknown
+		result.PricingReconciliation.IneligibleRequestCount = ineligible
+		result.PricingReconciliation.PricedRequestCount = priced
+		result.PricingReconciliation.UnpricedRequestCount = unpriced
+		result.PricingReconciliation.UnknownRequestCount = unknown
+		FinalizePricingReconciliation(&result.PricingReconciliation)
 		if knownCost.Valid && costSamples > 0 {
 			value := strconv.FormatInt(knownCost.Int64, 10)
 			result.KnownCostMicros = &value
@@ -361,8 +433,82 @@ func LoadScopedUsageSummary(ctx context.Context, exec queryExecutor, profileID i
 	return result, nil
 }
 
+// projectScopedUsageEvidence preserves nullability for scoped summaries. A
+// measured zero is a sample with a non-null zero sum; no measured rows leaves
+// the sum null. Cache-basis creation tokens follow the shared disjoint-basis
+// rule and therefore contribute zero when structurally absent on an otherwise
+// eligible row.
+func projectScopedUsageEvidence(result *UsageSummaryResult, observations []scopedStatObservation) {
+	var inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens int64
+	var cacheBasisInputTokens, cacheBasisCacheReadTokens, cacheBasisCacheCreationTokens int64
+	var outputRateSum float64
+	for _, observation := range observations {
+		if observation.HasInputTokens {
+			result.InputTokenSampleCount++
+			inputTokens += int64(observation.InputTokens)
+		}
+		if observation.HasOutputTokens {
+			result.OutputTokenSampleCount++
+			outputTokens += int64(observation.OutputTokens)
+		}
+		if observation.HasCacheReadInputTokens {
+			result.CacheReadInputTokenSampleCount++
+			cacheReadTokens += int64(observation.CacheReadInputTokens)
+		}
+		if observation.HasCacheCreationInputTokens {
+			result.CacheCreationInputTokenSampleCount++
+			cacheCreationTokens += int64(observation.CacheCreationInputTokens)
+		}
+		if observation.HasReasoningTokens {
+			result.ReasoningTokenSampleCount++
+			reasoningTokens += int64(observation.ReasoningTokens)
+		}
+		if observation.HasTotalTokens {
+			result.TotalTokenSampleCount++
+			totalTokens += int64(observation.TotalTokens)
+		}
+		if observation.OutputRateTPS != nil {
+			result.OutputRateSampleCount++
+			outputRateSum += *observation.OutputRateTPS
+		}
+		if observation.CacheBasisEligible {
+			result.CacheBasisRequestCount++
+			cacheBasisInputTokens += int64(observation.InputTokens)
+			cacheBasisCacheReadTokens += int64(observation.CacheReadInputTokens)
+			cacheBasisCacheCreationTokens += int64(observation.CacheCreationInputTokens)
+		}
+	}
+	if result.InputTokenSampleCount > 0 {
+		result.InputTokens = &inputTokens
+	}
+	if result.OutputTokenSampleCount > 0 {
+		result.OutputTokens = &outputTokens
+	}
+	if result.CacheReadInputTokenSampleCount > 0 {
+		result.CacheReadInputTokens = &cacheReadTokens
+	}
+	if result.CacheCreationInputTokenSampleCount > 0 {
+		result.CacheCreationInputTokens = &cacheCreationTokens
+	}
+	if result.ReasoningTokenSampleCount > 0 {
+		result.ReasoningTokens = &reasoningTokens
+	}
+	if result.TotalTokenSampleCount > 0 {
+		result.TotalTokens = &totalTokens
+	}
+	if result.OutputRateSampleCount > 0 {
+		average := outputRateSum / float64(result.OutputRateSampleCount)
+		result.AvgOutputRateTPS = &average
+	}
+	if result.CacheBasisRequestCount > 0 {
+		result.CacheBasisInputTokens = &cacheBasisInputTokens
+		result.CacheBasisCacheReadTokens = &cacheBasisCacheReadTokens
+		result.CacheBasisCacheCreationTokens = &cacheBasisCacheCreationTokens
+	}
+}
+
 func loadCostSparkline(ctx context.Context, exec queryExecutor, profileID int, bounds QueryBounds, reportCurrencyCode string, reportCurrencySymbol string) (CostSparkline, error) {
-	sparkline := CostSparkline{Interval: "auto"}
+	sparkline := CostSparkline{Interval: "auto", Points: []CostSparklinePoint{}}
 	rows, err := exec.Query(ctx, `
 WITH classified AS (
 	SELECT
@@ -403,6 +549,7 @@ LIMIT 120`, profileID, bounds.UsageFrom, bounds.UsageTo)
 			return sparkline, err
 		}
 		point.BucketStart = bucket.UTC().Format(time.RFC3339)
+		point.PricingCardRoleBreakdown = []PricingCardRoleCostBreakdown{}
 		point.PricedRequestCount = priced
 		point.UnpricedRequestCount = unpriced
 		point.PricingIneligibleRequestCount = ineligible

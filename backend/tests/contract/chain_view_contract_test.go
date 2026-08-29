@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -58,7 +59,7 @@ func TestChainViewOrdinarySetCoversRequestOnlyIngressesAndSkipsNullIngress(t *te
 		t.Fatalf("seed null-ingress row: %v", err)
 	}
 
-	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains", http.StatusOK)
+	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&chain_limit=50", http.StatusOK)
 	items := payload["items"].([]any)
 	if len(items) != 2 {
 		t.Fatalf("expected exactly two chains (null ingress excluded), got %d in %+v", len(items), payload)
@@ -106,6 +107,7 @@ func TestChainViewOrdinarySetCoversRequestOnlyIngressesAndSkipsNullIngress(t *te
 	if len(page2Items) != 1 || asMap(t, page2Items[0])["ingress_request_id"] != "chain-both" {
 		t.Fatalf("expected chain-both on cursor page 2, got %+v", page2)
 	}
+	s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&chain_limit=1&status_code=503&chain_cursor="+cursor, http.StatusUnprocessableEntity)
 }
 
 func TestChainViewServerSideCohortAndPagination(t *testing.T) {
@@ -120,9 +122,18 @@ func TestChainViewServerSideCohortAndPagination(t *testing.T) {
 	seedChainIngress(t, harness, profileID, "chain-a", now, 200, 1, false, "not_streaming")
 	seedChainIngress(t, harness, profileID, "chain-b", now.Add(time.Minute), 200, 3, true, "not_streaming")
 	seedChainIngress(t, harness, profileID, "chain-c", now.Add(2*time.Minute), 500, 1, false, "not_streaming")
+	for ingressID, finalModelID := range map[string]string{
+		"chain-a": "winner-a",
+		"chain-b": "winner-b",
+		"chain-c": "winner-c",
+	} {
+		if _, err := harness.conn.Exec(context.Background(), `UPDATE usage_request_events SET resolved_target_model_id = $1 WHERE profile_id = $2 AND ingress_request_id = $3`, finalModelID, profileID, ingressID); err != nil {
+			t.Fatalf("set final target for %s: %v", ingressID, err)
+		}
+	}
 
 	// Chain view default: all three ingresses, desc order.
-	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains", http.StatusOK)
+	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&chain_limit=50", http.StatusOK)
 	items := payload["items"].([]any)
 	if len(items) != 3 {
 		t.Fatalf("expected 3 chain items, got %d", len(items))
@@ -138,9 +149,20 @@ func TestChainViewServerSideCohortAndPagination(t *testing.T) {
 	if jsonInt(t, first["retained_upstream_attempt_count"]) != 1 || jsonInt(t, first["retained_request_log_row_count"]) != 1 {
 		t.Fatalf("expected chain-c single row, got %+v", first)
 	}
+	filterOptions := asMap(t, payload["filter_options"])
+	for _, key := range []string{"endpoints", "ingress_models", "clients", "attempt_target_models"} {
+		if _, ok := filterOptions[key].([]any); !ok {
+			t.Fatalf("expected non-null filter_options.%s array, got %+v", key, filterOptions[key])
+		}
+	}
+	for _, key := range []string{"ingress_model", "final_target_model"} {
+		if _, ok := summary[key]; !ok {
+			t.Fatalf("expected finalized_summary.%s wire field, got %+v", key, summary)
+		}
+	}
 
 	// Confirmed failover cohort selects chain-b only.
-	failoverPayload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&confirmed_failover=true", http.StatusOK)
+	failoverPayload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&confirmed_failover=true&chain_limit=50", http.StatusOK)
 	failoverItems := failoverPayload["items"].([]any)
 	if len(failoverItems) != 1 {
 		t.Fatalf("expected confirmed_failover cohort to select chain-b only, got %d", len(failoverItems))
@@ -155,10 +177,21 @@ func TestChainViewServerSideCohortAndPagination(t *testing.T) {
 	}
 
 	// Final-result failed cohort selects chain-c.
-	failedPayload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&ingress_final_result=failed", http.StatusOK)
+	failedPayload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&ingress_final_result=failed&chain_limit=50", http.StatusOK)
 	failedItems := failedPayload["items"].([]any)
 	if len(failedItems) != 1 || asMap(t, failedItems[0])["ingress_request_id"] != "chain-c" {
 		t.Fatalf("expected final_result=failed cohort to select chain-c, got %d items", len(failedItems))
+	}
+
+	contextPayload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/query-context?preset=24h", nil, http.StatusOK)
+	token := url.QueryEscape(contextPayload["query_context"].(string))
+	finalTargetPayload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&query_context="+token+"&final_target_model_id=winner-b&chain_limit=50", http.StatusOK)
+	finalTargetItems := finalTargetPayload["items"].([]any)
+	if len(finalTargetItems) != 1 || asMap(t, finalTargetItems[0])["ingress_request_id"] != "chain-b" {
+		t.Fatalf("expected final target filter to select chain-b, got %+v", finalTargetPayload)
+	}
+	if jsonInt(t, finalTargetPayload["retained_ingress_total"]) != 1 {
+		t.Fatalf("expected final target totals to share the filtered cohort, got %+v", finalTargetPayload)
 	}
 
 	// Pagination: chain_limit=2 pages by ingress without splitting chain-b.
@@ -183,6 +216,63 @@ func TestChainViewServerSideCohortAndPagination(t *testing.T) {
 
 	// chain view rejects non-created_at sorts.
 	s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&sort_by=ttft_ms", http.StatusUnprocessableEntity)
+}
+
+func TestChainViewExactIngressUsesRetainedAllBounds(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	createdAt := fixedS15Now.Add(-7 * 24 * time.Hour)
+	ensureContractTestLogPartitions(t, harness,
+		contractTestLogPartitionFor("request_logs", createdAt),
+		contractTestLogPartitionFor("usage_request_events", createdAt),
+	)
+	seedChainIngress(t, harness, profileID, "chain-old-exact", createdAt, 200, 1, false, "not_streaming")
+	refreshS15ActualCoverage(t, harness, "request_logs", "usage_request_events")
+
+	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&ingress_request_id=chain-old-exact&chain_limit=1", http.StatusOK)
+	items := payload["items"].([]any)
+	if len(items) != 1 || asMap(t, items[0])["ingress_request_id"] != "chain-old-exact" {
+		t.Fatalf("expected exact ingress outside the default 24h window, got %+v", payload)
+	}
+	attempts := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=attempts&ingress_request_id=chain-old-exact", http.StatusOK)
+	if items := attempts["items"].([]any); len(items) != 1 {
+		t.Fatalf("expected attempts exact ingress outside the default 24h window, got %+v", attempts)
+	}
+	export := harness.requestJSONRaw(t, harness.client, http.MethodGet, "/api/stats/requests/export?view=attempts&ingress_request_id=chain-old-exact", "", modelHeader(profileID))
+	if export.StatusCode != http.StatusOK || export.Header.Get("X-Prism-Export-Row-Count") != "1" {
+		t.Fatalf("expected exact-ingress CSV outside the default 24h window, got status=%d count=%q", export.StatusCode, export.Header.Get("X-Prism-Export-Row-Count"))
+	}
+	_ = export.Body.Close()
+}
+
+func TestChainViewFinalizedTotalsUseTheUsageWindowCohort(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	usageAt := fixedS15Now.Add(-time.Minute)
+	rowAt := fixedS15Now.Add(-48 * time.Hour)
+	ensureContractTestLogPartitions(t, harness,
+		contractTestLogPartitionFor("request_logs", rowAt),
+		contractTestLogPartitionFor("usage_request_events", usageAt),
+	)
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, resolved_target_model_id, api_family, endpoint_label_snapshot, status_code, success_flag, attempt_count, request_path, pricing_status, pricing_evidence_trust, stream_outcome, failover_occurred, created_at, proxy_api_key_attribution_state)
+		VALUES ($1, 'chain-window-skew', 'entry-window', 'winner-window', 'openai', 'Skew Endpoint', 200, TRUE, 1, '/v1/chat/completions', 'ineligible', 'trusted', 'not_streaming', FALSE, $2, 'none')`, profileID, usageAt); err != nil {
+		t.Fatalf("seed skewed finalized row: %v", err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (profile_id, model_id, resolved_target_model_id, api_family, ingress_request_id, attempt_number, row_kind, url_scrub_provenance, upstream_status_code, attempt_duration_ms, is_stream, success_flag, pricing_status, pricing_evidence_trust, attempt_trigger, attempt_result, is_winner, request_path, created_at)
+		VALUES ($1, 'entry-window', 'winner-window', 'openai', 'chain-window-skew', 1, 'upstream', 'runtime_scrubbed', 200, 100, FALSE, TRUE, 'ineligible', 'trusted', 'initial', 'completed', TRUE, '/v1/chat/completions', $2)`, profileID, rowAt); err != nil {
+		t.Fatalf("seed skewed retained row: %v", err)
+	}
+	refreshS15ActualCoverage(t, harness, "request_logs", "usage_request_events")
+
+	contextPayload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/query-context?preset=24h", nil, http.StatusOK)
+	token := url.QueryEscape(contextPayload["query_context"].(string))
+	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&query_context="+token+"&final_target_model_id=winner-window&chain_limit=1", http.StatusOK)
+	if items := payload["items"].([]any); len(items) != 1 {
+		t.Fatalf("expected usage-window item despite older retained row, got %+v", payload)
+	}
+	if jsonInt(t, payload["retained_ingress_total"]) != 1 || jsonInt(t, payload["retained_request_log_row_total"]) != 1 {
+		t.Fatalf("expected totals to match the usage-window cohort, got %+v", payload)
+	}
 }
 
 func TestChainViewUsesPersistedCurrencyAttribution(t *testing.T) {
@@ -210,6 +300,7 @@ func TestChainViewUsesPersistedCurrencyAttribution(t *testing.T) {
 				WHERE profile_id = $3 AND ingress_request_id = $4`, test.epoch, test.attribution, profileID, test.ingressID); err != nil {
 				t.Fatalf("set finalized currency attribution: %v", err)
 			}
+			refreshS15ActualCoverage(t, harness, "request_logs", "usage_request_events")
 			payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&ingress_request_id="+test.ingressID, http.StatusOK)
 			summary := asMap(t, asMap(t, payload["items"].([]any)[0])["finalized_summary"])
 			if summary["currency_attribution"] != test.attribution || summary["cost_segment_key"] != test.wantKey {
@@ -227,6 +318,7 @@ func TestChainViewNormalizesFinalizedTimestampsToUTC(t *testing.T) {
 	completedAt := startedAt.Add(12 * time.Second)
 	pricingEffectiveAt := startedAt.Add(-7 * 24 * time.Hour)
 	seedChainTimestampFixture(t, harness, profileID, startedAt, completedAt, pricingEffectiveAt)
+	refreshS15ActualCoverage(t, harness, "request_logs", "usage_request_events")
 	previousLocal := time.Local
 	time.Local = location
 	defer func() { time.Local = previousLocal }()
@@ -256,6 +348,7 @@ func TestChainViewPreservesBigIntRequestLogIDsAsDecimalStrings(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
 	seedChainBigIntIDFixture(t, harness, profileID, fixedS15Now.Add(-4*time.Minute))
+	refreshS15ActualCoverage(t, harness, "request_logs", "usage_request_events")
 
 	payload := s15GET[map[string]any](t, harness, profileID, "/api/stats/requests?view=ingress_chains&ingress_request_id=chain-bigint-ids", http.StatusOK)
 	item := asMap(t, payload["items"].([]any)[0])
@@ -280,6 +373,7 @@ func TestChainRowCursorPaginatesFullIngressCountsAndRejectsScopeChanges(t *testi
 	profileID := modelLoadDefaultProfileID(t, harness)
 	ingressID := "chain-row-cursor"
 	wantIDs := seedChainRowCursorFixture(t, harness, profileID, ingressID, fixedS15Now.Add(-4*time.Minute))
+	refreshS15ActualCoverage(t, harness, "request_logs", "usage_request_events")
 	// Finalized pricing selectors choose the ingress cohort. They must not be
 	// folded into the retained-row status predicate: the finalized ingress is
 	// unpriced while every retained row is independently ineligible.
@@ -346,6 +440,13 @@ func TestChainRowCursorPaginatesFullIngressCountsAndRejectsScopeChanges(t *testi
 		}
 	}
 
+	exportPath := "/api/stats/requests/export?view=ingress_chains&ingress_request_id=" + ingressID + "&pricing_status=unpriced&unpriced_reason=MISSING_TOKEN_USAGE&status_code=503"
+	export := harness.requestJSONRaw(t, harness.client, http.MethodGet, exportPath, "", modelHeader(profileID))
+	if export.StatusCode != http.StatusOK || export.Header.Get("X-Prism-Export-Row-Count") != "3" {
+		t.Fatalf("expected chain CSV to export the full three-row matched ingress, got status=%d count=%q", export.StatusCode, export.Header.Get("X-Prism-Export-Row-Count"))
+	}
+	_ = export.Body.Close()
+
 	cursorParts := strings.Split(firstCursor, ".")
 	if len(cursorParts) != 2 || cursorParts[1] == "" {
 		t.Fatalf("expected signed cursor envelope, got %q", firstCursor)
@@ -358,6 +459,7 @@ func TestChainRowCursorPaginatesFullIngressCountsAndRejectsScopeChanges(t *testi
 	s15GET[map[string]any](t, harness, profileID, basePath+"&row_cursor="+tampered, http.StatusBadRequest)
 	s15GET[map[string]any](t, harness, profileID, strings.Replace(basePath, ingressID, "chain-row-cursor-other", 1)+"&row_cursor="+firstCursor, http.StatusUnprocessableEntity)
 	s15GET[map[string]any](t, harness, profileID, strings.Replace(basePath, "chain_row_limit=1", "chain_row_limit=2", 1)+"&row_cursor="+firstCursor, http.StatusUnprocessableEntity)
+	s15GET[map[string]any](t, harness, profileID, strings.Replace(basePath, "status_code=503", "status_code=200", 1)+"&row_cursor="+firstCursor, http.StatusUnprocessableEntity)
 	s15GET[map[string]any](t, harness, profileID, basePath+"&chain_cursor=outer&row_cursor="+firstCursor, http.StatusUnprocessableEntity)
 }
 

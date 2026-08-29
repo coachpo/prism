@@ -106,67 +106,6 @@ func isBlankPointer(value *string) bool {
 	return value == nil || *value == ""
 }
 
-// exportCatalogEvidence strips clock fields from the binding record so the
-// evidence stays digest-stable.
-func exportCatalogEvidence(record catalogBindingRecord) modelexport.CatalogEvidence {
-	if record.ModelConfigID == 0 && record.ProviderID == "" {
-		return modelexport.CatalogEvidence{}
-	}
-	evidence := modelexport.CatalogEvidence{
-		Bound:           true,
-		ProviderID:      record.ProviderID,
-		CatalogModelID:  record.CatalogModelID,
-		CatalogRevision: record.CatalogRevision,
-		MatchSource:     record.MatchSource,
-		HasOverrides:    !record.Override.empty(),
-	}
-	return evidence
-}
-
-// canonicalMetadataFromBinding maps the stored effective metadata onto the
-// canonical leaf names. Absent leaves stay absent; explicit values pass
-// through verbatim.
-func canonicalMetadataFromBinding(record catalogBindingRecord) map[string]json.RawMessage {
-	values := map[string]json.RawMessage{}
-	addString := func(leaf string, value *string) {
-		if value != nil {
-			values[leaf] = marshalRawJSON(*value)
-		}
-	}
-	addBool := func(leaf string, value *bool) {
-		if value != nil {
-			values[leaf] = marshalRawJSON(*value)
-		}
-	}
-	addInt := func(leaf string, value *int64) {
-		if value != nil {
-			values[leaf] = marshalRawJSON(*value)
-		}
-	}
-	addList := func(leaf string, value []string) {
-		if value != nil {
-			values[leaf] = marshalRawJSON(value)
-		}
-	}
-	effective := record.Source.effective(record.Override)
-	addString(modelexport.MetaName, effective.Name)
-	addString(modelexport.MetaDescription, effective.Description)
-	addString(modelexport.MetaFamily, effective.Family)
-	addBool(modelexport.MetaReasoning, effective.Reasoning)
-	addBool(modelexport.MetaAttachment, effective.Attachment)
-	addBool(modelexport.MetaToolCall, effective.ToolCall)
-	addBool(modelexport.MetaTemperature, effective.Temperature)
-	addInt(modelexport.MetaContextWindow, effective.LimitContext)
-	addInt(modelexport.MetaMaxOutputTokens, effective.LimitOutput)
-	addInt(modelexport.MetaMaxInputTokens, effective.LimitInput)
-	addList(modelexport.MetaModalitiesInput, effective.ModalitiesInput)
-	addList(modelexport.MetaModalitiesOutput, effective.ModalitiesOutput)
-	addString(modelexport.MetaStatus, effective.Status)
-	addString(modelexport.MetaReleaseDate, effective.ReleaseDate)
-	addString(modelexport.MetaKnowledge, effective.Knowledge)
-	return values
-}
-
 // exportTargetFacts converts store rows into ordered domain target facts.
 // Reachability filtering already happened in SQL (enabled chains, active
 // connections); OpenAI text-mode reachability narrows pricing further.

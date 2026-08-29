@@ -85,7 +85,7 @@ func buildConnectionSuccessRatesQuery(params ConnectionSuccessRateParams) (strin
 	}
 	if params.ToTime != nil {
 		args = append(args, params.ToTime.UTC())
-		clauses = append(clauses, fmt.Sprintf("created_at <= $%d", len(args)))
+		clauses = append(clauses, fmt.Sprintf("created_at < $%d", len(args)))
 	}
 	return `SELECT connection_id, attempt_result, attempt_duration_ms FROM request_logs WHERE ` + strings.Join(clauses, " AND "), args
 }
@@ -229,7 +229,7 @@ func loadThroughputAttemptTimestamps(ctx context.Context, exec queryExecutor, pa
 	}
 	if params.ToTime != nil {
 		args = append(args, params.ToTime.UTC())
-		clauses = append(clauses, fmt.Sprintf("created_at <= $%d", len(args)))
+		clauses = append(clauses, fmt.Sprintf("created_at < $%d", len(args)))
 	}
 	if params.AttemptTargetModelID != nil && strings.TrimSpace(*params.AttemptTargetModelID) != "" {
 		args = append(args, strings.TrimSpace(*params.AttemptTargetModelID))

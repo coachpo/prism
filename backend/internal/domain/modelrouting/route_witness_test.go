@@ -2,6 +2,8 @@ package modelrouting
 
 import (
 	"testing"
+
+	"github.com/coachpo/prism/backend/internal/domain/terminaltarget"
 )
 
 func strategyPtr(id int) *int { return &id }
@@ -25,8 +27,8 @@ func TestAnalyzeRouteWitnessSnapshotDirectTerminalTargets(t *testing.T) {
 			},
 		},
 		ConnectionsByID: map[int]DiagnosticsConnection{
-			501: {ID: 501, ProfileID: 1, APIFamily: "openai", IsActive: true, OpenAITextCapability: ptr("dual_native")},
-			502: {ID: 502, ProfileID: 1, APIFamily: "openai", IsActive: true, OpenAITextCapability: ptr("chat_completions_only")},
+			501: {ID: 501, ProfileID: 1, APIFamily: "openai", EndpointID: 1501, IsActive: true, OpenAITextCapability: ptr("dual_native")},
+			502: {ID: 502, ProfileID: 1, APIFamily: "openai", EndpointID: 1502, IsActive: true, OpenAITextCapability: ptr("chat_completions_only")},
 		},
 		StrategiesByModelID: map[int]DiagnosticsStrategy{10: {ID: 10, Subtype: "fill-first"}},
 	}
@@ -53,6 +55,9 @@ func TestAnalyzeRouteWitnessSnapshotDirectTerminalTargets(t *testing.T) {
 	}
 	if representative.ModelConfigID != "1" || representative.OperationName != "openai.chat_completions" {
 		t.Fatalf("unexpected representative witness %+v", representative)
+	}
+	if representative.TerminalTargetID != "501" || representative.EndpointID != "1501" || representative.Coverage != "full" {
+		t.Fatalf("expected distinct positive identities and lowercase coverage, got %+v", representative)
 	}
 	if representative.Generation != "7" {
 		t.Fatalf("expected representative generation 7, got %q", representative.Generation)
@@ -88,7 +93,7 @@ func TestAnalyzeRouteWitnessSnapshotResolvesThroughModelTarget(t *testing.T) {
 			},
 		},
 		ConnectionsByID: map[int]DiagnosticsConnection{
-			601: {ID: 601, ProfileID: 1, APIFamily: "openai", IsActive: true, OpenAITextCapability: ptr("chat_completions_only")},
+			601: {ID: 601, ProfileID: 1, APIFamily: "openai", EndpointID: 1601, IsActive: true, OpenAITextCapability: ptr("chat_completions_only")},
 		},
 		StrategiesByModelID: map[int]DiagnosticsStrategy{10: {ID: 10, Subtype: "fill-first"}},
 	}
@@ -102,6 +107,9 @@ func TestAnalyzeRouteWitnessSnapshotResolvesThroughModelTarget(t *testing.T) {
 	}
 	if parentWitnesses[0].TerminalTargetID != "601" {
 		t.Fatalf("expected parent witness to carry the child's terminal target, got %+v", parentWitnesses[0])
+	}
+	if parentWitnesses[0].EndpointID != "1601" {
+		t.Fatalf("expected parent witness to carry the child's endpoint, got %+v", parentWitnesses[0])
 	}
 }
 
@@ -158,8 +166,8 @@ func TestAnalyzeRouteWitnessSnapshotDeterministicOrder(t *testing.T) {
 			},
 		},
 		ConnectionsByID: map[int]DiagnosticsConnection{
-			701: {ID: 701, ProfileID: 1, APIFamily: "openai", IsActive: true, OpenAITextCapability: ptr("dual_native")},
-			703: {ID: 703, ProfileID: 1, APIFamily: "openai", IsActive: true, OpenAITextCapability: ptr("dual_native")},
+			701: {ID: 701, ProfileID: 1, APIFamily: "openai", EndpointID: 1701, IsActive: true, OpenAITextCapability: ptr("dual_native")},
+			703: {ID: 703, ProfileID: 1, APIFamily: "openai", EndpointID: 1703, IsActive: true, OpenAITextCapability: ptr("dual_native")},
 		},
 		StrategiesByModelID: map[int]DiagnosticsStrategy{10: {ID: 10, Subtype: "fill-first"}},
 	}
@@ -168,4 +176,145 @@ func TestAnalyzeRouteWitnessSnapshotDeterministicOrder(t *testing.T) {
 	if representative == nil || representative.TerminalTargetID != "701" {
 		t.Fatalf("expected representative terminal target 701 (numeric order), got %+v", representative)
 	}
+}
+
+func TestAnalyzeRouteWitnessSnapshotSupportsRegisteredFamiliesAndEndpointIdentity(t *testing.T) {
+	graph := &DiagnosticsGraph{
+		ModelsByID: map[int]DiagnosticsModel{
+			10: {ConfigID: 10, ProfileID: 1, ModelID: "anthropic-parent", APIFamily: "anthropic", IsEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
+			11: {ConfigID: 11, ProfileID: 1, ModelID: "anthropic-child", APIFamily: "anthropic", IsEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
+			20: {ConfigID: 20, ProfileID: 1, ModelID: "gemini-direct", APIFamily: "gemini", IsEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
+		},
+		AccessTargetsBySourceModelID: map[int][]DiagnosticsAccessTarget{
+			10: {{ID: 100, SourceModelConfigID: 10, TargetType: TargetTypeModel, TargetModelConfigID: ptr(11), Position: 0, IsEnabled: true}},
+			11: {{ID: 110, SourceModelConfigID: 11, TargetType: TargetTypeTerminal, TargetConnectionID: ptr(501), Position: 0, IsEnabled: true}},
+			20: {{ID: 200, SourceModelConfigID: 20, TargetType: TargetTypeTerminal, TargetConnectionID: ptr(601), Position: 0, IsEnabled: true}},
+		},
+		ConnectionsByID: map[int]DiagnosticsConnection{
+			501: {
+				ID: 501, ProfileID: 1, APIFamily: "anthropic", EndpointID: 9001, IsActive: true,
+				RoutingWindows: []terminaltarget.Window{{WeekdayMask: 1, StartMinute: 60, EndMinute: 120}},
+			},
+			601: {ID: 601, ProfileID: 1, APIFamily: "gemini", EndpointID: 9002, IsActive: true},
+		},
+		StrategiesByModelID: map[int]DiagnosticsStrategy{1: {ID: 1, Subtype: "fill-first"}},
+	}
+	catalog := []RouteWitnessOperation{
+		{Name: "anthropic.messages", APIFamily: "anthropic"},
+		{Name: "anthropic.count_tokens", APIFamily: "anthropic"},
+		{Name: "gemini.generate_content", APIFamily: "gemini"},
+		{Name: "gemini.stream_generate_content", APIFamily: "gemini"},
+		{Name: "gemini.count_tokens", APIFamily: "gemini"},
+	}
+
+	snapshot := AnalyzeRouteWitnessSnapshotWithOperations(graph, 3, catalog)
+	if snapshot.RouteWitnessCount != 7 {
+		t.Fatalf("expected two child + two parent + three Gemini witnesses, got %d: %+v", snapshot.RouteWitnessCount, snapshot.Witnesses)
+	}
+	for _, modelID := range []int{10, 11, 20} {
+		summary := snapshot.ModelSummary(modelID)
+		if summary.Application.State != "ready" {
+			t.Fatalf("expected model %d to be route-ready, got %+v", modelID, summary)
+		}
+	}
+	parent := snapshot.ByModelConfigID[10]
+	if len(parent) != 2 || parent[0].OperationName != "anthropic.messages" || parent[1].OperationName != "anthropic.count_tokens" {
+		t.Fatalf("expected registry-ordered Anthropic model-chain witnesses, got %+v", parent)
+	}
+	for _, witness := range parent {
+		if witness.TerminalTargetID != "501" || witness.EndpointID != "9001" || witness.Coverage != "full" {
+			t.Fatalf("expected distinct terminal/endpoint identity and lowercase coverage, got %+v", witness)
+		}
+	}
+	if qualifier := snapshot.ModelSummary(10).RouteSchedule; !qualifier.ScheduleLimited || qualifier.LimitedWitnessCount != 2 || qualifier.TotalWitnessCount != 2 {
+		t.Fatalf("expected parent model-chain readiness to remain schedule-qualified, got %+v", qualifier)
+	}
+	gemini := snapshot.ByModelConfigID[20]
+	if len(gemini) != 3 || gemini[0].EndpointID != "9002" || gemini[0].TerminalTargetID != "601" {
+		t.Fatalf("expected three direct Gemini witnesses with endpoint identity, got %+v", gemini)
+	}
+}
+
+func TestAnalyzeRouteWitnessSnapshotRouteScheduleQualifier(t *testing.T) {
+	tests := []struct {
+		name    string
+		windows []terminaltarget.Window
+		limited bool
+	}{
+		{name: "no schedule"},
+		{name: "full week", windows: []terminaltarget.Window{{WeekdayMask: 127, StartMinute: 0, EndMinute: 1440}}},
+		{name: "limited", windows: []terminaltarget.Window{{WeekdayMask: 1, StartMinute: 60, EndMinute: 120}}, limited: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			graph := &DiagnosticsGraph{
+				ModelsByID: map[int]DiagnosticsModel{
+					1: {ConfigID: 1, ProfileID: 1, ModelID: "claude", APIFamily: "anthropic", IsEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
+				},
+				AccessTargetsBySourceModelID: map[int][]DiagnosticsAccessTarget{
+					1: {{ID: 10, SourceModelConfigID: 1, TargetType: TargetTypeTerminal, TargetConnectionID: ptr(20), Position: 0, IsEnabled: true}},
+				},
+				ConnectionsByID: map[int]DiagnosticsConnection{
+					20: {ID: 20, ProfileID: 1, APIFamily: "anthropic", EndpointID: 30, IsActive: true, RoutingWindows: test.windows},
+				},
+				StrategiesByModelID: map[int]DiagnosticsStrategy{1: {ID: 1, Subtype: "fill-first"}},
+			}
+			snapshot := AnalyzeRouteWitnessSnapshotWithOperations(graph, 1, []RouteWitnessOperation{{Name: "anthropic.messages", APIFamily: "anthropic"}})
+			qualifier := snapshot.ModelSummary(1).RouteSchedule
+			if qualifier.ScheduleLimited != test.limited || qualifier.LimitedWitnessCount != boolInt(test.limited) || qualifier.TotalWitnessCount != 1 {
+				t.Fatalf("unexpected route schedule qualifier: %+v", qualifier)
+			}
+		})
+	}
+}
+
+func TestAnalyzeRouteWitnessSnapshotRejectsCrossFamilyModelChain(t *testing.T) {
+	graph := &DiagnosticsGraph{
+		ModelsByID: map[int]DiagnosticsModel{
+			1: {ConfigID: 1, ProfileID: 1, ModelID: "anthropic-parent", APIFamily: "anthropic", IsEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
+			2: {ConfigID: 2, ProfileID: 1, ModelID: "gemini-child", APIFamily: "gemini", IsEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
+		},
+		AccessTargetsBySourceModelID: map[int][]DiagnosticsAccessTarget{
+			1: {{ID: 10, SourceModelConfigID: 1, TargetType: TargetTypeModel, TargetModelConfigID: ptr(2), Position: 0, IsEnabled: true}},
+			2: {{ID: 20, SourceModelConfigID: 2, TargetType: TargetTypeTerminal, TargetConnectionID: ptr(30), Position: 0, IsEnabled: true}},
+		},
+		ConnectionsByID: map[int]DiagnosticsConnection{
+			30: {ID: 30, ProfileID: 1, APIFamily: "gemini", EndpointID: 40, IsActive: true},
+		},
+		StrategiesByModelID: map[int]DiagnosticsStrategy{1: {ID: 1, Subtype: "fill-first"}},
+	}
+	catalog := []RouteWitnessOperation{
+		{Name: "anthropic.messages", APIFamily: "anthropic"},
+		{Name: "gemini.generate_content", APIFamily: "gemini"},
+	}
+	snapshot := AnalyzeRouteWitnessSnapshotWithOperations(graph, 1, catalog)
+	if snapshot.RouteWitnessCount != 1 || len(snapshot.ByModelConfigID[1]) != 0 || len(snapshot.ByModelConfigID[2]) != 1 {
+		t.Fatalf("expected only the Gemini child to have a witness, got %+v", snapshot.Witnesses)
+	}
+}
+
+func TestAnalyzeRouteWitnessSnapshotRequiresPositiveEndpointIdentity(t *testing.T) {
+	graph := &DiagnosticsGraph{
+		ModelsByID: map[int]DiagnosticsModel{
+			1: {ConfigID: 1, ProfileID: 1, ModelID: "claude", APIFamily: "anthropic", IsEnabled: true, LoadbalanceStrategyID: strategyPtr(1)},
+		},
+		AccessTargetsBySourceModelID: map[int][]DiagnosticsAccessTarget{
+			1: {{ID: 10, SourceModelConfigID: 1, TargetType: TargetTypeTerminal, TargetConnectionID: ptr(20), Position: 0, IsEnabled: true}},
+		},
+		ConnectionsByID: map[int]DiagnosticsConnection{
+			20: {ID: 20, ProfileID: 1, APIFamily: "anthropic", EndpointID: 0, IsActive: true},
+		},
+		StrategiesByModelID: map[int]DiagnosticsStrategy{1: {ID: 1, Subtype: "fill-first"}},
+	}
+	snapshot := AnalyzeRouteWitnessSnapshotWithOperations(graph, 1, []RouteWitnessOperation{{Name: "anthropic.messages", APIFamily: "anthropic"}})
+	if snapshot.RouteWitnessCount != 0 {
+		t.Fatalf("expected invalid endpoint identity to produce no witness, got %+v", snapshot.Witnesses)
+	}
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }

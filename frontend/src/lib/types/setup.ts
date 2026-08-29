@@ -13,7 +13,13 @@ export interface RouteWitnessRef {
   operation_name: string
   terminal_target_id: string
   endpoint_id: string
-  coverage: "FULL" | "PARTIAL" | "NONE"
+  coverage: "full" | "partial" | "none"
+}
+
+export interface RouteScheduleQualifier {
+  schedule_limited: boolean
+  limited_witness_count: number
+  total_witness_count: number
 }
 
 export interface ModelEntityRef {
@@ -35,6 +41,7 @@ export interface ModelRouteReadinessSummary {
   application: ReadinessAxis
   route_witness_count: number
   representative_witness: RouteWitnessRef | null
+  route_schedule: RouteScheduleQualifier
 }
 
 export interface ProfileRouteReadiness {
@@ -45,6 +52,7 @@ export interface ProfileRouteReadiness {
   route_ready_model_count: number | null
   route_witness_count: number | null
   representative_witness: RouteWitnessRef | null
+  route_schedule: RouteScheduleQualifier
 }
 
 export interface ModelRouteReadinessEnvelope<TModel = unknown> {

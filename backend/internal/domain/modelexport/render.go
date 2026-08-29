@@ -15,7 +15,6 @@ import (
 )
 
 type RenderResult struct {
-	Platform      Platform            `json:"platform"`
 	Content       string              `json:"-"`
 	ContentSHA256 string              `json:"content_sha256"`
 	FileName      string              `json:"file_name"`
@@ -62,8 +61,11 @@ func NormalizeSelection(ids []int, facts SourceFacts) ([]int, error) {
 			}
 			return nil, &ErrUnselectableModel{ModelConfigID: id, Reason: reason}
 		}
-		if len(fact.PiCandidates) > 1 && fact.PiSelected == nil {
+		if fact.PiSelected == nil {
 			return nil, &ErrCandidateUnselected{ModelConfigID: id}
+		}
+		if fact.PiSelected.ProviderID == "" || fact.PiSelected.ModelID != fact.ModelID || fact.PiSelected.API != PiAPIForModel(fact.APIFamily, fact.OpenAIAcceptedFormat) {
+			return nil, &ErrCandidateInvalid{ModelConfigID: id}
 		}
 	}
 	return deduped, nil
@@ -113,6 +115,33 @@ func targetNumber(value any, field string) error {
 	return nil
 }
 
+func targetPositiveInteger(value any, field string) error {
+	valid := false
+	switch typed := value.(type) {
+	case json.Number:
+		parsed, err := strconv.ParseInt(typed.String(), 10, 64)
+		valid = err == nil && parsed > 0
+	case int:
+		valid = typed > 0
+	case int32:
+		valid = typed > 0
+	case int64:
+		valid = typed > 0
+	case uint:
+		valid = typed > 0 && uint64(typed) <= math.MaxInt64
+	case uint32:
+		valid = typed > 0
+	case uint64:
+		valid = typed > 0 && typed <= math.MaxInt64
+	case float64:
+		valid = !math.IsInf(typed, 0) && !math.IsNaN(typed) && typed > 0 && math.Trunc(typed) == typed && typed <= math.MaxInt64
+	}
+	if !valid {
+		return invalidTargetField(field, "must be a positive whole number")
+	}
+	return nil
+}
+
 func targetSchemaError(err error) error {
 	if err == nil {
 		return nil
@@ -155,19 +184,6 @@ func targetStringArray(value any, field string, allowed map[string]struct{}) err
 	return nil
 }
 
-func targetStringRecord(value any, field string) error {
-	object, ok := value.(map[string]any)
-	if !ok {
-		return invalidTargetField(field, "must be an object of string values")
-	}
-	for key, item := range object {
-		if _, ok := item.(string); !ok {
-			return invalidTargetField(field+"."+key, "must be a string")
-		}
-	}
-	return nil
-}
-
 func sortedAnyKeys(values map[string]any) []string {
 	keys := make([]string, 0, len(values))
 	for key := range values {
@@ -198,40 +214,6 @@ func normalizedTargetDocument(value any) (map[string]any, error) {
 	return object, nil
 }
 
-func rejectSensitiveValue(value any, path string) error {
-	switch typed := value.(type) {
-	case map[string]any:
-		keys := make([]string, 0, len(typed))
-		for key := range typed {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		for _, key := range keys {
-			childPath := key
-			if path != "" {
-				childPath = path + "." + key
-			}
-			if KeyLooksSensitive(key) {
-				return &ErrSensitiveField{Field: childPath}
-			}
-			if err := rejectSensitiveValue(typed[key], childPath); err != nil {
-				return err
-			}
-		}
-	case []any:
-		for index, item := range typed {
-			if err := rejectSensitiveValue(item, fmt.Sprintf("%s[%d]", path, index)); err != nil {
-				return err
-			}
-		}
-	case nil, string, bool, json.Number:
-		return nil
-	default:
-		return fmt.Errorf("enhancement field %q has an unsupported JSON value", path)
-	}
-	return nil
-}
-
 type decimal string
 
 func (d decimal) MarshalJSON() ([]byte, error) {
@@ -259,15 +241,14 @@ func (d decimal) MarshalJSON() ([]byte, error) {
 	return []byte(text), nil
 }
 
-func finalizeDocument(platform Platform, document any) (*RenderResult, error) {
+func finalizeDocument(document any) (*RenderResult, error) {
 	raw, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
-		return nil, fmt.Errorf("encode %s document: %w", platform, err)
+		return nil, fmt.Errorf("encode Pi document: %w", err)
 	}
 	content := string(raw) + "\n"
 	sum := sha256.Sum256([]byte(content))
 	result := &RenderResult{
-		Platform:      platform,
 		Content:       content,
 		ContentSHA256: hex.EncodeToString(sum[:]),
 		MIMEType:      "application/json;charset=utf-8",

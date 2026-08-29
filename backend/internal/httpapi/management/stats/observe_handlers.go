@@ -32,8 +32,16 @@ func (s *Service) handleQueryContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	preset := strings.TrimSpace(r.URL.Query().Get("preset"))
-	fromTime := parseOptionalRFC3339(r.URL.Query().Get("from_time"))
-	toTime := parseOptionalRFC3339(r.URL.Query().Get("to_time"))
+	fromTime, err := parseOptionalTime(r, "from_time")
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	toTime, err := parseOptionalTime(r, "to_time")
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	response, err := pgxutil.InReadOnlyTxValue(r.Context(), s.pool, "stats query-context", func(tx pgx.Tx) (statsdomain.QueryContextResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
@@ -160,7 +168,7 @@ func (s *Service) handleUsageSummary(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	token, bounds, err := s.resolveQueryContextFromRequest(r)
+	token, _, err := s.resolveQueryContextFromRequest(r)
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
@@ -177,14 +185,14 @@ func (s *Service) handleUsageSummary(w http.ResponseWriter, r *http.Request) {
 		if profile.ID != token.ProfileID {
 			return statsdomain.UsageSummaryResult{}, &statsdomain.HTTPError{StatusCode: 422, Detail: "query_context scope mismatch"}
 		}
-		reportCurrencyCode, reportCurrencySymbol, err := statsdomain.LoadReportCurrencyPreferences(r.Context(), tx, profile.ID)
-		if err != nil {
-			return statsdomain.UsageSummaryResult{}, err
-		}
 		if token.Scope == statsdomain.ScopeIngress {
+			reportCurrencyCode, reportCurrencySymbol, err := statsdomain.LoadReportCurrencyPreferences(r.Context(), tx, profile.ID)
+			if err != nil {
+				return statsdomain.UsageSummaryResult{}, err
+			}
 			return statsdomain.LoadUsageSummary(r.Context(), tx, profile.ID, usageBounds, usageCoverage, s.nowUTC(), reportCurrencyCode, reportCurrencySymbol)
 		}
-		return statsdomain.LoadScopedUsageSummary(r.Context(), tx, profile.ID, token.Scope, bounds, usageCoverage, requestCoverage, s.nowUTC())
+		return statsdomain.LoadScopedUsageSummary(r.Context(), tx, profile.ID, token.Scope, usageBounds, requestBounds, usageCoverage, requestCoverage, s.nowUTC())
 	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -247,18 +255,6 @@ func (s *Service) resolveQueryContextFromRequest(r *http.Request) (statsdomain.Q
 	return token, bounds, nil
 }
 
-func parseOptionalRFC3339(value string) *time.Time {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return nil
-	}
-	parsed, err := time.Parse(time.RFC3339, trimmed)
-	if err != nil {
-		return nil
-	}
-	return &parsed
-}
-
 // observabilitySigningKey returns the domain-separated HMAC subkey used to
 // sign query contexts and cursors.
 func (s *Service) observabilitySigningKey() []byte {
@@ -289,9 +285,13 @@ func (s *Service) handleUsageSeries(w http.ResponseWriter, r *http.Request) {
 	if interval == "" {
 		interval = "auto"
 	}
-	seriesLimit, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("series_limit")))
-	if err != nil || seriesLimit <= 0 {
-		seriesLimit = 6
+	seriesLimit, err := parsePositiveIntWithDefault(r, "series_limit", 6)
+	if err != nil || seriesLimit < 2 || seriesLimit > 6 {
+		if err == nil {
+			err = invalidQueryParameter("series_limit", "must be within [2, 6]")
+		}
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
 	}
 	response, err := pgxutil.InReadOnlyTxValue(r.Context(), s.pool, "stats usage-series", func(tx pgx.Tx) (statsdomain.UsageSeriesResult, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
@@ -301,9 +301,12 @@ func (s *Service) handleUsageSeries(w http.ResponseWriter, r *http.Request) {
 		if profile.ID != token.ProfileID {
 			return statsdomain.UsageSeriesResult{}, &statsdomain.HTTPError{StatusCode: 422, Detail: "query_context scope mismatch"}
 		}
-		reportCurrencyCode, reportCurrencySymbol, err := statsdomain.LoadReportCurrencyPreferences(r.Context(), tx, profile.ID)
-		if err != nil {
-			return statsdomain.UsageSeriesResult{}, err
+		var reportCurrencyCode, reportCurrencySymbol string
+		if token.Scope != statsdomain.ScopeRouteAttempt {
+			reportCurrencyCode, reportCurrencySymbol, err = statsdomain.LoadReportCurrencyPreferences(r.Context(), tx, profile.ID)
+			if err != nil {
+				return statsdomain.UsageSeriesResult{}, err
+			}
 		}
 		return statsdomain.LoadUsageSeries(r.Context(), tx, profile.ID, token.Scope, bounds, usageCoverage, requestCoverage, metric, groupBy, interval, seriesLimit, s.nowUTC(), reportCurrencyCode, reportCurrencySymbol)
 	})
@@ -336,13 +339,13 @@ func (s *Service) handleDashboardNow(w http.ResponseWriter, r *http.Request) {
 
 // handleUsageErrors returns the error aggregation panel for a query context.
 func (s *Service) handleUsageErrors(w http.ResponseWriter, r *http.Request) {
-	if err := rejectQueryKeys(r, "query_context", "group_by", "limit", "ingress_model_id", "final_target_model_id", "attempt_target_model_id", "endpoint_id", "terminal_target_id", "final_result", "outcome_detail", "status_code", "stream_outcome", "stream_error_kind"); err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
 	rawQueryContext := strings.TrimSpace(r.URL.Query().Get("query_context"))
 	token, bounds, err := s.resolveQueryContextFromRequest(r)
 	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	if err := rejectUsageErrorsQueryKeys(r, token.Scope); err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
@@ -350,10 +353,27 @@ func (s *Service) handleUsageErrors(w http.ResponseWriter, r *http.Request) {
 	requestBounds, _ := statsdomain.QueryBoundsForDomain(token, "request_logs")
 	usageCoverage := statsdomain.CoverageFromQueryBounds(usageBounds, token.Domains["usage_request_events"])
 	requestCoverage := statsdomain.CoverageFromQueryBounds(requestBounds, token.Domains["request_logs"])
+	limit, err := parsePositiveIntWithDefault(r, "limit", 20)
+	if err != nil || limit > 50 {
+		if err == nil {
+			err = invalidQueryParameter("limit", "must be within [1, 50]")
+		}
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	params := statsdomain.UsageErrorsParams{
 		GroupBy: strings.TrimSpace(r.URL.Query().Get("group_by")),
 		Scope:   token.Scope,
-		Limit:   parsePositiveQueryIntDefault(r, "limit", 20),
+		Limit:   limit,
+	}
+	if apiFamily := strings.TrimSpace(r.URL.Query().Get("api_family")); apiFamily != "" {
+		switch apiFamily {
+		case "openai", "anthropic", "gemini":
+			params.APIFamily = &apiFamily
+		default:
+			writeDomainError(w, r, s.corsSnapshot(), invalidQueryParameter("api_family", "must be openai, anthropic, or gemini"))
+			return
+		}
 	}
 	if modelID := strings.TrimSpace(r.URL.Query().Get("ingress_model_id")); modelID != "" {
 		params.IngressModelID = &modelID
@@ -364,20 +384,34 @@ func (s *Service) handleUsageErrors(w http.ResponseWriter, r *http.Request) {
 	if modelID := strings.TrimSpace(r.URL.Query().Get("attempt_target_model_id")); modelID != "" {
 		params.AttemptTargetModelID = &modelID
 	}
-	if endpointID := parseOptionalPositiveQueryInt(r, "endpoint_id"); endpointID != nil {
-		params.EndpointID = endpointID
+	endpointID, err := parseOptionalPositiveStatsID(r, "endpoint_id")
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
 	}
-	if targetID := parseOptionalPositiveQueryInt(r, "terminal_target_id"); targetID != nil {
-		params.TerminalTargetID = targetID
+	params.EndpointID = endpointID
+	targetID, err := parseOptionalPositiveStatsID(r, "terminal_target_id")
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
 	}
+	params.TerminalTargetID = targetID
+	proxyKeyID, err := parseOptionalPositiveStatsID(r, "proxy_api_key_id")
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	params.ProxyAPIKeyID = proxyKeyID
 	params.FinalResult = r.URL.Query()["final_result"]
 	params.OutcomeDetail = r.URL.Query()["outcome_detail"]
 	params.StreamOutcome = r.URL.Query()["stream_outcome"]
 	params.StreamErrorKind = r.URL.Query()["stream_error_kind"]
-	for _, raw := range r.URL.Query()["status_code"] {
-		if value, err := strconv.Atoi(raw); err == nil {
-			params.StatusCode = append(params.StatusCode, value)
-		}
+	params.AttemptTrigger = r.URL.Query()["attempt_trigger"]
+	params.AttemptResult = r.URL.Query()["attempt_result"]
+	params.StatusCode, err = parseObserveStatusCodes(r)
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
 	}
 	response, err := pgxutil.InReadOnlyTxValue(r.Context(), s.pool, "stats usage-errors", func(tx pgx.Tx) (statsdomain.UsageErrorsResult, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
@@ -394,6 +428,58 @@ func (s *Service) handleUsageErrors(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	responseutil.WriteJSON(w, http.StatusOK, response)
+}
+
+func rejectUsageErrorsQueryKeys(r *http.Request, scope string) error {
+	allowed := map[string]struct{}{
+		"query_context": {}, "group_by": {}, "limit": {}, "api_family": {},
+	}
+	switch scope {
+	case statsdomain.ScopeIngress:
+		for _, key := range []string{"ingress_model_id", "proxy_api_key_id", "final_result", "outcome_detail", "status_code", "stream_outcome", "stream_error_kind"} {
+			allowed[key] = struct{}{}
+		}
+	case statsdomain.ScopeFinal:
+		for _, key := range []string{"final_target_model_id", "endpoint_id", "terminal_target_id", "final_result", "outcome_detail", "status_code", "stream_outcome", "stream_error_kind"} {
+			allowed[key] = struct{}{}
+		}
+	case statsdomain.ScopeRouteAttempt:
+		for _, key := range []string{"attempt_target_model_id", "endpoint_id", "terminal_target_id", "attempt_trigger", "attempt_result", "status_code", "stream_outcome", "stream_error_kind"} {
+			allowed[key] = struct{}{}
+		}
+	default:
+		return &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "scope_invalid", Detail: "unknown scope " + scope}
+	}
+	for key := range r.URL.Query() {
+		if _, ok := allowed[key]; !ok {
+			return &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "filter_invalid", Detail: "filter " + key + " is not supported by usage-errors for scope " + scope}
+		}
+	}
+	return nil
+}
+
+func parseOptionalPositiveStatsID(r *http.Request, key string) (*int, error) {
+	value, err := parseOptionalInt(r, key)
+	if err != nil {
+		return nil, err
+	}
+	if value != nil && *value <= 0 {
+		return nil, invalidQueryParameter(key, "must be a positive integer")
+	}
+	return value, nil
+}
+
+func parseObserveStatusCodes(r *http.Request) ([]int, error) {
+	values := r.URL.Query()["status_code"]
+	result := make([]int, 0, len(values))
+	for _, raw := range values {
+		parsed, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil || parsed < 100 || parsed > 599 {
+			return nil, invalidQueryParameter("status_code", "must contain HTTP status codes within [100, 599]")
+		}
+		result = append(result, parsed)
+	}
+	return result, nil
 }
 
 func parsePositiveQueryIntDefault(r *http.Request, key string, defaultValue int) int {

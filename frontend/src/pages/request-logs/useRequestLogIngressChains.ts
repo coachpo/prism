@@ -147,14 +147,12 @@ export function useRequestLogIngressChains({
           rows: chain.page_request_log_row_count,
         });
         setCoverage(chain.source_coverage ?? null);
-        if (chain.filter_options) {
-          setFilterOptions({
-            models: chain.filter_options.ingress_models,
-            endpoints: chain.filter_options.endpoints,
-            clients: chain.filter_options.clients,
-            resolved_target_models: chain.filter_options.attempt_target_models,
-          });
-        }
+        setFilterOptions({
+          models: chain.filter_options.ingress_models,
+          endpoints: chain.filter_options.endpoints,
+          clients: chain.filter_options.clients,
+          resolved_target_models: chain.filter_options.attempt_target_models,
+        });
         setFilterOptionsLoaded(true);
         loadedSignatureRef.current = signature;
         setLastLoadedAt(new Date().toISOString());

@@ -39,7 +39,6 @@ export function useUsageSeriesFragment(
       : queryContextPhase === "error" && !queryContext
         ? queryContextErrorFragment()
         : loadingFragment();
-
   useEffect(() => {
     if (!queryContext) {
       return;
@@ -63,7 +62,7 @@ export function useUsageSeriesFragment(
           setSnapshot({ key, fragment: queryContextErrorFragment() });
           return;
         }
-        if (series.metric && series.metric !== metric) {
+        if (series.metric !== metric) {
           setSnapshot({ key, fragment: queryContextErrorFragment() });
           return;
         }

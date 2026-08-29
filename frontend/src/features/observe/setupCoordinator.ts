@@ -6,6 +6,8 @@ import type {
   PricingSetupReadiness,
   ProxySetupReadiness,
   ReadinessAxis,
+  RouteScheduleQualifier,
+  RouteWitnessRef,
   SetupCoordinatorPhase,
   SetupCoordinatorState,
   SetupFact,
@@ -109,6 +111,82 @@ function parseReadinessAxis(value: unknown, allowNotRequired = false): Readiness
   return { state: value.state as ReadinessAxis["state"], reason_codes: reasonCodes }
 }
 
+function parseRouteScheduleQualifier(value: unknown): RouteScheduleQualifier | null {
+  if (!isObject(value) || typeof value.schedule_limited !== "boolean") return null
+  const validCount = (candidate: unknown) =>
+    typeof candidate === "number" && Number.isInteger(candidate) && candidate >= 0
+  if (!validCount(value.limited_witness_count) || !validCount(value.total_witness_count)) return null
+  const limitedWitnessCount = value.limited_witness_count as number
+  const totalWitnessCount = value.total_witness_count as number
+  if (limitedWitnessCount > totalWitnessCount) return null
+  if (value.schedule_limited !== (limitedWitnessCount > 0)) return null
+  return {
+    schedule_limited: value.schedule_limited,
+    limited_witness_count: limitedWitnessCount,
+    total_witness_count: totalWitnessCount,
+  }
+}
+
+function parseRouteWitness(value: unknown): RouteWitnessRef | null {
+  if (!isObject(value)) return null
+  const stringFields = ["witness_id", "generation", "model_config_id", "model_id", "operation_name", "terminal_target_id", "endpoint_id"] as const
+  if (stringFields.some((field) => typeof value[field] !== "string" || value[field].trim() === "")) return null
+  if (!["generation", "model_config_id", "terminal_target_id", "endpoint_id"].every((field) => isPositiveDecimalString(value[field]))) return null
+  if (value.coverage !== "full" && value.coverage !== "partial" && value.coverage !== "none") return null
+  return value as unknown as RouteWitnessRef
+}
+
+function parseNullableRouteWitness(value: unknown): RouteWitnessRef | null | undefined {
+  if (value === null) return null
+  return parseRouteWitness(value) ?? undefined
+}
+
+function parseSetupMatchingWitnessProjection(
+  value: unknown,
+): SetupMatchingWitnessProjection | null | undefined {
+  if (value === null) return null
+  if (!isObject(value) || !isObject(value.model)) return undefined
+  const witness = parseRouteWitness(value.witness)
+  const model = value.model
+  if (
+    !witness ||
+    model.kind !== "model" ||
+    !isPositiveDecimalString(model.model_config_id) ||
+    typeof model.model_id !== "string" ||
+    typeof model.name !== "string" ||
+    typeof model.name_source !== "string" ||
+    (model.deleted !== null && typeof model.deleted !== "boolean")
+  ) return undefined
+  return {
+    witness,
+    model: {
+      kind: "model",
+      model_config_id: model.model_config_id,
+      model_id: model.model_id,
+      name: model.name,
+      name_source: model.name_source,
+      deleted: model.deleted,
+    },
+  }
+}
+
+function parseModelRouteReadiness(value: unknown) {
+  if (!isObject(value)) return null
+  const configuration = parseReadinessAxis(value.configuration)
+  const application = parseReadinessAxis(value.application)
+  const schedule = parseRouteScheduleQualifier(value.route_schedule)
+  const witness = parseNullableRouteWitness(value.representative_witness)
+  if (!configuration || !application || !schedule || witness === undefined) return null
+  if (!(typeof value.route_witness_count === "number" && Number.isInteger(value.route_witness_count) && value.route_witness_count >= 0)) return null
+  return {
+    configuration,
+    application,
+    route_witness_count: value.route_witness_count,
+    representative_witness: witness,
+    route_schedule: schedule,
+  }
+}
+
 function parseProfileReadiness(value: unknown): ProfileRouteReadiness | null {
   if (!isObject(value)) return null
   const configuration = parseReadinessAxis(value.configuration)
@@ -122,6 +200,9 @@ function parseProfileReadiness(value: unknown): ProfileRouteReadiness | null {
   if (!nullableCount(value.configuration_ready_model_count) || !nullableCount(value.route_ready_model_count) || !nullableCount(value.route_witness_count)) {
     return null
   }
+  const witness = parseNullableRouteWitness(value.representative_witness)
+  const schedule = parseRouteScheduleQualifier(value.route_schedule)
+  if (witness === undefined || !schedule) return null
   return {
     route_witness_generation: generation as string | null,
     configuration,
@@ -129,7 +210,8 @@ function parseProfileReadiness(value: unknown): ProfileRouteReadiness | null {
     configuration_ready_model_count: value.configuration_ready_model_count,
     route_ready_model_count: value.route_ready_model_count,
     route_witness_count: value.route_witness_count,
-    representative_witness: isObject(value.representative_witness) ? (value.representative_witness as never) : null,
+    representative_witness: witness,
+    route_schedule: schedule,
   }
 }
 
@@ -137,7 +219,14 @@ export function parseModelReadiness(value: unknown): ModelRouteReadinessEnvelope
   if (!isObject(value) || !Array.isArray(value.items)) return null
   const routeReadiness = parseProfileReadiness(value.route_readiness)
   if (!routeReadiness) return null
-  return { items: value.items, route_readiness: routeReadiness }
+  const items = []
+  for (const item of value.items) {
+    if (!isObject(item)) return null
+    const itemReadiness = parseModelRouteReadiness(item.route_readiness)
+    if (!itemReadiness) return null
+    items.push({ ...item, route_readiness: itemReadiness })
+  }
+  return { items, route_readiness: routeReadiness }
 }
 
 function parseSetupAxis(value: unknown, allowNotRequired = false): ReadinessAxis | null {
@@ -151,7 +240,14 @@ function parsePricingReadiness(value: unknown): PricingSetupReadiness | null {
   if (!configuration || !application || !isPositiveDecimalString(value.evaluated_route_witness_generation)) return null
   if (!["pricing_template_generation", "pricing_reference_generation", "route_witness_count", "applied_witness_count", "cost_ready_witness_count"].every((key) => typeof value[key] === "number" && Number.isInteger(value[key]) && value[key] >= 0)) return null
   if (value.cost_ready !== null && typeof value.cost_ready !== "boolean") return null
-  return value as unknown as PricingSetupReadiness
+  const representative = parseSetupMatchingWitnessProjection(value.representative_matching)
+  if (representative === undefined) return null
+  return {
+    ...(value as unknown as PricingSetupReadiness),
+    configuration,
+    application,
+    representative_matching: representative,
+  }
 }
 
 function parseProxyReadiness(value: unknown): ProxySetupReadiness | null {
@@ -161,7 +257,16 @@ function parseProxyReadiness(value: unknown): ProxySetupReadiness | null {
   if (!configuration || !application || !isPositiveDecimalString(value.evaluated_route_witness_generation) || typeof value.proxy_key_owner_revision !== "string") return null
   if (!["route_witness_count", "matching_witness_count"].every((key) => typeof value[key] === "number" && Number.isInteger(value[key]) && value[key] >= 0)) return null
   if (value.optional_attribution_witness_count !== null && !(typeof value.optional_attribution_witness_count === "number" && Number.isInteger(value.optional_attribution_witness_count) && value.optional_attribution_witness_count >= 0)) return null
-  return value as unknown as ProxySetupReadiness
+  const matching = parseSetupMatchingWitnessProjection(value.representative_matching)
+  const optional = parseSetupMatchingWitnessProjection(value.representative_optional_attribution)
+  if (matching === undefined || optional === undefined) return null
+  return {
+    ...(value as unknown as ProxySetupReadiness),
+    configuration,
+    application,
+    representative_matching: matching,
+    representative_optional_attribution: optional,
+  }
 }
 
 function emptyFact(id: SetupFactId, kind: SetupFact["kind"]): SetupFact {
@@ -273,7 +378,15 @@ function buildModelFacts(read: SourceRead): { models: SetupFact; terminalTargets
   }
   return {
     models: factFromAxis("models", "required", parsed.route_readiness.configuration, "fresh"),
-    terminalTargets: factFromAxis("terminal_targets", "required", parsed.route_readiness.application, "fresh"),
+    terminalTargets: factFromAxis(
+      "terminal_targets",
+      "required",
+      parsed.route_readiness.application,
+      "fresh",
+      parsed.route_readiness.route_schedule.schedule_limited
+        ? "已就绪的路由仅在配置时段内可用"
+        : null,
+    ),
     readiness: parsed.route_readiness,
   }
 }

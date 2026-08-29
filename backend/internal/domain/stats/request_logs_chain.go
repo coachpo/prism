@@ -44,6 +44,7 @@ type ChainQueryParams struct {
 	TerminalTargetID        *int
 	StatusFamily            *string
 	StatusCode              *int
+	ClientRuleID            *int
 	ClientRulePattern       *string
 	ErrorText               *string
 	ProxyAPIKeyID           *int
@@ -216,27 +217,28 @@ type ChainRowItem struct {
 // ChainResponse is the outer-page envelope.
 type ChainResponse struct {
 	// View is the fixed view discriminator of the ingress-chain envelope.
-	View                         string             `json:"view"`
-	QueryContext                 *string            `json:"query_context"`
-	SourceIngressTotal           *int               `json:"source_ingress_total"`
-	RetainedIngressTotal         int                `json:"retained_ingress_total"`
-	RetainedUpstreamAttemptTotal int                `json:"retained_upstream_attempt_total"`
-	RetainedRequestLogRowTotal   int                `json:"retained_request_log_row_total"`
-	LegacyUnknownRowTotal        int                `json:"legacy_unknown_row_total"`
-	PageIngressCount             int                `json:"page_ingress_count"`
-	PageUpstreamAttemptCount     int                `json:"page_upstream_attempt_count"`
-	PageRequestLogRowCount       int                `json:"page_request_log_row_count"`
-	Items                        []ChainIngressItem `json:"items"`
-	HasMoreChains                bool               `json:"has_more_chains"`
-	NextChainCursor              *string            `json:"next_chain_cursor"`
-	SourceCoverage               *json.RawMessage   `json:"source_coverage"`
-	RawFinalizedCoverage         *json.RawMessage   `json:"raw_finalized_coverage"`
-	AttemptCoverage              *json.RawMessage   `json:"attempt_coverage"`
-	DrilldownCoverage            *json.RawMessage   `json:"drilldown_coverage"`
-	OrderEvidenceState           string             `json:"order_evidence_state,omitempty"`
-	Caliber                      ScopeCaliber       `json:"caliber"`
-	DatasetCoverage              DatasetCoverage    `json:"dataset_coverage"`
-	Samples                      ScopeSampleCounts  `json:"samples"`
+	View                         string                      `json:"view"`
+	QueryContext                 *string                     `json:"query_context"`
+	SourceIngressTotal           *int                        `json:"source_ingress_total"`
+	RetainedIngressTotal         int                         `json:"retained_ingress_total"`
+	RetainedUpstreamAttemptTotal int                         `json:"retained_upstream_attempt_total"`
+	RetainedRequestLogRowTotal   int                         `json:"retained_request_log_row_total"`
+	LegacyUnknownRowTotal        int                         `json:"legacy_unknown_row_total"`
+	PageIngressCount             int                         `json:"page_ingress_count"`
+	PageUpstreamAttemptCount     int                         `json:"page_upstream_attempt_count"`
+	PageRequestLogRowCount       int                         `json:"page_request_log_row_count"`
+	FilterOptions                RequestLogListFilterOptions `json:"filter_options"`
+	Items                        []ChainIngressItem          `json:"items"`
+	HasMoreChains                bool                        `json:"has_more_chains"`
+	NextChainCursor              *string                     `json:"next_chain_cursor"`
+	SourceCoverage               *json.RawMessage            `json:"source_coverage"`
+	RawFinalizedCoverage         *json.RawMessage            `json:"raw_finalized_coverage"`
+	AttemptCoverage              *json.RawMessage            `json:"attempt_coverage"`
+	DrilldownCoverage            *json.RawMessage            `json:"drilldown_coverage"`
+	OrderEvidenceState           string                      `json:"order_evidence_state,omitempty"`
+	Caliber                      ScopeCaliber                `json:"caliber"`
+	DatasetCoverage              DatasetCoverage             `json:"dataset_coverage"`
+	Samples                      ScopeSampleCounts           `json:"samples"`
 }
 
 const defaultChainLimit = 20
@@ -284,6 +286,18 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 	if params.ChainRowLimit > maxChainRowLimit {
 		params.ChainRowLimit = maxChainRowLimit
 	}
+	sortOrder := strings.ToLower(strings.TrimSpace(params.SortOrder))
+	if sortOrder == "" {
+		sortOrder = "desc"
+	}
+	if sortOrder != "desc" && sortOrder != "asc" {
+		return ChainResponse{}, &HTTPError{StatusCode: 422, Code: "chain_sort_unsupported", Detail: "Ingress chain view only supports created_at asc|desc."}
+	}
+	params.SortOrder = sortOrder
+	cohortHash, err := chainCohortFingerprint(params)
+	if err != nil {
+		return ChainResponse{}, fmt.Errorf("fingerprint ingress-chain cohort: %w", err)
+	}
 	if params.RowCursor != nil && strings.TrimSpace(*params.RowCursor) != "" &&
 		params.ChainCursor != nil && strings.TrimSpace(*params.ChainCursor) != "" {
 		return ChainResponse{}, &HTTPError{StatusCode: 422, Code: "chain_row_cursor_conflict", Detail: "chain_cursor and row_cursor cannot be used together."}
@@ -298,7 +312,7 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 		if params.IngressRequestID != nil {
 			exactIngress = strings.TrimSpace(*params.IngressRequestID)
 		}
-		if exactIngress == "" || decoded.ProfileID != params.ProfileID || decoded.IngressID != exactIngress || decoded.Limit != params.ChainRowLimit {
+		if exactIngress == "" || decoded.ProfileID != params.ProfileID || decoded.IngressID != exactIngress || decoded.Limit != params.ChainRowLimit || decoded.CohortHash != cohortHash {
 			return ChainResponse{}, &HTTPError{StatusCode: 422, Code: "row_cursor_scope_mismatch", Detail: "Retained-row cursor does not match the exact ingress query scope."}
 		}
 		if decoded.RetentionEpoch != requestEpoch {
@@ -307,14 +321,28 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 		if decoded.RetentionGeneration != requestGeneration {
 			return ChainResponse{}, &HTTPError{StatusCode: 410, Code: "request_snapshot_stale", Detail: "The retained-row snapshot is stale; reload the first page."}
 		}
+		if err := applyChainCursorWindow(&params, decoded.WindowFrom, decoded.WindowTo); err != nil {
+			return ChainResponse{}, &HTTPError{StatusCode: 400, Code: "row_cursor_invalid", Detail: "Retained-row cursor window is invalid."}
+		}
 		rowCursor = &decoded
 	}
-	sortOrder := strings.ToLower(strings.TrimSpace(params.SortOrder))
-	if sortOrder == "" {
-		sortOrder = "desc"
+	if params.ClientRuleID != nil {
+		rule, found, ruleErr := loadCompiledUserAgentRuleByID(ctx, exec, params.ProfileID, *params.ClientRuleID)
+		if ruleErr != nil {
+			return ChainResponse{}, ruleErr
+		}
+		if !found {
+			return ChainResponse{}, &HTTPError{StatusCode: 400, Code: "invalid_client_rule_id", Detail: "invalid client_rule_id"}
+		}
+		params.ClientRulePattern = &rule.RawPattern
 	}
-	if sortOrder != "desc" && sortOrder != "asc" {
-		return ChainResponse{}, &HTTPError{StatusCode: 422, Code: "chain_sort_unsupported", Detail: "Ingress chain view only supports created_at asc|desc."}
+	if params.Q != nil {
+		trimmed := strings.TrimSpace(*params.Q)
+		if trimmed == "" {
+			params.Q = nil
+		} else {
+			params.Q = &trimmed
+		}
 	}
 
 	// Resolve the chain cursor and freeze the outer order bound.
@@ -325,7 +353,7 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 		if err != nil {
 			return ChainResponse{}, &HTTPError{StatusCode: 400, Code: "chain_cursor_invalid", Detail: "Ingress chain cursor is invalid."}
 		}
-		if decoded.ProfileID != params.ProfileID || decoded.Limit != params.ChainLimit || decoded.SortOrder != sortOrder {
+		if decoded.ProfileID != params.ProfileID || decoded.Limit != params.ChainLimit || decoded.SortOrder != sortOrder || decoded.CohortHash != cohortHash {
 			return ChainResponse{}, &HTTPError{StatusCode: 422, Code: "chain_cursor_scope_mismatch", Detail: "Ingress chain cursor does not match the query scope."}
 		}
 		if decoded.RetentionEpoch != requestEpoch {
@@ -333,6 +361,9 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 		}
 		if decoded.RetentionGeneration != requestGeneration {
 			return ChainResponse{}, &HTTPError{StatusCode: 410, Code: "request_snapshot_stale", Detail: "The ingress-chain snapshot is stale; reload the first page."}
+		}
+		if err := applyChainCursorWindow(&params, decoded.WindowFrom, decoded.WindowTo); err != nil {
+			return ChainResponse{}, &HTTPError{StatusCode: 400, Code: "chain_cursor_invalid", Detail: "Ingress-chain cursor window is invalid."}
 		}
 		cursor = decoded
 		hasCursor = true
@@ -349,6 +380,18 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 	}
 
 	connectionCatalog, err := loadCurrentConnections(ctx, exec, params.ProfileID)
+	if err != nil {
+		return ChainResponse{}, err
+	}
+	currentEndpoints, _, err := loadCurrentEndpoints(ctx, exec, params.ProfileID)
+	if err != nil {
+		return ChainResponse{}, err
+	}
+	currentModels, _, err := loadRequestLogModels(ctx, exec, params.ProfileID)
+	if err != nil {
+		return ChainResponse{}, err
+	}
+	rules, err := loadCompiledUserAgentRules(ctx, exec, params.ProfileID)
 	if err != nil {
 		return ChainResponse{}, err
 	}
@@ -388,11 +431,17 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 		PageIngressCount:         len(items),
 		PageUpstreamAttemptCount: pageUpstreamAttempts,
 		PageRequestLogRowCount:   pageRequestLogRows,
-		Items:                    items,
-		HasMoreChains:            hasMore,
-		OrderEvidenceState:       "authoritative",
-		Caliber:                  CaliberForScope(ScopeIngress),
-		Samples:                  ScopeSampleCounts{ObservationCount: len(items)},
+		FilterOptions: RequestLogListFilterOptions{
+			Endpoints:            buildRequestLogEndpointOptions(currentEndpoints, params.EndpointID),
+			Models:               buildRequestLogModelOptions(currentModels, params.ModelID),
+			ResolvedTargetModels: buildRequestLogResolvedTargetModelOptions(currentModels, params.ResolvedTargetModelID),
+			Clients:              buildRequestLogClientOptions(rules),
+		},
+		Items:              items,
+		HasMoreChains:      hasMore,
+		OrderEvidenceState: "authoritative",
+		Caliber:            CaliberForScope(ScopeIngress),
+		Samples:            ScopeSampleCounts{ObservationCount: len(items)},
 	}
 	if params.FromTime != nil && params.ToTime != nil {
 		coverage := Coverage{
@@ -406,6 +455,7 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 	}
 	if hasMore && len(items) > 0 {
 		last := ingresses[len(ingresses)-1]
+		windowFrom, windowTo := chainCursorWindow(params)
 		encoded, err := encodeChainCursor(chainCursorPayload{
 			Version:             1,
 			ProfileID:           params.ProfileID,
@@ -414,6 +464,9 @@ func ListIngressChains(ctx context.Context, exec queryExecutor, params ChainQuer
 			UsageEventID:        last.UsageEventID,
 			Limit:               params.ChainLimit,
 			SortOrder:           sortOrder,
+			CohortHash:          cohortHash,
+			WindowFrom:          windowFrom,
+			WindowTo:            windowTo,
 			RetentionEpoch:      requestEpoch,
 			RetentionGeneration: requestGeneration,
 		})
@@ -447,18 +500,17 @@ type chainIngressRef struct {
 func selectChainIngressSet(ctx context.Context, exec queryExecutor, params ChainQueryParams, cursor chainCursorPayload, hasCursor bool, sortOrder string) ([]chainIngressRef, error) {
 	// Finalized-cohort selectors resolve through the authoritative usage
 	// summary; they are never translated into retained-row facts.
-	useUsageSource := params.IngressFinalResult != nil || params.ConfirmedFailover != nil ||
-		params.PricingStatus != nil || len(params.UnpricedReasons) > 0 ||
-		params.ReportingCurrencyEpoch != nil || params.IsStream != nil ||
-		len(params.IngressFinalStatusCodes) > 0 || params.FinalTargetModelID != nil
-	if !useUsageSource {
+	if !usesFinalizedChainCohort(params) {
 		return selectOrdinaryChainIngressSet(ctx, exec, params, cursor, hasCursor, sortOrder)
 	}
 	// Use the finalized usage events as the authoritative ingress set; rows
 	// without usage evidence appear only when they are explicitly selected by
 	// an exact ingress ID.
 	query := `SELECT ingress_request_id, id, created_at FROM usage_request_events
-		WHERE profile_id = $1`
+		WHERE profile_id = $1
+		AND EXISTS (SELECT 1 FROM request_logs retained_rows
+			WHERE retained_rows.profile_id = usage_request_events.profile_id
+			AND retained_rows.ingress_request_id = usage_request_events.ingress_request_id)`
 	queryArgs := []any{params.ProfileID}
 	nextArg := func() int { return len(queryArgs) + 1 }
 	appendArg := func(value any) int {
@@ -757,6 +809,11 @@ func assembleChainIngressItem(
 	item.MatchedRowCount = counts.Matched
 	if page.HasMore && len(page.Rows) > 0 {
 		last := page.Rows[len(page.Rows)-1]
+		cohortHash, err := chainCohortFingerprint(params)
+		if err != nil {
+			return ChainIngressItem{}, fmt.Errorf("fingerprint retained-row cohort: %w", err)
+		}
+		windowFrom, windowTo := chainCursorWindow(params)
 		encoded, err := encodeRowCursor(rowCursorPayload{
 			Version:             1,
 			ProfileID:           params.ProfileID,
@@ -764,6 +821,9 @@ func assembleChainIngressItem(
 			OrderAt:             last.CreatedAt.UTC().Format(time.RFC3339Nano),
 			RequestLogID:        last.RequestLogID,
 			Limit:               rowLimit,
+			CohortHash:          cohortHash,
+			WindowFrom:          windowFrom,
+			WindowTo:            windowTo,
 			RetentionEpoch:      retentionEpoch,
 			RetentionGeneration: retentionGeneration,
 		})
@@ -799,42 +859,14 @@ func fillChainTotals(ctx context.Context, exec queryExecutor, params ChainQueryP
 	// the exact public totals. This preserves the historical COUNT(DISTINCT)
 	// semantics while allowing PostgreSQL to use a hash aggregate instead of
 	// sorting the whole window for DISTINCT.
+	whereClause, queryArgs := buildChainCohortWhere(params, "request_logs")
 	innerQuery := `SELECT
 			request_logs.ingress_request_id,
 			COUNT(*) FILTER (WHERE request_logs.row_kind = 'upstream') AS upstream_rows,
 			COUNT(*) AS total_rows,
 			COUNT(*) FILTER (WHERE request_logs.row_kind = 'legacy_unknown') AS legacy_rows
 		FROM request_logs
-		WHERE request_logs.profile_id = $1 AND request_logs.ingress_request_id IS NOT NULL`
-	queryArgs := []any{params.ProfileID}
-	if params.FromTime != nil {
-		queryArgs = append(queryArgs, params.FromTime.UTC())
-		innerQuery += fmt.Sprintf(" AND request_logs.created_at >= $%d", len(queryArgs))
-	}
-	if params.ToTime != nil {
-		queryArgs = append(queryArgs, params.ToTime.UTC())
-		innerQuery += fmt.Sprintf(" AND request_logs.created_at < $%d", len(queryArgs))
-	}
-	if params.ProxyAPIKeyID != nil {
-		queryArgs = append(queryArgs, *params.ProxyAPIKeyID)
-		innerQuery += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM request_logs key_rows WHERE key_rows.profile_id = request_logs.profile_id AND key_rows.ingress_request_id = request_logs.ingress_request_id AND key_rows.proxy_api_key_id_snapshot = $%d)", len(queryArgs))
-	}
-	if params.IngressRequestID != nil && strings.TrimSpace(*params.IngressRequestID) != "" {
-		queryArgs = append(queryArgs, strings.TrimSpace(*params.IngressRequestID))
-		innerQuery += fmt.Sprintf(" AND request_logs.ingress_request_id = $%d", len(queryArgs))
-	}
-	if params.Q != nil && strings.TrimSpace(*params.Q) != "" {
-		queryArgs = append(queryArgs, "%"+strings.TrimSpace(*params.Q)+"%")
-		innerQuery += fmt.Sprintf(" AND request_logs.ingress_request_id ILIKE $%d", len(queryArgs))
-	}
-	if hasChainRowFilter(params) {
-		innerQuery = appendChainRowCohortExists(innerQuery, &queryArgs, params, "request_logs")
-	}
-	if params.IngressFinalResult != nil || params.ConfirmedFailover != nil || params.PricingStatus != nil ||
-		len(params.UnpricedReasons) > 0 || params.ReportingCurrencyEpoch != nil || params.IsStream != nil ||
-		len(params.IngressFinalStatusCodes) > 0 || params.CostSegmentKey != nil {
-		innerQuery = appendChainFinalizedCohortExists(innerQuery, &queryArgs, params, "request_logs")
-	}
+		WHERE ` + whereClause
 	innerQuery += " GROUP BY request_logs.ingress_request_id"
 	query := `SELECT
 			COUNT(*) AS ingresses,
@@ -850,6 +882,44 @@ func fillChainTotals(ctx context.Context, exec queryExecutor, params ChainQueryP
 	response.RetainedRequestLogRowTotal = requestLogRowTotal
 	response.LegacyUnknownRowTotal = legacyUnknownTotal
 	return nil
+}
+
+func buildChainCohortWhere(params ChainQueryParams, outerAlias string) (string, []any) {
+	clauses := []string{
+		outerAlias + ".profile_id = $1",
+		outerAlias + ".ingress_request_id IS NOT NULL",
+	}
+	args := []any{params.ProfileID}
+	if params.ProxyAPIKeyID != nil {
+		args = append(args, *params.ProxyAPIKeyID)
+		clauses = append(clauses, fmt.Sprintf("EXISTS (SELECT 1 FROM request_logs key_rows WHERE key_rows.profile_id = %s.profile_id AND key_rows.ingress_request_id = %s.ingress_request_id AND key_rows.proxy_api_key_id_snapshot = $%d)", outerAlias, outerAlias, len(args)))
+	}
+	if params.IngressRequestID != nil && strings.TrimSpace(*params.IngressRequestID) != "" {
+		args = append(args, strings.TrimSpace(*params.IngressRequestID))
+		clauses = append(clauses, fmt.Sprintf("%s.ingress_request_id = $%d", outerAlias, len(args)))
+	}
+	if params.Q != nil && strings.TrimSpace(*params.Q) != "" {
+		args = append(args, "%"+strings.TrimSpace(*params.Q)+"%")
+		clauses = append(clauses, fmt.Sprintf("%s.ingress_request_id ILIKE $%d", outerAlias, len(args)))
+	}
+	query := strings.Join(clauses, " AND ")
+	if hasChainRowFilter(params) {
+		query = appendChainRowCohortExists(query, &args, params, outerAlias)
+	} else if !usesFinalizedChainCohort(params) {
+		query = appendChainWindowCohortExists(query, &args, params, outerAlias)
+	}
+	if usesFinalizedChainCohort(params) {
+		query = appendChainFinalizedCohortExists(query, &args, params, outerAlias)
+	}
+	return query, args
+}
+
+func usesFinalizedChainCohort(params ChainQueryParams) bool {
+	return params.IngressFinalResult != nil || params.ConfirmedFailover != nil ||
+		params.PricingStatus != nil || len(params.UnpricedReasons) > 0 ||
+		params.ReportingCurrencyEpoch != nil || params.IsStream != nil ||
+		len(params.IngressFinalStatusCodes) > 0 || params.FinalTargetModelID != nil ||
+		params.CostSegmentKey != nil
 }
 
 func boolPtr(value bool) *bool { return &value }

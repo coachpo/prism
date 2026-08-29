@@ -117,7 +117,7 @@ type PriceExportDecision struct {
 // reasoning equal to output everywhere, one identical normalized shape across
 // targets, and a target-representable structure. Explicit zeros pass through;
 // they are configured values, not absences.
-func DecidePriceExport(platform Platform, targets []TargetPriceSnapshot) PriceExportDecision {
+func DecidePriceExport(targets []TargetPriceSnapshot) PriceExportDecision {
 	decision := PriceExportDecision{}
 	add := func(code string) {
 		for _, existing := range decision.WarningCodes {
@@ -199,7 +199,7 @@ func DecidePriceExport(platform Platform, targets []TargetPriceSnapshot) PriceEx
 // carries one stable order.
 func sortWarningCodes(codes []string) []string {
 	seen := make(map[string]struct{}, len(codes))
-	unique := codes[:0:0]
+	unique := make([]string, 0, len(codes))
 	for _, code := range codes {
 		if _, ok := seen[code]; ok {
 			continue

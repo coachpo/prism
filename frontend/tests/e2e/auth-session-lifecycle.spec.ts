@@ -9,6 +9,11 @@ import {
 } from "./spending-report-fixtures";
 
 const timestamp = "2026-04-28T12:00:00Z";
+const clientReadyTimeoutMs = 45_000;
+
+// Full-regression hosts can delay client-side login-form readiness beyond the
+// default 30-second test timeout.
+test.setTimeout(60_000);
 
 type AuthState = {
   authEnabled: boolean;
@@ -407,6 +412,11 @@ async function installSetupReadinessRoutes(page: Page, mode: "fresh" | "unknown"
         route_ready_model_count: 1,
         route_witness_count: 1,
         representative_witness: null,
+        route_schedule: {
+          schedule_limited: false,
+          limited_witness_count: 0,
+          total_witness_count: 1,
+        },
       },
     });
   });
@@ -449,9 +459,16 @@ async function installSetupReadinessRoutes(page: Page, mode: "fresh" | "unknown"
   });
 }
 
+async function openLoginForm(page: Page) {
+  await page.goto("/auth/login", { waitUntil: "domcontentloaded", timeout: clientReadyTimeoutMs });
+  const usernameInput = page.getByLabel("用户名");
+  await expect(usernameInput).toBeVisible({ timeout: clientReadyTimeoutMs });
+  return usernameInput;
+}
+
 async function loginToProxyKeys(page: Page) {
-  await page.goto("/auth/login");
-  await page.getByLabel("用户名").fill("admin");
+  const usernameInput = await openLoginForm(page);
+  await usernameInput.fill("admin");
   await page.getByLabel("密码", { exact: true }).fill("password123");
   await page.getByRole("button", { name: "登录" }).click();
   await expect(page.getByTestId("observe-page")).toBeVisible();
@@ -531,7 +548,9 @@ test.describe("auth session lifecycle", () => {
     await loginToProxyKeys(page);
     await installSetupReadinessRoutes(page, "degraded");
     await page.goto("/observe");
-    await expect(page.getByText("部分配置读取失败")).toBeVisible();
+    await expect(page.getByText("部分配置读取失败")).toBeVisible({
+      timeout: clientReadyTimeoutMs,
+    });
     await expect(page.getByText("路由配置 0 / 4")).toHaveCount(0);
   });
 
@@ -579,8 +598,8 @@ test.describe("auth session lifecycle", () => {
         }),
       }),
     );
-    await page.goto("/auth/login");
-    await page.getByLabel("用户名").fill("admin");
+    const usernameInput = await openLoginForm(page);
+    await usernameInput.fill("admin");
     await page.getByLabel("密码", { exact: true }).fill("wrong");
     await page.getByRole("button", { name: "登录" }).click();
     await expect(page.getByText(/登录尝试过多/)).toBeVisible();

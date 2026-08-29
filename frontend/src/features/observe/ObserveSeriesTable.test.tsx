@@ -22,9 +22,23 @@ const response: UsageSeriesResponse = {
   interval: "1h",
   series_limit: 6,
   truncated: false,
-  caliber: { scope: "route_attempt" },
+  caliber: {
+    scope: "route_attempt",
+    grain: "upstream_attempt",
+    identity_basis: "attempt_target_model_id",
+    outcome_basis: "attempt_result",
+    latency_basis: "attempt_duration",
+    cost_basis: "none",
+    datasets: ["request_logs"],
+  },
   dataset_coverage: {},
-  samples: { observation_count: 3 },
+  samples: {
+    observation_count: 3,
+    latency_sample_count: 0,
+    latency_missing_count: 3,
+    cost_sample_count: 0,
+    cost_missing_count: 3,
+  },
   series: [
     {
       key: "total",

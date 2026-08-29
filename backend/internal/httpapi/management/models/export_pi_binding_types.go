@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"sort"
+	"time"
+)
 
 // Pi catalog binding match sources persisted on a binding row.
 const (
@@ -108,6 +111,23 @@ func copyStringPtr(value *string) *string {
 	return &copied
 }
 
+func normalizePiDroppedFields(values []string) []string {
+	normalized := cloneStringSlice(values)
+	sort.Strings(normalized)
+	if len(normalized) < 2 {
+		return normalized
+	}
+	writeIndex := 1
+	for _, value := range normalized[1:] {
+		if value == normalized[writeIndex-1] {
+			continue
+		}
+		normalized[writeIndex] = value
+		writeIndex++
+	}
+	return normalized[:writeIndex]
+}
+
 // piBindingMetadataPayload is the wire shape of one metadata projection.
 type piBindingMetadataPayload struct {
 	Name             *string            `json:"name"`
@@ -133,6 +153,7 @@ type piBindingRecord struct {
 	UpdatedAt       time.Time
 	Source          piBindingMetadata
 	Override        piBindingMetadata
+	DroppedFields   []string
 }
 
 func (r piBindingRecord) bound() bool { return r.ModelConfigID != 0 && r.ProviderID != "" }
@@ -155,6 +176,7 @@ func (r piBindingRecord) response() piBindingResponse {
 		Source:          r.Source.payload(),
 		Override:        r.Override.payload(),
 		Effective:       r.Source.effective(r.Override).payload(),
+		DroppedFields:   normalizePiDroppedFields(r.DroppedFields),
 	}
 }
 
@@ -170,6 +192,7 @@ type piBindingResponse struct {
 	Source          *piBindingMetadataPayload `json:"source"`
 	Override        *piBindingMetadataPayload `json:"override"`
 	Effective       *piBindingMetadataPayload `json:"effective"`
+	DroppedFields   []string                  `json:"dropped_fields,omitempty"`
 }
 
 // piBindingFieldChange is one source-value diff row of a refresh preview.
@@ -181,18 +204,23 @@ type piBindingFieldChange struct {
 }
 
 type piRefreshPreviewResponse struct {
-	Bound           bool                   `json:"bound"`
-	ProviderID      string                 `json:"provider_id,omitempty"`
-	CatalogModelID  string                 `json:"catalog_model_id,omitempty"`
-	API             string                 `json:"api,omitempty"`
-	Changed         bool                   `json:"changed"`
-	Changes         []piBindingFieldChange `json:"changes"`
-	CatalogRevision string                 `json:"catalog_revision"`
-	FetchedAt       time.Time              `json:"fetched_at"`
+	Bound            bool                   `json:"bound"`
+	ProviderID       string                 `json:"provider_id,omitempty"`
+	CatalogModelID   string                 `json:"catalog_model_id,omitempty"`
+	API              string                 `json:"api,omitempty"`
+	Changed          bool                   `json:"changed"`
+	Changes          []piBindingFieldChange `json:"changes"`
+	CatalogRevision  string                 `json:"catalog_revision"`
+	FetchedAt        time.Time              `json:"fetched_at"`
+	BindingUpdatedAt time.Time              `json:"binding_updated_at"`
 }
 
 type piRefreshCommitRequest struct {
-	ExpectedCatalogRevision string `json:"expected_catalog_revision"`
+	ExpectedProviderID       string    `json:"expected_provider_id"`
+	ExpectedCatalogModelID   string    `json:"expected_catalog_model_id"`
+	ExpectedAPI              string    `json:"expected_api"`
+	ExpectedBindingUpdatedAt time.Time `json:"expected_binding_updated_at"`
+	ExpectedCatalogRevision  string    `json:"expected_catalog_revision"`
 }
 
 type piBindRequest struct {

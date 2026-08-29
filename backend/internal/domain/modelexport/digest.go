@@ -9,95 +9,69 @@ import (
 	"sort"
 )
 
-// PiCatalog types are part of the Pi-only export contract. Ensures Pi export fact chain includes catalog revision and selections.
-
 // SourceFacts is the clock-free fact set one source response is built from
-// and render replays against. Every field that can change the rendered file
-// participates in the digest; every wall-clock stamp is excluded by design so
-// a digest computed minutes apart stays stable while the facts are unchanged.
+// and render replays against. Every field that can change rendered bytes or
+// the persisted source evidence asserted by render participates in the digest;
+// wall-clock stamps are excluded so unchanged facts remain stable over time.
 type SourceFacts struct {
-	Platform        Platform                  `json:"platform"`
-	TargetVersion   string                    `json:"target_version"`
-	CatalogRevision string                    `json:"catalog_revision,omitempty"`
-	Enrichment      map[int]PlatformCandidate `json:"enrichment_candidates,omitempty"`
+	TargetVersion string `json:"target_version"`
 	// PiCatalog is the current live pi.dev fetch's top-level evidence
 	// (fresh/stale/unavailable, current revision). It is excluded from the
 	// digest (json:"-"): whether this particular request's live fetch
 	// happened to succeed never affects the rendered bytes of an
-	// already-bound model, and source and render read the catalog through
-	// two different paths (a live fetch vs. a cached-only snapshot) that are
-	// not guaranteed to agree on this transient status even when nothing
-	// render-relevant changed.
-	PiCatalog    PiCatalogEvidence          `json:"-"`
-	PiSelections map[int]SelectedCoordinate `json:"pi_selections,omitempty"`
+	// already-bound model; render reads no live or last-known-good catalog.
+	PiCatalog PiCatalogEvidence `json:"-"`
 	// Models carries the per-model fact rows in model_config_id order.
 	Models []ModelFact `json:"models"`
 }
 
 // ModelFact is one model's export-relevant truth. It intentionally mirrors
-// what renderers consume: identity, ordered reachable targets with their
-// current price shapes, binding evidence, enrichment coordinates, and the
-// stored metadata layers.
+// what the renderer consumes: identity, ordered reachable targets with their
+// current price shapes, a persisted Pi coordinate/template, and first-party
+// Prism metadata.
 type ModelFact struct {
-	ModelConfigID         int                `json:"model_config_id"`
-	ModelID               string             `json:"model_id"`
-	APIFamily             string             `json:"api_family"`
-	DisplayName           *string            `json:"display_name,omitempty"`
-	IsEnabled             bool               `json:"is_enabled"`
-	Selectable            bool               `json:"selectable"`
-	UnselectableReason    *string            `json:"unselectable_reason,omitempty"`
-	OpenAIAcceptedFormat  *string            `json:"openai_accepted_format,omitempty"`
-	OpenAIImageOperations *string            `json:"openai_image_operations,omitempty"`
-	CatalogBinding        CatalogEvidence    `json:"catalog_binding"`
-	Enrichment            EnrichmentEvidence `json:"enrichment"`
+	ModelConfigID         int     `json:"model_config_id"`
+	ModelID               string  `json:"model_id"`
+	APIFamily             string  `json:"api_family"`
+	DisplayName           *string `json:"display_name,omitempty"`
+	IsEnabled             bool    `json:"is_enabled"`
+	Selectable            bool    `json:"selectable"`
+	UnselectableReason    *string `json:"unselectable_reason,omitempty"`
+	OpenAIAcceptedFormat  *string `json:"openai_accepted_format,omitempty"`
+	OpenAIImageOperations *string `json:"openai_image_operations,omitempty"`
 	// PiCandidates/PiCandidateStatus are live pi.dev catalog evidence: every
 	// entry currently matching this model's exact model_id and expected Pi
 	// API, and a summary of that search (not_in_catalog/api_mismatch/single/
 	// multiple/catalog_unavailable). Both are excluded from the digest
 	// (json:"-") for the same reason as SourceFacts.PiCatalog: this
 	// transient live-fetch outcome never affects rendered bytes and is not
-	// guaranteed to agree between source's live fetch and render's
-	// cached-only read.
+	// read by render.
 	PiCandidates      []PiCandidate `json:"-"`
 	PiCandidateStatus string        `json:"-"`
 	// PiSelected is the persisted model_pi_catalog_bindings coordinate, when
-	// one exists. It is authoritative for render regardless of whether the
-	// live catalog fetch above still lists it as a candidate, and it does
-	// participate in the digest: it is what render actually replays.
+	// one exists. It is authoritative independently of the live catalog, but
+	// render still rejects it if its full model id/API no longer matches the
+	// current Prism model. The raw coordinate participates in the digest so
+	// drift is visible and a rebind always moves source evidence.
 	PiSelected *SelectedCoordinate `json:"pi_selected,omitempty"`
+	// PiTemplate is the effective, API-sanitized source snapshot persisted
+	// with PiSelected. It is part of the digest and is the only catalog
+	// metadata the renderer consumes; live candidates never participate in
+	// rendering an already-bound model.
+	PiTemplate PiTemplate `json:"pi_template"`
 	// PiBindingStatus reports the persisted binding's health against the
 	// live catalog evidence (unbound/bound/bound_drifted). Like the live
 	// evidence above, it is excluded from the digest (json:"-"): render
-	// never gates on it, only on PiSelected being non-nil and matching the
-	// caller's asserted coordinate.
+	// never gates on it; render separately requires PiSelected to be present,
+	// current-identity/API compatible, and equal to the caller's assertion at
+	// the management boundary.
 	PiBindingStatus string `json:"-"`
-	// PrismMetadata is the stored effective metadata layer.
+	// PrismMetadata contains only first-party Prism metadata. models.dev
+	// bindings and their manual overrides never enter the Pi export fact set.
 	PrismMetadata map[string]json.RawMessage `json:"prism_metadata"`
 	// Targets are this model's enabled, active Terminal Targets in authored
 	// position order with their normalized current price shape.
 	Targets []TargetFact `json:"targets"`
-}
-
-// CatalogEvidence records the models.dev binding backing the metadata. It is
-// management-only projection data and never enters runtime planning.
-type CatalogEvidence struct {
-	Bound           bool   `json:"bound"`
-	ProviderID      string `json:"provider_id,omitempty"`
-	CatalogModelID  string `json:"catalog_model_id,omitempty"`
-	CatalogRevision string `json:"catalog_revision,omitempty"`
-	MatchSource     string `json:"match_source,omitempty"`
-	// OverrideFields lists the leaves carrying an operator override; it is
-	// derived state of the stored row and part of the merge contract.
-	HasOverrides bool `json:"has_overrides"`
-}
-
-// EnrichmentEvidence records the server-bound models.dev offering coordinates
-// and availability backing the merged metadata. It participates in the digest
-// together with the exact candidate; render never trusts a request candidate.
-type EnrichmentEvidence struct {
-	Available          bool   `json:"available"`
-	OfferingProviderID string `json:"offering_provider_id,omitempty"`
-	OfferingModelID    string `json:"offering_model_id,omitempty"`
 }
 
 type PiCatalogEvidence struct {
@@ -119,10 +93,11 @@ type SelectedCoordinate struct {
 }
 
 type PiCandidate struct {
-	ProviderID string  `json:"provider_id"`
-	ModelID    string  `json:"model_id"`
-	API        string  `json:"api"`
-	Name       *string `json:"name,omitempty"`
+	ProviderID    string   `json:"provider_id"`
+	ModelID       string   `json:"model_id"`
+	API           string   `json:"api"`
+	Name          *string  `json:"name,omitempty"`
+	DroppedFields []string `json:"dropped_fields,omitempty"`
 }
 
 // TargetFact is one reachable Terminal Target's export truth.
@@ -133,12 +108,6 @@ type TargetFact struct {
 	EndpointName         string               `json:"endpoint_name"`
 	OpenAITextCapability *string              `json:"openai_text_capability,omitempty"`
 	Pricing              *TargetPriceSnapshot `json:"pricing"`
-	// EndpointBaseURL is retained only so older verification fixtures continue
-	// to compile while the export contract moves URL ownership to the
-	// operator-supplied Prism gateway origin. Production fact builders leave it
-	// empty, renderers never read it, and json:"-" keeps upstream URLs out of
-	// source_digest and all response projections.
-	EndpointBaseURL string `json:"-"`
 }
 
 // ComputeSourceDigest derives the deterministic source_digest: SHA-256 over

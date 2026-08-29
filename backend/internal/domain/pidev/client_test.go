@@ -60,9 +60,6 @@ func TestClientFetchAcceptsCorrectBodyRevision(t *testing.T) {
 	if catalog.Revision != revisionFor(minimalCatalog) {
 		t.Fatalf("Revision = %q, want sha256 of body", catalog.Revision)
 	}
-	if catalog.RevisionString() != catalog.Revision {
-		t.Fatalf("RevisionString() must prefer Revision over ETag when both are present")
-	}
 	model, ok := catalog.Find("openai", "gpt-export")
 	if !ok || model.API != "openai-responses" {
 		t.Fatalf("Find(openai, gpt-export) = %+v, %v", model, ok)
@@ -189,6 +186,28 @@ func TestClientFetchRejectsHTMLBody(t *testing.T) {
 	}
 }
 
+func TestClientFetchRequiresApplicationJSONContentType(t *testing.T) {
+	for name, contentType := range map[string]string{
+		"missing":     "",
+		"plain text":  "text/plain",
+		"json suffix": "application/catalog+json",
+	} {
+		t.Run(name, func(t *testing.T) {
+			client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				if contentType != "" {
+					w.Header().Set("Content-Type", contentType)
+				}
+				w.Header().Set("X-Pi-Model-Catalog-Revision", revisionFor(minimalCatalog))
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(minimalCatalog))
+			})
+			if _, err := client.Fetch(context.Background()); err == nil {
+				t.Fatalf("content-type %q must be rejected", contentType)
+			}
+		})
+	}
+}
+
 func TestClientFetchRejectsOversizedBody(t *testing.T) {
 	oversized := `{"openai":{"gpt-export":{"id":"gpt-export","api":"openai-responses","provider":"openai","name":"` + strings.Repeat("x", MaxCatalogBytes+1) + `"}}}`
 	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -238,6 +257,19 @@ func TestClientFetchAcceptsVersionAtOrBelowPinnedTarget(t *testing.T) {
 	}
 }
 
+func TestClientFetchRejectsMalformedMinimumVersion(t *testing.T) {
+	for _, version := range []string{".", "0..84.3", "0.84.3.", "0.84", "0.84.3.0", "+0.84.3", "-1.0.0", "999999999999999999999999.0.0"} {
+		t.Run(version, func(t *testing.T) {
+			client, _ := newTestClient(t, servingHandler(minimalCatalog, map[string]string{
+				"X-Pi-Model-Catalog-Minimum-Version": version,
+			}))
+			if _, err := client.Fetch(context.Background()); err == nil {
+				t.Fatalf("malformed minimum version %q must fail closed", version)
+			}
+		})
+	}
+}
+
 func TestClientFallsBackToLastKnownGoodOnFailure(t *testing.T) {
 	var failing atomic.Bool
 	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -264,6 +296,21 @@ func TestClientFallsBackToLastKnownGoodOnFailure(t *testing.T) {
 	}
 }
 
+func TestClientSnapshotsDoNotExposeMutableCatalogFields(t *testing.T) {
+	client, _ := newTestClient(t, servingHandler(minimalCatalog, nil))
+	fetched, err := client.Fetch(context.Background())
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	fetched.CheckedAt = time.Time{}
+	fetched.Revision = "mutated"
+	delete(fetched.Providers, "openai")
+	snapshot := client.Snapshot()
+	if snapshot.CheckedAt.IsZero() || snapshot.Revision != revisionFor(minimalCatalog) || snapshot.Providers["openai"] == nil {
+		t.Fatalf("caller mutation leaked into cached snapshot: %+v", snapshot)
+	}
+}
+
 func TestParseCatalogRejectsIDMismatch(t *testing.T) {
 	body := `{"openai":{"gpt-export":{"id":"different-id","api":"openai-responses","provider":"openai"}}}`
 	if _, err := parseCatalog([]byte(body)); err == nil {
@@ -283,8 +330,12 @@ func TestParseCatalogRejectsMissingRequiredFields(t *testing.T) {
 		"missing id":       `{"openai":{"gpt-export":{"api":"openai-responses","provider":"openai"}}}`,
 		"missing api":      `{"openai":{"gpt-export":{"id":"gpt-export","provider":"openai"}}}`,
 		"missing provider": `{"openai":{"gpt-export":{"id":"gpt-export","api":"openai-responses"}}}`,
+		"empty name":       `{"openai":{"gpt-export":{"id":"gpt-export","name":"","api":"openai-responses","provider":"openai"}}}`,
+		"null provider":    `{"openai":null}`,
+		"no models":        `{"openai":{}}`,
 		"empty document":   `{}`,
 		"not an object":    `[]`,
+		"trailing value":   minimalCatalog + ` {}`,
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -292,6 +343,15 @@ func TestParseCatalogRejectsMissingRequiredFields(t *testing.T) {
 				t.Fatalf("%s: expected a schema validation error", name)
 			}
 		})
+	}
+}
+
+func TestParseCatalogRejectsNonPositiveLimits(t *testing.T) {
+	for field, value := range map[string]string{"contextWindow": "0", "maxTokens": "-1"} {
+		body := `{"openai":{"gpt-export":{"id":"gpt-export","api":"openai-responses","provider":"openai","` + field + `":` + value + `}}}`
+		if _, err := parseCatalog([]byte(body)); err == nil {
+			t.Fatalf("%s=%s must be rejected for Pi 0.84.3", field, value)
+		}
 	}
 }
 

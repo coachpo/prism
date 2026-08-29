@@ -28,7 +28,15 @@ type RouteWitnessRef struct {
 	OperationName    string `json:"operation_name"`
 	TerminalTargetID string `json:"terminal_target_id"`
 	EndpointID       string `json:"endpoint_id"`
-	Coverage         string `json:"coverage"` // FULL | PARTIAL
+	Coverage         string `json:"coverage"` // full | partial | none
+}
+
+// RouteWitnessOperation is the small, HTTP-neutral registry projection the
+// analyzer needs. The runtime package remains the catalog owner and passes an
+// ordered slice into AnalyzeRouteWitnessSnapshotWithOperations.
+type RouteWitnessOperation struct {
+	Name      string
+	APIFamily string
 }
 
 // ModelRouteReadinessSummary is the per-model compact readiness projection
@@ -70,6 +78,7 @@ type RouteWitnessSnapshot struct {
 	// configuration property, so it stays stable within one generation.
 	ScheduleLimitedWitnessCount    int
 	ScheduleLimitedByModelConfigID map[int]int
+	operationRanks                 map[string]int
 }
 
 // RouteScheduleQualifier qualifies a "ready" readiness verdict: the route
@@ -91,6 +100,7 @@ type RouteScheduleQualifier struct {
 type routeWitnessAnalyzer struct {
 	graph         *DiagnosticsGraph
 	snapshot      RouteWitnessSnapshot
+	operations    map[string][]string
 	operationRank map[string]int
 	resolving     map[int]bool
 	configuration map[int]bool
@@ -122,11 +132,34 @@ func operationRegistryRank(operationName string) int {
 // and existing Endpoint (the graph loader only includes connections joined to
 // live endpoints).
 func AnalyzeRouteWitnessSnapshot(graph *DiagnosticsGraph, generation int) RouteWitnessSnapshot {
+	operations := make([]RouteWitnessOperation, 0, len(OpenAIRegisteredOperationList()))
+	for _, operation := range OpenAIRegisteredOperationList() {
+		operations = append(operations, RouteWitnessOperation{Name: operation, APIFamily: "openai"})
+	}
+	return AnalyzeRouteWitnessSnapshotWithOperations(graph, generation, operations)
+}
+
+// AnalyzeRouteWitnessSnapshotWithOperations computes witnesses against the
+// caller-supplied ordered runtime operation projection. This keeps the domain
+// pure while allowing every registered API family to participate.
+func AnalyzeRouteWitnessSnapshotWithOperations(graph *DiagnosticsGraph, generation int, catalog []RouteWitnessOperation) RouteWitnessSnapshot {
+	operationsByFamily := map[string][]string{}
+	operationRanks := map[string]int{}
+	for _, operation := range catalog {
+		family := strings.ToLower(strings.TrimSpace(operation.APIFamily))
+		name := strings.TrimSpace(operation.Name)
+		if family == "" || name == "" || containsString(operationsByFamily[family], name) {
+			continue
+		}
+		operationRanks[name] = len(operationRanks) + 1
+		operationsByFamily[family] = append(operationsByFamily[family], name)
+	}
 	snapshot := RouteWitnessSnapshot{
 		Generation:                generation,
 		ConfigurationReadyByModel: map[int]bool{},
 		ByModelConfigID:           map[int][]RouteWitnessRef{},
 		ByModelID:                 map[string][]RouteWitnessRef{},
+		operationRanks:            operationRanks,
 	}
 	if graph == nil {
 		return snapshot
@@ -134,7 +167,8 @@ func AnalyzeRouteWitnessSnapshot(graph *DiagnosticsGraph, generation int) RouteW
 	analyzer := &routeWitnessAnalyzer{
 		graph:         graph,
 		snapshot:      snapshot,
-		operationRank: map[string]int{},
+		operations:    operationsByFamily,
+		operationRank: operationRanks,
 		resolving:     map[int]bool{},
 		configuration: map[int]bool{},
 		application:   map[int]bool{},
@@ -153,7 +187,7 @@ func AnalyzeRouteWitnessSnapshot(graph *DiagnosticsGraph, generation int) RouteW
 			continue
 		}
 		analyzer.snapshot.ConfigurationReadyModelCount++
-		for _, operation := range OpenAIAcceptedOperationSetForDimensions(model.OpenAIAcceptedFormat, model.OpenAIImageOperations) {
+		for _, operation := range analyzer.acceptedOperations(model) {
 			analyzer.resolveTerminalFallback(model, operation)
 		}
 	}
@@ -161,12 +195,19 @@ func AnalyzeRouteWitnessSnapshot(graph *DiagnosticsGraph, generation int) RouteW
 		if !model.IsEnabled || !analyzer.configuration[model.ConfigID] {
 			continue
 		}
-		for _, operation := range OpenAIAcceptedOperationSetForDimensions(model.OpenAIAcceptedFormat, model.OpenAIImageOperations) {
+		for _, operation := range analyzer.acceptedOperations(model) {
 			analyzer.resolveModelFirst(model.ConfigID, operation)
 		}
 	}
 	analyzer.finalizeSnapshot()
 	return analyzer.snapshot
+}
+
+func (analyzer *routeWitnessAnalyzer) acceptedOperations(model DiagnosticsModel) []string {
+	if IsOpenAIFamily(model.APIFamily) {
+		return OpenAIAcceptedOperationSetForDimensions(model.OpenAIAcceptedFormat, model.OpenAIImageOperations)
+	}
+	return append([]string(nil), analyzer.operations[strings.ToLower(strings.TrimSpace(model.APIFamily))]...)
 }
 
 // GenerationLabel renders the canonical positive decimal generation string.
@@ -213,7 +254,7 @@ func (snapshot RouteWitnessSnapshot) ModelSummary(modelConfigID int) ModelRouteR
 		},
 	}
 	if len(modelWitnesses) > 0 {
-		sorted := sortWitnessesByRegistryRank(modelWitnesses)
+		sorted := sortWitnessesByRegistryRank(modelWitnesses, snapshot.operationRanks)
 		representative := sorted[0]
 		representative.Generation = snapshot.GenerationLabel()
 		summary.RepresentativeWitness = &representative
@@ -286,6 +327,10 @@ func (analyzer *routeWitnessAnalyzer) resolveModelFirst(modelConfigID int, opera
 	if analyzer.resolving[modelConfigID] {
 		return
 	}
+	owner, ok := analyzer.graph.ModelsByID[modelConfigID]
+	if !ok {
+		return
+	}
 	analyzer.resolving[modelConfigID] = true
 	defer delete(analyzer.resolving, modelConfigID)
 	considered := analyzer.strategyConsideredRows(modelConfigID)
@@ -297,7 +342,7 @@ func (analyzer *routeWitnessAnalyzer) resolveModelFirst(modelConfigID int, opera
 			continue
 		}
 		child, ok := analyzer.graph.ModelsByID[*target.TargetModelConfigID]
-		if !ok || !child.IsEnabled || !analyzer.modelConfigurationReady(child) {
+		if !ok || !child.IsEnabled || !SameAPIFamily(owner.APIFamily, child.APIFamily) || !analyzer.modelConfigurationReady(child) {
 			continue
 		}
 		analyzer.resolveModelFirst(child.ConfigID, operation)
@@ -340,27 +385,34 @@ func (analyzer *routeWitnessAnalyzer) resolveTerminalFallback(model DiagnosticsM
 			continue
 		}
 		connection, ok := analyzer.graph.ConnectionsByID[*target.TargetConnectionID]
-		if !ok || !connection.IsActive {
+		if !ok || !connection.IsActive || connection.ID < 1 || connection.EndpointID < 1 {
 			continue
 		}
-		if !IsOpenAIFamily(connection.APIFamily) {
+		if !SameAPIFamily(connection.APIFamily, model.APIFamily) {
 			continue
 		}
-		supported := OpenAITargetSupportedOperationSetForDimensions(connection.OpenAITextCapability, connection.OpenAIImageCapability)
-		if !containsString(supported, operation) {
+		if IsOpenAIFamily(connection.APIFamily) {
+			supported := OpenAITargetSupportedOperationSetForDimensions(connection.OpenAITextCapability, connection.OpenAIImageCapability)
+			if !containsString(supported, operation) {
+				continue
+			}
+		} else if !containsString(analyzer.operations[strings.ToLower(strings.TrimSpace(connection.APIFamily))], operation) {
 			continue
 		}
 		coverage := analyzeCoverageLabel(model, connection)
-		analyzer.addWitness(model.ConfigID, operation, connection.ID, *target.TargetConnectionID, coverage)
+		analyzer.addWitness(model.ConfigID, operation, connection.ID, connection.EndpointID, coverage)
 		analyzer.application[model.ConfigID] = true
 	}
 }
 
 func analyzeCoverageLabel(model DiagnosticsModel, connection DiagnosticsConnection) string {
+	if !IsOpenAIFamily(model.APIFamily) {
+		return string(CoverageFull)
+	}
 	accepted := OpenAIAcceptedOperationSetForDimensions(model.OpenAIAcceptedFormat, model.OpenAIImageOperations)
 	supported := OpenAITargetSupportedOperationSetForDimensions(connection.OpenAITextCapability, connection.OpenAIImageCapability)
 	coverage, _, _ := ClassifyOpenAICoverage(accepted, supported)
-	return string(coverage) // FULL | PARTIAL | NONE (NONE cannot happen here)
+	return string(coverage) // full | partial | none (none cannot happen here)
 }
 
 func (analyzer *routeWitnessAnalyzer) addWitness(modelConfigID int, operation string, terminalTargetID int, endpointID int, coverage string) {
@@ -400,8 +452,8 @@ func (analyzer *routeWitnessAnalyzer) finalizeSnapshot() {
 		if a.ModelConfigID != b.ModelConfigID {
 			return compareDecimalStrings(a.ModelConfigID, b.ModelConfigID) < 0
 		}
-		leftRank := operationRegistryRank(a.OperationName)
-		rightRank := operationRegistryRank(b.OperationName)
+		leftRank := analyzer.rank(a.OperationName)
+		rightRank := analyzer.rank(b.OperationName)
 		if leftRank != rightRank {
 			return leftRank < rightRank
 		}
@@ -424,16 +476,29 @@ func (analyzer *routeWitnessAnalyzer) finalizeSnapshot() {
 	analyzer.snapshot.RouteReadyModelCount = len(routeReadyModels)
 	analyzer.snapshot.RouteWitnessCount = len(witnesses)
 	for modelConfigID := range analyzer.snapshot.ByModelConfigID {
-		analyzer.snapshot.ByModelConfigID[modelConfigID] = sortWitnessesByRegistryRank(analyzer.snapshot.ByModelConfigID[modelConfigID])
+		analyzer.snapshot.ByModelConfigID[modelConfigID] = sortWitnessesByRegistryRank(analyzer.snapshot.ByModelConfigID[modelConfigID], analyzer.operationRank)
 	}
 }
 
-func sortWitnessesByRegistryRank(witnesses []RouteWitnessRef) []RouteWitnessRef {
+func (analyzer *routeWitnessAnalyzer) rank(operation string) int {
+	if rank, ok := analyzer.operationRank[operation]; ok {
+		return rank
+	}
+	return operationRegistryRank(operation)
+}
+
+func sortWitnessesByRegistryRank(witnesses []RouteWitnessRef, ranks map[string]int) []RouteWitnessRef {
 	sorted := append([]RouteWitnessRef(nil), witnesses...)
 	sort.SliceStable(sorted, func(left, right int) bool {
 		a, b := sorted[left], sorted[right]
-		leftRank := operationRegistryRank(a.OperationName)
-		rightRank := operationRegistryRank(b.OperationName)
+		leftRank, leftKnown := ranks[a.OperationName]
+		if !leftKnown {
+			leftRank = operationRegistryRank(a.OperationName)
+		}
+		rightRank, rightKnown := ranks[b.OperationName]
+		if !rightKnown {
+			rightRank = operationRegistryRank(b.OperationName)
+		}
 		if leftRank != rightRank {
 			return leftRank < rightRank
 		}

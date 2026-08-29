@@ -192,7 +192,9 @@ export function useObserveAnalysisContext(
     fragment: FragmentState<QueryContextResponse>;
   }>(() => ({ key, fragment: initialFragment() }));
   const fragment =
-    snapshot.key === key ? snapshot.fragment : initialFragment<QueryContextResponse>();
+    snapshot.key === key
+      ? snapshot.fragment
+      : initialFragment<QueryContextResponse>();
   useEffect(() => {
     let active = true;
     const controller = new AbortController();

@@ -161,6 +161,8 @@ export interface StatsRequestParams {
   attempt_result?: RepeatableRequestFilter<AttemptResult | "__null__">;
   status_family?: RequestStatusFamily;
   status_code?: RepeatableRequestFilter<number | string>;
+  stream_outcome?: RepeatableRequestFilter<string>;
+  stream_error_kind?: RepeatableRequestFilter<string>;
   error_text?: string;
   pricing_status?: "priced" | "unpriced" | "ineligible" | "unknown";
   unpriced_reason?: RepeatableRequestFilter<string>;
@@ -187,6 +189,7 @@ export interface StatsRequestParams {
   final_status_code?: RepeatableRequestFilter<number | string>;
   final_stream_outcome?: RepeatableRequestFilter<string>;
   final_stream_error_kind?: RepeatableRequestFilter<string>;
+  final_exclude?: RepeatableRequestFilter<string>;
   final_target_model_id?: RepeatableRequestFilter<string>;
   final_endpoint_id?: RepeatableRequestFilter<number | string>;
   final_terminal_target_id?: RepeatableRequestFilter<number | string>;
@@ -194,8 +197,6 @@ export interface StatsRequestParams {
   final_unpriced_reason?: RepeatableRequestFilter<string>;
   confirmed_failover?: string;
   is_stream?: boolean;
-  stream_outcome?: string;
-  stream_error_kind?: string;
   currency_code?: string;
   reporting_currency_epoch?: number | string;
   cost_segment_key?: string;
@@ -320,8 +321,8 @@ export interface FinalizedSummary {
   final_status_code: number;
   final_result: FinalResult;
   final_error_code: string | null;
-  requested_model: { id: string; label: string } | null;
-  resolved_model: { id: string; label: string } | null;
+  ingress_model: { id: string; label: string } | null;
+  final_target_model: { id: string; label: string } | null;
   terminal_target: {
     id: number;
     label: string;
@@ -404,7 +405,7 @@ export interface ChainResponse {
   page_upstream_attempt_count: number;
   page_request_log_row_count: number;
   items: ChainIngressItem[];
-  filter_options?: {
+  filter_options: {
     endpoints: Array<{ endpoint_id: number; endpoint_label: string }>;
     ingress_models: Array<{ ingress_model_id: string; model_label: string }>;
     clients: Array<{ client_rule_id: number; client_label: string }>;

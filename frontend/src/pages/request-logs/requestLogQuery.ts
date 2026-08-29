@@ -40,6 +40,7 @@ export function buildRequestLogTimeParams(
       to_time: state.to_time,
     };
   }
+  if (state.ingress_request_id && state.time_range === "24h") return {};
   return { time_range: state.time_range };
 }
 
@@ -69,6 +70,7 @@ export function buildRequestLogFilterParams(
     final_stream_error_kind: splitRequestFilterValues(
       state.final_stream_error_kind,
     ),
+    final_exclude: splitRequestFilterValues(state.final_exclude),
     final_target_model_id: splitRequestFilterValues(
       state.final_target_model_id,
     ),
@@ -103,6 +105,8 @@ export function buildRequestLogFilterParams(
     status_family:
       state.status_family === "all" ? undefined : state.status_family,
     status_code: splitRequestFilterValues(state.status_code),
+    stream_outcome: splitRequestFilterValues(state.stream_outcome),
+    stream_error_kind: splitRequestFilterValues(state.stream_error_kind),
     error_text: state.error_text || undefined,
     pricing_status:
       state.pricing_status === "all" ? undefined : state.pricing_status,

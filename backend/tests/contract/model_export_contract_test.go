@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/coachpo/prism/backend/internal/domain/modelsdev"
 	"github.com/coachpo/prism/backend/internal/domain/pidev"
@@ -83,7 +84,7 @@ const piFixtureCatalog = `{
     },
     "gpt-multi": {
       "id": "gpt-multi",
-      "name": "GPT Multi (OpenAI)",
+      "name": "GPT Multi",
       "api": "openai-responses",
       "provider": "openai",
       "reasoning": true,
@@ -93,11 +94,11 @@ const piFixtureCatalog = `{
   "openrouter": {
     "gpt-multi": {
       "id": "gpt-multi",
-      "name": "GPT Multi (OpenRouter)",
+      "name": "GPT Multi",
       "api": "openai-responses",
       "provider": "openrouter",
-      "reasoning": false,
-      "contextWindow": 128000
+      "reasoning": true,
+      "contextWindow": 300000
     }
   }
 }`
@@ -125,11 +126,15 @@ func newExportContractHarness(t *testing.T, catalogHandler http.HandlerFunc, piC
 	if clientErr != nil {
 		t.Fatalf("build catalog client: %v", clientErr)
 	}
-	piCatalogServer := httptest.NewTLSServer(piCatalogHandler)
-	t.Cleanup(piCatalogServer.Close)
-	piCatalogClient, piClientErr := pidev.NewClient(pidev.ClientOptions{BaseURL: piCatalogServer.URL, HTTPClient: piCatalogServer.Client()})
-	if piClientErr != nil {
-		t.Fatalf("build pi catalog client: %v", piClientErr)
+	var piCatalogClient *pidev.Client
+	if piCatalogHandler != nil {
+		piCatalogServer := httptest.NewTLSServer(piCatalogHandler)
+		t.Cleanup(piCatalogServer.Close)
+		var piClientErr error
+		piCatalogClient, piClientErr = pidev.NewClient(pidev.ClientOptions{BaseURL: piCatalogServer.URL, HTTPClient: piCatalogServer.Client()})
+		if piClientErr != nil {
+			t.Fatalf("build pi catalog client: %v", piClientErr)
+		}
 	}
 	return newContractHarnessFor(t, "export_contract", contractHarnessOptions{
 		SecretEncryptionKey: "export-contract-secret",
@@ -214,7 +219,7 @@ func jsonDecodeRaw(t *testing.T, payload string) map[string]any {
 
 func exportFetchSource(t *testing.T, harness *contractHarness) map[string]any {
 	t.Helper()
-	return requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/models/export/source", nil, nil, http.StatusOK)
+	return requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/models/exports/pi/source", nil, nil, http.StatusOK)
 }
 
 func exportRequestWithHeaders(t *testing.T, harness *contractHarness, method string, path string, body any, status int) (map[string]any, http.Header) {
@@ -250,13 +255,26 @@ func exportBindPi(t *testing.T, harness *contractHarness, modelConfigID int) map
 		t.Fatalf("fixture must offer exactly one pi candidate before auto-bind: %+v", row)
 	}
 	catalogRevision := source["catalog"].(map[string]any)["revision"].(string)
-	bound := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/bind", modelConfigID), map[string]any{
+	bound, headers := exportRequestWithHeaders(t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/bind", modelConfigID), map[string]any{
 		"expected_catalog_revision": catalogRevision,
-	}, nil, http.StatusOK)
+	}, http.StatusOK)
+	if got := headers.Get("Cache-Control"); got != "private, no-store" {
+		t.Fatalf("Pi binding cache policy = %q, want private, no-store", got)
+	}
 	if bound["bound"] != true {
 		t.Fatalf("bind must report bound=true: %+v", bound)
 	}
 	return bound
+}
+
+func piRefreshCommitBody(preview map[string]any) map[string]any {
+	return map[string]any{
+		"expected_provider_id":        preview["provider_id"],
+		"expected_catalog_model_id":   preview["catalog_model_id"],
+		"expected_api":                preview["api"],
+		"expected_binding_updated_at": preview["binding_updated_at"],
+		"expected_catalog_revision":   preview["catalog_revision"],
+	}
 }
 
 func piSelectionAssertion(bound map[string]any) map[string]any {
@@ -267,11 +285,43 @@ func piSelectionAssertion(bound map[string]any) map[string]any {
 	}
 }
 
+func TestModelExportPiRefreshPreviewRejectsInvalidBodies(t *testing.T) {
+	harness := newExportContractHarness(t, exportServingCatalog, piServingCatalogHandler)
+	path := "/api/models/1/pi/refresh/preview"
+	tests := []struct {
+		name   string
+		body   string
+		status int
+	}{
+		{name: "unknown field", body: `{"unexpected":true}`, status: http.StatusBadRequest},
+		{name: "trailing document", body: `{} {}`, status: http.StatusBadRequest},
+		{name: "body limit", body: `{"unexpected":"` + strings.Repeat("x", 1<<20) + `"}`, status: http.StatusRequestEntityTooLarge},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := harness.requestJSONRaw(t, harness.client, http.MethodPost, path, test.body, nil)
+			assertStatus(t, response, test.status)
+		})
+	}
+}
+
 func TestModelExportSourceAndRenderContracts(t *testing.T) {
 	harness := newExportContractHarness(t, exportServingCatalog, piServingCatalogHandler)
 	modelConfigID, _ := exportSeedModel(t, harness, "gpt-export", "openai", "dual_native")
+	digestBeforeModelsDevBind := exportFetchSource(t, harness)["source_digest"].(string)
 
-	source, sourceHeaders := exportRequestWithHeaders(t, harness, http.MethodGet, "/api/models/export/source", nil, http.StatusOK)
+	// A retained models.dev binding remains usable by its own model-detail
+	// surface but is not a Pi-export metadata source.
+	modelsDevPreview := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/catalog/match-preview", modelConfigID), map[string]any{}, nil, http.StatusOK)
+	requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/catalog/bind", modelConfigID), map[string]any{
+		"expected_catalog_revision": modelsDevPreview["catalog_revision"],
+	}, nil, http.StatusOK)
+
+	source, sourceHeaders := exportRequestWithHeaders(t, harness, http.MethodGet, "/api/models/exports/pi/source", nil, http.StatusOK)
+	if source["source_digest"] != digestBeforeModelsDevBind {
+		t.Fatalf("models.dev binding must not change Pi export source_digest")
+	}
 	if got := sourceHeaders.Get("Cache-Control"); got != "private, no-store" {
 		t.Fatalf("source cache policy = %q, want private, no-store", got)
 	}
@@ -279,6 +329,10 @@ func TestModelExportSourceAndRenderContracts(t *testing.T) {
 		t.Fatalf("source target_version drifted: %+v", source["target_version"])
 	}
 	row := exportSourceRow(t, source, modelConfigID)
+	mergedBeforePi := asMap(t, row["merged_metadata"])
+	if _, leaked := mergedBeforePi["reasoning"]; leaked {
+		t.Fatalf("models.dev binding metadata must not enrich Pi export: %+v", mergedBeforePi)
+	}
 	if row["selectable"] != true {
 		t.Fatalf("selection truth mismatch: %+v", row)
 	}
@@ -296,7 +350,7 @@ func TestModelExportSourceAndRenderContracts(t *testing.T) {
 	if candidate["provider_id"] != "openai" || candidate["model_id"] != "gpt-export" || candidate["api"] != "openai-responses" {
 		t.Fatalf("candidate coordinate drifted: %+v", candidate)
 	}
-	completeness := row["platform_completeness"].(map[string]any)
+	completeness := row["completeness"].(map[string]any)
 	fields := completeness["metadata_fields"].(map[string]any)
 	// "name" is Prism's own truth (display_name, defaulting to model_id) and
 	// stays known independent of any pi.dev binding; the pi.dev-only-derived
@@ -315,7 +369,7 @@ func TestModelExportSourceAndRenderContracts(t *testing.T) {
 	}
 
 	// Bind, then re-fetch source: the binding becomes the render authority and
-	// its safe fields now feed platform_completeness.
+	// its safe fields now feed the Pi completeness projection.
 	bound := exportBindPi(t, harness, modelConfigID)
 	if bound["bind_source"] != "single_candidate" {
 		t.Fatalf("auto-applied single candidate must record bind_source: %+v", bound)
@@ -326,15 +380,31 @@ func TestModelExportSourceAndRenderContracts(t *testing.T) {
 	if len(digest) != 64 {
 		t.Fatalf("source_digest must be sha256 hex: %q", digest)
 	}
+	ignoredProfileSource := requestJSONStatus[map[string]any](t, harness, http.MethodGet, "/api/models/exports/pi/source", nil, map[string]string{"X-Profile-Id": "999999"}, http.StatusOK)
+	if ignoredProfileSource["source_digest"] != digest {
+		t.Fatalf("Pi export must stay pinned to Default profile when a legacy profile header is supplied")
+	}
 	row = exportSourceRow(t, source, modelConfigID)
 	if row["pi_binding_status"] != "bound" {
 		t.Fatalf("bound model must report bound status: %+v", row)
+	}
+	if row["pi_binding_renderable"] != true {
+		t.Fatalf("identity/API-compatible binding must be renderable: %+v", row)
 	}
 	selected := asMap(t, row["pi_selected"])
 	if selected["provider_id"] != "openai" || selected["model_id"] != "gpt-export" || selected["api"] != "openai-responses" {
 		t.Fatalf("pi_selected must carry the bound coordinate: %+v", selected)
 	}
-	completeness = row["platform_completeness"].(map[string]any)
+	bindingSource := asMap(t, row["pi_binding_source"])
+	bindingEffective := asMap(t, row["pi_binding_effective"])
+	if bindingSource["context_window"].(float64) != 400000 || bindingEffective["context_window"].(float64) != 400000 {
+		t.Fatalf("source must publish frozen source/effective binding metadata: source=%+v effective=%+v", bindingSource, bindingEffective)
+	}
+	dropped := row["pi_binding_dropped_fields"].([]any)
+	if len(dropped) != 1 || dropped[0] != "compat.supportsTemperature" {
+		t.Fatalf("source must publish stable sanitized-field evidence: %+v", dropped)
+	}
+	completeness = row["completeness"].(map[string]any)
 	fields = completeness["metadata_fields"].(map[string]any)
 	for _, key := range []string{"name", "reasoning", "contextWindow", "maxTokens", "input"} {
 		if fields[key] != true {
@@ -350,9 +420,20 @@ func TestModelExportSourceAndRenderContracts(t *testing.T) {
 		"credential":             map[string]any{"include": true, "api_key": " proxy-key "},
 		"selections":             map[string]any{fmt.Sprintf("%d", modelConfigID): piSelectionAssertion(bound)},
 	}
-	rendered, renderHeaders := exportRequestWithHeaders(t, harness, http.MethodPost, "/api/models/export/render", renderRequest, http.StatusOK)
+	rendered, renderHeaders := exportRequestWithHeaders(t, harness, http.MethodPost, "/api/models/exports/pi/render", renderRequest, http.StatusOK)
 	if got := renderHeaders.Get("Cache-Control"); got != "private, no-store" {
 		t.Fatalf("render cache policy = %q, want private, no-store", got)
+	}
+	if _, exists := rendered["catalog"]; exists {
+		t.Fatalf("render must not fabricate live catalog evidence it never checked: %+v", rendered["catalog"])
+	}
+	rawRenderRequest, err := json.Marshal(renderRequest)
+	if err != nil {
+		t.Fatalf("marshal render request for trailing-document boundary: %v", err)
+	}
+	trailing := harness.requestJSONRaw(t, harness.client, http.MethodPost, "/api/models/exports/pi/render", string(rawRenderRequest)+` {}`, nil)
+	if trailing.StatusCode != http.StatusBadRequest {
+		t.Fatalf("render body with a trailing JSON document status = %d, want 400", trailing.StatusCode)
 	}
 	content := rendered["content"].(string)
 	if !strings.HasSuffix(content, "\n") || strings.HasSuffix(content, "\n\n") {
@@ -367,6 +448,10 @@ func TestModelExportSourceAndRenderContracts(t *testing.T) {
 	}
 	if rendered["mime_type"] != "application/json;charset=utf-8" {
 		t.Fatalf("pi MIME must be fixed: %+v", rendered["mime_type"])
+	}
+	modelResults := rendered["model_results"].([]any)
+	if len(modelResults) != 1 || asMap(t, modelResults[0])["model_config_id"] != float64(modelConfigID) {
+		t.Fatalf("render must publish one ordered result per selected model: %+v", modelResults)
 	}
 	if strings.Contains(content, "https://export.example") || strings.Contains(content, "sk-export-live-key") || strings.Contains(content, "api.openai.example") {
 		t.Fatalf("render leaked an upstream endpoint URL, stored endpoint key, or pi.dev baseUrl: %s", content)
@@ -394,7 +479,7 @@ func TestModelExportSourceAndRenderContracts(t *testing.T) {
 	}
 
 	// Deterministic replay: identical body renders byte-identical output.
-	reRendered := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/export/render", renderRequest, nil, http.StatusOK)
+	reRendered := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/exports/pi/render", renderRequest, map[string]string{"X-Profile-Id": "999999"}, http.StatusOK)
 	if reRendered["content"] != content || reRendered["content_sha256"] != rendered["content_sha256"] {
 		t.Fatalf("render replay must be deterministic")
 	}
@@ -406,9 +491,12 @@ func TestModelExportSourceAndRenderContracts(t *testing.T) {
 		"base_url":               "https://prism-client.example",
 		"selections":             map[string]any{fmt.Sprintf("%d", modelConfigID): piSelectionAssertion(bound)},
 	}
-	stale, staleHeaders := exportRequestWithHeaders(t, harness, http.MethodPost, "/api/models/export/render", staleBody, http.StatusConflict)
+	stale, staleHeaders := exportRequestWithHeaders(t, harness, http.MethodPost, "/api/models/exports/pi/render", staleBody, http.StatusConflict)
 	if stale["detail"] != "export_source_stale" {
 		t.Fatalf("drift must return export_source_stale: %+v", stale)
+	}
+	if stale["code"] != "export_source_stale" {
+		t.Fatalf("drift must expose the stable export_source_stale code: %+v", stale)
 	}
 	if got := staleHeaders.Get("Cache-Control"); got != "private, no-store" {
 		t.Fatalf("render error cache policy = %q, want private, no-store", got)
@@ -420,7 +508,7 @@ func TestModelExportSourceAndRenderContracts(t *testing.T) {
 		"model_config_ids":       []int{999999},
 		"base_url":               "https://prism-client.example",
 	}
-	unknownResponse := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/export/render", unknown, nil, http.StatusUnprocessableEntity)
+	unknownResponse := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/exports/pi/render", unknown, nil, http.StatusUnprocessableEntity)
 	if !strings.Contains(fmt.Sprint(unknownResponse["detail"]), "not exportable") {
 		t.Fatalf("unknown id must fail closed: %+v", unknownResponse)
 	}
@@ -435,9 +523,9 @@ func TestModelExportSourceAndRenderContracts(t *testing.T) {
 			"provider_id": "openai", "model_id": "gpt-decoy", "api": "openai-responses",
 		}},
 	}
-	wrongResponse := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/export/render", wrongAssertion, nil, http.StatusUnprocessableEntity)
-	if !strings.Contains(fmt.Sprint(wrongResponse["detail"]), "is not a current Pi candidate") {
-		t.Fatalf("mismatched selection assertion must report the stable candidate_invalid detail: %+v", wrongResponse)
+	wrongResponse := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/exports/pi/render", wrongAssertion, nil, http.StatusUnprocessableEntity)
+	if wrongResponse["code"] != "candidate_invalid" || wrongResponse["model_config_id"] != float64(modelConfigID) {
+		t.Fatalf("mismatched selection assertion must expose candidate_invalid for the model: %+v", wrongResponse)
 	}
 
 	// A render request that omits the selections assertion entirely for a
@@ -447,10 +535,57 @@ func TestModelExportSourceAndRenderContracts(t *testing.T) {
 		"model_config_ids":       []int{modelConfigID},
 		"base_url":               "https://prism-client.example",
 	}
-	omittedResponse := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/export/render", omittedAssertion, nil, http.StatusUnprocessableEntity)
-	if omittedResponse == nil {
-		t.Fatalf("omitted selection assertion must fail closed")
+	omittedResponse := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/exports/pi/render", omittedAssertion, nil, http.StatusUnprocessableEntity)
+	if omittedResponse["code"] != "candidate_unselected" || omittedResponse["model_config_id"] != float64(modelConfigID) {
+		t.Fatalf("omitted selection assertion must expose candidate_unselected for the model: %+v", omittedResponse)
 	}
+
+	// Assertions for models outside model_config_ids are not candidates for
+	// this render and must be rejected instead of ignored.
+	extraAssertion := map[string]any{
+		"expected_source_digest": digest,
+		"model_config_ids":       []int{modelConfigID},
+		"base_url":               "https://prism-client.example",
+		"selections": map[string]any{
+			fmt.Sprintf("%d", modelConfigID): piSelectionAssertion(bound),
+			"999999":                         piSelectionAssertion(bound),
+		},
+	}
+	extraResponse := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/exports/pi/render", extraAssertion, nil, http.StatusUnprocessableEntity)
+	if extraResponse["code"] != "candidate_invalid" || extraResponse["model_config_id"] != float64(999999) {
+		t.Fatalf("extra selection assertion must expose candidate_invalid for the extra model: %+v", extraResponse)
+	}
+
+	// Retained raw binding evidence remains manageable after a Prism identity
+	// edit, but the explicit compatibility flag and render both fail closed.
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET model_id = 'gpt-export-renamed' WHERE id = $1`, modelConfigID); err != nil {
+		t.Fatalf("mutate model identity for binding-health check: %v", err)
+	}
+	driftedSource := exportFetchSource(t, harness)
+	driftedRow := exportSourceRow(t, driftedSource, modelConfigID)
+	if driftedRow["pi_binding_renderable"] != false || driftedRow["pi_binding_status"] != "bound_drifted" {
+		t.Fatalf("identity-drifted binding must be visible but non-renderable: %+v", driftedRow)
+	}
+	if asMap(t, driftedRow["pi_selected"])["model_id"] != "gpt-export" || driftedRow["pi_binding_source"] == nil {
+		t.Fatalf("identity drift must preserve raw coordinate and source evidence: %+v", driftedRow)
+	}
+	requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/exports/pi/render", map[string]any{
+		"expected_source_digest": driftedSource["source_digest"],
+		"model_config_ids":       []int{modelConfigID},
+		"base_url":               "https://prism-client.example",
+		"selections":             map[string]any{fmt.Sprintf("%d", modelConfigID): piSelectionAssertion(bound)},
+	}, nil, http.StatusUnprocessableEntity)
+
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET model_id = 'gpt-export', openai_accepted_format = 'chat_completions_only' WHERE id = $1`, modelConfigID); err != nil {
+		t.Fatalf("mutate final Pi API for binding-health check: %v", err)
+	}
+	apiDriftSource := exportFetchSource(t, harness)
+	apiDriftRow := exportSourceRow(t, apiDriftSource, modelConfigID)
+	if apiDriftRow["pi_binding_renderable"] != false || asMap(t, apiDriftRow["pi_selected"])["api"] != "openai-responses" {
+		t.Fatalf("API-drifted binding must retain raw evidence but become non-renderable: %+v", apiDriftRow)
+	}
+	requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/refresh/preview", modelConfigID), map[string]any{}, nil, http.StatusConflict)
+	requestJSONStatus[map[string]any](t, harness, http.MethodPut, fmt.Sprintf("/api/models/%d/pi/override", modelConfigID), map[string]any{"name": "must reject"}, nil, http.StatusConflict)
 }
 
 func TestModelExportPiRefreshAndOverride(t *testing.T) {
@@ -461,9 +596,15 @@ func TestModelExportPiRefreshAndOverride(t *testing.T) {
 			piServingCatalogHandler(w, r)
 			return
 		}
+		if catalogGeneration.Load() > 2 {
+			piFailingCatalogHandler(w, r)
+			return
+		}
 		// Second generation changes the bound candidate's safe fields so a
 		// refresh has something to preview and commit.
-		body := []byte(strings.Replace(piFixtureCatalog, `"contextWindow": 400000`, `"contextWindow": 800000`, 1))
+		updatedCatalog := strings.Replace(piFixtureCatalog, `"contextWindow": 400000`, `"contextWindow": 800000`, 1)
+		updatedCatalog = strings.Replace(updatedCatalog, `"compat": {"supportsTemperature": true},`, `"compat": {"supportsTemperature": true}, "headers": {"x-upstream-only": "ignored"},`, 1)
+		body := []byte(updatedCatalog)
 		sum := sha256.Sum256(body)
 		w.Header().Set("ETag", `"pi-contract-2"`)
 		w.Header().Set("Content-Type", "application/json")
@@ -493,10 +634,21 @@ func TestModelExportPiRefreshAndOverride(t *testing.T) {
 	if invalidOverride["code"] == "" && invalidOverride["detail"] == nil {
 		t.Fatalf("schema-invalid override must fail closed: %+v", invalidOverride)
 	}
+	requestJSONStatus[map[string]any](t, harness, http.MethodPut, fmt.Sprintf("/api/models/%d/pi/override", modelConfigID), map[string]any{
+		"compat": map[string]any{"allowedFallbackModels": []string{"other-provider/model"}},
+	}, nil, http.StatusUnprocessableEntity)
+	requestJSONStatus[map[string]any](t, harness, http.MethodPut, fmt.Sprintf("/api/models/%d/pi/override", modelConfigID), map[string]any{
+		"max_tokens": 0,
+	}, nil, http.StatusUnprocessableEntity)
 
-	overrideDigest := exportFetchSource(t, harness)["source_digest"].(string)
+	overrideSource := exportFetchSource(t, harness)
+	overrideDigest := overrideSource["source_digest"].(string)
 	if overrideDigest == firstDigest {
 		t.Fatalf("an override must move the source digest")
+	}
+	overrideRow := exportSourceRow(t, overrideSource, modelConfigID)
+	if asMap(t, overrideRow["pi_binding_override"])["name"] != "Operator Renamed" || asMap(t, overrideRow["pi_binding_effective"])["name"] != "Operator Renamed" {
+		t.Fatalf("source must publish distinct override and effective projections: %+v", overrideRow)
 	}
 
 	// Clearing the override restores the source name.
@@ -510,6 +662,7 @@ func TestModelExportPiRefreshAndOverride(t *testing.T) {
 	if quietPreview["changed"] != false {
 		t.Fatalf("unchanged catalog must preview no changes: %+v", quietPreview)
 	}
+	frozenDigest := exportFetchSource(t, harness)["source_digest"].(string)
 
 	// Advance the fixture catalog, then preview and commit the refresh.
 	catalogGeneration.Store(2)
@@ -517,25 +670,73 @@ func TestModelExportPiRefreshAndOverride(t *testing.T) {
 	if preview["changed"] != true {
 		t.Fatalf("advanced catalog must preview a change: %+v", preview)
 	}
+	hasDroppedFieldsDiff := false
+	for _, rawChange := range preview["changes"].([]any) {
+		if asMap(t, rawChange)["field"] == "dropped_fields" {
+			hasDroppedFieldsDiff = true
+		}
+	}
+	if !hasDroppedFieldsDiff {
+		t.Fatalf("refresh preview must surface changed dropped-field evidence: %+v", preview["changes"])
+	}
 	nextRevision := preview["catalog_revision"].(string)
 	if nextRevision == bound["catalog_revision"] {
 		t.Fatalf("advanced catalog must carry a new revision")
 	}
 
-	// A commit against a stale (superseded) revision fails closed and writes
-	// nothing: the 409 status itself is the assertion.
-	requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/refresh/commit", modelConfigID), map[string]any{
-		"expected_catalog_revision": bound["catalog_revision"],
-	}, nil, http.StatusConflict)
-
-	committed := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/refresh/commit", modelConfigID), map[string]any{
+	// Repeating bind for the existing coordinate is idempotent: it must not
+	// smuggle the new live source fields/revision around explicit refresh.
+	sameCoordinate := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/bind", modelConfigID), map[string]any{
 		"expected_catalog_revision": nextRevision,
 	}, nil, http.StatusOK)
+	if sameCoordinate["catalog_revision"] != bound["catalog_revision"] || sameCoordinate["source"].(map[string]any)["context_window"].(float64) != 400000 {
+		t.Fatalf("same-coordinate bind must preserve frozen source and revision: %+v", sameCoordinate)
+	}
+	driftSource := exportFetchSource(t, harness)
+	if driftSource["source_digest"] != frozenDigest {
+		t.Fatalf("same-coordinate bind/live drift must not change frozen render digest")
+	}
+	driftRow := exportSourceRow(t, driftSource, modelConfigID)
+	if driftRow["pi_binding_status"] != "bound_drifted" || driftRow["pi_binding_renderable"] != true {
+		t.Fatalf("live metadata drift must invite refresh without blocking frozen render: %+v", driftRow)
+	}
+	catalogGeneration.Store(3)
+	staleLKGSource := exportFetchSource(t, harness)
+	staleLKGRow := exportSourceRow(t, staleLKGSource, modelConfigID)
+	if staleLKGSource["catalog"].(map[string]any)["status"] != "stale" || staleLKGRow["pi_binding_status"] != "bound" {
+		t.Fatalf("stale LKG may show stale candidates but must not assert binding drift: source=%+v row=%+v", staleLKGSource["catalog"], staleLKGRow)
+	}
+	catalogGeneration.Store(2)
+
+	// A commit against a stale (superseded) revision fails closed and writes
+	// nothing: the 409 status itself is the assertion.
+	staleCatalogCommit := piRefreshCommitBody(quietPreview)
+	requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/refresh/commit", modelConfigID), staleCatalogCommit, nil, http.StatusConflict)
+
+	// A metadata write after preview invalidates the binding CAS token even
+	// when the remote catalog revision and coordinate are unchanged.
+	requestJSONStatus[map[string]any](t, harness, http.MethodPut, fmt.Sprintf("/api/models/%d/pi/override", modelConfigID), map[string]any{
+		"name": "Survives Refresh",
+	}, nil, http.StatusOK)
+	requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/refresh/commit", modelConfigID), piRefreshCommitBody(preview), nil, http.StatusConflict)
+
+	currentPreview := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/refresh/preview", modelConfigID), map[string]any{}, nil, http.StatusOK)
+	committed := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/refresh/commit", modelConfigID), piRefreshCommitBody(currentPreview), nil, http.StatusOK)
 	if committed["catalog_revision"] != nextRevision {
 		t.Fatalf("commit must persist the previewed revision: %+v", committed)
 	}
 	if committed["source"].(map[string]any)["context_window"].(float64) != 800000 {
 		t.Fatalf("commit must replace source fields from the refreshed catalog: %+v", committed["source"])
+	}
+	if committed["override"].(map[string]any)["name"] != "Survives Refresh" || committed["effective"].(map[string]any)["name"] != "Survives Refresh" {
+		t.Fatalf("refresh must preserve manual overrides: %+v", committed)
+	}
+	if dropped := committed["dropped_fields"].([]any); len(dropped) != 2 || dropped[0] != "compat.supportsTemperature" || dropped[1] != "headers" {
+		t.Fatalf("refresh must preserve refreshed dropped-field evidence: %+v", committed)
+	}
+	refreshedSource := exportFetchSource(t, harness)
+	if refreshedSource["source_digest"] == frozenDigest || exportSourceRow(t, refreshedSource, modelConfigID)["pi_binding_status"] != "bound" {
+		t.Fatalf("committed refresh must move the digest and clear live drift: %+v", refreshedSource)
 	}
 
 	// Unbind removes the row entirely.
@@ -550,7 +751,7 @@ func TestModelExportPiRefreshAndOverride(t *testing.T) {
 	}
 
 	// Render after unbinding is blocked: nothing is bound to trust.
-	renderAfterUnbind := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/export/render", map[string]any{
+	renderAfterUnbind := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/exports/pi/render", map[string]any{
 		"expected_source_digest": sourceAfterUnbind["source_digest"],
 		"model_config_ids":       []int{modelConfigID},
 		"base_url":               "https://prism-client.example",
@@ -585,6 +786,22 @@ func TestModelExportPiMultipleCandidatesRequireExplicitBindAndRebindMovesDigest(
 	if len(candidates) != 2 {
 		t.Fatalf("expected exactly two candidates: %+v", candidates)
 	}
+	templateProjection := func(candidate map[string]any) string {
+		projection := map[string]any{}
+		for _, field := range []string{"name", "reasoning", "input", "context_window", "max_tokens", "thinking_level_map", "compat", "dropped_fields"} {
+			if value, present := candidate[field]; present {
+				projection[field] = value
+			}
+		}
+		encoded, err := json.Marshal(projection)
+		if err != nil {
+			t.Fatalf("encode candidate template projection: %v", err)
+		}
+		return string(encoded)
+	}
+	if templateProjection(asMap(t, candidates[0])) != templateProjection(asMap(t, candidates[1])) {
+		t.Fatalf("fixture candidates must have identical sanitized templates: %+v", candidates)
+	}
 	catalogRevision := source["catalog"].(map[string]any)["revision"].(string)
 
 	// Binding without explicit coordinates must reject with the candidate
@@ -606,6 +823,7 @@ func TestModelExportPiMultipleCandidatesRequireExplicitBindAndRebindMovesDigest(
 		t.Fatalf("explicit disambiguation among multiple candidates must record manual bind_source: %+v", firstBind)
 	}
 	firstDigest := exportFetchSource(t, harness)["source_digest"].(string)
+	firstPreview := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/refresh/preview", modelConfigID), map[string]any{}, nil, http.StatusOK)
 
 	// Rebinding to the other exact-id candidate must clear inherited
 	// assumptions (a fresh coordinate) and move the digest again.
@@ -617,6 +835,7 @@ func TestModelExportPiMultipleCandidatesRequireExplicitBindAndRebindMovesDigest(
 	if secondBind["provider_id"] != "openrouter" {
 		t.Fatalf("rebind must switch the persisted coordinate to the newly chosen candidate: %+v", secondBind)
 	}
+	requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/refresh/commit", modelConfigID), piRefreshCommitBody(firstPreview), nil, http.StatusConflict)
 	secondDigest := exportFetchSource(t, harness)["source_digest"].(string)
 	if secondDigest == firstDigest {
 		t.Fatalf("rebinding to a different exact-id candidate must move the source digest")
@@ -624,7 +843,7 @@ func TestModelExportPiMultipleCandidatesRequireExplicitBindAndRebindMovesDigest(
 
 	// A render selections assertion still naming the old (pre-rebind)
 	// coordinate must now be rejected as non-current.
-	staleAssertion := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/export/render", map[string]any{
+	staleAssertion := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/exports/pi/render", map[string]any{
 		"expected_source_digest": secondDigest,
 		"model_config_ids":       []int{modelConfigID},
 		"base_url":               "https://prism-client.example",
@@ -654,22 +873,18 @@ func TestModelExportCredentialNeverReadsStoredEndpointKeys(t *testing.T) {
 		t.Fatalf("source must not expose upstream endpoint URLs: %+v", targetRow)
 	}
 
-	emptyManual := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/export/render", map[string]any{
+	emptyManual := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/exports/pi/render", map[string]any{
 		"expected_source_digest": digest,
 		"model_config_ids":       []int{modelConfigID},
 		"base_url":               "https://prism-client.example",
 		"credential":             map[string]any{"include": true, "api_key": "   "},
 		"selections":             map[string]any{fmt.Sprintf("%d", modelConfigID): piSelectionAssertion(bound)},
-	}, nil, http.StatusOK)
-	emptyContent := emptyManual["content"].(string)
-	if !strings.Contains(emptyContent, `"apiKey": ""`) {
-		t.Fatalf("include=true must preserve the explicitly confirmed trimmed empty string: %s", emptyContent)
-	}
-	if strings.Contains(emptyContent, "sk-export-live-key") || strings.Contains(emptyContent, "https://export.example") {
-		t.Fatalf("explicit empty key must never fall back to stored endpoint data: %s", emptyContent)
+	}, nil, http.StatusUnprocessableEntity)
+	if emptyManual["code"] != "credential_api_key_required" {
+		t.Fatalf("Pi-incompatible empty included key must expose credential_api_key_required: %+v", emptyManual)
 	}
 
-	legacy := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models/export/render", map[string]any{
+	legacy := harness.requestJSON(t, harness.client, http.MethodPost, "/api/models/exports/pi/render", map[string]any{
 		"expected_source_digest": digest,
 		"model_config_ids":       []int{modelConfigID},
 		"base_url":               "https://prism-client.example",
@@ -718,7 +933,7 @@ func TestModelExportSourceSurvivesCatalogOutage(t *testing.T) {
 		t.Fatalf("bound coordinate must survive a catalog outage: %+v", selected)
 	}
 
-	rendered := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/export/render", map[string]any{
+	rendered := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/exports/pi/render", map[string]any{
 		"expected_source_digest": source["source_digest"],
 		"model_config_ids":       []int{modelConfigID},
 		"base_url":               "https://prism-client.example",
@@ -726,6 +941,39 @@ func TestModelExportSourceSurvivesCatalogOutage(t *testing.T) {
 	}, nil, http.StatusOK)
 	if !strings.Contains(rendered["content"].(string), `"id": "gpt-export"`) {
 		t.Fatalf("stored truth still renders during a catalog outage: %s", rendered["content"])
+	}
+}
+
+func TestModelExportRenderUsesFrozenBindingWithoutCatalogClientOrSnapshot(t *testing.T) {
+	harness := newExportContractHarness(t, exportServingCatalog, nil)
+	modelConfigID, _ := exportSeedModel(t, harness, "gpt-offline", "openai", "dual_native")
+	now := time.Now().UTC()
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_pi_catalog_bindings (
+		model_config_id, provider_id, catalog_model_id, api, bind_source, catalog_revision, fetched_at,
+		source_name, source_reasoning, source_input, source_context_window, source_max_tokens, source_dropped_fields, updated_at
+	) VALUES ($1, 'openai', 'gpt-offline', 'openai-responses', 'manual', 'sha256-offline-fixture', $2,
+		'GPT Offline', TRUE, '["text"]'::jsonb, 200000, 16384, '[]'::jsonb, $2)`, modelConfigID, now); err != nil {
+		t.Fatalf("seed frozen Pi binding: %v", err)
+	}
+
+	source := exportFetchSource(t, harness)
+	row := exportSourceRow(t, source, modelConfigID)
+	if source["catalog"].(map[string]any)["status"] != "unavailable" || row["candidate_status"] != "catalog_unavailable" || row["pi_binding_renderable"] != true {
+		t.Fatalf("frozen binding must remain published without a catalog client: source=%+v row=%+v", source["catalog"], row)
+	}
+	if candidates, ok := row["pi_candidates"].([]any); !ok || len(candidates) != 0 {
+		t.Fatalf("catalog-unavailable candidate evidence must be an empty array: %+v", row["pi_candidates"])
+	}
+	rendered := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/exports/pi/render", map[string]any{
+		"expected_source_digest": source["source_digest"],
+		"model_config_ids":       []int{modelConfigID},
+		"base_url":               "https://prism-client.example",
+		"selections": map[string]any{fmt.Sprintf("%d", modelConfigID): map[string]any{
+			"provider_id": "openai", "model_id": "gpt-offline", "api": "openai-responses",
+		}},
+	}, nil, http.StatusOK)
+	if !strings.Contains(rendered["content"].(string), `"id": "gpt-offline"`) {
+		t.Fatalf("frozen binding did not render without catalog state: %s", rendered["content"])
 	}
 }
 

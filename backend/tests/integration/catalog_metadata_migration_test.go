@@ -8,10 +8,10 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/migrate"
 )
 
-// TestModelCatalogMetadataUpgradePreservesRetainedData proves 000024 is
-// purely additive: every existing model, pricing template, revision,
-// reference, and log row survives the upgrade, the new catalog surface is
-// usable immediately, and nothing about model runtime identity changes.
+// TestModelCatalogMetadataUpgradePreservesRetainedData proves both catalog
+// migrations are additive: 000024 preserves retained model/pricing state,
+// then 000027 preserves that state plus the independent models.dev binding
+// while adding the Pi-only binding table.
 func TestModelCatalogMetadataUpgradePreservesRetainedData(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -156,6 +156,37 @@ func TestModelCatalogMetadataUpgradePreservesRetainedData(t *testing.T) {
 	if boundModelID != modelID {
 		t.Fatalf("binding points at wrong model: %d vs %d", boundModelID, modelID)
 	}
+
+	// Simulate the exact pre-000027 retained state. Existing model, pricing,
+	// reference, and models.dev binding rows must survive while the independent
+	// Pi binding table is added.
+	if _, err := conn.Exec(testContext, `DELETE FROM prism_schema_migrations WHERE version = '000027_model_pi_catalog_bindings'`); err != nil {
+		t.Fatalf("un-stamp 000027: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `DROP TABLE model_pi_catalog_bindings`); err != nil {
+		t.Fatalf("drop Pi binding table: %v", err)
+	}
+	piUpgradeResult, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("apply 000027 upgrade: %v", err)
+	}
+	if piUpgradeResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected upgrade to apply 000027, got %q", piUpgradeResult.Outcome)
+	}
+	countMustEqual(`SELECT COUNT(*) FROM model_configs WHERE id = $1 AND model_id = 'upgrade-model' AND api_family = 'openai'`, 1, modelID)
+	countMustEqual(`SELECT COUNT(*) FROM model_catalog_bindings WHERE model_config_id = $1 AND provider_id = 'openai' AND catalog_model_id = 'upgrade-model'`, 1, modelID)
+	countMustEqual(`SELECT COUNT(*) FROM pricing_templates WHERE id = $1 AND current_revision_id = $2`, 1, templateID, revisionID)
+	countMustEqual(`SELECT COUNT(*) FROM pricing_template_revisions WHERE id = $1 AND version = 7`, 1, revisionID)
+	countMustEqual(`SELECT COUNT(*) FROM pricing_template_cards WHERE revision_id = $1`, 2, revisionID)
+
+	if _, err := conn.Exec(testContext, `INSERT INTO model_pi_catalog_bindings (
+		model_config_id, provider_id, catalog_model_id, api, bind_source, catalog_revision, fetched_at,
+		source_name, source_dropped_fields, updated_at
+	) VALUES ($1, 'openai', 'upgrade-model', 'openai-responses', 'manual', 'sha256-upgrade-fixture', $2,
+		'Upgrade Model', '["compat.allowedFallbackModels"]'::jsonb, $2)`, modelID, now); err != nil {
+		t.Fatalf("insert post-000027 Pi binding: %v", err)
+	}
+	countMustEqual(`SELECT COUNT(*) FROM model_pi_catalog_bindings WHERE model_config_id = $1 AND source_dropped_fields = '["compat.allowedFallbackModels"]'::jsonb`, 1, modelID)
 
 	// A second full run stays noop: the upgrade is idempotent.
 	noopResult, err := runner.Run(testContext, conn)

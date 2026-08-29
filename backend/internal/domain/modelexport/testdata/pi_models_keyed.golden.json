@@ -1,9 +1,7 @@
 {
   "providers": {
     "prism": {
-      "api": "openai-responses",
       "apiKey": "proxy-key",
-      "baseUrl": "https://prism.example/v1",
       "models": [
         {
           "api": "openai-responses",
@@ -31,6 +29,50 @@
             "off": null,
             "xhigh": null
           }
+        },
+        {
+          "api": "anthropic-messages",
+          "baseUrl": "https://prism.example",
+          "contextWindow": 200000,
+          "cost": {
+            "cacheRead": 0.5,
+            "cacheWrite": 6.25,
+            "input": 5,
+            "output": 25,
+            "tiers": [
+              {
+                "cacheRead": 1,
+                "cacheWrite": 12.5,
+                "input": 10,
+                "inputTokensAbove": 200000,
+                "output": 37.5
+              }
+            ]
+          },
+          "id": "claude-opus-4-8",
+          "name": "Claude Opus 4.8"
+        },
+        {
+          "api": "google-generative-ai",
+          "baseUrl": "https://prism.example/v1beta",
+          "id": "gemini-4-pro",
+          "name": "Gemini 4 Pro"
+        },
+        {
+          "api": "openai-completions",
+          "baseUrl": "https://prism.example/v1",
+          "compat": {
+            "chatTemplateArgs": {
+              "effort": {
+                "$var": "thinking.effort"
+              },
+              "enabled": {
+                "$var": "thinking.enabled",
+                "omitWhenOff": true
+              }
+            }
+          },
+          "id": "glm-5.2"
         }
       ],
       "name": "Prism"

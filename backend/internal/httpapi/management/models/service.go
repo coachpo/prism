@@ -127,14 +127,14 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Put("/models/{model_config_id}/catalog/override", s.handlePutCatalogOverride)
 	api.Delete("/models/{model_config_id}/catalog/override", s.handleClearCatalogOverride)
 	api.Delete("/models/{model_config_id}/catalog", s.handleUnbindModelCatalog)
-	api.Get("/models/export/source", s.handleGetPiExportSource)
-	api.Post("/models/export/render", s.handlePostPiExportRender)
-	api.Post("/models/{model_config_id}/pi/bind", s.handleBindModelPi)
-	api.Post("/models/{model_config_id}/pi/refresh/preview", s.handleRefreshPiPreview)
-	api.Post("/models/{model_config_id}/pi/refresh/commit", s.handleRefreshPiCommit)
-	api.Put("/models/{model_config_id}/pi/override", s.handlePutPiOverride)
-	api.Delete("/models/{model_config_id}/pi/override", s.handleClearPiOverride)
-	api.Delete("/models/{model_config_id}/pi", s.handleUnbindModelPi)
+	api.Get("/models/exports/pi/source", piPrivateNoStore(s.handleGetPiExportSource))
+	api.Post("/models/exports/pi/render", piPrivateNoStore(s.handlePostPiExportRender))
+	api.Post("/models/{model_config_id}/pi/bind", piPrivateNoStore(s.handleBindModelPi))
+	api.Post("/models/{model_config_id}/pi/refresh/preview", piPrivateNoStore(s.handleRefreshPiPreview))
+	api.Post("/models/{model_config_id}/pi/refresh/commit", piPrivateNoStore(s.handleRefreshPiCommit))
+	api.Put("/models/{model_config_id}/pi/override", piPrivateNoStore(s.handlePutPiOverride))
+	api.Delete("/models/{model_config_id}/pi/override", piPrivateNoStore(s.handleClearPiOverride))
+	api.Delete("/models/{model_config_id}/pi", piPrivateNoStore(s.handleUnbindModelPi))
 	api.Get("/models/{model_config_id}", s.handleGetModel)
 	api.Post("/models", s.handleCreateModel)
 	api.Put("/models/{model_config_id}", s.handleUpdateModel)
@@ -143,6 +143,13 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Get("/models/{model_config_id}/routing-diagnostics", s.handleGetRoutingDiagnostics)
 	api.Get("/models", s.handleListModels)
 	api.Get("/models/route-witnesses", s.handleGetRouteWitnesses)
+}
+
+func piPrivateNoStore(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		responseutil.SetPrivateNoStoreHeaders(w)
+		next(w, r)
+	}
 }
 
 func isUniqueViolation(err error, constraint string) bool {

@@ -60,6 +60,17 @@
         {
           "api": "openai-completions",
           "baseUrl": "https://prism.example/v1",
+          "compat": {
+            "chatTemplateArgs": {
+              "effort": {
+                "$var": "thinking.effort"
+              },
+              "enabled": {
+                "$var": "thinking.enabled",
+                "omitWhenOff": true
+              }
+            }
+          },
           "id": "glm-5.2"
         }
       ],

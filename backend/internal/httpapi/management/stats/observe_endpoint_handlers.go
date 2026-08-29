@@ -36,6 +36,10 @@ func (s *Service) handleEndpointTerminalTargetStatistics(w http.ResponseWriter, 
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
+	if limit > 100 {
+		writeDomainError(w, r, s.corsSnapshot(), invalidQueryParameter("limit", "must be within [1, 100]"))
+		return
+	}
 	offset, err := parseNonNegativeIntWithDefault(r, "offset", 0)
 	if err != nil {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())

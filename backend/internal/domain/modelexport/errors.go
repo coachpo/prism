@@ -2,9 +2,9 @@ package modelexport
 
 import "fmt"
 
-// This file owns every typed domain error of the export surface
-// (single declaration site; renderers and merges only reference them). HTTP handlers
-// map them onto stable wire codes; message text never carries semantics.
+// This file owns every typed domain error of the export surface (single
+// declaration site; renderers and merges only reference them). HTTP handlers
+// map the contract-defined stale/candidate cases onto stable wire codes.
 
 // ErrLockedField rejects manual payloads that target locked Prism truth
 // (model_id, protocol mapping, base URL, provider slot, credential slots,
@@ -74,16 +74,18 @@ func (e *ErrSourceStale) Error() string {
 	return "export source facts drifted; refetch /source before rendering"
 }
 
-// ErrCandidateUnselected rejects rendering a model with multiple Pi candidates but no explicit selection.
+// ErrCandidateUnselected rejects rendering a model with no persisted Pi source
+// binding. Every rendered model must assert a previously selected coordinate.
 type ErrCandidateUnselected struct{ ModelConfigID int }
 
 func (e *ErrCandidateUnselected) Error() string {
-	return fmt.Sprintf("model %d has multiple Pi candidates but no selection", e.ModelConfigID)
+	return fmt.Sprintf("model %d has no selected Pi source", e.ModelConfigID)
 }
 
-// ErrCandidateInvalid rejects a selection that is not among current compatible candidates.
+// ErrCandidateInvalid rejects a persisted selection whose identity/API no
+// longer matches the current Prism model. It never consults live candidates.
 type ErrCandidateInvalid struct{ ModelConfigID int }
 
 func (e *ErrCandidateInvalid) Error() string {
-	return fmt.Sprintf("model %d selection is not a current Pi candidate", e.ModelConfigID)
+	return fmt.Sprintf("model %d selected Pi source does not match its current model id and API", e.ModelConfigID)
 }

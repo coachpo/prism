@@ -47,10 +47,14 @@ func mountManagementBranch(router chi.Router, deps Dependencies, admissionContro
 	managementHandler = managementBodyLimitMiddleware(managementHandler)
 	managementHandler = (&managementAdmissionController{controller: admissionController, provider: admissionProvider}).Middleware(managementHandler)
 	managementHandler = newRuntimeCacheInvalidationMiddleware(deps.RuntimeCache, deps.RuntimeAuthService, deps.RuntimeState, deps.StatsService).Middleware(managementHandler)
-	// The browser write guard must be the outermost layer: a rejected
+	// The browser write guard must be the outermost rejecting layer: a rejected
 	// cross-origin write must not occupy admission slots, must not enter the
 	// body-limit wrapper, and must not advance runtime-cache generations.
 	managementHandler = newManagementBrowserWriteGuard(deps.CORSOriginProvider).Middleware(managementHandler)
+	// Pi export and binding responses can carry credential or catalog details.
+	// Keep their cache policy outside every rejection layer so auth, admission,
+	// body-limit and browser-guard failures receive the same protection.
+	managementHandler = managementPrivateNoStoreMiddleware(managementHandler)
 	router.Mount("/api", managementHandler)
 }
 

@@ -25,33 +25,9 @@
 //     visible warnings, explicit zeros stay "0".
 package modelexport
 
-import "fmt"
+import "github.com/coachpo/prism/backend/internal/domain/pidev"
 
-// Ensure Platform remains exported for management wires.
-
-// Platform is kept for transitional compatibility; only Pi is valid.
-type Platform string
-
-const (
-	PlatformPi      Platform = "pi"
-	PiTargetVersion          = "0.84.3"
-)
-
-func (p Platform) Valid() bool { return p == PlatformPi }
-
-func ParsePlatform(raw string) (Platform, error) {
-	if raw == string(PlatformPi) {
-		return PlatformPi, nil
-	}
-	return "", fmt.Errorf("unsupported export platform %q", raw)
-}
-
-func TargetVersion(platform Platform) string {
-	if platform == PlatformPi {
-		return PiTargetVersion
-	}
-	return ""
-}
+const PiTargetVersion = pidev.PiTargetVersion
 
 // MergeWarningCodes combines, deduplicates, and sorts warning collections for
 // stable source and render wire order.
@@ -65,24 +41,17 @@ func MergeWarningCodes(groups ...[]string) []string {
 
 // Stable warning codes carried on source and render responses.
 const (
-	WarningPriceNoTemplate                  = "price_no_template"
-	WarningPriceCurrencyNotUSD              = "price_currency_not_usd"
-	WarningPriceUnitNotPerMillion           = "price_unit_not_per_1m"
-	WarningPricingComponentMissing          = "pricing_component_missing"
-	WarningPriceIncompleteComponents        = WarningPricingComponentMissing
-	WarningPriceReasoningMismatch           = "price_reasoning_mismatch"
-	WarningPriceTargetConflict              = "price_target_conflict"
-	WarningPricePeakValleyUnrepresentable   = "price_peak_valley_unrepresentable"
-	WarningPriceTierUnrepresentable         = "price_tier_unrepresentable"
-	WarningEnrichmentUnavailable            = "enrichment_unavailable"
-	WarningMetadataIncomplete               = "metadata_incomplete"
-	WarningVariantsUnrepresentable          = "variants_unrepresentable"
-	WarningThinkingMapUnrepresentable       = "thinking_level_map_unrepresentable"
-	WarningPiCompatMayRequireManualOverride = "pi_compat_may_require_manual_override"
-	WarningUnsupportedInputModality         = "unsupported_input_modality"
-	WarningMixedCredentials                 = "mixed_credentials"
-	WarningMixedBaseURLs                    = "mixed_base_urls"
-	WarningCandidateUnselected              = "candidate_unselected"
-	WarningCandidateAPIMismatch             = "candidate_api_mismatch"
-	WarningCandidateNotInCatalog            = "candidate_not_in_catalog"
+	WarningPriceNoTemplate                = "price_no_template"
+	WarningPriceCurrencyNotUSD            = "price_currency_not_usd"
+	WarningPriceUnitNotPerMillion         = "price_unit_not_per_1m"
+	WarningPricingComponentMissing        = "pricing_component_missing"
+	WarningPriceIncompleteComponents      = WarningPricingComponentMissing
+	WarningPriceReasoningMismatch         = "price_reasoning_mismatch"
+	WarningPriceTargetConflict            = "price_target_conflict"
+	WarningPricePeakValleyUnrepresentable = "price_peak_valley_unrepresentable"
+	WarningPriceTierUnrepresentable       = "price_tier_unrepresentable"
+	WarningMetadataIncomplete             = "metadata_incomplete"
+	WarningPiSourceFieldsDropped          = "pi_source_fields_dropped"
+	WarningUnsupportedInputModality       = "unsupported_input_modality"
+	WarningMixedBaseURLs                  = "mixed_base_urls"
 )

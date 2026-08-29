@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { moveConnectionInList } from "@/pages/model-detail/connectionCollectionState"
 import { modelDetailSearchSchema, normalizeModelDetailTab } from "@/features/models/detail/modelDetailSchemas"
 import type { Connection } from "@/lib/types"
+import { canCopyTerminalTargetToModel } from "@/pages/model-detail/terminalTargetCopyCompatibility"
 
 function createConnection(id: number, priority: number, name: string): Connection {
   return {
@@ -68,5 +69,25 @@ describe("model detail feature contracts", () => {
       [502, 1],
       [503, 2],
     ])
+  })
+
+  it("filters copy destinations by strict text equality and image containment", () => {
+    const model = {
+      api_family: "openai" as const,
+      openai_accepted_format: null,
+      openai_image_operations: "generations" as const,
+    }
+    expect(canCopyTerminalTargetToModel(model, null, "generations_and_edits")).toBe(true)
+    expect(canCopyTerminalTargetToModel(model, null, null)).toBe(false)
+    expect(canCopyTerminalTargetToModel(
+      { ...model, openai_accepted_format: "responses_only" },
+      null,
+      "generations_and_edits",
+    )).toBe(false)
+    expect(canCopyTerminalTargetToModel(
+      { ...model, api_family: "anthropic" },
+      null,
+      null,
+    )).toBe(true)
   })
 })

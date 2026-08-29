@@ -61,11 +61,15 @@ type QueryBounds struct {
 // provide a diagnostic range, but that range must not be used to shrink the
 // SQL interval because the owner has explicitly said it is not current.
 func ResolveQueryBoundsFromActualCoverage(preset string, fromTime *time.Time, toTime *time.Time, referenceNow time.Time, source RetentionFloorEpochSource, actual ActualCoverageProjection) (QueryBounds, error) {
+	return resolveQueryBoundsFromActualCoverageWithCustomLimit(preset, fromTime, toTime, referenceNow, source, actual, 30*24*time.Hour)
+}
+
+func resolveQueryBoundsFromActualCoverageWithCustomLimit(preset string, fromTime *time.Time, toTime *time.Time, referenceNow time.Time, source RetentionFloorEpochSource, actual ActualCoverageProjection, maxCustomRange time.Duration) (QueryBounds, error) {
 	normalizedPreset := strings.TrimSpace(preset)
 	if normalizedPreset == "" {
 		normalizedPreset = "24h"
 	}
-	requestedFrom, requestedTo, err := resolveRequestedWindow(normalizedPreset, fromTime, toTime, referenceNow)
+	requestedFrom, requestedTo, err := resolveRequestedWindowWithCustomLimit(normalizedPreset, fromTime, toTime, referenceNow, maxCustomRange)
 	if err != nil {
 		return QueryBounds{}, err
 	}
@@ -172,6 +176,10 @@ func queryRequestedTimePointer(preset string, value time.Time) *time.Time {
 }
 
 func resolveRequestedWindow(preset string, fromTime *time.Time, toTime *time.Time, referenceNow time.Time) (time.Time, time.Time, error) {
+	return resolveRequestedWindowWithCustomLimit(preset, fromTime, toTime, referenceNow, 30*24*time.Hour)
+}
+
+func resolveRequestedWindowWithCustomLimit(preset string, fromTime *time.Time, toTime *time.Time, referenceNow time.Time, maxCustomRange time.Duration) (time.Time, time.Time, error) {
 	referenceNow = referenceNow.UTC()
 	switch preset {
 	case "1h", "6h", "24h", "7d", "30d":
@@ -187,8 +195,9 @@ func resolveRequestedWindow(preset string, fromTime *time.Time, toTime *time.Tim
 		if !end.After(start) {
 			return time.Time{}, time.Time{}, &HTTPError{StatusCode: 422, Detail: "invalid_time_range"}
 		}
-		if end.Sub(start) > 30*24*time.Hour {
-			return time.Time{}, time.Time{}, &HTTPError{StatusCode: 422, Detail: "custom range cannot exceed 30 days"}
+		if maxCustomRange > 0 && end.Sub(start) > maxCustomRange {
+			days := int(maxCustomRange / (24 * time.Hour))
+			return time.Time{}, time.Time{}, &HTTPError{StatusCode: 422, Detail: fmt.Sprintf("custom range cannot exceed %d days", days)}
 		}
 		return start, end, nil
 	default:

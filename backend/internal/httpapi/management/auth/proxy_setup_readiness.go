@@ -9,6 +9,7 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
+	"github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/jackc/pgx/v5"
 )
@@ -89,7 +90,7 @@ func (s *Service) handleListProxyKeysWithSetupReadiness(w http.ResponseWriter, r
 		if err != nil {
 			return ProxySetupReadiness{}, err
 		}
-		snapshot := modelrouting.AnalyzeRouteWitnessSnapshot(graph, currentGeneration)
+		snapshot := modelrouting.AnalyzeRouteWitnessSnapshotWithOperations(graph, currentGeneration, runtime.ModelBoundRouteWitnessOperations())
 
 		effectiveKeyExists := keyReadiness.SafeActive > 0
 		configuration := modelrouting.ReadinessAxis{State: "not_ready", ReasonCodes: []string{"no_effective_key"}}

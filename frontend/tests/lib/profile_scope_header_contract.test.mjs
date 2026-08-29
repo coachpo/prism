@@ -38,15 +38,10 @@ test("profile scope helper matches profile-scoped rows in the route contract man
   const scopedRows = routeContract.filter((row) => row.profile_scoped);
   const scopedNonInvalidatingRows = scopedRows.filter(isNonInvalidating);
 
-  // 140 rows, up from 135, for the persisted Pi catalog binding surface: the
-  // ephemeral /api/models/export/resolve route was removed (-1) and six
-  // /api/models/{model_config_id}/pi* routes were added (+6) - bind,
-  // refresh/preview, refresh/commit, override PUT, override DELETE, and
-  // unbind DELETE, all declared none:true (binding writes never invalidate
-  // planning). Net +5.
-  // Earlier: 135 rows, up from 133, for the client model-config export feature: two
-  // /api/models/exports/{platform}/* routes (source GET read-only,
-  // render POST none:true — digest-guarded replay never touches planning).
+  // 140 rows: two static /api/models/exports/pi/* routes plus six persisted
+  // /api/models/{model_config_id}/pi* binding routes. Every binding write is
+  // planning-neutral; source/render stay profile-scoped without a platform
+  // parameter or resolve step.
   // Earlier: 133 rows, up from 124, for the models.dev catalog integration:
   // nine /api/models/{model_config_id}/catalog* management routes (all
   // declared none:true — metadata writes never invalidate planning) plus two
@@ -89,6 +84,14 @@ test("profile scope helper matches profile-scoped rows in the route contract man
   }
 
   assert.equal(isProfileScopedManagementRoute("/api/settings/audit"), true);
+  assert.equal(
+    isProfileScopedManagementRoute("/api/models/exports/pi/source"),
+    true,
+  );
+  assert.equal(
+    isProfileScopedManagementRoute("/api/models/exports/pi/render"),
+    true,
+  );
   assert.equal(isProfileScopedManagementRoute("/api/settings/timezone"), false);
 });
 

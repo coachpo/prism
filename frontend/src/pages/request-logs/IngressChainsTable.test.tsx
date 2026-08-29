@@ -80,8 +80,8 @@ const chain: ChainIngressItem = {
     final_status_code: 200,
     final_result: "completed",
     final_error_code: null,
-    requested_model: { id: "entry-a", label: "Model A" },
-    resolved_model: { id: "target-c", label: "Model C" },
+    ingress_model: { id: "entry-a", label: "Model A" },
+    final_target_model: { id: "target-c", label: "Model C" },
     terminal_target: {
       id: 17,
       label: "TT-C",

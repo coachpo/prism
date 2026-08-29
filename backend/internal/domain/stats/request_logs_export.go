@@ -29,7 +29,8 @@ const (
 // ExportParams mirrors the attempt-view browse query without pagination.
 type ExportParams struct {
 	RequestLogListParams
-	View string
+	ChainQueryParams *ChainQueryParams
+	View             string
 }
 
 // ExportResult is the verified spooled export content.
@@ -54,8 +55,34 @@ func ExportCSV(ctx context.Context, tx pgx.Tx, params ExportParams) (ExportResul
 	// Resolve the same owner-backed interval as the JSON attempt list and keep
 	// the CSV predicates on that exact interval inside this snapshot. Exact
 	// ingress selectors waive the 31-day cap, but keep the owner/default bound.
-	exactIngress := params.IngressRequestID != nil && strings.TrimSpace(*params.IngressRequestID) != ""
-	coverage, err := resolveOrdinaryRequestLogCoverage(ctx, tx, params.RequestLogListParams)
+	coverageParams := params.RequestLogListParams
+	if params.ChainQueryParams != nil {
+		chain := params.ChainQueryParams
+		coverageParams = RequestLogListParams{
+			ProfileID:             chain.ProfileID,
+			IngressRequestID:      chain.IngressRequestID,
+			FromTime:              chain.FromTime,
+			ToTime:                chain.ToTime,
+			CoveragePreset:        chain.CoveragePreset,
+			CoverageRequestedFrom: chain.CoverageRequestedFrom,
+			CoverageRequestedTo:   chain.CoverageRequestedTo,
+			CoverageReferenceNow:  chain.CoverageReferenceNow,
+		}
+	}
+	exactIngress := coverageParams.IngressRequestID != nil && strings.TrimSpace(*coverageParams.IngressRequestID) != ""
+	exactIngressUnbounded := requestLogExactIngressWithoutWindow(coverageParams)
+	requestedFrom := coverageParams.CoverageRequestedFrom
+	requestedTo := coverageParams.CoverageRequestedTo
+	if requestedFrom == nil {
+		requestedFrom = coverageParams.FromTime
+	}
+	if requestedTo == nil {
+		requestedTo = coverageParams.ToTime
+	}
+	if !exactIngress && requestedFrom != nil && requestedTo != nil && requestedTo.UTC().Sub(requestedFrom.UTC()) > exportMaxRangeDays*24*time.Hour {
+		return ExportResult{}, &HTTPError{StatusCode: 422, Code: "export_range_exceeded", Detail: "Export range must not exceed 31 days."}
+	}
+	coverage, err := resolveOrdinaryRequestLogCoverageWithCustomLimit(ctx, tx, coverageParams, exportMaxRangeDays*24*time.Hour)
 	if err != nil {
 		return ExportResult{}, err
 	}
@@ -64,9 +91,30 @@ func ExportCSV(ctx context.Context, tx pgx.Tx, params ExportParams) (ExportResul
 	if !exactIngress && effectiveTo.Sub(effectiveFrom) > exportMaxRangeDays*24*time.Hour {
 		return ExportResult{}, &HTTPError{StatusCode: 422, Code: "export_range_exceeded", Detail: "Export range must not exceed 31 days."}
 	}
-	params.FromTime = &effectiveFrom
-	params.ToTime = &effectiveTo
-	if params.ClientRuleID != nil {
+	if params.ChainQueryParams != nil {
+		if !exactIngressUnbounded {
+			params.ChainQueryParams.FromTime = &effectiveFrom
+			params.ChainQueryParams.ToTime = &effectiveTo
+		}
+		params.SortBy = params.ChainQueryParams.SortBy
+		params.SortOrder = params.ChainQueryParams.SortOrder
+		if params.ChainQueryParams.ClientRuleID != nil {
+			rule, found, ruleErr := loadCompiledUserAgentRuleByID(ctx, tx, params.ChainQueryParams.ProfileID, *params.ChainQueryParams.ClientRuleID)
+			if ruleErr != nil {
+				return ExportResult{}, ruleErr
+			}
+			if !found {
+				return ExportResult{}, &HTTPError{StatusCode: 400, Code: "invalid_client_rule_id", Detail: "invalid client_rule_id"}
+			}
+			params.ChainQueryParams.ClientRulePattern = &rule.RawPattern
+		}
+	} else {
+		if !exactIngressUnbounded {
+			params.FromTime = &effectiveFrom
+			params.ToTime = &effectiveTo
+		}
+	}
+	if params.ChainQueryParams == nil && params.ClientRuleID != nil {
 		rule, found, ruleErr := loadCompiledUserAgentRuleByID(ctx, tx, params.ProfileID, *params.ClientRuleID)
 		if ruleErr != nil {
 			return ExportResult{}, ruleErr
@@ -134,12 +182,22 @@ func ExportCSV(ctx context.Context, tx pgx.Tx, params ExportParams) (ExportResul
 }
 
 func buildExportCountQuery(params ExportParams) (string, []any) {
+	if params.ChainQueryParams != nil {
+		whereClause, args := buildChainCohortWhere(*params.ChainQueryParams, "request_logs")
+		return `SELECT COUNT(*) FROM request_logs WHERE ` + whereClause, args
+	}
 	whereClause, args := buildRequestLogBrowseWhere(params.RequestLogListParams)
 	return `SELECT COUNT(*) FROM request_logs WHERE ` + whereClause, args
 }
 
 func buildExportRowQuery(params ExportParams) (string, []any) {
-	whereClause, args := buildRequestLogBrowseWhere(params.RequestLogListParams)
+	var whereClause string
+	var args []any
+	if params.ChainQueryParams != nil {
+		whereClause, args = buildChainCohortWhere(*params.ChainQueryParams, "request_logs")
+	} else {
+		whereClause, args = buildRequestLogBrowseWhere(params.RequestLogListParams)
+	}
 	query := `SELECT id, row_kind, ingress_request_id, model_id, resolved_target_model_id, api_family, operation_name,
 		attempt_number, attempt_trigger, attempt_result, is_winner, attempt_duration_ms, legacy_duration_ms, ttft_ms, completion_duration_ms,
 		upstream_status_code, gateway_status_code, legacy_status_code,

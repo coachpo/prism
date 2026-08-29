@@ -27,6 +27,7 @@ export interface SavedRequestLogView {
     | "final_status_code"
     | "final_stream_outcome"
     | "final_stream_error_kind"
+    | "final_exclude"
     | "final_target_model_id"
     | "final_endpoint_id"
     | "final_terminal_target_id"
@@ -52,6 +53,7 @@ export function savedViewStateOf(
     final_status_code: _finalStatusCode,
     final_stream_outcome: _finalStreamOutcome,
     final_stream_error_kind: _finalStreamErrorKind,
+    final_exclude: _finalExclude,
     final_target_model_id: _finalModel,
     final_endpoint_id: _finalEndpoint,
     final_terminal_target_id: _finalTarget,
@@ -72,6 +74,7 @@ export function savedViewStateOf(
   void _finalStatusCode;
   void _finalStreamOutcome;
   void _finalStreamErrorKind;
+  void _finalExclude;
   void _finalModel;
   void _finalEndpoint;
   void _finalTarget;

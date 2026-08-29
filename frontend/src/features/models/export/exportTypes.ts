@@ -1,6 +1,6 @@
 /**
  * Pi-only wire types for the managed client model-config export surface
- * (GET /api/models/export/source, POST /render) and the persisted binding
+ * (GET /api/models/exports/pi/source, POST /api/models/exports/pi/render) and the persisted binding
  * surface (POST .../pi/bind, POST .../pi/refresh/{preview,commit},
  * PUT|DELETE .../pi/override, DELETE .../pi).
  * Absence is undefined, never zero.
@@ -24,6 +24,7 @@ export interface PiCandidateWire {
   max_tokens?: number;
   thinking_level_map?: Record<string, string | null>;
   compat?: Record<string, unknown>;
+  dropped_fields?: string[];
 }
 
 export interface PiSelectedWire {
@@ -43,7 +44,7 @@ export type PiCandidateStatus =
 /** Persisted model_pi_catalog_bindings health; render authority when bound. */
 export type PiBindingStatus = "unbound" | "bound" | "bound_drifted";
 
-export interface ExportPlatformCompleteness {
+export interface ExportCompleteness {
   metadata_fields: Record<string, boolean>;
   cost_exportable: boolean;
 }
@@ -95,7 +96,7 @@ export interface ExportSourceModelRow {
   merged_metadata: Record<string, unknown>;
   metadata_provenance: Record<string, string>;
   missing_metadata: string[];
-  platform_completeness: ExportPlatformCompleteness;
+  completeness: ExportCompleteness;
   targets: ExportSourceTargetRow[];
   price_risk: ExportPriceRisk;
   warnings?: string[];
@@ -105,10 +106,17 @@ export interface ExportSourceModelRow {
   /** Persisted binding evidence: render authority when pi_selected is set. */
   pi_selected?: PiSelectedWire | null;
   pi_binding_status: PiBindingStatus;
+  /** Frozen coordinate matches current Prism model_id and final Pi API. */
+  pi_binding_renderable: boolean;
   pi_bind_source?: "single_candidate" | "manual";
   pi_binding_catalog_revision?: string;
   pi_binding_fetched_at?: string;
   pi_binding_updated_at?: string;
+  pi_binding_dropped_fields?: string[];
+  /** Frozen source, explicit overrides, and their effective projection. */
+  pi_binding_source?: PiBindingMetadataWire | null;
+  pi_binding_override?: PiBindingMetadataWire | null;
+  pi_binding_effective?: PiBindingMetadataWire | null;
 }
 
 export interface ExportSourceResponse {
@@ -121,7 +129,6 @@ export interface ExportSourceResponse {
 
 export interface ExportRenderResponse {
   target_version: string;
-  catalog: PiCatalogWire;
   content: string;
   content_sha256: string;
   file_name: string;
@@ -160,6 +167,7 @@ export interface PiBindingResponse {
   source: PiBindingMetadataWire | null;
   override: PiBindingMetadataWire | null;
   effective: PiBindingMetadataWire | null;
+  dropped_fields?: string[];
 }
 
 export interface PiBindingFieldChange {
@@ -171,11 +179,12 @@ export interface PiBindingFieldChange {
 
 export interface PiRefreshPreviewResponse {
   bound: boolean;
-  provider_id?: string;
-  catalog_model_id?: string;
-  api?: string;
+  provider_id: string;
+  catalog_model_id: string;
+  api: string;
   changed: boolean;
   changes: PiBindingFieldChange[];
   catalog_revision: string;
+  binding_updated_at: string;
   fetched_at: string;
 }

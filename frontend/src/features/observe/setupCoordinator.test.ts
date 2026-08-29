@@ -18,6 +18,11 @@ function sources(overrides: Partial<SetupReadinessSources> = {}): SetupReadiness
         route_ready_model_count: 1,
         route_witness_count: 1,
         representative_witness: null,
+        route_schedule: {
+          schedule_limited: false,
+          limited_witness_count: 0,
+          total_witness_count: 1,
+        },
       },
     }),
     pricing: async () => ({
@@ -116,6 +121,11 @@ describe("setup coordinator", () => {
             route_ready_model_count: null,
             route_witness_count: null,
             representative_witness: null,
+            route_schedule: {
+              schedule_limited: false,
+              limited_witness_count: 0,
+              total_witness_count: 0,
+            },
           },
         }),
       }),
@@ -143,6 +153,74 @@ describe("setup coordinator", () => {
         route_ready_model_count: 0,
         route_witness_count: 0,
         representative_witness: null,
+        route_schedule: {
+          schedule_limited: false,
+          limited_witness_count: 0,
+          total_witness_count: 0,
+        },
+      },
+    })).toBeNull()
+  })
+
+  it("preserves lowercase witness coverage and schedule qualifiers", () => {
+    const witness = {
+      witness_id: "1:anthropic.messages:9:99",
+      generation: "4",
+      model_config_id: "1",
+      model_id: "claude-test",
+      operation_name: "anthropic.messages",
+      terminal_target_id: "9",
+      endpoint_id: "99",
+      coverage: "full",
+    }
+    const parsed = parseModelReadiness({
+      items: [{
+        id: 1,
+        route_readiness: {
+          configuration: axis("ready"),
+          application: axis("ready"),
+          route_witness_count: 1,
+          representative_witness: witness,
+          route_schedule: {
+            schedule_limited: true,
+            limited_witness_count: 1,
+            total_witness_count: 1,
+          },
+        },
+      }],
+      route_readiness: {
+        route_witness_generation: "4",
+        configuration: axis("ready"),
+        application: axis("ready"),
+        configuration_ready_model_count: 1,
+        route_ready_model_count: 1,
+        route_witness_count: 1,
+        representative_witness: witness,
+        route_schedule: {
+          schedule_limited: true,
+          limited_witness_count: 1,
+          total_witness_count: 1,
+        },
+      },
+    }) as { items: Array<{ route_readiness: { representative_witness: typeof witness; route_schedule: { schedule_limited: boolean } } }> } | null
+
+    expect(parsed?.items[0].route_readiness.representative_witness.coverage).toBe("full")
+    expect(parsed?.items[0].route_readiness.route_schedule.schedule_limited).toBe(true)
+    expect(parseModelReadiness({
+      items: [],
+      route_readiness: {
+        route_witness_generation: "4",
+        configuration: axis("ready"),
+        application: axis("ready"),
+        configuration_ready_model_count: 1,
+        route_ready_model_count: 1,
+        route_witness_count: 1,
+        representative_witness: { ...witness, coverage: "FULL" },
+        route_schedule: {
+          schedule_limited: false,
+          limited_witness_count: 0,
+          total_witness_count: 1,
+        },
       },
     })).toBeNull()
   })

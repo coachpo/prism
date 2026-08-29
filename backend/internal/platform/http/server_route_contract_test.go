@@ -72,8 +72,10 @@ func TestManagementRouteSpecClassification(t *testing.T) {
 		{name: "management jobs list uses first shed tier", method: http.MethodGet, path: "/api/management/jobs", want: priority.ManagementTierM3, ok: true},
 		{name: "dashboard stats uses first shed tier", method: http.MethodGet, path: "/api/stats/dashboard", want: priority.ManagementTierM3, ok: true},
 		{name: "first shed stats route", method: http.MethodGet, path: "/api/stats/summary", want: priority.ManagementTierM3, ok: true},
-		{name: "model export source uses first shed tier", method: http.MethodGet, path: "/api/models/export/source", want: priority.ManagementTierM3, ok: true},
-		{name: "model export render uses first shed tier", method: http.MethodPost, path: "/api/models/export/render", want: priority.ManagementTierM3, ok: true},
+		{name: "model export source uses first shed tier", method: http.MethodGet, path: "/api/models/exports/pi/source", want: priority.ManagementTierM3, ok: true},
+		{name: "model export render uses first shed tier", method: http.MethodPost, path: "/api/models/exports/pi/render", want: priority.ManagementTierM3, ok: true},
+		{name: "interim singular export source is not admitted", method: http.MethodGet, path: "/api/models/export/source", ok: false},
+		{name: "removed Pi resolve step is not admitted", method: http.MethodPost, path: "/api/models/exports/pi/resolve", ok: false},
 		{name: "model pi bind uses m2 tier", method: http.MethodPost, path: "/api/models/7/pi/bind", want: priority.ManagementTierM2, ok: true},
 		{name: "model pi unbind uses m2 tier", method: http.MethodDelete, path: "/api/models/7/pi", want: priority.ManagementTierM2, ok: true},
 		{name: "head maps to get", method: http.MethodHead, path: "/api/auth/status", want: priority.ManagementTierM1, ok: true},
@@ -103,8 +105,8 @@ func TestModelExportRouteSpecsAreScopedM3AndPlanningNeutral(t *testing.T) {
 		method string
 		path   string
 	}{
-		{method: http.MethodGet, path: "/api/models/export/source"},
-		{method: http.MethodPost, path: "/api/models/export/render"},
+		{method: http.MethodGet, path: "/api/models/exports/pi/source"},
+		{method: http.MethodPost, path: "/api/models/exports/pi/render"},
 	}
 	for _, testCase := range testCases {
 		spec, ok := matchManagementRouteSpec(testCase.method, testCase.path)

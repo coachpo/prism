@@ -6,6 +6,5 @@ import type { ManagedModelConfigListItem } from "@/lib/api/models"
  * list surfaces this because the model otherwise looks correctly configured.
  */
 export function isSingleTruncated(model: ManagedModelConfigListItem) {
-  if (model.loadbalance_strategy?.legacy_strategy_type !== "single") return false
-  return model.access_targets.filter((target) => target.is_enabled).length >= 2
+  return (model.routing_summary?.single_truncated_access_target_ids.length ?? 0) > 0
 }

@@ -15,6 +15,22 @@ import type { ExportSourceModelRow, PiRefreshPreviewResponse } from "./exportTyp
 
 type ModelExportMetadataFilter = "all" | "complete" | "incomplete";
 
+export class ModelExportSourceReconciliationError extends Error {
+  readonly sourceError: unknown;
+
+  constructor(sourceError: unknown) {
+    super("model export source reconciliation failed");
+    this.name = "ModelExportSourceReconciliationError";
+    this.sourceError = sourceError;
+  }
+}
+
+export function isModelExportSourceReconciliationError(
+  error: unknown,
+): error is ModelExportSourceReconciliationError {
+  return error instanceof ModelExportSourceReconciliationError;
+}
+
 export function useModelExportSource() {
   const [searchText, setSearchText] = useState("");
   const [familyFilter, setFamilyFilter] = useState("all");
@@ -88,13 +104,7 @@ export function useModelExportSource() {
       if (needle && !searchable.includes(needle)) return false;
       if (familyFilter !== "all" && model.api_family !== familyFilter)
         return false;
-      const fieldStates = Object.values(
-        model.platform_completeness.metadata_fields,
-      );
-      const metadataComplete =
-        fieldStates.length > 0
-          ? fieldStates.every(Boolean)
-          : model.missing_metadata.length === 0;
+      const metadataComplete = model.missing_metadata.length === 0;
       if (metadataFilter === "complete" && !metadataComplete) return false;
       if (metadataFilter === "incomplete" && metadataComplete) return false;
       if (priceCompleteOnly && !model.price_risk.exportable) return false;
@@ -112,16 +122,10 @@ export function useModelExportSource() {
     let costOmitted = 0;
     let unbound = 0;
     for (const model of selectedModels) {
-      const fieldStates = Object.values(
-        model.platform_completeness.metadata_fields,
-      );
-      const metadataComplete =
-        fieldStates.length > 0
-          ? fieldStates.every(Boolean)
-          : model.missing_metadata.length === 0;
+      const metadataComplete = model.missing_metadata.length === 0;
       if (!metadataComplete) metadataIncomplete += 1;
       if (!model.price_risk.exportable) costOmitted += 1;
-      if (model.pi_binding_status !== "bound") unbound += 1;
+      if (!model.pi_binding_renderable) unbound += 1;
     }
     return { metadataIncomplete, costOmitted, unbound };
   }, [selectedModels]);
@@ -161,6 +165,14 @@ export function useModelExportSource() {
   }, [updateSelectedIds, visibleModels]);
 
   const refetchSource = sourceQuery.refetch;
+  const reconcileSource = useCallback(async () => {
+    try {
+      const result = await refetchSource();
+      if (result.isError) throw result.error;
+    } catch (error) {
+      throw new ModelExportSourceReconciliationError(error);
+    }
+  }, [refetchSource]);
 
   const bindMutation = useMutation({
     mutationFn: (input: {
@@ -174,7 +186,7 @@ export function useModelExportSource() {
         catalog_model_id: input.catalogModelId,
         expected_catalog_revision: input.expectedCatalogRevision,
       }),
-    onSuccess: () => void refetchSource(),
+    onSuccess: reconcileSource,
   });
 
   const refreshPreviewMutation = useMutation<
@@ -188,10 +200,16 @@ export function useModelExportSource() {
   const refreshCommitMutation = useMutation({
     mutationFn: (input: {
       modelConfigId: number;
-      expectedCatalogRevision: string;
+      expected: {
+        provider_id: string;
+        catalog_model_id: string;
+        api: string;
+        binding_updated_at: string;
+        catalog_revision: string;
+      };
     }) =>
-      refreshModelPiCommit(input.modelConfigId, input.expectedCatalogRevision),
-    onSuccess: () => void refetchSource(),
+      refreshModelPiCommit(input.modelConfigId, input.expected),
+    onSuccess: reconcileSource,
   });
 
   const overrideMutation = useMutation({
@@ -199,19 +217,19 @@ export function useModelExportSource() {
       modelConfigId: number;
       fields: Record<string, PiOverrideFieldValue>;
     }) => putModelPiOverride(input.modelConfigId, input.fields),
-    onSuccess: () => void refetchSource(),
+    onSuccess: reconcileSource,
   });
 
   const clearOverrideMutation = useMutation({
     mutationFn: (input: { modelConfigId: number }) =>
       clearModelPiOverride(input.modelConfigId),
-    onSuccess: () => void refetchSource(),
+    onSuccess: reconcileSource,
   });
 
   const unbindMutation = useMutation({
     mutationFn: (input: { modelConfigId: number }) =>
       unbindModelPi(input.modelConfigId),
-    onSuccess: () => void refetchSource(),
+    onSuccess: reconcileSource,
   });
 
   return {
@@ -236,6 +254,7 @@ export function useModelExportSource() {
     setPriceCompleteOnly,
     setSearchText,
     sourceQuery,
+    sourceActionsBlocked: sourceQuery.isFetching || sourceQuery.isError,
     toggleModel,
     unbindMutation,
     visibleModels,

@@ -11,6 +11,7 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
+	"github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 )
 
@@ -55,7 +56,7 @@ func analyzeProfileRouteReadiness(ctx context.Context, tx pgx.Tx, profileID int,
 	if err != nil {
 		return modelrouting.ProfileRouteReadiness{}, nil, err
 	}
-	snapshot := modelrouting.AnalyzeRouteWitnessSnapshot(graph, generation)
+	snapshot := modelrouting.AnalyzeRouteWitnessSnapshotWithOperations(graph, generation, runtime.ModelBoundRouteWitnessOperations())
 	summaries := map[int]modelrouting.ModelRouteReadinessSummary{}
 	for _, record := range records {
 		summaries[record.ID] = snapshot.ModelSummary(record.ID)
@@ -96,15 +97,11 @@ func (s *Service) handleGetRouteWitnesses(w http.ResponseWriter, r *http.Request
 				Detail:     "route_witness_generation_changed: route witness generation changed; re-select the readiness snapshot",
 			}
 		}
-		records, err := listModelRecords(r.Context(), tx, profile.ID)
+		graph, err := modelrouting.LoadRouteWitnessGraph(r.Context(), tx, profile.ID)
 		if err != nil {
 			return routeWitnessResolveResponse{}, err
 		}
-		graph, err := loadRoutingDiagnosticsGraph(r.Context(), tx, profile.ID, records)
-		if err != nil {
-			return routeWitnessResolveResponse{}, err
-		}
-		snapshot := modelrouting.AnalyzeRouteWitnessSnapshot(graph, currentGeneration)
+		snapshot := modelrouting.AnalyzeRouteWitnessSnapshotWithOperations(graph, currentGeneration, runtime.ModelBoundRouteWitnessOperations())
 		var witness *modelrouting.RouteWitnessRef
 		if selectedID != "" {
 			for _, candidate := range snapshot.Witnesses {

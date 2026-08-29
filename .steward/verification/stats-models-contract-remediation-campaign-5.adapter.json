@@ -1,0 +1,203 @@
+{
+  "schemaVersion": 1,
+  "projectId": "prism-stats-models-contract-remediation-campaign-5",
+  "projectRoot": "../..",
+  "campaignRoot": "artifacts/evidence/closed-loop-stats-models-contract-remediation/campaign-5",
+  "coverageMode": "full",
+  "source": {
+    "provider": "git",
+    "excludes": [
+      "artifacts/evidence/closed-loop-stats-models-contract-remediation/campaign-1",
+      "artifacts/evidence/closed-loop-stats-models-contract-remediation/campaign-2",
+      "artifacts/evidence/closed-loop-stats-models-contract-remediation/campaign-3",
+      "artifacts/evidence/closed-loop-stats-models-contract-remediation/campaign-4",
+      "artifacts/evidence/closed-loop-stats-models-contract-remediation/campaign-5"
+    ]
+  },
+  "localOnly": {
+    "enabled": true,
+    "allowedExternalCapabilities": [
+      "docker"
+    ]
+  },
+  "cases": [
+    {
+      "id": "smoke-build-and-diff",
+      "category": "smoke",
+      "required": true,
+      "quick": true,
+      "platform": "linux",
+      "dependsOn": [],
+      "argv": [
+        "/bin/bash",
+        "-c",
+        "set -euo pipefail; cache_root=\"$PWD/artifacts/evidence/closed-loop-stats-models-contract-remediation/cache\"; mkdir -p \"$cache_root/gocache\" \"$cache_root/gotmp\"; git diff --check main; (cd backend && env GOPATH=/home/qing/go GOMODCACHE=/home/qing/go/pkg/mod GOCACHE=\"$cache_root/gocache\" GOTMPDIR=\"$cache_root/gotmp\" HOME=/tmp GOTOOLCHAIN=auto GOFLAGS=-mod=readonly /home/qing/.local/go/bin/go build ./cmd/prism-backend); pnpm --dir frontend run build; printf '%s\\n' 'git diff --check main: PASS' 'go build ./cmd/prism-backend: PASS' 'frontend build: PASS' > \"$CLOSED_LOOP_EVIDENCE_DIR/smoke.txt\""
+      ],
+      "cwd": ".",
+      "timeoutSeconds": 1800,
+      "fixture": {
+        "purpose": "Compile both product halves and reject malformed changes without external services."
+      },
+      "externalCapabilities": [],
+      "evidence": {
+        "requiredFiles": [
+          "smoke.txt"
+        ],
+        "nonEmptyFiles": [
+          "smoke.txt"
+        ]
+      }
+    },
+    {
+      "id": "functional-goal-regressions",
+      "category": "functional",
+      "required": true,
+      "quick": true,
+      "platform": "linux",
+      "dependsOn": [
+        "smoke-build-and-diff"
+      ],
+      "argv": [
+        "/bin/bash",
+        "-c",
+        "set -euo pipefail; test_paths=$({ git diff --name-only main; git ls-files --others --exclude-standard; } | sort -u | grep -E '(_test\\.go|\\.test\\.(ts|tsx|mjs)|\\.spec\\.ts)$' || true); if [ -z \"$test_paths\" ]; then printf '%s\\n' 'GOAL C6 failure: no changed or added regression tests cover the implementation' >&2; exit 1; fi; if ! rg -qi 'request|chain|csv|observe|series|error|model|routing|witness|copy' $test_paths; then printf '%s\\n' 'GOAL C1-C4 failure: changed tests do not exercise the affected contracts' >&2; exit 1; fi; cache_root=\"$PWD/artifacts/evidence/closed-loop-stats-models-contract-remediation/cache\"; mkdir -p \"$cache_root/gocache\" \"$cache_root/gotmp\"; (cd backend && env GOPATH=/home/qing/go GOMODCACHE=/home/qing/go/pkg/mod GOCACHE=\"$cache_root/gocache\" GOTMPDIR=\"$cache_root/gotmp\" HOME=/tmp GOTOOLCHAIN=auto GOFLAGS=-mod=readonly /home/qing/.local/go/bin/go test -count=1 ./internal/domain/stats ./internal/domain/modelrouting ./internal/httpapi/management/stats ./internal/httpapi/management/models ./internal/httpapi/management/connections); pnpm --dir frontend exec vitest run; pnpm --dir frontend run test:lib; printf '%s\\n' \"regression test files:\" \"$test_paths\" 'targeted backend and frontend tests: PASS' > \"$CLOSED_LOOP_EVIDENCE_DIR/functional.txt\""
+      ],
+      "cwd": ".",
+      "timeoutSeconds": 3000,
+      "fixture": {
+        "purpose": "Require observable regression guards for Requests/Chain, Observe/Stats, and Models contracts before broad suites can accept the change."
+      },
+      "externalCapabilities": [],
+      "evidence": {
+        "requiredFiles": [
+          "functional.txt"
+        ],
+        "nonEmptyFiles": [
+          "functional.txt"
+        ]
+      }
+    },
+    {
+      "id": "e2e-process-cleanup-smoke",
+      "category": "workflow",
+      "required": true,
+      "quick": true,
+      "platform": "linux",
+      "dependsOn": [
+        "functional-goal-regressions"
+      ],
+      "argv": [
+        "/bin/bash",
+        "-c",
+        "set -euo pipefail; node frontend/scripts/run-playwright-closed-loop.mjs tests/e2e/auth-session-lifecycle.spec.ts --grep 'shows degraded setup reads without turning the failure into 0/4' --workers=1; printf '%s\\n' 'containerized Playwright lifecycle and host cleanup: PASS' > \"$CLOSED_LOOP_EVIDENCE_DIR/e2e-cleanup.txt\""
+      ],
+      "cwd": ".",
+      "timeoutSeconds": 1200,
+      "fixture": {
+        "purpose": "Prove the pinned local Playwright container returns without escaped host descendants before expensive full-regression layers."
+      },
+      "externalCapabilities": [
+        "docker"
+      ],
+      "evidence": {
+        "requiredFiles": [
+          "e2e-cleanup.txt"
+        ],
+        "nonEmptyFiles": [
+          "e2e-cleanup.txt"
+        ]
+      }
+    },
+    {
+      "id": "integration-stats-contracts",
+      "category": "integration",
+      "required": true,
+      "quick": false,
+      "platform": "linux",
+      "dependsOn": [
+        "e2e-process-cleanup-smoke"
+      ],
+      "argv": [
+        "/bin/bash",
+        "-c",
+        "set -euo pipefail; cache_root=\"$PWD/artifacts/evidence/closed-loop-stats-models-contract-remediation/cache\"; mkdir -p \"$cache_root/gocache\" \"$cache_root/gotmp\"; (cd backend && env GOPATH=/home/qing/go GOMODCACHE=/home/qing/go/pkg/mod GOCACHE=\"$cache_root/gocache\" GOTMPDIR=\"$cache_root/gotmp\" HOME=/tmp GOTOOLCHAIN=auto GOFLAGS=-mod=readonly /home/qing/.local/go/bin/go test -count=1 -timeout 30m ./tests/contract ./tests/integration); printf '%s\\n' 'backend contract and integration suites: PASS' > \"$CLOSED_LOOP_EVIDENCE_DIR/integration.txt\""
+      ],
+      "cwd": ".",
+      "timeoutSeconds": 4200,
+      "fixture": {
+        "purpose": "Exercise management HTTP and retained-history contracts against ephemeral Docker-backed PostgreSQL only."
+      },
+      "externalCapabilities": [
+        "docker"
+      ],
+      "evidence": {
+        "requiredFiles": [
+          "integration.txt"
+        ],
+        "nonEmptyFiles": [
+          "integration.txt"
+        ]
+      }
+    },
+    {
+      "id": "workflow-frontend-quality",
+      "category": "workflow",
+      "required": true,
+      "quick": false,
+      "platform": "linux",
+      "dependsOn": [
+        "integration-stats-contracts"
+      ],
+      "argv": [
+        "/bin/bash",
+        "-c",
+        "set -euo pipefail; pnpm --dir frontend exec vitest run; pnpm --dir frontend run test:lib; pnpm --dir frontend run lint; pnpm --dir frontend run build; printf '%s\\n' 'frontend vitest: PASS' 'frontend lib tests: PASS' 'frontend lint: PASS' 'frontend build: PASS' > \"$CLOSED_LOOP_EVIDENCE_DIR/workflow.txt\""
+      ],
+      "cwd": ".",
+      "timeoutSeconds": 3000,
+      "fixture": {
+        "purpose": "Exercise the complete local frontend contract and quality workflow."
+      },
+      "externalCapabilities": [],
+      "evidence": {
+        "requiredFiles": [
+          "workflow.txt"
+        ],
+        "nonEmptyFiles": [
+          "workflow.txt"
+        ]
+      }
+    },
+    {
+      "id": "role-play-full-regression",
+      "category": "role-play",
+      "required": true,
+      "quick": false,
+      "platform": "linux",
+      "dependsOn": [
+        "workflow-frontend-quality"
+      ],
+      "argv": [
+        "/bin/bash",
+        "-c",
+        "set -euo pipefail; cache_root=\"$PWD/artifacts/evidence/closed-loop-stats-models-contract-remediation/cache\"; mkdir -p \"$cache_root/gocache\" \"$cache_root/gotmp\"; (cd backend && env GOPATH=/home/qing/go GOMODCACHE=/home/qing/go/pkg/mod GOCACHE=\"$cache_root/gocache\" GOTMPDIR=\"$cache_root/gotmp\" HOME=/tmp GOTOOLCHAIN=auto GOFLAGS=-mod=readonly /home/qing/.local/go/bin/go vet ./internal/... ./cmd/...); (cd backend && env GOPATH=/home/qing/go GOMODCACHE=/home/qing/go/pkg/mod GOCACHE=\"$cache_root/gocache\" GOTMPDIR=\"$cache_root/gotmp\" HOME=/tmp GOTOOLCHAIN=auto GOFLAGS=-mod=readonly /home/qing/.local/go/bin/go test -count=1 -timeout 30m ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...); node frontend/scripts/run-playwright-closed-loop.mjs; printf '%s\\n' 'backend vet: PASS' 'backend contract/integration/runtime/priority regression: PASS' 'frontend Playwright E2E: PASS' > \"$CLOSED_LOOP_EVIDENCE_DIR/role-play.txt\""
+      ],
+      "cwd": ".",
+      "timeoutSeconds": 7200,
+      "fixture": {
+        "purpose": "Run operator-facing mocked browser journeys inside the pinned local Playwright container and the broad backend regression on one local source baseline."
+      },
+      "externalCapabilities": [
+        "docker"
+      ],
+      "evidence": {
+        "requiredFiles": [
+          "role-play.txt"
+        ],
+        "nonEmptyFiles": [
+          "role-play.txt"
+        ]
+      }
+    }
+  ]
+}

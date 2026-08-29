@@ -23,6 +23,7 @@ import {
 import { ObserveActivityTable } from "@/features/observe/ObserveActivityTable";
 import { ObserveErrorWorkbench } from "@/features/observe/ObserveErrorWorkbench";
 import { ObserveMainChart } from "@/features/observe/ObserveMainChart";
+import { ObserveScopedCoverageWarnings } from "@/features/observe/ObserveScopedCoverageWarnings";
 import { useUsageSeriesFragment } from "@/features/observe/useObserveSeries";
 import { NowStrip } from "@/features/observe/NowStrip";
 import {
@@ -288,6 +289,16 @@ export function ObservePage() {
             {messages.observe.analysisScopeBasis(scope)}
           </span>
         </div>
+      ) : null}
+
+      {(view === "trend" || view === "errors") &&
+      analysisContext.phase === "ready" &&
+      analysisContext.data ? (
+        <ObserveScopedCoverageWarnings
+          scope={scope}
+          usageCoverage={analysisContext.data.usage_coverage}
+          requestCoverage={analysisContext.data.request_coverage}
+        />
       ) : null}
 
       {view === "trend" ? (

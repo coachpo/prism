@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 
@@ -12,7 +13,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 )
 
-// handlePostPiExportRender serves POST /api/models/export/render. It performs
+// handlePostPiExportRender serves POST /api/models/exports/pi/render. It performs
 // no network I/O and never reads the live pi.dev catalog: every selected
 // model's rendered coordinate and safe metadata come from its persisted
 // model_pi_catalog_bindings row. Request-carried selections are pure
@@ -24,6 +25,10 @@ func (s *Service) handlePostPiExportRender(w http.ResponseWriter, r *http.Reques
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
@@ -48,17 +53,23 @@ func (s *Service) handlePostPiExportRender(w http.ResponseWriter, r *http.Reques
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, "provider_id must not contain '/'")
 		return
 	}
-	// No network fetch: render only ever reads the cached snapshot, and only
-	// to compute the same live-evidence fields source would have shown. A
-	// missing or stale snapshot never blocks render, because a bound model's
-	// authority is its persisted row, not live catalog reachability.
-	catalog, catalogStatus := s.piCatalogSnapshot()
+	includeKey := req.Credential.Include
+	apiKey := ""
+	if includeKey {
+		apiKey = strings.TrimSpace(req.Credential.APIKey)
+		if apiKey == "" {
+			responseutil.WriteErrorFields(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, "api_key must be non-empty when credential.include is true", map[string]any{
+				"code": "credential_api_key_required",
+			})
+			return
+		}
+	}
 	rendered, err := pgxutil.InRepeatableReadTxValue(r.Context(), s.pool, "pi export render", func(tx pgx.Tx) (*piRenderResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return nil, err
 		}
-		modelRows, targetRows, bindings, graph, err := loadExportSnapshot(r.Context(), tx)
+		modelRows, targetRows, graph, err := loadExportSnapshot(r.Context(), tx, profile.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -67,13 +78,11 @@ func (s *Service) handlePostPiExportRender(w http.ResponseWriter, r *http.Reques
 			return nil, err
 		}
 		grouped := sortTargetRowsByModel(targetRows)
-		facts, candidates, err := buildPiSourceFacts(piExportFactsInput{
+		facts, _, err := buildPiSourceFacts(piExportFactsInput{
 			ModelRows:     modelRows,
 			TargetRows:    grouped,
-			Bindings:      bindings,
 			PiBindings:    piBindings,
-			Catalog:       catalog,
-			CatalogStatus: catalogStatus,
+			CatalogStatus: "unavailable",
 			Graph:         graph,
 		})
 		if err != nil {
@@ -93,15 +102,9 @@ func (s *Service) handlePostPiExportRender(w http.ResponseWriter, r *http.Reques
 		if err := requirePiSelectionsMatchBindings(selection, facts, req.Selections); err != nil {
 			return nil, err
 		}
-		includeKey := req.Credential.Include
-		apiKey := ""
-		if includeKey {
-			apiKey = strings.TrimSpace(req.Credential.APIKey)
-		}
 		result, err := modelexport.RenderPi(modelexport.PiInput{
 			Facts:         facts,
 			Selection:     selection,
-			Enrichment:    candidates,
 			BaseURL:       baseURL,
 			ProviderID:    providerID,
 			IncludeAPIKey: includeKey,
@@ -112,12 +115,6 @@ func (s *Service) handlePostPiExportRender(w http.ResponseWriter, r *http.Reques
 		}
 		return &piRenderResponse{
 			TargetVersion: modelexport.PiTargetVersion,
-			Catalog: piCatalogWire{
-				Revision:       facts.PiCatalog.Revision,
-				Status:         catalogStatus,
-				MinimumVersion: facts.PiCatalog.MinimumVersion,
-				ETag:           facts.PiCatalog.ETag,
-			},
 			Content:       result.Content,
 			ContentSHA256: result.ContentSHA256,
 			FileName:      result.FileName,
@@ -140,15 +137,19 @@ func (s *Service) handlePostPiExportRender(w http.ResponseWriter, r *http.Reques
 // 422 (the request itself needs to change, not just retry).
 func (s *Service) writePiExportError(w http.ResponseWriter, r *http.Request, err error) {
 	if _, ok := err.(*modelexport.ErrSourceStale); ok {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusConflict, "export_source_stale")
+		responseutil.WriteErrorFields(w, r, s.corsSnapshot(), http.StatusConflict, "export_source_stale", map[string]any{"code": "export_source_stale"})
 		return
 	}
 	if e, ok := err.(*modelexport.ErrCandidateUnselected); ok {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, e.Error())
+		responseutil.WriteErrorFields(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, e.Error(), map[string]any{
+			"code": "candidate_unselected", "model_config_id": e.ModelConfigID,
+		})
 		return
 	}
 	if e, ok := err.(*modelexport.ErrCandidateInvalid); ok {
-		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, e.Error())
+		responseutil.WriteErrorFields(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, e.Error(), map[string]any{
+			"code": "candidate_invalid", "model_config_id": e.ModelConfigID,
+		})
 		return
 	}
 	if e, ok := err.(*modelexport.ErrUnselectableModel); ok {
@@ -164,6 +165,22 @@ func (s *Service) writePiExportError(w http.ResponseWriter, r *http.Request, err
 // coordinate than the one bound, fails closed: render never falls back to
 // choosing a candidate on the caller's behalf.
 func requirePiSelectionsMatchBindings(selection []int, facts modelexport.SourceFacts, assertedByID map[int]*piSelectedWire) error {
+	selectedIDs := make(map[int]struct{}, len(selection))
+	for _, id := range selection {
+		selectedIDs[id] = struct{}{}
+	}
+	for id := range assertedByID {
+		if _, selected := selectedIDs[id]; !selected {
+			return &modelexport.ErrCandidateInvalid{ModelConfigID: id}
+		}
+	}
+	if len(assertedByID) != len(selectedIDs) {
+		for _, id := range selection {
+			if asserted, ok := assertedByID[id]; !ok || asserted == nil {
+				return &modelexport.ErrCandidateUnselected{ModelConfigID: id}
+			}
+		}
+	}
 	factsByID := make(map[int]modelexport.ModelFact, len(facts.Models))
 	for _, fact := range facts.Models {
 		factsByID[fact.ModelConfigID] = fact

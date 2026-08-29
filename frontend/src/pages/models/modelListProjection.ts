@@ -3,13 +3,11 @@ import type {
   ModelConfigListItem,
 } from "@/lib/types";
 import type { ManagedModelConfigListItem } from "@/lib/api/models";
-import { getModelConnections } from "@/pages/model-detail/modelAccessTargetProjection";
 
 export function toModelListItem(
   model: ModelConfig,
-  existing?: ModelConfigListItem,
+  existing: ModelConfigListItem,
 ): ManagedModelConfigListItem {
-  const connections = getModelConnections(model);
   return {
     id: model.id,
     profile_id: model.profile_id,
@@ -22,12 +20,11 @@ export function toModelListItem(
     loadbalance_strategy: model.loadbalance_strategy,
     access_targets: model.access_targets,
     is_enabled: model.is_enabled,
-    connection_count: connections.length,
-    active_connection_count: connections.filter(
-      (connection) => connection.is_active,
-    ).length,
-    health_success_rate: existing?.health_success_rate ?? null,
-    health_total_requests: existing?.health_total_requests ?? 0,
+    connection_count: existing.connection_count,
+    active_connection_count: existing.active_connection_count,
+    health_success_rate: existing.health_success_rate,
+    health_total_requests: existing.health_total_requests,
+    routing_summary: existing.routing_summary,
     created_at: model.created_at,
     updated_at: model.updated_at,
   };

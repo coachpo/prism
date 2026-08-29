@@ -20,7 +20,10 @@ func TestRequestLogCSVExportContract(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
 	now := time.Now().UTC()
-	ensureContractTestLogPartitions(t, harness, contractTestLogPartitionFor("request_logs", now))
+	ensureContractTestLogPartitions(t, harness,
+		contractTestLogPartitionFor("request_logs", now),
+		contractTestLogPartitionFor("usage_request_events", now),
+	)
 	var clientRuleID int
 	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO user_agent_client_rules (profile_id, name, pattern, enabled, is_system, created_at, updated_at) VALUES ($1, 'CSV export', '^Codex-Parity/', TRUE, FALSE, $2, $2) RETURNING id`, profileID, now).Scan(&clientRuleID); err != nil {
 		t.Fatalf("seed CSV client rule: %v", err)
@@ -45,6 +48,12 @@ func TestRequestLogCSVExportContract(t *testing.T) {
 	}
 	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET pricing_template_kind = 'tiered', pricing_selection_state = 'selected', pricing_card_role = 'tier_above', pricing_selector_threshold_tokens = 272000, pricing_selector_basis_tokens = 272001 WHERE profile_id = $1 AND ingress_request_id = 'export-failover' AND attempt_number = 2`, profileID); err != nil {
 		t.Fatalf("seed CSV card evidence: %v", err)
+	}
+	for ingressID, failover := range map[string]bool{"export-failover": true, "export-decoy": false} {
+		if _, err := harness.conn.Exec(context.Background(), `INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, api_family, endpoint_label_snapshot, status_code, success_flag, attempt_count, request_path, pricing_status, pricing_evidence_trust, stream_outcome, failover_occurred, created_at, proxy_api_key_attribution_state)
+			VALUES ($1, $2, 'export-model', 'openai', 'Export Endpoint', 200, TRUE, CASE WHEN $3 THEN 2 ELSE 1 END, '/v1/chat/completions', 'ineligible', 'trusted', 'not_streaming', $3, $4, 'none')`, profileID, ingressID, failover, now); err != nil {
+			t.Fatalf("seed CSV finalized evidence %s: %v", ingressID, err)
+		}
 	}
 
 	from := now.Add(-time.Hour).UTC().Format("2006-01-02T15:04:05Z")
@@ -115,7 +124,7 @@ func TestRequestLogCSVExportContract(t *testing.T) {
 	checks := []struct {
 		filter string
 		want   int
-	}{{"ingress_request_id=export-failover", 2}, {fmt.Sprintf("client_rule_id=%d", clientRuleID), 2}, {"ingress_model_id=export-model", 2}, {"attempt_target_model_id=export-target", 2}, {"endpoint_id=9911", 2}, {"terminal_target_id=7711", 2}, {"status_family=2xx", 2}, {"status_code=200", 2}, {"pricing_status=ineligible", 2}, {"unpriced_reason=MISSING_TOKEN_USAGE", 1}, {"error_text=HYPERLINK", 2}, {combined, 1}}
+	}{{"ingress_request_id=export-failover", 2}, {"confirmed_failover=true", 2}, {fmt.Sprintf("client_rule_id=%d", clientRuleID), 2}, {"ingress_model_id=export-model", 2}, {"attempt_target_model_id=export-target", 2}, {"endpoint_id=9911", 2}, {"terminal_target_id=7711", 2}, {"status_family=2xx", 2}, {"status_code=200", 2}, {"pricing_status=ineligible", 2}, {"unpriced_reason=MISSING_TOKEN_USAGE", 1}, {"error_text=HYPERLINK", 2}, {combined, 1}}
 	var winner map[string]any
 	for _, check := range checks {
 		query := base + "&" + check.filter
@@ -143,7 +152,7 @@ func TestRequestLogCSVExportContract(t *testing.T) {
 	if jsonInt(t, winner["ttft_ms"]) != 7 || jsonInt(t, winner["completion_duration_ms"]) != 19 || winner["report_currency_symbol"] != failover[columns["report_currency_symbol"]] {
 		t.Fatalf("expected JSON/CSV stream-duration and currency parity, JSON=%+v CSV=%+v", winner, failover)
 	}
-	missingPayload := requestJSONStatus[map[string]any](t, harness, http.MethodGet, path+"&ingress_final_result=failed", nil, modelHeader(profileID), http.StatusUnprocessableEntity)
+	missingPayload := requestJSONStatus[map[string]any](t, harness, http.MethodGet, path+"&final_result=failed", nil, modelHeader(profileID), http.StatusUnprocessableEntity)
 	if missingPayload["code"] != "query_context_required" {
 		t.Fatalf("expected export query_context_required parity, got %+v", missingPayload)
 	}
@@ -154,7 +163,28 @@ func TestRequestLogCSVExportContract(t *testing.T) {
 		t.Fatalf("expected export to reject pagination keys, got %d", pageResponse.StatusCode)
 	}
 
-	// Range beyond 31 days rejected (non-exact selectors).
+	// The export owns a reachable 31-day boundary independently of ordinary
+	// Requests custom windows (which remain capped at 30 days).
+	boundaryTo := now.Add(time.Hour).UTC()
+	for _, test := range []struct {
+		name string
+		span time.Duration
+		want int
+	}{
+		{name: "30 days", span: 30 * 24 * time.Hour, want: http.StatusOK},
+		{name: "31 days", span: 31 * 24 * time.Hour, want: http.StatusOK},
+		{name: "31 days plus one second", span: 31*24*time.Hour + time.Second, want: http.StatusUnprocessableEntity},
+	} {
+		boundaryFrom := boundaryTo.Add(-test.span)
+		boundaryPath := fmt.Sprintf("/api/stats/requests/export?view=attempts&from_time=%s&to_time=%s", boundaryFrom.Format(time.RFC3339Nano), boundaryTo.Format(time.RFC3339Nano))
+		boundaryResponse := harness.requestJSONRaw(t, harness.client, http.MethodGet, boundaryPath, "", modelHeader(profileID))
+		if boundaryResponse.StatusCode != test.want {
+			t.Fatalf("%s export boundary: got %d, want %d", test.name, boundaryResponse.StatusCode, test.want)
+		}
+		_ = boundaryResponse.Body.Close()
+	}
+
+	// A plainly wider range is also rejected (non-exact selectors).
 	oldFrom := now.Add(-40 * 24 * time.Hour).UTC().Format("2006-01-02T15:04:05Z")
 	widePath := fmt.Sprintf("/api/stats/requests/export?view=attempts&from_time=%s&to_time=%s", oldFrom, to)
 	wideResponse := harness.requestJSONRaw(t, harness.client, http.MethodGet, widePath, "", modelHeader(profileID))

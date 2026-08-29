@@ -54,7 +54,7 @@ func loadCompiledUserAgentRuleByID(ctx context.Context, exec queryExecutor, prof
 	}
 	compiled, compileErr := regexp.Compile("(?i)" + pattern)
 	if compileErr != nil {
-		return compiledUserAgentRule{}, false, fmt.Errorf("compile user-agent client rule %d: %w", ruleID, compileErr)
+		return compiledUserAgentRule{}, false, &HTTPError{StatusCode: 422, Code: "client_rule_invalid", Detail: "The selected client rule is invalid."}
 	}
 	return compiledUserAgentRule{ID: id, Name: name, RawPattern: pattern, Pattern: compiled}, true, nil
 }

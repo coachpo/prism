@@ -51,18 +51,6 @@ var scopeDefaultMetric = map[string]string{
 	ScopeRouteAttempt: MetricAttempts,
 }
 
-var scopeMetricsAllowed = map[string]map[string]struct{}{
-	ScopeIngress: {
-		MetricRequests: {}, MetricErrors: {}, MetricTTFT: {}, MetricOutputRate: {}, MetricTokens: {}, MetricCacheReadShare: {}, MetricCost: {},
-	},
-	ScopeFinal: {
-		MetricRequests: {}, MetricErrors: {}, MetricFinalAttemptLatency: {}, MetricTokens: {}, MetricCacheReadShare: {}, MetricCost: {},
-	},
-	ScopeRouteAttempt: {
-		MetricAttempts: {}, MetricErrors: {}, MetricAttemptLatency: {},
-	},
-}
-
 var validScopes = map[string]struct{}{
 	ScopeIngress: {}, ScopeFinal: {}, ScopeRouteAttempt: {},
 }
@@ -92,15 +80,15 @@ type DatasetCoverage struct {
 }
 
 func MetricsForScope(scope string) []string {
-	if ordered, ok := scopeMetricsOrdered[scope]; ok {
-		return append([]string(nil), ordered...)
+	if metrics, ok := scopeMetricsOrdered[scope]; ok {
+		return append([]string(nil), metrics...)
 	}
 	return append([]string(nil), scopeMetricsOrdered[ScopeIngress]...)
 }
 
 func DefaultMetricForScope(scope string) string {
-	if value, ok := scopeDefaultMetric[scope]; ok {
-		return value
+	if metric, ok := scopeDefaultMetric[scope]; ok {
+		return metric
 	}
 	return MetricRequests
 }
@@ -110,12 +98,12 @@ func IsValidMetric(scope string, metric string) bool {
 	if normalized == "" {
 		return false
 	}
-	allowed, ok := scopeMetricsAllowed[scope]
-	if !ok {
-		return false
+	for _, allowed := range scopeMetricsOrdered[scope] {
+		if normalized == allowed {
+			return true
+		}
 	}
-	_, ok = allowed[normalized]
-	return ok
+	return false
 }
 
 func NormalizeMetric(scope string, metric string) (string, error) {
@@ -134,18 +122,11 @@ func NormalizeMetric(scope string, metric string) (string, error) {
 }
 
 func ValidateMetric(scope string, metric string) error {
-	_, err := NormalizeMetric(scope, metric)
-	if err != nil {
-		// NormalizeMetric already returns the typed 422 for unknown metric.
-		// For empty metric the caller expected default, so ValidateMetric
-		// should require explicit value.
-		trimmed := strings.TrimSpace(metric)
-		if trimmed == "" {
-			return &HTTPError{StatusCode: 422, Code: "metric_invalid", Detail: fmt.Sprintf("metric %q not allowed for scope %q", metric, scope)}
-		}
-		return err
+	if strings.TrimSpace(metric) == "" {
+		return &HTTPError{StatusCode: 422, Code: "metric_invalid", Detail: fmt.Sprintf("metric %q not allowed for scope %q", metric, scope)}
 	}
-	return nil
+	_, err := NormalizeMetric(scope, metric)
+	return err
 }
 
 func NormalizeScope(scope string) (string, error) {

@@ -17,7 +17,7 @@ function sourceModel(overrides: Record<string, unknown> = {}) {
     merged_metadata: { name: "gpt-x" },
     metadata_provenance: {},
     missing_metadata: [],
-    platform_completeness: { metadata_fields: { name: true }, cost_exportable: true },
+    completeness: { metadata_fields: { name: true }, cost_exportable: true },
     targets: [
       {
         terminal_target_id: 11,
@@ -47,6 +47,7 @@ function sourceModel(overrides: Record<string, unknown> = {}) {
     candidate_status: "single",
     pi_selected: null,
     pi_binding_status: "unbound",
+    pi_binding_renderable: false,
     ...overrides,
   };
 }
@@ -68,6 +69,7 @@ const boundSource = {
     sourceModel({
       pi_selected: { provider_id: "openai", model_id: "gpt-x", api: "openai-responses" },
       pi_binding_status: "bound",
+      pi_binding_renderable: true,
       pi_bind_source: "single_candidate",
       pi_binding_catalog_revision: "rev-1",
     }),
@@ -76,7 +78,6 @@ const boundSource = {
 
 const renderPayload = {
   target_version: "0.84.3",
-  catalog: catalogWire,
   content: `{"providers":{"prism":{"name":"Prism"}}}\n`,
   content_sha256: "c".repeat(64),
   file_name: "prism-pi-models.json",
@@ -107,7 +108,7 @@ async function installExportRoutes(page: Page) {
         retry_after_seconds: null,
       });
     }
-    if (pathname === "/api/models/export/source") {
+    if (pathname === "/api/models/exports/pi/source") {
       return fulfillJson(bound ? boundSource : unboundSource);
     }
     if (pathname === "/api/models/3/pi/bind" && request.method() === "POST") {
@@ -124,7 +125,7 @@ async function installExportRoutes(page: Page) {
         effective: { name: "GPT X", reasoning: null, input: null, context_window: null, max_tokens: null, thinking_level_map: null, compat: null },
       });
     }
-    if (pathname === "/api/models/export/render" && request.method() === "POST") {
+    if (pathname === "/api/models/exports/pi/render" && request.method() === "POST") {
       return fulfillJson(renderPayload);
     }
     return fulfillJson({}, 404);
@@ -159,7 +160,7 @@ test("export journey: bind an unbound candidate before generating, then copy/dow
   await row.getByRole("button", { name: "绑定" }).click();
   await bindResponse;
   const sourceRefetch = page.waitForResponse(
-    (response) => new URL(response.url()).pathname === "/api/models/export/source",
+    (response) => new URL(response.url()).pathname === "/api/models/exports/pi/source",
   );
   await sourceRefetch;
   await expect(generateButton).toBeEnabled();
@@ -171,7 +172,7 @@ test("export journey: bind an unbound candidate before generating, then copy/dow
   await dialog.getByText("不嵌入密钥").click();
   const renderRequestPromise = page.waitForRequest(
     (request) =>
-      new URL(request.url()).pathname === "/api/models/export/render" &&
+      new URL(request.url()).pathname === "/api/models/exports/pi/render" &&
       request.method() === "POST",
   );
   await dialog.getByRole("button", { name: "确认生成" }).click();

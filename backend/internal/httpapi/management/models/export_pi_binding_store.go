@@ -11,15 +11,16 @@ import (
 
 const piBindingSelectColumns = `bindings.model_config_id, bindings.provider_id, bindings.catalog_model_id, bindings.api, bindings.bind_source, bindings.catalog_revision, bindings.fetched_at, bindings.updated_at,
 	bindings.source_name, bindings.source_reasoning, bindings.source_input::text, bindings.source_context_window, bindings.source_max_tokens, bindings.source_thinking_level_map::text, bindings.source_compat::text,
+	bindings.source_dropped_fields::text,
 	bindings.override_name, bindings.override_reasoning, bindings.override_input::text, bindings.override_context_window, bindings.override_max_tokens, bindings.override_thinking_level_map::text, bindings.override_compat::text`
 
 func scanPiBindingRow(scanner interface{ Scan(...any) error }) (piBindingRecord, error) {
 	record := piBindingRecord{}
-	var sourceInput, sourceThinking, sourceCompat any
+	var sourceInput, sourceThinking, sourceCompat, sourceDroppedFields any
 	var overrideInput, overrideThinking, overrideCompat any
 	err := scanner.Scan(
 		&record.ModelConfigID, &record.ProviderID, &record.CatalogModelID, &record.API, &record.BindSource, &record.CatalogRevision, &record.FetchedAt, &record.UpdatedAt,
-		&record.Source.Name, &record.Source.Reasoning, &sourceInput, &record.Source.ContextWindow, &record.Source.MaxTokens, &sourceThinking, &sourceCompat,
+		&record.Source.Name, &record.Source.Reasoning, &sourceInput, &record.Source.ContextWindow, &record.Source.MaxTokens, &sourceThinking, &sourceCompat, &sourceDroppedFields,
 		&record.Override.Name, &record.Override.Reasoning, &overrideInput, &record.Override.ContextWindow, &record.Override.MaxTokens, &overrideThinking, &overrideCompat,
 	)
 	if err != nil {
@@ -34,6 +35,10 @@ func scanPiBindingRow(scanner interface{ Scan(...any) error }) (piBindingRecord,
 	if record.Source.Compat, err = decodeCompatColumn(sourceCompat); err != nil {
 		return record, fmt.Errorf("decode source compat for model %d: %w", record.ModelConfigID, err)
 	}
+	if record.DroppedFields, err = decodeStringSliceColumn(sourceDroppedFields); err != nil {
+		return record, fmt.Errorf("decode source dropped_fields for model %d: %w", record.ModelConfigID, err)
+	}
+	record.DroppedFields = normalizePiDroppedFields(record.DroppedFields)
 	if record.Override.Input, err = decodeStringSliceColumn(overrideInput); err != nil {
 		return record, fmt.Errorf("decode override input for model %d: %w", record.ModelConfigID, err)
 	}
@@ -75,11 +80,7 @@ func decodeCompatColumn(raw any) (map[string]any, error) {
 	if !ok || err != nil {
 		return nil, err
 	}
-	var values map[string]any
-	if err := json.Unmarshal([]byte(text), &values); err != nil {
-		return nil, err
-	}
-	return values, nil
+	return decodePiCompatJSON([]byte(text))
 }
 
 func jsonColumnText(raw any) (string, bool, error) {
@@ -145,6 +146,39 @@ func loadPiBinding(ctx context.Context, exec queryExecutor, profileID int, model
 	return record, true, nil
 }
 
+func loadPiBindingForUpdate(ctx context.Context, tx pgx.Tx, profileID int, modelConfigID int) (piBindingRecord, bool, error) {
+	row := tx.QueryRow(ctx,
+		`SELECT `+piBindingSelectColumns+` FROM model_pi_catalog_bindings AS bindings
+		 JOIN model_configs AS configs ON configs.id = bindings.model_config_id
+		 WHERE bindings.model_config_id = $1 AND configs.profile_id = $2
+		 FOR UPDATE OF bindings`,
+		modelConfigID, profileID)
+	record, err := scanPiBindingRow(row)
+	if err == pgx.ErrNoRows {
+		return piBindingRecord{}, false, nil
+	}
+	if err != nil {
+		return piBindingRecord{}, false, fmt.Errorf("lock pi binding for model %d: %w", modelConfigID, err)
+	}
+	return record, true, nil
+}
+
+func nextPiBindingUpdatedAt(previous, proposed time.Time) time.Time {
+	// pgx encodes PostgreSQL timestamps at microsecond precision. Compare the
+	// exact values that can actually be stored, otherwise a later nanosecond in
+	// the same microsecond can pass After and then collapse back to the previous
+	// optimistic-lock token on write.
+	proposed = proposed.UTC().Truncate(time.Microsecond)
+	previous = previous.UTC().Truncate(time.Microsecond)
+	if previous.IsZero() || proposed.After(previous) {
+		return proposed
+	}
+	// PostgreSQL timestamps are microsecond-precision. Advance by one full
+	// microsecond so a write always changes the optimistic-lock token even
+	// under a fixed test clock or two writes in one clock tick.
+	return previous.Add(time.Microsecond)
+}
+
 // loadPiBindingsForModels loads every persisted Pi binding for a set of
 // profile-scoped model_config_ids in one query. Missing rows simply do not
 // appear in the returned map: callers treat an absent key as unbound.
@@ -177,9 +211,9 @@ func loadPiBindingsForModels(ctx context.Context, exec queryExecutor, profileID 
 
 // upsertPiBinding writes a full binding row exactly as given: callers are
 // responsible for carrying forward the overrides and bind_source they intend
-// to keep. Bind flows reuse an existing row's overrides when the coordinate
-// is unchanged and clear them otherwise; refresh flows never touch them;
-// override writes store the operator's per-field edits.
+// to keep. Same-coordinate binds return before this function, different-
+// coordinate binds clear overrides, refreshes carry them forward, and
+// override writes replace only the operator-authored projection.
 func upsertPiBinding(ctx context.Context, tx pgx.Tx, record piBindingRecord, currentTime time.Time) error {
 	sourceInput, err := encodeJSONColumn(record.Source.Input)
 	if err != nil {
@@ -192,6 +226,14 @@ func upsertPiBinding(ctx context.Context, tx pgx.Tx, record piBindingRecord, cur
 	sourceCompat, err := encodeJSONColumn(record.Source.Compat)
 	if err != nil {
 		return fmt.Errorf("encode source compat for model %d: %w", record.ModelConfigID, err)
+	}
+	droppedFields := normalizePiDroppedFields(record.DroppedFields)
+	if droppedFields == nil {
+		droppedFields = []string{}
+	}
+	sourceDroppedFields, err := encodeJSONColumn(droppedFields)
+	if err != nil {
+		return fmt.Errorf("encode source dropped_fields for model %d: %w", record.ModelConfigID, err)
 	}
 	overrideInput, err := encodeJSONColumn(record.Override.Input)
 	if err != nil {
@@ -208,20 +250,20 @@ func upsertPiBinding(ctx context.Context, tx pgx.Tx, record piBindingRecord, cur
 	_, err = tx.Exec(ctx, `
 		INSERT INTO model_pi_catalog_bindings (
 			model_config_id, provider_id, catalog_model_id, api, bind_source, catalog_revision, fetched_at,
-			source_name, source_reasoning, source_input, source_context_window, source_max_tokens, source_thinking_level_map, source_compat,
+			source_name, source_reasoning, source_input, source_context_window, source_max_tokens, source_thinking_level_map, source_compat, source_dropped_fields,
 			override_name, override_reasoning, override_input, override_context_window, override_max_tokens, override_thinking_level_map, override_compat,
 			updated_at
 		) VALUES (
 			$1,$2,$3,$4,$5,$6,$7,
-			$8,$9,$10::jsonb,$11,$12,$13::jsonb,$14::jsonb,
-			$15,$16,$17::jsonb,$18,$19,$20::jsonb,$21::jsonb,
-			$22
+			$8,$9,$10::jsonb,$11,$12,$13::jsonb,$14::jsonb,$15::jsonb,
+			$16,$17,$18::jsonb,$19,$20,$21::jsonb,$22::jsonb,
+			$23
 		)
 		ON CONFLICT (model_config_id) DO UPDATE SET
 			provider_id = EXCLUDED.provider_id,
 			catalog_model_id = EXCLUDED.catalog_model_id,
 			api = EXCLUDED.api,
-			bind_source = $23,
+			bind_source = EXCLUDED.bind_source,
 			catalog_revision = EXCLUDED.catalog_revision,
 			fetched_at = EXCLUDED.fetched_at,
 			source_name = EXCLUDED.source_name,
@@ -231,19 +273,17 @@ func upsertPiBinding(ctx context.Context, tx pgx.Tx, record piBindingRecord, cur
 			source_max_tokens = EXCLUDED.source_max_tokens,
 			source_thinking_level_map = EXCLUDED.source_thinking_level_map,
 			source_compat = EXCLUDED.source_compat,
-			override_name = $24,
-			override_reasoning = $25,
-			override_input = $26::jsonb,
-			override_context_window = $27,
-			override_max_tokens = $28,
-			override_thinking_level_map = $29::jsonb,
-			override_compat = $30::jsonb,
-			updated_at = $31`,
+			source_dropped_fields = EXCLUDED.source_dropped_fields,
+			override_name = EXCLUDED.override_name,
+			override_reasoning = EXCLUDED.override_reasoning,
+			override_input = EXCLUDED.override_input,
+			override_context_window = EXCLUDED.override_context_window,
+			override_max_tokens = EXCLUDED.override_max_tokens,
+			override_thinking_level_map = EXCLUDED.override_thinking_level_map,
+			override_compat = EXCLUDED.override_compat,
+			updated_at = EXCLUDED.updated_at`,
 		record.ModelConfigID, record.ProviderID, record.CatalogModelID, record.API, record.BindSource, record.CatalogRevision, record.FetchedAt,
-		record.Source.Name, record.Source.Reasoning, sourceInput, record.Source.ContextWindow, record.Source.MaxTokens, sourceThinking, sourceCompat,
-		record.Override.Name, record.Override.Reasoning, overrideInput, record.Override.ContextWindow, record.Override.MaxTokens, overrideThinking, overrideCompat,
-		currentTime,
-		record.BindSource,
+		record.Source.Name, record.Source.Reasoning, sourceInput, record.Source.ContextWindow, record.Source.MaxTokens, sourceThinking, sourceCompat, sourceDroppedFields,
 		record.Override.Name, record.Override.Reasoning, overrideInput, record.Override.ContextWindow, record.Override.MaxTokens, overrideThinking, overrideCompat,
 		currentTime,
 	)

@@ -11,7 +11,7 @@ export type { ExportSourceResponse, ExportRenderResponse };
 export function fetchModelExportSource(
   signal?: AbortSignal,
 ): Promise<ExportSourceResponse> {
-  return request<ExportSourceResponse>(`/api/models/export/source`, {
+  return request<ExportSourceResponse>(`/api/models/exports/pi/source`, {
     cache: "no-store",
     signal,
   });
@@ -26,9 +26,9 @@ export interface PiRenderRequest {
     include: boolean;
     api_key?: string;
   };
-  selections?: Record<
+  selections: Record<
     number,
-    { provider_id: string; model_id: string; api: string } | null
+    { provider_id: string; model_id: string; api: string }
   >;
 }
 
@@ -41,7 +41,7 @@ export interface PiRenderRequest {
 export function renderModelExport(
   body: PiRenderRequest,
 ): Promise<ExportRenderResponse> {
-  return request<ExportRenderResponse>(`/api/models/export/render`, {
+  return request<ExportRenderResponse>(`/api/models/exports/pi/render`, {
     method: "POST",
     cache: "no-store",
     headers: { "Content-Type": "application/json" },
@@ -86,7 +86,13 @@ export function refreshModelPiPreview(
 
 export function refreshModelPiCommit(
   modelConfigId: number,
-  expectedCatalogRevision: string,
+  expected: {
+    provider_id: string;
+    catalog_model_id: string;
+    api: string;
+    binding_updated_at: string;
+    catalog_revision: string;
+  },
 ): Promise<PiBindingResponse> {
   return request<PiBindingResponse>(
     `/api/models/${modelConfigId}/pi/refresh/commit`,
@@ -95,7 +101,11 @@ export function refreshModelPiCommit(
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        expected_catalog_revision: expectedCatalogRevision,
+        expected_provider_id: expected.provider_id,
+        expected_catalog_model_id: expected.catalog_model_id,
+        expected_api: expected.api,
+        expected_binding_updated_at: expected.binding_updated_at,
+        expected_catalog_revision: expected.catalog_revision,
       }),
     },
   );

@@ -55,6 +55,10 @@ describe("rewrite route helpers", () => {
       scope: "route_attempt",
       group_by: "attempt_target_model",
     })
+    expect(observeSearchSchema.parse({ scope: "final_execution", group_by: "api_family" })).toMatchObject({
+      scope: "final_execution",
+      group_by: "api_family",
+    })
     expect(observeSearchSchema.parse({ scope: "unknown", group_by: "model" })).toMatchObject({
       scope: "ingress",
       group_by: "none",
@@ -82,6 +86,16 @@ describe("rewrite route helpers", () => {
       time_range: "24h",
     })
     expect(requestLogSearchSchema.parse({
+      request_id: "0",
+      selected_request_id: "9223372036854775807",
+    })).toMatchObject({
+      request_id: "",
+      selected_request_id: "9223372036854775807",
+    })
+    expect(requestLogSearchSchema.parse({
+      request_id: "9223372036854775808",
+    }).request_id).toBe("")
+    expect(requestLogSearchSchema.parse({
       query_context: "signed-context",
       confirmed_failover: "true",
       final_result: "failed,client_disconnected",
@@ -89,6 +103,7 @@ describe("rewrite route helpers", () => {
       final_status_code: "429,503",
       final_stream_outcome: "stream_error,client_disconnected",
       final_stream_error_kind: "__null__,protocol_error",
+      final_exclude: "stream_error_kind,__null__,protocol_error",
       final_target_model_id: "winner-a,__null__",
       final_endpoint_id: "7,__null__,9",
       final_terminal_target_id: "11,12,__null__",
@@ -108,6 +123,7 @@ describe("rewrite route helpers", () => {
       final_status_code: "429,503",
       final_stream_outcome: "stream_error,client_disconnected",
       final_stream_error_kind: "__null__,protocol_error",
+      final_exclude: "stream_error_kind,__null__,protocol_error",
       final_target_model_id: "winner-a,__null__",
       final_endpoint_id: "7,__null__,9",
       final_terminal_target_id: "11,12,__null__",
@@ -132,6 +148,9 @@ describe("rewrite route helpers", () => {
     ["attempt_target_model", "route_attempt", true],
     ["attempt_trigger", "route_attempt", true],
     ["attempt_result", "route_attempt", true],
+    ["api_family", "ingress", true],
+    ["api_family", "final_execution", true],
+    ["api_family", "route_attempt", true],
     ["terminal_target", "final_execution", true],
     ["terminal_target", "route_attempt", true],
     ["final_target_model", "ingress", false],

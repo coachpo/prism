@@ -9,17 +9,27 @@ import { expect, test, type Page } from "@playwright/test";
  */
 
 function summaryFixture() {
+  const coverage = {
+    requested_preset: "24h",
+    from_time: "2026-08-08T00:00:00Z",
+    to_time: "2026-08-09T00:00:00Z",
+    retention_from_time: "2026-07-10T00:00:00Z",
+    source: "raw",
+    complete: true,
+    gaps: [],
+    precision: { ttft: "exact", output_rate: "exact" },
+  };
   return {
     generated_at: "2026-08-09T00:00:00Z",
-    coverage: {
-      requested_preset: "24h",
-      from_time: "2026-08-08T00:00:00Z",
-      to_time: "2026-08-09T00:00:00Z",
-      retention_from_time: "2026-07-10T00:00:00Z",
-      source: "raw",
-      complete: true,
-      gaps: [],
-      precision: { ttft: "exact", output_rate: "exact" },
+    coverage,
+    caliber: { scope: "ingress" },
+    dataset_coverage: { usage_request_events: coverage },
+    samples: {
+      observation_count: 1364,
+      latency_sample_count: 1302,
+      latency_missing_count: 62,
+      cost_sample_count: 1300,
+      cost_missing_count: 48,
     },
     cost_segments: [
       {
@@ -86,26 +96,41 @@ function summaryFixture() {
   };
 }
 
-function seriesFixture(metric = "requests", scope = "ingress") {
+function seriesFixture(
+  metric = "requests",
+  scope = "ingress",
+  groupBy = "none",
+) {
+  const coverage = {
+    requested_preset: "24h",
+    from_time: "2026-08-08T00:00:00Z",
+    to_time: "2026-08-09T00:00:00Z",
+    source: "raw",
+    complete: true,
+    gaps: [],
+  };
   return {
     generated_at: "2026-08-09T00:00:00Z",
-    coverage: {
-      requested_preset: "24h",
-      from_time: "2026-08-08T00:00:00Z",
-      to_time: "2026-08-09T00:00:00Z",
-      source: "raw",
-      complete: true,
-      gaps: [],
-    },
+    coverage,
     metric,
-    group_by: "none",
-    selection_basis: "request_count",
+    group_by: groupBy,
+    selection_basis:
+      scope === "route_attempt" ? "attempt_count" : "request_count",
     interval: "1h",
     series_limit: 6,
     truncated: false,
     caliber: { scope },
-    dataset_coverage: {},
-    samples: {},
+    dataset_coverage:
+      scope === "route_attempt"
+        ? { request_logs: coverage }
+        : { usage_request_events: coverage },
+    samples: {
+      observation_count: 1364,
+      latency_sample_count: 1302,
+      latency_missing_count: 62,
+      cost_sample_count: 1300,
+      cost_missing_count: 48,
+    },
     series: [
       {
         key: "total",
@@ -203,6 +228,14 @@ async function mockObserveRoutes(page: Page, reads?: ObserveReadLog) {
     }
     if (pathname === "/api/stats/query-context") {
       const scope = url.searchParams.get("scope") ?? "ingress";
+      const coverage = {
+        requested_preset: url.searchParams.get("preset") ?? "24h",
+        from_time: "2026-08-08T00:00:00Z",
+        to_time: "2026-08-09T00:00:00Z",
+        source: "raw",
+        complete: true,
+        gaps: [],
+      };
       reads?.queryScopes.push(scope);
       return fulfillJson({
         query_context:
@@ -216,14 +249,9 @@ async function mockObserveRoutes(page: Page, reads?: ObserveReadLog) {
           from_time: "2026-08-08T00:00:00Z",
           to_time: "2026-08-09T00:00:00Z",
         },
-        usage_coverage: {
-          requested_preset: url.searchParams.get("preset") ?? "24h",
-          from_time: "2026-08-08T00:00:00Z",
-          to_time: "2026-08-09T00:00:00Z",
-          source: "raw",
-          complete: true,
-          gaps: [],
-        },
+        usage_coverage: coverage,
+        request_coverage: coverage,
+        event_coverage: coverage,
         event_bounds: {
           from_time: "2026-08-08T00:00:00Z",
           to_time: "2026-08-09T00:00:00Z",
@@ -240,18 +268,23 @@ async function mockObserveRoutes(page: Page, reads?: ObserveReadLog) {
       return fulfillJson(summaryFixture());
     }
     if (pathname === "/api/stats/usage-series") {
-      const queryContext = url.searchParams.get("query_context") ?? "";
-      const scope = queryContext.includes("route_attempt")
+      const queryContext = url.searchParams.get("query_context");
+      const scope = queryContext?.includes("route_attempt")
         ? "route_attempt"
-        : queryContext.includes("final_execution")
+        : queryContext?.includes("final_execution")
           ? "final_execution"
           : "ingress";
       reads?.seriesQueries.push({
         groupBy: url.searchParams.get("group_by"),
-        queryContext: url.searchParams.get("query_context"),
+        queryContext,
       });
       return fulfillJson(
-        seriesFixture(url.searchParams.get("metric") ?? "requests", scope),
+        seriesFixture(
+          url.searchParams.get("metric") ??
+            (scope === "route_attempt" ? "attempts" : "requests"),
+          scope,
+          url.searchParams.get("group_by") ?? "none",
+        ),
       );
     }
     if (pathname === "/api/stats/dashboard/now") {
@@ -352,11 +385,7 @@ async function mockObserveRoutes(page: Page, reads?: ObserveReadLog) {
           gaps: [],
         },
         requests_context: {
-          view: url.searchParams
-            .get("query_context")
-            ?.endsWith("route_attempt")
-            ? "attempts"
-            : "ingress_chains",
+          view: "attempts",
           query_context:
             url.searchParams.get("query_context") ?? "signed-token",
           final_from_time: "2026-08-08T00:00:00Z",
@@ -683,11 +712,12 @@ test("observe JSON export v2 carries coverage, freshness and fragment completene
   const payload = JSON.parse(raw);
   expect(payload.schema).toBe("prism.observe.export.v2");
   expect(payload.selection.preset).toBe("24h");
-  expect(payload.coverage).not.toBeNull();
-  expect(payload.fragments.query_context).toBe("ready");
-  expect(payload.fragments.summary).toBe("ready");
-  expect(payload.fragments.series).toBe("ready");
-  expect(payload.fragments.error_breakdown).toBe("not_included");
+  expect(payload.fragments.query_context.state).toBe("ready");
+  expect(payload.fragments.summary.state).toBe("ready");
+  expect(payload.fragments.series.state).toBe("ready");
+  expect(payload.fragments.summary.dataset_coverage).not.toBeNull();
+  expect(payload.fragments.series.dataset_coverage).not.toBeNull();
+  expect(payload.fragments.error_breakdown.state).toBe("not_included");
   expect(payload.freshness.exported_at).toBeTruthy();
 });
 

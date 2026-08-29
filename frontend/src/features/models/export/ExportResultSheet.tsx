@@ -226,14 +226,10 @@ function warningKey(code: string): string {
     price_target_conflict: "warnTargetConflict",
     price_peak_valley_unrepresentable: "warnPeakValley",
     price_tier_unrepresentable: "warnTierUnrepresentable",
-    enrichment_unavailable: "warnEnrichmentUnavailable",
     metadata_incomplete: "warnMetadataIncomplete",
-    pi_compat_may_require_manual_override: "warnPiCompatManual",
+    pi_source_fields_dropped: "warnPiSourceFieldsDropped",
     unsupported_input_modality: "warnUnsupportedInputModality",
-    variants_unrepresentable: "warnVariants",
-    thinking_level_map_unrepresentable: "warnThinkingMap",
     mixed_base_urls: "warnMixedBaseUrls",
-    mixed_credentials: "warnMixedCredentials",
   };
   return map[code] ?? code;
 }

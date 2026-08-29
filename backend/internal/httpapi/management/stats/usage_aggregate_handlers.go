@@ -124,6 +124,10 @@ func (s *Service) handleThroughput(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
+	if err := validateAggregateEndpointQueryKeys("throughput", scope, keys); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	fromTime, err := parseOptionalTime(r, "from_time")
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
@@ -134,12 +138,12 @@ func (s *Service) handleThroughput(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	endpointID, err := parseOptionalInt(r, "endpoint_id")
+	endpointID, err := parseOptionalPositiveStatsID(r, "endpoint_id")
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	connectionID, err := parseOptionalInt(r, "terminal_target_id")
+	connectionID, err := parseOptionalPositiveStatsID(r, "terminal_target_id")
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
@@ -180,6 +184,10 @@ func (s *Service) handleSpending(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
+	if err := validateAggregateEndpointQueryKeys("spending", scope, keys); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (statsdomain.SpendingReportResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
@@ -193,11 +201,11 @@ func (s *Service) handleSpending(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return statsdomain.SpendingReportResponse{}, err
 		}
-		endpointID, err := parseOptionalInt(r, "endpoint_id")
+		endpointID, err := parseOptionalPositiveStatsID(r, "endpoint_id")
 		if err != nil {
 			return statsdomain.SpendingReportResponse{}, err
 		}
-		connectionID, err := parseOptionalInt(r, "terminal_target_id")
+		connectionID, err := parseOptionalPositiveStatsID(r, "terminal_target_id")
 		if err != nil {
 			return statsdomain.SpendingReportResponse{}, err
 		}

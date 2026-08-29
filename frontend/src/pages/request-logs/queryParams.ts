@@ -78,6 +78,8 @@ export interface RequestLogPageState {
   api_family: string;
   row_kind: string;
   status_code: string;
+  stream_outcome: string;
+  stream_error_kind: string;
   error_text: string;
   pricing_status: PricingStatusFilter;
   unpriced_reason: string;
@@ -93,6 +95,7 @@ export interface RequestLogPageState {
   final_status_code: string;
   final_stream_outcome: string;
   final_stream_error_kind: string;
+  final_exclude: string;
   final_target_model_id: string;
   final_endpoint_id: string;
   final_terminal_target_id: string;
@@ -120,6 +123,7 @@ export const TOKEN_BOUND_REQUEST_FILTER_DEFAULTS = {
   final_status_code: "",
   final_stream_outcome: "",
   final_stream_error_kind: "",
+  final_exclude: "",
   final_target_model_id: "",
   final_endpoint_id: "",
   final_terminal_target_id: "",
@@ -128,6 +132,8 @@ export const TOKEN_BOUND_REQUEST_FILTER_DEFAULTS = {
   reporting_currency_epoch: "",
   attempt_trigger: "",
   attempt_result: "",
+  stream_outcome: "",
+  stream_error_kind: "",
 } as const satisfies Partial<RequestLogPageState>;
 
 function chainCompatibleState(
@@ -140,6 +146,8 @@ function chainCompatibleState(
     row_kind: "",
     attempt_trigger: "",
     attempt_result: "",
+    stream_outcome: "",
+    stream_error_kind: "",
   };
 }
 
@@ -158,6 +166,19 @@ export function requestLogStateForView(
     chain_cursor: "",
     sort_by: "created_at",
   };
+}
+
+export function applyRequestLogStatePatch(
+  state: RequestLogPageState,
+  patch: Partial<RequestLogPageState>,
+  resetPagination = true,
+): RequestLogPageState {
+  const next = { ...state, ...patch };
+  if (resetPagination) {
+    if (!("offset" in patch)) next.offset = DEFAULTS.offset;
+    if (!("chain_cursor" in patch)) next.chain_cursor = "";
+  }
+  return next;
 }
 
 function parseEnum<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
@@ -206,7 +227,16 @@ function parsePageSize(value: unknown): number {
 
 export function normalizeRequestId(value: unknown): string {
   const normalized = normalizeSearchString(value).replace(/^#/, "");
-  return /^\d+$/.test(normalized) ? normalized : "";
+  return isPositiveDecimalInt64(normalized) ? normalized : "";
+}
+
+export function isPositiveDecimalInt64(value: string): boolean {
+  if (!/^\d+$/.test(value)) return false;
+  const canonical = value.replace(/^0+/, "");
+  if (!canonical) return false;
+  const max = "9223372036854775807";
+  return canonical.length < max.length ||
+    (canonical.length === max.length && canonical <= max);
 }
 
 export function parsePageSearch(search: Record<string, unknown>): RequestLogPageState {
@@ -232,6 +262,8 @@ export function parsePageSearch(search: Record<string, unknown>): RequestLogPage
     api_family: normalizeSearchString(search.api_family),
     row_kind: normalizeSearchString(search.row_kind),
     status_code: normalizeSearchString(search.status_code),
+    stream_outcome: normalizeSearchString(search.stream_outcome),
+    stream_error_kind: normalizeSearchString(search.stream_error_kind),
     error_text: normalizeSearchString(search.error_text),
     pricing_status: parseEnum(search.pricing_status, PRICING_STATUS_OPTIONS, DEFAULTS.pricing_status),
     ingress_final_result: parseEnum(search.ingress_final_result, FINAL_RESULT_OPTIONS, ""),
@@ -251,6 +283,7 @@ export function parsePageSearch(search: Record<string, unknown>): RequestLogPage
     final_stream_error_kind: normalizeSearchString(
       search.final_stream_error_kind,
     ),
+    final_exclude: normalizeSearchString(search.final_exclude),
     final_target_model_id: normalizeSearchString(search.final_target_model_id),
     final_endpoint_id: normalizeSearchString(search.final_endpoint_id),
     final_terminal_target_id: normalizeSearchString(search.final_terminal_target_id),
@@ -314,6 +347,8 @@ export function stateToSearch(state: RequestLogPageState): Record<string, string
   if (state.api_family) search.api_family = state.api_family;
   if (state.row_kind) search.row_kind = state.row_kind;
   if (state.status_code) search.status_code = state.status_code;
+  if (state.stream_outcome) search.stream_outcome = state.stream_outcome;
+  if (state.stream_error_kind) search.stream_error_kind = state.stream_error_kind;
   if (state.error_text) search.error_text = state.error_text;
   if (state.pricing_status !== DEFAULTS.pricing_status) search.pricing_status = state.pricing_status;
   if (state.pricing_status === "unpriced" && state.unpriced_reason) search.unpriced_reason = state.unpriced_reason;
@@ -334,6 +369,7 @@ export function stateToSearch(state: RequestLogPageState): Record<string, string
     search.final_stream_outcome = state.final_stream_outcome;
   if (state.final_stream_error_kind)
     search.final_stream_error_kind = state.final_stream_error_kind;
+  if (state.final_exclude) search.final_exclude = state.final_exclude;
   if (state.final_target_model_id) search.final_target_model_id = state.final_target_model_id;
   if (state.final_endpoint_id) search.final_endpoint_id = state.final_endpoint_id;
   if (state.final_terminal_target_id) search.final_terminal_target_id = state.final_terminal_target_id;

@@ -56,6 +56,7 @@ func TestParseRequestLogListParamsSupportsRepeatedCommaAndNullSelectors(t *testi
 	query.Add("final_status_code", "503")
 	query.Set("final_stream_outcome", "provider_incomplete,__null__")
 	query.Set("final_stream_error_kind", "upstream_reset,__null__")
+	query.Set("final_exclude", "stream_error_kind,missing_terminal_event,__null__")
 	query.Set("final_target_model_id", "model-a,model-b,__null__")
 	query.Set("final_endpoint_id", "11,12,__null__")
 	query.Set("final_terminal_target_id", "21,22,__null__")
@@ -91,6 +92,10 @@ func TestParseRequestLogListParamsSupportsRepeatedCommaAndNullSelectors(t *testi
 	}
 	if !params.FinalStreamErrorKindIsNull || !reflect.DeepEqual(params.FinalStreamErrorKinds, []string{"upstream_reset"}) {
 		t.Fatalf("final stream error kinds = %#v null=%t", params.FinalStreamErrorKinds, params.FinalStreamErrorKindIsNull)
+	}
+	if params.FinalExclusion == nil || params.FinalExclusion.Facet != statsdomain.FinalExclusionStreamErrorKind ||
+		!params.FinalExclusion.ExcludeNull || !reflect.DeepEqual(params.FinalExclusion.Values, []string{"missing_terminal_event"}) {
+		t.Fatalf("final exclusion = %#v", params.FinalExclusion)
 	}
 	if !params.FinalModelIDIsNull || !reflect.DeepEqual(params.FinalModelIDs, []string{"model-a", "model-b"}) {
 		t.Fatalf("final models = %#v null=%t", params.FinalModelIDs, params.FinalModelIDIsNull)
@@ -166,11 +171,60 @@ func TestSignedCohortDetectionIncludesOutcomeAndAttemptSelectors(t *testing.T) {
 		"attempt_trigger=initial",
 		"attempt_result=http_error,transport_error",
 		"final_stream_error_kind=__null__",
+		"final_exclude=status_code,503",
 	} {
 		request := httptest.NewRequest("GET", "/api/stats/requests?"+rawQuery, nil)
 		if !requestLogHasSignedCohortSelector(request) {
 			t.Fatalf("selector not detected: %s", rawQuery)
 		}
+	}
+}
+
+func TestParseFinalizedCohortExclusionRejectsMalformedOrUnboundedSelectors(t *testing.T) {
+	now := time.Now().UTC()
+	key := []byte("key")
+	context := signedRequestLogQueryContext(t, 1, key, now, now.Add(-time.Hour), now)
+	for _, raw := range []string{
+		"unknown,one",
+		"status_code,99",
+		"final_endpoint_id,0",
+		"stream_outcome,not-a-real-outcome",
+		"stream_error_kind",
+	} {
+		request := httptest.NewRequest("GET", "/api/stats/requests?view=attempts&query_context="+url.QueryEscape(context)+"&final_exclude="+url.QueryEscape(raw), nil)
+		_, err := parseRequestLogListParams(request, 1, key, now)
+		var httpErr *statsdomain.HTTPError
+		if !errors.As(err, &httpErr) || httpErr.StatusCode != 422 {
+			t.Fatalf("final_exclude=%q error = %#v", raw, err)
+		}
+	}
+}
+
+func TestTriageSelectorsRemainUnsigned(t *testing.T) {
+	request := httptest.NewRequest("GET", "/api/stats/requests?view=attempts&ingress_final_result=failed&confirmed_failover=true", nil)
+	if requestLogHasSignedCohortSelector(request) {
+		t.Fatal("ordinary triage selectors unexpectedly require query_context")
+	}
+	params, err := parseRequestLogListParams(request, 1, []byte("key"), time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if params.IngressFinalResult == nil || *params.IngressFinalResult != "failed" || params.ConfirmedFailover == nil || !*params.ConfirmedFailover {
+		t.Fatalf("triage params = %#v", params)
+	}
+}
+
+func TestParseChainQueryAcceptsSignedFinalSelectorGrammar(t *testing.T) {
+	request := httptest.NewRequest("GET", "/api/stats/requests?view=ingress_chains&query_context=signed&final_target_model_id=winner", nil)
+	params, err := parseChainQueryParams(request, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if params.FinalTargetModelID == nil || *params.FinalTargetModelID != "winner" {
+		t.Fatalf("final target selector = %#v", params.FinalTargetModelID)
+	}
+	if !requestLogHasSignedCohortSelector(request) {
+		t.Fatal("final target selector must require query_context")
 	}
 }
 

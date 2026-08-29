@@ -23,16 +23,10 @@ const WARNING_LABEL_KEYS: Record<string, string> = {
   price_target_conflict: "warnTargetConflict",
   price_peak_valley_unrepresentable: "warnPeakValley",
   price_tier_unrepresentable: "warnTierUnrepresentable",
-  enrichment_unavailable: "warnEnrichmentUnavailable",
   metadata_incomplete: "warnMetadataIncomplete",
-  pi_compat_may_require_manual_override: "warnPiCompatManual",
+  pi_source_fields_dropped: "warnPiSourceFieldsDropped",
   unsupported_input_modality: "warnUnsupportedInputModality",
-  thinking_level_map_unrepresentable: "warnThinkingMap",
   mixed_base_urls: "warnMixedBaseUrls",
-  mixed_credentials: "warnMixedCredentials",
-  candidate_unselected: "warnCandidateUnselected",
-  candidate_api_mismatch: "warnCandidateMismatch",
-  candidate_not_in_catalog: "warnNotInCatalog",
 };
 
 export function ModelExportModelTable({

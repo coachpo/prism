@@ -43,6 +43,8 @@ e2e/
 ## CONVENTIONS
 
 - Run through `pnpm run test:e2e -- <playwright args>`.
+- Closed-loop campaigns use `pnpm run test:e2e:closed-loop -- <playwright args>` or invoke its Node runner directly. It pins the local Playwright image, keeps Vite and Chromium inside a disposable container PID namespace, mounts project source read-only, and verifies Vite shutdown without allowing a network pull.
+- The checked-in Playwright config uses one worker so per-test catch-all API route tables, auth/session propagation, and the local Vite module graph remain deterministic; do not override it in the verification campaign.
 - Default browser target is `http://127.0.0.1:15174`; override with `PLAYWRIGHT_BASE_URL` or disable the web server with `PLAYWRIGHT_DISABLE_WEBSERVER=1`.
 - When the bundled Playwright revision is unavailable, use `PLAYWRIGHT_CHANNEL=chrome` or the evidence runner/config's `PLAYWRIGHT_EXECUTABLE_PATH`; browser process permissions remain an environment prerequisite.
 - Mock backend traffic with `page.route("**/*")`, fulfill known `/api`, `/v1`, `/v1beta`, and `/health` paths, and fail unexpected API calls.

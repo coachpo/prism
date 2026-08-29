@@ -13,7 +13,7 @@ import (
 // select the ingress cohort server-side before pagination.
 func parseChainQueryParams(r *http.Request, profileID int) (statsdomain.ChainQueryParams, error) {
 	allowed := map[string]struct{}{
-		"view": {}, "q": {}, "ingress_request_id": {}, "ingress_final_result": {}, "final_result": {}, "row_result": {}, "confirmed_failover": {},
+		"view": {}, "q": {}, "ingress_request_id": {}, "ingress_final_result": {}, "final_result": {}, "row_result": {}, "confirmed_failover": {}, "query_context": {},
 		"pricing_status": {}, "unpriced_reason": {}, "pricing_card_role": {}, "pricing_selection_state": {}, "reporting_currency_epoch": {}, "cost_segment_key": {},
 		"is_stream": {}, "stream_outcome": {}, "stream_error_kind": {}, "final_stream_outcome": {}, "final_stream_error_kind": {}, "upstream_status_code": {}, "gateway_status_code": {}, "legacy_status_code": {}, "ingress_final_status_code": {}, "final_status_code": {},
 		"ingress_model_id": {}, "attempt_target_model_id": {}, "final_target_model_id": {}, "endpoint_id": {}, "terminal_target_id": {}, "status_family": {}, "status_code": {}, "client_rule_id": {}, "error_text": {}, "proxy_api_key_id": {},
@@ -102,6 +102,15 @@ func parseChainQueryParams(r *http.Request, profileID int) (statsdomain.ChainQue
 		return statsdomain.ChainQueryParams{}, &statsdomain.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "invalid_proxy_api_key_id", Detail: "invalid proxy_api_key_id"}
 	}
 	params.ProxyAPIKeyID = proxyAPIKeyID
+	params.Q = normalizedQueryString(r, "q")
+	clientRuleID, err := parseOptionalInt(r, "client_rule_id")
+	if err != nil {
+		return statsdomain.ChainQueryParams{}, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "invalid client_rule_id"}
+	}
+	if clientRuleID != nil && *clientRuleID <= 0 {
+		return statsdomain.ChainQueryParams{}, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "invalid client_rule_id"}
+	}
+	params.ClientRuleID = clientRuleID
 	params.ConfirmedFailover, err = parseOptionalBool(r, "confirmed_failover")
 	if err != nil {
 		return statsdomain.ChainQueryParams{}, err

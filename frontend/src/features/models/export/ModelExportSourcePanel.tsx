@@ -4,7 +4,9 @@ import {
   OperatorInsetPanel,
   OperatorLoadingState,
   OperatorRetryButton,
+  OperatorStalenessBadge,
 } from "@/shared/design-system";
+import { useTimezone } from "@/hooks/useTimezone";
 import type { ExportSourceResponse } from "./exportTypes";
 import { ModelExportModelTable } from "./ModelExportModelTable";
 import type { ModelExportSourceState } from "./useModelExportSource";
@@ -15,9 +17,15 @@ export function ModelExportSourcePanel({
   sourceState: ModelExportSourceState;
 }) {
   const { messages } = useLocale();
+  const { format: formatTime } = useTimezone();
   const copy = messages.modelExportPage;
-  const { selectedIds, selectedRiskSummary, sourceQuery, toggleModel, visibleModels } =
-    sourceState;
+  const {
+    selectedIds,
+    selectedRiskSummary,
+    sourceQuery,
+    toggleModel,
+    visibleModels,
+  } = sourceState;
   const source: ExportSourceResponse | undefined = sourceQuery.data;
 
   return (
@@ -25,7 +33,7 @@ export function ModelExportSourcePanel({
       {sourceQuery.isLoading && (
         <OperatorLoadingState title={copy.loadingSource} />
       )}
-      {sourceQuery.isError && (
+      {sourceQuery.isError && !source && (
         <OperatorErrorState
           title={copy.loadFailed}
           description={String(sourceQuery.error)}
@@ -36,6 +44,14 @@ export function ModelExportSourcePanel({
           }
         />
       )}
+      {sourceQuery.isError && source ? (
+        <OperatorStalenessBadge
+          label={messages.honesty.lastSuccessful(
+            formatTime(new Date(sourceQuery.dataUpdatedAt).toISOString()),
+          )}
+          reason={String(sourceQuery.error)}
+        />
+      ) : null}
       {source && (
         <ModelExportModelTable
           visibleModels={visibleModels}

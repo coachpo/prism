@@ -1,11 +1,12 @@
 package models
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
-	"strings"
 
 	"github.com/coachpo/prism/backend/internal/domain/modelexport"
 	"github.com/coachpo/prism/backend/internal/domain/pidev"
@@ -71,6 +72,7 @@ func piCandidateWiresFromModels(candidates []*pidev.Model) []piCandidateWire {
 			MaxTokens:        candidate.MaxTokens,
 			ThinkingLevelMap: candidate.ThinkingLevelMap,
 			Compat:           candidate.Compat,
+			DroppedFields:    normalizePiDroppedFields(candidate.DroppedFields),
 		})
 	}
 	return wires
@@ -95,15 +97,35 @@ func piBindingMetadataFromModel(model *pidev.Model) piBindingMetadata {
 	}
 }
 
-// piBindingPlatformCandidate converts one binding's effective (source with
-// override applied) metadata into the modelexport.PlatformCandidate shape
+// decodePiCompatJSON preserves JSON number literals as json.Number across the
+// catalog-binding persistence and override boundaries. Pi allows numeric
+// chatTemplateArgs/chatTemplateKwargs scalars, so decoding them through
+// float64 would change both frozen source evidence and later drift checks.
+func decodePiCompatJSON(raw []byte) (map[string]any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var values map[string]any
+	if err := decoder.Decode(&values); err != nil {
+		return nil, err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return nil, fmt.Errorf("compat must contain exactly one JSON value")
+	}
+	return values, nil
+}
+
+// piBindingPiTemplate converts one binding's effective (source with
+// override applied) metadata into the modelexport.PiTemplate shape
 // RenderPi consumes. This is the render-time counterpart of
 // piBindingMetadataFromModel: it never touches the live catalog, only the
 // persisted, already-validated binding row.
-func piBindingPlatformCandidate(effective piBindingMetadata) modelexport.PlatformCandidate {
-	candidate := modelexport.PlatformCandidate{Metadata: modelexport.MetadataLayer{}, DerivedFields: map[string]json.RawMessage{}}
+func piBindingPiTemplate(effective piBindingMetadata, droppedFields []string) modelexport.PiTemplate {
+	candidate := modelexport.PiTemplate{
+		Metadata: modelexport.MetadataLayer{}, DerivedFields: map[string]json.RawMessage{},
+		DroppedFields: normalizePiDroppedFields(droppedFields),
+	}
 	values := map[string]json.RawMessage{}
-	if effective.Name != nil && strings.TrimSpace(*effective.Name) != "" {
+	if effective.Name != nil && *effective.Name != "" {
 		values[modelexport.MetaName] = marshalRawJSON(*effective.Name)
 	}
 	if effective.Reasoning != nil {
@@ -142,9 +164,11 @@ func (s *Service) loadModelForPi(ctx context.Context, r *http.Request, modelConf
 	if err != nil {
 		return modelRecord{}, "", err
 	}
-	expectedAPI := piExpectedAPI(record.APIFamily, record.OpenAIAcceptedFormat)
+	expectedAPI := modelexport.PiAPIForModel(record.APIFamily, record.OpenAIAcceptedFormat)
 	if expectedAPI == "" {
-		return record, "", newPiDomainError(http.StatusUnprocessableEntity, fmt.Sprintf("pi_api_family_unsupported: api_family %q has no Pi API mapping", record.APIFamily), map[string]any{"api_family": record.APIFamily})
+		return record, "", newPiDomainError(http.StatusUnprocessableEntity, "pi_api_unsupported: the model's API family and accepted operation format have no Pi text API mapping", map[string]any{
+			"api_family": record.APIFamily, "openai_accepted_format": record.OpenAIAcceptedFormat,
+		})
 	}
 	return record, expectedAPI, nil
 }
@@ -162,4 +186,29 @@ func loadBoundPiBinding(ctx context.Context, exec queryExecutor, profileID, mode
 	}
 	*out = binding
 	return true, nil
+}
+
+func loadBoundPiBindingForUpdate(ctx context.Context, tx pgx.Tx, profileID, modelConfigID int, out *piBindingRecord) error {
+	binding, found, err := loadPiBindingForUpdate(ctx, tx, profileID, modelConfigID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return newPiDomainError(http.StatusConflict, "pi_not_bound: bind a pi.dev candidate before refreshing or overriding metadata", nil)
+	}
+	*out = binding
+	return nil
+}
+
+func validatePiBindingForModel(binding piBindingRecord, model modelRecord) error {
+	expectedAPI := modelexport.PiAPIForModel(model.APIFamily, model.OpenAIAcceptedFormat)
+	if piBindingMatchesModel(binding, model.ModelID, expectedAPI) {
+		return nil
+	}
+	return newPiDomainError(http.StatusConflict, "pi_binding_model_drifted: the bound full model id or Pi API no longer matches the Prism model; rebind before continuing", map[string]any{
+		"bound_model_id":   binding.CatalogModelID,
+		"current_model_id": model.ModelID,
+		"bound_api":        binding.API,
+		"current_pi_api":   expectedAPI,
+	})
 }

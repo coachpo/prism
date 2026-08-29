@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   DEFAULTS,
+  applyRequestLogStatePatch,
   normalizeRequestId,
   parsePageSearch,
   parsePageState,
@@ -55,11 +56,7 @@ export function useRequestLogPageState() {
 
   const update = useCallback(
     (patch: Partial<RequestLogPageState>, resetOffset = true) => {
-      const next = { ...state, ...patch };
-      if (resetOffset) {
-        if (!("offset" in patch)) next.offset = DEFAULTS.offset;
-        if (!("chain_cursor" in patch)) next.chain_cursor = "";
-      }
+      const next = applyRequestLogStatePatch(state, patch, resetOffset);
       void navigate({
         to: "/observe/requests",
         search: () => stateToSearch(next),
@@ -156,13 +153,12 @@ export function useRequestLogPageState() {
             v as RequestLogPageState["ingress_final_result"],
           confirmed_failover: false,
         },
-        false,
       ),
     [update],
   );
   const setConfirmedFailover = useCallback(
     (v: boolean) =>
-      update({ confirmed_failover: v, ingress_final_result: "" }, false),
+      update({ confirmed_failover: v, ingress_final_result: "" }),
     [update],
   );
   const clearTriage = useCallback(
@@ -176,7 +172,6 @@ export function useRequestLogPageState() {
           pricing_card_role: "",
           pricing_selection_state: "",
         },
-        false,
       ),
     [update],
   );
@@ -276,6 +271,7 @@ export function useRequestLogPageState() {
     state.final_status_code ||
     state.final_stream_outcome ||
     state.final_stream_error_kind ||
+    state.final_exclude ||
     state.final_target_model_id ||
     state.final_endpoint_id ||
     state.final_terminal_target_id ||
@@ -287,6 +283,8 @@ export function useRequestLogPageState() {
     state.row_kind ||
     state.attempt_trigger ||
     state.attempt_result ||
+    state.stream_outcome ||
+    state.stream_error_kind ||
     state.model_id ||
     state.endpoint_id ||
     state.terminal_target_id ||

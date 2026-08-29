@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "projectId": "prism-pi-model-export-full",
+  "projectRoot": "../..",
+  "campaignRoot": "artifacts/evidence/closed-loop-pi-model-export/campaign-7",
+  "coverageMode": "full",
+  "source": {
+    "provider": "git",
+    "excludes": [
+      "artifacts/evidence/closed-loop-pi-model-export/campaign-7"
+    ]
+  },
+  "localOnly": {
+    "enabled": true,
+    "allowedExternalCapabilities": [
+      "docker",
+      "network"
+    ]
+  },
+  "cases": [
+    {
+      "id": "smoke-final-tree-build",
+      "category": "smoke",
+      "required": true,
+      "quick": true,
+      "platform": "linux",
+      "dependsOn": [],
+      "argv": [
+        "/bin/bash",
+        "-c",
+        "set -euo pipefail; cache_root=\"$PWD/artifacts/evidence/closed-loop-pi-model-export/cache\"; mkdir -p \"$cache_root/gocache\" \"$cache_root/gotmp\"; git diff --check; git diff --cached --check; fail=0; nul_files=$(rg -l -a '\\x00' backend frontend/src frontend/tests || true); if [ -n \"$nul_files\" ]; then printf '%s\\n' 'NUL bytes found in project source:' \"$nul_files\" >&2; fail=1; fi; platform_hits=$(rg -n 'type Platform|PlatformPi|ParsePlatform' backend/internal/domain/modelexport || true); if [ -n \"$platform_hits\" ]; then printf '%s\\n' 'Pi-only Platform abstraction remains:' \"$platform_hits\" >&2; fail=1; fi; if [ ! -f backend/internal/domain/modelexport/render_golden_test.go ] || ! rg -q 'pi_models\\.golden\\.json' backend/internal/domain/modelexport/render_golden_test.go; then printf '%s\\n' 'Pi renderer golden regression owner is missing' >&2; fail=1; fi; if [ \"$fail\" -ne 0 ]; then exit 1; fi; fmt_out=$(/home/qing/.local/go/bin/gofmt -l backend/internal backend/tests); if [ -n \"$fmt_out\" ]; then printf '%s\\n' \"$fmt_out\" >&2; exit 1; fi; (cd backend && env GOPATH=/home/qing/go GOMODCACHE=/home/qing/go/pkg/mod GOCACHE=\"$cache_root/gocache\" GOTMPDIR=\"$cache_root/gotmp\" GOTOOLCHAIN=auto GOFLAGS=-mod=readonly /home/qing/.local/go/bin/go build ./cmd/prism-backend); (cd frontend && corepack pnpm run build); printf '%s\\n' 'working/index diff checks: PASS' 'source hygiene: PASS' 'Pi-only abstraction and golden ownership: PASS' 'gofmt: PASS' 'backend build: PASS' 'frontend build: PASS' > \"$CLOSED_LOOP_EVIDENCE_DIR/smoke.txt\""
+      ],
+      "cwd": ".",
+      "timeoutSeconds": 1800,
+      "fixture": null,
+      "externalCapabilities": [],
+      "evidence": {
+        "requiredFiles": [
+          "smoke.txt"
+        ],
+        "nonEmptyFiles": [
+          "smoke.txt"
+        ]
+      }
+    },
+    {
+      "id": "functional-pi-export-contracts",
+      "category": "functional",
+      "required": true,
+      "quick": true,
+      "platform": "linux",
+      "dependsOn": [
+        "smoke-final-tree-build"
+      ],
+      "argv": [
+        "/bin/bash",
+        "-c",
+        "set -euo pipefail; cache_root=\"$PWD/artifacts/evidence/closed-loop-pi-model-export/cache\"; mkdir -p \"$cache_root/gocache\" \"$cache_root/gotmp\"; (cd backend && env GOPATH=/home/qing/go GOMODCACHE=/home/qing/go/pkg/mod GOCACHE=\"$cache_root/gocache\" GOTMPDIR=\"$cache_root/gotmp\" GOTOOLCHAIN=auto GOFLAGS=-mod=readonly /home/qing/.local/go/bin/go test -count=1 ./internal/domain/pidev ./internal/domain/modelexport ./internal/httpapi/management/models ./internal/platform/http); (cd frontend && corepack pnpm exec vitest run src/features/models/export/ModelExportPage.test.tsx); (cd frontend && corepack pnpm exec node --test tests/lib/model_export_api_contract.test.mjs); printf '%s\\n' 'Pi catalog/export domain and route tests: PASS' 'Pi export page tests: PASS' 'Pi export API seam: PASS' > \"$CLOSED_LOOP_EVIDENCE_DIR/functional.txt\""
+      ],
+      "cwd": ".",
+      "timeoutSeconds": 2400,
+      "fixture": null,
+      "externalCapabilities": [],
+      "evidence": {
+        "requiredFiles": [
+          "functional.txt"
+        ],
+        "nonEmptyFiles": [
+          "functional.txt"
+        ]
+      }
+    },
+    {
+      "id": "integration-binding-migration-and-api",
+      "category": "integration",
+      "required": true,
+      "quick": false,
+      "platform": "linux",
+      "dependsOn": [
+        "functional-pi-export-contracts"
+      ],
+      "argv": [
+        "/bin/bash",
+        "-c",
+        "set -euo pipefail; cache_root=\"$PWD/artifacts/evidence/closed-loop-pi-model-export/cache\"; mkdir -p \"$cache_root/gocache\" \"$cache_root/gotmp\"; (cd backend && env GOPATH=/home/qing/go GOMODCACHE=/home/qing/go/pkg/mod GOCACHE=\"$cache_root/gocache\" GOTMPDIR=\"$cache_root/gotmp\" GOTOOLCHAIN=auto GOFLAGS=-mod=readonly /home/qing/.local/go/bin/go test -count=1 -timeout 20m ./tests/integration -run '^Test(SingleBaselineAppliesToFreshDatabase|ModelCatalogMetadataUpgradePreservesRetainedData)$'); (cd backend && env GOPATH=/home/qing/go GOMODCACHE=/home/qing/go/pkg/mod GOCACHE=\"$cache_root/gocache\" GOTMPDIR=\"$cache_root/gotmp\" GOTOOLCHAIN=auto GOFLAGS=-mod=readonly /home/qing/.local/go/bin/go test -count=1 -timeout 20m ./tests/contract -run '^TestModelExport'); printf '%s\\n' 'fresh and retained-data migration contracts: PASS' 'Pi binding/source/render HTTP contracts: PASS' > \"$CLOSED_LOOP_EVIDENCE_DIR/integration.txt\""
+      ],
+      "cwd": ".",
+      "timeoutSeconds": 3000,
+      "fixture": {
+        "database": "Docker-backed ephemeral PostgreSQL owned by existing Go test harness"
+      },
+      "externalCapabilities": [
+        "docker"
+      ],
+      "evidence": {
+        "requiredFiles": [
+          "integration.txt"
+        ],
+        "nonEmptyFiles": [
+          "integration.txt"
+        ]
+      }
+    },
+    {
+      "id": "workflow-backend-frontend-quality",
+      "category": "workflow",
+      "required": true,
+      "quick": false,
+      "platform": "linux",
+      "dependsOn": [
+        "functional-pi-export-contracts"
+      ],
+      "argv": [
+        "/bin/bash",
+        "-c",
+        "set -euo pipefail; cache_root=\"$PWD/artifacts/evidence/closed-loop-pi-model-export/cache\"; mkdir -p \"$cache_root/gocache\" \"$cache_root/gotmp\"; (cd backend && env GOPATH=/home/qing/go GOMODCACHE=/home/qing/go/pkg/mod GOCACHE=\"$cache_root/gocache\" GOTMPDIR=\"$cache_root/gotmp\" GOTOOLCHAIN=auto GOFLAGS=-mod=readonly /home/qing/.local/go/bin/go vet ./internal/... ./cmd/...); (cd backend && env GOPATH=/home/qing/go GOMODCACHE=/home/qing/go/pkg/mod GOCACHE=\"$cache_root/gocache\" GOTMPDIR=\"$cache_root/gotmp\" GOTOOLCHAIN=auto GOFLAGS=-mod=readonly /home/qing/.local/go/bin/go test -count=1 ./internal/... ./cmd/...); (cd frontend && corepack pnpm exec vitest run); (cd frontend && corepack pnpm run test:lib); (cd frontend && corepack pnpm run lint); (cd frontend && corepack pnpm run build); printf '%s\\n' 'backend vet/internal/cmd: PASS' 'frontend Vitest/lib/lint/build: PASS' > \"$CLOSED_LOOP_EVIDENCE_DIR/workflow.txt\""
+      ],
+      "cwd": ".",
+      "timeoutSeconds": 3600,
+      "fixture": null,
+      "externalCapabilities": [],
+      "evidence": {
+        "requiredFiles": [
+          "workflow.txt"
+        ],
+        "nonEmptyFiles": [
+          "workflow.txt"
+        ]
+      }
+    },
+    {
+      "id": "role-play-full-regression-and-pi-load",
+      "category": "role-play",
+      "required": true,
+      "quick": false,
+      "platform": "linux",
+      "dependsOn": [
+        "integration-binding-migration-and-api",
+        "workflow-backend-frontend-quality"
+      ],
+      "argv": [
+        "/bin/bash",
+        "-c",
+        "set -euo pipefail; cache_root=\"$PWD/artifacts/evidence/closed-loop-pi-model-export/cache\"; mkdir -p \"$cache_root/gocache\" \"$cache_root/gotmp\"; pi_agent_dir=$(mktemp -d \"$cache_root/pi-agent.XXXXXX\"); trap 'rm -rf \"$pi_agent_dir\"' EXIT; (cd backend && env GOPATH=/home/qing/go GOMODCACHE=/home/qing/go/pkg/mod GOCACHE=\"$cache_root/gocache\" GOTMPDIR=\"$cache_root/gotmp\" GOTOOLCHAIN=auto GOFLAGS=-mod=readonly /home/qing/.local/go/bin/go test -count=1 -timeout 30m ./internal/platform/lifecycle ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...); (cd frontend && env -u PRISM_CLOSED_LOOP_E2E_CONTAINER corepack pnpm run test:e2e:closed-loop); cp backend/internal/domain/modelexport/testdata/pi_models_keyed.golden.json \"$pi_agent_dir/models.json\"; PI_CODING_AGENT_DIR=\"$pi_agent_dir\" corepack pnpm dlx @earendil-works/pi-coding-agent@0.84.3 --offline --list-models prism | tee \"$CLOSED_LOOP_EVIDENCE_DIR/pi-load.txt\"; for model_id in gpt-5.6-sol claude-opus-4-8 gemini-4-pro glm-5.2; do rg -q \"^prism[[:space:]]+$model_id([[:space:]]|$)\" \"$CLOSED_LOOP_EVIDENCE_DIR/pi-load.txt\"; done; printf '%s\\n' 'backend lifecycle/contract/integration/runtime/priority: PASS' 'frontend Playwright E2E: PASS' 'Pi 0.84.3 loaded keyed four-API models.json: PASS' > \"$CLOSED_LOOP_EVIDENCE_DIR/role-play.txt\""
+      ],
+      "cwd": ".",
+      "timeoutSeconds": 5400,
+      "fixture": {
+        "database": "Docker-backed ephemeral PostgreSQL",
+        "browser": "project Playwright local web server",
+        "pi": "@earendil-works/pi-coding-agent 0.84.3 with isolated PI_CODING_AGENT_DIR and offline model listing"
+      },
+      "externalCapabilities": [
+        "docker",
+        "network"
+      ],
+      "evidence": {
+        "requiredFiles": [
+          "role-play.txt",
+          "pi-load.txt"
+        ],
+        "nonEmptyFiles": [
+          "role-play.txt",
+          "pi-load.txt"
+        ]
+      }
+    }
+  ]
+}

@@ -14,6 +14,32 @@ export type ObserveCoverage = {
   source_revision?: string;
 };
 
+export type ObserveScope = "ingress" | "final_execution" | "route_attempt";
+
+export type ObserveCaliber = {
+  scope: ObserveScope;
+  grain: string;
+  identity_basis: string;
+  outcome_basis: string;
+  latency_basis: string;
+  cost_basis: string;
+  datasets: string[];
+};
+
+export type ObserveDatasetCoverage = {
+  usage_request_events?: ObserveCoverage;
+  request_logs?: ObserveCoverage;
+  loadbalance_events?: ObserveCoverage;
+};
+
+export type ObserveSamples = {
+  observation_count: number;
+  latency_sample_count: number;
+  latency_missing_count: number;
+  cost_sample_count: number;
+  cost_missing_count: number;
+};
+
 export type ObserveCostSegment = {
   segment_key: string;
   reporting_currency_epoch: number | null;
@@ -51,7 +77,7 @@ export type ObserveCostSegment = {
 
 export type QueryContextResponse = {
   query_context: string;
-  scope: "ingress" | "final_execution" | "route_attempt";
+  scope: ObserveScope;
   requested_bounds: { from_time: string; to_time: string } | null;
   usage_bounds: { from_time: string; to_time: string };
   usage_coverage: ObserveCoverage;
@@ -60,20 +86,16 @@ export type QueryContextResponse = {
   request_bounds: { from_time: string; to_time: string };
   request_coverage: ObserveCoverage;
   generated_at: string;
-  caliber: {
-    scope: "ingress" | "final_execution" | "route_attempt";
-    grain: string;
-    identity_basis: string;
-    outcome_basis: string;
-    latency_basis: string;
-    cost_basis: string;
-    datasets: string[];
-  };
+  caliber: ObserveCaliber;
 };
 
 export type UsageSummaryResponse = {
   generated_at: string;
   coverage: ObserveCoverage;
+  dataset_coverage: ObserveDatasetCoverage;
+  caliber: ObserveCaliber;
+  samples: ObserveSamples;
+  known_cost_micros: string | null;
   cost_segments: ObserveCostSegment[];
   request_count: number;
   http_success_count: number;
@@ -81,6 +103,7 @@ export type UsageSummaryResponse = {
   http_success_rate: number | null;
   completed_count: number;
   stream_error_count: number;
+  transport_error_count: number;
   client_disconnected_count: number;
   failed_count: number;
   ttft_sample_count: number;
@@ -88,6 +111,17 @@ export type UsageSummaryResponse = {
   p95_ttft_ms: number | null;
   output_rate_sample_count: number;
   avg_output_rate_tps: number | null;
+  input_token_sample_count: number;
+  output_token_sample_count: number;
+  cache_read_input_token_sample_count: number;
+  cache_creation_input_token_sample_count: number;
+  reasoning_token_sample_count: number;
+  total_token_sample_count: number;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cache_read_input_tokens: number | null;
+  cache_creation_input_tokens: number | null;
+  reasoning_tokens: number | null;
   total_tokens: number | null;
   cache_basis_request_count: number;
   cache_basis_input_tokens: number | null;
@@ -119,15 +153,15 @@ export type UsageSummaryResponse = {
 export type UsageSeriesResponse = {
   generated_at: string;
   coverage: ObserveCoverage;
+  dataset_coverage: ObserveDatasetCoverage;
+  caliber: ObserveCaliber;
+  samples: ObserveSamples;
   metric: string;
   group_by: string;
   selection_basis: string;
   interval: string;
   series_limit: number;
   truncated: boolean;
-  caliber: { scope: string; [key: string]: unknown };
-  dataset_coverage: Record<string, unknown>;
-  samples: Record<string, number>;
   series: {
     key: string;
     entity_id: string | null;
@@ -234,6 +268,9 @@ export const observe = {
 export type UsageErrorsResponse = {
   generated_at: string;
   coverage: ObserveCoverage;
+  dataset_coverage: ObserveDatasetCoverage;
+  caliber: ObserveCaliber;
+  samples: ObserveSamples;
   requests_context: {
     view: string;
     query_context: string;
@@ -245,6 +282,7 @@ export type UsageErrorsResponse = {
     request_count: number;
     http_error_count: number;
     stream_error_count: number;
+    transport_error_count: number;
     failed_count: number;
     client_disconnected_count: number;
     diagnostic_stream_anomaly_count: number;
@@ -253,6 +291,7 @@ export type UsageErrorsResponse = {
     bucket_start: string;
     http_error_count: number;
     stream_error_count: number;
+    transport_error_count: number;
     failed_count: number;
     client_disconnected_count: number;
   }[];

@@ -23,13 +23,19 @@ export function ModelExportPage() {
     renderFailedMessage: copy.renderFailed,
     selectedIds: source.selectedIds,
     source: source.sourceQuery.data,
+    sourceActionsBlocked: source.sourceActionsBlocked,
   });
+  const dialogError = source.sourceQuery.isError
+    ? copy.sourceActionsBlocked
+    : render.renderStale
+      ? copy.sourceDrifted
+      : render.renderError;
 
   return (
     <OperatorPageShell>
       <OperatorPageHeader title={copy.title} description={copy.description}>
         <Button
-          onClick={() => render.setKeyDialogOpen(true)}
+          onClick={render.openKeyDialog}
           disabled={render.openKeyDialogDisabled}
         >
           {copy.generateButton}
@@ -50,17 +56,19 @@ export function ModelExportPage() {
         <ModelExportSelectionPanel sourceState={source} />
         <ModelExportSourcePanel sourceState={source} />
 
-        {render.renderStale && (
+        {render.renderStale && !render.keyDialogOpen && (
           <OperatorCallout intent="danger" description={copy.sourceDrifted} />
         )}
-        {render.renderError && !render.renderStale && (
+        {render.renderError && !render.renderStale && !render.keyDialogOpen && (
           <OperatorCallout intent="danger" description={render.renderError} />
         )}
 
         <ExportKeyDialog
           open={render.keyDialogOpen}
           selectedCount={source.selectedCount}
-          onClose={() => render.setKeyDialogOpen(false)}
+          error={dialogError}
+          confirmDisabled={source.sourceActionsBlocked}
+          onClose={render.closeKeyDialog}
           onConfirm={render.handleGenerate}
         />
 

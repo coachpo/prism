@@ -35,37 +35,33 @@ type exportTargetRow struct {
 	Pricing              *modelexport.TargetPriceSnapshot
 }
 
-// loadExportSnapshot reads every Default-profile model plus its reachable
-// Terminal Targets, endpoints, current pricing revisions, and catalog bindings
-// inside one read-only transaction. The caller owns the tx boundary so the
-// whole snapshot is consistent.
-func loadExportSnapshot(ctx context.Context, tx pgx.Tx) ([]exportModelRow, []exportTargetRow, map[int]catalogBindingRecord, *modelrouting.DiagnosticsGraph, error) {
-	models, err := loadExportModels(ctx, tx)
+// loadExportSnapshot reads every model in one effective profile plus its
+// reachable Terminal Targets, endpoints, and current pricing revisions inside
+// one read-only transaction. Pi export deliberately does not read the
+// independent models.dev binding table.
+func loadExportSnapshot(ctx context.Context, tx pgx.Tx, profileID int) ([]exportModelRow, []exportTargetRow, *modelrouting.DiagnosticsGraph, error) {
+	models, err := loadExportModels(ctx, tx, profileID)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, err
 	}
-	targets, err := loadExportTargets(ctx, tx)
+	targets, err := loadExportTargets(ctx, tx, profileID)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, err
 	}
-	bindings, err := loadExportCatalogBindings(ctx, tx)
+	graph, err := modelrouting.LoadRouteWitnessGraph(ctx, tx, profileID)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, err
 	}
-	graph, err := modelrouting.LoadRouteWitnessGraph(ctx, tx, 1)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-	return models, targets, bindings, graph, nil
+	return models, targets, graph, nil
 }
 
-func loadExportModels(ctx context.Context, exec queryExecutor) ([]exportModelRow, error) {
+func loadExportModels(ctx context.Context, exec queryExecutor, profileID int) ([]exportModelRow, error) {
 	rows, err := exec.Query(ctx, `
 		SELECT id, model_id, api_family, display_name, is_enabled,
 		       openai_accepted_format, openai_image_operations
 		FROM model_configs
-		WHERE profile_id = 1
-		ORDER BY id ASC`)
+		WHERE profile_id = $1
+		ORDER BY id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query export models: %w", err)
 	}
@@ -89,7 +85,7 @@ func loadExportModels(ctx context.Context, exec queryExecutor) ([]exportModelRow
 // active Terminal Target and resolves its endpoint plus current price shape.
 // Ordering follows the minimum access-target position along each chain, then
 // terminal target id.
-func loadExportTargets(ctx context.Context, exec pgx.Tx) ([]exportTargetRow, error) {
+func loadExportTargets(ctx context.Context, exec pgx.Tx, profileID int) ([]exportTargetRow, error) {
 	rows, err := exec.Query(ctx, `
 		WITH RECURSIVE terminal_reachability AS (
 			SELECT mat.source_model_config_id AS root_model_config_id,
@@ -98,7 +94,7 @@ func loadExportTargets(ctx context.Context, exec pgx.Tx) ([]exportTargetRow, err
 				ARRAY[mat.position] AS hop_positions,
 				ARRAY[mat.source_model_config_id] || COALESCE(ARRAY[mat.target_model_config_id], ARRAY[]::integer[]) AS path
 			FROM model_access_targets mat
-			WHERE mat.profile_id = 1 AND mat.is_enabled = TRUE
+			WHERE mat.profile_id = $1 AND mat.is_enabled = TRUE
 				AND (mat.target_connection_id IS NOT NULL OR mat.target_model_config_id IS NOT NULL)
 			UNION ALL
 			SELECT tr.root_model_config_id,
@@ -107,7 +103,7 @@ func loadExportTargets(ctx context.Context, exec pgx.Tx) ([]exportTargetRow, err
 				tr.hop_positions || mat.position,
 				tr.path || COALESCE(ARRAY[mat.target_model_config_id], ARRAY[]::integer[])
 			FROM terminal_reachability tr
-			JOIN model_access_targets mat ON mat.profile_id = 1 AND mat.source_model_config_id = tr.next_model_config_id
+			JOIN model_access_targets mat ON mat.profile_id = $1 AND mat.source_model_config_id = tr.next_model_config_id
 			WHERE tr.next_model_config_id IS NOT NULL AND mat.is_enabled = TRUE
 				AND (mat.target_connection_id IS NOT NULL OR (mat.target_model_config_id IS NOT NULL AND NOT mat.target_model_config_id = ANY(tr.path)))
 		),
@@ -150,15 +146,15 @@ func loadExportTargets(ctx context.Context, exec pgx.Tx) ([]exportTargetRow, err
 			MAX(ca.cache_creation_price) FILTER (WHERE ca.card_role = 'tier_above') AS above_creation,
 			MAX(ca.reasoning_price) FILTER (WHERE ca.card_role = 'tier_above') AS above_reasoning
 		FROM ordered_terminals o
-		JOIN connections c ON c.id = o.terminal_connection_id AND c.profile_id = 1 AND c.is_active = TRUE
-		JOIN endpoints e ON e.id = c.endpoint_id AND e.profile_id = 1
+		JOIN connections c ON c.id = o.terminal_connection_id AND c.profile_id = $1 AND c.is_active = TRUE
+		JOIN endpoints e ON e.id = c.endpoint_id AND e.profile_id = $1
 		LEFT JOIN pricing_templates t ON t.id = c.pricing_template_id AND t.deleted_at IS NULL
 		LEFT JOIN pricing_template_revisions r ON r.id = t.current_revision_id
 		LEFT JOIN pricing_template_cards ca ON ca.revision_id = r.id
 		GROUP BY o.root_model_config_id, c.id, o.position_index, e.id, e.name,
 			c.openai_text_capability, c.is_active, t.id, COALESCE(r.template_kind, ''),
 			r.pricing_unit, r.currency_code, r.tier_input_tokens_above
-		ORDER BY o.root_model_config_id ASC, o.position_index ASC, c.id ASC`)
+		ORDER BY o.root_model_config_id ASC, o.position_index ASC, c.id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query export reachable targets: %w", err)
 	}
@@ -249,56 +245,6 @@ func derefString(value *string) string {
 		return ""
 	}
 	return *value
-}
-
-// loadExportCatalogBindings reads every binding row for the profile in one
-// query so source carries catalog evidence without per-model round trips.
-func loadExportCatalogBindings(ctx context.Context, exec queryExecutor) (map[int]catalogBindingRecord, error) {
-	rows, err := exec.Query(ctx,
-		// catalogBindingSelectColumns already leads with bindings.model_config_id.
-		`SELECT `+catalogBindingSelectColumns+`
-		FROM model_catalog_bindings AS bindings
-		JOIN model_configs AS configs ON configs.id = bindings.model_config_id
-		WHERE configs.profile_id = 1`)
-	if err != nil {
-		return nil, fmt.Errorf("query export catalog bindings: %w", err)
-	}
-	defer rows.Close()
-	bindings := map[int]catalogBindingRecord{}
-	for rows.Next() {
-		record := catalogBindingRecord{}
-		var modalitiesInput, modalitiesOutput any
-		var overrideModalitiesInput, overrideModalitiesOutput any
-		if err := rows.Scan(
-			&record.ModelConfigID, &record.ProviderID, &record.CatalogModelID, &record.MatchSource, &record.CatalogRevision, &record.FetchedAt, &record.UpdatedAt,
-			&record.Source.Name, &record.Source.Description, &record.Source.Family, &record.Source.ReleaseDate, &record.Source.LastUpdated, &record.Source.Knowledge,
-			&record.Source.Attachment, &record.Source.Reasoning, &record.Source.ToolCall, &record.Source.StructuredOutput, &record.Source.Temperature,
-			&modalitiesInput, &modalitiesOutput, &record.Source.LimitContext, &record.Source.LimitInput, &record.Source.LimitOutput,
-			&record.Source.OpenWeights, &record.Source.Status,
-			&record.Override.Name, &record.Override.Description, &record.Override.Family, &record.Override.ReleaseDate, &record.Override.LastUpdated, &record.Override.Knowledge,
-			&record.Override.Attachment, &record.Override.Reasoning, &record.Override.ToolCall, &record.Override.StructuredOutput, &record.Override.Temperature,
-			&overrideModalitiesInput, &overrideModalitiesOutput, &record.Override.LimitContext, &record.Override.LimitInput, &record.Override.LimitOutput,
-			&record.Override.OpenWeights, &record.Override.Status); err != nil {
-			return nil, fmt.Errorf("scan export catalog binding: %w", err)
-		}
-		if record.Source.ModalitiesInput, err = decodeModalityColumn(modalitiesInput); err != nil {
-			return nil, fmt.Errorf("decode export source modalities_input: %w", err)
-		}
-		if record.Source.ModalitiesOutput, err = decodeModalityColumn(modalitiesOutput); err != nil {
-			return nil, fmt.Errorf("decode export source modalities_output: %w", err)
-		}
-		if record.Override.ModalitiesInput, err = decodeModalityColumn(overrideModalitiesInput); err != nil {
-			return nil, fmt.Errorf("decode export override modalities_input: %w", err)
-		}
-		if record.Override.ModalitiesOutput, err = decodeModalityColumn(overrideModalitiesOutput); err != nil {
-			return nil, fmt.Errorf("decode export override modalities_output: %w", err)
-		}
-		bindings[record.ModelConfigID] = record
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate export catalog bindings: %w", err)
-	}
-	return bindings, nil
 }
 
 // sortTargetRowsByModel groups target rows per model preserving the SQL

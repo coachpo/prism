@@ -111,7 +111,6 @@ func TestCostSegmentsCatalogue(t *testing.T) {
 		{"out of range", "/api/stats/cost-segments/e.2/symbols?limit=1&offset=2", "e.2", []string{}, 2, 1, 2},
 		{"legacy", "/api/stats/cost-segments/l.EUR/symbols", "l.EUR", []string{"€"}, 1, 50, 0},
 		{"symbol-less", "/api/stats/cost-segments/l.__unknown__/symbols", "l.__unknown__", []string{}, 0, 50, 0},
-		{"limit cap", "/api/stats/cost-segments/e.2/symbols?limit=999", "e.2", []string{"$", "US$"}, 2, 100, 0},
 	} {
 		t.Run("symbols "+test.name, func(t *testing.T) {
 			page := s15GET[map[string]any](t, harness, profileID, test.path, http.StatusOK)
@@ -128,6 +127,9 @@ func TestCostSegmentsCatalogue(t *testing.T) {
 	}
 	for _, path := range []string{"/api/stats/cost-segments/e.2/symbols?limit=0", "/api/stats/cost-segments/e.2/symbols?offset=-1"} {
 		_ = s15GET[map[string]any](t, harness, profileID, path, http.StatusBadRequest)
+	}
+	for _, path := range []string{"/api/stats/cost-segments/e.2/symbols?limit=999", "/api/stats/cost-segments?limit=999"} {
+		_ = s15GET[map[string]any](t, harness, profileID, path, http.StatusUnprocessableEntity)
 	}
 	missing := s15GET[map[string]any](t, harness, profileID, "/api/stats/cost-segments/e.999/symbols", http.StatusNotFound)
 	assertErrorCode(t, missing, "cost_segment_not_found")
@@ -184,4 +186,19 @@ func TestCostSegmentsCatalogue(t *testing.T) {
 	forged := parts[0] + "." + base64.RawURLEncoding.EncodeToString(publicDigest[:])
 	rejected := s15GET[map[string]any](t, harness, profileID, "/api/stats/cost-segments?limit=1&cursor="+url.QueryEscape(forged), http.StatusBadRequest)
 	assertErrorCode(t, rejected, "cost_segment_cursor_invalid")
+}
+
+func TestCostSegmentsPropagateCoverageOwnerFailure(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	seedObserveUsageRows(t, harness, profileID, []map[string]any{{"seq": 1, "pricing_status": "priced", "reporting_currency_epoch": 1}})
+	observeSetRetentionPurgeState(t, harness, "usage_request_events", "running")
+
+	for _, path := range []string{
+		"/api/stats/cost-segments",
+		"/api/stats/cost-segments/e.1/symbols",
+	} {
+		response := s15GET[map[string]any](t, harness, profileID, path, http.StatusServiceUnavailable)
+		assertErrorCode(t, response, "usage_request_events_purge_in_progress")
+	}
 }

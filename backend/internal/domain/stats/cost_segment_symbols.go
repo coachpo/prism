@@ -77,9 +77,11 @@ func ListCostSegmentSymbols(ctx context.Context, exec queryExecutor, params Cost
 		return CostSegmentSymbolsPage{}, &HTTPError{StatusCode: 404, Code: "cost_segment_not_found", Detail: "Cost segment was not found."}
 	}
 	page.Samples = ScopeSampleCounts{ObservationCount: page.Total}
-	if _, coverage, coverageErr := ResolveDatasetCoverage(ctx, exec, "usage_request_events", "all", nil, nil, time.Now().UTC()); coverageErr == nil {
-		page.DatasetCoverage = DatasetCoverage{UsageRequestEvents: &coverage}
+	_, coverage, coverageErr := ResolveDatasetCoverage(ctx, exec, "usage_request_events", "all", nil, nil, time.Now().UTC())
+	if coverageErr != nil {
+		return CostSegmentSymbolsPage{}, coverageErr
 	}
+	page.DatasetCoverage = DatasetCoverage{UsageRequestEvents: &coverage}
 	return page, nil
 }
 

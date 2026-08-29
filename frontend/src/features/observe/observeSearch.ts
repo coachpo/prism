@@ -55,6 +55,7 @@ export const OBSERVE_GROUPS = [
   "attempt_target_model",
   "attempt_trigger",
   "attempt_result",
+  "api_family",
   "endpoint",
   "terminal_target",
 ] as const;
@@ -84,6 +85,7 @@ export function groupBelongsToScope(
   scope: ObserveScope,
 ): boolean {
   if (groupBy === "none") return true;
+  if (groupBy === "api_family") return true;
   if (scope === "ingress") return groupBy === "ingress_model";
   if (scope === "final_execution") {
     return ["final_target_model", "endpoint", "terminal_target"].includes(

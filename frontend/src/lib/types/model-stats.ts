@@ -5,6 +5,7 @@ import type {
   OpenAIImageCapability,
   OpenAIImageOperations,
   OpenAITextCapability,
+  RoutingSchedule,
 } from "./routing";
 import type { LoadbalanceStrategySummary } from "./loadbalance";
 import type { UsageSnapshotPreset } from "./usage-statistics";
@@ -99,50 +100,102 @@ export interface ModelConfigListItem {
   active_connection_count: number;
   health_success_rate: number | null;
   health_total_requests: number;
+  routing_summary: ModelRoutingSummary | null;
   created_at: string;
   updated_at: string;
 }
 
-interface ModelConfigMutationBase {
-  api_family?: ApiFamily;
+export type ModelRoutingCoverage =
+  | "full"
+  | "partial"
+  | "none"
+  | "not_applicable";
+
+export type ModelRoutingOperationGroupStatus =
+  | "not_accepted"
+  | "routable"
+  | "compatible_but_ineligible"
+  | "uncovered";
+
+export interface ModelRoutingOperationGroup {
+  group: string;
+  status: ModelRoutingOperationGroupStatus;
+}
+
+/** Compact, authoritative projection produced by the backend analyzer. */
+export interface ModelRoutingSummary {
+  enabled_access_target_count: number;
+  total_access_target_count: number;
+  openai_mode: OpenAIAcceptedFormat | null;
+  coverage: ModelRoutingCoverage;
+  operation_groups: ModelRoutingOperationGroup[];
+  single_truncated_access_target_ids: number[];
+  warning_codes: string[];
+}
+
+interface ModelConfigMutationCommon {
   model_id?: string;
   display_name?: string | null;
-  openai_accepted_format?: OpenAIAcceptedFormat | null;
-  openai_image_operations?: OpenAIImageOperations | null;
   loadbalance_strategy_id?: number;
   is_enabled?: boolean;
 }
 
-export interface ModelConfigCreate extends ModelConfigMutationBase {
-  api_family: ApiFamily;
+interface ModelConfigCreateRequired extends ModelConfigMutationCommon {
   model_id: string;
   loadbalance_strategy_id: number;
 }
 
-/** Composite create: model + optional first Terminal Target in one transaction. */
-export interface ModelConfigCompositeCreate extends ModelConfigCreate {
-  initial_terminal_target?: {
-    endpoint_id?: number;
-    endpoint_create?: {
-      name: string;
-      base_url: string;
-      api_key: string;
-    };
-    name?: string | null;
-    is_active?: boolean;
-    openai_text_capability?: OpenAITextCapability | null;
-    openai_image_capability?: OpenAIImageCapability | null;
-    pricing_template_id?: number | null;
-    qps_limit?: number | null;
-    max_in_flight_non_stream?: number | null;
-    max_in_flight_stream?: number | null;
-    custom_headers?: Record<string, string> | null;
-    custom_headers_redacted?: string[] | null;
-    custom_request_parameters?: Record<string, unknown> | null;
+export type ModelConfigCreate =
+  | (ModelConfigCreateRequired & {
+      api_family: "openai";
+      openai_accepted_format?: OpenAIAcceptedFormat | null;
+      openai_image_operations?: OpenAIImageOperations | null;
+    })
+  | (ModelConfigCreateRequired & {
+      api_family: Exclude<ApiFamily, "openai">;
+      openai_accepted_format?: never;
+      openai_image_operations?: never;
+    });
+
+interface ModelInitialTerminalTargetCommon {
+  endpoint_id?: number;
+  endpoint_create?: {
+    name: string;
+    base_url: string;
+    api_key: string;
   };
+  name?: string | null;
+  is_active?: boolean;
+  auth_type?: string | null;
+  pricing_template_id?: number | null;
+  qps_limit?: number | null;
+  max_in_flight_non_stream?: number | null;
+  max_in_flight_stream?: number | null;
+  custom_headers?: Record<string, string> | null;
+  custom_request_parameters?: Record<string, unknown> | null;
+  routing_schedule?: RoutingSchedule | null;
 }
 
-export type ModelConfigUpdate = ModelConfigMutationBase;
+/** Composite create: model + optional first Terminal Target in one transaction. */
+export type ModelConfigCompositeCreate =
+  | (Extract<ModelConfigCreate, { api_family: "openai" }> & {
+      initial_terminal_target?: ModelInitialTerminalTargetCommon & {
+        openai_text_capability?: OpenAITextCapability | null;
+        openai_image_capability?: OpenAIImageCapability | null;
+      };
+    })
+  | (Extract<ModelConfigCreate, { api_family: Exclude<ApiFamily, "openai"> }> & {
+      initial_terminal_target?: ModelInitialTerminalTargetCommon & {
+        openai_text_capability?: never;
+        openai_image_capability?: never;
+      };
+    });
+
+export type ModelConfigUpdate = ModelConfigMutationCommon & {
+  api_family?: ApiFamily;
+  openai_accepted_format?: OpenAIAcceptedFormat | null;
+  openai_image_operations?: OpenAIImageOperations | null;
+};
 
 export interface StatGroup {
   key: string;
@@ -175,6 +228,7 @@ export interface StatsSummary {
 }
 
 export interface StatsSummaryParams {
+  preset?: "1h" | "6h" | "24h" | "7d" | "30d" | "all" | "custom";
   from_time?: string;
   to_time?: string;
   group_by?:
@@ -192,7 +246,7 @@ export interface StatsSummaryParams {
   attempt_target_model_id?: string;
   api_family?: ApiFamily;
   endpoint_id?: number;
-  connection_id?: number;
+  terminal_target_id?: number;
   attempt_trigger?: string;
   attempt_result?: string;
   scope?: ObservabilityScope;
@@ -203,6 +257,32 @@ export interface EndpointModelStatisticsParams {
   from_time?: string;
   to_time?: string;
   scope?: "final_execution" | "route_attempt";
+}
+
+export interface EndpointModelStatistic {
+  model_id: string;
+  model_label: string;
+  request_count: number;
+  success_count: number | null;
+  failed_count: number | null;
+  priced_request_count: number | null;
+  unpriced_request_count: number | null;
+  success_rate: number;
+  p50_ttft_ms: number | null;
+  p95_ttft_ms: number | null;
+  total_tokens: number;
+  total_cost_micros: number;
+  known_cost_micros: number | null;
+  avg_output_rate_tps: number | null;
+  samples: ScopeMetricSamples;
+}
+
+export interface EndpointModelStatisticsResponse {
+  items: EndpointModelStatistic[];
+  scope: "final_execution" | "route_attempt";
+  caliber: ScopeCaliber;
+  coverage: Record<string, unknown>;
+  samples: ScopeMetricSamples;
 }
 
 export interface ModelMetricsBatchParams {
@@ -374,10 +454,13 @@ export interface ThroughputStatsResponse {
 export interface ThroughputStatsParams {
   from_time?: string;
   to_time?: string;
-  model_id?: string;
+  preset?: "1h" | "6h" | "24h" | "7d" | "30d" | "all" | "custom";
+  ingress_model_id?: string;
+  final_target_model_id?: string;
+  attempt_target_model_id?: string;
   api_family?: string;
   endpoint_id?: number;
-  connection_id?: number;
+  terminal_target_id?: number;
   scope?: ObservabilityScope;
 }
 

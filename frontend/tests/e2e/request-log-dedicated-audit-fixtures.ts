@@ -500,6 +500,12 @@ export async function mockPrismRoutes(page: Page, scenario: Scenario) {
           page_ingress_count: 1,
           page_upstream_attempt_count: 1,
           page_request_log_row_count: 1,
+          filter_options: {
+            ingress_models: [],
+            endpoints: [],
+            clients: [],
+            attempt_target_models: [],
+          },
           items: [
             {
               ingress_request_id: "ingress-101",

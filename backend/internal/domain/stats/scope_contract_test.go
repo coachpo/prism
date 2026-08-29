@@ -33,6 +33,31 @@ func TestScopeGroupAndFilterGrammarRejectsAmbiguousModelKeys(t *testing.T) {
 	}
 }
 
+func TestScopeMetricMatrixDefaultsAndRejectsCrossScopeMetrics(t *testing.T) {
+	wantDefaults := map[string]string{
+		ScopeIngress: MetricRequests, ScopeFinal: MetricRequests, ScopeRouteAttempt: MetricAttempts,
+	}
+	for scope, want := range wantDefaults {
+		if got, err := NormalizeMetric(scope, ""); err != nil || got != want {
+			t.Fatalf("NormalizeMetric(%q, empty) = %q, %v; want %q", scope, got, err, want)
+		}
+	}
+	for _, item := range []struct{ scope, metric string }{
+		{ScopeIngress, MetricOutputRate}, {ScopeFinal, MetricFinalAttemptLatency}, {ScopeRouteAttempt, MetricAttemptLatency},
+	} {
+		if got, err := NormalizeMetric(item.scope, item.metric); err != nil || got != item.metric {
+			t.Fatalf("NormalizeMetric(%q, %q) = %q, %v", item.scope, item.metric, got, err)
+		}
+	}
+	for _, item := range []struct{ scope, metric string }{
+		{ScopeIngress, MetricAttempts}, {ScopeFinal, MetricTTFT}, {ScopeRouteAttempt, MetricCost},
+	} {
+		if _, err := NormalizeMetric(item.scope, item.metric); err == nil {
+			t.Fatalf("scope %q accepted cross-scope metric %q", item.scope, item.metric)
+		}
+	}
+}
+
 func TestTrustedZeroAndMissingCostRemainDistinct(t *testing.T) {
 	trustedZero := &modelMetricAccumulator{observations: 1, costSamples: 1, cost: 0}
 	block := metricBlockFromAccumulator(ScopeFinal, trustedZero)

@@ -75,7 +75,9 @@ model-detail/
 - Keep connection collection patch/resequence separate from access-target projection. `useModelDetailConnectionMutations.ts` composes the explicit connection submit, lifecycle, reconciliation, and target-mutation owners.
 - Parse raw connection drafts and map local/server field errors before connection API mutation; create/update/delete and collection reconciliation remain in the mutation owners.
 - Catalog metadata is a management-only projection. `CatalogMetadataCard.tsx` owns shell/effective rendering and the shared action lock; bind, refresh-diff, and override API workflows live in their named dialogs and never affect runtime compatibility.
+- Catalog override drafts are metadata-catalog driven across all backend fields and preserve missing, explicit null restore, and explicit values including empty strings.
 - Keep the custom request parameters editor draft as raw text and validate with `customRequestParameters.ts`; never bypass client validation with the raw string, and map server 422 field envelopes back to the editor instead of toasts.
 - Do not duplicate default form factories or redirect-target logic outside their named form/connection owners.
 - Keep access-target mutations scoped to the source access-target row resolved from the model detail, while connection dialogs keep using the connection ID. Moves use the shared position order and must preserve the mixed runtime peer list.
+- Model/target/connection/copy mutations refresh diagnostics and the authoritative model list; diagnostics GET owns a real AbortSignal. Copy candidates validate source text and image capability dimensions before submit.
 - Do not manage routing priority from `ConnectionDialog.tsx`; ordering belongs to the mixed access-target list.

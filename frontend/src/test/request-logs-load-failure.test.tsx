@@ -222,6 +222,12 @@ function chainResponse(
     page_ingress_count: 1,
     page_upstream_attempt_count: 2,
     page_request_log_row_count: 2,
+    filter_options: {
+      endpoints: [],
+      ingress_models: [],
+      clients: [],
+      attempt_target_models: [],
+    },
     items: [
       {
         ingress_request_id: "ingress-row-pages",

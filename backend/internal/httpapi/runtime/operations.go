@@ -3,6 +3,8 @@ package runtime
 import (
 	"net/http"
 	"strings"
+
+	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
 )
 
 type RuntimeOperationModelBindingSource string
@@ -70,6 +72,24 @@ func RuntimeOperationCatalog() []RuntimeOperation {
 	catalog := make([]RuntimeOperation, len(runtimeOperationCatalog))
 	copy(catalog, runtimeOperationCatalog)
 	return catalog
+}
+
+// ModelBoundRouteWitnessOperations projects the operation registry into the
+// HTTP-neutral shape consumed by the route-witness analyzer. Keeping this
+// projection beside the allowlist prevents management readiness from growing a
+// second, stale family/operation catalog.
+func ModelBoundRouteWitnessOperations() []modelrouting.RouteWitnessOperation {
+	operations := make([]modelrouting.RouteWitnessOperation, 0, len(runtimeOperationCatalog))
+	for _, operation := range runtimeOperationCatalog {
+		if operation.ModelBindingSource == RuntimeOperationModelBindingNone {
+			continue
+		}
+		operations = append(operations, modelrouting.RouteWitnessOperation{
+			Name:      operation.Name,
+			APIFamily: operation.APIFamily,
+		})
+	}
+	return operations
 }
 
 func ResolveRuntimeOperation(method string, requestPath string) (RuntimeOperationMatch, bool) {

@@ -26,6 +26,10 @@ func seedObserveUsageRows(t *testing.T, harness *contractHarness, profileID int,
 		if value, ok := row["model_id"].(string); ok {
 			modelID = value
 		}
+		apiFamily := "openai"
+		if value, ok := row["api_family"].(string); ok {
+			apiFamily = value
+		}
 		statusCode := 200
 		if value, ok := row["status_code"].(int); ok {
 			statusCode = value
@@ -109,7 +113,7 @@ func seedObserveUsageRows(t *testing.T, harness *contractHarness, profileID int,
 				input_cost_micros, output_cost_micros, reasoning_cost_micros,
 				cache_read_input_cost_micros, cache_creation_input_cost_micros, total_cost_original_micros,
 				attempt_count, request_path, endpoint_label_snapshot, created_at)
-			VALUES ($1, $2, $3, 'openai', $21, $4, $5, $6, $7, $8, $9, $22, $23, $24, $15, $16, $17, $10, $11, $12, $13, $19, $18, $20,
+			VALUES ($1, $2, $3, $25, $21, $4, $5, $6, $7, $8, $9, $22, $23, $24, $15, $16, $17, $10, $11, $12, $13, $19, $18, $20,
 				$15, $15, $15, $15, $15, $15,
 				1, '/v1/chat/completions', 'Observe Endpoint', $14)`,
 			profileID,
@@ -136,6 +140,7 @@ func seedObserveUsageRows(t *testing.T, harness *contractHarness, profileID int,
 			inputTokens,
 			cacheReadTokens,
 			cacheCreationTokens,
+			apiFamily,
 		); err != nil {
 			t.Fatalf("seed usage row: %v", err)
 		}
@@ -564,7 +569,7 @@ func TestObserveRequestsFinalFiltersDeepLink(t *testing.T) {
 	contextPayload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/query-context?preset=24h", nil, http.StatusOK)
 	token := contextPayload["query_context"].(string)
 	// final_result=failed deep link: only the 503 ingress's rows.
-	payloadEnvelope := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/requests?query_context="+token+"&ingress_final_result=failed", nil, http.StatusOK)
+	payloadEnvelope := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/requests?view=attempts&query_context="+token+"&final_result=failed", nil, http.StatusOK)
 	payload := payloadEnvelope["items"].([]any)
 	if len(payload) != 1 {
 		t.Fatalf("expected one retained row for failed cohort, got %+v", payloadEnvelope)
@@ -577,8 +582,31 @@ func TestObserveRequestsFinalFiltersDeepLink(t *testing.T) {
 		t.Fatalf("expected row_kind upstream, got %+v", item)
 	}
 
+	commaQuery := url.Values{
+		"view":              {"attempts"},
+		"query_context":     {token},
+		"final_result":      {"failed,completed"},
+		"final_endpoint_id": {"__null__"},
+	}
+	commaPayload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/requests?"+commaQuery.Encode(), nil, http.StatusOK)
+	if items := commaPayload["items"].([]any); len(items) != 2 {
+		t.Fatalf("expected same-key OR plus cross-key NULL filter to return two rows, got %+v", commaPayload)
+	}
+	repeatedQuery := url.Values{
+		"view":              {"attempts"},
+		"query_context":     {token},
+		"final_result":      {"failed", "completed"},
+		"final_endpoint_id": {"__null__"},
+	}
+	repeatedPayload := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/requests?"+repeatedQuery.Encode(), nil, http.StatusOK)
+	if len(repeatedPayload["items"].([]any)) != len(commaPayload["items"].([]any)) {
+		t.Fatalf("expected repeated and comma selectors to be equivalent: comma=%+v repeated=%+v", commaPayload, repeatedPayload)
+	}
+	invalid := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/requests?view=attempts&query_context="+url.QueryEscape(token)+"&final_result=not-a-result", nil, modelHeader(profileID))
+	assertStatus(t, invalid, http.StatusUnprocessableEntity)
+
 	// Final filters without query_context -> 422 query_context_required.
-	missingContext := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/requests?ingress_final_result=failed", nil, modelHeader(profileID))
+	missingContext := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/requests?view=attempts&final_result=failed", nil, modelHeader(profileID))
 	assertStatus(t, missingContext, http.StatusUnprocessableEntity)
 	var missingContextPayload map[string]any
 	decodeJSONResponse(t, missingContext, &missingContextPayload)
@@ -587,12 +615,18 @@ func TestObserveRequestsFinalFiltersDeepLink(t *testing.T) {
 	}
 
 	// Tampered token -> 422.
-	badContext := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/requests?query_context=bad.token&ingress_final_result=failed", nil, modelHeader(profileID))
+	badContext := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/requests?view=attempts&query_context=bad.token&final_result=failed", nil, modelHeader(profileID))
 	assertStatus(t, badContext, http.StatusUnprocessableEntity)
 	var badContextPayload map[string]any
 	decodeJSONResponse(t, badContext, &badContextPayload)
 	if badContextPayload["detail"] != "invalid query_context" {
 		t.Fatalf("expected invalid query_context, got %+v", badContextPayload)
+	}
+
+	// Requests triage is ordinary state and must remain usable without a token.
+	triage := modelJSON[map[string]any](t, harness, profileID, http.MethodGet, "/api/stats/requests?view=attempts&ingress_final_result=failed", nil, http.StatusOK)
+	if items := triage["items"].([]any); len(items) != 1 {
+		t.Fatalf("expected tokenless failed triage to select one row, got %+v", triage)
 	}
 }
 

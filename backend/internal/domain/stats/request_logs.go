@@ -108,6 +108,7 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 	}
 	var coverage QueryCoverage
 	var err error
+	exactIngressUnbounded := requestLogExactIngressWithoutWindow(params)
 	if params.Coverage != nil {
 		coverage = *params.Coverage
 	} else {
@@ -120,10 +121,12 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 	// Keep the SQL predicate and the response projection on the same snapshot;
 	// otherwise a caller could receive a complete-looking coverage object for
 	// rows outside the current retention floor.
-	fromTime := coverage.EffectiveFromTime
-	toTime := coverage.EffectiveToTime
-	params.FromTime = &fromTime
-	params.ToTime = &toTime
+	if !exactIngressUnbounded {
+		fromTime := coverage.EffectiveFromTime
+		toTime := coverage.EffectiveToTime
+		params.FromTime = &fromTime
+		params.ToTime = &toTime
+	}
 	currentEndpoints, currentEndpointsByID, err := loadCurrentEndpoints(ctx, exec, params.ProfileID)
 	if err != nil {
 		return RequestLogListResponse{}, err
@@ -146,7 +149,7 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 			return RequestLogListResponse{}, ruleErr
 		}
 		if !found {
-			return RequestLogListResponse{}, &HTTPError{StatusCode: 400, Detail: "invalid client_rule_id"}
+			return RequestLogListResponse{}, &HTTPError{StatusCode: 400, Code: "invalid_client_rule_id", Detail: "invalid client_rule_id"}
 		}
 		params.ClientRulePattern = &rule.RawPattern
 	}
@@ -312,7 +315,7 @@ func buildRequestLogBrowseWhere(params RequestLogListParams) (string, []any) {
 		clauses = append(clauses, fmt.Sprintf("resolved_target_model_id = $%d", len(args)))
 	}
 	if len(params.APIFamilies) > 0 || params.APIFamilyIsNull {
-		appendStringSelector(&clauses, &args, "api_family", params.APIFamilies, params.APIFamilyIsNull)
+		appendStringSelector(&clauses, &args, "NULLIF(api_family, '')", params.APIFamilies, params.APIFamilyIsNull)
 	}
 	if len(params.RowKinds) > 0 {
 		appendStringSelector(&clauses, &args, "row_kind", params.RowKinds, false)
@@ -332,6 +335,12 @@ func buildRequestLogBrowseWhere(params RequestLogListParams) (string, []any) {
 	} else if params.StatusCode != nil {
 		args = append(args, *params.StatusCode)
 		clauses = append(clauses, fmt.Sprintf(scopedRequestLogStatusSQL+" = $%d", len(args)))
+	}
+	if len(params.StreamOutcomes) > 0 || params.StreamOutcomeIsNull {
+		appendStringSelector(&clauses, &args, "stream_outcome", params.StreamOutcomes, params.StreamOutcomeIsNull)
+	}
+	if len(params.StreamErrorKinds) > 0 || params.StreamErrorKindIsNull {
+		appendStringSelector(&clauses, &args, "stream_error_kind", params.StreamErrorKinds, params.StreamErrorKindIsNull)
 	}
 	if params.ErrorText != nil && strings.TrimSpace(*params.ErrorText) != "" {
 		args = append(args, "%"+strings.TrimSpace(*params.ErrorText)+"%")
@@ -407,7 +416,8 @@ func hasFinalizedCohortSelectors(params RequestLogListParams) bool {
 		params.FinalEndpointID != nil || len(params.FinalEndpointIDs) > 0 || params.FinalEndpointIDIsNull ||
 		params.FinalTerminalTargetID != nil || len(params.FinalTerminalTargetIDs) > 0 || params.FinalTerminalTargetIDIsNull ||
 		params.FinalPricingStatus != nil || len(params.FinalPricingStatuses) > 0 || params.FinalPricingStatusIsNull || len(params.FinalUnpricedReasons) > 0 ||
-		params.FinalReportingEpoch != nil || len(params.FinalReportingEpochs) > 0 || params.FinalReportingEpochIsNull
+		params.FinalReportingEpoch != nil || len(params.FinalReportingEpochs) > 0 || params.FinalReportingEpochIsNull ||
+		params.FinalExclusion != nil
 }
 
 func appendStringSelector(clauses *[]string, args *[]any, column string, values []string, matchNull bool) {
@@ -482,6 +492,10 @@ const (
 // boundaries; they never provide an actual lower bound for `all` or a
 // complete claim for 7d/30d.
 func resolveOrdinaryRequestLogCoverage(ctx context.Context, exec queryExecutor, params RequestLogListParams) (QueryCoverage, error) {
+	return resolveOrdinaryRequestLogCoverageWithCustomLimit(ctx, exec, params, 30*24*time.Hour)
+}
+
+func resolveOrdinaryRequestLogCoverageWithCustomLimit(ctx context.Context, exec queryExecutor, params RequestLogListParams, maxCustomRange time.Duration) (QueryCoverage, error) {
 	referenceNow := time.Now().UTC()
 	if !params.CoverageReferenceNow.IsZero() {
 		referenceNow = params.CoverageReferenceNow.UTC()
@@ -506,15 +520,24 @@ func resolveOrdinaryRequestLogCoverage(ctx context.Context, exec queryExecutor, 
 	if toTime == nil {
 		toTime = params.ToTime
 	}
+	if params.IngressRequestID != nil && strings.TrimSpace(*params.IngressRequestID) != "" && strings.TrimSpace(preset) == "" && fromTime == nil && toTime == nil {
+		preset = "all"
+	}
 	preset, fromTime, toTime, err = normalizeActualCoveragePreset(preset, fromTime, toTime, referenceNow)
 	if err != nil {
 		return QueryCoverage{}, err
 	}
-	bounds, err := ResolveQueryBoundsFromActualCoverage(preset, fromTime, toTime, referenceNow, source, actual)
+	bounds, err := resolveQueryBoundsFromActualCoverageWithCustomLimit(preset, fromTime, toTime, referenceNow, source, actual, maxCustomRange)
 	if err != nil {
 		return QueryCoverage{}, err
 	}
 	return QueryCoverageFromActualBounds(bounds, source, actual), nil
+}
+
+func requestLogExactIngressWithoutWindow(params RequestLogListParams) bool {
+	return params.IngressRequestID != nil && strings.TrimSpace(*params.IngressRequestID) != "" &&
+		strings.TrimSpace(params.CoveragePreset) == "" && params.CoverageRequestedFrom == nil && params.CoverageRequestedTo == nil &&
+		params.FromTime == nil && params.ToTime == nil && params.QueryContextFrom == nil && params.QueryContextTo == nil
 }
 
 // buildFinalizedCohortExistsClause selects ingresses whose authoritative
@@ -598,9 +621,81 @@ func buildFinalizedCohortExistsClause(params RequestLogListParams, args *[]any) 
 		appendStringSelector(&clauses, args, "ue.stream_outcome", params.FinalStreamOutcomes, params.FinalStreamOutcomeIsNull)
 	}
 	if len(params.FinalStreamErrorKinds) > 0 || params.FinalStreamErrorKindIsNull {
-		appendStringSelector(&clauses, args, "ue.stream_error_kind", params.FinalStreamErrorKinds, params.FinalStreamErrorKindIsNull)
+		appendStringSelector(&clauses, args, "NULLIF(ue.stream_error_kind, '')", params.FinalStreamErrorKinds, params.FinalStreamErrorKindIsNull)
 	}
+	appendFinalizedExclusionSelector(&clauses, args, params.FinalExclusion)
 	return "EXISTS (SELECT 1 FROM usage_request_events ue WHERE " + strings.Join(clauses, " AND ") + ")"
+}
+
+// appendFinalizedExclusionSelector applies the complement of the visible
+// Top-N values for one finalized Errors facet. The facet-to-expression switch
+// is closed and values are always placeholders, so the synthetic replay
+// selector cannot introduce a dynamic SQL identifier or literal.
+func appendFinalizedExclusionSelector(clauses *[]string, args *[]any, exclusion *FinalizedCohortExclusion) {
+	if exclusion == nil {
+		return
+	}
+	column := ""
+	switch exclusion.Facet {
+	case FinalExclusionStatusCode:
+		column = "ue.status_code::text"
+	case FinalExclusionStreamOutcome:
+		column = "NULLIF(ue.stream_outcome, '')"
+	case FinalExclusionStreamErrorKind:
+		column = "NULLIF(ue.stream_error_kind, '')"
+	case FinalExclusionAPIFamily:
+		column = "NULLIF(ue.api_family, '')"
+	case FinalExclusionIngressModel:
+		column = "NULLIF(ue.model_id, '')"
+	case FinalExclusionFinalTargetModel:
+		column = "NULLIF(ue.resolved_target_model_id, '')"
+	case FinalExclusionFinalEndpoint:
+		column = "(" + normalizedUsageEndpointIDSQL + ")::text"
+	case FinalExclusionFinalTerminalTarget:
+		column = "(" + normalizedUsageTerminalTargetIDSQL + ")::text"
+	default:
+		// HTTP parsing rejects unknown facets. Domain-only misuse remains
+		// fail-closed by adding an impossible predicate rather than silently
+		// broadening the cohort.
+		*clauses = append(*clauses, "FALSE")
+		return
+	}
+	appendStringExclusionSelector(clauses, args, column, exclusion.Values, exclusion.ExcludeNull)
+}
+
+func appendStringExclusionSelector(clauses *[]string, args *[]any, column string, values []string, excludeNull bool) {
+	normalized := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" || trimmed == "__null__" {
+			continue
+		}
+		if _, duplicate := seen[trimmed]; duplicate {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		normalized = append(normalized, trimmed)
+	}
+	parts := make([]string, 0, 2)
+	if excludeNull {
+		parts = append(parts, column+" IS NOT NULL")
+	} else {
+		parts = append(parts, column+" IS NULL")
+	}
+	if len(normalized) > 0 {
+		placeholders := make([]string, 0, len(normalized))
+		for _, value := range normalized {
+			*args = append(*args, value)
+			placeholders = append(placeholders, fmt.Sprintf("$%d", len(*args)))
+		}
+		parts = append(parts, column+" NOT IN ("+strings.Join(placeholders, ",")+")")
+	}
+	joiner := " OR "
+	if excludeNull {
+		joiner = " AND "
+	}
+	*clauses = append(*clauses, "("+strings.Join(parts, joiner)+")")
 }
 
 // finalizedUsageResultClassifierSQL mirrors the Observe finalized outcome

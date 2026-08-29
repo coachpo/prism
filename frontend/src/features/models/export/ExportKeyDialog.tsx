@@ -19,10 +19,11 @@ import {
   FieldSet,
 } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
+import { OperatorCallout } from "@/shared/design-system";
 
 export interface KeyDecision {
   mode: "none" | "manual";
-  /** Operator-typed key, trimmed at confirmation; an explicit empty key stays explicit. */
+  /** Operator-typed key, trimmed at confirmation and non-empty in manual mode. */
   manualKey: string;
 }
 
@@ -34,6 +35,8 @@ export interface KeyDecision {
 export function ExportKeyDialog(props: {
   open: boolean;
   selectedCount: number;
+  error: string | null;
+  confirmDisabled?: boolean;
   onClose: () => void;
   onConfirm: (decision: KeyDecision) => Promise<void>;
 }) {
@@ -42,6 +45,7 @@ export function ExportKeyDialog(props: {
   const [mode, setMode] = useState<KeyDecision["mode"]>("none");
   const [manualKey, setManualKey] = useState("");
   const [busy, setBusy] = useState(false);
+  const manualKeyInvalid = mode === "manual" && manualKey.trim() === "";
 
   const clearCredential = () => {
     setMode("none");
@@ -61,6 +65,7 @@ export function ExportKeyDialog(props: {
   };
 
   const handleConfirm = async () => {
+    if (manualKeyInvalid) return;
     setBusy(true);
     try {
       await props.onConfirm({ mode, manualKey: manualKey.trim() });
@@ -128,7 +133,7 @@ export function ExportKeyDialog(props: {
           </FieldGroup>
         </FieldSet>
         {mode === "manual" && (
-          <Field>
+          <Field data-invalid={manualKeyInvalid || undefined}>
             <FieldLabel htmlFor="export-manual-key">
               {copy.manualKeyLabel}
             </FieldLabel>
@@ -137,16 +142,25 @@ export function ExportKeyDialog(props: {
               type="password"
               autoComplete="off"
               value={manualKey}
+              aria-invalid={manualKeyInvalid}
               onChange={(event) => setManualKey(event.target.value)}
             />
-            <FieldDescription>{copy.manualKeyHint}</FieldDescription>
+            <FieldDescription>
+              {manualKeyInvalid ? copy.manualKeyRequired : copy.manualKeyHint}
+            </FieldDescription>
           </Field>
         )}
+        {props.error ? (
+          <OperatorCallout intent="danger" description={props.error} />
+        ) : null}
         <DialogFooter>
           <Button variant="outline" onClick={handleClose} disabled={busy}>
             {copy.cancel}
           </Button>
-          <Button onClick={() => void handleConfirm()} disabled={busy}>
+          <Button
+            onClick={() => void handleConfirm()}
+            disabled={busy || manualKeyInvalid || props.confirmDisabled}
+          >
             {busy ? <Spinner data-icon="inline-start" /> : null}
             {busy ? copy.generating : copy.confirmGenerate}
           </Button>

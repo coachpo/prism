@@ -22,6 +22,10 @@ type RequestLogListParams struct {
 	StatusCode                  *int
 	StatusCodes                 []int
 	StatusCodeIsNull            bool
+	StreamOutcomes              []string
+	StreamOutcomeIsNull         bool
+	StreamErrorKinds            []string
+	StreamErrorKindIsNull       bool
 	ErrorText                   *string
 	PricingStatus               *string
 	UnpricedReasons             []string
@@ -69,10 +73,14 @@ type RequestLogListParams struct {
 	FinalReportingEpoch         *string
 	FinalReportingEpochs        []string
 	FinalReportingEpochIsNull   bool
-	AttemptTriggers             []string
-	AttemptTriggerIsNull        bool
-	AttemptResults              []string
-	AttemptResultIsNull         bool
+	// FinalExclusion is the bounded complement selector emitted by Observe
+	// Errors for a Top-N "Other" remainder. It is valid only with a signed
+	// query context and applies to the authoritative finalized usage row.
+	FinalExclusion       *FinalizedCohortExclusion
+	AttemptTriggers      []string
+	AttemptTriggerIsNull bool
+	AttemptResults       []string
+	AttemptResultIsNull  bool
 	// CoverageRequestedFrom/To carry the parsed explicit request bounds (nil
 	// when absent) so the coverage projection can be resolved in the same
 	// snapshot as the rows.
@@ -91,6 +99,27 @@ type RequestLogListParams struct {
 	Limit     int
 	Offset    int
 }
+
+// FinalizedCohortExclusion names one allowlisted finalized facet and the
+// visible Top-N values to exclude. Values are parameterized by the request-log
+// query builder; ExcludeNull distinguishes a visible unattributed bucket from
+// an ordinary non-null value.
+type FinalizedCohortExclusion struct {
+	Facet       string
+	Values      []string
+	ExcludeNull bool
+}
+
+const (
+	FinalExclusionStatusCode          = "status_code"
+	FinalExclusionStreamOutcome       = "stream_outcome"
+	FinalExclusionStreamErrorKind     = "stream_error_kind"
+	FinalExclusionAPIFamily           = "api_family"
+	FinalExclusionIngressModel        = "ingress_model_id"
+	FinalExclusionFinalTargetModel    = "final_target_model_id"
+	FinalExclusionFinalEndpoint       = "final_endpoint_id"
+	FinalExclusionFinalTerminalTarget = "final_terminal_target_id"
+)
 
 type RequestLogFilterEndpointOption struct {
 	EndpointID    int    `json:"endpoint_id"`
@@ -622,17 +651,19 @@ type UsageSnapshotResponse struct {
 }
 
 type EndpointModelStatistic struct {
-	ModelID              string   `json:"model_id"`
-	ModelLabel           string   `json:"model_label"`
-	RequestCount         int      `json:"request_count"`
-	SuccessCount         *int     `json:"success_count"`
-	FailedCount          *int     `json:"failed_count"`
-	PricedRequestCount   *int     `json:"priced_request_count"`
-	UnpricedRequestCount *int     `json:"unpriced_request_count"`
-	SuccessRate          float64  `json:"success_rate"`
-	P50TTFTMS            *int     `json:"p50_ttft_ms"`
-	P95TTFTMS            *int     `json:"p95_ttft_ms"`
-	TotalTokens          int      `json:"total_tokens"`
-	TotalCostMicros      int64    `json:"total_cost_micros"`
-	AvgOutputRateTPS     *float64 `json:"avg_output_rate_tps"`
+	ModelID              string            `json:"model_id"`
+	ModelLabel           string            `json:"model_label"`
+	RequestCount         int               `json:"request_count"`
+	SuccessCount         *int              `json:"success_count"`
+	FailedCount          *int              `json:"failed_count"`
+	PricedRequestCount   *int              `json:"priced_request_count"`
+	UnpricedRequestCount *int              `json:"unpriced_request_count"`
+	SuccessRate          float64           `json:"success_rate"`
+	P50TTFTMS            *int              `json:"p50_ttft_ms"`
+	P95TTFTMS            *int              `json:"p95_ttft_ms"`
+	TotalTokens          int               `json:"total_tokens"`
+	TotalCostMicros      int64             `json:"total_cost_micros"`
+	KnownCostMicros      *int64            `json:"known_cost_micros"`
+	AvgOutputRateTPS     *float64          `json:"avg_output_rate_tps"`
+	Samples              ScopeSampleCounts `json:"samples"`
 }

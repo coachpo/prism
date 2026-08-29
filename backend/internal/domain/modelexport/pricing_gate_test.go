@@ -28,9 +28,9 @@ func completeCard() PriceCardSnapshot {
 	}
 }
 
-func TestDecidePriceExportHappyPathBothPlatforms(t *testing.T) {
+func TestDecidePriceExportHappyPath(t *testing.T) {
 	target := standardTarget(completeCard())
-	decision := DecidePriceExport(PlatformPi, []TargetPriceSnapshot{target})
+	decision := DecidePriceExport([]TargetPriceSnapshot{target})
 	if !decision.Exportable || len(decision.WarningCodes) != 0 {
 		t.Fatalf("pi must export a complete flat price: %+v", decision)
 	}
@@ -62,7 +62,7 @@ func TestDecidePriceExportGatesKeepModelAndOmitCost(t *testing.T) {
 	for _, testCase := range cases {
 		target := standardTarget(completeCard())
 		testCase.mutate(&target)
-		decision := DecidePriceExport(PlatformPi, []TargetPriceSnapshot{target})
+		decision := DecidePriceExport([]TargetPriceSnapshot{target})
 		if decision.Exportable {
 			t.Fatalf("%s must keep the cost group omitted", testCase.name)
 		}
@@ -91,16 +91,16 @@ func TestDecidePriceExportTierRepresentability(t *testing.T) {
 		CurrencyCode:     "USD",
 		PricingUnit:      "PER_1M",
 	}
-	if decision := DecidePriceExport(PlatformPi, []TargetPriceSnapshot{tiered}); !decision.Exportable {
+	if decision := DecidePriceExport([]TargetPriceSnapshot{tiered}); !decision.Exportable {
 		t.Fatalf("pi can express one strict tier: %+v", decision.WarningCodes)
 	}
 	*tiered.TierThreshold = 200001
-	if decision := DecidePriceExport(PlatformPi, []TargetPriceSnapshot{tiered}); !decision.Exportable {
+	if decision := DecidePriceExport([]TargetPriceSnapshot{tiered}); !decision.Exportable {
 		t.Fatalf("pi can express any positive tier threshold")
 	}
 	zeroThreshold := tiered
 	zeroThreshold.TierThreshold = ptrInt(0)
-	if decision := DecidePriceExport(PlatformPi, []TargetPriceSnapshot{zeroThreshold}); decision.Exportable {
+	if decision := DecidePriceExport([]TargetPriceSnapshot{zeroThreshold}); decision.Exportable {
 		t.Fatalf("pi cannot express zero tier threshold")
 	}
 }
@@ -110,7 +110,7 @@ func TestDecidePriceExportConflictingTargetsFailClosed(t *testing.T) {
 	second := standardTarget(completeCard())
 	second.TerminalTargetID = 2
 	second.Card.OutputPrice = "16"
-	decision := DecidePriceExport(PlatformPi, []TargetPriceSnapshot{first, second})
+	decision := DecidePriceExport([]TargetPriceSnapshot{first, second})
 	if decision.Exportable {
 		t.Fatalf("conflicting target prices must fail closed")
 	}
@@ -128,7 +128,7 @@ func TestDecidePriceExportConflictingTargetsFailClosed(t *testing.T) {
 func TestDecidePriceExportKeepsMissingReachableTargets(t *testing.T) {
 	configured := standardTarget(completeCard())
 	missing := TargetPriceSnapshot{TerminalTargetID: 2}
-	decision := DecidePriceExport(PlatformPi, []TargetPriceSnapshot{configured, missing})
+	decision := DecidePriceExport([]TargetPriceSnapshot{configured, missing})
 	if decision.Exportable {
 		t.Fatalf("a reachable target without a current template must omit the whole cost group")
 	}
@@ -143,7 +143,7 @@ func TestDecidePriceExportTreatsExplicitZeroAsConfigured(t *testing.T) {
 		InputPrice: "0", OutputPrice: "0", CachedInputPrice: &zero,
 		CacheCreationPrice: &zero, ReasoningPrice: &zero,
 	}
-	decision := DecidePriceExport(PlatformPi, []TargetPriceSnapshot{standardTarget(card)})
+	decision := DecidePriceExport([]TargetPriceSnapshot{standardTarget(card)})
 	if !decision.Exportable || len(decision.WarningCodes) != 0 {
 		t.Fatalf("explicit zero prices are configured and free: %+v", decision)
 	}

@@ -17,7 +17,7 @@ func (s *Service) handleCostSegments(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (statsdomain.CostSegmentPage, error) {
+	response, err := pgxutil.InReadOnlyTxValue(r.Context(), s.pool, "stats cost segments", func(tx pgx.Tx) (statsdomain.CostSegmentPage, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return statsdomain.CostSegmentPage{}, err
@@ -25,6 +25,9 @@ func (s *Service) handleCostSegments(w http.ResponseWriter, r *http.Request) {
 		limit, err := parsePositiveIntWithDefault(r, "limit", 50)
 		if err != nil {
 			return statsdomain.CostSegmentPage{}, err
+		}
+		if limit > 100 {
+			return statsdomain.CostSegmentPage{}, invalidQueryParameter("limit", "must be within [1, 100]")
 		}
 		params := statsdomain.CostSegmentParams{ProfileID: profile.ID, Limit: limit, Cursor: normalizedQueryString(r, "cursor")}
 		cursorSigningKey := statsdomain.DeriveCostSegmentCursorSigningKey(s.secretEncryptionKey)
@@ -45,6 +48,10 @@ func (s *Service) handleCostSegmentSymbols(w http.ResponseWriter, r *http.Reques
 	limit, err := parsePositiveIntWithDefault(r, "limit", 50)
 	if err != nil {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+		return
+	}
+	if limit > 100 {
+		writeDomainError(w, r, s.corsSnapshot(), invalidQueryParameter("limit", "must be within [1, 100]"))
 		return
 	}
 	offset, err := parseNonNegativeIntWithDefault(r, "offset", 0)
@@ -87,7 +94,7 @@ func (s *Service) handleEndpointModelStatistics(w http.ResponseWriter, r *http.R
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (statsdomain.EndpointModelStatisticsResponse, error) {
+	response, err := pgxutil.InReadOnlyTxValue(r.Context(), s.pool, "stats endpoint model statistics", func(tx pgx.Tx) (statsdomain.EndpointModelStatisticsResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return statsdomain.EndpointModelStatisticsResponse{}, err

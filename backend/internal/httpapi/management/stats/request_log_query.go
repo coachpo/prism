@@ -114,6 +114,13 @@ func parseRequestLogListParams(r *http.Request, profileID int, observabilitySign
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
 	}
+	_, streamOutcomes, streamOutcomeIsNull := parseRepeatedStringOrNull(r, "stream_outcome")
+	streamOutcomes = lowerSelectorValues(streamOutcomes)
+	if err := validateSelectorValues("stream_outcome", streamOutcomes,
+		"not_streaming", "completed", "gateway_timeout", "provider_incomplete", "client_disconnected", "upstream_read_error", "upstream_ended_without_terminal", "unknown"); err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
+	_, streamErrorKinds, streamErrorKindIsNull := parseRepeatedStringOrNull(r, "stream_error_kind")
 	pricingStatus := normalizedQueryString(r, "pricing_status")
 	if pricingStatus != nil {
 		normalized := strings.ToLower(strings.TrimSpace(*pricingStatus))
@@ -220,6 +227,10 @@ func parseRequestLogListParams(r *http.Request, profileID int, observabilitySign
 		return statsdomain.RequestLogListParams{}, err
 	}
 	_, finalStreamErrorKinds, finalStreamErrorKindIsNull := parseRepeatedStringOrNull(r, "final_stream_error_kind")
+	finalExclusion, err := parseFinalizedCohortExclusion(r)
+	if err != nil {
+		return statsdomain.RequestLogListParams{}, err
+	}
 	sortBy, sortOrder, err := parseRequestLogSort(r)
 	if err != nil {
 		return statsdomain.RequestLogListParams{}, err
@@ -241,7 +252,10 @@ func parseRequestLogListParams(r *http.Request, profileID int, observabilitySign
 		ModelID:          modelID, ModelIDs: modelIDs, ModelIDIsNull: modelIDIsNull,
 		ResolvedTargetModelID: resolvedTargetModelID, ResolvedTargetModelIDs: resolvedTargetModelIDs, ResolvedTargetModelIDIsNull: resolvedTargetModelIDIsNull,
 		APIFamilies: apiFamilies, APIFamilyIsNull: apiFamilyIsNull, RowKinds: rowKinds,
-		StatusFamily: statusFamily, StatusCode: statusCode, StatusCodes: statusCodes, StatusCodeIsNull: statusCodeIsNull, ErrorText: normalizedQueryString(r, "error_text"),
+		StatusFamily: statusFamily, StatusCode: statusCode, StatusCodes: statusCodes, StatusCodeIsNull: statusCodeIsNull,
+		StreamOutcomes: streamOutcomes, StreamOutcomeIsNull: streamOutcomeIsNull,
+		StreamErrorKinds: streamErrorKinds, StreamErrorKindIsNull: streamErrorKindIsNull,
+		ErrorText:     normalizedQueryString(r, "error_text"),
 		PricingStatus: pricingStatus, UnpricedReasons: unpricedReasons, PricingCardRole: pricingCardRole, PricingSelectionState: pricingSelectionState,
 		FromTime: fromTime, ToTime: toTime,
 		EndpointID: endpointID, EndpointIDs: endpointIDs, EndpointIDIsNull: endpointIDIsNull,
@@ -257,11 +271,89 @@ func parseRequestLogListParams(r *http.Request, profileID int, observabilitySign
 		FinalTerminalTargetID: finalTerminalTargetID, FinalTerminalTargetIDs: finalTerminalTargetIDs, FinalTerminalTargetIDIsNull: finalTerminalIsNull,
 		FinalPricingStatus: finalPricingStatus, FinalPricingStatuses: finalPricingStatuses, FinalPricingStatusIsNull: finalPricingStatusIsNull, FinalUnpricedReasons: finalUnpricedReasons,
 		FinalReportingEpoch: reportingEpoch, FinalReportingEpochs: reportingEpochs, FinalReportingEpochIsNull: reportingEpochIsNull,
+		FinalExclusion:  finalExclusion,
 		AttemptTriggers: attemptTriggers, AttemptTriggerIsNull: attemptTriggerIsNull,
 		AttemptResults: attemptResults, AttemptResultIsNull: attemptResultIsNull,
 		CoveragePreset: coveragePreset, CoverageRequestedFrom: fromTime, CoverageRequestedTo: toTime, CoverageReferenceNow: referenceNow.UTC(),
 		SortBy: sortBy, SortOrder: sortOrder, Limit: limit, Offset: offset,
 	}, nil
+}
+
+// parseFinalizedCohortExclusion parses the one structured, signed-only
+// complement selector used by usage-errors Top-N remainders:
+//
+//	final_exclude=<facet>,<visible-value>,...
+//
+// It is deliberately capped at the usage-errors limit (50 visible values)
+// and every facet/value is validated before the domain query sees it.
+func parseFinalizedCohortExclusion(r *http.Request) (*statsdomain.FinalizedCohortExclusion, error) {
+	parts := collectRepeatedCommaValues(r, "final_exclude")
+	if len(parts) == 0 {
+		return nil, nil
+	}
+	if len(parts) < 2 || len(parts) > 51 {
+		return nil, invalidQueryParameter("final_exclude", "must contain one facet and between 1 and 50 visible values")
+	}
+	facet := strings.ToLower(strings.TrimSpace(parts[0]))
+	exclusion := &statsdomain.FinalizedCohortExclusion{Facet: facet, Values: make([]string, 0, len(parts)-1)}
+	seen := map[string]struct{}{}
+	appendValue := func(value string) {
+		if _, duplicate := seen[value]; duplicate {
+			return
+		}
+		seen[value] = struct{}{}
+		exclusion.Values = append(exclusion.Values, value)
+	}
+	for _, raw := range parts[1:] {
+		value := strings.TrimSpace(raw)
+		if value == "__null__" {
+			exclusion.ExcludeNull = true
+			continue
+		}
+		switch facet {
+		case statsdomain.FinalExclusionStatusCode:
+			parsed, err := strconv.Atoi(value)
+			if err != nil || parsed < 100 || parsed > 599 {
+				return nil, invalidQueryParameter("final_exclude", "status_code values must be within [100, 599]")
+			}
+			appendValue(strconv.Itoa(parsed))
+		case statsdomain.FinalExclusionStreamOutcome:
+			value = strings.ToLower(value)
+			if err := validateSelectorValues("final_exclude stream_outcome", []string{value},
+				"not_streaming", "completed", "gateway_timeout", "provider_incomplete", "client_disconnected", "upstream_read_error", "upstream_ended_without_terminal", "unknown"); err != nil {
+				return nil, err
+			}
+			appendValue(value)
+		case statsdomain.FinalExclusionAPIFamily:
+			value = strings.ToLower(value)
+			if err := validateSelectorValues("final_exclude api_family", []string{value}, "openai", "anthropic", "gemini"); err != nil {
+				return nil, err
+			}
+			appendValue(value)
+		case statsdomain.FinalExclusionIngressModel, statsdomain.FinalExclusionFinalTargetModel:
+			if len(value) > 200 {
+				return nil, invalidQueryParameter("final_exclude", "model values must not exceed 200 characters")
+			}
+			appendValue(value)
+		case statsdomain.FinalExclusionStreamErrorKind:
+			if len(value) > 50 {
+				return nil, invalidQueryParameter("final_exclude", "stream_error_kind values must not exceed 50 characters")
+			}
+			appendValue(value)
+		case statsdomain.FinalExclusionFinalEndpoint, statsdomain.FinalExclusionFinalTerminalTarget:
+			parsed, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || parsed <= 0 {
+				return nil, invalidQueryParameter("final_exclude", "entity IDs must be positive integers")
+			}
+			appendValue(strconv.FormatInt(parsed, 10))
+		default:
+			return nil, invalidQueryParameter("final_exclude", "facet is not supported")
+		}
+	}
+	if len(exclusion.Values) == 0 && !exclusion.ExcludeNull {
+		return nil, invalidQueryParameter("final_exclude", "must exclude at least one visible value")
+	}
+	return exclusion, nil
 }
 
 // parseRequestLogSort resolves the attempt-view sort grammar: `sort_by` over
@@ -407,6 +499,8 @@ func rejectUnsupportedRequestLogQueryKeys(r *http.Request) error {
 		"row_kind":                 {},
 		"attempt_trigger":          {},
 		"attempt_result":           {},
+		"stream_outcome":           {},
+		"stream_error_kind":        {},
 		"status_family":            {},
 		"status_code":              {},
 		"error_text":               {},
@@ -429,6 +523,7 @@ func rejectUnsupportedRequestLogQueryKeys(r *http.Request) error {
 		"final_status_code":        {},
 		"final_stream_outcome":     {},
 		"final_stream_error_kind":  {},
+		"final_exclude":            {},
 		"final_target_model_id":    {},
 		"final_endpoint_id":        {},
 		"final_terminal_target_id": {},

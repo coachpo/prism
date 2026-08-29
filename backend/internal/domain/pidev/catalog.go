@@ -3,6 +3,7 @@ package pidev
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,22 +23,21 @@ type Model struct {
 
 	Name             *string
 	API              string // e.g. "openai-completions", "openai-responses"
-	Provider         string // provider field inside entry, must equal outer provider_id
-	BaseURL          *string
 	Reasoning        *bool
 	Input            []string // modalities input
 	ContextWindow    *int64
 	MaxTokens        *int64
 	ThinkingLevelMap map[string]*string // off/minimal/low/medium/high/xhigh/max -> string|null
 	Compat           map[string]any
+	// DroppedFields contains sorted source paths that were deliberately not
+	// retained because they are unsafe, unsupported, or belong to another
+	// Pi API's compat schema. Examples: headers and
+	// compat.allowedFallbackModels.
+	DroppedFields []string
 
-	// Raw cost is retained for schema validation but never emitted into
-	// Prism output. Pricing truth stays with Prism templates.
-	RawCost json.RawMessage
-
-	// Ignored fields are validated then dropped: headers, samplingParams,
-	// fallback/routing etc. We keep them only to ensure they don't leak
-	// into output.
+	// Locked and unsafe source fields are validated then made
+	// unrepresentable: provider, baseUrl, cost, headers, samplingParams, and
+	// fallback/routing never survive this parser projection.
 }
 
 // Provider is one validated pi.dev provider shard.
@@ -55,17 +55,6 @@ type Catalog struct {
 	FetchedAt      time.Time
 	CheckedAt      time.Time
 	Providers      map[string]*Provider
-}
-
-// Revision returns the catalog revision (X-Pi-Model-Catalog-Revision) or ETag fallback.
-func (c *Catalog) RevisionString() string {
-	if c == nil {
-		return ""
-	}
-	if c.Revision != "" {
-		return c.Revision
-	}
-	return c.ETag
 }
 
 // Find locates one entry by exact provider_id + model_id.
@@ -143,10 +132,14 @@ func parseCatalog(payload []byte) (map[string]*Provider, error) {
 	if err := decoder.Decode(&raw); err != nil {
 		return nil, fmt.Errorf("top-level document must be a JSON object: %w", err)
 	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return nil, fmt.Errorf("catalog must contain exactly one JSON document")
+	}
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("catalog must contain at least one provider")
 	}
 	providers := make(map[string]*Provider, len(raw))
+	totalModels := 0
 	for providerID, providerRaw := range raw {
 		if strings.TrimSpace(providerID) == "" {
 			return nil, fmt.Errorf("provider id must not be empty")
@@ -156,6 +149,10 @@ func parseCatalog(payload []byte) (map[string]*Provider, error) {
 			return nil, err
 		}
 		providers[providerID] = provider
+		totalModels += len(provider.Models)
+	}
+	if totalModels == 0 {
+		return nil, fmt.Errorf("catalog must contain at least one model")
 	}
 	return providers, nil
 }
@@ -163,7 +160,7 @@ func parseCatalog(payload []byte) (map[string]*Provider, error) {
 func parseProvider(providerID string, raw json.RawMessage) (*Provider, error) {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" || trimmed == "null" {
-		return &Provider{ID: providerID, Models: map[string]*Model{}}, nil
+		return nil, fmt.Errorf("provider %q must be a JSON object, not null", providerID)
 	}
 	mapping := map[string]json.RawMessage{}
 	if err := jsonUnmarshalUseNumber(raw, &mapping); err != nil {
@@ -222,13 +219,12 @@ func parseModel(outerProviderID, modelID string, raw json.RawMessage) (*Model, e
 		ProviderID: outerProviderID,
 		ModelID:    modelID,
 		API:        api,
-		Provider:   innerProvider,
 	}
 	// optional name
 	if nameRaw, ok := body["name"]; ok && string(nameRaw) != "null" {
 		var name string
-		if err := json.Unmarshal(nameRaw, &name); err != nil {
-			return nil, fmt.Errorf("model %q/%q name must be a string", outerProviderID, modelID)
+		if err := json.Unmarshal(nameRaw, &name); err != nil || name == "" {
+			return nil, fmt.Errorf("model %q/%q name must be a non-empty string", outerProviderID, modelID)
 		}
 		model.Name = &name
 	}
@@ -238,7 +234,6 @@ func parseModel(outerProviderID, modelID string, raw json.RawMessage) (*Model, e
 		if err := json.Unmarshal(baseURLRaw, &baseURL); err != nil {
 			return nil, fmt.Errorf("model %q/%q baseUrl must be a string", outerProviderID, modelID)
 		}
-		model.BaseURL = &baseURL
 	}
 	// reasoning optional bool
 	if reasoningRaw, ok := body["reasoning"]; ok && string(reasoningRaw) != "null" {
@@ -302,15 +297,19 @@ func parseModel(outerProviderID, modelID string, raw json.RawMessage) (*Model, e
 	// compat optional
 	if compatRaw, ok := body["compat"]; ok && string(compatRaw) != "null" {
 		var compat map[string]any
-		if err := json.Unmarshal(compatRaw, &compat); err != nil {
+		if err := jsonUnmarshalUseNumber(compatRaw, &compat); err != nil {
 			return nil, fmt.Errorf("model %q/%q compat must be an object", outerProviderID, modelID)
 		}
-		model.Compat = compat
+		clean, dropped, err := SanitizeCompat(api, compat)
+		if err != nil {
+			return nil, fmt.Errorf("model %q/%q %w", outerProviderID, modelID, err)
+		}
+		model.Compat = clean
+		model.DroppedFields = append(model.DroppedFields, dropped...)
 	}
 	if costRaw, ok := body["cost"]; ok && string(costRaw) != "null" {
-		// keep raw for validation but not used in output
-		model.RawCost = costRaw
-		// Validate it is an object with numbers
+		// Validate it is an object with numbers, then discard it. Prism
+		// pricing is the only render authority.
 		var costMap map[string]json.RawMessage
 		if err := json.Unmarshal(costRaw, &costMap); err != nil {
 			return nil, fmt.Errorf("model %q/%q cost must be an object", outerProviderID, modelID)
@@ -324,10 +323,47 @@ func parseModel(outerProviderID, modelID string, raw json.RawMessage) (*Model, e
 			}
 		}
 	}
-	// headers and samplingParams are explicitly ignored after validation that they are objects if present
-	// but they must NOT be used to override.
-	// We accept any JSON for them to keep schema flexible, but ensure they are not HTML.
+	if headersRaw, ok := body["headers"]; ok && string(headersRaw) != "null" {
+		var headers map[string]string
+		if err := json.Unmarshal(headersRaw, &headers); err != nil {
+			return nil, fmt.Errorf("model %q/%q headers must be an object of strings", outerProviderID, modelID)
+		}
+		model.DroppedFields = append(model.DroppedFields, "headers")
+	}
+	if samplingRaw, ok := body["samplingParams"]; ok && string(samplingRaw) != "null" {
+		var sampling map[string]any
+		if err := jsonUnmarshalUseNumber(samplingRaw, &sampling); err != nil {
+			return nil, fmt.Errorf("model %q/%q samplingParams must be an object", outerProviderID, modelID)
+		}
+		model.DroppedFields = append(model.DroppedFields, "samplingParams")
+	}
+	known := map[string]struct{}{
+		"id": {}, "name": {}, "api": {}, "provider": {}, "baseUrl": {},
+		"reasoning": {}, "input": {}, "cost": {}, "contextWindow": {},
+		"maxTokens": {}, "thinkingLevelMap": {}, "compat": {}, "headers": {},
+		"samplingParams": {},
+	}
+	for key := range body {
+		if _, ok := known[key]; !ok {
+			model.DroppedFields = append(model.DroppedFields, key)
+		}
+	}
+	sort.Strings(model.DroppedFields)
+	model.DroppedFields = dedupeStrings(model.DroppedFields)
 	return model, nil
+}
+
+func dedupeStrings(values []string) []string {
+	if len(values) < 2 {
+		return values
+	}
+	out := values[:0]
+	for _, value := range values {
+		if len(out) == 0 || out[len(out)-1] != value {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func parsePositiveInt(s string) (int64, error) {
@@ -338,8 +374,8 @@ func parsePositiveInt(s string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if v < 0 {
-		return 0, fmt.Errorf("must be non-negative")
+	if v <= 0 {
+		return 0, fmt.Errorf("must be positive")
 	}
 	return v, nil
 }

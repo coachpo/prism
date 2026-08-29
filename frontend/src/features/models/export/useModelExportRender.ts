@@ -34,6 +34,7 @@ interface UseModelExportRenderInput {
   renderFailedMessage: string;
   selectedIds: ReadonlySet<number>;
   source: ExportSourceResponse | undefined;
+  sourceActionsBlocked: boolean;
 }
 
 export function useModelExportRender({
@@ -41,6 +42,7 @@ export function useModelExportRender({
   renderFailedMessage,
   selectedIds,
   source,
+  sourceActionsBlocked,
 }: UseModelExportRenderInput) {
   const [gatewayOrigin, setGatewayOrigin] = useState(defaultGatewayOrigin);
   const [providerId, setProviderId] = useState(DEFAULT_PROVIDER_ID);
@@ -60,14 +62,15 @@ export function useModelExportRender({
   const providerIdInvalid =
     normalizedProviderId === "" || normalizedProviderId.includes("/");
 
-  // Render only ever trusts a persisted binding; a selected model whose
-  // binding is not healthy (unbound or drifted) cannot be rendered yet.
+  // Render only trusts a persisted binding whose frozen model id and final
+  // Pi API still match current Prism truth. Live catalog drift alone does
+  // not invalidate those frozen render bytes.
   const hasUnboundSelection = useMemo(() => {
     if (!source) return false;
     for (const id of selectedIds) {
       const model = source.models.find((m) => m.model_config_id === id);
-      if (!model) continue;
-      if (!model.pi_selected || model.pi_binding_status !== "bound")
+      if (!model) return true;
+      if (!model.pi_selected || !model.pi_binding_renderable)
         return true;
     }
     return false;
@@ -76,6 +79,7 @@ export function useModelExportRender({
   const openKeyDialogDisabled =
     selectedIds.size === 0 ||
     !source ||
+    sourceActionsBlocked ||
     gatewayOriginInvalid ||
     providerIdInvalid ||
     hasUnboundSelection;
@@ -84,20 +88,25 @@ export function useModelExportRender({
     (decision: KeyDecision) => {
       const ids = [...selectedIds].sort((a, b) => a - b);
       if (!normalizedOrigin || providerIdInvalid)
-        throw new Error("invalid export destination");
+        throw new Error(renderFailedMessage);
+      if (decision.mode === "manual" && decision.manualKey.trim() === "")
+        throw new Error(renderFailedMessage);
+      if (sourceActionsBlocked) throw new Error(renderFailedMessage);
       const selections: Record<
         number,
-        { provider_id: string; model_id: string; api: string } | null
+        { provider_id: string; model_id: string; api: string }
       > = {};
       for (const id of ids) {
         const model = source?.models.find((m) => m.model_config_id === id);
         const bound = model?.pi_selected ?? null;
-        if (bound)
-          selections[id] = {
-            provider_id: bound.provider_id,
-            model_id: bound.model_id,
-            api: bound.api,
-          };
+        if (!bound || !model?.pi_binding_renderable) {
+          throw new Error(renderFailedMessage);
+        }
+        selections[id] = {
+          provider_id: bound.provider_id,
+          model_id: bound.model_id,
+          api: bound.api,
+        };
       }
       return {
         expected_source_digest: source?.source_digest ?? "",
@@ -111,7 +120,15 @@ export function useModelExportRender({
         selections,
       };
     },
-    [normalizedOrigin, normalizedProviderId, providerIdInvalid, selectedIds, source],
+    [
+      normalizedOrigin,
+      normalizedProviderId,
+      providerIdInvalid,
+      renderFailedMessage,
+      selectedIds,
+      source,
+      sourceActionsBlocked,
+    ],
   );
 
   const handleGenerate = useCallback(
@@ -138,22 +155,29 @@ export function useModelExportRender({
   );
 
   const clearResult = useCallback(() => setRenderResult(null), []);
+  const closeKeyDialog = useCallback(() => setKeyDialogOpen(false), []);
+  const openKeyDialog = useCallback(() => {
+    setRenderError(null);
+    setRenderStale(false);
+    setKeyDialogOpen(true);
+  }, []);
 
   return {
     clearResult,
+    closeKeyDialog,
     gatewayOrigin,
     gatewayOriginInvalid,
     handleGenerate,
     hasUnboundSelection,
     keyDialogOpen,
     openKeyDialogDisabled,
+    openKeyDialog,
     providerId,
     providerIdInvalid,
     renderError,
     renderResult,
     renderStale,
     setGatewayOrigin,
-    setKeyDialogOpen,
     setProviderId,
   };
 }
