@@ -1,18 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
-
 import { getEffectiveBackendOrigin } from "@/features/runtime-self-test/effectiveOrigin";
-import {
-  renderModelExport,
-  type ExportRenderRequestBody,
-} from "@/lib/api/modelExport";
-import type {
-  ExportPlatform,
-  ExportRenderResponse,
-  ExportSourceResponse,
-  ManualEnhancementWire,
-} from "./exportTypes";
-import type { KeyDecision } from "./PlatformKeyDialog";
-import type { EnhancementDraft } from "./useModelExportUploadReview";
+import { renderModelExport } from "@/lib/api/modelExport";
+import type { ExportRenderResponse, ExportSourceResponse } from "./exportTypes";
+import type { KeyDecision } from "./ExportKeyDialog";
 
 const DEFAULT_PROVIDER_ID = "prism";
 
@@ -40,24 +30,16 @@ function normalizeGatewayOrigin(value: string): string | null {
 }
 
 interface UseModelExportRenderInput {
-  defaultModelConfigId?: number;
-  enhancements: Record<number, EnhancementDraft>;
-  platform: ExportPlatform;
   refetchSource: () => unknown;
   renderFailedMessage: string;
   selectedIds: ReadonlySet<number>;
-  selectedCount: number;
   source: ExportSourceResponse | undefined;
 }
 
 export function useModelExportRender({
-  defaultModelConfigId,
-  enhancements,
-  platform,
   refetchSource,
   renderFailedMessage,
   selectedIds,
-  selectedCount,
   source,
 }: UseModelExportRenderInput) {
   const [gatewayOrigin, setGatewayOrigin] = useState(defaultGatewayOrigin);
@@ -78,44 +60,58 @@ export function useModelExportRender({
   const providerIdInvalid =
     normalizedProviderId === "" || normalizedProviderId.includes("/");
 
+  // Render only ever trusts a persisted binding; a selected model whose
+  // binding is not healthy (unbound or drifted) cannot be rendered yet.
+  const hasUnboundSelection = useMemo(() => {
+    if (!source) return false;
+    for (const id of selectedIds) {
+      const model = source.models.find((m) => m.model_config_id === id);
+      if (!model) continue;
+      if (!model.pi_selected || model.pi_binding_status !== "bound")
+        return true;
+    }
+    return false;
+  }, [selectedIds, source]);
+
+  const openKeyDialogDisabled =
+    selectedIds.size === 0 ||
+    !source ||
+    gatewayOriginInvalid ||
+    providerIdInvalid ||
+    hasUnboundSelection;
+
   const buildRenderRequest = useCallback(
-    (decision: KeyDecision): ExportRenderRequestBody => {
+    (decision: KeyDecision) => {
       const ids = [...selectedIds].sort((a, b) => a - b);
-      const enhancementWires: Record<number, ManualEnhancementWire | null> = {};
-      for (const id of ids) {
-        const draft = enhancements[id];
-        enhancementWires[id] = draft
-          ? { fields: draft.fields, override_fields: draft.overrideFields }
-          : null;
-      }
-      if (!normalizedOrigin || providerIdInvalid) {
+      if (!normalizedOrigin || providerIdInvalid)
         throw new Error("invalid export destination");
+      const selections: Record<
+        number,
+        { provider_id: string; model_id: string; api: string } | null
+      > = {};
+      for (const id of ids) {
+        const model = source?.models.find((m) => m.model_config_id === id);
+        const bound = model?.pi_selected ?? null;
+        if (bound)
+          selections[id] = {
+            provider_id: bound.provider_id,
+            model_id: bound.model_id,
+            api: bound.api,
+          };
       }
       return {
         expected_source_digest: source?.source_digest ?? "",
         model_config_ids: ids,
         base_url: normalizedOrigin,
         provider_id: normalizedProviderId,
-        enhancements: enhancementWires,
         credential:
           decision.mode === "manual"
             ? { include: true, api_key: decision.manualKey.trim() }
             : { include: false },
-        ...(platform === "opencode" && defaultModelConfigId !== undefined
-          ? { default_model_config_id: defaultModelConfigId }
-          : {}),
+        selections,
       };
     },
-    [
-      defaultModelConfigId,
-      enhancements,
-      normalizedOrigin,
-      normalizedProviderId,
-      platform,
-      providerIdInvalid,
-      selectedIds,
-      source?.source_digest,
-    ],
+    [normalizedOrigin, normalizedProviderId, providerIdInvalid, selectedIds, source],
   );
 
   const handleGenerate = useCallback(
@@ -123,56 +119,39 @@ export function useModelExportRender({
       setRenderError(null);
       setRenderStale(false);
       try {
-        const response = await renderModelExport(
-          buildRenderRequest(decision),
-          platform,
-        );
+        const response = await renderModelExport(buildRenderRequest(decision));
         setRenderResult(response);
       } catch (error) {
         const detail = error as {
           status?: number;
-          code?: string;
           message?: string;
         };
-        if (detail.code === "export_source_stale" || detail.status === 409) {
+        if (detail.status === 409) {
           setRenderStale(true);
           void refetchSource();
         }
         setRenderError(detail.message ?? renderFailedMessage);
         throw error;
       }
-    }, [buildRenderRequest, platform, refetchSource, renderFailedMessage],
+    },
+    [buildRenderRequest, refetchSource, renderFailedMessage],
   );
 
-  const resetForPlatform = useCallback(() => {
-    setRenderResult(null);
-    setRenderError(null);
-    setRenderStale(false);
-    setKeyDialogOpen(false);
-  }, []);
-
-  const clearResult = useCallback(() => {
-    setRenderResult(null);
-  }, []);
+  const clearResult = useCallback(() => setRenderResult(null), []);
 
   return {
     clearResult,
     gatewayOrigin,
     gatewayOriginInvalid,
     handleGenerate,
+    hasUnboundSelection,
     keyDialogOpen,
-    normalizedProviderId,
-    openKeyDialogDisabled:
-      selectedCount === 0 ||
-      !source ||
-      gatewayOriginInvalid ||
-      providerIdInvalid,
+    openKeyDialogDisabled,
     providerId,
     providerIdInvalid,
     renderError,
     renderResult,
     renderStale,
-    resetForPlatform,
     setGatewayOrigin,
     setKeyDialogOpen,
     setProviderId,

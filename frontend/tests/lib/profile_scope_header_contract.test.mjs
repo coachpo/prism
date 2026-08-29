@@ -38,7 +38,13 @@ test("profile scope helper matches profile-scoped rows in the route contract man
   const scopedRows = routeContract.filter((row) => row.profile_scoped);
   const scopedNonInvalidatingRows = scopedRows.filter(isNonInvalidating);
 
-  // 135 rows, up from 133, for the client model-config export feature: two
+  // 140 rows, up from 135, for the persisted Pi catalog binding surface: the
+  // ephemeral /api/models/export/resolve route was removed (-1) and six
+  // /api/models/{model_config_id}/pi* routes were added (+6) - bind,
+  // refresh/preview, refresh/commit, override PUT, override DELETE, and
+  // unbind DELETE, all declared none:true (binding writes never invalidate
+  // planning). Net +5.
+  // Earlier: 135 rows, up from 133, for the client model-config export feature: two
   // /api/models/exports/{platform}/* routes (source GET read-only,
   // render POST none:true — digest-guarded replay never touches planning).
   // Earlier: 133 rows, up from 124, for the models.dev catalog integration:
@@ -52,7 +58,7 @@ test("profile scope helper matches profile-scoped rows in the route contract man
   // moves only with an explanation like this one.
   assert.equal(
     routeContract.length,
-    135,
+    140,
     "manifest row count should stay locked",
   );
   assert.ok(

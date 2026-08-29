@@ -10,27 +10,22 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import type { ExportRenderResponse } from "./exportTypes";
 
-const EXPORT_FILE_NAMES = {
-  pi: "prism-pi-models.json",
-  opencode: "opencode-prism.json",
-} as const;
-
+const EXPORT_FILE_NAME = "prism-pi-models.json";
 const EXPORT_MIME_TYPE = "application/json;charset=utf-8";
 
 /**
  * The generated-file sheet. Copy, Blob download, and the raw view all reuse
- * exactly one content string and its fixed file name/MIME; closing the sheet,
- * switching platforms, or leaving the page clears the (possibly key-bearing)
- * content from memory.
+ * exactly one content string and its fixed file name/MIME; closing the sheet
+ * or leaving the page clears the (possibly key-bearing) content from memory.
  */
 export function ExportResultSheet(props: {
-  result: import("./exportTypes").ExportRenderResponse | null;
-  platform: "pi" | "opencode";
+  result: ExportRenderResponse | null;
   onClose: () => void;
 }) {
   const { messages } = useLocale();
-  const copy = messages.modelExportPage as unknown as Record<string, string>;
+  const copy = messages.modelExportPage;
   const [copiedSha, setCopiedSha] = useState<string | null>(null);
   const [copiedPiFragmentSha, setCopiedPiFragmentSha] = useState<string | null>(
     null,
@@ -39,10 +34,9 @@ export function ExportResultSheet(props: {
   const sha = props.result?.content_sha256 ?? null;
   const copied = sha !== null && copiedSha === sha;
   const copiedPiFragment = sha !== null && copiedPiFragmentSha === sha;
-  const piProvidersFragment =
-    props.platform === "pi" && props.result
-      ? derivePiProvidersFragment(props.result.content)
-      : null;
+  const piProvidersFragment = props.result
+    ? derivePiProvidersFragment(props.result.content)
+    : null;
 
   const revokeBlobURLs = () => {
     for (const url of blobURLs.current) URL.revokeObjectURL(url);
@@ -59,7 +53,7 @@ export function ExportResultSheet(props: {
 
   if (!props.result || !sha) return null;
 
-  const fileName = EXPORT_FILE_NAMES[props.platform];
+  const fileName = EXPORT_FILE_NAME;
 
   const createContentURL = () => {
     const blob = new Blob([props.result!.content], { type: EXPORT_MIME_TYPE });
@@ -101,8 +95,8 @@ export function ExportResultSheet(props: {
     anchor.click();
     anchor.remove();
     // Keep the URL alive while the new tab consumes it. The effect cleanup and
-    // explicit close path revoke it on result replacement, platform switch,
-    // route unmount, or Sheet close.
+    // explicit close path revoke it on result replacement, route unmount, or
+    // Sheet close.
   };
 
   const handleClose = () => {
@@ -119,8 +113,7 @@ export function ExportResultSheet(props: {
         <SheetHeader>
           <SheetTitle>{copy.resultTitle}</SheetTitle>
           <SheetDescription>
-            {copy.resultFileName}:{" "}
-            <code className="font-mono">{fileName}</code>
+            {copy.resultFileName}: <code className="font-mono">{fileName}</code>
             {" · "}
             <code className="font-mono text-xs">{EXPORT_MIME_TYPE}</code>
           </SheetDescription>
@@ -151,7 +144,8 @@ export function ExportResultSheet(props: {
           <ul className="list-disc pl-5 text-xs text-muted-foreground">
             {props.result.warnings.map((warning) => (
               <li key={warning}>
-                {copy[warningKey(warning)] ?? copy.warnGeneric}
+                {(copy as Record<string, string>)[warningKey(warning)] ??
+                  copy.warnGeneric}
               </li>
             ))}
           </ul>
@@ -207,7 +201,11 @@ function derivePiProvidersFragment(content: string): string | null {
       return null;
     }
     const providers = (document as Record<string, unknown>).providers;
-    if (!providers || typeof providers !== "object" || Array.isArray(providers)) {
+    if (
+      !providers ||
+      typeof providers !== "object" ||
+      Array.isArray(providers)
+    ) {
       return null;
     }
     if (Object.keys(providers).length !== 1) return null;

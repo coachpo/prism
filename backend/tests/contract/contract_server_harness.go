@@ -278,11 +278,21 @@ func (h *contractHarness) ensureOpenAIAcceptedFormat(t *testing.T, method string
 		return
 	}
 	const modelPathPrefix = "/api/models/"
-	if !strings.HasPrefix(path, modelPathPrefix) || strings.Contains(path, "/targets") || strings.Contains(path, "/connections") {
+	if !strings.HasPrefix(path, modelPathPrefix) {
+		return
+	}
+	// Only the bare PUT/PATCH /api/models/{id} model-update endpoint wants
+	// this injection. Every sub-route (targets, connections, catalog, pi,
+	// ...) has its own request shape and must never have an unrelated field
+	// silently added to its body: Sscanf("%d", ...) on a longer path like
+	// "5/pi/override" would otherwise happily parse "5" and stop, ignoring
+	// the trailing "/pi/override" it never actually matched.
+	remainder := strings.TrimPrefix(path, modelPathPrefix)
+	if strings.Contains(remainder, "/") {
 		return
 	}
 	var modelID int
-	if _, err := fmt.Sscanf(strings.TrimPrefix(path, modelPathPrefix), "%d", &modelID); err != nil {
+	if _, err := fmt.Sscanf(remainder, "%d", &modelID); err != nil {
 		return
 	}
 	var apiFamily string

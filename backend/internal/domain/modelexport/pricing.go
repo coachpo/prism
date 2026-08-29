@@ -186,18 +186,9 @@ func DecidePriceExport(platform Platform, targets []TargetPriceSnapshot) PriceEx
 	if !consistent {
 		add(WarningPriceTargetConflict)
 	}
-	// Platform representability: Pi can express flat and strict-threshold
-	// tiered shapes; OpenCode can additionally express the exact 200,000-token
-	// threshold through context_over_200k.
-	switch platform {
-	case PlatformPi:
-		if reference.Kind == pricingkind.Tiered && reference.TierThreshold != nil && *reference.TierThreshold < 1 {
-			add(WarningPriceTierUnrepresentable)
-		}
-	case PlatformOpenCode:
-		if reference.Kind == pricingkind.Tiered && (reference.TierThreshold == nil || *reference.TierThreshold != 200000) {
-			add(WarningPriceTierUnrepresentable)
-		}
+	// Pi can express flat pricing or one strict positive-threshold tier with any threshold.
+	if reference.Kind == pricingkind.Tiered && reference.TierThreshold != nil && *reference.TierThreshold < 1 {
+		add(WarningPriceTierUnrepresentable)
 	}
 	decision.Exportable = len(decision.WarningCodes) == 0
 	decision.WarningCodes = sortWarningCodes(decision.WarningCodes)

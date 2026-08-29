@@ -31,7 +31,7 @@ export interface KeyDecision {
  * chosen and trimmed here (manual mode trims on confirm); nothing is
  * persisted anywhere else.
  */
-export function PlatformKeyDialog(props: {
+export function ExportKeyDialog(props: {
   open: boolean;
   selectedCount: number;
   onClose: () => void;
@@ -146,10 +146,7 @@ export function PlatformKeyDialog(props: {
           <Button variant="outline" onClick={handleClose} disabled={busy}>
             {copy.cancel}
           </Button>
-          <Button
-            onClick={() => void handleConfirm()}
-            disabled={busy}
-          >
+          <Button onClick={() => void handleConfirm()} disabled={busy}>
             {busy ? <Spinner data-icon="inline-start" /> : null}
             {busy ? copy.generating : copy.confirmGenerate}
           </Button>

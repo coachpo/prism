@@ -5,7 +5,6 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/domain/modelexport"
 	"github.com/coachpo/prism/backend/internal/domain/modelrouting"
-	"github.com/coachpo/prism/backend/internal/domain/modelsdev"
 )
 
 // unselectableReason codes carried on source rows. The UI keys off these
@@ -15,75 +14,6 @@ const (
 	unselectableNoTerminalTarget = "no_reachable_terminal_target"
 	unselectableNoTextOperations = "no_accepted_text_operations"
 )
-
-// exportFactsInput bundles one consistent snapshot's raw rows.
-type exportFactsInput struct {
-	ModelRows  []exportModelRow
-	TargetRows map[int][]exportTargetRow
-	Bindings   map[int]catalogBindingRecord
-	Catalog    *modelsdev.Catalog
-	Graph      *modelrouting.DiagnosticsGraph
-}
-
-// buildSourceFacts projects the snapshot into the platform-scoped domain fact
-// set. Enrichment candidates derive strictly from the in-memory catalog; a
-// failed fetch or vanished offering marks enrichment unavailable without
-// failing and without re-guessing coordinates.
-func buildSourceFacts(platform modelexport.Platform, input exportFactsInput) (modelexport.SourceFacts, map[int]modelexport.PlatformCandidate) {
-	facts := modelexport.SourceFacts{
-		Platform:      platform,
-		TargetVersion: modelexport.TargetVersion(platform),
-		Enrichment:    map[int]modelexport.PlatformCandidate{},
-	}
-	if input.Catalog != nil {
-		facts.CatalogRevision = input.Catalog.ETag
-	}
-	candidates := map[int]modelexport.PlatformCandidate{}
-	for _, model := range input.ModelRows {
-		routableTargetIDs, primaryRoutable := exportStaticRouteEvidence(model, input.Graph)
-		targets := filterExportTargets(input.TargetRows[model.ID], routableTargetIDs)
-		selectable, reason := exportSelectable(model, primaryRoutable)
-		binding := input.Bindings[model.ID]
-		prismMetadata := canonicalMetadataFromBinding(binding)
-		if model.DisplayName != nil {
-			// model_configs.display_name is first-party Prism truth. It must win
-			// over both the persisted catalog source name and live models.dev
-			// enrichment, including when the explicit value is an empty string.
-			prismMetadata[modelexport.MetaName] = marshalRawJSON(*model.DisplayName)
-		}
-		fact := modelexport.ModelFact{
-			ModelConfigID:         model.ID,
-			ModelID:               model.ModelID,
-			APIFamily:             model.APIFamily,
-			DisplayName:           model.DisplayName,
-			IsEnabled:             model.IsEnabled,
-			Selectable:            selectable,
-			OpenAIAcceptedFormat:  model.OpenAIAcceptedFormat,
-			OpenAIImageOperations: model.OpenAIImageOperations,
-			CatalogBinding:        exportCatalogEvidence(binding),
-			Enrichment:            modelexport.EnrichmentEvidence{},
-			PrismMetadata:         prismMetadata,
-			Targets:               exportTargetFacts(targets),
-		}
-		if !selectable && reason != nil {
-			fact.UnselectableReason = reason
-		}
-		if binding.ProviderID != "" && binding.CatalogModelID != "" {
-			fact.Enrichment.OfferingProviderID = binding.ProviderID
-			fact.Enrichment.OfferingModelID = binding.CatalogModelID
-			if input.Catalog != nil {
-				if offering, ok := input.Catalog.Find(binding.ProviderID, binding.CatalogModelID); ok {
-					fact.Enrichment.Available = true
-					candidate := modelexport.DeriveCandidate(platform, model.APIFamily, model.OpenAIAcceptedFormat, offering)
-					candidates[model.ID] = candidate
-					facts.Enrichment[model.ID] = candidate
-				}
-			}
-		}
-		facts.Models = append(facts.Models, fact)
-	}
-	return facts, candidates
-}
 
 // exportSelectable applies the selection truth rules. OpenAI models that
 // accept no text operation cannot drive a coding client and are excluded.

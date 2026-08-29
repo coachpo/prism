@@ -30,11 +30,9 @@ func completeCard() PriceCardSnapshot {
 
 func TestDecidePriceExportHappyPathBothPlatforms(t *testing.T) {
 	target := standardTarget(completeCard())
-	for _, platform := range []Platform{PlatformPi, PlatformOpenCode} {
-		decision := DecidePriceExport(platform, []TargetPriceSnapshot{target})
-		if !decision.Exportable || len(decision.WarningCodes) != 0 {
-			t.Fatalf("%s must export a complete flat price: %+v", platform, decision)
-		}
+	decision := DecidePriceExport(PlatformPi, []TargetPriceSnapshot{target})
+	if !decision.Exportable || len(decision.WarningCodes) != 0 {
+		t.Fatalf("pi must export a complete flat price: %+v", decision)
 	}
 }
 
@@ -64,20 +62,18 @@ func TestDecidePriceExportGatesKeepModelAndOmitCost(t *testing.T) {
 	for _, testCase := range cases {
 		target := standardTarget(completeCard())
 		testCase.mutate(&target)
-		for _, platform := range []Platform{PlatformPi, PlatformOpenCode} {
-			decision := DecidePriceExport(platform, []TargetPriceSnapshot{target})
-			if decision.Exportable {
-				t.Fatalf("%s/%s must keep the cost group omitted", testCase.name, platform)
+		decision := DecidePriceExport(PlatformPi, []TargetPriceSnapshot{target})
+		if decision.Exportable {
+			t.Fatalf("%s must keep the cost group omitted", testCase.name)
+		}
+		found := false
+		for _, code := range decision.WarningCodes {
+			if code == testCase.want {
+				found = true
 			}
-			found := false
-			for _, code := range decision.WarningCodes {
-				if code == testCase.want {
-					found = true
-				}
-			}
-			if !found {
-				t.Fatalf("%s/%s warnings = %v, want %s", testCase.name, platform, decision.WarningCodes, testCase.want)
-			}
+		}
+		if !found {
+			t.Fatalf("%s warnings = %v, want %s", testCase.name, decision.WarningCodes, testCase.want)
 		}
 	}
 }
@@ -95,15 +91,17 @@ func TestDecidePriceExportTierRepresentability(t *testing.T) {
 		CurrencyCode:     "USD",
 		PricingUnit:      "PER_1M",
 	}
-	if decision := DecidePriceExport(PlatformOpenCode, []TargetPriceSnapshot{tiered}); !decision.Exportable {
-		t.Fatalf("opencode can express the exact 200000-token tier: %+v", decision.WarningCodes)
-	}
 	if decision := DecidePriceExport(PlatformPi, []TargetPriceSnapshot{tiered}); !decision.Exportable {
 		t.Fatalf("pi can express one strict tier: %+v", decision.WarningCodes)
 	}
 	*tiered.TierThreshold = 200001
-	if decision := DecidePriceExport(PlatformOpenCode, []TargetPriceSnapshot{tiered}); decision.Exportable {
-		t.Fatalf("opencode cannot express an arbitrary tier threshold")
+	if decision := DecidePriceExport(PlatformPi, []TargetPriceSnapshot{tiered}); !decision.Exportable {
+		t.Fatalf("pi can express any positive tier threshold")
+	}
+	zeroThreshold := tiered
+	zeroThreshold.TierThreshold = ptrInt(0)
+	if decision := DecidePriceExport(PlatformPi, []TargetPriceSnapshot{zeroThreshold}); decision.Exportable {
+		t.Fatalf("pi cannot express zero tier threshold")
 	}
 }
 

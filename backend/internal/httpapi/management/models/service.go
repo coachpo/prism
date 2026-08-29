@@ -2,7 +2,7 @@ package models
 
 import (
 	"context"
-	"errors"
+	"errors" // Pi-only export uses PiCatalog
 	"fmt"
 	"net/http"
 	"strconv"
@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/coachpo/prism/backend/internal/domain/modelsdev"
+	"github.com/coachpo/prism/backend/internal/domain/pidev"
 	"github.com/coachpo/prism/backend/internal/httpapi/management/connections"
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/platform/config"
@@ -30,6 +31,8 @@ type Options struct {
 	// Catalog serves the fixed official models.dev catalog. Production wiring
 	// pins the official URL; tests inject an httptest-backed client.
 	Catalog *modelsdev.Client
+	// PiCatalog serves the pi.dev structured directory (https://pi.dev/api/models).
+	PiCatalog *pidev.Client
 }
 
 type Service struct {
@@ -40,6 +43,7 @@ type Service struct {
 	terminalTargetCreator TerminalTargetCreator
 	secretEncryptionKey   string
 	catalog               *modelsdev.Client
+	piCatalog             *pidev.Client
 }
 
 // TerminalTargetCreator is implemented by the connections management service
@@ -82,7 +86,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		corsOriginProvider = platformcors.NewStaticOriginProvider(settings.CORSAllowedOriginsList())
 	}
 
-	return &Service{pool: pool, ownsPool: ownsPool, now: now, corsOriginProvider: corsOriginProvider, secretEncryptionKey: settings.SecretEncryptionKey, catalog: options.Catalog}, nil
+	return &Service{pool: pool, ownsPool: ownsPool, now: now, corsOriginProvider: corsOriginProvider, secretEncryptionKey: settings.SecretEncryptionKey, catalog: options.Catalog, piCatalog: options.PiCatalog}, nil
 }
 
 func (s *Service) Close() {
@@ -123,8 +127,14 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Put("/models/{model_config_id}/catalog/override", s.handlePutCatalogOverride)
 	api.Delete("/models/{model_config_id}/catalog/override", s.handleClearCatalogOverride)
 	api.Delete("/models/{model_config_id}/catalog", s.handleUnbindModelCatalog)
-	api.Get("/models/exports/{platform}/source", s.handleGetExportSource)
-	api.Post("/models/exports/{platform}/render", s.handlePostExportRender)
+	api.Get("/models/export/source", s.handleGetPiExportSource)
+	api.Post("/models/export/render", s.handlePostPiExportRender)
+	api.Post("/models/{model_config_id}/pi/bind", s.handleBindModelPi)
+	api.Post("/models/{model_config_id}/pi/refresh/preview", s.handleRefreshPiPreview)
+	api.Post("/models/{model_config_id}/pi/refresh/commit", s.handleRefreshPiCommit)
+	api.Put("/models/{model_config_id}/pi/override", s.handlePutPiOverride)
+	api.Delete("/models/{model_config_id}/pi/override", s.handleClearPiOverride)
+	api.Delete("/models/{model_config_id}/pi", s.handleUnbindModelPi)
 	api.Get("/models/{model_config_id}", s.handleGetModel)
 	api.Post("/models", s.handleCreateModel)
 	api.Put("/models/{model_config_id}", s.handleUpdateModel)

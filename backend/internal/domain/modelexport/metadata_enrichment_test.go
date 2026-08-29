@@ -3,8 +3,6 @@ package modelexport
 import (
 	"encoding/json"
 	"testing"
-
-	"github.com/coachpo/prism/backend/internal/domain/modelsdev"
 )
 
 func ptrString(value string) *string { return &value }
@@ -113,43 +111,6 @@ func TestKeyLooksSensitiveCoversRecursiveCredentialNames(t *testing.T) {
 		if KeyLooksSensitive(key) {
 			t.Fatalf("%q must not be flagged", key)
 		}
-	}
-}
-
-func TestDerivePiThinkingLevelMapIsTotalAndMapsNoneToOff(t *testing.T) {
-	raw := derivePiThinkingLevelMap([]modelsdev.ReasoningOption{{
-		Type:   modelsdev.ReasoningOptionEffort,
-		Values: []*string{nil, ptrString("none"), ptrString("low"), ptrString("high")},
-	}})
-	if raw == nil {
-		t.Fatalf("effort options must produce a thinkingLevelMap")
-	}
-	var levels map[string]*string
-	if err := json.Unmarshal(raw, &levels); err != nil {
-		t.Fatalf("decode thinkingLevelMap: %v", err)
-	}
-	if len(levels) != 7 {
-		t.Fatalf("thinkingLevelMap keys = %v, want all seven Pi levels", levels)
-	}
-	if levels["off"] == nil || *levels["off"] != "none" || levels["low"] == nil || *levels["low"] != "low" {
-		t.Fatalf("supported effort mapping drifted: %v", levels)
-	}
-	for _, unsupported := range []string{"minimal", "medium", "xhigh", "max"} {
-		if value, exists := levels[unsupported]; !exists || value != nil {
-			t.Fatalf("unsupported level %q = %v (present=%v), want explicit null", unsupported, value, exists)
-		}
-	}
-}
-
-func TestDerivePiCandidateWarnsWhenReasoningOptionsCannotMap(t *testing.T) {
-	candidate := DeriveCandidate(PlatformPi, "openai", ptrString("responses_only"), &modelsdev.Model{
-		ReasoningOptions: []modelsdev.ReasoningOption{{Type: modelsdev.ReasoningOptionToggle}},
-	})
-	if _, exists := candidate.DerivedFields["thinkingLevelMap"]; exists {
-		t.Fatalf("toggle-only reasoning must not invent a thinkingLevelMap")
-	}
-	if !containsWarning(candidate.WarningCodes, WarningThinkingMapUnrepresentable) {
-		t.Fatalf("candidate warnings = %v, want %s", candidate.WarningCodes, WarningThinkingMapUnrepresentable)
 	}
 }
 

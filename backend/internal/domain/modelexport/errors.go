@@ -66,17 +66,24 @@ func (e *ErrUnselectableModel) Error() string {
 	return fmt.Sprintf("model %d is not exportable: %s", e.ModelConfigID, e.Reason)
 }
 
-// ErrDefaultModel rejects a platform-incompatible or unselected default.
-type ErrDefaultModel struct{ Reason string }
-
-func (e *ErrDefaultModel) Error() string {
-	return fmt.Sprintf("default model is invalid: %s", e.Reason)
-}
-
 // ErrSourceStale marks a digest drift between source and render. Handlers map
 // it onto HTTP 409 with wire code "export_source_stale".
 type ErrSourceStale struct{}
 
 func (e *ErrSourceStale) Error() string {
 	return "export source facts drifted; refetch /source before rendering"
+}
+
+// ErrCandidateUnselected rejects rendering a model with multiple Pi candidates but no explicit selection.
+type ErrCandidateUnselected struct{ ModelConfigID int }
+
+func (e *ErrCandidateUnselected) Error() string {
+	return fmt.Sprintf("model %d has multiple Pi candidates but no selection", e.ModelConfigID)
+}
+
+// ErrCandidateInvalid rejects a selection that is not among current compatible candidates.
+type ErrCandidateInvalid struct{ ModelConfigID int }
+
+func (e *ErrCandidateInvalid) Error() string {
+	return fmt.Sprintf("model %d selection is not a current Pi candidate", e.ModelConfigID)
 }

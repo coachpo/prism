@@ -3967,11 +3967,8 @@ export const zhCNMessages = {
     // Models page header button links here.
     entryButton: "导出客户端配置",
     description:
-      "选择模型并生成可直接加载的 Pi / OpenCode 客户端配置文件；已知事实尽量输出，未知值、未配置价格与敏感数据绝不伪装成有效配置。",
+      "选择模型并生成可直接加载的 Pi 客户端配置文件；已知事实尽量输出，未知值、未配置价格与敏感数据绝不伪装成有效配置。",
 
-    platformLabel: "目标客户端",
-    platformPi: "Pi 0.84.3（models.json）",
-    platformOpencode: "OpenCode 1.18.23（config JSON）",
     generateButton: "生成配置文件",
 
     commonSettingsTitle: "导出目标",
@@ -3985,9 +3982,6 @@ export const zhCNMessages = {
     providerIdLabel: "Provider ID",
     providerIdHint: "默认 prism；会写入客户端配置的 provider 槽。",
     providerIdInvalid: "Provider ID 去除首尾空白后不能为空，也不能包含 /。",
-    defaultModelLabel: "OpenCode 默认模型（可选）",
-    defaultModelNone: "不指定默认模型",
-    defaultModelHint: "仅可从本次已选模型中指定。",
 
     selectionTitle: "选择模型",
     searchLabel: "搜索模型 ID 或名称",
@@ -4004,29 +3998,58 @@ export const zhCNMessages = {
     batchSelectVisible: "全选当前可见",
     batchClearVisible: "取消当前可见",
 
-    enhancementTitle: "平台增强（可选）",
-    uploadLabel: "上传现有客户端配置",
-    uploadHint:
-      "支持 Pi models.json / models-store.json 与 OpenCode JSON/JSONC，仅在浏览器内解析，原文不上传。",
-    extractedSummary: "已识别 {kind} 文件中的 {count} 个候选增强。",
-    headerConfirmTitle: "以下请求头已过滤敏感项，请逐项确认是否带入：",
-    applyExtraction: "应用到已选模型",
-    noExtractedMatch: "提取内容与已选模型无匹配项。",
-    enhancedCount: "已有 {count} 个模型携带平台增强。",
-
     columnSelect: "选择",
     columnModel: "模型",
     columnFamily: "家族",
-    columnTargets: "可达目标",
-    columnMetadata: "元数据来源",
+    columnPiBinding: "Pi 绑定",
     columnPrice: "价格导出",
     columnRisks: "风险提示",
     unselectablePrefix: "不可选：",
-    enhancedBadge: "已增强",
-    metadataFull: "Prism + models.dev 合并",
-    metadataStoredOnly: "仅 Prism 存储",
     priceExportable: "可表达",
     priceOmitted: "省略 cost 组",
+
+    candidateStatusNotInCatalog: "未收录",
+    candidateStatusApiMismatch: "API 不兼容",
+    candidateStatusCatalogUnavailable: "目录不可用",
+    bindingStatusBound: "已绑定",
+    bindingStatusDrifted: "绑定已漂移",
+    bindingStatusUnbound: "未绑定",
+    bindAction: "绑定",
+    candidateSelectLabel: "选择候选来源",
+    candidateSelectPlaceholder: "请选择候选来源",
+    candidateAmbiguousHint: "多候选需先选择再绑定",
+    refreshAction: "刷新",
+    overrideAction: "覆盖",
+    unbindAction: "解绑",
+    unbindConfirmTitle: "解除 Pi 绑定？",
+    unbindConfirmDescription:
+      "解绑不会影响 Prism 自身的模型配置，之后可以随时重新绑定。",
+    unbindConfirm: "解绑",
+
+    refreshDialogTitle: "刷新绑定来源",
+    refreshDialogDescription:
+      "对比当前绑定坐标在 pi.dev 目录中的最新字段，仅替换来源字段，不影响手动覆盖。",
+    refreshLoadingPreview: "正在获取最新目录数据...",
+    refreshNoChanges: "目录数据未发生变化。",
+    refreshFieldAbsent: "（无）",
+    refreshCommitAction: "应用刷新",
+
+    overrideDialogTitle: "覆盖字段",
+    overrideDialogDescription:
+      "覆盖值优先于绑定来源的对应字段；恢复默认会清除本模型的所有覆盖字段。",
+    overrideNameLabel: "名称",
+    overrideReasoningLabel: "支持推理",
+    overrideContextWindowLabel: "上下文窗口（tokens）",
+    overrideMaxTokensLabel: "最大输出 tokens",
+    overrideScopeHint:
+      "思考等级映射与 compat 字段暂不支持在此处编辑。",
+    overrideRestoreAll: "恢复默认",
+    overrideSave: "保存覆盖",
+
+    catalogStatusLabel: "目录状态",
+    catalogStatusFresh: "最新",
+    catalogStatusStale: "陈旧（沿用上次成功抓取）",
+    catalogStatusUnavailable: "不可用",
 
     loadFailed: "导出源读取失败",
     loadingSource: "正在读取可导出的模型事实",
@@ -4036,7 +4059,7 @@ export const zhCNMessages = {
     riskSummaryTitle: "已选模型风险摘要",
     riskMetadataMissing: "元信息有缺失",
     riskCostOmitted: "将省略 cost 组",
-    riskEnrichmentUnavailable: "绑定目录但 enrichment 不可用",
+    riskUnbound: "未绑定 Pi 候选",
     riskSummaryHint:
       "这些计数只针对当前已选模型；筛选隐藏行不会撤销选择，也不会把未知价格解释为零价。",
     sourceEvidenceTitle: "导出源证据",
@@ -4062,6 +4085,9 @@ export const zhCNMessages = {
     warnThinkingMap: "思考等级映射无法无损投影",
     warnMixedBaseUrls: "多个 base URL，仅逐模型携带",
     warnMixedCredentials: "各模型密钥不一致，密钥槽整体省略",
+    warnCandidateUnselected: "尚未绑定 Pi 候选",
+    warnCandidateMismatch: "所选候选与当前 API 不兼容",
+    warnNotInCatalog: "该模型 ID 未被 pi.dev 目录收录",
     warnGeneric: "存在风险提示",
 
     keyDialogTitle: "密钥嵌入方式",

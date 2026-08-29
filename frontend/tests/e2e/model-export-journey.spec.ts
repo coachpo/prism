@@ -1,6 +1,6 @@
-// 客户端模型配置导出 journey：默认选中、平台切换重置、价格筛选不撤销选择、
-// 最终密钥 Dialog、结果 Sheet 的复制/下载/原始查看复用同一内容，关闭即清除。
-// 后端流量全部 mock。
+// 客户端模型配置导出 journey：默认选中、未绑定模型的绑定操作、
+// 绑定后才能进入最终密钥 Dialog、结果 Sheet 的复制/下载/原始查看复用同一内容，
+// 关闭即清除。后端流量全部 mock。
 import { expect, test, type Page } from "@playwright/test";
 
 function sourceModel(overrides: Record<string, unknown> = {}) {
@@ -8,24 +8,16 @@ function sourceModel(overrides: Record<string, unknown> = {}) {
     model_config_id: 3,
     model_id: "gpt-x",
     api_family: "openai",
-    display_name: null,
+    display_name: "gpt-x",
     is_enabled: true,
-    default_selected: true,
     selectable: true,
     openai_accepted_format: "dual_native",
     openai_image_operations: null,
-    catalog: { bound: false, has_overrides: false },
-    enrichment: {
-      available: true,
-      offering_provider_id: "openai",
-      offering_model_id: "gpt-x",
-    },
     prism_metadata: {},
-    models_dev_metadata: {},
-    merged_metadata: {},
+    merged_metadata: { name: "gpt-x" },
     metadata_provenance: {},
     missing_metadata: [],
-    platform_completeness: { metadata_fields: {}, cost_exportable: true },
+    platform_completeness: { metadata_fields: { name: true }, cost_exportable: true },
     targets: [
       {
         terminal_target_id: 11,
@@ -49,45 +41,55 @@ function sourceModel(overrides: Record<string, unknown> = {}) {
       },
     ],
     price_risk: { exportable: true },
-    enrichment_candidate: { metadata: {}, derived: {} },
+    pi_candidates: [
+      { provider_id: "openai", model_id: "gpt-x", api: "openai-responses", name: "GPT X" },
+    ],
+    candidate_status: "single",
+    pi_selected: null,
+    pi_binding_status: "unbound",
     ...overrides,
   };
 }
 
-const piSource = {
-  platform: "pi",
+const catalogWire = { status: "fresh" as const, revision: "rev-1", minimum_version: "0.80.0" };
+
+const unboundSource = {
   target_version: "0.84.3",
+  catalog: catalogWire,
   source_digest: "a".repeat(64),
   models: [sourceModel()],
 };
 
-const opencodeSource = {
-  platform: "opencode",
-  target_version: "1.18.23",
+const boundSource = {
+  target_version: "0.84.3",
+  catalog: catalogWire,
   source_digest: "b".repeat(64),
   models: [
     sourceModel({
-      platform_completeness: { metadata_fields: {}, cost_exportable: true },
+      pi_selected: { provider_id: "openai", model_id: "gpt-x", api: "openai-responses" },
+      pi_binding_status: "bound",
+      pi_bind_source: "single_candidate",
+      pi_binding_catalog_revision: "rev-1",
     }),
   ],
 };
 
-const renderPayload = (platform: string, fileName: string, targetVersion: string) => ({
-  platform,
-  target_version: targetVersion,
+const renderPayload = {
+  target_version: "0.84.3",
+  catalog: catalogWire,
   content: `{"providers":{"prism":{"name":"Prism"}}}\n`,
   content_sha256: "c".repeat(64),
-  file_name: fileName,
+  file_name: "prism-pi-models.json",
   mime_type: "application/json;charset=utf-8",
-  model_results: [
-    { model_config_id: 3, model_id: "gpt-x", cost_exported: true },
-  ],
+  model_results: [{ model_config_id: 3, model_id: "gpt-x", cost_exported: true }],
   warnings: [],
-});
+};
 
 async function installExportRoutes(page: Page) {
+  let bound = false;
   await page.route("**/*", async (route) => {
-    const pathname = new URL(route.request().url()).pathname;
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
     if (!pathname.startsWith("/api/")) return route.continue();
     const fulfillJson = (body: unknown, status = 200) =>
       route.fulfill({
@@ -105,32 +107,37 @@ async function installExportRoutes(page: Page) {
         retry_after_seconds: null,
       });
     }
-    if (pathname === "/api/models/exports/pi/source") {
-      return fulfillJson(piSource);
+    if (pathname === "/api/models/export/source") {
+      return fulfillJson(bound ? boundSource : unboundSource);
     }
-    if (pathname === "/api/models/exports/opencode/source") {
-      return fulfillJson(opencodeSource);
+    if (pathname === "/api/models/3/pi/bind" && request.method() === "POST") {
+      bound = true;
+      return fulfillJson({
+        bound: true,
+        bind_source: "single_candidate",
+        provider_id: "openai",
+        catalog_model_id: "gpt-x",
+        api: "openai-responses",
+        catalog_revision: "rev-1",
+        source: { name: "GPT X", reasoning: null, input: null, context_window: null, max_tokens: null, thinking_level_map: null, compat: null },
+        override: null,
+        effective: { name: "GPT X", reasoning: null, input: null, context_window: null, max_tokens: null, thinking_level_map: null, compat: null },
+      });
     }
-    if (pathname === "/api/models/exports/pi/render") {
-      return fulfillJson(
-        renderPayload("pi", "prism-pi-models.json", "0.84.3"),
-      );
-    }
-    if (pathname === "/api/models/exports/opencode/render") {
-      return fulfillJson(
-        renderPayload("opencode", "opencode-prism.json", "1.18.23"),
-      );
+    if (pathname === "/api/models/export/render" && request.method() === "POST") {
+      return fulfillJson(renderPayload);
     }
     return fulfillJson({}, 404);
   });
 }
 
-test("export journey: selection truth, platform reset, key dialog, and result sheet", async ({
+test("export journey: bind an unbound candidate before generating, then copy/download the result", async ({
   page,
 }) => {
   await installExportRoutes(page);
   await page.goto("/route/models/export");
-  await page.getByTestId("export-row-3").waitFor({ timeout: 15000 });
+  const row = page.getByTestId("export-row-3");
+  await row.waitFor({ timeout: 15000 });
   await expect(page.getByTestId("shell-breadcrumb")).toContainText(
     "路由配置导出客户端配置",
   );
@@ -139,45 +146,48 @@ test("export journey: selection truth, platform reset, key dialog, and result sh
   const checkbox = page.getByRole("checkbox", { name: "gpt-x" });
   await expect(checkbox).toBeChecked();
 
-  // A discoverable source refresh intersects the operator's current selection
-  // instead of reapplying backend defaults.
-  await checkbox.click();
-  const refreshResponse = page.waitForResponse(
-    (response) =>
-      new URL(response.url()).pathname === "/api/models/exports/pi/source",
-  );
-  await page.getByRole("button", { name: "刷新导出源" }).click();
-  await refreshResponse;
-  await expect(checkbox).not.toBeChecked();
+  // Generation is blocked until the sole selected model is bound.
+  const generateButton = page.getByRole("button", { name: /生成配置文件/ });
+  await expect(generateButton).toBeDisabled();
 
-  // Platform switch resets to the other platform's defaults.
-  await page.getByRole("combobox", { name: "目标客户端" }).click();
-  await page.getByRole("option", { name: /OpenCode/ }).click();
-  await page.getByTestId("export-row-3").waitFor();
-  await expect(page.getByRole("checkbox", { name: "gpt-x" })).toBeChecked();
+  // Binding the single exact candidate flips the row to bound and unblocks generation.
+  const bindResponse = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/models/3/pi/bind" &&
+      response.request().method() === "POST",
+  );
+  await row.getByRole("button", { name: "绑定" }).click();
+  await bindResponse;
+  const sourceRefetch = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === "/api/models/export/source",
+  );
+  await sourceRefetch;
+  await expect(generateButton).toBeEnabled();
 
   // Generate through the final credential dialog without embedding keys.
-  await page.getByRole("button", { name: /生成配置文件/ }).click();
+  await generateButton.click();
   const dialog = page.getByTestId("export-key-dialog");
   await expect(dialog).toBeVisible();
   await dialog.getByText("不嵌入密钥").click();
   const renderRequestPromise = page.waitForRequest(
     (request) =>
-      new URL(request.url()).pathname ===
-      "/api/models/exports/opencode/render",
+      new URL(request.url()).pathname === "/api/models/export/render" &&
+      request.method() === "POST",
   );
   await dialog.getByRole("button", { name: "确认生成" }).click();
   const renderRequest = await renderRequestPromise;
   const renderBody = renderRequest.postDataJSON() as Record<string, unknown>;
   expect(renderBody.credential).toEqual({ include: false });
-  expect(renderBody).not.toHaveProperty("include_api_keys");
-  expect(renderBody).not.toHaveProperty("api_key_overrides");
+  expect(renderBody).not.toHaveProperty("enhancements");
   expect(renderBody).not.toHaveProperty("default_model_config_id");
+  expect(
+    (renderBody.selections as Record<string, unknown>)["3"],
+  ).toEqual({ provider_id: "openai", model_id: "gpt-x", api: "openai-responses" });
 
   // The result sheet reuses one deterministic content for preview.
   const sheet = page.getByTestId("export-result-sheet");
   await expect(sheet).toBeVisible();
-  await expect(sheet.getByText(/opencode-prism\.json/)).toBeVisible();
+  await expect(sheet.getByText(/prism-pi-models\.json/)).toBeVisible();
   const preview = page.getByTestId("export-content-preview");
   const content = await preview.textContent();
   expect(content).toContain('"prism"');
@@ -186,7 +196,7 @@ test("export journey: selection truth, platform reset, key dialog, and result sh
   const downloadPromise = page.waitForEvent("download");
   await sheet.getByRole("button", { name: "下载" }).click();
   const download = await downloadPromise;
-  expect(download.suggestedFilename()).toBe("opencode-prism.json");
+  expect(download.suggestedFilename()).toBe("prism-pi-models.json");
 
   // Closing the sheet clears the key-bearing content from memory.
   await sheet.getByRole("button", { name: "关闭并清除" }).click();

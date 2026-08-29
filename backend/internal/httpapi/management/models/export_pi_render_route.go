@@ -1,0 +1,185 @@
+package models
+
+import (
+	"encoding/json"
+	"net/http"
+	"strings"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/coachpo/prism/backend/internal/domain/modelexport"
+	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
+	"github.com/coachpo/prism/backend/internal/pgxutil"
+)
+
+// handlePostPiExportRender serves POST /api/models/export/render. It performs
+// no network I/O and never reads the live pi.dev catalog: every selected
+// model's rendered coordinate and safe metadata come from its persisted
+// model_pi_catalog_bindings row. Request-carried selections are pure
+// assertions of what the caller believes source last published; they can
+// never choose or change a binding, only be checked against it.
+func (s *Service) handlePostPiExportRender(w http.ResponseWriter, r *http.Request) {
+	responseutil.SetPrivateNoStoreHeaders(w)
+	var req piRenderRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if req.ExpectedSourceDigest == "" {
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, "expected_source_digest is required")
+		return
+	}
+	if len(req.ModelConfigIDs) == 0 {
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, "model_config_ids must not be empty")
+		return
+	}
+	baseURL, err := normalizeExportBaseURL(req.BaseURL)
+	if err != nil {
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, "base_url must be an HTTP(S) origin")
+		return
+	}
+	providerID := strings.TrimSpace(req.ProviderID)
+	if providerID == "" {
+		providerID = modelexport.PiProviderID
+	}
+	if strings.Contains(providerID, "/") {
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, "provider_id must not contain '/'")
+		return
+	}
+	// No network fetch: render only ever reads the cached snapshot, and only
+	// to compute the same live-evidence fields source would have shown. A
+	// missing or stale snapshot never blocks render, because a bound model's
+	// authority is its persisted row, not live catalog reachability.
+	catalog, catalogStatus := s.piCatalogSnapshot()
+	rendered, err := pgxutil.InRepeatableReadTxValue(r.Context(), s.pool, "pi export render", func(tx pgx.Tx) (*piRenderResponse, error) {
+		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
+		if err != nil {
+			return nil, err
+		}
+		modelRows, targetRows, bindings, graph, err := loadExportSnapshot(r.Context(), tx)
+		if err != nil {
+			return nil, err
+		}
+		piBindings, err := loadPiBindingsForModels(r.Context(), tx, profile.ID, exportModelConfigIDs(modelRows))
+		if err != nil {
+			return nil, err
+		}
+		grouped := sortTargetRowsByModel(targetRows)
+		facts, candidates, err := buildPiSourceFacts(piExportFactsInput{
+			ModelRows:     modelRows,
+			TargetRows:    grouped,
+			Bindings:      bindings,
+			PiBindings:    piBindings,
+			Catalog:       catalog,
+			CatalogStatus: catalogStatus,
+			Graph:         graph,
+		})
+		if err != nil {
+			return nil, err
+		}
+		digest, err := modelexport.ComputeSourceDigest(facts)
+		if err != nil {
+			return nil, err
+		}
+		if req.ExpectedSourceDigest != digest {
+			return nil, &modelexport.ErrSourceStale{}
+		}
+		selection, err := modelexport.NormalizeSelection(req.ModelConfigIDs, facts)
+		if err != nil {
+			return nil, err
+		}
+		if err := requirePiSelectionsMatchBindings(selection, facts, req.Selections); err != nil {
+			return nil, err
+		}
+		includeKey := req.Credential.Include
+		apiKey := ""
+		if includeKey {
+			apiKey = strings.TrimSpace(req.Credential.APIKey)
+		}
+		result, err := modelexport.RenderPi(modelexport.PiInput{
+			Facts:         facts,
+			Selection:     selection,
+			Enrichment:    candidates,
+			BaseURL:       baseURL,
+			ProviderID:    providerID,
+			IncludeAPIKey: includeKey,
+			APIKey:        apiKey,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return &piRenderResponse{
+			TargetVersion: modelexport.PiTargetVersion,
+			Catalog: piCatalogWire{
+				Revision:       facts.PiCatalog.Revision,
+				Status:         catalogStatus,
+				MinimumVersion: facts.PiCatalog.MinimumVersion,
+				ETag:           facts.PiCatalog.ETag,
+			},
+			Content:       result.Content,
+			ContentSHA256: result.ContentSHA256,
+			FileName:      result.FileName,
+			MIMEType:      result.MIMEType,
+			ModelResults:  result.ModelResults,
+			Warnings:      result.Warnings,
+			SourceDigest:  digest,
+		}, nil
+	})
+	if err != nil {
+		s.writePiExportError(w, r, err)
+		return
+	}
+	responseutil.WriteJSON(w, http.StatusOK, rendered)
+}
+
+// writePiExportError maps the typed domain errors render can raise onto
+// stable wire codes. A stale digest is a 409 (refetch source and retry
+// unchanged); a selection that does not resolve to a current binding is a
+// 422 (the request itself needs to change, not just retry).
+func (s *Service) writePiExportError(w http.ResponseWriter, r *http.Request, err error) {
+	if _, ok := err.(*modelexport.ErrSourceStale); ok {
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusConflict, "export_source_stale")
+		return
+	}
+	if e, ok := err.(*modelexport.ErrCandidateUnselected); ok {
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, e.Error())
+		return
+	}
+	if e, ok := err.(*modelexport.ErrCandidateInvalid); ok {
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, e.Error())
+		return
+	}
+	if e, ok := err.(*modelexport.ErrUnselectableModel); ok {
+		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, e.Error())
+		return
+	}
+	writeDomainError(w, r, s.corsSnapshot(), err)
+}
+
+// requirePiSelectionsMatchBindings checks every selected model's
+// request-carried coordinate assertion against its persisted binding. A
+// selected model with no binding, or an assertion naming a different
+// coordinate than the one bound, fails closed: render never falls back to
+// choosing a candidate on the caller's behalf.
+func requirePiSelectionsMatchBindings(selection []int, facts modelexport.SourceFacts, assertedByID map[int]*piSelectedWire) error {
+	factsByID := make(map[int]modelexport.ModelFact, len(facts.Models))
+	for _, fact := range facts.Models {
+		factsByID[fact.ModelConfigID] = fact
+	}
+	for _, id := range selection {
+		fact := factsByID[id]
+		if fact.PiSelected == nil {
+			return &modelexport.ErrCandidateUnselected{ModelConfigID: id}
+		}
+		asserted, ok := assertedByID[id]
+		if !ok || asserted == nil {
+			return &modelexport.ErrCandidateUnselected{ModelConfigID: id}
+		}
+		if asserted.ProviderID != fact.PiSelected.ProviderID || asserted.ModelID != fact.PiSelected.ModelID || asserted.API != fact.PiSelected.API {
+			return &modelexport.ErrCandidateInvalid{ModelConfigID: id}
+		}
+	}
+	return nil
+}

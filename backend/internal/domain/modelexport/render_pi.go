@@ -9,8 +9,6 @@ import (
 	"github.com/coachpo/prism/backend/internal/domain/pricingkind"
 )
 
-// Pi 0.84.3 models.json contract constants. The provider id, file name, and
-// API literals are fixed so generated files are byte-stable across renders.
 const (
 	PiProviderID    = "prism"
 	PiFileName      = "prism-pi-models.json"
@@ -20,13 +18,8 @@ const (
 	piAPIGemini     = "google-generative-ai"
 )
 
-// piLockedPaths lists the model-object keys owned by Prism truth. The manual
-// enhancement layer can never touch them.
 var piLockedPaths = []string{"id", "api", "baseUrl", "cost"}
 
-// piModelAPI maps one Prism family/format pair onto the model-level Pi api
-// literal. dual_native is pinned to Responses: the Responses surface is the
-// superset and both clients only need one wire shape.
 func piModelAPI(apiFamily string, acceptedFormat *string) string {
 	switch strings.TrimSpace(apiFamily) {
 	case "openai":
@@ -34,9 +27,6 @@ func piModelAPI(apiFamily string, acceptedFormat *string) string {
 		case "chat_completions_only":
 			return piAPIOpenAIChat
 		default:
-			// responses_only and dual_native both serve Responses; an absent
-			// format never reaches the renderer because such a model is
-			// unselectable.
 			return piAPIResponses
 		}
 	case "anthropic":
@@ -55,35 +45,24 @@ func optionalString(value *string) string {
 	return *value
 }
 
-// PiInput is everything RenderPi needs. It performs no I/O: every input was
-// resolved by the caller against the digest-checked snapshot.
 type PiInput struct {
-	Facts        SourceFacts
-	Selection    []int
-	Enrichment   map[int]PlatformCandidate
-	Enhancements map[int]ManualEnhancement
-	// BaseURL is the operator-supplied Prism gateway origin. Upstream endpoint
-	// URLs never enter a generated client file.
+	Facts     SourceFacts
+	Selection []int
+	// PiCandidates holds the safe Pi projection for the selected coordinate per model.
+	// It is derived from the selected pidev entry via DerivePiCandidate.
+	Enrichment    map[int]PlatformCandidate
 	BaseURL       string
 	ProviderID    string
 	IncludeAPIKey bool
-	// APIKey is the final operator-typed Prism proxy key, never an endpoint key.
-	APIKey string
+	APIKey        string
 }
 
-// PlatformCandidate is server-owned enrichment resolved from the in-memory
-// catalog snapshot. Render never refetches, decodes, trusts, or uses a
-// request-carried copy; a deprecated opaque request field is ignored at the
-// HTTP boundary for the frozen pre-release verification contract.
-// DerivedFields holds target-safe projections (Pi thinkingLevelMap or OpenCode
-// interleaved), while WarningCodes records facts that cannot be represented.
 type PlatformCandidate struct {
 	Metadata      MetadataLayer
 	DerivedFields map[string]json.RawMessage
 	WarningCodes  []string
 }
 
-// MarshalJSON makes the presence-preserving candidate part of source_digest.
 func (c PlatformCandidate) MarshalJSON() ([]byte, error) {
 	type wire struct {
 		Metadata map[string]json.RawMessage `json:"metadata"`
@@ -93,7 +72,6 @@ func (c PlatformCandidate) MarshalJSON() ([]byte, error) {
 	return json.Marshal(wire{Metadata: c.Metadata.Values(), Derived: c.DerivedFields, Warnings: sortWarningCodes(c.WarningCodes)})
 }
 
-// RenderPi assembles and serializes the document.
 func RenderPi(input PiInput) (*RenderResult, error) {
 	byID := make(map[int]ModelFact, len(input.Facts.Models))
 	for _, fact := range input.Facts.Models {
@@ -108,6 +86,23 @@ func RenderPi(input PiInput) (*RenderResult, error) {
 		fact, ok := byID[id]
 		if !ok {
 			return nil, &ErrUnselectableModel{ModelConfigID: id, Reason: "not_found_in_default_profile"}
+		}
+		// For multi-candidate models, PiSelected must be non-nil; otherwise block.
+		if len(fact.PiCandidates) > 1 && fact.PiSelected == nil {
+			return nil, &ErrCandidateUnselected{ModelConfigID: id}
+		}
+		if fact.PiSelected != nil {
+			// Verify selected is among candidates
+			found := false
+			for _, cand := range fact.PiCandidates {
+				if cand.ProviderID == fact.PiSelected.ProviderID && cand.ModelID == fact.PiSelected.ModelID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil, &ErrCandidateInvalid{ModelConfigID: id}
+			}
 		}
 		modelObject, modelResult, err := renderPiModel(fact, input)
 		if err != nil {
@@ -161,14 +156,6 @@ func RenderPi(input PiInput) (*RenderResult, error) {
 	return rendered, nil
 }
 
-// primaryTarget returns the first authored reachable Terminal Target.
-func primaryTarget(fact ModelFact) *TargetFact {
-	if len(fact.Targets) == 0 {
-		return nil
-	}
-	return &fact.Targets[0]
-}
-
 func renderPiModel(fact ModelFact, input PiInput) (map[string]any, *ModelRenderResult, error) {
 	object := map[string]any{"id": fact.ModelID}
 	object["api"] = piModelAPI(fact.APIFamily, fact.OpenAIAcceptedFormat)
@@ -178,16 +165,10 @@ func renderPiModel(fact ModelFact, input PiInput) (map[string]any, *ModelRenderR
 
 	warnings := map[string]struct{}{}
 	candidate := input.Enrichment[fact.ModelConfigID]
-	enhancement := input.Enhancements[fact.ModelConfigID]
-	if err := enhancement.ValidateForPlatform(PlatformPi); err != nil {
-		return nil, nil, err
-	}
 
 	merge, err := MergeKnownMetadata(MergeOptions{
-		Prism:          NewMetadataLayer(fact.PrismMetadata),
-		ModelsDev:      candidate.Metadata,
-		Manual:         manualMetadataLayer(enhancement),
-		OverrideFields: enhancement.OverrideFields,
+		Prism:     NewMetadataLayer(fact.PrismMetadata),
+		ModelsDev: candidate.Metadata,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -230,8 +211,6 @@ func renderPiModel(fact ModelFact, input PiInput) (map[string]any, *ModelRenderR
 			if name != "" {
 				object["name"] = name
 			} else {
-				// Pi requires a non-empty optional name. Keep the explicit empty
-				// value in source/provenance, but omit it from the target document.
 				warnings[WarningMetadataIncomplete] = struct{}{}
 			}
 		}
@@ -247,8 +226,6 @@ func renderPiModel(fact ModelFact, input PiInput) (map[string]any, *ModelRenderR
 		}
 	}
 
-	// Derived enrichment replays after known metadata so a source-derived
-	// thinkingLevelMap lands unless the manual layer already filled it.
 	for _, field := range sortedRawKeys(candidate.DerivedFields) {
 		if _, exists := object[field]; exists {
 			continue
@@ -263,12 +240,6 @@ func renderPiModel(fact ModelFact, input PiInput) (map[string]any, *ModelRenderR
 		object[field] = decoded
 	}
 
-	if err := applyEnhancement(object, enhancement, piLockedPaths); err != nil {
-		return nil, nil, err
-	}
-
-	// Cost last: locked-path checks see any attempted price override before
-	// Prism writes its own authoritative group.
 	priceTargets := priceSnapshots(fact)
 	decision := DecidePriceExport(PlatformPi, priceTargets)
 	for _, code := range decision.WarningCodes {
@@ -286,77 +257,6 @@ func renderPiModel(fact ModelFact, input PiInput) (map[string]any, *ModelRenderR
 		MissingMetadata: merge.Missing,
 	}
 	return object, modelResult, nil
-}
-
-// manualMetadataLayer projects manual Pi field names back onto the canonical
-// metadata leaf names for the known-metadata merge. Fields outside the known
-// set are ignored here; applyEnhancement applies them at key level.
-func manualMetadataLayer(enhancement ManualEnhancement) MetadataLayer {
-	payload := strings.TrimSpace(string(enhancement.Fields))
-	if payload == "" || payload == "null" {
-		return MetadataLayer{}
-	}
-	fields := map[string]json.RawMessage{}
-	if err := json.Unmarshal([]byte(payload), &fields); err != nil {
-		return MetadataLayer{}
-	}
-	values := map[string]json.RawMessage{}
-	for leaf, raw := range fields {
-		switch leaf {
-		case "name":
-			values[MetaName] = raw
-		case "reasoning":
-			values[MetaReasoning] = raw
-		case "contextWindow":
-			values[MetaContextWindow] = raw
-		case "maxTokens":
-			values[MetaMaxOutputTokens] = raw
-		case "input":
-			values[MetaModalitiesInput] = raw
-		}
-	}
-	return NewMetadataLayer(values)
-}
-
-func validatePiEnhancement(fields map[string]any) error {
-	for _, field := range sortedAnyKeys(fields) {
-		value := fields[field]
-		switch field {
-		case "name":
-			if err := targetString(value, field, true); err != nil {
-				return err
-			}
-		case "reasoning":
-			if err := targetBool(value, field); err != nil {
-				return err
-			}
-		case "contextWindow", "maxTokens":
-			if err := targetNumber(value, field); err != nil {
-				return err
-			}
-		case "input":
-			if err := targetStringArray(value, field, map[string]struct{}{"text": {}, "image": {}}); err != nil {
-				return err
-			}
-		case "headers":
-			if err := targetStringRecord(value, field); err != nil {
-				return err
-			}
-		case "thinkingLevelMap":
-			if err := validatePiThinkingLevelMap(value, field); err != nil {
-				return err
-			}
-		case "compat":
-			if err := validatePiCompat(value, field); err != nil {
-				return err
-			}
-		case "samplingParams":
-			return invalidTargetField(field, "is intentionally excluded from this export")
-		default:
-			return invalidTargetField(field, "is not a Pi 0.84.3 model field supported by this export")
-		}
-	}
-	return nil
 }
 
 func validatePiMergedMetadata(merged MetadataLayer) error {
@@ -423,9 +323,6 @@ func validatePiDocument(document map[string]any) error {
 					return targetSchemaError(err)
 				}
 			case "apiKey":
-				// Presence is controlled by credential.include. The explicit empty
-				// string is deliberately preserved even though Pi normally documents
-				// non-empty inline credentials.
 				if err := targetString(provider[key], path, false); err != nil {
 					return targetSchemaError(err)
 				}
@@ -477,6 +374,47 @@ func validatePiRenderedModel(model map[string]any, path string) error {
 		}
 	}
 	return targetSchemaError(validatePiEnhancement(manualFields))
+}
+
+func validatePiEnhancement(fields map[string]any) error {
+	for _, field := range sortedAnyKeys(fields) {
+		value := fields[field]
+		switch field {
+		case "name":
+			if err := targetString(value, field, true); err != nil {
+				return err
+			}
+		case "reasoning":
+			if err := targetBool(value, field); err != nil {
+				return err
+			}
+		case "contextWindow", "maxTokens":
+			if err := targetNumber(value, field); err != nil {
+				return err
+			}
+		case "input":
+			if err := targetStringArray(value, field, map[string]struct{}{"text": {}, "image": {}}); err != nil {
+				return err
+			}
+		case "headers":
+			if err := targetStringRecord(value, field); err != nil {
+				return err
+			}
+		case "thinkingLevelMap":
+			if err := validatePiThinkingLevelMap(value, field); err != nil {
+				return err
+			}
+		case "compat":
+			if err := validatePiCompat(value, field); err != nil {
+				return err
+			}
+		case "samplingParams":
+			return invalidTargetField(field, "is intentionally excluded from this export")
+		default:
+			return invalidTargetField(field, "is not a Pi 0.84.3 model field supported by this export")
+		}
+	}
+	return nil
 }
 
 func validatePiCost(value any, path string) error {
@@ -593,6 +531,31 @@ func validatePiCompat(value any, field string) error {
 	return nil
 }
 
+// ValidatePiSourceField validates one safe pi.dev leaf value (name, reasoning,
+// input, context_window, max_tokens, thinking_level_map, or compat) against
+// the same Pi 0.84.3 schema the renderer enforces. It is the single
+// validation entry point shared by RenderPi and the persisted Pi binding's
+// override surface, so a stored override can never carry a shape render
+// would later reject.
+func ValidatePiSourceField(field string, value any) error {
+	switch field {
+	case "name":
+		return targetSchemaError(targetString(value, field, true))
+	case "reasoning":
+		return targetSchemaError(targetBool(value, field))
+	case "input":
+		return targetSchemaError(targetStringArray(value, field, map[string]struct{}{"text": {}, "image": {}}))
+	case "context_window", "max_tokens":
+		return targetSchemaError(targetNumber(value, field))
+	case "thinking_level_map":
+		return targetSchemaError(validatePiThinkingLevelMap(value, field))
+	case "compat":
+		return targetSchemaError(validatePiCompat(value, field))
+	default:
+		return &ErrTargetSchema{Field: field, Reason: "is not a Pi binding source or override field"}
+	}
+}
+
 func stringInSet(value any, allowed ...string) bool {
 	text, ok := value.(string)
 	if !ok {
@@ -606,10 +569,6 @@ func stringInSet(value any, allowed ...string) bool {
 	return false
 }
 
-// piCostGroup emits the lossless four-component cost block for Pi. Callers
-// invoke it only after DecidePriceExport approved the export, so the reference
-// shape is guaranteed complete, consistent, reasoning==output, USD/PER_1M,
-// and representable under Pi's strict-threshold tier rules.
 func piCostGroup(reference TargetPriceSnapshot) map[string]any {
 	switch reference.Kind {
 	case pricingkind.Tiered:
@@ -675,23 +634,13 @@ func clientBaseURL(platform Platform, origin string, apiFamily string) string {
 	if origin == "" {
 		return ""
 	}
-	switch platform {
-	case PlatformPi:
-		switch strings.TrimSpace(apiFamily) {
-		case "anthropic":
-			return origin
-		case "gemini":
-			return origin + "/v1beta"
-		default:
-			return origin + "/v1"
-		}
-	case PlatformOpenCode:
-		if strings.TrimSpace(apiFamily) == "gemini" {
-			return origin + "/v1beta"
-		}
-		return origin + "/v1"
-	default:
+	switch strings.TrimSpace(apiFamily) {
+	case "anthropic":
 		return origin
+	case "gemini":
+		return origin + "/v1beta"
+	default:
+		return origin + "/v1"
 	}
 }
 
@@ -717,7 +666,6 @@ func sortedWarningSet(set map[string]struct{}) []string {
 	return sortWarningCodes(codes)
 }
 
-// sortedRawKeys returns derived-field keys in deterministic order.
 func sortedRawKeys(values map[string]json.RawMessage) []string {
 	keys := make([]string, 0, len(values))
 	for key := range values {

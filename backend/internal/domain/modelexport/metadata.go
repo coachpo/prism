@@ -254,34 +254,22 @@ func MetadataWarningCodes(platform Platform, fact ModelFact, merged MetadataLaye
 	if fact.CatalogBinding.Bound && !fact.Enrichment.Available {
 		warnings = append(warnings, WarningEnrichmentUnavailable)
 	}
-	if platform == PlatformPi && fact.APIFamily == "openai" && fact.CatalogBinding.Bound &&
+	if fact.APIFamily == "openai" && fact.CatalogBinding.Bound &&
 		fact.CatalogBinding.ProviderID != "" && fact.CatalogBinding.ProviderID != "openai" {
 		warnings = append(warnings, WarningPiCompatMayRequireManualOverride)
 	}
-	if platform == PlatformPi {
-		if raw, present := merged.Get(MetaModalitiesInput); present {
-			var modalities []string
-			if json.Unmarshal(raw, &modalities) == nil {
-				for _, modality := range modalities {
-					if modality != "text" && modality != "image" {
-						warnings = append(warnings, WarningUnsupportedInputModality)
-						break
-					}
+	if raw, present := merged.Get(MetaModalitiesInput); present {
+		var modalities []string
+		if json.Unmarshal(raw, &modalities) == nil {
+			for _, modality := range modalities {
+				if modality != "text" && modality != "image" {
+					warnings = append(warnings, WarningUnsupportedInputModality)
+					break
 				}
 			}
 		}
 	}
-	relevant := []string{}
-	switch platform {
-	case PlatformPi:
-		relevant = []string{MetaName, MetaReasoning, MetaContextWindow, MetaMaxOutputTokens, MetaModalitiesInput}
-	case PlatformOpenCode:
-		relevant = []string{
-			MetaName, MetaFamily, MetaReleaseDate, MetaAttachment, MetaReasoning,
-			MetaTemperature, MetaToolCall, MetaContextWindow, MetaMaxInputTokens,
-			MetaMaxOutputTokens, MetaModalitiesInput, MetaModalitiesOutput,
-		}
-	}
+	relevant := []string{MetaName, MetaReasoning, MetaContextWindow, MetaMaxOutputTokens, MetaModalitiesInput}
 	for _, leaf := range relevant {
 		if _, present := merged.Get(leaf); !present {
 			warnings = append(warnings, WarningMetadataIncomplete)

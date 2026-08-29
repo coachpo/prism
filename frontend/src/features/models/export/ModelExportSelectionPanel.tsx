@@ -48,7 +48,9 @@ export function ModelExportSelectionPanel({
             onClick={() => void sourceQuery.refetch()}
             disabled={sourceQuery.isFetching}
           >
-            {sourceQuery.isFetching ? <Spinner data-icon="inline-start" /> : null}
+            {sourceQuery.isFetching ? (
+              <Spinner data-icon="inline-start" />
+            ) : null}
             {sourceQuery.isFetching
               ? copy.refreshingSource
               : copy.refreshSource}
@@ -64,7 +66,9 @@ export function ModelExportSelectionPanel({
     >
       <FieldGroup className="gap-4 md:grid md:grid-cols-2 md:items-end xl:grid-cols-4">
         <Field>
-          <FieldLabel htmlFor="export-model-search">{copy.searchLabel}</FieldLabel>
+          <FieldLabel htmlFor="export-model-search">
+            {copy.searchLabel}
+          </FieldLabel>
           <Input
             id="export-model-search"
             value={searchText}
@@ -112,7 +116,9 @@ export function ModelExportSelectionPanel({
             <SelectContent>
               <SelectGroup>
                 <SelectItem value="all">{copy.metadataAll}</SelectItem>
-                <SelectItem value="complete">{copy.metadataComplete}</SelectItem>
+                <SelectItem value="complete">
+                  {copy.metadataComplete}
+                </SelectItem>
                 <SelectItem value="incomplete">
                   {copy.metadataIncomplete}
                 </SelectItem>

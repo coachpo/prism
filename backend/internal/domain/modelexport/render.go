@@ -14,42 +14,24 @@ import (
 	"strings"
 )
 
-// RenderResult is one deterministic generated file plus its audit trail.
 type RenderResult struct {
-	// Platform the file targets.
-	Platform Platform `json:"platform"`
-	// Content is the full UTF-8 JSON document including the trailing newline.
-	Content string `json:"-"`
-	// ContentSHA256 is the exact SHA-256 hex digest of Content's UTF-8 bytes.
-	ContentSHA256 string `json:"content_sha256"`
-	// FileName is the fixed download name for this platform.
-	FileName string `json:"file_name"`
-	// MIMEType is the fixed media type used for copies and downloads.
-	MIMEType string `json:"mime_type"`
-	// ModelResults carries the per-model audit trail in render order.
-	ModelResults []ModelRenderResult `json:"model_results"`
-	// Warnings holds document-level warning codes, deduplicated and sorted.
-	Warnings []string `json:"warnings"`
+	Platform      Platform            `json:"platform"`
+	Content       string              `json:"-"`
+	ContentSHA256 string              `json:"content_sha256"`
+	FileName      string              `json:"file_name"`
+	MIMEType      string              `json:"mime_type"`
+	ModelResults  []ModelRenderResult `json:"model_results"`
+	Warnings      []string            `json:"warnings"`
 }
 
-// ModelRenderResult is the honest per-model outcome: the model always renders,
-// while missing metadata and omitted prices stay visible warnings instead of
-// being disguised as complete configuration.
 type ModelRenderResult struct {
-	ModelConfigID int    `json:"model_config_id"`
-	ModelID       string `json:"model_id"`
-	// CostExported reports whether a cost group was emitted.
-	CostExported bool     `json:"cost_exported"`
-	WarningCodes []string `json:"warning_codes,omitempty"`
-	// MissingMetadata lists known metadata leaves absent after the merge.
+	ModelConfigID   int      `json:"model_config_id"`
+	ModelID         string   `json:"model_id"`
+	CostExported    bool     `json:"cost_exported"`
+	WarningCodes    []string `json:"warning_codes,omitempty"`
 	MissingMetadata []string `json:"missing_metadata,omitempty"`
 }
 
-// Typed domain failures live in errors.go.
-
-// NormalizeSelection validates the explicit selection truth: non-empty input,
-// duplicate removal, stable ascending order, and every id present and
-// selectable. Any violation fails the whole request.
 func NormalizeSelection(ids []int, facts SourceFacts) ([]int, error) {
 	if len(ids) == 0 {
 		return nil, errors.New("model_config_ids must not be empty")
@@ -71,8 +53,6 @@ func NormalizeSelection(ids []int, facts SourceFacts) ([]int, error) {
 	for _, id := range deduped {
 		fact, ok := byID[id]
 		if !ok {
-			// Unknown ids cover cross-profile references too: another
-			// profile's model never appears in this snapshot.
 			return nil, &ErrUnselectableModel{ModelConfigID: id, Reason: "not_found_in_default_profile"}
 		}
 		if !fact.Selectable {
@@ -82,131 +62,11 @@ func NormalizeSelection(ids []int, facts SourceFacts) ([]int, error) {
 			}
 			return nil, &ErrUnselectableModel{ModelConfigID: id, Reason: reason}
 		}
+		if len(fact.PiCandidates) > 1 && fact.PiSelected == nil {
+			return nil, &ErrCandidateUnselected{ModelConfigID: id}
+		}
 	}
 	return deduped, nil
-}
-
-// ManualEnhancement is the operator-authored third merge layer for one model.
-type ManualEnhancement struct {
-	// Fields is a JSON object keyed by platform field names.
-	Fields json.RawMessage
-	// OverrideFields names the top-level keys allowed to replace values that
-	// earlier layers already provided.
-	OverrideFields []string
-}
-
-// Validate rejects sensitive recursive keys anywhere inside the payload.
-func (m ManualEnhancement) Validate() error {
-	fields, err := decodeEnhancementObject(m.Fields)
-	if err != nil {
-		return err
-	}
-	return rejectSensitiveValue(fields, "")
-}
-
-// ValidateForPlatform validates the complete manual boundary before a renderer
-// mutates its output object. It combines recursive secret rejection, locked
-// Prism-owned paths, exact override paths, and the pinned target model schema.
-func (m ManualEnhancement) ValidateForPlatform(platform Platform) error {
-	if err := m.Validate(); err != nil {
-		return err
-	}
-	fields, err := decodeEnhancementObject(m.Fields)
-	if err != nil {
-		return err
-	}
-	lockedPaths := piLockedPaths
-	schemaValidator := validatePiEnhancement
-	if platform == PlatformOpenCode {
-		lockedPaths = ocLockedPaths
-		schemaValidator = validateOpenCodeEnhancement
-	} else if platform != PlatformPi {
-		return &ErrInvalidEnhancement{Reason: fmt.Sprintf("unsupported platform %q", platform)}
-	}
-	if err := rejectLockedEnhancementPaths(fields, "", lockedPaths); err != nil {
-		return err
-	}
-	seenOverrides := map[string]struct{}{}
-	for _, rawPath := range m.OverrideFields {
-		path := strings.TrimSpace(rawPath)
-		if path == "" {
-			return &ErrInvalidEnhancement{Field: "override_fields", Reason: "must not contain an empty path"}
-		}
-		if _, duplicate := seenOverrides[path]; duplicate {
-			return &ErrInvalidEnhancement{Field: path, Reason: "duplicate override path"}
-		}
-		seenOverrides[path] = struct{}{}
-		if err := checkLockedPath(path, lockedPaths); err != nil {
-			return err
-		}
-		for _, segment := range strings.Split(path, ".") {
-			if KeyLooksSensitive(segment) {
-				return &ErrSensitiveField{Field: path}
-			}
-		}
-		if !enhancementPathExists(fields, path) {
-			return &ErrInvalidEnhancement{Field: path, Reason: "override path is absent from fields"}
-		}
-	}
-	return schemaValidator(fields)
-}
-
-func decodeEnhancementObject(raw json.RawMessage) (map[string]any, error) {
-	trimmed := strings.TrimSpace(string(raw))
-	if trimmed == "" || trimmed == "null" {
-		return map[string]any{}, nil
-	}
-	decoder := json.NewDecoder(strings.NewReader(trimmed))
-	decoder.UseNumber()
-	var value any
-	if err := decoder.Decode(&value); err != nil {
-		return nil, &ErrInvalidEnhancement{Reason: "payload must be one JSON object"}
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return nil, &ErrInvalidEnhancement{Reason: "payload must contain exactly one JSON object"}
-	}
-	fields, ok := value.(map[string]any)
-	if !ok {
-		return nil, &ErrInvalidEnhancement{Reason: "payload must be a JSON object"}
-	}
-	return fields, nil
-}
-
-func rejectLockedEnhancementPaths(fields map[string]any, prefix string, lockedPaths []string) error {
-	for key, value := range fields {
-		path := key
-		if prefix != "" {
-			path = prefix + "." + key
-		}
-		if err := checkLockedLeafPath(path, lockedPaths); err != nil {
-			return err
-		}
-		if nested, ok := value.(map[string]any); ok {
-			if err := rejectLockedEnhancementPaths(nested, path, lockedPaths); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func enhancementPathExists(fields map[string]any, path string) bool {
-	var current any = fields
-	segments := strings.Split(path, ".")
-	for index, segment := range segments {
-		object, ok := current.(map[string]any)
-		if !ok {
-			return false
-		}
-		current, ok = object[segment]
-		if !ok {
-			return false
-		}
-		if index == len(segments)-1 {
-			return true
-		}
-	}
-	return false
 }
 
 func invalidTargetField(field string, reason string) error {
@@ -372,10 +232,6 @@ func rejectSensitiveValue(value any, path string) error {
 	return nil
 }
 
-// decimal is a canonical decimal literal marshalled verbatim as a JSON
-// number. Price values flow through this type so the emitted bytes match the
-// configured literal exactly — no float formatting, no rounding surprises,
-// explicit zeros preserved as 0.
 type decimal string
 
 func (d decimal) MarshalJSON() ([]byte, error) {
@@ -403,8 +259,6 @@ func (d decimal) MarshalJSON() ([]byte, error) {
 	return []byte(text), nil
 }
 
-// finalizeDocument serializes the document with a trailing newline and derives
-// the SHA-256 over exactly those UTF-8 bytes.
 func finalizeDocument(platform Platform, document any) (*RenderResult, error) {
 	raw, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
@@ -417,139 +271,11 @@ func finalizeDocument(platform Platform, document any) (*RenderResult, error) {
 		Content:       content,
 		ContentSHA256: hex.EncodeToString(sum[:]),
 		MIMEType:      "application/json;charset=utf-8",
-	}
-	switch platform {
-	case PlatformPi:
-		result.FileName = PiFileName
-	case PlatformOpenCode:
-		result.FileName = OpenCodeFileName
+		FileName:      PiFileName,
 	}
 	return result, nil
 }
 
-// RenderDispatch is the platform-agnostic render payload shared by both
-// renderers.
-type RenderDispatch struct {
-	Facts         SourceFacts
-	Selection     []int
-	Enrichment    map[int]PlatformCandidate
-	Enhancements  map[int]ManualEnhancement
-	BaseURL       string
-	ProviderID    string
-	IncludeAPIKey bool
-	APIKey        string
-	DefaultModel  *int
-}
-
-// DispatchRender routes one validated payload to the platform renderer. Both
-// renderers share the same dispatch contract and differ only in document
-// assembly.
-func DispatchRender(platform Platform, payload RenderDispatch) (*RenderResult, error) {
-	switch platform {
-	case PlatformPi:
-		if payload.DefaultModel != nil {
-			return nil, &ErrDefaultModel{Reason: "Pi does not support a config-level default model"}
-		}
-		return RenderPi(PiInput{
-			Facts:         payload.Facts,
-			Selection:     payload.Selection,
-			Enrichment:    payload.Enrichment,
-			Enhancements:  payload.Enhancements,
-			BaseURL:       payload.BaseURL,
-			ProviderID:    payload.ProviderID,
-			IncludeAPIKey: payload.IncludeAPIKey,
-			APIKey:        payload.APIKey,
-		})
-	case PlatformOpenCode:
-		return RenderOpenCode(OpenCodeInput{
-			Facts:         payload.Facts,
-			Selection:     payload.Selection,
-			Enrichment:    payload.Enrichment,
-			Enhancements:  payload.Enhancements,
-			BaseURL:       payload.BaseURL,
-			ProviderID:    payload.ProviderID,
-			IncludeAPIKey: payload.IncludeAPIKey,
-			APIKey:        payload.APIKey,
-			DefaultModel:  payload.DefaultModel,
-		})
-	default:
-		return nil, fmt.Errorf("unsupported export platform %q", platform)
-	}
-}
-
-// applyEnhancement merges the manual layer into the generated model object
-// following the three-layer contract: fill missing keys, overwrite only
-// listed keys, fail closed on locked paths and sensitive keys anywhere.
-func applyEnhancement(target map[string]any, enhancement ManualEnhancement, lockedPaths []string) error {
-	fields, err := decodeEnhancementObject(enhancement.Fields)
-	if err != nil {
-		return err
-	}
-	override := make(map[string]struct{}, len(enhancement.OverrideFields))
-	for _, field := range enhancement.OverrideFields {
-		field = strings.TrimSpace(field)
-		if field == "" {
-			return &ErrInvalidEnhancement{Field: "override_fields", Reason: "must not contain an empty path"}
-		}
-		if err := checkLockedPath(field, lockedPaths); err != nil {
-			return err
-		}
-		for _, segment := range strings.Split(field, ".") {
-			if KeyLooksSensitive(segment) {
-				return &ErrSensitiveField{Field: field}
-			}
-		}
-		override[field] = struct{}{}
-	}
-	return mergeEnhancementObject(target, fields, "", override, lockedPaths)
-}
-
-func mergeEnhancementObject(target map[string]any, fields map[string]any, prefix string, override map[string]struct{}, lockedPaths []string) error {
-	keys := make([]string, 0, len(fields))
-	for key := range fields {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		path := key
-		if prefix != "" {
-			path = prefix + "." + key
-		}
-		value := fields[key]
-		if nested, ok := value.(map[string]any); ok {
-			if existing, present := target[key]; present {
-				if existingObject, objectOK := existing.(map[string]any); objectOK {
-					if err := mergeEnhancementObject(existingObject, nested, path, override, lockedPaths); err != nil {
-						return err
-					}
-					continue
-				}
-				if _, allowed := override[path]; !allowed {
-					continue
-				}
-			}
-			copyObject := map[string]any{}
-			if err := mergeEnhancementObject(copyObject, nested, path, override, lockedPaths); err != nil {
-				return err
-			}
-			target[key] = copyObject
-			continue
-		}
-		if err := checkLockedLeafPath(path, lockedPaths); err != nil {
-			return err
-		}
-		if _, exists := target[key]; exists {
-			if _, allowed := override[path]; !allowed {
-				continue
-			}
-		}
-		target[key] = value
-	}
-	return nil
-}
-
-// checkLockedPath fails closed when a manual key lands on Prism-managed truth
-// or inside one of its subtrees.
 func checkLockedPath(key string, lockedPaths []string) error {
 	for _, locked := range lockedPaths {
 		if key == locked || strings.HasPrefix(key, locked+".") || strings.HasPrefix(locked, key+".") {
@@ -559,8 +285,6 @@ func checkLockedPath(key string, lockedPaths []string) error {
 	return nil
 }
 
-// checkLockedLeafPath rejects the exact locked path and anything below it,
-// while allowing a containing object to carry unrelated safe siblings.
 func checkLockedLeafPath(path string, lockedPaths []string) error {
 	for _, locked := range lockedPaths {
 		if path == locked || strings.HasPrefix(path, locked+".") {
@@ -570,8 +294,6 @@ func checkLockedLeafPath(path string, lockedPaths []string) error {
 	return nil
 }
 
-// decodeCanonicalJSON converts a raw message into ordered generic values for
-// embedding into the output tree.
 func decodeCanonicalJSON(raw json.RawMessage) (any, error) {
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.UseNumber()
@@ -585,7 +307,6 @@ func decodeCanonicalJSON(raw json.RawMessage) (any, error) {
 	return decoded, nil
 }
 
-// rawJSON embeds an already-encoded JSON value verbatim.
 type rawJSON json.RawMessage
 
 func (r rawJSON) MarshalJSON() ([]byte, error) { return r, nil }

@@ -9,6 +9,8 @@ import (
 	"sort"
 )
 
+// PiCatalog types are part of the Pi-only export contract. Ensures Pi export fact chain includes catalog revision and selections.
+
 // SourceFacts is the clock-free fact set one source response is built from
 // and render replays against. Every field that can change the rendered file
 // participates in the digest; every wall-clock stamp is excluded by design so
@@ -18,6 +20,16 @@ type SourceFacts struct {
 	TargetVersion   string                    `json:"target_version"`
 	CatalogRevision string                    `json:"catalog_revision,omitempty"`
 	Enrichment      map[int]PlatformCandidate `json:"enrichment_candidates,omitempty"`
+	// PiCatalog is the current live pi.dev fetch's top-level evidence
+	// (fresh/stale/unavailable, current revision). It is excluded from the
+	// digest (json:"-"): whether this particular request's live fetch
+	// happened to succeed never affects the rendered bytes of an
+	// already-bound model, and source and render read the catalog through
+	// two different paths (a live fetch vs. a cached-only snapshot) that are
+	// not guaranteed to agree on this transient status even when nothing
+	// render-relevant changed.
+	PiCatalog    PiCatalogEvidence          `json:"-"`
+	PiSelections map[int]SelectedCoordinate `json:"pi_selections,omitempty"`
 	// Models carries the per-model fact rows in model_config_id order.
 	Models []ModelFact `json:"models"`
 }
@@ -38,6 +50,27 @@ type ModelFact struct {
 	OpenAIImageOperations *string            `json:"openai_image_operations,omitempty"`
 	CatalogBinding        CatalogEvidence    `json:"catalog_binding"`
 	Enrichment            EnrichmentEvidence `json:"enrichment"`
+	// PiCandidates/PiCandidateStatus are live pi.dev catalog evidence: every
+	// entry currently matching this model's exact model_id and expected Pi
+	// API, and a summary of that search (not_in_catalog/api_mismatch/single/
+	// multiple/catalog_unavailable). Both are excluded from the digest
+	// (json:"-") for the same reason as SourceFacts.PiCatalog: this
+	// transient live-fetch outcome never affects rendered bytes and is not
+	// guaranteed to agree between source's live fetch and render's
+	// cached-only read.
+	PiCandidates      []PiCandidate `json:"-"`
+	PiCandidateStatus string        `json:"-"`
+	// PiSelected is the persisted model_pi_catalog_bindings coordinate, when
+	// one exists. It is authoritative for render regardless of whether the
+	// live catalog fetch above still lists it as a candidate, and it does
+	// participate in the digest: it is what render actually replays.
+	PiSelected *SelectedCoordinate `json:"pi_selected,omitempty"`
+	// PiBindingStatus reports the persisted binding's health against the
+	// live catalog evidence (unbound/bound/bound_drifted). Like the live
+	// evidence above, it is excluded from the digest (json:"-"): render
+	// never gates on it, only on PiSelected being non-nil and matching the
+	// caller's asserted coordinate.
+	PiBindingStatus string `json:"-"`
 	// PrismMetadata is the stored effective metadata layer.
 	PrismMetadata map[string]json.RawMessage `json:"prism_metadata"`
 	// Targets are this model's enabled, active Terminal Targets in authored
@@ -65,6 +98,31 @@ type EnrichmentEvidence struct {
 	Available          bool   `json:"available"`
 	OfferingProviderID string `json:"offering_provider_id,omitempty"`
 	OfferingModelID    string `json:"offering_model_id,omitempty"`
+}
+
+type PiCatalogEvidence struct {
+	Revision       string `json:"revision,omitempty"`
+	Status         string `json:"status"` // fresh|stale|unavailable
+	MinimumVersion string `json:"minimum_version,omitempty"`
+	ETag           string `json:"etag,omitempty"`
+}
+
+// SelectedCoordinate is the effective Pi binding for one model: the frozen
+// coordinate plus the catalog_revision it was bound or last refreshed
+// against. The revision participates in the digest so a rebind or a refresh
+// moves the digest even when the coordinate itself is unchanged.
+type SelectedCoordinate struct {
+	ProviderID      string `json:"provider_id"`
+	ModelID         string `json:"model_id"`
+	API             string `json:"api"`
+	CatalogRevision string `json:"catalog_revision,omitempty"`
+}
+
+type PiCandidate struct {
+	ProviderID string  `json:"provider_id"`
+	ModelID    string  `json:"model_id"`
+	API        string  `json:"api"`
+	Name       *string `json:"name,omitempty"`
 }
 
 // TargetFact is one reachable Terminal Target's export truth.

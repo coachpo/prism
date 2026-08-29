@@ -12,6 +12,7 @@ import (
 
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/domain/modelsdev"
+	"github.com/coachpo/prism/backend/internal/domain/pidev"
 	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
 	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
@@ -268,7 +269,11 @@ func (resources *productionResources) buildManagementServices(settings config.Se
 	if err != nil {
 		return services, err
 	}
-	modelsService, err := managementmodels.NewService(settings, managementmodels.Options{CORSOriginProvider: resources.deps.StartupConfigRuntime, Pool: managementPool, SecretEncryptionKey: settings.SecretEncryptionKey, Catalog: catalogClient})
+	piCatalogClient, err := pidev.NewClient(pidev.ClientOptions{})
+	if err != nil {
+		return services, err
+	}
+	modelsService, err := managementmodels.NewService(settings, managementmodels.Options{CORSOriginProvider: resources.deps.StartupConfigRuntime, Pool: managementPool, SecretEncryptionKey: settings.SecretEncryptionKey, Catalog: catalogClient, PiCatalog: piCatalogClient})
 	if err != nil {
 		return services, err
 	}

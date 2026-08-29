@@ -25,7 +25,7 @@ function normalizeFetchInit(init) {
   };
 }
 
-test("model export client fetches source from the managed per-platform route", async () => {
+function stubFetch(responseBody) {
   const originalFetch = globalThis.fetch;
   const requests = [];
   globalThis.fetch = async (url, init) => {
@@ -33,67 +33,63 @@ test("model export client fetches source from the managed per-platform route", a
     return {
       ok: true,
       status: 200,
-      text: async () =>
-        JSON.stringify({
-          platform: "pi",
-          target_version: "0.84.3",
-          models: [],
-          source_digest: "d".repeat(64),
-        }),
+      text: async () => JSON.stringify(responseBody),
     };
   };
+  return {
+    requests,
+    restore: () => {
+      globalThis.fetch = originalFetch;
+    },
+  };
+}
+
+test("model export client fetches source from the Pi static route", async () => {
+  const { requests, restore } = stubFetch({
+    target_version: "0.84.3",
+    catalog: { status: "fresh", revision: "rev-1" },
+    models: [],
+    source_digest: "d".repeat(64),
+  });
   try {
     const api = await loadApi();
-    const response = await api.fetchModelExportSource("pi");
+    const response = await api.fetchModelExportSource();
     assert.equal(requests.length, 1);
-    assert.ok(requests[0].url.endsWith("/api/models/exports/pi/source"));
+    assert.ok(requests[0].url.endsWith("/api/models/export/source"));
     assert.equal(requests[0].init.cache, "no-store");
     assert.equal(response.source_digest.length, 64);
     assert.equal(response.target_version, "0.84.3");
   } finally {
-    globalThis.fetch = originalFetch;
+    restore();
   }
 });
 
-test("model export render posts digest-guarded replay bodies without query-cache coupling", async () => {
-  const originalFetch = globalThis.fetch;
-  const requests = [];
-  globalThis.fetch = async (url, init) => {
-    requests.push({ url: String(url), init: normalizeFetchInit(init) });
-    return {
-      ok: true,
-      status: 200,
-      text: async () =>
-        JSON.stringify({
-          platform: "opencode",
-          target_version: "1.18.23",
-          content: "{}\n",
-          content_sha256: "e".repeat(64),
-          file_name: "opencode-prism.json",
-          mime_type: "application/json;charset=utf-8",
-          model_results: [],
-        }),
-    };
-  };
+test("model export render posts digest-guarded Pi bodies with binding-coordinate selections", async () => {
+  const { requests, restore } = stubFetch({
+    target_version: "0.84.3",
+    catalog: { status: "fresh", revision: "rev-1" },
+    content: "{}\n",
+    content_sha256: "e".repeat(64),
+    file_name: "prism-pi-models.json",
+    mime_type: "application/json;charset=utf-8",
+    model_results: [],
+    source_digest: "e".repeat(64),
+  });
   try {
     const api = await loadApi();
-    const response = await api.renderModelExport(
-      {
-        expected_source_digest: "a".repeat(64),
-        model_config_ids: [5, 3],
-        base_url: "https://prism.example",
-        provider_id: "prism-home",
-        enhancements: { 3: { fields: { headers: { "x-trace": "ok" } } } },
-        // Explicit empty remains distinct from include:false; the backend owns
-        // whether the target file carries an empty credential field.
-        credential: { include: true, api_key: "" },
-        default_model_config_id: 3,
+    const response = await api.renderModelExport({
+      expected_source_digest: "a".repeat(64),
+      model_config_ids: [5, 3],
+      base_url: "https://prism.example",
+      provider_id: "prism-home",
+      credential: { include: true, api_key: "" },
+      selections: {
+        3: { provider_id: "openai", model_id: "gpt-x", api: "openai-responses" },
       },
-      "opencode",
-    );
+    });
     assert.equal(requests[0].init.method, "POST");
     assert.equal(requests[0].init.cache, "no-store");
-    assert.ok(requests[0].url.endsWith("/api/models/exports/opencode/render"));
+    assert.ok(requests[0].url.endsWith("/api/models/export/render"));
     assert.equal(requests[0].init.body.expected_source_digest, "a".repeat(64));
     assert.deepEqual(requests[0].init.body.model_config_ids, [5, 3]);
     assert.equal(requests[0].init.body.base_url, "https://prism.example");
@@ -102,12 +98,144 @@ test("model export render posts digest-guarded replay bodies without query-cache
       include: true,
       api_key: "",
     });
-    assert.equal(requests[0].init.body.default_model_config_id, 3);
-    assert.equal("enrichment_candidates" in requests[0].init.body, false);
-    assert.equal("include_api_keys" in requests[0].init.body, false);
-    assert.equal("api_key_overrides" in requests[0].init.body, false);
-    assert.equal(response.file_name, "opencode-prism.json");
+    assert.deepEqual(requests[0].init.body.selections[3], {
+      provider_id: "openai",
+      model_id: "gpt-x",
+      api: "openai-responses",
+    });
+    assert.equal(response.file_name, "prism-pi-models.json");
   } finally {
-    globalThis.fetch = originalFetch;
+    restore();
+  }
+});
+
+test("model export bind posts to the per-model pi/bind route", async () => {
+  const { requests, restore } = stubFetch({
+    bound: true,
+    bind_source: "single_candidate",
+    provider_id: "openai",
+    catalog_model_id: "gpt-x",
+    api: "openai-responses",
+    catalog_revision: "sha256-" + "a".repeat(64),
+    source: null,
+    override: null,
+    effective: null,
+  });
+  try {
+    const api = await loadApi();
+    const response = await api.bindModelPi(7, {
+      expected_catalog_revision: "sha256-" + "a".repeat(64),
+    });
+    assert.equal(requests[0].init.method, "POST");
+    assert.ok(requests[0].url.endsWith("/api/models/7/pi/bind"));
+    assert.equal(
+      requests[0].init.body.expected_catalog_revision,
+      "sha256-" + "a".repeat(64),
+    );
+    assert.equal(response.bound, true);
+  } finally {
+    restore();
+  }
+});
+
+test("model export refresh preview and commit hit their own routes", async () => {
+  const preview = stubFetch({
+    bound: true,
+    provider_id: "openai",
+    catalog_model_id: "gpt-x",
+    api: "openai-responses",
+    changed: true,
+    changes: [{ field: "context_window", current: "128000", next: "256000", kind: "changed" }],
+    catalog_revision: "sha256-" + "b".repeat(64),
+    fetched_at: "2026-01-01T00:00:00Z",
+  });
+  try {
+    const api = await loadApi();
+    const previewResponse = await api.refreshModelPiPreview(7);
+    assert.equal(preview.requests[0].init.method, "POST");
+    assert.ok(preview.requests[0].url.endsWith("/api/models/7/pi/refresh/preview"));
+    assert.equal(previewResponse.changed, true);
+  } finally {
+    preview.restore();
+  }
+
+  const commit = stubFetch({
+    bound: true,
+    provider_id: "openai",
+    catalog_model_id: "gpt-x",
+    api: "openai-responses",
+    catalog_revision: "sha256-" + "b".repeat(64),
+    source: null,
+    override: null,
+    effective: null,
+  });
+  try {
+    const api = await loadApi();
+    await api.refreshModelPiCommit(7, "sha256-" + "b".repeat(64));
+    assert.equal(commit.requests[0].init.method, "POST");
+    assert.ok(commit.requests[0].url.endsWith("/api/models/7/pi/refresh/commit"));
+    assert.equal(
+      commit.requests[0].init.body.expected_catalog_revision,
+      "sha256-" + "b".repeat(64),
+    );
+  } finally {
+    commit.restore();
+  }
+});
+
+test("model export override write and clear hit PUT/DELETE on the same route", async () => {
+  const write = stubFetch({
+    bound: true,
+    provider_id: "openai",
+    catalog_model_id: "gpt-x",
+    api: "openai-responses",
+    source: null,
+    override: { name: "Renamed", reasoning: null, input: null, context_window: null, max_tokens: null, thinking_level_map: null, compat: null },
+    effective: null,
+  });
+  try {
+    const api = await loadApi();
+    await api.putModelPiOverride(7, { name: "Renamed" });
+    assert.equal(write.requests[0].init.method, "PUT");
+    assert.ok(write.requests[0].url.endsWith("/api/models/7/pi/override"));
+    assert.equal(write.requests[0].init.body.name, "Renamed");
+  } finally {
+    write.restore();
+  }
+
+  const clear = stubFetch({
+    bound: true,
+    provider_id: "openai",
+    catalog_model_id: "gpt-x",
+    api: "openai-responses",
+    source: null,
+    override: null,
+    effective: null,
+  });
+  try {
+    const api = await loadApi();
+    await api.clearModelPiOverride(7);
+    assert.equal(clear.requests[0].init.method, "DELETE");
+    assert.ok(clear.requests[0].url.endsWith("/api/models/7/pi/override"));
+  } finally {
+    clear.restore();
+  }
+});
+
+test("model export unbind sends DELETE to the per-model pi route", async () => {
+  const { requests, restore } = stubFetch({
+    bound: false,
+    source: null,
+    override: null,
+    effective: null,
+  });
+  try {
+    const api = await loadApi();
+    const response = await api.unbindModelPi(7);
+    assert.equal(requests[0].init.method, "DELETE");
+    assert.ok(requests[0].url.endsWith("/api/models/7/pi"));
+    assert.equal(response.bound, false);
+  } finally {
+    restore();
   }
 });
