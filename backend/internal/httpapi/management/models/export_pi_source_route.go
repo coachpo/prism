@@ -16,7 +16,7 @@ import (
 // One consistent DB snapshot plus one best-effort pi.dev fetch outside the transaction.
 func (s *Service) handleGetPiExportSource(w http.ResponseWriter, r *http.Request) {
 	responseutil.SetPrivateNoStoreHeaders(w)
-	catalog, catalogStatus := s.piCatalogForSource(r.Context())
+	catalog, catalogStatus := s.piCatalogForRead(r.Context())
 	response, err := pgxutil.InRepeatableReadTxValue(r.Context(), s.pool, "pi export source", func(tx pgx.Tx) (*piSourceResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
@@ -60,7 +60,13 @@ func (s *Service) handleGetPiExportSource(w http.ResponseWriter, r *http.Request
 	responseutil.WriteJSON(w, http.StatusOK, response)
 }
 
-func (s *Service) piCatalogForSource(ctx context.Context) (*pidev.Catalog, string) {
+// piCatalogForRead resolves the catalog a read-only management surface may
+// publish. A successful fetch (including a 304 revalidation of the cached
+// revision) is reported as fresh. A failed fetch may still answer from
+// last-known-good, but only ever labelled stale: stale evidence is display
+// material for source and directory search, and bind/refresh still require
+// their own fresh fetch plus a matching revision before they write anything.
+func (s *Service) piCatalogForRead(ctx context.Context) (*pidev.Catalog, string) {
 	if s.piCatalog == nil {
 		return nil, "unavailable"
 	}

@@ -289,7 +289,7 @@ func TestClientFallsBackToLastKnownGoodOnFailure(t *testing.T) {
 	}
 	// Fetch itself reports the failure; callers are expected to fall back to
 	// Snapshot() for last-known-good retention, mirroring how the export
-	// source route already does this (piCatalogForSource).
+	// source route already does this (piCatalogForRead).
 	snapshot := client.Snapshot()
 	if snapshot == nil || snapshot.Revision != good.Revision {
 		t.Fatalf("Snapshot() must keep serving the last successfully validated catalog after a failed fetch")

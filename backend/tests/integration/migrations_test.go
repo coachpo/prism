@@ -46,6 +46,7 @@ var expectedPrismMigrationVersions = []string{
 	"000025_ingress_chain_query_indexes",
 	"000026_resolved_target_indexes",
 	"000027_model_pi_catalog_bindings",
+	"000028_model_pi_binding_identity",
 }
 
 func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {

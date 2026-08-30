@@ -11,6 +11,7 @@ e2e/
 ├── auth-session-lifecycle.spec.ts
 ├── loadbalance-strategies-recovery.spec.ts
 ├── model-catalog-pricing.spec.ts
+├── model-export-journey.spec.ts
 ├── models-access-target-authoring.spec.ts
 ├── request-log-dedicated-audit-page.spec.ts
 ├── routing-health-events.spec.ts
@@ -34,6 +35,7 @@ e2e/
 - Auth journey: `auth-session-lifecycle.spec.ts`
 - Load-balance recovery journey: `loadbalance-strategies-recovery.spec.ts`
 - models.dev catalog binding and Terminal Target price-generation journey: `model-catalog-pricing.spec.ts` (mocked `/api/models/{id}/catalog*` and `/api/pricing-templates/catalog/*`; unique-match bind renders metadata, tiered plan preview commits with the current target as the only assignment)
+- Pi client-export journey: `model-export-journey.spec.ts` (uncatalogued Prism id → backend-only bounded directory search → explicit cross-directory bind → deterministic render/download; asserts no browser request reaches pi.dev)
 - Model access-target authoring journey: `models-access-target-authoring.spec.ts`
 - Request-log + audit journey: `request-log-dedicated-audit-page.spec.ts`; shared request-log/audit fixture builders: `request-log-dedicated-audit-fixtures.ts`
 - Routing-health events journey: `routing-health-events.spec.ts`

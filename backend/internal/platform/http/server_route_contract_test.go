@@ -77,6 +77,7 @@ func TestManagementRouteSpecClassification(t *testing.T) {
 		{name: "interim singular export source is not admitted", method: http.MethodGet, path: "/api/models/export/source", ok: false},
 		{name: "removed Pi resolve step is not admitted", method: http.MethodPost, path: "/api/models/exports/pi/resolve", ok: false},
 		{name: "model pi bind uses m2 tier", method: http.MethodPost, path: "/api/models/7/pi/bind", want: priority.ManagementTierM2, ok: true},
+		{name: "model pi directory search uses m2 tier", method: http.MethodPost, path: "/api/models/7/pi/search", want: priority.ManagementTierM2, ok: true},
 		{name: "model pi unbind uses m2 tier", method: http.MethodDelete, path: "/api/models/7/pi", want: priority.ManagementTierM2, ok: true},
 		{name: "head maps to get", method: http.MethodHead, path: "/api/auth/status", want: priority.ManagementTierM1, ok: true},
 		{name: "options bypasses admission", method: http.MethodOptions, path: "/api/models", ok: false},

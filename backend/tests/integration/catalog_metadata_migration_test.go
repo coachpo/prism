@@ -2,16 +2,16 @@ package integrationtest
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/coachpo/prism/backend/internal/platform/migrate"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // TestModelCatalogMetadataUpgradePreservesRetainedData proves both catalog
 // migrations are additive: 000024 preserves retained model/pricing state,
-// then 000027 preserves that state plus the independent models.dev binding
-// while adding the Pi-only binding table.
 func TestModelCatalogMetadataUpgradePreservesRetainedData(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -157,21 +157,18 @@ func TestModelCatalogMetadataUpgradePreservesRetainedData(t *testing.T) {
 		t.Fatalf("binding points at wrong model: %d vs %d", boundModelID, modelID)
 	}
 
-	// Simulate the exact pre-000027 retained state. Existing model, pricing,
-	// reference, and models.dev binding rows must survive while the independent
-	// Pi binding table is added.
-	if _, err := conn.Exec(testContext, `DELETE FROM prism_schema_migrations WHERE version = '000027_model_pi_catalog_bindings'`); err != nil {
-		t.Fatalf("un-stamp 000027: %v", err)
+	if _, err := conn.Exec(testContext, `DELETE FROM prism_schema_migrations WHERE version IN ('000027_model_pi_catalog_bindings', '000028_model_pi_binding_identity')`); err != nil {
+		t.Fatalf("un-stamp Pi binding migrations: %v", err)
 	}
 	if _, err := conn.Exec(testContext, `DROP TABLE model_pi_catalog_bindings`); err != nil {
 		t.Fatalf("drop Pi binding table: %v", err)
 	}
 	piUpgradeResult, err := runner.Run(testContext, conn)
 	if err != nil {
-		t.Fatalf("apply 000027 upgrade: %v", err)
+		t.Fatalf("apply 000027/000028 upgrade: %v", err)
 	}
 	if piUpgradeResult.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected upgrade to apply 000027, got %q", piUpgradeResult.Outcome)
+		t.Fatalf("expected upgrade to apply Pi binding migrations, got %q", piUpgradeResult.Outcome)
 	}
 	countMustEqual(`SELECT COUNT(*) FROM model_configs WHERE id = $1 AND model_id = 'upgrade-model' AND api_family = 'openai'`, 1, modelID)
 	countMustEqual(`SELECT COUNT(*) FROM model_catalog_bindings WHERE model_config_id = $1 AND provider_id = 'openai' AND catalog_model_id = 'upgrade-model'`, 1, modelID)
@@ -180,13 +177,13 @@ func TestModelCatalogMetadataUpgradePreservesRetainedData(t *testing.T) {
 	countMustEqual(`SELECT COUNT(*) FROM pricing_template_cards WHERE revision_id = $1`, 2, revisionID)
 
 	if _, err := conn.Exec(testContext, `INSERT INTO model_pi_catalog_bindings (
-		model_config_id, provider_id, catalog_model_id, api, bind_source, catalog_revision, fetched_at,
+		model_config_id, provider_id, catalog_model_id, api, prism_model_id_at_bind, bind_source, catalog_revision, fetched_at,
 		source_name, source_dropped_fields, updated_at
-	) VALUES ($1, 'openai', 'upgrade-model', 'openai-responses', 'manual', 'sha256-upgrade-fixture', $2,
+	) VALUES ($1, 'openai', 'upgrade-model', 'openai-responses', 'upgrade-model', 'manual', 'sha256-upgrade-fixture', $2,
 		'Upgrade Model', '["compat.allowedFallbackModels"]'::jsonb, $2)`, modelID, now); err != nil {
-		t.Fatalf("insert post-000027 Pi binding: %v", err)
+		t.Fatalf("insert post-upgrade Pi binding: %v", err)
 	}
-	countMustEqual(`SELECT COUNT(*) FROM model_pi_catalog_bindings WHERE model_config_id = $1 AND source_dropped_fields = '["compat.allowedFallbackModels"]'::jsonb`, 1, modelID)
+	countMustEqual(`SELECT COUNT(*) FROM model_pi_catalog_bindings WHERE model_config_id = $1 AND prism_model_id_at_bind = 'upgrade-model' AND source_dropped_fields = '["compat.allowedFallbackModels"]'::jsonb`, 1, modelID)
 
 	// A second full run stays noop: the upgrade is idempotent.
 	noopResult, err := runner.Run(testContext, conn)
@@ -197,3 +194,146 @@ func TestModelCatalogMetadataUpgradePreservesRetainedData(t *testing.T) {
 		t.Fatalf("expected second run to be noop, got %q", noopResult.Outcome)
 	}
 }
+
+func TestModelPiBindingIdentityUpgradePreservesRetainedData(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openEmptyDatabase(t, testContext, "pi_binding_identity_upgrade")
+	defer func() { _ = conn.Close(testContext) }()
+
+	if _, err := runner.Run(testContext, conn); err != nil {
+		t.Fatalf("run full migration set: %v", err)
+	}
+
+	if _, err := conn.Exec(testContext, `DELETE FROM prism_schema_migrations WHERE version = '000028_model_pi_binding_identity'`); err != nil {
+		t.Fatalf("un-stamp 000028: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `ALTER TABLE model_pi_catalog_bindings DROP COLUMN prism_model_id_at_bind`); err != nil {
+		t.Fatalf("drop identity column: %v", err)
+	}
+
+	now := time.Now().UTC()
+	var profileID, strategyID, modelA, modelB int
+	if err := conn.QueryRow(testContext, `INSERT INTO profiles (name, description, is_active, is_default, is_editable, version, deleted_at, created_at, updated_at) VALUES ('pi-identity', NULL, TRUE, TRUE, TRUE, 1, NULL, $1, $1) RETURNING id`, now).Scan(&profileID); err != nil {
+		t.Fatalf("seed profile: %v", err)
+	}
+	if err := conn.QueryRow(testContext, `INSERT INTO loadbalance_strategies (profile_id, name, legacy_strategy_type, failure_status_codes, ban_mode, retry_base_delay_ms, retry_backoff_multiplier, retry_jitter_ratio, retry_max_delay_ms, cycle_retry_attempt_limit, ban_cumulative_retry_attempt_threshold, ban_duration_seconds, created_at, updated_at) VALUES ($1, 'Pi Identity Strategy', 'fill-first', '{500}', 'off', 60000, 2.0, 0.2, 900000, 2, 0, 0, $2, $2) RETURNING id`, profileID, now).Scan(&strategyID); err != nil {
+		t.Fatalf("seed strategy: %v", err)
+	}
+	if err := conn.QueryRow(testContext, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, openai_accepted_format, created_at, updated_at) VALUES ($1, 'openai', 'same-id-model', 'Same', $2, TRUE, 'dual_native', $3, $3) RETURNING id`, profileID, strategyID, now).Scan(&modelA); err != nil {
+		t.Fatalf("seed model A: %v", err)
+	}
+	if err := conn.QueryRow(testContext, `INSERT INTO model_configs (profile_id, api_family, model_id, display_name, loadbalance_strategy_id, is_enabled, openai_accepted_format, created_at, updated_at) VALUES ($1, 'openai', 'renamed-model', 'Renamed', $2, TRUE, 'dual_native', $3, $3) RETURNING id`, profileID, strategyID, now).Scan(&modelB); err != nil {
+		t.Fatalf("seed model B: %v", err)
+	}
+
+	seedBinding := func(modelConfigID int, directoryID, name string, contextWindow int64, overrideName *string, revision string) {
+		t.Helper()
+		if _, err := conn.Exec(testContext, `INSERT INTO model_pi_catalog_bindings (
+			model_config_id, provider_id, catalog_model_id, api, bind_source, catalog_revision, fetched_at,
+			source_name, source_context_window, source_dropped_fields, override_name, updated_at
+		) VALUES ($1, 'openai', $2, 'openai-responses', 'manual', $3, $4,
+			$5, $6, '["headers"]'::jsonb, $7, $4)`,
+			modelConfigID, directoryID, revision, now, name, contextWindow, overrideName); err != nil {
+			t.Fatalf("seed Pi binding for model %d: %v", modelConfigID, err)
+		}
+	}
+	seedBinding(modelA, "same-id-model", "Source A", 400000, nil, "sha256-a")
+	seedBinding(modelB, "old-model-id", "Source B", 200000, ptrString("Operator Override"), "sha256-b")
+
+	result, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("apply 000028 upgrade: %v", err)
+	}
+	if result.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected 000028 to apply, got %q", result.Outcome)
+	}
+
+	var count int
+	if err := conn.QueryRow(testContext, `SELECT COUNT(*) FROM model_pi_catalog_bindings`).Scan(&count); err != nil {
+		t.Fatalf("count bindings: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("every retained binding must survive the upgrade, got %d", count)
+	}
+
+	type snapshot struct {
+		directoryID string
+		prismAtBind string
+		revision    string
+		sourceName  string
+		sourceCW    int64
+		dropped     string
+		override    *string
+	}
+	load := func(modelConfigID int) snapshot {
+		t.Helper()
+		var row snapshot
+		if err := conn.QueryRow(testContext, `SELECT catalog_model_id, prism_model_id_at_bind, catalog_revision, source_name, source_context_window, source_dropped_fields::text, override_name FROM model_pi_catalog_bindings WHERE model_config_id = $1`, modelConfigID).Scan(
+			&row.directoryID, &row.prismAtBind, &row.revision, &row.sourceName, &row.sourceCW, &row.dropped, &row.override,
+		); err != nil {
+			t.Fatalf("load binding for model %d: %v", modelConfigID, err)
+		}
+		return row
+	}
+
+	keptA := load(modelA)
+	if keptA.prismAtBind != "same-id-model" || keptA.directoryID != "same-id-model" {
+		t.Fatalf("healthy row must backfill to an identity match: %+v", keptA)
+	}
+	if keptA.sourceName != "Source A" || keptA.sourceCW != 400000 || keptA.revision != "sha256-a" || keptA.dropped != `["headers"]` {
+		t.Fatalf("upgrade must not rewrite frozen source evidence: %+v", keptA)
+	}
+
+	keptB := load(modelB)
+	if keptB.prismAtBind != "old-model-id" {
+		t.Fatalf("drifted row must backfill from catalog_model_id, not from the current model id: %+v", keptB)
+	}
+	var currentPrismID string
+	if err := conn.QueryRow(testContext, `SELECT model_id FROM model_configs WHERE id = $1`, modelB).Scan(&currentPrismID); err != nil {
+		t.Fatalf("read model B identity: %v", err)
+	}
+	if keptB.prismAtBind == currentPrismID {
+		t.Fatalf("backfill must not silently heal an existing rename drift: snapshot=%s current=%s", keptB.prismAtBind, currentPrismID)
+	}
+	if keptB.override == nil || *keptB.override != "Operator Override" {
+		t.Fatalf("operator override must survive the upgrade: %+v", keptB)
+	}
+
+	if _, err := conn.Exec(testContext, `DELETE FROM model_pi_catalog_bindings WHERE model_config_id = $1`, modelA); err != nil {
+		t.Fatalf("prepare constraint checks: %v", err)
+	}
+	_, missingSnapshotErr := conn.Exec(testContext, `INSERT INTO model_pi_catalog_bindings (
+		model_config_id, provider_id, catalog_model_id, api, bind_source, catalog_revision, fetched_at, source_dropped_fields, updated_at
+	) VALUES ($1, 'openai', 'no-snapshot', 'openai-responses', 'manual', 'sha256-c', $2, '[]'::jsonb, $2)`, modelA, now)
+	var missingSnapshotPgErr *pgconn.PgError
+	if !errors.As(missingSnapshotErr, &missingSnapshotPgErr) || missingSnapshotPgErr.Code != "23502" || missingSnapshotPgErr.ColumnName != "prism_model_id_at_bind" {
+		t.Fatalf("missing prism_model_id_at_bind error = %v, want SQLSTATE 23502 on the snapshot column", missingSnapshotErr)
+	}
+	_, emptySnapshotErr := conn.Exec(testContext, `INSERT INTO model_pi_catalog_bindings (
+		model_config_id, provider_id, catalog_model_id, api, prism_model_id_at_bind, bind_source, catalog_revision, fetched_at, source_dropped_fields, updated_at
+	) VALUES ($1, 'openai', 'empty-snapshot', 'openai-responses', '', 'manual', 'sha256-c', $2, '[]'::jsonb, $2)`, modelA, now)
+	var emptySnapshotPgErr *pgconn.PgError
+	if !errors.As(emptySnapshotErr, &emptySnapshotPgErr) || emptySnapshotPgErr.Code != "23514" || emptySnapshotPgErr.ConstraintName != "ck_mpcb_prism_model_id_at_bind" {
+		t.Fatalf("empty prism_model_id_at_bind error = %v, want ck_mpcb_prism_model_id_at_bind", emptySnapshotErr)
+	}
+
+	noopResult, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("re-run migrations: %v", err)
+	}
+	if noopResult.Outcome != migrate.OutcomeNoop {
+		t.Fatalf("expected second run to be noop, got %q", noopResult.Outcome)
+	}
+	if err := conn.QueryRow(testContext, `SELECT COUNT(*) FROM model_pi_catalog_bindings`).Scan(&count); err != nil {
+		t.Fatalf("recount bindings: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("noop run must not change the remaining valid binding row, got %d", count)
+	}
+}
+
+func ptrString(value string) *string { return &value }

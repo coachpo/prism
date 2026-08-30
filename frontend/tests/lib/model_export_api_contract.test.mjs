@@ -83,8 +83,16 @@ test("model export render posts digest-guarded Pi bodies with binding-coordinate
       provider_id: "prism-home",
       credential: { include: true, api_key: "proxy-key" },
       selections: {
-        3: { provider_id: "openai", model_id: "gpt-x", api: "openai-responses" },
-        5: { provider_id: "anthropic", model_id: "claude-x", api: "anthropic-messages" },
+        3: {
+          provider_id: "openai",
+          model_id: "gpt-x",
+          api: "openai-responses",
+        },
+        5: {
+          provider_id: "anthropic",
+          model_id: "claude-x",
+          api: "anthropic-messages",
+        },
       },
     });
     assert.equal(requests[0].init.method, "POST");
@@ -114,14 +122,15 @@ test("model export render posts digest-guarded Pi bodies with binding-coordinate
   }
 });
 
-test("model export bind posts to the per-model pi/bind route", async () => {
+test("model export bind carries an explicit cross-directory coordinate", async () => {
   const { requests, restore } = stubFetch({
     bound: true,
-    bind_source: "single_candidate",
+    bind_source: "manual",
     provider_id: "openai",
     catalog_model_id: "gpt-x",
     api: "openai-responses",
-    catalog_revision: "sha256-" + "a".repeat(64),
+    prism_model_id_at_bind: "codex/gpt-x",
+    catalog_revision: "sha256-" + "b".repeat(64),
     source: null,
     override: null,
     effective: null,
@@ -129,15 +138,69 @@ test("model export bind posts to the per-model pi/bind route", async () => {
   try {
     const api = await loadApi();
     const response = await api.bindModelPi(7, {
-      expected_catalog_revision: "sha256-" + "a".repeat(64),
+      provider_id: "openai",
+      catalog_model_id: "gpt-x",
+      expected_catalog_revision: "sha256-" + "b".repeat(64),
+      expected_prism_model_id: "codex/gpt-x",
+      expected_pi_api: "openai-responses",
     });
     assert.equal(requests[0].init.method, "POST");
     assert.ok(requests[0].url.endsWith("/api/models/7/pi/bind"));
-    assert.equal(
-      requests[0].init.body.expected_catalog_revision,
-      "sha256-" + "a".repeat(64),
-    );
-    assert.equal(response.bound, true);
+    assert.equal(requests[0].init.cache, "no-store");
+    assert.deepEqual(requests[0].init.body, {
+      provider_id: "openai",
+      catalog_model_id: "gpt-x",
+      expected_catalog_revision: "sha256-" + "b".repeat(64),
+      expected_prism_model_id: "codex/gpt-x",
+      expected_pi_api: "openai-responses",
+    });
+    assert.equal(response.catalog_model_id, "gpt-x");
+    assert.equal(response.prism_model_id_at_bind, "codex/gpt-x");
+  } finally {
+    restore();
+  }
+});
+
+test("directory search is a no-store backend POST that never selects", async () => {
+  const { requests, restore } = stubFetch({
+    query: "GPT-X",
+    api: "openai-responses",
+    limit: 20,
+    total: 1,
+    returned: 1,
+    truncated: false,
+    selected: false,
+    catalog: { status: "fresh", revision: "sha256-" + "c".repeat(64) },
+    fetched_at: "2026-08-30T00:00:00Z",
+    export_identity: {
+      model_config_id: 7,
+      model_id: "codex/gpt-x",
+      api: "openai-responses",
+      provider_id_source: "operator_input",
+    },
+    results: [
+      {
+        provider_id: "openai",
+        model_id: "gpt-x",
+        api: "openai-responses",
+        dropped_fields: ["headers"],
+      },
+    ],
+  });
+  try {
+    const api = await loadApi();
+    const response = await api.searchModelPiCatalog(7, {
+      model_id_query: "GPT-X",
+    });
+    assert.equal(requests[0].init.method, "POST");
+    assert.equal(requests[0].init.cache, "no-store");
+    assert.ok(requests[0].url.endsWith("/api/models/7/pi/search"));
+    assert.ok(!/pi\.dev/i.test(requests[0].url));
+    assert.deepEqual(requests[0].init.body, { model_id_query: "GPT-X" });
+    assert.equal(response.selected, false);
+    assert.equal(response.results.length, 1);
+    assert.equal(response.export_identity.model_id, "codex/gpt-x");
+    assert.equal(response.export_identity.provider_id_source, "operator_input");
   } finally {
     restore();
   }
@@ -150,7 +213,14 @@ test("model export refresh preview and commit hit their own routes", async () =>
     catalog_model_id: "gpt-x",
     api: "openai-responses",
     changed: true,
-    changes: [{ field: "context_window", current: "128000", next: "256000", kind: "changed" }],
+    changes: [
+      {
+        field: "context_window",
+        current: "128000",
+        next: "256000",
+        kind: "changed",
+      },
+    ],
     catalog_revision: "sha256-" + "b".repeat(64),
     binding_updated_at: "2026-01-01T00:00:00Z",
     fetched_at: "2026-01-01T00:00:00Z",
@@ -159,7 +229,9 @@ test("model export refresh preview and commit hit their own routes", async () =>
     const api = await loadApi();
     const previewResponse = await api.refreshModelPiPreview(7);
     assert.equal(preview.requests[0].init.method, "POST");
-    assert.ok(preview.requests[0].url.endsWith("/api/models/7/pi/refresh/preview"));
+    assert.ok(
+      preview.requests[0].url.endsWith("/api/models/7/pi/refresh/preview"),
+    );
     assert.equal(previewResponse.changed, true);
   } finally {
     preview.restore();
@@ -185,7 +257,9 @@ test("model export refresh preview and commit hit their own routes", async () =>
       catalog_revision: "sha256-" + "b".repeat(64),
     });
     assert.equal(commit.requests[0].init.method, "POST");
-    assert.ok(commit.requests[0].url.endsWith("/api/models/7/pi/refresh/commit"));
+    assert.ok(
+      commit.requests[0].url.endsWith("/api/models/7/pi/refresh/commit"),
+    );
     assert.equal(
       commit.requests[0].init.body.expected_catalog_revision,
       "sha256-" + "b".repeat(64),
@@ -209,7 +283,15 @@ test("model export override write and clear hit PUT/DELETE on the same route", a
     catalog_model_id: "gpt-x",
     api: "openai-responses",
     source: null,
-    override: { name: "Renamed", reasoning: null, input: null, context_window: null, max_tokens: null, thinking_level_map: null, compat: null },
+    override: {
+      name: "Renamed",
+      reasoning: null,
+      input: null,
+      context_window: null,
+      max_tokens: null,
+      thinking_level_map: null,
+      compat: null,
+    },
     effective: null,
   });
   try {

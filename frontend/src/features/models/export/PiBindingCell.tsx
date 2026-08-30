@@ -1,18 +1,27 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { MoreHorizontal } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import {
   OperatorCallout,
   OperatorDestructiveDialog,
   OperatorStatusBadge,
+  OperatorTypeBadge,
 } from "@/shared/design-system";
 import type { ExportSourceModelRow } from "./exportTypes";
 import { PiBindingOverrideDialog } from "./PiBindingOverrideDialog";
-import { PiBindingRebindDialog } from "./PiBindingRebindDialog";
 import { PiBindingRefreshDialog } from "./PiBindingRefreshDialog";
+import { PiBindingSourceDialog } from "./PiBindingSourceDialog";
 import { PiDroppedFieldsEvidence } from "./PiDroppedFieldsEvidence";
-import { PiUnboundBinding } from "./PiUnboundBinding";
 import {
   isModelExportSourceReconciliationError,
   type ModelExportSourceState,
@@ -24,6 +33,14 @@ const BINDING_STATUS_LABEL_KEYS: Record<string, string> = {
   bound: "bindingStatusBound",
   bound_drifted: "bindingStatusDrifted",
   unbound: "bindingStatusUnbound",
+};
+
+const CANDIDATE_STATUS_LABEL_KEYS: Record<string, string> = {
+  not_in_catalog: "candidateStatusNotInCatalog",
+  api_mismatch: "candidateStatusApiMismatch",
+  single: "candidateStatusSingle",
+  multiple: "candidateStatusMultiple",
+  catalog_unavailable: "candidateStatusCatalogUnavailable",
 };
 
 function apiErrorDetail(error: unknown, copy: Copy): string {
@@ -41,25 +58,62 @@ export function PiBindingCell({
   sourceState: ModelExportSourceState;
 }) {
   const { messages } = useLocale();
-  const copy = messages.modelExportPage;
-  const dynamicCopy = copy as Copy;
-  const [rebindOpen, setRebindOpen] = useState(false);
+  const copy = messages.modelExportPage as Copy;
+  const [sourceOpen, setSourceOpen] = useState(false);
   const [refreshOpen, setRefreshOpen] = useState(false);
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [unbindOpen, setUnbindOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const selected = model.pi_selected;
+  // A directory entry exists for every model whose final Pi API is
+  // determinable, including the ones the default exact search reports as
+  // not_in_catalog or api_mismatch. Only a model with no Pi text API at all
+  // has nothing to bind to.
+  const canBind = Boolean(model.pi_api);
+
   if (!selected) {
+    const statusKey = CANDIDATE_STATUS_LABEL_KEYS[model.candidate_status];
     return (
-      <PiUnboundBinding
-        copy={dynamicCopy}
-        model={model}
-        sourceState={sourceState}
-      />
+      <div className="flex flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-1">
+          <OperatorTypeBadge
+            intent="muted"
+            label={copy[statusKey] ?? model.candidate_status}
+          />
+          <OperatorTypeBadge intent="muted" label={copy.bindingStatusUnbound} />
+        </div>
+        {canBind ? (
+          <div className="flex flex-wrap gap-1 opacity-70 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={sourceState.sourceActionsBlocked}
+              onClick={() => setSourceOpen(true)}
+            >
+              {copy.bindSourceAction}
+            </Button>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {copy.noPiApiCannotBind}
+          </p>
+        )}
+        {sourceOpen ? (
+          <PiBindingSourceDialog
+            copy={copy}
+            model={model}
+            onClose={() => setSourceOpen(false)}
+            sourceState={sourceState}
+          />
+        ) : null}
+      </div>
     );
   }
 
   const bindingKey = BINDING_STATUS_LABEL_KEYS[model.pi_binding_status];
+  const boundPrismModelId =
+    model.pi_binding_prism_model_id || model.model_id;
+  const isCrossDirectory = selected.model_id !== boundPrismModelId;
 
   async function handleUnbind() {
     setActionError(null);
@@ -69,7 +123,7 @@ export function PiBindingCell({
       });
       setUnbindOpen(false);
     } catch (error) {
-      setActionError(apiErrorDetail(error, dynamicCopy));
+      setActionError(apiErrorDetail(error, copy));
     }
   }
 
@@ -78,80 +132,100 @@ export function PiBindingCell({
       <span className="font-mono text-xs">
         {selected.provider_id}/{selected.model_id} ({selected.api})
       </span>
+      <p className="text-xs text-muted-foreground">
+        {copy.boundIdentityLabel}:{" "}
+        <span className="font-mono">{boundPrismModelId}</span>
+        {isCrossDirectory ? ` · ${copy.boundCrossDirectoryLabel}` : null}
+      </p>
       <OperatorStatusBadge
         intent={model.pi_binding_status === "bound" ? "healthy" : "degraded"}
-        label={dynamicCopy[bindingKey] ?? model.pi_binding_status}
+        label={copy[bindingKey] ?? model.pi_binding_status}
       />
       {!model.pi_binding_renderable ? (
-        <p className="text-xs text-destructive">
-          {dynamicCopy.bindingNotRenderable}
-        </p>
+        <p className="text-xs text-destructive">{copy.bindingNotRenderable}</p>
+      ) : null}
+      {!canBind ? (
+        <p className="text-xs text-muted-foreground">{copy.noPiApiCannotBind}</p>
       ) : null}
       <PiDroppedFieldsEvidence
         fields={model.pi_binding_dropped_fields}
-        label={dynamicCopy.droppedFieldsLabel}
+        label={copy.droppedFieldsLabel}
       />
       <div className="flex flex-wrap gap-1 opacity-70 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={sourceState.sourceActionsBlocked}
-          onClick={() => setRebindOpen(true)}
-        >
-          {dynamicCopy.rebindAction}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={
-            !model.pi_binding_renderable || sourceState.sourceActionsBlocked
-          }
-          onClick={() => setRefreshOpen(true)}
-        >
-          {dynamicCopy.refreshAction}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={
-            !model.pi_binding_renderable || sourceState.sourceActionsBlocked
-          }
-          onClick={() => setOverrideOpen(true)}
-        >
-          {dynamicCopy.overrideAction}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="text-destructive"
-          disabled={sourceState.sourceActionsBlocked}
-          onClick={() => {
-            setActionError(null);
-            setUnbindOpen(true);
-          }}
-        >
-          {dynamicCopy.unbindAction}
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              aria-label={copy.bindingActionsLabel}
+              title={copy.bindingActionsLabel}
+              disabled={sourceState.sourceActionsBlocked}
+            >
+              <MoreHorizontal data-icon="inline-start" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                disabled={!canBind || sourceState.sourceActionsBlocked}
+                onSelect={() => setSourceOpen(true)}
+              >
+                {copy.changeSourceAction}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={
+                  !model.pi_binding_renderable ||
+                  sourceState.sourceActionsBlocked
+                }
+                onSelect={() => setRefreshOpen(true)}
+              >
+                {copy.refreshAction}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={
+                  !model.pi_binding_renderable ||
+                  sourceState.sourceActionsBlocked
+                }
+                onSelect={() => setOverrideOpen(true)}
+              >
+                {copy.overrideAction}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={() => {
+                  setActionError(null);
+                  setUnbindOpen(true);
+                }}
+              >
+                {copy.unbindAction}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       {refreshOpen && model.pi_binding_renderable ? (
         <PiBindingRefreshDialog
-          copy={dynamicCopy}
+          copy={copy}
           modelConfigId={model.model_config_id}
           onClose={() => setRefreshOpen(false)}
           sourceState={sourceState}
         />
       ) : null}
-      {rebindOpen ? (
-        <PiBindingRebindDialog
-          copy={dynamicCopy}
+      {sourceOpen ? (
+        <PiBindingSourceDialog
+          copy={copy}
           model={model}
-          onClose={() => setRebindOpen(false)}
+          onClose={() => setSourceOpen(false)}
           sourceState={sourceState}
         />
       ) : null}
       {overrideOpen && model.pi_binding_renderable ? (
         <PiBindingOverrideDialog
-          copy={dynamicCopy}
+          copy={copy}
           model={model}
           onClose={() => setOverrideOpen(false)}
           sourceState={sourceState}
@@ -163,11 +237,11 @@ export function PiBindingCell({
           onOpenChange={(open) => {
             if (!sourceState.unbindMutation.isPending) setUnbindOpen(open);
           }}
-          title={dynamicCopy.unbindConfirmTitle}
-          description={dynamicCopy.unbindConfirmDescription}
-          cancelLabel={dynamicCopy.cancel}
-          confirmLabel={dynamicCopy.unbindConfirm}
-          confirmingLabel={dynamicCopy.unbinding}
+          title={copy.unbindConfirmTitle}
+          description={copy.unbindConfirmDescription}
+          cancelLabel={copy.cancel}
+          confirmLabel={copy.unbindConfirm}
+          confirmingLabel={copy.unbinding}
           confirming={sourceState.unbindMutation.isPending}
           confirmDisabled={sourceState.sourceActionsBlocked}
           cancelDisabled={sourceState.unbindMutation.isPending}
@@ -178,7 +252,7 @@ export function PiBindingCell({
           {model.pi_binding_override ? (
             <OperatorCallout
               intent="warning"
-              description={dynamicCopy.unbindOverridesWarning}
+              description={copy.unbindOverridesWarning}
             />
           ) : null}
           {actionError ? (

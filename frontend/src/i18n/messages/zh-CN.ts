@@ -3904,11 +3904,8 @@ export const zhCNMessages = {
     routeAttemptCoverageDescription:
       "路由尝试的计数、结果与尝试延迟都来自请求日志；此缺口可能使当前路由尝试分析不完整。",
     coverageGapDetailsTitle: "已知缺口",
-    coverageGapDetail: (
-      from: MessageArg,
-      to: MessageArg,
-      reason: MessageArg,
-    ) => `${from} 至 ${to} · ${reason}`,
+    coverageGapDetail: (from: MessageArg, to: MessageArg, reason: MessageArg) =>
+      `${from} 至 ${to} · ${reason}`,
     coverageGapReason: (reason: string) =>
       ({
         retention_deleted: "已超出当前保留范围",
@@ -4007,15 +4004,21 @@ export const zhCNMessages = {
 
     commonSettingsTitle: "导出目标",
     commonSettingsDescription:
-      "客户端将通过这里填写的 Prism Gateway origin 和 provider ID 访问当前实例。",
+      "客户端将通过这里填写的 Prism Gateway origin 和导出 Provider 键名访问当前实例。这里的键名只决定导出文件 providers 对象的键，与 Pi 目录里的 provider 无关。",
     gatewayOriginLabel: "Prism Gateway origin",
     gatewayOriginHint:
       "只允许 HTTP(S) origin，不含路径、用户信息、查询或片段。",
     gatewayOriginInvalid:
       "请输入不含路径、用户信息、查询或片段的 HTTP(S) origin。",
-    providerIdLabel: "Provider ID",
-    providerIdHint: "默认 prism；会写入客户端配置的 provider 槽。",
-    providerIdInvalid: "Provider ID 去除首尾空白后不能为空，也不能包含 /。",
+    // This is the exported file's provider map key, authored here by the
+    // operator. It is a different data domain from the pi.dev directory
+    // provider shown on a binding row, so neither is ever labelled bare
+    // "Provider ID".
+    providerIdLabel: "导出 Provider 键名",
+    providerIdHint:
+      "默认 prism；只作为导出文件 providers 对象的键，由你在这里输入，目录不会提供也不会覆盖它。",
+    providerIdInvalid:
+      "导出 Provider 键名去除首尾空白后不能为空，也不能包含 /。",
 
     selectionTitle: "选择模型",
     searchLabel: "搜索模型 ID 或名称",
@@ -4044,13 +4047,28 @@ export const zhCNMessages = {
 
     candidateStatusNotInCatalog: "未收录",
     candidateStatusApiMismatch: "API 不兼容",
+    candidateStatusSingle: "单个默认候选",
+    candidateStatusMultiple: "多个默认候选",
     candidateStatusCatalogUnavailable: "目录不可用",
+    // Directory-source wording: this provider is the pi.dev origin of a
+    // template, never the exported file's provider key.
+    catalogProviderLabel: "目录 Provider",
     bindingStatusBound: "已绑定",
     bindingStatusDrifted: "绑定已漂移",
     bindingStatusUnbound: "未绑定",
-    bindingNotRenderable: "绑定坐标与当前完整模型 ID 或最终 Pi API 不一致，需重新绑定。",
+    bindingNotRenderable:
+      "绑定时冻结的 Prism 模型 ID 或最终 Pi API 与当前模型不一致，需重新绑定。",
     droppedFieldsLabel: "已丢弃的不安全目录字段",
+    droppedFieldsNone: "无",
     bindAction: "绑定",
+    bindSourceAction: "绑定来源",
+    changeSourceAction: "更换来源",
+    bindingActionsLabel: "绑定操作",
+    boundIdentityLabel: "绑定时 Prism ID",
+    currentBindingIdentityLabel: "当前绑定的 Prism ID",
+    boundCrossDirectoryLabel: "跨目录绑定",
+    noPiApiCannotBind:
+      "该模型的 API 家族与接受格式没有 Pi 文本 API 映射，无法绑定目录来源。",
     candidateSelectLabel: "选择候选来源",
     candidateSelectPlaceholder: "请选择候选来源",
     candidateAmbiguousHint: "多候选需先选择再绑定",
@@ -4066,14 +4084,57 @@ export const zhCNMessages = {
     rebindConfirmDestructiveAction: "重新绑定并清除覆盖",
     rebindClearsOverrides:
       "所选坐标与当前绑定不同。应用后会永久清除这个模型的全部手动覆盖，因为这些覆盖属于原候选来源。",
+    // Unified change-source dialog: one entry for bind and rebind, with the
+    // default exact-candidate layer and the bounded directory-search layer kept
+    // visibly separate.
+    sourceDialogTitle: "更换 Pi 来源",
+    sourceDialogDescription:
+      "默认层仍按完整 model_id 大小写敏感且最终 Pi API 相等匹配；目录搜索层只按 model_id 做大小写不敏感的字面匹配。两层都不会自动选中任何项，确认前必须看到完整证据。",
+    sourceDialogConfirmAction: "应用绑定",
+    exportIdentityTitle: "最终导出身份（由 Prism 决定）",
+    exportIdentityModelLabel: "导出模型 id",
+    exportIdentityApiLabel: "导出 Pi API",
+    exportIdentityApiUnknown: "无法确定",
+    exportIdentityProviderLabel: "导出 Provider 键名",
+    exportIdentityProviderHint: "由你在“导出目标”中输入",
+    exportIdentityNote:
+      "目录坐标的 provider、baseUrl、价格、请求头、采样参数、fallback 与 routing 都不会进入导出文件，也不会覆盖这里任何一项。",
+    exactCandidatesTitle: "默认精确候选",
+    exactCandidatesEmpty:
+      "目录里没有与当前完整 model_id 大小写敏感相等且最终 Pi API 相等的候选；可用下方目录搜索明确选择另一个 model_id。",
+    directorySearchTitle: "按 model_id 搜索目录",
+    directorySearchLabel: "目录 model_id 片段",
+    directorySearchPlaceholder: "输入 model_id 片段，例如 gpt-5.6",
+    directorySearchHint:
+      "仅搜索目录 model_id，大小写不敏感的字面包含；不搜索 provider、名称或其他字段，也不做模糊匹配。默认返回 20 条，最多 100 条，结果不会自动选中。",
+    directorySearchAction: "搜索目录",
+    directorySearchQueryRequired: "请输入要搜索的目录 model_id 片段。",
+    directorySearchEmpty: "没有同最终 Pi API 的目录命中项。",
+    directorySearchResultsLabel: "选择目录搜索结果",
+    directorySearchResultsPlaceholder: "请选择一个目录坐标",
+    directorySearchCountLabel: "展示条数 / 命中总数：",
+    directorySearchTruncated:
+      "结果已截断；请缩小片段后重新搜索，再确认要绑定的坐标。",
+    directorySearchStaleReadOnly:
+      "这次搜索只返回 last-known-good 目录证据，可查看但不能用于绑定；请重新搜索取得 fresh 证据。",
+    directorySearchEvidenceChanged:
+      "搜索证据对应的 Prism 模型身份或 source revision 已变化；请刷新导出源并重新搜索。",
+    chosenCoordinateTitle: "已选目录坐标",
+    catalogApiLabel: "目录 Pi API",
+    chosenSameDirectory: "与当前 Prism 模型 id 同名。",
+    chosenCrossDirectory:
+      "这是跨目录绑定：导出的模型 id 与 Pi API 仍由 Prism 决定，目录 model_id 只决定模板来源。",
+    noCoordinateChosen:
+      "尚未选择坐标。搜索或选择精确候选后才会展示证据并启用确认。",
+    catalogNotFreshBlocked:
+      "目录当前不是 fresh（不可用或仅 last-known-good）。可以只读查看证据，但绑定需要一次 fresh 或 304 重校验的拉取，请先刷新导出源。",
     refreshAction: "刷新",
     overrideAction: "覆盖",
     unbindAction: "解绑",
     unbindConfirmTitle: "解除 Pi 绑定？",
     unbindConfirmDescription:
       "解绑会删除冻结的 Pi 来源、丢弃字段证据和全部手动覆盖；不会影响 Prism 自身的模型配置。只有目录仍有兼容候选时才能重新绑定。",
-    unbindOverridesWarning:
-      "当前绑定含有手动覆盖。解绑后这些值无法恢复。",
+    unbindOverridesWarning: "当前绑定含有手动覆盖。解绑后这些值无法恢复。",
     unbindConfirm: "解绑并删除绑定",
     unbinding: "正在解绑...",
 
@@ -4115,8 +4176,7 @@ export const zhCNMessages = {
     overrideIntegerInvalid: "请输入浏览器可安全表示的正整数。",
     overrideJsonInvalid: "请输入有效的 JSON。",
     overrideObjectRequired: "请输入 JSON 对象。",
-    overrideThinkingMapInvalid:
-      "键必须是 Pi 思考等级，值必须是字符串或 null。",
+    overrideThinkingMapInvalid: "键必须是 Pi 思考等级，值必须是字符串或 null。",
     overrideRestoreAll: "清除全部覆盖",
     overrideClearAllTitle: "清除全部 Pi 手动覆盖？",
     overrideClearAllDescription:

@@ -19,7 +19,7 @@ domain/
 │   └── AGENTS.md   # Stats read-model and retained-history rules
 ├── pricingkind/    # Typed standard/tiered/peak_valley kind and card-role constants
 ├── modelsdev/      # HTTP-neutral models.dev catalog client, schema, matching, and pricing plan
-├── pidev/          # HTTP-neutral pi.dev catalog client and schema: SHA-256-verified revision, singleflight, ETag/304, LKG, exact model_id+API candidate matching
+├── pidev/          # HTTP-neutral pi.dev catalog client/schema: trusted revision/LKG, exact candidates, bounded model-id search
 └── terminaltarget/ # Terminal Target helper types, pricing-window values, the shared custom request parameters validator/overlay, and the routing-schedule compiler
 ```
 
@@ -29,7 +29,7 @@ domain/
 - Runtime connection state, Ban Policy transitions, round-robin cursors, and load-balance event payloads: `loadbalance/AGENTS.md`, `loadbalance/`
 - Model-routing helper contracts shared with runtime planning and management authoring: `modelrouting/`, `terminaltarget/`
 - Client model-config export domain contracts (merge presence rules, price gates, clock-free digest, deterministic Pi 0.84.3 renderer): `modelexport/`
-- pi.dev catalog client, schema, and exact `model_id`+API candidate matching (management-layer bind/refresh/override own the persisted `model_pi_catalog_bindings` row): `pidev/`
+- pi.dev catalog client/schema, exact `model_id`+API candidates, and bounded same-API model-id-only search (management-layer search/bind/refresh/override own HTTP and persistence): `pidev/`
 - Terminal Target records and the single authoritative `custom_request_parameters` validator/overlay (limits, protected keys, canonicalization, deterministic shallow overlay): `terminaltarget/custom_request_parameters.go`
 - Routing-window compilation and eligibility (`CompileRoutingSchedule`, `DecideAt`, `NextOpenAt`, `NextCloseAt`, `WindowsCoverFullWeek`, `ValidateRoutingSchedule`): `terminaltarget/routing_schedule.go`; pricing-window digest and peak/valley decision values: `terminaltarget/pricing_schedule.go`
 - Typed pricing kind/card roles and independent selector evidence: `pricingkind/pricingkind.go`; pricing windows reuse the terminal-target half-open geometry but belong to a pricing revision and use the frozen ingress planning clock.

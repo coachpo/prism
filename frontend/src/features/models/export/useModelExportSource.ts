@@ -8,10 +8,14 @@ import {
   putModelPiOverride,
   refreshModelPiCommit,
   refreshModelPiPreview,
+  searchModelPiCatalog,
   unbindModelPi,
   type PiOverrideFieldValue,
 } from "@/lib/api/modelExport";
-import type { ExportSourceModelRow, PiRefreshPreviewResponse } from "./exportTypes";
+import type {
+  ExportSourceModelRow,
+  PiRefreshPreviewResponse,
+} from "./exportTypes";
 
 type ModelExportMetadataFilter = "all" | "complete" | "incomplete";
 
@@ -180,13 +184,31 @@ export function useModelExportSource() {
       providerId?: string;
       catalogModelId?: string;
       expectedCatalogRevision: string;
+      expectedPrismModelId: string;
+      expectedPiApi: string;
     }) =>
       bindModelPi(input.modelConfigId, {
         provider_id: input.providerId,
         catalog_model_id: input.catalogModelId,
         expected_catalog_revision: input.expectedCatalogRevision,
+        expected_prism_model_id: input.expectedPrismModelId,
+        expected_pi_api: input.expectedPiApi,
       }),
     onSuccess: reconcileSource,
+  });
+
+  // Directory discovery is a separate, explicitly-triggered read. It is never
+  // auto-run on an operator's behalf and never auto-selects a result.
+  const catalogSearchMutation = useMutation({
+    mutationFn: (input: {
+      modelConfigId: number;
+      query: string;
+      limit?: number;
+    }) =>
+      searchModelPiCatalog(input.modelConfigId, {
+        model_id_query: input.query,
+        ...(input.limit === undefined ? {} : { limit: input.limit }),
+      }),
   });
 
   const refreshPreviewMutation = useMutation<
@@ -207,8 +229,7 @@ export function useModelExportSource() {
         binding_updated_at: string;
         catalog_revision: string;
       };
-    }) =>
-      refreshModelPiCommit(input.modelConfigId, input.expected),
+    }) => refreshModelPiCommit(input.modelConfigId, input.expected),
     onSuccess: reconcileSource,
   });
 
@@ -237,6 +258,7 @@ export function useModelExportSource() {
     batchSelectVisible,
     bindMutation,
     catalog,
+    catalogSearchMutation,
     clearOverrideMutation,
     familyFilter,
     metadataFilter,

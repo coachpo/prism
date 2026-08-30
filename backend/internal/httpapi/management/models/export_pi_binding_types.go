@@ -143,17 +143,25 @@ type piBindingMetadataPayload struct {
 // binding. It never enters runtime planning: it is a management-only
 // projection consumed by the export source/render surface.
 type piBindingRecord struct {
-	ModelConfigID   int
-	ProviderID      string
-	CatalogModelID  string
-	API             string
-	BindSource      string
-	CatalogRevision string
-	FetchedAt       time.Time
-	UpdatedAt       time.Time
-	Source          piBindingMetadata
-	Override        piBindingMetadata
-	DroppedFields   []string
+	ModelConfigID  int
+	ProviderID     string
+	CatalogModelID string
+	API            string
+	// PrismModelIDAtBind is the Prism authoritative full model id frozen when
+	// this coordinate was bound. It is the renderability identity: a directory
+	// model id may legitimately differ from it (explicit cross-directory bind),
+	// but a later change to the Prism model id must never leave this row
+	// render-authoritative. Rows written before the snapshot column existed
+	// backfill from CatalogModelID, which was then forced to equal the Prism
+	// model id, so their drift semantics are unchanged.
+	PrismModelIDAtBind string
+	BindSource         string
+	CatalogRevision    string
+	FetchedAt          time.Time
+	UpdatedAt          time.Time
+	Source             piBindingMetadata
+	Override           piBindingMetadata
+	DroppedFields      []string
 }
 
 func (r piBindingRecord) bound() bool { return r.ModelConfigID != 0 && r.ProviderID != "" }
@@ -165,18 +173,19 @@ func (r piBindingRecord) response() piBindingResponse {
 	fetchedAt := r.FetchedAt
 	updatedAt := r.UpdatedAt
 	return piBindingResponse{
-		Bound:           true,
-		BindSource:      r.BindSource,
-		ProviderID:      r.ProviderID,
-		CatalogModelID:  r.CatalogModelID,
-		API:             r.API,
-		CatalogRevision: r.CatalogRevision,
-		FetchedAt:       &fetchedAt,
-		UpdatedAt:       &updatedAt,
-		Source:          r.Source.payload(),
-		Override:        r.Override.payload(),
-		Effective:       r.Source.effective(r.Override).payload(),
-		DroppedFields:   normalizePiDroppedFields(r.DroppedFields),
+		Bound:              true,
+		BindSource:         r.BindSource,
+		ProviderID:         r.ProviderID,
+		CatalogModelID:     r.CatalogModelID,
+		API:                r.API,
+		PrismModelIDAtBind: r.PrismModelIDAtBind,
+		CatalogRevision:    r.CatalogRevision,
+		FetchedAt:          &fetchedAt,
+		UpdatedAt:          &updatedAt,
+		Source:             r.Source.payload(),
+		Override:           r.Override.payload(),
+		Effective:          r.Source.effective(r.Override).payload(),
+		DroppedFields:      normalizePiDroppedFields(r.DroppedFields),
 	}
 }
 
@@ -193,6 +202,10 @@ type piBindingResponse struct {
 	Override        *piBindingMetadataPayload `json:"override"`
 	Effective       *piBindingMetadataPayload `json:"effective"`
 	DroppedFields   []string                  `json:"dropped_fields,omitempty"`
+	// PrismModelIDAtBind is the frozen Prism identity this binding was made
+	// against. It is reported separately from catalog_model_id so the operator
+	// can always see which Prism model id a directory coordinate stands for.
+	PrismModelIDAtBind string `json:"prism_model_id_at_bind,omitempty"`
 }
 
 // piBindingFieldChange is one source-value diff row of a refresh preview.
@@ -227,4 +240,20 @@ type piBindRequest struct {
 	ProviderID              string `json:"provider_id,omitempty"`
 	CatalogModelID          string `json:"catalog_model_id,omitempty"`
 	ExpectedCatalogRevision string `json:"expected_catalog_revision"`
+	// ExpectedPrismModelID and ExpectedPiAPI carry the Prism identity and final
+	// Pi API the operator actually confirmed. They are required on every bind:
+	// a cross-directory coordinate no longer names the Prism model id, so the
+	// identity assertion has to come from the caller and be re-verified before
+	// the write instead of being inferred from the directory model id.
+	ExpectedPrismModelID string `json:"expected_prism_model_id"`
+	ExpectedPiAPI        string `json:"expected_pi_api"`
+}
+
+// piCatalogSearchRequest is one bounded pi.dev directory model-id search.
+type piCatalogSearchRequest struct {
+	// ModelIDQuery is a literal pi.dev model-id fragment. Provider, display
+	// name, baseUrl, and every other field are never searched.
+	ModelIDQuery string `json:"model_id_query"`
+	// Limit is an optional page bound; it defaults to 20 and clamps to 100.
+	Limit int `json:"limit,omitempty"`
 }

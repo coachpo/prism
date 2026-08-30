@@ -206,9 +206,10 @@ func validatePiBindingForModel(binding piBindingRecord, model modelRecord) error
 		return nil
 	}
 	return newPiDomainError(http.StatusConflict, "pi_binding_model_drifted: the bound full model id or Pi API no longer matches the Prism model; rebind before continuing", map[string]any{
-		"bound_model_id":   binding.CatalogModelID,
-		"current_model_id": model.ModelID,
-		"bound_api":        binding.API,
-		"current_pi_api":   expectedAPI,
+		"bound_prism_model_id": binding.PrismModelIDAtBind,
+		"catalog_model_id":     binding.CatalogModelID,
+		"current_model_id":     model.ModelID,
+		"bound_api":            binding.API,
+		"current_pi_api":       expectedAPI,
 	})
 }

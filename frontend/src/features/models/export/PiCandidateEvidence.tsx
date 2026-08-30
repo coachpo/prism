@@ -66,6 +66,7 @@ export function PiCandidateEvidence({
         ))}
       </dl>
       <PiDroppedFieldsEvidence
+        emptyLabel={copy.droppedFieldsNone}
         fields={candidate.dropped_fields}
         label={copy.droppedFieldsLabel}
       />
