@@ -33,7 +33,7 @@ export function useHeaderBlocklistRules({ enabled, revision }: UseHeaderBlocklis
   const [deleteRuleDialogOpen, setDeleteRuleDialogOpen] = useState(false);
   const [displayedDeleteRuleConfirm, setDisplayedDeleteRuleConfirm] = useState<HeaderBlocklistRule | null>(null);
   const [systemRulesOpen, setSystemRulesOpen] = useState(false);
-  const [userRulesOpen, setUserRulesOpen] = useState(true);
+  const [userRulesOpen, setUserRulesOpen] = useState(false);
   const rulesRequestIdRef = useRef(0);
 
   const fetchRules = useCallback(async () => {
