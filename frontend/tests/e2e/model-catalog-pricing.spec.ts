@@ -8,6 +8,64 @@ import {
 
 const timestamp = "2026-08-25T12:00:00Z";
 
+type CandidateRequest = {
+  q: string;
+  scope: string;
+  limit: number;
+  offset: number;
+};
+
+type CandidateReply = {
+  body: unknown;
+  status?: number;
+};
+
+type CatalogMockOptions = {
+  candidateRoute?: (
+    request: CandidateRequest,
+    ordinal: number,
+  ) => CandidateReply | Promise<CandidateReply>;
+};
+
+function catalogCandidate(prefix: string, index: number) {
+  const suffix = String(index).padStart(2, "0");
+  return {
+    provider_id: "openai",
+    provider_name: "OpenAI",
+    model_id: `${prefix}-${suffix}`,
+    name: `${prefix} ${suffix}`,
+  };
+}
+
+function candidatePage(
+  prefix: string,
+  request: CandidateRequest,
+  total = 47,
+) {
+  const length = Math.max(
+    0,
+    Math.min(request.limit, total - request.offset),
+  );
+  return {
+    items: Array.from({ length }, (_, index) =>
+      catalogCandidate(prefix, request.offset + index),
+    ),
+    total,
+    limit: request.limit,
+    offset: request.offset,
+    scope: request.scope,
+    ...(request.q ? { query: request.q } : {}),
+  };
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
 function strategy() {
   return {
     id: 11,
@@ -190,16 +248,21 @@ function modelDetail(catalog: unknown) {
   };
 }
 
-async function mockCatalogRoutes(page: Page) {
+async function mockCatalogRoutes(
+  page: Page,
+  options: CatalogMockOptions = {},
+) {
   const state = {
     bound: false,
     bindRequests: [] as unknown[],
+    candidateRequests: [] as CandidateRequest[],
     commitRequests: [] as unknown[],
   };
 
   await page.route("**/*", async (route) => {
     const request = route.request();
-    const pathname = new URL(request.url()).pathname;
+    const requestUrl = new URL(request.url());
+    const pathname = requestUrl.pathname;
     if (!pathname.startsWith("/api/")) {
       return route.continue();
     }
@@ -289,6 +352,20 @@ async function mockCatalogRoutes(page: Page) {
       pathname === "/api/models/7/catalog/candidates" &&
       request.method() === "GET"
     ) {
+      const candidateRequest = {
+        q: requestUrl.searchParams.get("q") ?? "",
+        scope: requestUrl.searchParams.get("scope") ?? "family",
+        limit: Number(requestUrl.searchParams.get("limit") ?? 20),
+        offset: Number(requestUrl.searchParams.get("offset") ?? 0),
+      };
+      state.candidateRequests.push(candidateRequest);
+      if (options.candidateRoute) {
+        const reply = await options.candidateRoute(
+          candidateRequest,
+          state.candidateRequests.length,
+        );
+        return fulfillJson(reply.body, reply.status ?? 200);
+      }
       return fulfillJson({
         items: [
           {
@@ -299,9 +376,9 @@ async function mockCatalogRoutes(page: Page) {
           },
         ],
         total: 1,
-        limit: 20,
-        offset: 0,
-        scope: "family",
+        limit: candidateRequest.limit,
+        offset: candidateRequest.offset,
+        scope: candidateRequest.scope,
       });
     }
     if (
@@ -436,6 +513,195 @@ test("model catalog binds via unique match and renders metadata", async ({
   await expect(page.getByText("自动匹配")).toBeVisible();
   await expect(page.getByText("openai / gpt-long")).toBeVisible();
   await expect(page.getByText("GPT Long")).toBeVisible();
+});
+
+test("catalog candidate pager appends all pages and selects a later candidate", async ({
+  page,
+}) => {
+  const state = await mockCatalogRoutes(page, {
+    candidateRoute: (request) => ({
+      body: candidatePage("paged", request),
+    }),
+  });
+
+  await page.goto("/models/7");
+  await page
+    .getByTestId("model-detail-feature-page")
+    .waitFor({ timeout: 15000 });
+  await page.getByRole("button", { name: "绑定目录" }).click();
+
+  const dialog = page.getByRole("dialog");
+  const loadMore = dialog.getByTestId("catalog-candidate-load-more");
+  await expect(dialog.getByText("显示 20 / 共 47 条候选")).toBeVisible();
+  expect(state.candidateRequests[0]).toEqual({
+    q: "",
+    scope: "family",
+    limit: 20,
+    offset: 0,
+  });
+
+  await loadMore.click();
+  await expect(dialog.getByText("显示 40 / 共 47 条候选")).toBeVisible();
+  expect(state.candidateRequests[1]?.offset).toBe(20);
+
+  await loadMore.click();
+  await expect(dialog.getByText("显示 47 / 共 47 条候选")).toBeVisible();
+  expect(state.candidateRequests[2]?.offset).toBe(40);
+  await expect(loadMore).toHaveCount(0);
+
+  await dialog
+    .getByRole("button", { name: /openai\/paged-46/ })
+    .click();
+  await expect(
+    dialog.getByRole("textbox", { name: "提供方 ID" }),
+  ).toHaveValue("openai");
+  await expect(dialog.getByRole("textbox", { name: "模型 ID" })).toHaveValue(
+    "paged-46",
+  );
+});
+
+test("catalog candidate pager isolates stale reads and retries failures", async ({
+  page,
+}) => {
+  const appendRetryGate = deferred();
+  const appendRetryStarted = deferred();
+  const alphaFirstReplaceGate = deferred();
+  const alphaFirstReplaceStarted = deferred();
+  const alphaOldAppendGate = deferred();
+  const alphaOldAppendStarted = deferred();
+  const alphaNewAppendGate = deferred();
+  const alphaNewAppendStarted = deferred();
+  const counts = new Map<string, number>();
+
+  const state = await mockCatalogRoutes(page, {
+    candidateRoute: async (request) => {
+      const key = `${request.q}|${request.offset}`;
+      const attempt = (counts.get(key) ?? 0) + 1;
+      counts.set(key, attempt);
+
+      if (key === "|0") {
+        if (attempt === 1) {
+          return { body: { error: "replace failed" }, status: 500 };
+        }
+        return { body: candidatePage("base", request) };
+      }
+      if (key === "|20") {
+        if (attempt === 1) {
+          return { body: { error: "append failed" }, status: 500 };
+        }
+        appendRetryStarted.resolve();
+        await appendRetryGate.promise;
+        return { body: candidatePage("base", request) };
+      }
+      if (key === "alpha|0") {
+        if (attempt === 1) {
+          alphaFirstReplaceStarted.resolve();
+          await alphaFirstReplaceGate.promise;
+          return { body: candidatePage("alpha-old", request) };
+        }
+        return {
+          body: candidatePage(
+            attempt === 2 ? "alpha-new" : "alpha-newer",
+            request,
+          ),
+        };
+      }
+      if (key === "alpha|20") {
+        if (attempt === 1) {
+          alphaOldAppendStarted.resolve();
+          await alphaOldAppendGate.promise;
+          return { body: candidatePage("alpha-old-append", request) };
+        }
+        alphaNewAppendStarted.resolve();
+        await alphaNewAppendGate.promise;
+        return { body: candidatePage("alpha-new-append", request) };
+      }
+      return { body: candidatePage(request.q || "fallback", request) };
+    },
+  });
+
+  await page.goto("/models/7");
+  await page
+    .getByTestId("model-detail-feature-page")
+    .waitFor({ timeout: 15000 });
+  await page.getByRole("button", { name: "绑定目录" }).click();
+
+  const dialog = page.getByRole("dialog");
+  const loadMore = dialog.getByTestId("catalog-candidate-load-more");
+  await expect(dialog.getByTestId("catalog-candidate-error")).toBeVisible();
+  await expect(dialog.getByTestId("catalog-candidate-empty")).toHaveCount(0);
+  await dialog.getByRole("button", { name: "重新加载候选" }).click();
+  await expect(dialog.getByText("显示 20 / 共 47 条候选")).toBeVisible();
+
+  await loadMore.click();
+  await expect(loadMore).toHaveAccessibleName("重试加载");
+  await expect(dialog.getByText("显示 20 / 共 47 条候选")).toBeVisible();
+  await loadMore.dblclick();
+  await appendRetryStarted.promise;
+  await expect(loadMore).toBeDisabled();
+  expect(counts.get("|20")).toBe(2);
+  appendRetryGate.resolve();
+  await expect(dialog.getByText("显示 40 / 共 47 条候选")).toBeVisible();
+
+  const search = dialog.getByRole("textbox", { name: "搜索候选" });
+  await search.fill("alpha");
+  await alphaFirstReplaceStarted.promise;
+  await search.fill("beta");
+  await search.fill("alpha");
+  await expect(
+    dialog.getByRole("button", { name: /openai\/alpha-new-00/ }),
+  ).toBeVisible();
+
+  const staleReplaceResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname === "/api/models/7/catalog/candidates" &&
+      url.searchParams.get("q") === "alpha" &&
+      url.searchParams.get("offset") === "0"
+    );
+  });
+  alphaFirstReplaceGate.resolve();
+  await staleReplaceResponse;
+  await expect(
+    dialog.getByRole("button", { name: /openai\/alpha-old-00/ }),
+  ).toHaveCount(0);
+
+  await loadMore.click();
+  await alphaOldAppendStarted.promise;
+  await search.fill("beta");
+  await search.fill("alpha");
+  await expect(
+    dialog.getByRole("button", { name: /openai\/alpha-newer-00/ }),
+  ).toBeVisible();
+  await loadMore.click();
+  await alphaNewAppendStarted.promise;
+
+  const staleAppendResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname === "/api/models/7/catalog/candidates" &&
+      url.searchParams.get("q") === "alpha" &&
+      url.searchParams.get("offset") === "20"
+    );
+  });
+  alphaOldAppendGate.resolve();
+  await staleAppendResponse;
+  expect(counts.get("alpha|20")).toBe(2);
+  await expect(dialog.getByText("显示 20 / 共 47 条候选")).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: /openai\/alpha-old-append-20/ }),
+  ).toHaveCount(0);
+
+  alphaNewAppendGate.resolve();
+  await expect(dialog.getByText("显示 40 / 共 47 条候选")).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: /openai\/alpha-new-append-20/ }),
+  ).toBeVisible();
+  expect(
+    state.candidateRequests
+      .filter((request) => request.q === "alpha")
+      .every((request) => request.scope === "all" && request.limit === 20),
+  ).toBe(true);
 });
 
 test("terminal target generates catalog prices atomically", async ({
