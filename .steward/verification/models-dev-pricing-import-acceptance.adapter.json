@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "projectId": "prism-models-dev-pricing-import-acceptance",
   "projectRoot": "../..",
-  "campaignRoot": ".steward/campaigns/models-dev-pricing-import-acceptance-2",
+  "campaignRoot": ".steward/campaigns/models-dev-pricing-import-acceptance-3",
   "coverageMode": "full",
   "source": {
     "provider": "git",
     "excludes": [
-      ".steward/campaigns/models-dev-pricing-import-acceptance-2"
+      ".steward/campaigns/models-dev-pricing-import-acceptance-3"
     ]
   },
   "localOnly": {
