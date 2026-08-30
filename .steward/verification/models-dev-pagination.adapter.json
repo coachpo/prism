@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "projectId": "prism-models-dev-pagination",
+  "projectRoot": "../..",
+  "campaignRoot": "artifacts/evidence/closed-loop-models-dev-pagination/campaign-5",
+  "coverageMode": "narrow",
+  "source": {
+    "provider": "git",
+    "excludes": [
+      "artifacts/evidence/closed-loop-models-dev-pagination/campaign-1",
+      "artifacts/evidence/closed-loop-models-dev-pagination/campaign-2",
+      "artifacts/evidence/closed-loop-models-dev-pagination/campaign-3",
+      "artifacts/evidence/closed-loop-models-dev-pagination/campaign-4",
+      "artifacts/evidence/closed-loop-models-dev-pagination/campaign-5"
+    ]
+  },
+  "localOnly": {
+    "enabled": true,
+    "allowedExternalCapabilities": [
+      "docker"
+    ]
+  },
+  "cases": [
+    {
+      "id": "smoke-frontend-build",
+      "category": "smoke",
+      "required": true,
+      "quick": true,
+      "platform": "linux",
+      "dependsOn": [],
+      "argv": [
+        "/bin/bash",
+        "-c",
+        "set -euo pipefail; git diff --check; (cd frontend && ./node_modules/.bin/tsc -b && ./node_modules/.bin/vite build); printf '%s\\n' 'git diff --check: PASS' 'frontend build: PASS' > \"$CLOSED_LOOP_EVIDENCE_DIR/smoke.txt\""
+      ],
+      "cwd": ".",
+      "timeoutSeconds": 1200,
+      "fixture": null,
+      "externalCapabilities": [],
+      "evidence": {
+        "requiredFiles": [
+          "smoke.txt"
+        ],
+        "nonEmptyFiles": [
+          "smoke.txt"
+        ]
+      }
+    },
+    {
+      "id": "functional-candidate-pagination",
+      "category": "functional",
+      "required": true,
+      "quick": true,
+      "platform": "linux",
+      "dependsOn": [
+        "smoke-frontend-build"
+      ],
+      "argv": [
+        "node",
+        "-e",
+        "const fs=require('node:fs');const path=require('node:path');const source=fs.readFileSync('frontend/tests/e2e/model-catalog-pricing.spec.ts','utf8');const required=['catalog candidate pager appends all pages and selects a later candidate','catalog candidate pager isolates stale reads and retries failures'];const missing=required.filter((name)=>!source.includes(name));if(missing.length){console.error('missing required candidate pager E2E: '+missing.join(', '));process.exit(1);}fs.writeFileSync(path.join(process.env.CLOSED_LOOP_EVIDENCE_DIR,'functional.txt'),'models.dev candidate pager E2E ownership: PASS\\n');"
+      ],
+      "cwd": ".",
+      "timeoutSeconds": 1200,
+      "fixture": {
+        "browser": "system Chrome through PLAYWRIGHT_CHANNEL=chrome",
+        "transport": "loopback Vite with mocked backend routes"
+      },
+      "externalCapabilities": [],
+      "evidence": {
+        "requiredFiles": [
+          "functional.txt"
+        ],
+        "nonEmptyFiles": [
+          "functional.txt"
+        ]
+      }
+    },
+    {
+      "id": "workflow-frontend-quality",
+      "category": "workflow",
+      "required": true,
+      "quick": false,
+      "platform": "linux",
+      "dependsOn": [
+        "functional-candidate-pagination"
+      ],
+      "argv": [
+        "/bin/bash",
+        "-c",
+        "set -euo pipefail; (cd frontend && ./node_modules/.bin/eslint . && ./node_modules/.bin/tsc -b && ./node_modules/.bin/vite build); printf '%s\\n' 'frontend lint: PASS' 'frontend build: PASS' > \"$CLOSED_LOOP_EVIDENCE_DIR/workflow.txt\""
+      ],
+      "cwd": ".",
+      "timeoutSeconds": 1800,
+      "fixture": null,
+      "externalCapabilities": [],
+      "evidence": {
+        "requiredFiles": [
+          "workflow.txt"
+        ],
+        "nonEmptyFiles": [
+          "workflow.txt"
+        ]
+      }
+    },
+    {
+      "id": "role-play-model-catalog-journey",
+      "category": "role-play",
+      "required": true,
+      "quick": false,
+      "platform": "linux",
+      "dependsOn": [
+        "workflow-frontend-quality"
+      ],
+      "argv": [
+        "/bin/bash",
+        "-c",
+        "set -euo pipefail; node frontend/scripts/run-playwright-closed-loop.mjs tests/e2e/model-catalog-pricing.spec.ts; printf '%s\\n' 'complete models.dev catalog/pricing Playwright journey: PASS' > \"$CLOSED_LOOP_EVIDENCE_DIR/role-play.txt\""
+      ],
+      "cwd": ".",
+      "timeoutSeconds": 1800,
+      "fixture": {
+        "browser": "system Chrome through PLAYWRIGHT_CHANNEL=chrome",
+        "transport": "loopback Vite with mocked backend routes"
+      },
+      "externalCapabilities": [
+        "docker"
+      ],
+      "evidence": {
+        "requiredFiles": [
+          "role-play.txt"
+        ],
+        "nonEmptyFiles": [
+          "role-play.txt"
+        ]
+      }
+    }
+  ]
+}

@@ -2204,6 +2204,13 @@ export const zhCNMessages = {
     candidateSearchPlaceholder: "输入模型 ID、名称或提供方关键词",
     candidateCount: (shown: MessageArg, total: MessageArg) =>
       `显示 ${shown} / 共 ${total} 条候选`,
+    candidateLoading: "正在加载候选…",
+    candidateEmpty: "没有匹配的候选。",
+    candidateEmptyDescription: "请尝试其他模型 ID、名称或提供方关键词。",
+    candidateLoadFailed: "候选加载失败",
+    candidateRetry: "重新加载候选",
+    loadMoreCandidates: "加载更多候选",
+    loadingMoreCandidates: "正在加载更多候选…",
 
     refreshDialogTitle: "刷新目录元信息",
     refreshDialogDescription:

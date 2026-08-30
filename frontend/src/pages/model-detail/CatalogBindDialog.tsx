@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +16,17 @@ import { Label } from "@/components/ui/label";
 import { useLocale } from "@/i18n/useLocale";
 import { models as modelsApi } from "@/lib/api/models";
 import type { CatalogCandidate } from "@/lib/types";
+import {
+  OperatorEmptyState,
+  OperatorErrorState,
+  OperatorLoadingState,
+  OperatorRetryButton,
+} from "@/shared/design-system";
+import {
+  LoadMoreControl,
+  PaginationLiveStatus,
+} from "@/shared/table/paginationControls";
+import { useCatalogCandidates } from "./useCatalogCandidates";
 
 interface CatalogMatchPreview {
   committable: boolean;
@@ -46,14 +58,14 @@ export function CatalogBindDialog({
 }) {
   const { messages } = useLocale();
   const copy = messages.modelCatalog;
+  const tableCopy = messages.operationalTable;
   const [preview, setPreview] = useState<CatalogMatchPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [manualProvider, setManualProvider] = useState("");
   const [manualModel, setManualModel] = useState("");
   const [candidateQuery, setCandidateQuery] = useState("");
-  const [candidates, setCandidates] = useState<CatalogCandidate[]>([]);
-  const [candidatesTotal, setCandidatesTotal] = useState(0);
+  const candidates = useCatalogCandidates(modelConfigId, candidateQuery);
 
   const loadPreview = useCallback(async () => {
     setLoading(true);
@@ -71,28 +83,6 @@ export function CatalogBindDialog({
   useEffect(() => {
     void loadPreview();
   }, [loadPreview]);
-
-  // 有界候选查询：手动绑定时的搜索范围覆盖全部 provider。
-  useEffect(() => {
-    const handle = setTimeout(() => {
-      modelsApi.catalog
-        .candidates(modelConfigId, {
-          q: candidateQuery || undefined,
-          scope: candidateQuery ? "all" : "family",
-          limit: 20,
-        })
-        .then((response) => {
-          setCandidates(Array.isArray(response.items) ? response.items : []);
-          setCandidatesTotal(
-            Number.isFinite(response.total) ? response.total : 0,
-          );
-        })
-        .catch(() => {
-          setCandidates([]);
-        });
-    }, 250);
-    return () => clearTimeout(handle);
-  }, [modelConfigId, candidateQuery]);
 
   const uniqueMatch = preview?.committable ? preview : null;
 
@@ -181,7 +171,9 @@ export function CatalogBindDialog({
                 <Input
                   id="catalog-bind-model"
                   value={manualModel}
-                  onChange={(event) => setManualModel(event.target.value.trim())}
+                  onChange={(event) =>
+                    setManualModel(event.target.value.trim())
+                  }
                   placeholder="gpt-4o"
                 />
               </div>
@@ -217,30 +209,84 @@ export function CatalogBindDialog({
               onChange={(event) => setCandidateQuery(event.target.value)}
               placeholder={copy.candidateSearchPlaceholder}
             />
-            <ul className="max-h-40 overflow-y-auto text-sm">
-              {candidates.map((candidate) => (
-                <li key={candidate.provider_id + "/" + candidate.model_id}>
-                  <button
-                    type="button"
-                    className="w-full truncate rounded px-1 py-0.5 text-left hover:bg-muted"
-                    onClick={() => {
-                      setManualProvider(candidate.provider_id);
-                      setManualModel(candidate.model_id);
+            {candidates.phase === "loading" ? (
+              <OperatorLoadingState
+                title={copy.candidateLoading}
+                className="py-3"
+              />
+            ) : candidates.phase === "error" ? (
+              // 替换读取失败时候选集未知，不能降级成“没有匹配”的空结果。
+              <OperatorErrorState
+                testId="catalog-candidate-error"
+                title={copy.candidateLoadFailed}
+                description={candidates.error}
+                action={
+                  <OperatorRetryButton onClick={candidates.onRetry}>
+                    <RefreshCw data-icon="inline-start" />
+                    {copy.candidateRetry}
+                  </OperatorRetryButton>
+                }
+              />
+            ) : (
+              <>
+                <ul
+                  className="max-h-40 overflow-y-auto text-sm"
+                  aria-busy={candidates.appending || undefined}
+                >
+                  {candidates.items.map((candidate) => (
+                    <li key={candidate.provider_id + "/" + candidate.model_id}>
+                      <button
+                        type="button"
+                        className="w-full truncate rounded px-1 py-0.5 text-left hover:bg-muted"
+                        onClick={() => {
+                          setManualProvider(candidate.provider_id);
+                          setManualModel(candidate.model_id);
+                        }}
+                      >
+                        <span className="font-mono">
+                          {candidate.provider_id}/{candidate.model_id}
+                        </span>
+                        <span className="ml-2 text-muted-foreground">
+                          {candidate.name}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                {candidates.items.length === 0 ? (
+                  <OperatorEmptyState
+                    testId="catalog-candidate-empty"
+                    title={copy.candidateEmpty}
+                    description={copy.candidateEmptyDescription}
+                    className="py-4"
+                  />
+                ) : (
+                  <LoadMoreControl
+                    testId="catalog-candidate-load-more"
+                    pending={candidates.appending}
+                    error={candidates.appendError}
+                    hasMore={candidates.hasMore}
+                    labels={{
+                      loadMore: copy.loadMoreCandidates,
+                      loading: tableCopy.loadingMore,
+                      retry: tableCopy.retryLoadMore,
                     }}
-                  >
-                    <span className="font-mono">
-                      {candidate.provider_id}/{candidate.model_id}
-                    </span>
-                    <span className="ml-2 text-muted-foreground">
-                      {candidate.name}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <p className="text-xs text-muted-foreground">
-              {copy.candidateCount(candidates.length, candidatesTotal)}
-            </p>
+                    onLoadMore={candidates.onLoadMore}
+                  />
+                )}
+                <PaginationLiveStatus
+                  message={
+                    candidates.appending ? copy.loadingMoreCandidates : null
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  {copy.candidateCount(
+                    candidates.items.length,
+                    candidates.total,
+                  )}
+                </p>
+              </>
+            )}
           </div>
         </DialogBody>
         <DialogFooter>
