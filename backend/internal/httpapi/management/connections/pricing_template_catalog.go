@@ -78,6 +78,7 @@ type catalogTargetState struct {
 type catalogPricingPreviewResponse struct {
 	SchemaVersion         int                           `json:"schema_version"`
 	Offering              catalogOfferingPayload        `json:"offering"`
+	Model                 *catalogPrismModelPayload     `json:"model,omitempty"`
 	CatalogRevision       string                        `json:"catalog_revision"`
 	FetchedAt             time.Time                     `json:"fetched_at"`
 	Plan                  catalogPricePlanPayload       `json:"plan"`
@@ -88,14 +89,19 @@ type catalogPricingPreviewResponse struct {
 	PreviewHash           string                        `json:"preview_hash,omitempty"`
 	Targets               []catalogTargetState          `json:"targets"`
 	ReportingCurrencyCode string                        `json:"reporting_currency_code"`
+	// CatalogCurrency and PricingUnit state the fixed unit the five plan prices
+	// are expressed in, so no reader has to infer it from the plan shape.
+	CatalogCurrency string `json:"catalog_currency"`
+	PricingUnit     string `json:"pricing_unit"`
 }
 
 type catalogPricingCommitResponse struct {
-	Created        bool  `json:"created"`
-	Updated        bool  `json:"updated"`
-	Assigned       []int `json:"assigned_connection_ids"`
-	TemplateID     int   `json:"template_id"`
-	RevisionID     int64 `json:"revision_id"`
-	Version        int   `json:"version"`
-	DriftConfirmed bool  `json:"drift_confirmed"`
+	Created        bool   `json:"created"`
+	Updated        bool   `json:"updated"`
+	Assigned       []int  `json:"assigned_connection_ids"`
+	TemplateID     int    `json:"template_id"`
+	TemplateName   string `json:"template_name"`
+	RevisionID     int64  `json:"revision_id"`
+	Version        int    `json:"version"`
+	DriftConfirmed bool   `json:"drift_confirmed"`
 }

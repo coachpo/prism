@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { ApiError } from "@/lib/api";
 import {
   OperatorCallout,
   OperatorInsetPanel,
@@ -61,6 +62,13 @@ function apiErrorDetail(error: unknown, copy: Copy): string {
     return copy.sourceReconciliationFailed;
   }
   return error instanceof Error ? error.message : String(error);
+}
+
+function piSearchFieldError(error: unknown, copy: Copy): string | null {
+  if (!(error instanceof ApiError) || error.status !== 422) return null;
+  if (!error.detail || typeof error.detail !== "object") return null;
+  const field = (error.detail as { field?: unknown }).field;
+  return field === "model_id_query" ? apiErrorDetail(error, copy) : null;
 }
 
 function candidateOption(candidate: PiCandidateWire, copy: Copy) {
@@ -128,7 +136,8 @@ export function PiBindingSourceDialog({
     null,
   );
   const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchFieldError, setSearchFieldError] = useState<string | null>(null);
+  const [searchReadError, setSearchReadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const search = sourceState.catalogSearchMutation;
   const catalogRevision = sourceState.sourceQuery.data?.catalog.revision ?? "";
@@ -274,10 +283,11 @@ export function PiBindingSourceDialog({
   }
 
   async function handleSearch() {
-    setSearchError(null);
+    setSearchFieldError(null);
+    setSearchReadError(null);
     const trimmed = query.trim();
     if (trimmed === "") {
-      setSearchError(copy.directorySearchQueryRequired);
+      setSearchFieldError(copy.directorySearchQueryRequired);
       return;
     }
     if (pendingChoice?.layer === "search") setPendingChoice(null);
@@ -291,7 +301,9 @@ export function PiBindingSourceDialog({
       });
       setSearchEvidence({ response, sourceRevisionAtRequest });
     } catch (cause) {
-      setSearchError(apiErrorDetail(cause, copy));
+      const fieldError = piSearchFieldError(cause, copy);
+      if (fieldError) setSearchFieldError(fieldError);
+      else setSearchReadError(apiErrorDetail(cause, copy));
     } finally {
       setSearching(false);
     }
@@ -436,7 +448,7 @@ export function PiBindingSourceDialog({
               <h3 className="text-xs font-medium">
                 {copy.directorySearchTitle}
               </h3>
-              <Field data-invalid={searchError !== null}>
+              <Field data-invalid={searchFieldError !== null}>
                 <FieldLabel htmlFor="pi-directory-search-query">
                   {copy.directorySearchLabel}
                 </FieldLabel>
@@ -445,11 +457,15 @@ export function PiBindingSourceDialog({
                   value={query}
                   spellCheck={false}
                   placeholder={copy.directorySearchPlaceholder}
-                  aria-invalid={searchError !== null}
-                  onChange={(event) => setQuery(event.target.value)}
+                  aria-invalid={searchFieldError !== null}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    setSearchFieldError(null);
+                    setSearchReadError(null);
+                  }}
                 />
-                {searchError ? (
-                  <FieldError>{searchError}</FieldError>
+                {searchFieldError ? (
+                  <FieldError>{searchFieldError}</FieldError>
                 ) : (
                   <FieldDescription>{copy.directorySearchHint}</FieldDescription>
                 )}
@@ -469,6 +485,13 @@ export function PiBindingSourceDialog({
                   {copy.directorySearchAction}
                 </Button>
               </div>
+              {searchReadError ? (
+                <OperatorCallout
+                  intent="danger"
+                  title={copy.directorySearchFailed}
+                  description={searchReadError}
+                />
+              ) : null}
               {searchResponse && searchResponse.catalog.status !== "fresh" ? (
                 <OperatorCallout
                   intent="warning"

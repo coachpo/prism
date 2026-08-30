@@ -24,7 +24,7 @@ modelsdev/
 - Restricted remote transport: `client.go` (`NewClient`, `Fetch`, `Snapshot`); management callers must fetch before transactions and may use only `Snapshot` inside commit transactions.
 - Catalog schema and numeric fidelity: `catalog.go`; schema failures remain unavailable and never become partial data.
 - Provider/model matching: `match.go`; auto-binding requires one exact canonical-provider match, while bounded search supports explicit manual selection.
-- Catalog pricing mapping: `pricing.go`; unsupported, non-USD, incomplete, audio, tier-conflicting, or specialty-mismatched data stays non-committable.
+- Catalog pricing mapping: `pricing.go`; unsupported, non-USD, incomplete, audio, tier-conflicting, or specialty-mismatched data stays non-committable. `CatalogPriceCurrency` is the exported single-currency fact (`USD`) so callers state the currency instead of inferring it; Prism never converts.
 - Test ownership: `modelsdev_client_test.go`, `modelsdev_schema_test.go`, `modelsdev_matching_test.go`, `modelsdev_pricing_test.go`, and the static fixture owner `modelsdev_testdata_test.go`.
 
 ## CONVENTIONS

@@ -2261,10 +2261,34 @@ export const zhCNMessages = {
     fieldStatus: "状态",
 
     pricingMenuAction: (name: string) => `为「${name}」从目录生成价格`,
+    // 价格页“从目录导入”的发现步骤：自动匹配只负责发现，选择永远由人完成。
+    catalogImportButton: "从目录导入",
+    catalogImportDialogTitle: "从 models.dev 目录导入价格",
+    catalogDiscoveryTitle: "选择模型并定位目录条目",
+    catalogDiscoveryDescription:
+      "先选一个 Prism 模型。唯一精确匹配会直接进入价格预览；零个或多个匹配时，需在有界候选中显式选择。本步骤不写入任何数据，也不会绑定模型。",
+    catalogSelectModelLabel: "Prism 模型",
+    catalogSelectModelPlaceholder: "选择一个模型",
+    catalogDiscoveryFailed: "目录匹配失败",
+    catalogDiscoveryRetry: "重新匹配",
+    catalogCandidatesLoading: "正在读取候选条目…",
+    catalogCandidatesFailed: "候选条目读取失败",
+    catalogCandidatesRetry: "重新读取候选",
+    catalogNoCandidates: "没有匹配的候选条目，请调整关键词。",
+    catalogPreviewAwaitingTitle: "等待价格预览",
+    catalogPreviewAwaitingDescription:
+      "完成上方选择后，这里会展示五项价格与来源证据，确认后才写入。",
+    catalogImportSuccessToast: (name: string, count: MessageArg) =>
+      count === 0
+        ? `已生成价格模板「${name}」，本次未赋值任何终端目标`
+        : `已生成价格模板「${name}」并赋给 ${count} 个终端目标`,
     pricingDialogTitlePrefix: "从目录生成价格",
     pricingDialogDescription:
       "基于 models.dev 的 USD/百万 token 价格生成价格模板，并以原子事务赋给选中的终端目标。",
     pricingTargetsLabel: "赋值目标终端",
+    pricingTargetsHint:
+      "不选任何目标时，本次只创建或刷新来源关联价格模板；勾选目标才会赋值。",
+    pricingNoTargets: "当前没有可选终端目标，提交仅生成价格模板。",
     pricingCurrentTargetBadge: "当前",
     pricingPlanKindStandard: "标准价",
     pricingPlanKindTiered: "长上下文阶梯价",
@@ -2276,6 +2300,7 @@ export const zhCNMessages = {
     pricingDriftTitle: "检测到人工改动",
     pricingDriftConfirmLabel:
       "我已确认：将用目录价格覆盖该模板当前的人工改动，并追加一条导入修订。",
+    pricingCommitTemplateOnlyAction: "生成或刷新模板",
     pricingCommitAction: "生成并赋值",
     pricingReuseNotice:
       "同一目录条目复用既有来源关联模板，并追加 append-only 导入修订。",
@@ -2287,11 +2312,38 @@ export const zhCNMessages = {
     pricingCurrencyNote: (code: string) =>
       `报表货币：${code}。目录价格为 USD/百万 token，不做汇率换算。`,
     pricingLoadFailed: "读取目录价格失败",
+    pricingPostCommitRefreshFailed:
+      "价格已提交，但模型详情刷新失败。请刷新页面以读取最新价格引用。",
     pricingColumnRole: "角色",
     pricingColumnInput: "输入",
     pricingColumnOutput: "输出",
     pricingColumnCacheRead: "缓存读",
     pricingColumnCacheWrite: "缓存写",
+    pricingColumnReasoning: "推理",
+    // 五项价格之外的来源证据标签。
+    pricingPrismModelLabel: "Prism 模型",
+    pricingOfferingLabel: "models.dev 条目",
+    pricingCatalogRevisionLabel: "目录修订",
+    pricingUnitLabel: "计价基准",
+    pricingCatalogUnitNote: (currency: MessageArg, unit: MessageArg) =>
+      `目录价格单位：${currency}/${unit}，按原值写入，不做汇率换算。`,
+    // 稳定不兼容原因的中文标签；未识别的原因仍带代码展示。
+    incompatReportingCurrencyNotUsd: "报表货币不是 USD，目录价格无法直接表达",
+    incompatCostMissing: "目录条目缺少价格数据",
+    incompatPriceNotRepresentable: "价格小数超出 Prism 存储可表达范围",
+    incompatAudioCostPresent: "目录条目含音频计价，Prism 无对应价格种类",
+    incompatMultipleTiers: "目录条目含多个阶梯，无法映射为单一阈值",
+    incompatTierNotSupported:
+      "阶梯不是 OpenAI 单一 context 阶梯，缺少严格阈值证据",
+    incompatLegacyTierShape: "仅有旧版长上下文价格行，无法证明阶梯阈值",
+    incompatTierEvidenceConflict: "旧版长上下文价格行与显式阶梯不一致",
+    incompatSpecialtyShapeMismatch: "基准与阶梯卡片的专项价格形状不一致",
+    incompatUnknown: (reason: MessageArg) => `未识别的不兼容原因：${reason}`,
+    // 提交被阻止时的显式原因，绝不做无解释的禁用。
+    pricingBlockedIncompatible: "价格不可无损表达，提交已禁用且零写入",
+    pricingBlockedNoPreview: "尚未取得有效预览，无法提交",
+    pricingBlockedDrift: "需先勾选人工改动确认才能提交",
+    pricingCommitBlockersTitle: "提交前还需处理",
     pricingRoleTierBase: "基准价",
     pricingRoleTierAbove: "阶梯价",
     pricingRolePeak: "高峰",
@@ -2688,6 +2740,13 @@ export const zhCNMessages = {
           : kind === "migration"
             ? "货币迁移"
             : "系统",
+    // 修订来源证据：人工编写还是目录导入，导入时针对哪个目录修订。
+    revisionSourceLabel: "修订来源",
+    revisionSourceManual: "人工编写",
+    revisionSourceCatalog: "目录导入",
+    revisionCatalogRevisionLabel: "目录修订",
+    revisionSourceUnknown: (source: MessageArg) =>
+      `未识别的修订来源：${source}`,
   },
   proxyApiKeys: {
     actions: "操作",
@@ -4115,6 +4174,7 @@ export const zhCNMessages = {
     directorySearchHint:
       "仅搜索目录 model_id，大小写不敏感的字面包含；不搜索 provider、名称或其他字段，也不做模糊匹配。默认返回 20 条，最多 100 条，结果不会自动选中。",
     directorySearchAction: "搜索目录",
+    directorySearchFailed: "目录搜索失败",
     directorySearchQueryRequired: "请输入要搜索的目录 model_id 片段。",
     directorySearchEmpty: "没有同最终 Pi API 的目录命中项。",
     directorySearchResultsLabel: "选择目录搜索结果",

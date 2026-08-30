@@ -348,33 +348,35 @@ describe("ModelExportPage Pi-only", () => {
       },
     ];
     vi.mocked(fetchModelExportSource).mockResolvedValue(fixture);
-    vi.mocked(searchModelPiCatalog).mockResolvedValue({
-      query: "GPT-X",
-      api: "openai-responses",
-      limit: 20,
-      total: 1,
-      returned: 1,
-      truncated: false,
-      selected: false,
-      catalog: { status: "fresh", revision: "rev-2" },
-      fetched_at: "2026-08-30T00:00:00Z",
-      export_identity: {
-        model_config_id: 3,
-        model_id: "codex/gpt-x",
+    vi.mocked(searchModelPiCatalog)
+      .mockRejectedValueOnce(new Error("pi_catalog_unavailable"))
+      .mockResolvedValue({
+        query: "GPT-X",
         api: "openai-responses",
-        provider_id_source: "operator_input",
-      },
-      results: [
-        {
-          provider_id: "openai",
-          model_id: "gpt-x",
+        limit: 20,
+        total: 1,
+        returned: 1,
+        truncated: false,
+        selected: false,
+        catalog: { status: "fresh", revision: "rev-2" },
+        fetched_at: "2026-08-30T00:00:00Z",
+        export_identity: {
+          model_config_id: 3,
+          model_id: "codex/gpt-x",
           api: "openai-responses",
-          name: "GPT X",
-          context_window: 200000,
-          dropped_fields: ["headers"],
+          provider_id_source: "operator_input",
         },
-      ],
-    });
+        results: [
+          {
+            provider_id: "openai",
+            model_id: "gpt-x",
+            api: "openai-responses",
+            name: "GPT X",
+            context_window: 200000,
+            dropped_fields: ["headers"],
+          },
+        ],
+      });
     vi.mocked(bindModelPi).mockResolvedValue({
       bound: true,
       bind_source: "manual",
@@ -395,16 +397,22 @@ describe("ModelExportPage Pi-only", () => {
     expect(screen.getByText("最终导出身份（由 Prism 决定）")).toBeVisible();
     expect(screen.getAllByText("codex/gpt-x").length).toBeGreaterThan(0);
 
-    await user.type(
-      screen.getByRole("textbox", { name: "目录 model_id 片段" }),
-      "GPT-X",
-    );
+    const searchInput = screen.getByRole("textbox", {
+      name: "目录 model_id 片段",
+    });
+    await user.type(searchInput, "GPT-X");
     await user.click(screen.getByRole("button", { name: "搜索目录" }));
     await waitFor(() =>
       expect(searchModelPiCatalog).toHaveBeenCalledWith(3, {
         model_id_query: "GPT-X",
       }),
     );
+    expect(searchInput).not.toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("目录搜索失败")).toBeVisible();
+    expect(screen.getByText("pi_catalog_unavailable")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "搜索目录" }));
+    await waitFor(() => expect(searchModelPiCatalog).toHaveBeenCalledTimes(2));
 
     expect(screen.getByRole("button", { name: "应用绑定" })).toBeDisabled();
 

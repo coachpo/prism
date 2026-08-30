@@ -196,6 +196,7 @@ func (s *Service) commitCatalogPricingInTransaction(ctx context.Context, r *http
 			Updated:        updated,
 			Assigned:       assigned,
 			TemplateID:     template.ID,
+			TemplateName:   template.Name,
 			RevisionID:     template.RevisionID,
 			Version:        template.Version,
 			DriftConfirmed: drift && requestBody.ConfirmDrift,

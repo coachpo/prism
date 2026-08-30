@@ -26,6 +26,35 @@ func TestBuildPricePlanStandardMapping(t *testing.T) {
 	}
 }
 
+// TestBuildPricePlanKeepsExplicitZeroDistinctFromAbsent pins the C3/C7 zero and
+// null contract at the domain boundary: a catalog zero is a configured price and
+// must survive as "0", while an omitted component stays null. Reasoning is the
+// fifth component and maps when present.
+func TestBuildPricePlanKeepsExplicitZeroDistinctFromAbsent(t *testing.T) {
+	catalog := loadFixtureCatalog(t)
+	model, found := catalog.Find("openai", "gpt-test")
+	if !found {
+		t.Fatal("fixture offering missing")
+	}
+	plan := BuildPricePlan(Offering{ProviderID: "openai", ModelID: "gpt-test"}, model, CatalogPriceCurrency)
+	if !plan.Committable() {
+		t.Fatalf("plan must stay committable: %+v", plan.Incompatibilities)
+	}
+	card := plan.Cards[RoleStandard]
+	if card.CachedInputPrice == nil || *card.CachedInputPrice != "0" {
+		t.Fatalf("explicit catalog zero must map to \"0\", not null: %v", card.CachedInputPrice)
+	}
+	if card.CacheCreationPrice == nil || *card.CacheCreationPrice != "1.25" {
+		t.Fatalf("cache_write = %v", card.CacheCreationPrice)
+	}
+	if card.ReasoningPrice != nil {
+		t.Fatalf("absent reasoning must stay null, got %v", *card.ReasoningPrice)
+	}
+	if CatalogPriceCurrency != "USD" {
+		t.Fatalf("the only catalog price currency is USD, got %q", CatalogPriceCurrency)
+	}
+}
+
 func TestBuildPricePlanOpenAISingleContextTierMapsSizeVerbatim(t *testing.T) {
 	catalog := loadFixtureCatalog(t)
 	model, _ := catalog.Find("openai", "gpt-long")

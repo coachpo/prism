@@ -65,6 +65,53 @@ type catalogBindingCoordinates struct {
 type catalogPricingPreviewScope struct {
 	profileID int
 	offering  modelsdev.Offering
+	// prismModel is display evidence only: it names the Prism model the operator
+	// pointed at. It never enters the preview hash because it cannot change what
+	// the commit writes.
+	prismModel *catalogPrismModelPayload
+}
+
+// catalogPrismModelPayload is the Prism-side identity a catalog import was
+// authored from, so a preview can show both ends of the mapping.
+type catalogPrismModelPayload struct {
+	ModelConfigID int    `json:"model_config_id"`
+	ModelID       string `json:"model_id"`
+	DisplayName   string `json:"display_name"`
+	APIFamily     string `json:"api_family"`
+}
+
+// loadCatalogPrismModel resolves the optional Prism model identity a preview
+// should show. An unknown or foreign-profile id fails closed instead of
+// silently dropping the evidence; explicit-coordinate callers may omit it.
+func loadCatalogPrismModel(ctx context.Context, exec queryExecutor, profileID int, modelConfigID *int) (*catalogPrismModelPayload, error) {
+	if modelConfigID == nil {
+		return nil, nil
+	}
+	if *modelConfigID <= 0 {
+		return nil, &domainError{
+			StatusCode: http.StatusUnprocessableEntity,
+			Detail:     "model_config_id must be a positive integer when provided",
+			Fields:     map[string]any{"field": "model_config_id"},
+		}
+	}
+	var payload catalogPrismModelPayload
+	var displayName *string
+	err := exec.QueryRow(ctx,
+		`SELECT configs.id, configs.model_id, configs.display_name, configs.api_family
+		   FROM model_configs AS configs
+		  WHERE configs.id = $1 AND configs.profile_id = $2`,
+		*modelConfigID, profileID).Scan(&payload.ModelConfigID, &payload.ModelID, &displayName, &payload.APIFamily)
+	if err == pgx.ErrNoRows {
+		return nil, &domainError{StatusCode: http.StatusNotFound, Detail: fmt.Sprintf("Model configuration %d does not exist in this profile", *modelConfigID)}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load catalog pricing Prism model %d: %w", *modelConfigID, err)
+	}
+	payload.DisplayName = payload.ModelID
+	if displayName != nil && strings.TrimSpace(*displayName) != "" {
+		payload.DisplayName = strings.TrimSpace(*displayName)
+	}
+	return &payload, nil
 }
 
 func (s *Service) resolveCatalogPricingPreviewScope(ctx context.Context, r *http.Request, requestBody catalogPricingPreviewRequest) (catalogPricingPreviewScope, error) {
@@ -77,7 +124,11 @@ func (s *Service) resolveCatalogPricingPreviewScope(ctx context.Context, r *http
 		if offerErr != nil {
 			return catalogPricingPreviewScope{}, offerErr
 		}
-		return catalogPricingPreviewScope{profileID: profile.ID, offering: offering}, nil
+		model, modelErr := loadCatalogPrismModel(ctx, tx, profile.ID, requestBody.ModelConfigID)
+		if modelErr != nil {
+			return catalogPricingPreviewScope{}, modelErr
+		}
+		return catalogPricingPreviewScope{profileID: profile.ID, offering: offering, prismModel: model}, nil
 	})
 }
 

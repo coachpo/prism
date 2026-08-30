@@ -37,6 +37,8 @@ function makeItem(id: number): PricingTemplateListPageItem {
       created_at: "2026-01-01T00:00:00Z",
       created_by_kind: "operator",
       created_by_operation_id: null,
+      revision_source: "manual",
+      catalog_revision: null,
     },
     configuration_status: "complete",
     missing_specialty_components: [],
@@ -46,6 +48,8 @@ function makeItem(id: number): PricingTemplateListPageItem {
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     deleted_at: null,
+    catalog_provider_id: null,
+    catalog_model_id: null,
   };
 }
 

@@ -122,6 +122,9 @@ const renderPayload = {
 async function installExportRoutes(page: Page) {
   let bound = false;
   const outbound: string[] = [];
+  const unexpectedApi: string[] = [];
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.route("**/*", async (route) => {
     const request = route.request();
     outbound.push(request.url());
@@ -142,6 +145,17 @@ async function installExportRoutes(page: Page) {
         effective_generation: "1",
         retry_after_seconds: null,
       });
+    }
+    if (pathname === "/api/settings/costing") {
+      return fulfillJson({
+        report_currency_code: "USD",
+        report_currency_symbol: "$",
+        endpoint_fx_mappings: [],
+        timezone_preference: null,
+      });
+    }
+    if (pathname === "/api/settings/timezone") {
+      return fulfillJson({ timezone_preference: "UTC" });
     }
     if (pathname === "/api/models/exports/pi/source") {
       return fulfillJson(bound ? boundSource : unboundSource);
@@ -212,15 +226,16 @@ async function installExportRoutes(page: Page) {
     ) {
       return fulfillJson(renderPayload);
     }
-    return fulfillJson({}, 404);
+    unexpectedApi.push(`${request.method()} ${pathname}`);
+    return fulfillJson({ detail: "unexpected mocked API request" }, 500);
   });
-  return { outbound };
+  return { outbound, pageErrors, unexpectedApi };
 }
 
 test("export journey: bind an uncatalogued Prism id through directory search, then generate", async ({
   page,
 }) => {
-  const { outbound } = await installExportRoutes(page);
+  const { outbound, pageErrors, unexpectedApi } = await installExportRoutes(page);
   await page.goto("/route/models/export");
   const row = page.getByTestId("export-row-3");
   await row.waitFor({ timeout: 15000 });
@@ -297,6 +312,8 @@ test("export journey: bind an uncatalogued Prism id through directory search, th
   );
   await sourceRefetch;
   await expect(generateButton).toBeEnabled();
+  await expect(row.getByText("未收录", { exact: true })).toBeVisible();
+  await expect(row.getByText(/已绑定/)).toBeVisible();
 
   // Generate through the final credential dialog without embedding keys.
   await generateButton.click();
@@ -340,4 +357,6 @@ test("export journey: bind an uncatalogued Prism id through directory search, th
   await expect(page.getByTestId("export-result-sheet")).toHaveCount(0);
 
   expect(outbound.filter((url) => /pi\.dev/i.test(url))).toEqual([]);
+  expect(unexpectedApi).toEqual([]);
+  expect(pageErrors).toEqual([]);
 });

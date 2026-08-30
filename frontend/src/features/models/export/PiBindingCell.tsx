@@ -65,6 +65,7 @@ export function PiBindingCell({
   const [unbindOpen, setUnbindOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const selected = model.pi_selected;
+  const candidateKey = CANDIDATE_STATUS_LABEL_KEYS[model.candidate_status];
   // A directory entry exists for every model whose final Pi API is
   // determinable, including the ones the default exact search reports as
   // not_in_catalog or api_mismatch. Only a model with no Pi text API at all
@@ -72,13 +73,12 @@ export function PiBindingCell({
   const canBind = Boolean(model.pi_api);
 
   if (!selected) {
-    const statusKey = CANDIDATE_STATUS_LABEL_KEYS[model.candidate_status];
     return (
       <div className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center gap-1">
           <OperatorTypeBadge
             intent="muted"
-            label={copy[statusKey] ?? model.candidate_status}
+            label={copy[candidateKey] ?? model.candidate_status}
           />
           <OperatorTypeBadge intent="muted" label={copy.bindingStatusUnbound} />
         </div>
@@ -137,10 +137,18 @@ export function PiBindingCell({
         <span className="font-mono">{boundPrismModelId}</span>
         {isCrossDirectory ? ` · ${copy.boundCrossDirectoryLabel}` : null}
       </p>
-      <OperatorStatusBadge
-        intent={model.pi_binding_status === "bound" ? "healthy" : "degraded"}
-        label={copy[bindingKey] ?? model.pi_binding_status}
-      />
+      <div className="flex flex-wrap items-center gap-1">
+        <OperatorTypeBadge
+          intent="muted"
+          label={copy[candidateKey] ?? model.candidate_status}
+        />
+        <OperatorStatusBadge
+          intent={
+            model.pi_binding_status === "bound" ? "healthy" : "degraded"
+          }
+          label={copy[bindingKey] ?? model.pi_binding_status}
+        />
+      </div>
       {!model.pi_binding_renderable ? (
         <p className="text-xs text-destructive">{copy.bindingNotRenderable}</p>
       ) : null}

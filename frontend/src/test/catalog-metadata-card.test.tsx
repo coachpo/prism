@@ -8,16 +8,37 @@ import { LocaleProvider } from "@/i18n/LocaleProvider";
 import type { ModelCatalogResponse } from "@/lib/types";
 import { CatalogMetadataCard } from "@/pages/model-detail/CatalogMetadataCard";
 
+// The shared pricing panel renders the catalog fetch stamp through the operator
+// timezone, which otherwise reads live settings over the network.
+vi.mock("@/hooks/useTimezone", () => ({
+  useTimezone: () => ({
+    timezone: "UTC",
+    format: (iso: string) => iso,
+    loading: false,
+    refresh: async () => "UTC",
+  }),
+}));
+
 vi.mock("@/lib/api/models", () => ({
   models: {
     catalog: {
       matchPreview: vi.fn(),
-      candidates: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0, scope: "family" }),
+      candidates: vi
+        .fn()
+        .mockResolvedValue({
+          items: [],
+          total: 0,
+          limit: 20,
+          offset: 0,
+          scope: "family",
+        }),
     },
   },
 }));
 
-function boundCatalog(overrides?: Partial<ModelCatalogResponse>): ModelCatalogResponse {
+function boundCatalog(
+  overrides?: Partial<ModelCatalogResponse>,
+): ModelCatalogResponse {
   return {
     bound: true,
     match_source: "unique_match",
@@ -55,7 +76,11 @@ function boundCatalog(overrides?: Partial<ModelCatalogResponse>): ModelCatalogRe
 function renderCard(catalog: ModelCatalogResponse | null, onChanged = vi.fn()) {
   return render(
     <LocaleProvider>
-      <CatalogMetadataCard modelConfigId={7} catalog={catalog} onChanged={onChanged} />
+      <CatalogMetadataCard
+        modelConfigId={7}
+        catalog={catalog}
+        onChanged={onChanged}
+      />
     </LocaleProvider>,
   );
 }
@@ -119,24 +144,29 @@ describe("catalog pricing commit gating", () => {
   // The dialog's gating logic is exercised through its exported helper
   // semantics below; full interaction flows live in the Playwright journey.
   it("requires explicit confirmation before overwriting drifted templates", async () => {
-    const { CatalogPricingDialog } = await import("@/pages/model-detail/CatalogPricingDialog");
+    const { CatalogPricingDialog } = await import("@/features/pricing/catalog");
     const { models: managementModels } = await import("@/lib/api/models");
-    type PricingApi = typeof import("@/lib/api/pricingTemplates").pricingTemplates;
+    type PricingApi =
+      typeof import("@/lib/api/pricingTemplates").pricingTemplates;
     let previewResolver: (value: unknown) => void = () => {};
     const previewPromise = new Promise((resolve) => {
       previewResolver = resolve;
     });
-    const pricingApi = (await import("@/lib/api/pricingTemplates")).pricingTemplates as PricingApi;
-    const previewSpy = vi.spyOn(pricingApi, "catalogPreview").mockReturnValue(previewPromise as never);
+    const pricingApi = (await import("@/lib/api/pricingTemplates"))
+      .pricingTemplates as PricingApi;
+    const previewSpy = vi
+      .spyOn(pricingApi, "catalogPreview")
+      .mockReturnValue(previewPromise as never);
 
     render(
       <LocaleProvider>
         <CatalogPricingDialog
           isOpen
-          modelConfigId={7}
-          connectionId={11}
-          connectionName="目标 A"
-          connections={[]}
+          source={{ kind: "bound_model", modelConfigId: 7 }}
+          title="从目录生成价格"
+          targets={[]}
+          initialConnectionIds={[11]}
+          lockedConnectionIds={[11]}
           onClose={() => {}}
           onCommitted={() => {}}
         />
@@ -145,14 +175,30 @@ describe("catalog pricing commit gating", () => {
 
     previewResolver({
       schema_version: 1,
-      offering: { provider_id: "openai", catalog_model_id: "gpt-long", name: "GPT Long" },
+      offering: {
+        provider_id: "openai",
+        catalog_model_id: "gpt-long",
+        name: "GPT Long",
+      },
       catalog_revision: '"rev-2"',
       fetched_at: "2026-08-25T12:00:00Z",
       plan: {
         template_kind: "tiered",
         cards: {
-          tier_base: { input_price: "30", output_price: "180", cached_input_price: null, cache_creation_price: null, reasoning_price: null },
-          tier_above: { input_price: "60", output_price: "270", cached_input_price: null, cache_creation_price: null, reasoning_price: null },
+          tier_base: {
+            input_price: "30",
+            output_price: "180",
+            cached_input_price: null,
+            cache_creation_price: null,
+            reasoning_price: null,
+          },
+          tier_above: {
+            input_price: "60",
+            output_price: "270",
+            cached_input_price: null,
+            cache_creation_price: null,
+            reasoning_price: null,
+          },
         },
         tier_input_tokens_above: 272000,
         incompatibilities: [],
@@ -165,7 +211,9 @@ describe("catalog pricing commit gating", () => {
       reporting_currency_code: "USD",
     });
 
-    await waitFor(() => expect(screen.getByTestId("catalog-pricing-submit")).not.toBeDisabled());
+    await waitFor(() =>
+      expect(screen.getByTestId("catalog-pricing-submit")).not.toBeDisabled(),
+    );
     expect(managementModels).toBeTruthy();
 
     // Incompatible plans disable the submit button entirely.
@@ -173,17 +221,24 @@ describe("catalog pricing commit gating", () => {
   });
 
   it("surfaces stable incompatibility reasons instead of fake prices", async () => {
-    const { CatalogPricingDialog } = await import("@/pages/model-detail/CatalogPricingDialog");
-    const pricingApi = (await import("@/lib/api/pricingTemplates")).pricingTemplates;
+    const { CatalogPricingDialog } = await import("@/features/pricing/catalog");
+    const pricingApi = (await import("@/lib/api/pricingTemplates"))
+      .pricingTemplates;
     vi.spyOn(pricingApi, "catalogPreview").mockResolvedValue({
       schema_version: 1,
-      offering: { provider_id: "openai", catalog_model_id: "gpt-audio", name: "GPT Audio" },
+      offering: {
+        provider_id: "openai",
+        catalog_model_id: "gpt-audio",
+        name: "GPT Audio",
+      },
       catalog_revision: '"rev-3"',
       fetched_at: "2026-08-25T12:00:00Z",
       plan: {
         template_kind: "standard",
         cards: {},
-        incompatibilities: [{ field: "cost.input_audio", reason: "audio_cost_present" }],
+        incompatibilities: [
+          { field: "cost.input_audio", reason: "audio_cost_present" },
+        ],
       },
       action: "create",
       drift: false,
@@ -191,23 +246,34 @@ describe("catalog pricing commit gating", () => {
       preview_hash: undefined as never,
       targets: [],
       reporting_currency_code: "USD",
+      catalog_currency: "USD",
+      pricing_unit: "PER_1M",
     } as never);
 
     render(
       <LocaleProvider>
         <CatalogPricingDialog
           isOpen
-          modelConfigId={7}
-          connectionId={11}
-          connectionName="目标 B"
-          connections={[]}
+          source={{ kind: "bound_model", modelConfigId: 7 }}
+          title="从目录生成价格"
+          targets={[]}
+          initialConnectionIds={[11]}
+          lockedConnectionIds={[11]}
           onClose={() => {}}
           onCommitted={() => {}}
         />
       </LocaleProvider>,
     );
 
-    await waitFor(() => expect(screen.getByText("audio_cost_present")).toBeInTheDocument());
+    // The stable reason reaches the operator as a label, never as a raw enum
+    // key, and the field path stays visible as evidence.
+    await waitFor(() =>
+      expect(
+        screen.getByText("目录条目含音频计价，Prism 无对应价格种类"),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByText("cost.input_audio")).toBeInTheDocument();
+    expect(screen.queryByText("audio_cost_present")).not.toBeInTheDocument();
     expect(screen.getByTestId("catalog-pricing-submit")).toBeDisabled();
   });
 });

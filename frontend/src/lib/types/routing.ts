@@ -193,6 +193,8 @@ export interface PricingTemplateListPageRevision {
  created_at: string;
  created_by_kind: string;
  created_by_operation_id: string | null;
+ revision_source: "manual" | "catalog";
+ catalog_revision: string | null;
 }
 
 export interface PricingTemplateListPageItem {
@@ -209,6 +211,9 @@ export interface PricingTemplateListPageItem {
  created_at: string;
  updated_at: string;
  deleted_at: string | null;
+ /** models.dev offering of the live template; null on manual templates. */
+ catalog_provider_id: string | null;
+ catalog_model_id: string | null;
 }
 
 export interface PricingTemplateListPage {
@@ -234,6 +239,16 @@ interface PricingTemplateBase {
  revision_count: number;
  created_at: string;
  updated_at: string;
+ /**
+  * models.dev offering this template was imported from. Both stay null on a
+  * manually authored template, and they are a pair: the backend rejects a
+  * half-populated coordinate instead of projecting one.
+  */
+ catalog_provider_id: string | null;
+ catalog_model_id: string | null;
+ /** Provenance of the current revision only. */
+ revision_source: "manual" | "catalog";
+ catalog_revision: string | null;
 }
 
 export type PricingTemplateVariant =
@@ -276,7 +291,8 @@ interface PricingTemplateWriteBase {
  description?: string | null;
 }
 
-export type PricingTemplateCreate = PricingTemplateWriteBase & PricingTemplateVariant;
+export type PricingTemplateCreate = PricingTemplateWriteBase &
+ PricingTemplateVariant;
 
 export type PricingTemplateImportMode = "upsert_by_name" | "create_only";
 
@@ -299,7 +315,7 @@ export interface PricingTemplateImportResponse {
  errors: PricingTemplateImportError[];
  preview_hash?: string;
  committable?: boolean;
-  items?: Array<{
+ items?: Array<{
   name: string;
   action: string;
   template_kind?: PricingTemplateKind;
@@ -324,15 +340,18 @@ interface PricingTemplateUpdateBase {
 }
 
 export type PricingTemplateUpdate = PricingTemplateUpdateBase &
- (PricingTemplateVariant | {
-   template_kind?: never;
-   card?: never;
-   base_card?: never;
-   tier?: never;
-   peak_card?: never;
-   offpeak_card?: never;
-   schedule?: never;
-  });
+ (
+  | PricingTemplateVariant
+  | {
+     template_kind?: never;
+     card?: never;
+     base_card?: never;
+     tier?: never;
+     peak_card?: never;
+     offpeak_card?: never;
+     schedule?: never;
+    }
+ );
 
 export interface PricingTemplateRevision {
  revision_id: number;
@@ -351,6 +370,9 @@ export interface PricingTemplateRevision {
  effective_at: string | null;
  created_at: string;
  created_by_kind: string;
+ /** Append-only provenance: "catalog" revisions carry the catalog revision. */
+ revision_source: "manual" | "catalog";
+ catalog_revision: string | null;
 }
 
 export interface PricingTemplateImpact {

@@ -17,6 +17,10 @@ const (
 	RoleOffpeak   = "offpeak"
 )
 
+// UnitPer1M is the only pricing unit Prism stores. It is fixed at the write
+// boundary and never accepted from a request body.
+const UnitPer1M = "PER_1M"
+
 const (
 	SelectionNotEvaluated  = "not_evaluated"
 	SelectionNotApplicable = "not_applicable"

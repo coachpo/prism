@@ -21,6 +21,10 @@ const pricingTemplate: PricingTemplate = {
   pricing_unit: "PER_1M",
   pricing_currency_code: "USD",
   active_currency_symbol: "$",
+  catalog_provider_id: null,
+  catalog_model_id: null,
+  revision_source: "manual",
+  catalog_revision: null,
   template_kind: "standard",
   card: {
     input_price: "1",

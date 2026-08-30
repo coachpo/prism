@@ -16,7 +16,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/priority"
 )
 
-func TestPiPrivateNoStoreRoutePolicyIsExact(t *testing.T) {
+func TestPrivateNoStoreRoutePolicyIsExact(t *testing.T) {
 	t.Parallel()
 
 	privateRoutes := []struct {
@@ -32,6 +32,8 @@ func TestPiPrivateNoStoreRoutePolicyIsExact(t *testing.T) {
 		{method: http.MethodPut, path: "/api/models/7/pi/override"},
 		{method: http.MethodDelete, path: "/api/models/7/pi/override"},
 		{method: http.MethodDelete, path: "/api/models/7/pi"},
+		{method: http.MethodPost, path: "/api/pricing-templates/catalog/preview"},
+		{method: http.MethodPost, path: "/api/pricing-templates/catalog/commit"},
 	}
 	for _, route := range privateRoutes {
 		route := route
@@ -41,7 +43,7 @@ func TestPiPrivateNoStoreRoutePolicyIsExact(t *testing.T) {
 			if response.Code != http.StatusUnauthorized {
 				t.Fatalf("status = %d, want %d", response.Code, http.StatusUnauthorized)
 			}
-			assertPiPrivateNoStoreHeaders(t, response.Header())
+			assertPrivateNoStoreHeaders(t, response.Header())
 		})
 	}
 
@@ -67,7 +69,7 @@ func TestPiPrivateNoStoreRoutePolicyIsExact(t *testing.T) {
 	}
 }
 
-func TestPiPrivateNoStoreHeadersSurviveAdmissionRejection(t *testing.T) {
+func TestPrivateNoStoreHeadersSurviveAdmissionRejection(t *testing.T) {
 	t.Parallel()
 
 	controller := &managementAdmissionController{controller: admission.NewController(admission.Limits{
@@ -104,10 +106,10 @@ func TestPiPrivateNoStoreHeadersSurviveAdmissionRejection(t *testing.T) {
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusServiceUnavailable)
 	}
-	assertPiPrivateNoStoreHeaders(t, response.Header())
+	assertPrivateNoStoreHeaders(t, response.Header())
 }
 
-func TestPiPrivateNoStoreHeadersSurviveManagementMiddlewareRejections(t *testing.T) {
+func TestPrivateNoStoreHeadersSurviveManagementMiddlewareRejections(t *testing.T) {
 	t.Parallel()
 
 	handler, err := NewHandlerWithDependencies(config.Settings{
@@ -152,6 +154,14 @@ func TestPiPrivateNoStoreHeadersSurviveManagementMiddlewareRejections(t *testing
 			wantStatus:  http.StatusUnsupportedMediaType,
 		},
 		{
+			name:        "catalog pricing media type guard",
+			method:      http.MethodPost,
+			path:        "/api/pricing-templates/catalog/preview",
+			body:        `{}`,
+			contentType: "text/plain",
+			wantStatus:  http.StatusUnsupportedMediaType,
+		},
+		{
 			name:        "body limit",
 			method:      http.MethodPut,
 			path:        "/api/models/7/pi/override",
@@ -176,7 +186,7 @@ func TestPiPrivateNoStoreHeadersSurviveManagementMiddlewareRejections(t *testing
 			if response.Code != testCase.wantStatus {
 				t.Fatalf("status = %d, want %d; body=%s", response.Code, testCase.wantStatus, response.Body.String())
 			}
-			assertPiPrivateNoStoreHeaders(t, response.Header())
+			assertPrivateNoStoreHeaders(t, response.Header())
 		})
 	}
 
@@ -201,7 +211,7 @@ func exercisePrivateNoStoreMiddleware(method string, path string) *httptest.Resp
 	return response
 }
 
-func assertPiPrivateNoStoreHeaders(t *testing.T, header http.Header) {
+func assertPrivateNoStoreHeaders(t *testing.T, header http.Header) {
 	t.Helper()
 	if got := header.Values("Cache-Control"); len(got) != 1 || got[0] != "private, no-store" {
 		t.Fatalf("Cache-Control = %q, want one private, no-store value", got)

@@ -406,6 +406,20 @@ export function PricingTemplatesTable({
                         <TableCell className="align-top">
                           <div className="flex min-w-48 flex-col gap-0.5">
                             <span className="font-medium">{template.name}</span>
+                            {/* Source-linked provenance: the models.dev offering
+                                these prices were imported from. A manual
+                                template carries no coordinate and shows nothing
+                                rather than a placeholder. */}
+                            {template.catalog_provider_id &&
+                            template.catalog_model_id ? (
+                              <span
+                                className="truncate font-mono text-xs text-muted-foreground"
+                                data-testid={`pricing-template-source-${template.id}`}
+                              >
+                                {template.catalog_provider_id}/
+                                {template.catalog_model_id}
+                              </span>
+                            ) : null}
                             {template.description ? (
                               <span className="truncate text-xs text-muted-foreground">
                                 {template.description}

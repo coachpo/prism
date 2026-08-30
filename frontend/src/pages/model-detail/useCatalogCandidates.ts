@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 
-import { models as modelsApi } from "@/lib/api/models";
+import { api } from "@/lib/api";
 import type { CatalogCandidate } from "@/lib/types";
 
 /**
@@ -232,7 +232,7 @@ export interface CatalogCandidatePager {
  * the count honest until the last segment removes the control.
  */
 export function useCatalogCandidates(
-  modelConfigId: number,
+  modelConfigId: number | null,
   query: string,
 ): CatalogCandidatePager {
   const [state, dispatch] = useReducer(reducer, undefined, initialPagerState);
@@ -258,6 +258,17 @@ export function useCatalogCandidates(
     // transition reuses the same key, so delaying this ownership handoff would
     // let an old A response commit against the old A generation.
     dispatch({ type: "replace:start", key, generation });
+    if (modelConfigId === null) {
+      dispatch({
+        type: "replace:ok",
+        key,
+        generation,
+        items: [],
+        total: 0,
+        nextOffset: 0,
+      });
+      return;
+    }
     const request = {
       modelConfigId,
       query,
@@ -268,7 +279,7 @@ export function useCatalogCandidates(
       scope: query ? ("all" as const) : ("family" as const),
     };
     const handle = setTimeout(() => {
-      modelsApi.catalog
+      api.models.catalog
         .candidates(request.modelConfigId, {
           q: request.query || undefined,
           scope: request.scope,
@@ -311,7 +322,7 @@ export function useCatalogCandidates(
     const condition = conditionRef.current;
     // The click must still belong to the rendered condition; otherwise the
     // cursor it reads describes a list the operator no longer sees.
-    if (condition.key !== key) return;
+    if (condition.key !== key || condition.modelConfigId === null) return;
     const offset = state.nextOffset;
     if (offset === null || offset >= state.total) return;
     const owner: AppendOwner = {
@@ -325,7 +336,7 @@ export function useCatalogCandidates(
       key: owner.key,
       generation: owner.generation,
     });
-    modelsApi.catalog
+    api.models.catalog
       .candidates(condition.modelConfigId, {
         q: condition.query || undefined,
         scope: condition.query ? "all" : "family",
