@@ -82,13 +82,21 @@ type PiCatalogEvidence struct {
 }
 
 // SelectedCoordinate is the effective Pi binding for one model: the frozen
-// coordinate plus the catalog_revision it was bound or last refreshed
-// against. The revision participates in the digest so a rebind or a refresh
-// moves the digest even when the coordinate itself is unchanged.
+// directory coordinate, the Prism identity snapshot taken with it, and the
+// catalog revision it was bound or last refreshed against. The revision
+// participates in the digest so a rebind or a refresh moves the digest even
+// when the coordinate itself is unchanged.
+//
+// PrismModelID is the Prism authoritative full model id that this coordinate
+// was bound for. It is deliberately separate from ModelID, which is the pi.dev
+// directory id: an explicit cross-directory bind makes those two differ on
+// purpose. The digest covers the snapshot, so a Prism rename moves the source
+// evidence and render keeps failing closed on it.
 type SelectedCoordinate struct {
 	ProviderID      string `json:"provider_id"`
 	ModelID         string `json:"model_id"`
 	API             string `json:"api"`
+	PrismModelID    string `json:"prism_model_id"`
 	CatalogRevision string `json:"catalog_revision,omitempty"`
 }
 

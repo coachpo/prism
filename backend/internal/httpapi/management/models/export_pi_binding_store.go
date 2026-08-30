@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const piBindingSelectColumns = `bindings.model_config_id, bindings.provider_id, bindings.catalog_model_id, bindings.api, bindings.bind_source, bindings.catalog_revision, bindings.fetched_at, bindings.updated_at,
+const piBindingSelectColumns = `bindings.model_config_id, bindings.provider_id, bindings.catalog_model_id, bindings.api, bindings.prism_model_id_at_bind, bindings.bind_source, bindings.catalog_revision, bindings.fetched_at, bindings.updated_at,
 	bindings.source_name, bindings.source_reasoning, bindings.source_input::text, bindings.source_context_window, bindings.source_max_tokens, bindings.source_thinking_level_map::text, bindings.source_compat::text,
 	bindings.source_dropped_fields::text,
 	bindings.override_name, bindings.override_reasoning, bindings.override_input::text, bindings.override_context_window, bindings.override_max_tokens, bindings.override_thinking_level_map::text, bindings.override_compat::text`
@@ -19,7 +19,7 @@ func scanPiBindingRow(scanner interface{ Scan(...any) error }) (piBindingRecord,
 	var sourceInput, sourceThinking, sourceCompat, sourceDroppedFields any
 	var overrideInput, overrideThinking, overrideCompat any
 	err := scanner.Scan(
-		&record.ModelConfigID, &record.ProviderID, &record.CatalogModelID, &record.API, &record.BindSource, &record.CatalogRevision, &record.FetchedAt, &record.UpdatedAt,
+		&record.ModelConfigID, &record.ProviderID, &record.CatalogModelID, &record.API, &record.PrismModelIDAtBind, &record.BindSource, &record.CatalogRevision, &record.FetchedAt, &record.UpdatedAt,
 		&record.Source.Name, &record.Source.Reasoning, &sourceInput, &record.Source.ContextWindow, &record.Source.MaxTokens, &sourceThinking, &sourceCompat, &sourceDroppedFields,
 		&record.Override.Name, &record.Override.Reasoning, &overrideInput, &record.Override.ContextWindow, &record.Override.MaxTokens, &overrideThinking, &overrideCompat,
 	)
@@ -249,20 +249,21 @@ func upsertPiBinding(ctx context.Context, tx pgx.Tx, record piBindingRecord, cur
 	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO model_pi_catalog_bindings (
-			model_config_id, provider_id, catalog_model_id, api, bind_source, catalog_revision, fetched_at,
+			model_config_id, provider_id, catalog_model_id, api, prism_model_id_at_bind, bind_source, catalog_revision, fetched_at,
 			source_name, source_reasoning, source_input, source_context_window, source_max_tokens, source_thinking_level_map, source_compat, source_dropped_fields,
 			override_name, override_reasoning, override_input, override_context_window, override_max_tokens, override_thinking_level_map, override_compat,
 			updated_at
 		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,
-			$8,$9,$10::jsonb,$11,$12,$13::jsonb,$14::jsonb,$15::jsonb,
-			$16,$17,$18::jsonb,$19,$20,$21::jsonb,$22::jsonb,
-			$23
+			$1,$2,$3,$4,$5,$6,$7,$8,
+			$9,$10,$11::jsonb,$12,$13,$14::jsonb,$15::jsonb,$16::jsonb,
+			$17,$18,$19::jsonb,$20,$21,$22::jsonb,$23::jsonb,
+			$24
 		)
 		ON CONFLICT (model_config_id) DO UPDATE SET
 			provider_id = EXCLUDED.provider_id,
 			catalog_model_id = EXCLUDED.catalog_model_id,
 			api = EXCLUDED.api,
+			prism_model_id_at_bind = EXCLUDED.prism_model_id_at_bind,
 			bind_source = EXCLUDED.bind_source,
 			catalog_revision = EXCLUDED.catalog_revision,
 			fetched_at = EXCLUDED.fetched_at,
@@ -282,7 +283,7 @@ func upsertPiBinding(ctx context.Context, tx pgx.Tx, record piBindingRecord, cur
 			override_thinking_level_map = EXCLUDED.override_thinking_level_map,
 			override_compat = EXCLUDED.override_compat,
 			updated_at = EXCLUDED.updated_at`,
-		record.ModelConfigID, record.ProviderID, record.CatalogModelID, record.API, record.BindSource, record.CatalogRevision, record.FetchedAt,
+		record.ModelConfigID, record.ProviderID, record.CatalogModelID, record.API, record.PrismModelIDAtBind, record.BindSource, record.CatalogRevision, record.FetchedAt,
 		record.Source.Name, record.Source.Reasoning, sourceInput, record.Source.ContextWindow, record.Source.MaxTokens, sourceThinking, sourceCompat, sourceDroppedFields,
 		record.Override.Name, record.Override.Reasoning, overrideInput, record.Override.ContextWindow, record.Override.MaxTokens, overrideThinking, overrideCompat,
 		currentTime,

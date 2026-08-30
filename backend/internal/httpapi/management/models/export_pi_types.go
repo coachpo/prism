@@ -36,6 +36,35 @@ type piSelectedWire struct {
 	API        string `json:"api"`
 }
 
+// piExportIdentityWire is the export identity a bind decision must be read
+// against. It is always Prism's own authoritative truth: the exported model
+// `id` is the Prism model_id, the exported `api` is Prism's own mapping, and
+// the exported file's provider key comes from operator input at render time.
+// A pi.dev directory coordinate can never replace any of these three.
+type piExportIdentityWire struct {
+	ModelConfigID    int    `json:"model_config_id"`
+	ModelID          string `json:"model_id"`
+	API              string `json:"api"`
+	ProviderIDSource string `json:"provider_id_source"`
+}
+
+// piCatalogSearchResponse is one bounded pi.dev directory model-id search.
+// `Selected` is a permanent false: the search never chooses, preselects, or
+// ranks a winner, it only publishes evidence for an explicit operator choice.
+type piCatalogSearchResponse struct {
+	Query          string               `json:"query"`
+	API            string               `json:"api"`
+	Limit          int                  `json:"limit"`
+	Total          int                  `json:"total"`
+	Returned       int                  `json:"returned"`
+	Truncated      bool                 `json:"truncated"`
+	Selected       bool                 `json:"selected"`
+	Catalog        piCatalogWire        `json:"catalog"`
+	FetchedAt      time.Time            `json:"fetched_at"`
+	ExportIdentity piExportIdentityWire `json:"export_identity"`
+	Results        []piCandidateWire    `json:"results"`
+}
+
 type piSourceModelRow struct {
 	ModelConfigID         int     `json:"model_config_id"`
 	ModelID               string  `json:"model_id"`
@@ -46,6 +75,11 @@ type piSourceModelRow struct {
 	UnselectableReason    *string `json:"unselectable_reason,omitempty"`
 	OpenAIAcceptedFormat  *string `json:"openai_accepted_format,omitempty"`
 	OpenAIImageOperations *string `json:"openai_image_operations,omitempty"`
+	// PiAPI is the final Pi API Prism maps this model to, or empty when the
+	// family/accepted-format pair has no Pi text API. Directory search and bind
+	// are offered only for a model whose PiAPI is determinable, and every
+	// offered coordinate must carry exactly this value.
+	PiAPI string `json:"pi_api,omitempty"`
 
 	Targets   []exportSourceTargetRow `json:"targets"`
 	PriceRisk exportPriceRiskWire     `json:"price_risk"`
@@ -63,10 +97,15 @@ type piSourceModelRow struct {
 	// PiSelected preserves the raw bound coordinate for rebind/unbind even
 	// after Prism identity/API drift. BindingRenderable is the explicit render
 	// health gate; BindingStatus separately reports live catalog drift.
-	PiSelected               *piSelectedWire            `json:"pi_selected,omitempty"`
-	BindingStatus            string                     `json:"pi_binding_status"`
-	BindingRenderable        bool                       `json:"pi_binding_renderable"`
-	BindSource               string                     `json:"pi_bind_source,omitempty"`
+	PiSelected        *piSelectedWire `json:"pi_selected,omitempty"`
+	BindingStatus     string          `json:"pi_binding_status"`
+	BindingRenderable bool            `json:"pi_binding_renderable"`
+	BindSource        string          `json:"pi_bind_source,omitempty"`
+	// BindingPrismModelID is the Prism full model id frozen at bind time.
+	// A later Prism rename is checked against this value. Whether the binding is
+	// cross-directory is determined separately by comparing PiSelected.ModelID
+	// (the directory id) with this snapshot.
+	BindingPrismModelID      string                     `json:"pi_binding_prism_model_id,omitempty"`
 	CatalogRevision          string                     `json:"pi_binding_catalog_revision,omitempty"`
 	FetchedAt                *time.Time                 `json:"pi_binding_fetched_at,omitempty"`
 	UpdatedAt                *time.Time                 `json:"pi_binding_updated_at,omitempty"`

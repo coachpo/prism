@@ -6,8 +6,8 @@ import (
 )
 
 func TestNormalizeSelectionDedupesSortsAndFailsClosed(t *testing.T) {
-	responses := SelectedCoordinate{ProviderID: "openai", ModelID: "a", API: piAPIResponses}
-	chat := SelectedCoordinate{ProviderID: "provider-b", ModelID: "b", API: piAPIOpenAIChat}
+	responses := SelectedCoordinate{ProviderID: "openai", ModelID: "a", API: piAPIResponses, PrismModelID: "a"}
+	chat := SelectedCoordinate{ProviderID: "provider-b", ModelID: "b", API: piAPIOpenAIChat, PrismModelID: "b"}
 	chatOnly := "chat_completions_only"
 	dualNative := "dual_native"
 	facts := SourceFacts{Models: []ModelFact{
@@ -93,7 +93,7 @@ func TestComputeSourceDigestExcludesClocksAndIsStable(t *testing.T) {
 		Models: []ModelFact{
 			{
 				ModelConfigID: 1, ModelID: "a", APIFamily: "openai", IsEnabled: true, Selectable: true,
-				PiSelected: &SelectedCoordinate{ProviderID: "openai", ModelID: "a", API: piAPIResponses, CatalogRevision: "sha256-one"},
+				PiSelected: &SelectedCoordinate{ProviderID: "openai", ModelID: "a", API: piAPIResponses, PrismModelID: "a", CatalogRevision: "sha256-one"},
 				PiTemplate: PiTemplate{Metadata: NewMetadataLayer(map[string]json.RawMessage{
 					MetaName: rawValue("Model A"),
 				})},
@@ -126,7 +126,7 @@ func TestComputeSourceDigestExcludesClocksAndIsStable(t *testing.T) {
 func TestComputeSourceDigestCoversSelectedCoordinateAndPersistedTemplateOnly(t *testing.T) {
 	facts := SourceFacts{TargetVersion: PiTargetVersion, Models: []ModelFact{{
 		ModelConfigID: 1, ModelID: "same-id", APIFamily: "openai", Selectable: true,
-		PiSelected: &SelectedCoordinate{ProviderID: "provider-a", ModelID: "same-id", API: piAPIResponses, CatalogRevision: "sha256-one"},
+		PiSelected: &SelectedCoordinate{ProviderID: "provider-a", ModelID: "same-id", API: piAPIResponses, PrismModelID: "same-id", CatalogRevision: "sha256-one"},
 		PiTemplate: PiTemplate{Metadata: NewMetadataLayer(map[string]json.RawMessage{MetaName: rawValue("Same")})},
 	}}}
 	first, err := ComputeSourceDigest(facts)
@@ -159,5 +159,43 @@ func TestComputeSourceDigestCoversSelectedCoordinateAndPersistedTemplateOnly(t *
 	fourth, err := ComputeSourceDigest(liveChanged)
 	if err != nil || fourth != first {
 		t.Fatalf("transient live catalog evidence must not move frozen render digest: first=%s fourth=%s err=%v", first, fourth, err)
+	}
+}
+
+// TestComputeSourceDigestCoversFrozenPrismIdentitySnapshot proves the bind-time
+// Prism identity participates in the digest independently of the directory
+// model id, so a same-coordinate identity re-confirmation moves source evidence
+// while the frozen coordinate and template stay put.
+func TestComputeSourceDigestCoversFrozenPrismIdentitySnapshot(t *testing.T) {
+	base := SourceFacts{TargetVersion: PiTargetVersion, Models: []ModelFact{{
+		ModelConfigID: 1, ModelID: "prism-id", APIFamily: "openai", Selectable: true,
+		PiSelected: &SelectedCoordinate{ProviderID: "provider-a", ModelID: "directory-id", API: piAPIResponses, PrismModelID: "prism-id", CatalogRevision: "sha256-one"},
+		PiTemplate: PiTemplate{Metadata: NewMetadataLayer(map[string]json.RawMessage{MetaName: rawValue("Same")})},
+	}}}
+	first, err := ComputeSourceDigest(base)
+	if err != nil {
+		t.Fatalf("first digest: %v", err)
+	}
+
+	moved := base
+	moved.Models = append([]ModelFact(nil), base.Models...)
+	reconfirmed := *base.Models[0].PiSelected
+	reconfirmed.PrismModelID = "renamed-prism-id"
+	moved.Models[0].PiSelected = &reconfirmed
+	second, err := ComputeSourceDigest(moved)
+	if err != nil || second == first {
+		t.Fatalf("identity snapshot change must move digest: first=%s second=%s err=%v", first, second, err)
+	}
+
+	// The directory id and the Prism id are separate digest facts: naming a
+	// different directory model id must also move the digest.
+	directoryMoved := base
+	directoryMoved.Models = append([]ModelFact(nil), base.Models...)
+	otherCoordinate := *base.Models[0].PiSelected
+	otherCoordinate.ModelID = "other-directory-id"
+	directoryMoved.Models[0].PiSelected = &otherCoordinate
+	third, err := ComputeSourceDigest(directoryMoved)
+	if err != nil || third == first || third == second {
+		t.Fatalf("directory coordinate change must move digest independently: first=%s second=%s third=%s err=%v", first, second, third, err)
 	}
 }

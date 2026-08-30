@@ -22,7 +22,7 @@ func fixtureFacts() SourceFacts {
 			{
 				ModelConfigID: 3, ModelID: "gpt-5.6-sol", APIFamily: "openai",
 				IsEnabled: true, Selectable: true, OpenAIAcceptedFormat: &dualNative,
-				PiSelected: &SelectedCoordinate{ProviderID: "openai", ModelID: "gpt-5.6-sol", API: piAPIResponses, CatalogRevision: "sha256-gpt"},
+				PiSelected: &SelectedCoordinate{ProviderID: "openai", ModelID: "gpt-5.6-sol", API: piAPIResponses, PrismModelID: "gpt-5.6-sol", CatalogRevision: "sha256-gpt"},
 				PiTemplate: PiTemplate{
 					Metadata: NewMetadataLayer(map[string]json.RawMessage{
 						MetaContextWindow:   rawValue(1050000),
@@ -48,7 +48,7 @@ func fixtureFacts() SourceFacts {
 			{
 				ModelConfigID: 5, ModelID: "claude-opus-4-8", APIFamily: "anthropic",
 				IsEnabled: true, Selectable: true,
-				PiSelected: &SelectedCoordinate{ProviderID: "anthropic", ModelID: "claude-opus-4-8", API: piAPIAnthropic, CatalogRevision: "sha256-claude"},
+				PiSelected: &SelectedCoordinate{ProviderID: "anthropic", ModelID: "claude-opus-4-8", API: piAPIAnthropic, PrismModelID: "claude-opus-4-8", CatalogRevision: "sha256-claude"},
 				PrismMetadata: map[string]json.RawMessage{
 					MetaName: rawValue("Claude Opus 4.8"), MetaContextWindow: rawValue(200000),
 				},
@@ -71,7 +71,7 @@ func fixtureFacts() SourceFacts {
 			{
 				ModelConfigID: 8, ModelID: "gemini-4-pro", APIFamily: "gemini",
 				IsEnabled: true, Selectable: true,
-				PiSelected: &SelectedCoordinate{ProviderID: "google", ModelID: "gemini-4-pro", API: piAPIGemini, CatalogRevision: "sha256-gemini"},
+				PiSelected: &SelectedCoordinate{ProviderID: "google", ModelID: "gemini-4-pro", API: piAPIGemini, PrismModelID: "gemini-4-pro", CatalogRevision: "sha256-gemini"},
 				PiTemplate: PiTemplate{Metadata: NewMetadataLayer(map[string]json.RawMessage{
 					MetaName: rawValue("Gemini 4 Pro"),
 				})},
@@ -84,7 +84,7 @@ func fixtureFacts() SourceFacts {
 			{
 				ModelConfigID: 9, ModelID: "glm-5.2", APIFamily: "openai",
 				IsEnabled: true, Selectable: true, OpenAIAcceptedFormat: &chatOnly,
-				PiSelected: &SelectedCoordinate{ProviderID: "zai", ModelID: "glm-5.2", API: piAPIOpenAIChat, CatalogRevision: "sha256-glm"},
+				PiSelected: &SelectedCoordinate{ProviderID: "zai", ModelID: "glm-5.2", API: piAPIOpenAIChat, PrismModelID: "glm-5.2", CatalogRevision: "sha256-glm"},
 				PiTemplate: PiTemplate{DerivedFields: map[string]json.RawMessage{
 					"compat": rawValue(map[string]any{
 						"chatTemplateArgs": map[string]any{
@@ -243,13 +243,42 @@ func TestRenderRejectsMissingOrIdentityDriftedPiBinding(t *testing.T) {
 		t.Fatalf("unbound render error = %v, want ErrCandidateUnselected", err)
 	}
 
+	// Prism identity drift is the gate: the frozen snapshot no longer names the
+	// model that is being rendered.
 	facts = fixtureFacts()
 	facts.Models = facts.Models[:1]
-	facts.Models[0].PiSelected.ModelID = "old-id"
+	facts.Models[0].PiSelected.PrismModelID = "old-id"
 	_, err = RenderPi(PiInput{Facts: facts, Selection: []int{3}, BaseURL: "https://prism.example"})
 	var invalid *ErrCandidateInvalid
 	if !errors.As(err, &invalid) {
 		t.Fatalf("drifted render error = %v, want ErrCandidateInvalid", err)
+	}
+
+	// A damaged persisted coordinate must fail closed. The old same-id gate
+	// implied this non-empty check; the split identity snapshot preserves it
+	// explicitly now that a directory id may differ.
+	facts = fixtureFacts()
+	facts.Models = facts.Models[:1]
+	facts.Models[0].PiSelected.ModelID = ""
+	if _, err = RenderPi(PiInput{Facts: facts, Selection: []int{3}, BaseURL: "https://prism.example"}); !errors.As(err, &invalid) {
+		t.Fatalf("empty directory model id error = %v, want ErrCandidateInvalid", err)
+	}
+
+	// A deliberate cross-directory bind is the opposite case: the directory id
+	// differs from the Prism model id while the frozen snapshot still matches,
+	// so the binding stays renderable and still exports Prism's own identity.
+	facts = fixtureFacts()
+	facts.Models = facts.Models[:1]
+	facts.Models[0].PiSelected.ModelID = "openai-alias-of-gpt-5.6-sol"
+	crossDirectory, err := RenderPi(PiInput{Facts: facts, Selection: []int{3}, BaseURL: "https://prism.example"})
+	if err != nil {
+		t.Fatalf("cross-directory bind must render: %v", err)
+	}
+	if !strings.Contains(crossDirectory.Content, `"id": "gpt-5.6-sol"`) {
+		t.Fatalf("export model id must stay the Prism model_id, never the directory id: %s", crossDirectory.Content)
+	}
+	if strings.Contains(crossDirectory.Content, "openai-alias-of-gpt-5.6-sol") {
+		t.Fatalf("directory model id leaked into the exported file: %s", crossDirectory.Content)
 	}
 }
 

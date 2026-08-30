@@ -41,8 +41,14 @@ function sourceModel(overrides: Record<string, unknown> = {}) {
       },
     ],
     price_risk: { exportable: true },
+    pi_api: "openai-responses",
     pi_candidates: [
-      { provider_id: "openai", model_id: "gpt-x", api: "openai-responses", name: "GPT X" },
+      {
+        provider_id: "openai",
+        model_id: "gpt-x",
+        api: "openai-responses",
+        name: "GPT X",
+      },
     ],
     candidate_status: "single",
     pi_selected: null,
@@ -52,26 +58,51 @@ function sourceModel(overrides: Record<string, unknown> = {}) {
   };
 }
 
-const catalogWire = { status: "fresh" as const, revision: "rev-1", minimum_version: "0.80.0" };
+const catalogWire = {
+  status: "fresh" as const,
+  revision: "rev-1",
+  minimum_version: "0.80.0",
+};
+
+const searchCatalogWire = {
+  ...catalogWire,
+  revision: "rev-2",
+};
 
 const unboundSource = {
   target_version: "0.84.3",
   catalog: catalogWire,
   source_digest: "a".repeat(64),
-  models: [sourceModel()],
+  models: [
+    sourceModel({
+      model_id: "codex/gpt-x",
+      display_name: "Codex GPT X",
+      pi_candidates: [],
+      candidate_status: "not_in_catalog",
+    }),
+  ],
 };
 
 const boundSource = {
   target_version: "0.84.3",
-  catalog: catalogWire,
+  catalog: searchCatalogWire,
   source_digest: "b".repeat(64),
   models: [
     sourceModel({
-      pi_selected: { provider_id: "openai", model_id: "gpt-x", api: "openai-responses" },
+      model_id: "codex/gpt-x",
+      display_name: "Codex GPT X",
+      pi_candidates: [],
+      candidate_status: "not_in_catalog",
+      pi_selected: {
+        provider_id: "alias-provider",
+        model_id: "gpt-x-alias",
+        api: "openai-responses",
+      },
       pi_binding_status: "bound",
       pi_binding_renderable: true,
-      pi_bind_source: "single_candidate",
-      pi_binding_catalog_revision: "rev-1",
+      pi_bind_source: "manual",
+      pi_binding_prism_model_id: "codex/gpt-x",
+      pi_binding_catalog_revision: "rev-2",
     }),
   ],
 };
@@ -82,14 +113,18 @@ const renderPayload = {
   content_sha256: "c".repeat(64),
   file_name: "prism-pi-models.json",
   mime_type: "application/json;charset=utf-8",
-  model_results: [{ model_config_id: 3, model_id: "gpt-x", cost_exported: true }],
+  model_results: [
+    { model_config_id: 3, model_id: "codex/gpt-x", cost_exported: true },
+  ],
   warnings: [],
 };
 
 async function installExportRoutes(page: Page) {
   let bound = false;
+  const outbound: string[] = [];
   await page.route("**/*", async (route) => {
     const request = route.request();
+    outbound.push(request.url());
     const pathname = new URL(request.url()).pathname;
     if (!pathname.startsWith("/api/")) return route.continue();
     const fulfillJson = (body: unknown, status = 200) =>
@@ -111,31 +146,81 @@ async function installExportRoutes(page: Page) {
     if (pathname === "/api/models/exports/pi/source") {
       return fulfillJson(bound ? boundSource : unboundSource);
     }
+    if (pathname === "/api/models/3/pi/search" && request.method() === "POST") {
+      return fulfillJson({
+        query: "gpt-x",
+        api: "openai-responses",
+        limit: 20,
+        total: 1,
+        returned: 1,
+        truncated: false,
+        selected: false,
+        catalog: searchCatalogWire,
+        fetched_at: "2026-08-30T00:00:00Z",
+        export_identity: {
+          model_config_id: 3,
+          model_id: "codex/gpt-x",
+          api: "openai-responses",
+          provider_id_source: "operator_input",
+        },
+        results: [
+          {
+            provider_id: "alias-provider",
+            model_id: "gpt-x-alias",
+            api: "openai-responses",
+            name: "GPT X Alias",
+            context_window: 200000,
+            dropped_fields: ["headers"],
+          },
+        ],
+      });
+    }
     if (pathname === "/api/models/3/pi/bind" && request.method() === "POST") {
       bound = true;
       return fulfillJson({
         bound: true,
-        bind_source: "single_candidate",
-        provider_id: "openai",
-        catalog_model_id: "gpt-x",
+        bind_source: "manual",
+        provider_id: "alias-provider",
+        catalog_model_id: "gpt-x-alias",
         api: "openai-responses",
-        catalog_revision: "rev-1",
-        source: { name: "GPT X", reasoning: null, input: null, context_window: null, max_tokens: null, thinking_level_map: null, compat: null },
+        prism_model_id_at_bind: "codex/gpt-x",
+        catalog_revision: "rev-2",
+        source: {
+          name: "GPT X",
+          reasoning: null,
+          input: null,
+          context_window: null,
+          max_tokens: null,
+          thinking_level_map: null,
+          compat: null,
+        },
         override: null,
-        effective: { name: "GPT X", reasoning: null, input: null, context_window: null, max_tokens: null, thinking_level_map: null, compat: null },
+        effective: {
+          name: "GPT X",
+          reasoning: null,
+          input: null,
+          context_window: null,
+          max_tokens: null,
+          thinking_level_map: null,
+          compat: null,
+        },
       });
     }
-    if (pathname === "/api/models/exports/pi/render" && request.method() === "POST") {
+    if (
+      pathname === "/api/models/exports/pi/render" &&
+      request.method() === "POST"
+    ) {
       return fulfillJson(renderPayload);
     }
     return fulfillJson({}, 404);
   });
+  return { outbound };
 }
 
-test("export journey: bind an unbound candidate before generating, then copy/download the result", async ({
+test("export journey: bind an uncatalogued Prism id through directory search, then generate", async ({
   page,
 }) => {
-  await installExportRoutes(page);
+  const { outbound } = await installExportRoutes(page);
   await page.goto("/route/models/export");
   const row = page.getByTestId("export-row-3");
   await row.waitFor({ timeout: 15000 });
@@ -144,23 +229,71 @@ test("export journey: bind an unbound candidate before generating, then copy/dow
   );
 
   // Backend defaults preselect every selectable model.
-  const checkbox = page.getByRole("checkbox", { name: "gpt-x" });
+  const checkbox = page.getByRole("checkbox", { name: "codex/gpt-x" });
   await expect(checkbox).toBeChecked();
 
   // Generation is blocked until the sole selected model is bound.
   const generateButton = page.getByRole("button", { name: /生成配置文件/ });
   await expect(generateButton).toBeDisabled();
 
-  // Binding the single exact candidate flips the row to bound and unblocks generation.
   const bindResponse = page.waitForResponse(
     (response) =>
       new URL(response.url()).pathname === "/api/models/3/pi/bind" &&
       response.request().method() === "POST",
   );
-  await row.getByRole("button", { name: "绑定" }).click();
+  await row.getByRole("button", { name: "绑定来源" }).click();
+  const sourceDialog = page.getByRole("dialog", { name: "更换 Pi 来源" });
+  await expect(sourceDialog).toBeVisible();
+  await expect(
+    sourceDialog.getByText("最终导出身份（由 Prism 决定）"),
+  ).toBeVisible();
+  const apply = sourceDialog.getByRole("button", { name: "应用绑定" });
+  await expect(apply).toBeDisabled();
+  await sourceDialog
+    .getByRole("textbox", { name: "目录 model_id 片段" })
+    .fill("gpt-x");
+  const searchRequestPromise = page.waitForRequest(
+    (request) =>
+      new URL(request.url()).pathname === "/api/models/3/pi/search" &&
+      request.method() === "POST",
+  );
+  await sourceDialog.getByRole("button", { name: "搜索目录" }).click();
+  expect((await searchRequestPromise).postDataJSON()).toEqual({
+    model_id_query: "gpt-x",
+  });
+  await expect(apply).toBeDisabled();
+  const results = sourceDialog.getByRole("combobox", {
+    name: "选择目录搜索结果",
+  });
+  await results.click();
+  const option = page
+    .getByRole("option")
+    .filter({ hasText: "alias-provider/gpt-x-alias" });
+  await expect(option).toContainText("上下文窗口（tokens）: 200000");
+  await option.click();
+  await expect(sourceDialog.getByText("已选目录坐标")).toBeVisible();
+  await expect(sourceDialog.getByText("目录 Provider")).toBeVisible();
+  await expect(sourceDialog.getByText(/跨目录绑定/)).toBeVisible();
+  await expect(apply).toBeEnabled();
+  const bindRequestPromise = page.waitForRequest(
+    (request) =>
+      new URL(request.url()).pathname === "/api/models/3/pi/bind" &&
+      request.method() === "POST",
+  );
+  await apply.click();
+  const bindRequest = await bindRequestPromise;
+  const bindBody = bindRequest.postDataJSON() as Record<string, unknown>;
+  expect(bindBody).toEqual({
+    provider_id: "alias-provider",
+    catalog_model_id: "gpt-x-alias",
+    expected_catalog_revision: "rev-2",
+    expected_prism_model_id: "codex/gpt-x",
+    expected_pi_api: "openai-responses",
+  });
   await bindResponse;
   const sourceRefetch = page.waitForResponse(
-    (response) => new URL(response.url()).pathname === "/api/models/exports/pi/source",
+    (response) =>
+      new URL(response.url()).pathname === "/api/models/exports/pi/source",
   );
   await sourceRefetch;
   await expect(generateButton).toBeEnabled();
@@ -181,9 +314,11 @@ test("export journey: bind an unbound candidate before generating, then copy/dow
   expect(renderBody.credential).toEqual({ include: false });
   expect(renderBody).not.toHaveProperty("enhancements");
   expect(renderBody).not.toHaveProperty("default_model_config_id");
-  expect(
-    (renderBody.selections as Record<string, unknown>)["3"],
-  ).toEqual({ provider_id: "openai", model_id: "gpt-x", api: "openai-responses" });
+  expect((renderBody.selections as Record<string, unknown>)["3"]).toEqual({
+    provider_id: "alias-provider",
+    model_id: "gpt-x-alias",
+    api: "openai-responses",
+  });
 
   // The result sheet reuses one deterministic content for preview.
   const sheet = page.getByTestId("export-result-sheet");
@@ -192,6 +327,7 @@ test("export journey: bind an unbound candidate before generating, then copy/dow
   const preview = page.getByTestId("export-content-preview");
   const content = await preview.textContent();
   expect(content).toContain('"prism"');
+  expect(renderPayload.model_results[0].model_id).toBe("codex/gpt-x");
 
   // Copy and download reuse the same content; download keeps the fixed name.
   const downloadPromise = page.waitForEvent("download");
@@ -202,4 +338,6 @@ test("export journey: bind an unbound candidate before generating, then copy/dow
   // Closing the sheet clears the key-bearing content from memory.
   await sheet.getByRole("button", { name: "关闭并清除" }).click();
   await expect(page.getByTestId("export-result-sheet")).toHaveCount(0);
+
+  expect(outbound.filter((url) => /pi\.dev/i.test(url))).toEqual([]);
 });

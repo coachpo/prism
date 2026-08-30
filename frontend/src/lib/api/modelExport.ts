@@ -2,6 +2,8 @@ import type {
   ExportSourceResponse,
   ExportRenderResponse,
   PiBindingResponse,
+  PiCatalogSearchRequest,
+  PiCatalogSearchResponse,
   PiRefreshPreviewResponse,
 } from "@/features/models/export/exportTypes";
 import { request } from "./request";
@@ -53,14 +55,23 @@ export interface PiBindRequest {
   provider_id?: string;
   catalog_model_id?: string;
   expected_catalog_revision: string;
+  /** Prism full model id the operator confirmed this bind against. */
+  expected_prism_model_id: string;
+  /** Final Pi API the operator confirmed this bind against. */
+  expected_pi_api: string;
 }
 
-export function bindModelPi(
+/**
+ * Runs one bounded pi.dev directory model-id search through Prism's backend.
+ * The browser never contacts pi.dev: this returns the same trusted catalog
+ * evidence the bind gate re-verifies server-side.
+ */
+export function searchModelPiCatalog(
   modelConfigId: number,
-  body: PiBindRequest,
-): Promise<PiBindingResponse> {
-  return request<PiBindingResponse>(
-    `/api/models/${modelConfigId}/pi/bind`,
+  body: PiCatalogSearchRequest,
+): Promise<PiCatalogSearchResponse> {
+  return request<PiCatalogSearchResponse>(
+    `/api/models/${modelConfigId}/pi/search`,
     {
       method: "POST",
       cache: "no-store",
@@ -68,6 +79,18 @@ export function bindModelPi(
       body: JSON.stringify(body),
     },
   );
+}
+
+export function bindModelPi(
+  modelConfigId: number,
+  body: PiBindRequest,
+): Promise<PiBindingResponse> {
+  return request<PiBindingResponse>(`/api/models/${modelConfigId}/pi/bind`, {
+    method: "POST",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 export function refreshModelPiPreview(

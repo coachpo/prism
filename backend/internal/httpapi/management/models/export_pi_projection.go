@@ -65,12 +65,14 @@ func assemblePiSourceResponse(facts modelexport.SourceFacts, templates map[int]m
 		}
 		var bindSource string
 		bindingRenderable := false
+		var prismModelIDAtBind string
 		var fetchedAt, updatedAt *time.Time
 		var bindingSource, bindingOverride, bindingEffective *piBindingMetadataPayload
 		var bindingDroppedFields []string
 		if binding, bound := piBindings[fact.ModelConfigID]; bound {
 			bindingRenderable = piBindingMatchesModel(binding, fact.ModelID, modelexport.PiAPIForModel(fact.APIFamily, fact.OpenAIAcceptedFormat))
 			bindSource = binding.BindSource
+			prismModelIDAtBind = binding.PrismModelIDAtBind
 			fetchedAtCopy, updatedAtCopy := binding.FetchedAt, binding.UpdatedAt
 			fetchedAt, updatedAt = &fetchedAtCopy, &updatedAtCopy
 			bindingSource = binding.Source.payload()
@@ -79,15 +81,19 @@ func assemblePiSourceResponse(facts modelexport.SourceFacts, templates map[int]m
 			bindingDroppedFields = normalizePiDroppedFields(binding.DroppedFields)
 		}
 		row := piSourceModelRow{
-			ModelConfigID:            fact.ModelConfigID,
-			ModelID:                  fact.ModelID,
-			APIFamily:                fact.APIFamily,
-			DisplayName:              fact.DisplayName,
-			IsEnabled:                fact.IsEnabled,
-			Selectable:               fact.Selectable,
-			UnselectableReason:       fact.UnselectableReason,
-			OpenAIAcceptedFormat:     fact.OpenAIAcceptedFormat,
-			OpenAIImageOperations:    fact.OpenAIImageOperations,
+			ModelConfigID:         fact.ModelConfigID,
+			ModelID:               fact.ModelID,
+			APIFamily:             fact.APIFamily,
+			DisplayName:           fact.DisplayName,
+			IsEnabled:             fact.IsEnabled,
+			Selectable:            fact.Selectable,
+			UnselectableReason:    fact.UnselectableReason,
+			OpenAIAcceptedFormat:  fact.OpenAIAcceptedFormat,
+			OpenAIImageOperations: fact.OpenAIImageOperations,
+			// PiAPI is Prism's own final Pi API mapping for this model. It is
+			// published so the UI never re-derives it and can tell an
+			// undeterminable model (empty) apart from a merely-uncatalogued one.
+			PiAPI:                    modelexport.PiAPIForModel(fact.APIFamily, fact.OpenAIAcceptedFormat),
 			Targets:                  sourceTargetRows(fact.Targets),
 			PriceRisk:                exportPriceRiskWire{Exportable: decision.Exportable, WarningCodes: decision.WarningCodes},
 			Warnings:                 metadataWarnings,
@@ -97,6 +103,7 @@ func assemblePiSourceResponse(facts modelexport.SourceFacts, templates map[int]m
 			BindingStatus:            fact.PiBindingStatus,
 			BindingRenderable:        bindingRenderable,
 			BindSource:               bindSource,
+			BindingPrismModelID:      prismModelIDAtBind,
 			CatalogRevision:          optionalCoordinateRevision(fact.PiSelected),
 			FetchedAt:                fetchedAt,
 			UpdatedAt:                updatedAt,

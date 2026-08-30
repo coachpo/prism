@@ -130,6 +130,7 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Get("/models/exports/pi/source", piPrivateNoStore(s.handleGetPiExportSource))
 	api.Post("/models/exports/pi/render", piPrivateNoStore(s.handlePostPiExportRender))
 	api.Post("/models/{model_config_id}/pi/bind", piPrivateNoStore(s.handleBindModelPi))
+	api.Post("/models/{model_config_id}/pi/search", piPrivateNoStore(s.handleSearchPiCatalog))
 	api.Post("/models/{model_config_id}/pi/refresh/preview", piPrivateNoStore(s.handleRefreshPiPreview))
 	api.Post("/models/{model_config_id}/pi/refresh/commit", piPrivateNoStore(s.handleRefreshPiCommit))
 	api.Put("/models/{model_config_id}/pi/override", piPrivateNoStore(s.handlePutPiOverride))

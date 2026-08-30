@@ -33,6 +33,40 @@ export interface PiSelectedWire {
   api: string;
 }
 
+/**
+ * Bounded pi.dev directory model-id search. The query is a literal model-id
+ * fragment only; provider, display name, and every other field are never
+ * searched, and no result is ever preselected.
+ */
+export interface PiCatalogSearchRequest {
+  model_id_query: string;
+  limit?: number;
+}
+
+/** The Prism-owned identity a Pi export row will carry, whatever the catalog says. */
+export interface PiExportIdentityWire {
+  model_config_id: number;
+  model_id: string;
+  api: string;
+  /** Always "operator_input": the exported provider key is never catalog-derived. */
+  provider_id_source: string;
+}
+
+export interface PiCatalogSearchResponse {
+  query: string;
+  api: string;
+  limit: number;
+  total: number;
+  returned: number;
+  truncated: boolean;
+  /** Permanent false: a search publishes evidence, it never chooses. */
+  selected: boolean;
+  catalog: PiCatalogWire;
+  fetched_at: string;
+  export_identity: PiExportIdentityWire;
+  results: PiCandidateWire[];
+}
+
 /** Live pi.dev discovery evidence for one model; never render authority. */
 export type PiCandidateStatus =
   | "not_in_catalog"
@@ -92,6 +126,13 @@ export interface ExportSourceModelRow {
   unselectable_reason?: string;
   openai_accepted_format?: string;
   openai_image_operations?: string;
+  /**
+   * Prism's own final Pi API for this model, or empty when the family and
+   * accepted-format pair has no Pi text API. Directory search and bind are
+   * offered only when this is determinable, and every offered coordinate must
+   * carry exactly this value.
+   */
+  pi_api?: string;
   prism_metadata: Record<string, unknown>;
   merged_metadata: Record<string, unknown>;
   metadata_provenance: Record<string, string>;
@@ -106,9 +147,15 @@ export interface ExportSourceModelRow {
   /** Persisted binding evidence: render authority when pi_selected is set. */
   pi_selected?: PiSelectedWire | null;
   pi_binding_status: PiBindingStatus;
-  /** Frozen coordinate matches current Prism model_id and final Pi API. */
+  /** Frozen Prism identity snapshot and final Pi API still match current truth. */
   pi_binding_renderable: boolean;
   pi_bind_source?: "single_candidate" | "manual";
+  /**
+   * Prism full model id frozen at bind time. A later Prism rename is checked
+   * against this value; whether the binding is cross-directory is determined by
+   * comparing `pi_selected.model_id` with this snapshot.
+   */
+  pi_binding_prism_model_id?: string;
   pi_binding_catalog_revision?: string;
   pi_binding_fetched_at?: string;
   pi_binding_updated_at?: string;
@@ -161,6 +208,8 @@ export interface PiBindingResponse {
   provider_id?: string;
   catalog_model_id?: string;
   api?: string;
+  /** Prism identity snapshot frozen with this coordinate. */
+  prism_model_id_at_bind?: string;
   catalog_revision?: string;
   fetched_at?: string;
   updated_at?: string;

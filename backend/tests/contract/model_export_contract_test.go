@@ -89,6 +89,30 @@ const piFixtureCatalog = `{
       "provider": "openai",
       "reasoning": true,
       "contextWindow": 300000
+    },
+    "gpt-export-lite": {
+      "id": "gpt-export-lite",
+      "name": "GPT Export Lite",
+      "api": "openai-responses",
+      "provider": "openai",
+      "baseUrl": "https://api.openai.example/v1",
+      "reasoning": false,
+      "input": ["text"],
+      "contextWindow": 131072,
+      "maxTokens": 16384,
+      "cost": {"input": 1, "output": 4},
+      "headers": {"x-tracking": "drop-me"}
+    },
+    "gpt-export-chat": {
+      "id": "gpt-export-chat",
+      "name": "GPT Export Chat",
+      "api": "openai-completions",
+      "provider": "openai"
+    },
+    "GPT-EXPORT-Case": {
+      "id": "GPT-EXPORT-Case",
+      "api": "openai-responses",
+      "provider": "openai"
     }
   },
   "openrouter": {
@@ -245,8 +269,7 @@ func exportSourceRow(t *testing.T, source map[string]any, modelConfigID int) map
 	return nil
 }
 
-// exportBindPi binds a model to its single exact pi.dev candidate and returns
-// the accepted coordinate for building a render selections assertion.
+// exportBindPi binds a model to its single exact pi.dev candidate.
 func exportBindPi(t *testing.T, harness *contractHarness, modelConfigID int) map[string]any {
 	t.Helper()
 	source := exportFetchSource(t, harness)
@@ -257,6 +280,8 @@ func exportBindPi(t *testing.T, harness *contractHarness, modelConfigID int) map
 	catalogRevision := source["catalog"].(map[string]any)["revision"].(string)
 	bound, headers := exportRequestWithHeaders(t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/bind", modelConfigID), map[string]any{
 		"expected_catalog_revision": catalogRevision,
+		"expected_prism_model_id":   row["model_id"],
+		"expected_pi_api":           row["pi_api"],
 	}, http.StatusOK)
 	if got := headers.Get("Cache-Control"); got != "private, no-store" {
 		t.Fatalf("Pi binding cache policy = %q, want private, no-store", got)
@@ -265,6 +290,15 @@ func exportBindPi(t *testing.T, harness *contractHarness, modelConfigID int) map
 		t.Fatalf("bind must report bound=true: %+v", bound)
 	}
 	return bound
+}
+
+func exportPiBind(t *testing.T, harness *contractHarness, modelConfigID int, body map[string]any, status int) map[string]any {
+	t.Helper()
+	response := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/bind", modelConfigID), body, nil)
+	assertStatus(t, response, status)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	return payload
 }
 
 func piRefreshCommitBody(preview map[string]any) map[string]any {
@@ -613,6 +647,7 @@ func TestModelExportPiRefreshAndOverride(t *testing.T) {
 		_, _ = w.Write(body)
 	})
 	modelConfigID, _ := exportSeedModel(t, harness, "gpt-export", "openai", "dual_native")
+
 	bound := exportBindPi(t, harness, modelConfigID)
 	firstDigest := exportFetchSource(t, harness)["source_digest"].(string)
 
@@ -688,6 +723,8 @@ func TestModelExportPiRefreshAndOverride(t *testing.T) {
 	// smuggle the new live source fields/revision around explicit refresh.
 	sameCoordinate := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/bind", modelConfigID), map[string]any{
 		"expected_catalog_revision": nextRevision,
+		"expected_prism_model_id":   "gpt-export",
+		"expected_pi_api":           "openai-responses",
 	}, nil, http.StatusOK)
 	if sameCoordinate["catalog_revision"] != bound["catalog_revision"] || sameCoordinate["source"].(map[string]any)["context_window"].(float64) != 400000 {
 		t.Fatalf("same-coordinate bind must preserve frozen source and revision: %+v", sameCoordinate)
@@ -808,30 +845,39 @@ func TestModelExportPiMultipleCandidatesRequireExplicitBindAndRebindMovesDigest(
 	// evidence, never auto-merge or pick by lexical/provider order.
 	ambiguous := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/bind", modelConfigID), map[string]any{
 		"expected_catalog_revision": catalogRevision,
+		"expected_prism_model_id":   row["model_id"],
+		"expected_pi_api":           row["pi_api"],
 	}, nil, http.StatusConflict)
 	if candList, ok := ambiguous["candidates"].([]any); !ok || len(candList) != 2 {
 		t.Fatalf("ambiguous bind must return the full candidate list as evidence: %+v", ambiguous)
 	}
 
 	// Explicit bind to the openai-hosted candidate.
-	firstBind := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/bind", modelConfigID), map[string]any{
+	firstBind := exportPiBind(t, harness, modelConfigID, map[string]any{
 		"provider_id":               "openai",
 		"catalog_model_id":          "gpt-multi",
 		"expected_catalog_revision": catalogRevision,
-	}, nil, http.StatusOK)
+		"expected_prism_model_id":   row["model_id"],
+		"expected_pi_api":           row["pi_api"],
+	}, http.StatusOK)
 	if firstBind["bind_source"] != "manual" || firstBind["provider_id"] != "openai" {
 		t.Fatalf("explicit disambiguation among multiple candidates must record manual bind_source: %+v", firstBind)
+	}
+	if firstBind["prism_model_id_at_bind"] != row["model_id"] {
+		t.Fatalf("explicit bind must freeze the confirmed Prism identity alongside the coordinate: %+v", firstBind)
 	}
 	firstDigest := exportFetchSource(t, harness)["source_digest"].(string)
 	firstPreview := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/refresh/preview", modelConfigID), map[string]any{}, nil, http.StatusOK)
 
 	// Rebinding to the other exact-id candidate must clear inherited
 	// assumptions (a fresh coordinate) and move the digest again.
-	secondBind := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/bind", modelConfigID), map[string]any{
+	secondBind := exportPiBind(t, harness, modelConfigID, map[string]any{
 		"provider_id":               "openrouter",
 		"catalog_model_id":          "gpt-multi",
 		"expected_catalog_revision": catalogRevision,
-	}, nil, http.StatusOK)
+		"expected_prism_model_id":   row["model_id"],
+		"expected_pi_api":           row["pi_api"],
+	}, http.StatusOK)
 	if secondBind["provider_id"] != "openrouter" {
 		t.Fatalf("rebind must switch the persisted coordinate to the newly chosen candidate: %+v", secondBind)
 	}
@@ -908,6 +954,12 @@ func TestModelExportSourceSurvivesCatalogOutage(t *testing.T) {
 		piFailingCatalogHandler(w, r)
 	})
 	modelConfigID, _ := exportSeedModel(t, harness, "gpt-export", "openai", "dual_native")
+	catalogAvailable.Store(false)
+	_, unavailableHeaders := exportRequestWithHeaders(t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/search", modelConfigID), map[string]any{"model_id_query": "gpt-export"}, http.StatusServiceUnavailable)
+	if got := unavailableHeaders.Get("Cache-Control"); got != "private, no-store" {
+		t.Fatalf("unavailable search cache policy = %q, want private, no-store", got)
+	}
+	catalogAvailable.Store(true)
 	bound := exportBindPi(t, harness, modelConfigID)
 
 	catalogAvailable.Store(false)
@@ -933,6 +985,27 @@ func TestModelExportSourceSurvivesCatalogOutage(t *testing.T) {
 		t.Fatalf("bound coordinate must survive a catalog outage: %+v", selected)
 	}
 
+	search, searchHeaders := exportPiSearch(t, harness, modelConfigID, map[string]any{"model_id_query": "gpt-export"})
+	if search["catalog"].(map[string]any)["status"] != "stale" {
+		t.Fatalf("outage search must label LKG evidence stale: %+v", search["catalog"])
+	}
+	if got := searchHeaders.Get("Cache-Control"); got != "private, no-store" {
+		t.Fatalf("stale search cache policy = %q, want private, no-store", got)
+	}
+	beforeRejectedBind := source["source_digest"].(string)
+	rejected := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/bind", modelConfigID), map[string]any{
+		"provider_id": "openai", "catalog_model_id": "gpt-export-lite",
+		"expected_catalog_revision": search["catalog"].(map[string]any)["revision"],
+		"expected_prism_model_id":   "gpt-export", "expected_pi_api": "openai-responses",
+	}, nil, http.StatusBadGateway)
+	if !strings.Contains(fmt.Sprint(rejected), "pi_catalog_unavailable") {
+		t.Fatalf("stale LKG bind must require a fresh fetch: %+v", rejected)
+	}
+	afterRejectedBind := exportFetchSource(t, harness)
+	if afterRejectedBind["source_digest"] != beforeRejectedBind || asMap(t, exportSourceRow(t, afterRejectedBind, modelConfigID)["pi_selected"])["model_id"] != "gpt-export" {
+		t.Fatalf("stale LKG bind rejection changed frozen truth: %+v", afterRejectedBind)
+	}
+
 	rendered := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/exports/pi/render", map[string]any{
 		"expected_source_digest": source["source_digest"],
 		"model_config_ids":       []int{modelConfigID},
@@ -949,9 +1022,9 @@ func TestModelExportRenderUsesFrozenBindingWithoutCatalogClientOrSnapshot(t *tes
 	modelConfigID, _ := exportSeedModel(t, harness, "gpt-offline", "openai", "dual_native")
 	now := time.Now().UTC()
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_pi_catalog_bindings (
-		model_config_id, provider_id, catalog_model_id, api, bind_source, catalog_revision, fetched_at,
+		model_config_id, provider_id, catalog_model_id, api, prism_model_id_at_bind, bind_source, catalog_revision, fetched_at,
 		source_name, source_reasoning, source_input, source_context_window, source_max_tokens, source_dropped_fields, updated_at
-	) VALUES ($1, 'openai', 'gpt-offline', 'openai-responses', 'manual', 'sha256-offline-fixture', $2,
+	) VALUES ($1, 'openai', 'gpt-offline', 'openai-responses', 'gpt-offline', 'manual', 'sha256-offline-fixture', $2,
 		'GPT Offline', TRUE, '["text"]'::jsonb, 200000, 16384, '[]'::jsonb, $2)`, modelConfigID, now); err != nil {
 		t.Fatalf("seed frozen Pi binding: %v", err)
 	}
@@ -1006,5 +1079,356 @@ func TestModelExportEnabledModelWithoutRouteIsNotSelectable(t *testing.T) {
 	}
 	if row["unselectable_reason"] != "no_reachable_terminal_target" {
 		t.Fatalf("unselectable reason = %+v", row["unselectable_reason"])
+	}
+}
+
+func exportErrorText(payload map[string]any) string {
+	parts := make([]string, 0, 2)
+	for _, field := range []string{"detail", "title"} {
+		if value, ok := payload[field]; ok && value != nil {
+			parts = append(parts, fmt.Sprint(value))
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func exportPiSearch(t *testing.T, harness *contractHarness, modelConfigID int, body map[string]any) (map[string]any, http.Header) {
+	t.Helper()
+	return exportRequestWithHeaders(t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/search", modelConfigID), body, http.StatusOK)
+}
+
+func TestModelExportPiCatalogSearchContract(t *testing.T) {
+	harness := newExportContractHarness(t, exportServingCatalog, piServingCatalogHandler)
+	modelConfigID, _ := exportSeedModel(t, harness, "gpt-export", "openai", "dual_native")
+	baselineDigest := exportFetchSource(t, harness)["source_digest"].(string)
+
+	payload, headers := exportPiSearch(t, harness, modelConfigID, map[string]any{"model_id_query": "GPT-EXPORT"})
+	if got := headers.Get("Cache-Control"); got != "private, no-store" {
+		t.Fatalf("search cache policy = %q, want private, no-store", got)
+	}
+	if payload["api"] != "openai-responses" {
+		t.Fatalf("search must be scoped to the model's current final Pi API: %+v", payload["api"])
+	}
+	if payload["selected"] != false {
+		t.Fatalf("a search must never report a selection: %+v", payload)
+	}
+	if got := int(payload["limit"].(float64)); got != 20 {
+		t.Fatalf("default page bound = %d, want 20", got)
+	}
+	identity := asMap(t, payload["export_identity"])
+	if identity["model_id"] != "gpt-export" || identity["api"] != "openai-responses" {
+		t.Fatalf("export identity must stay Prism-authored: %+v", identity)
+	}
+	if identity["provider_id_source"] != "operator_input" {
+		t.Fatalf("exported provider key must be declared operator input: %+v", identity)
+	}
+	var lite map[string]any
+	for _, raw := range payload["results"].([]any) {
+		candidate := asMap(t, raw)
+		if candidate["model_id"] == "gpt-export-lite" {
+			lite = candidate
+			break
+		}
+	}
+	if lite == nil {
+		t.Fatalf("same-API safe candidate missing from search response: %+v", payload["results"])
+	}
+	dropped, _ := lite["dropped_fields"].([]any)
+	foundHeaders := false
+	for _, item := range dropped {
+		if item == "headers" {
+			foundHeaders = true
+		}
+	}
+	if !foundHeaders {
+		t.Fatalf("gpt-export-lite must report its dropped headers path: %+v", lite)
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("encode search payload: %v", err)
+	}
+	for _, forbidden := range []string{"api.openai.example", "x-tracking", "\"cost\"", "drop-me"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("search leaked unsafe directory field %q: %s", forbidden, encoded)
+		}
+	}
+
+	for _, body := range []map[string]any{{}, {"model_id_query": "   "}, {"model_id_query": strings.Repeat("g", 201)}} {
+		response := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/search", modelConfigID), body, nil)
+		assertStatus(t, response, http.StatusUnprocessableEntity)
+		_ = response.Body.Close()
+	}
+	if after := exportFetchSource(t, harness)["source_digest"].(string); after != baselineDigest {
+		t.Fatalf("directory search must never write binding state: digest %s -> %s", baselineDigest, after)
+	}
+}
+
+func exportPiSearchOrFail(t *testing.T, harness *contractHarness, modelConfigID int, body map[string]any) map[string]any {
+	t.Helper()
+	payload, _ := exportPiSearch(t, harness, modelConfigID, body)
+	return payload
+}
+
+func TestModelExportPiCrossDirectoryBindRenderAndIdentityDrift(t *testing.T) {
+	harness := newExportContractHarness(t, exportServingCatalog, piServingCatalogHandler)
+	const prismModelID = "codex/gpt-export"
+	modelConfigID, _ := exportSeedModel(t, harness, prismModelID, "openai", "dual_native")
+
+	source := exportFetchSource(t, harness)
+	row := exportSourceRow(t, source, modelConfigID)
+	if row["candidate_status"] != "not_in_catalog" {
+		t.Fatalf("a namespaced Prism id must stay not_in_catalog for the default flow: %+v", row)
+	}
+	if candidates := row["pi_candidates"].([]any); len(candidates) != 0 {
+		t.Fatalf("the default exact flow must not fuzzy-match a namespaced id: %+v", candidates)
+	}
+	if row["pi_binding_status"] != "unbound" || row["pi_binding_renderable"] != false {
+		t.Fatalf("fresh model must start unbound: %+v", row)
+	}
+	revision := source["catalog"].(map[string]any)["revision"].(string)
+
+	implicit := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/bind", modelConfigID), map[string]any{
+		"expected_catalog_revision": revision,
+		"expected_prism_model_id":   prismModelID,
+		"expected_pi_api":           "openai-responses",
+	}, nil, http.StatusUnprocessableEntity)
+	if !strings.Contains(exportErrorText(implicit), "pi_candidate_not_in_catalog") {
+		t.Fatalf("zero exact candidates must reject with pi_candidate_not_in_catalog: %+v", implicit)
+	}
+
+	page := exportPiSearchOrFail(t, harness, modelConfigID, map[string]any{"model_id_query": "gpt-export"})
+	if len(page["results"].([]any)) == 0 {
+		t.Fatalf("directory search must offer same-API coordinates for a not_in_catalog model: %+v", page)
+	}
+
+	bound := exportPiBind(t, harness, modelConfigID, map[string]any{
+		"provider_id":               "openai",
+		"catalog_model_id":          "gpt-export",
+		"expected_catalog_revision": revision,
+		"expected_prism_model_id":   prismModelID,
+		"expected_pi_api":           "openai-responses",
+	}, http.StatusOK)
+	if bound["bind_source"] != "manual" {
+		t.Fatalf("an explicit coordinate bind must record manual bind_source: %+v", bound)
+	}
+	if bound["catalog_model_id"] != "gpt-export" || bound["prism_model_id_at_bind"] != prismModelID {
+		t.Fatalf("directory id and frozen Prism identity must stay distinct: %+v", bound)
+	}
+
+	overridden := requestJSONStatus[map[string]any](t, harness, http.MethodPut, fmt.Sprintf("/api/models/%d/pi/override", modelConfigID), map[string]any{
+		"name":           "Operator Chosen Name",
+		"context_window": 123456,
+	}, nil, http.StatusOK)
+	if asMap(t, overridden["override"])["name"] != "Operator Chosen Name" {
+		t.Fatalf("override must persist across a cross-directory bind: %+v", overridden)
+	}
+	updatedAtBeforeIdentityReconfirm := overridden["updated_at"]
+
+	boundSource := exportFetchSource(t, harness)
+	boundRow := exportSourceRow(t, boundSource, modelConfigID)
+	if boundRow["candidate_status"] != "not_in_catalog" {
+		t.Fatalf("cross-directory binding must not rewrite live candidate evidence: %+v", boundRow)
+	}
+	if boundRow["pi_binding_status"] != "bound" || boundRow["pi_binding_renderable"] != true {
+		t.Fatalf("a cross-directory binding with a matching identity snapshot must render: %+v", boundRow)
+	}
+	if boundRow["pi_binding_prism_model_id"] != prismModelID {
+		t.Fatalf("source must publish the frozen Prism identity: %+v", boundRow)
+	}
+	selectedCoordinate := asMap(t, boundRow["pi_selected"])
+	if selectedCoordinate["model_id"] != "gpt-export" {
+		t.Fatalf("pi_selected must keep the directory coordinate: %+v", boundRow["pi_selected"])
+	}
+	renderDigest := boundSource["source_digest"].(string)
+
+	rendered := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/exports/pi/render", map[string]any{
+		"expected_source_digest": renderDigest,
+		"model_config_ids":       []int{modelConfigID},
+		"base_url":               "https://prism-client.example",
+		"provider_id":            "prism-home",
+		"selections": map[string]any{
+			fmt.Sprintf("%d", modelConfigID): map[string]any{
+				"provider_id": "openai", "model_id": "gpt-export", "api": "openai-responses",
+			},
+		},
+	}, nil, http.StatusOK)
+	content := rendered["content"].(string)
+	if !strings.Contains(content, `"id": "codex/gpt-export"`) {
+		t.Fatalf("exported model id must be the Prism model_id: %s", content)
+	}
+	if strings.Contains(content, `"id": "gpt-export"`) {
+		t.Fatalf("directory model id must never become the exported model id: %s", content)
+	}
+	if !strings.Contains(content, `"prism-home"`) {
+		t.Fatalf("exported provider key must come from operator input: %s", content)
+	}
+	if !strings.Contains(content, `"api": "openai-responses"`) {
+		t.Fatalf("exported api must stay Prism's own mapping: %s", content)
+	}
+	if !strings.Contains(content, `"contextWindow": 123456`) {
+		t.Fatalf("override must reach the rendered file: %s", content)
+	}
+
+	for _, forbidden := range []string{"api.openai.example", "x-tracking"} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("directory field %q leaked into the export: %s", forbidden, content)
+		}
+	}
+
+	requestJSONStatus[map[string]any](t, harness, http.MethodPut, fmt.Sprintf("/api/models/%d", modelConfigID), map[string]any{
+		"model_id": "renamed/gpt-export",
+	}, nil, http.StatusOK)
+	driftedSource := exportFetchSource(t, harness)
+	driftedRow := exportSourceRow(t, driftedSource, modelConfigID)
+	if driftedRow["pi_binding_renderable"] != false {
+		t.Fatalf("Prism identity drift must clear renderability: %+v", driftedRow)
+	}
+	if driftedRow["pi_binding_status"] != "bound_drifted" {
+		t.Fatalf("Prism identity drift must surface as bound_drifted: %+v", driftedRow)
+	}
+	if asMap(t, driftedRow["pi_selected"])["model_id"] != "gpt-export" {
+		t.Fatalf("drift must preserve the raw coordinate for rebind: %+v", driftedRow["pi_selected"])
+	}
+	driftDigest := driftedSource["source_digest"].(string)
+	unrenderable := requestJSONStatus[map[string]any](t, harness, http.MethodPost, "/api/models/exports/pi/render", map[string]any{
+		"expected_source_digest": driftDigest,
+		"model_config_ids":       []int{modelConfigID},
+		"base_url":               "https://prism-client.example",
+		"selections": map[string]any{
+			fmt.Sprintf("%d", modelConfigID): map[string]any{
+				"provider_id": "openai", "model_id": "gpt-export", "api": "openai-responses",
+			},
+		},
+	}, nil, http.StatusUnprocessableEntity)
+	if code, _ := unrenderable["code"].(string); code != "candidate_invalid" {
+		t.Fatalf("drifted binding must reject render as candidate_invalid: %+v", unrenderable)
+	}
+	preview := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/refresh/preview", modelConfigID), map[string]any{}, nil, http.StatusConflict)
+	if !strings.Contains(exportErrorText(preview), "pi_binding_model_drifted") {
+		t.Fatalf("drifted binding must block refresh preview: %+v", preview)
+	}
+	if preview["bound_prism_model_id"] != prismModelID || preview["catalog_model_id"] != "gpt-export" {
+		t.Fatalf("drift error must separate frozen Prism identity from directory id: %+v", preview)
+	}
+	overrideBlocked := requestJSONStatus[map[string]any](t, harness, http.MethodPut, fmt.Sprintf("/api/models/%d/pi/override", modelConfigID), map[string]any{"max_tokens": 4096}, nil, http.StatusConflict)
+	if !strings.Contains(exportErrorText(overrideBlocked), "pi_binding_model_drifted") {
+		t.Fatalf("drifted binding must block override writes: %+v", overrideBlocked)
+	}
+
+	reconfirmed := exportPiBind(t, harness, modelConfigID, map[string]any{
+		"provider_id":               "openai",
+		"catalog_model_id":          "gpt-export",
+		"expected_catalog_revision": revision,
+		"expected_prism_model_id":   "renamed/gpt-export",
+		"expected_pi_api":           "openai-responses",
+	}, http.StatusOK)
+	if reconfirmed["prism_model_id_at_bind"] != "renamed/gpt-export" {
+		t.Fatalf("identity re-confirmation must move only the snapshot: %+v", reconfirmed)
+	}
+	if reconfirmed["bind_source"] != "manual" || reconfirmed["catalog_revision"] != revision {
+		t.Fatalf("re-confirmation must preserve bind source and frozen revision: %+v", reconfirmed)
+	}
+	if reconfirmed["fetched_at"] != bound["fetched_at"] || reconfirmed["updated_at"] == updatedAtBeforeIdentityReconfirm {
+		t.Fatalf("re-confirmation must preserve fetched_at and advance updated_at: before=%v after=%+v", updatedAtBeforeIdentityReconfirm, reconfirmed)
+	}
+	if asMap(t, reconfirmed["source"])["context_window"] != float64(400000) {
+		t.Fatalf("re-confirmation must preserve the frozen source snapshot: %+v", reconfirmed["source"])
+	}
+	if asMap(t, reconfirmed["override"])["name"] != "Operator Chosen Name" {
+		t.Fatalf("re-confirmation must preserve operator overrides: %+v", reconfirmed["override"])
+	}
+	if asMap(t, reconfirmed["effective"])["name"] != "Operator Chosen Name" {
+		t.Fatalf("effective value must still prefer the override: %+v", reconfirmed["effective"])
+	}
+	restoredSource := exportFetchSource(t, harness)
+	restoredRow := exportSourceRow(t, restoredSource, modelConfigID)
+	if restoredRow["pi_binding_renderable"] != true {
+		t.Fatalf("re-confirmed binding must render again: %+v", restoredRow)
+	}
+	if restoredDigest := restoredSource["source_digest"].(string); restoredDigest == driftDigest || restoredDigest == renderDigest {
+		t.Fatalf("identity re-confirmation must move the digest exactly once: %s", restoredDigest)
+	}
+
+	unchanged := exportPiBind(t, harness, modelConfigID, map[string]any{
+		"provider_id":               "openai",
+		"catalog_model_id":          "gpt-export",
+		"expected_catalog_revision": revision,
+		"expected_prism_model_id":   "renamed/gpt-export",
+		"expected_pi_api":           "openai-responses",
+	}, http.StatusOK)
+	if unchanged["updated_at"] != reconfirmed["updated_at"] {
+		t.Fatalf("same-coordinate same-identity bind must not advance updated_at: %v vs %v", unchanged["updated_at"], reconfirmed["updated_at"])
+	}
+	if after := exportFetchSource(t, harness)["source_digest"].(string); after != restoredSource["source_digest"] {
+		t.Fatalf("same-coordinate same-identity bind must not move the digest")
+	}
+}
+
+func TestModelExportPiBindRejectsCrossAPIUnknownAndStaleWithZeroWrites(t *testing.T) {
+	harness := newExportContractHarness(t, exportServingCatalog, piServingCatalogHandler)
+	modelConfigID, _ := exportSeedModel(t, harness, "gpt-export", "openai", "dual_native")
+	source := exportFetchSource(t, harness)
+	revision := source["catalog"].(map[string]any)["revision"].(string)
+	baselineDigest := source["source_digest"].(string)
+
+	reject := func(body map[string]any, status int, needle string) {
+		t.Helper()
+		payload := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/bind", modelConfigID), body, nil, status)
+		if !strings.Contains(fmt.Sprintf("%v", payload), needle) {
+			t.Fatalf("bind rejection %q missing from %+v", needle, payload)
+		}
+		if after := exportFetchSource(t, harness)["source_digest"].(string); after != baselineDigest {
+			t.Fatalf("rejected bind must write nothing: digest moved %s -> %s", baselineDigest, after)
+		}
+	}
+
+	reject(map[string]any{
+		"provider_id": "openai", "catalog_model_id": "gpt-export-chat",
+		"expected_catalog_revision": revision, "expected_prism_model_id": "gpt-export", "expected_pi_api": "openai-responses",
+	}, http.StatusUnprocessableEntity, "pi_candidate_api_mismatch")
+	reject(map[string]any{
+		"provider_id": "not-a-provider", "catalog_model_id": "gpt-export",
+		"expected_catalog_revision": revision, "expected_prism_model_id": "gpt-export", "expected_pi_api": "openai-responses",
+	}, http.StatusUnprocessableEntity, "pi_candidate_unknown")
+	reject(map[string]any{
+		"provider_id": "openai", "catalog_model_id": "gpt-export-typo",
+		"expected_catalog_revision": revision, "expected_prism_model_id": "gpt-export", "expected_pi_api": "openai-responses",
+	}, http.StatusUnprocessableEntity, "pi_candidate_unknown")
+	reject(map[string]any{
+		"catalog_model_id":          "gpt-export",
+		"expected_catalog_revision": revision, "expected_prism_model_id": "gpt-export", "expected_pi_api": "openai-responses",
+	}, http.StatusUnprocessableEntity, "must be provided together")
+	reject(map[string]any{
+		"provider_id": "openai", "catalog_model_id": "gpt-export",
+		"expected_catalog_revision": revision, "expected_prism_model_id": "some-other-model", "expected_pi_api": "openai-responses",
+	}, http.StatusConflict, "pi_model_changed")
+	reject(map[string]any{
+		"provider_id": "openai", "catalog_model_id": "gpt-export",
+		"expected_catalog_revision": revision, "expected_prism_model_id": "gpt-export", "expected_pi_api": "anthropic-messages",
+	}, http.StatusConflict, "pi_model_changed")
+	reject(map[string]any{
+		"provider_id": "openai", "catalog_model_id": "gpt-export",
+		"expected_catalog_revision": "sha256-stale", "expected_prism_model_id": "gpt-export", "expected_pi_api": "openai-responses",
+	}, http.StatusConflict, "pi_catalog_stale")
+	reject(map[string]any{"provider_id": "openai", "catalog_model_id": "gpt-export", "expected_catalog_revision": revision, "expected_pi_api": "openai-responses"},
+		http.StatusUnprocessableEntity, "expected_prism_model_id")
+	reject(map[string]any{"provider_id": "openai", "catalog_model_id": "gpt-export", "expected_catalog_revision": revision, "expected_prism_model_id": "gpt-export"},
+		http.StatusUnprocessableEntity, "expected_pi_api")
+	reject(map[string]any{"provider_id": "openai", "catalog_model_id": "gpt-export", "expected_prism_model_id": "gpt-export", "expected_pi_api": "openai-responses"},
+		http.StatusUnprocessableEntity, "expected_catalog_revision")
+
+	imageOnlyID, _ := exportSeedModel(t, harness, "gpt-image-only", "openai", "dual_native")
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET openai_accepted_format = NULL, openai_image_operations = 'generations' WHERE id = $1`, imageOnlyID); err != nil {
+		t.Fatalf("make seeded model image-only: %v", err)
+	}
+	noAPI := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/search", imageOnlyID), map[string]any{"model_id_query": "gpt"}, nil, http.StatusUnprocessableEntity)
+	if !strings.Contains(fmt.Sprintf("%v", noAPI), "pi_api_unsupported") {
+		t.Fatalf("undeterminable final Pi API must reject search: %+v", noAPI)
+	}
+	noBind := requestJSONStatus[map[string]any](t, harness, http.MethodPost, fmt.Sprintf("/api/models/%d/pi/bind", imageOnlyID), map[string]any{
+		"expected_catalog_revision": revision, "expected_prism_model_id": "gpt-image-only", "expected_pi_api": "openai-responses",
+	}, nil, http.StatusUnprocessableEntity)
+	if !strings.Contains(fmt.Sprintf("%v", noBind), "pi_api_unsupported") {
+		t.Fatalf("undeterminable final Pi API must reject bind: %+v", noBind)
 	}
 }

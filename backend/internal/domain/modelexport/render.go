@@ -64,7 +64,11 @@ func NormalizeSelection(ids []int, facts SourceFacts) ([]int, error) {
 		if fact.PiSelected == nil {
 			return nil, &ErrCandidateUnselected{ModelConfigID: id}
 		}
-		if fact.PiSelected.ProviderID == "" || fact.PiSelected.ModelID != fact.ModelID || fact.PiSelected.API != PiAPIForModel(fact.APIFamily, fact.OpenAIAcceptedFormat) {
+		// Render trusts the frozen Prism identity snapshot, never the directory
+		// model id: a deliberate cross-directory bind stays renderable, while a
+		// later Prism model-id or final-Pi-API edit fails closed here even
+		// though the frozen coordinate and template are untouched.
+		if fact.PiSelected.ProviderID == "" || fact.PiSelected.ModelID == "" || fact.PiSelected.PrismModelID == "" || fact.PiSelected.PrismModelID != fact.ModelID || fact.PiSelected.API != PiAPIForModel(fact.APIFamily, fact.OpenAIAcceptedFormat) {
 			return nil, &ErrCandidateInvalid{ModelConfigID: id}
 		}
 	}

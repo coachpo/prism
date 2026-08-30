@@ -82,7 +82,8 @@ func buildPiSourceFacts(input piExportFactsInput) (modelexport.SourceFacts, map[
 		if isBound {
 			coordinate := modelexport.SelectedCoordinate{
 				ProviderID: piBinding.ProviderID, ModelID: piBinding.CatalogModelID,
-				API: piBinding.API, CatalogRevision: piBinding.CatalogRevision,
+				API: piBinding.API, PrismModelID: piBinding.PrismModelIDAtBind,
+				CatalogRevision: piBinding.CatalogRevision,
 			}
 			fact.PiSelected = &coordinate
 			template := piBindingPiTemplate(piBinding.Source.effective(piBinding.Override), piBinding.DroppedFields)
@@ -102,11 +103,14 @@ func buildPiSourceFacts(input piExportFactsInput) (modelexport.SourceFacts, map[
 }
 
 // piBindingMatchesModel is the non-negotiable persisted-binding health gate.
-// A model identity or accepted-format edit cannot leave an old coordinate
-// render-authoritative: the full model id and final Pi API must both still
-// equal the values frozen on the binding row.
+// It compares the binding against the Prism identity snapshot frozen at bind
+// time, never against the directory model id: an explicit cross-directory bind
+// is meant to survive a directory id that differs from the Prism id, while a
+// later Prism model-id or accepted-format edit must never leave the old
+// coordinate render-authoritative.
 func piBindingMatchesModel(binding piBindingRecord, modelID, expectedAPI string) bool {
-	return binding.CatalogModelID == modelID && expectedAPI != "" && binding.API == expectedAPI
+	return binding.ProviderID != "" && binding.CatalogModelID != "" && binding.PrismModelIDAtBind != "" &&
+		binding.PrismModelIDAtBind == modelID && expectedAPI != "" && binding.API == expectedAPI
 }
 
 func piCandidateStatus(catalog *pidev.Catalog, expectedAPI, modelID string, liveCandidates []*pidev.Model) string {
