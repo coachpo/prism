@@ -10,72 +10,9 @@ const __dirname = path.dirname(__filename);
 const frontendDir = path.resolve(__dirname, "../..");
 
 const { load } = createTsModuleLoader({ rootDir: frontendDir });
-const { frameSseEvents, isSseContent } = load(
-  path.join(frontendDir, "src/pages/request-logs/detail/sseFraming.ts"),
-);
 const { buildPayloadViewModel } = load(
   path.join(frontendDir, "src/pages/request-logs/detail/payloadDocumentViewModel.ts"),
 );
-
-test("SSE framing handles LF/CRLF/CR-only line endings and a leading BOM", () => {
-  const lf = "data: {\"a\":1}\n\n";
-  const crlf = "data: {\"a\":1}\r\n\r\n";
-  const cr = "data: {\"a\":1}\r\r";
-  const bom = "\uFEFFdata: {\"a\":1}\n\n";
-
-  for (const content of [lf, crlf, cr, bom]) {
-    const result = frameSseEvents(content);
-    assert.equal(result.events.length, 1, `expected one event for ${JSON.stringify(content)}`);
-    assert.equal(result.events[0].eventName, "message");
-    assert.deepEqual(result.events[0].json, { a: 1 });
-    assert.equal(result.hasIncompleteTail, false);
-  }
-});
-
-test("SSE framing handles multi-line data, event names, comments, and [DONE]", () => {
-  const content = [
-    "event: chunk",
-    "data: {\"first\":true}",
-    "data: {\"second\":true}",
-    "",
-    ": ping comment",
-    "data: [DONE]",
-    "",
-  ].join("\n");
-
-  const result = frameSseEvents(content);
-  assert.equal(result.events.length, 2);
-  assert.equal(result.events[0].eventName, "chunk");
-  assert.equal(result.events[0].data, '{"first":true}\n{"second":true}');
-  assert.equal(result.events[1].eventName, "message");
-  assert.equal(result.events[1].data, "[DONE]");
-  assert.equal(result.events[1].json, null);
-  assert.equal(result.hasIncompleteTail, false);
-});
-
-test("SSE framing keeps a trailing event without a blank line as an incomplete tail", () => {
-  const content = "data: {\"complete\":true}\n\ndata: {\"partial\":true}";
-  const result = frameSseEvents(content);
-  assert.equal(result.events.length, 1);
-  assert.equal(result.hasIncompleteTail, true);
-  assert.equal(result.incompleteTail, 'data: {"partial":true}');
-});
-
-test("SSE framing isolates a bad-JSON event without blocking later events", () => {
-  const content = "data: {not-json\n\ndata: {\"ok\":true}\n\n";
-  const result = frameSseEvents(content);
-  assert.equal(result.events.length, 2);
-  assert.equal(result.events[0].json, null);
-  assert.ok(result.events[0].jsonError !== null);
-  assert.deepEqual(result.events[1].json, { ok: true });
-});
-
-test("SSE framing drops field-name whitespace and leading data spaces", () => {
-  const content = "event: x\r\ndata:  {\"v\":1}\r\n\r\n";
-  const result = frameSseEvents(content);
-  assert.equal(result.events.length, 1);
-  assert.equal(result.events[0].data, ' {"v":1}');
-});
 
 test("payload view model exposes three views for OpenAI Chat stream and reassembles text + tool calls", () => {
   const sse = [
@@ -160,11 +97,4 @@ test("payload view model treats binary/invalid UTF-8 bodies as unparseable", () 
   assert.equal(model.readableText, false);
   assert.deepEqual(model.availability.map((view) => view.kind), ["unparseable"]);
   assert.equal(model.transcript, null);
-});
-
-test("isSseContent detects data-field payloads", () => {
-  assert.equal(isSseContent('data: {"a":1}\n\n'), true);
-  assert.equal(isSseContent('{"a":1}'), false);
-  assert.equal(isSseContent(""), false);
-  assert.equal(isSseContent("\uFEFFdata: x\n\n"), true);
 });

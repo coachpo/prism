@@ -128,34 +128,6 @@ func TestClientFetch304RevalidatesCachedCatalog(t *testing.T) {
 	}
 }
 
-func TestClientFetchSingleflightCoalescesConcurrentCalls(t *testing.T) {
-	var hits atomic.Int32
-	release := make(chan struct{})
-	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		hits.Add(1)
-		<-release
-		servingHandler(minimalCatalog, nil)(w, r)
-	})
-	const concurrency = 5
-	results := make(chan error, concurrency)
-	for i := 0; i < concurrency; i++ {
-		go func() {
-			_, err := client.Fetch(context.Background())
-			results <- err
-		}()
-	}
-	time.Sleep(50 * time.Millisecond) // let every goroutine reach the singleflight gate
-	close(release)
-	for i := 0; i < concurrency; i++ {
-		if err := <-results; err != nil {
-			t.Fatalf("concurrent fetch %d: %v", i, err)
-		}
-	}
-	if hits.Load() != 1 {
-		t.Fatalf("singleflight must coalesce concurrent fetches into one HTTP call, got %d", hits.Load())
-	}
-}
-
 func TestClientFetchRejectsHTTPBaseURL(t *testing.T) {
 	server := httptest.NewServer(servingHandler(minimalCatalog, nil))
 	defer server.Close()

@@ -171,9 +171,3 @@ func TestRuntimeManagementLoadDoesNotForceRuntimeDatabaseCoordination(t *testing
 	statsLock.release(t)
 	assertAsyncBenchmarkRequestStatus(t, pressureResult, http.StatusOK)
 }
-
-func TestRuntimeLegacyExecutionUsesLocalCoordinationOnly(t *testing.T) {
-}
-
-func TestPhase3LegacyRoutingHonorsAttemptBudget(t *testing.T) {
-}

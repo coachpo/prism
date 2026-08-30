@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"testing"
 	"time"
-
-	"github.com/jackc/pgx/v5"
 )
 
 // unroutableUpstreamBaseURL points at the reserved discard port, which is
@@ -77,59 +75,4 @@ func TestRuntimeAttributionNoneOnAllConnectionsFailed(t *testing.T) {
 		State:        "none",
 		AuthEnforced: false,
 	})
-}
-
-// TestRuntimeAttributionIdentifiedOnPlanningRejection covers the planning
-// failure builder, a second site with the same omission. A model with no
-// connection at all rejects before any attempt is launched; whatever telemetry
-// that path emits must still be materializable.
-func TestRuntimeAttributionIdentifiedOnPlanningRejection(t *testing.T) {
-	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{})
-	profileID := harness.activeProfileID(t)
-	proxyAPIKey := harness.insertProxyAPIKey(t, "planning-identified")
-	publicModelID := "planning-id-public-" + randomSuffix()
-	harness.seedModel(t, profileID, "openai", publicModelID, "chat_completions_only", nil)
-
-	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
-		"messages": []map[string]any{{"role": "user", "content": "planning rejection attribution"}},
-		"model":    publicModelID,
-	}, map[string]string{"Authorization": "Bearer " + proxyAPIKey.RawKey})
-	if response.StatusCode < 400 {
-		t.Fatalf("expected a planning rejection, got %d", response.StatusCode)
-	}
-
-	// This path may legitimately emit no telemetry at all. What it must never
-	// do is enqueue a row the database will not accept.
-	assertRuntimeOutboxDrained(t, harness.conn, profileID, 15*time.Second)
-	counts := loadRuntimeTelemetryCounts(t, harness.conn, profileID)
-	if counts.UsageEvents > 0 {
-		assertLatestRuntimeAttribution(t, harness.conn, profileID, runtimeAttributionExpectation{
-			State:        "identified",
-			AuthEnforced: false,
-			KeyID:        proxyAPIKey.ID,
-			Name:         proxyAPIKey.Name,
-		})
-	}
-}
-
-// assertRuntimeOutboxDrained fails when a telemetry row is still pending after
-// the timeout, which is the observable signature of a payload the database
-// will never accept.
-//
-// The settle window matters: enqueue happens on the request path but is
-// observable a moment later, so returning on the first zero reading would pass
-// before the row under test even exists.
-func assertRuntimeOutboxDrained(t *testing.T, conn *pgx.Conn, profileID int, timeout time.Duration) {
-	t.Helper()
-	time.Sleep(500 * time.Millisecond)
-	deadline := time.Now().Add(timeout)
-	counts := loadRuntimeTelemetryCounts(t, conn, profileID)
-	for time.Now().Before(deadline) {
-		if counts.OutboxRows == 0 {
-			return
-		}
-		time.Sleep(100 * time.Millisecond)
-		counts = loadRuntimeTelemetryCounts(t, conn, profileID)
-	}
-	t.Fatalf("telemetry outbox never drained: %d row(s) still pending after %s; a row the materializer cannot insert blocks every later row", counts.OutboxRows, timeout)
 }

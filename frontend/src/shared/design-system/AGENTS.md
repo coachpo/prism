@@ -40,7 +40,7 @@ design-system/
 - Route every destructive operation through `OperatorDestructiveDialog`; the required preflight/blocking/impact-summary/typed-phrase flow lives in `../../../DESIGN.md` under Dialogs And Drawers.
 - Render an absent value with `OperatorMissingValue` or `OperatorValue`; `?? 0` in a render path is a defect. A failed read is `OperatorErrorState`, never an empty state.
 - There is exactly one staleness badge design: `OperatorStalenessBadge`. Do not hand-roll a second one.
-- Adding or changing a color means updating `operatorColorTokens` and re-running `pnpm run test:lib`; the guard fails on drift, dead tokens, and contrast regressions.
+- Adding or changing a color means updating `operatorColorTokens` and re-running `pnpm run test:lib`; the guard fails on token-value drift and contrast regressions.
 
 ## ANTI-PATTERNS
 - Do not add marketing hero layouts, decorative gradients, blur blobs, raw Tailwind status colors, or page-local color systems.

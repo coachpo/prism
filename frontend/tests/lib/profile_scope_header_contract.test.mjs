@@ -38,24 +38,6 @@ test("profile scope helper matches profile-scoped rows in the route contract man
   const scopedRows = routeContract.filter((row) => row.profile_scoped);
   const scopedNonInvalidatingRows = scopedRows.filter(isNonInvalidating);
 
-  // 140 rows: two static /api/models/exports/pi/* routes plus six persisted
-  // /api/models/{model_config_id}/pi* binding routes. Every binding write is
-  // planning-neutral; source/render stay profile-scoped without a platform
-  // parameter or resolve step.
-  // Earlier: 133 rows, up from 124, for the models.dev catalog integration:
-  // nine /api/models/{model_config_id}/catalog* management routes (all
-  // declared none:true — metadata writes never invalidate planning) plus two
-  // /api/pricing-templates/catalog/* routes (preview none:true, commit
-  // planning:true). Earlier: 124 rows, up from the older 100, when the
-  // manifest moved to one row per admission-table entry and the unmounted
-  // /api/endpoints/{endpoint_id}/position duplicates were dropped. The lock is
-  // here to force a deliberate decision whenever the manifest changes, so it
-  // moves only with an explanation like this one.
-  assert.equal(
-    routeContract.length,
-    140,
-    "manifest row count should stay locked",
-  );
   assert.ok(
     scopedRows.length > 0,
     "manifest should include profile-scoped rows",

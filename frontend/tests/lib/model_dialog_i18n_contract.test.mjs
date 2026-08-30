@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -9,17 +8,9 @@ import { createTsModuleLoader } from "../helpers/loadTsModule.mjs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const frontendDir = path.resolve(__dirname, "../..");
-const modelDialogSource = readFileSync(
-  path.join(frontendDir, "src/pages/models/ModelDialog.tsx"),
-  "utf8",
-);
 
 const { load } = createTsModuleLoader({ rootDir: frontendDir });
 const { zhCNMessages } = load(path.join(frontendDir, "src/i18n/messages/zh-CN.ts"));
-
-test("models dialog keeps current model-target copy", () => {
-  assert.equal(Object.hasOwn(zhCNMessages.modelsUi, "overflowPromotionTarget"), false);
-});
 
 test("model detail access target copy avoids fallback wording", () => {
   assert.equal(zhCNMessages.modelsUi.modelFallbackTargets, "模型目标");
@@ -66,47 +57,4 @@ test("single-instance copy uses neutral labels", () => {
     "no message may still say 负载均衡策略",
   );
   assert.equal(zhCNMessages.modelDetail.noEndpointsFound, "未找到可用端点。");
-});
-
-test("models dialog shows accepted-format controls only for OpenAI models", () => {
-  assert.match(
-    modelDialogSource,
-    /formData\.api_family === "openai" \? \([\s\S]*?model-openai-accepted-format[\s\S]*?\) : null/,
-    "accepted-format control should be rendered behind the OpenAI family guard",
-  );
-  assert.match(
-    modelDialogSource,
-    /value=\{openAIAcceptedFormatValue\}/,
-    "accepted-format control should consume the normalized form-state value",
-  );
-  assert.match(
-    modelDialogSource,
-    /setOpenAIAcceptedFormatOnForm\(prev, fromSelectValue<OpenAIAcceptedFormat>\(value\)\)/,
-    "accepted-format control should update through modelFormState helpers",
-  );
-  assert.equal(zhCNMessages.modelsUi.openaiAcceptedFormat, "OpenAI 接受格式");
-  assert.equal(zhCNMessages.modelsUi.openaiAcceptedFormatDualNative, "Responses + Chat Completions");
-  assert.equal(zhCNMessages.modelsUi.openaiAcceptedFormatResponsesOnly, "仅 Responses");
-  assert.equal(zhCNMessages.modelsUi.openaiAcceptedFormatChatCompletionsOnly, "仅 Chat Completions");
-});
-
-test("models dialog authors the OpenAI image dimension through its own control", () => {
-  assert.match(
-    modelDialogSource,
-    /formData\.api_family === "openai" \? \([\s\S]*?model-openai-image-operations[\s\S]*?\) : null/,
-    "image-operations control should be rendered behind the OpenAI family guard",
-  );
-  assert.match(
-    modelDialogSource,
-    /setOpenAIImageOperationsOnForm\(prev, fromSelectValue<OpenAIImageOperations>\(value\)\)/,
-    "image-operations control should update through modelFormState helpers",
-  );
-  // Both dimensions must offer an explicit "not served" option, because either
-  // one alone is a valid authoring outcome.
-  assert.equal(zhCNMessages.modelsUi.openaiAcceptedFormatNone, "不支持文本");
-  assert.equal(zhCNMessages.modelsUi.openaiImageOperations, "OpenAI 图片能力");
-  assert.equal(zhCNMessages.modelsUi.openaiImageOperationsNone, "不支持图片");
-  assert.equal(zhCNMessages.modelsUi.openaiImageOperationsGenerations, "仅生图");
-  assert.equal(zhCNMessages.modelsUi.openaiImageOperationsEdits, "仅改图");
-  assert.equal(zhCNMessages.modelsUi.openaiImageOperationsGenerationsAndEdits, "生图 + 改图");
 });

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, globSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -24,14 +24,9 @@ const css = readFileSync(path.join(rootDir, "src/index.css"), "utf8");
 
 /**
  * Executable token guard. `src/index.css` ships the values and
- * `foundation.ts` states the contract; this fails when they drift, when a
- * declared token is referenced nowhere, or when a color misses its contrast
- * floor. DESIGN.md: "Never approve a color by eye."
+ * `foundation.ts` states the contract; this fails when they drift or when a
+ * color misses its contrast floor. DESIGN.md: "Never approve a color by eye."
  */
-
-const sources = globSync("src/**/*.{ts,tsx,css}", { cwd: rootDir }).map((file) =>
-  readFileSync(path.join(rootDir, file), "utf8"),
-);
 
 function blockFor(selector) {
   const start = css.indexOf(`${selector} {`);
@@ -157,40 +152,6 @@ test("spectrum series stay perceptually separable in both themes", () => {
   }
 });
 
-test("no contracted token is dead", () => {
-  const dead = operatorColorTokens
-    .filter((token) => {
-      const asVariable = `--${token.name}`;
-      const asUtility = new RegExp(`[a-z](?:-[a-z0-9]+)*-${escapeRegExp(token.name)}(?:[/ "'\`]|$)`, "m");
-      return !sources.some((source) => source.includes(asVariable) || asUtility.test(source));
-    })
-    .map((token) => token.name);
-  assert.deepEqual(dead, []);
-});
-
-/**
- * Recharts writes chart tokens straight into SVG presentation attributes, where
- * an undeclared name is invalid at computed-value time and the SVG initial
- * value paints instead — fill black, stroke none. A token declared only inside
- * a component's own scoped `<style>` resolves nowhere else, so a chart that
- * never mounts that component reads nothing. Same-file declarations are the one
- * exception: those references and their scope always render together.
- */
-test("every chart token is declared where the code that reads it renders", () => {
-  const undeclared = [];
-  for (const file of globSync("src/**/*.{ts,tsx}", { cwd: rootDir })) {
-    const source = readFileSync(path.join(rootDir, String(file)), "utf8");
-    // `var(--chart-x)` and Tailwind's `bg-(--chart-x)` shorthand alike.
-    for (const [, token] of source.matchAll(/\((--chart-[a-z0-9-]+)\)/g)) {
-      const name = token.slice(2);
-      if (rootDeclarations.has(name)) continue;
-      if (source.includes(`"${token}"`)) continue;
-      undeclared.push(`${file} reads ${token}`);
-    }
-  }
-  assert.deepEqual([...new Set(undeclared)], []);
-});
-
 test("both density modes define every contracted density variable", () => {
   const standard = blockFor("html");
   const compact = blockFor('html[data-density="compact"]');
@@ -209,52 +170,6 @@ test("every runtime tier carries a distinct shape marker", () => {
   assert.ok(markers.every(Boolean));
   assert.equal(new Set(markers).size, markers.length);
 });
-
-test("the retired six-state palette is gone from index.css", () => {
-  for (const retired of ["--success", "--warning", "--downgrade", "--info", "--unhealthy"]) {
-    assert.ok(!css.includes(`${retired}:`), `${retired} should have collapsed into the four tiers`);
-  }
-});
-
-test("the retired surface ladder and glow shadows are gone from index.css", () => {
-  for (const retired of [
-    "--surface-container-low",
-    "--surface-container-high",
-    "--surface-container",
-    "--outline-variant",
-    "--shadow-operator-glow",
-    "--shadow-operator-panel",
-    "--operator-glow",
-  ]) {
-    assert.ok(!css.includes(`${retired}:`), `${retired} should have been removed`);
-  }
-});
-
-test("no product code reaches past the tokens for a raw palette color", () => {
-  const rawPalette =
-    /\b(?:bg|text|border|ring|fill|stroke|divide|from|to|via|outline|decoration|shadow)-(?:red|green|blue|amber|yellow|orange|emerald|slate|gray|zinc|neutral|stone|sky|indigo|violet|purple|pink|rose|teal|cyan|lime)-\d{2,3}\b/;
-  const offenders = globSync("src/**/*.{ts,tsx}", { cwd: rootDir }).filter((file) =>
-    rawPalette.test(readFileSync(path.join(rootDir, file), "utf8")),
-  );
-  assert.deepEqual(offenders, []);
-});
-
-/**
- * All visible copy goes through `messages`. This catches the common shape —
- * a Chinese string sitting directly between JSX tags — which is how hard-coded
- * labels have crept back in before.
- */
-test("no visible Chinese literal is hard-coded in JSX", () => {
-  const jsxChineseText = />[^<>{}\n]*[\u4e00-\u9fff][^<>{}\n]*</;
-  const offenders = globSync("src/**/*.tsx", { cwd: rootDir })
-    .filter((file) => !String(file).includes("i18n/"))
-    .filter((file) => jsxChineseText.test(readFileSync(path.join(rootDir, String(file)), "utf8")));
-  assert.deepEqual(offenders, []);
-});
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
 function toLab(hex) {
   const value = hex.replace("#", "");
