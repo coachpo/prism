@@ -10,6 +10,17 @@ import (
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 )
 
+// catalogPricingPrivateNoStore marks the catalog pricing preview/commit pair as
+// uncacheable. A preview is bound to the catalog revision, template identity,
+// and Terminal Target state it describes; any relevant state change makes that
+// preview stale, so an intermediary must never retain it for later use.
+func catalogPricingPrivateNoStore(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		responseutil.SetPrivateNoStoreHeaders(w)
+		next(w, r)
+	}
+}
+
 func (s *Service) requireCatalogClient(w http.ResponseWriter, r *http.Request) bool {
 	if s.catalog == nil {
 		responseutil.WriteError(w, r, s.corsSnapshot(), http.StatusServiceUnavailable, "models_dev_catalog_client_missing: catalog client is not configured")

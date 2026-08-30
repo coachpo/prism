@@ -22,6 +22,11 @@ const (
 
 const maxPrismPriceLength = 20
 
+// CatalogPriceCurrency names the single currency models.dev publishes prices
+// in. Prism never converts: a non-USD reporting currency fails the plan closed
+// instead of rescaling anything.
+const CatalogPriceCurrency = "USD"
+
 // Pricing card roles mirrored from the pricingkind domain so this package
 // stays dependency-free.
 const (

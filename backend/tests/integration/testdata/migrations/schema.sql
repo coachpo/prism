@@ -828,7 +828,7 @@ CREATE UNIQUE INDEX uq_model_access_targets_source_target_connection ON public.m
 CREATE UNIQUE INDEX uq_model_access_targets_source_target_model ON public.model_access_targets USING btree (source_model_config_id, target_model_config_id) WHERE (target_model_config_id IS NOT NULL);
 CREATE UNIQUE INDEX uq_pricing_migration_inventories_successor ON public.pricing_migration_inventories USING btree (supersedes_inventory_id) WHERE (supersedes_inventory_id IS NOT NULL);
 CREATE UNIQUE INDEX uq_pricing_schema_generation_leases_open ON public.pricing_schema_generation_leases USING btree (instance_id, mode, schema_generation) WHERE (released_at IS NULL);
-CREATE UNIQUE INDEX uq_pricing_templates_catalog_offering ON public.pricing_templates USING btree (catalog_provider_id, catalog_model_id) WHERE ((catalog_provider_id IS NOT NULL) AND (catalog_model_id IS NOT NULL));
+CREATE UNIQUE INDEX uq_pricing_templates_catalog_offering ON public.pricing_templates USING btree (catalog_provider_id, catalog_model_id) WHERE ((catalog_provider_id IS NOT NULL) AND (catalog_model_id IS NOT NULL) AND (deleted_at IS NULL));
 CREATE UNIQUE INDEX uq_pricing_templates_profile_name_identity ON public.pricing_templates USING btree (profile_id, name_identity) WHERE (deleted_at IS NULL);
 CREATE UNIQUE INDEX uq_profiles_single_active ON public.profiles USING btree (is_active) WHERE (is_active = true);
 CREATE UNIQUE INDEX uq_profiles_single_default ON public.profiles USING btree (is_default) WHERE (is_default = true);

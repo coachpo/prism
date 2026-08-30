@@ -156,22 +156,25 @@ func (s *Service) buildCatalogPricingPreview(ctx context.Context, r *http.Reques
 			}
 		}
 		response := catalogPricingPreviewResponse{
-			SchemaVersion:   catalogPricingImportSchemaVersion,
-			Offering:        offeringPayloadFrom(model),
-			CatalogRevision: catalog.ETag,
-			FetchedAt:       catalog.FetchedAt,
+			SchemaVersion:         catalogPricingImportSchemaVersion,
+			Offering:              offeringPayloadFrom(model),
+			Model:                 scope.prismModel,
+			CatalogRevision:       catalog.ETag,
+			FetchedAt:             catalog.FetchedAt,
+			ReportingCurrencyCode: currencyCode,
+			CatalogCurrency:       modelsdev.CatalogPriceCurrency,
+			PricingUnit:           pricingkind.UnitPer1M,
+			Drift:                 drift,
+			Committable:           plan.Committable(),
+			PreviewHash:           hash,
+			Targets:               targets,
+			Action:                action,
 			Plan: catalogPricePlanPayload{
 				TemplateKind:      plan.Kind,
 				Cards:             priceCardsPayload(plan),
 				TierThreshold:     plan.TierThreshold,
 				Incompatibilities: plan.Incompatibilities,
 			},
-			Drift:                 drift,
-			Committable:           plan.Committable(),
-			PreviewHash:           hash,
-			Targets:               targets,
-			ReportingCurrencyCode: currencyCode,
-			Action:                action,
 		}
 		if linked != nil {
 			response.Template = &catalogLinkedTemplatePayload{

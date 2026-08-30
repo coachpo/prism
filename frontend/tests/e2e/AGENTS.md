@@ -33,7 +33,7 @@ e2e/
 - Shared model-detail Spending response and exact ingress-query assertion: `spending-report-fixtures.ts`
 - Auth journey: `auth-session-lifecycle.spec.ts`
 - Load-balance recovery journey: `loadbalance-strategies-recovery.spec.ts`
-- models.dev catalog binding and Terminal Target price-generation journey: `model-catalog-pricing.spec.ts` (mocked `/api/models/{id}/catalog*` and `/api/pricing-templates/catalog/*`; unique-match bind renders metadata, tiered plan preview commits with the current target as the only assignment)
+- models.dev catalog binding and source-linked price-import journeys: `model-catalog-pricing.spec.ts` (mocked `/api/models/{id}/catalog*` and `/api/pricing-templates/catalog/*`; unique-match bind renders metadata; model detail commits with the current target locked and then authoritatively re-reads its target/template state; `/route/pricing` covers unique match with no target, explicit `codex/gpt-5.6-luna` candidate selection, and target-set re-preview)
 - Model access-target authoring journey: `models-access-target-authoring.spec.ts`
 - Request-log + audit journey: `request-log-dedicated-audit-page.spec.ts`; shared request-log/audit fixture builders: `request-log-dedicated-audit-fixtures.ts`
 - Routing-health events journey: `routing-health-events.spec.ts`

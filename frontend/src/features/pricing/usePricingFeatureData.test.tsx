@@ -118,7 +118,7 @@ describe("usePricingFeatureData", () => {
     });
 
     expect(mocks.importCommit).toHaveBeenCalledWith({
-	  schema_version: 3,
+      schema_version: 3,
       mode: importRequest.mode,
       templates: importRequest.templates,
       preview_hash: "preview-hash",
@@ -157,7 +157,7 @@ describe("usePricingFeatureData", () => {
 });
 
 const importRequest: PricingTemplateImportRequest = {
-	  schema_version: 3,
+  schema_version: 3,
   mode: "upsert_by_name",
   templates: [
     {
@@ -183,6 +183,10 @@ function makeTemplate(id: number, name: string): PricingTemplate {
     pricing_unit: "PER_1M",
     pricing_currency_code: "USD",
     active_currency_symbol: "$",
+    catalog_provider_id: null,
+    catalog_model_id: null,
+    revision_source: "manual",
+    catalog_revision: null,
     template_kind: "standard",
     card: {
       input_price: "1",

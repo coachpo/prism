@@ -16,7 +16,8 @@ import { ModelDialog } from "@/pages/models/ModelDialog";
 import { ConnectionDialog } from "@/pages/model-detail/ConnectionDialog";
 import { CopyTerminalTargetDialog } from "@/pages/model-detail/CopyTerminalTargetDialog";
 import { CatalogMetadataCard } from "@/pages/model-detail/CatalogMetadataCard";
-import { CatalogPricingDialog } from "@/pages/model-detail/CatalogPricingDialog";
+import { CatalogPricingDialog } from "@/features/pricing/catalog";
+import { clearSharedReferenceData } from "@/lib/referenceData";
 import { useModelCatalog } from "@/pages/model-detail/useModelCatalog";
 import type { Connection } from "@/lib/types";
 import type { ModelConfigListItem } from "@/lib/types";
@@ -228,10 +229,7 @@ export function ModelDetailFeaturePage({
       ? "final_execution"
       : "ingress";
   const modelMetricRows = useMemo(
-    () =>
-      data.model
-        ? [data.model as unknown as ModelConfigListItem]
-        : [],
+    () => (data.model ? [data.model as unknown as ModelConfigListItem] : []),
     [data.model],
   );
   const roleMetrics = useModelMetrics24h(modelMetricRows);
@@ -402,12 +400,21 @@ export function ModelDetailFeaturePage({
       {pricingTarget !== null && (
         <CatalogPricingDialog
           isOpen
-          modelConfigId={parsedModelConfigId ?? 0}
-          connectionId={pricingTarget.id}
-          connectionName={
-            pricingTarget?.name ?? pricingTarget?.endpoint?.name ?? ""
-          }
-          connections={data.targetConnectionsForApiFamily}
+          source={{
+            kind: "bound_model",
+            modelConfigId: parsedModelConfigId ?? 0,
+          }}
+          title={`${messages.modelCatalog.pricingDialogTitlePrefix}${
+            (pricingTarget?.name ?? pricingTarget?.endpoint?.name)
+              ? ` · ${pricingTarget.name ?? pricingTarget.endpoint?.name}`
+              : ""
+          }`}
+          targets={data.targetConnectionsForApiFamily.map((connection) => ({
+            id: connection.id,
+            name: connection.name ?? connection.endpoint?.name ?? null,
+          }))}
+          initialConnectionIds={[pricingTarget.id]}
+          lockedConnectionIds={[pricingTarget.id]}
           onClose={() => setPricingTarget(null)}
           onCommitted={(templateName, assignedCount) => {
             setPricingTarget(null);
@@ -417,6 +424,20 @@ export function ModelDetailFeaturePage({
                 assignedCount,
               ),
             );
+            // The imported template is now referenced by live targets, so the
+            // pricing collection, the target option cache, and this model's
+            // target rows all have to re-read authoritatively.
+            clearSharedReferenceData("pricingTemplates", 0);
+            clearSharedReferenceData("connections", 0);
+            void data.refreshCatalogPricingReads().catch((error) => {
+              console.error(
+                "Failed to refresh model detail after catalog pricing commit",
+                error,
+              );
+              toast.error(
+                messages.modelCatalog.pricingPostCommitRefreshFailed,
+              );
+            });
           }}
         />
       )}
@@ -503,14 +524,10 @@ function ModelRoleMetrics({
       actions={
         <Tabs
           value={scope}
-          onValueChange={(value) =>
-            onScopeChange(value as DetailMetricsScope)
-          }
+          onValueChange={(value) => onScopeChange(value as DetailMetricsScope)}
         >
           <TabsList aria-label={copy.roleMetricsScopeLabel}>
-            <TabsTrigger value="ingress">
-              {copy.roleMetricsIngress}
-            </TabsTrigger>
+            <TabsTrigger value="ingress">{copy.roleMetricsIngress}</TabsTrigger>
             <TabsTrigger value="final_execution">
               {copy.roleMetricsFinal}
             </TabsTrigger>
@@ -559,7 +576,9 @@ function ModelRoleMetrics({
               label={copy.roleMetricsCompletionRate}
               value={
                 metric?.success_rate == null ? (
-                  <OperatorMissingValue reason={copy.roleMetricsNoDenominator} />
+                  <OperatorMissingValue
+                    reason={copy.roleMetricsNoDenominator}
+                  />
                 ) : (
                   `${formatNumber(metric.success_rate, { maximumFractionDigits: 1 })}%`
                 )
@@ -574,7 +593,9 @@ function ModelRoleMetrics({
               }
               value={
                 metric?.p95_latency_ms == null ? (
-                  <OperatorMissingValue reason={copy.roleMetricsNoLatencySample} />
+                  <OperatorMissingValue
+                    reason={copy.roleMetricsNoLatencySample}
+                  />
                 ) : (
                   `${formatNumber(metric.p95_latency_ms)} ms`
                 )
@@ -596,7 +617,9 @@ function ModelRoleMetrics({
               label={copy.roleMetricsKnownCost}
               value={
                 metric?.known_cost_micros == null ? (
-                  <OperatorMissingValue reason={copy.roleMetricsNoTrustedCost} />
+                  <OperatorMissingValue
+                    reason={copy.roleMetricsNoTrustedCost}
+                  />
                 ) : (
                   formatMoneyMicros(
                     metric.known_cost_micros,

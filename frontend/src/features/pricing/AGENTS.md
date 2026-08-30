@@ -21,8 +21,20 @@
 - `usePricingImportProtocol.ts`: preview-only then server-hash commit import protocol.
 - `pricingDeletion.ts`: pricing-template delete-block decision from loading/error/dependency state.
 - `pricingUsage.ts`: pricing-template connection-usage response parsing for detail and conflict views.
+- `catalog/`: the shared models.dev source-linked pricing import, mounted by both `/route/pricing` and the model-detail Terminal Target action.
+  - `useCatalogPricingImport.ts`: the preview/commit protocol owner. A `CatalogPricingSource` is either a persisted binding (`bound_model`) or explicit `coordinates` with optional display-only `modelConfigId`. The settled preview is keyed by `(sourceKey, targetsKey)`; any target-set change invalidates it and re-reads, and a rejected commit discards the preview and re-reads instead of retrying blind.
+  - `CatalogPricingDialog.tsx`: the one dialog shell for both surfaces. It keeps discovery mounted beside the preview so the operator can re-choose, and renders explicit commit blockers rather than a bare disabled button.
+  - `CatalogPricingPreviewPanel.tsx`: the shared preview display (both ends of the mapping, USD/PER_1M, five components per card, tier threshold, catalog revision, fetch stamp, labelled incompatibility reasons).
+  - `CatalogOfferingDiscovery.tsx`: pricing-page model selection plus unique-match and bounded candidate search.
+  - `catalogPricingPresentation.ts`: pure display rules (role order, five-component order, explicit `0` vs absent, stable reason labels, commit blockers). Every helper takes the locale bundle explicitly; nothing caches messages.
+  - `useCatalogImportReferenceData.ts` / `useCatalogPricingImportEntry.ts`: dialog-scoped model/target reads and the pricing-page entry state plus post-commit cache refresh.
 
 ## CONVENTIONS
+
+- The models.dev catalog price import is shared, not duplicated: `/route/pricing` and the model-detail action mount the same `catalog/` protocol hook and display components. Automation only discovers and prefills — a unique exact match may advance into the preview, but zero or multiple candidates always require an explicit human pick, nothing auto-selects the first or cheapest candidate, and nothing commits without an explicit action.
+- Default target selection differs per surface and must stay that way: `/route/pricing` preselects **no** Terminal Target (template create/refresh only), while model detail preselects and locks the current target. Importing prices never binds the model.
+- After a successful commit, drop the `pricingTemplates` and `connections` shared-reference caches and re-read authoritatively rather than optimistically patching, so the template list, target options, and target references agree immediately.
+- An explicit catalog `0` renders as `0`; only an absent component renders the shared missing marker. Never leak a fail-closed reason enum key — `catalogIncompatibilityLabel` maps it to operator copy and keeps an unrecognised reason visible with its code.
 
 - Keep the wire shape aligned with `backend/internal/httpapi/management/connections/`: `template_kind` is explicit; standard uses `card`, tiered uses `base_card` plus `tier.card`, and peak_valley uses `peak_card`, `offpeak_card`, and `schedule`. Legacy flat fields and provider presets are never authored.
 - Keep tier form state in `pricingTierSchema.ts` and peak/valley form state in `PricingPeakValleyFields.tsx`; the parent pricing schema owns branch validation, specialty parity, and payload normalization. Browser validation normalizes input only; backend owns DST/window evaluation.
@@ -38,4 +50,4 @@
 ## VALIDATION
 
 - Run `cd frontend && pnpm exec vitest run && pnpm run test:lib && pnpm run lint && pnpm run build` for the frontend gate.
-- Pure tier form and payload cases belong in the existing Vitest/lib seam suites; do not add a Playwright spec for this feature.
+- Pure tier form and payload cases belong in the existing Vitest/lib seam suites. The shared catalog import is journey-covered in `tests/e2e/model-catalog-pricing.spec.ts` and component-covered in `catalog/catalogPricingComponents.test.tsx`; do not add a separate Playwright spec for the pricing feature itself.

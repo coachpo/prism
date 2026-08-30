@@ -22,8 +22,10 @@ import (
 // catalogFixtureCatalog mirrors the published models.dev shapes closely
 // enough to exercise every mapping rule: unique matches, cross-provider
 // ambiguity, an OpenAI single context tier with duplicate legacy evidence,
-// audio costs, explicit zero prices, nullable efforts, and a source decimal
-// that is valid catalog data but too long for Prism pricing storage.
+// audio costs, explicit zero prices, nullable efforts, a full five-component
+// card, an offering that only an aggregator-style provider carries (so the
+// api_family auto-match finds nothing and a human must pick coordinates), and a
+// source decimal that is valid catalog data but too long for Prism storage.
 const catalogFixtureCatalog = `{
   "openai": {
     "id": "openai",
@@ -46,6 +48,15 @@ const catalogFixtureCatalog = `{
         "open_weights": false,
         "limit": {"context": 400000, "output": 32768},
         "cost": {"input": 2.5, "output": 10, "cache_read": 0}
+      },
+      "gpt-five-part": {
+        "id": "gpt-five-part",
+        "name": "GPT Five Part",
+        "release_date": "2026-05",
+        "last_updated": "2026-06",
+        "open_weights": false,
+        "limit": {"context": 200000, "output": 16384},
+        "cost": {"input": 1.25, "output": 10, "cache_read": 0, "cache_write": 1.5, "reasoning": 12.5}
       },
       "gpt-long": {
         "id": "gpt-long",
@@ -92,6 +103,20 @@ const catalogFixtureCatalog = `{
         "id": "schema-edge",
         "name": "Schema Edge",
         "cost": {"input": 0.0245, "output": 0.0978, "cache_read": 2.4499999999999995e-3}
+      }
+    }
+  },
+  "codex": {
+    "id": "codex",
+    "name": "Codex",
+    "models": {
+      "gpt-5.6-luna": {
+        "id": "gpt-5.6-luna",
+        "name": "GPT 5.6 Luna",
+        "release_date": "2026-07",
+        "last_updated": "2026-07",
+        "open_weights": false,
+        "cost": {"input": 0.5, "output": 4, "cache_read": 0.05}
       }
     }
   }

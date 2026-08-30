@@ -69,13 +69,24 @@ type pricingTemplateResponse struct {
 	RevisionCount          int64      `json:"revision_count"`
 	CreatedAt              time.Time  `json:"created_at"`
 	UpdatedAt              time.Time  `json:"updated_at"`
+	// Catalog coordinates name the models.dev offering these prices were
+	// imported from. Both stay null on every manually authored template.
+	CatalogProviderID *string `json:"catalog_provider_id"`
+	CatalogModelID    *string `json:"catalog_model_id"`
+	// RevisionSource/CatalogRevision describe the current revision only:
+	// "manual" with a null revision, or "catalog" with the catalog revision
+	// the import was replayed against.
+	RevisionSource  string  `json:"revision_source"`
+	CatalogRevision *string `json:"catalog_revision"`
 }
 
 const pricingTemplateSelectQuery = `SELECT templates.id, templates.profile_id, templates.name, templates.description,
 			templates.created_at, templates.updated_at, templates.deleted_at,
+			templates.catalog_provider_id, templates.catalog_model_id,
 			revisions.id, revisions.version, revisions.pricing_unit, revisions.currency_code,
 			revisions.reporting_currency_epoch, revisions.template_kind, revisions.tier_input_tokens_above,
 			revisions.pricing_schedule_timezone, revisions.pricing_schedule_digest, revisions.effective_at,
+			revisions.revision_source, revisions.catalog_revision,
 			epochs.currency_symbol,
 			(SELECT count(*) FROM pricing_template_revisions AS all_revisions WHERE all_revisions.template_id = templates.id) AS revision_count
 		FROM pricing_templates AS templates
@@ -215,6 +226,7 @@ func scanPricingTemplateConnectionUsageRecord(scanner interface{ Scan(...any) er
 
 func scanPricingTemplateResponse(scanner interface{ Scan(...any) error }) (pricingTemplateResponse, error) {
 	var description, templateKind, scheduleTimezone, scheduleDigest, symbol sql.NullString
+	var catalogProvider, catalogModel, revisionSource, catalogRevision sql.NullString
 	var epoch, tierThreshold sql.NullInt32
 	var effectiveAt, deletedAt sql.NullTime
 	var revisionCount sql.NullInt64
@@ -222,13 +234,30 @@ func scanPricingTemplateResponse(scanner interface{ Scan(...any) error }) (prici
 	if err := scanner.Scan(
 		&item.ID, &item.ProfileID, &item.Name, &description,
 		&item.CreatedAt, &item.UpdatedAt, &deletedAt,
+		&catalogProvider, &catalogModel,
 		&item.RevisionID, &item.Version, &item.PricingUnit, &item.PricingCurrencyCode,
 		&epoch, &templateKind, &tierThreshold, &scheduleTimezone, &scheduleDigest,
-		&effectiveAt, &symbol, &revisionCount,
+		&effectiveAt, &revisionSource, &catalogRevision,
+		&symbol, &revisionCount,
 	); err != nil {
 		return pricingTemplateResponse{}, err
 	}
 	item.Description = nullableStringValue(description)
+	item.CatalogProviderID = nullableStringValue(catalogProvider)
+	item.CatalogModelID = nullableStringValue(catalogModel)
+	item.CatalogRevision = nullableStringValue(catalogRevision)
+	// A template without a current revision has no revision evidence to name,
+	// so it reads as the manual default the storage column also defaults to.
+	item.RevisionSource = strings.TrimSpace(revisionSource.String)
+	if item.RevisionSource == "" {
+		item.RevisionSource = "manual"
+	}
+	// The storage columns are only ever written as a pair, so a half-populated
+	// coordinate is corruption rather than a manual template and must not be
+	// projected as one.
+	if (item.CatalogProviderID == nil) != (item.CatalogModelID == nil) {
+		return pricingTemplateResponse{}, &DomainError{StatusCode: http.StatusConflict, Detail: "pricing_template_catalog_evidence_incomplete"}
+	}
 	item.TemplateKind = strings.TrimSpace(templateKind.String)
 	if !pricingkind.Kind(item.TemplateKind).Valid() {
 		return pricingTemplateResponse{}, &DomainError{StatusCode: http.StatusConflict, Detail: "pricing_template_shape_unavailable"}

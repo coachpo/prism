@@ -1,5 +1,5 @@
 // models.dev 目录集成 journey：绑定（唯一精确自动匹配）、元信息卡状态、
-// 以及 Terminal Target 的目录价格生成与原子赋值。后端流量全部 mock。
+// Terminal Target 的目录价格生成，以及价格页的模板导入。后端流量全部 mock。
 import { expect, test, type Page } from "@playwright/test";
 import {
   createEmptyIngressSpendingReport,
@@ -75,7 +75,7 @@ function connection(id: number, name: string) {
 
 const connectionA = connection(15, "Primary Chat");
 
-function accessTargets() {
+function accessTargets(connectionSnapshot: Record<string, unknown> = connectionA) {
   return [
     {
       id: 91,
@@ -86,7 +86,7 @@ function accessTargets() {
       position: 0,
       is_enabled: true,
       target_model: null,
-      connection: connectionA,
+      connection: connectionSnapshot,
       terminal_target: {
         id: 15,
         name: "Primary Chat",
@@ -171,7 +171,10 @@ function boundCatalog() {
   };
 }
 
-function modelDetail(catalog: unknown) {
+function modelDetail(
+  catalog: unknown,
+  connectionSnapshot: Record<string, unknown> = connectionA,
+) {
   return {
     id: 7,
     profile_id: 1,
@@ -182,9 +185,50 @@ function modelDetail(catalog: unknown) {
     loadbalance_strategy: strategy(),
     openai_accepted_format: "dual_native",
     openai_image_operations: null,
-    access_targets: accessTargets(),
+    access_targets: accessTargets(connectionSnapshot),
     is_enabled: true,
     catalog,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+}
+
+function catalogPricingTemplate(providerID: string, catalogModelID: string) {
+  return {
+    id: 33,
+    profile_id: 1,
+    name: `${providerID}/${catalogModelID}`,
+    description: null,
+    pricing_unit: "PER_1M",
+    pricing_currency_code: "USD",
+    active_currency_symbol: "$",
+    template_kind: "tiered",
+    base_card: {
+      input_price: "30",
+      output_price: "180",
+      cached_input_price: "0",
+      cache_creation_price: "2.5",
+      reasoning_price: null,
+    },
+    tier: {
+      input_tokens_above: 272000,
+      card: {
+        input_price: "60",
+        output_price: "270",
+        cached_input_price: "0.5",
+        cache_creation_price: "5",
+        reasoning_price: null,
+      },
+    },
+    version: 1,
+    revision_id: 66,
+    version_effective_at: timestamp,
+    reporting_currency_epoch: 1,
+    revision_count: 1,
+    catalog_provider_id: providerID,
+    catalog_model_id: catalogModelID,
+    revision_source: "catalog",
+    catalog_revision: '"catalog-e2e-1"',
     created_at: timestamp,
     updated_at: timestamp,
   };
@@ -193,8 +237,17 @@ function modelDetail(catalog: unknown) {
 async function mockCatalogRoutes(page: Page) {
   const state = {
     bound: false,
+    // "unique_match" drives the automatic branch; "no_match" forces the
+    // operator through the bounded candidate search.
+    matchReason: "unique_match" as "unique_match" | "no_match" | "ambiguous",
+    connection: { ...connectionA } as Record<string, unknown>,
+    models: [] as unknown[],
+    pricingTemplates: [] as unknown[],
     bindRequests: [] as unknown[],
     commitRequests: [] as unknown[],
+    previewRequests: [] as unknown[],
+    modelDetailReads: 0,
+    modelConnectionReads: 0,
   };
 
   await page.route("**/*", async (route) => {
@@ -264,7 +317,7 @@ async function mockCatalogRoutes(page: Page) {
       return fulfillJson(createEmptyIngressSpendingReport());
     }
     if (pathname === "/api/models" && request.method() === "GET") {
-      return fulfillJson([]);
+      return fulfillJson(state.models);
     }
     if (pathname === "/api/endpoints") {
       return fulfillJson([endpoint()]);
@@ -273,69 +326,95 @@ async function mockCatalogRoutes(page: Page) {
       return fulfillJson([strategy()]);
     }
     if (pathname === "/api/pricing-templates") {
-      return fulfillJson([]);
+      // The bounded page surface is only reached by the pricing feature page,
+      // which reads collection facts through the keyset page contract.
+      if (new URL(request.url()).searchParams.has("limit")) {
+        return fulfillJson({
+          items: [],
+          total_count: 0,
+          consumed_count: 0,
+          list_snapshot_hash: "e2e-snapshot",
+          next_cursor: null,
+        });
+      }
+      return fulfillJson(state.pricingTemplates);
     }
     if (pathname === "/api/endpoints/connections") {
-      return fulfillJson({ items: [connectionA] });
+      return fulfillJson({ items: [state.connection] });
     }
     if (pathname === "/api/models/7/connections") {
-      return fulfillJson([connectionA]);
+      state.modelConnectionReads += 1;
+      return fulfillJson([state.connection]);
     }
-    // Catalog metadata surface.
-    if (pathname === "/api/models/7/catalog" && request.method() === "GET") {
-      return fulfillJson(state.bound ? boundCatalog() : unboundCatalog());
-    }
-    if (
-      pathname === "/api/models/7/catalog/candidates" &&
-      request.method() === "GET"
-    ) {
-      return fulfillJson({
-        items: [
-          {
-            provider_id: "openai",
-            provider_name: "OpenAI",
-            model_id: "gpt-long",
-            name: "GPT Long",
-          },
-        ],
-        total: 1,
-        limit: 20,
-        offset: 0,
-        scope: "family",
-      });
-    }
-    if (
-      pathname === "/api/models/7/catalog/match-preview" &&
-      request.method() === "POST"
-    ) {
-      return fulfillJson({
-        committable: true,
-        provider_id: "openai",
-        catalog_model_id: "gpt-long",
-        candidates: [
-          {
-            provider_id: "openai",
-            provider_name: "OpenAI",
-            model_id: "gpt-long",
-            name: "GPT Long",
-          },
-        ],
-        reason: "unique_match",
-        catalog_revision: '"catalog-e2e-1"',
-        fetched_at: timestamp,
-      });
-    }
-    if (
-      pathname === "/api/models/7/catalog/bind" &&
-      request.method() === "POST"
-    ) {
-      state.bindRequests.push(request.postDataJSON());
-      state.bound = true;
-      return fulfillJson(boundCatalog());
+    // Catalog metadata surface. The pricing-page discovery uses the same
+    // routes for whichever model the operator selects, so they are matched by
+    // id pattern rather than hardcoded to the detail fixture.
+    const catalogMatch = pathname.match(
+      /^\/api\/models\/(\d+)\/catalog(\/(candidates|match-preview|bind))?$/,
+    );
+    if (catalogMatch) {
+      const sub = catalogMatch[3];
+      if (!sub && request.method() === "GET") {
+        return fulfillJson(state.bound ? boundCatalog() : unboundCatalog());
+      }
+      if (sub === "candidates" && request.method() === "GET") {
+        const scope =
+          new URL(request.url()).searchParams.get("scope") ?? "family";
+        // The api_family mapping only knows the upstream-native provider, so a
+        // family-scoped search finds nothing for the aggregator coordinate.
+        const items =
+          scope === "all"
+            ? [
+                {
+                  provider_id: "codex",
+                  provider_name: "Codex",
+                  model_id: "gpt-5.6-luna",
+                  name: "GPT 5.6 Luna",
+                },
+              ]
+            : [];
+        return fulfillJson({
+          items,
+          total: items.length,
+          limit: 20,
+          offset: 0,
+          scope,
+        });
+      }
+      if (sub === "match-preview" && request.method() === "POST") {
+        const unique = state.matchReason === "unique_match";
+        return fulfillJson({
+          committable: unique,
+          provider_id: unique ? "openai" : undefined,
+          catalog_model_id: unique ? "gpt-long" : undefined,
+          candidates: unique
+            ? [
+                {
+                  provider_id: "openai",
+                  provider_name: "OpenAI",
+                  model_id: "gpt-long",
+                  name: "GPT Long",
+                },
+              ]
+            : [],
+          reason: state.matchReason,
+          catalog_revision: '"catalog-e2e-1"',
+          fetched_at: timestamp,
+        });
+      }
+      if (sub === "bind" && request.method() === "POST") {
+        state.bindRequests.push(request.postDataJSON());
+        state.bound = true;
+        return fulfillJson(boundCatalog());
+      }
     }
     if (pathname === "/api/models/7" && request.method() === "GET") {
+      state.modelDetailReads += 1;
       return fulfillJson(
-        modelDetail(state.bound ? boundCatalog() : unboundCatalog()),
+        modelDetail(
+          state.bound ? boundCatalog() : unboundCatalog(),
+          state.connection,
+        ),
       );
     }
     // Source-linked pricing import surface.
@@ -343,12 +422,34 @@ async function mockCatalogRoutes(page: Page) {
       pathname === "/api/pricing-templates/catalog/preview" &&
       request.method() === "POST"
     ) {
+      const previewBody = request.postDataJSON() as Record<string, unknown>;
+      state.previewRequests.push(previewBody);
+      const requestedTargets = Array.isArray(previewBody.connection_ids)
+        ? (previewBody.connection_ids as number[])
+        : [];
+      const providerID =
+        typeof previewBody.provider_id === "string"
+          ? previewBody.provider_id
+          : "openai";
+      const catalogModelID =
+        typeof previewBody.catalog_model_id === "string"
+          ? previewBody.catalog_model_id
+          : "gpt-long";
       return fulfillJson({
         schema_version: 1,
         offering: {
-          provider_id: "openai",
-          catalog_model_id: "gpt-long",
-          name: "GPT Long",
+          provider_id: providerID,
+          catalog_model_id: catalogModelID,
+          name:
+            providerID === "codex" && catalogModelID === "gpt-5.6-luna"
+              ? "GPT 5.6 Luna"
+              : "GPT Long",
+        },
+        model: {
+          model_config_id: 7,
+          model_id: "detail-openai",
+          display_name: "Detail OpenAI",
+          api_family: "openai",
         },
         catalog_revision: '"catalog-e2e-1"',
         fetched_at: timestamp,
@@ -358,15 +459,15 @@ async function mockCatalogRoutes(page: Page) {
             tier_base: {
               input_price: "30",
               output_price: "180",
-              cached_input_price: null,
-              cache_creation_price: null,
+              cached_input_price: "0",
+              cache_creation_price: "2.5",
               reasoning_price: null,
             },
             tier_above: {
               input_price: "60",
               output_price: "270",
-              cached_input_price: null,
-              cache_creation_price: null,
+              cached_input_price: "0.5",
+              cache_creation_price: "5",
               reasoning_price: null,
             },
           },
@@ -378,27 +479,53 @@ async function mockCatalogRoutes(page: Page) {
         drift: false,
         committable: true,
         preview_hash: "e2e-hash-1",
-        targets: [
-          {
-            connection_id: 15,
-            name: "Primary Chat",
-            endpoint_name: "OpenAI Primary",
-            pricing_template_id: null,
-            updated_at: timestamp,
-          },
-        ],
+        targets: requestedTargets.map((connectionID) => ({
+          connection_id: connectionID,
+          name: `Target ${connectionID}`,
+          endpoint_name: "OpenAI Primary",
+          pricing_template_id: null,
+          updated_at: timestamp,
+        })),
         reporting_currency_code: "USD",
+        catalog_currency: "USD",
+        pricing_unit: "PER_1M",
       });
     }
     if (
       pathname === "/api/pricing-templates/catalog/commit" &&
       request.method() === "POST"
     ) {
-      state.commitRequests.push(request.postDataJSON());
+      const commitBody = request.postDataJSON() as Record<string, unknown>;
+      state.commitRequests.push(commitBody);
+      const providerID =
+        typeof commitBody.provider_id === "string"
+          ? commitBody.provider_id
+          : "openai";
+      const catalogModelID =
+        typeof commitBody.catalog_model_id === "string"
+          ? commitBody.catalog_model_id
+          : "gpt-long";
+      const template = catalogPricingTemplate(providerID, catalogModelID);
+      state.pricingTemplates = [template];
+      const assignedConnectionIDs = Array.isArray(commitBody.connection_ids)
+        ? (commitBody.connection_ids as number[])
+        : [];
+      if (assignedConnectionIDs.includes(15)) {
+        state.connection = {
+          ...state.connection,
+          pricing_template_id: template.id,
+          pricing_template: {
+            id: template.id,
+            name: template.name,
+            template_kind: template.template_kind,
+          },
+          updated_at: "2026-08-25T12:01:00Z",
+        };
+      }
       return fulfillJson({
         created: true,
         updated: false,
-        assigned_connection_ids: [15],
+        assigned_connection_ids: assignedConnectionIDs,
         template_id: 33,
         revision_id: 66,
         version: 1,
@@ -464,6 +591,8 @@ test("terminal target generates catalog prices atomically", async ({
   await expect(dialog.getByText("60")).toBeVisible();
 
   // Default assignment covers exactly the current Terminal Target.
+  const detailReadsBeforeCommit = state.modelDetailReads;
+  const connectionReadsBeforeCommit = state.modelConnectionReads;
   await dialog.getByTestId("catalog-pricing-submit").click();
   await expect(dialog).not.toBeVisible();
   await expect(
@@ -476,4 +605,214 @@ test("terminal target generates catalog prices atomically", async ({
   expect(commit.expected_catalog_revision).toBe('"catalog-e2e-1"');
   expect(commit.confirm_drift).toBe(false);
   expect(commit.connection_ids).toEqual([15]);
+
+  // Success invalidates the shared caches and then re-reads the current model,
+  // its connection list, and the pricing collection before a later edit.
+  await expect
+    .poll(
+      () =>
+        state.modelDetailReads > detailReadsBeforeCommit &&
+        state.modelConnectionReads > connectionReadsBeforeCommit,
+    )
+    .toBe(true);
+  await row.getByRole("button", { name: /编辑 Primary Chat/ }).click();
+  const editDialog = page.getByRole("dialog");
+  await expect(
+    editDialog.getByRole("combobox", { name: "价格模板" }),
+  ).toContainText("openai/gpt-long");
 });
+
+// A model-config list row is what the pricing page's model selector reads.
+function selectableModel(id = 7): Record<string, unknown> {
+  return {
+    id,
+    profile_id: 1,
+    api_family: "openai",
+    model_id: "detail-openai",
+    display_name: "Detail OpenAI",
+    loadbalance_strategy_id: 11,
+    openai_accepted_format: "dual_native",
+    openai_image_operations: null,
+    access_targets: [],
+    is_enabled: true,
+    connection_count: 1,
+    active_connection_count: 1,
+    health_success_rate: null,
+    health_total_requests: 0,
+    routing_summary: null,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+}
+
+test("pricing page imports a unique match as a template with no target", async ({
+  page,
+}) => {
+  const state = await mockCatalogRoutes(page);
+  state.models = [selectableModel()];
+
+  await page.goto("/route/pricing");
+  await page.getByTestId("pricing-feature-page").waitFor({ timeout: 15000 });
+
+  await page.getByTestId("catalog-import-open").click();
+  const dialog = page.getByTestId("catalog-pricing-dialog");
+  await expect(dialog).toBeVisible();
+
+  // Before a model is chosen there is nothing to commit, and the dialog says so.
+  await expect(page.getByTestId("catalog-pricing-submit")).toBeDisabled();
+  await expect(page.getByTestId("catalog-pricing-blockers")).toContainText(
+    "尚未取得有效预览",
+  );
+
+  await dialog.getByRole("combobox", { name: /Prism 模型/ }).click();
+  await page
+    .getByRole("option", { name: /Detail OpenAI · detail-openai/ })
+    .click();
+
+  // The unique exact match advances into the preview without any further pick.
+  await expect(dialog.getByText("发现唯一精确匹配")).toBeVisible();
+  await expect(
+    dialog.getByTestId("catalog-pricing-preview").getByText("openai/gpt-long"),
+  ).toBeVisible();
+  await expect(dialog.getByTestId("catalog-pricing-preview")).toBeVisible();
+
+  // The preview carries the full source evidence, not just two prices.
+  const previewPanel = dialog.getByTestId("catalog-pricing-preview");
+  await expect(previewPanel.getByText('"catalog-e2e-1"')).toBeVisible();
+  await expect(previewPanel.getByText(/USD\/PER_1M/).first()).toBeVisible();
+  await expect(
+    previewPanel.getByText(/输入超过 272000 tokens 时整单切换/),
+  ).toBeVisible();
+  // An explicit catalog zero renders as 0, never as the missing marker.
+  await expect(dialog.getByTestId("catalog-pricing-cards")).toContainText("0");
+  // The fifth component is absent here and must read as unconfigured.
+  await expect(dialog.getByTestId("catalog-pricing-cards")).toContainText("—");
+
+  // No Terminal Target is preselected on this surface.
+  await expect(
+    dialog.getByTestId("catalog-pricing-target-15"),
+  ).not.toBeChecked();
+
+  await expect(page.getByTestId("catalog-pricing-submit")).toHaveText(
+    "生成或刷新模板",
+  );
+  await page.getByTestId("catalog-pricing-submit").click();
+  await expect(dialog).not.toBeVisible();
+  await expect(
+    page.getByText(
+      /已生成价格模板「openai\/gpt-long」，本次未赋值任何终端目标/,
+    ),
+  ).toBeVisible();
+
+  // The preview was requested with an empty target set and the commit replayed
+  // exactly that, so only the template moved.
+  expect(state.previewRequests[0]).toMatchObject({ connection_ids: [] });
+  expect(state.commitRequests).toHaveLength(1);
+  expect(state.commitRequests[0]).toMatchObject({
+    connection_ids: [],
+    preview_hash: "e2e-hash-1",
+    expected_catalog_revision: '"catalog-e2e-1"',
+  });
+  // Importing prices never bound the model as a side effect.
+  expect(state.bindRequests).toHaveLength(0);
+});
+
+test("pricing page requires a human pick when nothing matches exactly", async ({
+  page,
+}) => {
+  const state = await mockCatalogRoutes(page);
+  state.models = [selectableModel()];
+  state.matchReason = "no_match";
+
+  await page.goto("/route/pricing");
+  await page.getByTestId("pricing-feature-page").waitFor({ timeout: 15000 });
+  await page.getByTestId("catalog-import-open").click();
+
+  const dialog = page.getByTestId("catalog-pricing-dialog");
+  await dialog.getByRole("combobox", { name: /Prism 模型/ }).click();
+  await page
+    .getByRole("option", { name: /Detail OpenAI · detail-openai/ })
+    .click();
+
+  // A single available candidate must never be taken automatically.
+  await expect(dialog.getByText(/没有找到精确匹配的模型 ID/)).toBeVisible();
+  await expect(dialog.getByTestId("catalog-pricing-preview")).toHaveCount(0);
+  await expect(page.getByTestId("catalog-pricing-submit")).toBeDisabled();
+
+  await dialog.getByLabel(/搜索候选/).fill("luna");
+  await page.getByTestId("catalog-candidate-codex-gpt-5.6-luna").click();
+
+  // Only the explicit pick opens the preview, and it previews with no target.
+  await expect(dialog.getByTestId("catalog-pricing-preview")).toBeVisible();
+  await waitForPreviewRequest(state, []);
+  await expect(
+    dialog
+      .getByTestId("catalog-pricing-preview")
+      .getByText("codex/gpt-5.6-luna"),
+  ).toBeVisible();
+
+  await page.getByTestId("catalog-pricing-submit").click();
+  await expect(dialog).not.toBeVisible();
+  await expect(
+    page.getByText(
+      /已生成价格模板「codex\/gpt-5.6-luna」，本次未赋值任何终端目标/,
+    ),
+  ).toBeVisible();
+  expect(state.commitRequests).toHaveLength(1);
+  expect(state.commitRequests[0]).toMatchObject({
+    provider_id: "codex",
+    catalog_model_id: "gpt-5.6-luna",
+    connection_ids: [],
+  });
+});
+
+test("pricing page re-previews when the operator changes the target set", async ({
+  page,
+}) => {
+  const state = await mockCatalogRoutes(page);
+  state.models = [selectableModel()];
+
+  await page.goto("/route/pricing");
+  await page.getByTestId("pricing-feature-page").waitFor({ timeout: 15000 });
+  await page.getByTestId("catalog-import-open").click();
+
+  const dialog = page.getByTestId("catalog-pricing-dialog");
+  await dialog.getByRole("combobox", { name: /Prism 模型/ }).click();
+  await page
+    .getByRole("option", { name: /Detail OpenAI · detail-openai/ })
+    .click();
+  await expect(dialog.getByTestId("catalog-pricing-preview")).toBeVisible();
+  await waitForPreviewRequest(state, [], 1);
+
+  // Selecting a target invalidates the previous CAS snapshot and re-previews.
+  await dialog.getByTestId("catalog-pricing-target-15").check();
+  await waitForPreviewRequest(state, [15], 2);
+
+  await page.getByTestId("catalog-pricing-submit").click();
+  await expect(dialog).not.toBeVisible();
+  expect(state.commitRequests[0]).toMatchObject({ connection_ids: [15] });
+  await expect(
+    page.getByText(/已生成价格模板「openai\/gpt-long」并赋给 1 个终端目标/),
+  ).toBeVisible();
+});
+
+// waitForPreviewRequest polls the recorded mock traffic instead of sleeping, so
+// a re-preview race fails fast rather than passing on stale state.
+async function waitForPreviewRequest(
+  state: { previewRequests: unknown[] },
+  connectionIds: unknown[],
+  count = 1,
+) {
+  await expect
+    .poll(() => {
+      const latest = state.previewRequests[state.previewRequests.length - 1] as
+        | Record<string, unknown>
+        | undefined;
+      return (
+        state.previewRequests.length >= count &&
+        JSON.stringify((latest?.connection_ids as unknown[]) ?? []) ===
+          JSON.stringify(connectionIds)
+      );
+    })
+    .toBe(true);
+}

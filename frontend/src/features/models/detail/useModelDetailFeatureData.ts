@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { api } from "@/lib/api"
-import { setSharedModels } from "@/lib/referenceData"
+import { getSharedPricingTemplates, setSharedModels } from "@/lib/referenceData"
 import type {
   Connection,
   Endpoint,
@@ -14,6 +14,7 @@ import {
   type AccessTargetSummary,
   buildAccessTargetSummary,
   getAccessTargetModelsForApiFamily,
+  getOwnedModelConnections,
   getSameFamilyConnections,
 } from "@/pages/model-detail/modelAccessTargetProjection"
 import { useConnectionFocus } from "@/pages/model-detail/useConnectionFocus"
@@ -86,6 +87,30 @@ export function useModelDetailFeatureData({
     setAllModels(authoritativeModels)
     setSharedModels(revision, authoritativeModels)
   }, [revision])
+
+  // A catalog pricing commit updates the current model's embedded Terminal
+  // Target, the model-scoped connection list, and the pricing collection in one
+  // transaction. Re-read those three owners together so the row, future target
+  // choices, and the edit dialog cannot disagree after the dialog closes.
+  const refreshCatalogPricingReads = useCallback(async () => {
+    if (!modelConfigId) return
+    const [authoritativeModel, authoritativeConnections, authoritativePricing] =
+      await Promise.all([
+        api.models.get(modelConfigId),
+        api.models.connections.list(modelConfigId),
+        getSharedPricingTemplates(revision, true),
+      ])
+    setModel(authoritativeModel)
+    setConnections(getOwnedModelConnections(authoritativeModel, modelConfigId))
+    setAllConnections(
+      authoritativeConnections.filter(
+        (connection) =>
+          connection.model_config_id == null ||
+          connection.model_config_id === modelConfigId,
+      ),
+    )
+    setPricingTemplates(authoritativePricing)
+  }, [modelConfigId, revision])
 
   const {
     isEditModelDialogOpen,
@@ -298,6 +323,7 @@ export function useModelDetailFeatureData({
     connections,
     refreshCurrentState,
     refreshModels,
+    refreshCatalogPricingReads,
     isConnectionDialogOpen,
     setIsConnectionDialogOpen,
     editingConnection,

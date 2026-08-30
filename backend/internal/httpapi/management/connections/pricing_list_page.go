@@ -48,6 +48,10 @@ type pricingTemplateListItem struct {
 	CreatedAt                    string             `json:"created_at"`
 	UpdatedAt                    string             `json:"updated_at"`
 	DeletedAt                    *string            `json:"deleted_at"`
+	// Catalog coordinates name the models.dev offering this template was
+	// imported from; both stay null on manually authored templates.
+	CatalogProviderID *string `json:"catalog_provider_id"`
+	CatalogModelID    *string `json:"catalog_model_id"`
 }
 
 type pricingRevisionDTO struct {
@@ -69,6 +73,10 @@ type pricingRevisionDTO struct {
 	CreatedAt            string               `json:"created_at"`
 	CreatedByKind        string               `json:"created_by_kind"`
 	CreatedByOperationID *string              `json:"created_by_operation_id"`
+	// RevisionSource is "manual" or "catalog"; CatalogRevision carries the
+	// models.dev revision an import replayed against and stays null otherwise.
+	RevisionSource  string  `json:"revision_source"`
+	CatalogRevision *string `json:"catalog_revision"`
 }
 
 type pricingListCursor struct {
@@ -128,6 +136,8 @@ func (s *Service) handleListPricingTemplatePage(w http.ResponseWriter, r *http.R
 				revisions.currency_attribution, revisions.reporting_currency_epoch, revisions.template_kind,
 				revisions.tier_input_tokens_above, revisions.pricing_schedule_timezone, revisions.pricing_schedule_digest,
 				revisions.effective_at, revisions.created_at, revisions.created_by_kind, revisions.created_by_operation_id,
+				revisions.revision_source, revisions.catalog_revision,
+				templates.catalog_provider_id, templates.catalog_model_id,
 				templates.name_identity,
 				(SELECT count(DISTINCT targets.source_model_config_id) FROM model_access_targets AS targets JOIN connections AS refs ON refs.id = targets.target_connection_id WHERE refs.profile_id = $1 AND refs.pricing_template_id = templates.id AND targets.profile_id = $1 AND targets.target_type = 'connection'),
 				(SELECT count(DISTINCT refs.endpoint_id) FROM connections AS refs WHERE refs.profile_id = $1 AND refs.pricing_template_id = templates.id),
@@ -261,13 +271,14 @@ func scanPricingTemplateListItem(scanner interface{ Scan(...any) error }) (prici
 	var id, profileID int
 	var name string
 	var description, pricingUnit, currencyCode, currencyAttribution, templateKind, scheduleTimezone, scheduleDigest, createdByKind, createdByOperationID sql.NullString
+	var revisionSource, catalogRevision, catalogProvider, catalogModel sql.NullString
 	var deletedAt, effectiveAt, revisionCreatedAt sql.NullTime
 	var revisionID sql.NullInt64
 	var revisionEpoch, tierThreshold sql.NullInt32
 	var version int
 	var createdAt, updatedAt time.Time
 	var nameIdentity []byte
-	if err := scanner.Scan(&id, &profileID, &name, &description, &createdAt, &updatedAt, &deletedAt, &revisionID, &version, &pricingUnit, &currencyCode, &currencyAttribution, &revisionEpoch, &templateKind, &tierThreshold, &scheduleTimezone, &scheduleDigest, &effectiveAt, &revisionCreatedAt, &createdByKind, &createdByOperationID, &nameIdentity, &item.ModelReferenceCount, &item.EndpointReferenceCount, &item.TerminalTargetReferenceCount); err != nil {
+	if err := scanner.Scan(&id, &profileID, &name, &description, &createdAt, &updatedAt, &deletedAt, &revisionID, &version, &pricingUnit, &currencyCode, &currencyAttribution, &revisionEpoch, &templateKind, &tierThreshold, &scheduleTimezone, &scheduleDigest, &effectiveAt, &revisionCreatedAt, &createdByKind, &createdByOperationID, &revisionSource, &catalogRevision, &catalogProvider, &catalogModel, &nameIdentity, &item.ModelReferenceCount, &item.EndpointReferenceCount, &item.TerminalTargetReferenceCount); err != nil {
 		return pricingTemplateListItem{}, nil, err
 	}
 	if !revisionID.Valid || !pricingUnit.Valid || !currencyCode.Valid || !currencyAttribution.Valid || !templateKind.Valid || !pricingkind.Kind(strings.TrimSpace(templateKind.String)).Valid() {
@@ -290,11 +301,24 @@ func scanPricingTemplateListItem(scanner interface{ Scan(...any) error }) (prici
 	if revisionCreatedAt.Valid {
 		revisionCreated = revisionCreatedAt.Time.UTC().Format(time.RFC3339Nano)
 	}
-	item.CurrentRevision = pricingRevisionDTO{RevisionID: strconv.FormatInt(revisionID.Int64, 10), Version: version, PricingUnit: pricingUnit.String, CurrencyCode: currencyCode.String, CurrencyAttribution: currencyAttribution.String, ReportingEpoch: nullableInt32Value(revisionEpoch), EffectiveAt: nullableTimeString(effective), CreatedAt: revisionCreated, CreatedByKind: createdByKind.String, CreatedByOperationID: nullableStringValue(createdByOperationID), TemplateKind: templateKind.String, ScheduleTimezone: nullableStringValue(scheduleTimezone), ScheduleDigest: nullableStringValue(scheduleDigest)}
+	item.CurrentRevision = pricingRevisionDTO{RevisionID: strconv.FormatInt(revisionID.Int64, 10), Version: version, PricingUnit: pricingUnit.String, CurrencyCode: currencyCode.String, CurrencyAttribution: currencyAttribution.String, ReportingEpoch: nullableInt32Value(revisionEpoch), EffectiveAt: nullableTimeString(effective), CreatedAt: revisionCreated, CreatedByKind: createdByKind.String, CreatedByOperationID: nullableStringValue(createdByOperationID), TemplateKind: templateKind.String, ScheduleTimezone: nullableStringValue(scheduleTimezone), ScheduleDigest: nullableStringValue(scheduleDigest), RevisionSource: revisionSourceLabel(revisionSource), CatalogRevision: nullableStringValue(catalogRevision)}
+	item.CatalogProviderID = nullableStringValue(catalogProvider)
+	item.CatalogModelID = nullableStringValue(catalogModel)
+	if (item.CatalogProviderID == nil) != (item.CatalogModelID == nil) {
+		return pricingTemplateListItem{}, nil, &DomainError{StatusCode: http.StatusConflict, Detail: "pricing_template_catalog_evidence_incomplete"}
+	}
 	if tierThreshold.Valid {
 		item.CurrentRevision.Tier = &pricingTemplateTier{InputTokensAbove: int(tierThreshold.Int32)}
 	}
 	return item, nameIdentity, nil
+}
+
+func revisionSourceLabel(value sql.NullString) string {
+	label := strings.TrimSpace(value.String)
+	if label == "" {
+		return "manual"
+	}
+	return label
 }
 
 func hydratePricingListRevision(ctx context.Context, tx pgx.Tx, revision *pricingRevisionDTO) error {

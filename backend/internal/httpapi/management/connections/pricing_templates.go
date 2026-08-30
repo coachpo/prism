@@ -610,7 +610,7 @@ func (s *Service) handleGetPricingTemplateImpact(w http.ResponseWriter, r *http.
 }
 
 func listPricingTemplateRevisions(ctx context.Context, tx pgx.Tx, templateID int) ([]pricingTemplateRevisionResponse, error) {
-	rows, err := tx.Query(ctx, `SELECT id, version, pricing_unit, currency_code, reporting_currency_epoch, currency_attribution, template_kind, tier_input_tokens_above, pricing_schedule_timezone, pricing_schedule_digest, effective_at, created_at, created_by_kind FROM pricing_template_revisions WHERE template_id = $1 ORDER BY version ASC`, templateID)
+	rows, err := tx.Query(ctx, `SELECT id, version, pricing_unit, currency_code, reporting_currency_epoch, currency_attribution, template_kind, tier_input_tokens_above, pricing_schedule_timezone, pricing_schedule_digest, effective_at, created_at, created_by_kind, revision_source, catalog_revision FROM pricing_template_revisions WHERE template_id = $1 ORDER BY version ASC`, templateID)
 	if err != nil {
 		return nil, fmt.Errorf("query pricing template revisions: %w", err)
 	}
@@ -619,14 +619,19 @@ func listPricingTemplateRevisions(ctx context.Context, tx pgx.Tx, templateID int
 	revisionIDs := make([]int64, 0)
 	for rows.Next() {
 		var item pricingTemplateRevisionResponse
-		var kind, timezone, digest sql.NullString
+		var kind, timezone, digest, revisionSource, catalogRevision sql.NullString
 		var threshold sql.NullInt32
-		if err := rows.Scan(&item.RevisionID, &item.Version, &item.PricingUnit, &item.CurrencyCode, &item.ReportingCurrencyEpoch, &item.CurrencyAttribution, &kind, &threshold, &timezone, &digest, &item.EffectiveAt, &item.CreatedAt, &item.CreatedByKind); err != nil {
+		if err := rows.Scan(&item.RevisionID, &item.Version, &item.PricingUnit, &item.CurrencyCode, &item.ReportingCurrencyEpoch, &item.CurrencyAttribution, &kind, &threshold, &timezone, &digest, &item.EffectiveAt, &item.CreatedAt, &item.CreatedByKind, &revisionSource, &catalogRevision); err != nil {
 			return nil, fmt.Errorf("scan pricing template revision: %w", err)
 		}
 		item.TemplateKind = kind.String
 		item.ScheduleTimezone = nullableStringValue(timezone)
 		item.ScheduleDigest = nullableStringValue(digest)
+		item.CatalogRevision = nullableStringValue(catalogRevision)
+		item.RevisionSource = strings.TrimSpace(revisionSource.String)
+		if item.RevisionSource == "" {
+			item.RevisionSource = "manual"
+		}
 		if threshold.Valid {
 			item.Tier = &pricingTemplateTier{InputTokensAbove: int(threshold.Int32)}
 		}
@@ -775,6 +780,10 @@ type pricingTemplateRevisionResponse struct {
 	EffectiveAt            *time.Time               `json:"effective_at"`
 	CreatedAt              time.Time                `json:"created_at"`
 	CreatedByKind          string                   `json:"created_by_kind"`
+	// RevisionSource is "manual" or "catalog"; CatalogRevision is the models.dev
+	// revision a catalog import was replayed against and stays null otherwise.
+	RevisionSource  string  `json:"revision_source"`
+	CatalogRevision *string `json:"catalog_revision"`
 }
 
 type pricingTemplateImpactResponse struct {
