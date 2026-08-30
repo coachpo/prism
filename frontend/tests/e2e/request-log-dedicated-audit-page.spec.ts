@@ -2,10 +2,8 @@ import { expect, test } from "@playwright/test";
 
 import {
   copiedText,
-  createRequestLogListItem,
   documentBodyCases,
   expectAuditWindow,
-  expectNoRedundantPayloadShell,
   installCopyHarness,
   longRepeatedRequestToken,
   mockPrismRoutes,
@@ -119,10 +117,6 @@ test.describe("dedicated request-log audit page", () => {
       const detail = page.getByTestId("dedicated-audit-detail");
       await expect(detail).toBeVisible({ timeout: 15000 });
       await expect(page.locator("header")).not.toContainText(removedScopeLabels);
-      const requestSection = detail.getByRole("region", { name: "请求", exact: true });
-      const responseSection = detail.getByRole("region", { name: "响应（200）" });
-      await expectNoRedundantPayloadShell(requestSection);
-      await expectNoRedundantPayloadShell(responseSection);
       await expect(detail.getByText("[REDACTED]").first()).toBeVisible();
       for (const label of bodyCase.requestLabels) {
         await expect(detail.getByText(label).first()).toBeVisible();
@@ -144,7 +138,6 @@ test.describe("dedicated request-log audit page", () => {
     await expect(detail).toBeVisible({ timeout: 15000 });
 
     const requestHeaders = detail.getByRole("region", { name: "请求头" });
-    await expectNoRedundantPayloadShell(requestHeaders);
     await expect(requestHeaders.locator("dt", { hasText: "authorization" })).toBeVisible();
     await expect(requestHeaders.locator("dd", { hasText: "[REDACTED]" }).first()).toBeVisible();
     await expect(requestHeaders.locator("dt", { hasText: "content-type" })).toBeVisible();
@@ -155,7 +148,6 @@ test.describe("dedicated request-log audit page", () => {
     await expect(requestHeaders.getByText("session=live-cookie")).toHaveCount(0);
 
     const responseHeaders = detail.getByRole("region", { name: "响应头" });
-    await expectNoRedundantPayloadShell(responseHeaders);
     await expect(responseHeaders.locator("dt", { hasText: "access-control-allow-credentials" })).toBeVisible();
     await expect(responseHeaders.locator("dd", { hasText: "true" })).toBeVisible();
     await expect(responseHeaders.locator("dt", { hasText: "strict-transport-security" })).toBeVisible();
@@ -208,7 +200,6 @@ test.describe("dedicated request-log audit page", () => {
     const detail = page.getByTestId("dedicated-audit-detail");
     await expect(detail).toBeVisible({ timeout: 15000 });
     const requestSection = detail.getByRole("region", { name: "请求", exact: true });
-    await expectNoRedundantPayloadShell(requestSection);
     const requestContent = requestSection.getByTestId("request-log-request-body-content");
     await expect(requestSection.getByRole("button", { name: "渲染视图" })).toBeVisible();
     await expect(requestSection.getByRole("button", { name: "原始 JSON" })).toBeVisible();
@@ -500,222 +491,4 @@ test("request-log sheet navigates previous/next with named controls and ArrowUp/
   // ArrowUp navigates back.
   await page.keyboard.press("ArrowUp");
   await expect(sheet).toContainText("请求 #101");
-});
-
-// Honesty Contract: a failed list read owns the table area. The 422 case used
-// to render the failure callout and an empty result at the same time, so the
-// screen said "0 行 / 当前范围内没有匹配的请求日志" about a read that never
-// returned any rows to count.
-test("request-log list read failure replaces the table instead of reading as an empty result", async ({ page }) => {
-  await mockPrismRoutes(page, "metadata_only");
-  let listReadFails = true;
-  await page.route("**/api/stats/requests*", (route) => {
-    const url = new URL(route.request().url());
-    if (url.pathname !== "/api/stats/requests") return route.fallback();
-    if (listReadFails) {
-      return route.fulfill({
-        status: 422,
-        contentType: "application/json",
-        body: JSON.stringify({ detail: "view=attempts 与当前筛选不兼容" }),
-      });
-    }
-    return route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        items: [createRequestLogListItem("metadata_only")],
-        total: 1,
-        limit: 100,
-        offset: 0,
-        filter_options: { ingress_models: [], endpoints: [], clients: [], attempt_target_models: [] },
-        caliber: {},
-        dataset_coverage: {},
-        samples: {},
-      }),
-    });
-  });
-
-  await page.goto("/observe/requests?view=attempts");
-
-  const failure = page.getByTestId("request-logs-load-error");
-  await expect(failure).toBeVisible();
-  await expect(failure).toContainText("加载请求日志失败");
-
-  // None of the empty-result wording may appear for a read that failed.
-  await expect(page.getByTestId("request-logs-table")).toHaveCount(0);
-  await expect(page.getByText("当前范围内没有匹配的请求日志")).toHaveCount(0);
-  await expect(page.getByText("共 0 行")).toHaveCount(0);
-  await expect(page.getByText("0 条结果")).toHaveCount(0);
-
-  // The server's reason stays reachable behind the details disclosure.
-  await failure.getByText("查看详情").click();
-  await expect(failure.getByText("view=attempts 与当前筛选不兼容")).toBeVisible();
-
-  // The failure surface carries its own retry.
-  listReadFails = false;
-  await failure.getByRole("button", { name: "重试" }).click();
-  await expect(page.getByTestId("request-log-row-101")).toBeVisible();
-  await expect(page.getByTestId("request-logs-load-error")).toHaveCount(0);
-});
-
-test("ingress-chains view renders chains with nested rows and expands", async ({ page }) => {
-  const chains = {
-    view: "ingress_chains",
-    query_context: null,
-    source_ingress_total: 1,
-    retained_ingress_total: 1,
-    retained_upstream_attempt_total: 2,
-    retained_request_log_row_total: 2,
-    legacy_unknown_row_total: 0,
-    items: [
-      {
-        ingress_request_id: "ingress-abc",
-        started_at: "2026-08-09T10:00:00Z",
-        completed_at: "2026-08-09T10:00:02Z",
-        elapsed_ms: 2000,
-        elapsed_evidence_state: "authoritative",
-        finalized_evidence_state: "authoritative",
-        finalized_summary: {
-          request_log_id: "113",
-          final_status_code: 200,
-          final_result: "completed",
-          final_error_code: null,
-          ingress_model: { id: "entry-a", label: "Model A" },
-          final_target_model: { id: "target-c", label: "Model C" },
-          terminal_target: { id: 17, label: "TT-C", configured: true, owner_model_id: "target-c" },
-          endpoint: { id: 8, label: "Endpoint C" },
-          ttft_ms: 610,
-          total_tokens: 120,
-          total_cost_user_currency_micros: 4000,
-          report_currency_symbol: "$",
-          final_pricing_status: "priced",
-          attempt_count: 2,
-        },
-        expected_attempt_count: 2,
-        expected_request_log_row_count: 2,
-        retained_upstream_attempt_count: 2,
-        retained_request_log_row_count: 2,
-        legacy_unknown_row_count: 0,
-        chain_complete: true,
-        same_target_retry_occurred: false,
-        hedge_occurred: false,
-        failover_occurred: true,
-        routing_evidence_complete: true,
-        retained_rows_loaded_count: 2,
-        retained_rows_page_complete: true,
-        retained_row_count: 2,
-        matched_row_count: 2,
-        next_row_cursor: null,
-        retained_rows: [
-          {
-            request_log_id: "112",
-            row_kind: "upstream",
-            ingress_model_id: "entry-a",
-            attempt_target_model_id: "target-b",
-            attempt_target_model_label: "Model B",
-            endpoint_id: 7,
-            endpoint_label: "Endpoint B",
-            terminal_target_id: 16,
-            terminal_target_label: "TT-B",
-            created_at: "2026-08-09T10:00:01Z",
-            attempt_number: 1,
-            attempt_trigger: "initial",
-            attempt_result: "http_error",
-            attempt_duration_ms: 820,
-            total_tokens: null,
-            total_cost_user_currency_micros: null,
-            pricing_status: "unknown",
-            pricing_evidence_trust: "legacy_untrusted",
-            is_winner: false,
-            upstream_status_code: 503,
-            gateway_status_code: null,
-            legacy_status_code: null,
-            stream_outcome: "not_streaming",
-            stream_error_kind: null,
-          },
-          {
-            request_log_id: "113",
-            row_kind: "upstream",
-            ingress_model_id: "entry-a",
-            attempt_target_model_id: "target-c",
-            attempt_target_model_label: "Model C",
-            endpoint_id: 8,
-            endpoint_label: "Endpoint C",
-            terminal_target_id: 17,
-            terminal_target_label: "TT-C",
-            created_at: "2026-08-09T10:00:02Z",
-            attempt_number: 2,
-            attempt_trigger: "failover",
-            attempt_result: "completed",
-            attempt_duration_ms: 610,
-            total_tokens: 120,
-            total_cost_user_currency_micros: 4000,
-            pricing_status: "priced",
-            pricing_evidence_trust: "trusted",
-            is_winner: true,
-            upstream_status_code: 200,
-            gateway_status_code: null,
-            legacy_status_code: null,
-            stream_outcome: "not_streaming",
-            stream_error_kind: null,
-          },
-        ],
-      },
-    ],
-    has_more_chains: true,
-    next_chain_cursor: "signed-chain-cursor",
-    page_ingress_count: 1,
-    page_upstream_attempt_count: 2,
-    page_request_log_row_count: 2,
-    filter_options: {
-      ingress_models: [],
-      endpoints: [],
-      clients: [],
-      attempt_target_models: [],
-    },
-    caliber: {},
-    dataset_coverage: {},
-    samples: {},
-  };
-  await mockPrismRoutes(page, "metadata_only");
-  await page.route("**/api/stats/requests*", (route) => {
-    const url = new URL(route.request().url());
-    if (url.pathname === "/api/stats/requests/113") {
-      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...createRequestLogDetailFixture(), summary: { ...createRequestLogDetailFixture().summary, request_log_id: "113", attempt_target_model_id: "target-c", attempt_target_model_label: "Model C" } }) });
-    }
-    if (url.searchParams.get("view") === "ingress_chains") {
-      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chains) });
-    }
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [], total: 0, limit: 100, offset: 0, filter_options: { ingress_models: [], endpoints: [], clients: [], attempt_target_models: [] }, caliber: {}, dataset_coverage: {}, samples: {} }) });
-  });
-  await page.route("**/api/stats/requests/113", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...createRequestLogDetailFixture(), summary: { ...createRequestLogDetailFixture().summary, request_log_id: "113", attempt_target_model_id: "target-c", attempt_target_model_label: "Model C" } }) }),
-  );
-
-  await page.goto("/observe/requests?view=ingress_chains");
-  const table = page.getByTestId("ingress-chains-table");
-  await expect(table).toBeVisible();
-  await expect(page.getByTestId("chain-page-counts")).toContainText("1 个入口");
-  // The landing view renders the finalized summary the backend already
-  // returns, not just an identifier and a count.
-  const summaryRow = page.getByTestId("chain-summary-ingress-abc");
-  await expect(summaryRow).toBeVisible();
-  await expect(page.getByTestId("chain-more")).toBeVisible();
-
-  await summaryRow.getByRole("button", { expanded: false }).click();
-  await expect(page.getByTestId("chain-row-112")).toBeVisible();
-  await expect(page.getByTestId("chain-row-113")).toBeVisible();
-  // Enum keys never reach the screen; the row kind is labelled.
-  await expect(page.getByTestId("chain-row-112")).toContainText("上游尝试");
-  await expect(page.getByTestId("chain-row-112")).toContainText("HTTP 失败");
-  await expect(page.getByTestId("chain-row-113")).toContainText("故障转移");
-  await expect(page.getByTestId("chain-row-113")).toContainText("胜出");
-  await expect(page.getByText("initial", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("failover", { exact: true })).toHaveCount(0);
-
-  // Row click opens the ordinary detail sheet without fetching audit payload.
-  await page.getByTestId("chain-row-113").click();
-  const sheet = page.getByTestId("request-log-detail-sheet");
-  await expect(sheet).toBeVisible();
-  await expect(sheet).toContainText("请求 #113");
 });

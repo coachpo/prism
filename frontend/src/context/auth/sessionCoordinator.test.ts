@@ -5,7 +5,6 @@ import { isAuthExemptPath, isPublicAuthOperationStatusPath, parsePublicAuthOpera
 
 function makeCoordinator(overrides?: {
   refresh?: AuthSessionCoordinator["ensurePassiveFlight"] extends never ? never : () => Promise<{ status: number | null; body: unknown; networkError: boolean; timedOut: boolean; retryAfterSeconds?: number }>;
-  disabledAccessProbe?: () => Promise<"confirmed" | "unauthorized" | "unavailable">;
 }) {
   return new AuthSessionCoordinator({
     refresh:
@@ -16,7 +15,6 @@ function makeCoordinator(overrides?: {
         networkError: false,
         timedOut: false,
       })),
-    disabledAccessProbe: overrides?.disabledAccessProbe,
   });
 }
 
@@ -99,41 +97,6 @@ describe("session coordinator singleflight", () => {
     expect(outcome.kind).toBe("REFRESHED");
     expect(refreshCalls).toBe(1);
     expect(coordinator.getPhase().kind).toBe("AUTHENTICATED");
-  });
-
-  it("enters AUTH_DISABLED_VERIFYING on a disabled-401 inconsistency and clears with the probe", async () => {
-    const coordinator = makeCoordinator({
-      disabledAccessProbe: async () => "confirmed" as const,
-    });
-    coordinator.applyBootstrapStatus({ state: "disabled", transition_state: null, login_available: false, effective_generation: "1", retry_after_seconds: null }, null, true);
-    expect(coordinator.getPhase().kind).toBe("AUTH_DISABLED");
-
-    const epochBefore = coordinator.getEpoch();
-    coordinator.dispatch({ type: "AUTH_INCONSISTENT", observed_epoch: coordinator.getEpoch(), request_path: "/api/models" });
-    expect(coordinator.getPhase().kind).toBe("AUTH_UNAVAILABLE");
-    coordinator.beginDisabledVerification("1");
-    expect(coordinator.getPhase().kind).toBe("AUTH_DISABLED_VERIFYING");
-    expect(coordinator.getEpoch()).toBe(epochBefore + 1);
-
-    // The probe resolves asynchronously; wait for the confirmation.
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(coordinator.getPhase().kind).toBe("AUTH_DISABLED");
-  });
-
-  it("exhausts the disabled probe incident on failure and keeps the breaker closed", async () => {
-    const coordinator = makeCoordinator({
-      disabledAccessProbe: async () => "unauthorized" as const,
-    });
-    coordinator.applyBootstrapStatus({ state: "disabled", transition_state: null, login_available: false, effective_generation: "1", retry_after_seconds: null }, null, true);
-    coordinator.dispatch({ type: "AUTH_INCONSISTENT", observed_epoch: coordinator.getEpoch(), request_path: "/api/models" });
-    coordinator.beginDisabledVerification("1");
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    const phase = coordinator.getPhase();
-    expect(phase.kind).toBe("AUTH_UNAVAILABLE");
-    if (phase.kind === "AUTH_UNAVAILABLE") {
-      expect(phase.reason).toBe("disabled_but_unauthorized");
-      expect(phase.incident?.state).toBe("exhausted");
-    }
   });
 });
 

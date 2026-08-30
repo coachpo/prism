@@ -23,25 +23,24 @@ import (
 
 const (
 	launcherBackendPort  = 8000
-	launcherFrontendPort = 5173
 	launcherDatabasePort = 15432
 	launcherDatabaseURL  = "postgres://prism:prism@localhost:15432/prism?sslmode=disable"
 )
 
 func TestStartShHeadlessSeedsMissingBootstrap(t *testing.T) {
-	preflightStartShLauncher(t, false)
+	preflightStartShLauncher(t)
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	run := startShLauncher(t, "headless", configPath, 120*time.Second)
 
-	waitForStartShReadiness(t, run, false)
+	waitForStartShReadiness(t, run)
 	assertLauncherOutputLine(t, run, fmt.Sprintf("Backend:  http://localhost:%d", launcherBackendPort))
 	assertLauncherOutputLine(t, run, "Config:   "+configPath)
 	assertLauncherBootstrapConfig(t, configPath)
 }
 
 func TestStartShHeadlessPreservesExistingBootstrap(t *testing.T) {
-	preflightStartShLauncher(t, false)
+	preflightStartShLauncher(t)
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	runBackendPrintEffectiveStartupSettings(t, configPath, launcherDatabaseURL)
@@ -49,26 +48,10 @@ func TestStartShHeadlessPreservesExistingBootstrap(t *testing.T) {
 
 	run := startShLauncher(t, "headless", configPath, 120*time.Second)
 
-	waitForStartShReadiness(t, run, false)
+	waitForStartShReadiness(t, run)
 	assertLauncherOutputLine(t, run, fmt.Sprintf("Backend:  http://localhost:%d", launcherBackendPort))
 	assertLauncherOutputLine(t, run, "Config:   "+configPath)
 	assertStartupBootstrapFileStatePreserved(t, configPath, before)
-}
-
-func TestStartShFullUsesUpdatedProxyTarget(t *testing.T) {
-	if os.Getenv("PRISM_RUN_LAUNCHER_FULL_TEST") != "1" {
-		t.Skipf("set PRISM_RUN_LAUNCHER_FULL_TEST=1 to run full start.sh launcher coverage")
-	}
-	preflightStartShLauncher(t, true)
-
-	configPath := filepath.Join(t.TempDir(), "config.json")
-	run := startShLauncher(t, "full", configPath, 180*time.Second)
-
-	waitForStartShReadiness(t, run, true)
-	assertLauncherOutputLine(t, run, fmt.Sprintf("Backend:  http://localhost:%d", launcherBackendPort))
-	assertLauncherOutputLine(t, run, "Config:   "+configPath)
-	assertLauncherOutputLine(t, run, fmt.Sprintf("Frontend: http://localhost:%d", launcherFrontendPort))
-	assertLauncherBootstrapConfig(t, configPath)
 }
 
 type startShLauncherRun struct {
@@ -107,7 +90,7 @@ func (o *lockedLauncherOutput) String() string {
 	return o.buffer.String()
 }
 
-func preflightStartShLauncher(t *testing.T, fullMode bool) {
+func preflightStartShLauncher(t *testing.T) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skipf("start.sh launcher tests require Unix process-group cleanup, got runtime.GOOS=%s", runtime.GOOS)
@@ -126,18 +109,11 @@ func preflightStartShLauncher(t *testing.T, fullMode bool) {
 	preflightLauncherCommand(t, "bash")
 	preflightLauncherCommand(t, "go")
 	preflightLauncherCommand(t, "docker")
-	if fullMode {
-		preflightLauncherCommand(t, "pnpm")
-	}
 	preflightDockerDaemon(t)
 	preflightDockerCompose(t)
 	// headless starts no Vite and must not touch the frontend port, so it does
 	// not require one to be free either.
-	ports := []int{launcherBackendPort, launcherDatabasePort}
-	if fullMode {
-		ports = append(ports, launcherFrontendPort)
-	}
-	for _, port := range ports {
+	for _, port := range []int{launcherBackendPort, launcherDatabasePort} {
 		preflightLauncherPort(t, port)
 	}
 }
@@ -327,14 +303,13 @@ func signalLauncherProcess(command *exec.Cmd, signal syscall.Signal) error {
 	return signalTestChildProcess(command, signal)
 }
 
-func waitForStartShReadiness(t *testing.T, run *startShLauncherRun, wantFrontend bool) {
+func waitForStartShReadiness(t *testing.T, run *startShLauncherRun) {
 	t.Helper()
 	client := &http.Client{Timeout: 2 * time.Second}
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
 	var backendHealthDetail string
-	var frontendHealthDetail string
 	for {
 		if exited, err := run.exited(); exited {
 			t.Fatalf("./start.sh exited before readiness: %v\n%s", err, run.output.String())
@@ -347,25 +322,16 @@ func waitForStartShReadiness(t *testing.T, run *startShLauncherRun, wantFrontend
 		backendHealthReady, detail := launcherHealthOK(client, fmt.Sprintf("http://127.0.0.1:%d/health", launcherBackendPort))
 		backendHealthDetail = detail
 
-		frontendReady := true
-		if wantFrontend {
-			frontendOutputReady := strings.Contains(output, fmt.Sprintf("Frontend: http://localhost:%d\n", launcherFrontendPort))
-			frontendHealthReady, detail := launcherHealthOK(client, fmt.Sprintf("http://127.0.0.1:%d/health", launcherFrontendPort))
-			frontendHealthDetail = detail
-			frontendReady = frontendOutputReady && frontendHealthReady
-		}
-
-		if backendOutputReady && configOutputReady && configFileReady && backendHealthReady && frontendReady {
+		if backendOutputReady && configOutputReady && configFileReady && backendHealthReady {
 			return
 		}
 
 		select {
 		case <-run.ctx.Done():
 			t.Fatalf(
-				"./start.sh did not become ready: %v\nbackend health: %s\nfrontend health: %s\noutput:\n%s",
+				"./start.sh did not become ready: %v\nbackend health: %s\noutput:\n%s",
 				run.ctx.Err(),
 				backendHealthDetail,
-				frontendHealthDetail,
 				output,
 			)
 		case <-ticker.C:

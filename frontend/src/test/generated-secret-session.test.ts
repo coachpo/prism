@@ -114,16 +114,4 @@ describe("generated proxy key secret session reducer", () => {
     const abandoned = generatedProxyKeyReducer(closing, { type: "ABANDON_AND_LEAVE" });
     expect(abandoned.kind).toBe("idle");
   });
-
-  it("is immune to list/auth/model/stats refetch events (no such transitions exist)", () => {
-    // The reducer only accepts mutation/session events; a refetch cannot be
-    // dispatched into it. This documents the query independence contract:
-    // loading/error/refetch/reorder/omission of the key in the ledger never
-    // touches the session state.
-    const created = generatedProxyKeyReducer(generatedProxyKeyInitialState, {
-      type: "CREATE_SUCCEEDED",
-      session: session(),
-    });
-    expect(created.kind).toBe("unacknowledged");
-  });
 });

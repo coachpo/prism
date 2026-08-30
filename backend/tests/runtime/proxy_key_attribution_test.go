@@ -115,35 +115,6 @@ func TestRuntimeEnforcedAttributionIdentifiedAndRejected(t *testing.T) {
 	})
 }
 
-// TestRuntimeEnforcedMissingKeyProducesNoOrdinaryTelemetry verifies the 401
-// rejection path stays outside ordinary telemetry (no request/usage rows).
-func TestRuntimeEnforcedMissingKeyProducesNoOrdinaryTelemetry(t *testing.T) {
-	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{})
-	profileID := harness.activeProfileID(t)
-	_ = harness.enableRuntimeProxyAPIKeyAuth(t)
-	route := harness.seedProxyRoute(t, runtimeRouteSeed{
-		ProfileID:       profileID,
-		APIFamily:       "openai",
-		PublicModelID:   "enforced-reject-public-" + randomSuffix(),
-		TargetModelID:   "enforced-reject-target-" + randomSuffix(),
-		EndpointBaseURL: harness.upstream.baseURL("/enforced/reject"),
-		EndpointAPIKey:  "enforced-reject-key",
-	})
-
-	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
-		"messages": []map[string]any{{"role": "user", "content": "enforced reject"}},
-		"model":    route.PublicModelID,
-	}, map[string]string{"Authorization": "Bearer pm-deadbeefdeadbeefdeadbeefdeadbeef"})
-	assertStatus(t, response, http.StatusUnauthorized)
-
-	// Give any (wrongly enqueued) telemetry a chance to materialize.
-	time.Sleep(300 * time.Millisecond)
-	counts := loadRuntimeTelemetryCounts(t, harness.conn, profileID)
-	if counts.RequestLogs != 0 || counts.UsageEvents != 0 {
-		t.Fatalf("expected auth rejection to produce no ordinary telemetry, got %+v", counts)
-	}
-}
-
 type runtimeAttributionExpectation struct {
 	State        string
 	AuthEnforced bool

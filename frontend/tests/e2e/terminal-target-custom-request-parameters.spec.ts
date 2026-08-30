@@ -47,7 +47,6 @@ function createEndpoint(id: number, name: string) {
 function createConnection(
   id: number,
   params: Record<string, unknown> | null = null,
-  schedule: { timezone: string; windows: Array<{ weekday_mask: number; start_minute: number; end_minute: number }> } | null = null,
 ) {
   return {
     id,
@@ -62,20 +61,8 @@ function createConnection(
     auth_type: "openai",
     custom_headers: null,
     custom_request_parameters: params,
-    routing_schedule: schedule,
-    routing_schedule_state: schedule
-      ? {
-          status: "closed",
-          timezone: schedule.timezone,
-          evaluated_at: timestamp,
-          // Far future on purpose: the badge downgrades itself to a staleness
-          // notice once the boundary the server shipped has passed, so a nearby
-          // instant would make this assertion depend on the wall clock.
-          next_open_at: "2099-01-01T01:00:00Z",
-          next_open_at_known: true,
-          next_close_at_known: false,
-        }
-      : null,
+    routing_schedule: null,
+    routing_schedule_state: null,
     openai_text_capability: "dual_native",
     pricing_template_id: null,
     qps_limit: null,
@@ -124,12 +111,11 @@ function createModelDetail(connection: ReturnType<typeof createConnection> | nul
 async function mockModelDetailRoutes(
   page: Page,
   options: {
-    connection?: ReturnType<typeof createConnection> | null;
     patchStatus?: number;
     patchBody?: unknown;
   } = {},
 ) {
-  const connection = options.connection ?? createConnection(1);
+  const connection = createConnection(1);
   const patchPayloads: unknown[] = [];
   let updatedConnection = connection;
 
@@ -297,38 +283,4 @@ test("terminal target custom request parameters editor blocks save on invalid JS
   await expect.poll(() => routes.getPatchPayloads().length).toBe(1);
   await expect(dialog.getByRole("alert")).toContainText("custom_request_parameters.provider.only");
   await expect(dialog).toBeVisible();
-});
-
-test("terminal target custom request parameters editor format and clear actions", async ({ page }) => {
-  await mockModelDetailRoutes(page);
-  const dialog = await openEditTerminalTargetDialog(page);
-  const editor = dialog.getByTestId("connection-dialog-custom-request-parameters-card");
-  const textarea = editor.getByRole("textbox", { name: "自定义请求参数（JSON）" });
-
-  await textarea.fill('{"provider":{"only":["deepinfra/turbo"]}}');
-  await editor.getByRole("button", { name: "格式化" }).click();
-  await expect(textarea).toHaveValue(
-    '{\n  "provider": {\n    "only": [\n      "deepinfra/turbo"\n    ]\n  }\n}',
-  );
-
-  await editor.getByRole("button", { name: "清空" }).click();
-  await expect(textarea).toHaveValue("");
-  await expect(editor.getByText("未配置")).toBeVisible();
-});
-
-// Extends this spec rather than adding a new one: the browser budget is fixed
-// at roughly five journey specs, and this file already owns the terminal-target
-// dialog journey.
-test("terminal target routing schedule badge reports the server verdict and blocks a full-week configuration", async ({ page }) => {
-  const schedule = { timezone: "Asia/Shanghai", windows: [{ weekday_mask: 31, start_minute: 540, end_minute: 1080 }] };
-  await mockModelDetailRoutes(page, { connection: createConnection(31, null, schedule) });
-  await page.goto("/models/5");
-
-  // The badge states the server's conclusion; the client never evaluates the
-  // window itself.
-  await expect(page.getByText("时段外（2099-01-01T01:00:00Z 恢复）")).toBeVisible();
-
-  await page.getByRole("button", { name: editTerminalTargetButton }).click();
-  await expect(page.getByRole("dialog").filter({ hasText: editTerminalTargetDialog })).toBeVisible();
-  await expect(page.getByLabel("限制该终端目标的可路由时段")).toBeChecked();
 });

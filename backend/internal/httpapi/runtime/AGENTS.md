@@ -123,7 +123,7 @@ runtime/
 - Safe failure diagnostics bottom line: `../../domain/safediag/` (scrub/extract/codes/metadata/limits)
 - Partition ensuring and partition-cache behavior: `log_partitions.go`, `../../platform/logretention/`
 - Internal runtime regression coverage: `operations_test.go`, `service_ingress_test.go`, `request_generation_params_test.go`, `request_generation_params_runtime_test.go`, `operation_hook_residency_test.go`, `operation_response_hooks_test.go`, `operation_response_overflow_classifier_test.go`, `gateway_typed_hooks_bridge_test.go`, `planning_snapshot_contract_test.go`, `routing_plan_test.go`, `runtime_planning_test.go`, `runtime_stream_audit_test.go`, `runtime_response_usage_test.go`, `runtime_pricing_test.go`, `runtime_header_forwarding_test.go`
-- Route-matrix, native compatibility, streaming, body-limit, and rejected-route coverage: `../../../tests/runtime/body_limits_test.go`, `../../../tests/runtime/operation_route_matrix_test.go`, `../../../tests/runtime/operation_route_matrix_openai_compatibility_test.go`, `../../../tests/runtime/runtime_streaming_buffering_test.go`, `../../../tests/runtime/rejected_route_isolation_test.go`, `../../../tests/runtime/request_generation_params_contract_test.go`, `../../../tests/integration/runtime_route_matrix_test.go`
+- Route-matrix, native compatibility, streaming, body-limit, and rejected-route coverage: `../../../tests/runtime/body_limits_test.go`, `../../../tests/runtime/operation_route_matrix_test.go`, `../../../tests/runtime/operation_route_matrix_openai_compatibility_test.go`, `../../../tests/runtime/runtime_streaming_buffering_test.go`, `../../../tests/runtime/rejected_route_isolation_test.go`, `../../../tests/runtime/request_generation_params_contract_test.go`
 
 ## CONVENTIONS
 

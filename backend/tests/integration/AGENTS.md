@@ -1,7 +1,7 @@
 # BACKEND INTEGRATION TEST KNOWLEDGE BASE
 
 ## OVERVIEW
-`backend/tests/integration/` owns startup, migration, launcher, root single-image Dockerfile, partitioned-retention, runtime route-matrix, alerting outbox, and cross-service integration checks. These tests verify process and persistence contracts that are broader than one handler or package.
+`backend/tests/integration/` owns startup, migration, launcher, root single-image Dockerfile, partitioned-retention, alerting outbox, and cross-service integration checks. These tests verify process and persistence contracts that are broader than one handler or package.
 
 ## STRUCTURE
 ```text
@@ -14,7 +14,6 @@ integration/
 ├── dockerfile_contract_test.go             # Single-image ownership/path contract
 ├── partitioned_log_retention_test.go       # Partitioned runtime/audit/usage/loadbalance retention
 ├── alerting_outbox_test.go                 # Webhook outbox persistence contract
-├── runtime_route_matrix_test.go            # Integration route matrix smoke
 ├── process_control_test.go                 # Verification-process and child-process ownership
 └── *_test.go
 ```
@@ -26,7 +25,6 @@ integration/
 - Container ownership and backend bootstrap path: `dockerfile_contract_test.go`
 - Partitioned log retention and platform store behavior: `partitioned_log_retention_test.go`, `logretention_store_test.go`
 - Alert webhook outbox durability: `alerting_outbox_test.go`
-- Runtime route matrix integration coverage: `runtime_route_matrix_test.go`
 
 ## CONVENTIONS
 - Use these tests for cross-cutting process and persistence contracts that unit or contract suites cannot cover cleanly.

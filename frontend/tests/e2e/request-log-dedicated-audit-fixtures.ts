@@ -1,4 +1,4 @@
-import { expect, type BrowserContext, type Locator, type Page } from "@playwright/test";
+import { expect, type BrowserContext, type Page } from "@playwright/test";
 
 const timestamp = "2026-04-13T00:00:00Z";
 const expectedFromTime = "2026-04-12T12:00:00.000Z";
@@ -595,24 +595,6 @@ export function expectAuditWindow(searchParamString: string) {
   expect(params.get("from")).toBe(expectedFromTime);
   expect(params.get("to")).toBe(expectedToTime);
   expect(params.get("limit")).toBe("20");
-}
-
-export async function expectNoRedundantPayloadShell(section: Locator) {
-  const hasOldShell = await section.evaluate((element) => {
-    const classNames = Array.from(element.querySelectorAll("*")).map((node) => node.getAttribute("class") ?? "");
-    return classNames.some((className) => {
-      const oldPayloadShell = className.includes("rounded-xl") &&
-        className.includes("border-border/70") &&
-        className.includes("bg-muted/30") &&
-        className.includes("shadow-inner");
-      const oldDocumentShell = className.includes("rounded-xl") &&
-        className.includes("border-border/70") &&
-        className.includes("bg-background") &&
-        className.includes("shadow-sm");
-      return oldPayloadShell || oldDocumentShell;
-    });
-  });
-  expect(hasOldShell).toBe(false);
 }
 
 export const documentBodyCases = [

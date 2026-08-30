@@ -11,7 +11,7 @@ provider/
 │   └── AGENTS.md                   # OpenAI adapter and capability rules
 ├── anthropic/                      # Messages/count-token path and usage/stream parsing
 ├── gemini/                         # GenerateContent/countTokens path and stream parsing
-└── *_test.go                       # Cross-adapter boundary and conformance coverage
+└── *_test.go                       # Adapter conformance and provider-native coverage
 ```
 
 ## WHERE TO LOOK
@@ -20,7 +20,7 @@ provider/
 - OpenAI Chat/Responses native request paths, usage extraction, and overflow handling: `openai/AGENTS.md`, `openai/`
 - Anthropic Messages request/response/count-token/stream handling: `anthropic/adapter.go`
 - Gemini GenerateContent, streamGenerateContent, and countTokens handling: `gemini/adapter.go`
-- Cross-provider expectations: `adapter_boundary_test.go`, `adapter_conformance_test.go`
+- Cross-provider expectations: `adapter_conformance_test.go`
 
 ## CONVENTIONS
 - Keep provider-native behavior here. Runtime operation selection stays in `../../httpapi/runtime/operations.go`; route planning stays in `../routing/`.

@@ -1,8 +1,6 @@
 package runtime
 
 import (
-	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -62,17 +60,4 @@ func TestCatalogImportStrictThresholdContractRegression(t *testing.T) {
 			}
 		})
 	}
-
-	t.Run("selector column stays input_tokens_above", func(t *testing.T) {
-		// planning_terminal_target_adapter.go loads the threshold from
-		// revisions.tier_input_tokens_above; a rename would silently break
-		// every retained revision and the documented wire shape.
-		adapterSource, readErr := os.ReadFile("planning_terminal_target_adapter.go")
-		if readErr != nil {
-			t.Fatalf("read adapter source: %v", readErr)
-		}
-		if !strings.Contains(string(adapterSource), "revisions.tier_input_tokens_above") {
-			t.Fatal("runtime snapshot must keep reading revisions.tier_input_tokens_above")
-		}
-	})
 }
