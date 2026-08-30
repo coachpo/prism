@@ -37,7 +37,7 @@ export function useUserAgentClientRules({ enabled, revision }: UseUserAgentClien
   const [displayedDeleteUserAgentClientRuleConfirm, setDisplayedDeleteUserAgentClientRuleConfirm] =
     useState<UserAgentClientRule | null>(null);
   const [userAgentClientSystemRulesOpen, setUserAgentClientSystemRulesOpen] = useState(false);
-  const [userAgentClientUserRulesOpen, setUserAgentClientUserRulesOpen] = useState(true);
+  const [userAgentClientUserRulesOpen, setUserAgentClientUserRulesOpen] = useState(false);
   const userAgentClientRulesRequestIdRef = useRef(0);
 
   const fetchUserAgentClientRules = useCallback(async () => {
