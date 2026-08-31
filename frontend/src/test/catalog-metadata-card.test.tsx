@@ -434,7 +434,7 @@ describe("CatalogOverrideDialog binding snapshot", () => {
     rendered.rerender(
       <LocaleProvider>
         <CatalogOverrideDialog
-          modelConfigId={7}
+          modelConfigId={8}
           catalog={rebound}
           busy={false}
           onClose={() => {}}

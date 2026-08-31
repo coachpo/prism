@@ -69,11 +69,17 @@ export function CatalogOverrideDialog({
   // the still-open draft from silently retargeting itself to a newly rebound
   // offering on the operator's next click.
   const [bindingSnapshot] = useState(() => ({
+    modelConfigId,
     providerId: catalog?.provider_id?.trim() ?? "",
     catalogModelId: catalog?.catalog_model_id?.trim() ?? "",
     bindingUpdatedAt: catalog?.updated_at ?? "",
   }));
-  const { providerId, catalogModelId, bindingUpdatedAt } = bindingSnapshot;
+  const {
+    modelConfigId: snapshotModelConfigId,
+    providerId,
+    catalogModelId,
+    bindingUpdatedAt,
+  } = bindingSnapshot;
   const writeSnapshotComplete = Boolean(
     catalog?.bound && providerId && catalogModelId,
   );
@@ -118,7 +124,7 @@ export function CatalogOverrideDialog({
     if (!writeSnapshotComplete) {
       return Promise.reject(new Error(copy.bindingSnapshotIncomplete));
     }
-    return modelsApi.catalog.putOverride(modelConfigId, {
+    return modelsApi.catalog.putOverride(snapshotModelConfigId, {
       expected_provider_id: providerId,
       expected_catalog_model_id: catalogModelId,
       override: result.patch,
@@ -129,7 +135,7 @@ export function CatalogOverrideDialog({
     if (!clearSnapshotComplete) {
       return Promise.reject(new Error(copy.bindingSnapshotIncomplete));
     }
-    return modelsApi.catalog.clearOverride(modelConfigId, {
+    return modelsApi.catalog.clearOverride(snapshotModelConfigId, {
       expected_provider_id: providerId,
       expected_catalog_model_id: catalogModelId,
       expected_binding_updated_at: bindingUpdatedAt,

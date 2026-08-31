@@ -352,6 +352,7 @@ export function ModelsDevCatalogPanel({
       )}
       {overrideOpen && (
         <CatalogOverrideDialog
+          key={modelConfigId}
           modelConfigId={modelConfigId}
           catalog={catalog}
           busy={busy}
