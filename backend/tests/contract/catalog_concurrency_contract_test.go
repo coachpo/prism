@@ -226,11 +226,11 @@ func TestCatalogRefreshCommitRejectsConcurrentOverride(t *testing.T) {
 
 	matchPreview := requestJSONStatus[map[string]any](t, harness, http.MethodPost, catalogPath+"/match-preview", map[string]any{}, nil, http.StatusOK)
 	revision := matchPreview["catalog_revision"].(string)
-	catalogBindAzureModel(t, harness, modelConfigID, revision)
+	bound := catalogBindAzureModel(t, harness, modelConfigID, revision)
 
 	previewA := requestJSONStatus[map[string]any](t, harness, http.MethodPost, catalogPath+"/refresh/preview", map[string]any{}, nil, http.StatusOK)
 	requestJSONStatus[map[string]any](t, harness, http.MethodPut, catalogPath+"/override",
-		map[string]any{"name": "Override Between Phases"}, nil, http.StatusOK)
+		catalogOverrideBody(bound, map[string]any{"name": "Override Between Phases"}), nil, http.StatusOK)
 	staleCommit := modelResponse(t, harness, profileID, http.MethodPost, catalogPath+"/refresh/commit", catalogRefreshCommitBody(previewA, revision))
 	catalogAssertErrorContains(t, staleCommit, http.StatusConflict, "models_dev_binding_stale")
 
@@ -277,6 +277,70 @@ func TestCatalogUnbindRejectsConcurrentRebind(t *testing.T) {
 	assertCountQuery(t, harness, `SELECT COUNT(*) FROM model_catalog_bindings WHERE model_config_id = $1`, modelConfigID, 0)
 }
 
+// TestCatalogOverrideRejectsConcurrentRebind proves a sparse draft opened for
+// one offering cannot be applied to whichever offering happens to be bound
+// when the request reaches the server.
+func TestCatalogOverrideRejectsConcurrentRebind(t *testing.T) {
+	harness := newCatalogContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Catalog CAS Strategy")
+	model := catalogCreateOpenAIModel(t, harness, strategyID, "gpt-contract")
+	modelConfigID := jsonInt(t, model["id"])
+	catalogPath := fmt.Sprintf("/api/models/%d/catalog", modelConfigID)
+
+	matchPreview := requestJSONStatus[map[string]any](t, harness, http.MethodPost, catalogPath+"/match-preview", map[string]any{}, nil, http.StatusOK)
+	revision := matchPreview["catalog_revision"].(string)
+	staleBinding := catalogBindAzureModel(t, harness, modelConfigID, revision)
+
+	requestJSONStatus[map[string]any](t, harness, http.MethodPost, catalogPath+"/bind", catalogBindBody("gpt-contract", map[string]any{
+		"provider_id": "openai", "catalog_model_id": "gpt-contract", "expected_catalog_revision": revision,
+	}), nil, http.StatusOK)
+	staleOverride := modelResponse(t, harness, profileID, http.MethodPut, catalogPath+"/override",
+		catalogOverrideBody(staleBinding, map[string]any{"name": "Wrong Offering"}))
+	catalogAssertErrorContains(t, staleOverride, http.StatusConflict, "models_dev_binding_stale")
+
+	binding := requestJSONStatus[map[string]any](t, harness, http.MethodGet, catalogPath, nil, nil, http.StatusOK)
+	if binding["provider_id"] != "openai" || binding["catalog_model_id"] != "gpt-contract" {
+		t.Fatalf("new binding must survive stale override: %+v", binding)
+	}
+	if binding["override"] != nil {
+		t.Fatalf("stale override must write nothing to the new offering: %+v", binding["override"])
+	}
+}
+
+// TestCatalogOverrideClearRejectsStaleToken proves the destructive all-field
+// restore cannot erase an override written after the confirmation snapshot.
+func TestCatalogOverrideClearRejectsStaleToken(t *testing.T) {
+	harness := newCatalogContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Catalog CAS Strategy")
+	model := catalogCreateOpenAIModel(t, harness, strategyID, "gpt-contract")
+	modelConfigID := jsonInt(t, model["id"])
+	catalogPath := fmt.Sprintf("/api/models/%d/catalog", modelConfigID)
+
+	matchPreview := requestJSONStatus[map[string]any](t, harness, http.MethodPost, catalogPath+"/match-preview", map[string]any{}, nil, http.StatusOK)
+	revision := matchPreview["catalog_revision"].(string)
+	bound := catalogBindAzureModel(t, harness, modelConfigID, revision)
+	first := requestJSONStatus[map[string]any](t, harness, http.MethodPut, catalogPath+"/override",
+		catalogOverrideBody(bound, map[string]any{"name": "First Override"}), nil, http.StatusOK)
+	second := requestJSONStatus[map[string]any](t, harness, http.MethodPut, catalogPath+"/override",
+		catalogOverrideBody(first, map[string]any{"limit_context": 222222}), nil, http.StatusOK)
+
+	staleClear := modelResponse(t, harness, profileID, http.MethodDelete, catalogPath+"/override", catalogClearOverrideBody(first))
+	catalogAssertErrorContains(t, staleClear, http.StatusConflict, "models_dev_binding_stale")
+	binding := requestJSONStatus[map[string]any](t, harness, http.MethodGet, catalogPath, nil, nil, http.StatusOK)
+	override := binding["override"].(map[string]any)
+	if override["name"] != "First Override" || override["limit_context"] != float64(222222) {
+		t.Fatalf("stale clear must preserve every newer override: %+v", override)
+	}
+
+	cleared := requestJSONStatus[map[string]any](t, harness, http.MethodDelete, catalogPath+"/override",
+		catalogClearOverrideBody(second), nil, http.StatusOK)
+	if cleared["override"] != nil {
+		t.Fatalf("fresh clear must restore every field to source: %+v", cleared)
+	}
+}
+
 // TestCatalogSparseOverridesDoNotLoseConcurrentFields is the lost-update
 // proof. The first writer's transaction is held open with the row lock (its
 // read phase), the second override runs through the HTTP route (it must block
@@ -296,7 +360,7 @@ func TestCatalogSparseOverridesDoNotLoseConcurrentFields(t *testing.T) {
 
 	matchPreview := requestJSONStatus[map[string]any](t, harness, http.MethodPost, catalogPath+"/match-preview", map[string]any{}, nil, http.StatusOK)
 	revision := matchPreview["catalog_revision"].(string)
-	catalogBindAzureModel(t, harness, modelConfigID, revision)
+	bound := catalogBindAzureModel(t, harness, modelConfigID, revision)
 
 	// Writer A takes the row lock inside an explicit transaction. The lock
 	// acquisition is the synchronization point; no sleep anywhere.
@@ -316,7 +380,8 @@ func TestCatalogSparseOverridesDoNotLoseConcurrentFields(t *testing.T) {
 	// the model lock and before any binding read; it controls when A commits but
 	// is not itself a product assertion. The final HTTP/GET facts below are.
 	lockBarrier.arm(t)
-	overrideDone := startCatalogJSONRequest(t, harness, http.MethodPut, catalogPath+"/override", map[string]any{"limit_context": 777777})
+	overrideDone := startCatalogJSONRequest(t, harness, http.MethodPut, catalogPath+"/override",
+		catalogOverrideBody(bound, map[string]any{"limit_context": 777777}))
 	lockBarrier.wait(t, modelConfigID)
 
 	// A commits its own sparse override while holding the lock.
@@ -356,7 +421,7 @@ func TestCatalogSameFieldConcurrencySerializesLastWriter(t *testing.T) {
 
 	matchPreview := requestJSONStatus[map[string]any](t, harness, http.MethodPost, catalogPath+"/match-preview", map[string]any{}, nil, http.StatusOK)
 	revision := matchPreview["catalog_revision"].(string)
-	catalogBindAzureModel(t, harness, modelConfigID, revision)
+	bound := catalogBindAzureModel(t, harness, modelConfigID, revision)
 	// Seed the unrelated field before the blocker transaction so the controlled
 	// interleaving concerns only the two name writes below.
 	if _, err := harness.conn.Exec(context.Background(),
@@ -379,7 +444,8 @@ func TestCatalogSameFieldConcurrencySerializesLastWriter(t *testing.T) {
 		t.Fatalf("first writer row lock: %v", err)
 	}
 	lockBarrier.arm(t)
-	lastWriterDone := startCatalogJSONRequest(t, harness, http.MethodPut, catalogPath+"/override", map[string]any{"name": "Last Writer"})
+	lastWriterDone := startCatalogJSONRequest(t, harness, http.MethodPut, catalogPath+"/override",
+		catalogOverrideBody(bound, map[string]any{"name": "Last Writer"}))
 	lockBarrier.wait(t, modelConfigID)
 
 	// The first writer commits its own name override, then releases the lock;
@@ -425,14 +491,14 @@ func TestCatalogBindingUpdatedTokenAdvancesUnderFixedClock(t *testing.T) {
 
 	matchPreview := requestJSONStatus[map[string]any](t, harness, http.MethodPost, catalogPath+"/match-preview", map[string]any{}, nil, http.StatusOK)
 	revision := matchPreview["catalog_revision"].(string)
-	requestJSONStatus[map[string]any](t, harness, http.MethodPost, catalogPath+"/bind", catalogBindBody("gpt-contract", map[string]any{
+	bound := requestJSONStatus[map[string]any](t, harness, http.MethodPost, catalogPath+"/bind", catalogBindBody("gpt-contract", map[string]any{
 		"expected_catalog_revision": revision,
 	}), nil, http.StatusOK)
 
 	first := requestJSONStatus[map[string]any](t, harness, http.MethodPut, catalogPath+"/override",
-		map[string]any{"name": "Clock Write One"}, nil, http.StatusOK)
+		catalogOverrideBody(bound, map[string]any{"name": "Clock Write One"}), nil, http.StatusOK)
 	second := requestJSONStatus[map[string]any](t, harness, http.MethodPut, catalogPath+"/override",
-		map[string]any{"name": "Clock Write Two"}, nil, http.StatusOK)
+		catalogOverrideBody(first, map[string]any{"name": "Clock Write Two"}), nil, http.StatusOK)
 
 	firstAt := parseBindingTimestamp(t, first["updated_at"])
 	secondAt := parseBindingTimestamp(t, second["updated_at"])

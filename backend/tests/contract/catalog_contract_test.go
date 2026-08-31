@@ -2,7 +2,6 @@ package contracttest
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -231,6 +230,26 @@ func catalogUnbindBody(bound map[string]any) map[string]any {
 	}
 }
 
+// catalogOverrideBody proves a sparse write still targets the offering the
+// operator had open without coupling same-offering edits to updated_at.
+func catalogOverrideBody(bound map[string]any, patch map[string]any) map[string]any {
+	return map[string]any{
+		"expected_provider_id":      bound["provider_id"],
+		"expected_catalog_model_id": bound["catalog_model_id"],
+		"override":                  patch,
+	}
+}
+
+// catalogClearOverrideBody guards the destructive all-field restore with the
+// exact binding snapshot shown in the confirmation dialog.
+func catalogClearOverrideBody(bound map[string]any) map[string]any {
+	return map[string]any{
+		"expected_provider_id":        bound["provider_id"],
+		"expected_catalog_model_id":   bound["catalog_model_id"],
+		"expected_binding_updated_at": bound["updated_at"],
+	}
+}
+
 func TestModelCatalogBindingAndOverrideContracts(t *testing.T) {
 	harness := newCatalogContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
@@ -324,8 +343,11 @@ func TestModelCatalogBindingAndOverrideContracts(t *testing.T) {
 	// Per-field overrides merge over source and survive refreshes. The raw
 	// body bypasses ensureOpenAIAcceptedFormat, which decorates plain
 	// model-path PUT payloads and is not part of this contract.
+	missingOverrideSnapshot := modelResponse(t, harness, profileID, http.MethodPut, catalogPath+"/override",
+		map[string]any{"override": map[string]any{"name": "must reject"}})
+	catalogAssertErrorContains(t, missingOverrideSnapshot, http.StatusUnprocessableEntity, "override requires the binding coordinate")
 	overridden := requestJSONStatus[map[string]any](t, harness, http.MethodPut, catalogPath+"/override",
-		json.RawMessage(`{"name":"Operator Name","limit_context":999999,"status":null}`), nil, http.StatusOK)
+		catalogOverrideBody(rebound, map[string]any{"name": "Operator Name", "limit_context": 999999, "status": nil}), nil, http.StatusOK)
 	if _, mutated := overridden["openai_accepted_format"]; mutated {
 		t.Fatalf("override payload must not be decorated: %+v", overridden)
 	}
@@ -359,11 +381,15 @@ func TestModelCatalogBindingAndOverrideContracts(t *testing.T) {
 	}
 
 	// Null restores one field to source; bulk delete clears everything.
-	restoredField := requestJSONStatus[map[string]any](t, harness, http.MethodPut, catalogPath+"/override", json.RawMessage(`{"name":null}`), nil, http.StatusOK)
+	restoredField := requestJSONStatus[map[string]any](t, harness, http.MethodPut, catalogPath+"/override",
+		catalogOverrideBody(refreshed, map[string]any{"name": nil}), nil, http.StatusOK)
 	if restoredField["effective"].(map[string]any)["name"] != "Shared Azure" {
 		t.Fatalf("null override must restore the azure source name: %+v", restoredField)
 	}
-	requestJSONStatus[map[string]any](t, harness, http.MethodDelete, catalogPath+"/override", nil, nil, http.StatusOK)
+	missingClearSnapshot := modelResponse(t, harness, profileID, http.MethodDelete, catalogPath+"/override", nil)
+	catalogAssertErrorContains(t, missingClearSnapshot, http.StatusUnprocessableEntity, "override clear requires the binding coordinate")
+	requestJSONStatus[map[string]any](t, harness, http.MethodDelete, catalogPath+"/override",
+		catalogClearOverrideBody(restoredField), nil, http.StatusOK)
 	cleared := requestJSONStatus[map[string]any](t, harness, http.MethodGet, catalogPath, nil, nil, http.StatusOK)
 	if cleared["override"] != nil {
 		t.Fatalf("bulk clear must remove all overrides: %+v", cleared)

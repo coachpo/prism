@@ -245,6 +245,32 @@ describe("ModelsDevCatalogPanel", () => {
     expect(onChanged).toHaveBeenCalledTimes(1);
   });
 
+  it("clears overrides only with the displayed coordinate and updated_at snapshot", async () => {
+    const user = userEvent.setup();
+    const onChanged = vi.fn();
+    vi.mocked(modelsApi.catalog.clearOverride).mockResolvedValue(
+      boundCatalog({ override: null }),
+    );
+    renderCard(catalogView({ catalog: boundCatalog() }), onChanged);
+
+    await user.click(
+      screen.getByRole("button", { name: "models.dev 绑定操作" }),
+    );
+    await user.click(screen.getByRole("menuitem", { name: "编辑覆盖" }));
+    await user.click(
+      screen.getByRole("button", { name: "清除全部覆盖" }),
+    );
+
+    await waitFor(() =>
+      expect(modelsApi.catalog.clearOverride).toHaveBeenCalledWith(7, {
+        expected_provider_id: "openai",
+        expected_catalog_model_id: "gpt-test",
+        expected_binding_updated_at: "2026-08-25T12:00:00Z",
+      }),
+    );
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps a stale-snapshot unbind conflict inline and authoritatively re-reads", async () => {
     const user = userEvent.setup();
     const onChanged = vi.fn();

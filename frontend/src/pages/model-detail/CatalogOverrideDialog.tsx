@@ -64,6 +64,15 @@ export function CatalogOverrideDialog({
   const [mutationError, setMutationError] = useState<string | null>(null);
   const result = useMemo(() => buildCatalogOverridePatch(draft), [draft]);
   const hasErrors = Object.keys(result.errors).length > 0;
+  const providerId = catalog?.provider_id?.trim() ?? "";
+  const catalogModelId = catalog?.catalog_model_id?.trim() ?? "";
+  const bindingUpdatedAt = catalog?.updated_at ?? "";
+  const writeSnapshotComplete = Boolean(
+    catalog?.bound && providerId && catalogModelId,
+  );
+  const clearSnapshotComplete = Boolean(
+    writeSnapshotComplete && bindingUpdatedAt,
+  );
 
   const setMode = (
     key: CatalogFieldKey,
@@ -96,6 +105,28 @@ export function CatalogOverrideDialog({
   async function runMutation(action: () => Promise<unknown>) {
     setMutationError(null);
     await runAction(action, onClose, setMutationError);
+  }
+
+  function putOverride() {
+    if (!writeSnapshotComplete) {
+      return Promise.reject(new Error(copy.bindingSnapshotIncomplete));
+    }
+    return modelsApi.catalog.putOverride(modelConfigId, {
+      expected_provider_id: providerId,
+      expected_catalog_model_id: catalogModelId,
+      override: result.patch,
+    });
+  }
+
+  function clearOverride() {
+    if (!clearSnapshotComplete) {
+      return Promise.reject(new Error(copy.bindingSnapshotIncomplete));
+    }
+    return modelsApi.catalog.clearOverride(modelConfigId, {
+      expected_provider_id: providerId,
+      expected_catalog_model_id: catalogModelId,
+      expected_binding_updated_at: bindingUpdatedAt,
+    });
   }
 
   return (
@@ -237,6 +268,12 @@ export function CatalogOverrideDialog({
           {mutationError ? (
             <OperatorCallout intent="danger" description={mutationError} />
           ) : null}
+          {catalog?.bound && !writeSnapshotComplete ? (
+            <OperatorCallout
+              intent="danger"
+              description={copy.bindingSnapshotIncomplete}
+            />
+          ) : null}
         </DialogBody>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
@@ -246,11 +283,9 @@ export function CatalogOverrideDialog({
             <Button
               type="button"
               variant="destructive"
-              disabled={busy}
+              disabled={busy || !clearSnapshotComplete}
               onClick={() =>
-                void runMutation(() =>
-                  modelsApi.catalog.clearOverride(modelConfigId),
-                )
+                void runMutation(clearOverride)
               }
             >
               {copy.clearAllOverridesAction}
@@ -260,21 +295,16 @@ export function CatalogOverrideDialog({
             type="button"
             disabled={
               busy ||
+              (clearAll
+                ? !clearSnapshotComplete
+                : !writeSnapshotComplete) ||
               (!clearAll &&
                 (hasErrors || Object.keys(result.patch).length === 0))
             }
             onClick={() =>
               clearAll
-                ? void runMutation(() =>
-                    modelsApi.catalog.clearOverride(modelConfigId),
-                  )
-                : void runMutation(
-                    () =>
-                      modelsApi.catalog.putOverride(
-                        modelConfigId,
-                        result.patch,
-                      ),
-                  )
+                ? void runMutation(clearOverride)
+                : void runMutation(putOverride)
             }
           >
             {copy.saveOverrideAction}

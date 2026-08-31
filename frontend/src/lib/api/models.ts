@@ -1,6 +1,7 @@
 import type {
   CatalogBindingRequest,
-  CatalogOverridePatch,
+  ModelCatalogOverrideClearRequest,
+  ModelCatalogOverrideWriteRequest,
   ModelCatalogRefreshCommitRequest,
   ModelCatalogUnbindRequest,
   Connection,
@@ -355,19 +356,27 @@ export const models = {
           body: JSON.stringify(expected),
         },
       ),
-    putOverride: (modelConfigId: number, patch: CatalogOverridePatch) =>
+    putOverride: (
+      modelConfigId: number,
+      expected: ModelCatalogOverrideWriteRequest,
+    ) =>
       request<ModelCatalogResponse>(
         `/api/models/${modelConfigId}/catalog/override`,
         {
           method: "PUT",
-          body: JSON.stringify(patch),
+          body: JSON.stringify(expected),
         },
       ),
-    clearOverride: (modelConfigId: number) =>
+    clearOverride: (
+      modelConfigId: number,
+      expected: ModelCatalogOverrideClearRequest,
+    ) =>
       request<ModelCatalogResponse>(
         `/api/models/${modelConfigId}/catalog/override`,
         {
           method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(expected),
         },
       ),
     unbind: (modelConfigId: number, expected: ModelCatalogUnbindRequest) =>

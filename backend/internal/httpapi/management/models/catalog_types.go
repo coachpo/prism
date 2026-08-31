@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/coachpo/prism/backend/internal/domain/modelsdev"
@@ -104,6 +105,22 @@ type modelCatalogBindRequest struct {
 // Unbind deletes only when the persisted coordinate and updated_at still
 // match; a concurrent rebind/refresh keeps the newer row and returns 409.
 type modelCatalogUnbindRequest struct {
+	ExpectedProviderID       string    `json:"expected_provider_id"`
+	ExpectedCatalogModelID   string    `json:"expected_catalog_model_id"`
+	ExpectedBindingUpdatedAt time.Time `json:"expected_binding_updated_at"`
+}
+
+// modelCatalogOverrideWriteRequest keeps sparse same-offering edits mergeable
+// while proving the operator is still editing the displayed binding.
+type modelCatalogOverrideWriteRequest struct {
+	ExpectedProviderID     string          `json:"expected_provider_id"`
+	ExpectedCatalogModelID string          `json:"expected_catalog_model_id"`
+	Override               json.RawMessage `json:"override"`
+}
+
+// modelCatalogOverrideClearRequest guards the destructive all-field clear
+// with the exact binding snapshot the operator confirmed.
+type modelCatalogOverrideClearRequest struct {
 	ExpectedProviderID       string    `json:"expected_provider_id"`
 	ExpectedCatalogModelID   string    `json:"expected_catalog_model_id"`
 	ExpectedBindingUpdatedAt time.Time `json:"expected_binding_updated_at"`

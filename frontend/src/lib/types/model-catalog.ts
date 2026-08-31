@@ -33,6 +33,18 @@ export type CatalogOverridePatch = {
  [K in keyof ModelCatalogMetadata]?: ModelCatalogMetadata[K];
 };
 
+export interface ModelCatalogOverrideWriteRequest {
+ expected_provider_id: string;
+ expected_catalog_model_id: string;
+ override: CatalogOverridePatch;
+}
+
+export interface ModelCatalogOverrideClearRequest {
+ expected_provider_id: string;
+ expected_catalog_model_id: string;
+ expected_binding_updated_at: string;
+}
+
 export interface CatalogCandidate {
  provider_id: string;
  provider_name: string;
