@@ -192,6 +192,7 @@ describe("IngressChainsTable route attribution", () => {
     expect(within(summary).getByText("Model C")).toBeInTheDocument();
     expect(within(summary).getByText("TT-C")).toBeInTheDocument();
     expect(within(summary).getByText("Endpoint C")).toBeInTheDocument();
+    expect(within(summary).getByText("80.0 tok/s")).toBeInTheDocument();
     expect(within(summary).getByText("$0.0040")).toBeInTheDocument();
 
     await user.click(

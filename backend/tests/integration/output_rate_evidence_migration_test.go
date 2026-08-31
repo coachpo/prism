@@ -215,6 +215,35 @@ func assertOutputRateEvidenceConstraints(t *testing.T, ctx context.Context, conn
 		t.Fatalf("load profile for constraint checks: %v", err)
 	}
 	constraintAt := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
+	for _, table := range []struct {
+		name             string
+		reasonConstraint string
+		factsConstraint  string
+	}{
+		{
+			name:             "request_logs",
+			reasonConstraint: "ck_request_logs_output_rate_reason",
+			factsConstraint:  "ck_request_logs_output_rate_delivery_facts",
+		},
+		{
+			name:             "usage_request_events",
+			reasonConstraint: "ck_usage_request_events_output_rate_reason",
+			factsConstraint:  "ck_usage_request_events_output_rate_delivery_facts",
+		},
+	} {
+		_, err := conn.Exec(ctx, `UPDATE `+quoteIdentifier(table.name)+`
+			SET output_rate_reason = 'partial-evidence'
+			WHERE ingress_request_id = 'rate-history-ingress'`)
+		if err == nil || !strings.Contains(err.Error(), table.reasonConstraint) {
+			t.Fatalf("expected %s to reject a NULL state with a non-NULL reason, got %v", table.reasonConstraint, err)
+		}
+		_, err = conn.Exec(ctx, `UPDATE `+quoteIdentifier(table.name)+`
+			SET output_delivery_event_count = 2
+			WHERE ingress_request_id = 'rate-history-ingress'`)
+		if err == nil || !strings.Contains(err.Error(), table.factsConstraint) {
+			t.Fatalf("expected %s to reject a NULL state with non-NULL delivery facts, got %v", table.factsConstraint, err)
+		}
+	}
 	insertUsageEventEvidence := func(ingress string, state any, reason any, outputTokens any, eventCount any, spanMS any) error {
 		_, err := conn.Exec(ctx, `
 			INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, api_family, status_code, success_flag, pricing_status, pricing_evidence_trust, attempt_count, request_path, created_at, endpoint_label_snapshot,

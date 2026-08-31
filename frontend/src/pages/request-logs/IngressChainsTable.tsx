@@ -34,9 +34,13 @@ import type {
 	FinalizedSummary,
 	RequestLogChainRow,
 } from "@/lib/types/request-logs";
+import {
+	describeTokenRateMissing,
+	formatTokenRate,
+} from "./requestLogMetricPresentation";
 import type { ChainRowReadState } from "./useRequestLogIngressChains";
 
-const CHAIN_COLUMN_COUNT = 10;
+const CHAIN_COLUMN_COUNT = 11;
 
 /**
  * Ingress-chain view (SPEC: `view=ingress_chains`): outer pages of retained
@@ -153,6 +157,7 @@ export function IngressChainsTable({
 								<TableHead>{copy.chainColumnEndpoint}</TableHead>
 								<TableHead className="text-right">{copy.chainColumnAttempts}</TableHead>
 								<TableHead className="text-right">TTFT</TableHead>
+								<TableHead className="text-right">{copy.tokenRate}</TableHead>
 								<TableHead className="text-right">{copy.chainColumnTokens}</TableHead>
 								<TableHead className="text-right">{copy.chainColumnCost}</TableHead>
 								<TableHead>{copy.chainColumnPricing}</TableHead>
@@ -474,6 +479,26 @@ function ChainSummaryRow({
 					<OperatorMissingValue reason={missingReason} />
 				) : (
 					`${formatNumber(summary.ttft_ms)} ms`
+				)}
+			</TableCell>
+
+			<TableCell className="text-right font-mono tabular-nums">
+				{summary?.output_rate_state === "measured" &&
+				summary.output_rate_tps != null ? (
+					formatTokenRate(
+						summary.output_rate_tps,
+						summary.output_rate_state,
+					)
+				) : summary ? (
+					<OperatorMissingValue
+						reason={describeTokenRateMissing({
+							rateTps: summary.output_rate_tps,
+							state: summary.output_rate_state,
+							reason: summary.output_rate_reason,
+						})}
+					/>
+				) : (
+					<OperatorMissingValue reason={missingReason} />
 				)}
 			</TableCell>
 

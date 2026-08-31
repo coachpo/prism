@@ -34,20 +34,20 @@ ALTER TABLE public.request_logs
         CHECK (output_rate_state IS NULL OR output_rate_state IN
             ('measured', 'unmeasurable', 'not_applicable', 'unknown')),
     ADD CONSTRAINT ck_request_logs_output_rate_reason
-        CHECK ((output_rate_state IS NULL AND output_rate_reason IS NULL)
+        CHECK (((output_rate_state IS NULL AND output_rate_reason IS NULL)
             OR (output_rate_state = 'measured' AND output_rate_reason IS NULL)
             OR (output_rate_state IN ('unmeasurable', 'not_applicable', 'unknown')
-                AND output_rate_reason IS NOT NULL AND btrim(output_rate_reason) <> '')),
+                AND output_rate_reason IS NOT NULL AND btrim(output_rate_reason) <> '')) IS TRUE),
     ADD CONSTRAINT ck_request_logs_output_rate_delivery_facts
-        CHECK ((output_rate_state IS NULL
+        CHECK (((output_rate_state IS NULL
                 AND output_delivery_event_count IS NULL AND output_delivery_span_ms IS NULL)
             OR (output_rate_state = 'measured'
-				AND output_tokens IS NOT NULL AND output_tokens >= 0
+                AND output_tokens IS NOT NULL AND output_tokens >= 0
                 AND output_delivery_event_count IS NOT NULL AND output_delivery_event_count >= 2
                 AND output_delivery_span_ms IS NOT NULL AND output_delivery_span_ms > 0)
             OR output_rate_state = 'unmeasurable'
             OR (output_rate_state IN ('not_applicable', 'unknown')
-                AND output_delivery_event_count IS NULL AND output_delivery_span_ms IS NULL)),
+                AND output_delivery_event_count IS NULL AND output_delivery_span_ms IS NULL)) IS TRUE),
     ADD CONSTRAINT ck_request_logs_output_delivery_event_count
         CHECK (output_delivery_event_count IS NULL OR output_delivery_event_count >= 0),
     ADD CONSTRAINT ck_request_logs_output_delivery_span
@@ -58,20 +58,20 @@ ALTER TABLE public.usage_request_events
         CHECK (output_rate_state IS NULL OR output_rate_state IN
             ('measured', 'unmeasurable', 'not_applicable', 'unknown')),
     ADD CONSTRAINT ck_usage_request_events_output_rate_reason
-        CHECK ((output_rate_state IS NULL AND output_rate_reason IS NULL)
+        CHECK (((output_rate_state IS NULL AND output_rate_reason IS NULL)
             OR (output_rate_state = 'measured' AND output_rate_reason IS NULL)
             OR (output_rate_state IN ('unmeasurable', 'not_applicable', 'unknown')
-                AND output_rate_reason IS NOT NULL AND btrim(output_rate_reason) <> '')),
+                AND output_rate_reason IS NOT NULL AND btrim(output_rate_reason) <> '')) IS TRUE),
     ADD CONSTRAINT ck_usage_request_events_output_rate_delivery_facts
-        CHECK ((output_rate_state IS NULL
+        CHECK (((output_rate_state IS NULL
                 AND output_delivery_event_count IS NULL AND output_delivery_span_ms IS NULL)
             OR (output_rate_state = 'measured'
-				AND output_tokens IS NOT NULL AND output_tokens >= 0
+                AND output_tokens IS NOT NULL AND output_tokens >= 0
                 AND output_delivery_event_count IS NOT NULL AND output_delivery_event_count >= 2
                 AND output_delivery_span_ms IS NOT NULL AND output_delivery_span_ms > 0)
             OR output_rate_state = 'unmeasurable'
             OR (output_rate_state IN ('not_applicable', 'unknown')
-                AND output_delivery_event_count IS NULL AND output_delivery_span_ms IS NULL)),
+                AND output_delivery_event_count IS NULL AND output_delivery_span_ms IS NULL)) IS TRUE),
     ADD CONSTRAINT ck_usage_request_events_output_delivery_event_count
         CHECK (output_delivery_event_count IS NULL OR output_delivery_event_count >= 0),
     ADD CONSTRAINT ck_usage_request_events_output_delivery_span
